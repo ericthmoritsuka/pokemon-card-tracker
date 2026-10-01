@@ -608,6 +608,24 @@ set's `cardCount.official`. When several editions share that text, Liga shows an
 on the card page. Korean and Japanese prints have no reliable Liga equivalent and get no button
 until checked.
 
+**Liga's name rules** (Eric's warning, then checked by hand in a browser, 2026-10-01). Liga
+hyphenates every uppercase mechanic suffix that TCGdex writes after a space, and a query with the
+space finds nothing at all:
+
+| TCGdex name | Liga name | Checked |
+| --- | --- | --- |
+| `Charizard EX` | `Charizard-EX (11/106)` | yes |
+| `Charizard GX` | `Charizard-GX (20/147)` | yes |
+| `Charizard VMAX` | `Charizard-VMAX (20/189)` | yes |
+| `Charizard ex` (lowercase, modern and EX era) | `Charizard ex (006/165)`, `Charizard ex (105/112)` | yes |
+| `Charizard V`, `... VSTAR`, `... V-UNION` | assumed `Charizard-V`, `-VSTAR`, `-V-UNION` | no |
+| `M Charizard EX`, `Reshiram & Charizard GX` | assumed `M Charizard-EX`, `Reshiram & Charizard-GX` | no |
+
+So: replace a trailing space before `EX`, `GX`, `V`, `VMAX`, `VSTAR`, or `V-UNION` (uppercase,
+whole word, at the end of the name) with a hyphen, leave lowercase `ex` and every other name
+alone, and keep the number exactly as TCGdex's `localId` (`20`, `019`, `4` all matched). The
+unchecked rows are verified on first real use.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
