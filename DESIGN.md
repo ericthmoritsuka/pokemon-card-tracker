@@ -549,7 +549,13 @@ gives the nearest candidates in a fraction of a second even when the number is u
 of the number and name then separates reprints with the same art and reads the language. Before
 building it: confirm TCGdex's terms allow bulk image processing for an index, pick and measure a
 model on phone-class hardware, and decide how often the index rebuilds as new sets appear.
-Schedule after the text-first improvements are tested on real cards.
+Order, agreed with Eric: the image fingerprint goes first and finds candidates, because artwork
+survives blur, glare, angles, and a covered number far better than small text and the lookup is
+fast; OCR then breaks ties only among those candidates (reprints with identical art by number and
+set total, Portuguese versus English by the language label, Japanese versus international by
+script), and a clear disagreement between picture and text flags the card for a look instead of
+saving it. Neither method tells the finish apart, which stays the one-tap finish picker. Schedule
+after the text-first improvements are tested on real cards.
 
 **Known hard parts:**
 
