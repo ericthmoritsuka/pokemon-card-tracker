@@ -2,6 +2,9 @@
 // the card"): take a picture or pick one from the gallery, find the card's
 // four corners, show the straightened card with four draggable corner
 // handles that re-warp it live, and save a 600 x 840 WebP of about 80 KB.
+// With "Keep a detail copy of new photos" on (store.js), the photo is
+// opened at higher resolution and a detail copy of up to 1440 x 2016 is
+// saved beside it, when the card in the photo is big enough to hold one.
 //
 // Everything runs on the phone. The camera is the scan lab's
 // (lab/js/camera.js), so a capture is the frame the lab's edge finder was
@@ -12,7 +15,19 @@ import {captureRect, grab, startCamera} from '../../lab/js/camera.js';
 import {h} from '../dom.js';
 
 import {detectCorners} from './detect.js';
-import {canvasOf, decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './encode.js';
+import {
+	DETAIL_SOURCE_SIDE,
+	SOURCE_SIDE,
+	canvasOf,
+	decodeImageFile,
+	detailSize,
+	drawScaled,
+	encodeDetail,
+	encodePhoto,
+	pixelsOf,
+	putPixels,
+	straighten,
+} from './encode.js';
 import {clampPoint, fitWithin, rotateCorners, scaleCorners, warp} from './geometry.js';
 import {SIDES} from './model.js';
 
@@ -52,9 +67,10 @@ function contain(element) {
 }
 
 // Opens the Add photo sheet. entries: the person's live copies of this card
-// (the photo goes on one of them). save({entry, blob, type, side}) stores
-// it and resolves with the new photo. Returns {close}.
-export function openAddPhoto({describe = describeCopy, entries, save}) {
+// (the photo goes on one of them). save({entry, blob, type, side, detail})
+// stores it and resolves with the new photo; detail is {blob, type, width,
+// height} or null. keepDetail: make a detail copy too. Returns {close}.
+export function openAddPhoto({describe = describeCopy, entries, keepDetail = false, save}) {
 	let camera = null;
 	let closed = false;
 
@@ -229,7 +245,7 @@ export function openAddPhoto({describe = describeCopy, entries, save}) {
 
 			putPixels(canvas, image);
 			stopCamera();
-			edit(drawScaled(canvas, canvas.width, canvas.height));
+			edit(drawScaled(canvas, canvas.width, canvas.height, keepDetail ? DETAIL_SOURCE_SIDE : SOURCE_SIDE));
 		});
 	}
 
@@ -239,7 +255,7 @@ export function openAddPhoto({describe = describeCopy, entries, save}) {
 		body.replaceChildren(message('Opening the photo…'));
 
 		try {
-			edit(await decodeImageFile(file));
+			edit(await decodeImageFile(file, keepDetail ? DETAIL_SOURCE_SIDE : SOURCE_SIDE));
 		}
 		catch (err) {
 			start(message((err && err.message) || String(err), 'error'));
@@ -445,7 +461,16 @@ export function openAddPhoto({describe = describeCopy, entries, save}) {
 			try {
 				const card = straighten(source, corners);
 				const {blob, type} = await encodePhoto(card);
-				const saved = await save({blob, entry: choice.entry, side: choice.side, type});
+				const size = keepDetail ? detailSize(corners) : null;
+				let detail = null;
+
+				if (size) {
+					const encoded = await encodeDetail(straighten(source, corners, size.width, size.height));
+
+					detail = {blob: encoded.blob, height: encoded.height, type: encoded.type, width: encoded.width};
+				}
+
+				const saved = await save({blob, detail, entry: choice.entry, side: choice.side, type});
 
 				sheet.dataset.saved = saved ? saved.id : '';
 				close();

@@ -13,6 +13,7 @@ import {
 	indexKey,
 	isLanguage,
 	languageLabel,
+	savedCardRecords,
 	saveToCardIndex,
 	setDetailOnce,
 	viewingLanguage,
@@ -24,6 +25,8 @@ import {isLive, listCards, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
 import {finishLabel} from './monprice.js';
+import {statsBar, tilePrice} from './price-view.js';
+import {manualPrice} from './prices.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
 import {tileSrc, withMainPhoto} from './photos/index.js';
@@ -85,12 +88,15 @@ const asText = (value) => (value ? `="${value}"` : '');
 
 const NAME_COLUMN = 6;
 
+const reais = (value) => (typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2).replace('.', ',') : '');
+
 const importedFinish = (entry) => entry.finish_raw || (entry.import_key ? entry.import_key.split('|')[3] : null);
 
 export function collectionCsv(entries, index) {
 	const header = [
 		'Entry ID', 'Card ID', 'Catalog', 'Set ID', 'Set', 'Number', 'Name', 'Language',
 		'Variant ID', 'Finish', 'Finish Matched', 'Language Source', 'Created At', 'Updated At',
+		'liga_low_nm', 'liga_avg', 'price_source', 'price_date',
 	];
 	const lines = [header.map(csvField).join(';')];
 
@@ -98,6 +104,7 @@ export function collectionCsv(entries, index) {
 		const record = index.get(`${entry.catalog}|${entry.card_id}`) || {};
 		const shown = display(record, [entry.language, catalogLanguage(entry.catalog)]) || {};
 		const finish = importedFinish(entry);
+		const manual = manualPrice(entry) || {};
 
 		lines.push([
 			entry.id,
@@ -115,6 +122,12 @@ export function collectionCsv(entries, index) {
 			entry.language_source,
 			entry.created_at,
 			entry.updated_at,
+			// Liga prices in reais with a decimal comma, as the semicolons
+			// already suit a Brazilian spreadsheet: 45,90.
+			reais(manual.low_nm),
+			reais(manual.avg),
+			manual.source,
+			manual.date,
 		].map((value, i) => (i === NAME_COLUMN ? value : csvField(value))).join(';'));
 	}
 
@@ -338,6 +351,8 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	let groups = [];
 	let entries = [];
 	let index = new Map();
+	// Full TCGdex records saved on the phone, for the tiles' US estimates.
+	let saved = new Map();
 
 	const viewing = viewingLanguage();
 	const sort = h('select', {'aria-label': 'Sort cards', id: 'cards-sort', onchange: () => {
@@ -358,6 +373,22 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		draw();
 	}, type: 'button'}, 'Show more');
 	const body = h('div');
+
+	// The whole collection's value is on demand only, never a headline
+	// total (DESIGN.md section 10).
+	const statsPanel = h('div', {class: 'cards-stats', hidden: true, id: 'cards-stats'});
+	const statsToggle = h('button', {'aria-controls': 'cards-stats', 'aria-expanded': 'false', class: 'link-button', id: 'cards-stats-toggle', type: 'button', onclick: () => {
+		statsPanel.hidden = !statsPanel.hidden;
+		statsToggle.setAttribute('aria-expanded', String(!statsPanel.hidden));
+		statsToggle.textContent = statsPanel.hidden ? 'Stats' : 'Hide stats';
+		drawStats();
+	}}, 'Stats');
+
+	function drawStats() {
+		if (!statsPanel.hidden) {
+			statsPanel.replaceChildren(statsBar({cardsById: new Map([...index, ...saved]), entries, label: readOnly ? 'these cards' : 'your collection'}));
+		}
+	}
 
 	sort.value = readSetting(SORT_KEY, SORTS.map((option) => option.value), 'newest');
 
@@ -407,6 +438,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 				newest: times[times.length - 1],
 				oldest: times[0],
 				record,
+				recordKey: `${first.catalog}|${first.card_id}`,
 				setName: (source && source.setName) || (local && local.set_name) || null,
 			};
 		});
@@ -454,6 +486,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		const catalogSrc = local ? cardImage(local.image, 'low') : null;
 
 		return withMainPhoto(cardTile({
+			price: tilePrice(group.entries, saved.get(group.recordKey) || record),
 			art: {
 				count: group.entries.length,
 				finish: groupFinish(group.entries),
@@ -550,6 +583,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	async function load() {
 		try {
 			[entries, index] = await Promise.all([loadEntries(), cardIndex()]);
+			saved = await savedCardRecords(entries);
 		}
 		catch (err) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
@@ -588,19 +622,25 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		body.replaceChildren(
 			h('div', {class: 'toolbar two'}, h('span', {class: 'select-wrap'}, sort), h('span', {class: 'select-wrap'}, filter)),
 			summary,
+			statsToggle,
+			statsPanel,
 			grid,
 			more
 		);
 		build();
 		draw();
+		drawStats();
 		fillViewingLanguage();
 
 		const filled = await fillMissingRecords(entries, index, () => alive);
 
 		if (filled && alive) {
 			index = filled;
+			// Reading the missing records saved their prices on the phone too.
+			saved = await savedCardRecords(entries);
 			build();
 			draw();
+			drawStats();
 		}
 	}
 

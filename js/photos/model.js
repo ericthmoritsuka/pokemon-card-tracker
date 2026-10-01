@@ -9,7 +9,9 @@
 //               <user_id>/<entry_id>/<photo_id>.webp in the card-photos
 //               bucket, null until the first upload knows the user. side is
 //               "front" or "back". A removed photo stays as a tombstone
-//               (deleted_at set), like a removed entry.
+//               (deleted_at set), like a removed entry. detail, only on a
+//               photo saved with a detail copy, is {type, width, height}
+//               of that copy, kept beside it at detailPath(path, type).
 //   main_image  "official", "twin", or a photo id: what tiles show. Absent
 //               means the default order.
 //
@@ -44,17 +46,33 @@ export function photoPath(userId, entryId, photoId, type = 'image/webp') {
 	return `${userId}/${entryId}/${photoId}.${photoExtension(type)}`;
 }
 
+// The detail copy's path beside the normal copy's (DESIGN.md section 5,
+// "Inspection viewer"): <user_id>/<entry_id>/<photo_id>-detail.webp. The
+// photo id is a UUID, so the name stays inside the 64 characters
+// supabase/photos.sql allows. Null when the normal path is not known yet.
+export function detailPath(path, type = 'image/webp') {
+	const base = path ? String(path).replace(/\.(webp|jpe?g)$/i, '') : '';
+
+	return base ? `${base}-detail.${photoExtension(type)}` : null;
+}
+
 // The user a path belongs to: its first folder.
 export const pathOwner = (path) => (path ? String(path).split('/')[0] || null : null);
 
-export function newPhoto({created_at, id, path = null, side = 'front'}) {
-	return {
+export function newPhoto({created_at, detail = null, id, path = null, side = 'front'}) {
+	const photo = {
 		created_at,
 		deleted_at: null,
 		id,
 		path,
 		side: SIDES.includes(side) ? side : 'front',
 	};
+
+	if (detail && detail.width > 0 && detail.height > 0) {
+		photo.detail = {height: detail.height, type: detail.type === 'image/jpeg' ? 'image/jpeg' : 'image/webp', width: detail.width};
+	}
+
+	return photo;
 }
 
 const entriesOf = (entryOrEntries) => (Array.isArray(entryOrEntries) ? entryOrEntries : [entryOrEntries]).filter(Boolean);
@@ -140,6 +158,32 @@ export function mainSlideId(slides, pin) {
 	}
 
 	return slides.length ? slides[0].id : null;
+}
+
+// Compare's two images when it opens on slide `at` (DESIGN.md section 5,
+// "Inspection viewer"): a reference print (the official image, else the
+// international print) beside the person's photo, the photo being the
+// current slide when it is one, else the first photo. Without both kinds,
+// the current slide and its neighbor. Returns two slide indexes, or null
+// for fewer than two slides.
+export function comparePair(slides, at = 0) {
+	const count = Array.isArray(slides) ? slides.length : 0;
+
+	if (count < 2) {
+		return null;
+	}
+
+	const here = Math.min(count - 1, Math.max(0, at));
+	const photo = slides[here].kind === 'photo' ? here : slides.findIndex((slide) => slide.kind === 'photo');
+	const reference = slides.findIndex((slide) => slide.kind === 'official') >= 0
+		? slides.findIndex((slide) => slide.kind === 'official')
+		: slides.findIndex((slide) => slide.kind !== 'photo');
+
+	if (photo >= 0 && reference >= 0) {
+		return [reference, photo];
+	}
+
+	return here + 1 < count ? [here, here + 1] : [here - 1, here];
 }
 
 // What a tile should draw for an entry, or for a group of copies of one

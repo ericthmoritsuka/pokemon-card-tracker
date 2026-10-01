@@ -141,7 +141,7 @@ describe('themes signed out', () => {
 		// Menu, Theme: Profile signed out, with the picker.
 		await page.click('#account');
 		await page.waitForSelector('#theme-grid');
-		assert.equal(await page.locator('.theme-option').count(), 19, 'default plus 18 types');
+		assert.equal(await page.locator('.theme-option').count(), 12, 'default plus the 11 energy types');
 		assert.equal(await page.locator('#favorite-card').count(), 0, 'the favorite needs an account');
 		assert.ok(await page.locator('.theme-option[data-theme-id="default"] input').isChecked());
 
@@ -179,11 +179,65 @@ describe('themes signed out', () => {
 		assert.ok(await page.locator('.theme-option[data-theme-id="fire"] input').isChecked());
 
 		// A bright type turns the text on the accent dark.
-		await chooseTheme(page, 'electric');
+		await chooseTheme(page, 'lightning');
 
 		const onAccent = await page.evaluate(() => getComputedStyle(document.querySelector('.top')).color);
 
 		assert.equal(onAccent, rgbOf('#1b1b1f'));
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a theme saved under a game type id comes back as its energy', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await page.addInitScript(() => {
+			if (!sessionStorage.getItem('seeded')) {
+				localStorage.setItem('card-tracker-theme', 'electric');
+				sessionStorage.setItem('seeded', '1');
+			}
+		});
+		await page.goto(url('profile'));
+		await page.waitForSelector('#theme-grid');
+		assert.equal(await themeAttr(page), 'lightning');
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker-theme')), 'lightning', 'kept as the TCG id');
+		assert.ok(await page.locator('.theme-option[data-theme-id="lightning"] input').isChecked(), 'the Lightning swatch is checked');
+		assert.equal(await headerBg(page), rgbOf(palette(themeById('lightning'), 'light')['--header-bg']));
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the suggestion follows the energy most of the Pokémon\'s cards carry, else its game type', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const asked = [];
+
+		// Gengar plays as Psychic by its game type; say its cards are mostly
+		// Darkness. Pikachu's card query fails, so its game type decides.
+		await context.route('https://api.tcgdex.net/v2/graphql', (route) => {
+			const query = JSON.parse(route.request().postData() || '{}').query || '';
+			const n = Number((/dexId: (\d+)/.exec(query) || [])[1]);
+
+			asked.push(n);
+
+			if (n !== 94) {
+				return route.fulfill({body: 'down', status: 503});
+			}
+
+			return route.fulfill({body: JSON.stringify({data: {cards: [{types: ['Darkness']}, {types: ['Darkness']}, {types: ['Psychic']}, {types: null}]}}), contentType: 'application/json'});
+		});
+		await page.goto(url('profile'));
+		await page.waitForSelector('#theme-grid');
+
+		const suggest = (n) => page.evaluate(async (dex) => {
+			const theme = await (await import('/pokemon-card-tracker/js/settings.js')).suggestedThemeFor(dex);
+
+			return theme && theme.id;
+		}, n);
+
+		assert.equal(await suggest(94), 'darkness');
+		assert.equal(await suggest(25), 'lightning');
+		assert.equal(await suggest(94), 'darkness', 'kept on the phone');
+		assert.deepEqual(asked, [94, 25], 'one card query per Pokémon, cached');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -256,16 +310,16 @@ describe('themes and the favorite signed in', () => {
 		await page.waitForFunction((src) => document.getElementById('brand-mark').src === src, sprite);
 		assert.equal(await page.evaluate(() => document.querySelector('link[rel="icon"]').href), sprite);
 
-		// The suggestion offers Electric and applies nothing by itself.
-		await page.waitForSelector('#suggestion-apply:has-text("Use the Electric theme")');
-		assert.match(await page.locator('#theme-suggestion').textContent(), /Pikachu is an Electric type/);
+		// The suggestion offers Lightning and applies nothing by itself.
+		await page.waitForSelector('#suggestion-apply:has-text("Use the Lightning theme")');
+		assert.match(await page.locator('#theme-suggestion').textContent(), /Pikachu is a Lightning type/);
 		assert.equal(await themeAttr(page), 'default', 'never applied automatically');
 		await page.screenshot({fullPage: false, path: '/tmp/themes-default-suggestion.png'});
 
 		await page.click('#suggestion-apply');
-		await page.waitForFunction(() => document.documentElement.dataset.theme === 'electric');
+		await page.waitForFunction(() => document.documentElement.dataset.theme === 'lightning');
 		await page.waitForFunction(() => !document.querySelector('#suggestion-apply'));
-		assert.ok(await page.locator('.theme-option[data-theme-id="electric"] input').isChecked());
+		assert.ok(await page.locator('.theme-option[data-theme-id="lightning"] input').isChecked());
 
 		// The settings reach the server.
 		await page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Synced', null, {timeout: 15000});
@@ -275,25 +329,25 @@ describe('themes and the favorite signed in', () => {
 		for (let i = 0; i < 50; i++) {
 			settings = fake.documents.get(owner.id) && fake.documents.get(owner.id).doc.settings;
 
-			if (settings && settings.theme === 'electric' && settings.favorite_pokemon === 25) {
+			if (settings && settings.theme === 'lightning' && settings.favorite_pokemon === 25) {
 				break;
 			}
 
 			await page.waitForTimeout(200);
 		}
 
-		assert.equal(settings.theme, 'electric');
+		assert.equal(settings.theme, 'lightning');
 		assert.equal(settings.favorite_pokemon, 25);
 		assert.ok(settings.updated_at, 'settings carry updated_at for the merge');
 
 		await page.goto(url('cards'));
 		await page.waitForSelector('#cards-summary, .empty-state');
-		await page.screenshot({fullPage: false, path: '/tmp/themes-electric.png'});
+		await page.screenshot({fullPage: false, path: '/tmp/themes-lightning.png'});
 
-		// Reload: still electric, still Pikachu.
+		// Reload: still Lightning, still Pikachu.
 		await page.reload();
 		await page.waitForSelector('#account.avatar');
-		assert.equal(await themeAttr(page), 'electric');
+		assert.equal(await themeAttr(page), 'lightning');
 		await page.waitForFunction((src) => document.getElementById('brand-mark').src === src, sprite);
 
 		// Another device: the theme and the favorite arrive with the first sync.
@@ -301,7 +355,7 @@ describe('themes and the favorite signed in', () => {
 
 		await signIn(tablet.page, fake, owner.email);
 		await waitForSynced(tablet.page);
-		await tablet.page.waitForFunction(() => document.documentElement.dataset.theme === 'electric', null, {timeout: 15000});
+		await tablet.page.waitForFunction(() => document.documentElement.dataset.theme === 'lightning', null, {timeout: 15000});
 		await tablet.page.waitForFunction((src) => document.getElementById('brand-mark').src === src, sprite);
 
 		// Changing it there comes back to the phone on its next sync.

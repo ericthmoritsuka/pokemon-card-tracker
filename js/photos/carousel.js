@@ -1,7 +1,7 @@
 // The image carousel on card detail (DESIGN.md section 5, "Image carousel
 // per card"): every image of the card, swiped sideways, with dots under it
 // when there is more than one, a source label on each, "Use as main image",
-// and a tap for full screen.
+// and a tap for the full-screen inspection viewer (viewer.js).
 //
 // Swipes on the carousel belong to it. DESIGN.md section 3 has the page
 // swipe between cards everywhere except the image, so every pointer and
@@ -15,7 +15,12 @@
 
 import {h} from '../dom.js';
 
-const OWNER = 'photo-carousel';
+import {openViewer} from './viewer.js';
+
+// The full-screen inspection viewer the carousel opens (viewer.js).
+export {openViewer};
+
+export const OWNER = 'photo-carousel';
 const SWIPE_EVENT = 'photo-carousel-swipe';
 
 // A move this far sideways (CSS pixels), and more sideways than down, is a
@@ -37,7 +42,7 @@ export const gestureConsumed = (event) => consumed.has(event);
 
 export {SWIPE_EVENT};
 
-function plainArt(src) {
+export function plainArt(src) {
 	const frame = h('div', {class: 'art'});
 
 	if (src) {
@@ -52,7 +57,9 @@ function plainArt(src) {
 
 const STOPPED = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'touchstart', 'touchmove', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'wheel'];
 
-function contain(element) {
+// Stops every pointer, touch, and wheel event at `element` and marks it as
+// the carousel's (gestureConsumed). The viewer uses it too.
+export function contain(element) {
 	for (const type of STOPPED) {
 		element.addEventListener(type, (event) => {
 			consumed.add(event);
@@ -61,9 +68,9 @@ function contain(element) {
 	}
 }
 
-// Sideways drag handling shared by the carousel and the full-screen viewer.
-// onDrag(dx) while dragging, onEnd(dx, velocity) after, onTap(event) for a
-// tap. `blocked()` true skips swiping (the viewer while zoomed).
+// The carousel's sideways drag handling. onDrag(dx) while dragging,
+// onEnd(dx, velocity) after, onTap(event) for a tap. `blocked()` true skips
+// swiping.
 function swipeable(element, {blocked = () => false, onDrag, onEnd, onTap}) {
 	let start = null;
 
@@ -149,6 +156,8 @@ export function settleIndex(index, count, dx, velocity, width) {
 //                   otherwise
 //   resolveSrc      slide -> Promise<url or null>, for photos (store.js
 //                   photoUrl)
+//   resolveDetail   the same for a photo's detail copy, which the viewer
+//                   shows when zoomed in (store.js detailUrl)
 //   pending         Set of photo ids still waiting to upload
 //   readOnly        no "Use as main image" (a family member's card)
 //   onUseAsMain(slide), onRemove(slide), onSwipeConsumed(direction, index)
@@ -160,6 +169,7 @@ export function photoCarousel({
 	onUseAsMain = null,
 	pending = new Set(),
 	readOnly = false,
+	resolveDetail = () => Promise.resolve(null),
 	resolveSrc = () => Promise.resolve(null),
 	slides = [],
 } = {}) {
@@ -365,6 +375,7 @@ export function photoCarousel({
 				viewport.focus({preventScroll: true});
 			},
 			onRemove: readOnly ? null : onRemove,
+			resolveDetail,
 			resolveSrc,
 			slides: state.slides,
 		});
@@ -386,177 +397,4 @@ export function photoCarousel({
 			render();
 		},
 	};
-}
-
-// ------------------------------------------------------------- full screen
-
-// The full-screen viewer: one image at a time over a dark backdrop, swiped
-// like the carousel, double-tap to zoom (then drag to look around), Escape
-// or the close button to leave.
-export function openViewer({art = plainArt, index = 0, onClose = null, onRemove = null, resolveSrc, slides}) {
-	let at = index;
-	let zoom = null;
-	const opener = document.activeElement;
-
-	const picture = h('div', {class: 'ph-full-art'});
-	const label = h('p', {class: 'ph-full-label'});
-	const close = h('button', {'aria-label': 'Close', class: 'ph-full-close', type: 'button'}, '×');
-	const remove = h('button', {class: 'ph-full-remove', type: 'button'}, 'Remove photo');
-	const stage = h('div', {class: 'ph-full-stage'}, picture);
-	const dialog = h('div', {
-		'aria-label': 'Card image, full screen',
-		'aria-modal': 'true',
-		class: 'ph-full',
-		'data-swipe-own': true,
-		'data-swipe-owner': OWNER,
-		role: 'dialog',
-	}, close, stage, h('div', {class: 'ph-full-bar'}, label, remove));
-
-	contain(dialog);
-
-	// Keys stay in the viewer, so the arrows never move the card page behind
-	// it (js/card-swipe.js listens on the document).
-	dialog.addEventListener('keydown', (event) => event.stopPropagation());
-
-	async function draw() {
-		const slide = slides[at];
-
-		zoom = null;
-		picture.style.transform = '';
-		label.textContent = `${at + 1} of ${slides.length} · ${slide.label}`;
-		remove.hidden = !onRemove || slide.kind !== 'photo';
-
-		const src = slide.src || await resolveSrc(slide);
-
-		if (slides[at] !== slide) {
-			return;
-		}
-
-		picture.replaceChildren(src
-			? h('img', {alt: slide.label, class: 'ph-full-img', decoding: 'async', src})
-			: art(null, {eager: true}));
-	}
-
-	function move(step) {
-		const next = Math.min(slides.length - 1, Math.max(0, at + step));
-
-		if (next !== at) {
-			at = next;
-			draw();
-		}
-	}
-
-	swipeable(stage, {
-		blocked: () => Boolean(zoom),
-		onDrag(dx) {
-			picture.style.transform = `translateX(${dx}px)`;
-		},
-		onEnd(dx, velocity) {
-			picture.style.transform = '';
-
-			const next = settleIndex(at, slides.length, dx, velocity, stage.clientWidth || 1);
-
-			if (next !== at) {
-				at = next;
-				draw();
-			}
-		},
-	});
-
-	// Double tap (or double click) zooms 2.5 times about the tapped point;
-	// dragging while zoomed pans.
-	let lastTap = 0;
-	let pan = null;
-
-	stage.addEventListener('pointerup', (event) => {
-		if (event.timeStamp - lastTap < 300) {
-			const box = picture.getBoundingClientRect();
-
-			if (zoom) {
-				zoom = null;
-				picture.style.transform = '';
-			}
-			else {
-				zoom = {x: 0, y: 0};
-				picture.style.transformOrigin = `${event.clientX - box.left}px ${event.clientY - box.top}px`;
-				picture.style.transform = 'scale(2.5)';
-			}
-
-			lastTap = 0;
-		}
-		else {
-			lastTap = event.timeStamp;
-		}
-
-		pan = null;
-	});
-	stage.addEventListener('pointerdown', (event) => {
-		if (zoom) {
-			pan = {x: event.clientX - zoom.x, y: event.clientY - zoom.y};
-		}
-	});
-	stage.addEventListener('pointermove', (event) => {
-		if (zoom && pan) {
-			zoom = {x: event.clientX - pan.x, y: event.clientY - pan.y};
-			picture.style.transform = `translate(${zoom.x}px, ${zoom.y}px) scale(2.5)`;
-		}
-	});
-
-	function onKey(event) {
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			done();
-		}
-		else if (event.key === 'ArrowRight') {
-			event.preventDefault();
-			move(1);
-		}
-		else if (event.key === 'ArrowLeft') {
-			event.preventDefault();
-			move(-1);
-		}
-		else if (event.key === 'Tab') {
-			// Focus stays inside the dialog.
-			const stops = [close, remove].filter((button) => !button.hidden);
-			const i = stops.indexOf(document.activeElement);
-
-			event.preventDefault();
-			stops[(i + (event.shiftKey ? stops.length - 1 : 1)) % stops.length].focus();
-		}
-	}
-
-	const overflow = document.body.style.overflow;
-
-	function done() {
-		document.removeEventListener('keydown', onKey, true);
-		document.body.style.overflow = overflow;
-		dialog.remove();
-
-		if (opener && opener.focus && !onClose) {
-			opener.focus({preventScroll: true});
-		}
-
-		if (onClose) {
-			onClose(at);
-		}
-	}
-
-	close.addEventListener('click', done);
-	remove.addEventListener('click', async () => {
-		const slide = slides[at];
-
-		// The browser's own confirm: one tap more, nothing lost by accident.
-		if (onRemove && slide.kind === 'photo' && window.confirm('Remove this photo? It is deleted from this phone and from your account.')) {
-			done();
-			await onRemove(slide);
-		}
-	});
-
-	document.addEventListener('keydown', onKey, true);
-	document.body.style.overflow = 'hidden';
-	document.body.append(dialog);
-	draw();
-	close.focus({preventScroll: true});
-
-	return {close: done, element: dialog};
 }

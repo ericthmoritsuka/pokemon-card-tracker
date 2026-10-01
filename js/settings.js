@@ -19,12 +19,14 @@ import {currentUser, onUser} from './auth.js';
 import {MAX_DEX, spriteUrl} from './checklists.js';
 import {loadDocument, mergeIntoLocal, onChange} from './collection.js';
 import {BASE} from './dom.js';
-import {DEFAULT_THEME, isTheme, palette, themeById, TYPES} from './themes.js';
+import {canonicalTheme, DEFAULT_THEME, isTheme, palette, suggestedTheme, themeById, TYPES} from './themes.js';
 
 export const THEME_KEY = 'card-tracker-theme';
 
 const PUSH_DELAY_MS = 2000;
 const TYPE_KEY = 'card-tracker-primary-type';
+const CARD_TYPES_KEY = 'card-tracker-card-types';
+const TCGDEX_GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
 
 const DEFAULT_ICON = `${BASE}icons/icon-192.png`;
 
@@ -71,9 +73,10 @@ function paintThemeColor(id) {
 }
 
 // Applies a theme to the page and remembers it on the device. Saving it to
-// the person's document is chooseTheme's job.
+// the person's document is chooseTheme's job. A theme saved under a game
+// type's id ("electric") is put on, and kept, as its energy ("lightning").
 export function applyTheme(id) {
-	const theme = isTheme(id) ? id : DEFAULT_THEME;
+	const theme = canonicalTheme(id);
 
 	document.documentElement.dataset.theme = theme;
 	writeDevice(THEME_KEY, theme);
@@ -226,6 +229,71 @@ export async function primaryType(n) {
 	return type;
 }
 
+// ------------------------------------------------------------ the suggestion
+
+function cachedCardTypes() {
+	try {
+		return JSON.parse(readDevice(CARD_TYPES_KEY) || '{}') || {};
+	}
+	catch {
+		return {};
+	}
+}
+
+// How many of the Pokémon's TCG cards carry each energy ({Lightning: 98}),
+// from one TCGdex GraphQL query (the first 100 cards are plenty to decide),
+// or null when TCGdex cannot be reached. Kept on the device.
+async function cardTypeCounts(n) {
+	const cache = cachedCardTypes();
+
+	if (cache[n] && typeof cache[n] === 'object') {
+		return cache[n];
+	}
+
+	try {
+		const response = await fetch(TCGDEX_GRAPHQL, {
+			body: JSON.stringify({query: `{ cards(filters: {dexId: ${n}}, pagination: {page: 1, count: 100}) { types } }`}),
+			headers: {'content-type': 'application/json'},
+			method: 'POST',
+		});
+		const json = response.ok ? await response.json() : null;
+		const cards = json && json.data && json.data.cards;
+
+		if (!Array.isArray(cards)) {
+			return null;
+		}
+
+		const counts = {};
+
+		for (const card of cards) {
+			for (const type of (card && card.types) || []) {
+				counts[type] = (counts[type] || 0) + 1;
+			}
+		}
+
+		writeDevice(CARD_TYPES_KEY, JSON.stringify({...cachedCardTypes(), [n]: counts}));
+
+		return counts;
+	}
+	catch {
+		return null;
+	}
+}
+
+// The theme to suggest for a favorite Pokémon: the energy most of its TCG
+// cards carry, and with no card data, the energy its first game type plays
+// as (js/themes.js suggestedTheme). Null when neither can be learned.
+export async function suggestedThemeFor(n) {
+	if (!validDex(n)) {
+		return null;
+	}
+
+	const [counts, type] = await Promise.all([cardTypeCounts(n), primaryType(n)]);
+	const cardTypes = Object.entries(counts || {}).flatMap(([name, count]) => Array.from({length: count}, () => [name]));
+
+	return suggestedTheme({cardTypes, gameTypes: type ? [type] : []});
+}
+
 // ------------------------------------------------------------ the header
 
 // Signed in, the header shows a mark beside the title: the app icon, or the
@@ -275,7 +343,7 @@ function emit() {
 async function refresh() {
 	const settings = await accountSettings();
 
-	if (settings && isTheme(settings.theme) && settings.theme !== currentTheme()) {
+	if (settings && isTheme(settings.theme) && canonicalTheme(settings.theme) !== currentTheme()) {
 		applyTheme(settings.theme);
 	}
 

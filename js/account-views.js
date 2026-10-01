@@ -11,7 +11,7 @@ import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
 import {memberName} from './family.js';
-import {chooseTheme, currentTheme, favoritePokemon, onSettings, primaryType, setFavoritePokemon} from './settings.js';
+import {chooseTheme, currentTheme, favoritePokemon, onSettings, setFavoritePokemon, suggestedThemeFor} from './settings.js';
 import {THEMES, themeById} from './themes.js';
 import {
 	displayName,
@@ -24,6 +24,7 @@ import {
 	syncNow,
 	updateDisplayName,
 } from './sync.js';
+import {photoSettingsCard} from './photos/index.js';
 
 const RESEND_AFTER_MS = 60 * 1000;
 
@@ -263,6 +264,7 @@ export function profileView(root) {
 			),
 			theme.element,
 			dataCard(),
+			photoSettingsCard(),
 			phoneCard()
 		);
 
@@ -487,6 +489,7 @@ export function profileView(root) {
 			family
 		),
 		dataCard(),
+		photoSettingsCard(),
 		phoneCard(),
 		h('div', {class: 'card'},
 			h('p', {class: 'muted'}, 'Signing out keeps your cards on this phone.'),
@@ -722,13 +725,11 @@ function favoriteCard() {
 			return;
 		}
 
-		const type = await primaryType(n);
+		const theme = await suggestedThemeFor(n);
 
 		if (!alive || suggestFor !== n) {
 			return;
 		}
-
-		const theme = type ? themeById(type) : null;
 
 		if (!theme || currentTheme() === theme.id) {
 			suggestion.replaceChildren();

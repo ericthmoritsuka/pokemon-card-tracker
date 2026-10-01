@@ -265,7 +265,8 @@ export function tileArt({
 	return frame;
 }
 
-// A whole tile: the art, the name lines, and the meta line. route makes it a
+// A whole tile: the art, the name lines, the meta line, and the price
+// (js/price-view.js tilePrice) last when one is known. route makes it a
 // link into the app; tag 'button' makes a picker tile instead (onclick).
 // names: the nodes catalog-views.js tileNames() makes, or a plain string.
 export function cardTile({
@@ -275,12 +276,18 @@ export function cardTile({
 	meta = null,
 	names = [],
 	onclick = null,
+	price = null,
 	route = null,
 	tag = null,
 }) {
 	const classes = ['tile', className].filter(Boolean).join(' ');
 	const nameNodes = typeof names === 'string' ? [h('span', {class: 'tile-name'}, names)] : names;
-	const children = [tileArt(art), ...nameNodes, meta === null || meta === '' ? null : h('span', {class: 'tile-meta'}, meta)];
+	const children = [
+		tileArt(art),
+		...nameNodes,
+		meta === null || meta === '' ? null : h('span', {class: 'tile-meta'}, meta),
+		price ? h('span', {class: 'tile-price'}, price) : null,
+	];
 
 	if (tag === 'button' || !route) {
 		return h(tag || 'div', {...attrs, class: classes, onclick, type: tag === 'button' ? 'button' : null}, ...children);

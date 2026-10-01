@@ -23,12 +23,14 @@ import {
 	indexKey,
 	isLanguage,
 	languageLabel,
+	priceRecords,
 	saveToCardIndex,
 	viewingLanguage,
 } from './catalog.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {whenMemberName} from './family.js';
+import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {
@@ -515,6 +517,9 @@ function binderScreen(root, source, id, pageParam) {
 	const pageSelect = h('select', {'aria-label': 'Page', id: 'page-select'});
 	const grid = h('div', {class: 'pocket-grid', id: 'pocket-grid'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
+	// The value of the copies in the binder (js/price-view.js), at the top.
+	const statsSlot = h('div', {class: 'binder-stats', id: 'binder-stats'});
+	let statsKey = null;
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
@@ -708,6 +713,33 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
+	// Redrawn only when the binder's copies or their prices change, so a
+	// page turn keeps the Liga price basis the person picked.
+	async function drawStats() {
+		const entries = slotsOf(binder, placed)
+			.map((slot) => (slot.entry_id ? entriesById.get(slot.entry_id) : null))
+			.filter((entry) => entry && isLive(entry));
+		const key = `${binder.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
+
+		if (key === statsKey) {
+			return;
+		}
+
+		statsKey = key;
+
+		if (!entries.length) {
+			statsSlot.replaceChildren();
+
+			return;
+		}
+
+		const records = await priceRecords(entries);
+
+		if (alive && statsKey === key) {
+			statsSlot.replaceChildren(statsBar({cardsById: records, entries, label: binder.name}));
+		}
+	}
+
 	function draw() {
 		title.textContent = binder.name;
 		document.title = `${binder.name} | Card Tracker`;
@@ -726,6 +758,9 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		drawPage();
+		drawStats().catch(() => {
+			// No statistics this time; the binder itself is unaffected.
+		});
 	}
 
 	async function load() {
@@ -759,6 +794,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (!body.contains(grid)) {
 			body.replaceChildren(
 				h('div', {class: 'binder-head'}, title, meta, notes),
+				statsSlot,
 				h('div', {class: 'page-nav'}, prev, h('span', {class: 'select-wrap'}, pageSelect), next),
 				grid,
 				summary,

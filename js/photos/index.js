@@ -11,6 +11,8 @@
 //                                   when it was not in memory yet
 //   mainImageArt(entries, src, art) the main image as an element
 //   startPhotoSync()                the upload queue and photo restore
+//   photoSettingsCard()             Profile's "Keep a detail copy of new
+//                                   photos" switch, for this phone
 //
 // DESIGN.md section 5 ("Own photos, cropped to the card" and "Image
 // carousel per card") is the spec; supabase/photos.sql makes the bucket.
@@ -20,18 +22,32 @@ import {h} from '../dom.js';
 
 import {SWIPE_EVENT, gestureConsumed, isCarouselGesture, openViewer, photoCarousel} from './carousel.js';
 import {describeCopy, openAddPhoto} from './editor.js';
+import {DETAIL_HEIGHT, DETAIL_MAX_BYTES, DETAIL_WIDTH, TARGET_BYTES} from './encode.js';
 import {gallerySlides, mainImage, mainSlideId, newPhoto, photoPath, pinnedImage} from './model.js';
 import {
 	addPhotoToEntry,
 	cachedPhotoUrl,
+	detailUrl,
+	keepDetailCopies,
 	onPhotosChange,
 	pendingUploads,
 	photoUrl,
 	removePhotoFromEntry,
+	setKeepDetailCopies,
 	startPhotoSync,
 } from './store.js';
 
-export {SWIPE_EVENT, gestureConsumed, isCarouselGesture, mainImage, openViewer, photoCarousel, startPhotoSync};
+export {
+	SWIPE_EVENT,
+	gestureConsumed,
+	isCarouselGesture,
+	keepDetailCopies,
+	mainImage,
+	openViewer,
+	photoCarousel,
+	setKeepDetailCopies,
+	startPhotoSync,
+};
 
 // The same detection and straightening, for the scanner to give scanned
 // cards their photo (DESIGN.md section 5).
@@ -50,18 +66,20 @@ function plainArt(src) {
 }
 
 // Saves a straightened photo onto one copy: on the phone at once, uploaded
-// when there is signal (store.js). Resolves with the new photo record.
-export async function savePhoto({blob, entry, side = 'front', type}) {
+// when there is signal (store.js). detail, when given, is the detail copy
+// {blob, type, width, height}. Resolves with the new photo record.
+export async function savePhoto({blob, detail = null, entry, side = 'front', type}) {
 	const doc = await loadDocument();
 	const id = newId();
 	const photo = newPhoto({
 		created_at: nowIso(),
+		detail: detail && detail.blob ? {height: detail.height, type: detail.type || detail.blob.type, width: detail.width} : null,
 		id,
 		path: doc.user_id ? photoPath(doc.user_id, entry.id, id, type || blob.type) : null,
 		side,
 	});
 
-	await addPhotoToEntry(entry, photo, blob);
+	await addPhotoToEntry(entry, photo, blob, photo.detail ? detail.blob : null);
 
 	return photo;
 }
@@ -82,6 +100,7 @@ export function addPhotoButton({describe = describeCopy, entries, label = 'Add p
 		openAddPhoto({
 			describe,
 			entries: list,
+			keepDetail: keepDetailCopies(),
 			async save(fields) {
 				const photo = await savePhoto(fields);
 
@@ -121,6 +140,7 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		onRemove: readOnly ? null : (slide) => removePhotoFromEntry(slide.entry, slide.id),
 		onUseAsMain: readOnly ? null : (slide) => useAsMain(slide.id),
 		readOnly,
+		resolveDetail: (slide) => detailUrl(slide.photo),
 		resolveSrc: (slide) => photoUrl(slide.photo),
 	});
 	const add = readOnly ? null : addPhotoButton({
@@ -290,4 +310,52 @@ export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {twin
 	});
 
 	return tile;
+}
+
+// ------------------------------------------------------------- the setting
+
+const KB = 1024;
+const GB_KB = 1024 * 1024;
+
+const thousands = (n) => n.toLocaleString('en-US');
+
+const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+
+// What the help text says, from the sizes the encoder uses: a normal copy
+// of about TARGET_BYTES, a detail copy of at most DETAIL_MAX_BYTES, and the
+// free tier's 1 GB of file storage (DESIGN.md section 8).
+export function detailCopyArithmetic() {
+	const normal = Math.round(TARGET_BYTES / KB);
+	const detail = Math.round(DETAIL_MAX_BYTES / KB);
+
+	return {
+		detailKb: detail,
+		normalKb: normal,
+		ratio: Math.round(detail / normal),
+		withDetail: Math.floor(GB_KB / (normal + detail) / 100) * 100,
+		withoutDetail: Math.floor(GB_KB / normal / 1000) * 1000,
+	};
+}
+
+// Profile's switch for this phone: "Keep a detail copy of new photos", off
+// by default, with what it costs. Returns the card element.
+export function photoSettingsCard() {
+	const math = detailCopyArithmetic();
+	const box = h('input', {checked: keepDetailCopies(), class: 'ph-detail-setting', id: 'ph-detail-setting', type: 'checkbox'});
+	const help = h('p', {class: 'muted ph-detail-help', id: 'ph-detail-help'},
+		`Saves a second, sharper copy of each photo you take on this phone from now on, up to ${DETAIL_WIDTH} x ${DETAIL_HEIGHT} pixels, `
+		+ 'for zooming in on print details when checking a card. '
+		+ `Each detail copy is up to ${math.detailKb} KB, about ${WORDS[math.ratio] || math.ratio} normal photos' worth (${math.normalKb} KB each), `
+		+ `so the free 1 GB of storage holds about ${thousands(math.withDetail)} photos with detail copies, `
+		+ `instead of over ${thousands(math.withoutDetail)} without. `
+		+ 'Detail copies are downloaded only when you zoom in, then kept on the phone. '
+		+ 'A photo where the card is small in the frame gets none, since it holds no more detail.');
+
+	box.setAttribute('aria-describedby', 'ph-detail-help');
+	box.addEventListener('change', () => setKeepDetailCopies(box.checked));
+
+	return h('section', {'aria-labelledby': 'ph-settings-heading', class: 'card ph-settings', id: 'photo-settings'},
+		h('h3', {id: 'ph-settings-heading'}, 'Card photos'),
+		h('label', {class: 'ph-detail-label', for: 'ph-detail-setting'}, box, h('span', null, 'Keep a detail copy of new photos')),
+		help);
 }

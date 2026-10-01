@@ -275,7 +275,9 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 			);
 		}
 
-		const asian = ['ja', 'ko', 'zh-cn', 'zh-tw'].includes(language);
+		// Japanese prints do get a link once an English name is found, so a
+		// Japanese card without one is just this card.
+		const asian = ['ko', 'zh-cn', 'zh-tw'].includes(language);
 
 		return h('p', {class: 'muted price-liga-none'}, asian ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
 	}
@@ -393,7 +395,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	// left out when its field is missing.
 	function euBlock() {
 		const cm = selected && selected.cardmarket;
-		const trend = cardmarketTrend(cm);
+		const trend = cardmarketTrend(cm, {rates: euroRate});
 		const block = h('div', {class: 'price-eu'},
 			h('p', {class: 'price-market'}, 'EU market (Cardmarket)')
 		);

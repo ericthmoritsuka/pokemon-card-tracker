@@ -8,7 +8,7 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v13';
+const VERSION = 'v14';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
@@ -72,6 +72,9 @@ const SHELL = [
 	'app.js',
 	'js/account-views.js',
 	'js/binders-view.js',
+	'js/binder-cover.js',
+	'js/binder-presets.js',
+	'js/binder-spread.js',
 	'js/binders.js',
 	'js/auth.js',
 	'js/card-swipe.js',
@@ -90,6 +93,8 @@ const SHELL = [
 	'js/monprice.js',
 	'js/names.js',
 	'js/phone-check.js',
+	'js/pokemon-cards-view.js',
+	'js/pokemon-cards.js',
 	'js/price-view.js',
 	'js/prices.js',
 	'js/photos/carousel.js',
@@ -100,6 +105,8 @@ const SHELL = [
 	'js/photos/index.js',
 	'js/photos/model.js',
 	'js/photos/store.js',
+	'js/photos/viewer.js',
+	'js/photos/zoom.js',
 	'js/scan/camera.js',
 	'js/scan/draft.js',
 	'js/scan/finish.js',
@@ -117,6 +124,8 @@ const SHELL = [
 	'js/sync.js',
 	'js/themes.js',
 	'js/tile.js',
+	'js/twins-view.js',
+	'js/twins.js',
 	'js/wishlist-view.js',
 	'js/wishlist.js',
 	'lab/js/camera.js',
@@ -144,6 +153,9 @@ const SHELL = [
 	'css/wishlist.css',
 	'css/scan.css',
 	'css/photos.css',
+	'css/binder-spread.css',
+	'css/pokemon-cards.css',
+	'css/twins.css',
 	'css/prices.css',
 	'manifest.webmanifest',
 	'icons/icon-192.png',

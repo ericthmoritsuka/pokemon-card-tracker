@@ -403,13 +403,21 @@ function pickCardmarket(cardmarket, variant) {
 // that noise, and still catches a move worth a collector's notice.
 export const TREND_THRESHOLD = 0.05;
 
+// The move must also be worth about R$ 0,50, converted, before it counts: a
+// bulk card going from 0,10 to 0,12 euro is 20% up and still steady to
+// anyone holding it. With no euro rate saved yet, TREND_MIN_EUR stands in
+// (R$ 0,50 at about R$ 6,25 per euro).
+export const TREND_MIN_BRL = 0.5;
+export const TREND_MIN_EUR = 0.08;
+
 // The Cardmarket trend for one finish's prices (extractPrices' cardmarket):
 //   {direction: 'rising' | 'falling' | 'steady', recent, recentField, avg30, change}
 // recent is the 7 day average, or the 1 day average when TCGdex gives no 7
 // day one (recentField says which); change is recent against avg30 as a
-// fraction, to four places. Null when avg30 or both recent averages are
-// missing: no trend is guessed.
-export function cardmarketTrend(cardmarket) {
+// fraction, to four places. Rising or falling needs both the 5% share and
+// the R$ 0,50 difference, converted with rates (a euro rate, {brlPerEur}).
+// Null when avg30 or both recent averages are missing: no trend is guessed.
+export function cardmarketTrend(cardmarket, {rates = null} = {}) {
 	if (!cardmarket || typeof cardmarket !== 'object') {
 		return null;
 	}
@@ -425,7 +433,10 @@ export function cardmarketTrend(cardmarket) {
 
 	// Rounded so 2.1 against 2 is exactly 5%, not a hair under.
 	const change = Math.round((recent / avg30 - 1) * 10000) / 10000;
-	const direction = change >= TREND_THRESHOLD ? 'rising' : change <= -TREND_THRESHOLD ? 'falling' : 'steady';
+	const gap = Math.abs(recent - avg30);
+	const gapBrl = eurToBrl(gap, rates);
+	const large = gapBrl !== null ? roundCents(gapBrl) >= TREND_MIN_BRL : Math.round(gap * 10000) / 10000 >= TREND_MIN_EUR;
+	const direction = !large ? 'steady' : change >= TREND_THRESHOLD ? 'rising' : change <= -TREND_THRESHOLD ? 'falling' : 'steady';
 
 	return {avg30, change, direction, recent, recentField};
 }

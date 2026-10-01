@@ -306,6 +306,78 @@ export const importApi = {
 // such as My Cards filling in names in the viewing language.
 export const setDetailOnce = (lang, setId) => importApi.setDetail(lang, setId);
 
+// The full TCGdex records already saved on this phone (opened on card
+// detail, or read by the import) for some copies, keyed "<catalog>|<card
+// id>", with no request. The prices read their US and EU prices from them
+// (js/prices.js); a copy whose record is not saved has no market price, and
+// a card index record stands in for its name. An international card's
+// pricing is the same in every language, so the English record is tried
+// first and then the copy's own language.
+export async function savedCardRecords(entries) {
+	const wanted = new Map();
+
+	for (const entry of entries || []) {
+		const catalog = entry.catalog || 'international';
+		const key = indexKey(catalog, entry.card_id);
+
+		if (!wanted.has(key)) {
+			wanted.set(key, new Set([catalogLanguage(catalog)]));
+		}
+
+		if (catalog === 'international' && entry.language) {
+			wanted.get(key).add(entry.language);
+		}
+	}
+
+	if (!wanted.size) {
+		return new Map();
+	}
+
+	const cardId = (key) => key.slice(key.indexOf('|') + 1);
+	let hits;
+
+	try {
+		const db = await openDb();
+
+		hits = await new Promise((resolve, reject) => {
+			const tx = db.transaction(STORE, 'readonly');
+			const store = tx.objectStore(STORE);
+			const found = new Map();
+
+			for (const [key, langs] of wanted) {
+				for (const lang of langs) {
+					const request = store.get(`card:${lang}:${cardId(key)}`);
+
+					request.onsuccess = () => {
+						const record = request.result && request.result.data;
+
+						if (record && record.id && (!found.has(key) || lang === 'en')) {
+							found.set(key, record);
+						}
+					};
+				}
+			}
+
+			tx.oncomplete = () => resolve(found);
+			tx.onerror = () => reject(tx.error);
+			tx.onabort = () => reject(tx.error);
+		});
+	}
+	catch {
+		return new Map();
+	}
+
+	return hits;
+}
+
+// The records the price statistics take for some copies: the saved full
+// records, else the card index records, which carry names but no prices.
+export async function priceRecords(entries) {
+	const [index, saved] = await Promise.all([cardIndex(), savedCardRecords(entries)]);
+
+	return new Map([...index, ...saved]);
+}
+
 // ---------------------------------------------------------- card index
 
 // One record per card someone owns, shaped like the catalog card in

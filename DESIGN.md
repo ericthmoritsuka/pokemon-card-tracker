@@ -485,7 +485,8 @@ the official image and the person's photo) with zoom and pan synchronized in car
 the same corner, font, energy symbol, or holo pattern lines up on both; the link can be turned off.
 Official images are about 600 x 825 px, enough for most details but not microprint, and photos are
 stored at 600 x 840, so an optional per-device setting keeps a **detail copy** of new photos at
-about 2000 px (roughly 500 KB each, about 1,500 within the free 1 GB beside the normal copies),
+about 1440 x 2016 px (capped at 500 KB each, about 1,800 within the free 1 GB beside the normal
+copies),
 downloaded only when zooming in.
 
 The fallback rule in general: when the copy's language has no catalog record, match the card in

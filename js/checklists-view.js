@@ -9,12 +9,13 @@
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
-import {cardImage, catalogFor, catalogLanguage, importApi, isLanguage, viewingLanguage} from './catalog.js';
+import {cardImage, catalogFor, catalogLanguage, importApi, isLanguage, priceRecords, viewingLanguage} from './catalog.js';
 import {mainName, tileNames} from './catalog-views.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {cardNames, hasOwnNames, searchKey, speciesSearchTerms} from './names.js';
+import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
 import {cardTile, groupFinish} from './tile.js';
 import {
@@ -568,6 +569,9 @@ function checklistScreen(root, source, id) {
 	const meta = h('p', {class: 'muted', id: 'checklist-meta'});
 	const summary = h('p', {class: 'checklist-summary', id: 'checklist-summary'});
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'checklist-status'});
+	// The value of the owned cards on the list (js/price-view.js).
+	const statsSlot = h('div', {class: 'checklist-stats', id: 'checklist-stats'});
+	let statsKey = null;
 	const list = h('ul', {class: 'dex-list', id: 'dex-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'checklist-empty'});
 	const actions = source.readOnly ? null : h('div', {class: 'actions checklist-actions'});
@@ -610,6 +614,39 @@ function checklistScreen(root, source, id) {
 
 		parts.push(`${formatCount(counts.missing)} missing`);
 		summary.textContent = `${parts.join(', ')}.`;
+	}
+
+	// The owned copies of the list's Pokémon, each once (a TAG TEAM card
+	// counts under every Pokémon on it), redrawn only when they change.
+	async function drawStats() {
+		const seen = new Map();
+
+		for (const n of checklistDex(goal)) {
+			for (const entry of (result && result.byDex.get(n)) || []) {
+				seen.set(entry.id, entry);
+			}
+		}
+
+		const entries = [...seen.values()];
+		const key = `${goal.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
+
+		if (key === statsKey) {
+			return;
+		}
+
+		statsKey = key;
+
+		if (!entries.length) {
+			statsSlot.replaceChildren();
+
+			return;
+		}
+
+		const records = await priceRecords(entries);
+
+		if (alive && statsKey === key) {
+			statsSlot.replaceChildren(statsBar({cardsById: records, entries, label: `the owned cards on ${goal.name}`}));
+		}
 	}
 
 	function mark(kind, count) {
@@ -941,6 +978,11 @@ function checklistScreen(root, source, id) {
 		const next = cardsSignature(data.entries);
 
 		if (next === signature && !force) {
+			// The same cards, though a price on one may have changed.
+			if (result) {
+				drawStats().catch(() => {});
+			}
+
 			return;
 		}
 
@@ -963,6 +1005,9 @@ function checklistScreen(root, source, id) {
 		result = resolved;
 		drawHead();
 		drawList();
+		drawStats().catch(() => {
+			// No statistics this time; the list itself is unaffected.
+		});
 		status.replaceChildren();
 
 		const gap = gapText(result);
@@ -989,7 +1034,7 @@ function checklistScreen(root, source, id) {
 	// the stored list back halfway would flicker.
 	const stop = source.watch ? source.watch(() => alive && !saving && load()) : () => {};
 
-	root.append(...[back, title, meta, summary, status, filter, empty, list, editor, actions].filter(Boolean));
+	root.append(...[back, title, meta, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
 	load();
 
 	return () => {

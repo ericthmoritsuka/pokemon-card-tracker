@@ -147,6 +147,24 @@ select pg_temp.expect_error($$insert into storage.objects (bucket_id, name) valu
 select pg_temp.expect_error($$insert into storage.objects (bucket_id, name) values ('card-photos', 'not-a-user/entry-1/photo-1.webp')$$, 'row-level security');
 select pg_temp.expect_error($$insert into storage.objects (bucket_id, name) values ('other', '${A}/entry-1/photo-1.webp')$$, 'row-level security');
 
+-- A photo's detail copy (js/photos/model.js detailPath) sits beside it with
+-- the app's real ids, UUIDs, plus -detail: the same rules take it with no
+-- change to photos.sql. The kid reads it, and the owner deletes it.
+insert into storage.objects (bucket_id, name) values ('card-photos', '${A}/7c9e6679-7425-40de-944b-e07fc1f90ae7/f47ac10b-58cc-4372-a567-0e02b2c3d479-detail.webp');
+insert into storage.objects (bucket_id, name) values ('card-photos', '${A}/7c9e6679-7425-40de-944b-e07fc1f90ae7/f47ac10b-58cc-4372-a567-0e02b2c3d479-detail.jpg');
+select pg_temp.expect_error($$insert into storage.objects (bucket_id, name) values ('card-photos', '${B}/7c9e6679-7425-40de-944b-e07fc1f90ae7/f47ac10b-58cc-4372-a567-0e02b2c3d479-detail.webp')$$, 'row-level security');
+select pg_temp.act_as('${B}');
+
+do $$ begin
+	if (select count(*) from storage.objects where name like '%-detail.%') <> 2 then raise exception 'member should read the detail copies'; end if;
+end $$;
+
+select pg_temp.act_as('${A}');
+
+do $$ begin
+	if pg_temp.affected($q$delete from storage.objects where name like '%-detail.%'$q$) <> 2 then raise exception 'owner could not delete the detail copies'; end if;
+end $$;
+
 -- The kid (a member) uploads their own, reads both people's, and cannot
 -- change or delete the owner's: those rows are invisible to the change, so
 -- nothing happens.

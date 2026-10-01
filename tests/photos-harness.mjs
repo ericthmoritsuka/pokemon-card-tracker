@@ -15,6 +15,10 @@
 // INTEGRATION lists the lines in the shared files, and checkIntegration
 // asserts that each one is in the real file, so a change to a shared file
 // that drops one fails the test instead of silently testing without photos.
+// PENDING lists the lines the inspection viewer and the detail-copy setting
+// need in shared files that may not carry them yet; pendingIntegration()
+// names the missing ones without failing, so a test can print them. Once
+// they land, move them into INTEGRATION.
 //
 // Run on its own: node tests/photos-harness.mjs [port]
 
@@ -84,6 +88,24 @@ export const INTEGRATION = {
 	},
 };
 
+export const PENDING = {
+	sw: {
+		// In SHELL, after 'js/photos/store.js', (and bump VERSION).
+		shell: [
+			'\t\'js/photos/viewer.js\',',
+			'\t\'js/photos/zoom.js\',',
+		],
+	},
+	accountViews: {
+		// After the last import line.
+		import: 'import {photoSettingsCard} from \'./photos/index.js\';',
+		// In profileView, after dataCard(), in the signed-out branch...
+		signedOut: '\t\t\tphotoSettingsCard(),',
+		// ...and in the signed-in one.
+		signedIn: '\t\tphotoSettingsCard(),',
+	},
+};
+
 const read = (path) => readFile(join(ROOT, path), 'utf8');
 
 const lines = (text) => new Set(text.split('\n'));
@@ -123,6 +145,28 @@ export async function checkIntegration() {
 	}
 }
 
+// The PENDING lines the shared files do not carry yet, as
+// "<file>: <line>" strings; empty once everything is integrated.
+export async function pendingIntegration() {
+	const sw = lines(await read('sw.js'));
+	const account = lines(await read('js/account-views.js'));
+	const missing = [];
+
+	for (const line of PENDING.sw.shell) {
+		if (!sw.has(line)) {
+			missing.push(`sw.js: ${line.trim()}`);
+		}
+	}
+
+	for (const line of Object.values(PENDING.accountViews)) {
+		if (!account.has(line)) {
+			missing.push(`js/account-views.js: ${line.trim()}`);
+		}
+	}
+
+	return missing;
+}
+
 export const HARNESS_HTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -151,6 +195,7 @@ export const HARNESS_HTML = `<!doctype html>
 		<div class="hero-facts"><h2 id="detail-name"></h2><p class="muted">Facts, price, and Ver na Liga sit here on card detail.</p></div>
 	</div>
 	<div class="h-page" id="page-area">Page area: a sideways drag here is a page swipe.</div>
+	<div id="settings"></div>
 </main>
 <script type="module">
 	import {currentUser, restoreSession} from '${BASE}js/auth.js';
@@ -158,7 +203,7 @@ export const HARNESS_HTML = `<!doctype html>
 	import {cardTile} from '${BASE}js/tile.js';
 	import {addCard, listCards, loadDocument, useAccount} from '${BASE}js/collection.js';
 	import {applyHomography, solveHomography} from '${BASE}js/photos/geometry.js';
-	import {SWIPE_EVENT, cardPhotos, isCarouselGesture, mainImage, tileSrc, withMainPhoto} from '${BASE}js/photos/index.js';
+	import {SWIPE_EVENT, cardPhotos, isCarouselGesture, mainImage, photoSettingsCard, tileSrc, withMainPhoto} from '${BASE}js/photos/index.js';
 	import * as store from '${BASE}js/photos/store.js';
 
 	const counts = {carouselSwipes: 0, pageSwipes: 0, pagePointerMovesFromCarousel: 0};
@@ -377,6 +422,10 @@ export const HARNESS_HTML = `<!doctype html>
 
 		await seed();
 		await drawTiles();
+
+		// Profile's card for this phone's photo setting, as js/account-views.js
+		// mounts it.
+		document.getElementById('settings').replaceChildren(photoSettingsCard());
 		document.body.dataset.ready = 'true';
 	}
 

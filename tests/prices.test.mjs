@@ -35,6 +35,7 @@ import {
 	savedEuroRates,
 	savedRates,
 	tileValue,
+	TREND_MIN_BRL,
 	usdToBrl,
 	valueOf,
 } from '../js/prices.js';
@@ -284,6 +285,25 @@ describe('cardmarketTrend', () => {
 		assert.deepEqual([pick(BULBASAUR_PT, 'Reverse holo').direction, pick(BULBASAUR_PT, 'Reverse holo').change], ['steady', -0.0455]);
 		// 1.93 against 1.86 is 3.76% up: steady.
 		assert.equal(pick(EXEGGCUTE, 'Reverse holo, Master Ball pattern').direction, 'steady');
+	});
+
+	test('needs about R$ 0,50 of difference besides the 5%, so bulk cards read steady', () => {
+		const rates = {brlPerEur: 6.25, date: '2026-09-30'};
+		const withRate = (fields) => cardmarketTrend({avg1: null, avg30: null, avg7: null, ...fields}, {rates});
+
+		// 0,10 to 0,12 euro is 20% up but R$ 0,13: steady.
+		assert.equal(withRate({avg30: 0.1, avg7: 0.12}).direction, 'steady');
+		assert.equal(withRate({avg30: 0.1, avg7: 0.12}).change, 0.2, 'the change is still reported');
+		assert.equal(withRate({avg30: 0.5, avg7: 0.3}).direction, 'falling', '0,20 euro is R$ 1,25');
+		// 0,08 euro is R$ 0,50 at this rate: counts. 0,07 is R$ 0,44: does not.
+		assert.equal(withRate({avg30: 1, avg7: 1.08}).direction, 'rising');
+		assert.equal(withRate({avg30: 1, avg7: 1.07}).direction, 'steady');
+		// Large amounts still need the 5%.
+		assert.equal(withRate({avg30: 100, avg7: 104}).direction, 'steady');
+		// With no euro rate saved, 0,08 euro stands in for R$ 0,50.
+		assert.equal(trend({avg30: 0.1, avg7: 0.15}).direction, 'steady');
+		assert.equal(trend({avg30: 1, avg7: 1.08}).direction, 'rising');
+		assert.equal(TREND_MIN_BRL, 0.5);
 	});
 
 	test('takes the 7 day average, and the 1 day one only without it', () => {

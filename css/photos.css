@@ -163,49 +163,59 @@ button.ph-use-main[aria-pressed="true"]::before {
 
 /* ----------------------------------------------------------- full screen */
 
+/* The inspection viewer (js/photos/viewer.js): one image, or two in
+   Compare, stacked in portrait and side by side in landscape. Images move
+   by transform alone; the stages take every touch (touch-action: none), so
+   the page neither scrolls nor zooms under them. */
+
 .ph-full {
 	background: #000000;
 	color: #ffffff;
 	display: flex;
 	flex-direction: column;
 	inset: 0;
+	overscroll-behavior: contain;
 	position: fixed;
 	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
 	z-index: 1000;
 }
 
-.ph-full-stage {
+.ph-full-top {
 	align-items: center;
 	display: flex;
-	flex: 1;
-	justify-content: center;
-	min-height: 0;
-	overflow: hidden;
-	padding: 56px 16px 8px;
+	flex: 0 0 auto;
+	gap: 8px;
+	min-height: 64px;
+	padding: 8px 64px 8px 8px;
 }
 
-.ph-full-art {
-	align-items: center;
-	display: flex;
-	height: 100%;
-	justify-content: center;
-	transition: transform 120ms ease-out;
-	width: 100%;
-}
-
-.ph-full-art .art {
-	max-height: 100%;
-	max-width: 100%;
+.ph-full button.ph-full-compare,
+.ph-full button.ph-full-link {
+	background: rgba(255, 255, 255, 0.14);
+	border: 1px solid rgba(255, 255, 255, 0.4);
+	color: #ffffff;
+	padding: 0 16px;
 	width: auto;
-	height: 100%;
 }
 
-.ph-full-img {
-	display: block;
-	max-height: 100%;
-	max-width: 100%;
-	object-fit: contain;
-	pointer-events: none;
+.ph-full button.ph-full-link[aria-pressed="true"] {
+	background: #ffffff;
+	border-color: #ffffff;
+	color: #000000;
+}
+
+.ph-full button.ph-full-link[aria-pressed="true"]::before {
+	content: "✓ ";
+	white-space: pre;
+}
+
+.ph-full-zoom {
+	font-size: 0.875rem;
+	font-variant-numeric: tabular-nums;
+	margin-left: auto;
+	opacity: 0.8;
 }
 
 button.ph-full-close {
@@ -221,15 +231,128 @@ button.ph-full-close {
 	right: 8px;
 	top: 8px;
 	width: 48px;
+	z-index: 2;
+}
+
+.ph-full-panes {
+	display: grid;
+	flex: 1;
+	gap: 8px;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+	min-height: 0;
+	padding: 0 8px;
+}
+
+.ph-full-panes.ph-compare {
+	grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+@media (min-aspect-ratio: 1/1) {
+	.ph-full-panes.ph-compare {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-rows: minmax(0, 1fr);
+	}
+}
+
+.ph-full-panes:not(.ph-compare) .ph-full-side[data-side="1"],
+.ph-full-panes:not(.ph-compare) .ph-side-pick {
+	display: none;
+}
+
+.ph-full-side {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-height: 0;
+	min-width: 0;
+}
+
+.ph-full select.ph-side-pick {
+	background: rgba(255, 255, 255, 0.14);
+	border-color: rgba(255, 255, 255, 0.4);
+	color: #ffffff;
+	flex: 0 0 auto;
+	min-height: 44px;
+	padding-bottom: 4px;
+	padding-top: 4px;
+}
+
+.ph-full select.ph-side-pick option {
+	background: #1b1b1f;
+	color: #ffffff;
+}
+
+.ph-pane {
+	cursor: zoom-in;
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
+	touch-action: none;
+}
+
+.ph-pane.ph-zoomed {
+	cursor: grab;
+}
+
+.ph-pane-art {
+	left: 0;
+	position: absolute;
+	top: 0;
+	transform-origin: 0 0;
+}
+
+/* Promoted only while moving, so the browser draws a zoomed image again
+   at its new scale once it stops. */
+.ph-pane-art.ph-moving {
+	will-change: transform;
+}
+
+.ph-pane-art.ph-settle {
+	transition: transform 200ms ease-out;
+}
+
+.ph-pane-art .art {
+	height: 100%;
+	width: 100%;
+}
+
+.ph-full-img {
+	display: block;
+	height: 100%;
+	pointer-events: none;
+	user-select: none;
+	-webkit-user-drag: none;
+	width: 100%;
+}
+
+.ph-full-hint {
+	background: rgba(20, 20, 24, 0.88);
+	border: 1px solid rgba(255, 255, 255, 0.25);
+	border-radius: 12px;
+	bottom: 88px;
+	font-size: 0.9375rem;
+	left: 50%;
+	margin: 0;
+	max-width: calc(100% - 32px);
+	padding: 10px 14px;
+	pointer-events: none;
+	position: absolute;
+	text-align: center;
+	transform: translateX(-50%);
+	width: max-content;
 	z-index: 1;
 }
 
 .ph-full-bar {
 	align-items: center;
 	display: flex;
+	flex: 0 0 auto;
 	gap: 12px;
 	justify-content: space-between;
-	padding: 8px 16px 16px;
+	min-height: 64px;
+	padding: 8px 16px;
 }
 
 .ph-full-label {
@@ -242,6 +365,87 @@ button.ph-full-remove {
 	border-color: rgba(255, 255, 255, 0.5);
 	color: #ffffff;
 	width: auto;
+}
+
+/* Compare has no image label or Remove: its bar would be empty. */
+.ph-full[data-mode="compare"] .ph-full-bar {
+	display: none;
+}
+
+.ph-full[data-mode="compare"] .ph-full-panes {
+	padding-bottom: 8px;
+}
+
+/* A phone on its side: the controls move into a column at the right, so
+   the images keep the screen's whole height. */
+@media (orientation: landscape) and (max-height: 520px) {
+	.ph-full {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 176px;
+		grid-template-rows: auto minmax(0, 1fr) auto;
+	}
+
+	.ph-full-panes {
+		grid-column: 1;
+		grid-row: 1 / 4;
+		padding: 8px 0 8px 8px;
+	}
+
+	.ph-full-top {
+		align-items: stretch;
+		flex-direction: column;
+		grid-column: 2;
+		grid-row: 1;
+		min-height: 0;
+		padding: 64px 8px 8px;
+	}
+
+	.ph-full-zoom {
+		margin-left: 0;
+		text-align: center;
+	}
+
+	.ph-full-bar {
+		align-items: stretch;
+		flex-direction: column;
+		grid-column: 2;
+		grid-row: 3;
+		min-height: 0;
+		padding: 8px;
+	}
+
+	.ph-full-hint {
+		bottom: 16px;
+		left: calc((100% - 176px) / 2);
+		max-width: calc(100% - 208px);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ph-pane-art.ph-settle {
+		transition: none;
+	}
+}
+
+/* ----------------------------------------------------------- settings */
+
+.ph-detail-label {
+	align-items: center;
+	display: flex;
+	font-weight: 600;
+	gap: 12px;
+	min-height: 48px;
+}
+
+.ph-detail-label input {
+	flex: 0 0 auto;
+	height: 24px;
+	margin: 0;
+	width: 24px;
+}
+
+.ph-detail-help {
+	margin: 4px 0 0;
 }
 
 /* ----------------------------------------------------------- add photo */

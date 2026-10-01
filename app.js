@@ -34,6 +34,7 @@ import {BASE, go, pushRoute, showError} from './js/dom.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
 import {startPhotoSync} from './js/photos/index.js';
+import {euroRates, exchangeRates} from './js/prices.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
@@ -326,6 +327,12 @@ const authReturn = takeAuthReturn();
 // The theme and, signed in, the favorite Pokémon in the header.
 startSettings();
 startShell();
+
+// The day's dollar and euro rates, saved on the phone for the price
+// estimates (js/prices.js). Offline, the last saved ones stay in use.
+exchangeRates().catch(() => {});
+euroRates().catch(() => {});
+
 render();
 registerServiceWorker();
 startAccount(authReturn).catch((err) => showError('Signing in did not work.', err));

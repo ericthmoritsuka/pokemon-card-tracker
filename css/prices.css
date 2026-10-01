@@ -288,6 +288,27 @@
 	padding: 0 3px;
 }
 
+/* Where the app places them: the last line of a tile, and the end of a
+   "Your copies" row on card detail. */
+
+.tile-price {
+	line-height: 1.25;
+	margin-top: 2px;
+}
+
+.copy-price {
+	color: var(--muted);
+	display: block;
+	font-size: 0.875rem;
+	font-variant-numeric: tabular-nums;
+}
+
+/* The whole collection's statistics, opened from My Cards. */
+
+.cards-stats .price-stats {
+	margin-top: var(--space-2);
+}
+
 /* Statistics bar for a list of cards. */
 
 .price-stats {

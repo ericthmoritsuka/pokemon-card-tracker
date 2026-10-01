@@ -10,19 +10,21 @@ import {
 	compareNumbers,
 	languageLabel,
 	logoImage,
+	priceRecords,
 	setDetail,
 	setList,
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
 import {speciesNames} from './checklists.js';
-import {ownedBySet, ownedIn, sourceNames} from './collection.js';
+import {onChange, ownedBySet, ownedIn, sourceNames} from './collection.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h} from './dom.js';
 import {flagBadge} from './flags.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
+import {copyPriceText, priceSection, statsBar} from './price-view.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos} from './photos/index.js';
 
@@ -403,10 +405,38 @@ export function setView(root, {lang, setId}) {
 	const note = h('div', {hidden: true});
 	const problem = h('div');
 	const grid = h('div', {class: 'card-grid'});
+	// The value of the copies owned from this set (js/price-view.js).
+	const stats = h('div', {class: 'set-stats', id: 'set-stats'});
 
 	let owned = new Map();
 	let shown = null;
 	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
+	let statsKey = null;
+
+	// Redrawn only when the owned copies change, so the filter keeps the
+	// Liga price basis the person picked.
+	async function drawStats(set, cards) {
+		const entries = cards.filter((card) => owned.has(card.id)).flatMap((card) => owned.get(card.id).entries);
+		const key = `${set.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
+
+		if (key === statsKey) {
+			return;
+		}
+
+		statsKey = key;
+
+		if (!entries.length) {
+			stats.replaceChildren();
+
+			return;
+		}
+
+		const records = await priceRecords(entries);
+
+		if (alive && statsKey === key) {
+			stats.replaceChildren(statsBar({cardsById: records, entries, label: `your cards from ${set.name}`}));
+		}
+	}
 
 	const filter = h('div', {'aria-label': 'Show', class: 'segmented', role: 'radiogroup'},
 		SET_FILTERS.map(({label, value}) => h('label', null,
@@ -447,6 +477,9 @@ export function setView(root, {lang, setId}) {
 		const have = sorted.filter((card) => owned.has(card.id)).length;
 
 		meta.textContent += ` · ${have} / ${sorted.length} owned`;
+		drawStats(set, sorted).catch(() => {
+			// No statistics this time; the set itself is unaffected.
+		});
 
 		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
 
@@ -548,7 +581,7 @@ export function setView(root, {lang, setId}) {
 		}
 	}
 
-	root.append(back, title, meta, filter, note, problem, grid);
+	root.append(back, title, meta, stats, filter, note, problem, grid);
 	load();
 
 	return () => {
@@ -674,8 +707,8 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		// The art beside the facts, at about 45 percent of the width, so the
-		// facts, Ver na Liga, and Your copies show without a long scroll
-		// (plans/design-review.md section 3, "Card Detail").
+		// facts, the price with Ver na Liga, and Your copies show without a
+		// long scroll (plans/design-review.md section 3, "Card Detail").
 		// replaceChildren prints a null argument as "null", so the optional
 		// variants section is filtered out when there is none.
 		body.replaceChildren(...[
@@ -690,11 +723,10 @@ export function cardView(root, {lang, cardId}) {
 						row('Rarity', card.rarity),
 						row('Illustrator', card.illustrator),
 						row('Catalog', languageLabel(lang))
-					),
-					liga,
-					ligaNone
+					)
 				)
 			),
+			priceSlot,
 			copies,
 			variants && variants.length
 				? h('section', {class: 'variants-section'},
@@ -707,18 +739,79 @@ export function cardView(root, {lang, cardId}) {
 
 	const copies = h('section', {class: 'copies', hidden: true});
 
+	// The price, full width under the hero (js/price-view.js): the Liga price
+	// the person typed in, with Ver na Liga, then the US and EU references.
+	// It carries the one Ver na Liga button, and says why there is none for
+	// Korean and Chinese prints.
+	const priceSlot = h('div', {class: 'price-slot', id: 'card-price'});
+	// The person's live copies of this card, and the Ver na Liga link once
+	// known (null for none).
+	let owned = [];
+	let ownedKnown = false;
+	let ligaHref = null;
+	let priceKey = null;
+
+	const copiesKey = (entries) => JSON.stringify(entries.map((entry) => [entry.id, entry.variant_id || null, entry.language, entry.price_manual || null]));
+
+	// The copies' printed language, which picks the copies a Liga price is
+	// saved to: the one language they share, else the catalog's when some
+	// are in it, else any.
+	function priceLanguage() {
+		const languages = new Set(owned.map((entry) => entry.language));
+
+		if (!languages.size) {
+			return lang;
+		}
+
+		return languages.size === 1 ? [...languages][0] : languages.has(lang) ? lang : null;
+	}
+
+	// Redrawn when the card record, the copies, or the link change, but never
+	// under a finger typing a price.
+	function drawPrice() {
+		// Drawn once the copies are read, so it never flashes "Add a copy"
+		// on a card the person owns.
+		if (!alive || !current || !ownedKnown) {
+			return;
+		}
+
+		const key = [current, ligaHref, copiesKey(owned)];
+
+		if (priceKey && priceKey[0] === key[0] && priceKey[1] === key[1] && priceKey[2] === key[2]) {
+			return;
+		}
+
+		const typing = priceSlot.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
+
+		if (typing && priceKey && priceKey[0] === key[0] && priceKey[1] === key[1]) {
+			return;
+		}
+
+		priceKey = key;
+		priceSlot.replaceChildren(priceSection({
+			card: current,
+			entries: owned,
+			language: priceLanguage(),
+			ligaHref,
+			onSaved: (entries) => {
+				// The section already shows the saved price; only the copies
+				// list below it needs the news.
+				owned = entries;
+				priceKey = [current, ligaHref, copiesKey(owned)];
+			},
+			recordLanguage: lang,
+		}));
+	}
+
 	// Ver na Liga: a link to Liga Pokémon's own search, never a fetch from
 	// it (DESIGN.md section 10). Liga matches the English name, so the link is
-	// built from TCGdex's English record of the same card, and stays hidden
+	// built from TCGdex's English record of the same card, and there is none
 	// when that record or the set's official count is not available.
-	const ligaLink = h('a', {class: 'button', rel: 'noopener noreferrer', target: '_blank'}, 'Ver na Liga');
-	const liga = h('section', {class: 'liga', hidden: true},
-		ligaLink,
-		h('p', {class: 'muted'}, 'Opens Liga Pokémon\'s search for this card.')
-	);
-	// Korean and Chinese prints say why there is no button rather than
-	// leaving a gap.
-	const ligaNone = h('p', {class: 'muted liga-none', hidden: !['ko', 'zh-cn', 'zh-tw'].includes(lang)}, `No Liga link for ${languageLabel(lang)} prints.`);
+	function setLiga(href) {
+		ligaHref = href || null;
+		drawPrice();
+	}
+
 	let ligaRun = 0;
 
 	function showLiga(english, card) {
@@ -733,14 +826,7 @@ export function cardView(root, {lang, cardId}) {
 			})
 			: null;
 
-		if (href) {
-			ligaLink.href = href;
-		}
-		else {
-			ligaLink.removeAttribute('href');
-		}
-
-		liga.hidden = !href;
+		setLiga(href);
 	}
 
 	// A Japanese print has its own Liga page under its English name and the
@@ -761,14 +847,7 @@ export function cardView(root, {lang, cardId}) {
 			})
 			: null;
 
-		if (href) {
-			ligaLink.href = href;
-		}
-		else {
-			ligaLink.removeAttribute('href');
-		}
-
-		liga.hidden = !href;
+		setLiga(href);
 	}
 
 	async function drawLiga(card) {
@@ -781,7 +860,7 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		if (catalogFor(lang) !== 'international') {
-			liga.hidden = true;
+			setLiga(null);
 
 			return;
 		}
@@ -801,7 +880,7 @@ export function cardView(root, {lang, cardId}) {
 		}
 		catch {
 			if (alive && run === ligaRun) {
-				liga.hidden = true;
+				setLiga(null);
 			}
 		}
 	}
@@ -818,6 +897,9 @@ export function cardView(root, {lang, cardId}) {
 			record = index.get(`${catalog}|${cardId}`) || null;
 		}
 		catch {
+			ownedKnown = true;
+			drawPrice();
+
 			return;
 		}
 
@@ -833,6 +915,10 @@ export function cardView(root, {lang, cardId}) {
 			render(card);
 			drawLiga(card);
 		}
+
+		owned = mine ? mine.entries : [];
+		ownedKnown = true;
+		drawPrice();
 
 		if (!mine) {
 			copies.hidden = true;
@@ -853,16 +939,22 @@ export function cardView(root, {lang, cardId}) {
 					: 'Finish not set';
 			// Each copy's own name, when it differs from the one shown above.
 			const localName = entry.name_local && entry.name_local !== shownName ? entry.name_local : null;
-			const key = `${entry.language}|${localName}|${finish}`;
+			// Its Liga price, when one is saved on it.
+			const price = copyPriceText(entry);
+			const key = `${entry.language}|${localName}|${finish}|${price}`;
 
-			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language, localName});
+			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language, localName, price});
 		}
 
 		copies.hidden = false;
 		copies.replaceChildren(
 			h('h3', null, `Your copies (${mine.total})`),
 			h('ul', {class: 'variants'}, [...groups.values()].map((group) =>
-				h('li', null, flagged(group.language), [languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''))
+				h('li', null,
+					flagged(group.language),
+					[languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''),
+					group.price ? h('span', {class: 'copy-price'}, group.price) : null
+				)
 			))
 		);
 	}
@@ -885,8 +977,17 @@ export function cardView(root, {lang, cardId}) {
 	root.append(h('div', {class: 'card-top'}, back, swipe.line), body, ...[swipe.element].filter(Boolean));
 	load();
 
+	// A copy added, removed, or priced elsewhere (or arriving with a sync)
+	// redraws Your copies and the price.
+	const stopWatching = onChange(() => {
+		if (alive && current) {
+			drawCopies(current, Array.isArray(current.variants_detailed) ? current.variants_detailed : []);
+		}
+	});
+
 	return () => {
 		alive = false;
+		stopWatching();
 		swipe.stop();
 		photos.destroy();
 	};

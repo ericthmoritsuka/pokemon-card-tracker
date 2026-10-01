@@ -9,10 +9,18 @@
 // is signal and someone is signed in. A family member's photo is fetched
 // from the bucket the first time it is shown, then kept on this phone too.
 //
+// A photo saved with a detail copy (DESIGN.md section 5, "Inspection
+// viewer") has a second, larger file beside it at
+// <user_id>/<entry_id>/<photo_id>-detail.webp. It uploads after the normal
+// copy, is deleted with it, and is fetched from the bucket only when the
+// viewer zooms past the normal copy's resolution, then kept on the phone.
+//
 // The database, beside the collection's (js/collection.js):
-//   blobs  photo id -> {blob, type, at}         the image itself
+//   blobs  photo id -> {blob, type, at}         the image itself, and
+//          photo id + "#detail" -> the same     its detail copy
 //   queue  photo id -> {op, photo_id, entry_id, user_id, type, at, error}
 //                                               op is upload or delete
+//          photo id + "#detail" -> the same     op upload-detail
 //   made   photo id -> {entry_id, photo}        photos this phone took, so a
 //                                               sync that drops one from its
 //                                               entry puts it back
@@ -20,7 +28,7 @@
 import {currentUser, getClient, onUser} from '../auth.js';
 import {listCards, loadDocument, onChange, updateCards} from '../collection.js';
 
-import {PHOTO_BUCKET, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
+import {PHOTO_BUCKET, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
 
 const DB_NAME = 'card-tracker-photos';
 const STORES = ['blobs', 'queue', 'made'];
@@ -77,6 +85,43 @@ async function idb(store, mode, op) {
 
 const getAll = (store) => idb(store, 'readonly', (s) => s.getAll());
 
+// The key of a photo's detail copy, in blobs and in the queue.
+export const detailKey = (photoId) => `${photoId}#detail`;
+
+const DETAIL_OP = 'upload-detail';
+
+const queueKey = (row) => (row.op === DETAIL_OP ? detailKey(row.photo_id) : row.photo_id);
+
+// ------------------------------------------------------------- the setting
+
+// "Keep a detail copy of new photos": a choice for this phone only (it
+// costs this phone's camera time and the account's storage), off unless
+// turned on.
+export const DETAIL_SETTING_KEY = 'card-tracker-photo-detail';
+
+export function keepDetailCopies() {
+	try {
+		return localStorage.getItem(DETAIL_SETTING_KEY) === 'on';
+	}
+	catch {
+		return false;
+	}
+}
+
+export function setKeepDetailCopies(on) {
+	try {
+		if (on) {
+			localStorage.setItem(DETAIL_SETTING_KEY, 'on');
+		}
+		else {
+			localStorage.removeItem(DETAIL_SETTING_KEY);
+		}
+	}
+	catch {
+		// Private mode or storage off: the choice lasts for this visit only.
+	}
+}
+
 // ------------------------------------------------------------- listeners
 
 const listeners = new Set();
@@ -114,18 +159,34 @@ export async function localPhoto(photoId) {
 	return row ? row.blob : null;
 }
 
-// Drops the phone's copy. The photo comes back from the bucket the next time
-// it is shown, if it was uploaded.
-export async function forgetLocalPhoto(photoId) {
-	const url = urls.get(photoId);
+function forgetUrl(key) {
+	const url = urls.get(key);
 
 	if (url) {
 		URL.revokeObjectURL(url);
-		urls.delete(photoId);
+		urls.delete(key);
 	}
 
-	failedAt.delete(photoId);
-	await idb('blobs', 'readwrite', (s) => s.delete(photoId));
+	failedAt.delete(key);
+}
+
+// Drops the phone's copy, and its detail copy. The photo comes back from
+// the bucket the next time it is shown, if it was uploaded.
+export async function forgetLocalPhoto(photoId) {
+	forgetUrl(photoId);
+	forgetUrl(detailKey(photoId));
+	await idb('blobs', 'readwrite', (s) => {
+		s.delete(detailKey(photoId));
+
+		return s.delete(photoId);
+	});
+}
+
+// Drops only the detail copy from the phone, which then comes back from the
+// bucket the next time the viewer zooms in.
+export async function forgetLocalDetail(photoId) {
+	forgetUrl(detailKey(photoId));
+	await idb('blobs', 'readwrite', (s) => s.delete(detailKey(photoId)));
 }
 
 // The object URL of a photo already opened in this session, or null.
@@ -156,6 +217,48 @@ async function download(path) {
 	return data;
 }
 
+// An object URL for the file stored under `key`: from this session, from
+// the phone, or from the bucket at `path` (then kept on the phone).
+function fileUrl(key, path) {
+	if (urls.has(key)) {
+		return Promise.resolve(urls.get(key));
+	}
+
+	if (!fetching.has(key)) {
+		fetching.set(key, (async () => {
+			const local = await localPhoto(key).catch(() => null);
+
+			if (local) {
+				return remember(key, local);
+			}
+
+			if (Date.now() - (failedAt.get(key) || 0) < RETRY_FETCH_MS) {
+				return null;
+			}
+
+			try {
+				const blob = await download(path);
+
+				if (!blob) {
+					return null;
+				}
+
+				await savePhotoLocally(key, blob).catch(() => {});
+				failedAt.delete(key);
+
+				return remember(key, blob);
+			}
+			catch {
+				failedAt.set(key, Date.now());
+
+				return null;
+			}
+		})().finally(() => fetching.delete(key)));
+	}
+
+	return fetching.get(key);
+}
+
 // An object URL for the photo: from this session, from the phone, or from
 // the bucket (then kept on the phone). Null when none of them has it right
 // now: offline, signed out, or not uploaded yet from the phone that took it.
@@ -164,43 +267,18 @@ export function photoUrl(photo) {
 		return Promise.resolve(null);
 	}
 
-	if (urls.has(photo.id)) {
-		return Promise.resolve(urls.get(photo.id));
+	return fileUrl(photo.id, photo.path);
+}
+
+// The same for the photo's detail copy, for the viewer when it zooms past
+// the normal copy. Null for a photo saved without one, and whenever the
+// detail copy cannot be had right now; the normal copy then stays.
+export function detailUrl(photo) {
+	if (!photo || !photo.id || !photo.detail) {
+		return Promise.resolve(null);
 	}
 
-	if (!fetching.has(photo.id)) {
-		fetching.set(photo.id, (async () => {
-			const local = await localPhoto(photo.id).catch(() => null);
-
-			if (local) {
-				return remember(photo.id, local);
-			}
-
-			if (Date.now() - (failedAt.get(photo.id) || 0) < RETRY_FETCH_MS) {
-				return null;
-			}
-
-			try {
-				const blob = await download(photo.path);
-
-				if (!blob) {
-					return null;
-				}
-
-				await savePhotoLocally(photo.id, blob).catch(() => {});
-				failedAt.delete(photo.id);
-
-				return remember(photo.id, blob);
-			}
-			catch {
-				failedAt.set(photo.id, Date.now());
-
-				return null;
-			}
-		})().finally(() => fetching.delete(photo.id)));
-	}
-
-	return fetching.get(photo.id);
+	return fileUrl(detailKey(photo.id), detailPath(photo.path, photo.detail.type));
 }
 
 // ------------------------------------------------------------- made
@@ -272,8 +350,9 @@ async function freshEntry(entryOrId) {
 }
 
 // Saves a new photo on the phone, adds it to its entry, and queues its
-// upload. `photo` is a model.js newPhoto() record.
-export async function addPhotoToEntry(entryOrId, photo, blob) {
+// upload. `photo` is a model.js newPhoto() record; detailBlob is its detail
+// copy when photo.detail says it has one, queued to upload after it.
+export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null) {
 	const doc = await loadDocument();
 	const entry = await freshEntry(entryOrId);
 
@@ -283,6 +362,13 @@ export async function addPhotoToEntry(entryOrId, photo, blob) {
 
 	await savePhotoLocally(photo.id, blob);
 	remember(photo.id, blob);
+
+	const withDetail = Boolean(detailBlob && photo.detail);
+
+	if (withDetail) {
+		await savePhotoLocally(detailKey(photo.id), detailBlob);
+	}
+
 	await rememberMade(entry.id, photo);
 	await updateCards([{id: entry.id, patch: {photos: [...(Array.isArray(entry.photos) ? entry.photos : []), photo]}}]);
 	await idb('queue', 'readwrite', (s) => s.put({
@@ -294,6 +380,19 @@ export async function addPhotoToEntry(entryOrId, photo, blob) {
 		type: blob.type,
 		user_id: doc.user_id || null,
 	}, photo.id));
+
+	if (withDetail) {
+		await idb('queue', 'readwrite', (s) => s.put({
+			at: Date.now() + 1,
+			entry_id: entry.id,
+			error: null,
+			op: DETAIL_OP,
+			photo_id: photo.id,
+			type: detailBlob.type,
+			user_id: doc.user_id || null,
+		}, detailKey(photo.id)));
+	}
+
 	pending.add(photo.id);
 	notify();
 	flushQueue();
@@ -322,6 +421,7 @@ export async function removePhotoFromEntry(entryOrId, photoId) {
 	await rememberMade(entry.id, photo).catch(() => {});
 
 	const queued = await idb('queue', 'readonly', (s) => s.get(photoId));
+	const detail = photo.detail ? detailPath(photo.path, photo.detail.type) : null;
 
 	if (photo.path) {
 		await idb('queue', 'readwrite', (s) => s.put({
@@ -330,6 +430,7 @@ export async function removePhotoFromEntry(entryOrId, photoId) {
 			error: null,
 			op: 'delete',
 			path: photo.path,
+			paths: [photo.path, detail].filter(Boolean),
 			photo_id: photoId,
 			user_id: pathOwner(photo.path),
 		}, photoId));
@@ -337,6 +438,9 @@ export async function removePhotoFromEntry(entryOrId, photoId) {
 	else if (queued) {
 		await idb('queue', 'readwrite', (s) => s.delete(photoId));
 	}
+
+	// A detail copy still waiting to go up stays nowhere.
+	await idb('queue', 'readwrite', (s) => s.delete(detailKey(photoId))).catch(() => {});
 
 	pending.delete(photoId);
 	await forgetLocalPhoto(photoId).catch(() => {});
@@ -360,6 +464,10 @@ async function uploadOne(client, row, userId) {
 	// The card or the photo was removed before it went up: nothing to send.
 	if (!entry || !photo || photo.deleted_at) {
 		return true;
+	}
+
+	if (row.op === DETAIL_OP) {
+		return uploadDetail(client, row, entry, photo, userId);
 	}
 
 	const blob = await localPhoto(row.photo_id);
@@ -389,8 +497,31 @@ async function uploadOne(client, row, userId) {
 	return true;
 }
 
+// The detail copy goes up beside the normal copy, once that one has its
+// path (its upload row is older, so it went first).
+async function uploadDetail(client, row, entry, photo, userId) {
+	const blob = await localPhoto(detailKey(row.photo_id));
+
+	if (!blob || !photo.detail) {
+		return true;
+	}
+
+	const path = detailPath(photo.path || photoPath(userId, entry.id, photo.id, photo.detail.type), photo.detail.type);
+	const {error} = await client.storage.from(PHOTO_BUCKET).upload(path, await blob.arrayBuffer(), {
+		cacheControl: '31536000',
+		contentType: row.type || blob.type || 'image/webp',
+		upsert: true,
+	});
+
+	if (error) {
+		throw error;
+	}
+
+	return true;
+}
+
 async function deleteOne(client, row) {
-	const {error} = await client.storage.from(PHOTO_BUCKET).remove([row.path]);
+	const {error} = await client.storage.from(PHOTO_BUCKET).remove(row.paths && row.paths.length ? row.paths : [row.path]);
 
 	if (error) {
 		throw error;
@@ -445,13 +576,16 @@ export function flushQueue() {
 						await uploadOne(client, row, user.id);
 					}
 
-					await idb('queue', 'readwrite', (s) => s.delete(row.photo_id));
-					pending.delete(row.photo_id);
+					await idb('queue', 'readwrite', (s) => s.delete(queueKey(row)));
+
+					if (row.op !== DETAIL_OP) {
+						pending.delete(row.photo_id);
+					}
 				}
 				catch (err) {
 					const message = (err && err.message) || String(err);
 
-					await idb('queue', 'readwrite', (s) => s.put({...row, error: message}, row.photo_id)).catch(() => {});
+					await idb('queue', 'readwrite', (s) => s.put({...row, error: message}, queueKey(row))).catch(() => {});
 
 					if (!permanent(err)) {
 						retry = true;
