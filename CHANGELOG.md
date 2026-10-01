@@ -19,10 +19,10 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-01
 
-- **12:20** Scan lab at `/lab/`: measures how well the phone reads cards (open it in an Incognito
+- **13:48** Scan lab at `/lab/`: measures how well the phone reads cards (open it in an Incognito
   tab until the next app version). Benchmark: the right card first on 82% of clean and 65% of
   degraded captures. `385a02d`
-- **12:15** Live sync: an open device picks up changes from another within a minute, or within
+- **12:05** Live sync: an open device picks up changes from another within a minute, or within
   seconds after running `supabase/realtime.sql`. Installed apps get it with the next version.
   `e322ba0`
 
@@ -47,7 +47,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-01
 
-- **12:25** Navigation from the staff design review, approved: Cards, Sets, Scan, Binders,
+- **13:48** Navigation from the staff design review, approved: Cards, Sets, Scan, Binders,
   Lists, Profile behind the avatar; TCG Pocket hidden from Sets. `plans/design-review.md`
 
 - **11:58** Image carousel per card with dots: official image by default, then an international
