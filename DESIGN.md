@@ -374,6 +374,13 @@ than downloading a whole language up front.
 counts at roughly 9 MB of quota each. The opaque image cache is capped at 100 entries; the
 lasting fix is the server-side copy of owned-card images (section 3), or TCGdex fixing the header.
 
+**A second free image source.** About 1,750 English and 1,160 Portuguese TCGdex cards have no
+image, mostly promos (`smp`, `swshp`, `mep`, `svp`), trainer kits (`tk`), and subsets such as the
+Shiny Vault and Galarian Gallery. pokemontcg.io (free, English only, its own ID scheme such as
+`swsh12pt5gg-GG01`) has images for the samples checked: `swsh45sv-SV001`, `smp-SM01`,
+`swsh12pt5gg-GG01`, `tk1a-1`. Plan: when TCGdex has no image in the viewing language, use the
+TCGdex English image, then pokemontcg.io's, through an ID mapping table. *(Planned 2026-10-01.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
@@ -452,6 +459,21 @@ sets, back to Base Set.
   collection such as Star by exporting it from monprice separately and importing that file as
   tags on copies that already exist. `Todas` itself is not imported as a collection, because
   owning is the base set.
+
+**First import, 2026-10-01 (built and run on the real export):**
+
+- **Set mapping** uses TCGdex's printed abbreviation: `sets?abbreviation.official=eq:CRI` finds
+  `me04`, one request per monprice set code, with a release-date check (without it `TR` maps to
+  Team Rocket Returns instead of Team Rocket). Names and dates cover the few codes with no
+  abbreviation. `30C` is shared by two sets and is split by printed set size.
+- **Result:** 1,398 of 1,414 rows matched automatically, 187 of them through a fallback (the
+  expected vintage PT and Korean ones, plus PT sets that list few or no cards, such as `30th` with
+  2 of 128). 16 rows need manual entry: the 5 expected, 7 `MEE` rows numbered beyond the 8 cards
+  TCGdex lists, and 4 basic energies with letter numbers TCGdex does not list.
+- **Finishes:** 133 rows keep their raw finish with no variant ID, mostly where TCGdex's only
+  variant ID is the placeholder `"generated"`, which names no printing.
+- Entries also carry `catalog` (Japanese and Korean IDs can collide), `fallback`, `import_key`
+  (what makes reruns safe), and `finish_raw`. A rerun adds nothing.
 
 ## 8. Persistence and Auth
 
