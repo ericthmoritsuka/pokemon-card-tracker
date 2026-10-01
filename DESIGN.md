@@ -800,6 +800,17 @@ Each binder also carries **notes** (free text, for example "Generations 1 and 2"
 color**, and the binder list draws each one in its cover color so it is easy to match to the real
 binder. *(Requested by Eric, 2026-10-01.)*
 
+**Spreads with a page turn** (Eric, 2026-10-01). A binder opens like a real one: page 1 alone on the
+right (the inside cover on the left), then two-page spreads (2 and 3, 4 and 5, ...), and a last
+page alone when the count is odd. Swiping or the edge arrows turn the page with a CSS 3D flip
+around the spine (the page lifts, a shadow sweeps across, it lands on the other side), with a
+crossfade under reduced motion. Depth comes from a spine with rings, a soft shadow where pages
+curve into the spine, a slight sheen on the pockets, and the cover color showing at the edges. On
+a phone in portrait the spread is an overview and tapping a page zooms into it for placing cards;
+in landscape, on tablets, and on laptops the spread is large enough to edit directly. Spreads are
+also where Michi art can cross facing pages, which settles that open question. *(Planned
+2026-10-01, a block after the shell.)*
+
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
 cards are not in any binder yet.
 
@@ -851,7 +862,6 @@ what it pulled at today's prices, and the best pull.
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
   family member's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
   schema change later.
-- Michi art across two facing pages: the binder model places art on one page only.
 - The rest of the proposals in `plans/ux-plan.md` section 9 and `plans/product-plan.md` section 8
   that are not decided above (undo duration, removing or trading away a card, condition at scan).
 - Phone only, or a real desktop view for bulk editing and binder layout? CSV round-trip partly
