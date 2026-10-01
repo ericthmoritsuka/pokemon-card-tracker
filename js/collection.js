@@ -200,7 +200,7 @@ export const writeMeta = (key, value) => idb('readwrite', (store) => store.put(v
 // quantity field (DESIGN.md section 3).
 const ENTRY_FIELDS = [
 	'card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback',
-	'language', 'language_source', 'import_key',
+	'language', 'language_source', 'import_key', 'name_local', 'set_name_local',
 	'condition', 'purchase_price', 'purchase_currency', 'opening_id', 'storage',
 	'grader', 'grade', 'cert_number', 'graded_price',
 	'notes', 'is_favorite', 'photo_path',
@@ -219,6 +219,24 @@ function pick(fields) {
 }
 
 export const isLive = (entry) => !entry.deleted_at;
+
+// The names the source gave a copy (name_local, set_name_local), when the
+// catalog record has no localization in the copy's own language: a Korean
+// copy on a Japanese record, or any fallback match (DESIGN.md section 5).
+// Null when the catalog's names apply, or when the source gave no name.
+export function sourceNames(entry, record) {
+	if (!entry || !entry.name_local) {
+		return null;
+	}
+
+	const localizations = (record && record.localizations) || {};
+
+	if (!entry.fallback && localizations[entry.language]) {
+		return null;
+	}
+
+	return {name: entry.name_local, setName: entry.set_name_local || null};
+}
 
 export async function listCards() {
 	const doc = await loadDocument();
@@ -268,8 +286,8 @@ export async function deleteCard(id) {
 }
 
 // Adds or updates imported entries by import_key in one save. An entry
-// whose key is already present is updated when its catalog match changed and
-// left alone otherwise; a key whose entry was deleted is skipped, so a rerun
+// whose key is already present is updated when its catalog match or its
+// source names changed and left alone otherwise; a key whose entry was deleted is skipped, so a rerun
 // never brings back a card the owner removed.
 export async function applyImport(entries) {
 	const doc = await loadDocument();
@@ -282,7 +300,7 @@ export async function applyImport(entries) {
 	}
 
 	const counts = {added: 0, skippedDeleted: 0, unchanged: 0, updated: 0};
-	const compared = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language'];
+	const compared = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'name_local', 'set_name_local'];
 	const base = Date.now();
 
 	entries.forEach((fields, i) => {

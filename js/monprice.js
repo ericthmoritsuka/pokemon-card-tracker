@@ -706,3 +706,32 @@ export async function matchRows(rows, api, onProgress = () => {}, {concurrency =
 // Import key for one copy: stable across reruns of the same export, so a
 // rerun updates entries instead of adding them again.
 export const importKey = (row, copyIndex) => ['monprice', row.monpriceId, row.language, row.finish, copyIndex].join('|');
+
+const sourceText = (value) => String(value || '').trim() || null;
+
+// The entries to save for matched and fallback results: one per copy. Each
+// keeps the name and set name the export gave, which the app shows when the
+// catalog record has no localization in the copy's language (DESIGN.md
+// section 5).
+export function importEntries(results) {
+	const entries = [];
+
+	for (const result of results) {
+		for (let i = 0; i < result.row.count; i++) {
+			entries.push({
+				card_id: result.cardId,
+				catalog: result.catalog,
+				fallback: result.status === 'fallback' ? true : undefined,
+				finish_raw: result.variantId ? undefined : result.row.finish,
+				import_key: importKey(result.row, i),
+				language: result.row.language,
+				language_source: 'import',
+				name_local: sourceText(result.row.name),
+				set_name_local: sourceText(result.row.setName),
+				variant_id: result.variantId || null,
+			});
+		}
+	}
+
+	return entries;
+}

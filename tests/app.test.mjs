@@ -213,6 +213,51 @@ describe('signed out', () => {
 	});
 });
 
+describe('source names', () => {
+	test('a Korean copy on a Japanese record shows the names the source gave it', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const at = '2026-09-01T00:00:00.000Z';
+		const entry = (id, fields) => ({created_at: at, deleted_at: null, id, language_source: 'import', updated_at: at, ...fields});
+
+		// The Japanese catalog's card record for the detail page.
+		await context.route('https://api.tcgdex.net/v2/ja/cards/tst1-001', (route) => route.fulfill({
+			body: JSON.stringify({id: 'tst1-001', localId: '001', name: 'Test card tst1 001', set: {cardCount: {official: 160}, id: 'tst1', name: 'Test set tst1'}, variants_detailed: []}),
+			contentType: 'application/json',
+			status: 200,
+		}));
+
+		await seedLocal(page, documentWith([
+			entry('k1', {card_id: 'tst1-001', catalog: 'ja', fallback: true, import_key: 'monprice|t_kr_001|ko|NORMAL|0', language: 'ko', name_local: '시험 카드', set_name_local: '시험 세트'}),
+			// A normal match keeps the catalog's names.
+			entry('j1', {card_id: 'tst1-002', catalog: 'ja', import_key: 'monprice|t_jp_002|ja|NORMAL|0', language: 'ja', name_local: 'Source name only', set_name_local: 'Source set only'}),
+		]));
+
+		const korean = page.locator('.tile', {hasText: '시험 카드'});
+
+		await korean.waitFor();
+		assert.match(await korean.locator('.tile-meta').textContent(), /시험 세트/);
+		assert.equal(await korean.locator('.badge-lang').textContent(), 'KO');
+		await page.waitForSelector('.tile-name:has-text("Test card tst1 002")');
+		assert.equal(await page.locator('.tile-name:has-text("Source name only")').count(), 0);
+
+		// Card detail: every copy is Korean, so the source's names lead.
+		await page.goto(url('cards/ja/tst1-001'));
+		await page.waitForSelector('.card-detail h2:has-text("시험 카드")');
+		await page.waitForSelector('.copies li:has-text("Korean")');
+		assert.equal(await page.locator('.copies li').textContent(), 'Korean · Finish not set');
+
+		// With a Japanese copy too, the catalog name leads and the Korean copy
+		// lists its own name.
+		await addCard(page, {card_id: 'tst1-001', catalog: 'ja', language: 'ja', language_source: 'manual'});
+		await page.reload();
+		await page.waitForSelector('.card-detail h2:has-text("Test card tst1 001")');
+		await page.waitForSelector('.copies li:has-text("시험 카드")');
+		assert.equal(await page.locator('.copies li:has-text("Korean")').textContent(), 'Korean · 시험 카드 · Finish not set');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
 describe('sign in', () => {
 	test('the Sign in screen: email link, check-your-email state, no sign-up wording, Google hidden', async () => {
 		const fake = new FakeSupabase({google: false});
@@ -648,7 +693,7 @@ describe('the app shell', () => {
 		await page.evaluate(() => navigator.serviceWorker.ready);
 
 		const cached = await page.evaluate(async () => {
-			const cache = await caches.open('card-tracker-shell-v6');
+			const cache = await caches.open('card-tracker-shell-v8');
 
 			return (await cache.keys()).map((request) => new URL(request.url).pathname);
 		});

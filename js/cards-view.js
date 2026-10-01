@@ -19,7 +19,7 @@ import {
 import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
 import {cardArt} from './catalog-views.js';
-import {isLive, listCards, onChange} from './collection.js';
+import {isLive, listCards, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, go, h} from './dom.js';
 import {finishLabel} from './monprice.js';
 import {familyOverview, memberDocument} from './sync.js';
@@ -407,6 +407,9 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 			const base = catalogLanguage(first.catalog);
 			const viewingFits = catalogFor(viewing) === first.catalog;
 			const local = display(record, [viewingFits ? viewing : null, first.language, base]);
+			// A copy the catalog has no names for in its language shows the
+			// names the source gave it (DESIGN.md section 5).
+			const source = group.entries.map((entry) => sourceNames(entry, record)).find(Boolean) || null;
 			const times = group.entries.map((entry) => String(entry.created_at)).sort();
 
 			return {
@@ -415,16 +418,18 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 				cardId: first.card_id,
 				language: first.language,
 				local,
+				name: (source && source.name) || (local && local.name) || first.card_id,
 				newest: times[times.length - 1],
 				oldest: times[0],
 				record,
+				setName: (source && source.setName) || (local && local.set_name) || null,
 			};
 		});
 	}
 
 	function sorted(list) {
 		const by = sort.value;
-		const name = (group) => (group.local && group.local.name) || group.cardId;
+		const name = (group) => group.name;
 
 		return [...list].sort((a, b) => {
 			if (by === 'newest') {
@@ -453,9 +458,9 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		const count = group.entries.length;
 		const lang = local && isLanguage(local.lang) ? local.lang : catalogLanguage(group.catalog);
 		const info = {
-			name: (local && local.name) || group.cardId,
+			name: group.name,
 			number: record && record.collector_number,
-			setName: local && local.set_name,
+			setName: group.setName,
 		};
 		const frame = h('div', {class: 'art-wrap'}, cardArt(info, local ? cardImage(local.image, 'low') : null));
 

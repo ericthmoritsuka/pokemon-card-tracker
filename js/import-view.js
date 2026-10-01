@@ -5,7 +5,7 @@ import {languageChip} from './cards-view.js';
 import {applyImport, importKeys} from './collection.js';
 import {importApi, languageLabel, saveToCardIndex} from './catalog.js';
 import {BASE, errorText, h, namedError} from './dom.js';
-import {finishLabel, importKey, matchRows, parseExport} from './monprice.js';
+import {finishLabel, importEntries, matchRows, parseExport} from './monprice.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -183,22 +183,7 @@ export function importView(root) {
 		const only = saved.filter((result) => result.finishHow === 'only printing');
 		const reverse = saved.filter((result) => result.variantId && result.row.finish === 'REVERSE_HOLOFOIL');
 
-		const entries = [];
-
-		for (const result of saved) {
-			for (let i = 0; i < result.row.count; i++) {
-				entries.push({
-					card_id: result.cardId,
-					catalog: result.catalog,
-					fallback: result.status === 'fallback' ? true : undefined,
-					finish_raw: result.variantId ? undefined : result.row.finish,
-					import_key: importKey(result.row, i),
-					language: result.row.language,
-					language_source: 'import',
-					variant_id: result.variantId || null,
-				});
-			}
-		}
+		const entries = importEntries(saved);
 
 		const already = entries.filter((entry) => existing.has(entry.import_key)).length;
 		const languages = groupBy(parsed.rows.map((row) => ({row})), (result) => result.row.language);

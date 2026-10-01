@@ -5,6 +5,7 @@ import {
 	NotOnPhoneError,
 	cardDetail,
 	cardImage,
+	cardIndex,
 	catalogFor,
 	compareNumbers,
 	languageLabel,
@@ -14,7 +15,7 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
-import {ownedBySet, ownedIn} from './collection.js';
+import {ownedBySet, ownedIn, sourceNames} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {finishLabel} from './monprice.js';
 
@@ -575,14 +576,26 @@ export function cardView(root, {lang, cardId}) {
 		return value ? [h('dt', null, label), h('dd', null, value)] : [];
 	}
 
+	// The names the source gave the owner's copies, when every copy of this
+	// card is one the catalog has no names for in its language (a Korean
+	// copy on a Japanese record). Null shows the catalog's names.
+	let source = null;
+
 	function draw(card) {
+		render(card);
+		drawCopies(card, Array.isArray(card.variants_detailed) ? card.variants_detailed : []);
+	}
+
+	function render(card) {
 		const set = card.set || {};
 		const official = set.cardCount && set.cardCount.official;
 		const number = official ? `${card.localId} / ${official}` : card.localId;
-		const info = {name: card.name, number: card.localId, setName: set.name};
+		const name = (source && source.name) || card.name;
+		const setName = (source && source.setName) || set.name;
+		const info = {name, number: card.localId, setName};
 		const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : null;
 
-		document.title = `${card.name} | Card Tracker`;
+		document.title = `${name} | Card Tracker`;
 
 		if (set.id) {
 			back.href = BASE + routeTo('sets', lang, set.id);
@@ -593,9 +606,9 @@ export function cardView(root, {lang, cardId}) {
 		body.replaceChildren(
 			h('div', {class: 'big-art'}, cardArt(info, cardImage(card.image, 'high'), {eager: true})),
 			h('div', null,
-				h('h2', null, card.name),
+				h('h2', null, name),
 				h('dl', {class: 'facts'},
-					row('Set', set.name),
+					row('Set', setName),
 					row('Number', number),
 					row('Rarity', card.rarity),
 					row('Illustrator', card.illustrator),
@@ -610,27 +623,44 @@ export function cardView(root, {lang, cardId}) {
 					: null
 			)
 		);
-		drawCopies(variants || []);
 	}
 
 	const copies = h('section', {class: 'copies', hidden: true});
 
-	async function drawCopies(variants) {
+	async function drawCopies(card, variants) {
 		let mine;
+		let record;
 
 		try {
-			mine = (await ownedIn(catalogFor(lang))).get(cardId);
+			const catalog = catalogFor(lang);
+			const [owned, index] = await Promise.all([ownedIn(catalog), cardIndex()]);
+
+			mine = owned.get(cardId);
+			record = index.get(`${catalog}|${cardId}`) || null;
 		}
 		catch {
 			return;
 		}
 
-		if (!alive || !mine) {
+		if (!alive) {
+			return;
+		}
+
+		const names = mine ? mine.entries.map((entry) => sourceNames(entry, record)) : [];
+		const next = names.length && names.every(Boolean) ? names[0] : null;
+
+		if ((next && next.name) !== (source && source.name) || (next && next.setName) !== (source && source.setName)) {
+			source = next;
+			render(card);
+		}
+
+		if (!mine) {
 			copies.hidden = true;
 
 			return;
 		}
 
+		const shownName = (source && source.name) || card.name;
 		const groups = new Map();
 
 		for (const entry of mine.entries) {
@@ -640,16 +670,18 @@ export function cardView(root, {lang, cardId}) {
 				: entry.finish_raw
 					? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
 					: 'Finish not set';
-			const key = `${entry.language}|${finish}`;
+			// Each copy's own name, when it differs from the one shown above.
+			const localName = entry.name_local && entry.name_local !== shownName ? entry.name_local : null;
+			const key = `${entry.language}|${localName}|${finish}`;
 
-			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language});
+			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language, localName});
 		}
 
 		copies.hidden = false;
 		copies.replaceChildren(
 			h('h3', null, `Your copies (${mine.total})`),
 			h('ul', {class: 'variants'}, [...groups.values()].map((group) =>
-				h('li', null, `${languageLabel(group.language)} · ${group.finish}${group.count > 1 ? ` ×${group.count}` : ''}`)
+				h('li', null, [languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''))
 			))
 		);
 	}
