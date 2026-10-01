@@ -128,6 +128,19 @@ function download(name, text) {
 	setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
+// The phone's share sheet, where Google Drive is one of the targets. Shown
+// only where the browser can share files (Chrome on Android can).
+const csvFile = (name, text) => new File([text], name, {type: 'text/csv'});
+
+const canShareFiles = () => {
+	try {
+		return Boolean(navigator.canShare && navigator.canShare({files: [csvFile('check.csv', '')]}));
+	}
+	catch {
+		return false;
+	}
+};
+
 // ------------------------------------------------------------ the view
 
 const SORTS = [
@@ -350,14 +363,29 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		draw();
 	}, type: 'button'}, 'Show more');
 	const exportButton = h('button', {onclick: exportCsv, type: 'button'}, 'Export CSV');
+	const shareButton = canShareFiles() ? h('button', {onclick: shareCsv, type: 'button'}, 'Share CSV') : null;
 	const body = h('div');
 
 	sort.value = readSetting(SORT_KEY, SORTS.map((option) => option.value), 'newest');
 
-	function exportCsv() {
-		const live = [...entries].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+	const csvName = () => `card-tracker-${new Date().toISOString().slice(0, 10)}.csv`;
+	const csvText = () => collectionCsv([...entries].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))), index);
 
-		download(`card-tracker-${new Date().toISOString().slice(0, 10)}.csv`, collectionCsv(live, index));
+	function exportCsv() {
+		download(csvName(), csvText());
+	}
+
+	async function shareCsv() {
+		try {
+			await navigator.share({files: [csvFile(csvName(), csvText())], title: 'Card Tracker export'});
+		}
+		catch (error) {
+			// Closing the share sheet is not an error; anything else falls
+			// back to a plain download so the export still happens.
+			if (error && error.name !== 'AbortError') {
+				exportCsv();
+			}
+		}
 	}
 
 	function build() {
@@ -568,6 +596,7 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 				? null
 				: h('div', {class: 'actions'},
 					exportButton,
+					shareButton,
 					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import')
 				)
 		);
