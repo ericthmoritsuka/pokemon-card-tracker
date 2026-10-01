@@ -21,6 +21,20 @@
 // one write. Offline, edits wait on the phone; the sync runs again when the
 // connection returns, when the app is opened or brought back to the front,
 // and after a failure.
+//
+// While the app is open and in front, another device's save shows up here
+// without a reload, two ways (the "live" section below):
+//   - Supabase Realtime tells this device within seconds that its own row
+//     changed. That needs the documents table in the supabase_realtime
+//     publication (supabase/realtime.sql); without it the channel stays
+//     silent and the poll below still works.
+//   - A light poll reads only updated_at once a minute, and a sync runs when
+//     the window gets focus or the tab becomes visible. A hidden tab neither
+//     polls nor keeps the Realtime connection open.
+// Either one only starts a sync, so a change still waiting to be pushed is
+// merged with the server's, never replaced: the newer updated_at wins entry
+// by entry (js/merge.js), and the merged document is what gets pushed.
+// Family members' documents are read when shown, not live.
 
 import {currentUser, getClient, onUser} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
@@ -30,6 +44,15 @@ const PUSH_DELAY_MS = 3000;
 const RETRY_DELAY_MS = 30000;
 const MAX_ATTEMPTS = 5;
 const GROUP_NAME = 'Family';
+
+// The poll reads one timestamp a minute while the app is in front. It never
+// runs more often than every 30 seconds, however it is woken.
+const POLL_MS = 60000;
+const MIN_POLL_MS = 30000;
+
+// Focus and visibilitychange usually arrive together, so a second wake this
+// soon after a server check does nothing.
+const WAKE_GAP_MS = 5000;
 
 const status = {error: null, pending: 0, phase: 'off', signedIn: false};
 const statusListeners = new Set();
@@ -43,6 +66,7 @@ let again = false;
 let started = null;
 let claimedFor = null;
 let claimError = null;
+let lastCheck = 0;
 
 function emit() {
 	statusListeners.forEach((listener) => listener({...status}));
@@ -157,6 +181,9 @@ async function syncOnce() {
 
 	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
 		const local = structuredClone(await loadDocument());
+
+		lastCheck = Date.now();
+
 		const head = await table().select('updated_at').eq('user_id', user.id).maybeSingle();
 
 		if (head.error) {
@@ -275,6 +302,7 @@ export function syncNow() {
 		}
 		finally {
 			running = null;
+			schedulePoll();
 		}
 	})();
 
@@ -340,6 +368,7 @@ function handleUser(user) {
 		status.signedIn = false;
 		status.pending = 0;
 		setPhase('off');
+		refreshLive();
 
 		return;
 	}
@@ -348,6 +377,8 @@ function handleUser(user) {
 		started = user.id;
 		begin(user).catch((err) => setPhase('error', err));
 	}
+
+	refreshLive();
 }
 
 // Entries waiting on this phone for the server, for the sign-out warning.
@@ -376,20 +407,187 @@ export function startSync() {
 		}
 	});
 
-	window.addEventListener('online', () => currentUser() && syncNow());
+	window.addEventListener('online', () => {
+		if (currentUser()) {
+			syncNow();
+		}
+
+		refreshLive();
+	});
 	window.addEventListener('offline', () => {
 		if (currentUser()) {
 			setPhase('offline');
 		}
+
+		refreshLive();
 	});
 	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible' && currentUser()) {
-			syncNow();
-		}
+		refreshLive();
+		wake();
 	});
+	window.addEventListener('focus', () => wake());
 
 	if (currentUser()) {
 		handleUser(currentUser());
+	}
+}
+
+// ------------------------------------------------------------ live
+
+let pollTimer = null;
+let channel = null;
+let channelUser = null;
+let channelToken = null;
+
+const inFront = () => document.visibilityState === 'visible';
+
+// What one stamp means: the same as the last one this device saw is nothing
+// new, or this device's own write coming back. Anything else starts a sync,
+// which reads again and downloads the row only when it really changed. A
+// stamp of undefined reads updated_at first. Waits for a running sync, which
+// is what moves `known` to this device's own write.
+async function checkRemote(stamp) {
+	const user = currentUser();
+
+	if (!user || !navigator.onLine) {
+		return;
+	}
+
+	if (running) {
+		await running;
+	}
+
+	if (stamp === undefined) {
+		const client = await getClient();
+
+		lastCheck = Date.now();
+
+		const head = await client.from('documents').select('updated_at').eq('user_id', user.id).maybeSingle();
+
+		// A failed check waits for the next one; it is not worth an error.
+		if (head.error) {
+			return;
+		}
+
+		stamp = head.data ? head.data.updated_at : null;
+	}
+
+	if (!currentUser() || currentUser().id !== user.id || stamp === known) {
+		return;
+	}
+
+	await syncNow();
+}
+
+function schedulePoll() {
+	clearTimeout(pollTimer);
+	pollTimer = null;
+
+	if (currentUser() && inFront()) {
+		pollTimer = setTimeout(poll, Math.max(POLL_MS, MIN_POLL_MS));
+	}
+}
+
+async function poll() {
+	pollTimer = null;
+
+	if (!currentUser() || !inFront()) {
+		return;
+	}
+
+	if (Date.now() - lastCheck >= MIN_POLL_MS) {
+		await checkRemote().catch(() => {});
+	}
+
+	if (!pollTimer && !running) {
+		schedulePoll();
+	}
+}
+
+// The app came to the front: sync now, unless a check has just run.
+function wake() {
+	if (!currentUser() || !inFront() || Date.now() - lastCheck < WAKE_GAP_MS) {
+		return;
+	}
+
+	syncNow();
+}
+
+function disconnectLive() {
+	const old = channel;
+
+	channel = null;
+	channelUser = null;
+	channelToken = null;
+
+	if (old) {
+		// Removing the last channel closes the WebSocket.
+		getClient().then((client) => client.removeChannel(old)).catch(() => {});
+	}
+}
+
+// One Realtime channel on the signed-in person's own row, open only while the
+// app is in front and online. A channel that fails is dropped until the next
+// time the app comes to the front; the poll covers the gap.
+function connectLive() {
+	const user = currentUser();
+
+	if (channelUser === user.id) {
+		return;
+	}
+
+	disconnectLive();
+	channelUser = user.id;
+
+	const token = {};
+
+	channelToken = token;
+
+	getClient().then((client) => {
+		if (channelToken !== token) {
+			return;
+		}
+
+		channel = client
+			.channel(`own-document:${user.id}`)
+			.on('postgres_changes', {event: '*', filter: `user_id=eq.${user.id}`, schema: 'public', table: 'documents'}, (change) => {
+				const stamp = change && change.new ? change.new.updated_at : undefined;
+
+				checkRemote(stamp || undefined).catch(() => {});
+			})
+			.subscribe((state) => {
+				if ((state === 'CHANNEL_ERROR' || state === 'TIMED_OUT') && channelToken === token) {
+					disconnectLive();
+				}
+			});
+	}).catch(() => {
+		if (channelToken === token) {
+			channelUser = null;
+			channelToken = null;
+		}
+	});
+}
+
+// Starts or stops the poll and the Realtime channel to match the moment:
+// signed in and in front polls; online as well listens.
+function refreshLive() {
+	if (!currentUser() || !inFront()) {
+		clearTimeout(pollTimer);
+		pollTimer = null;
+		disconnectLive();
+
+		return;
+	}
+
+	if (!pollTimer && !running) {
+		schedulePoll();
+	}
+
+	if (navigator.onLine) {
+		connectLive();
+	}
+	else {
+		disconnectLive();
 	}
 }
 

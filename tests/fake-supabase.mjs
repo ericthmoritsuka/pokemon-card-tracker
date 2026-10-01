@@ -42,6 +42,8 @@ export class FakeSupabase {
 		this.emails = [];
 		this.clock = Date.parse('2026-10-01T12:00:00.000Z') * 1000;
 		this.gates = [];
+		this.sockets = [];
+		this.changeIds = 0;
 	}
 
 	addUser(email) {
@@ -151,6 +153,10 @@ export class FakeSupabase {
 
 	async attach(context, device = 'device') {
 		await context.route(`${SUPABASE_ORIGIN}/**`, (route) => this.handle(route, device));
+
+		// Realtime's WebSocket, which page.route does not see. Answered here, so
+		// no test ever opens a socket to the real project.
+		await context.routeWebSocket(`${SUPABASE_ORIGIN.replace(/^https/, 'wss')}/**`, (ws) => this.realtime(ws, device));
 	}
 
 	async handle(route, device) {
@@ -295,6 +301,138 @@ export class FakeSupabase {
 		}
 
 		return this.json(route, 404, {msg: `No fake for ${path}`});
+	}
+
+	// ------------------------------------------------------------- realtime
+
+	// The Phoenix protocol supabase-js speaks over the socket: vsn 2.0.0 sends
+	// [join_ref, ref, topic, event, payload] arrays, 1.0.0 sends objects. It
+	// accepts joins, heartbeats, and token updates, and sends nothing on its
+	// own, like a project whose documents table is not in the
+	// supabase_realtime publication. pushChange() sends what the server would
+	// once it is.
+	realtime(ws, device) {
+		const socket = {closed: false, device, joins: new Map(), url: ws.url(), ws};
+
+		this.sockets.push(socket);
+		ws.onClose(() => {
+			socket.closed = true;
+		});
+		ws.onMessage((raw) => {
+			let message;
+
+			try {
+				message = JSON.parse(String(raw));
+			}
+			catch {
+				return;
+			}
+
+			socket.arrays = Array.isArray(message);
+
+			const [joinRef, ref, topic, event, payload] = socket.arrays
+				? message
+				: [message.join_ref, message.ref, message.topic, message.event, message.payload];
+			const reply = (response) => this.wsSend(socket, [joinRef, ref, topic, 'phx_reply', {response, status: 'ok'}]);
+
+			if (event === 'heartbeat') {
+				return reply({});
+			}
+
+			if (event === 'phx_join') {
+				const changes = (((payload || {}).config || {}).postgres_changes || []).map((change) => ({...change, id: ++this.changeIds}));
+
+				socket.joins.set(topic, {caller: this.userOfToken((payload || {}).access_token), changes, joinRef});
+
+				return reply({postgres_changes: changes});
+			}
+
+			if (event === 'access_token') {
+				const join = socket.joins.get(topic);
+
+				if (join) {
+					join.caller = this.userOfToken((payload || {}).access_token) || join.caller;
+				}
+
+				return undefined;
+			}
+
+			if (event === 'phx_leave') {
+				socket.joins.delete(topic);
+
+				return reply({});
+			}
+
+			return undefined;
+		});
+	}
+
+	wsSend(socket, [joinRef, ref, topic, event, payload]) {
+		if (socket.closed) {
+			return;
+		}
+
+		socket.ws.send(JSON.stringify(socket.arrays === false ? {event, join_ref: joinRef, payload, ref, topic} : [joinRef, ref, topic, event, payload]));
+	}
+
+	userOfToken(token) {
+		const parts = String(token || '').split('.');
+
+		if (parts.length !== 3) {
+			return null;
+		}
+
+		try {
+			return this.users.get(JSON.parse(Buffer.from(parts[1], 'base64url').toString()).sub) || null;
+		}
+		catch {
+			return null;
+		}
+	}
+
+	// Sockets still open, for a test that checks a hidden tab let go.
+	openSockets(device) {
+		return this.sockets.filter((socket) => !socket.closed && (!device || socket.device === device));
+	}
+
+	// A postgres_changes event for a documents row, sent to every channel
+	// whose subscription matches and whose caller row-level security lets
+	// read the row. The record carries user_id and updated_at only, as the
+	// real server sends for a row too large for one message.
+	pushChange(row, type = 'UPDATE') {
+		for (const socket of this.sockets) {
+			for (const [topic, join] of socket.joins) {
+				if (!this.canRead(join.caller, row.user_id)) {
+					continue;
+				}
+
+				const ids = join.changes
+					.filter((change) => change.schema === 'public' && change.table === 'documents')
+					.filter((change) => change.event === '*' || change.event === type)
+					.filter((change) => !change.filter || change.filter === `user_id=eq.${row.user_id}`)
+					.map((change) => change.id);
+
+				if (!ids.length) {
+					continue;
+				}
+
+				const record = {updated_at: row.updated_at, user_id: row.user_id};
+
+				this.wsSend(socket, [null, null, topic, 'postgres_changes', {
+					data: {
+						columns: [{name: 'user_id', type: 'uuid'}, {name: 'updated_at', type: 'timestamptz'}],
+						commit_timestamp: row.updated_at,
+						errors: null,
+						old_record: type === 'INSERT' ? undefined : {user_id: row.user_id},
+						record,
+						schema: 'public',
+						table: 'documents',
+						type,
+					},
+					ids,
+				}]);
+			}
+		}
 	}
 
 	// ------------------------------------------------------------- rest
