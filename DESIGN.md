@@ -735,6 +735,16 @@ English name must come from elsewhere: for Pokémon, the English species name fo
 international twin (section 5). Until then the button covers international cards only. Whether
 Liga lists Korean prints at all is unchecked.
 
+**Brazil first** (Eric, 2026-10-01). European prices are not shown, and US prices are a secondary
+reference. The Brazilian price comes from Liga Pokémon, entered by hand after the Ver na Liga
+link, mirroring Liga's page: a lowest NM price and an average price in BRL, each with its source
+and date, shown first on card detail with their age. TCGplayer's market price converted to R$
+appears smaller underneath as the "US market reference". Any list (a binder, a checklist, a set,
+a collection, the Trade spares, or every card) gets statistics: total, average, highest and
+lowest with their cards, and how many values are Liga prices, US estimates, or unknown. Each card
+counts its Liga average when present and the US estimate otherwise, marked as estimated, and an
+unknown never counts as zero.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
