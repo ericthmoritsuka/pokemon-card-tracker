@@ -206,6 +206,9 @@ const ENTRY_FIELDS = [
 	'notes', 'is_favorite', 'photo_path',
 	// The owner's own photos and the pinned tile image (js/photos/model.js).
 	'photos', 'main_image',
+	// The Liga Pokémon price the owner typed in, {low_nm, avg, currency:
+	// 'BRL', source, date} (js/prices.js). null clears it.
+	'price_manual',
 ];
 
 function pick(fields) {

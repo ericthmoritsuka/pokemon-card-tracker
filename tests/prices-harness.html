@@ -1,0 +1,124 @@
+<!doctype html>
+<!--
+	A test page for the price components (js/price-view.js), driven by
+	tests/prices-browser.test.mjs through tests/pages-server.mjs at
+	/pokemon-card-tracker/tests/prices-harness.html?scene=<name>.
+
+	It loads the real style.css and css/prices.css, seeds copies into the
+	real collection (IndexedDB) with js/collection.js, and renders the
+	components with the TCGdex records saved in tests/prices-fixtures. It
+	never loads app.js, so nothing reaches Supabase or TCGdex. The exchange
+	rate request goes to api.frankfurter.dev, which the test answers itself.
+
+	Scenes: english, portuguese, finishes, manual, offline, norate, stats.
+-->
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Price harness</title>
+	<link rel="stylesheet" href="/pokemon-card-tracker/style.css">
+	<link rel="stylesheet" href="/pokemon-card-tracker/css/prices.css">
+	<style>
+		main { padding: 16px; }
+		.harness-tile { align-items: center; display: flex; gap: 8px; margin: 12px 0; }
+	</style>
+</head>
+<body>
+	<div id="errors"></div>
+	<main id="app"></main>
+	<script type="module">
+		import {addCard, listCards} from '/pokemon-card-tracker/js/collection.js';
+		import {ligaUrl} from '/pokemon-card-tracker/js/liga.js';
+		import {priceSection, statsBar, tilePrice} from '/pokemon-card-tracker/js/price-view.js';
+		import {exchangeRates, extractPrices} from '/pokemon-card-tracker/js/prices.js';
+
+		const fixture = async (name) => (await fetch(`/pokemon-card-tracker/tests/prices-fixtures/${name}.json`)).json();
+		const scene = new URLSearchParams(location.search).get('scene') || 'english';
+		const app = document.getElementById('app');
+
+		// The app asks for the day's rate once at startup; tiles and the
+		// statistics bar then read the saved one.
+		await exchangeRates();
+
+		const [exeggcute, exeggcutePt, charizard] = await Promise.all([
+			fixture('en-sv08.5-001'),
+			fixture('pt-sv08.5-001'),
+			fixture('en-base1-4'),
+		]);
+
+		const variant = (card, label) => extractPrices(card).find((finish) => finish.label === label).variantId;
+		const copy = (card, fields) => addCard({card_id: card.id, catalog: 'international', language: 'en', language_source: 'scan', ...fields});
+		const englishLiga = (card) => ligaUrl({localId: card.localId, name: card.name, official: card.set.cardCount.official, setId: card.set.id, setName: card.set.name});
+
+		// A tile stand-in and the statistics bar, redrawn after a save.
+		function extras(card, label) {
+			const tile = document.createElement('div');
+			const stats = document.createElement('div');
+
+			tile.className = 'harness-tile';
+			tile.id = 'harness-tile';
+			stats.id = 'harness-stats';
+
+			const redraw = async () => {
+				const entries = await listCards();
+
+				tile.replaceChildren('Tile: ', tilePrice(entries, card) || 'no price');
+				stats.replaceChildren(statsBar({cardsById: new Map([[`international|${card.id}`, card]]), entries, label}));
+			};
+
+			return {redraw, tile, stats};
+		}
+
+		if (scene === 'english') {
+			await copy(charizard, {variant_id: variant(charizard, 'Holo, Unlimited')});
+			app.append(priceSection({card: charizard, entries: await listCards(), language: 'en'}));
+		}
+		else if (scene === 'portuguese') {
+			// A Portuguese copy on the Portuguese record. Ver na Liga is built from
+			// the English record, as the card view does.
+			await copy(exeggcutePt, {language: 'pt', variant_id: variant(exeggcutePt, 'Reverse holo')});
+			app.append(priceSection({card: exeggcutePt, entries: await listCards(), language: 'pt', ligaHref: englishLiga(exeggcute), recordLanguage: 'pt'}));
+		}
+		else if (scene === 'finishes') {
+			await copy(exeggcute, {variant_id: variant(exeggcute, 'Normal')});
+			await copy(exeggcute, {variant_id: variant(exeggcute, 'Reverse holo, Master Ball pattern')});
+			app.append(priceSection({card: exeggcute, entries: await listCards(), language: 'en'}));
+		}
+		else if (scene === 'manual') {
+			const reverse = variant(exeggcute, 'Reverse holo');
+			const view = extras(exeggcute, 'this card');
+
+			await copy(exeggcute, {variant_id: reverse});
+			await copy(exeggcute, {variant_id: reverse});
+			app.append(
+				priceSection({card: exeggcute, entries: await listCards(), language: 'en', onSaved: view.redraw, variantId: reverse}),
+				view.tile,
+				view.stats
+			);
+			await view.redraw();
+		}
+		else if (scene === 'offline' || scene === 'norate') {
+			await copy(exeggcute, {variant_id: variant(exeggcute, 'Reverse holo, Poké Ball pattern')});
+
+			const view = extras(exeggcute, 'this card');
+
+			app.append(priceSection({card: exeggcute, entries: await listCards(), language: 'en'}), view.tile, view.stats);
+			await view.redraw();
+		}
+		else if (scene === 'stats') {
+			// One Liga price, two US estimates, and two unknowns.
+			const cards = new Map([[`international|${exeggcute.id}`, exeggcute], [`international|${charizard.id}`, charizard]]);
+
+			await copy(exeggcute, {price_manual: {avg: 52.3, currency: 'BRL', date: '2026-09-19', low_nm: 45.9, source: 'Liga Pokémon'}, variant_id: variant(exeggcute, 'Normal')});
+			await copy(exeggcute, {variant_id: variant(exeggcute, 'Reverse holo, Master Ball pattern')});
+			await copy(charizard, {variant_id: variant(charizard, 'Holo, Unlimited')});
+			await copy(charizard, {variant_id: variant(charizard, 'Holo, Shadowless')});
+			await addCard({card_id: 'zz-404', catalog: 'international', language: 'pt'});
+			app.append(statsBar({cardsById: cards, entries: await listCards(), label: 'this binder'}));
+		}
+
+		window.harnessReady = true;
+	</script>
+</body>
+</html>
