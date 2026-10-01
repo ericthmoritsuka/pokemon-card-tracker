@@ -281,6 +281,13 @@ sign-in. Family view-only mode is entered from a "Mine" switcher in the header a
 remembered between launches. The full spec is `plans/design-review.md`. *(Approved by Eric,
 2026-10-01.)*
 
+**Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
+opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
+that list, in its current order and filters, as context. Swiping left or right anywhere on the
+page except the image moves to the next or previous card; swiping on the image changes the image
+in the carousel. A small position line ("12 of 1,359") and edge arrows do the same for one-handed
+use, and the browser back button returns to the list at the same scroll position.
+
 **Sets lists physical cards only.** The TCG Pocket series (digital-only cards) is hidden from the
 Sets list. *(Decided by Eric, 2026-10-01.)*
 
