@@ -743,7 +743,9 @@ appears smaller underneath as the "US market reference". Any list (a binder, a c
 a collection, the Trade spares, or every card) gets statistics: total, average, highest and
 lowest with their cards, and how many values are Liga prices, US estimates, or unknown. Each card
 counts its Liga average when present and the US estimate otherwise, marked as estimated, and an
-unknown never counts as zero.
+unknown never counts as zero. The statistics bar sits on binders, checklists, sets, and the Trade spares; for the
+whole collection it is an on-demand Stats panel the person opens, never a headline total on the
+home screen, which keeps the "no portfolio" decision.
 
 Three ways to handle it, and they can coexist:
 
