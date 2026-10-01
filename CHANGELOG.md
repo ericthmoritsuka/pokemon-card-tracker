@@ -7,18 +7,24 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Pokémon checklists and the Ver na Liga button: built, waiting on a test fix before going live.
-- English names over Japanese, Korean, and Chinese names, with romanized readings in
-  parentheses.
-- Live sync: an open laptop updates within seconds of a change on the phone.
-- Type themes with game-style frames, and a favorite Pokémon as avatar and header icon.
-- Binders with notes and cover color, and wishlists with a family view.
-- Scan lab: a test page that measures how well the phone reads cards.
-- A staff designer review of the whole app, for your approval before the design pass.
+- Built and tested, waiting to go live together: Pokémon checklists, the Ver na Liga button,
+  type themes with game-style frames, favorite Pokémon, binders with notes and cover color, and
+  wishlists with a family view.
+- Being built: English names over Japanese, Korean, and Chinese names, with readings in
+  parentheses, and country flags instead of language codes.
+- Next: the new navigation (Cards, Sets, Scan, Binders, Lists) and the scanner, from the
+  approved design review.
 
 ## Live
 
 ### 2026-10-01
+
+- **12:20** Scan lab at `/lab/`: measures how well the phone reads cards (open it in an Incognito
+  tab until the next app version). Benchmark: the right card first on 82% of clean and 65% of
+  degraded captures. `385a02d`
+- **12:15** Live sync: an open device picks up changes from another within a minute, or within
+  seconds after running `supabase/realtime.sql`. Installed apps get it with the next version.
+  `e322ba0`
 
 - **11:02** Korean cards show their Korean name and set name from the monprice import. Re-import
   a list to fill in cards you already had. `3f7b3af`
@@ -40,6 +46,9 @@ are Recife time. Each line ends with its commit.
 ## Planned
 
 ### 2026-10-01
+
+- **12:25** Navigation from the staff design review, approved: Cards, Sets, Scan, Binders,
+  Lists, Profile behind the avatar; TCG Pocket hidden from Sets. `plans/design-review.md`
 
 - **11:58** Image carousel per card with dots: official image by default, then an international
   print, then your own photos, with "Use as main image". `f7c6ad5`

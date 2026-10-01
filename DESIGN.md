@@ -274,6 +274,16 @@ exactly as stored, which makes it the real backup.
 Fixing twenty mislabeled languages in a spreadsheet and re-importing partly removes the need for
 a dedicated desktop bulk-edit view.
 
+**Navigation follows the staff design review.** Five tabs, Cards, Sets, Scan (raised in the
+center), Binders, and Lists (Checklists and Wishlist as two segments), with Profile behind a
+header avatar holding themes, favorite Pokémon, import and export, Phone check, family, and
+sign-in. Family view-only mode is entered from a "Mine" switcher in the header and never
+remembered between launches. The full spec is `plans/design-review.md`. *(Approved by Eric,
+2026-10-01.)*
+
+**Sets lists physical cards only.** The TCG Pocket series (digital-only cards) is hidden from the
+Sets list. *(Decided by Eric, 2026-10-01.)*
+
 ## 4. Data Model
 
 Sketch, not final. Three places hold data.
