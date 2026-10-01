@@ -25,7 +25,6 @@ What it does:
 - Lay out physical binders: pick a grid, place a card in each slot, spread Michi-method art across
   several slots, print the inserts, and always know which binder page a card is in.
 - Log pack openings, with what they cost against what they pulled.
-- Show owned cards inside the pokedex project.
 - Scan cards one at a time or in a batch session, assigning a whole session to collections at once.
 - Flag duplicates at scan time and keep a Trade view of the extras.
 - Mark favorites.
@@ -34,10 +33,16 @@ What it does:
 - Import the existing collection from monprice (section 7).
 - Separate accounts for any number of people (Eric, his wife, and his brother to start), each
   signing in on their own phone and keeping their own collection.
-- A family group whose members can browse each other's collections, binders, and wishlists.
+- A family group, invite-only, whose members can browse each other's collections, binders, and
+  wishlists.
 - Wishlists, so the others can see which cards someone wants.
 
-Out of scope: a portfolio view. monprice has one and it goes unused.
+Out of scope:
+
+- A portfolio view. monprice has one and it goes unused.
+- Public sign-up. Only Eric adds people (section 3).
+- Any link to the pokedex project. The two stay separate apps, each deployed on its own. *(Decided
+  by Eric, 2026-10-01.)*
 
 ## 2. What monprice Gets Wrong
 
@@ -146,7 +151,10 @@ which was assumed English-only and was never checked. Coverage and gaps are in s
 On 2026-10-01 `assets.tcgdex.net` answered nearly every image request with
 `503 no available server` while the API stayed up, which blanked the pokedex's card gallery. A
 collection app that shows grey tiles during someone else's outage is broken. Store each image the
-first time it is shown.
+first time it is shown, in two tiers: every image viewed is cached on the phone, and only images
+of owned cards, plus anyone's uploads, are copied to server storage. Copying the whole catalog to
+the server will not fit Supabase's free tier, which has 1 GB of file storage (section 8).
+*(Revised 2026-10-01.)*
 
 **Local-first with an offline write queue, server as source of truth.**
 Scanning happens in card shops and at events, where reception is bad. An app that needs a live
@@ -169,7 +177,13 @@ single-user and only built to allow a second.)*
 Members of a group browse each other's collections, binders, goals, and wishlists, read-only.
 Everyone writes only their own rows. Row-level security expresses both: read where the row's
 owner shares a group with you, write where you are the owner. Someone outside every group sees
-nothing.
+nothing. Nothing is hidden inside the group, purchase prices included. Revisit only if the app is
+ever opened beyond the family. *(Decided by Eric, 2026-10-01.)*
+
+**Membership is invite-only, and only Eric invites.**
+There is no public sign-up. Eric's account is the group's owner and the only one that can add or
+remove members; an invited person can only sign in. In Supabase terms: open sign-up is turned off,
+and invitations are sent from the owner's account. *(Decided by Eric, 2026-10-01.)*
 
 **Wishlists are explicit, and separate from goals.**
 A goal's missing list is everything not yet owned, which for "one of every Pokémon" runs to
@@ -420,11 +434,27 @@ tier). Firebase is an equivalent alternative.
 - Row-level security on `user_id` from the start, on every user-owned table: write when you own
   the row, read when you own it or share a group with its owner (section 3). The catalog,
   localizations, cached images, and price snapshots are readable by every signed-in user.
-- Own photos and cached card images need blob storage and will dominate storage size. Cheap now,
-  annoying to add later.
+- Own photos and cached card images need blob storage and will dominate storage size. Server
+  storage holds only owned-card images and uploads (section 3).
 - **Price history requires something always-on.** A current price can be fetched on demand, but a
   chart of collection value over the last year needs a scheduled job writing snapshots nightly
   whether or not the app is open. This is the one piece that needs more than a database.
+
+**Hosting (recommended, not yet decided):** an installable web app (PWA) on GitHub Pages, with
+Supabase behind it. Free, shared by link instead of an app store, and one codebase for every
+family phone. If the web camera proves too weak for batch scanning, wrap the same code as a
+native app with Capacitor rather than rewriting.
+
+Facts this rests on, checked 2026-10-01 against published sources:
+
+- Supabase free tier: 500 MB database, 1 GB file storage, and projects pause after 7 days without
+  activity. A nightly price job (a scheduled GitHub Actions run or Supabase cron) keeps it awake.
+- iOS home-screen web apps can use the camera (`getUserMedia`, since iOS 13), but drop the camera
+  permission whenever the URL hash changes. Route with real paths, never `#` links, or iPhone
+  users are asked for the camera again and again. GitHub Pages has no fallback for app routes,
+  so real paths need a `404.html` that redirects into the app.
+- Anything holding a secret (a vision-model API key) cannot live on GitHub Pages. It goes in a
+  Supabase Edge Function.
 
 ## 9. Export
 
@@ -504,7 +534,6 @@ including the ball patterns.
 
 Each goal shows a progress ring and a **missing list**. The missing list is sortable like any
 other view, can be opened offline in a card shop, and sends any card to the wishlist in one tap.
-The pokedex project already shows each Pokémon's cards, which suits the One Pokémon goal well.
 
 ### Binders
 
@@ -543,23 +572,13 @@ An opening is a batch scan session with a product attached: "10 packs of Celebra
 R$300". Every copy saved in it remembers the opening, so the opening shows what it cost against
 what it pulled at today's prices, and the best pull.
 
-### Pokedex Link
-
-The pokedex project (`ericthmoritsuka/pokedex`) shows each Pokémon's trading cards. With the
-tracker behind it, it can mark the ones the signed-in person owns, and show progress on the
-Every Pokémon goal next to the Pokédex entry itself.
-
 ## 12. Open Questions
 
 - Does Trade count extras per card, or per card and language? A PT and an EN copy of the same
   card may both be keepers.
-- What, if anything, stays private inside a family group? Purchase prices and notes are the
-  likely candidates. Default until decided: visible to the group.
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
   brother's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
   schema change later.
-- How does the pokedex, a static site on GitHub Pages, read a person's cards? Signing in from the
-  pokedex itself, or a read-only link the tracker publishes.
 - Value-over-time chart? The 1/7/30 day averages may be enough; a longer chart is the main fork
   in how much backend is needed (section 8).
 - Phone only, or a real desktop view for bulk editing and binder layout? CSV round-trip partly
@@ -610,4 +629,3 @@ pokemontcg.io is no longer the catalog, so its open questions are dropped.
    slower to enter cards.
 9. Vision-model fallback for variants and set symbols.
 10. Pricing display, then price snapshots if the value chart is wanted.
-11. The pokedex link.
