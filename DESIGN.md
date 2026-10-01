@@ -3,7 +3,12 @@
 Personal collection tracker. Point a phone camera at a card, identify it, store it,
 organize it into collections, and see what it is worth.
 
-Status: design only, nothing built. Last updated 2026-10-01.
+Status: phone spike and catalog browser live; no accounts yet. Last updated 2026-10-01.
+
+**Constraint: no paid services, ever.** Every piece runs on a free tier or a free API: GitHub Pages,
+TCGdex, the Supabase free tier, on-device OCR, and frankfurter.dev for exchange rates. A feature
+that needs a paid service is out of scope until Eric decides otherwise. *(Decided by Eric,
+2026-10-01.)*
 
 Companion plans, written 2026-10-01 by a product review and a UX review of this document:
 [`plans/product-plan.md`](plans/product-plan.md) (scope, release slices, success criteria) and
