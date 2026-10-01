@@ -36,7 +36,7 @@ What it does:
 - Look up current market price and its trend.
 - Export and import CSV, both for backup and for bulk editing in a spreadsheet.
 - Import the existing collection from monprice (section 7).
-- Separate accounts for any number of people (Eric and two family members to start), each
+- Separate accounts for a small number of invited users, each
   signing in on their own phone and keeping their own collection.
 - A family group, invite-only, whose members can browse each other's collections, binders, and
   wishlists.
@@ -192,7 +192,7 @@ phones that each add the same card produce two entries instead of overwriting ea
 *(Decided by Eric, 2026-10-01.)*
 
 **One account per person, any number of people.**
-Eric and two family members each sign in on their own phone, and more can join. Copies,
+Each invited user signs in on their own phone, and Eric can invite more. Copies,
 collections, binders, goals, and wishlists belong to a user. The card catalog, cached images, and
 prices are shared, because they describe cards, not anyone's ownership. Magic link or Google
 sign-in, no passwords. Every user-owned table carries `user_id` with row-level security from day
@@ -616,7 +616,7 @@ pokemontcg.io is no longer the catalog, so its open questions are dropped.
 Follows the release slices in `plans/product-plan.md`. The scanner is in the first release,
 because it fixes the problem that makes monprice worth leaving.
 
-**Weekend zero.** Camera capture and offline IndexedDB writes on all three family phones. It
+**Weekend zero.** Camera capture and offline IndexedDB writes on every invited user's phone. It
 settles the iPhone questions before any feature work.
 
 **First release (switch from monprice):**
