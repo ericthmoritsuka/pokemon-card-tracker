@@ -15,23 +15,19 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 - **Supabase is fully set up:** `setup.sql`, `realtime.sql`, and `photos.sql` have all been run
   (checked: realtime ready, photo bucket and its four policies present). Sign-ups are closed,
   Google sign-in works, Eric is the owner, and two family members are invited.
-- **Possibly still running in the old session:** a scanner-improvement agent writing to
-  `js/scan/` (new files such as `js/scan/ocr.js` and `js/scan/evidence.js`, plus edits to the
-  existing scanner modules and `tests/scan*.mjs`). Run `git status` first. If those files are
-  uncommitted, check that nothing is still writing them (wait a few minutes and compare
-  `git status` and file times) before touching `js/scan/`. Its brief: read the card name, HP, and
-  attack name in parallel with the number, total, language label, and copyright; combine the
-  clues with the name as a second route; break ties with an artwork comparison; two OCR workers
-  and smaller regions for speed (target about 2 s at 4x CPU throttling); and a prefilled search
-  instead of a dead end. Its named test case is the owner's photo
-  `/home/me/Downloads/20261001_152008.jpg` (a phone photo of the laptop screen showing Weedle,
-  `me04-001`, with the number hidden under an app label). **Never copy that photo into the repo.**
+- **Scanner v15 is live** (`b7a6145`): parallel reads of name, HP, attack, number, total, label,
+  and copyright; a name route; an artwork tiebreak; slant correction; a prefilled search when
+  unsure. Benchmark: 74% top-1 over 240 captures (40% before); the Weedle photo
+  (`/home/me/Downloads/20261001_152008.jpg`, never copy it into the repo) matches `me04-001`.
+  Estimated about 2.4 s per card on a mid-range phone, still above the 2 s target. Ideas from its
+  author: redo the full 240-capture benchmark with the final code; measure on the real phone
+  (the scanner logs per-read timings); smaller crops or matching as soon as the number reads;
+  name lists for translated Pokémon names (Portuguese Paradox Pokémon, French, German, trainers);
+  a "read a photo from the gallery" option, since that is how Eric tested.
 
 ## Next Steps, in Order
 
-1. **Finish the scanner improvement.** If its files are complete, add any new `js/scan/*.js` to
-   the `SHELL` list in `sw.js`, run `scan` and `scan-browser` plus the full suite (below), commit,
-   push, and bump `VERSION`. If the agent died partway, finish or redo the brief above.
+1. **Scanner: done in v15.** Next for it: Eric's real-card test, then the ideas above.
 2. **Wire binder spreads** (module committed in `64117ab`: `js/binder-spread.js`,
    `js/binder-cover.js`, `js/binder-presets.js`, `css/binder-spread.css`). The exact
    `js/binders-view.js` diff was saved at `/tmp/bs-integration/binders-view.diff` with its

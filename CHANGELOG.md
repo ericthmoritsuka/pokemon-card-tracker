@@ -7,14 +7,18 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Finishing: a better scanner (reads the name, HP, and number together, compares artwork to break
-  ties, faster, and a prefilled search instead of a dead end).
 - Built and waiting to be wired in: binder spreads with a page turn, every card of a Pokémon in
   a list, and international twins for Japanese and Korean cards. See `plans/roadmap.md`.
 
 ## Live
 
 ### 2026-10-01
+
+- **19:34** Version 15: a much better scanner. It reads the name, HP, attack, number, and language
+  together, finds a card by name when the number is unreadable, compares the artwork to break
+  ties, straightens cards photographed at an angle, and shows what it read with a prefilled
+  search when it is unsure. Right card first on 74% of test captures, up from 40%; your Weedle
+  photo now matches. `b7a6145`
 
 - **15:29** Version 14. `23c0c4f`
   - Themes on the twelve TCG energy types (Default, Grass, Fire, Water, Lightning, Psychic,
