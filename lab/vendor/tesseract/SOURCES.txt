@@ -1,0 +1,29 @@
+Vendored OCR engine for the scan lab. Nothing here is loaded from a CDN:
+lab/js/ocr.js passes these paths to Tesseract.js.
+
+tesseract.js 7.0.0 (npm, Apache-2.0, LICENSE-tesseract.js.md)
+  tesseract.esm.min.js   from tesseract.js/dist (sourceMappingURL comment removed)
+  worker.min.js          from tesseract.js/dist (sourceMappingURL comment removed)
+  *.LICENSE.txt          bundled third-party notices from tesseract.js/dist
+
+tesseract.js-core 7.0.0 (npm, Apache-2.0, core/LICENSE)
+  core/tesseract-core-relaxedsimd-lstm.wasm.js
+  core/tesseract-core-simd-lstm.wasm.js
+  core/tesseract-core-lstm.wasm.js
+  LSTM-only builds with the WebAssembly embedded. Tesseract.js picks one by
+  the browser's SIMD support; a phone downloads one of the three.
+
+eng.traineddata, tessdata_best integerized ("best_int"), Tesseract 4.0.0 model
+  lang/eng.traineddata.gz  from @tesseract.js-data/eng 1.0.0 (npm),
+                           4.0.0_best_int/eng.traineddata.gz
+  The model itself is from tesseract-ocr/tessdata_best (Apache-2.0,
+  lang/LICENSE). Chosen over tessdata_fast on the lab benchmark: see
+  lab/README.md.
+
+SHA-256
+  d14933faf368fec22a7d32dd1b3ee9692f03961968d1e2a16f8087a65bc22873  tesseract.esm.min.js
+  f113187fae220d9f895d7bd28d2b94d7640261ae91031b0d6005c2773fcb9861  worker.min.js
+  eef5f8b2f8e20e150680b20adaec4a60babafee3adbe8a94583c81fee46e8680  core/tesseract-core-lstm.wasm.js
+  861a536cf9ef8e63cb644d57bab39c388f37f7d6b6f60024b741c5f6b39a59b3  core/tesseract-core-relaxedsimd-lstm.wasm.js
+  c58b46a4c796c0b8afccf77591d5b875b6896b45d402bbce8caa6f5362447b38  core/tesseract-core-simd-lstm.wasm.js
+  45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91  lang/eng.traineddata.gz

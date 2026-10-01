@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<title>Scan Lab</title>
+	<meta name="description" content="A test page that measures how well on-device OCR reads a physical Pokémon card's collector number and language.">
+	<meta name="robots" content="noindex">
+	<meta name="theme-color" content="#1d2e60">
+	<link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+	<link rel="stylesheet" href="lab.css">
+	<script type="module" src="js/main.js"></script>
+</head>
+<body>
+	<header class="top">
+		<h1>Scan Lab</h1>
+		<p>A test page, not the scanner. It reads the collector number and the language label off a card with on-device OCR, proposes catalog matches, and keeps score of how often it gets them right.</p>
+		<p class="muted" id="engine-status" role="status">OCR engine: starting.</p>
+	</header>
+
+	<main>
+		<section class="panel" aria-labelledby="capture-heading">
+			<h2 id="capture-heading">1. Capture</h2>
+			<p class="muted">Fill the frame with the card, upright, in even light. Hold still while it reads.</p>
+			<div class="viewfinder" id="viewfinder">
+				<video id="video" playsinline muted autoplay hidden></video>
+				<div class="guide" id="guide" hidden></div>
+				<p class="placeholder" id="placeholder">Camera is off</p>
+			</div>
+			<div class="actions">
+				<button class="primary" id="start" type="button">Start camera</button>
+				<button id="capture" type="button" disabled>Capture</button>
+				<button id="torch" type="button" aria-pressed="false" hidden>Torch: off</button>
+			</div>
+			<label class="zoom" id="zoom-row" hidden>Zoom <input id="zoom" type="range" min="1" max="1" step="0.1" value="1"> <output id="zoom-value">1.0</output></label>
+			<p class="muted" id="camera-info"></p>
+			<label class="file">Or read a photo: <input id="photo" type="file" accept="image/*"></label>
+			<p class="status" id="read-status" role="status" aria-live="polite"></p>
+		</section>
+
+		<section class="panel" id="read-panel" aria-labelledby="read-heading" hidden>
+			<h2 id="read-heading">2. Read</h2>
+			<div class="card-and-table">
+				<figure class="card-shot">
+					<canvas id="card-canvas"></canvas>
+					<figcaption class="muted" id="card-note"></figcaption>
+				</figure>
+				<table class="results" id="parsed"></table>
+			</div>
+			<h3>Regions</h3>
+			<div id="regions"></div>
+		</section>
+
+		<section class="panel" id="match-panel" aria-labelledby="match-heading" hidden>
+			<h2 id="match-heading">3. Match</h2>
+			<p class="muted" id="match-note"></p>
+			<ol class="candidates" id="candidates"></ol>
+			<button id="none" type="button">None of these</button>
+		</section>
+
+		<section class="panel" id="verdict-panel" aria-labelledby="verdict-heading" hidden>
+			<h2 id="verdict-heading">4. Verdict</h2>
+			<p id="verdict-choice"></p>
+			<form id="verdict-form">
+				<label>Number on the card, as printed <input id="actual-number" type="text" inputmode="text" autocomplete="off" placeholder="063/198" required></label>
+				<label>Language of the card
+					<select id="actual-language" required></select>
+				</label>
+				<button class="primary" type="submit">Save attempt</button>
+			</form>
+		</section>
+
+		<section class="panel" aria-labelledby="score-heading">
+			<h2 id="score-heading">5. Score</h2>
+			<table class="results" id="summary"></table>
+			<p class="muted" id="storage-note"></p>
+			<div class="actions">
+				<button id="export-json" type="button">Export JSON</button>
+				<button id="export-csv" type="button">Export CSV</button>
+				<button class="danger" id="reset" type="button">Reset</button>
+			</div>
+			<details>
+				<summary>Attempts</summary>
+				<div class="table-scroll"><table class="log" id="log"></table></div>
+			</details>
+		</section>
+	</main>
+</body>
+</html>
