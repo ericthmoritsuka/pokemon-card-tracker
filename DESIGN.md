@@ -530,6 +530,14 @@ offline use. *(Requested by Eric, 2026-10-01.)*
 - A whole session can be corrected at once: "this session was all Korean", or "all reverse holo".
 - The last save can be undone from a banner until the next scan starts.
 
+**First phone test (2026-10-01):** a scan of a phone photo of a laptop screen (Weedle, Chaos Rising,
+`me04-001`) took far too long and found nothing: the collector number was hidden under an app
+label and blurred by screen moire, and the scanner had no route other than the number. Fix in
+progress: read the name, HP, and attack name in parallel with the number, total, language label,
+and copyright; combine the clues, with the name as a second route and an artwork comparison as a
+tiebreaker; warm the engine on opening and use two workers; and when nothing is certain, show
+what was read with a prefilled search instead of a dead end.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.
