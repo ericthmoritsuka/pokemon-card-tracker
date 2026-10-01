@@ -819,7 +819,10 @@ offers quick picks for the common sizes, which fill in the grid and page count: 
 **Cover image.** A binder's cover is its cover color or an image: a photo of the real binder or any
 picture, cropped to the cover's shape and stored like card photos. On
 a phone in portrait the spread is an overview and tapping a page zooms into it for placing cards;
-in landscape, on tablets, and on laptops the spread is large enough to edit directly. Spreads are
+in landscape, on tablets, and on laptops the spread is large enough to edit directly. In portrait
+the binder shows a gentle, dismissible hint, "Turn your phone sideways to see both pages", a few
+times and then never again; rotating switches to the full spread at once, and the app never forces
+landscape, so a phone with rotation locked keeps the overview. *(Eric, 2026-10-01.)* Spreads are
 also where Michi art can cross facing pages, which settles that open question. *(Planned
 2026-10-01, a block after the shell.)*
 
