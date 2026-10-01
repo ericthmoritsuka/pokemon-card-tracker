@@ -403,6 +403,18 @@ international twin; until then they show the original name alone. The same Engli
 search work in English and enables the Ver na Liga button for Japanese prints, whose Liga pages
 use English names (section 10). *(Planned 2026-10-01.)*
 
+**Romanization in parentheses** (Eric, 2026-10-01). The original-language line carries a reading in
+parentheses, so a name with unfamiliar characters can still be read: "プテラVSTAR (Ptera VSTAR)",
+"프테라VSTAR (Peutera VSTAR)".
+
+- Japanese Pokémon: PokeAPI's official romaji for the species (`ja-roma`, "Ptera" for Aerodactyl,
+  checked 2026-10-01) plus the suffix.
+- Japanese Trainers and Energy: Hepburn transliteration of kana, on the device, shown only when
+  the name is all kana; names with kanji get no reading until a reading dictionary is added.
+- Korean, any card: the Revised Romanization of Korea, computed on the device from the Hangul.
+- Chinese: pinyin through a vendored free library, lower priority (no Chinese cards are imported
+  yet).
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
