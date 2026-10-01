@@ -458,8 +458,8 @@ Facts this rests on, checked 2026-10-01 against published sources:
 
 | Phone | Mode | Camera | Torch | Zoom and focus | Storage | Offline reload |
 | --- | --- | --- | --- | --- | --- | --- |
-| Eric: Android 10, Chrome 154 (2026-10-01) | Installed and browser | Rear, 1080 × 1920 default, up to 3840 × 2160, starts in about 530 ms | Supported; toggle worked | Zoom 1 to 4; manual, single-shot, and continuous focus | 1,600 entries written in about 220 ms, read in about 20 ms; persistent; 10 GB quota | Not run yet |
-| Other invited users | | Not run yet | | | | |
+| Eric: Android 10, Chrome 154 (2026-10-01) | Installed and browser | Rear, 1080 × 1920 default, up to 3840 × 2160, starts in about 530 ms | Supported; toggle worked installed and in the browser | Zoom 1 to 4; manual, single-shot, and continuous focus | 1,600 entries written in about 220 ms, read in about 20 ms; persistent; 10 GB quota | Not confirmed: the recount ran while still online |
+| An iPhone (optional: every invited user has Android) | | Not run yet | | | | |
 
 Browser tab and installed app share one storage on Android. The scanner should ask for more than
 the default resolution when reading collector numbers.
