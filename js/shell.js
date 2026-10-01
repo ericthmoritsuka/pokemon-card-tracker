@@ -9,7 +9,7 @@
 // always saves to you. It lives in memory only, never in storage, so a cold
 // start always opens your own cards.
 
-import {currentUser, onUser} from './auth.js';
+import {accountLabel, currentUser, onUser} from './auth.js';
 import {spriteUrl} from './checklists.js';
 import {BASE, go, h} from './dom.js';
 import {familyMembers} from './family.js';
@@ -275,7 +275,7 @@ async function drawAccount() {
 	}
 
 	account.className = n ? 'account avatar avatar-sprite' : 'account avatar';
-	account.setAttribute('aria-label', `Profile, signed in as ${user.email}`);
+	account.setAttribute('aria-label', `Profile, signed in as ${accountLabel(user.email)}`);
 
 	if (n) {
 		const img = h('img', {alt: '', class: 'avatar-img', decoding: 'async', height: 44, src: spriteUrl(n), width: 44});

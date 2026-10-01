@@ -203,7 +203,7 @@ phones that each add the same card produce two entries instead of overwriting ea
 Each invited user signs in on their own phone, and Eric can invite more. Copies,
 collections, binders, goals, and wishlists belong to a user. The card catalog, cached images, and
 prices are shared, because they describe cards, not anyone's ownership. Magic link or Google
-sign-in, no passwords. Every user-owned table carries `user_id` with row-level security from day
+sign-in; passwords only for a family member without an email (section 8). Every user-owned table carries `user_id` with row-level security from day
 one, because retrofitting it is miserable. *(Revised 2026-10-01. The first version was
 single-user and only built to allow a second.)*
 
@@ -623,7 +623,13 @@ tier). Firebase is an equivalent alternative.
 
 - The phone writes to its copy of the document in IndexedDB first, and merges with Supabase when
   online (section 3).
-- Auth by magic link or Google. No passwords. One account per person, invited by Eric (section 3).
+- Auth by magic link or Google. One account per person, invited by Eric (section 3).
+- Passwords exist only for a family member without an email. Eric creates the account in the
+  Supabase dashboard under a placeholder `@family.invalid` address (`.invalid` is reserved by
+  RFC 2606, so no mail can ever go to it) and adds it to the group like any other. The person
+  signs in with the account name and a password, and changes the password in Profile. A
+  forgotten password cannot be reset by email: Eric sets a new one with
+  `supabase/reset-password.sql`. *(Decided by Eric, 2026-10-01.)*
 - Row-level security from the start: a person writes only their own `documents` row and storage
   files, and reads their own plus those of anyone sharing a group with them.
 - Server storage holds only owned-card images and uploads (section 3); the full catalog's images

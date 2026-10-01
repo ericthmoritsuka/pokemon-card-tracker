@@ -6,7 +6,22 @@
 // way to make an account. Signing in is optional; signed out, the app keeps
 // the cards on this phone.
 
-import {currentUser, googleEnabled, onUser, sendSignInLink, signInErrorText, signInWithGoogle, signOut} from './auth.js';
+import {
+	ACCOUNT_NAME_DOMAIN,
+	accountLabel,
+	changePassword,
+	currentUser,
+	googleEnabled,
+	isAccountNameEmail,
+	MIN_PASSWORD_LENGTH,
+	onUser,
+	passwordErrorText,
+	sendSignInLink,
+	signInErrorText,
+	signInWithGoogle,
+	signInWithName,
+	signOut,
+} from './auth.js';
 import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
@@ -40,10 +55,10 @@ export {memberName};
 
 // ---------------------------------------------------------------- Sign in
 
-// The email link form and, when the project turns it on, Google. Returns
-// {element, stop}; Profile shows it at the top when signed out (onIntent:
-// Google is looked up when the email field is first focused), and the
-// signin route shows it alone.
+// The email link form and, when the project turns it on, Google, with a
+// way to the name and password form. Returns {element, stop}; Profile shows
+// it at the top when signed out (onIntent: Google is looked up when the
+// email field is first focused), and the signin route shows it alone.
 function signInPanel({onIntent = false} = {}) {
 	let alive = true;
 	let lastSent = 0;
@@ -60,7 +75,7 @@ function signInPanel({onIntent = false} = {}) {
 	function signedIn(user) {
 		body.replaceChildren(
 			h('div', {class: 'card'},
-				h('p', null, `You are signed in as ${user.email}.`),
+				h('p', null, `You are signed in as ${accountLabel(user.email)}.`),
 				h('a', {class: 'button primary', 'data-link': 'profile', href: `${BASE}profile`}, 'Open Profile')
 			)
 		);
@@ -82,6 +97,7 @@ function signInPanel({onIntent = false} = {}) {
 		const google = h('button', {hidden: true, id: 'signin-google', onclick: withGoogle, type: 'button'}, 'Continue with Google');
 		const or = h('p', {class: 'muted or', hidden: true}, 'or');
 		const error = h('p', {class: 'form-error', role: 'alert'});
+		const withPassword = h('button', {class: 'link-button', id: 'signin-use-password', onclick: passwordForm, type: 'button'}, 'Sign in with a name and password');
 
 		async function submit(event) {
 			event.preventDefault();
@@ -137,7 +153,8 @@ function signInPanel({onIntent = false} = {}) {
 				send,
 				error,
 				or,
-				google
+				google,
+				withPassword
 			),
 			h('p', {class: 'muted'}, 'Signing in keeps your cards on the server too, so they follow you to another phone and your family can see them. Without signing in, Card Tracker keeps your cards on this phone only.')
 		);
@@ -158,6 +175,62 @@ function signInPanel({onIntent = false} = {}) {
 		else {
 			showGoogle();
 		}
+	}
+
+	// For a family member with no email: the account name and password the
+	// family owner set up. An email and a password work here too.
+	function passwordForm() {
+		const name = h('input', {
+			autocapitalize: 'none',
+			autocomplete: 'username',
+			class: 'search',
+			id: 'signin-name',
+			name: 'username',
+			required: true,
+			spellcheck: 'false',
+			type: 'text',
+		});
+		const password = h('input', {autocomplete: 'current-password', class: 'search', id: 'signin-password', name: 'password', required: true, type: 'password'});
+		const send = h('button', {class: 'primary', type: 'submit'}, 'Sign in');
+		const error = h('p', {class: 'form-error', role: 'alert'});
+
+		async function submit(event) {
+			event.preventDefault();
+			error.textContent = '';
+
+			if (!name.value.trim() || !password.value) {
+				return;
+			}
+
+			send.disabled = true;
+			send.textContent = 'Signing in...';
+
+			try {
+				// Signed in, the panel redraws itself (onUser).
+				await signInWithName(name.value, password.value);
+			}
+			catch (err) {
+				if (alive) {
+					error.textContent = signInErrorText(err);
+					send.disabled = false;
+					send.textContent = 'Sign in';
+				}
+			}
+		}
+
+		body.replaceChildren(
+			h('form', {class: 'card signin', id: 'signin-password-form', onsubmit: submit},
+				h('label', {for: 'signin-name'}, 'Account name'),
+				name,
+				h('label', {for: 'signin-password'}, 'Password'),
+				password,
+				send,
+				error,
+				h('button', {class: 'link-button', onclick: form, type: 'button'}, 'Use an email link instead')
+			),
+			h('p', {class: 'muted'}, 'For family members without an email. The family owner makes the account and tells you its name and first password; you can change the password in Profile.')
+		);
+		name.focus();
 	}
 
 	function checkEmail() {
@@ -282,6 +355,7 @@ export function profileView(root) {
 	const nameStatus = h('p', {'aria-live': 'polite', class: 'muted'});
 	const syncLine = h('p', {class: 'muted', id: 'profile-sync'});
 	const family = h('div', {'aria-live': 'polite', id: 'family'}, h('p', {class: 'muted'}, 'Loading your family group...'));
+	const password = isAccountNameEmail(user.email) ? passwordCard(user) : null;
 	const signOutStatus = h('p', {class: 'form-error', role: 'alert'});
 
 	async function saveName(event) {
@@ -322,7 +396,7 @@ export function profileView(root) {
 		const row = h('li', {class: 'member'},
 			h('span', {class: 'member-text'},
 				h('span', {class: 'member-name'}, memberName(member), member.user_id === me ? ' (you)' : ''),
-				h('span', {class: 'muted'}, [member.role === 'owner' ? 'Owner' : 'Member', member.email].filter(Boolean).join(' · '))
+				h('span', {class: 'muted'}, [member.role === 'owner' ? 'Owner' : 'Member', accountLabel(member.email)].filter(Boolean).join(' · '))
 			)
 		);
 
@@ -380,7 +454,7 @@ export function profileView(root) {
 			try {
 				await familyCall('add_member', {email: address});
 				email.value = '';
-				status.textContent = `Added ${address}.`;
+				status.textContent = `Added ${accountLabel(address)}.`;
 				loadFamily(true, status.textContent);
 			}
 			catch (err) {
@@ -393,6 +467,7 @@ export function profileView(root) {
 		return h('form', {class: 'add-member', id: 'add-member', onsubmit: submit},
 			h('h4', null, 'Add member'),
 			h('p', {class: 'muted'}, 'Invite them first in the Supabase dashboard (Authentication, Users, Invite). Once the invite is sent, add their email here.'),
+			h('p', {class: 'muted'}, `For someone with no email, create the user there with a name@${ACCOUNT_NAME_DOMAIN} address and a password, and add that address here.`),
 			h('label', {for: 'add-member-email'}, 'Email'),
 			email,
 			add,
@@ -428,11 +503,12 @@ export function profileView(root) {
 
 		const list = h('ul', {class: 'members'}, overview.members.map((member) => memberRow(member, overview, user.id)));
 
-		family.replaceChildren(
+		// replaceChildren would print a null as text, so a member gets no slot.
+		family.replaceChildren(...[
 			h('p', null, overview.group.name),
 			list,
-			overview.role === 'owner' ? addMemberForm() : null
-		);
+			overview.role === 'owner' ? addMemberForm() : null,
+		].filter(Boolean));
 
 		if (keepMessage) {
 			const form = family.querySelector('#add-member p[aria-live]');
@@ -470,7 +546,7 @@ export function profileView(root) {
 			accountSprite,
 			h('div', {class: 'profile-account-text'},
 				h('h3', null, 'Account'),
-				h('p', {id: 'profile-email'}, user.email),
+				h('p', {id: 'profile-email'}, accountLabel(user.email)),
 				syncLine,
 				h('button', {onclick: () => syncNow(), type: 'button'}, 'Sync now')
 			)
@@ -482,6 +558,7 @@ export function profileView(root) {
 			nameSave,
 			nameStatus
 		),
+		...(password ? [password] : []),
 		favorite.element,
 		theme.element,
 		h('div', {class: 'card', id: 'family-card'},
@@ -513,6 +590,61 @@ export function profileView(root) {
 		favorite.stop();
 		theme.stop();
 	};
+}
+
+// ------------------------------------------------------- Change password
+
+// Only for an account-name account (DESIGN.md section 8): Google and email
+// link accounts have no password to change. The hidden username field lets
+// a password manager save the new password under the right name.
+function passwordCard(user) {
+	const fresh = h('input', {autocomplete: 'new-password', class: 'search', id: 'new-password', minlength: MIN_PASSWORD_LENGTH, name: 'new-password', required: true, type: 'password'});
+	const repeat = h('input', {autocomplete: 'new-password', class: 'search', id: 'repeat-password', minlength: MIN_PASSWORD_LENGTH, name: 'repeat-password', required: true, type: 'password'});
+	const save = h('button', {type: 'submit'}, 'Change password');
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'password-status'});
+
+	async function submit(event) {
+		event.preventDefault();
+
+		if (fresh.value.length < MIN_PASSWORD_LENGTH) {
+			status.textContent = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+
+			return;
+		}
+
+		if (fresh.value !== repeat.value) {
+			status.textContent = 'The two passwords do not match. Type the same new password twice.';
+
+			return;
+		}
+
+		save.disabled = true;
+		status.textContent = 'Saving...';
+
+		try {
+			await changePassword(fresh.value);
+			fresh.value = '';
+			repeat.value = '';
+			status.textContent = 'Password changed. Use the new one the next time you sign in.';
+		}
+		catch (err) {
+			status.textContent = passwordErrorText(err);
+		}
+
+		save.disabled = false;
+	}
+
+	return h('form', {'aria-labelledby': 'password-heading', class: 'card', id: 'password-card', novalidate: true, onsubmit: submit},
+		h('h3', {id: 'password-heading'}, 'Change password'),
+		h('input', {autocomplete: 'username', hidden: true, name: 'username', readonly: true, type: 'text', value: accountLabel(user.email)}),
+		h('label', {for: 'new-password'}, 'New password'),
+		fresh,
+		h('label', {for: 'repeat-password'}, 'Repeat the new password'),
+		repeat,
+		h('p', {class: 'muted'}, `At least ${MIN_PASSWORD_LENGTH} characters.`),
+		save,
+		status
+	);
 }
 
 // ------------------------------------------------- Your data, This phone

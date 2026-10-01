@@ -3,7 +3,8 @@
 // account, and never send an email.
 //
 // It imitates only what the app uses: the auth endpoints for email links,
-// Google, PKCE code exchange, refresh, and sign-out; the auth settings; and
+// Google, PKCE code exchange, password sign-in, password change, refresh,
+// and sign-out; the auth settings; and
 // PostgREST for the four tables and four functions in supabase/setup.sql,
 // with the same row-level rules. updated_at is set by the "server" on every
 // write, as the trigger does.
@@ -31,6 +32,7 @@ export class FakeSupabase {
 	constructor({google = false} = {}) {
 		this.google = google;
 		this.users = new Map();
+		this.passwords = new Map();
 		this.challenges = new Map();
 		this.codes = new Map();
 		this.sessions = new Map();
@@ -46,7 +48,9 @@ export class FakeSupabase {
 		this.changeIds = 0;
 	}
 
-	addUser(email) {
+	// A password makes it an account that signs in with one, as an account
+	// made in the dashboard with "Create new user" does.
+	addUser(email, {password = null} = {}) {
 		const user = {
 			app_metadata: {provider: 'email'},
 			aud: 'authenticated',
@@ -58,6 +62,10 @@ export class FakeSupabase {
 		};
 
 		this.users.set(user.id, user);
+
+		if (password) {
+			this.passwords.set(user.id, password);
+		}
 
 		return user;
 	}
@@ -279,6 +287,18 @@ export class FakeSupabase {
 				return this.json(route, 200, this.session(this.userByEmail(found.email)));
 			}
 
+			if (grant === 'password') {
+				// One answer for an unknown address and a wrong password, as the
+				// real server gives.
+				const user = this.userByEmail(String(body.email || ''));
+
+				if (!user || !this.passwords.has(user.id) || this.passwords.get(user.id) !== body.password) {
+					return this.json(route, 400, {code: 'invalid_credentials', error_code: 'invalid_credentials', msg: 'Invalid login credentials'});
+				}
+
+				return this.json(route, 200, this.session(user));
+			}
+
 			if (grant === 'refresh_token') {
 				const userId = this.sessions.get(body.refresh_token);
 
@@ -293,7 +313,23 @@ export class FakeSupabase {
 		if (path === '/user') {
 			const caller = this.callerOf(request);
 
-			return caller ? this.json(route, 200, caller) : this.json(route, 401, {msg: 'invalid JWT'});
+			if (!caller) {
+				return this.json(route, 401, {msg: 'invalid JWT'});
+			}
+
+			if (request.method() === 'PUT' && body && body.password !== undefined) {
+				if (String(body.password).length < 6) {
+					return this.json(route, 422, {code: 'weak_password', error_code: 'weak_password', msg: 'Password should be at least 6 characters.'});
+				}
+
+				if (this.passwords.get(caller.id) === body.password) {
+					return this.json(route, 422, {code: 'same_password', error_code: 'same_password', msg: 'New password should be different from the old password.'});
+				}
+
+				this.passwords.set(caller.id, body.password);
+			}
+
+			return this.json(route, 200, caller);
 		}
 
 		if (path === '/logout') {

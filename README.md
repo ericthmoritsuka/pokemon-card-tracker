@@ -14,7 +14,8 @@ An installable web app (PWA) for the family's Pokémon cards. So far it has thes
   set's grid dims the cards not owned. A set or card opened once opens again with no signal.
 - **Phone check:** the weekend zero tests below, kept so a new phone can still be checked.
 - **Sign in and sync** (from the header): an invited family member signs in with an email link
-  (or Google, once it is turned on), and their cards are kept in Supabase as well as on the phone.
+  (or Google, once it is turned on), or, without an email, with an account name and a password
+  (Setup, step 5), and their cards are kept in Supabase as well as on the phone.
   **Profile** (the round avatar) shows the account, the display name, and the family group. A
   family member's cards open read only from the switcher on My Cards.
 
@@ -54,6 +55,13 @@ after step 1 becomes the family owner.
    **Profile** and enter their email under **Add member**. Add member works only for an email
    Supabase already knows, so invite first. A person who was invited but not added can sign in but
    sees no family. Later they can sign in from the app's **Sign in** screen with their email.
+
+   For a family member without an email, choose **Add user**, then **Create new user**, with a
+   placeholder address such as `member.a@family.invalid`, a starting password, and **Auto Confirm
+   User** on. Add that address under **Add member** in the app. They sign in with **Sign in with a
+   name and password**, typing only the name (`member.a`), and should change the password in
+   **Profile**. To set a new one when they forget it, run `supabase/reset-password.sql` in the SQL
+   Editor; no reset email can reach an `.invalid` address.
 
 Supabase's built-in email sends only a few emails an hour on the free plan, and every sign-in link,
 resend, and invitation counts. The app keeps people signed in, so a phone needs a link only once.
@@ -234,6 +242,9 @@ None of the tests reach the real Supabase project, make an account, or send an e
   1,600 cards, two devices saving at once, offline changes, Profile as owner and as member, the
   read-only family view, the existing views, and the service worker. The existing-views test reads
   the real TCGdex API.
+- `PLAYWRIGHT=<path to node_modules/playwright> node --test tests/account-password.test.mjs`: the
+  same setup, for the name-and-password sign-in, one message for a wrong name or password, the
+  account name shown instead of its placeholder address, and Change password in Profile.
 - `bash tests/setup-sql-check.sh`: runs `supabase/setup.sql` twice in a throwaway Postgres
   container (Docker or Podman), with a small stand-in for Supabase's `auth` schema, and checks its
   row-level security and functions as three made-up users.
@@ -250,7 +261,7 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | `js/catalog-views.js` | Sets, set detail, and card detail views. |
 | `js/collection.js` | The per-person document: add, update, soft delete, list, import, merge in, and which account it belongs to. |
 | `js/merge.js` | Merging two versions of a document entry by entry. No DOM, so Node tests it. |
-| `js/auth.js` | Supabase Auth: the client, email link and Google sign-in, the `?code=` return, sign-out. |
+| `js/auth.js` | Supabase Auth: the client, email link, Google, and name-and-password sign-in, the `?code=` return, password change, sign-out. |
 | `js/sync.js` | Sync with the `documents` row, the header status, and the family calls. |
 | `js/account-views.js` | Sign in and Profile. |
 | `js/monprice.js` | monprice CSV and JSON parsing, and matching rows to TCGdex records. |
@@ -260,6 +271,7 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | `js/dom.js` | Shared DOM, navigation, and error helpers. |
 | `vendor/supabase-js.js` | The Supabase client, 2.117.2, bundled into one file. |
 | `supabase/setup.sql` | Tables, row-level security, and functions; run once in the SQL Editor. |
+| `supabase/reset-password.sql` | Sets a new password for an account-name account, pasted into the SQL Editor when needed. |
 | `tests/` | The tests above, the GitHub Pages stand-in server, and the fake Supabase. |
 | `style.css` | Mobile-first styles. |
 | `manifest.webmanifest` | Install metadata: name, icons, standalone display, and scope. |

@@ -1301,6 +1301,12 @@ button.link-button {
 	margin-top: var(--space-2);
 }
 
+/* A second field (a password after the name) starts below the first. */
+.signin .search + label,
+#password-card .search + label {
+	margin-top: var(--space-3);
+}
+
 /* One red in every theme: danger never changes color. */
 button.danger {
 	border-color: var(--danger);
