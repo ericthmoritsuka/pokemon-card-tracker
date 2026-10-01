@@ -639,6 +639,17 @@ unchecked rows are verified on first real use.
 - Liga also has letter-suffixed numbers such as `019a/170` and `048K/069` for prints outside the
   international sets; these are not generated.
 
+**Languages on Liga** (Eric, then checked 2026-10-01): Portuguese and English prints share one card
+page, with flags next to each listing showing its language, so the same query serves both. Asian
+prints have their own pages, named the same way with the English name and the Asian set's number:
+`Aerodactyl-VSTAR (057/100)` opens the Japanese Lost Abyss page, separate from the international
+Lost Origin prints (`093/196`, `199/196`), and a Chinese print appears as `(062/131)` in "Azure
+Shadow - Pursuit". TCGdex gives Asian records only their own-language name (`プテラVSTAR`), so the
+English name must come from elsewhere: for Pokémon, the English species name for the card's
+`dexId` plus the mechanic suffix read off the Asian name; for Trainers and Energy, only from the
+international twin (section 5). Until then the button covers international cards only. Whether
+Liga lists Korean prints at all is unchecked.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
