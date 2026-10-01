@@ -804,8 +804,20 @@ binder. *(Requested by Eric, 2026-10-01.)*
 right (the inside cover on the left), then two-page spreads (2 and 3, 4 and 5, ...), and a last
 page alone when the count is odd. Swiping or the edge arrows turn the page with a CSS 3D flip
 around the spine (the page lifts, a shadow sweeps across, it lands on the other side), with a
-crossfade under reduced motion. Depth comes from a spine with rings, a soft shadow where pages
-curve into the spine, a slight sheen on the pockets, and the cover color showing at the edges. On
+crossfade under reduced motion. Depth comes from a soft shadow where pages curve into a
+stitched spine, a slight sheen on the pockets, and the cover color showing at the edges.
+
+**No rings, ever** (Eric, 2026-10-01). Collectors avoid ring binders because rings dent the cards
+nearest them. The binders TCG collectors use are ringless, with pages bonded or stitched into the
+spine, side-loading pockets (the card slides in from the outer side), a zip closure, and padded or
+hard covers; the most recommended are Vault X's Exo-Tec zip binders and Ultra PRO's Eclipse PRO
+binders (checked 2026-10-01). So the drawing shows a stitched spine with bonded pages, a zipper
+around the cover edge, and a thin side-loading slit on each pocket's outer edge. Creating a binder
+offers quick picks for the common sizes, which fill in the grid and page count: 4-pocket (2 x 2),
+9-pocket (3 x 3, 20 double-sided pages, 360 cards), and 12-pocket (3 x 4, 480 cards).
+
+**Cover image.** A binder's cover is its cover color or an image: a photo of the real binder or any
+picture, cropped to the cover's shape and stored like card photos. On
 a phone in portrait the spread is an overview and tapping a page zooms into it for placing cards;
 in landscape, on tablets, and on laptops the spread is large enough to edit directly. Spreads are
 also where Michi art can cross facing pages, which settles that open question. *(Planned
