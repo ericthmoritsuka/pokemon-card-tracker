@@ -19,8 +19,8 @@ What it does:
 - Browse every set and expansion in each language the catalog covers, back to the first
   editions: English, Portuguese, Japanese, Chinese, and Korean at least, French and the others
   when present. Owned cards show as owned in every language view.
-- Store owned cards, with the details that vary copy to copy (language, condition, variant,
-  quantity).
+- Store owned cards, one entry per physical card, with the details that vary copy to copy
+  (language, condition, variant).
 - Filter, search, and sort by price, rarity, date added, set, language, and the rest of the list
   in section 11.
 - Group cards into collections, either hand-picked or self-filling from a rule (a Star collection
@@ -86,10 +86,10 @@ Source: Eric's own use, and monprice's public store screenshots (2026-10-01).
 These were settled in discussion. The reasoning matters more than the conclusion, so it is
 recorded here rather than just the outcome.
 
-**Card identity and card copy are separate tables.**
+**Card identity and card copy are separate records.**
 A Brazilian Charizard and an American Charizard share artwork, collector number, and set symbol.
 Only the printed text differs. So language is a property of *your copy*, not of the card. If the
-catalog ID is the only key, the two copies collapse into one row and the distinction is lost.
+catalog ID is the only key, the two copies collapse into one record and the distinction is lost.
 Everything downstream (filters, pricing, CSV) depends on this split.
 
 **Western-language prints share one card record; Asian prints are their own cards.**
@@ -108,7 +108,8 @@ state to forget. Changing a saved copy's language is an ordinary edit, and the C
 covers fixing a batch.
 
 **Display follows the viewing language, ownership does not.**
-Each card stores its localized name, set name, and image per language when the catalog has them,
+The screen says `Viewing:` for the display language and `Printed in:` for a card's own language,
+so the two never read as the same setting. Each card stores its localized name, set name, and image per language when the catalog has them,
 falling back to English. Ownership is computed from copies regardless of language, so a PT copy
 shows as owned in the EN view, labeled "owned in PT".
 
@@ -117,13 +118,21 @@ Every saved copy is in the collection automatically. Collections like Star are o
 "All" collection exists, because nothing needs one.
 
 **Totals count copies, never memberships.**
-Collection value and card counts sum over `copies`, not over `collection_copies`. A copy in
-three collections counts once.
+Collection value and card counts sum over card entries, never over collection membership. A card
+in three collections counts once.
 
 **Duplicates are caught at scan time; Trade is a derived view.**
 A single scan of a card already owned asks "You have 1 (PT, holo). Add another?" before saving.
-Trade is a query (copies beyond the first), not a stored collection, so it stays correct after a
-card is traded away without anyone remembering to update it.
+Trade is a query, not a stored collection, so it stays correct after a card is traded away
+without anyone remembering to update it. A spare is every copy beyond the first of the same card
+in the same language: a PT and an EN copy are both keepers, while a second PT copy is a spare
+whatever its variant. *(Decided by Eric, 2026-10-01.)* In Eric's export that is 276 spares across 165 cards.
+
+**Every scan is a session; there is no single or batch mode.**
+One scan opens the confirm sheet with the duplicate prompt. "Scan next" drops that card into the
+tray and keeps scanning, so a session of one and a session of fifty are the same flow. A mode you
+can forget is monprice's language bug in another form. "Discard" closes a scan with nothing
+saved, which doubles as the "do I already own this?" check in a shop. *(Decided by Eric, 2026-10-01.)*
 
 **A scan session is a tray, and every card in it carries its own language.**
 Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
@@ -138,8 +147,8 @@ or scanned twice in the session, shows the quantity badge below, and the duplica
 made once when the session is saved.
 
 **Quantity is a corner badge, not a trailing counter.**
-monprice's `xN` beside the card is easy to miss. Any card image showing a copy owned more than
-once carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
+monprice's `xN` beside the card is easy to miss. Any card image standing for a card owned more
+than once (in that language) carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
 the scan tray. When the viewing language differs from the copy's language, a language chip
 (`PT`) sits in the opposite corner.
 
@@ -166,9 +175,21 @@ Scanning happens in card shops and at events, where reception is bad. An app tha
 connection to log a card is an app you stop using. Writes land in IndexedDB immediately and flush
 when there is signal.
 
-**No sync engine. Last-write-wins per row.**
-Each collection has one owner on one or two devices. Real conflict resolution is not worth the
-complexity.
+**Each person's cards are one JSON document, merged entry by entry.**
+Everything a person owns or arranges (card entries, collections, goals, binders, wishlist,
+openings) is one JSON document, the same idea as monprice's export. The phone loads it whole,
+keeps it in IndexedDB, and does all filtering, goals, and binder math locally, which is instant at
+this size: monprice's JSON for 1,414 rows is 622 KB. Saving merges entry by entry, never the whole
+document: every entry has an `id` and an `updated_at`, the newer one wins, and a deletion is kept
+as a tombstone (`deleted_at`) so an offline phone cannot bring a deleted card back. No sync engine
+and no real conflict resolution; one owner on one or two devices does not need it. *(Decided by Eric, 2026-10-01.)* *(Replaces
+the relational schema of the first versions.)*
+
+**One physical card, one entry.**
+There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
+pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline
+phones that each add the same card produce two entries instead of overwriting each other into one.
+*(Decided by Eric, 2026-10-01.)*
 
 **One account per person, any number of people.**
 Eric, his wife, and his brother each sign in on their own phone, and more can join. Copies,
@@ -214,7 +235,7 @@ per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's vari
 A self-filling collection is a saved filter: Star is "rarity is `Illustration rare` or
 `Special illustration rare`", and it fills itself as cards are saved. Rules match on TCGdex's
 English values, because localized records translate them (a Portuguese common reads `Comum`). A
-hand-picked collection works as today. Either kind is just a view over `copies`, so neither
+hand-picked collection works as today. Either kind is just a view over the card entries, so neither
 changes the totals.
 
 **Goals are their own feature, not collections.**
@@ -224,12 +245,13 @@ Pokémon, one artist. Section 11 has the details.
 
 **A binder is a physical place, so a copy sits in at most one slot.**
 Collections are tags and can overlap; a binder slot is a real pocket. Each slot holds one
-physical card, so the slots pointing at a copy can never outnumber its `quantity`. That rule is
-what makes "where is this card?" answerable, and it shows unplaced copies for free.
+physical card, and each card entry sits in at most one slot. That rule is what makes "where is
+this card?" answerable, and it shows unplaced cards for free.
 
 **Two export formats, not one.**
-CSV cannot losslessly hold collection membership, price history, and photos, so a CSV "backup"
-silently drops data. CSV is for portability and spreadsheet editing. JSON is the real backup.
+CSV cannot losslessly hold binders, goals, and photo references, so a CSV "backup" silently drops
+data. CSV is for portability and spreadsheet editing. The JSON export is the person's document
+exactly as stored, which makes it the real backup.
 
 **CSV round-trip doubles as the bulk-edit surface.**
 Fixing twenty mislabeled languages in a spreadsheet and re-importing partly removes the need for
@@ -237,103 +259,67 @@ a dedicated desktop bulk-edit view.
 
 ## 4. Data Model
 
-Sketch, not final DDL.
+Sketch, not final. Three places hold data.
+
+**The catalog, on each phone.** Fetched from TCGdex and kept in IndexedDB, one download per
+language so sets and missing lists work offline in a shop. Nothing about ownership lives here.
 
 ```
-cards                     -- shared catalog, cached from TCGdex, not user-specific
+card
   id                      -- TCGdex card ID, e.g. me01-001, S11-057
   catalog                 -- international | ja | ko | zh-cn | zh-tw
-  tcgplayer_product_id    -- stable external key, store even if unused at first
   set_id                  -- TCGdex set ID, e.g. me04, M6
   collector_number        -- STRING, never a number. "001" must not become 1.
-  types[]
-  rarity                  -- TCGdex English value, e.g. "Special illustration rare"
+  types[], rarity         -- rarity as TCGdex's English value, e.g. "Special illustration rare"
   dex_ids[]               -- National Dex numbers; a list, because TAG TEAM cards hold several
   illustrator
-
-card_variants             -- from TCGdex variants_detailed
-  id                      -- TCGdex variantId
-  card_id -> cards.id
-  type                    -- normal | holo | reverse
-  subtype, foil, stamp[]  -- e.g. shadowless, pokeball / masterball, 1st-edition
-  tcgplayer_product_id, cardmarket_product_id
-
-card_localizations        -- one row per language the catalog has the card in
-  card_id -> cards.id
-  language
-  name
-  set_name
-  image_url               -- source URL
-  image_cached_path       -- our own copy (section 3)
-
-copies                    -- the cards you actually own
-  id                      -- UUID. Load-bearing: this is what makes CSV re-import safe.
-  user_id
-  card_id  -> cards.id
-  language                -- EN, PT, JA, KO, ZH-CN, ZH-TW, FR, DE, IT, ES, ...
-  language_source         -- scan | manual | import
-  condition               -- TCGplayer vocabulary
-  variant_id -> card_variants.id
-  quantity
-  purchase_price
-  purchase_currency
-  opening_id -> openings.id   -- optional, the pack opening it came from
-  storage                 -- optional free text for copies not in a binder ("Bulk box A")
-  grader, grade, cert_number, graded_price   -- optional; TCGdex has no graded data
-  notes
-  is_favorite
-  photo_url               -- optional, own photo for condition documentation
-  created_at / updated_at
-
-collections
-  id, user_id, name, description
-  rule                    -- null for hand-picked; a saved filter for self-filling
-
-collection_copies         -- hand-picked membership only; a copy can sit in several
-  collection_id, copy_id
-
-goals
-  id, user_id, kind       -- every_pokemon | set | pokemon | artist
-  target                  -- set ID, dex number, or illustrator name
-  level                   -- set goals: numbered | with_secrets | master
-
-binders
-  id, user_id, name, rows, cols, page_count
-
-binder_slots              -- one row per filled pocket
-  binder_id, page, position
-  copy_id -> copies.id    -- an owned card, or
-  want_card_id, want_variant_id   -- a placeholder for a card not owned yet, or
-  art_id, art_tile        -- one tile of a Michi art image
-
-binder_art                -- an uploaded image and the block of slots it spans
-  id, user_id, binder_id, page, first_position, rows, cols, image_path
-
-groups                    -- a family group
-  id, name
-
-group_members
-  group_id, user_id, role -- owner | member
-
-wishlist_items
-  id, user_id, card_id
-  variant_id, language    -- optional; null means any
-  priority, note, created_at
-
-openings                  -- a logged pack opening
-  id, user_id, product, set_id, pack_count, cost, currency, opened_at
-
-price_snapshots
-  card_id, variant_id, language, condition, source, price, currency, captured_at
+  variants[]              -- from variants_detailed: variantId, type, subtype, foil, stamp[],
+                          -- tcgplayer and cardmarket product IDs, pricing
+  localizations{}         -- per language: name, set_name, image_url
 ```
 
-There is no "all cards" collection and no trade collection: both are queries over `copies`
-(section 3). Self-filling collections and goals are queries too; only their definitions are
+**Each person's document, in Supabase and on their phone.** One JSON document per person
+(section 3). Every entry carries `id`, `updated_at`, and `deleted_at` for the merge.
+
+```
+{
+  "cards": [{                     -- one entry per physical card; no quantity
+    "id", "card_id", "variant_id",
+    "language", "language_source",        -- scan | manual | import
+    "condition",                          -- optional, TCGplayer vocabulary
+    "purchase_price", "purchase_currency",
+    "opening_id", "storage",              -- storage: free text, e.g. "Bulk box A"
+    "grader", "grade", "cert_number", "graded_price",   -- optional; TCGdex has no graded data
+    "notes", "is_favorite", "photo_path", "created_at"
+  }],
+  "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
+  "goals":       [{ "id", "kind", "target", "level" }],         -- every_pokemon | set | pokemon | artist
+  "binders":     [{ "id", "name", "rows", "cols", "page_count",
+                    "slots": [{ "page", "position",
+                                "entry_id" | "want": {card_id, variant_id} | "art": {art_id, tile} }],
+                    "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }] }],
+  "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
+  "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }]
+}
+```
+
+**Supabase tables.** Only what the document cannot hold.
+
+```
+profiles        user_id, display_name
+groups          id, name
+group_members   group_id, user_id, role          -- owner | member; only the owner invites
+documents       user_id, doc (jsonb), updated_at -- one row per person
+storage bucket  owned-card images and uploads (Michi art, card photos)
+```
+
+There is no "all cards" collection and no trade collection: both are computed from `cards`
+(section 3). Self-filling collections and goals are computed too; only their definitions are
 stored.
 
 Note the natural key that identifies a card independent of any API:
-`set_code + collector_number + language + condition + variant`.
-Carry it in exports so hand-built CSVs still match without a UUID.
+`set_code + collector_number + language + variant`.
+Carry it in exports so hand-built CSVs still match without an entry ID.
 
 ## 5. Catalog: TCGdex Coverage
 
@@ -423,7 +409,13 @@ sets, back to Base Set.
 - **Finish types present:** `NORMAL`, `HOLOFOIL`, `REVERSE_HOLOFOIL`, `UNLIMITED`,
   `FIRST_EDITION`, `UNLIMITED_HOLOFOIL`. Map each to the card's TCGdex variant ID. monprice has no
   ball-pattern finish, so an imported reverse holo is the plain reverse until edited.
-- **Count** becomes `quantity`. 91 rows have a count above 1, so the Trade view starts populated.
+- **Count** expands into that many entries: 1,414 rows become 1,611 card entries.
+- **Prices are not imported.** `Average Price` carries no currency, and all 56 Korean rows have
+  no price, so prices come fresh from TCGdex.
+- **Rarity is not imported.** 51 rows read `Unknown`, so rules such as Star match on TCGdex's
+  rarity instead.
+- **A match report and review queue** list every row that did not match automatically, before
+  anything is saved.
 - **Not in the export:** condition, purchase price, and collection membership. Rebuild a
   collection such as Star by exporting it from monprice separately and importing that file as
   tags on copies that already exist. `Todas` itself is not imported as a collection, because
@@ -434,16 +426,16 @@ sets, back to Base Set.
 Recommended stack: **Supabase** (Postgres, auth, row-level security, file storage on one free
 tier). Firebase is an equivalent alternative.
 
-- Client writes to IndexedDB first, flushes to Supabase when online.
-- Auth by magic link or Google. No passwords. One account per person (section 3).
-- Row-level security on `user_id` from the start, on every user-owned table: write when you own
-  the row, read when you own it or share a group with its owner (section 3). The catalog,
-  localizations, cached images, and price snapshots are readable by every signed-in user.
-- Own photos and cached card images need blob storage and will dominate storage size. Server
-  storage holds only owned-card images and uploads (section 3).
-- **Price history requires something always-on.** A current price can be fetched on demand, but a
-  chart of collection value over the last year needs a scheduled job writing snapshots nightly
-  whether or not the app is open. This is the one piece that needs more than a database.
+- The phone writes to its copy of the document in IndexedDB first, and merges with Supabase when
+  online (section 3).
+- Auth by magic link or Google. No passwords. One account per person, invited by Eric (section 3).
+- Row-level security from the start: a person writes only their own `documents` row and storage
+  files, and reads their own plus those of anyone sharing a group with them.
+- Server storage holds only owned-card images and uploads (section 3); the full catalog's images
+  stay on each phone.
+- **No price history.** Prices are fetched on demand and the 1/7/30 day averages give the trend,
+  so nothing has to run nightly. The value-over-time chart is dropped; it is a portfolio, which
+  Eric does not want.
 
 **Hosting: an installable web app (PWA) on GitHub Pages, with Supabase behind it.** *(Decided by
 Eric, 2026-10-01.)* Free, shared by link instead of an app store, and one codebase for every
@@ -453,7 +445,7 @@ native app with Capacitor rather than rewriting.
 Facts this rests on, checked 2026-10-01 against published sources:
 
 - Supabase free tier: 500 MB database, 1 GB file storage, and projects pause after 7 days without
-  activity. A nightly price job (a scheduled GitHub Actions run or Supabase cron) keeps it awake.
+  activity. With no nightly job, a weekly scheduled GitHub Actions request keeps it awake.
 - iOS home-screen web apps can use the camera (`getUserMedia`, since iOS 13), but drop the camera
   permission whenever the URL hash changes. Route with real paths, never `#` links, or iPhone
   users are asked for the camera again and again. GitHub Pages has no fallback for app routes,
@@ -463,14 +455,14 @@ Facts this rests on, checked 2026-10-01 against published sources:
 
 ## 9. Export
 
-**CSV**, one row per copy, flat.
+**CSV**, one row per card entry, flat.
 
-- Every row carries the copy UUID. On import: known UUID updates, missing UUID creates.
+- Every row carries the entry ID. On import: a known ID updates, a missing ID creates.
   Without this, every re-import silently duplicates the entire collection. This is the single most
   common way this feature goes wrong.
 - Import modes: **merge** (default) and **replace everything** (loud confirmation).
-- Also carry the natural key so externally authored CSVs match without a UUID.
-- Collections in one column, semicolon separated: `Favorites;Vintage Holos;For Trade`.
+- Also carry the natural key so externally authored CSVs match without an entry ID.
+- Hand-picked collections in one column, separated by `|`: `Favorites|Vintage Holos`.
   Import splits on the delimiter and creates any collection that does not exist.
 
 **Gotchas, all cheap to prevent up front:**
@@ -481,7 +473,7 @@ Facts this rests on, checked 2026-10-01 against published sources:
 - ISO 8601 dates. Money as decimal plus an explicit `currency` column. BRL and USD will coexist
   in the same file, so a currency column is not optional.
 
-**JSON** export is the lossless backup: collections, price history, photo references, everything.
+**JSON** export is the person's document as stored: the lossless backup.
 
 **Option not yet decided:** match TCGplayer's or Deckbox's existing CSV column shape instead of
 inventing one. Buys import from other collection trackers for free, at the cost of awkward columns.
@@ -512,13 +504,14 @@ been checked whether those prices are for that printing or are the English marke
 repeated. Until it is, show prices as a reference labeled with their market. Brazilian pricing
 largely lives on Brazilian marketplaces such as Liga Pokémon rather than in a drop-in API.
 
-Three ways to handle it, all supported by the `price_snapshots` schema, and they can coexist:
+Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
 2. Prefer Cardmarket where it covers the language.
 3. Manual entry with a source note.
 
-Consequence: the collection total must be honest about which parts are estimated.
+Consequence: any total shown must be honest about which parts are estimated. Value appears on a
+card's detail and an opening's summary, not as a headline total.
 
 ## 11. Collecting Features
 
@@ -539,6 +532,8 @@ including the ball patterns.
 
 Each goal shows a progress ring and a **missing list**. The missing list is sortable like any
 other view, can be opened offline in a card shop, and sends any card to the wishlist in one tap.
+A missing Pokémon is not a card, so the Every Pokémon goal sends that Pokémon's cheapest card by
+default, and a long press picks another.
 
 ### Binders
 
@@ -579,13 +574,12 @@ what it pulled at today's prices, and the best pull.
 
 ## 12. Open Questions
 
-- Does Trade count extras per card, or per card and language? A PT and an EN copy of the same
-  card may both be keepers.
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
   brother's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
   schema change later.
-- Value-over-time chart? The 1/7/30 day averages may be enough; a longer chart is the main fork
-  in how much backend is needed (section 8).
+- Michi art across two facing pages: the binder model places art on one page only.
+- The rest of the proposals in `plans/ux-plan.md` section 9 and `plans/product-plan.md` section 8
+  that are not decided above (undo duration, removing or trading away a card, condition at scan).
 - Phone only, or a real desktop view for bulk editing and binder layout? CSV round-trip partly
   covers the former; the Michi layout is easier on a big screen.
 - Store own photos of cards, or rely on catalog artwork only?
@@ -608,6 +602,8 @@ Claims in this document that were reasoned about but not checked against source:
   partner-gated rather than open signup. Do not design around having a key until confirmed.
 - Exact TCGplayer CSV column spec, if adopting it.
 - What a Brazilian card's copyright line actually reads, as an OCR anchor for language detection.
+- How large a full catalog download is per language, for offline use.
+- That a paused Supabase free project keeps its data.
 
 Checked 2026-10-01 and recorded above: TCGdex language coverage and gaps (section 5), pricing
 fields, per-variant prices, and the absence of graded data (section 10), variant detail
@@ -617,20 +613,24 @@ pokemontcg.io is no longer the catalog, so its open questions are dropped.
 
 ## 14. Suggested Build Order
 
-1. Schema and auth in Supabase, with several accounts and a family group working from the start.
-   Manual card entry only, no camera.
-2. CSV export and import, including the UUID round-trip. Early, because it is the backup.
-3. monprice import, using the mapping in section 7. Proves the catalog matching on 1,414 real
-   rows before the scanner depends on it.
-4. Catalog browsing per language against TCGdex, with image caching. Cache into `cards`,
-   `card_variants`, and `card_localizations`.
-5. Collections (hand-picked and self-filling), favorites, the shared filter and sort bar,
-   duplicates, and the Trade view.
-6. Goals with missing lists, wishlists, and browsing a family member's cards.
-7. Binders: grids, placing cards and placeholders, then Michi art and print export.
-8. Camera capture plus OCR of the collector number, language detection, the confirm screen, scan
-   safety, and the batch session tray. Pack openings ride on the session.
-   The scanner is the fun part but the least load-bearing: everything works without it, just
-   slower to enter cards.
-9. Vision-model fallback for variants and set symbols.
-10. Pricing display, then price snapshots if the value chart is wanted.
+Follows the release slices in `plans/product-plan.md`. The scanner is in the first release,
+because it fixes the problem that makes monprice worth leaving.
+
+**Weekend zero.** Camera capture and offline IndexedDB writes on all three family phones. It
+settles the iPhone questions before any feature work.
+
+**First release (switch from monprice):**
+
+1. Sign-in for Eric, the per-person document, and the entry-by-entry merge.
+2. Catalog download per language from TCGdex, with image caching.
+3. monprice import with the match report and review queue; CSV export.
+4. The scanner: sessions, the tray, language per card, the confidence gate, duplicates, undo.
+5. Set browser with owned rings across languages, search, filter and sort, the Trade view, the
+   Star rule and hand-picked collections, prices labeled by market.
+
+**v1.1:** invites, family browsing, wishlists, CSV re-import, the full filter bar.
+
+**v1.2:** goals with missing lists, binders with placement and placeholders.
+
+**Later:** Michi art and print export, the master-set goal and variant detection (with the
+vision-model fallback), pack openings, graded fields, own photos.
