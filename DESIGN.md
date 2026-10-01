@@ -458,10 +458,11 @@ Facts this rests on, checked 2026-10-01 against published sources:
 
 | Phone | Mode | Camera | Torch | Zoom and focus | Storage | Offline reload |
 | --- | --- | --- | --- | --- | --- | --- |
-| Eric: Android 10, Chrome 154 (2026-10-01) | Installed and browser | Rear, 1080 × 1920 default, up to 3840 × 2160, starts in about 530 ms | Supported; toggle worked installed and in the browser | Zoom 1 to 4; manual, single-shot, and continuous focus | 1,600 entries written in about 220 ms, read in about 20 ms; persistent; 10 GB quota | Not confirmed: the recount ran while still online |
+| Eric: Android 10, Chrome 154 (2026-10-01) | Installed and browser | Rear, 1080 × 1920 default, up to 3840 × 2160, starts in about 530 ms | Supported; toggle worked installed and in the browser | Zoom 1 to 4; manual, single-shot, and continuous focus | 1,600 entries written in about 220 ms, read in about 20 ms; persistent; 10 GB quota | Passed: with no connection, the installed app opened, wrote 1,600 entries, and counted them back |
 | An iPhone (optional: every invited user has Android) | | Not run yet | | | | |
 
-Browser tab and installed app share one storage on Android. The scanner should ask for more than
+Verdict for Android: the PWA does everything weekend zero set out to test. Browser tab and
+installed app share one storage on Android. The scanner should ask for more than
 the default resolution when reading collector numbers.
 
 ## 9. Export
