@@ -19,6 +19,7 @@ What it does:
 - Filter and search by type, rarity, set, language, price, collection membership.
 - Group cards into user-defined collections (for example, a Star collection for SIRs and IRs).
   A card can belong to more than one.
+- Scan cards one at a time or in a batch session, assigning a whole session to collections at once.
 - Flag duplicates at scan time and keep a Trade view of the extras.
 - Mark favorites.
 - Look up current market price and its trend.
@@ -34,18 +35,32 @@ Out of scope: a portfolio view. monprice has one and it goes unused.
 The tracker replaces monprice, which Eric uses today. These are the problems that make it
 worth replacing, so every one of them is a requirement here.
 
-- **Language is a sticky setting chosen before scanning.** Forget to switch it back and a whole
-  batch is saved in the wrong language. Those cards then do not show as owned when viewing the
-  language they really are.
+- **Language is a sticky setting chosen before scanning, and the scan never overrides it.**
+  With Korean selected, a Japanese card is saved as the Korean printing. Forget to switch it back
+  and a whole batch is saved in the wrong language, and those cards do not show as owned when
+  viewing the language they really are. The same holds for batch scans: every card in a session
+  gets the one selected language.
 - **There is no automatic "all my cards" collection.** Eric keeps one by hand (the export file
   is named `Todas`) and has to select it on every save, so every card is saved at least twice.
 - **The profile totals count collection memberships, not cards.** A card saved into two
   collections is counted, and valued, twice.
+- **Adding a card to two collections is two separate actions** on the card screen, and the
+  "All" collection makes that the normal case.
 - **Scanning a card already owned gives no warning,** so there is no way to know which cards are
-  spare and can be traded.
+  spare and can be traded. The only sign of a duplicate is a small `x2` / `xN` counter next to
+  the card, which is easy to miss.
 
-What it gets right, and must be kept: the catalog goes all the way back to the first editions,
-in several languages, with prices and trends.
+What it gets right, and must be kept:
+
+- The catalog goes all the way back to the first editions, in several languages, with prices
+  and trends.
+- Batch scanning. Cards scanned in a session collect in a list at the bottom of the scanner.
+  Tapping one shows its details, adds it to a collection, or removes it from the session. At the
+  end the whole session is assigned to a collection in one step, and any single card can be sent
+  somewhere else instead.
+- Each set tile shows how many of its cards are owned (`2 / 122`), as a number and a ring.
+
+Source: Eric's own use, and monprice's public store screenshots (2026-10-01).
 
 ## 3. Decisions and Why
 
@@ -87,9 +102,31 @@ Collection value and card counts sum over `copies`, not over `collection_copies`
 three collections counts once.
 
 **Duplicates are caught at scan time; Trade is a derived view.**
-Scanning a card already owned asks "You have 1 (PT, holo). Add another?" before saving. Trade is
-a query (copies beyond the first), not a stored collection, so it stays correct after a card is
-traded away without anyone remembering to update it.
+A single scan of a card already owned asks "You have 1 (PT, holo). Add another?" before saving.
+Trade is a query (copies beyond the first), not a stored collection, so it stays correct after a
+card is traded away without anyone remembering to update it.
+
+**A scan session is a tray, and every card in it carries its own language.**
+Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
+scanner, each one can be opened, retagged, or removed, and the session is assigned to
+collections in one step with per-card overrides. The difference is that each card's language is
+detected on its own, so a session mixing Japanese, Korean, and Portuguese cards saves each one
+correctly. Owning is the base set, so a session needs no collection at all to be saved.
+
+**In a session, duplicates are badges, not prompts.**
+A prompt per card would break the rhythm of batch scanning. A tray card that is already owned,
+or scanned twice in the session, shows the quantity badge below, and the duplicate decision is
+made once when the session is saved.
+
+**Quantity is a corner badge, not a trailing counter.**
+monprice's `xN` beside the card is easy to miss. Any card image showing a copy owned more than
+once carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
+the scan tray. When the viewing language differs from the copy's language, a language chip
+(`PT`) sits in the opposite corner.
+
+**Set tiles show owned progress across every language.**
+Keep monprice's `2 / 122` ring on each set tile, but count a card as owned whatever language the
+copy is in, so the ring matches what the collection really holds.
 
 **Catalog source is TCGdex.**
 It covers the languages needed, back to Base Set, and embeds prices. The pokedex project already
@@ -234,7 +271,8 @@ detection over the attack and ability text separates Portuguese from English and
 result is a proposal on the confirm screen, never a silent save.
 
 **The confirm screen** shows the matched card, the detected language, the variant, and, when the
-card is already owned, the duplicate prompt. One tap saves.
+card is already owned, the duplicate prompt. One tap saves. In a batch session, the same details
+appear on each tray card instead, and the session is confirmed as a whole (section 3).
 
 **Known hard parts:**
 
@@ -378,7 +416,8 @@ format (section 7). pokemontcg.io is no longer the catalog, so its open question
 4. Catalog browsing per language against TCGdex, with image caching. Cache into `cards` and
    `card_localizations`.
 5. Collections, favorites, filtering, duplicates, and the Trade view.
-6. Camera capture plus OCR of the collector number, language detection, and the confirm screen.
+6. Camera capture plus OCR of the collector number, language detection, the confirm screen, and
+   the batch session tray.
    The scanner is the fun part but the least load-bearing: everything works without it, just
    slower to enter cards.
 7. Vision-model fallback for variants and set symbols.
