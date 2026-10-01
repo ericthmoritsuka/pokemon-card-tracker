@@ -5,6 +5,11 @@ organize it into collections, and see what it is worth.
 
 Status: design only, nothing built. Last updated 2026-10-01.
 
+Companion plans, written 2026-10-01 by a product review and a UX review of this document:
+[`plans/product-plan.md`](plans/product-plan.md) (scope, release slices, success criteria) and
+[`plans/ux-plan.md`](plans/ux-plan.md) (navigation, flows, wireframes, badges). Changes they
+propose to this document are not applied here until Eric decides on them.
+
 ## 1. Scope
 
 What it does:
