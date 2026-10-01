@@ -12,8 +12,13 @@ import {describe, test} from 'node:test';
 
 import {
 	ageText,
+	cardmarketTrend,
 	cleanManualPrice,
 	copyValue,
+	EURO_RATES_URL,
+	EURO_RATES_URL_V1,
+	euroRates,
+	eurToBrl,
 	exchangeRates,
 	extractPrices,
 	finishOf,
@@ -22,10 +27,12 @@ import {
 	listStats,
 	manualPrice,
 	parseBrl,
+	parseEuroRates,
 	parseRates,
 	RATES_URL,
 	RATES_URL_V1,
 	roundCents,
+	savedEuroRates,
 	savedRates,
 	tileValue,
 	usdToBrl,
@@ -48,6 +55,7 @@ const V = {
 };
 
 const RATES = {brlPerUsd: 5.1877, date: '2026-10-01', fetchedAt: 0, fresh: true};
+const EURO = {brlPerEur: 5.8814, date: '2026-10-01', fetchedAt: 0, fresh: true};
 
 // Intl writes a no-break space after the currency symbol.
 const plain = (text) => String(text).replace(/ /g, ' ');
@@ -176,6 +184,118 @@ describe('extractPrices', () => {
 		assert.deepEqual(extractPrices(null), []);
 		assert.deepEqual(extractPrices({id: 'x'}), []);
 		assert.deepEqual(extractPrices({pricing: {tcgplayer: null}}), []);
+	});
+});
+
+describe('Cardmarket per finish', () => {
+	const pick = (card, label) => extractPrices(card).find((finish) => finish.label === label).cardmarket;
+
+	test('a holo card reads the plain fields', () => {
+		const unlimited = pick(CHARIZARD, 'Holo, Unlimited');
+
+		assert.deepEqual(
+			[unlimited.trend, unlimited.avg1, unlimited.avg7, unlimited.avg30, unlimited.fields, unlimited.date, unlimited.unit],
+			[596.13, 180, 1693.86, 815, 'plain', '2026-09-30', 'EUR']
+		);
+		assert.equal(pick(LUGIA, 'Holo').trend, 676.98);
+		assert.equal(pick(LUGIA, 'Holo, 1st Edition stamp').trend, 676.98);
+	});
+
+	test('a normal card reads the plain fields and a reverse the -holo ones', () => {
+		const normal = pick(EXEGGCUTE, 'Normal');
+		const reverse = pick(EXEGGCUTE, 'Reverse holo');
+		const pokeball = pick(EXEGGCUTE, 'Reverse holo, Poké Ball pattern');
+		const masterball = pick(EXEGGCUTE, 'Reverse holo, Master Ball pattern');
+
+		assert.deepEqual([normal.trend, normal.avg7, normal.avg30, normal.fields], [0.03, 0.02, 0.03, 'plain']);
+		assert.deepEqual([reverse.trend, reverse.avg7, reverse.avg30, reverse.fields], [0.11, 0.06, 0.06, 'holo']);
+		assert.deepEqual([pokeball.trend, pokeball.avg7, pokeball.avg30, pokeball.productId], [0.28, 0.35, 0.35, 806408]);
+		assert.deepEqual([masterball.trend, masterball.avg1, masterball.avg7, masterball.avg30, masterball.productId], [2.06, 1.5, 1.93, 1.86, 806409]);
+
+		// The same on the Portuguese record, whose variant words are localized.
+		assert.deepEqual(extractPrices(EXEGGCUTE_PT).map((finish) => finish.cardmarket.trend), [0.03, 0.11, 0.28, 2.06]);
+		assert.equal(pick(BULBASAUR_PT, 'Reverse holo, League foil, 30th pokeday stamp').trend, 8.09);
+	});
+
+	test('marks finishes that share one Cardmarket price', () => {
+		// Base Set Shadowless and 1st Edition Shadowless are one product, 660224.
+		assert.deepEqual(pick(CHARIZARD, 'Holo, Shadowless').shared, ['Holo, Shadowless, 1st Edition stamp']);
+		assert.deepEqual(pick(CHARIZARD, 'Holo, Unlimited').shared, []);
+		assert.deepEqual(pick(LUGIA, 'Holo').shared, ['Holo, 1st Edition stamp']);
+		// Normal and reverse share product 805390 but not their fields.
+		assert.deepEqual(extractPrices(EXEGGCUTE).map((finish) => finish.cardmarket.shared), [[], [], [], []]);
+	});
+
+	test('missing fields stay missing, and 0 is not a price', () => {
+		// The Master Ball reverse's plain fields, read as if it were a normal
+		// print: avg and the three averages are null and trend is 0.
+		const masterball = EXEGGCUTE.variants_detailed.find((variant) => variant.variantId === V.masterball);
+		const [asNormal] = extractPrices({variants_detailed: [{...masterball, foil: undefined, type: 'normal'}]});
+
+		assert.deepEqual(
+			[asNormal.cardmarket.avg, asNormal.cardmarket.low, asNormal.cardmarket.trend, asNormal.cardmarket.avg1, asNormal.cardmarket.avg7, asNormal.cardmarket.avg30],
+			[null, 0.7, null, null, null, null]
+		);
+		assert.equal(cardmarketTrend(asNormal.cardmarket), null);
+		assert.equal(eurToBrl(asNormal.cardmarket.trend, EURO), null);
+
+		// No Cardmarket block at all: no price.
+		assert.equal(pick(CHARIZARD, 'Holo, 1999-2000 copyright'), null);
+	});
+
+	test('converts euros with the euro rate', () => {
+		assert.equal(plain(formatBrl(eurToBrl(596.13, EURO))), 'R$ 3.506,08');
+		assert.equal(eurToBrl(596.13, RATES), null, 'a dollar rate does not convert euros');
+		assert.equal(eurToBrl(null, EURO), null);
+		assert.equal(eurToBrl(0, EURO), null);
+		assert.equal(eurToBrl(1, null), null);
+	});
+
+	test('never counts toward a value or a total', () => {
+		// Shadowless has a Cardmarket price and no TCGplayer one.
+		const shadowless = extractPrices(CHARIZARD)[2].variantId;
+		const copy = entry({card_id: 'base1-4', variant_id: shadowless});
+
+		assert.deepEqual(copyValue(copy, CHARIZARD, {rates: {...RATES, ...EURO}}), {kind: 'unknown', usd: null});
+		assert.equal(listStats([copy], new Map([['international|base1-4', CHARIZARD]]), {rates: {...RATES, ...EURO}}).total, null);
+	});
+});
+
+describe('cardmarketTrend', () => {
+	const trend = (fields) => cardmarketTrend({avg1: null, avg30: null, avg7: null, ...fields});
+
+	test('rises or falls at 5% from the 30 day average, else is steady', () => {
+		assert.equal(trend({avg30: 2, avg7: 2.1}).direction, 'rising');
+		assert.equal(trend({avg30: 2, avg7: 2.09}).direction, 'steady');
+		assert.equal(trend({avg30: 2, avg7: 1.9}).direction, 'falling');
+		assert.equal(trend({avg30: 2, avg7: 1.91}).direction, 'steady');
+		assert.equal(trend({avg30: 2, avg7: 2}).direction, 'steady');
+		assert.deepEqual(trend({avg30: 2, avg7: 2.1}), {avg30: 2, change: 0.05, direction: 'rising', recent: 2.1, recentField: 'avg7'});
+	});
+
+	test('reads the real records', () => {
+		const pick = (card, label) => cardmarketTrend(extractPrices(card).find((finish) => finish.label === label).cardmarket);
+
+		// 1693.86 against 815.
+		assert.equal(pick(CHARIZARD, 'Holo, Unlimited').direction, 'rising');
+		// 1821.30 against 2478.82.
+		assert.equal(pick(CHARIZARD, 'Holo, Shadowless').direction, 'falling');
+		// 0.21 against 0.22 is 4.55% down: steady.
+		assert.deepEqual([pick(BULBASAUR_PT, 'Reverse holo').direction, pick(BULBASAUR_PT, 'Reverse holo').change], ['steady', -0.0455]);
+		// 1.93 against 1.86 is 3.76% up: steady.
+		assert.equal(pick(EXEGGCUTE, 'Reverse holo, Master Ball pattern').direction, 'steady');
+	});
+
+	test('takes the 7 day average, and the 1 day one only without it', () => {
+		assert.equal(trend({avg1: 1, avg30: 2, avg7: 2}).recentField, 'avg7');
+		assert.deepEqual(trend({avg1: 3, avg30: 2}), {avg30: 2, change: 0.5, direction: 'rising', recent: 3, recentField: 'avg1'});
+	});
+
+	test('gives no trend without the averages it needs', () => {
+		assert.equal(trend({avg1: 3, avg7: 2}), null);
+		assert.equal(trend({avg30: 2}), null);
+		assert.equal(trend({avg30: 0, avg7: 2}), null);
+		assert.equal(cardmarketTrend(null), null);
 	});
 });
 
@@ -393,6 +513,86 @@ describe('exchange rates', () => {
 		const rates = await exchangeRates({fetchFn: answer([{base: 'USD', date: '2026-10-01', quote: 'BRL', rate: 5.1877}]), now: 1, storage: broken});
 
 		assert.equal(rates.brlPerUsd, 5.1877);
+	});
+});
+
+describe('euro exchange rate', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	const V2 = [{base: 'EUR', date: '2026-10-01', quote: 'BRL', rate: 5.8814}];
+
+	test('reads the v2 and the v1 answers', () => {
+		// Shapes as frankfurter answered base=EUR on 2026-10-01.
+		assert.deepEqual(parseEuroRates(V2), {brlPerEur: 5.8814, date: '2026-10-01'});
+		assert.deepEqual(parseEuroRates({amount: 1, base: 'EUR', date: '2026-10-01', rates: {BRL: 5.862}}), {brlPerEur: 5.862, date: '2026-10-01'});
+		// A dollar answer is not a euro rate, and the reverse.
+		assert.equal(parseEuroRates([{base: 'USD', date: '2026-10-01', quote: 'BRL', rate: 5.1877}]), null);
+		assert.equal(parseRates(V2), null);
+		assert.equal(parseEuroRates([]), null);
+	});
+
+	test('asks v2 once a day and saves beside the dollar rate', async () => {
+		const storage = memoryStorage({'cardTracker.rates': JSON.stringify({brlPerUsd: 5.1877, date: '2026-10-01', fetchedAt: 0})});
+		const asked = [];
+		const fetchFn = async (url) => {
+			asked.push(url);
+
+			return answer(V2)();
+		};
+		const now = Date.UTC(2026, 9, 1, 12);
+
+		assert.equal(EURO_RATES_URL, 'https://api.frankfurter.dev/v2/rates?base=EUR&quotes=BRL');
+		assert.deepEqual(await euroRates({fetchFn, now, storage}), {brlPerEur: 5.8814, date: '2026-10-01', fetchedAt: now, fresh: true});
+		assert.deepEqual(asked, [EURO_RATES_URL]);
+		assert.deepEqual(savedEuroRates(storage), {brlPerEur: 5.8814, date: '2026-10-01', fetchedAt: now});
+		// The dollar rate is untouched.
+		assert.deepEqual(savedRates(storage), {brlPerUsd: 5.1877, date: '2026-10-01', fetchedAt: 0});
+
+		await euroRates({fetchFn, now: now + DAY - 1, storage});
+		assert.equal(asked.length, 1);
+
+		await euroRates({fetchFn, now: now + DAY + 1, storage});
+		assert.equal(asked.length, 2);
+	});
+
+	test('falls back to v1 when v2 fails', async () => {
+		const asked = [];
+		const fetchFn = async (url) => {
+			asked.push(url);
+
+			return url === EURO_RATES_URL ? answer({status: 503}, false)() : answer({base: 'EUR', date: '2026-10-01', rates: {BRL: 5.862}})();
+		};
+		const rates = await euroRates({fetchFn, now: 1, storage: memoryStorage()});
+
+		assert.deepEqual(asked, [EURO_RATES_URL, EURO_RATES_URL_V1]);
+		assert.equal(rates.brlPerEur, 5.862);
+	});
+
+	test('works offline with the last euro rate and its date', async () => {
+		const storage = memoryStorage({'cardTracker.rates.eur': JSON.stringify({brlPerEur: 5.9, date: '2026-09-28', fetchedAt: 0})});
+		const offline = async () => {
+			throw new TypeError('Failed to fetch');
+		};
+
+		assert.deepEqual(await euroRates({fetchFn: offline, now: Date.UTC(2026, 9, 1), storage}), {brlPerEur: 5.9, date: '2026-09-28', fetchedAt: 0, fresh: false});
+		// No dollar rate was ever saved, so there is none, not the euro one.
+		assert.equal(await exchangeRates({fetchFn: offline, now: Date.UTC(2026, 9, 1), storage}), null);
+		assert.equal(await euroRates({fetchFn: offline, now: 1, storage: memoryStorage()}), null);
+	});
+
+	test('a failed euro request leaves the dollar rate fresh', async () => {
+		const storage = memoryStorage();
+		const fetchFn = async (url) => {
+			if (url.includes('base=EUR')) {
+				throw new TypeError('Failed to fetch');
+			}
+
+			return answer([{base: 'USD', date: '2026-10-01', quote: 'BRL', rate: 5.1877}])();
+		};
+		const [usd, eur] = await Promise.all([exchangeRates({fetchFn, now: 1, storage}), euroRates({fetchFn, now: 1, storage})]);
+
+		assert.equal(usd.brlPerUsd, 5.1877);
+		assert.equal(usd.fresh, true);
+		assert.equal(eur, null);
 	});
 });
 

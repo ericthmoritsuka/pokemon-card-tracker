@@ -22,7 +22,9 @@ const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 
 const VIEWPORT = {height: 740, width: 360};
 const SHOTS = process.env.SHOTS || '/tmp';
+// As frankfurter answered on 2026-10-01.
 const RATE = [{base: 'USD', date: '2026-10-01', quote: 'BRL', rate: 5.1877}];
+const EURO_RATE = [{base: 'EUR', date: '2026-10-01', quote: 'BRL', rate: 5.8814}];
 
 let server;
 let browser;
@@ -48,8 +50,8 @@ const localToday = () => {
 };
 
 // One phone. rates: 'online' answers frankfurter, 'offline' refuses it.
-// saved: a rate already in localStorage.
-async function phone({colorScheme = 'light', rates = 'online', saved = null} = {}) {
+// saved and savedEur: a dollar or euro rate already in localStorage.
+async function phone({colorScheme = 'light', rates = 'online', saved = null, savedEur = null} = {}) {
 	const context = await browser.newContext({colorScheme, viewport: VIEWPORT});
 	const seen = {frankfurter: [], liga: [], other: []};
 
@@ -66,7 +68,7 @@ async function phone({colorScheme = 'light', rates = 'online', saved = null} = {
 			seen.frankfurter.push(url);
 
 			return rates === 'online'
-				? route.fulfill({body: JSON.stringify(RATE), contentType: 'application/json', headers: {'Access-Control-Allow-Origin': '*'}, status: 200})
+				? route.fulfill({body: JSON.stringify(/base=EUR/.test(url) ? EURO_RATE : RATE), contentType: 'application/json', headers: {'Access-Control-Allow-Origin': '*'}, status: 200})
 				: route.abort('internetdisconnected');
 		}
 
@@ -82,6 +84,10 @@ async function phone({colorScheme = 'light', rates = 'online', saved = null} = {
 
 	if (saved) {
 		await context.addInitScript((value) => localStorage.setItem('cardTracker.rates', JSON.stringify(value)), saved);
+	}
+
+	if (savedEur) {
+		await context.addInitScript((value) => localStorage.setItem('cardTracker.rates.eur', JSON.stringify(value)), savedEur);
 	}
 
 	const page = await context.newPage();
@@ -113,6 +119,27 @@ async function finish(device, name) {
 
 const text = async (locator) => plain(await locator.textContent());
 
+// Waits until both converted references have their rates.
+const ratesShown = (page) => page.waitForFunction(() => [...document.querySelectorAll('.price-us-value, .price-eu-value')].length >= 2);
+
+// WCAG contrast of an element's text against the panel behind it.
+const contrast = (locator) => locator.evaluate((el) => {
+	const rgb = (color) => color.match(/[\d.]+/g).slice(0, 3).map(Number);
+	const luminance = (color) => {
+		const [r, g, b] = rgb(color).map((v) => {
+			const c = v / 255;
+
+			return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+		});
+
+		return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+	};
+	const fore = luminance(getComputedStyle(el).color);
+	const back = luminance(getComputedStyle(el.closest('section.price')).backgroundColor);
+
+	return (Math.max(fore, back) + 0.05) / (Math.min(fore, back) + 0.05);
+});
+
 const storedCards = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).listCards());
 
 describe('price section', () => {
@@ -124,15 +151,16 @@ describe('price section', () => {
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => /~/.test(document.querySelector('.price-us-value')?.textContent || ''));
+		await ratesShown(page);
 		assert.equal(await text(section.locator('.price-market').first()), 'Brazil (Liga Pokémon)');
-		assert.equal(await text(section.locator('.price-us .price-market')), 'US market reference (TCGplayer)');
+		assert.equal(await text(section.locator('.price-others-title')), 'Other markets');
+		assert.equal(await text(section.locator('.price-us .price-market')), 'US market (TCGplayer)');
 		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 4.899,94 estimate');
 		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 944,53 market price, updated 2026-09-30');
 		assert.equal(await text(section.locator('.price-rate')), 'At R$ 5,19 per US$ 1, rate of 2026-10-01.');
 		assert.equal(await section.locator('.price-language').count(), 0);
-		// No Cardmarket price anywhere.
-		assert.doesNotMatch(await section.textContent(), /Cardmarket|€|EUR/);
+		// The Liga block comes first, the other markets after it.
+		assert.ok(await page.evaluate(() => document.querySelector('.price-liga').compareDocumentPosition(document.querySelector('.price-others')) & Node.DOCUMENT_POSITION_FOLLOWING));
 
 		// Ver na Liga is the main action, with Liga's own search for the card.
 		const liga = section.locator('a.price-liga-link');
@@ -153,13 +181,12 @@ describe('price section', () => {
 		assert.equal(await text(section.locator('.price-finish[aria-pressed="true"]')), 'Holo, Unlimited (1 owned)');
 		await chips.nth(1).click();
 		assert.equal(await text(section.locator('.price-us .price-none')), 'No US market price for this finish.');
-		assert.equal(device.seen.frankfurter.length, 1);
-		assert.match(device.seen.frankfurter[0], /\/v2\/rates\?base=USD&quotes=BRL$/);
+		assert.deepEqual(device.seen.frankfurter.map((url) => url.replace(/^.*\/v2\//, '')).sort(), ['rates?base=EUR&quotes=BRL', 'rates?base=USD&quotes=BRL']);
 
 		await finish(device, 'english');
 	});
 
-	test('Portuguese copy: notes that the US price is not for that printing', async () => {
+	test('Portuguese copy: notes that the market prices are not for that printing', async () => {
 		const device = await phone();
 		const {page} = device;
 
@@ -170,7 +197,8 @@ describe('price section', () => {
 		await page.waitForFunction(() => /~/.test(document.querySelector('.price-us-value')?.textContent || ''));
 		assert.equal(await text(section.locator('.price-finish[aria-pressed="true"]')), 'Reverse holo (1 owned)');
 		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 1,14 estimate');
-		assert.equal(await text(section.locator('.price-language')), 'This is the US price for English cards, not for this Portuguese printing.');
+		assert.equal(await text(section.locator('.price-us .price-language')), 'This is the US price for English cards, not for this Portuguese printing.');
+		assert.equal(await text(section.locator('.price-eu .price-language')), 'This is the EU market price, not one for this Portuguese printing.');
 		assert.equal(await section.locator('a.price-liga-link').getAttribute('href'), 'https://www.ligapokemon.com.br/?view=cards/search&card=Exeggcute%20(001%2F131)');
 
 		await finish(device, 'portuguese');
@@ -271,14 +299,19 @@ describe('price section', () => {
 	});
 
 	test('offline: the last saved rate, with its date', async () => {
-		const device = await phone({rates: 'offline', saved: {brlPerUsd: 5.21, date: '2026-09-28', fetchedAt: Date.now() - 2 * 24 * 60 * 60 * 1000}});
+		const old = Date.now() - 2 * 24 * 60 * 60 * 1000;
+		const device = await phone({rates: 'offline', saved: {brlPerUsd: 5.21, date: '2026-09-28', fetchedAt: old}, savedEur: {brlPerEur: 5.9, date: '2026-09-27', fetchedAt: old}});
 		const {page} = device;
 
 		await open(device, 'offline');
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => /last rate saved/.test(document.querySelector('.price-rate')?.textContent || ''));
+		await page.waitForFunction(() => /last rate saved/.test(document.querySelector('.price-rate')?.textContent || '') && /last rate saved/.test(document.querySelector('.price-eu-rate')?.textContent || ''));
+		// Each currency keeps its own saved rate and date.
+		assert.equal(await text(section.locator('.price-eu-value')), '~About R$ 1,65 estimate');
+		assert.equal(await text(section.locator('.price-eu-rate')), 'At R$ 5,90 per € 1, rate of 2026-09-27, the last rate saved on this phone.');
+		assert.equal(await text(section.locator('.price-trend')), '→Trend steady, 30-day average ~About R$ 2,07');
 		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 1,56 estimate');
 		assert.equal(await text(section.locator('.price-rate')), 'At R$ 5,21 per US$ 1, rate of 2026-09-28, the last rate saved on this phone.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,56US');
@@ -310,12 +343,100 @@ describe('price section', () => {
 		assert.ok(visible, 'the chosen finish is in view');
 		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 0,30 market price, updated 2026-09-30');
 		assert.equal(await text(section.locator('.price-rate')), 'No exchange rate is saved on this phone yet, so the reais value is not shown.');
+		// Cardmarket in euros only, its trend average too.
+		await page.waitForFunction(() => /No euro exchange rate/.test(document.querySelector('.price-eu-rate')?.textContent || ''));
+		assert.equal(await section.locator('.price-eu-value').count(), 0);
+		assert.equal(await text(section.locator('.price-eu-eur')), '€ 0,28 trend price, updated 2026-09-30');
+		assert.equal(await text(section.locator('.price-trend')), '→Trend steady, 30-day average € 0,35');
+		assert.equal(await text(section.locator('.price-eu-rate')), 'No euro exchange rate is saved on this phone yet, so the reais value is not shown.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: no price');
 		assert.equal(await text(page.locator('.price-stats-none')), 'No prices known for this card yet.');
 		assert.equal(await text(page.locator('.price-count-unknown')), '1 card unknown');
 		assert.match(await text(page.locator('.price-stats-notes')), /1 card has a US price but no exchange rate is saved/);
 
 		await finish(device, 'norate');
+	});
+});
+
+describe('other markets', () => {
+	test('English card with both markets, then finishes and a card with only Cardmarket', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'markets');
+
+		const [charizard, bulbasaur] = [page.locator('section.price').nth(0), page.locator('section.price').nth(1)];
+
+		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2 && document.querySelectorAll('.price-us-value').length === 1);
+
+		// Both rows, the US one as before.
+		assert.deepEqual((await charizard.locator('.price-others .price-market').allTextContents()).map(plain), ['US market (TCGplayer)', 'EU market (Cardmarket)']);
+		assert.equal(await text(charizard.locator('.price-us-value')), '~About R$ 4.899,94 estimate');
+
+		// Holo Unlimited: the plain trend, 596.13 at 5.8814; 1693.86 over 7 days
+		// against 815 over 30 is rising.
+		const eu = charizard.locator('.price-eu');
+
+		assert.equal(await text(eu.locator('.price-eu-value')), '~About R$ 3.506,08 estimate');
+		assert.equal(await text(eu.locator('.price-eu-eur')), '€ 596,13 trend price, updated 2026-09-30');
+		assert.equal(await text(eu.locator('.price-trend')), '↑Trend rising, 30-day average ~About R$ 4.793,34');
+		assert.equal(await eu.locator('.price-trend').getAttribute('data-trend'), 'rising');
+		assert.equal(await eu.locator('.price-trend-shape').getAttribute('aria-hidden'), 'true');
+		assert.equal(await text(eu.locator('.price-eu-rate')), 'At R$ 5,88 per € 1, rate of 2026-10-01.');
+		assert.equal(await eu.locator('.price-language').count(), 0);
+		assert.equal(await eu.locator('.price-shared').count(), 0);
+
+		// Shadowless: Cardmarket only, shared with the 1st Edition, falling.
+		await charizard.locator('.price-finish').nth(2).click();
+		assert.equal(await text(charizard.locator('.price-us .price-none')), 'No US market price for this finish.');
+		assert.equal(await text(eu.locator('.price-eu-value')), '~About R$ 19.589,24 estimate');
+		assert.equal(await text(eu.locator('.price-trend')), '↓Trend falling, 30-day average ~About R$ 14.578,93');
+		assert.equal(await text(eu.locator('.price-shared')), 'Cardmarket lists this with Holo, Shadowless, 1st Edition stamp as one price, so it may not tell them apart.');
+
+		// 1999-2000 copyright: neither market, nothing invented.
+		await charizard.locator('.price-finish').nth(3).click();
+		assert.equal(await text(eu.locator('.price-none')), 'No EU market price for this finish.');
+		assert.equal(await eu.locator('.price-eu-value, .price-eu-eur, .price-trend, .price-eu-rate').count(), 0);
+
+		// The Portuguese league reverse: Cardmarket's -holo fields only, with
+		// the note that the market price is not for this printing.
+		assert.equal(await text(bulbasaur.locator('.price-us .price-none')), 'No US market price for this finish.');
+		assert.equal(await text(bulbasaur.locator('.price-eu-value')), '~About R$ 47,58 estimate');
+		assert.equal(await text(bulbasaur.locator('.price-eu-eur')), '€ 8,09 trend price, updated 2026-09-30');
+		assert.equal(await text(bulbasaur.locator('.price-trend')), '↓Trend falling, 30-day average ~About R$ 47,76');
+		assert.equal(await text(bulbasaur.locator('.price-eu .price-language')), 'This is the EU market price, not one for this Portuguese printing.');
+
+		// Totals never take Cardmarket: neither tile has a price.
+		const tiles = await page.evaluate(async () => {
+			const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
+			const {tilePrice} = await import('/pokemon-card-tracker/js/price-view.js');
+			const fixture = async (name) => (await fetch(`/pokemon-card-tracker/tests/prices-fixtures/${name}.json`)).json();
+			const entries = await listCards();
+			const bulbasaurPt = await fixture('pt-me01-001');
+
+			return tilePrice(entries.filter((entry) => entry.card_id === bulbasaurPt.id), bulbasaurPt);
+		});
+
+		assert.equal(tiles, null);
+
+		await charizard.locator('.price-finish').nth(0).click();
+		await finish(device, 'markets');
+	});
+
+	test('dark mode: the trend and the rows stay readable', async () => {
+		const device = await phone({colorScheme: 'dark'});
+		const {page} = device;
+
+		await open(device, 'markets');
+		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2);
+
+		for (const selector of ['.price-others-title', '.price-eu .price-market', '.price-eu-value', '.price-trend', '.price-eu-rate', '.price-language']) {
+			const ratio = await contrast(page.locator(selector).last());
+
+			assert.ok(ratio >= 4.5, `${selector} contrast ${ratio.toFixed(2)} is at least 4.5`);
+		}
+
+		await finish(device, 'markets-dark');
 	});
 });
 

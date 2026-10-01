@@ -8,9 +8,11 @@
 	real collection (IndexedDB) with js/collection.js, and renders the
 	components with the TCGdex records saved in tests/prices-fixtures. It
 	never loads app.js, so nothing reaches Supabase or TCGdex. The exchange
-	rate request goes to api.frankfurter.dev, which the test answers itself.
+	rate requests (US dollar and euro) go to api.frankfurter.dev, which the
+	test answers itself.
 
-	Scenes: english, portuguese, finishes, manual, offline, norate, stats.
+	Scenes: english, portuguese, finishes, manual, offline, norate, stats,
+	markets.
 -->
 <html lang="en">
 <head>
@@ -41,10 +43,11 @@
 		// statistics bar then read the saved one.
 		await exchangeRates();
 
-		const [exeggcute, exeggcutePt, charizard] = await Promise.all([
+		const [exeggcute, exeggcutePt, charizard, bulbasaurPt] = await Promise.all([
 			fixture('en-sv08.5-001'),
 			fixture('pt-sv08.5-001'),
 			fixture('en-base1-4'),
+			fixture('pt-me01-001'),
 		]);
 
 		const variant = (card, label) => extractPrices(card).find((finish) => finish.label === label).variantId;
@@ -116,6 +119,21 @@
 			await copy(charizard, {variant_id: variant(charizard, 'Holo, Shadowless')});
 			await addCard({card_id: 'zz-404', catalog: 'international', language: 'pt'});
 			app.append(statsBar({cardsById: cards, entries: await listCards(), label: 'this binder'}));
+		}
+
+		else if (scene === 'markets') {
+			// Other markets: an English card with both markets, then a
+			// Portuguese copy whose league-stamped reverse has only Cardmarket.
+			await copy(charizard, {variant_id: variant(charizard, 'Holo, Unlimited')});
+			await copy(bulbasaurPt, {language: 'pt', variant_id: variant(bulbasaurPt, 'Reverse holo, League foil, 30th pokeday stamp')});
+
+			const entries = await listCards();
+			const of = (card) => entries.filter((entry) => entry.card_id === card.id);
+
+			app.append(
+				priceSection({card: charizard, entries: of(charizard), language: 'en'}),
+				priceSection({card: bulbasaurPt, entries: of(bulbasaurPt), language: 'pt', ligaHref: null, recordLanguage: 'pt'})
+			);
 		}
 
 		window.harnessReady = true;

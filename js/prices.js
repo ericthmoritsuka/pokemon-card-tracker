@@ -12,8 +12,11 @@
 // The US market price (TCGplayer, in US dollars) comes with each TCGdex card
 // record and is shown only as a reference, converted to reais with a daily
 // rate from frankfurter.dev. Anything worked out from it is an estimate and
-// says so. TCGdex also embeds Cardmarket (EUR); it is extracted here but no
-// view shows it.
+// says so. TCGdex also embeds Cardmarket (EUR), shown beside it as the EU
+// market comparison, converted the same way with its own daily rate, with a
+// rising, falling, or steady trend from its 7 and 30 day averages. Totals
+// never use Cardmarket: they take the Liga price, else the US estimate, so
+// one number never mixes two markets.
 //
 // Never invent a price: a missing price stays missing, and an unknown value
 // is never counted as zero.
@@ -370,8 +373,10 @@ function pickTcgplayer(tcgplayer, variant, siblings) {
 
 // Cardmarket's guide gives each product plain fields and "-holo" ones; the
 // -holo fields are the reverse holo's (on the Master Ball reverse the plain
-// trend is 0 and trend-holo 2.06). Extracted for completeness; no view shows
-// Cardmarket.
+// trend is 0 and trend-holo 2.06). A holo card takes the plain fields: Base
+// Set Charizard's plain trend is 596.13 against a trend-holo of 123.63, and
+// Neo Genesis Lugia's 676.98 against 48.89, so the -holo fields there are
+// not the holo card's price. fields says which set was read.
 function pickCardmarket(cardmarket, variant) {
 	if (!cardmarket || typeof cardmarket !== 'object') {
 		return null;
@@ -388,7 +393,41 @@ function pickCardmarket(cardmarket, variant) {
 		return null;
 	}
 
-	return {...out, date: dayOf(cardmarket.updated), productId: cardmarket.idProduct ?? null, unit: cardmarket.unit || 'EUR'};
+	return {...out, date: dayOf(cardmarket.updated), fields: suffix ? 'holo' : 'plain', productId: cardmarket.idProduct ?? null, shared: [], unit: cardmarket.unit || 'EUR'};
+}
+
+// How far the recent Cardmarket average must sit from the 30 day average,
+// as a share of the 30 day average, before the trend is called rising or
+// falling rather than steady. Both are averages of sold prices, so a few
+// percent comes and goes with one sale's condition or seller; 5% is past
+// that noise, and still catches a move worth a collector's notice.
+export const TREND_THRESHOLD = 0.05;
+
+// The Cardmarket trend for one finish's prices (extractPrices' cardmarket):
+//   {direction: 'rising' | 'falling' | 'steady', recent, recentField, avg30, change}
+// recent is the 7 day average, or the 1 day average when TCGdex gives no 7
+// day one (recentField says which); change is recent against avg30 as a
+// fraction, to four places. Null when avg30 or both recent averages are
+// missing: no trend is guessed.
+export function cardmarketTrend(cardmarket) {
+	if (!cardmarket || typeof cardmarket !== 'object') {
+		return null;
+	}
+
+	const avg30 = price(cardmarket.avg30);
+	const recentField = price(cardmarket.avg7) !== null ? 'avg7' : price(cardmarket.avg1) !== null ? 'avg1' : null;
+
+	if (avg30 === null || !recentField) {
+		return null;
+	}
+
+	const recent = cardmarket[recentField];
+
+	// Rounded so 2.1 against 2 is exactly 5%, not a hair under.
+	const change = Math.round((recent / avg30 - 1) * 10000) / 10000;
+	const direction = change >= TREND_THRESHOLD ? 'rising' : change <= -TREND_THRESHOLD ? 'falling' : 'steady';
+
+	return {avg30, change, direction, recent, recentField};
 }
 
 // The card-level finish words, for a record with no variants_detailed.
@@ -404,9 +443,12 @@ const KEY_FINISHES = {
 // Every finish of a card with its prices:
 //   [{variantId, label, variant, tcgplayer, cardmarket, shared}]
 // tcgplayer is {marketPrice, lowPrice, midPrice, highPrice, directLowPrice,
-// date, key, productId, unit} or null; cardmarket likewise. shared names the
-// other finishes whose TCGplayer price is the very same block (same product,
-// same finish word), so the price may not tell them apart.
+// date, key, productId, unit} or null. cardmarket is {avg, low, trend, avg1,
+// avg7, avg30, date, fields, productId, shared, unit} or null, each price
+// null when missing. shared names the other finishes whose TCGplayer price is
+// the very same block (same product, same finish word), and cardmarket.shared
+// those whose Cardmarket price is (same product, same fields), so the price
+// may not tell them apart.
 //
 // Prices come from each variants_detailed entry's own pricing. A record with
 // no variants_detailed falls back to the card-level pricing, one finish per
@@ -456,6 +498,14 @@ export function extractPrices(card) {
 		if (finish.tcgplayer) {
 			finish.shared = finishes
 				.filter((other) => other !== finish && other.tcgplayer && other.tcgplayer.key === finish.tcgplayer.key && other.tcgplayer.productId === finish.tcgplayer.productId)
+				.map((other) => other.label);
+		}
+
+		const cardmarket = finish.cardmarket;
+
+		if (cardmarket && cardmarket.productId !== null) {
+			cardmarket.shared = finishes
+				.filter((other) => other !== finish && other.cardmarket && other.cardmarket.productId === cardmarket.productId && other.cardmarket.fields === cardmarket.fields)
 				.map((other) => other.label);
 		}
 	}
@@ -509,27 +559,46 @@ export function finishOf(entry, finishes) {
 // frankfurter.dev, free and without a key (checked 2026-10-01). v2 answers
 // [{date, base, quote, rate}]; v1 answers {base, date, rates: {BRL}} and
 // carries a Deprecation header naming v2 as its successor, so it is only the
-// fallback.
+// fallback. Both answer the same shapes for base=EUR (checked 2026-10-01:
+// v2 [{"date":"2026-10-01","base":"EUR","quote":"BRL","rate":5.8814}]).
 export const RATES_URL = 'https://api.frankfurter.dev/v2/rates?base=USD&quotes=BRL';
 export const RATES_URL_V1 = 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=BRL';
+export const EURO_RATES_URL = 'https://api.frankfurter.dev/v2/rates?base=EUR&quotes=BRL';
+export const EURO_RATES_URL_V1 = 'https://api.frankfurter.dev/v1/latest?base=EUR&symbols=BRL';
 
-const RATES_KEY = 'cardTracker.rates';
 const RATES_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-// {brlPerUsd, date} from either version's answer, or null.
-export function parseRates(json) {
-	if (Array.isArray(json)) {
-		const row = json.find((item) => item && item.base === 'USD' && item.quote === 'BRL');
+// Each currency's rate is asked for, saved, and stood in for on its own, so
+// a euro request that fails never costs the dollar rate, or the reverse.
+// The dollar rate keeps the key it has always had.
+const CURRENCIES = {
+	EUR: {field: 'brlPerEur', key: 'cardTracker.rates.eur', urls: [EURO_RATES_URL, EURO_RATES_URL_V1]},
+	USD: {field: 'brlPerUsd', key: 'cardTracker.rates', urls: [RATES_URL, RATES_URL_V1]},
+};
 
-		return row && price(row.rate) && dayOf(row.date) ? {brlPerUsd: row.rate, date: dayOf(row.date)} : null;
+// {<field>: rate, date} for one base currency from either version's answer,
+// or null.
+function parseRate(json, base) {
+	const {field} = CURRENCIES[base];
+
+	if (Array.isArray(json)) {
+		const row = json.find((item) => item && item.base === base && item.quote === 'BRL');
+
+		return row && price(row.rate) && dayOf(row.date) ? {[field]: row.rate, date: dayOf(row.date)} : null;
 	}
 
-	if (json && typeof json === 'object' && json.base === 'USD' && json.rates && price(json.rates.BRL) && dayOf(json.date)) {
-		return {brlPerUsd: json.rates.BRL, date: dayOf(json.date)};
+	if (json && typeof json === 'object' && json.base === base && json.rates && price(json.rates.BRL) && dayOf(json.date)) {
+		return {[field]: json.rates.BRL, date: dayOf(json.date)};
 	}
 
 	return null;
 }
+
+// {brlPerUsd, date} from either version's answer, or null.
+export const parseRates = (json) => parseRate(json, 'USD');
+
+// {brlPerEur, date} from either version's answer, or null.
+export const parseEuroRates = (json) => parseRate(json, 'EUR');
 
 function defaultStorage() {
 	try {
@@ -540,48 +609,52 @@ function defaultStorage() {
 	}
 }
 
-// The rate saved on this phone: {brlPerUsd, date, fetchedAt}, or null.
-export function savedRates(storage = defaultStorage()) {
-	try {
-		const saved = JSON.parse(storage.getItem(RATES_KEY));
+function savedRate(storage, base) {
+	const {field, key} = CURRENCIES[base];
 
-		return saved && price(saved.brlPerUsd) && dayOf(saved.date) ? {brlPerUsd: saved.brlPerUsd, date: saved.date, fetchedAt: Number(saved.fetchedAt) || 0} : null;
+	try {
+		const saved = JSON.parse(storage.getItem(key));
+
+		return saved && price(saved[field]) && dayOf(saved.date) ? {[field]: saved[field], date: saved.date, fetchedAt: Number(saved.fetchedAt) || 0} : null;
 	}
 	catch {
 		return null;
 	}
 }
 
-function saveRates(storage, rates) {
+// The dollar rate saved on this phone: {brlPerUsd, date, fetchedAt}, or null.
+export const savedRates = (storage = defaultStorage()) => savedRate(storage, 'USD');
+
+// The euro rate saved on this phone: {brlPerEur, date, fetchedAt}, or null.
+export const savedEuroRates = (storage = defaultStorage()) => savedRate(storage, 'EUR');
+
+function saveRate(storage, base, rates) {
 	try {
-		storage.setItem(RATES_KEY, JSON.stringify(rates));
+		storage.setItem(CURRENCIES[base].key, JSON.stringify(rates));
 	}
 	catch {
 		// Not saved; the next visit asks again.
 	}
 }
 
-let pending = null;
+const pending = {};
 
-// The rate to use, asking frankfurter at most once a day. Returns
-// {brlPerUsd, date, fetchedAt, fresh}, where fresh is false when the saved
-// rate stood in for a request that failed (offline); or null when there is
-// no rate at all yet.
-export async function exchangeRates({fetchFn = globalThis.fetch, now = Date.now(), storage = defaultStorage()} = {}) {
-	const saved = savedRates(storage);
+// One currency's rate, asking frankfurter at most once a day.
+async function rateFor(base, {fetchFn, now, storage}) {
+	const saved = savedRate(storage, base);
 
 	if (saved && now - saved.fetchedAt < RATES_MAX_AGE_MS) {
 		return {...saved, fresh: true};
 	}
 
-	if (!pending) {
-		pending = (async () => {
-			for (const url of [RATES_URL, RATES_URL_V1]) {
+	if (!pending[base]) {
+		pending[base] = (async () => {
+			for (const url of CURRENCIES[base].urls) {
 				try {
 					const response = await fetchFn(url);
 
 					if (response.ok) {
-						const parsed = parseRates(await response.json());
+						const parsed = parseRate(await response.json(), base);
 
 						if (parsed) {
 							return parsed;
@@ -595,16 +668,16 @@ export async function exchangeRates({fetchFn = globalThis.fetch, now = Date.now(
 
 			return null;
 		})().finally(() => {
-			pending = null;
+			pending[base] = null;
 		});
 	}
 
-	const fetched = await pending;
+	const fetched = await pending[base];
 
 	if (fetched) {
 		const rates = {...fetched, fetchedAt: now};
 
-		saveRates(storage, rates);
+		saveRate(storage, base, rates);
 
 		return {...rates, fresh: true};
 	}
@@ -612,10 +685,28 @@ export async function exchangeRates({fetchFn = globalThis.fetch, now = Date.now(
 	return saved ? {...saved, fresh: false} : null;
 }
 
+// The dollar rate to use, asking frankfurter at most once a day. Returns
+// {brlPerUsd, date, fetchedAt, fresh}, where fresh is false when the saved
+// rate stood in for a request that failed (offline); or null when there is
+// no rate at all yet.
+export function exchangeRates({fetchFn = globalThis.fetch, now = Date.now(), storage = defaultStorage()} = {}) {
+	return rateFor('USD', {fetchFn, now, storage});
+}
+
+// The euro rate, the same way: {brlPerEur, date, fetchedAt, fresh} or null.
+export function euroRates({fetchFn = globalThis.fetch, now = Date.now(), storage = defaultStorage()} = {}) {
+	return rateFor('EUR', {fetchFn, now, storage});
+}
+
 // US dollars to reais, unrounded so a sum rounds once; null when either is
 // missing.
 export function usdToBrl(usd, rates) {
 	return price(usd) !== null && rates && price(rates.brlPerUsd) ? usd * rates.brlPerUsd : null;
+}
+
+// Euros to reais, the same way, with a euro rate.
+export function eurToBrl(eur, rates) {
+	return price(eur) !== null && rates && price(rates.brlPerEur) ? eur * rates.brlPerEur : null;
 }
 
 // ------------------------------------------------------------ values

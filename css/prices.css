@@ -1,7 +1,8 @@
 /* Prices (js/price-view.js). Uses the palette tokens from style.css, so it
    follows the light and dark schemes and every theme. Nothing is told by
-   color alone: estimates carry "~" and the word "estimate" or "US", and the
-   chosen finish is filled and marked with a bar as well as colored. */
+   color alone: estimates carry "~" and the word "estimate" or "US", the
+   chosen finish is filled and marked with a bar as well as colored, and a
+   trend is an arrow and a word. */
 
 .price-sr {
 	clip: rect(0 0 0 0);
@@ -212,19 +213,55 @@
 	margin-top: var(--space-2);
 }
 
-/* United States: smaller, underneath. */
+/* Other markets: the US and EU references, smaller, underneath. */
 
-.price-us {
+.price-others {
 	border-top: 1px solid var(--border);
 	margin-top: var(--space-4);
 	padding-top: var(--space-3);
 }
 
-.price-us-value {
-	font-size: 1.1rem;
+.price-others-title {
+	color: var(--muted);
+	font-size: 0.8125rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	margin: 0;
+	text-transform: uppercase;
+}
+
+.price-others .price-market {
+	font-size: 0.8125rem;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.price-us,
+.price-eu {
+	margin-top: var(--space-2);
+}
+
+.price-eu {
+	border-top: 1px dashed var(--border);
+	padding-top: var(--space-2);
+}
+
+.price-us-value,
+.price-eu-value {
+	font-size: 1.05rem;
 	font-variant-numeric: tabular-nums;
 	font-weight: 600;
-	margin-top: var(--space-1);
+	margin-top: 2px;
+}
+
+/* The trend: an arrow and a word, never color alone. */
+
+.price-trend-shape {
+	display: inline-block;
+	font-weight: 700;
+	margin-right: var(--space-1);
+	text-align: center;
+	width: 1em;
 }
 
 .price-estimate {

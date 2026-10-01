@@ -4,8 +4,10 @@
 //
 // Brazil first: the Liga Pokémon price the owner typed in leads, large, next
 // to Ver na Liga, the main price action (open Liga, read, come back, type).
-// The US market price (TCGplayer) follows, smaller, as a converted
-// reference. No Cardmarket price is shown.
+// Under it, smaller, an Other markets area compares two converted
+// references: the US market (TCGplayer) and the EU market (Cardmarket, with
+// its trend). Tiles and the statistics bar use Liga, else the US estimate,
+// and never Cardmarket.
 
 import {languageLabel} from './catalog.js';
 import {updateCards} from './collection.js';
@@ -15,7 +17,10 @@ import {
 	LIGA_SOURCE,
 	MANUAL_FIELDS,
 	ageText,
+	cardmarketTrend,
 	cleanManualPrice,
+	euroRates,
+	eurToBrl,
 	exchangeRates,
 	extractPrices,
 	finishOf,
@@ -26,6 +31,7 @@ import {
 	manualPrice,
 	newestManual,
 	parseBrl,
+	savedEuroRates,
 	savedRates,
 	tileValue,
 	today,
@@ -64,7 +70,7 @@ export function copyPriceText(entry) {
 	return `${parts.join(', ')} (${[manual.source, manual.date].filter(Boolean).join(', ')})`;
 }
 
-// The US$ line under an estimate, and where its rate came from.
+// The rate line under an estimate, and where its rate came from.
 function rateLine(rates) {
 	if (!rates) {
 		return ['No exchange rate is saved on this phone yet, so the reais value is not shown.'];
@@ -72,6 +78,24 @@ function rateLine(rates) {
 
 	return [`At ${formatBrl(rates.brlPerUsd)} per US$ 1, rate of `, day(rates.date), rates.fresh === false ? ', the last rate saved on this phone.' : '.'];
 }
+
+function euroRateLine(rates) {
+	if (!rates) {
+		return ['No euro exchange rate is saved on this phone yet, so the reais value is not shown.'];
+	}
+
+	return [`At ${formatBrl(rates.brlPerEur)} per € 1, rate of `, day(rates.date), rates.fresh === false ? ', the last rate saved on this phone.' : '.'];
+}
+
+// "~R$ 6,74", read aloud as "About R$ 6,74".
+const about = (brl) => [h('span', {'aria-hidden': 'true'}, '~'), h('span', {class: 'price-sr'}, 'About '), formatBrl(brl)];
+
+// The trend's word and shape: an arrow, so it never rests on color.
+const TRENDS = {
+	falling: {shape: '↓', word: 'falling'},
+	rising: {shape: '↑', word: 'rising'},
+	steady: {shape: '→', word: 'steady'},
+};
 
 // The Liga price editor. Two amounts that accept a decimal comma, and one
 // tap to save; the source and date sit behind a disclosure with their
@@ -182,15 +206,17 @@ function ligaEditor({current, group, id, onCancel, onSave}) {
 //                   when it is 'en', since Liga searches by English name
 //   ligaHref        a ready Ver na Liga URL, or null for none; overrides the
 //                   one built from card
-//   rates           an exchange rate to use instead of the saved one
+//   rates           a dollar rate to use instead of the saved one
+//   eurRates        a euro rate to use instead of the saved one
 //   save            (patches) => Promise, defaults to collection updateCards
 //   onSaved         (entries) => void after a Liga price is saved
-export function priceSection({card, entries = [], language = null, ligaHref, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, variantId = null} = {}) {
+export function priceSection({card, entries = [], eurRates = undefined, language = null, ligaHref, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, variantId = null} = {}) {
 	const id = `price-${++sectionCount}`;
 	const finishes = extractPrices(card);
 	const section = h('section', {'aria-labelledby': `${id}-title`, class: 'price'});
 	let copies = (entries || []).filter((entry) => entry && !entry.deleted_at);
 	let rate = rates !== undefined ? rates : savedRates();
+	let euroRate = eurRates !== undefined ? eurRates : savedEuroRates();
 	let editing = false;
 
 	const ownedOf = (finish) => copies.filter((entry) => finishOf(entry, finishes) === finish);
@@ -330,7 +356,7 @@ export function priceSection({card, entries = [], language = null, ligaHref, onS
 	function usBlock() {
 		const tcg = selected && selected.tcgplayer;
 		const block = h('div', {class: 'price-us'},
-			h('p', {class: 'price-market'}, 'US market reference (TCGplayer)')
+			h('p', {class: 'price-market'}, 'US market (TCGplayer)')
 		);
 
 		if (!tcg || tcg.marketPrice === null) {
@@ -345,7 +371,7 @@ export function priceSection({card, entries = [], language = null, ligaHref, onS
 		// filtered out when there is no rate.
 		block.append(...[
 			brl !== null
-				? h('p', {class: 'price-us-value'}, h('span', {'aria-hidden': 'true'}, '~'), h('span', {class: 'price-sr'}, 'About '), formatBrl(brl), h('span', {class: 'price-estimate'}, ' estimate'))
+				? h('p', {class: 'price-us-value'}, about(brl), h('span', {class: 'price-estimate'}, ' estimate'))
 				: null,
 			h('p', {class: 'price-meta price-us-usd'}, `${formatMoney(tcg.marketPrice, 'USD')} market price`, tcg.date ? [', updated ', day(tcg.date)] : null),
 			h('p', {class: 'price-meta price-rate'}, rateLine(rate)),
@@ -360,6 +386,64 @@ export function priceSection({card, entries = [], language = null, ligaHref, onS
 		}
 
 		return block;
+	}
+
+	// Cardmarket's trend price for the finish, converted, with the euros and
+	// the price date under it and the 7 against 30 day trend. Each line is
+	// left out when its field is missing.
+	function euBlock() {
+		const cm = selected && selected.cardmarket;
+		const trend = cardmarketTrend(cm);
+		const block = h('div', {class: 'price-eu'},
+			h('p', {class: 'price-market'}, 'EU market (Cardmarket)')
+		);
+
+		if (!cm || (cm.trend === null && !trend)) {
+			block.append(h('p', {class: 'muted price-none'}, 'No EU market price for this finish.'));
+
+			return block;
+		}
+
+		const brl = eurToBrl(cm.trend, euroRate);
+		const eur = [
+			cm.trend !== null ? `${formatMoney(cm.trend, 'EUR')} trend price` : null,
+			cm.date ? (cm.trend !== null ? ', updated ' : 'Updated ') : null,
+			cm.date ? day(cm.date) : null,
+		].filter(Boolean);
+		let trendLine = null;
+
+		if (trend) {
+			const {shape, word} = TRENDS[trend.direction];
+			const avg30 = eurToBrl(trend.avg30, euroRate);
+
+			trendLine = h('p', {class: `price-meta price-trend price-trend-${trend.direction}`, 'data-trend': trend.direction},
+				h('span', {'aria-hidden': 'true', class: 'price-trend-shape'}, shape),
+				`Trend ${word}`,
+				trend.recentField === 'avg1' ? ' (last day)' : null,
+				', 30-day average ',
+				h('span', {class: 'price-nowrap'}, avg30 !== null ? about(avg30) : formatMoney(trend.avg30, 'EUR'))
+			);
+		}
+
+		block.append(...[
+			brl !== null ? h('p', {class: 'price-eu-value'}, about(brl), h('span', {class: 'price-estimate'}, ' estimate')) : null,
+			eur.length ? h('p', {class: 'price-meta price-eu-eur'}, eur) : null,
+			trendLine,
+			h('p', {class: 'price-meta price-eu-rate'}, euroRateLine(euroRate)),
+			cm.shared.length ? h('p', {class: 'price-meta price-shared'}, `Cardmarket lists this with ${cm.shared.join(' and ')} as one price, so it may not tell them apart.`) : null,
+			language && language !== 'en' ? h('p', {class: 'price-meta price-language'}, `This is the EU market price, not one for this ${languageLabel(language)} printing.`) : null,
+		].filter(Boolean));
+
+		return block;
+	}
+
+	// The two converted references, smaller, under the Liga price.
+	function otherMarkets() {
+		return h('div', {'aria-labelledby': `${id}-others`, class: 'price-others', role: 'group'},
+			h('h4', {class: 'price-others-title', id: `${id}-others`}, 'Other markets'),
+			usBlock(),
+			euBlock()
+		);
 	}
 
 	// The chosen finish chip, scrolled into the row's view without moving
@@ -385,7 +469,7 @@ export function priceSection({card, entries = [], language = null, ligaHref, onS
 			h('h3', {id: `${id}-title`}, 'Price'),
 			switcher(),
 			ligaBlock(),
-			usBlock(),
+			otherMarkets(),
 		].filter(Boolean));
 
 		const row = section.querySelector('.price-finishes');
@@ -403,6 +487,23 @@ export function priceSection({card, entries = [], language = null, ligaHref, onS
 	}
 
 	draw();
+
+	if (eurRates === undefined) {
+		euroRates().then((fresh) => {
+			if (fresh && (!euroRate || fresh.brlPerEur !== euroRate.brlPerEur || fresh.date !== euroRate.date || fresh.fresh !== euroRate.fresh)) {
+				euroRate = fresh;
+
+				// Redraws only the EU block, so a half-typed Liga price stays.
+				const old = section.querySelector('.price-eu');
+
+				if (old) {
+					old.replaceWith(euBlock());
+				}
+			}
+		}).catch(() => {
+			// The saved rate, or none, stays on screen.
+		});
+	}
 
 	if (rates === undefined) {
 		exchangeRates().then((fresh) => {
