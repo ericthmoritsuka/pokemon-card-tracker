@@ -317,7 +317,7 @@ card
                     "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }] }],
   "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
-  "settings":    { "theme" }               -- follows the person to every device
+  "settings":    { "theme", "favorite_pokemon" }   -- follows the person to every device
 }
 ```
 
@@ -652,6 +652,19 @@ the two apps share a palette. *(Requested by Eric, 2026-10-01.)*
 - The theme is saved in the person's document (`settings.theme`), so it follows them across
   devices once sync exists; before sign-in it lives on the device.
 
+### Favorite Pokémon
+
+Each person can pick a favorite Pokémon. It becomes their avatar in the family switcher, replaces
+the logo in the header while they are signed in, sets the browser tab icon, and suggests the
+matching type theme (the person can still pick any theme). Images come from the free PokeAPI
+sprite repository the pokedex project already uses. It is stored in the document as
+`settings.favorite_pokemon` (a National Dex number), so it follows the person across devices.
+*(Requested by Eric, 2026-10-01.)*
+
+The home screen icon cannot change per person: an installed web app takes its icon from the one
+static manifest every user shares. Native apps can only switch between icons bundled in advance,
+which is not worth a native wrapper here.
+
 ### Filters and Sorting
 
 Every card list (sets, collections, binders, goals, wishlists, the Trade view) shares one filter
@@ -723,7 +736,7 @@ settles the iPhone questions before any feature work.
 5. Set browser with owned rings across languages, search, filter and sort, the Trade view, the
    Star rule and hand-picked collections, prices labeled by market.
 
-**v1.1:** invites, family browsing, wishlists, CSV re-import, the full filter bar, type themes.
+**v1.1:** invites, family browsing, wishlists, CSV re-import, the full filter bar, type themes, favorite Pokémon.
 
 **v1.2:** goals with missing lists, binders with placement, placeholders, notes, and cover color.
 
