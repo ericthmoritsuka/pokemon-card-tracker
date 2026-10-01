@@ -381,6 +381,17 @@ Shiny Vault and Galarian Gallery. pokemontcg.io (free, English only, its own ID 
 `swsh12pt5gg-GG01`, `tk1a-1`. Plan: when TCGdex has no image in the viewing language, use the
 TCGdex English image, then pokemontcg.io's, through an ID mapping table. *(Planned 2026-10-01.)*
 
+**Korean and other fallback cards: names from the source, images from the owner.** Japanese
+`M4` and `M6` list their cards with no images at all (0 of 113 for `M6`, checked 2026-10-01), and
+a fallback record carries the catalog's language, so a Korean copy matched to a Japanese record
+showed a Japanese name and no picture. Fix: keep the name and set name the source gives (the
+monprice export has the Korean ones, for example `니트로 불꽃 에너지` in `닌자스피너`; the scanner
+will have the name it read) on the entry as `name_local` and `set_name_local`, and show them before
+any catalog name. For images, no free Korean source was found (TCGdex has none for these sets,
+pokemontcg.io is English only, and the official Japanese and Korean card databases have no public
+API), so the card's own scan photo becomes its image, stored with the owned-card images. Until
+then the tile shows the card back with the Korean name. *(Planned 2026-10-01.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
