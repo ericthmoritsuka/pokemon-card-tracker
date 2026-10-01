@@ -785,8 +785,8 @@ all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across se
 including cards it shares with others (TAG TEAM cards list several `dexId` values), with owned
 cards flagged (ribbon and language flags) and missing ones dimmed with one tap to the wishlist,
 the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
-collection. Each list has its own **languages** setting (default Portuguese and English; any of
-Japanese, Korean, Chinese, French, and the others can be added). It decides both which prints
+collection. Each list has its own **languages** setting (default Portuguese only; English, Japanese,
+Korean, Chinese, French, and the others can be added). It decides both which prints
 appear and what counts as owned: a card counts only when owned in one of the list's languages, so
 a Portuguese-only list ticks a card only for a Portuguese copy. International prints come from the
 bulk `id` and `dexId` list the checklists already cache (23,736 cards in one request), so they
