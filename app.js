@@ -1048,10 +1048,16 @@ function restoreRedirectedPath() {
 function showBanner(message, actionLabel, action) {
 	const banner = document.getElementById('banner');
 
-	banner.replaceChildren(
-		h('span', null, message),
-		actionLabel ? h('button', {type: 'button', onclick: action}, actionLabel) : null
-	);
+	// replaceChildren prints a null argument as the text "null", so add the
+	// button only when there is one.
+
+	const children = [h('span', null, message)];
+
+	if (actionLabel) {
+		children.push(h('button', {type: 'button', onclick: action}, actionLabel));
+	}
+
+	banner.replaceChildren(...children);
 	banner.hidden = false;
 }
 

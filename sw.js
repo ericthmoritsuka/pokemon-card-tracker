@@ -3,7 +3,7 @@
 // To ship a change to any shell file, bump VERSION. The browser sees that
 // sw.js changed, installs the new cache, and deletes the old one.
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
