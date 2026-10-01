@@ -1,0 +1,107 @@
+/* The international twin picker on card detail (js/twins-view.js). Uses the
+   palette tokens from style.css, so it follows the light and dark schemes
+   and the themes. */
+
+.tw-block {
+	display: grid;
+	gap: 8px;
+	margin: 12px 0;
+}
+
+.tw-confirm {
+	background: var(--panel, var(--surface));
+	border: var(--frame-border, 1px solid var(--border));
+	border-radius: var(--frame-radius, 12px);
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+}
+
+.tw-title {
+	font-size: 1rem;
+	margin: 0;
+}
+
+.tw-hint {
+	font-size: 0.875rem;
+	margin: 0;
+}
+
+/* Two or three candidates side by side, even at 360 px wide. */
+.tw-options {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: repeat(var(--tw-count, 3), minmax(0, 1fr));
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+/* One candidate stays card-sized rather than filling the width. */
+.tw-options[style*="--tw-count: 1"] {
+	grid-template-columns: minmax(0, 160px);
+	justify-content: center;
+}
+
+.tw-option {
+	display: grid;
+	gap: 4px;
+	grid-template-rows: auto auto auto 1fr;
+	/* style.css spaces stacked list items; these sit in a row. */
+	margin: 0;
+	min-width: 0;
+	text-align: center;
+}
+
+.tw-image {
+	aspect-ratio: 63 / 88;
+	background: var(--skeleton);
+	border-radius: 4.75% / 3.4%;
+	display: block;
+	object-fit: cover;
+	width: 100%;
+}
+
+.tw-missing {
+	align-items: center;
+	color: var(--muted);
+	display: flex;
+	font-size: 0.75rem;
+	justify-content: center;
+}
+
+.tw-name {
+	font-size: 0.8125rem;
+	font-weight: 600;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+.tw-set {
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+/* At least 44 px tall for thumbs, and narrow enough for a third of a phone. */
+.tw-options .tw-pick {
+	align-self: end;
+	min-height: 44px;
+	padding: 6px 4px;
+	width: 100%;
+}
+
+.tw-actions {
+	display: flex;
+	justify-content: center;
+}
+
+.tw-status {
+	font-size: 0.875rem;
+	margin: 0;
+}
+
+.tw-status:empty {
+	display: none;
+}
