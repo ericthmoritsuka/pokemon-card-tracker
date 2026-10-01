@@ -7,6 +7,9 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
+- Fixing the scanner on photos where the card sits among other things on a screen: it can take
+  the heading above the card for the card's name, auto capture does not fire when the card fills
+  the frame from top to bottom, and the prefilled search does not open when it is unsure.
 - Built and waiting to be wired in: binder spreads with a page turn, every card of a Pokémon in
   a list, and international twins for Japanese and Korean cards. See `plans/roadmap.md`.
 
@@ -14,11 +17,17 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-01
 
+- **19:53** Version 16: a login for a family member without an email. They pick "Sign in with a
+  name and password" and can change the password in Profile. Eric creates the account in the
+  Supabase dashboard (see the README); a forgotten password is reset with
+  `supabase/reset-password.sql`. `5d27d51`
+
 - **19:34** Version 15: a much better scanner. It reads the name, HP, attack, number, and language
   together, finds a card by name when the number is unreadable, compares the artwork to break
   ties, straightens cards photographed at an angle, and shows what it read with a prefilled
-  search when it is unsure. Right card first on 74% of test captures, up from 40%; your Weedle
-  photo now matches. `b7a6145`
+  search when it is unsure. Right card first on 74% of test captures, up from 40%. Your Weedle
+  photo matches only when the card fills the frame from top to bottom and you press the shutter;
+  the fix is in progress. `b7a6145`
 
 - **15:29** Version 14. `23c0c4f`
   - Themes on the twelve TCG energy types (Default, Grass, Fire, Water, Lightning, Psychic,
