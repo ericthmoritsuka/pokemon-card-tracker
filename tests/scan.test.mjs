@@ -1,11 +1,14 @@
 // Unit tests for the scanner's pure parts: the tray state machine
 // (js/scan/session.js), the finish picker (js/scan/finish.js), auto-capture
-// (js/scan/steady.js), and the matcher's waiting rule (js/scan/match.js).
+// (js/scan/steady.js), the evidence combination and fuzzy name match
+// (js/scan/evidence.js), and the matcher's routes and waiting rule
+// (js/scan/match.js).
 // Run: node --test tests/scan.test.mjs
 
 import assert from 'node:assert/strict';
 import test, {describe} from 'node:test';
 
+import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import * as S from '../js/scan/session.js';
@@ -578,5 +581,212 @@ describe('matching offline', () => {
 		assert.deepEqual(S.searchOrder('ko'), ['ko', 'ja']);
 		assert.deepEqual(S.searchOrder('pt'), ['pt', 'en']);
 		assert.deepEqual(S.searchOrder('en'), ['en']);
+	});
+});
+
+// ------------------------------------------------------------ evidence
+
+// A few species, at their National Dex numbers, the way
+// js/checklists.js speciesNames().en lists them.
+const SPECIES = [];
+
+Object.assign(SPECIES, {13: 'Weedle', 14: 'Kakuna', 25: 'Pikachu', 60: 'Poliwag', 122: 'Mr. Mime', 150: 'Mewtwo', 151: 'Mew', 167: 'Spinarak', 669: 'Flabébé'});
+
+// A catalog card as the matcher scores it.
+const card = (id, fields = {}) => ({
+	dexIds: [13],
+	id,
+	lang: 'en',
+	localId: id.split('-')[1],
+	name: 'Weedle',
+	official: '86',
+	releaseDate: '2026-03-27',
+	setId: id.split('-')[0],
+	...fields,
+});
+
+const nameRead = (text, extra = {}) => ({
+	copyrightYear: null,
+	hp: null,
+	language: {code: 'en', confidence: 1, source: 'label'},
+	name: {confidence: 0.9, suffix: null, text},
+	number: null,
+	partial: null,
+	wizards: false,
+	...extra,
+});
+
+const rank = (read, cards) => {
+	const clues = E.cluesOf(read);
+
+	clues.names = read.name ? E.matchSpecies(read.name.text, SPECIES) : [];
+
+	return E.rankCards(clues, cards);
+};
+
+describe('the fuzzy name match', () => {
+	test('reads through accents and the usual OCR mix-ups', () => {
+		assert.equal(E.matchSpecies('Flabebe', SPECIES)[0].name, 'Flabébé', 'accents');
+		assert.equal(E.matchSpecies('P0liwag', SPECIES)[0].name, 'Poliwag', '0 for O');
+		assert.equal(E.matchSpecies('WeedIe', SPECIES)[0].name, 'Weedle', 'I for l');
+		assert.equal(E.matchSpecies('Wee d1e', SPECIES)[0].name, 'Weedle', '1 for l, and a split word');
+		assert.equal(E.matchSpecies('Spinarak', SPECIES)[0].score, 1);
+		assert.equal(E.matchSpecies('Mr Mime', SPECIES)[0].name, 'Mr. Mime');
+	});
+
+	test('finds the name glued to the stage label, keeps short names exact, and ignores noise', () => {
+		assert.equal(E.matchSpecies('BASICWeedle', SPECIES)[0].name, 'Weedle');
+		assert.deepEqual(E.matchSpecies('Mewtwo', SPECIES).map((m) => m.name), ['Mewtwo'], 'Mew is not inside Mewtwo');
+		assert.deepEqual(E.matchSpecies('==" %%', SPECIES), []);
+		assert.ok(E.nameSimilarity('Pikachu', 'Pikac') < 0.8 && E.nameSimilarity('Pikachu', 'Pikac') > 0.6, 'a cut-off name is a partial match');
+	});
+
+	test('the name strip: the stage label, the Evolves from line, and a suffix are not the name', () => {
+		const line = (text, ink) => ({text, words: text.split(' ').map((word) => ({bbox: {x0: 0, x1: 10, y0: 0, y1: 40}, confidence: 90, ink, text: word}))});
+
+		assert.equal(E.parseName([line('BASIC Weedle', 30)]).text, 'Weedle');
+		assert.equal(E.parseName([line('STAGE 1 Evolves from Weedle Put Kakuna', 14), line('Kakuna', 30)]).text, 'Kakuna');
+		assert.equal(E.parseName([line('Evoves from Weedle', 30), line('Kakuna', 30)]).text, 'Kakuna', 'the word after a loosely read "Evolves from" is dropped');
+		assert.deepEqual(E.parseName([line('Arctovish V', 30)]), {confidence: 0.9, suffix: 'v', text: 'Arctovish'});
+	});
+
+	test('HP and the partly read number', () => {
+		assert.deepEqual(E.parseHp('HP 50', 0.8), {after: false, confidence: 0.8, value: 50, values: [50]});
+		assert.equal(E.parseHp('80 HP').after, true, 'the WotC-era order');
+		assert.equal(E.parseHp('80 HP').value, 80);
+		assert.deepEqual(E.parseHp('350', 0.8).values, [350, 50], 'a small PS read as a 3');
+		assert.equal(E.parseHp('w/0@'), null);
+		assert.deepEqual(E.parsePartialNumber('CRI EN /086'), {number: null, total: '86'});
+		assert.deepEqual(E.parsePartialNumber('001/0'), {number: '1', total: null});
+	});
+});
+
+describe('combining the evidence', () => {
+	const weedle = card('me04-001', {hp: 50});
+	const otherWeedle = card('sv03.5-013', {hp: 40, localId: '013', official: '165', releaseDate: '2023-09-22'});
+	const kakuna = card('me04-002', {dexIds: [14], hp: 80, localId: '002', name: 'Kakuna'});
+
+	test('number only: the number and the total decide', () => {
+		const ranked = rank({...nameRead(''), name: null, number: {confidence: 0.9, number: '1', numberPrinted: '001', setCodeRun: '', side: 'left', total: '86', totalPrinted: '086'}}, [otherWeedle, kakuna, weedle]);
+
+		assert.equal(ranked[0].id, 'me04-001');
+		assert.ok(ranked[0].reasons.includes('number and total'));
+		assert.deepEqual(ranked[0].agree.sort(), ['number', 'total']);
+	});
+
+	test('name only: every print of the species is level, and none is sure', () => {
+		const ranked = rank(nameRead('Weedle'), [kakuna, weedle, otherWeedle]);
+
+		assert.deepEqual(ranked.slice(0, 2).map((c) => c.id).sort(), ['me04-001', 'sv03.5-013']);
+		assert.equal(ranked[0].score, ranked[1].score);
+		assert.ok(ranked[0].confidence < 0.4, 'one clue, and a tie');
+		assert.equal(ranked[2].id, 'me04-002');
+		assert.equal(S.judgeMatch(nameRead('Weedle'), ranked).sure, false);
+	});
+
+	test('name plus total: the set count settles which print', () => {
+		const read = nameRead('Weedle', {partial: {number: null, total: '86'}});
+		const ranked = rank(read, [otherWeedle, weedle, kakuna]);
+
+		assert.equal(ranked[0].id, 'me04-001');
+		assert.deepEqual(ranked[0].agree.sort(), ['name', 'total']);
+		assert.ok(ranked[0].confidence > ranked[1].confidence);
+	});
+
+	test('name plus HP: the HP settles it, and name, HP, and total together are sure', () => {
+		const ranked = rank(nameRead('Weedle', {hp: {confidence: 0.8, value: 50, values: [50]}}), [otherWeedle, weedle]);
+
+		assert.equal(ranked[0].id, 'me04-001');
+		assert.ok(ranked[0].reasons.includes('HP 50'));
+		assert.ok(ranked[1].conflicts.includes('hp'), 'an HP read clearly that disagrees counts against');
+
+		const three = nameRead('Weedle', {hp: {confidence: 0.8, value: 50, values: [50]}, partial: {number: null, total: '86'}});
+		const sure = rank(three, [otherWeedle, weedle, kakuna]);
+
+		assert.equal(sure[0].confidence, 0.85);
+		assert.equal(S.judgeMatch(three, sure).sure, true);
+	});
+
+	test('an HP printed after its number ("80 HP") points to a WotC-era print', () => {
+		const base = card('base1-18', {dexIds: [148], hp: 80, localId: '18', name: 'Dragonair', official: '102', releaseDate: '1999-01-09'});
+		const modern = card('sv03.5-148', {dexIds: [148], hp: 80, localId: '148', name: 'Dragonair', official: '165', releaseDate: '2023-09-22'});
+
+		SPECIES[148] = 'Dragonair';
+
+		const ranked = rank(nameRead('Dragonair', {hp: E.parseHp('80 HP', 0.8)}), [modern, base]);
+
+		assert.equal(ranked[0].id, 'base1-18');
+		assert.ok(ranked[0].reasons.includes('HP printed WotC style'));
+	});
+
+	test('conflicting clues: a clear number outweighs a name it disagrees with, and the confidence drops', () => {
+		// The number reads Kakuna's 002/086; the name strip reads Weedle (the
+		// "Evolves from" line, say).
+		const read = nameRead('Weedle', {number: {confidence: 0.9, number: '2', numberPrinted: '002', setCodeRun: '', side: 'left', total: '86', totalPrinted: '086'}});
+		const ranked = rank(read, [weedle, kakuna]);
+
+		assert.equal(ranked[0].id, 'me04-002', 'number and total beat the name');
+		assert.ok(ranked[0].conflicts.includes('name'));
+		assert.ok(ranked[1].conflicts.includes('number'));
+		assert.ok(ranked[0].confidence < E.confidenceOf({agree: ['number', 'total'], conflicts: []}));
+	});
+
+	test('the artwork orders a tie and never lifts a card that lost on text', () => {
+		const ranked = rank(nameRead('Weedle'), [kakuna, otherWeedle, weedle]);
+		const sims = new Map([['me04-001', 0.95], ['sv03.5-013', 0.2], ['me04-002', 0.99]]);
+		const ordered = E.orderByArtwork(ranked, sims);
+
+		assert.equal(ordered[0].id, 'me04-001');
+		assert.ok(ordered[0].reasons.includes('artwork'));
+		assert.equal(ordered[2].id, 'me04-002', 'Kakuna stays behind, however alike');
+		assert.equal(S.judgeMatch(nameRead('Weedle'), ordered).sure, false, 'artwork alone never makes it sure');
+	});
+});
+
+describe('the name route', () => {
+	const sets = [{cardCount: {official: 86}, id: 'me04', serie: 'me'}, {cardCount: {official: 165}, id: 'sv03.5', serie: 'sv'}];
+	const prints = {
+		13: [
+			{cardId: 'me04-001', image: 'https://assets.tcgdex.net/en/me/me04/001', localId: '001', name: 'Weedle', releaseDate: '2026-03-27', setId: 'me04', setName: 'Chaos Rising'},
+			{cardId: 'sv03.5-013', image: null, localId: '013', name: 'Weedle', releaseDate: '2023-09-22', setId: 'sv03.5', setName: '151'},
+		],
+	};
+	const api = {
+		allSets: async () => sets,
+		cardDetail: async (lang, id) => ({dexId: [13], hp: id === 'me04-001' ? 50 : 40}),
+		setDetail: async () => {
+			throw new Error('the name route needs no set detail');
+		},
+		species: async () => SPECIES,
+		speciesPrints: async (dex) => prints[dex] || [],
+	};
+
+	test('a card whose number did not read is found by its name and HP', async () => {
+		const read = S.summariseRead(nameRead('Weedle', {hp: {confidence: 0.8, value: 50}}));
+		const found = await findCandidates(read, 'en', {api});
+
+		assert.deepEqual(found.routes, ['name']);
+		assert.equal(found.names[0].name, 'Weedle');
+		assert.equal(found.candidates[0].id, 'me04-001');
+		assert.equal(found.candidates[0].official, '86');
+		assert.ok(found.candidates[0].reasons.includes('HP 50'));
+		assert.equal(found.candidates[0].setName, 'Chaos Rising');
+	});
+
+	test('a tie the text cannot break goes to the artwork', async () => {
+		const read = S.summariseRead(nameRead('Weedle'));
+		const found = await findCandidates(read, 'en', {api: {...api, artworkSims: async () => new Map([['sv03.5-013', 0.9], ['me04-001', 0.1]])}, artwork: new Float32Array(4)});
+
+		assert.equal(found.candidates[0].id, 'sv03.5-013');
+		assert.equal(found.candidates[0].artwork, 0.9);
+	});
+
+	test('what was read, and what the search starts with', () => {
+		const read = S.summariseRead(nameRead('Pikac', {partial: {number: null, total: '86'}}));
+
+		assert.equal(S.readLine(read), 'Name: Pikac, number: ?/86');
+		assert.equal(S.readLine(S.summariseRead({name: null, number: null})), 'Name: unreadable, number: unreadable');
+		assert.equal(S.searchPrefill({names: [{dex: 25, name: 'Pikachu', score: 0.8}], read}), 'Pikachu');
+		assert.equal(S.searchPrefill({names: [], read}), 'Pikac');
 	});
 });

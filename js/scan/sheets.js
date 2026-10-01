@@ -9,6 +9,7 @@ import {cardArt} from '../catalog-views.js';
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
+import {cluesOf, rankCards} from './evidence.js';
 import {findVariant, finishOptions} from './finish.js';
 import {
 	blocker,
@@ -21,6 +22,8 @@ import {
 	needsLook,
 	ownedFor,
 	quantity,
+	readLine,
+	searchPrefill,
 	sessionFinishes,
 	setForAllPreview,
 	wishLine,
@@ -89,19 +92,41 @@ export function confirmSheet(ctx, itemId) {
 		searchPanel
 	);
 
+	// Search results, ordered by how well each fits what the read found
+	// (the name, the total, a partly read number), so the card scanned is
+	// near the top even when the name alone matches dozens.
+	function byClues(item, results) {
+		if (!item || !item.read) {
+			return results;
+		}
+
+		const clues = {...cluesOf(item.read), names: item.names || []};
+		const ranked = rankCards(clues, results.map((result, index) => ({...result, index, official: result.official ? String(result.official) : null})));
+
+		return ranked.sort((a, b) => b.score - a.score || a.index - b.index);
+	}
+
+	let searchRun = 0;
+
 	async function runSearch() {
 		const item = findItem(ctx.session, itemId);
 		const lang = (item && item.language) || 'en';
 		const text = searchBox.value;
+		const run = ++searchRun;
 
 		searchStatus.textContent = 'Searching.';
-		searchResults.replaceChildren();
 
 		try {
 			const {results} = await searchCards(text, lang);
 
-			searchStatus.textContent = results.length ? `${plural(results.length, 'card')} found in ${langName(lang)}.` : `No card found in ${langName(lang)}.`;
-			searchResults.replaceChildren(...results.slice(0, 12).map((result) => h('li', null,
+			if (run !== searchRun) {
+				return;
+			}
+
+			const ordered = byClues(item, results);
+
+			searchStatus.textContent = ordered.length ? `${plural(ordered.length, 'card')} found in ${langName(lang)}.` : `No card found in ${langName(lang)}.`;
+			searchResults.replaceChildren(...ordered.slice(0, 12).map((result) => h('li', null,
 				h('button', {class: 'scan-result', 'data-card': result.id, onclick: () => {
 					ctx.chooseCard(itemId, {...result, reasons: ['search'], score: 0});
 					searchPanel.hidden = true;
@@ -111,7 +136,44 @@ export function confirmSheet(ctx, itemId) {
 				))));
 		}
 		catch (err) {
+			if (run !== searchRun) {
+				return;
+			}
+
+			searchResults.replaceChildren();
 			searchStatus.textContent = err instanceof SearchHint ? err.message : navigator.onLine === false ? 'Searching needs a connection for cards not on this phone yet.' : 'The search did not work. Try again.';
+		}
+	}
+
+	// Candidates as the person types, a moment after the last key.
+	let typing = null;
+
+	searchBox.addEventListener('input', () => {
+		clearTimeout(typing);
+
+		if (searchBox.value.trim().length >= 2) {
+			typing = setTimeout(runSearch, 350);
+		}
+	});
+
+	// A card the read could not settle (no number, or nothing found) opens
+	// with the search showing, filled with the best name read, so a poor
+	// photo still ends in a saved card within a few taps.
+	let seeded = false;
+
+	function seedSearch(item) {
+		if (seeded || item.sure || item.confirmed || !item.read || (item.read.number && item.candidates.length)) {
+			return;
+		}
+
+		seeded = true;
+		searchPanel.hidden = false;
+
+		const prefill = searchPrefill(item);
+
+		if (prefill) {
+			searchBox.value = prefill;
+			runSearch();
 		}
 	}
 
@@ -175,6 +237,11 @@ export function confirmSheet(ctx, itemId) {
 		}
 
 		const look = needsLook(item) ? lookReason(item) : null;
+		const readText = !item.sure && !item.confirmed ? readLine(item.read) : null;
+
+		if (readText && (look || !card)) {
+			lines.push(h('p', {class: 'scan-read-line', id: 'scan-read'}, readText));
+		}
 
 		if (look) {
 			lines.push(h('p', {class: 'scan-why', id: 'scan-why', role: 'status'}, h('span', {'aria-hidden': 'true', class: 'scan-why-mark'}, '?'), ' ', look));
@@ -354,6 +421,7 @@ export function confirmSheet(ctx, itemId) {
 			return;
 		}
 
+		seedSearch(item);
 		body.replaceChildren(
 			...cardBlock(item),
 			languageBlock(item),

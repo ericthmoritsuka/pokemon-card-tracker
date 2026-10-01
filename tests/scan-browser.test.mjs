@@ -36,11 +36,16 @@ const PROFILES = '/tmp/scan-browser-profiles';
 
 // Three English cards: Pikachu (151, read sure), Bulbasaur (Mega Evolution,
 // read sure, with a reverse holo printing), and Spinarak (Darkness Ablaze,
-// 102/189, which Astral Radiance's 102/189 ties, so it needs a look).
+// 102/189, which Astral Radiance's 102/189 ties on the number alone; the name
+// read off the card settles it).
 const PIKACHU = 'sv03.5-025';
 const BULBASAUR = 'me01-001';
 const SPINARAK = 'swsh3-102';
 const REVERSE = 'cm4kqul3x1bwlz1f';
+
+// Bulbasaur again, with its collector number blurred out: only the name,
+// the HP, and the attack read.
+const HIDDEN = 'me01-001-nonumber';
 const NORMAL = 'endfynwn4n10gzq';
 
 const AT = '2026-09-01T00:00:00.000Z';
@@ -59,6 +64,8 @@ async function startAll() {
 	for (const card of [PIKACHU, BULBASAUR, SPINARAK]) {
 		videos[card] = await cardVideo(maker, card);
 	}
+
+	videos[HIDDEN] = await cardVideo(maker, BULBASAUR, {hideNumber: true});
 
 	await maker.close();
 }
@@ -313,63 +320,80 @@ describe('scanner', () => {
 		await closeApp(app);
 
 		// ---------------------------------------------------- launch 3: Spinarak, twice
+		// Astral Radiance also has a 102/189; the number alone ties them, and
+		// the name read off the top of the card settles it.
 		app = await launch(profile, SPINARAK, {fake});
 		({page} = app);
 		await page.goto(url('scan'));
 		list = await waitForTray(page, 3, 'the auto capture of Spinarak');
-		assert.equal(list[0].status, 'unsure', 'two sets have a 102/189: it needs a look');
+
+		// Settled, so no tap on the card; the language label on this flat
+		// still sometimes reads too faintly to be sure, which asks for the
+		// language instead.
+		assert.ok(['ready', 'language'].includes(list[0].status), `the name settles the 102/189 tie (${list[0].status})`);
+		assert.match(list[0].label, /^Spinarak, /);
 
 		await page.click('#scan-shutter');
 		list = await waitForTray(page, 4, 'the shutter capture of Spinarak');
-		assert.deepEqual(list.slice(0, 2).map((tile) => tile.status), ['unsure', 'unsure']);
+
+		// The Spinaraks whose language is picked here count as set by hand
+		// below, and Set for all keeps them English.
+		const spinarakLanguage = ['pt', 'pt'];
+
+		for (const [index, tile] of list.slice(0, 2).entries()) {
+			assert.ok(['ready', 'language'].includes(tile.status), `Spinarak ${index + 1} is settled (${tile.status})`);
+
+			if (tile.status === 'language') {
+				spinarakLanguage[index] = 'en';
+
+				await openTile(page, index);
+
+				if (!(await page.locator('#scan-lang-en').count())) {
+					await page.click('#scan-lang-more');
+				}
+
+				await page.click('#scan-lang-en');
+				await page.click('#scan-sheet-close');
+			}
+		}
+
+		await until(async () => (await tiles(page)).slice(0, 2).every((tile) => tile.status === 'ready'), 30000, 'both Spinaraks ready');
 
 		// The new card's finish starts on the plain print, not Bulbasaur's
 		// reverse holo.
 		await openTile(page, 0);
-		assert.match(await text(page, '#scan-why'), /2 cards match 102\/189/);
-		assert.equal(await page.isDisabled('#scan-review-done'), false);
+		assert.equal(await text(page, '#scan-sure'), 'Sure match');
+		assert.equal(await page.getAttribute(`#scan-finish-${NORMAL}`, 'aria-pressed'), 'true');
 		await page.click('#scan-sheet-close');
 
 		// Close the app and open it again: the draft tray is back.
 		await collectTimings(page);
 		await page.reload();
 		list = await waitForTray(page, 4, 'the restored draft');
-		assert.match(await text(page, '#scan-done-open'), /^Done 4 · 2 to check$/);
+		assert.match(await text(page, '#scan-done-open'), /^Done 4$/);
 		await page.screenshot({path: `${SHOTS}/scan-tray-four.png`});
 
-		// Done blocks while two need a look.
 		await page.click('#scan-done-open');
 		await page.waitForSelector('#scan-done');
-		assert.equal(await text(page, '#scan-save-session'), 'Save 2, 2 need a look');
-		assert.ok(await page.isDisabled('#scan-save-session'));
 		assert.equal(await text(page, '#scan-done-count'), '4 cards · EN 3 · FR 1');
-		await page.waitForTimeout(400);
-		await page.screenshot({path: `${SHOTS}/scan-done-blocked.png`});
-
-		// Review: tap the right Spinarak on each.
-		for (let i = 0; i < 2; i++) {
-			await page.click('#scan-done-review');
-			await page.waitForSelector('#scan-confirm');
-			await page.click(`#scan-confirm .scan-candidate[data-card="${SPINARAK}"]`);
-			await page.waitForSelector('#scan-confirm #scan-sure');
-			assert.equal(await text(page, '#scan-sure'), 'Checked by you');
-			await page.click('#scan-review-done');
-			await page.waitForSelector('#scan-done');
-		}
 
 		list = await tiles(page);
 		assert.deepEqual(list.slice(0, 2).map((tile) => tile.qty), ['×2', '×2'], 'scanned twice');
 
-		// Set for all: Portuguese, keeping the one set by hand.
+		// Set for all: Portuguese, keeping the ones set by hand.
 		await page.click('#scan-all-language');
 		await page.waitForSelector('#scan-setall');
 		await page.click('#scan-setall-pt');
-		assert.equal(await text(page, '#scan-setall-preview'), 'Changes 4 cards. Keep the 1 you set by hand?');
+		const byHand = 1 + spinarakLanguage.filter((code) => code === 'en').length;
+
+		assert.equal(await text(page, '#scan-setall-preview'), `Changes 4 cards. Keep the ${byHand} you set by hand?`);
 		await page.screenshot({path: `${SHOTS}/scan-setall.png`});
 		await page.click('#scan-setall-keep');
 		await page.waitForSelector('#scan-done');
 		await until(async () => (await tiles(page)).every((tile) => tile.status === 'ready'), 30000, 'every card ready');
-		assert.deepEqual((await tiles(page)).map((tile) => tile.flag), ['Portuguese', 'Portuguese', 'French', 'Portuguese']);
+		const flagName = {en: 'English', pt: 'Portuguese'};
+
+		assert.deepEqual((await tiles(page)).map((tile) => tile.flag), [...spinarakLanguage.map((code) => flagName[code]), 'French', 'Portuguese']);
 
 		// Done: four entries, one per physical card.
 		assert.equal(await text(page, '#scan-save-session'), 'Save 4 cards');
@@ -384,8 +408,7 @@ describe('scanner', () => {
 		assert.deepEqual(saved.map((entry) => [entry.card_id, entry.language, entry.variant_id]).sort(), [
 			[BULBASAUR, 'fr', REVERSE],
 			[PIKACHU, 'pt', NORMAL],
-			[SPINARAK, 'pt', NORMAL],
-			[SPINARAK, 'pt', NORMAL],
+			...spinarakLanguage.map((code) => [SPINARAK, code, NORMAL]),
 		].sort());
 		assert.ok(saved.every((entry) => entry.catalog === 'international' && !entry.condition));
 		await page.screenshot({path: `${SHOTS}/scan-saved.png`});
@@ -403,6 +426,69 @@ describe('scanner', () => {
 		// My Cards).
 		await page.click('#scan-close');
 		await until(async () => new URL(page.url()).pathname === `${BASE}cards`, 10000, 'My Cards');
+		await closeApp(app);
+		await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
+	});
+
+	test('a card whose number does not read is found by its name, or by a search already filled in', async () => {
+		const profile = `noname-${randomUUID()}`;
+
+		await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
+
+		const app = await launch(profile, HIDDEN);
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-confirm #scan-card-lines, #scan-confirm .scan-card-lines', {timeout: 60000});
+		await until(async () => {
+			const list = await tiles(page);
+
+			return list.length === 1 && SETTLED.has(list[0].status);
+		}, 60000, 'the card read and looked up');
+		await page.waitForTimeout(500);
+		await page.screenshot({path: `${SHOTS}/scan-name-route.png`});
+
+		const read = await page.evaluate(async () => {
+			const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+			const session = await draft.loadSession();
+
+			return session.items[0];
+		});
+
+		assert.equal(read.read.number, null, 'the number did not read');
+		assert.match(read.read.name.text, /Bulbasaur/i, 'the name did');
+
+		const chosen = await page.getAttribute(`#scan-confirm .scan-candidate[data-card="${BULBASAUR}"]`, 'aria-pressed').catch(() => null);
+
+		if (chosen === 'true') {
+			// Found by its name: one tap if it is not sure.
+			if (await page.locator('#scan-this-card').count()) {
+				assert.match(await text(page, '#scan-read'), /^Name: Bulbasaur.*number: unreadable$/);
+				await page.click('#scan-this-card');
+			}
+		}
+		else {
+			// Not found first: the search is open, filled with the name, and
+			// lists the card.
+			assert.match(await text(page, '#scan-read'), /number: unreadable/);
+			assert.equal(await page.inputValue('#scan-search'), 'Bulbasaur');
+			await page.waitForSelector(`#scan-search-results .scan-result[data-card="${BULBASAUR}"]`, {timeout: 30000});
+			await page.click(`#scan-search-results .scan-result[data-card="${BULBASAUR}"]`);
+		}
+
+		await page.waitForSelector('#scan-confirm #scan-sure');
+
+		if (await page.isDisabled('#scan-save')) {
+			await page.click('#scan-lang-en');
+		}
+
+		await page.waitForSelector('#scan-save:not([disabled])', {timeout: 30000});
+		await page.click('#scan-save');
+		await page.waitForSelector('#scan-undo-session');
+
+		const saved = await liveCards(page);
+
+		assert.deepEqual(saved.map((entry) => [entry.card_id, entry.language_source]), [[BULBASAUR, 'scan']]);
 		await closeApp(app);
 		await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
 	});

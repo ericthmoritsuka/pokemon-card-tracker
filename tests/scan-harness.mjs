@@ -16,6 +16,7 @@
 // Run on its own: node tests/scan-harness.mjs [port]
 
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {createServer} from 'node:http';
@@ -44,12 +45,17 @@ export const INTEGRATION = {
 		// In SHELL: the scanner's modules, the lab modules it imports, the
 		// Tesseract.js loader those import (63 KB), and its stylesheet.
 		shell: [
+			'\t\'js/scan/artwork.js\',',
 			'\t\'js/scan/camera.js\',',
 			'\t\'js/scan/draft.js\',',
+			'\t\'js/scan/evidence.js\',',
 			'\t\'js/scan/finish.js\',',
 			'\t\'js/scan/identify.js\',',
 			'\t\'js/scan/image.js\',',
 			'\t\'js/scan/match.js\',',
+			'\t\'js/scan/ocr.js\',',
+			'\t\'js/scan/read.js\',',
+			'\t\'js/scan/rectify.js\',',
 			'\t\'js/scan/routes.js\',',
 			'\t\'js/scan/session.js\',',
 			'\t\'js/scan/sheets.js\',',
@@ -267,11 +273,14 @@ async function exists(path) {
 	}
 }
 
-const safeName = (url) => url.replace(/^https:\/\//, '').replace(/[^a-zA-Z0-9.-]+/g, '_');
+// A GraphQL query is a POST to one URL, so its body is part of the name.
+const safeName = (url, body = '') => url.replace(/^https:\/\//, '').replace(/[^a-zA-Z0-9.-]+/g, '_').slice(0, 180)
+	+ (body ? `_${createHash('sha1').update(body).digest('hex').slice(0, 16)}` : '');
 
-// Answers https://api.tcgdex.net and https://assets.tcgdex.net from files
-// under CACHE_DIR, fetching and keeping each one the first time. net.offline
-// makes every request fail as a dropped connection. counts records what was
+// Answers https://api.tcgdex.net, https://assets.tcgdex.net, and PokeAPI
+// (the species names the scanner's name route reads) from files under
+// CACHE_DIR, fetching and keeping each one the first time. net.offline makes
+// every request fail as a dropped connection. counts records what was
 // asked, by kind.
 export async function routeTcgdex(context, net = {offline: false}) {
 	const dir = join(CACHE_DIR, 'tcgdex');
@@ -281,7 +290,9 @@ export async function routeTcgdex(context, net = {offline: false}) {
 	const counts = {api: 0, images: 0};
 
 	const answer = async (route, kind) => {
-		const url = route.request().url();
+		const request = route.request();
+		const url = request.url();
+		const body = request.method() === 'POST' ? request.postData() || '' : '';
 
 		counts[kind]++;
 
@@ -289,7 +300,7 @@ export async function routeTcgdex(context, net = {offline: false}) {
 			return route.abort('internetdisconnected');
 		}
 
-		const file = join(dir, safeName(url));
+		const file = join(dir, safeName(url, body));
 		const meta = `${file}.meta.json`;
 
 		if (await exists(meta)) {
@@ -301,26 +312,27 @@ export async function routeTcgdex(context, net = {offline: false}) {
 		let response;
 
 		try {
-			response = await fetch(url);
+			response = await fetch(url, body ? {body, headers: {'content-type': 'application/json'}, method: 'POST'} : {});
 		}
 		catch {
 			return route.abort('internetdisconnected');
 		}
 
-		const body = Buffer.from(await response.arrayBuffer());
+		const answerBody = Buffer.from(await response.arrayBuffer());
 		const contentType = response.headers.get('content-type') || 'application/octet-stream';
 
 		// Server errors are passed on but never kept.
 		if (response.status < 500) {
-			await writeFile(file, body);
+			await writeFile(file, answerBody);
 			await writeFile(meta, JSON.stringify({contentType, status: response.status}));
 		}
 
-		return route.fulfill({body, contentType, headers: {'access-control-allow-origin': '*'}, status: response.status});
+		return route.fulfill({body: answerBody, contentType, headers: {'access-control-allow-origin': '*'}, status: response.status});
 	};
 
 	await context.route('https://api.tcgdex.net/**', (route) => answer(route, 'api'));
 	await context.route('https://assets.tcgdex.net/**', (route) => answer(route, 'images'));
+	await context.route(/^https:\/\/(graphql\.)?pokeapi\.co\//, (route) => answer(route, 'api'));
 
 	return counts;
 }
@@ -353,10 +365,12 @@ export async function cardImage(cardId) {
 // Writes a Y4M still (one frame, which Chrome repeats) of the card inside the
 // guide frame the scanner draws: 97 % of the guide's size, turned by `angle`
 // degrees, over a wood-colored table. width x height is the camera frame.
+// hideNumber blurs the bottom 12 % of the card out of reading, as a thumb,
+// a sleeve edge, or a bad photo would, so only the top of the card reads.
 // Uses `browser` (Playwright) to decode the WebP and draw the frame.
-export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, height = 1920, width = 1080} = {}) {
+export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, height = 1920, hideNumber = false, width = 1080} = {}) {
 	const dir = join(CACHE_DIR, 'video');
-	const file = join(dir, `${cardId}-${width}x${height}-${angle}-${fill}.y4m`);
+	const file = join(dir, `${cardId}-${width}x${height}-${angle}-${fill}${hideNumber ? '-nonumber' : ''}.y4m`);
 
 	await mkdir(dir, {recursive: true});
 
@@ -366,11 +380,26 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 	const webp = (await readFile(await cardImage(cardId))).toString('base64');
 	const page = await browser.newPage();
-	const rgba = Buffer.from(await page.evaluate(async ({angle, fill, height, webp, width}) => {
+	const rgba = Buffer.from(await page.evaluate(async ({angle, fill, height, hideNumber, webp, width}) => {
 		const img = new Image();
 
 		img.src = `data:image/webp;base64,${webp}`;
 		await img.decode();
+
+		let face = img;
+
+		if (hideNumber) {
+			face = document.createElement('canvas');
+			face.width = img.naturalWidth;
+			face.height = img.naturalHeight;
+
+			const faceCtx = face.getContext('2d');
+			const cut = Math.round(face.height * 0.88);
+
+			faceCtx.drawImage(img, 0, 0);
+			faceCtx.filter = 'blur(6px)';
+			faceCtx.drawImage(img, 0, cut, face.width, face.height - cut, 0, cut, face.width, face.height - cut);
+		}
 
 		const canvas = document.createElement('canvas');
 
@@ -393,7 +422,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 		ctx.translate(width / 2, height / 2);
 		ctx.rotate(angle * Math.PI / 180);
-		ctx.drawImage(img, -gw * fill / 2, -gh * fill / 2, gw * fill, gh * fill);
+		ctx.drawImage(face, -gw * fill / 2, -gh * fill / 2, gw * fill, gh * fill);
 
 		const data = ctx.getImageData(0, 0, width, height).data;
 		let binary = '';
@@ -403,7 +432,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 		}
 
 		return btoa(binary);
-	}, {angle, fill, height, webp, width}), 'base64');
+	}, {angle, fill, height, hideNumber, webp, width}), 'base64');
 
 	await page.close();
 

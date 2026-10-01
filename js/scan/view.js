@@ -19,7 +19,7 @@ import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail} from './
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, releaseEngineSoon, warmEngine} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
-import {cardVariants, findCandidates, WaitingForSignal} from './match.js';
+import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
@@ -49,6 +49,11 @@ export function scanView(root) {
 	let wakeLock = null;
 	let engineState = 'idle';
 	const photoUrls = new Map();
+	// How far each card being read has got (0 to 1), for its tile, and each
+	// read card's artwork vector, for the tiebreak. Neither is stored: a card
+	// read again after the app closes gets both again.
+	const progress = new Map();
+	const artworks = new Map();
 	// Cards being read or looked up right now, so resume() never starts a
 	// second read of the same card.
 	const working = new Set();
@@ -219,6 +224,7 @@ export function scanView(root) {
 		tray.replaceChildren(...[...items].reverse().map((item) => trayTile(item, {
 			marks: S.wishMarks(item, family),
 			photoUrl: photoUrls.get(item.id) || null,
+			progress: progress.get(item.id) ?? null,
 			quantity: S.quantity(session, item, owned),
 		})));
 
@@ -404,6 +410,8 @@ export function scanView(root) {
 	}
 
 	function remove(id) {
+		artworks.delete(id);
+		progress.delete(id);
 		change(() => S.removeItem(session, id));
 		draft.deletePhoto(id).catch(() => {});
 		draft.deletePhoto(`${id}:full`).catch(() => {});
@@ -636,11 +644,25 @@ export function scanView(root) {
 		try {
 			engineState = engineState === 'ready' ? 'ready' : 'loading';
 			drawStatus();
-			result = await identify(frame, {straight});
+			let drawn = 0;
+
+			progress.set(id, 0.05);
+			draw();
+			result = await identify(frame, {readOptions: {onProgress: (fraction) => {
+				progress.set(id, fraction);
+
+				// At most a redraw every tenth of the way.
+				if (fraction - drawn >= 0.1) {
+					drawn = fraction;
+					draw();
+				}
+			}}, straight});
 			engineState = 'ready';
 			drawStatus();
 		}
 		catch (err) {
+			progress.delete(id);
+
 			if (!alive || !S.findItem(session, id)) {
 				return;
 			}
@@ -656,7 +678,9 @@ export function scanView(root) {
 			return;
 		}
 
-		scanStats.reads.push({ocr: result.timings.ocr, rectify: result.timings.rectify, total: result.timings.total});
+		progress.delete(id);
+		artworks.set(id, result.artwork);
+		scanStats.reads.push({ocr: result.timings.ocr, rectify: result.timings.rectify, total: result.timings.total, workers: result.timings.workers});
 
 		// An automatic capture with no card edges and no number read was not a
 		// card (a hand, the table): it leaves the tray. A shutter capture
@@ -731,7 +755,7 @@ export function scanView(root) {
 		try {
 			// The language picked, or else the read's guess ("non-latin"
 			// searches Japanese first), never another card's.
-			found = await findCandidates(item.read, item.language || item.languageHint);
+			found = await findCandidates(item.read, item.language || item.languageHint, {artwork: artworks.get(id) || null});
 		}
 		catch (err) {
 			if (alive && S.findItem(session, id)) {
@@ -861,11 +885,14 @@ export function scanView(root) {
 			else if (item.status === 'matching' || (item.status === 'waiting' && !item.card) || S.needsRematch(item)) {
 				await matchItem(item.id);
 			}
-			else if (item.card && item.variants === null) {
-				await loadVariants(item.id);
-			}
+			// A match made while some sets were out of reach (the name route
+			// can answer offline from the lists on the phone) is made again
+			// once they can be reached; that also loads its finishes.
 			else if (item.partial && !item.confirmed && online()) {
 				await matchItem(item.id);
+			}
+			else if (item.card && item.variants === null) {
+				await loadVariants(item.id);
 			}
 		}
 	}
@@ -960,10 +987,10 @@ export function scanView(root) {
 		startEngine();
 	}
 
-	// The reader starts with the camera: with no camera there is nothing to
-	// read, and its first download (about 7 MB) waits until there is.
+	// The reader starts as the screen opens, and again with the camera if it
+	// failed. Its first download (about 7 MB) is kept by the service worker.
 	function startEngine() {
-		if (engineState === 'ready') {
+		if (engineState === 'ready' || engineState === 'loading') {
 			return;
 		}
 
@@ -1136,6 +1163,15 @@ export function scanView(root) {
 		drawStatus();
 		refreshOwned();
 		refreshFamily();
+
+		// The reader and the name lists start with the screen, alongside the
+		// camera, so the first capture does not wait for them.
+		startEngine();
+
+		if (online()) {
+			warmNameRoute();
+		}
+
 		openCamera();
 		resume().catch(() => {});
 	})();

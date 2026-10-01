@@ -1,19 +1,35 @@
-// Finds catalog cards for a read: the sets whose official card count equals
-// the printed total (or one confused digit away), then the card in each set
-// whose number matches, ranked by the set code, the side the number was
-// printed on, the copyright year, and a Wizards copyright.
+// Finds catalog cards for a read, by every route the read allows, and ranks
+// them by how many clues agree (js/scan/evidence.js).
 //
-// The ranking is lab/js/match.js, measured on the lab benchmark
-// (lab/README.md). What changes here is where the data comes from: the lab
-// keeps TCGdex answers in memory, while the scanner reads them through
-// js/catalog.js, which keeps every set list and set in IndexedDB. So a set
-// looked at once (in Sets, the import, or an earlier scan) matches again with
-// no signal, and a card whose sets are not on the phone is reported as
-// waiting rather than as "no match".
+// - The number route (lab/js/match.js, measured on the lab benchmark): the
+//   sets whose official card count equals the printed total (or one
+//   confused digit away), then the card in each whose number matches.
+// - The name route: the read name against every species name
+//   (js/checklists.js speciesNames, kept on the phone), then that species'
+//   international prints (js/pokemon-cards.js loadInternational, built on
+//   the bulk card list js/checklists.js keeps), each with its set's card
+//   count from the set list. It needs no number at all, so a card whose
+//   number is hidden, blurred, or cropped is still found.
+//
+// The name route runs when the number route found no card with the exact
+// number and total read. Both feed one list, scored by the same rules: number and total,
+// name, HP, set code, side, copyright, attack names. When the read has an
+// HP or attack names and the head of the list is close, the full records
+// of the leading cards are read (cache first) to check them. When cards
+// are still level, the captured artwork orders them (js/scan/artwork.js).
+//
+// Data comes through js/catalog.js, which keeps every set list and set in
+// IndexedDB, so a set looked at once matches again with no signal, and a
+// card whose sets are not on the phone is reported as waiting rather than
+// as "no match".
 
 import {importApi, setList} from '../catalog.js';
-import {confusedVariants, LEFT_NUMBER_FROM, sameNumber, setCodeMatches, WIZARDS_UNTIL} from '../../lab/js/match.js';
-import {searchOrder} from './session.js';
+import {speciesNames} from '../checklists.js';
+import {loadInternational} from '../pokemon-cards.js';
+import {confusedVariants, sameNumber} from '../../lab/js/match.js';
+import {artworkSims} from './artwork.js';
+import {cluesOf, matchSpecies, orderByArtwork, rankCards, TIE_POINTS} from './evidence.js';
+import {ASIAN_LANGUAGES, searchOrder} from './session.js';
 
 // The catalog could not be reached for something the match needs.
 export class WaitingForSignal extends Error {
@@ -27,177 +43,334 @@ export class WaitingForSignal extends Error {
 const online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
 
 // Every set of a catalog language, flattened from js/catalog.js setList:
-// [{id, cardCount}].
+// [{id, cardCount, name, serie}].
 async function allSets(lang) {
 	const {data} = await setList(lang);
 	const sets = [];
 
 	for (const serie of data || []) {
 		for (const set of serie.sets || []) {
-			sets.push(set);
+			sets.push({...set, serie: serie.id});
 		}
 	}
 
 	return sets;
 }
 
-// Returns {candidates, partial, searched, ms}. Each candidate is
-// {id, image, lang, localId, name, official, reasons, releaseDate, score,
-// setCode, setId, setName}, best first.
+// Resolves with `promise`, or with `fallback` after ms.
+const within = (promise, ms, fallback) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
+// The species names and the prints of a species, waiting at most a few
+// seconds each: a first scan with no list on the phone yet must not hang.
+async function englishSpecies() {
+	const tables = await within(speciesNames(), 4000, null);
+
+	return (tables && tables.en) || [];
+}
+
+async function speciesPrints(dex) {
+	const result = await within(loadInternational(dex), 4000, {prints: []});
+
+	return result.prints || [];
+}
+
+export const DEFAULT_API = {
+	allSets,
+	artworkSims,
+	cardDetail: importApi.cardDetail,
+	setDetail: importApi.setDetail,
+	species: englishSpecies,
+	speciesPrints,
+};
+
+// Starts the name route's lists downloading (each is one request, kept on
+// the phone), so the first scan with signal does not wait for them.
+export function warmNameRoute() {
+	speciesNames().catch(() => {});
+	loadInternational(25).catch(() => {});
+}
+
+// Species matches below this are not used to look cards up (they still
+// score a card the number found).
+const NAME_LOOKUP = 0.75;
+
+// The full record is read for at most this many leading cards (more when
+// no number read, since a name alone leaves many prints level), within this
+// long, to check HP and attacks. Each record is kept once read.
+const DETAIL_CARDS = 6;
+const DETAIL_CARDS_NAME_ONLY = 12;
+const DETAIL_MS = 1500;
+
+// The artwork is compared for at most this many level cards: a name alone
+// (Pikachu, say) can leave dozens of prints level, and each comparison is
+// one small image (about 15 KB), kept once fetched.
+const ARTWORK_CARDS = 16;
+
+// A candidate as the tray keeps it: no set record, no attack lists.
+const kept = ({abilities, agree, attacks, conflicts, dexIds, first, hp, set, ...rest}) => ({...rest, agree, conflicts, hp: hp || null});
+
+// Returns {candidates, names, partial, searched, ms, routes}. Each
+// candidate is {id, image, lang, localId, name, official, reasons,
+// releaseDate, score, confidence, agree, conflicts, setCode, setId,
+// setName, artwork}, best first. names are the species the read name
+// matched: [{dex, name, score}].
 //
 // partial is true when some set that could hold the card was out of reach,
-// so the list may be missing the right card. Throws WaitingForSignal when no
-// catalog could be searched at all, or when every candidate set was out of
-// reach and nothing was found.
+// so the list may be missing the right card. Throws WaitingForSignal when
+// no catalog could be searched at all, or when every candidate set was out
+// of reach and nothing was found.
 //
 // language: the language to search for, or null for a card whose language
-// is not known (Japanese first, then English).
-export async function findCandidates(read, language, {limit = 6, now = () => performance.now(), api = {allSets, setDetail: importApi.setDetail}} = {}) {
+// is not known (Japanese first, then English). artwork: the captured card's
+// artwork vector (js/scan/artwork.js artVector), or null.
+export async function findCandidates(read, language, {artwork = null, limit = 6, now = () => performance.now(), api = DEFAULT_API} = {}) {
 	const started = now();
-	const number = read && read.number;
+	const clues = cluesOf(read);
 	const searched = [];
-
-	if (!number) {
-		return {candidates: [], ms: 0, partial: false, searched};
-	}
-
+	const routes = [];
 	const byId = new Map();
-	const prefix = number.number.replace(/\d+$/, '');
-	const numberDigits = number.number.slice(prefix.length);
+	const order = searchOrder(language);
 	let reached = 0;
 	let unreachable = 0;
 	let lastError = null;
+	const setLists = new Map();
 
-	for (const [index, lang] of searchOrder(language).entries()) {
-		let list;
+	const listFor = async (lang) => {
+		if (!setLists.has(lang)) {
+			setLists.set(lang, api.allSets(lang).then((list) => {
+				reached++;
 
-		try {
-			list = await api.allSets(lang);
-			reached++;
-		}
-		catch (err) {
-			lastError = err;
-			unreachable++;
-			continue;
-		}
-
-		searched.push(lang);
-
-		const exactTotal = number.total;
-		const nearTotals = new Set(confusedVariants(number.total));
-		const sets = list.filter((set) => set.cardCount && set.cardCount.official > 0
-			&& (String(set.cardCount.official) === exactTotal || nearTotals.has(String(set.cardCount.official))));
-		const details = await Promise.all(sets.map(async (set) => {
-			try {
-				return await api.setDetail(lang, set.id);
-			}
-			catch (err) {
+				return list;
+			}, (err) => {
 				lastError = err;
 				unreachable++;
 
 				return null;
-			}
-		}));
+			}));
+		}
 
-		for (const set of details) {
-			if (!set || !Array.isArray(set.cards) || !set.cardCount) {
+		return setLists.get(lang);
+	};
+
+	const add = (card) => {
+		const existing = byId.get(card.id);
+
+		if (existing && !existing.set && card.set) {
+			// The number route's record carries the set (its code, its date):
+			// it replaces the name route's, keeping the species.
+			byId.set(card.id, {...card, dexIds: existing.dexIds || card.dexIds || null});
+
+			return;
+		}
+
+		if (existing) {
+			// The same card in the fallback catalog or by the other route:
+			// keep what the first one lacked.
+			existing.image = existing.image || card.image || null;
+			existing.dexIds = existing.dexIds || card.dexIds || null;
+			existing.official = existing.official || card.official || null;
+
+			return;
+		}
+
+		byId.set(card.id, card);
+	};
+
+	// ---- the name, against the species list
+
+	const latin = !ASIAN_LANGUAGES.includes(language);
+	const species = clues.name && clues.name.text && latin && api.species ? await api.species().catch(() => []) : [];
+	const names = species.length ? matchSpecies(clues.name.text, species) : [];
+
+	clues.names = names;
+
+	// ---- the number route
+
+	const numberRoute = async () => {
+		const number = read && read.number;
+
+		if (!number) {
+			return;
+		}
+
+		routes.push('number');
+
+		const prefix = number.number.replace(/\d+$/, '');
+		const numberDigits = number.number.slice(prefix.length);
+
+		for (const [index, lang] of order.entries()) {
+			const list = await listFor(lang);
+
+			if (!list) {
 				continue;
 			}
 
-			const totalExact = String(set.cardCount.official) === number.total;
-			let card = set.cards.find((c) => sameNumber(c.localId, number.number));
-			let numberExact = true;
+			searched.push(lang);
 
-			if (!card && totalExact) {
-				const near = confusedVariants(numberDigits).map((digits) => prefix + digits);
+			const nearTotals = new Set(confusedVariants(number.total));
+			const sets = list.filter((set) => set.cardCount && set.cardCount.official > 0
+				&& (String(set.cardCount.official) === number.total || nearTotals.has(String(set.cardCount.official))));
+			const details = await Promise.all(sets.map(async (set) => {
+				try {
+					return await api.setDetail(lang, set.id);
+				}
+				catch (err) {
+					lastError = err;
+					unreachable++;
 
-				card = set.cards.find((c) => near.some((value) => sameNumber(c.localId, value)));
-				numberExact = false;
-			}
+					return null;
+				}
+			}));
 
-			if (!card) {
-				continue;
-			}
-
-			const existing = byId.get(card.id);
-
-			if (existing) {
-				// The same card in the fallback catalog: borrow its image if the
-				// first catalog had none.
-				existing.image = existing.image || card.image || null;
-
-				continue;
-			}
-
-			const setCode = (set.abbreviation && set.abbreviation.official) || (lang === 'ja' ? set.id : null);
-			const reasons = [];
-			let score = 1;
-
-			if (totalExact && numberExact) {
-				reasons.push('number and total');
-			}
-			else {
-				score -= 2;
-				reasons.push(totalExact ? 'number one digit off' : 'total one digit off');
-			}
-
-			if (setCodeMatches(number.setCodeRun, set, lang)) {
-				score += 4;
-				reasons.push('set code');
-			}
-
-			if (set.releaseDate) {
-				const modern = set.releaseDate >= LEFT_NUMBER_FROM;
-
-				if ((number.side === 'left') === modern) {
-					score += 2;
-					reasons.push(`number on the ${number.side}`);
+			for (const set of details) {
+				if (!set || !Array.isArray(set.cards) || !set.cardCount) {
+					continue;
 				}
 
-				const releaseYear = Number(set.releaseDate.slice(0, 4));
+				const totalExact = String(set.cardCount.official) === number.total;
+				let card = set.cards.find((c) => sameNumber(c.localId, number.number));
 
-				if (read.copyrightYear && (read.copyrightYear === releaseYear || read.copyrightYear === releaseYear - 1)) {
-					score += 2;
-					reasons.push(`copyright ${read.copyrightYear}`);
+				if (!card && totalExact) {
+					const near = confusedVariants(numberDigits).map((digits) => prefix + digits);
+
+					card = set.cards.find((c) => near.some((value) => sameNumber(c.localId, value)));
 				}
 
-				if (read.wizards && set.releaseDate < WIZARDS_UNTIL) {
-					score += 2;
-					reasons.push('Wizards copyright');
+				if (!card) {
+					continue;
+				}
+
+				add({
+					first: index === 0,
+					id: card.id,
+					image: card.image || null,
+					lang,
+					localId: card.localId,
+					name: card.name,
+					official: String(set.cardCount.official),
+					releaseDate: set.releaseDate || '',
+					set,
+					setCode: (set.abbreviation && set.abbreviation.official) || (lang === 'ja' ? set.id : null),
+					setId: set.id,
+					setName: set.name,
+				});
+			}
+		}
+	};
+
+	// ---- the name route
+
+	const nameRoute = async () => {
+		const lookups = names.filter((match) => match.score >= NAME_LOOKUP && match.score >= names[0].score - 0.1).slice(0, 2);
+
+		if (!lookups.length || !api.speciesPrints) {
+			return;
+		}
+
+		routes.push('name');
+
+		// International prints are listed in English; the set list gives
+		// each set's card count.
+		const list = await listFor('en');
+		const counts = new Map((list || []).map((set) => [set.id, set.cardCount && set.cardCount.official ? String(set.cardCount.official) : null]));
+		const lang = order.find((code) => !ASIAN_LANGUAGES.includes(code)) || 'en';
+
+		if (!searched.includes('en')) {
+			searched.push('en');
+		}
+
+		for (const match of lookups) {
+			const prints = await api.speciesPrints(match.dex).catch(() => []);
+
+			for (const print of prints) {
+				add({
+					dexIds: [match.dex],
+					first: lang === 'en' && order[0] === 'en',
+					id: print.cardId,
+					image: print.image || null,
+					lang: 'en',
+					localId: print.localId,
+					name: print.name || match.name,
+					official: counts.get(print.setId) || null,
+					releaseDate: print.releaseDate || '',
+					setCode: null,
+					setId: print.setId,
+					setName: print.setName || print.setId,
+				});
+			}
+		}
+	};
+
+	// The name route runs when the number did not settle it: no number read,
+	// or no card with that exact number and total. A clean number read never
+	// waits for a species list to download.
+	await numberRoute();
+
+	const exact = Boolean(read && read.number) && [...byId.values()].some((card) => sameNumber(card.localId, read.number.number) && String(card.official) === String(read.number.total));
+
+	if (!read || !read.number || !exact) {
+		await nameRoute();
+	}
+
+
+	let ranked = rankCards(clues, [...byId.values()]);
+
+	// ---- HP and attacks, from the leading cards' full records
+
+	const close = ranked.filter((card) => card.score >= (ranked[0] ? ranked[0].score : 0) - 4).slice(0, read && read.number ? DETAIL_CARDS : DETAIL_CARDS_NAME_ONLY);
+	const uncertain = ranked.length > 1 && (!ranked[0].agree.includes('number') || !ranked[0].agree.includes('total') || ranked[1].score >= ranked[0].score - TIE_POINTS);
+
+	if (api.cardDetail && (clues.hp || clues.attackText) && uncertain && close.length) {
+		const details = new Map();
+
+		await within(Promise.all(close.map(async (card) => {
+			try {
+				const detail = await api.cardDetail(card.lang, card.id);
+
+				if (detail) {
+					details.set(card.id, detail);
 				}
 			}
-
-			if (index === 0) {
-				score += 1;
-				reasons.push(`${lang} catalog`);
+			catch {
+				// Checked without it.
 			}
+		})), DETAIL_MS, null);
 
-			byId.set(card.id, {
-				id: card.id,
-				image: card.image || null,
-				lang,
-				localId: card.localId,
-				name: card.name,
-				official: String(set.cardCount.official),
-				reasons,
-				releaseDate: set.releaseDate || '',
-				score,
-				setCode: setCode || null,
-				setId: set.id,
-				setName: set.name,
-			});
+		if (details.size) {
+			ranked = rankCards(clues, ranked.map((card) => {
+				const detail = details.get(card.id);
+
+				return detail
+					? {
+						...card,
+						abilities: (detail.abilities || []).map((ability) => ability.name),
+						attacks: (detail.attacks || []).map((attack) => attack.name),
+						dexIds: card.dexIds || detail.dexId || null,
+						hp: detail.hp || null,
+					}
+					: card;
+			}));
 		}
 	}
 
-	const candidates = [...byId.values()]
-		.sort((a, b) => b.score - a.score || b.releaseDate.localeCompare(a.releaseDate))
-		.slice(0, limit);
+	// ---- the artwork, for cards still level
 
-	if (!reached || (!candidates.length && unreachable)) {
-		throw new WaitingForSignal(lastError);
+	if (artwork && api.artworkSims && ranked.length > 1 && ranked[1].score >= ranked[0].score - TIE_POINTS) {
+		const head = ranked.filter((card) => card.score >= ranked[0].score - TIE_POINTS).slice(0, ARTWORK_CARDS);
+		const sims = await api.artworkSims(artwork, head).catch(() => new Map());
+
+		ranked = orderByArtwork(ranked, sims);
 	}
 
-	return {candidates, ms: Math.round(now() - started), partial: unreachable > 0, searched};
+	const candidates = ranked.slice(0, limit).map(kept);
+
+	if (!reached || (!candidates.length && unreachable)) {
+		if (read && (read.number || names.length)) {
+			throw new WaitingForSignal(lastError);
+		}
+	}
+
+	return {candidates, ms: Math.round(now() - started), names, partial: unreachable > 0, routes, searched};
 }
 
 // The card's full TCGdex record (for variants_detailed), cache first. Throws

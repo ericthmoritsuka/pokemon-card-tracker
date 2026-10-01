@@ -14,9 +14,9 @@ import {finishOptions} from './finish.js';
 const STATUS_TEXT = {
 	finishes: 'Loading finishes',
 	language: 'Pick the language',
-	matching: 'Looking it up',
-	reading: 'Reading',
-	rematch: 'Looking it up',
+	matching: 'Looking it up…',
+	reading: 'Reading…',
+	rematch: 'Looking it up…',
 	unmatched: 'Not found',
 	unsure: 'Needs a look',
 	waiting: 'Waiting for signal',
@@ -26,8 +26,10 @@ const FINISH_WORDS = {'1ST': '1st Edition', FOIL: 'foil pattern', HOLO: 'holo', 
 
 const cardLine = (card) => (card ? `${card.name}, ${card.setName || card.setId}, ${Number(card.localId) || card.localId} of ${card.official || '?'}` : 'Unknown card');
 
-// info: {quantity, duplicate, marks, photoUrl}.
-export function trayTile(item, {marks = [], photoUrl = null, quantity = 1} = {}) {
+// info: {quantity, duplicate, marks, photoUrl, progress}. progress is how
+// far the read of a card still being read has got, 0 to 1, drawn as a bar
+// along the tile's foot.
+export function trayTile(item, {marks = [], photoUrl = null, progress = null, quantity = 1} = {}) {
 	const reason = blocker(item);
 	const look = needsLook(item);
 	const waiting = item.status === 'waiting';
@@ -53,7 +55,10 @@ export function trayTile(item, {marks = [], photoUrl = null, quantity = 1} = {})
 		quantity > 1 ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tr scan-qty'}, `×${quantity}`) : null,
 		chip ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-bl scan-finish'}, chip) : null,
 		status ? h('span', {'aria-hidden': 'true', class: `scan-badge scan-badge-br scan-status-${status}`, title: status}, status === 'look' ? '?' : status === 'waiting' ? '☁' : '♥') : null,
-		reason === 'reading' || reason === 'matching' || reason === 'rematch' ? h('span', {'aria-hidden': 'true', class: 'scan-tile-busy'}) : null
+		reason === 'reading' || reason === 'matching' || reason === 'rematch' ? h('span', {'aria-hidden': 'true', class: 'scan-tile-busy'}) : null,
+		reason === 'reading' || reason === 'matching'
+			? h('span', {'aria-hidden': 'true', class: 'scan-tile-progress'}, h('span', {style: `width: ${Math.round(Math.max(0.08, Math.min(1, reason === 'matching' ? 0.9 : progress || 0)) * 100)}%`}))
+			: null
 	);
 
 	const caption = reason && reason !== 'finishes' ? STATUS_TEXT[reason] : item.card ? item.card.name : 'Unknown card';

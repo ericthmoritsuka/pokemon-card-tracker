@@ -113,6 +113,7 @@ export function addCapture(session, {at = nowIso(), id = newId()} = {}) {
 		language: null,
 		languageBy: null,
 		languageHint: null,
+		names: [],
 		partial: false,
 		read: null,
 		status: 'reading',
@@ -131,14 +132,23 @@ export function addCapture(session, {at = nowIso(), id = newId()} = {}) {
 }
 
 // What the read decided, kept small enough to store: the number, total,
-// side, set code letters, copyright year, Wizards line, and the language.
+// side, set code letters, copyright year, Wizards line, the language, and
+// the name, HP, partial number, and attack text the name route uses, so a
+// card looked up again later (signal back, language changed) uses every
+// clue again.
 export function summariseRead(read) {
 	const number = read && read.number;
 	const language = (read && read.language) || {code: null, confidence: 0, source: null};
+	const name = read && read.name && read.name.text ? read.name : null;
+	const hp = read && read.hp && read.hp.value ? read.hp : null;
+	const partial = read && read.partial && (read.partial.number || read.partial.total) ? read.partial : null;
 
 	return {
+		attackText: read && read.attackText ? String(read.attackText).slice(0, 400) : '',
 		copyrightYear: (read && read.copyrightYear) || null,
+		hp: hp ? {after: Boolean(hp.after), confidence: hp.confidence || 0, value: hp.value, values: hp.values || [hp.value]} : null,
 		language: {code: language.code || null, confidence: language.confidence || 0, source: language.source || null},
+		name: name ? {confidence: name.confidence || 0, suffix: name.suffix || null, text: String(name.text).slice(0, 60)} : null,
 		number: number
 			? {
 				confidence: number.confidence,
@@ -150,9 +160,49 @@ export function summariseRead(read) {
 				totalPrinted: number.totalPrinted,
 			}
 			: null,
+		partial: partial ? {number: partial.number || null, total: partial.total || null} : null,
 		script: (read && read.script) || null,
 		wizards: Boolean(read && read.wizards),
 	};
+}
+
+// What was read, in words, for a card that needs a look: "Name: Weedle,
+// HP: 50, number: unreadable". Null when nothing was read (a card added
+// from the search).
+export function readLine(read) {
+	if (!read) {
+		return null;
+	}
+
+	const parts = [`Name: ${read.name && read.name.text ? read.name.text : 'unreadable'}`];
+
+	if (read.hp && read.hp.value) {
+		parts.push(`HP: ${read.hp.value}`);
+	}
+
+	if (read.number) {
+		parts.push(`number: ${read.number.numberPrinted}/${read.number.totalPrinted}`);
+	}
+	else if (read.partial && (read.partial.number || read.partial.total)) {
+		parts.push(`number: ${read.partial.number || '?'}/${read.partial.total || '?'}`);
+	}
+	else {
+		parts.push('number: unreadable');
+	}
+
+	return parts.join(', ');
+}
+
+// What the search box starts with for a card that needs a look: the
+// species the read name matched (spelled right), else the name as read.
+export function searchPrefill(item) {
+	const best = item && item.names && item.names[0];
+
+	if (best && best.score >= 0.75) {
+		return best.name;
+	}
+
+	return (item && item.read && item.read.name && item.read.name.text) || '';
 }
 
 // The read is in: the item moves on to matching. The language is taken from
@@ -226,11 +276,35 @@ export function markMatching(session, id, now = nowIso()) {
 
 // Whether the match is sure enough to save without a look, and if not, why
 // (DESIGN.md section 6, "Scan safety").
+//
+// With a number read, as before: an exact number and total, one card ahead
+// by more than a point, a clear read, every set searched. Without one, the
+// text clues must carry it: at least three agreeing (the name and two of
+// the total, the HP, an attack, a partly read number), none against, and
+// no card within a point. The artwork never counts here; it only orders.
 export function judgeMatch(read, candidates, partial = false) {
 	const number = read && read.number;
+	const [top, second] = candidates;
 
 	if (!number) {
-		return {sure: false, why: 'The collector number could not be read.'};
+		const name = read && read.name && read.name.text;
+
+		if (!candidates.length) {
+			return {sure: false, why: name ? `The number did not read, and no card was found for "${name}". Search for it.` : 'The collector number could not be read.'};
+		}
+
+		const agree = top.agree || [];
+		const level = candidates.filter((c) => c.score >= top.score - 1).length;
+
+		if (agree.includes('name') && agree.length >= 3 && !(top.conflicts || []).length && level === 1 && !partial) {
+			return {sure: true, why: null};
+		}
+
+		if (level > 1) {
+			return {sure: false, why: `The number did not read, and ${level} cards fit what did. Tap the right one.`};
+		}
+
+		return {sure: false, why: 'The number did not read, so this card is a best guess. Check it.'};
 	}
 
 	const printed = `${number.numberPrinted}/${number.totalPrinted}`;
@@ -239,7 +313,6 @@ export function judgeMatch(read, candidates, partial = false) {
 		return {sure: false, why: `No card in the catalog has the number ${printed}.`};
 	}
 
-	const [top, second] = candidates;
 	const reasons = top.reasons || [];
 
 	if (!reasons.includes('number and total')) {
@@ -278,11 +351,12 @@ const cardOf = (candidate) => ({
 // The catalog answered. The best candidate is chosen and its finish waits
 // for the card's variants (applyVariants). A candidate list that is empty
 // leaves the item ready with no card: it needs a look (search or remove).
-export function applyMatch(session, id, {candidates = [], partial = false} = {}, now = nowIso()) {
+export function applyMatch(session, id, {candidates = [], names = [], partial = false} = {}, now = nowIso()) {
 	const item = mustFind(session, id);
 	const judged = judgeMatch(item.read, candidates, partial);
 
 	item.candidates = candidates.slice(0, 6);
+	item.names = (names || []).slice(0, 3);
 	item.partial = partial;
 	item.sure = judged.sure;
 	item.why = judged.why;

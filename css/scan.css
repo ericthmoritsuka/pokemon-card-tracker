@@ -305,6 +305,32 @@ html.scan-open body {
 	}
 }
 
+/* How far the read has got: a bar along the foot of the art. */
+.scan-tile-progress {
+	background: rgba(255, 255, 255, 0.25);
+	bottom: 0;
+	height: 4px;
+	left: 0;
+	position: absolute;
+	right: 0;
+}
+
+.scan-tile-progress > span {
+	background: #ffffff;
+	display: block;
+	height: 100%;
+	transition: width 200ms linear;
+}
+
+/* What the reader made of a card it is not sure of. */
+.scan-read-line {
+	color: var(--scan-muted);
+	font-size: 14px;
+	line-height: 20px;
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
 /* Badges: 20 px tall, inset 4 px, a 1 px contrasting outline. */
 
 .scan-badge {
@@ -909,6 +935,10 @@ html.scan-open body {
 
 	.scan-tile-busy {
 		animation: none;
+	}
+
+	.scan-tile-progress > span {
+		transition: none;
 	}
 
 	@keyframes scan-fade {
