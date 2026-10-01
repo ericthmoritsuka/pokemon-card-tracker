@@ -425,6 +425,23 @@ API; its content is licensed CC BY-NC-SA, which a personal, non-commercial app c
 attribution. Build a lookup table from it once, ship it in the app with the credit, and never
 query it from each phone. *(Suggested by Eric, 2026-10-01.)*
 
+**International twins for Asian prints: measured 2026-10-01.** A matcher over TCGdex data finds
+the English print with the same artwork for a Japanese card. Pokémon must agree on `dexId`, `hp`,
+attack count and energy costs, and damage, within a release window of 60 days before to 450
+days after the Japanese set; then illustrator, Trainer type, effect-text numbers and keywords,
+rarity, and the expected English set score the candidates. On 708 cards from six Japanese sets
+that have English counterparts (`M3`, `M4`, `M5`, `S11`, `SV10`, `SV6a`) it gave one confident
+twin for 94% (Pokémon 97%, Trainers 85%), and all 304 confident picks with images on both sides
+showed the same art. It stays quiet without a twin: `M6` has no English set yet, so only 4 of
+Eric's 59 Asian cards match today (54 are `M6`). Recent Japanese to English gaps were 56 to 70
+days. No other free, permitted source of Asian card images was found (the official Japanese site
+forbids reuse; the official Korean sites return 410; TCGplayer grants no new API access).
+**Plan:** confident twins lend their image (labelled as the international print) and, for Trainers
+and Energy, their English name; ambiguous ones offer a 2 to 3 image picker; weak ones show
+nothing; unmatched cards are rechecked periodically. Restrict English candidates to the `swsh`,
+`sv`, and `me` series, since Pocket sets share names and illustrators. *(Measured and planned
+2026-10-01; a later block.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
