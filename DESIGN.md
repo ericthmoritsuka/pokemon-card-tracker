@@ -442,6 +442,17 @@ nothing; unmatched cards are rechecked periodically. Restrict English candidates
 `sv`, and `me` series, since Pocket sets share names and illustrators. *(Measured and planned
 2026-10-01; a later block.)*
 
+**Own photos, cropped to the card** (Eric, 2026-10-01). Any card can take the owner's photo,
+which then shows in place of a missing catalog image (and documents condition). On card detail,
+"Add photo" takes a picture or picks one from the gallery; the app finds the card's four edges,
+corrects the perspective into a 63:88 card image, and shows four draggable corner handles to fix
+a miss before saving. Everything runs on the phone (edge detection and a homography warp on a
+canvas, no paid service). The result is stored as a WebP of about 600 x 840 px (around 80 KB) in a
+Supabase storage bucket readable by the family, so the free 1 GB holds over 10,000 photos; it
+needs one more setup script for the bucket and its policies. The scanner reuses the same
+detection and warp, so scanned cards get their photo for free. Auto-detection is most reliable on
+a plain, contrasting background; the corner handles cover the rest. *(Planned 2026-10-01.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
