@@ -4,6 +4,12 @@
 // A binder is an entry in the person's binders list (DESIGN.md section 4):
 //   {id, name, notes, cover_color, rows, cols, page_count, slots, art,
 //    created_at, updated_at, deleted_at}
+// and, when set, two optional fields:
+//   cover_image  {id, path, type, at}: a picture shown as the cover instead
+//                of the color (js/binder-cover.js keeps the image itself);
+//                path is null until it is uploaded
+//   preset       the quick pick it was made with (js/binder-presets.js),
+//                such as "9-pocket-zip", or "custom"
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -125,6 +131,8 @@ export function cleanFields(fields) {
 		throw new Error(`Pages run from 1 to ${MAX_PAGES}.`);
 	}
 
+	const preset = cleanPreset(fields.preset);
+
 	return {
 		cols,
 		cover_color: isHex(color) ? color.toLowerCase() : DEFAULT_COVER,
@@ -132,8 +140,43 @@ export function cleanFields(fields) {
 		notes: String(fields.notes ?? '').trim(),
 		page_count: pageCount,
 		rows,
+		// Only when the form passed one, so older callers save what they did.
+		...(preset ? {preset} : {}),
 	};
 }
+
+// A preset id as js/binder-presets.js names them, or null.
+export function cleanPreset(value) {
+	const id = String(value ?? '').trim();
+
+	return /^[a-z0-9][a-z0-9-]{0,31}$/.test(id) ? id : null;
+}
+
+export const COVER_IMAGE_TYPES = ['image/webp', 'image/jpeg'];
+
+// A cover image record, checked: {id, path, type, at}, or null. path stays
+// null until the upload knows the user (js/binder-cover.js).
+export function cleanCoverImage(value) {
+	if (!value || typeof value !== 'object') {
+		return null;
+	}
+
+	const id = String(value.id || '');
+	const path = value.path ? String(value.path) : null;
+
+	if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+		return null;
+	}
+
+	return {
+		at: String(value.at || ''),
+		id,
+		path,
+		type: COVER_IMAGE_TYPES.includes(value.type) ? value.type : 'image/webp',
+	};
+}
+
+export const coverImageOf = (binder) => cleanCoverImage(binder && binder.cover_image);
 
 // A stamp strictly newer than the entry's last one, so the merge always
 // takes the new version even when two edits land in one millisecond.
@@ -458,6 +501,27 @@ export function updateBinder(id, fields) {
 		if (reshaped) {
 			next.art = [];
 		}
+
+		const [saved] = await saveBinders([next]);
+
+		return saved;
+	});
+}
+
+// Sets the cover image record ({id, path, type, at}), or takes the image
+// away with null so the cover color shows again. Nothing else changes.
+export function setCoverImage(id, image) {
+	const clean = image ? cleanCoverImage(image) : null;
+
+	if (image && !clean) {
+		throw new Error('That cover image record is not valid.');
+	}
+
+	return serial(async () => {
+		const binder = findLive(await allBinders(), id);
+		const next = copyOf(binder, nowIso());
+
+		next.cover_image = clean;
 
 		const [saved] = await saveBinders([next]);
 

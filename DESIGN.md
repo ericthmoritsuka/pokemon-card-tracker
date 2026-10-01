@@ -871,7 +871,7 @@ binder. *(Requested by Eric, 2026-10-01.)*
 
 **Spreads with a page turn** (Eric, 2026-10-01). A binder opens like a real one: page 1 alone on the
 right (the inside cover on the left), then two-page spreads (2 and 3, 4 and 5, ...), and a last
-page alone when the count is odd. Swiping or the edge arrows turn the page with a CSS 3D flip
+page alone when the count is even (a 40-page binder ends with page 40 alone). Swiping or the edge arrows turn the page with a CSS 3D flip
 around the spine (the page lifts, a shadow sweeps across, it lands on the other side), with a
 crossfade under reduced motion. Depth comes from a soft shadow where pages curve into a
 stitched spine, a slight sheen on the pockets, and the cover color showing at the edges.
