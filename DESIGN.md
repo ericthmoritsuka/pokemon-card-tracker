@@ -231,6 +231,15 @@ stamp (`stamp: ["1st-edition"]`). Ball-pattern variants carry their own TCGplaye
 products and prices. A free-text variant field could not drive the master-set goal or a
 per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's variant words.)*
 
+**The finish is picked by hand from the card's real finishes, with no paid AI.**
+After a card is identified, a finish picker lists only that card's own printings from
+`variants_detailed`: Spinarak from Darkness Ablaze (`swsh3-102`) offers Normal and Reverse holo;
+Prismatic Evolutions Pinsir (`sv08.5-003`) offers Normal, Reverse holo, Poké Ball reverse, and
+Master Ball reverse. It starts on the plain print for every card and never remembers the last
+pick, because a remembered finish is the sticky-language bug again. "Set all" in a session marks a
+whole stack at once. There is no paid vision-model fallback for now: a card the phone cannot
+identify shows its top candidates and the user taps one. *(Decided by Eric, 2026-10-01.)*
+
 **Collections are hand-picked or self-filling.**
 A self-filling collection is a saved filter: Star is "rarity is `Illustration rare` or
 `Special illustration rare`", and it fills itself as cards are saved. Rules match on TCGdex's
@@ -372,7 +381,9 @@ Three approaches, expected to be combined:
 3. **Perceptual hash / embedding match** against a prebuilt index of card art. Best for worn or
    foreign-language cards, but requires building and shipping the index.
 
-Likely hybrid: OCR for the collector number, vision model for the set symbol and edition stamp.
+Plan: text first (section 3, the finish picker decision). OCR the collector number, set total,
+name, and the language label, match them against the catalog as text, and compare images only
+against the one or two candidates text finds. No paid vision model for now.
 
 **Language detection is now a requirement, not a convenience** (section 3). Script detection
 separates Japanese, Korean, and Chinese outright. Among the Latin-script languages, language
@@ -656,5 +667,6 @@ settles the iPhone questions before any feature work.
 
 **v1.2:** goals with missing lists, binders with placement and placeholders.
 
-**Later:** Michi art and print export, the master-set goal and variant detection (with the
-vision-model fallback), pack openings, graded fields, own photos.
+**Later:** Michi art and print export, the master-set goal, automatic finish detection, pack
+openings, graded fields, own photos. A paid vision-model fallback only if the scan lab shows the
+phone alone misses too many cards.
