@@ -1,13 +1,13 @@
 {
 	"name": "Card Tracker",
 	"short_name": "Card Tracker",
-	"description": "Weekend zero spike: tests the camera and offline storage on this phone.",
+	"description": "Browse the Pokémon card catalog by set and language, and check what this phone can do.",
 	"id": "/pokemon-card-tracker/",
 	"start_url": "/pokemon-card-tracker/",
 	"scope": "/pokemon-card-tracker/",
 	"display": "standalone",
 	"background_color": "#ffffff",
-	"theme_color": "#dc0a2d",
+	"theme_color": "#1d2e60",
 	"icons": [
 		{
 			"src": "/pokemon-card-tracker/icons/icon-192.png",

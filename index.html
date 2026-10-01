@@ -4,8 +4,8 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title>Card Tracker</title>
-	<meta name="description" content="Weekend zero spike: tests the camera and offline storage on this phone.">
-	<meta name="theme-color" content="#dc0a2d">
+	<meta name="description" content="Browse the Pokémon card catalog by set and language, and check what this phone can do.">
+	<meta name="theme-color" content="#1d2e60">
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-title" content="Card Tracker">
@@ -13,13 +13,18 @@
 	<link rel="manifest" href="/pokemon-card-tracker/manifest.webmanifest">
 	<link rel="icon" type="image/png" sizes="192x192" href="/pokemon-card-tracker/icons/icon-192.png">
 	<link rel="apple-touch-icon" sizes="180x180" href="/pokemon-card-tracker/icons/apple-touch-icon.png">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<!-- Poppins loads without blocking the first paint; offline, the system font is used. -->
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&amp;display=swap" media="print" onload="this.media='all'">
+	<link rel="preconnect" href="https://api.tcgdex.net" crossorigin>
+	<link rel="preconnect" href="https://assets.tcgdex.net">
 	<link rel="stylesheet" href="/pokemon-card-tracker/style.css">
 	<script type="module" src="/pokemon-card-tracker/app.js"></script>
 </head>
 <body>
 	<header class="top">
 		<h1>Card Tracker</h1>
-		<span class="tag">Phone test</span>
 	</header>
 
 	<main>
@@ -27,15 +32,14 @@
 		<div id="errors" aria-live="assertive"></div>
 		<div id="view">
 			<noscript>
-				<p class="error">This test needs JavaScript. Turn it on and reload the page.</p>
+				<p class="error">Card Tracker needs JavaScript. Turn it on and reload the page.</p>
 			</noscript>
 		</div>
 	</main>
 
 	<nav class="tabs" aria-label="Main">
-		<a href="/pokemon-card-tracker/" data-link="">Home</a>
-		<a href="/pokemon-card-tracker/camera" data-link="camera">Camera</a>
-		<a href="/pokemon-card-tracker/storage" data-link="storage">Storage</a>
+		<a href="/pokemon-card-tracker/sets" data-link="sets" data-tab="sets">Sets</a>
+		<a href="/pokemon-card-tracker/check" data-link="check" data-tab="check">Phone check</a>
 	</nav>
 </body>
 </html>
