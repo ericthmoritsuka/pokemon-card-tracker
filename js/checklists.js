@@ -11,7 +11,7 @@
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
-import {cardIndex, catalogLanguage, importApi, indexKey} from './catalog.js';
+import {cardIndex, catalogLanguage, importApi, indexKey, isLanguage} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 
 export const MAX_DEX = 1025;
@@ -253,6 +253,41 @@ export const setHandTick = (id, dex, on) => changeChecklist(id, (goal) => {
 	goal.hand_ticks = ticks;
 });
 
+// ------------------------------------------------------ list languages
+//
+// Each list's languages (DESIGN.md section 11, "Every card of a Pokémon"):
+// the prints a Pokémon's cards screen shows (js/pokemon-cards.js), and the
+// languages a copy must be in to count as owned there. Stored on the goal
+// as languages, a list of language codes. A list saved before the setting
+// existed has none, and reads as Portuguese only.
+
+export const DEFAULT_LIST_LANGUAGES = ['pt'];
+
+const cleanLanguages = (languages) => [...new Set((Array.isArray(languages) ? languages : []).filter(isLanguage))];
+
+export function listLanguages(goal) {
+	const saved = cleanLanguages(goal && goal.languages);
+
+	return saved.length ? saved : [...DEFAULT_LIST_LANGUAGES];
+}
+
+export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {
+	const list = cleanLanguages(languages);
+
+	if (!list.length) {
+		throw new Error('Pick at least one language.');
+	}
+
+	goal.languages = list;
+});
+
+// The live copies a list counts: those in one of its languages.
+export const entriesInLanguages = (entries, languages) => {
+	const allowed = new Set(languages);
+
+	return (entries || []).filter((entry) => isLive(entry) && allowed.has(entry.language));
+};
+
 // ------------------------------------------------------------ the cache
 
 const DB_NAME = 'card-tracker-checklists';
@@ -463,6 +498,24 @@ async function internationalMap(ids, onProgress, force) {
 	const result = await download;
 
 	return result.map ? result : {error: result.error, map: hit ? hit.data : null};
+}
+
+// The bulk map itself, for the screen that lists every card of a Pokémon
+// (js/pokemon-cards.js): the copy on the phone while it is under 30 days
+// old, else a download, shared with any download already running. The
+// copy on the phone is returned when the download fails. {error, map}
+export async function internationalDexMap({force = false, onProgress = () => {}} = {}) {
+	const hit = mapMemo || await cacheGet(INTERNATIONAL_KEY);
+
+	mapMemo = hit || null;
+
+	if (hit && Date.now() - hit.at <= REFETCH_AFTER_MS) {
+		return {error: null, map: hit.data};
+	}
+
+	// No card ID is empty, so '' reads as a card the map lacks, which makes
+	// internationalMap download it.
+	return internationalMap([''], onProgress, force);
 }
 
 async function pool(items, size, work) {
