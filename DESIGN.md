@@ -859,8 +859,10 @@ cards are not in any binder yet.
 
 ### Themes
 
-A theme picker in settings offers one theme per Pokémon type (Water, Fire, Grass, Electric,
-Psychic, Fairy, Dark, Dragon, and the rest of the 18), plus the default. A theme sets the accent
+A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:
+Grass, Fire, Water, Lightning, Psychic, Fighting, Darkness, Metal, Dragon, Colorless, and Fairy
+(retired since Sword & Shield, kept for its era). *(Revised by Eric, 2026-10-01: TCG types, not the
+18 game types; saved game-type choices map to their TCG type.)* A theme sets the accent
 color, a light tint on panels, and a panel frame style inspired by the selectable text box frames
 in the games' options menus. The 18 type colors come from the pokedex project's `style.css`, so
 the two apps share a palette. *(Requested by Eric, 2026-10-01.)*
