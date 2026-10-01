@@ -478,6 +478,16 @@ print"), then the owner's own photos (several allowed, front and back). Each ima
 source label. "Use as main image" pins any one of them as what tiles show; without a pin, the
 first available image in that order is used. Tapping opens the image full screen.
 
+**Inspection viewer** (Eric, 2026-10-01: "find some details in the card or compare to another card
+to figure out if the card is original"). Tapping the card image on its page opens it full screen
+with pinch and double-tap zoom and panning. **Compare** shows two images side by side (by default
+the official image and the person's photo) with zoom and pan synchronized in card coordinates, so
+the same corner, font, energy symbol, or holo pattern lines up on both; the link can be turned off.
+Official images are about 600 x 825 px, enough for most details but not microprint, and photos are
+stored at 600 x 840, so an optional per-device setting keeps a **detail copy** of new photos at
+about 2000 px (roughly 500 KB each, about 1,500 within the free 1 GB beside the normal copies),
+downloaded only when zooming in.
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
