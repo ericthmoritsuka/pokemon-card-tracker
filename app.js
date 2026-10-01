@@ -5,40 +5,52 @@
 //
 // Routes, under the /pokemon-card-tracker/ base:
 //   cards                     My Cards, the home tab
-//   import                    Import from monprice
 //   sets                      Sets, by series, in the viewing language
 //   sets/<lang>/<setId>       One set's cards
 //   cards/<lang>/<cardId>     One card
-//   check, camera, storage    Phone check and its two tests
-//   signin, profile           Sign in, and the signed-in person's Profile
-//   family/<userId>           A family member's My Cards, read only
-//   lists, lists/<id>         Pokémon checklists, and one checklist
-//   family/<userId>/lists[/<id>]  A family member's checklists, read only
+//   scan                      Scan (js/scan/routes.js)
+//   binders[/...]             Binders (js/binders-view.js)
+//   lists, lists/<id>         Lists: Pokémon checklists, and one checklist
+//   wishlist[/<userId>]       Lists: the wishlist (js/wishlist-view.js)
+//   profile, signin           Profile, and its sign-in panel on its own
+//   import, check, camera, storage  Opened from Profile: Import from
+//                             monprice, Phone check and its two tests
+//   family/<userId>[/lists[/<id>]]  A family member's cards or checklists,
+//                             view only (js/shell.js holds the lens)
+//
+// Each route names the tab it belongs to (tab), the kind of screen for the
+// family view-only strip (kind, when it differs from tab), and whether a
+// family member's lens stays on while it is open (keepsLens).
 
 import {profileView, setSignInNotice, signInView} from './js/account-views.js';
 import {binderAccountViews, binderRoutes} from './js/binders-view.js';
 import {completeInvite, completeSignIn, currentUser, onUser, restoreSession, signInErrorText, takeAuthReturn} from './js/auth.js';
+import {followCardLink} from './js/card-swipe.js';
 import {familyCardsView, myCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
 import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
-import {BASE, go, h, showError} from './js/dom.js';
+import {BASE, go, pushRoute, showError} from './js/dom.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
+import {startPhotoSync} from './js/photos/index.js';
+import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
+import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
 import {keepFamilyWishlistsCached} from './js/wishlist.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
-	{pattern: /^import$/, render: importView, tab: 'cards', title: 'Import from monprice | Card Tracker'},
-	{pattern: /^sets$/, render: setsView, tab: 'sets', title: 'Sets | Card Tracker'},
-	{keys: ['lang', 'setId'], pattern: /^sets\/([^/]+)\/([^/]+)$/, render: setView, tab: 'sets', title: 'Set | Card Tracker'},
-	{keys: ['lang', 'cardId'], pattern: /^cards\/([^/]+)\/([^/]+)$/, render: cardView, tab: 'sets', title: 'Card | Card Tracker'},
-	{pattern: /^check$/, render: phoneCheckView, tab: 'check', title: 'Phone check | Card Tracker'},
-	{pattern: /^camera$/, render: cameraView, tab: 'check', title: 'Camera test | Card Tracker'},
-	{pattern: /^storage$/, render: storageView, tab: 'check', title: 'Storage test | Card Tracker'},
+	{pattern: /^import$/, render: importView, tab: null, title: 'Import from monprice | Card Tracker'},
+	{pattern: /^sets$/, keepsLens: true, render: setsView, tab: 'sets', title: 'Sets | Card Tracker'},
+	{keys: ['lang', 'setId'], keepsLens: true, pattern: /^sets\/([^/]+)\/([^/]+)$/, render: setView, tab: 'sets', title: 'Set | Card Tracker'},
+	{keys: ['lang', 'cardId'], keepsLens: true, pattern: /^cards\/([^/]+)\/([^/]+)$/, render: cardView, tab: null, title: 'Card | Card Tracker'},
+	{pattern: /^scan$/, render: scanView, tab: 'scan', title: 'Scan | Card Tracker'},
+	{pattern: /^check$/, render: phoneCheckView, tab: null, title: 'Phone check | Card Tracker'},
+	{pattern: /^camera$/, render: cameraView, tab: null, title: 'Camera test | Card Tracker'},
+	{pattern: /^storage$/, render: storageView, tab: null, title: 'Storage test | Card Tracker'},
 	{pattern: /^signin$/, render: signInView, tab: null, title: 'Sign in | Card Tracker'},
 	{pattern: /^profile$/, render: profileView, tab: null, title: 'Profile | Card Tracker'},
 	{keys: ['userId'], pattern: /^family\/([^/]+)$/, render: familyCardsView, tab: 'cards', title: 'Family cards | Card Tracker'},
@@ -96,6 +108,42 @@ function matchRoute(path) {
 	return null;
 }
 
+// Back to a screen puts it where it was left. Its tiles may still be
+// loading from IndexedDB, so the scroll waits for the page to be tall
+// enough, and gives up when the person scrolls or after a few seconds.
+let restoreRun = 0;
+
+function restoreScroll(y) {
+	const run = ++restoreRun;
+	const started = Date.now();
+	const stop = () => {
+		restoreRun++;
+	};
+
+	window.addEventListener('touchstart', stop, {once: true, passive: true});
+	window.addEventListener('wheel', stop, {once: true, passive: true});
+
+	const attempt = () => {
+		if (run !== restoreRun) {
+			return;
+		}
+
+		const room = document.documentElement.scrollHeight - window.innerHeight;
+
+		if (room >= y - 1 || Date.now() - started > 4000) {
+			window.scrollTo(0, Math.min(y, Math.max(0, room)));
+			window.removeEventListener('touchstart', stop);
+			window.removeEventListener('wheel', stop);
+
+			return;
+		}
+
+		requestAnimationFrame(attempt);
+	};
+
+	attempt();
+}
+
 function render() {
 	if (cleanup) {
 		try {
@@ -118,22 +166,14 @@ function render() {
 
 	const {params, route} = found;
 	const view = document.getElementById('view');
+	const savedScroll = history.state && typeof history.state.scrollY === 'number' ? history.state.scrollY : null;
 
 	currentRoute = route;
 
 	document.getElementById('errors').replaceChildren();
-	document.getElementById('menu').open = false;
 	view.replaceChildren();
 	document.title = route.title;
-
-	for (const tab of document.querySelectorAll('.tabs a')) {
-		if (tab.dataset.tab === route.tab) {
-			tab.setAttribute('aria-current', 'page');
-		}
-		else {
-			tab.removeAttribute('aria-current');
-		}
-	}
+	shellRoute(route, params);
 
 	try {
 		cleanup = route.render(view, params) || null;
@@ -142,14 +182,21 @@ function render() {
 		showError('This view failed to open.', err);
 	}
 
-	window.scrollTo(0, 0);
+	restoreRun++;
+
+	if (savedScroll) {
+		restoreScroll(savedScroll);
+	}
+	else {
+		window.scrollTo(0, 0);
+	}
 }
 
 function navigate(route) {
 	const target = BASE + route;
 
 	if (target !== window.location.pathname) {
-		history.pushState({inApp: true}, '', target);
+		pushRoute(target);
 	}
 
 	render();
@@ -163,6 +210,9 @@ document.addEventListener('click', (event) => {
 	}
 
 	event.preventDefault();
+
+	// A card opened from a grid keeps that grid as its swipe context.
+	followCardLink(link.dataset.link);
 	navigate(link.dataset.link);
 });
 
@@ -186,22 +236,6 @@ function restoreRedirectedPath() {
 	history.replaceState(null, '', BASE + path + (query ? `?${query}` : ''));
 }
 
-function showBanner(message, actionLabel, action) {
-	const banner = document.getElementById('banner');
-
-	// replaceChildren prints a null argument as the text "null", so add the
-	// button only when there is one.
-
-	const children = [h('span', null, message)];
-
-	if (actionLabel) {
-		children.push(h('button', {type: 'button', onclick: action}, actionLabel));
-	}
-
-	banner.replaceChildren(...children);
-	banner.hidden = false;
-}
-
 async function registerServiceWorker() {
 	if (!('serviceWorker' in navigator)) {
 		return;
@@ -210,11 +244,12 @@ async function registerServiceWorker() {
 	const hadController = Boolean(navigator.serviceWorker.controller);
 
 	navigator.serviceWorker.addEventListener('controllerchange', () => {
+		// A toast floats over the page, so nothing shifts when it shows.
 		if (hadController) {
-			showBanner('A new version is installed.', 'Reload', () => window.location.reload());
+			toast('A new version is installed.', {action: () => window.location.reload(), actionLabel: 'Reload', timeout: 0});
 		}
 		else {
-			showBanner('The app is now saved for offline use.');
+			toast('Saved on this phone. Card Tracker now opens offline.');
 		}
 	});
 
@@ -228,29 +263,8 @@ async function registerServiceWorker() {
 
 // ------------------------------------------------------------ the account
 
-// The header: sync status under the title, and Sign in or the avatar that
-// opens Profile.
-function drawAccount(user) {
-	const account = document.getElementById('account');
-
-	if (user) {
-		const initial = (user.email || '?').trim().charAt(0).toUpperCase();
-
-		account.className = 'account avatar';
-		account.dataset.link = 'profile';
-		account.href = `${BASE}profile`;
-		account.setAttribute('aria-label', `Profile, signed in as ${user.email}`);
-		account.textContent = initial;
-	}
-	else {
-		account.className = 'account';
-		account.dataset.link = 'signin';
-		account.href = `${BASE}signin`;
-		account.removeAttribute('aria-label');
-		account.textContent = 'Sign in';
-	}
-}
-
+// The sync status under the title: hidden when signed out, tappable to sync
+// again. js/shell.js draws the avatar and the offline strip.
 function watchSyncStatus() {
 	const line = document.getElementById('sync-status');
 
@@ -267,12 +281,9 @@ function watchSyncStatus() {
 }
 
 async function startAccount(authReturn) {
-	drawAccount(null);
 	watchSyncStatus();
 
-	onUser((user) => {
-		drawAccount(user);
-
+	onUser(() => {
 		if (currentRoute && ACCOUNT_ROUTES.has(currentRoute.render)) {
 			render();
 		}
@@ -280,6 +291,7 @@ async function startAccount(authReturn) {
 
 	startSync();
 	keepFamilyWishlistsCached();
+	startPhotoSync();
 
 	if (authReturn && authReturn.error) {
 		setSignInNotice(signInErrorText(authReturn.error));
@@ -313,6 +325,7 @@ const authReturn = takeAuthReturn();
 
 // The theme and, signed in, the favorite Pokémon in the header.
 startSettings();
+startShell();
 render();
 registerServiceWorker();
 startAccount(authReturn).catch((err) => showError('Signing in did not work.', err));

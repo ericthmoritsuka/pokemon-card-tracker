@@ -214,7 +214,9 @@ export function importView(root) {
 			)
 		);
 
-		report.replaceChildren(
+		// replaceChildren prints a null argument as the text "null", so the
+		// optional lines are filtered out first.
+		report.replaceChildren(...[
 			reportLine(`Matched: ${plural(matched.length, 'row', 'rows')} (${plural(copiesOf(matched), 'copy', 'copies')})`, matched, (result) => `${result.cardId} · set found by ${result.setMethod}`),
 			reportLine(`Matched through a fallback record: ${plural(fallback.length, 'row', 'rows')} (${plural(copiesOf(fallback), 'copy', 'copies')})`, fallback, (result) => result.reason),
 			...fallbackLines.map((line) => {
@@ -227,8 +229,8 @@ export function importView(root) {
 			reportLine(`Reverse holos set to the plain reverse: ${plural(reverse.length, 'row', 'rows')}. Check for Poké Ball and Master Ball patterns.`, reverse, null),
 			reportLine(`Not matched: ${plural(unmatched.length, 'row', 'rows')} (${plural(copiesOf(unmatched), 'copy', 'copies')}). Not saved; add these by hand later.`, unmatched, (result) => result.reason, {open: unmatched.length > 0 && unmatched.length <= 30}),
 			parsed.errors.length ? parseErrors(parsed.errors) : null,
-			h('div', {class: 'actions'}, save, saveStatus)
-		);
+			h('div', {class: 'actions'}, save, saveStatus),
+		].filter(Boolean));
 
 		async function doSave() {
 			save.disabled = true;

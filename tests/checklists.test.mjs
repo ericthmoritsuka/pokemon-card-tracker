@@ -332,7 +332,11 @@ describe('checklists', () => {
 		await row(1).locator('button').click();
 		await row(1).locator('.dex-cards .tile').waitFor();
 		assert.equal(await row(1).locator('.dex-cards .tile').count(), 1);
-		assert.equal(await row(1).locator('.badge-qty').textContent(), '×2');
+		// One Portuguese and one English copy: viewed in English, the corner
+		// flags the Portuguese one, and no count shows, since no language
+		// holds two (js/tile.js).
+		assert.equal(await row(1).locator('.badge-qty').count(), 0);
+		assert.equal(await row(1).locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 		assert.match(await row(1).locator('.tile-name').textContent(), /Test Bulbasaur/);
 		assert.equal(await row(1).locator('button.dex-entry').getAttribute('aria-expanded'), 'true');
 		await page.screenshot({path: '/tmp/checklists-owned-cards.png'});
@@ -525,8 +529,10 @@ describe('checklists', () => {
 		await signIn(page, fake, kid.email);
 		await waitForStatus(page, 'Synced');
 		await page.goto(url('lists'));
-		await page.waitForSelector('#lists-family-switcher');
-		await page.selectOption('#lists-family-switcher', owner.id);
+		// The header's Mine switcher opens the owner's lists.
+		await page.waitForSelector('#owner-switch:not([hidden])');
+		await page.click('#owner-switch');
+		await page.click(`#owner-sheet .owner-option[data-member="${owner.id}"]`);
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${owner.id}/lists`);
 		assert.match(await page.locator('.view-only').textContent(), /Eric's lists, view only/);

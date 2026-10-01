@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title>Card Tracker</title>
-	<meta name="description" content="Keep your Pokémon cards on your phone, import them from monprice, and browse the catalog by set and language.">
+	<meta name="description" content="Keep your Pokémon cards on your phone, scan and import them, and browse the catalog by set and language.">
 	<meta name="theme-color" content="#1d2e60">
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-capable" content="yes">
@@ -13,10 +13,10 @@
 	<link rel="manifest" href="/pokemon-card-tracker/manifest.webmanifest">
 	<link rel="icon" type="image/png" sizes="192x192" href="/pokemon-card-tracker/icons/icon-192.png">
 	<link rel="apple-touch-icon" sizes="180x180" href="/pokemon-card-tracker/icons/apple-touch-icon.png">
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-	<!-- Poppins loads without blocking the first paint; offline, the system font is used. -->
-	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&amp;display=swap" media="print" onload="this.media='all'">
+	<!-- Poppins is served from the app (vendor/fonts, SIL Open Font License) and precached by sw.js, so offline looks the same as online. -->
+	<link rel="preload" href="/pokemon-card-tracker/vendor/fonts/poppins-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="/pokemon-card-tracker/vendor/fonts/poppins-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+	<link rel="preload" href="/pokemon-card-tracker/vendor/fonts/poppins-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
 	<link rel="preconnect" href="https://api.tcgdex.net" crossorigin>
 	<link rel="preconnect" href="https://assets.tcgdex.net">
 	<link rel="preconnect" href="https://ehdkbxrjxsypegbtrxbw.supabase.co" crossorigin>
@@ -25,30 +25,26 @@
 	<link rel="stylesheet" href="/pokemon-card-tracker/style.css">
 	<link rel="stylesheet" href="/pokemon-card-tracker/css/binders.css">
 	<link rel="stylesheet" href="/pokemon-card-tracker/css/wishlist.css">
+	<link rel="stylesheet" href="/pokemon-card-tracker/css/scan.css">
+	<link rel="stylesheet" href="/pokemon-card-tracker/css/photos.css">
 	<script type="module" src="/pokemon-card-tracker/app.js"></script>
 </head>
 <body>
-	<header class="top">
-		<img class="brand-mark" id="brand-mark" src="/pokemon-card-tracker/icons/icon-192.png" alt="" width="32" height="32" hidden>
-		<div class="brand">
-			<h1>Card Tracker</h1>
-			<button class="sync-status" id="sync-status" type="button" aria-live="polite" hidden></button>
-		</div>
-		<a class="account" id="account" href="/pokemon-card-tracker/signin" data-link="signin">Sign in</a>
-		<details class="menu" id="menu">
-			<summary>Menu</summary>
-			<nav class="menu-items" aria-label="More">
-				<a href="/pokemon-card-tracker/wishlist" data-link="wishlist">Wishlist</a>
-				<a href="/pokemon-card-tracker/import" data-link="import">Import from monprice</a>
-				<a href="/pokemon-card-tracker/cards" data-link="cards">My Cards and CSV export</a>
-				<a href="/pokemon-card-tracker/check" data-link="check">Phone check</a>
-				<a href="/pokemon-card-tracker/profile" data-link="profile">Theme</a>
-			</nav>
-		</details>
-	</header>
+	<div class="shell-top" id="shell-top">
+		<header class="top">
+			<img class="brand-mark" id="brand-mark" src="/pokemon-card-tracker/icons/icon-192.png" alt="" width="32" height="32" hidden>
+			<div class="brand">
+				<h1>Card Tracker</h1>
+				<button class="sync-status" id="sync-status" type="button" aria-live="polite" hidden></button>
+			</div>
+			<button class="owner-switch" id="owner-switch" type="button" aria-haspopup="dialog" hidden>Mine</button>
+			<a class="account" id="account" href="/pokemon-card-tracker/profile" data-link="profile">Sign in</a>
+		</header>
+		<div class="offline-strip" id="offline-strip" role="status" hidden></div>
+		<div id="shell-strips"></div>
+	</div>
 
 	<main>
-		<div id="banner" class="banner" hidden></div>
 		<div id="errors" aria-live="assertive"></div>
 		<div id="view">
 			<noscript>
@@ -57,12 +53,29 @@
 		</div>
 	</main>
 
+	<div class="toasts" id="toasts" aria-live="polite"></div>
+
 	<nav class="tabs" aria-label="Main">
-		<a href="/pokemon-card-tracker/cards" data-link="cards" data-tab="cards">My Cards</a>
-		<a href="/pokemon-card-tracker/sets" data-link="sets" data-tab="sets">Sets</a>
-		<a href="/pokemon-card-tracker/lists" data-link="lists" data-tab="lists">Lists</a>
-		<a href="/pokemon-card-tracker/binders" data-link="binders" data-tab="binders">Binders</a>
-		<a href="/pokemon-card-tracker/check" data-link="check" data-tab="check">Phone check</a>
+		<a href="/pokemon-card-tracker/cards" data-link="cards" data-tab="cards">
+			<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="3" width="11" height="15" rx="2"/><path d="M19 7v12a2 2 0 0 1-2 2H9"/></svg>
+			<span class="tab-label">Cards</span>
+		</a>
+		<a href="/pokemon-card-tracker/sets" data-link="sets" data-tab="sets">
+			<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+			<span class="tab-label">Sets</span>
+		</a>
+		<a class="tab-scan" href="/pokemon-card-tracker/scan" data-link="scan" data-tab="scan">
+			<span class="scan-disc" aria-hidden="true"><svg class="tab-icon" viewBox="0 0 24 24" focusable="false"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8.5" y="7" width="7" height="10" rx="1"/></svg></span>
+			<span class="tab-label">Scan</span>
+		</a>
+		<a href="/pokemon-card-tracker/binders" data-link="binders" data-tab="binders">
+			<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 3v18M4 8h4M4 16h4"/></svg>
+			<span class="tab-label">Binders</span>
+		</a>
+		<a href="/pokemon-card-tracker/lists" data-link="lists" data-tab="lists">
+			<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17"/></svg>
+			<span class="tab-label">Lists</span>
+		</a>
 	</nav>
 </body>
 </html>

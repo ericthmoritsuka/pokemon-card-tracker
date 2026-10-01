@@ -1,21 +1,24 @@
 // A test harness for the owner's card photos (js/photos/). The app's own
-// files (app.js, index.html, sw.js, catalog-views.js, cards-view.js) do not
-// carry the photos' integration lines yet, so this page mounts the exported
-// components directly, the way those lines will: card detail's image block
-// (cardPhotos) in a .hero-art column beside the facts, and a row of tiles
-// made by js/tile.js cardTile() with tileSrc and withMainPhoto, over the
-// real collection, auth, and Supabase client.
+// files (app.js, index.html, sw.js, catalog-views.js, cards-view.js) carry
+// the photos' integration lines; this page mounts the exported components
+// directly, the way those lines do: card detail's image block (cardPhotos)
+// in a .hero-art column beside the facts, and a row of tiles made by
+// js/tile.js cardTile() with tileSrc and withMainPhoto, over the real
+// collection, auth, and Supabase client.
 //
 // The page is served at /pokemon-card-tracker/photos-harness.html by a
-// Playwright route; every other file comes from tests/pages-server.mjs, or,
-// while a test has the browser offline, straight from disk (standing in for
-// the service worker's shell cache, which will list the photo modules once
-// sw.js carries them).
+// Playwright route; every other file is the real one, from
+// tests/pages-server.mjs, or, while a test has the browser offline, straight
+// from disk (standing in for the service worker's shell cache, which lists
+// the photo modules).
 //
-// INTEGRATION lists the lines to add to the shared files.
+// INTEGRATION lists the lines in the shared files, and checkIntegration
+// asserts that each one is in the real file, so a change to a shared file
+// that drops one fails the test instead of silently testing without photos.
 //
 // Run on its own: node tests/photos-harness.mjs [port]
 
+import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -52,6 +55,12 @@ export const INTEGRATION = {
 		// and the call closes with
 		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src));',
 	},
+	app: {
+		// Among the imports, and in startAccount after startSync(); (and the
+		// wishlist's keepFamilyWishlistsCached();).
+		import: 'import {startPhotoSync} from \'./js/photos/index.js\';',
+		sync: '\tstartPhotoSync();',
+	},
 	index: {
 		// After the last stylesheet link.
 		stylesheet: '\t<link rel="stylesheet" href="/pokemon-card-tracker/css/photos.css">',
@@ -74,6 +83,45 @@ export const INTEGRATION = {
 		],
 	},
 };
+
+const read = (path) => readFile(join(ROOT, path), 'utf8');
+
+const lines = (text) => new Set(text.split('\n'));
+
+// Asserts that the real shared files carry every line in INTEGRATION.
+export async function checkIntegration() {
+	const app = await read('app.js');
+	const catalogViews = await read('js/catalog-views.js');
+	const cardsView = await read('js/cards-view.js');
+	const index = await read('index.html');
+	const sw = await read('sw.js');
+
+	assert.ok(lines(app).has(INTEGRATION.app.import), 'app.js imports startPhotoSync');
+	assert.match(app, /^\tstartSync\(\);\n(?:\tkeepFamilyWishlistsCached\(\);\n)?\tstartPhotoSync\(\);$/m, 'app.js runs startPhotoSync() after startSync()');
+
+	const card = /^export function cardView\([\s\S]*?\n\}\n/m.exec(catalogViews);
+
+	assert.ok(card, 'js/catalog-views.js has cardView');
+
+	const {art, create, destroy, import: photosImport} = INTEGRATION.catalogViews;
+
+	assert.ok(lines(catalogViews).has(photosImport), 'js/catalog-views.js imports cardPhotos');
+	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n\tconst photos = cardPhotos\(\{cardId, catalog: catalogFor\(lang\)\}\);$/m, 'cardView creates the photos after the swipe');
+	assert.ok(lines(card[0]).has(create));
+	assert.ok(lines(card[0]).has(art), 'the hero art is the photos block');
+	assert.match(card[0], /\treturn \(\) => \{\n\t\talive = false;\n(?:\t\t.*\n)*?\t\tphotos\.destroy\(\);\n\t\};\n\}\n$/, 'the cleanup destroys the photos');
+	assert.ok(lines(card[0]).has(destroy));
+
+	for (const line of Object.values(INTEGRATION.cardsView)) {
+		assert.ok(lines(cardsView).has(line), `js/cards-view.js carries ${line.trim()}`);
+	}
+
+	assert.ok(lines(index).has(INTEGRATION.index.stylesheet), 'index.html links css/photos.css');
+
+	for (const line of INTEGRATION.sw.shell) {
+		assert.ok(lines(sw).has(line), `sw.js SHELL lists ${line.trim()}`);
+	}
+}
 
 export const HARNESS_HTML = `<!doctype html>
 <html lang="en">
@@ -397,7 +445,11 @@ export async function routeHarness(context, origin, {offline = () => false} = {}
 	});
 }
 
-export function startHarness(port = 0) {
+// Checks the integration, then starts the Pages imitation over the real
+// files.
+export async function startHarness(port = 0) {
+	await checkIntegration();
+
 	return startPagesServer(port);
 }
 

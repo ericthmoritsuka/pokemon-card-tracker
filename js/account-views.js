@@ -1,10 +1,16 @@
-// Sign in and Profile (plans/ux-plan.md section 2). Sign in is the only entry
-// screen for an invited person: there is no other way to make an account.
-// Signing in is optional; signed out, the app keeps the cards on this phone.
+// Sign in and Profile (plans/ux-plan.md section 2, plans/design-review.md
+// section 3, "Profile and Themes"). The header avatar opens Profile, which
+// holds the theme, the favorite Pokémon, import and export, Phone check, the
+// family, and signing in or out. Signed out, Profile opens on the sign-in
+// panel. Sign in is the only entry for an invited person: there is no other
+// way to make an account. Signing in is optional; signed out, the app keeps
+// the cards on this phone.
 
 import {currentUser, googleEnabled, onUser, sendSignInLink, signInErrorText, signInWithGoogle, signOut} from './auth.js';
+import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
+import {memberName} from './family.js';
 import {chooseTheme, currentTheme, favoritePokemon, onSettings, primaryType, setFavoritePokemon} from './settings.js';
 import {THEMES, themeById} from './themes.js';
 import {
@@ -28,12 +34,16 @@ export function setSignInNotice(message) {
 	notice = message;
 }
 
-export const memberName = (member) =>
-	(member && (member.display_name || (member.email ? member.email.split('@')[0] : null))) || 'Family member';
+// js/family.js holds it; the views that import it from here still can.
+export {memberName};
 
 // ---------------------------------------------------------------- Sign in
 
-export function signInView(root) {
+// The email link form and, when the project turns it on, Google. Returns
+// {element, stop}; Profile shows it at the top when signed out (onIntent:
+// Google is looked up when the email field is first focused), and the
+// signin route shows it alone.
+function signInPanel({onIntent = false} = {}) {
 	let alive = true;
 	let lastSent = 0;
 	let sentTo = '';
@@ -54,6 +64,7 @@ export function signInView(root) {
 			)
 		);
 	}
+
 
 	function form() {
 		const email = h('input', {
@@ -130,12 +141,22 @@ export function signInView(root) {
 			h('p', {class: 'muted'}, 'Signing in keeps your cards on the server too, so they follow you to another phone and your family can see them. Without signing in, Card Tracker keeps your cards on this phone only.')
 		);
 
-		googleEnabled().then((enabled) => {
+		const showGoogle = () => googleEnabled().then((enabled) => {
 			if (alive && enabled) {
 				google.hidden = false;
 				or.hidden = false;
 			}
 		});
+
+		// In Profile, the project is asked about Google only once the person
+		// starts to sign in, so browsing Profile signed out never contacts
+		// Supabase. The button appears below the field being filled in.
+		if (onIntent) {
+			email.addEventListener('focus', showGoogle, {once: true});
+		}
+		else {
+			showGoogle();
+		}
 	}
 
 	function checkEmail() {
@@ -201,13 +222,23 @@ export function signInView(root) {
 
 	const stop = onUser(draw);
 
-	root.append(h('h2', null, 'Sign in'), message, body);
 	draw(currentUser());
 
-	return () => {
-		alive = false;
-		stop();
+	return {
+		element: h('div', {class: 'signin-panel', id: 'signin-panel'}, message, body),
+		stop: () => {
+			alive = false;
+			stop();
+		},
 	};
+}
+
+export function signInView(root) {
+	const panel = signInPanel();
+
+	root.append(h('h2', null, 'Sign in'), panel.element);
+
+	return panel.stop;
 }
 
 // ---------------------------------------------------------------- Profile
@@ -218,18 +249,27 @@ export function profileView(root) {
 	const user = currentUser();
 
 	if (!user) {
+		// Signed out, the sign-in panel comes first, then everything that
+		// works on this phone alone.
+		const panel = signInPanel({onIntent: true});
 		const theme = themeCard(false);
 
 		root.append(
 			h('h2', null, 'Profile'),
-			h('div', {class: 'card'},
-				h('p', null, 'You are not signed in. Your cards are kept on this phone only.'),
-				h('a', {class: 'button primary', 'data-link': 'signin', href: `${BASE}signin`}, 'Sign in')
+			h('section', {'aria-labelledby': 'signin-heading', class: 'card', id: 'profile-signin'},
+				h('h3', {id: 'signin-heading'}, 'Sign in'),
+				h('p', {class: 'muted'}, 'You are not signed in. Your cards are kept on this phone only.'),
+				panel.element
 			),
-			theme.element
+			theme.element,
+			dataCard(),
+			phoneCard()
 		);
 
-		return theme.stop;
+		return () => {
+			panel.stop();
+			theme.stop();
+		};
 	}
 
 	const favorite = favoriteCard();
@@ -283,6 +323,15 @@ export function profileView(root) {
 				h('span', {class: 'muted'}, [member.role === 'owner' ? 'Owner' : 'Member', member.email].filter(Boolean).join(' · '))
 			)
 		);
+
+		// Profile > Family is one way into view-only mode (js/shell.js).
+		if (member.user_id !== me) {
+			row.append(h('a', {
+				class: 'button small member-view',
+				'data-link': `family/${encodeURIComponent(member.user_id)}`,
+				href: `${BASE}family/${encodeURIComponent(member.user_id)}`,
+			}, 'View cards'));
+		}
 
 		if (isOwner && member.role !== 'owner') {
 			const remove = h('button', {class: 'small danger', type: 'button'}, 'Remove');
@@ -399,13 +448,30 @@ export function profileView(root) {
 		syncLine.textContent = text ? `Sync: ${text}.${error}` : '';
 	});
 
+	const accountSprite = h('span', {class: 'profile-sprite', id: 'profile-sprite'});
+
+	function drawAccountSprite() {
+		favoritePokemon().then((n) => {
+			if (alive) {
+				accountSprite.replaceChildren(...(n ? [sprite(n, 72)] : []));
+			}
+		}).catch(() => {});
+	}
+
+	const stopSprite = onSettings(drawAccountSprite);
+
+	drawAccountSprite();
+
 	root.append(
 		h('h2', null, 'Profile'),
-		h('div', {class: 'card'},
-			h('h3', null, 'Account'),
-			h('p', {id: 'profile-email'}, user.email),
-			syncLine,
-			h('button', {onclick: () => syncNow(), type: 'button'}, 'Sync now')
+		h('div', {class: 'card profile-account'},
+			accountSprite,
+			h('div', {class: 'profile-account-text'},
+				h('h3', null, 'Account'),
+				h('p', {id: 'profile-email'}, user.email),
+				syncLine,
+				h('button', {onclick: () => syncNow(), type: 'button'}, 'Sync now')
+			)
 		),
 		h('form', {class: 'card', onsubmit: saveName},
 			h('h3', null, 'Display name'),
@@ -416,10 +482,12 @@ export function profileView(root) {
 		),
 		favorite.element,
 		theme.element,
-		h('div', {class: 'card'},
+		h('div', {class: 'card', id: 'family-card'},
 			h('h3', null, 'Family'),
 			family
 		),
+		dataCard(),
+		phoneCard(),
 		h('div', {class: 'card'},
 			h('p', {class: 'muted'}, 'Signing out keeps your cards on this phone.'),
 			h('button', {class: 'danger', id: 'sign-out', onclick: doSignOut, type: 'button'}, 'Sign out'),
@@ -438,10 +506,50 @@ export function profileView(root) {
 	return () => {
 		alive = false;
 		stopStatus();
+		stopSprite();
 		favorite.stop();
 		theme.stop();
 	};
 }
+
+// ------------------------------------------------- Your data, This phone
+
+// Import from monprice and the CSV export, moved here from My Cards so
+// backup tools do not outrank the collection.
+function dataCard() {
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'export-status'});
+	const run = async (share) => {
+		status.textContent = 'Preparing the export...';
+
+		try {
+			const count = await exportCollection({share});
+
+			status.textContent = count ? `Exported ${count.toLocaleString('en-US')} ${count === 1 ? 'copy' : 'copies'}.` : '';
+		}
+		catch (err) {
+			status.textContent = `The export did not work. ${errorText(err)}`;
+		}
+	};
+
+	return h('section', {'aria-labelledby': 'data-heading', class: 'card', id: 'data-card'},
+		h('h3', {id: 'data-heading'}, 'Your data'),
+		h('div', {class: 'stack-links'},
+			h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`, id: 'profile-import'}, 'Import from monprice'),
+			h('button', {id: 'profile-export', onclick: () => run(false), type: 'button'}, 'Export CSV'),
+			canShareFiles() ? h('button', {id: 'profile-share', onclick: () => run(true), type: 'button'}, 'Share CSV') : null
+		),
+		status
+	);
+}
+
+function phoneCard() {
+	return h('section', {'aria-labelledby': 'phone-heading', class: 'card', id: 'phone-card'},
+		h('h3', {id: 'phone-heading'}, 'This phone'),
+		h('p', {class: 'muted'}, 'Checks the camera and storage this app needs.'),
+		h('a', {class: 'button', 'data-link': 'check', href: `${BASE}check`, id: 'profile-phone-check'}, 'Phone check')
+	);
+}
+
 
 // ---------------------------------------------------------------- Theme
 

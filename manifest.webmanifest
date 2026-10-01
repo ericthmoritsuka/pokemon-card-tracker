@@ -1,7 +1,7 @@
 {
 	"name": "Card Tracker",
 	"short_name": "Card Tracker",
-	"description": "Browse the Pokémon card catalog by set and language, and check what this phone can do.",
+	"description": "Keep your Pokémon cards on your phone: scan them, import them from monprice, and browse the catalog by set and language.",
 	"id": "/pokemon-card-tracker/",
 	"start_url": "/pokemon-card-tracker/",
 	"scope": "/pokemon-card-tracker/",
@@ -26,6 +26,21 @@
 			"sizes": "512x512",
 			"type": "image/png",
 			"purpose": "maskable"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Scan cards",
+			"short_name": "Scan",
+			"description": "Open the scanner",
+			"url": "/pokemon-card-tracker/scan",
+			"icons": [
+				{
+					"src": "/pokemon-card-tracker/icons/icon-192.png",
+					"sizes": "192x192",
+					"type": "image/png"
+				}
+			]
 		}
 	]
 }

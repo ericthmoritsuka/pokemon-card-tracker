@@ -1,6 +1,7 @@
-// My Cards: the owned collection, one tile per card and language, plus the
-// CSV export. The same screen shows a family member's cards, read only
-// (plans/ux-plan.md, "A family member's cards").
+// My Cards: the owned collection, one tile per card and language. The same
+// screen shows a family member's cards, read only (plans/ux-plan.md, "A
+// family member's cards"); js/shell.js draws the view-only strip and the
+// "Mine" switcher. The CSV export lives here and is offered from Profile.
 
 import {
 	cardImage,
@@ -16,14 +17,16 @@ import {
 	setDetailOnce,
 	viewingLanguage,
 } from './catalog.js';
-import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
-import {cardArt, mainName, namesFor, tileNames} from './catalog-views.js';
+import {offerCardList} from './card-swipe.js';
+import {mainName, namesFor, tileNames} from './catalog-views.js';
 import {isLive, listCards, onChange, sourceNames} from './collection.js';
-import {BASE, errorText, go, h} from './dom.js';
-import {flagBadge} from './flags.js';
+import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
+import {whenMemberName} from './family.js';
 import {finishLabel} from './monprice.js';
-import {familyOverview, memberDocument} from './sync.js';
+import {memberDocument} from './sync.js';
+import {cardArt, cardTile, groupFinish} from './tile.js';
+import {tileSrc, withMainPhoto} from './photos/index.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -142,6 +145,37 @@ const canShareFiles = () => {
 	}
 };
 
+const csvName = () => `card-tracker-${new Date().toISOString().slice(0, 10)}.csv`;
+
+// The whole collection as CSV, oldest first: a download, or the phone's
+// share sheet when share is true and the browser can share files. Profile
+// offers both. Resolves to the number of copies written.
+export async function exportCollection({share = false} = {}) {
+	const [entries, index] = await Promise.all([listCards(), cardIndex()]);
+	const text = collectionCsv([...entries].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))), index);
+
+	if (share && canShareFiles()) {
+		try {
+			await navigator.share({files: [csvFile(csvName(), text)], title: 'Card Tracker export'});
+
+			return entries.length;
+		}
+		catch (error) {
+			// Closing the share sheet is not an error; anything else falls
+			// back to a plain download so the export still happens.
+			if (error && error.name === 'AbortError') {
+				return 0;
+			}
+		}
+	}
+
+	download(csvName(), text);
+
+	return entries.length;
+}
+
+export {canShareFiles};
+
 // ------------------------------------------------------------ the view
 
 const SORTS = [
@@ -253,33 +287,6 @@ async function fillMissingRecords(entries, index, isAlive) {
 	return records.length ? saveToCardIndex(records) : null;
 }
 
-// The header switcher: "My cards" and each other member of the family
-// group. Hidden when signed out or alone in the group.
-function familySwitcher(selectedId) {
-	const select = h('select', {'aria-label': 'Whose cards', id: 'family-switcher'});
-	const wrap = h('span', {class: 'select-wrap family-switch', hidden: true}, select);
-
-	select.addEventListener('change', () => go(select.value ? `family/${encodeURIComponent(select.value)}` : 'cards'));
-
-	familyOverview().then((overview) => {
-		const me = currentUser();
-		const others = ((overview && overview.members) || []).filter((member) => !me || member.user_id !== me.id);
-
-		if (!others.length) {
-			return;
-		}
-
-		select.replaceChildren(
-			h('option', {value: ''}, 'My cards'),
-			...others.map((member) => h('option', {value: member.user_id}, `${memberName(member)}'s cards`))
-		);
-		select.value = selectedId || '';
-		wrap.hidden = false;
-	}).catch(() => {});
-
-	return wrap;
-}
-
 export function myCardsView(root) {
 	return cardsScreen(root, {
 		load: listCards,
@@ -290,36 +297,20 @@ export function myCardsView(root) {
 // A family member's My Cards, read only. Their document is read from the
 // server each time; scanning and importing still save to you.
 export function familyCardsView(root, {userId}) {
-	const banner = h('div', {class: 'view-only', role: 'status'});
 	let name = 'Family member';
 
-	function fillBanner() {
-		banner.replaceChildren(
-			h('span', null, `${name}'s cards, view only`),
-			h('a', {'data-link': 'cards', href: `${BASE}cards`}, 'Back to mine')
-		);
-	}
+	whenMemberName(userId, (memberLabel) => {
+		name = memberLabel;
+		document.title = `${name}'s cards | Card Tracker`;
 
-	fillBanner();
+		const heading = root.querySelector('.view-head h2');
 
-	familyOverview().then((overview) => {
-		const member = ((overview && overview.members) || []).find((item) => item.user_id === userId);
-
-		if (member) {
-			name = memberName(member);
-			fillBanner();
-			document.title = `${name}'s cards | Card Tracker`;
-
-			const heading = root.querySelector('.view-head h2');
-
-			if (heading) {
-				heading.textContent = `${name}'s cards`;
-			}
+		if (heading) {
+			heading.textContent = `${name}'s cards`;
 		}
-	}).catch(() => {});
+	});
 
 	return cardsScreen(root, {
-		banner,
 		emptyText: () => `${name} hasn't added cards yet.`,
 		load: async () => {
 			if (!currentUser()) {
@@ -334,14 +325,16 @@ export function familyCardsView(root, {userId}) {
 
 			return ((doc && doc.cards) || []).filter(isLive);
 		},
-		memberId: userId,
 		readOnly: true,
+		title: `Family member's cards`,
 	});
 }
 
-function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, memberId = null, readOnly = false, watch = null}) {
+function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = false, title = 'My Cards', watch = null}) {
 	let alive = true;
-	let shown = PAGE;
+	// Back from a card page shows as many tiles as before, so the scroll
+	// position it returns to is still there.
+	let shown = Math.max(PAGE, fromHistory('shown', PAGE));
 	let groups = [];
 	let entries = [];
 	let index = new Map();
@@ -361,33 +354,12 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 	const grid = h('div', {class: 'card-grid'});
 	const more = h('button', {hidden: true, onclick: () => {
 		shown += PAGE;
+		rememberInHistory({shown});
 		draw();
 	}, type: 'button'}, 'Show more');
-	const exportButton = h('button', {onclick: exportCsv, type: 'button'}, 'Export CSV');
-	const shareButton = canShareFiles() ? h('button', {onclick: shareCsv, type: 'button'}, 'Share CSV') : null;
 	const body = h('div');
 
 	sort.value = readSetting(SORT_KEY, SORTS.map((option) => option.value), 'newest');
-
-	const csvName = () => `card-tracker-${new Date().toISOString().slice(0, 10)}.csv`;
-	const csvText = () => collectionCsv([...entries].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))), index);
-
-	function exportCsv() {
-		download(csvName(), csvText());
-	}
-
-	async function shareCsv() {
-		try {
-			await navigator.share({files: [csvFile(csvName(), csvText())], title: 'Card Tracker export'});
-		}
-		catch (error) {
-			// Closing the share sheet is not an error; anything else falls
-			// back to a plain download so the export still happens.
-			if (error && error.name !== 'AbortError') {
-				exportCsv();
-			}
-		}
-	}
 
 	function redrawNames() {
 		if (alive && groups.length) {
@@ -466,30 +438,34 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		});
 	}
 
+	const routeOf = (group) => {
+		const lang = group.local && isLanguage(group.local.lang) ? group.local.lang : catalogLanguage(group.catalog);
+
+		return routeTo('cards', lang, group.cardId);
+	};
+
 	function tile(group) {
 		const {local, record} = group;
-		const count = group.entries.length;
-		const lang = local && isLanguage(local.lang) ? local.lang : catalogLanguage(group.catalog);
 		const info = {
 			name: group.name,
 			number: record && record.collector_number,
 			setName: group.setName,
 		};
-		const frame = h('div', {class: 'art-wrap'}, cardArt(info, local ? cardImage(local.image, 'low') : null));
+		const catalogSrc = local ? cardImage(local.image, 'low') : null;
 
-		if (count > 1) {
-			frame.append(h('span', {'aria-label': `${count} copies`, class: 'badge badge-qty'}, `×${count}`));
-		}
-
-		if (group.language !== viewing) {
-			frame.append(flagBadge([group.language], {className: 'badge badge-lang'}));
-		}
-
-		return h('a', {class: 'tile', 'data-link': routeTo('cards', lang, group.cardId), href: BASE + routeTo('cards', lang, group.cardId)},
-			frame,
-			...tileNames(group.names, group.nameLang),
-			h('span', {class: 'tile-meta'}, [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '))
-		);
+		return withMainPhoto(cardTile({
+			art: {
+				count: group.entries.length,
+				finish: groupFinish(group.entries),
+				info,
+				languages: [group.language],
+				src: tileSrc(group.entries, catalogSrc),
+				viewing,
+			},
+			meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
+			names: tileNames(group.names, group.nameLang),
+			route: routeOf(group),
+		}), group.entries, catalogSrc, (src) => cardArt(info, src));
 	}
 
 	function draw() {
@@ -514,6 +490,7 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 
 		summary.textContent = `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
 		grid.replaceChildren(...visible.slice(0, shown).map(tile));
+		offerCardList(visible.map(routeOf), heading.textContent);
 		more.hidden = visible.length <= shown;
 		more.textContent = `Show more (${formatCount(visible.length - shown)} left)`;
 	}
@@ -593,11 +570,15 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		}
 
 		if (!entries.length) {
+			// The empty state leads to the scanner, with the monprice import
+			// as the second way in (plans/design-review.md section 3).
 			body.replaceChildren(
-				h('div', {class: 'card empty-state'},
-					h('p', {class: 'big'}, 'No cards on this phone yet.'),
-					h('p', {class: 'muted'}, 'Bring your collection over from monprice. Cards are matched to the catalog and listed in a report before anything is saved.'),
-					h('a', {class: 'button primary', 'data-link': 'import', href: `${BASE}import`}, 'Import from monprice')
+				h('div', {class: 'card empty-state', id: 'cards-empty'},
+					h('div', {'aria-hidden': 'true', class: 'empty-art'}),
+					h('p', {class: 'big'}, 'No cards yet'),
+					h('p', {class: 'muted'}, 'Scan your cards one by one, or bring your collection over from monprice. Imported cards are matched to the catalog and listed in a report before anything is saved.'),
+					h('a', {class: 'button primary', 'data-link': 'scan', href: `${BASE}scan`, id: 'cards-empty-scan'}, 'Scan your first card'),
+					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import from monprice')
 				)
 			);
 
@@ -608,15 +589,7 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 			h('div', {class: 'toolbar two'}, h('span', {class: 'select-wrap'}, sort), h('span', {class: 'select-wrap'}, filter)),
 			summary,
 			grid,
-			more,
-			// Edit controls are hidden in a family member's view, not greyed.
-			readOnly
-				? null
-				: h('div', {class: 'actions'},
-					exportButton,
-					shareButton,
-					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import')
-				)
+			more
 		);
 		build();
 		draw();
@@ -632,13 +605,9 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 	}
 
 	const stop = watch ? watch(() => alive && load()) : () => {};
-	const heading = h('div', {class: 'view-head'}, h('h2', null, 'My Cards'));
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title));
 
-	if (currentUser()) {
-		heading.append(familySwitcher(memberId));
-	}
-
-	root.append(...[banner, heading, body].filter(Boolean));
+	root.append(heading, body);
 	load();
 
 	return () => {

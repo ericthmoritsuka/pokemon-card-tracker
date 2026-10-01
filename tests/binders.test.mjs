@@ -330,7 +330,7 @@ export const INTEGRATION = {
 	],
 	'index.html': [
 		/<link rel="stylesheet" href="\/pokemon-card-tracker\/style\.css">\n\t<link rel="stylesheet" href="\/pokemon-card-tracker\/css\/binders\.css">\n/,
-		/<nav class="tabs"[^>]*>\n(?:(?!<\/nav>)[\s\S])*?\t<a href="\/pokemon-card-tracker\/binders" data-link="binders" data-tab="binders">Binders<\/a>\n[\s\S]*?<\/nav>/,
+		/<nav class="tabs"[^>]*>\n(?:(?!<\/nav>)[\s\S])*?\t<a href="\/pokemon-card-tracker\/binders" data-link="binders" data-tab="binders">\n(?:(?!<\/a>)[\s\S])*?<span class="tab-label">Binders<\/span>\n\t*<\/a>\n[\s\S]*?<\/nav>/,
 	],
 	'sw.js': [
 		/^\t'js\/binders-view\.js',$/m,
@@ -625,7 +625,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.waitForSelector('#pocket-sheet:not([open])', {state: 'attached'});
 		await waitForKind(page, 1, 'card');
 		assert.match(await pocket(page, 1).getAttribute('aria-label'), /Pocket 1: Test Bulbasaur, Portuguese/);
-		assert.equal(await pocket(page, 1).locator('.badge-lang').textContent(), 'PT');
+		assert.equal(await pocket(page, 1).locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 
 		// Try to place it twice: it is not offered as unplaced, and picking it
 		// from all cards asks to move it.
@@ -867,8 +867,9 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await signIn(page, fake, kid.email);
 		await waitForStatus(page, 'Synced');
 		await page.goto(url('binders'));
-		await page.waitForSelector('#binders-family-switcher');
-		await page.selectOption('#binders-family-switcher', owner.id);
+		await page.waitForSelector('#owner-switch:not([hidden])');
+		await page.click('#owner-switch');
+		await page.click(`#owner-sheet .owner-option[data-member="${owner.id}"]`);
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${owner.id}/binders`);
 		assert.match(await page.locator('.view-only').textContent(), /Eric's binders, view only/);

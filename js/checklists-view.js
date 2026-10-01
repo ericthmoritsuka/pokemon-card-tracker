@@ -3,15 +3,20 @@
 //   lists                         the person's checklists, with progress
 //   lists/<id>                    one checklist in Dex order
 //   family/<userId>/lists[/<id>]  a family member's, view only
+//
+// js/shell.js draws the view-only strip and the "Mine" switcher; the Lists
+// tab's Checklists | Wishlist switch is dom.js listsSwitch().
 
-import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
+import {offerCardList} from './card-swipe.js';
 import {cardImage, catalogFor, catalogLanguage, importApi, isLanguage, viewingLanguage} from './catalog.js';
-import {cardArt, mainName, tileNames} from './catalog-views.js';
+import {mainName, tileNames} from './catalog-views.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h, showError} from './dom.js';
+import {BASE, errorText, go, h, listsSwitch, showError} from './dom.js';
+import {whenMemberName} from './family.js';
 import {cardNames, hasOwnNames, searchKey, speciesSearchTerms} from './names.js';
-import {familyOverview, memberDocument} from './sync.js';
+import {memberDocument} from './sync.js';
+import {cardTile, groupFinish} from './tile.js';
 import {
 	MAX_DEX,
 	REGIONS,
@@ -34,10 +39,11 @@ import {
 	spriteUrl,
 } from './checklists.js';
 
+// The same order as a set's segments, everywhere: All, Owned, Missing.
 const FILTERS = [
 	{label: 'All', value: 'all'},
-	{label: 'Missing', value: 'missing'},
 	{label: 'Owned', value: 'owned'},
+	{label: 'Missing', value: 'missing'},
 ];
 
 const FILTER_KEY = 'cardTracker.checklistFilter';
@@ -115,55 +121,6 @@ function familySource(userId) {
 		userId,
 		watch: null,
 	};
-}
-
-// The yellow "view only" bar, with the member's name once it is known.
-function viewOnlyBanner(userId, onName) {
-	const banner = h('div', {class: 'view-only', role: 'status'});
-	const fill = (name) => banner.replaceChildren(
-		h('span', null, `${name}'s lists, view only`),
-		link('lists', null, 'Back to mine')
-	);
-
-	fill('Family member');
-
-	familyOverview().then((overview) => {
-		const member = ((overview && overview.members) || []).find((item) => item.user_id === userId);
-
-		if (member) {
-			fill(memberName(member));
-			onName(memberName(member));
-		}
-	}).catch(() => {});
-
-	return banner;
-}
-
-// "My lists" and each other member of the family group. Hidden when signed
-// out or alone in the group.
-function familySwitcher(selectedId) {
-	const select = h('select', {'aria-label': 'Whose lists', id: 'lists-family-switcher'});
-	const wrap = h('span', {class: 'select-wrap family-switch', hidden: true}, select);
-
-	select.addEventListener('change', () => go(select.value ? `family/${encodeURIComponent(select.value)}/lists` : 'lists'));
-
-	familyOverview().then((overview) => {
-		const me = currentUser();
-		const others = ((overview && overview.members) || []).filter((member) => !me || member.user_id !== me.id);
-
-		if (!others.length) {
-			return;
-		}
-
-		select.replaceChildren(
-			h('option', {value: ''}, 'My lists'),
-			...others.map((member) => h('option', {value: member.user_id}, `${memberName(member)}'s lists`))
-		);
-		select.value = selectedId || '';
-		wrap.hidden = false;
-	}).catch(() => {});
-
-	return wrap;
 }
 
 // ----------------------------------------------------- shared pieces
@@ -379,16 +336,12 @@ function listsScreen(root, source) {
 	const body = h('div', {id: 'lists-body'});
 	const adder = source.readOnly ? null : addPanel();
 
-	if (currentUser()) {
-		heading.append(familySwitcher(source.userId || null));
-	}
-
-	const banner = source.readOnly
-		? viewOnlyBanner(source.userId, (name) => {
+	if (source.readOnly) {
+		whenMemberName(source.userId, (name) => {
 			heading.querySelector('h2').textContent = `${name}'s lists`;
 			document.title = `${name}'s lists | Card Tracker`;
-		})
-		: null;
+		});
+	}
 
 	function tile(goal, byDex) {
 		return link(`${source.base}/${encodeURIComponent(goal.id)}`, {class: 'list-tile'},
@@ -580,7 +533,7 @@ function listsScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(...[banner, heading, status, body, adder].filter(Boolean));
+	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, body, adder].filter(Boolean));
 	load();
 
 	return () => {
@@ -631,7 +584,6 @@ function checklistScreen(root, source, id) {
 		))
 	);
 
-	const banner = source.readOnly ? viewOnlyBanner(source.userId, () => {}) : null;
 
 	function state(n) {
 		const owned = result && result.byDex.get(n);
@@ -728,21 +680,32 @@ function checklistScreen(root, source, id) {
 					setName: local && local.set_name,
 				};
 				const route = `cards/${encodeURIComponent(lang)}/${encodeURIComponent(card.cardId)}`;
-				const frame = h('div', {class: 'art-wrap'}, cardArt(info, local ? cardImage(local.image, 'low') : null));
+				const byLanguage = new Map();
 
-				if (card.entries.length > 1) {
-					frame.append(h('span', {'aria-label': `${card.entries.length} copies`, class: 'badge badge-qty'}, `×${card.entries.length}`));
+				for (const code of languages) {
+					byLanguage.set(code, (byLanguage.get(code) || 0) + 1);
 				}
 
-				return link(route, {class: 'tile'},
-					frame,
-					...tileNames(names, lang),
-					h('span', {class: 'tile-meta'}, [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '))
-				);
+				// The count names the copies in the language the corner shows:
+				// the viewing language when one is in it, else the only one.
+				const count = byLanguage.has(viewing)
+					? byLanguage.get(viewing)
+					: byLanguage.size === 1 ? card.entries.length : 0;
+
+				return {
+					node: cardTile({
+						art: {count, finish: groupFinish(card.entries), info, languages, src: local ? cardImage(local.image, 'low') : null, viewing},
+						meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
+						names: tileNames(names, lang),
+						route,
+					}),
+					route,
+				};
 			}));
 
 			if (alive) {
-				panel.replaceChildren(h('div', {class: 'card-grid'}, tiles));
+				panel.replaceChildren(h('div', {class: 'card-grid'}, tiles.map((tile) => tile.node)));
+				offerCardList(tiles.map((tile) => tile.route), goal ? goal.name : null);
 			}
 		}).catch((err) => {
 			panel.replaceChildren(h('p', {class: 'muted'}, `The cards could not be listed. ${errorText(err)}`));
@@ -948,7 +911,7 @@ function checklistScreen(root, source, id) {
 			data = await source.load();
 		}
 		catch (err) {
-			root.replaceChildren(...[banner, back, h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
+			root.replaceChildren(...[back, h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
 				? err.message || errorText(err)
 				: `Your lists could not be read from this phone. ${errorText(err)}`))].filter(Boolean));
 
@@ -962,7 +925,7 @@ function checklistScreen(root, source, id) {
 		const found = data.goals.find((item) => item.id === id);
 
 		if (!found) {
-			root.replaceChildren(...[banner, back, h('div', {class: 'card empty-state'},
+			root.replaceChildren(...[back, h('div', {class: 'card empty-state'},
 				h('p', {class: 'big'}, 'This list is not here.'),
 				h('p', {class: 'muted'}, 'It may have been deleted on another phone.')
 			)].filter(Boolean));
@@ -1026,7 +989,7 @@ function checklistScreen(root, source, id) {
 	// the stored list back halfway would flicker.
 	const stop = source.watch ? source.watch(() => alive && !saving && load()) : () => {};
 
-	root.append(...[banner, back, title, meta, summary, status, filter, empty, list, editor, actions].filter(Boolean));
+	root.append(...[back, title, meta, summary, status, filter, empty, list, editor, actions].filter(Boolean));
 	load();
 
 	return () => {

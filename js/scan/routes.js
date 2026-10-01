@@ -1,6 +1,6 @@
 // The scanner's entry for app.js: scanView, the render function of the
-// /scan route (it replaces js/scan-placeholder.js), and scanRoutes, the same
-// route in app.js's ROUTES shape for an app.js without a /scan route.
+// /scan route, and scanRoutes, the same route in app.js's ROUTES shape for an
+// app.js without a /scan route.
 //
 // The scanner's modules (and the OCR engine's 63 KB loader they import) load
 // when /scan first opens, not with the app, so every other screen starts as

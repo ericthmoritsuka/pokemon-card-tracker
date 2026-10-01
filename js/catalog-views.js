@@ -17,11 +17,18 @@ import {
 } from './catalog.js';
 import {speciesNames} from './checklists.js';
 import {ownedBySet, ownedIn, sourceNames} from './collection.js';
+import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h} from './dom.js';
 import {flagBadge} from './flags.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
+import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
+import {cardPhotos} from './photos/index.js';
+
+// Card art lives in js/tile.js with the badges; this name stays for the
+// modules that import it from here.
+export {cardArt};
 
 // International prints share English card records (DESIGN.md section 3), so
 // only these languages fall back to the English list of the same set.
@@ -112,75 +119,7 @@ export const tileNames = (names, lang) => [
 	originalLine(names) ? h('span', {class: 'tile-original', lang: htmlLang(lang)}, originalLine(names)) : null,
 ];
 
-// -------------------------------------------------------- card images
-
-// The service worker may hold an opaque copy of an image, whose status it
-// cannot read, so a failed image is dropped from the caches here, where the
-// failure is known. The next view fetches it again.
-const IMAGE_CACHES = ['card-tracker-images', 'card-tracker-images-opaque'];
-
-function forgetImage(url) {
-	if (!('caches' in window)) {
-		return;
-	}
-
-	for (const name of IMAGE_CACHES) {
-		caches.open(name).then((cache) => cache.delete(url)).catch(() => {});
-	}
-}
-
-function imageStatus(missing) {
-	if (!navigator.onLine) {
-		return 'Image not on this phone';
-	}
-
-	return missing ? 'No image in the catalog' : 'Image not available right now';
-}
-
-// A card-back style tile, so a missing image still says which card it is.
-function cardBack({name, number, setName}, missing) {
-	return h('div', {class: 'card-back'},
-		h('span', {class: 'card-back-name'}, name),
-		number ? h('span', null, `#${number}`) : null,
-		setName ? h('span', null, setName) : null,
-		h('span', {class: 'card-back-status'}, imageStatus(missing))
-	);
-}
-
-// Card art in the 63:88 card shape. It shimmers while the image loads and
-// turns into the card-back tile if the image fails.
-export function cardArt(info, src, {eager = false} = {}) {
-	const frame = h('div', {class: 'art loading'});
-
-	if (!src) {
-		frame.classList.remove('loading');
-		frame.append(cardBack(info, true));
-
-		return frame;
-	}
-
-	// No crossorigin attribute: many assets.tcgdex.net images send
-	// Access-Control-Allow-Origin twice, which fails a CORS request outright.
-	// The service worker still tries CORS first (see sw.js).
-	const img = h('img', {
-		alt: info.name,
-		decoding: 'async',
-		height: 88,
-		loading: eager ? 'eager' : 'lazy',
-		width: 63,
-	});
-
-	img.addEventListener('load', () => frame.classList.remove('loading'), {once: true});
-	img.addEventListener('error', () => {
-		forgetImage(src);
-		frame.classList.remove('loading');
-		frame.replaceChildren(cardBack(info, false));
-	}, {once: true});
-	img.src = src;
-	frame.append(img);
-
-	return frame;
-}
+// -------------------------------------------------------- loading states
 
 function skeletonTiles(count) {
 	return Array.from({length: count}, () =>
@@ -196,7 +135,7 @@ function loadFailure(err, what, retry) {
 	let message;
 
 	if (err instanceof NotOnPhoneError) {
-		message = `${what} is not on this phone yet. Connect to the internet and open it once, and it will open offline after that.`;
+		message = `${what} is not on this phone yet. It downloads the next time you're online.`;
 	}
 	else if (err && err.status) {
 		message = `Could not load ${what.toLowerCase()}. ${err.message}`;
@@ -206,7 +145,8 @@ function loadFailure(err, what, retry) {
 		message = `Could not load ${what.toLowerCase()}. TCGdex, the card catalog, did not answer. Try again in a minute. (${errorText(err)})`;
 	}
 
-	return h('div', {class: 'notice', role: 'alert'},
+	// A full-width panel, never a notice inside a grid column.
+	return h('div', {class: 'notice notice-wide', role: 'alert'},
 		h('p', null, message),
 		h('button', {type: 'button', onclick: retry}, 'Try again')
 	);
@@ -461,6 +401,7 @@ export function setView(root, {lang, setId}) {
 	const title = h('h2', null, setId);
 	const meta = h('p', {class: 'muted'});
 	const note = h('div', {hidden: true});
+	const problem = h('div');
 	const grid = h('div', {class: 'card-grid'});
 
 	let owned = new Map();
@@ -495,7 +436,8 @@ export function setView(root, {lang, setId}) {
 			.join(' · ');
 
 		if (!cards.length) {
-			grid.replaceChildren(h('p', {class: 'muted'}, `TCGdex lists no cards for this set in ${languageLabel(lang)}.`));
+			grid.replaceChildren(h('p', {class: 'muted grid-wide'}, `TCGdex lists no cards for this set in ${languageLabel(lang)}.`));
+			offerCardList([], set.name);
 
 			return;
 		}
@@ -509,46 +451,56 @@ export function setView(root, {lang, setId}) {
 		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
 
 		if (!visible.length) {
-			grid.replaceChildren(h('p', {class: 'muted'}, show === 'owned' ? 'No cards from this set are saved yet.' : 'Every card in this set is owned.'));
+			grid.replaceChildren(h('p', {class: 'muted grid-wide'}, show === 'owned' ? 'No cards from this set are saved yet.' : 'Every card in this set is owned.'));
+			offerCardList([], set.name);
 
 			return;
 		}
 
-		grid.replaceChildren(
-			...visible.map((card) => {
-				const names = namesFor({lang: cardLang, name: card.name}, redraw);
-				const info = {name: mainName(names), number: card.localId, setName: set.name};
-				const mine = owned.get(card.id);
-				const frame = h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low')));
-				let status = null;
+		const tiles = visible.map((card) => {
+			const names = namesFor({lang: cardLang, name: card.name}, redraw);
+			const info = {name: mainName(names), number: card.localId, setName: set.name};
+			const mine = owned.get(card.id);
+			const route = routeTo('cards', cardLang, card.id);
+			let art = {info, src: cardImage(card.image, 'low')};
+			let status = null;
 
-				if (mine) {
-					const languages = [...mine.byLanguage.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+			if (mine) {
+				const languages = [...mine.byLanguage.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+				// The count is for the language the corner flag names: the
+				// viewing language when a copy is in it, else the only other.
+				const count = mine.byLanguage.has(lang)
+					? mine.byLanguage.get(lang)
+					: languages.length === 1 ? mine.total : 0;
 
-					// A bookmark ribbon with the copy count, even for one copy,
-					// and the languages owned in the opposite corner. Shape and
-					// text, never color alone.
-					frame.append(
-						h('span', {'aria-label': `Owned: ${mine.total} ${mine.total === 1 ? 'copy' : 'copies'}`, class: 'ribbon'}, String(mine.total)),
-						flagBadge(languages, {className: 'badge badge-lang'})
-					);
+				// Owned: a check in a yellow disc and full color, plus the
+				// words in the meta line. Never the danger red.
+				art = {...art, count, finish: groupFinish(mine.entries), languages, status: 'owned', viewing: lang};
 
-					// "Owned in PT" when no copy is in the language being viewed
-					// (DESIGN.md section 3).
-					status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(chip).join(', ')}`;
-				}
+				// "Owned in PT" when no copy is in the language being viewed
+				// (DESIGN.md section 3).
+				status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(chip).join(', ')}`;
+			}
 
-				return link(routeTo('cards', cardLang, card.id), {class: mine ? 'tile owned' : 'tile unowned'},
-					frame,
-					...tileNames(names, cardLang),
-					h('span', {class: 'tile-meta'}, `#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : ' · Missing')
-				);
-			})
-		);
+			return {
+				node: cardTile({
+					art,
+					className: mine ? 'owned' : 'unowned',
+					meta: [`#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : ' · Missing'],
+					names: tileNames(names, cardLang),
+					route,
+				}),
+				route,
+			};
+		});
+
+		grid.replaceChildren(...tiles.map((tile) => tile.node));
+		offerCardList(tiles.map((tile) => tile.route), set.name);
 	}
 
 	async function load() {
 		note.hidden = true;
+		problem.replaceChildren();
 		grid.replaceChildren(...skeletonTiles(12));
 
 		try {
@@ -590,12 +542,13 @@ export function setView(root, {lang, setId}) {
 		}
 		catch (err) {
 			if (alive) {
-				grid.replaceChildren(loadFailure(err, 'This set', load));
+				grid.replaceChildren();
+				problem.replaceChildren(loadFailure(err, 'This set', load));
 			}
 		}
 	}
 
-	root.append(back, title, meta, filter, note, grid);
+	root.append(back, title, meta, filter, note, problem, grid);
 	load();
 
 	return () => {
@@ -643,9 +596,15 @@ function variantText(variant) {
 export function cardView(root, {lang, cardId}) {
 	let alive = true;
 
-	const back = link('sets', {class: 'back'}, '‹ Back');
+	// Opened from a list, the card keeps it: a position line, edge arrows,
+	// and swiping move through it (js/card-swipe.js).
+	const route = routeTo('cards', lang, cardId);
+	const position = cardPosition(route);
+	const swipe = cardSwipe(root, route);
+	const photos = cardPhotos({cardId, catalog: catalogFor(lang)});
+	const back = link('sets', {class: 'back'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
 	const body = h('div', {class: 'card-detail'},
-		h('div', {class: 'art loading big-art', 'aria-hidden': 'true'})
+		h('div', {class: 'card-hero'}, h('div', {class: 'art loading hero-art', 'aria-hidden': 'true'}))
 	);
 
 	back.addEventListener('click', (event) => {
@@ -708,31 +667,42 @@ export function cardView(root, {lang, cardId}) {
 		if (set.id) {
 			back.href = BASE + routeTo('sets', lang, set.id);
 			back.dataset.link = routeTo('sets', lang, set.id);
-			back.textContent = `‹ ${set.name || set.id}`;
+
+			if (!position || !position.label) {
+				back.textContent = `‹ ${set.name || set.id}`;
+			}
 		}
 
-		body.replaceChildren(
-			h('div', {class: 'big-art'}, cardArt(info, cardImage(card.image, 'high'), {eager: true})),
-			h('div', null,
-				h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name),
-				below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
-				h('dl', {class: 'facts'},
-					row('Set', setName),
-					row('Number', number),
-					row('Rarity', card.rarity),
-					row('Illustrator', card.illustrator),
-					row('Catalog', languageLabel(lang))
-				),
-				liga,
-				copies,
-				variants && variants.length
-					? h('section', null,
-						h('h3', null, 'Variants'),
-						h('ul', {class: 'variants'}, variants.map((variant) => h('li', null, variantText(variant))))
-					)
-					: null
-			)
-		);
+		// The art beside the facts, at about 45 percent of the width, so the
+		// facts, Ver na Liga, and Your copies show without a long scroll
+		// (plans/design-review.md section 3, "Card Detail").
+		// replaceChildren prints a null argument as "null", so the optional
+		// variants section is filtered out when there is none.
+		body.replaceChildren(...[
+			h('div', {class: 'card-hero'},
+				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high')})),
+				h('div', {class: 'hero-facts'},
+					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name),
+					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
+					h('dl', {class: 'facts'},
+						row('Set', setName),
+						row('Number', number),
+						row('Rarity', card.rarity),
+						row('Illustrator', card.illustrator),
+						row('Catalog', languageLabel(lang))
+					),
+					liga,
+					ligaNone
+				)
+			),
+			copies,
+			variants && variants.length
+				? h('section', {class: 'variants-section'},
+					h('h3', null, 'Variants'),
+					h('ul', {class: 'variants'}, variants.map((variant) => h('li', null, variantText(variant))))
+				)
+				: null,
+		].filter(Boolean));
 	}
 
 	const copies = h('section', {class: 'copies', hidden: true});
@@ -746,6 +716,9 @@ export function cardView(root, {lang, cardId}) {
 		ligaLink,
 		h('p', {class: 'muted'}, 'Opens Liga Pokémon\'s search for this card.')
 	);
+	// Korean and Chinese prints say why there is no button rather than
+	// leaving a gap.
+	const ligaNone = h('p', {class: 'muted liga-none', hidden: !['ko', 'zh-cn', 'zh-tw'].includes(lang)}, `No Liga link for ${languageLabel(lang)} prints.`);
 	let ligaRun = 0;
 
 	function showLiga(english, card) {
@@ -909,10 +882,12 @@ export function cardView(root, {lang, cardId}) {
 		}
 	}
 
-	root.append(back, body);
+	root.append(h('div', {class: 'card-top'}, back, swipe.line), body, ...[swipe.element].filter(Boolean));
 	load();
 
 	return () => {
 		alive = false;
+		swipe.stop();
+		photos.destroy();
 	};
 }

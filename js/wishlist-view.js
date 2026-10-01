@@ -5,22 +5,22 @@
 //
 // WISHLIST_ROUTES is shaped like app.js's ROUTES, and WISHLIST_ACCOUNT_VIEWS
 // lists the views to redraw on sign-in and sign-out (app.js ACCOUNT_ROUTES).
+// The wishlist is the second half of the Lists tab (dom.js listsSwitch), and
+// js/shell.js draws the view-only strip and the "Mine" switcher.
 
-import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
+import {offerCardList} from './card-swipe.js';
 import {LANGUAGES, cardImage, catalogFor, languageLabel, viewingLanguage} from './catalog.js';
-import {cardArt} from './catalog-views.js';
 import {languageChip} from './cards-view.js';
 import {listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h} from './dom.js';
-import {familyOverview} from './sync.js';
+import {BASE, errorText, h, listsSwitch} from './dom.js';
+import {cardTile, tileArt, variantFinish} from './tile.js';
 import {
 	NOTE_MAX,
 	PRIORITIES,
 	PRIORITY_LABELS,
 	SearchHint,
 	addToWishlist,
-	cachedFamilyWishlists,
 	cardRecord,
 	displayLanguage,
 	languagesFor,
@@ -40,6 +40,11 @@ const formatCount = (n) => Number(n).toLocaleString('en-US');
 const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
+
+const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
+
+// The card page an item opens, in the language it is shown in.
+const itemRoute = (item, viewing) => routeTo('cards', displayLanguage(item, viewing), item.card_id);
 
 const SEARCH_LANG_KEY = 'cardTracker.wishlistSearchLanguage';
 
@@ -111,8 +116,9 @@ function finishText(item, info) {
 
 // ------------------------------------------------------ one item row
 
-function itemRow(item, found, {mine = false, onEdit = null, onRemove = null, owned = 0, spares = 0} = {}) {
+function itemRow(item, found, {mine = false, onEdit = null, onRemove = null, owned = 0, spares = 0, viewing = null} = {}) {
 	const info = cardInfo(item, found);
+	const variant = item.variant_id ? (info.variants || []).find((entry) => entry.variantId === item.variant_id) : null;
 	const finish = finishText(item, info);
 	const chips = h('div', {class: 'wl-chips'},
 		h('span', {class: `wl-priority wl-priority-${item.priority || 'normal'}`}, `${PRIORITY_LABELS[item.priority] || 'Normal'} priority`),
@@ -143,62 +149,29 @@ function itemRow(item, found, {mine = false, onEdit = null, onRemove = null, own
 		body.append(h('button', {'aria-label': `Edit ${info.name}`, class: 'wl-edit', onclick: onEdit, type: 'button'}, 'Edit'));
 	}
 
+	// The art is the shared tile (js/tile.js), and opens the card page, which
+	// swipes through the list.
 	return h('li', {class: owned && mine ? 'wl-item wl-has' : 'wl-item', 'data-id': item.id},
-		h('div', {class: 'wl-art'}, cardArt(info, info.image)),
+		link(itemRoute(item, viewing), {'aria-label': `Open ${info.name}`, class: 'wl-art'}, tileArt({
+			finish: variantFinish(variant),
+			info,
+			languages: item.language ? [item.language] : [],
+			src: info.image,
+			status: mine && owned ? 'owned' : null,
+			statusLabel: mine && owned ? 'You have this now' : null,
+			viewing,
+		})),
 		body
 	);
 }
 
 // --------------------------------------------------- whose wishlist
 
-// "My wishlist" and each other member of the family group. Offline, the
-// members saved with their wishlists stand in for the server's list.
-function familySwitcher(selectedId) {
-	const select = h('select', {'aria-label': 'Whose wishlist', id: 'wishlist-family-switcher'});
-	const wrap = h('span', {class: 'select-wrap family-switch', hidden: true}, select);
-
-	select.addEventListener('change', () => go(select.value ? `wishlist/${encodeURIComponent(select.value)}` : 'wishlist'));
-
-	const fill = (others) => {
-		if (!others.length) {
-			return;
-		}
-
-		select.replaceChildren(
-			h('option', {value: ''}, 'My wishlist'),
-			...others.map((member) => h('option', {value: member.user_id}, `${member.name}'s wishlist`))
-		);
-		select.value = selectedId || '';
-		wrap.hidden = false;
-	};
-
-	const fromCache = () => cachedFamilyWishlists().then(({members}) => fill(members)).catch(() => {});
-
-	if (!navigator.onLine) {
-		fromCache();
-
-		return wrap;
-	}
-
-	familyOverview().then((overview) => {
-		const me = currentUser();
-
-		fill(((overview && overview.members) || [])
-			.filter((member) => !me || member.user_id !== me.id)
-			.map((member) => ({name: memberName(member), user_id: member.user_id})));
-	}).catch(fromCache);
-
-	return wrap;
-}
-
 function heading(text, memberId) {
-	const head = h('div', {class: 'view-head'}, h('h2', {id: 'wishlist-title'}, text));
-
-	if (currentUser()) {
-		head.append(familySwitcher(memberId));
-	}
-
-	return head;
+	return h('div', null,
+		h('div', {class: 'view-head'}, h('h2', {id: 'wishlist-title'}, text)),
+		listsSwitch('wishlist', memberId)
+	);
 }
 
 // --------------------------------------------------------- the editor
@@ -310,12 +283,15 @@ function searchPanel({onPick, wished}) {
 		const info = {name: card.name, number: card.localId, setName: card.setName};
 		const on = wished(card);
 
-		return h('button', {class: on ? 'tile wl-result wl-on' : 'tile wl-result', 'data-card': card.id, onclick: () => onPick(card), type: 'button'},
-			h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low')),
-				on ? h('span', {class: 'badge wl-badge-on'}, 'Wanted') : null),
-			h('span', {class: 'tile-name'}, card.name),
-			h('span', {class: 'tile-meta'}, [`#${card.localId}`, card.setName || card.setId].filter(Boolean).join(' · '))
-		);
+		return cardTile({
+			art: {info, src: cardImage(card.image, 'low'), status: on ? 'wanted' : null, statusLabel: on ? 'On your wishlist' : null},
+			attrs: {'data-card': card.id},
+			className: on ? 'wl-result wl-on' : 'wl-result',
+			meta: [`#${card.localId}`, card.setName || card.setId].filter(Boolean).join(' · '),
+			names: card.name,
+			onclick: () => onPick(card),
+			tag: 'button',
+		});
 	}
 
 	let last = [];
@@ -513,11 +489,13 @@ export function wishlistView(root) {
 					onEdit: () => openEdit(item),
 					onRemove: () => remove(item, info.name),
 					owned,
+					viewing,
 				}));
 			});
 
 			return row;
 		}));
+		offerCardList(items.map((item) => itemRoute(item, viewing)), 'Wishlist');
 	}
 
 	async function reload() {
@@ -576,7 +554,6 @@ export function familyWishlistView(root, {userId}) {
 
 	const viewing = viewingLanguage();
 	const load = cardLoader();
-	const banner = h('div', {class: 'view-only', role: 'status'});
 	const note = h('p', {class: 'muted', hidden: true, id: 'wishlist-saved-note'});
 	const summary = h('p', {class: 'muted', id: 'wishlist-summary'});
 	const list = h('ul', {class: 'wl-list', id: 'wishlist-items'});
@@ -584,7 +561,6 @@ export function familyWishlistView(root, {userId}) {
 	const head = heading('Wishlist', userId);
 
 	function name(text) {
-		banner.replaceChildren(h('span', null, `${text}'s wishlist, view only`), link('wishlist', null, 'Back to mine'));
 		head.querySelector('h2').textContent = `${text}'s wishlist`;
 		document.title = `${text}'s wishlist | Card Tracker`;
 	}
@@ -648,19 +624,20 @@ export function familyWishlistView(root, {userId}) {
 
 			load(item, viewing).then((found) => {
 				if (alive) {
-					row.replaceWith(itemRow(item, found, {spares: sparesFor(item, cards)}));
+					row.replaceWith(itemRow(item, found, {spares: sparesFor(item, cards), viewing}));
 				}
 			});
 
 			return row;
 		}));
+		offerCardList(items.map((item) => itemRoute(item, viewing)), `${member.name}'s wishlist`);
 	}
 
 	// Their list does not change while it is open, but the viewer's own
 	// spares do.
 	const stop = onChange(() => alive && show());
 
-	root.append(banner, head, body);
+	root.append(head, body);
 	show();
 
 	return () => {
@@ -672,8 +649,8 @@ export function familyWishlistView(root, {userId}) {
 // ----------------------------------------------------------- routes
 
 export const WISHLIST_ROUTES = [
-	{pattern: /^wishlist$/, render: wishlistView, tab: 'wishlist', title: 'Wishlist | Card Tracker'},
-	{keys: ['userId'], pattern: /^wishlist\/([^/]+)$/, render: familyWishlistView, tab: 'wishlist', title: 'Family wishlist | Card Tracker'},
+	{kind: 'wishlist', pattern: /^wishlist$/, render: wishlistView, tab: 'lists', title: 'Wishlist | Card Tracker'},
+	{keys: ['userId'], kind: 'wishlist', pattern: /^wishlist\/([^/]+)$/, render: familyWishlistView, tab: 'lists', title: 'Family wishlist | Card Tracker'},
 ];
 
 export const WISHLIST_ACCOUNT_VIEWS = [wishlistView, familyWishlistView];

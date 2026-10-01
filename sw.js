@@ -8,7 +8,7 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v11';
+const VERSION = 'v13';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
@@ -39,6 +39,33 @@ const IMAGE_CACHES = [
 	{limit: 100, name: 'card-tracker-images-opaque'},
 ];
 
+// The OCR engine's worker, WebAssembly core, and English model, kept the
+// first time the scanner starts the engine (about 7 MB on a phone: the one
+// core of three that suits its browser, plus the 2.9 MB model). The cache is
+// named for the Tesseract.js version rather than VERSION, so a new app
+// version does not download them again, and activate leaves it alone.
+const OCR_CACHE = 'card-tracker-ocr-tesseract-7.0.0';
+const OCR_PATH = 'lab/vendor/tesseract/';
+
+async function ocrResponse(event) {
+	const cache = await caches.open(OCR_CACHE);
+	const hit = await cache.match(event.request, {ignoreSearch: true});
+
+	if (hit) {
+		return hit;
+	}
+
+	const response = await fetch(event.request);
+
+	if (response.ok) {
+		const copy = response.clone();
+
+		event.waitUntil(cache.put(event.request, copy).catch(() => {}));
+	}
+
+	return response;
+}
+
 const SHELL = [
 	'./',
 	'index.html',
@@ -47,6 +74,7 @@ const SHELL = [
 	'js/binders-view.js',
 	'js/binders.js',
 	'js/auth.js',
+	'js/card-swipe.js',
 	'js/cards-view.js',
 	'js/catalog-views.js',
 	'js/catalog.js',
@@ -54,6 +82,7 @@ const SHELL = [
 	'js/checklists.js',
 	'js/collection.js',
 	'js/dom.js',
+	'js/family.js',
 	'js/flags.js',
 	'js/import-view.js',
 	'js/liga.js',
@@ -61,11 +90,41 @@ const SHELL = [
 	'js/monprice.js',
 	'js/names.js',
 	'js/phone-check.js',
+	'js/price-view.js',
+	'js/prices.js',
+	'js/photos/carousel.js',
+	'js/photos/detect.js',
+	'js/photos/editor.js',
+	'js/photos/encode.js',
+	'js/photos/geometry.js',
+	'js/photos/index.js',
+	'js/photos/model.js',
+	'js/photos/store.js',
+	'js/scan/camera.js',
+	'js/scan/draft.js',
+	'js/scan/finish.js',
+	'js/scan/identify.js',
+	'js/scan/image.js',
+	'js/scan/match.js',
+	'js/scan/routes.js',
+	'js/scan/session.js',
+	'js/scan/sheets.js',
+	'js/scan/steady.js',
+	'js/scan/tile.js',
+	'js/scan/view.js',
 	'js/settings.js',
+	'js/shell.js',
 	'js/sync.js',
 	'js/themes.js',
+	'js/tile.js',
 	'js/wishlist-view.js',
 	'js/wishlist.js',
+	'lab/js/camera.js',
+	'lab/js/match.js',
+	'lab/js/ocr.js',
+	'lab/js/pipeline.js',
+	'lab/js/rectify.js',
+	'lab/vendor/tesseract/tesseract.esm.min.js',
 	'vendor/supabase-js.js',
 	'vendor/flags/br.svg',
 	'vendor/flags/cn.svg',
@@ -77,9 +136,15 @@ const SHELL = [
 	'vendor/flags/kr.svg',
 	'vendor/flags/tw.svg',
 	'vendor/flags/us.svg',
+	'vendor/fonts/poppins-latin-400-normal.woff2',
+	'vendor/fonts/poppins-latin-600-normal.woff2',
+	'vendor/fonts/poppins-latin-700-normal.woff2',
 	'style.css',
 	'css/binders.css',
 	'css/wishlist.css',
+	'css/scan.css',
+	'css/photos.css',
+	'css/prices.css',
 	'manifest.webmanifest',
 	'icons/icon-192.png',
 	'icons/icon-512.png',
@@ -214,6 +279,13 @@ self.addEventListener('fetch', (event) => {
 	}
 
 	if (url.origin !== self.location.origin || !request.url.startsWith(self.registration.scope)) {
+		return;
+	}
+
+	// The OCR engine's files: cache first, kept on first use (ocrResponse).
+	if (url.pathname.startsWith(new URL(OCR_PATH, self.registration.scope).pathname) && !url.pathname.endsWith('.esm.min.js')) {
+		event.respondWith(ocrResponse(event));
+
 		return;
 	}
 

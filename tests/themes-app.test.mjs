@@ -139,8 +139,7 @@ describe('themes signed out', () => {
 		assert.ok(await page.locator('#brand-mark').isHidden(), 'signed out, the title keeps the room');
 
 		// Menu, Theme: Profile signed out, with the picker.
-		await page.click('#menu summary');
-		await page.click('.menu-items a:has-text("Theme")');
+		await page.click('#account');
 		await page.waitForSelector('#theme-grid');
 		assert.equal(await page.locator('.theme-option').count(), 19, 'default plus 18 types');
 		assert.equal(await page.locator('#favorite-card').count(), 0, 'the favorite needs an account');

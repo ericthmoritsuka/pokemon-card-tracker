@@ -291,11 +291,21 @@ describe('sign in', () => {
 
 		const {context, errors, page} = await device(fake, 'phone');
 
+		// Signed out, the avatar slot reads Sign in and opens Profile, whose
+		// first panel is the sign-in form.
 		await page.goto(url('cards'));
+		assert.equal(await page.locator('#account').textContent(), 'Sign in');
 		await page.click('#account');
 		await page.waitForSelector('#signin-email');
-		assert.equal(new URL(page.url()).pathname, `${BASE}signin`);
-		assert.equal(await page.locator('h2').textContent(), 'Sign in');
+		assert.equal(new URL(page.url()).pathname, `${BASE}profile`);
+		assert.equal(await page.locator('h2').textContent(), 'Profile');
+		assert.equal(await page.locator('#profile-signin h3').textContent(), 'Sign in');
+
+		// Profile asks the project about Google once the person starts to
+		// sign in, not on opening.
+		await page.waitForTimeout(200);
+		assert.equal(fake.log.filter((entry) => entry.path === '/auth/v1/settings').length, 0, 'opening Profile contacts no one');
+		await page.focus('#signin-email');
 
 		// Google stays hidden: the settings say it is off.
 		await page.waitForFunction(() => performance.getEntriesByType('resource').some((entry) => entry.name.endsWith('/auth/v1/settings')));
@@ -646,8 +656,12 @@ describe('profile and family', () => {
 		await seedLocal(page, documentWith(syntheticEntries(3, 'k')));
 		await signIn(page, fake, kid.email);
 		await waitForStatus(page, 'Synced');
-		await page.waitForSelector('#family-switcher');
-		await page.selectOption('#family-switcher', owner.id);
+		// The header's Mine switcher lists the family; picking one opens
+		// their cards view only.
+		await page.waitForSelector('#owner-switch:not([hidden])');
+		assert.equal(await page.locator('#owner-switch').textContent(), 'Mine');
+		await page.click('#owner-switch');
+		await page.click(`#owner-sheet .owner-option[data-member="${owner.id}"]`);
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${owner.id}`);
 		assert.match(await page.locator('.view-only').textContent(), /Eric's cards, view only/);
@@ -659,7 +673,8 @@ describe('profile and family', () => {
 		// The kid's own document is untouched by viewing.
 		assert.equal(liveCount(await localDoc(page)), 3);
 
-		await page.click('.view-only a:has-text("Back to mine")');
+		assert.equal(await page.locator('#owner-switch').textContent(), 'Eric\'s');
+		await page.click('#family-done');
 		await page.waitForFunction(() => /^3 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
 		assert.equal(await page.locator('.view-only').count(), 0);
 		assert.equal(liveCount(docRow(fake, owner).doc), 25, 'the owner\'s row is unchanged');
@@ -707,7 +722,9 @@ describe('the app shell', () => {
 	});
 
 	test('a deep link goes through 404.html, and the service worker precaches the new files', async () => {
-		const {context, errors, page} = await device(null, 'phone', {serviceWorkers: 'allow'});
+		// Profile signed out shows the sign-in panel, which asks the project
+		// whether Google sign-in is on, so the fake answers.
+		const {context, errors, page} = await device(new FakeSupabase(), 'phone', {serviceWorkers: 'allow'});
 		const first = await page.goto(url('profile'));
 
 		assert.equal(first.status(), 404, 'GitHub Pages answers an app path with 404.html');
@@ -726,7 +743,7 @@ describe('the app shell', () => {
 			return (await cache.keys()).map((request) => new URL(request.url).pathname);
 		}, `card-tracker-shell-${version}`);
 
-		for (const file of ['vendor/supabase-js.js', 'js/sync.js', 'js/auth.js', 'js/merge.js', 'js/account-views.js']) {
+		for (const file of ['vendor/supabase-js.js', 'js/sync.js', 'js/auth.js', 'js/merge.js', 'js/account-views.js', 'js/shell.js', 'js/tile.js', 'js/card-swipe.js', 'js/scan/routes.js', 'js/scan/view.js', 'lab/vendor/tesseract/tesseract.esm.min.js', 'js/photos/index.js', 'css/scan.css', 'css/photos.css', 'vendor/fonts/poppins-latin-400-normal.woff2']) {
 			assert.ok(cached.includes(`${BASE}${file}`), `${file} is precached`);
 		}
 

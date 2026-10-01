@@ -8,11 +8,12 @@
 //   family/<userId>/binders/<id>[/<page>]   one of theirs, view only
 //
 // app.js wires these in from binderRoutes below; binderAccountViews lists the
-// views to redraw on sign-in and sign-out. Michi art is not edited here yet:
-// a pocket holding a tile of it shows as art and is left alone.
+// views to redraw on sign-in and sign-out. js/shell.js draws the view-only
+// strip and the "Mine" switcher. Michi art is not edited here yet: a pocket
+// holding a tile of it shows as art and is left alone.
 
-import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
+import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
 	cardIndex,
@@ -25,11 +26,11 @@ import {
 	saveToCardIndex,
 	viewingLanguage,
 } from './catalog.js';
-import {cardArt} from './catalog-views.js';
-import {languageChip} from './cards-view.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
-import {BASE, errorText, go, h, showError} from './dom.js';
-import {familyOverview, memberDocument} from './sync.js';
+import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
+import {whenMemberName} from './family.js';
+import {memberDocument} from './sync.js';
+import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {
 	COVER_SWATCHES,
 	DEFAULT_COVER,
@@ -49,6 +50,7 @@ import {
 	placeCard,
 	placePlaceholder,
 	placements,
+	slotsOf,
 	slotsOutside,
 	unplaced,
 	updateBinder,
@@ -113,54 +115,6 @@ function familySource(userId) {
 		userId,
 		watch: null,
 	};
-}
-
-function viewOnlyBanner(userId, onName) {
-	const banner = h('div', {class: 'view-only', role: 'status'});
-	const fill = (name) => banner.replaceChildren(
-		h('span', null, `${name}'s binders, view only`),
-		link('binders', null, 'Back to mine')
-	);
-
-	fill('Family member');
-
-	familyOverview().then((overview) => {
-		const member = ((overview && overview.members) || []).find((item) => item.user_id === userId);
-
-		if (member) {
-			fill(memberName(member));
-			onName(memberName(member));
-		}
-	}).catch(() => {});
-
-	return banner;
-}
-
-// "My binders" and each other member of the family group. Hidden when signed
-// out or alone in the group.
-function familySwitcher(selectedId) {
-	const select = h('select', {'aria-label': 'Whose binders', id: 'binders-family-switcher'});
-	const wrap = h('span', {class: 'select-wrap family-switch', hidden: true}, select);
-
-	select.addEventListener('change', () => go(select.value ? `family/${encodeURIComponent(select.value)}/binders` : 'binders'));
-
-	familyOverview().then((overview) => {
-		const me = currentUser();
-		const others = ((overview && overview.members) || []).filter((member) => !me || member.user_id !== me.id);
-
-		if (!others.length) {
-			return;
-		}
-
-		select.replaceChildren(
-			h('option', {value: ''}, 'My binders'),
-			...others.map((member) => h('option', {value: member.user_id}, `${memberName(member)}'s binders`))
-		);
-		select.value = selectedId || '';
-		wrap.hidden = false;
-	}).catch(() => {});
-
-	return wrap;
 }
 
 function failure(err, readOnly) {
@@ -454,17 +408,14 @@ function bindersScreen(root, source) {
 	const newButton = source.readOnly ? null : h('button', {class: 'primary', id: 'new-binder', type: 'button'}, 'New binder');
 	let name = 'Family member';
 
-	if (currentUser()) {
-		heading.append(familySwitcher(source.userId || null));
-	}
-
-	const banner = source.readOnly
-		? viewOnlyBanner(source.userId, (memberLabel) => {
+	if (source.readOnly) {
+		heading.querySelector('h2').textContent = `${name}'s binders`;
+		whenMemberName(source.userId, (memberLabel) => {
 			name = memberLabel;
 			heading.querySelector('h2').textContent = `${memberLabel}'s binders`;
 			document.title = `${memberLabel}'s binders | Card Tracker`;
-		})
-		: null;
+		});
+	}
 
 	function openForm() {
 		newButton.hidden = true;
@@ -514,7 +465,9 @@ function bindersScreen(root, source) {
 		if (!binders.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state'},
 				h('p', {class: 'big'}, source.readOnly ? `${name} hasn't set up binders yet.` : 'No binders yet.'),
-				source.readOnly ? null : h('p', {class: 'muted'}, 'Add one for each real binder: its grid, its pages, and its cover color, so it is easy to match. Then place your cards pocket by pocket.')
+				source.readOnly ? null : h('p', {class: 'muted'}, 'Add one for each real binder: its grid, its pages, and its cover color, so it is easy to match. Then place your cards pocket by pocket.'),
+				// No cards yet either: scanning is the way to get some.
+				source.readOnly || live.length ? null : h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binders-empty-scan'}, 'Scan your first card')
 			), unplacedLink || '');
 
 			return;
@@ -528,7 +481,7 @@ function bindersScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(...[banner, heading, body, newButton, editor].filter(Boolean));
+	root.append(...[heading, body, newButton, editor].filter(Boolean));
 	load();
 
 	return () => {
@@ -566,9 +519,11 @@ function binderScreen(root, source, id, pageParam) {
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
-	const banner = source.readOnly
-		? viewOnlyBanner(source.userId, () => {})
-		: null;
+	// An empty binder offers the scanner, where new cards come from.
+	const emptyHint = source.readOnly ? null : h('div', {class: 'card empty-state binder-empty', hidden: true, id: 'binder-empty'},
+		h('p', null, 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.'),
+		h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binder-empty-scan'}, 'Scan cards')
+	);
 
 	// A tap on the backdrop closes the sheet, as Escape does.
 	if (sheet) {
@@ -633,11 +588,9 @@ function binderScreen(root, source, id, pageParam) {
 
 			if (entry && isLive(entry)) {
 				const info = entryInfo(entry, index, viewing);
-				const frame = h('div', {class: 'art-wrap'}, cardArt(info, info.image));
-
-				if (entry.language !== viewing) {
-					frame.append(h('span', {'aria-label': `Printed in ${languageLabel(entry.language)}`, class: 'badge badge-lang'}, languageChip(entry.language)));
-				}
+				// One physical copy per pocket: its flag and finish, never a
+				// count (js/tile.js).
+				const frame = tileArt({finish: entryFinish(entry), info, languages: [entry.language], src: info.image, viewing});
 
 				return {info, kind: 'card', label: `${info.name}, ${languageLabel(entry.language)}`, node: frame};
 			}
@@ -707,6 +660,17 @@ function binderScreen(root, source, id, pageParam) {
 		}));
 
 		const stats = binderStats(binder, placed, new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id)));
+
+		if (emptyHint) {
+			emptyHint.hidden = stats.filled > 0 || stats.wanted > 0;
+		}
+
+		// A card page opened from this binder swipes through its cards in
+		// page and pocket order.
+		offerCardList(slotsOf(binder, placed)
+			.map((slot) => (slot.entry_id ? entriesById.get(slot.entry_id) : null))
+			.filter((entry) => entry && isLive(entry))
+			.map((entry) => entryInfo(entry, index, viewing).route), binder.name);
 
 		prev.disabled = page <= 1;
 		next.disabled = page >= binder.page_count;
@@ -798,6 +762,7 @@ function binderScreen(root, source, id, pageParam) {
 				h('div', {class: 'page-nav'}, prev, h('span', {class: 'select-wrap'}, pageSelect), next),
 				grid,
 				summary,
+				emptyHint,
 				unplacedLink,
 				source.readOnly
 					? null
@@ -1011,9 +976,8 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			results.replaceChildren(...found.slice(0, shown).map((item) => {
-				const frame = h('div', {class: 'art-wrap'}, cardArt(item.info, item.info.image));
-
-				frame.append(h('span', {'aria-label': `Printed in ${languageLabel(item.entry.language)}`, class: 'badge badge-lang'}, languageChip(item.entry.language)));
+				// Picking one physical copy: its language always shows.
+				const frame = tileArt({finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src: item.info.image});
 
 				return h('button', {class: 'pick', 'data-entry': item.entry.id, onclick: () => choose(item), type: 'button'},
 					frame,
@@ -1161,7 +1125,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}) : () => {};
 
-	root.append(...[back, banner, body, sheet].filter(Boolean));
+	root.append(...[back, body, sheet].filter(Boolean));
 	load();
 
 	return () => {
@@ -1175,7 +1139,7 @@ function binderScreen(root, source, id, pageParam) {
 
 export function unplacedView(root) {
 	let alive = true;
-	let shown = LIST_PAGE;
+	let shown = Math.max(LIST_PAGE, fromHistory('shown', LIST_PAGE));
 	let index = new Map();
 	let groups = [];
 
@@ -1187,6 +1151,7 @@ export function unplacedView(root) {
 
 	more.addEventListener('click', () => {
 		shown += LIST_PAGE;
+		rememberInHistory({shown});
 		draw();
 	});
 
@@ -1216,24 +1181,20 @@ export function unplacedView(root) {
 
 		const visible = groups.slice(0, shown);
 
-		grid.replaceChildren(...visible.map((group) => {
-			const count = group.entries.length;
-			const frame = h('div', {class: 'art-wrap'}, cardArt(group.info, group.info.image));
-
-			if (count > 1) {
-				frame.append(h('span', {'aria-label': `${count} copies`, class: 'badge badge-qty'}, `×${count}`));
-			}
-
-			if (group.first.language !== viewing) {
-				frame.append(h('span', {'aria-label': `Printed in ${languageLabel(group.first.language)}`, class: 'badge badge-lang'}, languageChip(group.first.language)));
-			}
-
-			return link(group.info.route, {class: 'tile'},
-				frame,
-				h('span', {class: 'tile-name'}, group.info.name),
-				h('span', {class: 'tile-meta'}, [group.info.number ? `#${group.info.number}` : null, group.info.setName].filter(Boolean).join(' · '))
-			);
-		}));
+		grid.replaceChildren(...visible.map((group) => cardTile({
+			art: {
+				count: group.entries.length,
+				finish: groupFinish(group.entries),
+				info: group.info,
+				languages: [group.first.language],
+				src: group.info.image,
+				viewing,
+			},
+			meta: [group.info.number ? `#${group.info.number}` : null, group.info.setName].filter(Boolean).join(' · '),
+			names: group.info.name,
+			route: group.info.route,
+		})));
+		offerCardList(groups.map((group) => group.info.route), 'Not in a binder');
 		more.hidden = groups.length <= shown;
 		more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
 
@@ -1266,7 +1227,10 @@ export function unplacedView(root) {
 		const live = (doc.cards || []).filter(isLive);
 
 		if (!live.length) {
-			body.replaceChildren(h('div', {class: 'card empty-state'}, h('p', {class: 'big'}, 'No cards on this phone yet.')));
+			body.replaceChildren(h('div', {class: 'card empty-state'},
+				h('p', {class: 'big'}, 'No cards on this phone yet.'),
+				h('a', {class: 'button primary', 'data-link': 'scan', href: `${BASE}scan`}, 'Scan your first card')
+			));
 
 			return;
 		}

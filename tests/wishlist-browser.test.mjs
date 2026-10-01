@@ -318,8 +318,8 @@ describe('wishlist', () => {
 		fake.documents.set(bia.id, {doc: documentWith([], BIA_WISHLIST), updated_at: fake.now(), user_id: bia.id});
 
 		// The menu entry opens the empty wishlist.
-		await page.click('#menu summary');
-		await page.click('#menu a[data-link="wishlist"]');
+		await page.click('.tabs a[data-tab="lists"]');
+		await page.click('#lists-switch-wishlist');
 		await page.waitForSelector('#wishlist-empty:not([hidden])');
 		assert.equal(new URL(page.url()).pathname, `${BASE}wishlist`);
 		assert.equal(await page.title(), 'Wishlist | Card Tracker');
@@ -447,8 +447,9 @@ describe('wishlist', () => {
 		assert.deepEqual(await page.locator('.wl-name').allTextContents(), ['Venusaur Teste', 'Test Ivysaur']);
 
 		// Member B's wishlist, from the switcher: read only, with Eric's spares.
-		await page.waitForSelector('#wishlist-family-switcher');
-		await page.selectOption('#wishlist-family-switcher', bia.id);
+		await page.waitForSelector('#owner-switch:not([hidden])');
+		await page.click('#owner-switch');
+		await page.click(`#owner-sheet .owner-option[data-member="${bia.id}"]`);
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}wishlist/${bia.id}`);
 		await waitForSummary(page, '2 cards wanted. You have spares of 1.');
@@ -512,8 +513,8 @@ describe('wishlist', () => {
 		assert.equal(await item(page, 'Ivysaur Teste').locator('.wl-spare').textContent(), 'You have 1 spare');
 		assert.match(await page.locator('#wishlist-saved-note').textContent(), /^Saved on this phone .+\. Connect to see changes since\.$/);
 		assert.match(await page.locator('.view-only').textContent(), /Member B's wishlist, view only/);
-		await page.waitForSelector('#wishlist-family-switcher');
-		assert.equal(await page.locator('#wishlist-family-switcher').inputValue(), bia.id, 'the switcher works offline');
+		await page.waitForSelector('#owner-switch:not([hidden])');
+		assert.equal(await page.locator('#owner-switch').textContent(), 'Member B\'s', 'the switcher works offline');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/wishlist-family-offline.png`});
 		assert.deepEqual(await matches('tst1-002', {language: 'pt'}), ['Member B:b1:'], 'matching works offline');
 
@@ -551,7 +552,7 @@ describe('wishlist', () => {
 		await seedLocal(page, documentWith([], [wish('w1', 'tst1-001', {priority: 'low'})]));
 		await page.goto(url('wishlist'));
 		await waitForSummary(page, '1 card wanted.');
-		assert.equal(await page.locator('#wishlist-family-switcher').count(), 0);
+		assert.ok(await page.locator('#owner-switch').isHidden(), 'no switcher signed out');
 		await page.goto(url('wishlist/someone'));
 		await page.waitForSelector('.notice');
 		assert.match(await page.locator('.notice').textContent(), /Sign in to see your family's wishlists/);

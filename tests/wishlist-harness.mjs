@@ -33,8 +33,9 @@ export const INTEGRATION = {
 	index: {
 		// After the style.css link.
 		stylesheet: '\t<link rel="stylesheet" href="/pokemon-card-tracker/css/wishlist.css">',
-		// An item of the header menu (nav.menu-items).
-		menu: '\t\t\t\t<a href="/pokemon-card-tracker/wishlist" data-link="wishlist">Wishlist</a>',
+		// The Lists tab, whose Wishlist segment (js/dom.js listsSwitch)
+		// opens the wishlist.
+		tab: '\t\t<a href="/pokemon-card-tracker/lists" data-link="lists" data-tab="lists">',
 	},
 	sw: {
 		// In SHELL.
@@ -72,14 +73,14 @@ export async function checkIntegration() {
 	assert.ok(accountRoutes[1].split(', ').includes(account), 'the wishlist views are in ACCOUNT_ROUTES');
 	assert.match(app, /^\tstartSync\(\);\n\tkeepFamilyWishlistsCached\(\);$/m, `app.js runs ${cache.trim()} after startSync()`);
 
-	const {menu, stylesheet} = INTEGRATION.index;
+	const {stylesheet, tab} = INTEGRATION.index;
 
 	assert.ok(lines(index).has(stylesheet), 'index.html links css/wishlist.css');
 
-	const menuItems = /<nav class="menu-items"[^>]*>\n([\s\S]*?)<\/nav>/.exec(index);
+	const tabs = /<nav class="tabs"[^>]*>\n([\s\S]*?)<\/nav>/.exec(index);
 
-	assert.ok(menuItems, 'index.html has the header menu');
-	assert.ok(lines(menuItems[1]).has(menu), 'the header menu links the wishlist');
+	assert.ok(tabs, 'index.html has the tab bar');
+	assert.ok(lines(tabs[1]).has(tab), 'the tab bar has the Lists tab');
 
 	const {css, js} = INTEGRATION.sw;
 

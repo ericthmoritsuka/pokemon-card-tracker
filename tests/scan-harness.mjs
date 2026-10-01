@@ -1,10 +1,11 @@
-// A test harness for the scanner (js/scan/*). The scanner is a
-// self-contained module: app.js, index.html, and sw.js do not carry its
-// integration lines yet. This harness serves the repo the way GitHub Pages
-// does (tests/pages-server.mjs) and adds those lines to its copies of the
-// three shell files in memory, so the browser runs the app as it will be once
-// they are added. INTEGRATION is the exact text to add; the files on disk are
-// never written.
+// A test harness for the scanner (js/scan/*). It serves the repo the way
+// GitHub Pages does (tests/pages-server.mjs, plus the OCR engine's file
+// types) and serves the real app.js, index.html, and sw.js untouched: the
+// scanner's integration lines are in those files.
+//
+// INTEGRATION lists those lines, and checkIntegration asserts that each one
+// is in the real file, so a change to a shared file that drops one fails the
+// test instead of silently testing an app without the scanner.
 //
 // It also builds what the browser tests feed Chrome's fake camera: a Y4M
 // still of a TCGdex English high.webp scan laid on a table-colored
@@ -30,14 +31,10 @@ export const CACHE_DIR = process.env.SCAN_CACHE || '/tmp/scan-harness-cache';
 
 export const INTEGRATION = {
 	app: {
-		// app.js already routes /scan to js/scan-placeholder.js; the scanner
-		// replaces that one import line.
-		placeholder: 'import {scanView} from \'./js/scan-placeholder.js\';',
+		// Replaces the placeholder's import; the /scan route in ROUTES
+		// renders it.
 		import: 'import {scanView} from \'./js/scan/routes.js\';',
-		// For an app.js with no /scan route: this import, and the route in
-		// ROUTES after ...WISHLIST_ROUTES,
-		importRoutes: 'import {scanRoutes} from \'./js/scan/routes.js\';',
-		routes: '\t...scanRoutes,',
+		route: '\t{pattern: /^scan$/, render: scanView, tab: \'scan\', title: \'Scan | Card Tracker\'},',
 	},
 	index: {
 		// After the last stylesheet link.
@@ -98,7 +95,7 @@ export const INTEGRATION = {
 			'}',
 		],
 		// In the fetch handler, just before the "Every page in the app is the
-		// same shell" comment.
+		// same shell" comment, so it runs before the lab's navigation bypass.
 		ocrRoute: [
 			'\t// The OCR engine\'s files: cache first, kept on first use (ocrResponse).',
 			'\tif (url.pathname.startsWith(new URL(OCR_PATH, self.registration.scope).pathname) && !url.pathname.endsWith(\'.esm.min.js\')) {',
@@ -111,73 +108,45 @@ export const INTEGRATION = {
 	},
 };
 
-const insertAfter = (text, anchor, lines, label) => {
-	const at = text.indexOf(anchor);
-
-	assert.ok(at >= 0, `${label}: anchor not found: ${anchor}`);
-
-	const end = text.indexOf('\n', at) + 1;
-
-	return text.slice(0, end) + lines.join('\n') + '\n' + text.slice(end);
-};
-
-const insertBefore = (text, anchor, lines, label) => {
-	const at = text.indexOf(anchor);
-
-	assert.ok(at >= 0, `${label}: anchor not found: ${anchor}`);
-
-	const start = text.lastIndexOf('\n', at) + 1;
-
-	return text.slice(0, start) + lines.join('\n') + '\n' + text.slice(start);
-};
-
-export function patchApp(text) {
-	const {import: line, importRoutes, placeholder, routes} = INTEGRATION.app;
-
-	if (text.includes(placeholder)) {
-		return text.replace(placeholder, line);
-	}
-
-	const imports = [...text.matchAll(/^import .*;$/gm)];
-	const out = insertAfter(text, imports[imports.length - 1][0], [importRoutes], 'app.js import');
-
-	return insertAfter(out, '\t...WISHLIST_ROUTES,', [routes], 'app.js routes');
-}
-
-export function patchIndex(text) {
-	const links = [...text.matchAll(/^\t<link rel="stylesheet" href="\/pokemon-card-tracker\/[^"]+\.css">$/gm)];
-
-	return insertAfter(text, links[links.length - 1][0], [INTEGRATION.index.stylesheet], 'index.html stylesheet');
-}
-
-export function patchSw(text) {
-	let out = text.replace(/const VERSION = '([^']+)';/, (line, version) => `const VERSION = '${version}-scan';`);
-
-	out = insertAfter(out, '\t\'css/wishlist.css\',', INTEGRATION.sw.shell, 'sw.js SHELL');
-	out = insertBefore(out, 'const SHELL = [', [...INTEGRATION.sw.ocrCache.slice(1), ''], 'sw.js caches');
-	out = insertBefore(out, '// Every page in the app is the same shell', INTEGRATION.sw.ocrRoute, 'sw.js fetch');
-
-	return out;
-}
-
 const read = (path) => readFile(join(ROOT, path), 'utf8');
 
-// Checks that the patches apply to the files as they are now, and that the
-// patched sw.js SHELL lists every module the patched app.js loads.
-export async function checkIntegration() {
-	const app = patchApp(await read('app.js'));
-	const index = patchIndex(await read('index.html'));
-	const sw = patchSw(await read('sw.js'));
+const lines = (text) => new Set(text.split('\n'));
 
-	assert.ok(app.includes(INTEGRATION.app.import) || (app.includes(INTEGRATION.app.importRoutes) && app.includes(INTEGRATION.app.routes)), 'app.js routes /scan to the scanner');
+// Asserts that the real app.js, index.html, and sw.js carry every line in
+// INTEGRATION, and that sw.js SHELL lists every module app.js loads.
+export async function checkIntegration() {
+	const app = await read('app.js');
+	const index = await read('index.html');
+	const sw = await read('sw.js');
+
+	assert.ok(lines(app).has(INTEGRATION.app.import), 'app.js imports scanView from js/scan/routes.js');
+
+	const routesBody = /const ROUTES = \[\n([\s\S]*?)\n\];/.exec(app);
+
+	assert.ok(routesBody, 'app.js has ROUTES');
+	assert.ok(lines(routesBody[1]).has(INTEGRATION.app.route), 'ROUTES renders /scan with scanView');
 	assert.ok(!app.includes('scan-placeholder.js'), 'app.js no longer loads the placeholder');
-	assert.ok(index.includes(INTEGRATION.index.stylesheet));
+
+	assert.ok(lines(index).has(INTEGRATION.index.stylesheet), 'index.html links css/scan.css');
+
+	for (const line of INTEGRATION.sw.shell) {
+		assert.ok(lines(sw).has(line), `sw.js SHELL lists ${line.trim()}`);
+	}
+
+	const ocrCache = INTEGRATION.sw.ocrCache.slice(1).join('\n');
+	const ocrRoute = INTEGRATION.sw.ocrRoute.join('\n');
+	const shellAt = sw.indexOf('const SHELL = [');
+	const routeAt = sw.indexOf(ocrRoute);
+
+	assert.ok(sw.includes(`${ocrCache}\n\nconst SHELL = [`), 'sw.js defines OCR_CACHE, OCR_PATH, and ocrResponse() just before SHELL');
+	assert.ok(shellAt >= 0 && routeAt >= 0, 'the fetch handler answers the OCR engine\'s files');
+	assert.ok(routeAt < sw.indexOf('// Every page in the app is the same shell'), 'the OCR route sits before the shell comment');
+	assert.ok(routeAt < sw.indexOf('new URL(\'lab/\', self.registration.scope)'), 'the OCR route sits before the lab navigation bypass');
 
 	const listed = new Set([...sw.matchAll(/^\t'([^']+)',$/gm)].map((match) => match[1]));
 	const missing = (await moduleGraph(app)).filter((path) => !listed.has(path)).sort();
 
-	assert.deepEqual(missing, [], 'the patched sw.js SHELL lists every module the patched app.js loads');
-	assert.ok(sw.includes('event.respondWith(ocrResponse(event));'));
+	assert.deepEqual(missing, [], 'sw.js SHELL lists every module app.js loads');
 
 	return {app, index, sw};
 }
@@ -218,6 +187,7 @@ const TYPES = {
 	'.svg': 'image/svg+xml',
 	'.wasm': 'application/wasm',
 	'.webmanifest': 'application/manifest+json',
+	'.woff2': 'font/woff2',
 };
 
 async function fileFor(pathname) {
@@ -248,15 +218,12 @@ async function fileFor(pathname) {
 	}
 }
 
-// Starts the Pages imitation with the patched shell files. Returns
-// {origin, close, requests}: requests counts what was served, by path.
+// Checks the integration, then starts the Pages imitation over the real
+// files. Returns {origin, close, requests}: requests counts what was served,
+// by path.
 export async function startScanHarness(port = 0) {
-	const patched = await checkIntegration();
-	const shell = new Map([
-		[join(ROOT, 'app.js'), patched.app],
-		[join(ROOT, 'index.html'), patched.index],
-		[join(ROOT, 'sw.js'), patched.sw],
-	]);
+	await checkIntegration();
+
 	const requests = new Map();
 
 	const server = createServer(async (request, response) => {
@@ -269,12 +236,6 @@ export async function startScanHarness(port = 0) {
 			'Cache-Control': 'no-cache',
 			'Content-Type': TYPES[extname(target)] || 'application/octet-stream',
 		});
-
-		if (shell.has(target)) {
-			response.end(shell.get(target));
-
-			return;
-		}
 
 		createReadStream(target).pipe(response);
 	});
@@ -489,5 +450,5 @@ export const fakeCameraArgs = (video) => [
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	const {origin} = await startScanHarness(Number(process.argv[2]) || 8002);
 
-	console.log(`Serving the app with the scanner wired in at ${origin}${BASE}scan`);
+	console.log(`Serving the app with the scanner at ${origin}${BASE}scan`);
 }
