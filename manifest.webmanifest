@@ -1,0 +1,31 @@
+{
+	"name": "Card Tracker",
+	"short_name": "Card Tracker",
+	"description": "Weekend zero spike: tests the camera and offline storage on this phone.",
+	"id": "/pokemon-card-tracker/",
+	"start_url": "/pokemon-card-tracker/",
+	"scope": "/pokemon-card-tracker/",
+	"display": "standalone",
+	"background_color": "#ffffff",
+	"theme_color": "#dc0a2d",
+	"icons": [
+		{
+			"src": "/pokemon-card-tracker/icons/icon-192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/pokemon-card-tracker/icons/icon-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/pokemon-card-tracker/icons/icon-maskable-512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		}
+	]
+}
