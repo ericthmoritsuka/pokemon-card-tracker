@@ -393,6 +393,16 @@ pokemontcg.io is English only, and the official Japanese and Korean card databas
 API), so the card's own scan photo becomes its image, stored with the owned-card images. Until
 then the tile shows the card back with the Korean name. *(Planned 2026-10-01.)*
 
+**English names for Asian prints, original name underneath** (Eric's idea, 2026-10-01). Japanese,
+Korean, and Chinese cards show an English name first and their own-language name in smaller text
+under it ("Aerodactyl VSTAR" over "プテラVSTAR"). For Pokémon cards the English name is the English
+species name for the card's `dexId` (the checklists already cache all 1,025 English names) plus
+the mechanic suffix read off the original name (`ex`, `V`, `VMAX`, `VSTAR`, `GX`, `EX`, and Mega
+forms). Trainers and Energy have no `dexId`, so their English name comes only from a confirmed
+international twin; until then they show the original name alone. The same English name makes
+search work in English and enables the Ver na Liga button for Japanese prints, whose Liga pages
+use English names (section 10). *(Planned 2026-10-01.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
