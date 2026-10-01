@@ -33,7 +33,7 @@ const NORMAL = 'norm-pinsir';
 
 describe('wishedBy', () => {
 	const family = [
-		{name: 'Ana', user_id: 'u-ana', wishlist: [
+		{name: 'Member A', user_id: 'u-ana', wishlist: [
 			wish('a1', 'sv08.5-003'),
 			wish('a2', 'swsh3-102', {language: 'pt'}),
 		]},
@@ -41,7 +41,7 @@ describe('wishedBy', () => {
 			wish('b1', 'sv08.5-003', {language: 'pt', priority: 'high', variantId: REVERSE}),
 			{...wish('b2', 'me01-001'), deleted_at: at(3)},
 		]}, name: 'Member B', user_id: 'u-bia'},
-		{name: 'Caio', user_id: 'u-caio', wishlist: [wish('c1', 'S4a-001', {catalog: 'ja'})]},
+		{name: 'Member C', user_id: 'u-caio', wishlist: [wish('c1', 'S4a-001', {catalog: 'ja'})]},
 	];
 
 	test('an item with no language or finish matches any copy of the card', () => {
@@ -55,7 +55,7 @@ describe('wishedBy', () => {
 		const rows = wishedBy('sv08.5-003', {language: 'pt', variantId: REVERSE}, family);
 
 		// High priority first, and whole documents work as well as wishlists.
-		assert.deepEqual(rows.map((row) => [row.name, row.item.id]), [['Member B', 'b1'], ['Ana', 'a1']]);
+		assert.deepEqual(rows.map((row) => [row.name, row.item.id]), [['Member B', 'b1'], ['Member A', 'a1']]);
 		assert.equal(wishedBy('sv08.5-003', {language: 'pt', variantId: NORMAL}, family).some((row) => row.item.id === 'b1'), false, 'wrong finish');
 		assert.equal(wishedBy('sv08.5-003', {language: 'en', variantId: REVERSE}, family).some((row) => row.item.id === 'b1'), false, 'wrong language');
 	});

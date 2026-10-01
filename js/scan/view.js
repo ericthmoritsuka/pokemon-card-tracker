@@ -1,0 +1,1163 @@
+// The scanner (/scan): a full-screen rear camera with a card guide, auto
+// capture when the frame holds still, a shutter as the fallback, the tray of
+// this session's cards, and the confirm, Done, and Set for all sheets
+// (plans/design-review.md, "Scan: Viewfinder and Tray", "Scan: Confirm
+// Sheet", "Scan: Done Sheet").
+//
+// Always dark, whatever the theme; every control sits in the bottom part of
+// the screen, for one hand. Every capture lands in the tray at once and is
+// read behind it; the tray is a draft in IndexedDB (js/scan/draft.js), so
+// closing the app keeps it. Done saves one entry per physical card through
+// js/collection.js and offers Undo session; Discard saves nothing.
+
+import {addCard, deleteCard, listCards, onChange} from '../collection.js';
+import {saveToCardIndex} from '../catalog.js';
+import {BASE, go, h} from '../dom.js';
+import {flagLanguageName} from '../flags.js';
+import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
+import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail} from './camera.js';
+import * as draft from './draft.js';
+import {EngineUnavailable, identify, releaseEngineSoon, warmEngine} from './identify.js';
+import {blobImage, imageBlob} from './image.js';
+import {cardVariants, findCandidates, WaitingForSignal} from './match.js';
+import * as S from './session.js';
+import {confirmSheet, doneSheet, setAllSheet} from './sheets.js';
+import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
+import {trayTile} from './tile.js';
+
+const FRAME_MS = 125;
+const PHOTO_HEIGHT = 420;
+
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+const online = () => navigator.onLine !== false;
+
+// What the tests and the phone check can read back: the last few reads'
+// timings, in milliseconds.
+export const scanStats = {captures: 0, reads: []};
+
+export function scanView(root) {
+	let session = null;
+	let owned = new Map();
+	let family = [];
+	let camera = null;
+	let sheet = null;
+	let sheetOpener = null;
+	let loop = null;
+	let discarded = null;
+	let alive = true;
+	let wakeLock = null;
+	let engineState = 'idle';
+	const photoUrls = new Map();
+	// Cards being read or looked up right now, so resume() never starts a
+	// second read of the same card.
+	const working = new Set();
+	const detector = createAutoCapture();
+	const thumbCanvas = document.createElement('canvas');
+
+	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
+	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Fill the frame. Hold still.'));
+	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
+	const cameraOff = h('div', {class: 'scan-camera-off', hidden: true, id: 'scan-camera-off'});
+	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
+	const count = h('p', {class: 'scan-count', id: 'scan-count'});
+	const setAllButton = h('button', {class: 'scan-text-button', id: 'scan-setall-open', onclick: () => openSetAll('language'), type: 'button'}, 'Set for all');
+	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
+	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
+	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
+	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
+	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
+	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => openDone(), type: 'button'}, 'Done');
+	const live = h('p', {'aria-live': 'polite', class: 'scan-live', id: 'scan-live'});
+	const sheetLayer = h('div', {class: 'scan-sheet-layer', hidden: true, id: 'scan-sheet-layer', onclick: (event) => {
+		if (event.target === sheetLayer) {
+			closeSheet();
+		}
+	}});
+
+	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
+		h('div', {class: 'scan-stage'}, video, guide, status, cameraOff),
+		h('div', {class: 'scan-bottom'},
+			note,
+			h('div', {class: 'scan-tray-head'}, count, setAllButton),
+			tray,
+			zoomRow,
+			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
+		),
+		sheetLayer,
+		live
+	);
+
+	root.replaceChildren(screen);
+	document.documentElement.classList.add('scan-open');
+
+	// ------------------------------------------------------------ context for the sheets
+
+	const ctx = {
+		applySetAll,
+		chooseCard,
+		closeSheet,
+		discard,
+		get family() {
+			return family;
+		},
+		openDone,
+		openItem,
+		openSetAll,
+		get owned() {
+			return owned;
+		},
+		photoUrl: (id) => photoUrls.get(id) || null,
+		remove,
+		save,
+		get session() {
+			return session;
+		},
+		setCondition: (id, value) => change(() => S.setCondition(session, id, value)),
+		setFinish: (id, variantId) => change(() => S.setFinish(session, id, variantId)),
+		setLanguage: (id, code) => {
+			const rematch = change(() => S.setLanguage(session, id, code));
+
+			if (rematch) {
+				rematchItem(id);
+			}
+		},
+	};
+
+	// ------------------------------------------------------------ state
+
+	function persist() {
+		if (session) {
+			draft.saveSession(session).catch((err) => setNote(`The tray could not be saved on this phone. ${err.message}`));
+		}
+	}
+
+	function change(fn) {
+		const result = fn();
+
+		persist();
+		draw();
+
+		return result;
+	}
+
+	async function loadPhotoUrl(id) {
+		if (photoUrls.has(id)) {
+			return;
+		}
+
+		try {
+			const blob = await draft.loadPhoto(id);
+
+			if (blob && alive) {
+				photoUrls.set(id, URL.createObjectURL(blob));
+			}
+		}
+		catch {
+			// The tile shows a blank card.
+		}
+	}
+
+	function dropPhoto(id) {
+		const url = photoUrls.get(id);
+
+		if (url) {
+			URL.revokeObjectURL(url);
+			photoUrls.delete(id);
+		}
+	}
+
+	async function refreshOwned() {
+		try {
+			owned = S.ownedIndex(await listCards());
+		}
+		catch {
+			owned = new Map();
+		}
+
+		draw();
+	}
+
+	// The family's wishlists as kept on the phone, at once, then fresh from
+	// the server when there is signal, so a wish added a minute ago shows.
+	async function refreshFamily() {
+		try {
+			family = await familyWishlists();
+		}
+		catch {
+			family = [];
+		}
+
+		draw();
+
+		if (online()) {
+			try {
+				const fresh = await refreshFamilyWishlists({warm: false});
+
+				if (alive) {
+					family = fresh;
+					draw();
+				}
+			}
+			catch {
+				// Keeps the saved copy.
+			}
+		}
+	}
+
+	// ------------------------------------------------------------ drawing
+
+	function draw() {
+		if (!alive || !session) {
+			return;
+		}
+
+		const items = session.items;
+		const summary = S.doneSummary(session, owned);
+
+		// Newest at the left.
+		tray.replaceChildren(...[...items].reverse().map((item) => trayTile(item, {
+			marks: S.wishMarks(item, family),
+			photoUrl: photoUrls.get(item.id) || null,
+			quantity: S.quantity(session, item, owned),
+		})));
+
+		const parts = [items.length ? `Session · ${plural(items.length, 'card')}` : 'No cards yet'];
+
+		if (summary.look) {
+			parts.push(`${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look`);
+		}
+
+		if (summary.waiting) {
+			parts.push(`${summary.waiting} waiting for signal`);
+		}
+
+		count.textContent = parts.join(' · ');
+		setAllButton.hidden = items.length < 2;
+		doneButton.disabled = !items.length;
+		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
+
+		drawNote();
+
+		if (sheet) {
+			// The sheet is redrawn from the session; focus stays on the same
+			// control, found again by its id.
+			const focused = sheet.el.contains(document.activeElement) ? document.activeElement.id : null;
+
+			sheet.refresh();
+
+			if (focused && sheet && !sheet.el.contains(document.activeElement)) {
+				const again = document.getElementById(focused);
+
+				if (again) {
+					again.focus({preventScroll: true});
+				}
+			}
+		}
+	}
+
+	let noteText = null;
+
+	function setNote(text) {
+		noteText = text;
+		drawNote();
+	}
+
+	function drawNote() {
+		const children = [];
+
+		if (noteText) {
+			children.push(h('span', null, noteText));
+		}
+		else if (discarded) {
+			children.push(h('span', null, `Discarded ${plural(discarded.items.length, 'card')}. Nothing saved.`),
+				h('button', {class: 'scan-text-button', id: 'scan-undo-discard', onclick: undoDiscard, type: 'button'}, 'Undo'));
+		}
+		else if (session && session.lastSave) {
+			children.push(h('span', {id: 'scan-saved-line'}, `Saved ${plural(session.lastSave.count, 'card')}`),
+				h('button', {class: 'scan-text-button', id: 'scan-undo-session', onclick: undoSession, type: 'button'}, 'Undo session'));
+		}
+
+		note.replaceChildren(...children);
+		note.hidden = !children.length;
+	}
+
+	function drawStatus() {
+		const lines = [];
+
+		if (!online()) {
+			lines.push(engineState === 'unavailable' ? 'Offline · the reader downloads once there is signal' : 'Offline · reads still work');
+		}
+		else if (engineState === 'loading') {
+			lines.push('Getting the reader ready');
+		}
+		else if (engineState === 'unavailable') {
+			lines.push('The reader could not start. Cards wait in the tray.');
+		}
+
+		status.textContent = lines.join(' ');
+		status.hidden = !lines.length;
+	}
+
+	// ------------------------------------------------------------ sheets
+
+	function trapFocus(event) {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeSheet();
+
+			return;
+		}
+
+		if (event.key !== 'Tab' || !sheet) {
+			return;
+		}
+
+		const focusable = [...sheet.el.querySelectorAll('button:not([disabled]), select, input, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.closest('[hidden]'));
+
+		if (!focusable.length) {
+			return;
+		}
+
+		const first = focusable[0];
+		const last = focusable[focusable.length - 1];
+
+		if (event.shiftKey && document.activeElement === first) {
+			event.preventDefault();
+			last.focus();
+		}
+		else if (!event.shiftKey && document.activeElement === last) {
+			event.preventDefault();
+			first.focus();
+		}
+	}
+
+	function showSheet(next) {
+		const opener = sheet ? sheetOpener : document.activeElement;
+
+		sheet = next;
+		sheetOpener = opener;
+		sheetLayer.replaceChildren(next.el);
+		sheetLayer.hidden = false;
+		screen.classList.add('has-sheet');
+		detector.pause();
+
+		const focus = next.el.querySelector('.scan-sheet-title');
+
+		if (focus) {
+			focus.setAttribute('tabindex', '-1');
+			focus.focus({preventScroll: true});
+		}
+	}
+
+	function closeSheet() {
+		if (!sheet) {
+			return;
+		}
+
+		sheet = null;
+		sheetLayer.replaceChildren();
+		sheetLayer.hidden = true;
+		screen.classList.remove('has-sheet');
+		detector.resume();
+
+		if (sheetOpener && sheetOpener.isConnected) {
+			sheetOpener.focus({preventScroll: true});
+		}
+
+		sheetOpener = null;
+	}
+
+	function openItem(id) {
+		if (!S.findItem(session, id)) {
+			return;
+		}
+
+		showSheet(confirmSheet(ctx, id));
+	}
+
+	function openDone() {
+		if (!session.items.length) {
+			return;
+		}
+
+		showSheet(doneSheet(ctx));
+	}
+
+	function openSetAll(field) {
+		showSheet(setAllSheet(ctx, field));
+	}
+
+	// ------------------------------------------------------------ actions
+
+	function chooseCard(id, candidate) {
+		const item = S.findItem(session, id);
+		const before = item && item.card && item.card.id;
+
+		change(() => S.chooseCard(session, id, candidate));
+
+		const after = S.findItem(session, id);
+
+		if (after && after.card && (after.card.id !== before || after.variants === null)) {
+			loadVariants(id);
+		}
+	}
+
+	function remove(id) {
+		change(() => S.removeItem(session, id));
+		draft.deletePhoto(id).catch(() => {});
+		draft.deletePhoto(`${id}:full`).catch(() => {});
+		dropPhoto(id);
+
+		if (sheet && sheet.itemId === id) {
+			closeSheet();
+		}
+	}
+
+	function applySetAll(field, value, options) {
+		const {rematch} = change(() => S.setForAll(session, field, value, options));
+
+		for (const id of rematch) {
+			rematchItem(id);
+		}
+
+		openDone();
+	}
+
+	let saving = false;
+
+	async function save(options = {}) {
+		if (saving) {
+			return;
+		}
+
+		saving = true;
+
+		try {
+			await saveNow(options);
+		}
+		finally {
+			saving = false;
+		}
+	}
+
+	async function saveNow({skipOwned = false} = {}) {
+		const summary = S.doneSummary(session, owned);
+
+		if (!S.canSave(summary)) {
+			const first = session.items.find((item) => S.needsLook(item));
+
+			if (first) {
+				openItem(first.id);
+			}
+
+			return;
+		}
+
+		const rows = S.entriesToSave(session, owned, {skipOwned});
+		const skipped = skipOwned ? session.items.filter((item) => S.isSavable(item) && S.ownedFor(item, owned).inLanguage) : [];
+		const saved = [];
+
+		try {
+			for (const row of rows) {
+				const entry = await addCard(row.fields);
+
+				saved.push({entryId: entry.id, itemId: row.itemId});
+			}
+		}
+		catch (err) {
+			setNote(`Saving stopped after ${plural(saved.length, 'card')}. ${err.message}`);
+		}
+
+		// The catalog record for each saved card, so My Cards can name it
+		// with no signal.
+		const records = rows.filter((row) => saved.some((done) => done.itemId === row.itemId)).map((row) => {
+			const item = S.findItem(session, row.itemId);
+			const card = item.card;
+
+			return {
+				catalog: card.catalog,
+				collector_number: card.localId,
+				id: card.id,
+				localizations: {[card.lang]: {image: card.image || null, lang: card.lang, name: card.name, set_name: card.setName || null}},
+				official: card.official ? Number(card.official) : null,
+				release_date: card.releaseDate || null,
+				set_id: card.setId,
+			};
+		});
+
+		saveToCardIndex(records).catch(() => {});
+
+		const leaving = [...saved.map((row) => row.itemId), ...skipped.map((item) => item.id)];
+
+		discarded = null;
+		noteText = null;
+		S.afterSave(session, saved);
+
+		for (const item of skipped) {
+			S.removeItem(session, item.id);
+		}
+
+		for (const id of leaving) {
+			dropPhoto(id);
+		}
+
+		persist();
+		draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		closeSheet();
+		announce(`Saved ${plural(saved.length, 'card')}.`);
+		await refreshOwned();
+	}
+
+	async function undoSession() {
+		const ids = S.takeUndo(session);
+
+		persist();
+
+		let removed = 0;
+
+		for (const id of ids) {
+			if (await deleteCard(id).catch(() => null)) {
+				removed++;
+			}
+		}
+
+		setNote(`Undid the session: ${plural(removed, 'card')} removed from your cards.`);
+		announce(`Removed ${plural(removed, 'card')}.`);
+		await refreshOwned();
+	}
+
+	function discard() {
+		const kept = session;
+
+		discarded = kept.items.length ? kept : null;
+		noteText = null;
+		session = S.newSession();
+		session.lastSave = kept.lastSave;
+		persist();
+		closeSheet();
+		draw();
+		announce('Discarded. Nothing saved.');
+	}
+
+	function undoDiscard() {
+		if (!discarded) {
+			return;
+		}
+
+		const lastSave = session.lastSave;
+
+		session = discarded;
+		session.lastSave = lastSave;
+		discarded = null;
+
+		for (const item of session.items) {
+			loadPhotoUrl(item.id).then(draw);
+		}
+
+		persist();
+		draw();
+	}
+
+	function announce(text) {
+		live.textContent = '';
+		setTimeout(() => {
+			live.textContent = text;
+		}, 50);
+	}
+
+	// ------------------------------------------------------------ capture and reading
+
+	async function capture(how) {
+		if (!camera || !video.videoWidth) {
+			return;
+		}
+
+		const frame = grabFrame(video);
+		const thumb = thumbnail(video, thumbCanvas);
+
+		detector.captured(thumb);
+		scanStats.captures++;
+		flash();
+
+		if (how === 'shutter') {
+			setNote(null);
+		}
+
+		noteText = null;
+
+		// A new scan ends the chance to bring a discarded session back.
+		if (discarded) {
+			discarded = null;
+			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		}
+
+		const item = S.addCapture(session);
+
+		persist();
+		draw();
+
+		// The full capture is kept until it is read, so a read cut short by the
+		// app closing starts again next time.
+		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+
+		await readItem(item.id, frame, {auto: how === 'auto', fullSaved});
+	}
+
+	function flash() {
+		guide.classList.remove('is-flash');
+		void guide.offsetWidth;
+		guide.classList.add('is-flash');
+
+		if (navigator.vibrate) {
+			try {
+				navigator.vibrate(30);
+			}
+			catch {
+				// No haptics here.
+			}
+		}
+	}
+
+	async function readItem(id, frame, options = {}) {
+		working.add(id);
+
+		try {
+			await readItemNow(id, frame, options);
+		}
+		finally {
+			working.delete(id);
+		}
+	}
+
+	async function readItemNow(id, frame, {auto = false, fullSaved = null, straight = false} = {}) {
+		let result;
+
+		try {
+			engineState = engineState === 'ready' ? 'ready' : 'loading';
+			drawStatus();
+			result = await identify(frame, {straight});
+			engineState = 'ready';
+			drawStatus();
+		}
+		catch (err) {
+			if (!alive || !S.findItem(session, id)) {
+				return;
+			}
+
+			engineState = err instanceof EngineUnavailable ? 'unavailable' : engineState;
+			drawStatus();
+			change(() => S.markWaiting(session, id, 'ocr'));
+
+			return;
+		}
+
+		if (!alive || !S.findItem(session, id)) {
+			return;
+		}
+
+		scanStats.reads.push({ocr: result.timings.ocr, rectify: result.timings.rectify, total: result.timings.total});
+
+		// An automatic capture with no card edges and no number read was not a
+		// card (a hand, the table): it leaves the tray. A shutter capture
+		// always stays, because the person meant it.
+		if (auto && !result.found && !result.read.number) {
+			if (fullSaved) {
+				await fullSaved;
+			}
+
+			remove(id);
+			setNote('That did not look like a card. Hold one inside the frame.');
+
+			return;
+		}
+
+		try {
+			const blob = await imageBlob(result.card, {maxHeight: PHOTO_HEIGHT, quality: 0.82});
+
+			await draft.savePhoto(id, blob);
+			dropPhoto(id);
+			await loadPhotoUrl(id);
+		}
+		catch {
+			// The tile shows a blank card.
+		}
+
+		const item = S.findItem(session, id);
+
+		if (!item) {
+			return;
+		}
+
+		item.timings = {...result.timings};
+		change(() => S.applyRead(session, id, result.read));
+
+		if (fullSaved) {
+			await fullSaved;
+		}
+
+		draft.deletePhoto(`${id}:full`).catch(() => {});
+
+		await matchItemNow(id);
+	}
+
+	async function matchItem(id) {
+		if (working.has(id)) {
+			return;
+		}
+
+		working.add(id);
+
+		try {
+			await matchItemNow(id);
+		}
+		finally {
+			working.delete(id);
+		}
+	}
+
+	async function matchItemNow(id) {
+		const item = S.findItem(session, id);
+
+		if (!item || !item.read) {
+			return;
+		}
+
+		change(() => S.markMatching(session, id));
+
+		const started = performance.now();
+		let found;
+
+		try {
+			// The language picked, or else the read's guess ("non-latin"
+			// searches Japanese first), never another card's.
+			found = await findCandidates(item.read, item.language || item.languageHint);
+		}
+		catch (err) {
+			if (alive && S.findItem(session, id)) {
+				change(() => S.markWaiting(session, id, 'catalog'));
+			}
+
+			if (!(err instanceof WaitingForSignal)) {
+				setNote(`Looking a card up failed. ${err.message}`);
+			}
+
+			return;
+		}
+
+		if (!alive || !S.findItem(session, id)) {
+			return;
+		}
+
+		const current = S.findItem(session, id);
+
+		current.confirmed = false;
+		current.timings = {...current.timings, match: Math.round(performance.now() - started)};
+		change(() => S.applyMatch(session, id, found));
+
+		const last = scanStats.reads[scanStats.reads.length - 1];
+
+		if (last && last.match === undefined) {
+			last.match = current.timings.match;
+		}
+
+		if (current.card) {
+			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+		}
+
+		await loadVariants(id);
+		maybeOpenFirst(id);
+	}
+
+	// A language that lives in another catalog (a Japanese match changed to
+	// English): look the card up again in that language.
+	async function rematchItem(id) {
+		const item = S.findItem(session, id);
+
+		if (!item) {
+			return;
+		}
+
+		if (!item.read) {
+			// Added from the search, so there is nothing to look up again: search
+			// in the new language.
+			change(() => {
+				item.card = null;
+				item.variants = null;
+				item.variantId = null;
+				item.confirmed = false;
+				item.sure = false;
+				item.why = `Search for this card in ${flagLanguageName(item.language)}.`;
+			});
+
+			return;
+		}
+
+		await matchItem(id);
+	}
+
+	async function loadVariants(id) {
+		const item = S.findItem(session, id);
+
+		if (!item || !item.card) {
+			return;
+		}
+
+		const card = item.card;
+
+		try {
+			const variants = await cardVariants(card);
+
+			if (alive && S.findItem(session, id)) {
+				change(() => S.applyVariants(session, id, card.id, variants));
+			}
+		}
+		catch (err) {
+			if (alive && S.findItem(session, id)) {
+				change(() => S.markWaiting(session, id, 'catalog'));
+			}
+
+			if (!(err instanceof WaitingForSignal)) {
+				setNote(`A card's finishes did not load. ${err.message}`);
+			}
+		}
+	}
+
+	// The first scan of a session opens its sheet; later ones go straight to
+	// the tray (plans/design-review.md: "The first scan opens the confirm
+	// sheet; Scan next sends later cards straight to the tray").
+	function maybeOpenFirst(id) {
+		if (!session.sheetShown && !sheet && S.findItem(session, id)) {
+			session.sheetShown = true;
+			persist();
+			openItem(id);
+		}
+	}
+
+	// Picks up every card left unfinished: the app closed mid-read, or the
+	// signal came back.
+	async function resume() {
+		for (const item of [...session.items]) {
+			if (!alive) {
+				return;
+			}
+
+			if (!S.findItem(session, item.id) || working.has(item.id)) {
+				continue;
+			}
+
+			if (item.status === 'reading' || (item.status === 'waiting' && item.waitingFor === 'ocr')) {
+				const blob = await draft.loadPhoto(`${item.id}:full`).catch(() => null);
+
+				if (blob) {
+					const frame = await blobImage(blob);
+
+					await readItem(item.id, frame);
+				}
+				else {
+					change(() => S.markLost(session, item.id));
+				}
+			}
+			else if (item.status === 'matching' || (item.status === 'waiting' && !item.card) || S.needsRematch(item)) {
+				await matchItem(item.id);
+			}
+			else if (item.card && item.variants === null) {
+				await loadVariants(item.id);
+			}
+			else if (item.partial && !item.confirmed && online()) {
+				await matchItem(item.id);
+			}
+		}
+	}
+
+	function onOnline() {
+		drawStatus();
+		resume().catch(() => {});
+		refreshFamily();
+	}
+
+	function onOffline() {
+		drawStatus();
+	}
+
+	// ------------------------------------------------------------ the camera
+
+	function placeGuide() {
+		const {height, width} = camera.frame;
+		const box = guideBox(width, height);
+		const stage = video.getBoundingClientRect();
+		// The video covers the stage (object-fit: cover), so map frame
+		// fractions through the scale it is drawn at.
+		const scale = Math.max(stage.width / width, stage.height / height);
+		const drawnW = width * scale;
+		const drawnH = height * scale;
+		const offsetX = (stage.width - drawnW) / 2;
+		const offsetY = (stage.height - drawnH) / 2;
+
+		guide.style.left = `${offsetX + box.x * drawnW}px`;
+		guide.style.top = `${offsetY + box.y * drawnH}px`;
+		guide.style.width = `${box.w * drawnW}px`;
+		guide.style.height = `${box.h * drawnH}px`;
+		guide.hidden = false;
+	}
+
+	function showCameraOff(err) {
+		cameraOff.hidden = false;
+		guide.hidden = true;
+		shutter.disabled = true;
+		cameraOff.replaceChildren(
+			h('p', {class: 'scan-card-name', id: 'scan-camera-off-title'}, 'Camera is off'),
+			h('p', {class: 'scan-muted'}, err && err.message ? err.message : 'The camera could not start.'),
+			h('button', {class: 'scan-button scan-primary', id: 'scan-search-instead', onclick: addBySearch, type: 'button'}, 'Search by name or number'),
+			h('a', {class: 'scan-button', 'data-link': 'check', href: `${BASE}check`, id: 'scan-phone-check'}, 'Run phone check')
+		);
+	}
+
+	// With no camera, a card can still join the tray from the search.
+	function addBySearch() {
+		const item = S.addCapture(session);
+
+		item.status = 'ready';
+		item.why = 'Search for the card, then pick its language.';
+		persist();
+		draw();
+		openItem(item.id);
+		session.sheetShown = true;
+
+		const panel = document.getElementById('scan-search-panel');
+
+		if (panel) {
+			panel.hidden = false;
+			document.getElementById('scan-search').focus();
+		}
+	}
+
+	async function openCamera() {
+		try {
+			camera = await startCamera(video);
+		}
+		catch (err) {
+			if (alive) {
+				showCameraOff(err instanceof CameraUnavailable ? err : new CameraUnavailable('The camera could not start.', err));
+			}
+
+			return;
+		}
+
+		if (!alive) {
+			camera.stop();
+			camera = null;
+
+			return;
+		}
+
+		cameraOff.hidden = true;
+		shutter.disabled = false;
+		placeGuide();
+		drawCameraControls();
+		startLoop();
+		requestWakeLock();
+		startEngine();
+	}
+
+	// The reader starts with the camera: with no camera there is nothing to
+	// read, and its first download (about 7 MB) waits until there is.
+	function startEngine() {
+		if (engineState === 'ready') {
+			return;
+		}
+
+		engineState = 'loading';
+		drawStatus();
+		warmEngine().then(() => {
+			engineState = 'ready';
+			drawStatus();
+		}).catch(() => {
+			engineState = 'unavailable';
+			drawStatus();
+		});
+	}
+
+	function drawCameraControls() {
+		torchButton.hidden = !camera.torchSupported;
+
+		const range = camera.zoomRange;
+
+		if (!range) {
+			zoomRow.hidden = true;
+
+			return;
+		}
+
+		const steps = [1, 1.5, 2].filter((value) => value >= range.min && value <= range.max);
+
+		zoomRow.replaceChildren(...steps.map((value) => h('button', {
+			'aria-pressed': String(Math.abs((camera.zoom || 1) - value) < 0.05),
+			class: 'scan-chip',
+			onclick: async () => {
+				try {
+					await camera.setZoom(value);
+				}
+				catch {
+					// Zoom stays where it was.
+				}
+
+				drawCameraControls();
+			},
+			type: 'button',
+		}, `${value}x`)));
+		zoomRow.hidden = steps.length < 2;
+	}
+
+	async function toggleTorch() {
+		try {
+			await camera.setTorch(!camera.torch);
+		}
+		catch {
+			setNote('The torch could not be switched.');
+		}
+
+		torchButton.setAttribute('aria-pressed', String(Boolean(camera && camera.torch)));
+	}
+
+	function stopCamera() {
+		clearInterval(loop);
+		loop = null;
+
+		if (camera) {
+			camera.stop();
+			camera = null;
+		}
+
+		shutter.disabled = true;
+
+		if (wakeLock) {
+			wakeLock.release().catch(() => {});
+			wakeLock = null;
+		}
+	}
+
+	async function requestWakeLock() {
+		try {
+			wakeLock = navigator.wakeLock ? await navigator.wakeLock.request('screen') : null;
+		}
+		catch {
+			wakeLock = null;
+		}
+	}
+
+	function startLoop() {
+		clearInterval(loop);
+		loop = setInterval(() => {
+			if (!camera || document.hidden || sheet) {
+				return;
+			}
+
+			const thumb = thumbnail(video, thumbCanvas);
+
+			if (!thumb) {
+				return;
+			}
+
+			const seen = presence(thumb, THUMB_W, THUMB_H);
+
+			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Fill the frame. Hold still.';
+			guide.classList.toggle('is-seen', seen.present);
+
+			if (detector.push(thumb, seen)) {
+				capture('auto');
+			}
+		}, FRAME_MS);
+	}
+
+	function onVisibility() {
+		if (document.hidden) {
+			stopCamera();
+		}
+		else if (alive && !camera) {
+			openCamera();
+		}
+	}
+
+	function onResize() {
+		if (camera) {
+			placeGuide();
+		}
+	}
+
+	// ------------------------------------------------------------ leaving
+
+	// Close returns to where the person came from: back, when they came from
+	// another screen in the app; My Cards, when the scanner was opened
+	// directly (the home screen shortcut, a reload).
+	function close() {
+		if (history.state && history.state.inApp && history.length > 1) {
+			history.back();
+		}
+		else {
+			go('cards', {replace: true});
+		}
+	}
+
+	tray.addEventListener('click', (event) => {
+		const tile = event.target.closest('[data-item]');
+
+		if (tile) {
+			openItem(tile.dataset.item);
+		}
+	});
+
+	document.addEventListener('keydown', trapFocus);
+	document.addEventListener('visibilitychange', onVisibility);
+	window.addEventListener('online', onOnline);
+	window.addEventListener('offline', onOffline);
+	window.addEventListener('resize', onResize);
+
+	const stopOwned = onChange(() => refreshOwned());
+
+	// ------------------------------------------------------------ start
+
+	(async () => {
+		try {
+			session = (await draft.loadSession()) || S.newSession();
+		}
+		catch {
+			session = S.newSession();
+			setNote('This phone could not keep a draft tray; save before closing the app.');
+		}
+
+		if (!alive) {
+			return;
+		}
+
+		await Promise.all(session.items.map((item) => loadPhotoUrl(item.id)));
+		draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		draw();
+		drawStatus();
+		refreshOwned();
+		refreshFamily();
+		openCamera();
+		resume().catch(() => {});
+	})();
+
+	return () => {
+		alive = false;
+		stopCamera();
+		closeSheet();
+		persist();
+		stopOwned();
+		document.removeEventListener('keydown', trapFocus);
+		document.removeEventListener('visibilitychange', onVisibility);
+		window.removeEventListener('online', onOnline);
+		window.removeEventListener('offline', onOffline);
+		window.removeEventListener('resize', onResize);
+		document.documentElement.classList.remove('scan-open');
+
+		for (const url of photoUrls.values()) {
+			URL.revokeObjectURL(url);
+		}
+
+		photoUrls.clear();
+		releaseEngineSoon();
+	};
+}
