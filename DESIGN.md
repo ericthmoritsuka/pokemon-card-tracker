@@ -415,6 +415,16 @@ parentheses, so a name with unfamiliar characters can still be read: "プテラV
 - Chinese: pinyin through a vendored free library, lower priority (no Chinese cards are imported
   yet).
 
+**Where the names come from.** PokeAPI (free, an API) carries every species' official names per
+language: `ja`, `ja-hrkt`, `ja-roma`, `ko`, `zh-hans`, `zh-hant`, `en`, and more (Aerodactyl:
+プテラ, Ptera, 프테라, 化石翼龙 / 化石翼龍; checked 2026-10-01). So besides `dexId`, the English name
+can be found by name: strip the mechanic suffix from the card's own name (a Korean copy's
+`프테라VSTAR`) and look up the rest among PokeAPI's names in that language. For Trainers and
+Energy, which are not species, Bulbapedia lists card names across languages and has a MediaWiki
+API; its content is licensed CC BY-NC-SA, which a personal, non-commercial app can use with
+attribution. Build a lookup table from it once, ship it in the app with the credit, and never
+query it from each phone. *(Suggested by Eric, 2026-10-01.)*
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
