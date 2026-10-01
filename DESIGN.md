@@ -618,13 +618,26 @@ space finds nothing at all:
 | `Charizard GX` | `Charizard-GX (20/147)` | yes |
 | `Charizard VMAX` | `Charizard-VMAX (20/189)` | yes |
 | `Charizard ex` (lowercase, modern and EX era) | `Charizard ex (006/165)`, `Charizard ex (105/112)` | yes |
-| `Charizard V`, `... VSTAR`, `... V-UNION` | assumed `Charizard-V`, `-VSTAR`, `-V-UNION` | no |
-| `M Charizard EX`, `Reshiram & Charizard GX` | assumed `M Charizard-EX`, `Reshiram & Charizard-GX` | no |
+| `Charizard V`, `Charizard VSTAR` | `Charizard-V`, `Charizard-VSTAR (019/159)` | yes |
+| `Charizard V-UNION`, `M Charizard EX`, `Reshiram & Charizard GX` | assumed `-V-UNION`, `M Charizard-EX`, `Reshiram & Charizard-GX` | no |
+| `Mega Charizard X ex`, `Radiant Charizard` | unchanged: `Mega Charizard X ex (013/094)`, `Radiant Charizard (001/044)` | yes |
+| `Nidoran♀`, `Nidoran♂` | `Nidoran (029/151)`, `Nidoran (032/151)`: the symbol is dropped | yes |
+| `Farfetch'd`, `Boss's Orders` | unchanged; trainers by English name (Liga shows "Ordem da Chefia / Boss's Orders") | yes |
 
 So: replace a trailing space before `EX`, `GX`, `V`, `VMAX`, `VSTAR`, or `V-UNION` (uppercase,
 whole word, at the end of the name) with a hyphen, leave lowercase `ex` and every other name
 alone, and keep the number exactly as TCGdex's `localId` (`20`, `019`, `4` all matched). The
 unchecked rows are verified on first real use.
+
+**Numbering exceptions** (checked 2026-10-01):
+
+- Lettered subsets carry the letters on both sides: Crown Zenith `GG44` with an official count of
+  70 is `Mewtwo-VSTAR (GG44/GG70)`; `(GG44/70)` finds nothing. The same applies to `TG`.
+- Promos take the promo number alone: `Charizard-V (SWSH050)` opens the card (Liga itself lists it
+  as `SWSH050/71`, a total TCGdex does not have). A set is a promo set when its TCGdex ID ends in
+  `p` or its name contains "Promo".
+- Liga also has letter-suffixed numbers such as `019a/170` and `048K/069` for prints outside the
+  international sets; these are not generated.
 
 Three ways to handle it, and they can coexist:
 
