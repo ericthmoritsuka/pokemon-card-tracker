@@ -1,5 +1,6 @@
 // My Cards: the owned collection, one tile per card and language, plus the
-// CSV export.
+// CSV export. The same screen shows a family member's cards, read only
+// (plans/ux-plan.md, "A family member's cards").
 
 import {
 	cardImage,
@@ -7,16 +8,21 @@ import {
 	catalogFor,
 	catalogLanguage,
 	compareNumbers,
+	importApi,
+	indexKey,
 	isLanguage,
 	languageLabel,
 	saveToCardIndex,
 	setDetailOnce,
 	viewingLanguage,
 } from './catalog.js';
+import {memberName} from './account-views.js';
+import {currentUser} from './auth.js';
 import {cardArt} from './catalog-views.js';
-import {listCards, onChange} from './collection.js';
-import {BASE, errorText, h} from './dom.js';
+import {isLive, listCards, onChange} from './collection.js';
+import {BASE, errorText, go, h} from './dom.js';
 import {finishLabel} from './monprice.js';
+import {familyOverview, memberDocument} from './sync.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -135,7 +141,191 @@ const SORT_KEY = 'cardTracker.cardsSort';
 const FILTER_KEY = 'cardTracker.cardsLanguage';
 const PAGE = 120;
 
+// Card records the index lacks: cards synced from another device or held by
+// a family member, which this phone never imported. TCGdex card IDs are
+// "<set id>-<number>", so each set is read once, cache first, and a card
+// whose set that does not find is read on its own.
+const SINGLE_CARD_LIMIT = 200;
+
+function recordFrom(catalog, lang, set, card) {
+	return {
+		catalog,
+		collector_number: card.localId,
+		id: card.id,
+		localizations: {[lang]: {image: card.image || null, lang, name: card.name, set_name: set.name || null}},
+		official: (set.cardCount && set.cardCount.official) || null,
+		release_date: set.releaseDate || null,
+		set_id: set.id,
+	};
+}
+
+async function pool(items, size, work) {
+	let next = 0;
+
+	await Promise.all(Array.from({length: Math.min(size, items.length)}, async () => {
+		while (next < items.length) {
+			await work(items[next++]);
+		}
+	}));
+}
+
+async function fillMissingRecords(entries, index, isAlive) {
+	const missing = new Map();
+
+	for (const entry of entries) {
+		const key = indexKey(entry.catalog, entry.card_id);
+
+		if (entry.card_id && !index.has(key)) {
+			missing.set(key, {catalog: entry.catalog, cardId: entry.card_id, lang: catalogLanguage(entry.catalog)});
+		}
+	}
+
+	if (!missing.size) {
+		return null;
+	}
+
+	const sets = new Map();
+
+	for (const item of missing.values()) {
+		const cut = item.cardId.lastIndexOf('-');
+		const key = `${item.catalog}|${cut > 0 ? item.cardId.slice(0, cut) : ''}`;
+
+		if (!sets.has(key)) {
+			sets.set(key, {catalog: item.catalog, lang: item.lang, setId: cut > 0 ? item.cardId.slice(0, cut) : null});
+		}
+	}
+
+	const records = [];
+
+	await pool([...sets.values()].filter((set) => set.setId), 4, async ({catalog, lang, setId}) => {
+		if (!isAlive()) {
+			return;
+		}
+
+		try {
+			const set = await importApi.setDetail(lang, setId);
+
+			for (const card of (set && set.cards) || []) {
+				const key = indexKey(catalog, card.id);
+
+				if (missing.has(key)) {
+					records.push(recordFrom(catalog, lang, set, card));
+					missing.delete(key);
+				}
+			}
+		}
+		catch {
+			// Read each card on its own below.
+		}
+	});
+
+	await pool([...missing.values()].slice(0, SINGLE_CARD_LIMIT), 4, async ({catalog, cardId, lang}) => {
+		if (!isAlive()) {
+			return;
+		}
+
+		try {
+			const card = await importApi.cardDetail(lang, cardId);
+
+			if (card && card.set) {
+				records.push(recordFrom(catalog, lang, card.set, card));
+			}
+		}
+		catch {
+			// The tile keeps its card-back with the card ID.
+		}
+	});
+
+	return records.length ? saveToCardIndex(records) : null;
+}
+
+// The header switcher: "My cards" and each other member of the family
+// group. Hidden when signed out or alone in the group.
+function familySwitcher(selectedId) {
+	const select = h('select', {'aria-label': 'Whose cards', id: 'family-switcher'});
+	const wrap = h('span', {class: 'select-wrap family-switch', hidden: true}, select);
+
+	select.addEventListener('change', () => go(select.value ? `family/${encodeURIComponent(select.value)}` : 'cards'));
+
+	familyOverview().then((overview) => {
+		const me = currentUser();
+		const others = ((overview && overview.members) || []).filter((member) => !me || member.user_id !== me.id);
+
+		if (!others.length) {
+			return;
+		}
+
+		select.replaceChildren(
+			h('option', {value: ''}, 'My cards'),
+			...others.map((member) => h('option', {value: member.user_id}, `${memberName(member)}'s cards`))
+		);
+		select.value = selectedId || '';
+		wrap.hidden = false;
+	}).catch(() => {});
+
+	return wrap;
+}
+
 export function myCardsView(root) {
+	return cardsScreen(root, {
+		load: listCards,
+		watch: (reload) => onChange(reload),
+	});
+}
+
+// A family member's My Cards, read only. Their document is read from the
+// server each time; scanning and importing still save to you.
+export function familyCardsView(root, {userId}) {
+	const banner = h('div', {class: 'view-only', role: 'status'});
+	let name = 'Family member';
+
+	function fillBanner() {
+		banner.replaceChildren(
+			h('span', null, `${name}'s cards, view only`),
+			h('a', {'data-link': 'cards', href: `${BASE}cards`}, 'Back to mine')
+		);
+	}
+
+	fillBanner();
+
+	familyOverview().then((overview) => {
+		const member = ((overview && overview.members) || []).find((item) => item.user_id === userId);
+
+		if (member) {
+			name = memberName(member);
+			fillBanner();
+			document.title = `${name}'s cards | Card Tracker`;
+
+			const heading = root.querySelector('.view-head h2');
+
+			if (heading) {
+				heading.textContent = `${name}'s cards`;
+			}
+		}
+	}).catch(() => {});
+
+	return cardsScreen(root, {
+		banner,
+		emptyText: () => `${name} hasn't added cards yet.`,
+		load: async () => {
+			if (!currentUser()) {
+				throw new Error('Sign in to see your family\'s cards.');
+			}
+
+			if (!navigator.onLine) {
+				throw new Error('A family member\'s cards show when you are online.');
+			}
+
+			const doc = await memberDocument(userId);
+
+			return ((doc && doc.cards) || []).filter(isLive);
+		},
+		memberId: userId,
+		readOnly: true,
+	});
+}
+
+function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, memberId = null, readOnly = false, watch = null}) {
 	let alive = true;
 	let shown = PAGE;
 	let groups = [];
@@ -336,15 +526,23 @@ export function myCardsView(root) {
 
 	async function load() {
 		try {
-			[entries, index] = await Promise.all([listCards(), cardIndex()]);
+			[entries, index] = await Promise.all([loadEntries(), cardIndex()]);
 		}
 		catch (err) {
-			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `Your cards could not be read from this phone. ${errorText(err)}`)));
+			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
+				? err.message || errorText(err)
+				: `Your cards could not be read from this phone. ${errorText(err)}`)));
 
 			return;
 		}
 
 		if (!alive) {
+			return;
+		}
+
+		if (!entries.length && readOnly) {
+			body.replaceChildren(h('div', {class: 'card empty-state'}, h('p', {class: 'big'}, emptyText())));
+
 			return;
 		}
 
@@ -365,19 +563,35 @@ export function myCardsView(root) {
 			summary,
 			grid,
 			more,
-			h('div', {class: 'actions'},
-				exportButton,
-				h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import')
-			)
+			// Edit controls are hidden in a family member's view, not greyed.
+			readOnly
+				? null
+				: h('div', {class: 'actions'},
+					exportButton,
+					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import')
+				)
 		);
 		build();
 		draw();
 		fillViewingLanguage();
+
+		const filled = await fillMissingRecords(entries, index, () => alive);
+
+		if (filled && alive) {
+			index = filled;
+			build();
+			draw();
+		}
 	}
 
-	const stop = onChange(() => alive && load());
+	const stop = watch ? watch(() => alive && load()) : () => {};
+	const heading = h('div', {class: 'view-head'}, h('h2', null, 'My Cards'));
 
-	root.append(h('h2', null, 'My Cards'), body);
+	if (currentUser()) {
+		heading.append(familySwitcher(memberId));
+	}
+
+	root.append(...[banner, heading, body].filter(Boolean));
 	load();
 
 	return () => {

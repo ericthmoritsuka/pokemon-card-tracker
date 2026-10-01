@@ -4,6 +4,21 @@
 // repo's parent folder. This file sits one folder below the app root.
 export const BASE = new URL('../', import.meta.url).pathname;
 
+// Opens an app route from code, the way a data-link click does: app.js
+// renders on popstate.
+export function go(route, {replace = false} = {}) {
+	const target = BASE + route;
+
+	if (replace) {
+		history.replaceState(history.state, '', target);
+	}
+	else if (target !== window.location.pathname) {
+		history.pushState({inApp: true}, '', target);
+	}
+
+	window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
 export function h(tag, attrs, ...children) {
 	const el = document.createElement(tag);
 

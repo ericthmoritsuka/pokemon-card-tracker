@@ -1,6 +1,6 @@
 # Card Tracker
 
-An installable web app (PWA) for the family's Pokémon cards. So far it has four parts:
+An installable web app (PWA) for the family's Pokémon cards. So far it has these parts:
 
 - **My Cards** (the home tab): the cards saved on this phone, one tile per card and language, with
   a `×N` badge for more than one copy and a language chip when the copy's language differs from
@@ -13,8 +13,112 @@ An installable web app (PWA) for the family's Pokémon cards. So far it has four
   illustrator, variants, and your copies. Each set tile shows `owned / total` with a ring, and a
   set's grid dims the cards not owned. A set or card opened once opens again with no signal.
 - **Phone check:** the weekend zero tests below, kept so a new phone can still be checked.
+- **Sign in and sync** (from the header): an invited family member signs in with an email link
+  (or Google, once it is turned on), and their cards are kept in Supabase as well as on the phone.
+  **Profile** (the round avatar) shows the account, the display name, and the family group. A
+  family member's cards open read only from the switcher on My Cards.
 
-There are no accounts yet: everything is stored on the phone.
+Signing in is optional. Signed out, the app works as before and keeps everything on the phone.
+
+## Setup
+
+The app talks to one Supabase project (`https://ehdkbxrjxsypegbtrxbw.supabase.co`). Its URL and
+publishable key are in `js/auth.js`; both are public by design, because row-level security on the
+server decides what each person can read and write. Do these steps once, in this order, in the
+[Supabase dashboard](https://supabase.com/dashboard). Steps 3 and 4 belong together: until new
+sign-ups are off, anyone who finds the app can make an account, and the first account to sign in
+after step 1 becomes the family owner.
+
+1. **Run the script.** Open **SQL Editor**, then **New query**, paste all of `supabase/setup.sql`,
+   and click **Run**. It is safe to run again later.
+
+1. **Set the addresses.** Open **Authentication**, then **URL Configuration**. Set **Site URL** to
+   `https://ericthmoritsuka.github.io/pokemon-card-tracker/` and add the same address under
+   **Redirect URLs**. To sign in from a local copy too, also add
+   `http://localhost:8000/pokemon-card-tracker/`. Supabase sends a sign-in link only back to an
+   address on this list.
+
+1. **Sign in as the owner, right away.** Open the live app, tap **Sign in**, enter your email, tap
+   **Send link**, and open the link on the same phone, in the same browser. The first sign-in
+   becomes the owner of the family group (it is named Family) and uploads the cards already on the
+   phone. Open **Profile** and check that you are listed as **Owner**.
+
+1. **Turn off new sign-ups.** Open **Authentication**, then **Sign In / Providers**, and turn off
+   **Allow new users to sign up**. Then open **Authentication**, then **Users**, and check that the
+   only account is yours. If anyone else signed in first, delete their account there, then run
+   `delete from public.groups;` in the SQL Editor and sign in again: the group is made again with
+   you as its owner.
+
+1. **Invite each family member.** In **Authentication**, then **Users**, invite them by email.
+   Supabase emails them an invitation link that signs them in to the app. Then, in the app, open
+   **Profile** and enter their email under **Add member**. Add member works only for an email
+   Supabase already knows, so invite first. A person who was invited but not added can sign in but
+   sees no family. Later they can sign in from the app's **Sign in** screen with their email.
+
+Supabase's built-in email sends only a few emails an hour on the free plan, and every sign-in link,
+resend, and invitation counts. The app keeps people signed in, so a phone needs a link only once.
+
+The free plan pauses a project after 7 days without requests (`DESIGN.md` section 8). While it is
+paused, the header shows **Not synced** and edits wait on the phone; restore the project from the
+dashboard and they are saved on the next sync.
+
+### Optional: Google Sign-In
+
+The **Continue with Google** button shows only when Google is turned on in the project: the app
+reads the project's public auth settings (`/auth/v1/settings`, `external.google`) and hides the
+button when that is off or cannot be read. The email link stays the default.
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), open **APIs & Services**, set
+   up the **OAuth consent screen** (External, app name Card Tracker), then open **Credentials**,
+   **Create credentials**, **OAuth client ID**, and choose **Web application**.
+
+1. Under **Authorized redirect URIs**, add
+   `https://ehdkbxrjxsypegbtrxbw.supabase.co/auth/v1/callback`. Save, then copy the client ID and
+   the client secret.
+
+1. In Supabase, open **Authentication**, then **Sign In / Providers**, turn on **Google**, and paste
+   the client ID and secret. The secret goes only into the dashboard, never into this repo.
+
+1. While the consent screen's publishing status is **Testing**, Google lets only listed test users
+   sign in: add each family member's Google address under **Test users**.
+
+New sign-ups stay off, so Google signs in only people who already have an account: the owner and
+invited members, by the same email address. In a tab that is already open, the button can take
+up to ten minutes to appear, because the tab keeps the settings answer that long.
+
+## Accounts and Sync
+
+- **One document per person.** The phone keeps the person's document in IndexedDB as before, and
+  `js/sync.js` keeps it merged with that person's row in the `documents` table. The merge is entry
+  by entry (`js/merge.js`): the newer `updated_at` wins, a tombstone wins a tie, and a deleted card
+  stays deleted as a tombstone.
+- **Two devices at once.** The server sets `documents.updated_at` on every write. A save updates the
+  row only where `updated_at` still equals the value the phone read; if another device wrote in
+  between, nothing matches, so the phone reads again, merges again, and retries. Neither device's
+  entries are lost.
+- **Offline first.** Every edit is saved on the phone at once and pushed a few seconds later, so a
+  burst of edits goes up as one write. Offline, the header reads `Offline, N changes waiting`, and
+  the changes go up when the connection returns. The sync also runs when the app is opened or
+  brought back to the front. When the row has not changed since the last sync, only its
+  `updated_at` is read, not the whole document.
+- **Size.** The whole document goes up on each save. A collection of 1,600 imported cards is about
+  425 KB.
+- **The first sign-in** on a phone makes the cards already there the account's cards and uploads
+  them. If someone else then signs in on the same phone, the first person's cards are set aside on
+  the phone (never merged into the second account) and come back when they sign in again. Signing
+  out keeps the cards on the phone.
+- **Sign-in** uses Supabase's PKCE flow, so the trip back from an email link or Google carries
+  `?code=` in the query rather than a `#` fragment, and the app removes it from the address with
+  `history.replaceState`. A dashboard invitation link is the exception: it returns with the session
+  in the fragment, which the app reads and removes the same way. A sign-in link has to be opened in
+  the browser it was asked for from, because that browser holds the PKCE verifier.
+- **The family.** Everyone in the group can read everyone's documents and profiles; each person can
+  write only their own. Group membership changes only through the `add_member` and
+  `remove_member` functions, which only the owner can call (`supabase/setup.sql`).
+- **The Supabase client** is `vendor/supabase-js.js`: `@supabase/supabase-js` 2.117.2 from npm,
+  bundled into one ES module with esbuild because the npm package ships no single-file browser
+  build. The file's header lists every bundled package, its npm integrity hash, and the build
+  command. It loads only once someone signs in or opens Sign in.
 
 ## Your Cards on the Phone
 
@@ -115,6 +219,24 @@ context, so the camera test fails there. Test phones against the live URL.
 `python3 -m http.server` does not serve `404.html` for unknown paths, so reloading
 `/pokemon-card-tracker/cards` locally gives a plain 404 until the service worker has installed.
 On GitHub Pages, `404.html` sends the visitor back into the app at the same path.
+`node tests/pages-server.mjs` serves the same folder the way GitHub Pages does, `404.html`
+included.
+
+## Tests
+
+None of the tests reach the real Supabase project, make an account, or send an email.
+
+- `node --test tests/merge.test.mjs`: the merge rules.
+- `PLAYWRIGHT=<path to node_modules/playwright> node --test tests/app.test.mjs`: headless Chromium
+  at 360 × 740 against `tests/pages-server.mjs`. Every Supabase request is answered by
+  `tests/fake-supabase.mjs`, which applies the same row rules as `supabase/setup.sql`. It covers
+  signed-out use, Sign in, the `?code=` return, an invitation link, Google, the first upload of
+  1,600 cards, two devices saving at once, offline changes, Profile as owner and as member, the
+  read-only family view, the existing views, and the service worker. The existing-views test reads
+  the real TCGdex API.
+- `bash tests/setup-sql-check.sh`: runs `supabase/setup.sql` twice in a throwaway Postgres
+  container (Docker or Podman), with a small stand-in for Supabase's `auth` schema, and checks its
+  row-level security and functions as three made-up users.
 
 ## How It Is Built
 
@@ -123,15 +245,22 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | File | Purpose |
 | --- | --- |
 | `index.html` | The app shell. |
-| `app.js` | Router: `cards`, `import`, `sets`, `sets/<lang>/<setId>`, `cards/<lang>/<cardId>`, `check`, `camera`, `storage`. |
+| `app.js` | Router: `cards`, `import`, `sets`, `sets/<lang>/<setId>`, `cards/<lang>/<cardId>`, `check`, `camera`, `storage`, `signin`, `profile`, `family/<userId>`; the header's account button and sync status. |
 | `js/catalog.js` | TCGdex requests, languages, the IndexedDB cache, and the index of owned cards' names and images. |
 | `js/catalog-views.js` | Sets, set detail, and card detail views. |
-| `js/collection.js` | The per-person document: add, update, soft delete, list, import, merge. |
+| `js/collection.js` | The per-person document: add, update, soft delete, list, import, merge in, and which account it belongs to. |
+| `js/merge.js` | Merging two versions of a document entry by entry. No DOM, so Node tests it. |
+| `js/auth.js` | Supabase Auth: the client, email link and Google sign-in, the `?code=` return, sign-out. |
+| `js/sync.js` | Sync with the `documents` row, the header status, and the family calls. |
+| `js/account-views.js` | Sign in and Profile. |
 | `js/monprice.js` | monprice CSV and JSON parsing, and matching rows to TCGdex records. |
 | `js/import-view.js` | The import screen and its match report. |
-| `js/cards-view.js` | My Cards and the CSV export. |
+| `js/cards-view.js` | My Cards, the CSV export, and a family member's cards, read only. |
 | `js/phone-check.js` | Phone check: device report, Camera test, and Storage test. |
-| `js/dom.js` | Shared DOM and error helpers. |
+| `js/dom.js` | Shared DOM, navigation, and error helpers. |
+| `vendor/supabase-js.js` | The Supabase client, 2.117.2, bundled into one file. |
+| `supabase/setup.sql` | Tables, row-level security, and functions; run once in the SQL Editor. |
+| `tests/` | The tests above, the GitHub Pages stand-in server, and the fake Supabase. |
 | `style.css` | Mobile-first styles. |
 | `manifest.webmanifest` | Install metadata: name, icons, standalone display, and scope. |
 | `sw.js` | Service worker: caches the shell so the app opens offline, and caches card images. |

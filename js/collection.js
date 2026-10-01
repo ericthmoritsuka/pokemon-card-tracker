@@ -1,18 +1,21 @@
 // Each person's cards: one JSON document per person, kept in IndexedDB
-// (DESIGN.md sections 3 and 4). There are no accounts yet, so the phone holds
-// one local person.
+// (DESIGN.md sections 3 and 4). The phone shows one document, stored under
+// the key "local". Its user_id is null until someone signs in on this phone;
+// from then on it belongs to that account and js/sync.js keeps it merged with
+// the account's documents row.
 //
-// Every entry carries id, updated_at, and deleted_at, so a later sync can
-// merge entry by entry: the newer updated_at wins, and a deletion stays as a
-// tombstone so an offline phone cannot bring a deleted card back.
+// Every entry carries id, updated_at, and deleted_at, so the sync merges
+// entry by entry (js/merge.js): the newer updated_at wins, and a deletion
+// stays as a tombstone so an offline phone cannot bring a deleted card back.
 
 import {cardIndex} from './catalog.js';
+import {LISTS, mergeDocuments, sameContent} from './merge.js';
+
+export {mergeEntries} from './merge.js';
 
 const DB_NAME = 'card-tracker-collection';
 const STORE = 'documents';
 const LOCAL_PERSON = 'local';
-
-const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings'];
 
 let dbPromise = null;
 let current = null;
@@ -75,7 +78,7 @@ export function newId() {
 }
 
 function emptyDocument() {
-	const doc = {person: LOCAL_PERSON, updated_at: nowIso(), version: 1};
+	const doc = {person: LOCAL_PERSON, updated_at: nowIso(), user_id: null, version: 1};
 
 	for (const list of LISTS) {
 		doc[list] = [];
@@ -84,34 +87,112 @@ function emptyDocument() {
 	return doc;
 }
 
+function normalize(doc) {
+	for (const list of LISTS) {
+		doc[list] = Array.isArray(doc[list]) ? doc[list] : [];
+	}
+
+	doc.user_id = doc.user_id || null;
+
+	return doc;
+}
+
 export async function loadDocument() {
 	if (!current) {
 		const stored = await idb('readonly', (store) => store.get(LOCAL_PERSON));
-		const doc = stored || emptyDocument();
 
-		for (const list of LISTS) {
-			doc[list] = Array.isArray(doc[list]) ? doc[list] : [];
-		}
-
-		current = doc;
+		current = normalize(stored || emptyDocument());
 	}
 
 	return current;
 }
 
-async function saveDocument(doc) {
+// source is 'local' for the person's own edits, 'sync' for entries merged in
+// from the server, and 'account' when the document changes hands. Only
+// 'local' saves are pushed.
+async function saveDocument(doc, source = 'local') {
 	doc.updated_at = nowIso();
 	await idb('readwrite', (store) => store.put(doc, LOCAL_PERSON));
 	current = doc;
-	listeners.forEach((listener) => listener(doc));
+	listeners.forEach((listener) => listener(doc, {source}));
 }
 
-// listener(doc) runs after every save. Returns the unsubscribe function.
+// listener(doc, {source}) runs after every save. Returns the unsubscribe
+// function.
 export function onChange(listener) {
 	listeners.add(listener);
 
 	return () => listeners.delete(listener);
 }
+
+// Merges another version of the document (the server's) into the one on the
+// phone. The merge lands in the same object every view and edit holds, so an
+// edit made while a sync was on the network is kept: it is newer, so it wins.
+// Returns true when anything changed.
+export async function mergeIntoLocal(other) {
+	const doc = await loadDocument();
+	const merged = mergeDocuments(doc, other);
+
+	if (sameContent(doc, merged)) {
+		return false;
+	}
+
+	for (const key of Object.keys(merged)) {
+		if (key !== 'user_id' && key !== 'person') {
+			doc[key] = merged[key];
+		}
+	}
+
+	await saveDocument(doc, 'sync');
+
+	return true;
+}
+
+// Ties the phone's document to the signed-in account. A document no account
+// has claimed yet (cards added while signed out) becomes this account's, so
+// the first sign-in uploads it. A document that belongs to someone else is
+// set aside under "user:<id>", never merged into another account, and comes
+// back when that person signs in here again.
+export async function useAccount(userId) {
+	const doc = await loadDocument();
+
+	if (doc.user_id === userId) {
+		return {adopted: false};
+	}
+
+	if (!doc.user_id) {
+		doc.user_id = userId;
+		await saveDocument(doc, 'account');
+
+		return {adopted: true};
+	}
+
+	const theirs = doc.user_id;
+	const stashed = await idb('readonly', (store) => store.get(`user:${userId}`));
+	const next = normalize(stashed || emptyDocument());
+
+	next.user_id = userId;
+	await idb('readwrite', (store) => store.put({...doc}, `user:${theirs}`));
+
+	for (const key of Object.keys(doc)) {
+		delete doc[key];
+	}
+
+	Object.assign(doc, next);
+	await saveDocument(doc, 'account');
+
+	if (stashed) {
+		await idb('readwrite', (store) => store.delete(`user:${userId}`));
+	}
+
+	return {adopted: false};
+}
+
+// Small records beside the document, such as what the sync last saw on the
+// server. Kept in the same database, so they go when the document goes.
+export const readMeta = (key) => idb('readonly', (store) => store.get(`meta:${key}`));
+
+export const writeMeta = (key, value) => idb('readwrite', (store) => store.put(value, `meta:${key}`));
 
 // ------------------------------------------------------------ card entries
 
@@ -245,22 +326,6 @@ export async function applyImport(entries) {
 	await saveDocument(doc);
 
 	return counts;
-}
-
-// For a later sync: merges two versions of one list, entry by entry. The
-// newer updated_at wins, and a tombstone is kept like any other entry.
-export function mergeEntries(local, remote) {
-	const merged = new Map(local.map((entry) => [entry.id, entry]));
-
-	for (const entry of remote) {
-		const mine = merged.get(entry.id);
-
-		if (!mine || String(entry.updated_at) > String(mine.updated_at)) {
-			merged.set(entry.id, entry);
-		}
-	}
-
-	return [...merged.values()];
 }
 
 export async function importKeys() {

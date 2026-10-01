@@ -19,12 +19,17 @@
 	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&amp;display=swap" media="print" onload="this.media='all'">
 	<link rel="preconnect" href="https://api.tcgdex.net" crossorigin>
 	<link rel="preconnect" href="https://assets.tcgdex.net">
+	<link rel="preconnect" href="https://ehdkbxrjxsypegbtrxbw.supabase.co" crossorigin>
 	<link rel="stylesheet" href="/pokemon-card-tracker/style.css">
 	<script type="module" src="/pokemon-card-tracker/app.js"></script>
 </head>
 <body>
 	<header class="top">
-		<h1>Card Tracker</h1>
+		<div class="brand">
+			<h1>Card Tracker</h1>
+			<button class="sync-status" id="sync-status" type="button" aria-live="polite" hidden></button>
+		</div>
+		<a class="account" id="account" href="/pokemon-card-tracker/signin" data-link="signin">Sign in</a>
 		<details class="menu" id="menu">
 			<summary>Menu</summary>
 			<nav class="menu-items" aria-label="More">

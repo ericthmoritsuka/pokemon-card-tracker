@@ -10,13 +10,18 @@
 //   sets/<lang>/<setId>       One set's cards
 //   cards/<lang>/<cardId>     One card
 //   check, camera, storage    Phone check and its two tests
+//   signin, profile           Sign in, and the signed-in person's Profile
+//   family/<userId>           A family member's My Cards, read only
 
-import {myCardsView} from './js/cards-view.js';
+import {profileView, setSignInNotice, signInView} from './js/account-views.js';
+import {completeInvite, completeSignIn, currentUser, onUser, restoreSession, signInErrorText, takeAuthReturn} from './js/auth.js';
+import {familyCardsView, myCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
-import {BASE, h, showError} from './js/dom.js';
+import {BASE, go, h, showError} from './js/dom.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
+import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
@@ -27,11 +32,19 @@ const ROUTES = [
 	{pattern: /^check$/, render: phoneCheckView, tab: 'check', title: 'Phone check | Card Tracker'},
 	{pattern: /^camera$/, render: cameraView, tab: 'check', title: 'Camera test | Card Tracker'},
 	{pattern: /^storage$/, render: storageView, tab: 'check', title: 'Storage test | Card Tracker'},
+	{pattern: /^signin$/, render: signInView, tab: null, title: 'Sign in | Card Tracker'},
+	{pattern: /^profile$/, render: profileView, tab: null, title: 'Profile | Card Tracker'},
+	{keys: ['userId'], pattern: /^family\/([^/]+)$/, render: familyCardsView, tab: 'cards', title: 'Family cards | Card Tracker'},
 ];
+
+// Routes whose screen depends on who is signed in, redrawn on sign-in and
+// sign-out.
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView]);
 
 const DEFAULT_ROUTE = 'cards';
 
 let cleanup = null;
+let currentRoute = null;
 
 function routePath() {
 	let path = window.location.pathname;
@@ -92,6 +105,8 @@ function render() {
 
 	const {params, route} = found;
 	const view = document.getElementById('view');
+
+	currentRoute = route;
 
 	document.getElementById('errors').replaceChildren();
 	document.getElementById('menu').open = false;
@@ -198,6 +213,90 @@ async function registerServiceWorker() {
 	}
 }
 
+// ------------------------------------------------------------ the account
+
+// The header: sync status under the title, and Sign in or the avatar that
+// opens Profile.
+function drawAccount(user) {
+	const account = document.getElementById('account');
+
+	if (user) {
+		const initial = (user.email || '?').trim().charAt(0).toUpperCase();
+
+		account.className = 'account avatar';
+		account.dataset.link = 'profile';
+		account.href = `${BASE}profile`;
+		account.setAttribute('aria-label', `Profile, signed in as ${user.email}`);
+		account.textContent = initial;
+	}
+	else {
+		account.className = 'account';
+		account.dataset.link = 'signin';
+		account.href = `${BASE}signin`;
+		account.removeAttribute('aria-label');
+		account.textContent = 'Sign in';
+	}
+}
+
+function watchSyncStatus() {
+	const line = document.getElementById('sync-status');
+
+	line.addEventListener('click', () => syncNow());
+
+	onSyncStatus((status) => {
+		const text = statusText(status);
+
+		line.hidden = !text;
+		line.textContent = text;
+		line.dataset.phase = status.phase;
+		line.title = status.phase === 'error' && status.error ? String(status.error.message || status.error) : '';
+	});
+}
+
+async function startAccount(authReturn) {
+	drawAccount(null);
+	watchSyncStatus();
+
+	onUser((user) => {
+		drawAccount(user);
+
+		if (currentRoute && ACCOUNT_ROUTES.has(currentRoute.render)) {
+			render();
+		}
+	});
+
+	startSync();
+
+	if (authReturn && authReturn.error) {
+		setSignInNotice(signInErrorText(authReturn.error));
+		go('signin', {replace: true});
+	}
+
+	await restoreSession();
+
+	if (authReturn && (authReturn.code || authReturn.tokens) && !currentUser()) {
+		try {
+			if (authReturn.code) {
+				await completeSignIn(authReturn.code);
+			}
+			else {
+				await completeInvite(authReturn.tokens);
+			}
+		}
+		catch (err) {
+			setSignInNotice(signInErrorText(err));
+			go('signin', {replace: true});
+		}
+	}
+}
+
 restoreRedirectedPath();
+
+// A sign-in link or Google returns with ?code=, and a dashboard invitation
+// with the session in the fragment; take either off the address before the
+// router replaces the path.
+const authReturn = takeAuthReturn();
+
 render();
 registerServiceWorker();
+startAccount(authReturn).catch((err) => showError('Signing in did not work.', err));

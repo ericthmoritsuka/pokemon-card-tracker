@@ -617,6 +617,224 @@ select {
 	justify-content: space-between;
 }
 
+.top {
+	gap: 8px;
+}
+
+.top h1 {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.brand {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+/* Sync status: small, under the title, tappable to sync again. */
+
+.sync-status {
+	background: none;
+	border: 0;
+	border-radius: 6px;
+	color: #ffffff;
+	font-size: 0.8rem;
+	font-weight: 400;
+	justify-content: flex-start;
+	min-height: 24px;
+	opacity: 0.85;
+	padding: 0;
+	text-align: left;
+	width: auto;
+}
+
+.sync-status[data-phase="error"] {
+	color: var(--yellow);
+	opacity: 1;
+}
+
+.sync-status[data-phase="offline"]::before,
+.sync-status[data-phase="error"]::before {
+	content: "\25CF\00A0";
+}
+
+.account {
+	align-items: center;
+	border: 1px solid rgba(255, 255, 255, 0.5);
+	border-radius: 12px;
+	color: #ffffff;
+	display: inline-flex;
+	flex: 0 0 auto;
+	font-weight: 600;
+	justify-content: center;
+	min-height: 48px;
+	padding: 0 12px;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+/* Title, Sign in, and Menu side by side at 360 px. */
+@media (max-width: 400px) {
+	.top h1 {
+		font-size: 1.1rem;
+	}
+
+	.menu summary {
+		padding: 0 12px;
+	}
+}
+
+.account.avatar {
+	background: var(--yellow);
+	border: 0;
+	border-radius: 50%;
+	color: var(--navy);
+	font-size: 1.15rem;
+	font-weight: 700;
+	height: 44px;
+	min-height: 44px;
+	padding: 0;
+	width: 44px;
+}
+
+/* Sign in and Profile */
+
+label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.signin button,
+.add-member button,
+form.card button {
+	margin-top: 8px;
+}
+
+.form-error {
+	color: var(--error-text);
+	margin: 8px 0 0;
+}
+
+.form-error:empty {
+	display: none;
+}
+
+.or {
+	margin: 12px 0 0;
+	text-align: center;
+}
+
+button.link-button {
+	background: none;
+	border: 0;
+	color: var(--link);
+	font-weight: 600;
+	margin-top: 8px;
+}
+
+button.danger {
+	border-color: var(--red);
+	color: var(--red);
+}
+
+button.small {
+	min-height: 40px;
+	padding: 6px 12px;
+	width: auto;
+}
+
+.members {
+	list-style: none;
+	margin: 0 0 12px;
+	padding: 0;
+}
+
+.member {
+	align-items: center;
+	border-top: 1px solid var(--border);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: space-between;
+	padding: 8px 0;
+}
+
+.members li + li {
+	margin-top: 0;
+}
+
+.member-text {
+	display: flex;
+	flex: 1 1 60%;
+	flex-direction: column;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.member-name {
+	font-weight: 600;
+}
+
+.member .form-error {
+	flex-basis: 100%;
+}
+
+.add-member h4 {
+	margin: 16px 0 4px;
+}
+
+/* My Cards heading with the family switcher */
+
+.view-head {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	justify-content: space-between;
+	margin-bottom: 8px;
+}
+
+.view-head h2 {
+	margin: 0;
+}
+
+.family-switch {
+	flex: 0 1 55%;
+	min-width: 0;
+}
+
+.family-switch select {
+	min-height: 44px;
+	padding-left: 12px;
+	padding-right: 30px;
+}
+
+/* A family member's view: a banner in the member color on every screen. */
+
+.view-only {
+	align-items: center;
+	background: var(--yellow);
+	border-radius: 12px;
+	color: #1b1b1f;
+	display: flex;
+	flex-wrap: wrap;
+	font-weight: 600;
+	gap: 4px 12px;
+	justify-content: space-between;
+	margin-bottom: 12px;
+	padding: 8px 12px;
+}
+
+.view-only a {
+	align-items: center;
+	color: #1b1b1f;
+	display: inline-flex;
+	min-height: 40px;
+}
+
 .menu {
 	position: relative;
 }
