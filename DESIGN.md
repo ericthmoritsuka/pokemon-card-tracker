@@ -36,7 +36,7 @@ What it does:
 - Look up current market price and its trend.
 - Export and import CSV, both for backup and for bulk editing in a spreadsheet.
 - Import the existing collection from monprice (section 7).
-- Separate accounts for any number of people (Eric, his wife, and his brother to start), each
+- Separate accounts for any number of people (Eric and two family members to start), each
   signing in on their own phone and keeping their own collection.
 - A family group, invite-only, whose members can browse each other's collections, binders, and
   wishlists.
@@ -192,7 +192,7 @@ phones that each add the same card produce two entries instead of overwriting ea
 *(Decided by Eric, 2026-10-01.)*
 
 **One account per person, any number of people.**
-Eric, his wife, and his brother each sign in on their own phone, and more can join. Copies,
+Eric and two family members each sign in on their own phone, and more can join. Copies,
 collections, binders, goals, and wishlists belong to a user. The card catalog, cached images, and
 prices are shared, because they describe cards, not anyone's ownership. Magic link or Google
 sign-in, no passwords. Every user-owned table carries `user_id` with row-level security from day
@@ -575,7 +575,7 @@ what it pulled at today's prices, and the best pull.
 ## 12. Open Questions
 
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
-  brother's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
+  family member's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
   schema change later.
 - Michi art across two facing pages: the binder model places art on one page only.
 - The rest of the proposals in `plans/ux-plan.md` section 9 and `plans/product-plan.md` section 8

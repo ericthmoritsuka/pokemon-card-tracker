@@ -11,8 +11,8 @@ A private card tracker for Eric and two invited family members, built around a p
 | User | Known facts | Jobs |
 | --- | --- | --- |
 | Eric (owner, admin) | Brazil. 1,611 cards, 88% PT by row, then EN, KR, CHS, JA, FR. Back to Base Set. Star collection of IRs and SIRs. Chasing one of every Pokémon. Uses binders, wants Michi pages. No portfolio. | Scan a mixed-language stack and trust every save. Know what is spare. See set progress across languages. Find a card's binder pocket. See what a goal is missing. |
-| His wife | Own account in the family group. Can see the others' collections and wishlists. | *Assumption:* keep her own collection and a wishlist the others read. Nothing else is stated. |
-| His brother | Same as above. Age unknown. | *Assumption:* same as the wife. |
+| Family member 1 | Own account in the family group. Can see the others' collections and wishlists. | *Assumption:* keep their own collection and a wishlist the others read. Nothing else is stated. |
+| Family member 2 | Same as above. | *Assumption:* same as family member 1. |
 
 Settled by Eric: invite-only, Eric adds members, no public sign-up. Nothing is private inside the group, purchase prices included.
 
@@ -65,7 +65,7 @@ Strongest first.
 
 **Switch-over.** *Import:* match report clean, total equals 1,611. *Trust:* one real 50-card mixed session, every save checked by hand against the stack. If it passes, he stops saving to monprice and leaves it untouched for a month as a fallback.
 
-**v1.1.** Eric invites his wife and brother. Each sees the others' cards and wishlists. Eric fixes a batch in a spreadsheet and re-imports it.
+**v1.1.** Eric invites the two family members. Each sees the others' cards and wishlists. Eric fixes a batch in a spreadsheet and re-imports it.
 
 **v1.2.** Eric sees how many Pokémon he is missing, opens the list offline in a shop, and finds any card's binder page.
 
@@ -97,7 +97,7 @@ Strongest first.
 | Question | Default if unanswered |
 | --- | --- |
 | One row per physical card instead of a quantity column? | Yes. |
-| Which phones do your wife and brother use? | Build the PWA; spike on all three. |
+| Which phones do the two family members use? | Build the PWA; spike on all three. |
 | Trade extras per card, or per card, language, and variant? | Per card, language, and variant. |
 | Scanner proposes a variant, or always asks? | Propose the base print; always show the chip. |
 | Record condition? | Optional, blank on import. |
