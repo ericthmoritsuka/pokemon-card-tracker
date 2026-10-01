@@ -16,17 +16,26 @@ What it does:
   when present. Owned cards show as owned in every language view.
 - Store owned cards, with the details that vary copy to copy (language, condition, variant,
   quantity).
-- Filter and search by type, rarity, set, language, price, collection membership.
-- Group cards into user-defined collections (for example, a Star collection for SIRs and IRs).
-  A card can belong to more than one.
+- Filter, search, and sort by price, rarity, date added, set, language, and the rest of the list
+  in section 11.
+- Group cards into collections, either hand-picked or self-filling from a rule (a Star collection
+  that collects every SIR and IR on its own). A card can belong to more than one.
+- Track goals: one card of every Pokémon, a set completed at three levels up to a master set, or
+  everything of one Pokémon or one artist. Each goal has a missing list.
+- Lay out physical binders: pick a grid, place a card in each slot, spread Michi-method art across
+  several slots, print the inserts, and always know which binder page a card is in.
+- Log pack openings, with what they cost against what they pulled.
+- Show owned cards inside the pokedex project.
 - Scan cards one at a time or in a batch session, assigning a whole session to collections at once.
 - Flag duplicates at scan time and keep a Trade view of the extras.
 - Mark favorites.
 - Look up current market price and its trend.
 - Export and import CSV, both for backup and for bulk editing in a spreadsheet.
 - Import the existing collection from monprice (section 7).
-- Separate accounts: Eric and his wife each sign in on their own phone and keep their own
-  collection.
+- Separate accounts for any number of people (Eric, his wife, and his brother to start), each
+  signing in on their own phone and keeping their own collection.
+- A family group whose members can browse each other's collections, binders, and wishlists.
+- Wishlists, so the others can see which cards someone wants.
 
 Out of scope: a portfolio view. monprice has one and it goes unused.
 
@@ -148,17 +157,56 @@ when there is signal.
 Each collection has one owner on one or two devices. Real conflict resolution is not worth the
 complexity.
 
-**One account per person, each with a private collection.**
-Eric and his wife each sign in on their own phone. Copies, collections, and the Trade view belong
-to a user. The card catalog, cached images, and prices are shared, because they describe cards,
-not anyone's ownership. Magic link or Google sign-in, no passwords. Every user-owned table carries
-`user_id` with row-level security from day one, because retrofitting it is miserable.
-*(Revised 2026-10-01. The first version was single-user and only built to allow a second.)*
+**One account per person, any number of people.**
+Eric, his wife, and his brother each sign in on their own phone, and more can join. Copies,
+collections, binders, goals, and wishlists belong to a user. The card catalog, cached images, and
+prices are shared, because they describe cards, not anyone's ownership. Magic link or Google
+sign-in, no passwords. Every user-owned table carries `user_id` with row-level security from day
+one, because retrofitting it is miserable. *(Revised 2026-10-01. The first version was
+single-user and only built to allow a second.)*
 
-**Adopt TCGplayer's condition and variant vocabulary verbatim.**
+**A family group can see each other's cards; only the owner can change them.**
+Members of a group browse each other's collections, binders, goals, and wishlists, read-only.
+Everyone writes only their own rows. Row-level security expresses both: read where the row's
+owner shares a group with you, write where you are the owner. Someone outside every group sees
+nothing.
+
+**Wishlists are explicit, and separate from goals.**
+A goal's missing list is everything not yet owned, which for "one of every Pokémon" runs to
+hundreds of cards and says little about what someone actually wants. A wishlist is a short,
+deliberate list: a card, optionally a variant and language, a priority, and a note. A missing
+card can be added to the wishlist in one tap. Seeing a family member's wishlist next to your own
+spares is the start of trade matching, which is deferred (section 12).
+
+**Adopt TCGplayer's condition vocabulary verbatim.**
 Near Mint / Lightly Played / Moderately Played / Heavily Played / Damaged is the de facto standard
 for English cards. Using it as-is means the condition field lines up with the price being fetched
 instead of needing a translation table.
+
+**A copy's variant is a TCGdex variant ID, not a word.**
+TCGdex `variants_detailed` lists every printing of a card with its own `variantId`, and the
+distinctions collectors care about are all in it: Poké Ball and Master Ball reverse holos
+(`foil: pokeball`, `foil: masterball`), Shadowless and Unlimited (`subtype`), and the 1st Edition
+stamp (`stamp: ["1st-edition"]`). Ball-pattern variants carry their own TCGplayer and Cardmarket
+products and prices. A free-text variant field could not drive the master-set goal or a
+per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's variant words.)*
+
+**Collections are hand-picked or self-filling.**
+A self-filling collection is a saved filter: Star is "rarity is `Illustration rare` or
+`Special illustration rare`", and it fills itself as cards are saved. Rules match on TCGdex's
+English values, because localized records translate them (a Portuguese common reads `Comum`). A
+hand-picked collection works as today. Either kind is just a view over `copies`, so neither
+changes the totals.
+
+**Goals are their own feature, not collections.**
+A collection holds cards you have; a goal measures cards you want against cards you have, and
+its most useful output is the missing list. Kinds: one of every Pokémon, a set (three levels), one
+Pokémon, one artist. Section 11 has the details.
+
+**A binder is a physical place, so a copy sits in at most one slot.**
+Collections are tags and can overlap; a binder slot is a real pocket. Each slot holds one
+physical card, so the slots pointing at a copy can never outnumber its `quantity`. That rule is
+what makes "where is this card?" answerable, and it shows unplaced copies for free.
 
 **Two export formats, not one.**
 CSV cannot losslessly hold collection membership, price history, and photos, so a CSV "backup"
@@ -180,8 +228,16 @@ cards                     -- shared catalog, cached from TCGdex, not user-specif
   set_id                  -- TCGdex set ID, e.g. me04, M6
   collector_number        -- STRING, never a number. "001" must not become 1.
   types[]
-  rarity
-  variants[]              -- TCGdex: normal, holo, reverse, firstEdition, wPromo
+  rarity                  -- TCGdex English value, e.g. "Special illustration rare"
+  dex_ids[]               -- National Dex numbers; a list, because TAG TEAM cards hold several
+  illustrator
+
+card_variants             -- from TCGdex variants_detailed
+  id                      -- TCGdex variantId
+  card_id -> cards.id
+  type                    -- normal | holo | reverse
+  subtype, foil, stamp[]  -- e.g. shadowless, pokeball / masterball, 1st-edition
+  tcgplayer_product_id, cardmarket_product_id
 
 card_localizations        -- one row per language the catalog has the card in
   card_id -> cards.id
@@ -198,10 +254,13 @@ copies                    -- the cards you actually own
   language                -- EN, PT, JA, KO, ZH-CN, ZH-TW, FR, DE, IT, ES, ...
   language_source         -- scan | manual | import
   condition               -- TCGplayer vocabulary
-  variant                 -- normal | holofoil | reverse_holofoil | first_edition | ...
+  variant_id -> card_variants.id
   quantity
   purchase_price
   purchase_currency
+  opening_id -> openings.id   -- optional, the pack opening it came from
+  storage                 -- optional free text for copies not in a binder ("Bulk box A")
+  grader, grade, cert_number, graded_price   -- optional; TCGdex has no graded data
   notes
   is_favorite
   photo_url               -- optional, own photo for condition documentation
@@ -209,16 +268,49 @@ copies                    -- the cards you actually own
 
 collections
   id, user_id, name, description
+  rule                    -- null for hand-picked; a saved filter for self-filling
 
-collection_copies         -- many-to-many; a copy can sit in several collections
+collection_copies         -- hand-picked membership only; a copy can sit in several
   collection_id, copy_id
 
+goals
+  id, user_id, kind       -- every_pokemon | set | pokemon | artist
+  target                  -- set ID, dex number, or illustrator name
+  level                   -- set goals: numbered | with_secrets | master
+
+binders
+  id, user_id, name, rows, cols, page_count
+
+binder_slots              -- one row per filled pocket
+  binder_id, page, position
+  copy_id -> copies.id    -- an owned card, or
+  want_card_id, want_variant_id   -- a placeholder for a card not owned yet, or
+  art_id, art_tile        -- one tile of a Michi art image
+
+binder_art                -- an uploaded image and the block of slots it spans
+  id, user_id, binder_id, page, first_position, rows, cols, image_path
+
+groups                    -- a family group
+  id, name
+
+group_members
+  group_id, user_id, role -- owner | member
+
+wishlist_items
+  id, user_id, card_id
+  variant_id, language    -- optional; null means any
+  priority, note, created_at
+
+openings                  -- a logged pack opening
+  id, user_id, product, set_id, pack_count, cost, currency, opened_at
+
 price_snapshots
-  card_id, language, condition, variant, source, price, currency, captured_at
+  card_id, variant_id, language, condition, source, price, currency, captured_at
 ```
 
 There is no "all cards" collection and no trade collection: both are queries over `copies`
-(section 3).
+(section 3). Self-filling collections and goals are queries too; only their definitions are
+stored.
 
 Note the natural key that identifies a card independent of any API:
 `set_code + collector_number + language + condition + variant`.
@@ -274,6 +366,13 @@ result is a proposal on the confirm screen, never a silent save.
 card is already owned, the duplicate prompt. One tap saves. In a batch session, the same details
 appear on each tray card instead, and the session is confirmed as a whole (section 3).
 
+**Scan safety.** Wrong data saved silently is the failure this app exists to stop, so:
+
+- Every match carries a confidence. A low-confidence card is flagged in the tray and needs a tap
+  before the session can save. It is never saved on a guess.
+- A whole session can be corrected at once: "this session was all Korean", or "all reverse holo".
+- The last save can be undone from a banner until the next scan starts.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.
@@ -281,7 +380,8 @@ appear on each tray card instead, and the session is confirmed as a whole (secti
   print, are the same artwork and the same collector number but very different cards. All three
   approaches will confidently return the wrong one. Distinguishing them needs the set symbol and
   edition stamp specifically. Eric owns 135 reverse holos and 4 first editions, so this is not an
-  edge case.
+  edge case. Recent sets add Poké Ball and Master Ball reverse holos, the same card again with a
+  different foil pattern.
 - Asian prints are numbered within their own sets, so a Korean `81/120` is looked up in the
   Japanese-code set, not an international one.
 
@@ -302,7 +402,8 @@ sets, back to Base Set.
   then cards by number.
 - **Languages present:** PT 1,239, EN 111, KR 56, CHS 4, JA 3, FR 1.
 - **Finish types present:** `NORMAL`, `HOLOFOIL`, `REVERSE_HOLOFOIL`, `UNLIMITED`,
-  `FIRST_EDITION`, `UNLIMITED_HOLOFOIL`. Map each to the variant vocabulary.
+  `FIRST_EDITION`, `UNLIMITED_HOLOFOIL`. Map each to the card's TCGdex variant ID. monprice has no
+  ball-pattern finish, so an imported reverse holo is the plain reverse until edited.
 - **Count** becomes `quantity`. 91 rows have a count above 1, so the Trade view starts populated.
 - **Not in the export:** condition, purchase price, and collection membership. Rebuild a
   collection such as Star by exporting it from monprice separately and importing that file as
@@ -316,7 +417,8 @@ tier). Firebase is an equivalent alternative.
 
 - Client writes to IndexedDB first, flushes to Supabase when online.
 - Auth by magic link or Google. No passwords. One account per person (section 3).
-- Row-level security on `user_id` from the start, on every user-owned table. The catalog,
+- Row-level security on `user_id` from the start, on every user-owned table: write when you own
+  the row, read when you own it or share a group with its owner (section 3). The catalog,
   localizations, cached images, and price snapshots are readable by every signed-in user.
 - Own photos and cached card images need blob storage and will dominate storage size. Cheap now,
   annoying to add later.
@@ -362,6 +464,14 @@ inventing one. Buys import from other collection trackers for free, at the cost 
 The 1, 7, and 30 day averages give a trend without running a snapshot job. BRL comes from a
 daily exchange rate; the pokedex already converts with frankfurter.dev.
 
+**Per-variant prices.** Each entry in `variants_detailed` carries its own `pricing` (checked on
+`en/cards/sv08.5-001`, where the Poké Ball and Master Ball reverses have their own products). One
+exception seen: Base Set Charizard's 1st Edition Shadowless and plain Shadowless share TCGplayer
+product `106999`, so the price may not separate them.
+
+**No graded prices.** TCGdex carries no PSA, CGC, or BGS data (no grade field on `base1-4` or
+`sv08.5-001`). A graded copy's value is entered by hand into `graded_price`.
+
 **The language gap.** Portuguese and Japanese card records also carry `pricing`, but it has not
 been checked whether those prices are for that printing or are the English market price
 repeated. Until it is, show prices as a reference labeled with their market. Brazilian pricing
@@ -375,19 +485,89 @@ Three ways to handle it, all supported by the `price_snapshots` schema, and they
 
 Consequence: the collection total must be honest about which parts are estimated.
 
-## 11. Open Questions
+## 11. Collecting Features
+
+### Goals
+
+| Goal | Target | Done when |
+| --- | --- | --- |
+| Every Pokémon | National Dex 1 to 1,025 | At least one card owned whose `dex_ids` includes each number |
+| Set, numbered | One set | Every card up to the set's official count (TCGdex `cardCount.official`) |
+| Set, with secrets | One set | Every card in the set, secret rares included (`cardCount.total`) |
+| Set, master | One set | Every card in every variant, ball patterns and reverses included |
+| One Pokémon | A dex number | Every card of that Pokémon, across all sets |
+| One artist | An illustrator | Every card by that illustrator |
+
+Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
+why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants
+including the ball patterns.
+
+Each goal shows a progress ring and a **missing list**. The missing list is sortable like any
+other view, can be opened offline in a card shop, and sends any card to the wishlist in one tap.
+The pokedex project already shows each Pokémon's cards, which suits the One Pokémon goal well.
+
+### Binders
+
+A binder mirrors one real binder: a name, a grid, and a page count. Grids run from 1×1 to 5×4 so
+any binder fits; the common ones are 2×2, 3×3, and 3×4. Each slot is one of:
+
+- **An owned card.** A specific copy, placed by tapping the slot and picking from the collection.
+- **A placeholder.** A card not owned yet, shown greyed out. When that card is scanned later, the
+  confirm screen says where it goes: "Binder 2, page 7, slot 4".
+- **Michi art.** One tile of an image spread across several slots.
+- **Empty on purpose.**
+
+**The Michi method** (after Michi, @peeplop on Instagram) treats a page as one picture instead of
+a grid: an illustration sliced into tiles around one or two featured cards, with art standing in
+for cards in the other pockets. The app supports it by letting an uploaded image span a block of
+slots, slicing it to the grid, and exporting print-ready inserts. Specs from the binder community
+guides (not verified here): a pocket insert is 67 × 96 mm, a 3×3 page prints on A4, and inserts
+are printed at 300 DPI at 100% scale on matte cardstock.
+
+A binder view answers both questions a collector asks: which pages a card is in, and which owned
+cards are not in any binder yet.
+
+### Filters and Sorting
+
+Every card list (sets, collections, binders, goals, wishlists, the Trade view) shares one filter
+and sort bar.
+
+- **Filter by:** set, series, language, rarity, type, Pokémon, artist, variant, condition, price
+  range, collection, binder (placed or not), goal (missing from), owned or not, duplicates only.
+- **Sort by:** price, rarity, date added (newest or oldest first), set release date, collector
+  number, name, National Dex number.
+
+### Pack Openings
+
+An opening is a batch scan session with a product attached: "10 packs of Celebração de 30 Anos,
+R$300". Every copy saved in it remembers the opening, so the opening shows what it cost against
+what it pulled at today's prices, and the best pull.
+
+### Pokedex Link
+
+The pokedex project (`ericthmoritsuka/pokedex`) shows each Pokémon's trading cards. With the
+tracker behind it, it can mark the ones the signed-in person owns, and show progress on the
+Every Pokémon goal next to the Pokédex entry itself.
+
+## 12. Open Questions
 
 - Does Trade count extras per card, or per card and language? A PT and an EN copy of the same
   card may both be keepers.
-- Can the two accounts see each other's collection or Trade view, for trading within the
-  household? Default until decided: fully private.
+- What, if anything, stays private inside a family group? Purchase prices and notes are the
+  likely candidates. Default until decided: visible to the group.
+- **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
+  brother's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
+  schema change later.
+- How does the pokedex, a static site on GitHub Pages, read a person's cards? Signing in from the
+  pokedex itself, or a read-only link the tracker publishes.
 - Value-over-time chart? The 1/7/30 day averages may be enough; a longer chart is the main fork
   in how much backend is needed (section 8).
-- Phone only, or a real desktop view for bulk editing? CSV round-trip partly covers the latter.
+- Phone only, or a real desktop view for bulk editing and binder layout? CSV round-trip partly
+  covers the former; the Michi layout is easier on a big screen.
 - Store own photos of cards, or rely on catalog artwork only?
 - Invent the CSV column spec, or adopt TCGplayer's / Deckbox's?
 
-## 12. Verify Before Building
+## 13. Verify Before Building
 
 Claims in this document that were reasoned about but not checked against source:
 
@@ -395,30 +575,39 @@ Claims in this document that were reasoned about but not checked against source:
 - That Korean sets always reuse the Japanese set code and numbering. True for M4 and M6 in
   Eric's export; not checked for other sets.
 - TCGdex rate limits and terms for caching images.
-- How reliably variant data (`variants`) distinguishes 1st Edition, Shadowless, and Unlimited
-  for WotC sets.
+- That `variants_detailed` is filled in consistently across sets. Checked on two cards only
+  (`sv08.5-001`, `base1-4`).
+- The Michi insert dimensions and print settings in section 11, taken from community guides.
+- Whether the rarity values in a Star rule cover every era's naming (TCGdex lists 42 rarity
+  values, including `Illustration rare` and `Special illustration rare`).
 - Current TCGplayer API access model, only if TCGdex pricing falls short. Historically
   partner-gated rather than open signup. Do not design around having a key until confirmed.
 - Exact TCGplayer CSV column spec, if adopting it.
 - What a Brazilian card's copyright line actually reads, as an OCR anchor for language detection.
 
-Checked 2026-10-01 and recorded above: TCGdex language coverage and gaps (section 5), TCGdex
-pricing fields (section 10), the `assets.tcgdex.net` outage (section 3), and the monprice export
-format (section 7). pokemontcg.io is no longer the catalog, so its open questions are dropped.
+Checked 2026-10-01 and recorded above: TCGdex language coverage and gaps (section 5), pricing
+fields, per-variant prices, and the absence of graded data (section 10), variant detail
+including ball patterns and vintage editions (section 3), rarity values and `dex_ids` (sections 3
+and 4), the `assets.tcgdex.net` outage (section 3), and the monprice export format (section 7).
+pokemontcg.io is no longer the catalog, so its open questions are dropped.
 
-## 13. Suggested Build Order
+## 14. Suggested Build Order
 
-1. Schema and auth in Supabase, with two accounts working from the start. Manual card entry
-   only, no camera.
+1. Schema and auth in Supabase, with several accounts and a family group working from the start.
+   Manual card entry only, no camera.
 2. CSV export and import, including the UUID round-trip. Early, because it is the backup.
 3. monprice import, using the mapping in section 7. Proves the catalog matching on 1,414 real
    rows before the scanner depends on it.
-4. Catalog browsing per language against TCGdex, with image caching. Cache into `cards` and
-   `card_localizations`.
-5. Collections, favorites, filtering, duplicates, and the Trade view.
-6. Camera capture plus OCR of the collector number, language detection, the confirm screen, and
-   the batch session tray.
+4. Catalog browsing per language against TCGdex, with image caching. Cache into `cards`,
+   `card_variants`, and `card_localizations`.
+5. Collections (hand-picked and self-filling), favorites, the shared filter and sort bar,
+   duplicates, and the Trade view.
+6. Goals with missing lists, wishlists, and browsing a family member's cards.
+7. Binders: grids, placing cards and placeholders, then Michi art and print export.
+8. Camera capture plus OCR of the collector number, language detection, the confirm screen, scan
+   safety, and the batch session tray. Pack openings ride on the session.
    The scanner is the fun part but the least load-bearing: everything works without it, just
    slower to enter cards.
-7. Vision-model fallback for variants and set symbols.
-8. Pricing display, then price snapshots if the value chart is wanted.
+9. Vision-model fallback for variants and set symbols.
+10. Pricing display, then price snapshots if the value chart is wanted.
+11. The pokedex link.
