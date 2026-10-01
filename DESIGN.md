@@ -422,6 +422,12 @@ result is a proposal on the confirm screen, never a silent save.
 card is already owned, the duplicate prompt. One tap saves. In a batch session, the same details
 appear on each tray card instead, and the session is confirmed as a whole (section 3).
 
+**Wishlist alert on scan.** When a scanned card is on a family member's wishlist (matching its
+variant and language when the wishlist item names them), the confirm sheet and the tray tile show
+"<member> wants this card". It also works in the check-only scan that saves nothing, so a scan in
+a store answers "does anyone want this?". The family's wishlists are kept on the device for
+offline use. *(Requested by Eric, 2026-10-01.)*
+
 **Scan safety.** Wrong data saved silently is the failure this app exists to stop, so:
 
 - Every match carries a confidence. A low-confidence card is flagged in the tray and needs a tap
@@ -582,6 +588,15 @@ product `106999`, so the price may not separate them.
 been checked whether those prices are for that printing or are the English market price
 repeated. Until it is, show prices as a reference labeled with their market. Brazilian pricing
 largely lives on Brazilian marketplaces such as Liga Pokémon rather than in a drop-in API.
+
+**Liga Pokémon: a link, not a scraper.** Liga Pokémon (`ligapokemon.com.br`) has the Brazilian
+prices Eric wants (lowest NM and average) but no public API, and its `robots.txt` (checked
+2026-10-01) asks crawlers to wait 360 seconds between requests, disallows its price history pages,
+and blocks one crawler outright; the site sits behind Cloudflare. Collecting its prices
+automatically would go against the site's stated wishes, so the app does not. Instead each card
+gets a **Ver na Liga** button that opens Liga's own search for that card in the browser, and a
+copy can carry a manual price with its source and date ("R$45, Liga, 2026-10-01"). *(Decided
+2026-10-01.)*
 
 Three ways to handle it, and they can coexist:
 
