@@ -237,7 +237,9 @@ async function loadSetList(lang) {
 	}));
 }
 
-export const setList = (lang, onUpdate) => cached(`setlist:${lang}`, () => loadSetList(lang), onUpdate);
+// The key carries a version: a list cached before series dates and ranks were
+// added sorts wrongly, so a new key makes every device fetch the dated one.
+export const setList = (lang, onUpdate) => cached(`setlist2:${lang}`, () => loadSetList(lang), onUpdate);
 
 export const setDetail = (lang, setId, onUpdate) =>
 	cached(`set:${lang}:${setId}`, () => getJson(`${lang}/sets/${encodeURIComponent(setId)}`), onUpdate);
