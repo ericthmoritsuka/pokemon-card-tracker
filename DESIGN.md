@@ -327,7 +327,7 @@ card
     "notes", "is_favorite", "photo_path", "created_at"
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
-  "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks" }],
+  "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages" }],
                                   -- every_pokemon | region | custom_pokemon | set | pokemon | artist
   "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
@@ -785,12 +785,16 @@ all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across se
 including cards it shares with others (TAG TEAM cards list several `dexId` values), with owned
 cards flagged (ribbon and language flags) and missing ones dimmed with one tap to the wishlist,
 the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
-collection. It covers international prints only (the Portuguese and English printings that share
-one card record), from the bulk `id` and `dexId` list the checklists already cache (23,736 cards in
-one request), so it works offline; Japanese and Korean prints and TCG Pocket are left out. Every
+collection. Each list has its own **languages** setting (default Portuguese and English; any of
+Japanese, Korean, Chinese, French, and the others can be added). It decides both which prints
+appear and what counts as owned: a card counts only when owned in one of the list's languages, so
+a Portuguese-only list ticks a card only for a Portuguese copy. International prints come from the
+bulk `id` and `dexId` list the checklists already cache (23,736 cards in one request), so they
+work offline; Japanese and Korean prints load from their own catalogs, one request per set, only
+when the list includes those languages, and are kept for offline use. TCG Pocket is left out. Every
 thumbnail carries language flags in its top-left corner: the languages the person owns it in (a
 Portuguese copy shows Brazil, both show Brazil and the United States), and none on a missing card.
-*(Narrowed by Eric, 2026-10-01.)*
+*(Languages per list by Eric, 2026-10-01.)*
 *(Planned 2026-10-01, a block after the shell.)*
 
 Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
