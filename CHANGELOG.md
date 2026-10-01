@@ -7,20 +7,29 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Built and tested, waiting to go live together: Pokémon checklists, the Ver na Liga button,
-  type themes with game-style frames, favorite Pokémon, binders with notes and cover color, and
-  wishlists with a family view.
-- Being built: English names over Japanese, Korean, and Chinese names, with readings in
-  parentheses, and country flags instead of language codes.
-- Next: the new navigation (Cards, Sets, Scan, Binders, Lists) and the scanner, from the
-  approved design review.
+- The new navigation (Cards, Sets, Scan, Binders, Lists), Profile behind the avatar, swiping
+  between cards, a shared card tile, and a self-hosted font.
+- The scanner: viewfinder, session tray, language per card, finish picker, duplicates,
+  wishlist alerts, check-only mode, and undo.
+- Your own card photos with auto-crop, and the image carousel.
 
 ## Live
 
 ### 2026-10-01
 
-- **13:48** Scan lab at `/lab/`: measures how well the phone reads cards (open it in an Incognito
-  tab until the next app version). Benchmark: the right card first on 82% of clean and 65% of
+- **14:03** Version 11, with tabs for Lists and Binders, and Wishlist in the Menu. `07b9efb`
+  - Pokémon checklists: Kanto through Paldea, or your own list, ticked from your cards in any
+    language, with hand ticks and a Missing filter that works offline.
+  - Ver na Liga button on cards, using Liga's exact names and numbers, including Japanese prints.
+  - English names over Japanese, Korean, and Chinese names, with readings in parentheses
+    ("Ptera VSTAR", "Peutera VSTAR").
+  - Country flags instead of language codes on cards.
+  - Type themes with game-style frames, and a favorite Pokémon in the header and tab icon
+    (Profile).
+  - Binders with notes, cover color, pages, placeholders, and "which binder is this card in".
+  - Wishlists with priority and notes, and a read-only family view with spare counts.
+  - TCG Pocket hidden from Sets; the scan lab no longer needs an Incognito tab.
+- **13:48** Scan lab at `/lab/`: measures how well the phone reads cards. Benchmark: the right card first on 82% of clean and 65% of
   degraded captures. `385a02d`
 - **12:05** Live sync: an open device picks up changes from another within a minute, or within
   seconds after running `supabase/realtime.sql`. Installed apps get it with the next version.
