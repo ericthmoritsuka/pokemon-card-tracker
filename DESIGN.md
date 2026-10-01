@@ -779,6 +779,17 @@ hand ticks show a different mark from owned ones and never count as owned anywhe
 A checklist can lay out a binder in Dex order with placeholders for the missing ones, which suits
 a "Generations 1 and 2" binder.
 
+**Every card of a Pokémon** (Eric, 2026-10-01: "let me see how many cards for Jigglypuff are out
+there and which ones I already have"). In a custom or region checklist, tapping a Pokémon opens
+all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across sets, newest first,
+including cards it shares with others (TAG TEAM cards list several `dexId` values), with owned
+cards flagged (ribbon and language flags) and missing ones dimmed with one tap to the wishlist,
+the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
+collection. The international cards come from the bulk `id` and `dexId` list the checklists
+already cache (23,736 cards in one request), so it works offline; Japanese and Korean prints come
+from their own catalogs, one request per set, under a separate heading. TCG Pocket is excluded.
+*(Planned 2026-10-01, a block after the shell.)*
+
 Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
 why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants
 including the ball patterns.
