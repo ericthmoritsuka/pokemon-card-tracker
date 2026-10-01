@@ -453,6 +453,14 @@ needs one more setup script for the bucket and its policies. The scanner reuses 
 detection and warp, so scanned cards get their photo for free. Auto-detection is most reliable on
 a plain, contrasting background; the corner handles cover the rest. *(Planned 2026-10-01.)*
 
+**Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
+swipeable carousel with dots underneath, shown only when there is more than one. Order, which is
+also the default main image: the official catalog image once TCGdex has it (so it takes over by
+itself when it appears), then a confident international twin's image (labelled "International
+print"), then the owner's own photos (several allowed, front and back). Each image carries its
+source label. "Use as main image" pins any one of them as what tiles show; without a pin, the
+first available image in that order is used. Tapping opens the image full screen.
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
