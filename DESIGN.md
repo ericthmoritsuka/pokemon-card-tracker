@@ -440,8 +440,8 @@ tier). Firebase is an equivalent alternative.
   chart of collection value over the last year needs a scheduled job writing snapshots nightly
   whether or not the app is open. This is the one piece that needs more than a database.
 
-**Hosting (recommended, not yet decided):** an installable web app (PWA) on GitHub Pages, with
-Supabase behind it. Free, shared by link instead of an app store, and one codebase for every
+**Hosting: an installable web app (PWA) on GitHub Pages, with Supabase behind it.** *(Decided by
+Eric, 2026-10-01.)* Free, shared by link instead of an app store, and one codebase for every
 family phone. If the web camera proves too weak for batch scanning, wrap the same code as a
 native app with Capacitor rather than rewriting.
 
