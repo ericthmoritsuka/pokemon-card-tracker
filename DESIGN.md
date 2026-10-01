@@ -598,6 +598,16 @@ gets a **Ver na Liga** button that opens Liga's own search for that card in the 
 copy can carry a manual price with its source and date ("R$45, Liga, 2026-10-01"). *(Decided
 2026-10-01.)*
 
+**Liga's query pattern** (checked by hand in a browser, 2026-10-01): Liga's search is
+`https://www.ligapokemon.com.br/?view=cards/search&card=<text>`, and it only lands on one card
+when the text is exactly the English card name followed by the number and official set total as
+printed, in parentheses. `Rattata (019/165)` opens the 151 Rattata (Liga edition code `MEW`), and
+`Charizard (4/102)` opens Base Set Charizard ("Coleção Básica"). Build it from TCGdex: the English
+`name`, the card's `localId` exactly as given (zero-padded on modern sets, not on vintage), and the
+set's `cardCount.official`. When several editions share that text, Liga shows an edition picker
+on the card page. Korean and Japanese prints have no reliable Liga equivalent and get no button
+until checked.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
