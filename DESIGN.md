@@ -33,7 +33,10 @@ What it does:
 - Track goals: one card of every Pokémon, a set completed at three levels up to a master set, or
   everything of one Pokémon or one artist. Each goal has a missing list.
 - Lay out physical binders: pick a grid, place a card in each slot, spread Michi-method art across
-  several slots, print the inserts, and always know which binder page a card is in.
+  several slots, print the inserts, and always know which binder page a card is in. Each binder has
+  notes and a cover color, so it matches the one on the shelf.
+- Pick a color theme, one per Pokémon type, with panel frames inspired by the selectable text box
+  styles in the games.
 - Log pack openings, with what they cost against what they pulled.
 - Scan cards one at a time or in a batch session, assigning a whole session to collections at once.
 - Flag duplicates at scan time and keep a Trade view of the extras.
@@ -308,12 +311,13 @@ card
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
   "goals":       [{ "id", "kind", "target", "level" }],         -- every_pokemon | set | pokemon | artist
-  "binders":     [{ "id", "name", "rows", "cols", "page_count",
+  "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
                                 "entry_id" | "want": {card_id, variant_id} | "art": {art_id, tile} }],
                     "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }] }],
   "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
-  "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }]
+  "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
+  "settings":    { "theme" }               -- follows the person to every device
 }
 ```
 
@@ -594,8 +598,26 @@ slots, slicing it to the grid, and exporting print-ready inserts. Specs from the
 guides (not verified here): a pocket insert is 67 × 96 mm, a 3×3 page prints on A4, and inserts
 are printed at 300 DPI at 100% scale on matte cardstock.
 
+Each binder also carries **notes** (free text, for example "Generations 1 and 2") and a **cover
+color**, and the binder list draws each one in its cover color so it is easy to match to the real
+binder. *(Requested by Eric, 2026-10-01.)*
+
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
 cards are not in any binder yet.
+
+### Themes
+
+A theme picker in settings offers one theme per Pokémon type (Water, Fire, Grass, Electric,
+Psychic, Fairy, Dark, Dragon, and the rest of the 18), plus the default. A theme sets the accent
+color, a light tint on panels, and a panel frame style inspired by the selectable text box frames
+in the games' options menus. The 18 type colors come from the pokedex project's `style.css`, so
+the two apps share a palette. *(Requested by Eric, 2026-10-01.)*
+
+- Text on every theme meets WCAG AA contrast; bright types such as Electric and Fairy switch text
+  to dark automatically.
+- Destructive actions stay red in every theme, so danger never changes color.
+- The theme is saved in the person's document (`settings.theme`), so it follows them across
+  devices once sync exists; before sign-in it lives on the device.
 
 ### Filters and Sorting
 
@@ -668,9 +690,9 @@ settles the iPhone questions before any feature work.
 5. Set browser with owned rings across languages, search, filter and sort, the Trade view, the
    Star rule and hand-picked collections, prices labeled by market.
 
-**v1.1:** invites, family browsing, wishlists, CSV re-import, the full filter bar.
+**v1.1:** invites, family browsing, wishlists, CSV re-import, the full filter bar, type themes.
 
-**v1.2:** goals with missing lists, binders with placement and placeholders.
+**v1.2:** goals with missing lists, binders with placement, placeholders, notes, and cover color.
 
 **Later:** Michi art and print export, the master-set goal, automatic finish detection, pack
 openings, graded fields, own photos. A paid vision-model fallback only if the scan lab shows the
