@@ -609,3 +609,322 @@ select {
 		grid-template-columns: 1fr 1fr;
 	}
 }
+
+/* Header menu */
+
+.top {
+	align-items: center;
+	justify-content: space-between;
+}
+
+.menu {
+	position: relative;
+}
+
+.menu summary {
+	align-items: center;
+	border: 1px solid rgba(255, 255, 255, 0.5);
+	border-radius: 12px;
+	cursor: pointer;
+	display: flex;
+	font-weight: 600;
+	list-style: none;
+	min-height: 48px;
+	padding: 0 16px;
+}
+
+.menu summary::-webkit-details-marker {
+	display: none;
+}
+
+.menu-items {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+	display: grid;
+	min-width: 240px;
+	padding: 4px;
+	position: absolute;
+	right: 0;
+	top: calc(100% + 4px);
+	z-index: 20;
+}
+
+.menu-items a {
+	align-items: center;
+	border-radius: 8px;
+	color: var(--text);
+	display: flex;
+	font-weight: 600;
+	min-height: 48px;
+	padding: 0 12px;
+	text-decoration: none;
+}
+
+/* Toolbars with two controls side by side */
+
+.toolbar-row {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+}
+
+.toolbar-row .viewing {
+	flex: 1 1 55%;
+	gap: 6px;
+	min-width: 0;
+}
+
+.toolbar-row .sort-wrap {
+	flex: 1 1 45%;
+}
+
+.toolbar-row .select-wrap,
+.toolbar.two .select-wrap {
+	min-width: 0;
+}
+
+/* Compact selects, so two fit side by side at 360 px. */
+.toolbar-row select,
+.toolbar.two select {
+	padding-left: 12px;
+	padding-right: 30px;
+}
+
+.toolbar-row .select-wrap::after,
+.toolbar.two .select-wrap::after {
+	right: 12px;
+}
+
+.toolbar.two {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: 1fr 1fr;
+	margin-bottom: 8px;
+}
+
+select {
+	text-overflow: ellipsis;
+}
+
+/* Owned progress on set tiles: a ring plus "12 / 102", never the ring alone */
+
+.set-foot {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	justify-content: space-between;
+	margin-top: auto;
+}
+
+.owned-count {
+	align-items: center;
+	color: var(--muted);
+	display: inline-flex;
+	font-size: 0.85rem;
+	font-weight: 700;
+	gap: 6px;
+	white-space: nowrap;
+}
+
+.owned-count.owned {
+	color: var(--text);
+}
+
+.ring {
+	background: conic-gradient(var(--blue) calc(var(--p) * 1%), var(--skeleton) 0);
+	border-radius: 50%;
+	flex: none;
+	height: 22px;
+	-webkit-mask: radial-gradient(circle, transparent 6px, #000000 7px);
+	mask: radial-gradient(circle, transparent 6px, #000000 7px);
+	width: 22px;
+}
+
+/* Set detail: All, Owned, Missing */
+
+.segmented {
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	margin: 8px 0 4px;
+	overflow: hidden;
+}
+
+.segmented label {
+	position: relative;
+}
+
+.segmented input {
+	opacity: 0;
+	position: absolute;
+}
+
+.segmented span {
+	align-items: center;
+	background: var(--surface);
+	cursor: pointer;
+	display: flex;
+	font-weight: 600;
+	justify-content: center;
+	min-height: 48px;
+}
+
+.segmented label + label span {
+	border-left: 1px solid var(--border);
+}
+
+/* The chosen option is filled and underlined, so it does not rely on color. */
+.segmented input:checked + span {
+	background: var(--navy);
+	box-shadow: inset 0 -4px 0 var(--yellow);
+	color: #ffffff;
+}
+
+.segmented input:focus-visible + span {
+	outline: 3px solid var(--blue);
+	outline-offset: -3px;
+}
+
+/* Owned flag in set detail: a bookmark ribbon carrying the copy count */
+
+.ribbon {
+	background: var(--red);
+	clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+	color: #ffffff;
+	font-size: 0.8rem;
+	font-weight: 700;
+	height: 34px;
+	line-height: 1;
+	padding-top: 7px;
+	position: absolute;
+	right: 8px;
+	text-align: center;
+	top: 0;
+	width: 24px;
+	z-index: 1;
+}
+
+/* Corner badges on card art (plans/ux-plan.md section 5) */
+
+.art-wrap {
+	position: relative;
+}
+
+.badge {
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	line-height: 1;
+	padding: 4px 7px;
+	position: absolute;
+	top: 6px;
+	z-index: 1;
+}
+
+.badge-qty {
+	background: rgba(17, 17, 24, 0.85);
+	color: #ffffff;
+	right: 6px;
+}
+
+.badge-lang {
+	background: var(--surface);
+	border: 1.5px solid var(--text);
+	color: var(--text);
+	left: 6px;
+}
+
+.tile.unowned .art {
+	filter: grayscale(0.7);
+	opacity: 0.5;
+}
+
+.owned-text {
+	color: var(--text);
+	font-weight: 600;
+}
+
+/* Import */
+
+progress {
+	accent-color: var(--blue);
+	height: 12px;
+	margin: 4px 0 8px;
+	width: 100%;
+}
+
+.report-line {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	margin: 8px 0;
+}
+
+.report-line.sub {
+	margin-left: 16px;
+}
+
+.report-line summary {
+	align-items: center;
+	cursor: pointer;
+	display: flex;
+	font-weight: 600;
+	min-height: 48px;
+	padding: 8px 16px;
+}
+
+.report-line.empty summary {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+.report-rows {
+	font-size: 0.85rem;
+	margin: 0;
+	max-height: 60vh;
+	overflow-y: auto;
+	padding: 0 16px 12px 2.25rem;
+}
+
+.report-rows li {
+	overflow-wrap: anywhere;
+}
+
+.report-rows li + li {
+	margin-top: 6px;
+}
+
+.report-rows .muted {
+	display: block;
+	font-size: 0.8rem;
+}
+
+.empty-state .button {
+	margin-top: 8px;
+}
+
+.copies {
+	margin-bottom: 16px;
+}
+
+/* Report lines say in words that they open. */
+
+.report-line summary::after {
+	color: var(--link);
+	content: "Show";
+	flex: none;
+	font-size: 0.85rem;
+	margin-left: auto;
+	padding-left: 12px;
+}
+
+.report-line[open] summary::after {
+	content: "Hide";
+}
+
+.report-line.empty summary::after {
+	content: none;
+}

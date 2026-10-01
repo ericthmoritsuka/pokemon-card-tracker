@@ -4,7 +4,7 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<title>Card Tracker</title>
-	<meta name="description" content="Browse the Pokémon card catalog by set and language, and check what this phone can do.">
+	<meta name="description" content="Keep your Pokémon cards on your phone, import them from monprice, and browse the catalog by set and language.">
 	<meta name="theme-color" content="#1d2e60">
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-capable" content="yes">
@@ -25,6 +25,14 @@
 <body>
 	<header class="top">
 		<h1>Card Tracker</h1>
+		<details class="menu" id="menu">
+			<summary>Menu</summary>
+			<nav class="menu-items" aria-label="More">
+				<a href="/pokemon-card-tracker/import" data-link="import">Import from monprice</a>
+				<a href="/pokemon-card-tracker/cards" data-link="cards">My Cards and CSV export</a>
+				<a href="/pokemon-card-tracker/check" data-link="check">Phone check</a>
+			</nav>
+		</details>
 	</header>
 
 	<main>
@@ -38,6 +46,7 @@
 	</main>
 
 	<nav class="tabs" aria-label="Main">
+		<a href="/pokemon-card-tracker/cards" data-link="cards" data-tab="cards">My Cards</a>
 		<a href="/pokemon-card-tracker/sets" data-link="sets" data-tab="sets">Sets</a>
 		<a href="/pokemon-card-tracker/check" data-link="check" data-tab="check">Phone check</a>
 	</nav>

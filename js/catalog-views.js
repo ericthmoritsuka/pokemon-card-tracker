@@ -5,6 +5,7 @@ import {
 	NotOnPhoneError,
 	cardDetail,
 	cardImage,
+	catalogFor,
 	compareNumbers,
 	languageLabel,
 	logoImage,
@@ -13,7 +14,9 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
+import {ownedBySet, ownedIn} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
+import {finishLabel} from './monprice.js';
 
 // International prints share English card records (DESIGN.md section 3), so
 // only these languages fall back to the English list of the same set.
@@ -62,7 +65,7 @@ function cardBack({name, number, setName}, missing) {
 
 // Card art in the 63:88 card shape. It shimmers while the image loads and
 // turns into the card-back tile if the image fails.
-function cardArt(info, src, {eager = false} = {}) {
+export function cardArt(info, src, {eager = false} = {}) {
 	const frame = h('div', {class: 'art loading'});
 
 	if (!src) {
@@ -127,14 +130,84 @@ function loadFailure(err, what, retry) {
 
 // ------------------------------------------------------------ sets view
 
+// Sets order, remembered like the viewing language.
+const SET_SORTS = [
+	{label: 'Newest first', value: 'newest'},
+	{label: 'Oldest first', value: 'oldest'},
+	{label: 'Name A to Z', value: 'name'},
+];
+
+const SET_SORT_KEY = 'cardTracker.setSort';
+
+// Set detail: every card, only owned ones, or only missing ones.
+const SET_FILTERS = [
+	{label: 'All', value: 'all'},
+	{label: 'Owned', value: 'owned'},
+	{label: 'Missing', value: 'missing'},
+];
+
+const SET_FILTER_KEY = 'cardTracker.setFilter';
+
+function readChoice(key, allowed, fallback) {
+	try {
+		const saved = localStorage.getItem(key);
+
+		return allowed.includes(saved) ? saved : fallback;
+	}
+	catch {
+		return fallback;
+	}
+}
+
+function saveChoice(key, value) {
+	try {
+		localStorage.setItem(key, value);
+	}
+	catch {
+		// The choice lasts for this visit only.
+	}
+}
+
+// Newest first: series by their TCGdex releaseDate, and sets within a series
+// by their place in the API's release-date order (releaseRank, 0 newest).
+// A set list saved before ranks were added has neither, so its API order,
+// which is oldest first, is reversed instead.
+function orderSeries(series, sort) {
+	const sets = (serie) => serie.sets.map((set, i) => ({rank: set.releaseRank ?? (100000 - i), set}));
+	const newest = series.map((serie, i) => {
+		const ranked = sets(serie).sort((a, b) => a.rank - b.rank);
+
+		return {
+			date: serie.releaseDate || '',
+			first: ranked.length ? ranked[0].rank : Infinity,
+			i,
+			serie: {...serie, sets: ranked.map((item) => item.set)},
+		};
+	}).sort((a, b) => (b.date || a.date ? b.date.localeCompare(a.date) : 0) || a.first - b.first || b.i - a.i)
+		.map((item) => item.serie);
+
+	if (sort === 'oldest') {
+		return newest.reverse().map((serie) => ({...serie, sets: [...serie.sets].reverse()}));
+	}
+
+	return newest;
+}
+
 export function setsView(root) {
 	let alive = true;
 	let lang = viewingLanguage();
 	let series = null;
+	let owned = new Map();
 
 	const select = h('select', {id: 'viewing', onchange: () => changeLanguage(select.value)},
 		LANGUAGES.map(({code, label}) => h('option', {selected: code === lang, value: code}, label))
 	);
+	const sort = h('select', {'aria-label': 'Sort sets', id: 'set-sort', onchange: () => {
+		saveChoice(SET_SORT_KEY, sort.value);
+		draw();
+	}}, SET_SORTS.map(({label, value}) => h('option', {value}, label)));
+
+	sort.value = readChoice(SET_SORT_KEY, SET_SORTS.map((option) => option.value), 'newest');
 	const search = h('input', {
 		'aria-label': 'Search sets by name or code',
 		autocomplete: 'off',
@@ -172,10 +245,23 @@ export function setsView(root) {
 			noLogo();
 		}
 
+		const have = (owned.get(`${catalogFor(lang)}|${set.id}`) || new Set()).size;
+		// The ring always comes with its "12 / 102" text, never alone.
+		const progress = typeof total === 'number'
+			? h('span', {'aria-label': `${have} of ${total} cards owned`, class: have ? 'owned-count owned' : 'owned-count'},
+				h('span', {
+					'aria-hidden': 'true',
+					class: 'ring',
+					style: `--p: ${total ? Math.min(100, Math.round((have / total) * 100)) : 0}`,
+				}),
+				h('span', {'aria-hidden': 'true'}, `${have} / ${total}`)
+			)
+			: null;
+
 		return link(routeTo('sets', lang, set.id), {class: 'set-tile'},
 			logo,
 			h('span', {class: 'set-name'}, set.name),
-			h('span', {class: 'set-meta'}, set.id, typeof total === 'number' ? ` · ${cardsText(total)}` : '')
+			h('span', {class: 'set-foot'}, h('span', {class: 'set-meta'}, set.id), progress)
 		);
 	}
 
@@ -186,13 +272,24 @@ export function setsView(root) {
 
 		const query = search.value.trim().toLowerCase();
 		const matches = (set) => !query || set.name.toLowerCase().includes(query) || set.id.toLowerCase().includes(query);
-		const groups = series
-			.map((serie) => ({...serie, sets: serie.sets.filter(matches)}))
-			.filter((serie) => serie.sets.length);
+		let groups;
+
+		if (sort.value === 'name') {
+			// One flat list: a series heading means little in name order.
+			const all = series.flatMap((serie) => serie.sets).filter(matches);
+			const collator = new Intl.Collator(lang, {numeric: true, sensitivity: 'base'});
+
+			groups = all.length ? [{name: null, sets: all.sort((a, b) => collator.compare(a.name, b.name))}] : [];
+		}
+		else {
+			groups = orderSeries(series, sort.value)
+				.map((serie) => ({...serie, sets: serie.sets.filter(matches)}))
+				.filter((serie) => serie.sets.length);
+		}
 
 		const children = groups.map((serie) =>
 			h('section', {class: 'serie'},
-				h('h3', null, serie.name),
+				serie.name ? h('h3', null, serie.name) : null,
 				h('div', {class: 'set-grid'}, serie.sets.map(setTile))
 			)
 		);
@@ -243,11 +340,26 @@ export function setsView(root) {
 
 	root.append(
 		h('div', {class: 'toolbar'},
-			h('label', {class: 'viewing', for: 'viewing'}, h('span', null, 'Viewing:'), h('span', {class: 'select-wrap'}, select)),
+			h('div', {class: 'toolbar-row'},
+				h('label', {class: 'viewing', for: 'viewing'}, h('span', null, 'Viewing:'), h('span', {class: 'select-wrap'}, select)),
+				h('span', {class: 'select-wrap sort-wrap'}, sort)
+			),
 			search
 		),
 		list
 	);
+
+	ownedBySet()
+		.then((sets) => {
+			owned = sets;
+
+			if (alive) {
+				draw();
+			}
+		})
+		.catch(() => {
+			// Rings stay at zero.
+		});
 
 	load();
 
@@ -267,7 +379,27 @@ export function setView(root, {lang, setId}) {
 	const note = h('div', {hidden: true});
 	const grid = h('div', {class: 'card-grid'});
 
+	let owned = new Map();
+	let shown = null;
+	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
+
+	const filter = h('div', {'aria-label': 'Show', class: 'segmented', role: 'radiogroup'},
+		SET_FILTERS.map(({label, value}) => h('label', null,
+			h('input', {checked: value === show, name: 'set-filter', onchange: () => {
+				show = value;
+				saveChoice(SET_FILTER_KEY, value);
+
+				if (shown) {
+					draw(...shown);
+				}
+			}, type: 'radio', value}),
+			h('span', null, label)
+		))
+	);
+
 	function draw(set, cards, cardLang) {
+		shown = [set, cards, cardLang];
+
 		const total = set.cardCount && (set.cardCount.total ?? set.cardCount.official);
 
 		title.textContent = set.name;
@@ -284,14 +416,45 @@ export function setView(root, {lang, setId}) {
 
 		const sorted = [...cards].sort((a, b) => compareNumbers(a.localId, b.localId));
 
-		grid.replaceChildren(
-			...sorted.map((card) => {
-				const info = {name: card.name, number: card.localId, setName: set.name};
+		const have = sorted.filter((card) => owned.has(card.id)).length;
 
-				return link(routeTo('cards', cardLang, card.id), {class: 'tile'},
-					cardArt(info, cardImage(card.image, 'low')),
+		meta.textContent += ` · ${have} / ${sorted.length} owned`;
+
+		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
+
+		if (!visible.length) {
+			grid.replaceChildren(h('p', {class: 'muted'}, show === 'owned' ? 'No cards from this set are saved yet.' : 'Every card in this set is owned.'));
+
+			return;
+		}
+
+		grid.replaceChildren(
+			...visible.map((card) => {
+				const info = {name: card.name, number: card.localId, setName: set.name};
+				const mine = owned.get(card.id);
+				const frame = h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low')));
+				let status = null;
+
+				if (mine) {
+					const languages = [...mine.byLanguage.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+
+					// A bookmark ribbon with the copy count, even for one copy,
+					// and the languages owned in the opposite corner. Shape and
+					// text, never color alone.
+					frame.append(
+						h('span', {'aria-label': `Owned: ${mine.total} ${mine.total === 1 ? 'copy' : 'copies'}`, class: 'ribbon'}, String(mine.total)),
+						h('span', {'aria-label': `Printed in ${languages.map(languageLabel).join(', ')}`, class: 'badge badge-lang'}, languages.map(chip).join(' '))
+					);
+
+					// "Owned in PT" when no copy is in the language being viewed
+					// (DESIGN.md section 3).
+					status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(chip).join(', ')}`;
+				}
+
+				return link(routeTo('cards', cardLang, card.id), {class: mine ? 'tile owned' : 'tile unowned'},
+					frame,
 					h('span', {class: 'tile-name'}, card.name),
-					h('span', {class: 'tile-meta'}, `#${card.localId}`)
+					h('span', {class: 'tile-meta'}, `#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : ' · Missing')
 				);
 			})
 		);
@@ -300,6 +463,13 @@ export function setView(root, {lang, setId}) {
 	async function load() {
 		note.hidden = true;
 		grid.replaceChildren(...skeletonTiles(12));
+
+		try {
+			owned = await ownedIn(catalogFor(lang));
+		}
+		catch {
+			owned = new Map();
+		}
 
 		try {
 			const {data: set} = await setDetail(lang, setId, (fresh) => {
@@ -338,7 +508,7 @@ export function setView(root, {lang, setId}) {
 		}
 	}
 
-	root.append(back, title, meta, note, grid);
+	root.append(back, title, meta, filter, note, grid);
 	load();
 
 	return () => {
@@ -349,6 +519,8 @@ export function setView(root, {lang, setId}) {
 // ----------------------------------------------------- card detail view
 
 const VARIANT_TYPES = {holo: 'Holo', normal: 'Normal', reverse: 'Reverse holo'};
+
+const chip = (code) => (code === 'zh-cn' ? 'CHS' : code === 'zh-tw' ? 'CHT' : String(code).toUpperCase());
 const FOILS = {masterball: 'Master Ball pattern', pokeball: 'Poké Ball pattern'};
 const STAMPS = {'1st-edition': '1st Edition stamp'};
 
@@ -360,7 +532,7 @@ const sentence = (text) => {
 };
 
 function variantText(variant) {
-	const parts = [VARIANT_TYPES[variant.type] || sentence(variant.type || 'Unknown')];
+	const parts = [VARIANT_TYPES[String(variant.type).toLowerCase()] || sentence(variant.type || 'Unknown')];
 
 	if (variant.subtype) {
 		parts.push(sentence(variant.subtype));
@@ -429,6 +601,7 @@ export function cardView(root, {lang, cardId}) {
 					row('Illustrator', card.illustrator),
 					row('Catalog', languageLabel(lang))
 				),
+				copies,
 				variants && variants.length
 					? h('section', null,
 						h('h3', null, 'Variants'),
@@ -436,6 +609,48 @@ export function cardView(root, {lang, cardId}) {
 					)
 					: null
 			)
+		);
+		drawCopies(variants || []);
+	}
+
+	const copies = h('section', {class: 'copies', hidden: true});
+
+	async function drawCopies(variants) {
+		let mine;
+
+		try {
+			mine = (await ownedIn(catalogFor(lang))).get(cardId);
+		}
+		catch {
+			return;
+		}
+
+		if (!alive || !mine) {
+			copies.hidden = true;
+
+			return;
+		}
+
+		const groups = new Map();
+
+		for (const entry of mine.entries) {
+			const variant = variants.find((item) => item.variantId && item.variantId === entry.variant_id);
+			const finish = variant
+				? variantText(variant)
+				: entry.finish_raw
+					? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
+					: 'Finish not set';
+			const key = `${entry.language}|${finish}`;
+
+			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language});
+		}
+
+		copies.hidden = false;
+		copies.replaceChildren(
+			h('h3', null, `Your copies (${mine.total})`),
+			h('ul', {class: 'variants'}, [...groups.values()].map((group) =>
+				h('li', null, `${languageLabel(group.language)} · ${group.finish}${group.count > 1 ? ` ×${group.count}` : ''}`)
+			))
 		);
 	}
 

@@ -4,17 +4,23 @@
 // iOS drops the camera permission whenever the hash changes.
 //
 // Routes, under the /pokemon-card-tracker/ base:
+//   cards                     My Cards, the home tab
+//   import                    Import from monprice
 //   sets                      Sets, by series, in the viewing language
 //   sets/<lang>/<setId>       One set's cards
 //   cards/<lang>/<cardId>     One card
 //   check, camera, storage    Phone check and its two tests
 
+import {myCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
 import {BASE, h, showError} from './js/dom.js';
+import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
 
 const ROUTES = [
+	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
+	{pattern: /^import$/, render: importView, tab: 'cards', title: 'Import from monprice | Card Tracker'},
 	{pattern: /^sets$/, render: setsView, tab: 'sets', title: 'Sets | Card Tracker'},
 	{keys: ['lang', 'setId'], pattern: /^sets\/([^/]+)\/([^/]+)$/, render: setView, tab: 'sets', title: 'Set | Card Tracker'},
 	{keys: ['lang', 'cardId'], pattern: /^cards\/([^/]+)\/([^/]+)$/, render: cardView, tab: 'sets', title: 'Card | Card Tracker'},
@@ -23,7 +29,7 @@ const ROUTES = [
 	{pattern: /^storage$/, render: storageView, tab: 'check', title: 'Storage test | Card Tracker'},
 ];
 
-const DEFAULT_ROUTE = 'sets';
+const DEFAULT_ROUTE = 'cards';
 
 let cleanup = null;
 
@@ -79,7 +85,7 @@ function render() {
 	let found = matchRoute(routePath());
 
 	if (!found) {
-		// Home, index.html, and unknown paths all open Sets.
+		// Home, index.html, and unknown paths all open My Cards.
 		history.replaceState(history.state, '', BASE + DEFAULT_ROUTE);
 		found = matchRoute(DEFAULT_ROUTE);
 	}
@@ -88,6 +94,7 @@ function render() {
 	const view = document.getElementById('view');
 
 	document.getElementById('errors').replaceChildren();
+	document.getElementById('menu').open = false;
 	view.replaceChildren();
 	document.title = route.title;
 

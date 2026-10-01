@@ -20,6 +20,15 @@ export const isLanguage = (code) => LANGUAGES.some((lang) => lang.code === code)
 
 export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: code}).label;
 
+// Western-language prints share one international card record; Japanese,
+// Korean, and Chinese prints have their own catalogs (DESIGN.md section 3).
+const ASIAN = new Set(['ja', 'ko', 'zh-cn', 'zh-tw']);
+
+export const catalogFor = (lang) => (ASIAN.has(lang) ? lang : 'international');
+
+// The catalog language whose records a catalog's cards are listed in.
+export const catalogLanguage = (catalog) => (catalog === 'international' ? 'en' : catalog);
+
 const VIEWING_KEY = 'cardTracker.viewingLanguage';
 
 export function viewingLanguage() {
@@ -122,45 +131,50 @@ export class NotOnPhoneError extends Error {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// One retry after a second for a server error or a dropped connection: the
-// API answered 503 now and then on 2026-10-01, and the set list needs up to
-// 22 requests to all succeed.
-async function getJson(path, retry = true) {
-	let response;
+// Retries a server error or a dropped connection after 1, then 3, then 8
+// seconds: the API answered 503 now and then on 2026-10-01, and the set list
+// needs up to 22 requests to all succeed. Views use two attempts; the import
+// uses four, so a long run rides out a short outage.
+const BACKOFF_MS = [1000, 3000, 8000];
 
-	try {
-		response = await fetch(API + path);
-	}
-	catch (err) {
-		if (retry && navigator.onLine) {
-			await wait(1000);
+async function getJson(path, attempts = 2) {
+	for (let attempt = 1; ; attempt++) {
+		let response;
 
-			return getJson(path, false);
+		try {
+			response = await fetch(API + path);
+		}
+		catch (err) {
+			if (attempt < attempts && navigator.onLine) {
+				await wait(BACKOFF_MS[attempt - 1] || 8000);
+
+				continue;
+			}
+
+			throw err;
 		}
 
-		throw err;
+		if (response.status >= 500 && attempt < attempts) {
+			await wait(BACKOFF_MS[attempt - 1] || 8000);
+
+			continue;
+		}
+
+		if (!response.ok) {
+			const err = new Error(`TCGdex answered ${response.status} for ${path}.`);
+
+			err.status = response.status;
+
+			throw err;
+		}
+
+		return response.json();
 	}
-
-	if (response.status >= 500 && retry) {
-		await wait(1000);
-
-		return getJson(path, false);
-	}
-
-	if (!response.ok) {
-		const err = new Error(`TCGdex answered ${response.status} for ${path}.`);
-
-		err.status = response.status;
-
-		throw err;
-	}
-
-	return response.json();
 }
 
 // Returns {data, at}. onUpdate(data) is called when a background refresh
 // brings back something different from what was returned.
-async function cached(key, load, onUpdate) {
+async function cached(key, load, onUpdate, {revalidate = true} = {}) {
 	const hit = await cacheGet(key);
 
 	const refresh = async () => {
@@ -180,7 +194,7 @@ async function cached(key, load, onUpdate) {
 		}
 	}
 
-	if (navigator.onLine && Date.now() - hit.at > REVALIDATE_AFTER_MS) {
+	if (revalidate && navigator.onLine && Date.now() - hit.at > REVALIDATE_AFTER_MS) {
 		refresh()
 			.then((data) => {
 				if (onUpdate && JSON.stringify(data) !== JSON.stringify(hit.data)) {
@@ -197,18 +211,28 @@ async function cached(key, load, onUpdate) {
 
 // The REST set list has no series or logo, so the list is built from the
 // series index plus one request per series. All of them cover every set.
+//
+// Neither carries a set's release date, but the API sorts the set list by
+// it, so one more request gives every set its place in release order
+// (releaseRank 0 is the newest). Each series carries its own releaseDate.
 async function loadSetList(lang) {
-	const series = await getJson(`${lang}/series`);
+	const [series, newestFirst] = await Promise.all([
+		getJson(`${lang}/series`),
+		getJson(`${lang}/sets?sort:field=releaseDate&sort:order=DESC`).catch(() => []),
+	]);
+	const rank = new Map(newestFirst.map((set, i) => [set.id, i]));
 	const details = await Promise.all(series.map((serie) => getJson(`${lang}/series/${encodeURIComponent(serie.id)}`)));
 
 	return details.map((serie) => ({
 		id: serie.id,
 		name: serie.name,
+		releaseDate: serie.releaseDate || null,
 		sets: (serie.sets || []).map((set) => ({
 			cardCount: set.cardCount || {},
 			id: set.id,
 			logo: set.logo || null,
 			name: set.name,
+			releaseRank: rank.has(set.id) ? rank.get(set.id) : null,
 		})),
 	}));
 }
@@ -225,3 +249,91 @@ export const cardDetail = (lang, cardId, onUpdate) =>
 export const cardImage = (base, size) => (base ? `${base}/${size}.webp` : null);
 
 export const logoImage = (base) => (base ? `${base}.webp` : null);
+
+// ------------------------------------------------------- import lookups
+
+// Cache first with no background refresh, so a rerun of the import sends no
+// requests for what it already has. A 404 is remembered for a day as
+// "missing" and returns null. Keys match the views' keys, so a set or card
+// the import loaded opens offline in the catalog browser too.
+const MISSING_FOR_MS = 24 * 60 * 60 * 1000;
+
+async function fetchOnce(key, path) {
+	const hit = await cacheGet(key);
+
+	if (hit) {
+		return hit.data;
+	}
+
+	const missing = await cacheGet(`missing:${key}`);
+
+	if (missing && Date.now() - missing.at < MISSING_FOR_MS) {
+		return null;
+	}
+
+	try {
+		const data = await getJson(path, 4);
+
+		await cachePut(key, data);
+
+		return data;
+	}
+	catch (err) {
+		if (err && err.status === 404) {
+			await cachePut(`missing:${key}`, true);
+
+			return null;
+		}
+
+		throw err;
+	}
+}
+
+// The TCGdex calls the monprice matcher needs (js/monprice.js).
+export const importApi = {
+	cardDetail: (lang, cardId) => fetchOnce(`card:${lang}:${cardId}`, `${lang}/cards/${encodeURIComponent(cardId)}`),
+	// An exact match on one field of the set list, such as
+	// abbreviation.official=CRI.
+	findSets: async (lang, field, value) =>
+		(await fetchOnce(`find:${lang}:${field}:${value}`, `${lang}/sets?${field}=eq:${encodeURIComponent(value)}`)) || [],
+	setDetail: (lang, setId) => fetchOnce(`set:${lang}:${setId}`, `${lang}/sets/${encodeURIComponent(setId)}`),
+};
+
+// Cache-first set detail for the views that only need names and images,
+// such as My Cards filling in names in the viewing language.
+export const setDetailOnce = (lang, setId) => importApi.setDetail(lang, setId);
+
+// ---------------------------------------------------------- card index
+
+// One record per card someone owns, shaped like the catalog card in
+// DESIGN.md section 4: {id, catalog, set_id, collector_number, official,
+// release_date, localizations: {lang: {name, set_name, image}}}. It is what
+// lets My Cards draw names and images without a request per card. Keyed by
+// "<catalog>|<card id>", because the Japanese and Korean catalogs reuse the
+// same IDs (both have S4a).
+const INDEX_KEY = 'index:cards';
+
+export const indexKey = (catalog, cardId) => `${catalog}|${cardId}`;
+
+export async function cardIndex() {
+	const hit = await cacheGet(INDEX_KEY);
+
+	return new Map(Object.entries((hit && hit.data) || {}));
+}
+
+export async function saveToCardIndex(records) {
+	const index = await cardIndex();
+
+	for (const record of records) {
+		const key = indexKey(record.catalog, record.id);
+		const old = index.get(key);
+
+		index.set(key, old
+			? {...old, ...record, localizations: {...old.localizations, ...record.localizations}}
+			: record);
+	}
+
+	await cachePut(INDEX_KEY, Object.fromEntries(index));
+
+	return index;
+}

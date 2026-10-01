@@ -1,12 +1,40 @@
 # Card Tracker
 
-An installable web app (PWA) for the family's Pokémon cards. So far it has two parts:
+An installable web app (PWA) for the family's Pokémon cards. So far it has four parts:
 
+- **My Cards** (the home tab): the cards saved on this phone, one tile per card and language, with
+  a `×N` badge for more than one copy and a language chip when the copy's language differs from
+  the viewing language. Sort by date added, name, or set, filter by language, and export a CSV.
+- **Import from monprice** (from My Cards or the Menu): pick a monprice CSV or JSON export. Rows
+  are matched to TCGdex card records and listed in a match report before anything is saved.
 - **Sets:** a catalog browser over the [TCGdex](https://tcgdex.dev) API. Pick a viewing language
-  (`Viewing: English ▾`), browse sets by series or search by name or code, open a set's cards, and
-  open one card for its image, rarity, illustrator, and variants. A set or card opened once opens
-  again with no signal, images included. No ownership or prices yet.
+  (`Viewing:` English) and an order (newest first, oldest first, or name A to Z), browse sets by
+  series or search by name or code, open a set's cards, and open one card for its image, rarity,
+  illustrator, variants, and your copies. Each set tile shows `owned / total` with a ring, and a
+  set's grid dims the cards not owned. A set or card opened once opens again with no signal.
 - **Phone check:** the weekend zero tests below, kept so a new phone can still be checked.
+
+There are no accounts yet: everything is stored on the phone.
+
+## Your Cards on the Phone
+
+- `js/collection.js` keeps one JSON document per person in IndexedDB, shaped like `DESIGN.md`
+  section 4. Every card entry has an `id`, `updated_at`, and `deleted_at` (a soft delete), so a
+  later sync can merge entry by entry. Each entry also records its `catalog` (`international`,
+  `ja`, `ko`, `zh-cn`, `zh-tw`), because the Japanese and Korean catalogs reuse the same card IDs.
+- **Import matching** (`js/monprice.js`). A monprice set code is matched to a TCGdex set through
+  the set's printed abbreviation (`abbreviation.official`, which the set list can be filtered on),
+  checked against the release date. When no set carries the abbreviation, the set name and then
+  the release date are tried. Cards then match by collector number (`001/191` is `001`; `4`
+  matches `004`). When the row's language lists no such card, the English record is used for
+  international prints and the Japanese record for Korean prints, and the copy is marked as a
+  fallback. Each finish is matched to a variant ID from the card's `variants_detailed`; the card
+  records are read four at a time and kept, so a second run sends almost no requests.
+- **Rerun safety:** each imported copy carries an import key (monprice ID, language, finish, and
+  copy number). Importing the same file again updates those entries instead of adding them, and
+  never brings back a copy that was deleted. Prices and rarity are not imported.
+- **CSV export** writes one row per copy with its entry ID, as UTF-8 with a BOM and semicolons like
+  monprice. The collector number is written as `="001"` so a spreadsheet keeps it as text.
 
 ## Catalog Notes
 
@@ -85,7 +113,7 @@ A phone opening the computer's LAN address (`http://192.168.x.x:8000`) does not 
 context, so the camera test fails there. Test phones against the live URL.
 
 `python3 -m http.server` does not serve `404.html` for unknown paths, so reloading
-`/pokemon-card-tracker/sets` locally gives a plain 404 until the service worker has installed.
+`/pokemon-card-tracker/cards` locally gives a plain 404 until the service worker has installed.
 On GitHub Pages, `404.html` sends the visitor back into the app at the same path.
 
 ## How It Is Built
@@ -95,9 +123,13 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | File | Purpose |
 | --- | --- |
 | `index.html` | The app shell. |
-| `app.js` | Router: `sets`, `sets/<lang>/<setId>`, `cards/<lang>/<cardId>`, `check`, `camera`, `storage`. |
-| `js/catalog.js` | TCGdex requests, languages, and the IndexedDB cache. |
+| `app.js` | Router: `cards`, `import`, `sets`, `sets/<lang>/<setId>`, `cards/<lang>/<cardId>`, `check`, `camera`, `storage`. |
+| `js/catalog.js` | TCGdex requests, languages, the IndexedDB cache, and the index of owned cards' names and images. |
 | `js/catalog-views.js` | Sets, set detail, and card detail views. |
+| `js/collection.js` | The per-person document: add, update, soft delete, list, import, merge. |
+| `js/monprice.js` | monprice CSV and JSON parsing, and matching rows to TCGdex records. |
+| `js/import-view.js` | The import screen and its match report. |
+| `js/cards-view.js` | My Cards and the CSV export. |
 | `js/phone-check.js` | Phone check: device report, Camera test, and Storage test. |
 | `js/dom.js` | Shared DOM and error helpers. |
 | `style.css` | Mobile-first styles. |
