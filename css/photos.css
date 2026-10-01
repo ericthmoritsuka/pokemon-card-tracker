@@ -1,0 +1,475 @@
+/* The owner's card photos and the image carousel (js/photos/). Uses the
+   palette tokens from style.css, so it follows the light and dark schemes
+   and the themes. Yellow is a fill or an outline, never text on light. */
+
+/* ----------------------------------------------------------- carousel */
+
+.ph-card {
+	display: grid;
+	gap: 8px;
+}
+
+.ph-carousel {
+	display: grid;
+	gap: 8px;
+}
+
+.ph-viewport {
+	border-radius: 4.75% / 3.4%;
+	cursor: zoom-in;
+	overflow: hidden;
+	position: relative;
+	/* The browser scrolls the page up and down; sideways moves come to the
+	   carousel's own handlers. */
+	touch-action: pan-y;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ph-track {
+	display: flex;
+	will-change: transform;
+}
+
+.ph-track.ph-animate {
+	transition: transform 220ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ph-track.ph-animate {
+		transition: none;
+	}
+}
+
+.ph-slide {
+	flex: 0 0 100%;
+	min-width: 0;
+	position: relative;
+}
+
+.ph-art img {
+	-webkit-user-drag: none;
+	pointer-events: none;
+}
+
+/* The source label: bottom centre, clear of the four corner badges. */
+.ph-source {
+	background: rgba(0, 0, 0, 0.72);
+	border-radius: 999px;
+	bottom: 8px;
+	color: #ffffff;
+	font-size: 0.75rem;
+	font-weight: 600;
+	left: 50%;
+	line-height: 1.4;
+	max-width: calc(100% - 16px);
+	overflow: hidden;
+	padding: 2px 10px;
+	pointer-events: none;
+	position: absolute;
+	text-overflow: ellipsis;
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
+/* A photo still on the phone only: top centre, between the top corner
+   badges. */
+.ph-pending {
+	background: #1d2e60;
+	border: 1px solid #ffcb05;
+	border-radius: 999px;
+	color: #ffffff;
+	font-size: 0.75rem;
+	font-weight: 600;
+	left: 50%;
+	line-height: 1.4;
+	padding: 2px 10px;
+	pointer-events: none;
+	position: absolute;
+	top: 8px;
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
+.ph-dots {
+	display: flex;
+	gap: 4px;
+	justify-content: center;
+}
+
+button.ph-dot {
+	background: none;
+	border: 0;
+	border-radius: 999px;
+	min-height: 32px;
+	padding: 0;
+	position: relative;
+	width: 32px;
+}
+
+button.ph-dot::after {
+	background: var(--border);
+	border: 1px solid var(--muted);
+	border-radius: 50%;
+	content: "";
+	height: 10px;
+	left: 50%;
+	position: absolute;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 10px;
+}
+
+button.ph-dot[aria-current="true"]::after {
+	background: var(--accent-strong);
+	border-color: var(--accent-strong);
+}
+
+/* Card detail puts the art in a column of about 45 percent (style.css
+   .hero-art), so the two buttons stay compact and wrap rather than
+   overflow. */
+.ph-card button.ph-add,
+.ph-carousel button.ph-use-main {
+	font-size: 0.875rem;
+	line-height: 1.25;
+	padding: 8px 10px;
+}
+
+button.ph-use-main[aria-pressed="true"]:disabled {
+	opacity: 1;
+}
+
+button.ph-use-main[aria-pressed="true"]::before {
+	content: "✓ ";
+	white-space: pre;
+}
+
+.ph-live {
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	height: 1px;
+	margin: 0;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
+/* A tile's photo slot steps out of the layout, so the tile's corner badges
+   sit on the art itself. */
+.ph-tile-slot {
+	display: contents;
+}
+
+/* ----------------------------------------------------------- full screen */
+
+.ph-full {
+	background: #000000;
+	color: #ffffff;
+	display: flex;
+	flex-direction: column;
+	inset: 0;
+	position: fixed;
+	touch-action: none;
+	z-index: 1000;
+}
+
+.ph-full-stage {
+	align-items: center;
+	display: flex;
+	flex: 1;
+	justify-content: center;
+	min-height: 0;
+	overflow: hidden;
+	padding: 56px 16px 8px;
+}
+
+.ph-full-art {
+	align-items: center;
+	display: flex;
+	height: 100%;
+	justify-content: center;
+	transition: transform 120ms ease-out;
+	width: 100%;
+}
+
+.ph-full-art .art {
+	max-height: 100%;
+	max-width: 100%;
+	width: auto;
+	height: 100%;
+}
+
+.ph-full-img {
+	display: block;
+	max-height: 100%;
+	max-width: 100%;
+	object-fit: contain;
+	pointer-events: none;
+}
+
+button.ph-full-close {
+	background: rgba(255, 255, 255, 0.14);
+	border: 0;
+	border-radius: 999px;
+	color: #ffffff;
+	font-size: 1.75rem;
+	height: 48px;
+	line-height: 1;
+	padding: 0;
+	position: absolute;
+	right: 8px;
+	top: 8px;
+	width: 48px;
+	z-index: 1;
+}
+
+.ph-full-bar {
+	align-items: center;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+	padding: 8px 16px 16px;
+}
+
+.ph-full-label {
+	font-size: 0.875rem;
+	margin: 0;
+}
+
+button.ph-full-remove {
+	background: transparent;
+	border-color: rgba(255, 255, 255, 0.5);
+	color: #ffffff;
+	width: auto;
+}
+
+/* ----------------------------------------------------------- add photo */
+
+.ph-sheet {
+	background: var(--bg);
+	color: var(--text);
+	display: flex;
+	flex-direction: column;
+	inset: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 12px 16px 16px;
+	position: fixed;
+	z-index: 1000;
+}
+
+.ph-sheet-head {
+	align-items: center;
+	display: flex;
+	gap: 8px;
+	justify-content: space-between;
+	margin: 0 auto 12px;
+	max-width: 560px;
+	width: 100%;
+}
+
+.ph-sheet-title {
+	font-size: 1.25rem;
+	line-height: 1.4;
+	margin: 0;
+}
+
+button.ph-sheet-close {
+	flex: 0 0 48px;
+	font-size: 1.5rem;
+	line-height: 1;
+	padding: 0;
+	width: 48px;
+}
+
+.ph-sheet-body {
+	display: grid;
+	gap: 12px;
+	margin: 0 auto;
+	max-width: 560px;
+	width: 100%;
+}
+
+.ph-actions {
+	display: grid;
+	gap: 8px;
+}
+
+.ph-file {
+	display: none;
+}
+
+.ph-field {
+	display: grid;
+	font-weight: 600;
+	gap: 4px;
+}
+
+.ph-field select {
+	min-height: 48px;
+}
+
+.ph-sides {
+	border: 0;
+	display: flex;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+}
+
+.ph-sides legend {
+	font-weight: 600;
+	margin-bottom: 4px;
+	padding: 0;
+}
+
+.ph-side {
+	align-items: center;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	cursor: pointer;
+	display: inline-flex;
+	gap: 8px;
+	min-height: 48px;
+	padding: 0 16px;
+}
+
+.ph-side:has(input:checked) {
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	color: var(--selected-text);
+}
+
+.ph-message {
+	margin: 0;
+}
+
+.ph-message.warn {
+	border-left: 4px solid var(--yellow);
+	padding-left: 8px;
+}
+
+.ph-message.error {
+	color: var(--error-text);
+}
+
+/* The camera: the video with the scan lab's guide frame over it. */
+.ph-camera {
+	background: #000000;
+	border-radius: 12px;
+	height: min(62vh, 520px);
+	overflow: hidden;
+	position: relative;
+}
+
+.ph-video {
+	display: block;
+	height: 100%;
+	object-fit: contain;
+	width: 100%;
+}
+
+.ph-guide {
+	border: 3px solid var(--yellow);
+	border-radius: 4.75% / 3.4%;
+	box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+	pointer-events: none;
+	position: absolute;
+}
+
+/* The corner editor: the photo, the card's outline, and four handles. */
+.ph-stage {
+	margin: 0 auto;
+	position: relative;
+	touch-action: none;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.ph-photo {
+	border-radius: 8px;
+	display: block;
+}
+
+.ph-outline {
+	inset: 0;
+	overflow: visible;
+	pointer-events: none;
+	position: absolute;
+}
+
+.ph-outline polygon {
+	fill: rgba(255, 203, 5, 0.12);
+	stroke: #ffcb05;
+	stroke-linejoin: round;
+	stroke-width: 2;
+}
+
+/* 48 px touch targets centred on each corner, drawn as a ring. */
+button.ph-handle {
+	background: transparent;
+	border: 0;
+	border-radius: 50%;
+	height: 48px;
+	left: -24px;
+	min-height: 48px;
+	padding: 0;
+	position: absolute;
+	top: -24px;
+	touch-action: none;
+	width: 48px;
+}
+
+button.ph-handle::after {
+	background: rgba(29, 46, 96, 0.35);
+	border: 3px solid #ffcb05;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px #1d2e60;
+	content: "";
+	height: 24px;
+	left: 50%;
+	position: absolute;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 24px;
+}
+
+button.ph-handle.ph-dragging::after,
+button.ph-handle:focus-visible::after {
+	background: rgba(255, 203, 5, 0.35);
+	height: 32px;
+	width: 32px;
+}
+
+.ph-loupe {
+	border: 3px solid #ffcb05;
+	border-radius: 50%;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	height: 112px;
+	left: 0;
+	pointer-events: none;
+	position: absolute;
+	top: 0;
+	width: 112px;
+}
+
+.ph-review {
+	align-items: start;
+	display: grid;
+	gap: 12px;
+	grid-template-columns: 40% 1fr;
+}
+
+.ph-preview {
+	aspect-ratio: 63 / 88;
+	border-radius: 4.75% / 3.4%;
+	display: block;
+	height: auto;
+	width: 100%;
+}
+
+.ph-review-actions {
+	display: grid;
+	gap: 8px;
+}

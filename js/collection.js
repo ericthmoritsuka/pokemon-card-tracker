@@ -204,6 +204,8 @@ const ENTRY_FIELDS = [
 	'condition', 'purchase_price', 'purchase_currency', 'opening_id', 'storage',
 	'grader', 'grade', 'cert_number', 'graded_price',
 	'notes', 'is_favorite', 'photo_path',
+	// The owner's own photos and the pinned tile image (js/photos/model.js).
+	'photos', 'main_image',
 ];
 
 function pick(fields) {
@@ -267,6 +269,31 @@ export async function updateCard(id, patch) {
 	await saveDocument(doc);
 
 	return entry;
+}
+
+// Several updateCard patches in one save, so a change that touches every
+// copy of a card (its main image) redraws the views once. patches is
+// [{id, patch}]; ids with no live entry are skipped. Returns the entries
+// changed.
+export async function updateCards(patches) {
+	const doc = await loadDocument();
+	const at = nowIso();
+	const changed = [];
+
+	for (const {id, patch} of patches) {
+		const entry = doc.cards.find((card) => card.id === id && isLive(card));
+
+		if (entry) {
+			Object.assign(entry, pick(patch), {updated_at: at});
+			changed.push(entry);
+		}
+	}
+
+	if (changed.length) {
+		await saveDocument(doc);
+	}
+
+	return changed;
 }
 
 // Soft delete: the entry stays as a tombstone.
