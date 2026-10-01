@@ -8,7 +8,7 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v8';
+const VERSION = 'v11';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
@@ -44,19 +44,42 @@ const SHELL = [
 	'index.html',
 	'app.js',
 	'js/account-views.js',
+	'js/binders-view.js',
+	'js/binders.js',
 	'js/auth.js',
 	'js/cards-view.js',
 	'js/catalog-views.js',
 	'js/catalog.js',
+	'js/checklists-view.js',
+	'js/checklists.js',
 	'js/collection.js',
 	'js/dom.js',
+	'js/flags.js',
 	'js/import-view.js',
+	'js/liga.js',
 	'js/merge.js',
 	'js/monprice.js',
+	'js/names.js',
 	'js/phone-check.js',
+	'js/settings.js',
 	'js/sync.js',
+	'js/themes.js',
+	'js/wishlist-view.js',
+	'js/wishlist.js',
 	'vendor/supabase-js.js',
+	'vendor/flags/br.svg',
+	'vendor/flags/cn.svg',
+	'vendor/flags/de.svg',
+	'vendor/flags/es.svg',
+	'vendor/flags/fr.svg',
+	'vendor/flags/it.svg',
+	'vendor/flags/jp.svg',
+	'vendor/flags/kr.svg',
+	'vendor/flags/tw.svg',
+	'vendor/flags/us.svg',
 	'style.css',
+	'css/binders.css',
+	'css/wishlist.css',
 	'manifest.webmanifest',
 	'icons/icon-192.png',
 	'icons/icon-512.png',
@@ -180,7 +203,11 @@ self.addEventListener('fetch', (event) => {
 
 	const url = new URL(request.url);
 
-	if (url.hostname === IMAGE_HOST) {
+	// Card images, and the PokeAPI sprites the checklists show, so a list
+	// opened once still has its pictures offline in a store.
+	const isSprite = url.hostname === 'raw.githubusercontent.com' && url.pathname.startsWith('/PokeAPI/sprites/');
+
+	if (url.hostname === IMAGE_HOST || isSprite) {
 		event.respondWith(imageResponse(event));
 
 		return;
@@ -193,6 +220,11 @@ self.addEventListener('fetch', (event) => {
 	// Every page in the app is the same shell; app.js routes by path. Serving
 	// the cached shell for any path is what makes /sets/en/base1 and /camera
 	// open offline, and spares a round trip through 404.html when online.
+	// The scan lab is its own page, not part of the app shell.
+	if (request.mode === 'navigate' && url.pathname.startsWith(new URL('lab/', self.registration.scope).pathname)) {
+		return;
+	}
+
 	if (request.mode === 'navigate') {
 		event.respondWith(
 			(async () => {

@@ -18,9 +18,10 @@ import {
 } from './catalog.js';
 import {memberName} from './account-views.js';
 import {currentUser} from './auth.js';
-import {cardArt} from './catalog-views.js';
+import {cardArt, mainName, namesFor, tileNames} from './catalog-views.js';
 import {isLive, listCards, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, go, h} from './dom.js';
+import {flagBadge} from './flags.js';
 import {finishLabel} from './monprice.js';
 import {familyOverview, memberDocument} from './sync.js';
 
@@ -388,6 +389,13 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		}
 	}
 
+	function redrawNames() {
+		if (alive && groups.length) {
+			build();
+			draw();
+		}
+	}
+
 	function build() {
 		const map = new Map();
 
@@ -411,6 +419,9 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 			// names the source gave it (DESIGN.md section 5).
 			const source = group.entries.map((entry) => sourceNames(entry, record)).find(Boolean) || null;
 			const times = group.entries.map((entry) => String(entry.created_at)).sort();
+			// Asian prints: an English name first, the original under it.
+			const nameLang = source ? first.language : (local && local.lang) || base;
+			const names = namesFor({lang: nameLang, name: (source && source.name) || (local && local.name) || first.card_id}, redrawNames);
 
 			return {
 				...group,
@@ -418,7 +429,9 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 				cardId: first.card_id,
 				language: first.language,
 				local,
-				name: (source && source.name) || (local && local.name) || first.card_id,
+				name: mainName(names),
+				nameLang,
+				names,
 				newest: times[times.length - 1],
 				oldest: times[0],
 				record,
@@ -469,12 +482,12 @@ function cardsScreen(root, {banner = null, emptyText = null, load: loadEntries, 
 		}
 
 		if (group.language !== viewing) {
-			frame.append(h('span', {'aria-label': `Printed in ${languageLabel(group.language)}`, class: 'badge badge-lang'}, languageChip(group.language)));
+			frame.append(flagBadge([group.language], {className: 'badge badge-lang'}));
 		}
 
 		return h('a', {class: 'tile', 'data-link': routeTo('cards', lang, group.cardId), href: BASE + routeTo('cards', lang, group.cardId)},
 			frame,
-			h('span', {class: 'tile-name'}, info.name),
+			...tileNames(group.names, group.nameLang),
 			h('span', {class: 'tile-meta'}, [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '))
 		);
 	}

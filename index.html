@@ -20,11 +20,16 @@
 	<link rel="preconnect" href="https://api.tcgdex.net" crossorigin>
 	<link rel="preconnect" href="https://assets.tcgdex.net">
 	<link rel="preconnect" href="https://ehdkbxrjxsypegbtrxbw.supabase.co" crossorigin>
+	<!-- The saved theme (js/settings.js), set before the first paint so the page never flashes the default. -->
+	<script>try { var theme = localStorage.getItem('card-tracker-theme'); if (/^[a-z]+$/.test(theme || '')) document.documentElement.setAttribute('data-theme', theme); } catch (e) {}</script>
 	<link rel="stylesheet" href="/pokemon-card-tracker/style.css">
+	<link rel="stylesheet" href="/pokemon-card-tracker/css/binders.css">
+	<link rel="stylesheet" href="/pokemon-card-tracker/css/wishlist.css">
 	<script type="module" src="/pokemon-card-tracker/app.js"></script>
 </head>
 <body>
 	<header class="top">
+		<img class="brand-mark" id="brand-mark" src="/pokemon-card-tracker/icons/icon-192.png" alt="" width="32" height="32" hidden>
 		<div class="brand">
 			<h1>Card Tracker</h1>
 			<button class="sync-status" id="sync-status" type="button" aria-live="polite" hidden></button>
@@ -33,9 +38,11 @@
 		<details class="menu" id="menu">
 			<summary>Menu</summary>
 			<nav class="menu-items" aria-label="More">
+				<a href="/pokemon-card-tracker/wishlist" data-link="wishlist">Wishlist</a>
 				<a href="/pokemon-card-tracker/import" data-link="import">Import from monprice</a>
 				<a href="/pokemon-card-tracker/cards" data-link="cards">My Cards and CSV export</a>
 				<a href="/pokemon-card-tracker/check" data-link="check">Phone check</a>
+				<a href="/pokemon-card-tracker/profile" data-link="profile">Theme</a>
 			</nav>
 		</details>
 	</header>
@@ -53,6 +60,8 @@
 	<nav class="tabs" aria-label="Main">
 		<a href="/pokemon-card-tracker/cards" data-link="cards" data-tab="cards">My Cards</a>
 		<a href="/pokemon-card-tracker/sets" data-link="sets" data-tab="sets">Sets</a>
+		<a href="/pokemon-card-tracker/lists" data-link="lists" data-tab="lists">Lists</a>
+		<a href="/pokemon-card-tracker/binders" data-link="binders" data-tab="binders">Binders</a>
 		<a href="/pokemon-card-tracker/check" data-link="check" data-tab="check">Phone check</a>
 	</nav>
 </body>

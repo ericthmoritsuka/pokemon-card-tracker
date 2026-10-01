@@ -12,16 +12,23 @@
 //   check, camera, storage    Phone check and its two tests
 //   signin, profile           Sign in, and the signed-in person's Profile
 //   family/<userId>           A family member's My Cards, read only
+//   lists, lists/<id>         Pokémon checklists, and one checklist
+//   family/<userId>/lists[/<id>]  A family member's checklists, read only
 
 import {profileView, setSignInNotice, signInView} from './js/account-views.js';
+import {binderAccountViews, binderRoutes} from './js/binders-view.js';
 import {completeInvite, completeSignIn, currentUser, onUser, restoreSession, signInErrorText, takeAuthReturn} from './js/auth.js';
 import {familyCardsView, myCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
+import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
 import {BASE, go, h, showError} from './js/dom.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
+import {startSettings} from './js/settings.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
+import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
+import {keepFamilyWishlistsCached} from './js/wishlist.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
@@ -35,11 +42,17 @@ const ROUTES = [
 	{pattern: /^signin$/, render: signInView, tab: null, title: 'Sign in | Card Tracker'},
 	{pattern: /^profile$/, render: profileView, tab: null, title: 'Profile | Card Tracker'},
 	{keys: ['userId'], pattern: /^family\/([^/]+)$/, render: familyCardsView, tab: 'cards', title: 'Family cards | Card Tracker'},
+	{pattern: /^lists$/, render: checklistsView, tab: 'lists', title: 'Lists | Card Tracker'},
+	{keys: ['id'], pattern: /^lists\/([^/]+)$/, render: checklistView, tab: 'lists', title: 'List | Card Tracker'},
+	{keys: ['userId'], pattern: /^family\/([^/]+)\/lists$/, render: familyChecklistsView, tab: 'lists', title: 'Family lists | Card Tracker'},
+	{keys: ['userId', 'id'], pattern: /^family\/([^/]+)\/lists\/([^/]+)$/, render: familyChecklistView, tab: 'lists', title: 'Family list | Card Tracker'},
+	...binderRoutes,
+	...WISHLIST_ROUTES,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS]);
 
 const DEFAULT_ROUTE = 'cards';
 
@@ -266,6 +279,7 @@ async function startAccount(authReturn) {
 	});
 
 	startSync();
+	keepFamilyWishlistsCached();
 
 	if (authReturn && authReturn.error) {
 		setSignInNotice(signInErrorText(authReturn.error));
@@ -297,6 +311,8 @@ restoreRedirectedPath();
 // router replaces the path.
 const authReturn = takeAuthReturn();
 
+// The theme and, signed in, the favorite Pokémon in the header.
+startSettings();
 render();
 registerServiceWorker();
 startAccount(authReturn).catch((err) => showError('Signing in did not work.', err));

@@ -11,9 +11,11 @@
 // it.)
 
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
@@ -107,6 +109,7 @@ async function device(fake, name, {serviceWorkers = 'block', tcgdex = 'fake'} = 
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
 
 	await blockFonts(context);
+	await fakePokeApi(context);
 
 	if (fake) {
 		await fake.attach(context, name);
@@ -230,13 +233,33 @@ describe('source names', () => {
 			entry('k1', {card_id: 'tst1-001', catalog: 'ja', fallback: true, import_key: 'monprice|t_kr_001|ko|NORMAL|0', language: 'ko', name_local: '시험 카드', set_name_local: '시험 세트'}),
 			// A normal match keeps the catalog's names.
 			entry('j1', {card_id: 'tst1-002', catalog: 'ja', import_key: 'monprice|t_jp_002|ja|NORMAL|0', language: 'ja', name_local: 'Source name only', set_name_local: 'Source set only'}),
+			// A Korean Pokémon: its English name leads, the Korean name and its
+			// reading under it.
+			entry('k2', {card_id: 'tst1-004', catalog: 'ja', fallback: true, import_key: 'monprice|t_kr_004|ko|NORMAL|0', language: 'ko', name_local: '프테라VSTAR', set_name_local: '시험 세트'}),
 		]));
 
 		const korean = page.locator('.tile', {hasText: '시험 카드'});
 
 		await korean.waitFor();
 		assert.match(await korean.locator('.tile-meta').textContent(), /시험 세트/);
-		assert.equal(await korean.locator('.badge-lang').textContent(), 'KO');
+		// A Trainer-like name with no English name: the original, and its
+		// reading underneath.
+		assert.equal(await korean.locator('.tile-name').textContent(), '시험 카드');
+		assert.equal(await korean.locator('.tile-original').textContent(), '(Siheom Kadeu)');
+
+		// The language is a flag, named in its label and title.
+		const flag = korean.locator('.badge-lang');
+
+		assert.equal(await flag.getAttribute('aria-label'), 'Printed in Korean');
+		assert.equal(await flag.getAttribute('title'), 'Korean');
+		assert.match(await flag.locator('img.flag').getAttribute('src'), /\/vendor\/flags\/kr\.svg$/);
+		assert.ok(await flag.locator('img.flag').evaluate((img) => img.complete && img.naturalWidth > 0), 'the flag image loads');
+
+		const aerodactyl = page.locator('.tile', {hasText: 'Aerodactyl VSTAR'});
+
+		await aerodactyl.waitFor();
+		assert.equal(await aerodactyl.locator('.tile-name').textContent(), 'Aerodactyl VSTAR');
+		assert.equal(await aerodactyl.locator('.tile-original').textContent(), '프테라VSTAR (Peutera VSTAR)');
 		await page.waitForSelector('.tile-name:has-text("Test card tst1 002")');
 		assert.equal(await page.locator('.tile-name:has-text("Source name only")').count(), 0);
 
@@ -245,6 +268,8 @@ describe('source names', () => {
 		await page.waitForSelector('.card-detail h2:has-text("시험 카드")');
 		await page.waitForSelector('.copies li:has-text("Korean")');
 		assert.equal(await page.locator('.copies li').textContent(), 'Korean · Finish not set');
+		assert.equal(await page.locator('.copies li .flags').getAttribute('title'), 'Korean');
+		assert.equal(await page.locator('.card-detail .name-original').textContent(), '(Siheom Kadeu)');
 
 		// With a Japanese copy too, the catalog name leads and the Korean copy
 		// lists its own name.
@@ -692,11 +717,14 @@ describe('the app shell', () => {
 
 		await page.evaluate(() => navigator.serviceWorker.ready);
 
-		const cached = await page.evaluate(async () => {
-			const cache = await caches.open('card-tracker-shell-v8');
+		// The cache is named after sw.js's VERSION, so a version bump needs no
+		// change here.
+		const version = /const VERSION = '([^']+)';/.exec(await readFile(new URL('../sw.js', import.meta.url), 'utf8'))[1];
+		const cached = await page.evaluate(async (name) => {
+			const cache = await caches.open(name);
 
 			return (await cache.keys()).map((request) => new URL(request.url).pathname);
-		});
+		}, `card-tracker-shell-${version}`);
 
 		for (const file of ['vendor/supabase-js.js', 'js/sync.js', 'js/auth.js', 'js/merge.js', 'js/account-views.js']) {
 			assert.ok(cached.includes(`${BASE}${file}`), `${file} is precached`);

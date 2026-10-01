@@ -1,0 +1,244 @@
+/* Wishlist (js/wishlist-view.js). Uses the palette tokens from style.css,
+   so it follows the light and dark schemes. Yellow is a fill only, never
+   text; red is kept for destructive actions. */
+
+.wl-add-row {
+	margin: 8px 0 12px;
+}
+
+.wl-add {
+	margin-bottom: 12px;
+}
+
+.wl-search .search {
+	margin-top: 0;
+}
+
+.wl-search-row {
+	margin-bottom: 8px;
+}
+
+.wl-search-row button {
+	min-height: 48px;
+}
+
+.wl-results {
+	margin-bottom: 8px;
+}
+
+button.wl-result {
+	align-items: stretch;
+	background: none;
+	border: 0;
+	border-radius: 0;
+	display: flex;
+	flex-direction: column;
+	font-weight: 400;
+	justify-content: flex-start;
+	padding: 0;
+	text-align: left;
+}
+
+.wl-badge-on {
+	background: var(--navy);
+	color: #ffffff;
+	right: 6px;
+}
+
+/* The list: one row per item, the art on the left. */
+
+.wl-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.wl-item {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	display: grid;
+	gap: 12px;
+	grid-template-columns: 84px minmax(0, 1fr);
+	margin-bottom: 8px;
+	padding: 10px;
+}
+
+.wl-item.wl-loading {
+	background: var(--skeleton);
+	border-color: transparent;
+	display: block;
+	min-height: 138px;
+}
+
+.wl-item.wl-has {
+	border-left: 6px solid var(--yellow);
+}
+
+.wl-art {
+	width: 84px;
+}
+
+.wl-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.wl-name {
+	font-weight: 700;
+	line-height: 1.25;
+	overflow-wrap: anywhere;
+}
+
+.wl-meta {
+	color: var(--muted);
+	font-size: 0.8rem;
+	overflow-wrap: anywhere;
+}
+
+.wl-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 2px;
+}
+
+.wl-chip,
+.wl-priority {
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	line-height: 1.2;
+	padding: 3px 8px;
+}
+
+.wl-chip-any {
+	color: var(--muted);
+}
+
+/* Priority does not rely on color: each chip carries its word. */
+.wl-priority-high {
+	background: var(--navy);
+	border-color: var(--navy);
+	color: #ffffff;
+}
+
+.wl-priority-low {
+	border-style: dashed;
+	color: var(--muted);
+}
+
+.wl-note {
+	font-size: 0.85rem;
+	margin: 2px 0 0;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+
+.wl-owned {
+	align-items: center;
+	background: var(--yellow);
+	border-radius: 8px;
+	color: #1b1b1f;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.9rem;
+	font-weight: 700;
+	gap: 6px 8px;
+	justify-content: space-between;
+	line-height: 1.3;
+	margin-top: 4px;
+	padding: 6px 6px 6px 10px;
+}
+
+.wl-owned span {
+	flex: 1 1 7em;
+}
+
+.wl-owned button {
+	background: #ffffff;
+	border-color: #1b1b1f;
+	color: #1b1b1f;
+	flex: none;
+	min-height: 44px;
+	padding: 8px 12px;
+	width: auto;
+}
+
+.wl-spare {
+	border-left: 4px solid var(--blue);
+	font-weight: 700;
+	margin: 4px 0 0;
+	padding-left: 8px;
+}
+
+.wl-edit {
+	align-self: flex-start;
+	margin-top: 4px;
+	min-height: 44px;
+	padding: 8px 16px;
+	width: auto;
+}
+
+.wl-flash:empty {
+	display: none;
+}
+
+.wl-flash {
+	font-weight: 600;
+	margin: 0 0 12px;
+}
+
+/* The editor */
+
+.wl-editor h3 {
+	margin: 0 0 12px;
+	overflow-wrap: anywhere;
+}
+
+.wl-label {
+	margin-top: 12px;
+}
+
+.wl-label-block {
+	display: block;
+	font-weight: 600;
+}
+
+.wl-textarea {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	color: var(--text);
+	font: inherit;
+	min-height: 72px;
+	padding: 8px 12px;
+	resize: vertical;
+	width: 100%;
+}
+
+.wl-textarea:focus-visible {
+	outline: 3px solid var(--blue);
+	outline-offset: 2px;
+}
+
+.wl-editor-actions {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: 1fr 1fr;
+	margin-top: 8px;
+}
+
+.wl-editor-actions .wl-danger {
+	color: var(--red);
+	grid-column: 1 / -1;
+}
+
+@media (prefers-color-scheme: dark) {
+	.wl-editor-actions .wl-danger {
+		color: var(--error-text);
+	}
+}

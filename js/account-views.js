@@ -3,7 +3,10 @@
 // Signing in is optional; signed out, the app keeps the cards on this phone.
 
 import {currentUser, googleEnabled, onUser, sendSignInLink, signInErrorText, signInWithGoogle, signOut} from './auth.js';
+import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
+import {chooseTheme, currentTheme, favoritePokemon, onSettings, primaryType, setFavoritePokemon} from './settings.js';
+import {THEMES, themeById} from './themes.js';
 import {
 	displayName,
 	familyCall,
@@ -215,16 +218,22 @@ export function profileView(root) {
 	const user = currentUser();
 
 	if (!user) {
+		const theme = themeCard(false);
+
 		root.append(
 			h('h2', null, 'Profile'),
 			h('div', {class: 'card'},
 				h('p', null, 'You are not signed in. Your cards are kept on this phone only.'),
 				h('a', {class: 'button primary', 'data-link': 'signin', href: `${BASE}signin`}, 'Sign in')
-			)
+			),
+			theme.element
 		);
 
-		return null;
+		return theme.stop;
 	}
+
+	const favorite = favoriteCard();
+	const theme = themeCard(true);
 
 	const nameInput = h('input', {autocomplete: 'nickname', class: 'search', id: 'profile-name', maxlength: 60, name: 'name', type: 'text'});
 	const nameSave = h('button', {type: 'submit'}, 'Save name');
@@ -405,6 +414,8 @@ export function profileView(root) {
 			nameSave,
 			nameStatus
 		),
+		favorite.element,
+		theme.element,
 		h('div', {class: 'card'},
 			h('h3', null, 'Family'),
 			family
@@ -427,5 +438,340 @@ export function profileView(root) {
 	return () => {
 		alive = false;
 		stopStatus();
+		favorite.stop();
+		theme.stop();
+	};
+}
+
+// ---------------------------------------------------------------- Theme
+
+// A swatch per theme, named by type. Choosing one applies it at once, which
+// is the live preview for the whole app; the preview panel shows the theme
+// under the finger or the focus before it is chosen. Signed in, the choice
+// is saved to the document and syncs; signed out, it stays on this phone.
+function themeCard(signedIn) {
+	const preview = h('div', {'aria-hidden': 'true', class: 'theme-preview', id: 'theme-preview'});
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'theme-status'});
+	const grid = h('fieldset', {class: 'theme-grid', id: 'theme-grid'}, h('legend', {class: 'offscreen'}, 'Theme'));
+
+	function drawPreview(id) {
+		const theme = themeById(id) || THEMES[0];
+
+		preview.dataset.theme = theme.id;
+		preview.replaceChildren(
+			h('div', {class: 'preview-bar'}, h('span', null, `${theme.name} theme`), h('span', {class: 'preview-avatar'}, 'A')),
+			h('div', {class: 'preview-body'},
+				h('div', {class: 'card'},
+					h('p', {class: 'big'}, 'A panel'),
+					h('p', {class: 'muted'}, 'Muted text on the panel tint.'),
+					h('p', null, h('span', {class: 'preview-link'}, 'A link')),
+					h('div', {class: 'preview-buttons'},
+						h('span', {class: 'button primary'}, 'Save'),
+						h('span', {class: 'button danger-like'}, 'Delete')
+					)
+				)
+			)
+		);
+	}
+
+	for (const theme of THEMES) {
+		const input = h('input', {checked: theme.id === currentTheme(), name: 'theme', type: 'radio', value: theme.id});
+		const option = h('label', {class: 'theme-option', 'data-theme-id': theme.id},
+			input,
+			h('span', {class: 'swatch'},
+				h('span', {'aria-hidden': 'true', class: 'swatch-chip', style: `--sw-light: ${theme.light}; --sw-dark: ${theme.dark}`}),
+				h('span', {class: 'swatch-name'}, theme.name)
+			)
+		);
+
+		input.addEventListener('change', async () => {
+			if (!input.checked) {
+				return;
+			}
+
+			drawPreview(theme.id);
+
+			try {
+				const saved = await chooseTheme(theme.id);
+
+				status.textContent = signedIn
+					? `${themeById(saved).name} theme saved. It follows you to every device.`
+					: `${themeById(saved).name} theme saved on this phone. Sign in to keep it on every device.`;
+			}
+			catch (err) {
+				status.textContent = `The theme is on, but it could not be saved. ${errorText(err)}`;
+			}
+		});
+
+		// A look before choosing: hovering or focusing shows it in the preview.
+		const show = () => drawPreview(theme.id);
+		const back = () => drawPreview(currentTheme());
+
+		option.addEventListener('pointerenter', show);
+		option.addEventListener('pointerleave', back);
+		input.addEventListener('focus', show);
+		input.addEventListener('blur', back);
+
+		grid.append(option);
+	}
+
+	// Another device's theme arrives with a sync: keep the grid in step.
+	const stop = onSettings(() => {
+		const id = currentTheme();
+
+		for (const input of grid.querySelectorAll('input')) {
+			input.checked = input.value === id;
+		}
+
+		if (!grid.contains(document.activeElement)) {
+			drawPreview(id);
+		}
+	});
+
+	drawPreview(currentTheme());
+
+	return {
+		element: h('section', {'aria-labelledby': 'theme-heading', class: 'card', id: 'theme-card'},
+			h('h3', {id: 'theme-heading'}, 'Theme'),
+			h('p', {class: 'muted'}, signedIn
+				? 'One theme per Pokémon type. It follows you to every device.'
+				: 'One theme per Pokémon type. Signed out, it is kept on this phone.'),
+			preview,
+			grid,
+			status
+		),
+		stop,
+	};
+}
+
+// ------------------------------------------------------- Favorite Pokémon
+
+// A sprite, or the dex number in a circle when the image fails or is not on
+// the phone.
+function sprite(n, size = 56) {
+	const wrap = h('span', {'aria-hidden': 'true', class: 'sprite-wrap'});
+	const img = h('img', {alt: '', class: 'sprite', decoding: 'async', height: size, loading: 'lazy', width: size});
+
+	img.addEventListener('error', () => wrap.replaceChildren(h('span', {class: 'sprite-fallback'}, String(n))), {once: true});
+	img.src = spriteUrl(n);
+	wrap.append(img);
+
+	return wrap;
+}
+
+const fold = (text) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+// Search by name or National Dex number; one tap picks. The favorite shows
+// in the header and the browser tab, and suggests its type's theme, which
+// the person applies with one more tap or ignores.
+function favoriteCard() {
+	let alive = true;
+	let names = Array(MAX_DEX + 1).fill(null);
+	let chosen = null;
+	let suggestFor = 0;
+
+	const current = h('div', {class: 'favorite-current', id: 'favorite-current'});
+	const suggestion = h('div', {'aria-live': 'polite', id: 'theme-suggestion'});
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'favorite-status'});
+	const search = h('input', {
+		autocomplete: 'off',
+		class: 'search',
+		id: 'favorite-search',
+		placeholder: 'Name or number, e.g. Eevee or 133',
+		type: 'search',
+	});
+	const results = h('ul', {class: 'picker-results', id: 'favorite-results'});
+
+	function drawCurrent() {
+		if (!chosen) {
+			current.replaceChildren(h('p', {class: 'muted'}, 'No favorite yet. It shows in the header and on the browser tab while you are signed in.'));
+
+			return;
+		}
+
+		const clear = h('button', {class: 'link-button', id: 'favorite-clear', type: 'button'}, 'Remove favorite');
+
+		clear.addEventListener('click', () => pick(null));
+		current.replaceChildren(
+			sprite(chosen, 72),
+			h('span', {class: 'dex-text'},
+				h('span', {class: 'dex-num'}, dexLabel(chosen)),
+				h('span', {class: 'dex-name', id: 'favorite-name'}, nameOf(names, chosen)),
+				clear
+			)
+		);
+	}
+
+	// The type theme for the favorite, offered while another theme is on.
+	async function drawSuggestion() {
+		const n = chosen;
+
+		suggestFor = n;
+
+		if (!n) {
+			suggestion.replaceChildren();
+
+			return;
+		}
+
+		const type = await primaryType(n);
+
+		if (!alive || suggestFor !== n) {
+			return;
+		}
+
+		const theme = type ? themeById(type) : null;
+
+		if (!theme || currentTheme() === theme.id) {
+			suggestion.replaceChildren();
+
+			return;
+		}
+
+		const use = h('button', {class: 'primary', id: 'suggestion-apply', type: 'button'}, `Use the ${theme.name} theme`);
+
+		use.addEventListener('click', async () => {
+			use.disabled = true;
+
+			try {
+				await chooseTheme(theme.id);
+			}
+			catch (err) {
+				status.textContent = `The theme is on, but it could not be saved. ${errorText(err)}`;
+			}
+		});
+
+		suggestion.replaceChildren(h('div', {class: 'notice suggestion'},
+			h('p', null, `${nameOf(names, n)} is ${/^[aeiou]/i.test(theme.name) ? 'an' : 'a'} ${theme.name} type. Want the ${theme.name} theme to match?`),
+			use
+		));
+	}
+
+	async function pick(n) {
+		status.textContent = 'Saving...';
+
+		try {
+			if (!await setFavoritePokemon(n)) {
+				status.textContent = 'Your account is still loading on this phone. Try again in a moment.';
+
+				return;
+			}
+
+			chosen = n;
+			status.textContent = n ? `${nameOf(names, n)} is your favorite.` : 'Favorite removed.';
+			search.value = '';
+			drawResults();
+			drawCurrent();
+			drawSuggestion();
+		}
+		catch (err) {
+			status.textContent = `Could not save the favorite. ${errorText(err)}`;
+		}
+	}
+
+	function matches(query) {
+		const text = fold(query.trim()).replace(/^#/, '');
+
+		if (!text) {
+			return [];
+		}
+
+		if (/^\d+$/.test(text)) {
+			const n = Number(text);
+
+			return n >= 1 && n <= MAX_DEX ? [n] : [];
+		}
+
+		const starts = [];
+		const contains = [];
+
+		for (let n = 1; n <= MAX_DEX; n++) {
+			const name = names[n] ? fold(names[n]) : '';
+
+			if (name.startsWith(text)) {
+				starts.push(n);
+			}
+			else if (name.includes(text)) {
+				contains.push(n);
+			}
+		}
+
+		return [...starts, ...contains].slice(0, 24);
+	}
+
+	function drawResults() {
+		const found = matches(search.value);
+		const known = names.some(Boolean);
+
+		if (!found.length) {
+			results.replaceChildren(...(search.value.trim()
+				? [h('li', {class: 'muted'}, known ? 'No Pokémon by that name or number.' : 'Names are not on this phone yet; search by number.')]
+				: []));
+
+			return;
+		}
+
+		results.replaceChildren(...found.map((n) => h('li', null, h('button', {
+			'aria-pressed': n === chosen ? 'true' : 'false',
+			class: n === chosen ? 'picker-item picked' : 'picker-item',
+			onclick: () => pick(n),
+			type: 'button',
+		},
+		sprite(n, 40),
+		h('span', {class: 'dex-num'}, dexLabel(n)),
+		h('span', {class: 'dex-name'}, nameOf(names, n)),
+		h('span', {class: 'picker-state'}, n === chosen ? 'Favorite' : 'Pick')))));
+	}
+
+	search.addEventListener('input', drawResults);
+
+	// The suggestion goes once its theme is on, from here or from the picker.
+	const stop = onSettings(async () => {
+		const n = await favoritePokemon().catch(() => null);
+
+		if (!alive) {
+			return;
+		}
+
+		if (n !== chosen) {
+			chosen = n;
+			drawCurrent();
+		}
+
+		drawSuggestion();
+	});
+
+	favoritePokemon().then((n) => {
+		if (alive) {
+			chosen = n;
+			drawCurrent();
+			drawSuggestion();
+		}
+	}).catch(() => {});
+
+	pokemonNames().then((list) => {
+		if (alive) {
+			names = list;
+			drawCurrent();
+			drawResults();
+		}
+	}).catch(() => {});
+
+	drawCurrent();
+
+	return {
+		element: h('section', {'aria-labelledby': 'favorite-heading', class: 'card', id: 'favorite-card'},
+			h('h3', {id: 'favorite-heading'}, 'Favorite Pokémon'),
+			current,
+			suggestion,
+			h('label', {class: 'muted', for: 'favorite-search'}, 'Find a Pokémon by name or National Dex number'),
+			search,
+			results,
+			status
+		),
+		stop: () => {
+			alive = false;
+			stop();
+		},
 	};
 }

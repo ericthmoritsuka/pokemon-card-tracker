@@ -223,7 +223,8 @@ async function loadSetList(lang) {
 	const rank = new Map(newestFirst.map((set, i) => [set.id, i]));
 	const details = await Promise.all(series.map((serie) => getJson(`${lang}/series/${encodeURIComponent(serie.id)}`)));
 
-	return details.map((serie) => ({
+	// TCG Pocket is digital only; the app tracks physical cards (DESIGN.md section 3).
+	return details.filter((serie) => serie.id !== 'tcgp').map((serie) => ({
 		id: serie.id,
 		name: serie.name,
 		releaseDate: serie.releaseDate || null,
@@ -239,7 +240,7 @@ async function loadSetList(lang) {
 
 // The key carries a version: a list cached before series dates and ranks were
 // added sorts wrongly, so a new key makes every device fetch the dated one.
-export const setList = (lang, onUpdate) => cached(`setlist2:${lang}`, () => loadSetList(lang), onUpdate);
+export const setList = (lang, onUpdate) => cached(`setlist3:${lang}`, () => loadSetList(lang), onUpdate);
 
 export const setDetail = (lang, setId, onUpdate) =>
 	cached(`set:${lang}:${setId}`, () => getJson(`${lang}/sets/${encodeURIComponent(setId)}`), onUpdate);

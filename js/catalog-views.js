@@ -15,9 +15,13 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
+import {speciesNames} from './checklists.js';
 import {ownedBySet, ownedIn, sourceNames} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
+import {flagBadge} from './flags.js';
+import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
+import {cardNames, hasOwnNames} from './names.js';
 
 // International prints share English card records (DESIGN.md section 3), so
 // only these languages fall back to the English list of the same set.
@@ -28,6 +32,85 @@ const cardsText = (n) => `${n} ${n === 1 ? 'card' : 'cards'}`;
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
+
+// ------------------------------------------------------- card names
+//
+// Japanese, Korean, and Chinese prints show an English name first and the
+// original name, with a reading, under it (js/names.js). The species names
+// those need come from PokeAPI once a device (js/checklists.js); until they
+// are on the phone, a card shows its original name.
+
+let speciesTables = null;
+let speciesLoad = null;
+
+// Redraws waiting for the tables, each run once however many tiles asked.
+const waiting = new Set();
+
+// The species tables, or null while they load. onLoad runs once they are
+// in, so a view can redraw with the English names.
+export function loadedSpeciesNames(onLoad) {
+	if (speciesTables) {
+		return speciesTables;
+	}
+
+	if (onLoad) {
+		waiting.add(onLoad);
+	}
+
+	if (!speciesLoad) {
+		speciesLoad = speciesNames()
+			.then((tables) => {
+				speciesTables = tables;
+			})
+			.catch(() => {
+				// Original names only, this visit.
+			})
+			.finally(() => {
+				speciesLoad = null;
+
+				const callbacks = [...waiting];
+
+				waiting.clear();
+				callbacks.forEach((callback) => callback());
+			});
+	}
+
+	return null;
+}
+
+// The lang attribute for a name in a catalog language, so the browser picks
+// a Japanese, Korean, or Chinese font for it.
+export const htmlLang = (lang) => ({'zh-cn': 'zh-Hans', 'zh-tw': 'zh-Hant'}[lang] || lang);
+
+// {english, original, reading} for a card name in a language. Western
+// names come back as they are. onLoad as for loadedSpeciesNames.
+export function namesFor({category = null, dexId = null, lang, name}, onLoad) {
+	if (!hasOwnNames(lang)) {
+		return {english: null, original: String(name || ''), reading: null};
+	}
+
+	return cardNames({category, dexId, lang, name}, loadedSpeciesNames(onLoad));
+}
+
+// The smaller line under the main name: the original with its reading, or
+// the reading alone when the original is the main name. Null when there is
+// nothing more to say.
+export function originalLine({english, original, reading}) {
+	if (english) {
+		return reading ? `${original} (${reading})` : original;
+	}
+
+	return reading ? `(${reading})` : null;
+}
+
+export const mainName = (names) => names.english || names.original;
+
+// A tile's name: the main name, and the original line under it. lang is
+// the language the original is written in.
+export const tileNames = (names, lang) => [
+	h('span', {class: 'tile-name', lang: names.english ? null : htmlLang(lang)}, mainName(names)),
+	originalLine(names) ? h('span', {class: 'tile-original', lang: htmlLang(lang)}, originalLine(names)) : null,
+];
 
 // -------------------------------------------------------- card images
 
@@ -401,6 +484,8 @@ export function setView(root, {lang, setId}) {
 	function draw(set, cards, cardLang) {
 		shown = [set, cards, cardLang];
 
+		const redraw = () => alive && shown && draw(...shown);
+
 		const total = set.cardCount && (set.cardCount.total ?? set.cardCount.official);
 
 		title.textContent = set.name;
@@ -431,7 +516,8 @@ export function setView(root, {lang, setId}) {
 
 		grid.replaceChildren(
 			...visible.map((card) => {
-				const info = {name: card.name, number: card.localId, setName: set.name};
+				const names = namesFor({lang: cardLang, name: card.name}, redraw);
+				const info = {name: mainName(names), number: card.localId, setName: set.name};
 				const mine = owned.get(card.id);
 				const frame = h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low')));
 				let status = null;
@@ -444,7 +530,7 @@ export function setView(root, {lang, setId}) {
 					// text, never color alone.
 					frame.append(
 						h('span', {'aria-label': `Owned: ${mine.total} ${mine.total === 1 ? 'copy' : 'copies'}`, class: 'ribbon'}, String(mine.total)),
-						h('span', {'aria-label': `Printed in ${languages.map(languageLabel).join(', ')}`, class: 'badge badge-lang'}, languages.map(chip).join(' '))
+						flagBadge(languages, {className: 'badge badge-lang'})
 					);
 
 					// "Owned in PT" when no copy is in the language being viewed
@@ -454,7 +540,7 @@ export function setView(root, {lang, setId}) {
 
 				return link(routeTo('cards', cardLang, card.id), {class: mine ? 'tile owned' : 'tile unowned'},
 					frame,
-					h('span', {class: 'tile-name'}, card.name),
+					...tileNames(names, cardLang),
 					h('span', {class: 'tile-meta'}, `#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : ' · Missing')
 				);
 			})
@@ -582,15 +668,37 @@ export function cardView(root, {lang, cardId}) {
 	let source = null;
 
 	function draw(card) {
+		current = card;
 		render(card);
 		drawCopies(card, Array.isArray(card.variants_detailed) ? card.variants_detailed : []);
+		drawLiga(card);
+	}
+
+	// The names shown: English first for an Asian print, in the language the
+	// name is written in (a Korean copy's own name on a Japanese record).
+	const nameLang = () => (source && source.language) || lang;
+	const shownNames = (card) => namesFor({
+		category: card.category || null,
+		dexId: card.dexId || null,
+		lang: nameLang(),
+		name: (source && source.name) || card.name,
+	}, redrawNames);
+
+	let current = null;
+
+	function redrawNames() {
+		if (alive && current) {
+			draw(current);
+		}
 	}
 
 	function render(card) {
 		const set = card.set || {};
 		const official = set.cardCount && set.cardCount.official;
 		const number = official ? `${card.localId} / ${official}` : card.localId;
-		const name = (source && source.name) || card.name;
+		const names = shownNames(card);
+		const name = mainName(names);
+		const below = originalLine(names);
 		const setName = (source && source.setName) || set.name;
 		const info = {name, number: card.localId, setName};
 		const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : null;
@@ -606,7 +714,8 @@ export function cardView(root, {lang, cardId}) {
 		body.replaceChildren(
 			h('div', {class: 'big-art'}, cardArt(info, cardImage(card.image, 'high'), {eager: true})),
 			h('div', null,
-				h('h2', null, name),
+				h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name),
+				below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
 				h('dl', {class: 'facts'},
 					row('Set', setName),
 					row('Number', number),
@@ -614,6 +723,7 @@ export function cardView(root, {lang, cardId}) {
 					row('Illustrator', card.illustrator),
 					row('Catalog', languageLabel(lang))
 				),
+				liga,
 				copies,
 				variants && variants.length
 					? h('section', null,
@@ -626,6 +736,102 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	const copies = h('section', {class: 'copies', hidden: true});
+
+	// Ver na Liga: a link to Liga Pokémon's own search, never a fetch from
+	// it (DESIGN.md section 10). Liga matches the English name, so the link is
+	// built from TCGdex's English record of the same card, and stays hidden
+	// when that record or the set's official count is not available.
+	const ligaLink = h('a', {class: 'button', rel: 'noopener noreferrer', target: '_blank'}, 'Ver na Liga');
+	const liga = h('section', {class: 'liga', hidden: true},
+		ligaLink,
+		h('p', {class: 'muted'}, 'Opens Liga Pokémon\'s search for this card.')
+	);
+	let ligaRun = 0;
+
+	function showLiga(english, card) {
+		const set = english.set || card.set || {};
+		const href = english.id === cardId
+			? ligaUrl({
+				localId: english.localId,
+				name: english.name,
+				official: set.cardCount && set.cardCount.official,
+				setId: set.id,
+				setName: set.name,
+			})
+			: null;
+
+		if (href) {
+			ligaLink.href = href;
+		}
+		else {
+			ligaLink.removeAttribute('href');
+		}
+
+		liga.hidden = !href;
+	}
+
+	// A Japanese print has its own Liga page under its English name and the
+	// Japanese set's number and official total (DESIGN.md section 10,
+	// "Languages on Liga"), so it gets the button once an English name is
+	// found. Korean and Chinese prints, and a Japanese record shown for
+	// Korean copies, get none: whether Liga lists them is unchecked.
+	function showJapaneseLiga(card) {
+		const set = card.set || {};
+		const names = shownNames(card);
+		const href = !source && names.english
+			? ligaUrl({
+				localId: card.localId,
+				name: names.english,
+				official: set.cardCount && set.cardCount.official,
+				setId: set.id,
+				setName: set.name,
+			})
+			: null;
+
+		if (href) {
+			ligaLink.href = href;
+		}
+		else {
+			ligaLink.removeAttribute('href');
+		}
+
+		liga.hidden = !href;
+	}
+
+	async function drawLiga(card) {
+		const run = ++ligaRun;
+
+		if (lang === 'ja') {
+			showJapaneseLiga(card);
+
+			return;
+		}
+
+		if (catalogFor(lang) !== 'international') {
+			liga.hidden = true;
+
+			return;
+		}
+
+		if (lang === 'en') {
+			showLiga(card, card);
+
+			return;
+		}
+
+		try {
+			const {data} = await cardDetail('en', cardId, (fresh) => alive && run === ligaRun && showLiga(fresh, card));
+
+			if (alive && run === ligaRun) {
+				showLiga(data, card);
+			}
+		}
+		catch {
+			if (alive && run === ligaRun) {
+				liga.hidden = true;
+			}
+		}
+	}
 
 	async function drawCopies(card, variants) {
 		let mine;
@@ -647,11 +853,12 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		const names = mine ? mine.entries.map((entry) => sourceNames(entry, record)) : [];
-		const next = names.length && names.every(Boolean) ? names[0] : null;
+		const next = names.length && names.every(Boolean) ? {...names[0], language: mine.entries[0].language} : null;
 
 		if ((next && next.name) !== (source && source.name) || (next && next.setName) !== (source && source.setName)) {
 			source = next;
 			render(card);
+			drawLiga(card);
 		}
 
 		if (!mine) {
@@ -661,6 +868,7 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		const shownName = (source && source.name) || card.name;
+		const flagged = (language) => flagBadge([language], {className: 'flags-inline'});
 		const groups = new Map();
 
 		for (const entry of mine.entries) {
@@ -681,7 +889,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.replaceChildren(
 			h('h3', null, `Your copies (${mine.total})`),
 			h('ul', {class: 'variants'}, [...groups.values()].map((group) =>
-				h('li', null, [languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''))
+				h('li', null, flagged(group.language), [languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''))
 			))
 		);
 	}
