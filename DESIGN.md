@@ -310,7 +310,8 @@ card
     "notes", "is_favorite", "photo_path", "created_at"
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
-  "goals":       [{ "id", "kind", "target", "level" }],         -- every_pokemon | set | pokemon | artist
+  "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks" }],
+                                  -- every_pokemon | region | custom_pokemon | set | pokemon | artist
   "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
                                 "entry_id" | "want": {card_id, variant_id} | "art": {art_id, tile} }],
@@ -603,6 +604,18 @@ card's detail and an opening's summary, not as a headline total.
 | Set, master | One set | Every card in every variant, ball patterns and reverses included |
 | One Pokémon | A dex number | Every card of that Pokémon, across all sets |
 | One artist | An illustrator | Every card by that illustrator |
+
+**Pokémon checklists** (requested by Eric, 2026-10-01). A checklist is a goal over a list of
+Pokémon, shown as a list to tick off, and lives in the binder area. Presets cover each region by
+National Dex number: Kanto 1 to 151, Johto 152 to 251, Hoenn 252 to 386, Sinnoh 387 to 493, Unova
+494 to 649, Kalos 650 to 721, Alola 722 to 809, Galar 810 to 898, Hisui 899 to 905, and Paldea 906
+to 1025, plus Every Pokémon. A person can also build their own list by picking Pokémon ("every
+Eeveelution"). Each entry is ticked automatically once any owned card's `dex_ids` includes that
+number, in any language. A person can also tick one by hand (a card bought but not logged yet);
+hand ticks show a different mark from owned ones and never count as owned anywhere else. A
+**Missing only** filter works offline, so a store visit shows just the gaps ("#107 Hitmonchan").
+A checklist can lay out a binder in Dex order with placeholders for the missing ones, which suits
+a "Generations 1 and 2" binder.
 
 Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
 why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants
