@@ -538,6 +538,19 @@ and copyright; combine the clues, with the name as a second route and an artwork
 tiebreaker; warm the engine on opening and use two workers; and when nothing is certain, show
 what was read with a prefilled search instead of a dead end.
 
+**Later: image-first recognition** (noted with Eric, 2026-10-01; not scheduled). monprice says it
+identifies cards with a custom model trained on over 19,000 cards, returning results in about
+0.1 seconds: recognition by picture, not text (its app is closed source and is not inspected). The
+free equivalent: a small open image model running on the phone (a few MB, through ONNX Runtime
+Web or TensorFlow.js) turns the straightened capture into an embedding; a prebuilt index of
+embeddings for every catalog card, made once from TCGdex images by a scheduled GitHub Actions job
+(free for public repositories) and quantized to roughly 2 to 5 MB for the international catalog,
+gives the nearest candidates in a fraction of a second even when the number is unreadable; OCR
+of the number and name then separates reprints with the same art and reads the language. Before
+building it: confirm TCGdex's terms allow bulk image processing for an index, pick and measure a
+model on phone-class hardware, and decide how often the index rebuilds as new sets appear.
+Schedule after the text-first improvements are tested on real cards.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.
