@@ -7,14 +7,25 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Wiring next: the twelve TCG energy-type themes (approved), Brazil-first prices with Cardmarket
-  and US comparisons, and binder spreads with a page turn.
-- Being built: every card of a Pokémon in a list, international twins for Japanese and Korean
-  cards, and a zoom and compare viewer.
+- Finishing: a better scanner (reads the name, HP, and number together, compares artwork to break
+  ties, faster, and a prefilled search instead of a dead end).
+- Built and waiting to be wired in: binder spreads with a page turn, every card of a Pokémon in
+  a list, and international twins for Japanese and Korean cards. See `plans/roadmap.md`.
 
 ## Live
 
 ### 2026-10-01
+
+- **15:29** Version 14. `23c0c4f`
+  - Themes on the twelve TCG energy types (Default, Grass, Fire, Water, Lightning, Psychic,
+    Fighting, Darkness, Metal, Dragon, Colorless, Fairy), each with its own palette, frame, and
+    a faint header detail. Your favorite Pokémon suggests the energy most of its cards carry.
+  - Prices on card pages: Liga Pokémon's lowest NM and average first (typed after Ver na Liga),
+    then the US (TCGplayer) and EU (Cardmarket) markets in R$ with a trend.
+  - Prices on tiles, statistics on binders, checklists, and sets, and a Stats panel on My
+    Cards. The CSV export gains the Liga columns.
+  - Tap a card's image for a full-screen viewer with pinch zoom and a Compare mode with synced
+    zoom; an optional detail copy of new photos (Profile).
 
 - **15:03** Version 13. `7602a94`
   - New tabs: Cards, Sets, a raised Scan, Binders, and Lists (checklists and wishlist). Profile
