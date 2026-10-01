@@ -785,9 +785,12 @@ all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across se
 including cards it shares with others (TAG TEAM cards list several `dexId` values), with owned
 cards flagged (ribbon and language flags) and missing ones dimmed with one tap to the wishlist,
 the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
-collection. The international cards come from the bulk `id` and `dexId` list the checklists
-already cache (23,736 cards in one request), so it works offline; Japanese and Korean prints come
-from their own catalogs, one request per set, under a separate heading. TCG Pocket is excluded.
+collection. It covers international prints only (the Portuguese and English printings that share
+one card record), from the bulk `id` and `dexId` list the checklists already cache (23,736 cards in
+one request), so it works offline; Japanese and Korean prints and TCG Pocket are left out. Every
+thumbnail carries language flags in its top-left corner: the languages the person owns it in (a
+Portuguese copy shows Brazil, both show Brazil and the United States), and none on a missing card.
+*(Narrowed by Eric, 2026-10-01.)*
 *(Planned 2026-10-01, a block after the shell.)*
 
 Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
