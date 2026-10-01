@@ -7,15 +7,28 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- The new navigation (Cards, Sets, Scan, Binders, Lists), Profile behind the avatar, swiping
-  between cards, a shared card tile, and a self-hosted font.
-- The scanner: viewfinder, session tray, language per card, finish picker, duplicates,
-  wishlist alerts, check-only mode, and undo.
-- Your own card photos with auto-crop, and the image carousel.
+- Wiring next: the twelve TCG energy-type themes (approved), Brazil-first prices with Cardmarket
+  and US comparisons, and binder spreads with a page turn.
+- Being built: every card of a Pokémon in a list, international twins for Japanese and Korean
+  cards, and a zoom and compare viewer.
 
 ## Live
 
 ### 2026-10-01
+
+- **15:03** Version 13. `7602a94`
+  - New tabs: Cards, Sets, a raised Scan, Binders, and Lists (checklists and wishlist). Profile
+    sits behind your avatar and holds themes, favorite Pokémon, family, Import, Export and Share
+    CSV, and Phone check.
+  - The scanner: auto-capture, a session tray kept as a draft, the language read from each card,
+    a finish picker that never remembers, duplicate counts, family wishlist alerts, "needs a
+    look" before saving, Set for all, Undo session, and a check-only scan for shops. The reading
+    engine downloads the first time Scan opens.
+  - Your own card photos: Add photo on a card page, automatic cropping with draggable corners,
+    and an image carousel with dots and "Use as main image".
+  - A "Mine" switcher in the header for family view only mode, with a Done button.
+  - Swipe left and right between cards in the list you opened them from.
+  - An offline strip, one card tile everywhere, and the app's font stored in the app.
 
 - **14:03** Version 11, with tabs for Lists and Binders, and Wishlist in the Menu. `07b9efb`
   - Pokémon checklists: Kanto through Paldea, or your own list, ticked from your cards in any
