@@ -344,6 +344,18 @@ Gaps that affect Eric's own collection, and the fallback for each:
 | Japanese S4a (Shiny Star V) is listed with 0 of 190 cards. | 1 KR card | Manual entry. |
 | Simplified Chinese Gem Pack Vol. 4 (`CBB4C`) is listed with 0 of 7 cards. | 4 CHS cards | Manual entry. |
 
+**Measured 2026-10-01 (`pt`):** 125 sets in 12 series, 13,907 cards listed (12,746 with images),
+33 sets listing no cards. The set files total 1.45 MB; full card records average 2.2 KB, about
+30 MB for every card, roughly 5 MB compressed. So the app caches per set as it is opened rather
+than downloading a whole language up front.
+
+**Doubled CORS header on images.** Many `assets.tcgdex.net` images send
+`access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images, no sampled
+`en` card image), which browsers reject as a CORS failure. Images therefore load without
+`crossorigin`, and the service worker can only keep those as opaque responses, which Chrome
+counts at roughly 9 MB of quota each. The opaque image cache is capped at 100 entries; the
+lasting fix is the server-side copy of owned-card images (section 3), or TCGdex fixing the header.
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
@@ -459,6 +471,7 @@ Facts this rests on, checked 2026-10-01 against published sources:
 | Phone | Mode | Camera | Torch | Zoom and focus | Storage | Offline reload |
 | --- | --- | --- | --- | --- | --- | --- |
 | Eric: Android 10, Chrome 154 (2026-10-01) | Installed and browser | Rear, 1080 × 1920 default, up to 3840 × 2160, starts in about 530 ms | Supported; toggle worked installed and in the browser | Zoom 1 to 4; manual, single-shot, and continuous focus | 1,600 entries written in about 220 ms, read in about 20 ms; persistent; 10 GB quota | Passed: with no connection, the installed app opened, wrote 1,600 entries, and counted them back |
+| Eric's laptop: Linux, Chrome 154 (2026-10-01) | Browser | Webcam, 1920 × 1080, no rear camera | Not supported | Not supported | 1,600 entries written in 121 ms; persistent; 10 GB quota | Not run |
 | An iPhone (optional: every invited user has Android) | | Not run yet | | | | |
 
 Verdict for Android: the PWA does everything weekend zero set out to test. Browser tab and
@@ -614,7 +627,6 @@ Claims in this document that were reasoned about but not checked against source:
   partner-gated rather than open signup. Do not design around having a key until confirmed.
 - Exact TCGplayer CSV column spec, if adopting it.
 - What a Brazilian card's copyright line actually reads, as an OCR anchor for language detection.
-- How large a full catalog download is per language, for offline use.
 - That a paused Supabase free project keeps its data.
 
 Checked 2026-10-01 and recorded above: TCGdex language coverage and gaps (section 5), pricing
