@@ -20,7 +20,7 @@
 import {currentUser} from './auth.js';
 import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
-import {binderSpread} from './binder-spread.js';
+import {OVERVIEW_QUERY, binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -562,9 +562,12 @@ function binderScreen(root, source, id, pageParam) {
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
-	// An empty binder offers the scanner, where new cards come from.
+	// An empty binder offers the scanner, where new cards come from. Its
+	// words follow the spread (drawSummary): held upright, a page is tapped
+	// open before its pockets take a tap.
+	const emptyText = h('p', {id: 'binder-empty-text'});
 	const emptyHint = source.readOnly ? null : h('div', {class: 'card empty-state binder-empty', hidden: true, id: 'binder-empty'},
-		h('p', null, 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.'),
+		emptyText,
 		h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binder-empty-scan'}, 'Scan cards')
 	);
 
@@ -686,8 +689,15 @@ function binderScreen(root, source, id, pageParam) {
 		const stats = binderStats(binder, placed, new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id)));
 		const where = pages.length > 1 ? `Pages ${pages[0]} and ${pages[1]}` : `Page ${pages[0]}`;
 
+		// Any pocket in use (a card, a Gone card, a placeholder, art, or one
+		// left empty on purpose) means the binder is not new.
 		if (emptyHint) {
-			emptyHint.hidden = stats.filled > 0 || stats.wanted > 0;
+			const upright = Boolean(window.matchMedia && window.matchMedia(OVERVIEW_QUERY).matches);
+
+			emptyHint.hidden = slotsOf(binder, placed).length > 0;
+			emptyText.textContent = upright
+				? 'Nothing in this binder yet. Tap a page, then a pocket, to place a card you own, or scan new ones.'
+				: 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.';
 		}
 
 		// A card page opened from this binder swipes through its cards in

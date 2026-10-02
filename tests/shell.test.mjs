@@ -336,6 +336,20 @@ describe('the tabs', () => {
 		await page.goto(url(`binders/${binder.id}`));
 		await page.waitForSelector('#binder-empty:not([hidden])');
 		assert.equal(await page.locator('#binder-empty-scan').getAttribute('href'), `${BASE}scan`);
+
+		// Held upright a page opens before its pockets take a tap, and the
+		// hint says so; sideways the pockets take one at once.
+		assert.equal(await page.locator('#binder-empty-text').textContent(), 'Nothing in this binder yet. Tap a page, then a pocket, to place a card you own, or scan new ones.');
+		await page.setViewportSize({height: 360, width: 740});
+		await page.waitForFunction(() => /^Nothing in this binder yet\. Tap a pocket to place/.test(document.getElementById('binder-empty-text').textContent));
+		await page.setViewportSize(VIEWPORT);
+		await page.waitForFunction(() => /Tap a page, then a pocket/.test(document.getElementById('binder-empty-text').textContent));
+
+		// A pocket left empty on purpose, or art, is a binder in use: no hint.
+		await page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/binders.js')).leaveEmpty(id, 1, 1), binder.id);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-summary:not(:empty)');
+		assert.ok(await page.locator('#binder-empty').isHidden(), 'no hint once a pocket is left empty on purpose');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
