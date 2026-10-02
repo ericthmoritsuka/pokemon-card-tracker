@@ -924,9 +924,13 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		if (wished) {
-			return link('wishlist', {class: 'button wish-on', id: 'card-wished'},
-				'On your wishlist',
-				wished.language ? ` (${languageName(wished.language)})` : null
+			// Short enough for half the row at 360 px; the language is in the
+			// label and the tooltip.
+			const which = wished.language ? ` in ${languageName(wished.language)}` : '';
+
+			return link('wishlist', {'aria-label': `On your wishlist${which}. Open the wishlist`, class: 'button wish-on', id: 'card-wished', title: `On your wishlist${which}`},
+				h('span', {'aria-hidden': 'true', class: 'wish-check'}, '✓ '),
+				'On your wishlist'
 			);
 		}
 

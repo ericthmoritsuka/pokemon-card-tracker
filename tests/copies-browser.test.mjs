@@ -363,7 +363,9 @@ describe('copies on card detail', () => {
 		assert.equal(await page.locator('#card-wish').textContent(), 'Add to wishlist');
 		await page.click('#card-wish');
 		await page.waitForSelector('#card-wished');
-		assert.equal(await page.locator('#card-wished').textContent(), 'On your wishlist (Portuguese)');
+		assert.equal(await page.locator('#card-wished').textContent(), '✓ On your wishlist');
+		assert.equal(await page.locator('#card-wished').getAttribute('aria-label'), 'On your wishlist in Portuguese. Open the wishlist');
+		assert.equal(await page.locator('.toast-text', {hasText: 'wishlist'}).textContent(), 'Added to your wishlist (Portuguese).');
 		assert.equal(await page.locator('#card-wished').getAttribute('href'), `${BASE}wishlist`);
 
 		const wishlist = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/wishlist.js')).listWishlist());

@@ -109,9 +109,21 @@ button.copy-row::after {
 	flex: 1 1 140px;
 }
 
+/* Half the row each at 360 px: less side padding keeps one line. */
+.card-liga > .button,
+.card-liga > button {
+	padding-left: var(--space-2);
+	padding-right: var(--space-2);
+	white-space: nowrap;
+}
+
 .card-liga .liga-none {
 	align-self: center;
 	margin: 0;
+}
+
+.wish-check {
+	margin-right: var(--space-1);
 }
 
 .liga-out {
