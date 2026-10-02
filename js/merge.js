@@ -201,8 +201,55 @@ export function mergeDocuments(local, remote) {
 
 	out.cards = refoldPhotos(collapseImportDuplicates(out.cards));
 	out.binders = redirectPockets(out.binders, out.cards);
+	out.wishlist = dedupeWishes(out.wishlist);
 
 	return out;
+}
+
+// ------------------------------------------------------- duplicate wishes
+
+// What makes two wishes the same: the card, its catalog, and the language
+// and finish they name (js/wishlist.js sameWish).
+const wishKey = (wish) => wish.card_id ? [wish.catalog || 'international', wish.card_id, wish.language || '', wish.variant_id || ''].join('|') : null;
+
+// The same card wished for on two phones, or an edit that made one wish the
+// twin of another, leaves two live items. They fold into the oldest
+// (earliest created_at, then the lowest id), which takes the priority of the
+// most recently edited one and the newest non-empty note; the others become
+// tombstones naming it in merged_into, all stamped just after the newest of
+// the group. Removing the survivor then removes the wish everywhere.
+export function dedupeWishes(wishes) {
+	if (!Array.isArray(wishes)) {
+		return wishes;
+	}
+
+	const replace = new Map();
+
+	for (const members of liveGroups(wishes, wishKey)) {
+		const [survivor] = [...members].sort(oldestFirst);
+		const newest = [...members].sort(newestFirst);
+		const noted = newest.find((member) => filled(member.note));
+		const at = stampAfterAll(members);
+		const kept = {...survivor, deleted_at: null, updated_at: at};
+
+		if (newest[0].priority !== undefined) {
+			kept.priority = newest[0].priority;
+		}
+
+		if (noted) {
+			kept.note = noted.note;
+		}
+
+		replace.set(kept.id, kept);
+
+		for (const member of members) {
+			if (member.id !== kept.id) {
+				replace.set(member.id, {...member, deleted_at: at, merged_into: kept.id, updated_at: at});
+			}
+		}
+	}
+
+	return replace.size ? wishes.map((wish) => (wish && replace.get(wish.id)) || wish) : wishes;
 }
 
 // ------------------------------------------------------- duplicate copies

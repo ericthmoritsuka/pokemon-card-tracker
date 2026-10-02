@@ -215,6 +215,12 @@ redirected, and a photo waiting to upload on a folded copy goes up under the sur
 versions of one imported id, the copy someone used wins over a fresh import of it. *(Decided
 2026-10-02, Eric's audit fixes: oldest survives, newest non-empty note.)*
 
+**The same wish on two phones is one wish.** Live wishes for the same card, catalog, language,
+and finish fold into the oldest after every merge, taking the priority of the most recently edited
+one and the newest non-empty note; the others become tombstones with `merged_into`. A wish id is
+not derived from its fields, because an edit can change the language or finish. *(Decided
+2026-10-02, Eric's audit fixes.)*
+
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
 pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline
