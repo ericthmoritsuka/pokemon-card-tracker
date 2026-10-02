@@ -330,6 +330,7 @@ describe('sign in', () => {
 		const otp = fake.log.find((entry) => entry.path === '/auth/v1/otp');
 
 		assert.equal(otp.body.code_challenge_method, 's256', 'PKCE challenge sent');
+		assert.equal(otp.body.create_user, false, 'a sign-in link never creates an account');
 		await page.screenshot({path: '/tmp/card-tracker-signin.png'});
 		assert.deepEqual(errors, []);
 		await context.close();

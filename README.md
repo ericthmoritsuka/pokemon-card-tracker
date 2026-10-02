@@ -61,7 +61,8 @@ after step 1 becomes the family owner.
    User** on. Add that address under **Add member** in the app. They sign in with **Sign in with a
    name and password**, typing only the name (`member.a`), and should change the password in
    **Profile**. To set a new one when they forget it, run `supabase/reset-password.sql` in the SQL
-   Editor; no reset email can reach an `.invalid` address.
+   Editor; no reset email can reach an `.invalid` address. It also signs that account out on every
+   phone.
 
 Supabase's built-in email sends only a few emails an hour on the free plan, and every sign-in link,
 resend, and invitation counts. The app keeps people signed in, so a phone needs a link only once.
@@ -271,7 +272,7 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | `js/dom.js` | Shared DOM, navigation, and error helpers. |
 | `vendor/supabase-js.js` | The Supabase client, 2.117.2, bundled into one file. |
 | `supabase/setup.sql` | Tables, row-level security, and functions; run once in the SQL Editor. |
-| `supabase/reset-password.sql` | Sets a new password for an account-name account, pasted into the SQL Editor when needed. |
+| `supabase/reset-password.sql` | Sets a new password for an account-name account and ends its sessions, pasted into the SQL Editor when needed. |
 | `tests/` | The tests above, the GitHub Pages stand-in server, and the fake Supabase. |
 | `style.css` | Mobile-first styles. |
 | `manifest.webmanifest` | Install metadata: name, icons, standalone display, and scope. |
