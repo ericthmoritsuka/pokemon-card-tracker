@@ -277,7 +277,16 @@ export function listLanguages(goal) {
 	return saved.length ? saved : [...ALL_LIST_LANGUAGES];
 }
 
+// languages null (Any language) removes the field, so the list counts a
+// copy in any language again, German, Spanish, Italian, and copies with no
+// language recorded included, which no set of the codes above can say.
 export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {
+	if (languages === null) {
+		delete goal.languages;
+
+		return;
+	}
+
 	const list = cleanLanguages(languages);
 
 	if (!list.length) {

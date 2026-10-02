@@ -182,20 +182,47 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 	function openEditor() {
 		editing = true;
 
-		const chosen = new Set(listLanguages(goal));
+		// Any language is its own choice, ticked for a list that names none:
+		// it counts every copy, German, Spanish, Italian, and copies with no
+		// language included, which ticking every box below cannot.
+		let any = !namesLanguages(goal);
+		const chosen = new Set(any ? [] : listLanguages(goal));
 		const error = h('p', {'aria-live': 'polite', class: 'form-error'});
-		const boxes = LANGUAGE_CHOICES.map((code) => h('label', {class: 'pc-language-choice'},
-			h('input', {checked: chosen.has(code), name: 'list-language', onchange: (event) => {
+		const anyBox = h('input', {checked: any, id: 'list-languages-any', name: 'list-language', type: 'checkbox', value: 'any'});
+		const languageBoxes = [];
+		const boxes = LANGUAGE_CHOICES.map((code) => {
+			const box = h('input', {checked: chosen.has(code), name: 'list-language', onchange: (event) => {
 				if (event.target.checked) {
 					chosen.add(code);
+					any = false;
+					anyBox.checked = false;
 				}
 				else {
 					chosen.delete(code);
 				}
-			}, type: 'checkbox', value: code}),
-			flagBadge([code], {className: 'flags-inline', prefix: null}),
-			h('span', null, languageLabel(code))
-		));
+			}, type: 'checkbox', value: code});
+
+			languageBoxes.push(box);
+
+			return h('label', {class: 'pc-language-choice'},
+				box,
+				flagBadge([code], {className: 'flags-inline', prefix: null}),
+				h('span', null, languageLabel(code))
+			);
+		});
+
+		anyBox.addEventListener('change', () => {
+			any = anyBox.checked;
+
+			if (any) {
+				chosen.clear();
+
+				for (const box of languageBoxes) {
+					box.checked = false;
+				}
+			}
+		});
+
 		const save = h('button', {class: 'primary', id: 'list-languages-save', type: 'button'}, 'Save');
 		const cancel = h('button', {type: 'button'}, 'Cancel');
 
@@ -205,8 +232,8 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		});
 
 		save.addEventListener('click', async () => {
-			if (!chosen.size) {
-				error.textContent = 'Pick at least one language.';
+			if (!any && !chosen.size) {
+				error.textContent = 'Pick at least one language, or Any language.';
 
 				return;
 			}
@@ -214,7 +241,10 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 			save.disabled = true;
 
 			try {
-				const saved = await setListLanguages(listId, LANGUAGE_CHOICES.filter((code) => chosen.has(code)));
+				// Every box ticked reads as Any language, so it counts every
+				// copy rather than dropping the languages no box names.
+				const every = LANGUAGE_CHOICES.every((code) => chosen.has(code));
+				const saved = await setListLanguages(listId, any || every ? null : LANGUAGE_CHOICES.filter((code) => chosen.has(code)));
 
 				goal = saved;
 				editing = false;
@@ -232,8 +262,11 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 		element.replaceChildren(h('fieldset', {class: 'pc-language-editor', id: 'list-languages-editor'},
 			h('legend', null, 'Languages this list counts'),
-			h('p', {class: 'muted'}, 'A card counts as owned only for a copy in one of these, and only their prints are shown.'),
-			h('div', {class: 'pc-language-choices'}, boxes),
+			h('p', {class: 'muted'}, 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
+			h('div', {class: 'pc-language-choices'},
+				h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
+				boxes
+			),
 			error,
 			h('div', {class: 'button-row'}, cancel, save)
 		));
