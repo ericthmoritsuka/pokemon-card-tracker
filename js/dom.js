@@ -22,7 +22,15 @@ export function fromHistory(key, fallback) {
 // history entry, for Back (app.js restores it).
 export function pushRoute(target) {
 	rememberInHistory({scrollY: window.scrollY});
-	history.pushState({inApp: true}, '', target);
+
+	// A link tapped in a sheet: the sheet's entry becomes the new screen's,
+	// so one Back returns to the screen under the sheet.
+	if (history.state && history.state.sheet) {
+		history.replaceState({inApp: true}, '', target);
+	}
+	else {
+		history.pushState({inApp: true}, '', target);
+	}
 }
 
 // Opens an app route from code, the way a data-link click does: app.js

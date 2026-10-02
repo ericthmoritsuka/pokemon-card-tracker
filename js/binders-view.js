@@ -37,6 +37,7 @@ import {
 } from './catalog.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
+import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
@@ -942,7 +943,9 @@ function binderScreen(root, source, id, pageParam) {
 		sweepOnce(source);
 
 		if (!body.contains(spreadHolder)) {
-			body.replaceChildren(
+			// replaceChildren prints a null argument as "null", and a family
+			// member's binder leaves several parts out.
+			body.replaceChildren(...[
 				h('div', {class: 'binder-head'}, title, meta, notes),
 				statsSlot,
 				spreadHolder,
@@ -956,8 +959,8 @@ function binderScreen(root, source, id, pageParam) {
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
 					),
-				editor
-			);
+				editor,
+			].filter(Boolean));
 		}
 
 		draw();
@@ -1414,7 +1417,10 @@ function binderScreen(root, source, id, pageParam) {
 		sheet.replaceChildren(header, current || '', chooser, message);
 		// Focus goes to Close, not the search field: most people scroll the
 		// list, and on a phone a focused field raises the keyboard over it.
-		sheet.showModal();
+		// Back closes the sheet instead of leaving the binder.
+		if (!sheet.open) {
+			openDialogSheet(sheet);
+		}
 	}
 
 	// The three ways to fill a pocket: one of your cards, a placeholder, or

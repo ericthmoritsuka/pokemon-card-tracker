@@ -901,8 +901,8 @@ export function binderSpread({
 	}
 
 	zoomBack.addEventListener('click', unzoom);
-	zoomPrev.addEventListener('click', () => stepZoom(-1));
-	zoomNext.addEventListener('click', () => stepZoom(1));
+	zoomPrev.addEventListener('click', () => stepZoom(-1).catch(() => {}));
+	zoomNext.addEventListener('click', () => stepZoom(1).catch(() => {}));
 	prevEdge.addEventListener('click', () => turn(-1).catch(() => {}));
 	nextEdge.addEventListener('click', () => turn(1).catch(() => {}));
 	jump.addEventListener('change', () => goTo(Number(jump.value)));
@@ -979,7 +979,7 @@ export function binderSpread({
 
 		if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
 			event.preventDefault();
-			turn(event.key === 'ArrowRight' ? 1 : -1);
+			turn(event.key === 'ArrowRight' ? 1 : -1).catch(() => {});
 		}
 		else if (event.key === 'Escape' && state.zoom) {
 			event.preventDefault();
