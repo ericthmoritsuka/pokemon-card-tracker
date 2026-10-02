@@ -859,6 +859,8 @@ describe('the import screen', () => {
 		const refused = page.locator('details.report-line', {hasText: 'Rows the file could not describe: 1'});
 
 		await refused.locator('summary').click();
+		// The rows fill on the toggle event, just after the click.
+		await refused.locator('li').first().waitFor();
 		assert.match(await refused.textContent(), /count 99,999 is more than 999 copies of one card, which looks like a typo; fix the Count in the file and import it again/);
 
 		await save.click();

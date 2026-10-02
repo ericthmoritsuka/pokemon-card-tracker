@@ -445,7 +445,8 @@ export async function sweepCovers() {
 		// binder's cover never comes back.
 		const settled = !(Date.now() - Number(row.at) < 60 * 1000);
 
-		if (waiting.has(keys[i]) || urls.has(keys[i])) {
+		// A deleted binder's cover goes even if it was shown this session.
+		if (!ofDeleted.has(keys[i]) && (waiting.has(keys[i]) || urls.has(keys[i]))) {
 			continue;
 		}
 
