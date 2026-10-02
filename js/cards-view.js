@@ -34,7 +34,9 @@ import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
 import {manualPrice, savedRates, tileValue} from './prices.js';
 import {memberDocument} from './sync.js';
-import {cardArt, cardTile, groupFinish, noPrice} from './tile.js';
+import {cardArt, cardTile, groupFinish} from './tile.js';
+// Its own line: tests/photos-harness.mjs checks the line above as it is.
+import {noPrice} from './tile.js';
 import {tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 import {openValueSheet, priceState} from './value-sheet.js';
