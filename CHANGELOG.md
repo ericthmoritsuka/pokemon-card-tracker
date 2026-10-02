@@ -7,12 +7,27 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Built and waiting to be wired in: binder spreads with a page turn, every card of a Pokémon in
-  a list, and international twins for Japanese and Korean cards. See `plans/roadmap.md`.
+- Built and waiting to be wired in: international twins for Japanese and Korean cards. See
+  `plans/roadmap.md`.
 
 ## Live
 
 ### 2026-10-01
+
+- **21:48** Version 19: every card of a Pokémon. `5409418`
+  - Tap a Pokémon in a checklist to see every card of it, in every catalog, with the copies you
+    own and their flags.
+  - Each list shows which languages it counts, with Edit to choose. Lists made before this count
+    every language and say "All"; ticks still come from a copy in any language.
+
+- **21:47** Version 18: binder spreads. `7515f6d`
+  - Binders open as a two-page spread with a page turn; tap a page to zoom in, then a pocket to
+    place a card. Presets for common binder sizes, and a cover image.
+  - New binders start with 40 pages.
+  - Deleting a binder also deletes its cover image from the server, even if you were offline at
+    the time.
+  - On a phone held sideways, the spread gets more room: the header stops sticking while a
+    binder is open.
 
 - **21:19** Version 17: the scanner on cards shown among other things, such as a card on a
   laptop screen. `c2e76d2`
