@@ -23,17 +23,26 @@ import {
 	clampPage,
 	cleanFields,
 	coverTextColor,
+	fillFromTray,
+	layoutOf,
 	locate,
 	nextStamp,
+	openPockets,
 	pageOfPocket,
 	pageSlots,
+	placeFromTray,
 	placeholdersFor,
 	placements,
+	planResize,
+	pocketToTray,
 	positionOf,
+	resizedBinder,
 	setPocket,
 	slotsOf,
-	slotsOutside,
+	stageCards,
+	stagedOf,
 	totalPockets,
+	trayOf,
 	unplaced,
 	validGrid,
 } from '../js/binders.js';
@@ -231,20 +240,299 @@ describe('the one-pocket rule', () => {
 		assert.deepEqual(binderStats(binders[0], placements(binders), live), {filled: 1, total: 36, wanted: 1}, 'a deleted copy does not count as filled');
 	});
 
-	test('a smaller grid or fewer pages names the pockets that fall off', () => {
+});
+
+// A slot as [page, position, what]: an entry id, "want:<card>", "empty", or
+// "art".
+const shapeOf = (slots) => slots.map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? `want:${slot.want.card_id}` : slot.empty ? 'empty' : 'art')]);
+
+const want = (cardId) => ({card_id: cardId, catalog: 'international', image: null, name: cardId, variant_id: null});
+
+describe('resizing a binder (Eric, 2026-10-02)', () => {
+	test('a growing grid keeps every card at its row and column, with new pockets empty on the right and at the bottom', () => {
 		const binder = binderOf('a', {
-			art: [{first_position: 1, id: 'art1', page: 1}],
+			page_count: 2,
 			slots: [
-				{entry_id: 'c1', page: 1, placed_at: at(0), position: 9},
-				{entry_id: 'c2', page: 4, placed_at: at(0), position: 1},
-				{entry_id: 'c3', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 6},
+				{page: 1, placed_at: at(0), position: 9, want: want('tst1-009')},
+				{empty: true, page: 2, placed_at: at(0), position: 5},
+			],
+		});
+		const plan = planResize(binder, {cols: 4, page_count: 2, rows: 4});
+
+		assert.equal(plan.how, 'grow');
+		assert.equal(plan.page_count, 2, 'pages unchanged');
+		assert.equal(plan.added, 0);
+		// Row 2, column 3 is position 6 of 3 x 3 and position 7 of 4 x 4.
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 7, 'c2'], [1, 11, 'want:tst1-009'], [2, 6, 'empty']]);
+		assert.deepEqual(plan.toTray, []);
+		assert.equal(plan.moved, 0, 'nothing changes row or column');
+		assert.equal(plan.layout, 1, 'a binder with no layout counts as 0, and a change of shape adds one');
+	});
+
+	test('a shrinking grid where every card still fits keeps them in place and cuts the empty edge', () => {
+		const binder = binderOf('a', {
+			layout: 4,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 5},
+				{empty: true, page: 3, placed_at: at(0), position: 4},
+			],
+		});
+		const plan = planResize(binder, {cols: 2, page_count: 4, rows: 2});
+
+		assert.equal(plan.how, 'keep');
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 4, 'c2'], [3, 3, 'empty']]);
+		assert.equal(plan.page_count, 4);
+		assert.equal(plan.layout, 5);
+	});
+
+	test('a shrink that would push a card out reflows in reading order: plain empty pockets close up, placeholders and empty-on-purpose move with the cards', () => {
+		const binder = binderOf('a', {
+			page_count: 2,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{page: 1, placed_at: at(0), position: 3, want: want('tst1-003')},
+				{empty: true, page: 1, placed_at: at(0), position: 5},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 9},
+				{entry_id: 'c3', page: 2, placed_at: at(0), position: 2},
+			],
+		});
+		const plan = planResize(binder, {cols: 2, page_count: 2, rows: 2});
+
+		assert.equal(plan.how, 'reflow');
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 2, 'want:tst1-003'], [1, 3, 'empty'], [1, 4, 'c2'], [2, 1, 'c3']]);
+		assert.equal(plan.page_count, 2, 'they fit in the pages there are');
+		assert.deepEqual(plan.toTray, []);
+	});
+
+	test('a reflow adds pages so nothing falls out, and says how many', () => {
+		const slots = [];
+
+		for (let i = 1; i <= 9; i++) {
+			slots.push({entry_id: `c${i}`, page: 1, placed_at: at(0), position: i});
+		}
+
+		slots.push({page: 2, placed_at: at(0), position: 1, want: want('tst1-010')});
+
+		const binder = binderOf('a', {page_count: 2, slots});
+		const plan = planResize(binder, {cols: 2, page_count: 2, rows: 2});
+
+		assert.equal(plan.how, 'reflow');
+		assert.equal(plan.page_count, 3, '10 pockets in use need 3 pages of 4');
+		assert.equal(plan.added, 1);
+		assert.deepEqual(plan.toTray, []);
+		assert.deepEqual(shapeOf(plan.slots).at(-1), [3, 2, 'want:tst1-010']);
+	});
+
+	test('fewer pages still push cards out, and they land in the tray in reading order', () => {
+		const binder = binderOf('a', {
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 3, placed_at: at(0), position: 2},
+				{page: 4, placed_at: at(0), position: 1, want: want('tst1-004')},
+				{entry_id: 'c3', page: 4, placed_at: at(0), position: 9},
+			],
+			staged: ['c9'],
+		});
+		const plan = planResize(binder, {cols: 3, page_count: 2, rows: 3});
+
+		assert.equal(plan.how, 'same');
+		assert.deepEqual(plan.toTray, ['c2', 'c3']);
+		assert.deepEqual(plan.dropped, {art: 0, empties: 0, wants: 1});
+		assert.equal(plan.layout, 0, 'the grid kept its shape');
+
+		// A reflow with fewer pages asked for does not add them back.
+		const reflow = planResize(binder, {cols: 2, page_count: 1, rows: 2});
+
+		assert.equal(reflow.how, 'reflow');
+		assert.equal(reflow.page_count, 1);
+		assert.deepEqual(shapeOf(reflow.slots), [[1, 1, 'c1'], [1, 2, 'c2'], [1, 3, 'want:tst1-004'], [1, 4, 'c3']]);
+
+		const {binder: next} = resizedBinder(binder, {cols: 3, page_count: 2, rows: 3}, {at: at(5)});
+
+		assert.deepEqual(next.staged, ['c9', 'c2', 'c3'], 'after the cards already in the tray');
+		assert.deepEqual(shapeOf(next.slots), [[1, 1, 'c1']]);
+		assert.equal(next.page_count, 2);
+		assert.ok(next.updated_at > binder.updated_at);
+		assert.equal(binder.slots.length, 4, 'the binder passed in is not changed');
+	});
+
+	test('Michi art is cleared on any change of shape, and kept when only the pages change', () => {
+		const binder = binderOf('a', {
+			art: [{first_position: 1, id: 'art1', page: 2}],
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
 				{art: {art_id: 'art1', tile: 0}, page: 2, position: 1},
 			],
 		});
+		const grown = resizedBinder(binder, {cols: 4, page_count: 4, rows: 3}, {at: at(5)});
 
-		assert.deepEqual(slotsOutside(binder, {cols: 3, page_count: 3, rows: 3}).map((slot) => slot.entry_id), ['c2']);
-		assert.deepEqual(slotsOutside(binder, {cols: 2, page_count: 4, rows: 2}).map((slot) => slot.entry_id || 'art').sort(), ['art', 'c1']);
-		assert.deepEqual(slotsOutside(binder, {cols: 4, page_count: 4, rows: 3}).map((slot) => slot.entry_id || 'art'), ['art'], 'art goes when the shape changes');
+		assert.deepEqual(shapeOf(grown.binder.slots), [[1, 1, 'c1']]);
+		assert.deepEqual(grown.binder.art, []);
+		assert.equal(grown.plan.dropped.art, 1);
+		assert.equal(grown.binder.layout, 1);
+
+		const longer = resizedBinder(binder, {cols: 3, page_count: 6, rows: 3}, {at: at(5)});
+
+		assert.deepEqual(shapeOf(longer.binder.slots), [[1, 1, 'c1'], [2, 1, 'art']]);
+		assert.equal(longer.binder.art.length, 1);
+		assert.equal(layoutOf(longer.binder), 0);
+	});
+
+	test('the layout number goes up on every change of shape', () => {
+		let binder = binderOf('a', {slots: [{entry_id: 'c1', page: 1, placed_at: at(0), position: 1}]});
+
+		assert.equal(layoutOf(binder), 0);
+		binder = resizedBinder(binder, {cols: 4, page_count: 4, rows: 3}).binder;
+		binder = resizedBinder(binder, {cols: 4, page_count: 8, rows: 3}).binder;
+		binder = resizedBinder(binder, {cols: 2, page_count: 8, rows: 2}).binder;
+		assert.equal(layoutOf(binder), 2);
+		assert.equal(layoutOf({layout: -1}), 0);
+		assert.equal(layoutOf({layout: 'x'}), 0);
+	});
+
+	test('"Empty into the tray" moves every card to the tray in reading order and empties every pocket', () => {
+		const binder = binderOf('a', {
+			slots: [
+				{entry_id: 'c2', page: 2, placed_at: at(0), position: 1},
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 4},
+				{page: 1, placed_at: at(0), position: 5, want: want('tst1-005')},
+				{empty: true, page: 1, placed_at: at(0), position: 6},
+			],
+		});
+		const {binder: next, plan} = resizedBinder(binder, {cols: 2, page_count: 4, rows: 2}, {at: at(5), mode: 'tray'});
+
+		assert.equal(plan.how, 'tray');
+		assert.deepEqual(next.slots, []);
+		assert.deepEqual(next.staged, ['c1', 'c2']);
+		assert.deepEqual(plan.dropped, {art: 0, empties: 1, wants: 1});
+		assert.equal(next.layout, 1);
+		assert.equal(next.page_count, 4);
+	});
+
+	test('a copy really in another binder is not carried along', () => {
+		const binders = [
+			binderOf('a', {slots: [{entry_id: 'c1', page: 1, placed_at: at(1), position: 9}]}),
+			binderOf('b', {slots: [{entry_id: 'c1', page: 1, placed_at: at(2), position: 1}]}),
+		];
+		const plan = planResize(binders[0], {cols: 2, page_count: 4, rows: 2}, {placed: placements(binders)});
+
+		assert.deepEqual(plan.slots, []);
+		assert.deepEqual(plan.toTray, []);
+	});
+});
+
+describe('the tray', () => {
+	const trayBinders = () => [
+		binderOf('a', {
+			page_count: 2,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{page: 1, placed_at: at(0), position: 2, want: want('tst1-002')},
+				{empty: true, page: 1, placed_at: at(0), position: 3},
+			],
+			staged: ['c2', 'c3', 'c4'],
+		}),
+		binderOf('b', {slots: [{entry_id: 'c5', page: 1, placed_at: at(0), position: 1}], staged: ['c6']}),
+	];
+
+	test('the tray is saved once per copy, and shows only live copies in no pocket', () => {
+		assert.deepEqual(stagedOf({staged: ['c1', 'c1', '', 7, 'c2']}), ['c1', 'c2']);
+		assert.deepEqual(stagedOf({}), []);
+
+		const binders = trayBinders();
+
+		binders[1].slots.push({entry_id: 'c3', page: 1, placed_at: at(1), position: 2});
+		assert.deepEqual(trayOf(binders[0], {liveIds: new Set(['c2', 'c3']), placed: placements(binders)}), ['c2'], 'c3 is in a pocket and c4 was deleted');
+	});
+
+	test('pick and place: a tray card goes in a pocket and leaves the tray; the next one is first', () => {
+		let binders = trayBinders();
+		const changed = placeFromTray(binders, {at: at(5), binderId: 'a', entryId: 'c2', page: 1, position: 4});
+
+		binders = apply(binders, changed);
+		assert.equal(where(binders, 'c2'), 'a:1:4');
+		assert.deepEqual(stagedOf(binders[0]), ['c3', 'c4']);
+	});
+
+	test('placing on a card swaps it into the tray, where the placed one was', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, placeFromTray(binders, {at: at(5), binderId: 'a', entryId: 'c3', page: 1, position: 1}));
+		assert.equal(where(binders, 'c3'), 'a:1:1');
+		assert.equal(where(binders, 'c1'), null);
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c1', 'c4']);
+		assert.equal(count(binders, 'c1'), 0);
+
+		// A placeholder is simply replaced.
+		binders = apply(binders, placeFromTray(binders, {at: at(6), binderId: 'a', entryId: 'c2', page: 1, position: 2}));
+		assert.deepEqual(shapeOf(slotsOf(binders[0])).slice(0, 3), [[1, 1, 'c3'], [1, 2, 'c2'], [1, 3, 'empty']]);
+		assert.deepEqual(stagedOf(binders[0]), ['c1', 'c4']);
+	});
+
+	test('a copy is in one tray or one pocket: staging takes it out of the others', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, stageCards(binders, {at: at(5), binderId: 'a', entryIds: ['c5', 'c6']}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4', 'c5', 'c6']);
+		assert.deepEqual(stagedOf(binders[1]), []);
+		assert.equal(where(binders, 'c5'), null);
+
+		// Placing a tray copy anywhere, through the picker, takes it out of the tray.
+		binders = apply(binders, setPocket(binders, {at: at(6), binderId: 'b', content: {entry_id: 'c3'}, page: 2, position: 2}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c4', 'c5', 'c6']);
+		assert.equal(where(binders, 'c3'), 'b:2:2');
+	});
+
+	test('a card taken out of a pocket can go to the tray', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, pocketToTray(binders, {at: at(5), binderId: 'a', page: 1, position: 1}));
+		assert.equal(where(binders, 'c1'), null);
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4', 'c1']);
+		assert.throws(() => pocketToTray(binders, {binderId: 'a', page: 1, position: 2}), /no card in that pocket/);
+	});
+
+	test('"Fill the rest in order" uses the open pockets in reading order and passes over placeholders and empty-on-purpose', () => {
+		let binders = trayBinders();
+
+		assert.deepEqual(openPockets(binders[0]).slice(0, 2), [{page: 1, position: 4}, {page: 1, position: 5}]);
+
+		const result = fillFromTray(binders, {at: at(5), binderId: 'a', liveIds: new Set(['c1', 'c2', 'c3', 'c4'])});
+
+		assert.deepEqual([result.placed, result.left], [3, 0]);
+		binders = apply(binders, result.changed);
+		assert.deepEqual(shapeOf(slotsOf(binders[0])), [[1, 1, 'c1'], [1, 2, 'want:tst1-002'], [1, 3, 'empty'], [1, 4, 'c2'], [1, 5, 'c3'], [1, 6, 'c4']]);
+		assert.deepEqual(stagedOf(binders[0]), []);
+	});
+
+	test('a deleted copy leaves the tray, and what does not fit stays', () => {
+		const binders = trayBinders();
+
+		binders[0] = {...binders[0], cols: 2, page_count: 1, rows: 2};
+
+		const result = fillFromTray(binders, {at: at(5), binderId: 'a', liveIds: new Set(['c1', 'c3', 'c4'])});
+
+		assert.deepEqual([result.placed, result.left], [1, 1], 'one open pocket, two live cards in the tray');
+		assert.deepEqual(stagedOf(result.changed[0]), ['c4'], 'c2 was deleted, c3 went in, c4 waits');
+	});
+
+	test('cards pushed out by a shrink land in the tray instead of leaving the binder', () => {
+		const binders = trayBinders();
+		const {binder: next} = resizedBinder(binders[0], {cols: 1, page_count: 1, rows: 1}, {at: at(5), placed: placements(binders)});
+
+		assert.deepEqual(shapeOf(next.slots), [[1, 1, 'c1']]);
+		assert.deepEqual(next.staged, ['c2', 'c3', 'c4']);
+
+		// Fewer pages asked for and a smaller grid: the tail goes to the tray.
+		const more = {...binders[0], slots: [...binders[0].slots, {entry_id: 'c7', page: 2, placed_at: at(0), position: 1}]};
+		const shrunk = resizedBinder(more, {cols: 1, page_count: 1, rows: 2}, {at: at(5)});
+
+		assert.deepEqual(shapeOf(shrunk.binder.slots), [[1, 1, 'c1'], [1, 2, 'want:tst1-002']]);
+		assert.deepEqual(shrunk.binder.staged, ['c2', 'c3', 'c4', 'c7']);
+		assert.deepEqual(shrunk.plan.dropped, {art: 0, empties: 1, wants: 0});
 	});
 });
 
@@ -405,7 +693,16 @@ const SINGLE_CARDS = {
 const SEARCH = [
 	{id: 'tst2-025', localId: '025', name: 'Test Pikachu'},
 	{id: 'tst3-026', localId: '026', name: 'Test Pikachu ex'},
+	// A TCG Pocket card: not printed, so the search leaves it out.
+	{id: 'A1-094', image: 'https://assets.tcgdex.net/en/tcgp/A1/094', localId: '094', name: 'Test Pikachu Pocket'},
 ];
+
+// The set list the shared search reads set names from.
+const SERIES = {
+	'en/series': [{id: 'tst', name: 'Test series'}],
+	'en/series/tst': {id: 'tst', name: 'Test series', sets: [{cardCount: {official: 30}, id: 'tst2', name: 'Test set two'}, {cardCount: {official: 30}, id: 'tst3', name: 'Test set three'}]},
+	'en/sets': [],
+};
 
 function documentWith(cards, binders = []) {
 	return {binders, cards, collections: [], goals: [], openings: [], person: 'local', updated_at: AT, user_id: null, version: 1, wishlist: []};
@@ -428,6 +725,10 @@ async function fakeServices(context, counts, net) {
 			const query = url.searchParams.get('name').toLowerCase();
 
 			return route.fulfill({body: JSON.stringify(SEARCH.filter((item) => item.name.toLowerCase().includes(query))), contentType: 'application/json', status: 200});
+		}
+
+		if (SERIES[path]) {
+			return route.fulfill({body: JSON.stringify(SERIES[path]), contentType: 'application/json', status: 200});
 		}
 
 		if (SINGLE_CARDS[path]) {
@@ -649,6 +950,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await pocket(page, 1).click();
 		await page.waitForSelector('#pocket-sheet[open]');
 		assert.equal(await page.locator('#sheet-title').textContent(), 'Page 1, pocket 1');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'owned-search', 'the search field waits for a tap, so no keyboard rises');
 		assert.ok(await page.locator('#owned-filter input[value="unplaced"]').isChecked());
 		assert.equal(await page.locator('#owned-count').textContent(), '3 cards not in a binder yet.');
 		// The third card's name is read from TCGdex for the picker.
@@ -696,8 +998,9 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.fill('#want-search', 'pika');
 		await page.click('#want-go');
 		await page.waitForSelector('#want-results .pick');
-		assert.equal(await page.locator('#want-results .pick').count(), 2);
+		assert.equal(await page.locator('#want-results .pick').count(), 2, 'the TCG Pocket card is left out');
 		assert.equal(counts.search, 1);
+		assert.equal(await page.locator('#want-results .pick[data-card="tst2-025"] .tile-meta').textContent(), '#025 · Test set two', 'the set\'s name, not its id');
 		await page.screenshot({path: '/tmp/binders-placeholder-search.png'});
 		await page.click('#want-results .pick[data-card="tst2-025"]');
 		await waitForKind(page, 3, 'want');
@@ -786,22 +1089,27 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await page.locator('#unplaced-grid .tile').textContent(), /Test Squirtle/);
 		await page.screenshot({path: '/tmp/binders-unplaced.png'});
 
-		// Editing to a smaller grid warns which pockets fall off; Cancel keeps it.
+		// Editing the size says what happens to the pockets; Cancel keeps it.
+		const reflowText = 'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.';
+
 		await page.goto(url(`binders/${binderId}`));
 		await page.waitForSelector('#edit-binder');
 		await page.click('#edit-binder');
 		assert.equal(await page.locator('#binder-resize-warning').textContent(), '');
 		await page.click('.grid-pick[data-grid="2x2"]');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 filled pocket falls outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), reflowText);
 		await page.selectOption('#binder-rows', '1');
 		await page.selectOption('#binder-cols', '2');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '3 filled pockets fall outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), reflowText);
+		await page.selectOption('#binder-rows', '4');
+		await page.selectOption('#binder-cols', '4');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), 'Every card keeps its row and column; the new pockets are empty.');
 		await page.selectOption('#binder-rows', '3');
 		await page.selectOption('#binder-cols', '3');
 		await page.fill('#binder-pages', '2');
 		assert.equal(await page.locator('#binder-resize-warning').textContent(), '');
 		await page.fill('#binder-pages', '1');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 filled pocket falls outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 card does not fit and goes to the tray.');
 		await page.click('#binder-cancel');
 		assert.equal(await page.locator('#binder-form').count(), 0);
 
@@ -840,7 +1148,8 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await pocket(page, 3, 1).getAttribute('aria-label'), /Test Pikachu/);
 		assert.equal(await page.locator('.binder-head').evaluate((el) => getComputedStyle(el).borderLeftColor), 'rgb(27, 27, 31)', 'the binder stylesheet is cached');
 
-		// Placing works offline; the catalog search says it needs a connection.
+		// Placing works offline; a catalog search made before works from the
+		// phone, and a new one says it needs a connection.
 		await openPage(page, 1);
 		await pocket(page, 6).click();
 		await page.click('#owned-results .pick[data-entry="c3"]');
@@ -849,7 +1158,11 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('label:has-text("Placeholder")');
 		await page.fill('#want-search', 'pika');
 		await page.click('#want-go');
-		assert.match(await page.locator('#want-status').textContent(), /needs a connection/);
+		await page.waitForSelector('#want-results .pick[data-card="tst2-025"]');
+		assert.equal(await page.locator('#want-results .pick').count(), 2);
+		await page.fill('#want-search', 'bulba');
+		await page.click('#want-go');
+		await page.waitForFunction(() => /needs a connection/.test(document.getElementById('want-status').textContent));
 		await page.click('#sheet-close');
 		await page.screenshot({path: '/tmp/binders-offline.png'});
 		assert.deepEqual(counts, before, 'nothing was fetched offline');
@@ -876,6 +1189,359 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+
+	test('a resize shows the first page in a sheet before saving, reflows with the placeholders, and adds a page', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const wanted = (cardId) => ({card_id: cardId, catalog: 'international', image: null, name: `Test ${cardId}`, variant_id: null});
+		const binder = binderOf('b-resize', {
+			created_at: AT,
+			name: 'Resize binder',
+			page_count: 1,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: AT, position: 1},
+				{page: 1, placed_at: AT, position: 2, want: wanted('tst2-025')},
+				{empty: true, page: 1, placed_at: AT, position: 3},
+				{entry_id: 'c2', page: 1, placed_at: AT, position: 5},
+				{page: 1, placed_at: AT, position: 7, want: wanted('tst3-026')},
+				{entry_id: 'c3', page: 1, placed_at: AT, position: 9},
+			],
+			updated_at: AT,
+		});
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#edit-binder');
+		await page.click('#edit-binder');
+		await page.click('.grid-pick[data-grid="2x2"]');
+		await page.click('#binder-save');
+		await page.waitForSelector('#resize-sheet[open]');
+
+		const kinds = () => page.locator('#resize-preview .pocket').evaluateAll((cells) => cells.map((cell) => cell.dataset.kind));
+		const lines = () => page.locator('#resize-lines p').allTextContents();
+
+		assert.deepEqual(await kinds(), ['card', 'want', 'empty', 'card']);
+		assert.deepEqual(await lines(), [
+			'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.',
+			'This binder grows from 1 to 2 pages, so nothing falls out.',
+		]);
+		await page.screenshot({path: '/tmp/binders-resize-sheet.png'});
+
+		// Cancel leaves the form open and the binder as it was.
+		await page.click('#resize-cancel');
+		await page.waitForSelector('#resize-sheet', {state: 'detached'});
+		assert.equal(await page.locator('#binder-form').count(), 1);
+		assert.equal(await page.locator('#binder-save').isDisabled(), false);
+		assert.equal((await localDoc(page)).binders[0].rows, 3);
+
+		// The other way: everything into the tray.
+		await page.click('#binder-save');
+		await page.waitForSelector('#resize-sheet[open]');
+		await page.click('label:has(#resize-tray)');
+		assert.deepEqual(await kinds(), ['open', 'open', 'open', 'open']);
+		assert.deepEqual(await lines(), [
+			'Every pocket is emptied, and 3 cards go to the tray to place by hand.',
+			'2 placeholders and 1 pocket left empty on purpose are removed.',
+		]);
+
+		// Back to the rule, and save.
+		await page.click('label:has(#resize-auto)');
+		await page.click('#resize-save');
+		await page.waitForFunction(() => document.getElementById('binder-meta').textContent === '2 × 2 · 2 pages');
+
+		const saved = (await localDoc(page)).binders[0];
+		const shape = (slots) => slots.map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? slot.want.card_id : 'empty')]);
+
+		assert.deepEqual([saved.rows, saved.cols, saved.page_count, saved.layout], [2, 2, 2, 1]);
+		assert.deepEqual(shape(saved.slots), [[1, 1, 'c1'], [1, 2, 'tst2-025'], [1, 3, 'empty'], [1, 4, 'c2'], [2, 1, 'tst3-026'], [2, 2, 'c3']]);
+		assert.equal(await page.locator('#binder-form').count(), 0);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('held sideways, the spread opens whole above the tab bar and clear of the Scan button', async () => {
+		for (const viewport of [{height: 390, width: 844}, {height: 412, width: 915}]) {
+			const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
+
+			await fakeServices(context, {search: 0, single: 0}, {offline: false});
+			await context.route('https://*.supabase.co/**', (route) => route.abort());
+
+			const page = await context.newPage();
+			const errors = [];
+			const binder = binderOf('b-wide', {
+				created_at: AT,
+				name: 'Wide binder',
+				notes: 'Long notes that fill the inside cover. '.repeat(12).trim(),
+				page_count: 10,
+				slots: CARDS.slice(0, 3).map((item, i) => ({entry_id: item.id, page: 1, placed_at: AT, position: 7 + i})),
+				updated_at: AT,
+			});
+
+			page.on('pageerror', (err) => errors.push(err));
+			await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+			await page.goto(url(`binders/${binder.id}`));
+			await page.waitForSelector('#binder-spread[data-mode="direct"] .bs-page');
+			await page.waitForFunction(() => Math.abs(document.getElementById('binder-spread').getBoundingClientRect().top - 4) < 2, null, {timeout: 5000});
+
+			const box = await page.evaluate(() => {
+				const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+				const pockets = [...document.querySelectorAll('#bs-spread .bs-pocket')].map((el) => el.getBoundingClientRect().bottom);
+
+				return {
+					book: rect('#bs-book'),
+					disc: rect('.scan-disc'),
+					label: rect('#bs-label'),
+					lowestPocket: Math.max(...pockets),
+					pull: rect('.bs-zip-pull'),
+					spine: rect('.bs-spine'),
+					tabs: rect('.tabs'),
+				};
+			});
+			const size = `${viewport.width} x ${viewport.height}`;
+
+			assert.ok(box.label.top >= 0 && box.pull.top >= 0, `${size}: the page line and the zip show (${box.label.top}, ${box.pull.top})`);
+			assert.ok(box.book.bottom <= box.tabs.top, `${size}: the book ends at ${box.book.bottom}, above the tab bar at ${box.tabs.top}`);
+			assert.ok(box.book.bottom <= box.disc.top, `${size}: the book ends at ${box.book.bottom}, above the Scan disc at ${box.disc.top}`);
+			assert.ok(box.spine.bottom <= box.disc.top && box.lowestPocket <= box.disc.top, `${size}: the spine and the bottom pockets clear the disc`);
+			assert.equal(await page.locator('.bs-side-right .bs-page').evaluate((el) => Math.round(el.getBoundingClientRect().height)), await page.locator('.bs-inside').evaluate((el) => Math.round(el.getBoundingClientRect().height)), `${size}: long notes keep the inside cover a page tall`);
+			await page.screenshot({path: `/tmp/binders-landscape-${viewport.width}.png`});
+			assert.deepEqual(errors, []);
+			await context.close();
+		}
+	});
+
+	test('a cover picture that arrives later is painted, and pictures no live binder uses leave the phone', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const withCover = (id, imageId, fields = {}) => binderOf(id, {cover_image: {at: AT, id: imageId, path: null, type: 'image/webp'}, created_at: AT, name: `Binder ${id}`, page_count: 2, updated_at: AT, ...fields});
+		// b-gone was deleted on another phone, which removed only its own copy
+		// of the picture.
+		const binders = [withCover('b-late', 'img-late'), withCover('b-later', 'img-later'), withCover('b-kept', 'img-kept'), withCover('b-gone', 'img-gone', {deleted_at: AT})];
+
+		// Puts a picture on the phone the way the cover module keeps one.
+		const putPicture = (rows) => page.evaluate(async (list) => {
+			await (await import('/pokemon-card-tracker/js/binder-cover.js')).localCover('none');
+
+			const db = await new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-binder-covers', 1);
+
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => reject(open.error);
+			});
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 30;
+			canvas.height = 40;
+			canvas.getContext('2d').fillRect(0, 0, 30, 40);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+			const tx = db.transaction(['blobs', 'queue'], 'readwrite');
+
+			for (const row of list) {
+				tx.objectStore('blobs').put({at: row.old ? 0 : Date.now(), blob, type: blob.type}, row.id);
+
+				if (row.queued) {
+					tx.objectStore('queue').put({at: 0, binder_id: 'b-other', image_id: row.id, key: `upload:${row.id}`, op: 'upload'}, `upload:${row.id}`);
+				}
+			}
+
+			await new Promise((resolve) => {
+				tx.oncomplete = resolve;
+			});
+			db.close();
+		}, rows);
+
+		const onPhone = () => page.evaluate(async () => {
+			const {localCover} = await import('/pokemon-card-tracker/js/binder-cover.js');
+			const out = {};
+
+			for (const id of ['img-kept', 'img-gone', 'img-fresh', 'img-queued']) {
+				out[id] = Boolean(await localCover(id));
+			}
+
+			return out;
+		});
+
+		await seedLocal(page, documentWith(CARDS, binders), RECORDS);
+		// Two old pictures (one no binder uses), one just saved, and one
+		// waiting to upload.
+		await putPicture([{id: 'img-kept', old: true}, {id: 'img-gone', old: true}, {id: 'img-fresh'}, {id: 'img-queued', old: true, queued: true}]);
+
+		// Opening the binder list sweeps once.
+		await page.goto(url('binders'));
+		await page.waitForSelector('.binder-cover[data-binder="b-late"]');
+
+		const end = Date.now() + 5000;
+		let found = await onPhone();
+
+		while (found['img-gone'] && Date.now() < end) {
+			await page.waitForTimeout(100);
+			found = await onPhone();
+		}
+
+		assert.deepEqual(found, {'img-fresh': true, 'img-gone': false, 'img-kept': true, 'img-queued': true});
+		await page.waitForSelector('.binder-cover[data-binder="b-kept"][data-cover-image="true"]');
+		assert.equal(await page.locator('.binder-cover[data-binder="b-late"]').getAttribute('data-cover-image'), null);
+
+		// A late picture lands on the phone (an upload elsewhere finishing, a
+		// download back online): the next pass over the queue repaints the
+		// list, and the spread's board.
+		const arrive = async (id) => {
+			await putPicture([{id}]);
+			await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binder-cover.js')).flushCovers());
+		};
+
+		await arrive('img-late');
+		await page.waitForSelector('.binder-cover[data-binder="b-late"][data-cover-image="true"]');
+
+		await page.click('.binder-cover[data-binder="b-later"]');
+		await page.waitForSelector('#binder-spread .bs-page');
+		await page.waitForTimeout(300);
+		assert.equal(await page.locator('#binder-spread').getAttribute('data-cover-image'), null);
+		await arrive('img-later');
+		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.coverImage === 'true');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the tray: pick a card, tap a pocket, the next is picked; swap, send back, and fill the rest in order', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		// c4 is a deleted copy: it leaves the tray.
+		const binder = binderOf('b-tray', {
+			cols: 2,
+			created_at: AT,
+			name: 'Tray binder',
+			page_count: 2,
+			rows: 2,
+			slots: [{entry_id: 'c1', page: 1, placed_at: AT, position: 1}],
+			staged: ['c2', 'c3', 'c4'],
+			updated_at: AT,
+		});
+		const tray = () => page.locator('#bt-strip .bt-card').evaluateAll((cards) => cards.map((card) => `${card.dataset.entry}${card.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
+		const saved = async () => (await localDoc(page)).binders[0];
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		assert.deepEqual(await tray(), ['c2', 'c3'], 'the deleted copy is not in the tray');
+		assert.equal(await page.locator('#bt-status').textContent(), '2 cards to place');
+
+		const thumb = await page.locator('#bt-strip .bt-card').first().boundingBox();
+
+		assert.ok(thumb.width >= 50 && thumb.width <= 62, `a thumbnail is ${thumb.width} px wide`);
+
+		// The tray sits above the tab bar, clear of the Scan disc, at 360 px.
+		const fit = await page.evaluate(() => {
+			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+			const fill = rect('#bt-fill');
+			const disc = rect('.scan-disc');
+
+			return {fillClear: fill.left >= disc.right || fill.right <= disc.left, trayBottom: rect('#binder-tray').bottom, tabsTop: rect('.tabs').top, width: document.documentElement.scrollWidth};
+		});
+
+		assert.ok(fit.trayBottom <= fit.tabsTop + 1, 'the tray ends at the tab bar');
+		assert.ok(fit.fillClear, 'Fill the rest in order is beside the Scan disc');
+		assert.equal(fit.width, 360, 'nothing scrolls sideways');
+
+		// Pick c2; in the overview a page opens first.
+		await page.click('#bt-strip .bt-card[data-entry="c2"]');
+		assert.deepEqual(await tray(), ['c2*', 'c3']);
+		assert.equal(await page.locator('#bt-status').textContent(), 'Open a page, then tap a pocket');
+		await openPage(page, 1);
+		assert.equal(await page.locator('#bt-status').textContent(), 'Tap a pocket for Test Charmander');
+		await page.screenshot({path: '/tmp/binders-tray-picked.png'});
+		await pocket(page, 2).click();
+		await waitForKind(page, 2, 'card');
+		await page.waitForFunction(() => document.querySelector('#bt-strip .bt-card[aria-pressed="true"]')?.dataset.entry === 'c3');
+		assert.deepEqual(await tray(), ['c3*'], 'the next card is picked');
+		assert.equal(await page.locator('#pocket-sheet[open]').count(), 0, 'placing does not open the picker');
+
+		// Onto a card: they swap, and the card that was there is picked next.
+		await pocket(page, 1).click();
+		await page.waitForFunction(() => document.querySelector('#bt-strip .bt-card[aria-pressed="true"]')?.dataset.entry === 'c1');
+		assert.deepEqual(await tray(), ['c1*']);
+		assert.deepEqual((await saved()).slots.map((slot) => [slot.position, slot.entry_id]), [[1, 'c3'], [2, 'c2']]);
+
+		// Unpicked, a pocket opens its sheet, and a card can go back to the tray.
+		await page.click('#bt-strip .bt-card[data-entry="c1"]');
+		assert.deepEqual(await tray(), ['c1']);
+		await pocket(page, 2).click();
+		await page.waitForSelector('#pocket-sheet[open]');
+		await page.click('#pocket-to-tray');
+		await waitForKind(page, 2, 'open');
+		await page.waitForFunction(() => document.querySelectorAll('#bt-strip .bt-card').length === 2);
+		assert.deepEqual(await tray(), ['c1', 'c2']);
+
+		// Fill the rest in order: the open pockets, in reading order.
+		await page.click('#bt-fill');
+		await page.waitForSelector('#binder-tray[hidden]', {state: 'attached'});
+		assert.equal(await page.locator('#bt-note').textContent(), '2 cards placed in order.');
+		assert.deepEqual((await saved()).slots.map((slot) => [slot.page, slot.position, slot.entry_id]), [[1, 1, 'c3'], [1, 2, 'c1'], [1, 3, 'c2']]);
+		assert.deepEqual((await saved()).staged, []);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the tray: drag a card onto a pocket where the pages are directly editable, and sideways it is a column beside them', async () => {
+		const binder = binderOf('b-drag', {created_at: AT, name: 'Drag binder', page_count: 4, staged: ['c2', 'c3'], updated_at: AT});
+
+		// A laptop with a mouse.
+		const desk = await browser.newContext({serviceWorkers: 'block', viewport: {height: 800, width: 1280}});
+
+		await fakeServices(desk, {search: 0, single: 0}, {offline: false});
+		await desk.route('https://*.supabase.co/**', (route) => route.abort());
+
+		const page = await desk.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err));
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-spread[data-mode="direct"] .bs-page');
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+
+		const from = await page.locator('#bt-strip .bt-card[data-entry="c3"]').boundingBox();
+		const to = await page.locator(pocketAt(5, 1)).boundingBox();
+
+		await page.mouse.move(from.x + (from.width / 2), from.y + (from.height / 2));
+		await page.mouse.down();
+		await page.mouse.move(from.x + (from.width / 2), from.y - 40, {steps: 4});
+		await page.mouse.move(to.x + (to.width / 2), to.y + (to.height / 2), {steps: 8});
+		assert.equal(await page.locator('.bs-pocket.bt-over').count(), 1, 'the pocket under the card is marked');
+		await page.mouse.up();
+		await waitForKind(page, 5, 'card', 1);
+		assert.deepEqual((await localDoc(page)).binders[0].staged, ['c2']);
+		assert.equal(await page.locator('.bt-ghost').count(), 0);
+		assert.deepEqual(errors, []);
+		await desk.close();
+
+		// A phone held sideways: the tray is a column beside the spread, and
+		// the spread still clears the tab bar and the Scan disc.
+		const side = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport: {height: 390, width: 844}});
+
+		await fakeServices(side, {search: 0, single: 0}, {offline: false});
+		await side.route('https://*.supabase.co/**', (route) => route.abort());
+
+		const phone = await side.newPage();
+
+		await seedLocal(phone, documentWith(CARDS, [binder]), RECORDS);
+		await phone.goto(url(`binders/${binder.id}`));
+		await phone.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		await phone.waitForFunction(() => Math.abs(document.getElementById('binder-spread').getBoundingClientRect().top - 4) < 2, null, {timeout: 5000});
+
+		const box = await phone.evaluate(() => {
+			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+
+			return {book: rect('#bs-book'), disc: rect('.scan-disc'), next: rect('#bs-next'), tabs: rect('.tabs'), tray: rect('#binder-tray')};
+		});
+
+		assert.ok(box.tray.left >= box.next.right, 'the tray is beside the spread and its arrow');
+		assert.ok(box.tray.bottom <= box.tabs.top, 'the tray ends above the tab bar');
+		assert.ok(box.book.bottom <= box.disc.top, 'the spread clears the Scan disc');
+		await phone.screenshot({path: '/tmp/binders-tray-landscape.png'});
+		await side.close();
 	});
 
 	test('a binder made signed in syncs, and a family member sees it read only', async () => {

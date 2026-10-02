@@ -659,7 +659,8 @@ export function cardView(root, {lang, cardId}) {
 	let twinDrawn = null;
 	const twinChanged = (key) => alive && current && (!key || key === twinKey(twinItem)) && twinShown() !== twinDrawn && draw(current);
 	const stopTwins = onTwinsChange(twinChanged);
-	const back = link('sets', {class: 'back'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
+	// At least 48 px wide, like its height, however short the label ("‹ 151").
+	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
 	const body = h('div', {class: 'card-detail'},
 		h('div', {class: 'card-hero'}, h('div', {class: 'art loading hero-art', 'aria-hidden': 'true'}))
 	);

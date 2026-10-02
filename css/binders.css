@@ -447,3 +447,287 @@
 .leave-empty {
 	margin-top: 8px;
 }
+
+/* ------------------------------------------------- the resize preview */
+
+/* Two ways to resize, as full-width choices a thumb can hit. */
+.resize-choice {
+	display: grid;
+	gap: 8px;
+	margin: 8px 0 12px;
+}
+
+.resize-choice label {
+	align-items: center;
+	background: var(--surface, #ffffff);
+	border: 1px solid var(--border, #d9d9e0);
+	border-radius: 10px;
+	display: flex;
+	font-weight: 600;
+	gap: 10px;
+	min-height: 48px;
+	padding: 6px 12px;
+}
+
+.resize-choice label:has(input:checked) {
+	border: 2px solid var(--text, #1b1b1f);
+}
+
+.resize-choice input {
+	flex: none;
+	height: 20px;
+	margin: 0;
+	width: 20px;
+}
+
+.resize-lines p {
+	margin: 0 0 6px;
+}
+
+.resize-preview .field-label {
+	font-weight: 600;
+	margin: 12px 0 6px;
+}
+
+/* Page 1 after the change, small: the pockets in their new grid. */
+.resize-page {
+	background: var(--surface, #ffffff);
+	border: 1px solid var(--border, #d9d9e0);
+	border-radius: 8px;
+	display: grid;
+	gap: 4px;
+	grid-template-columns: repeat(var(--rz-cols, 3), minmax(0, 1fr));
+	margin: 0 auto 12px;
+	max-width: min(100%, calc(var(--rz-cols, 3) * 64px));
+	padding: 6px;
+}
+
+.resize-page .pocket {
+	border-radius: 4px;
+}
+
+.resize-page .pocket-tag,
+.resize-page .pocket-text {
+	font-size: 0.55rem;
+	padding: 1px 3px;
+}
+
+.resize-page .badge,
+.resize-page .card-back-name,
+.resize-page .card-back-status {
+	display: none;
+}
+
+.resize-sheet .button-row {
+	margin-top: 4px;
+}
+
+/* ------------------------------------------------------- the tray */
+
+/* Cards meant for this binder but in no pocket yet (js/binders-view.js,
+   "the tray"): a strip of thumbnails docked above the tab bar while the
+   pages are in view. Its foot row leaves the middle free for the raised
+   Scan disc (style.css .scan-disc, 28 px over the bar). */
+.bt {
+	background: var(--surface, #ffffff);
+	border-top: 1px solid var(--border, #d9d9e0);
+	bottom: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px));
+	box-shadow: 0 -6px 14px -8px rgba(0, 0, 0, 0.3);
+	margin: 8px -16px 0;
+	padding: 6px 16px 0;
+	position: sticky;
+	/* Over the spread's page arrows (css/binder-spread.css, z-index 7). */
+	z-index: 8;
+}
+
+.bt-strip {
+	display: flex;
+	gap: 8px;
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	padding: 6px 2px;
+	scrollbar-width: thin;
+}
+
+/* About 56 px wide, a card's shape. Along the strip a finger scrolls it;
+   across it, it lifts the card to drag (pan-x leaves that to the page). */
+button.bt-card {
+	aspect-ratio: 63 / 88;
+	background: none;
+	border: 2px solid transparent;
+	border-radius: 6px;
+	flex: 0 0 56px;
+	min-height: 0;
+	padding: 0;
+	touch-action: pan-x;
+	transition: transform 120ms ease-out;
+	user-select: none;
+	-webkit-user-select: none;
+	width: 56px;
+}
+
+.bt-card .art {
+	aspect-ratio: auto;
+	border-radius: 4px;
+	height: 100%;
+	width: 100%;
+}
+
+.bt-card .badge,
+.bt-card .card-back-status {
+	display: none;
+}
+
+.bt-card .card-back {
+	border-width: 2px;
+	font-size: 0.5rem;
+	overflow: hidden;
+	padding: 2px;
+}
+
+/* A card with no image: its name, small and whole-word, and nothing else. */
+.bt-card .card-back > :not(.card-back-name) {
+	display: none;
+}
+
+.bt-card .card-back-name {
+	font-size: 0.55rem;
+	line-height: 1.15;
+	overflow-wrap: break-word;
+	word-break: normal;
+}
+
+/* The picked card lifts and is ringed, not only colored. */
+.bt-card[aria-pressed="true"] {
+	border-color: var(--text, #1b1b1f);
+	box-shadow: 0 0 0 3px var(--accent, #ffcb05);
+	transform: translateY(-4px);
+}
+
+.bt-foot {
+	align-items: center;
+	display: grid;
+	gap: 8px;
+	grid-template-columns: minmax(0, 1fr) calc(var(--scan-size, 64px) + 8px) minmax(0, 1fr);
+	min-height: 48px;
+}
+
+.bt-status {
+	font-size: 0.8rem;
+	font-weight: 600;
+	line-height: 1.2;
+	margin: 0;
+}
+
+button.bt-fill {
+	font-size: 0.8rem;
+	justify-self: end;
+	line-height: 1.15;
+	min-height: 44px;
+	padding: 4px 10px;
+	white-space: normal;
+}
+
+.bt-note {
+	font-size: 0.85rem;
+	font-weight: 600;
+	margin: 8px 0 0;
+}
+
+/* The card under a finger or mouse while it is dragged, and the pocket it
+   would land in. */
+.bt-ghost {
+	left: 0;
+	opacity: 0.9;
+	pointer-events: none;
+	position: fixed;
+	top: 0;
+	z-index: 50;
+}
+
+.bt-ghost .art {
+	aspect-ratio: auto;
+	border-radius: 4px;
+	box-shadow: 0 8px 18px rgba(0, 0, 0, 0.4);
+	height: 100%;
+	width: 100%;
+}
+
+.bs-pocket.bt-over {
+	outline: 3px solid var(--accent, #ffcb05);
+	outline-offset: 1px;
+	z-index: 3;
+}
+
+/* With a card picked, the pockets it can go in are outlined. */
+.bs[data-placing="true"] .bs-grid:not([inert]) .pocket-open {
+	border-color: var(--text, #1b1b1f);
+	border-style: solid;
+}
+
+/* A phone held sideways: the spread fills the height above the tab bar, so
+   the tray is a column beside it instead, scrolling up and down. */
+@media (orientation: landscape) and (max-height: 500px) {
+	#binder-spread-holder:has(> .bt:not([hidden])) {
+		align-items: start;
+		column-gap: 8px;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 96px;
+	}
+
+	#binder-spread-holder > .bt-note {
+		grid-column: 1 / -1;
+	}
+
+	.bt {
+		border: 1px solid var(--border, #d9d9e0);
+		border-radius: 12px;
+		box-shadow: none;
+		display: flex;
+		flex-direction: column;
+		margin: 4px 0 0;
+		max-height: calc(100svh - var(--tab-height, 64px) - env(safe-area-inset-bottom, 0px) - 40px);
+		padding: 6px;
+		position: sticky;
+		top: 4px;
+	}
+
+	.bt-strip {
+		align-items: center;
+		flex: 1 1 auto;
+		flex-direction: column;
+		min-height: 0;
+		overflow-x: hidden;
+		overflow-y: auto;
+		overscroll-behavior-y: contain;
+	}
+
+	button.bt-card {
+		flex-basis: auto;
+		touch-action: pan-y;
+	}
+
+	.bt-foot {
+		display: flex;
+		flex: none;
+		flex-direction: column;
+		gap: 4px;
+		order: -1;
+	}
+
+	.bt-gap {
+		display: none;
+	}
+
+	.bt-status {
+		text-align: center;
+	}
+
+	button.bt-fill {
+		font-size: 0.75rem;
+		height: auto;
+		justify-self: stretch;
+		padding: 4px 6px;
+		width: 100%;
+	}
+}

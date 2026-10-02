@@ -18,9 +18,9 @@
 // holding a tile of it shows as art and is left alone.
 
 import {currentUser} from './auth.js';
-import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
+import {dropBinderCover, onCoversChange, paintCover, pickCoverImage, sweepCovers} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
-import {OVERVIEW_QUERY, binderSpread} from './binder-spread.js';
+import {OVERVIEW_QUERY, SIDEWAYS_QUERY, binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -41,6 +41,7 @@ import {whenMemberName} from './family.js';
 import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
+import {SearchHint, searchCards} from './wishlist.js';
 import {
 	COVER_SWATCHES,
 	DEFAULT_COVER,
@@ -52,22 +53,25 @@ import {
 	coverTextColor,
 	createBinder,
 	deleteBinder,
+	fillTray,
 	isHex,
 	leaveEmpty,
 	liveBinders,
 	locate,
+	moveToTray,
 	pageSlots,
 	placeCard,
 	placePlaceholder,
+	placeStaged,
 	placements,
+	planResize,
 	slotsOf,
-	slotsOutside,
+	trayOf,
 	unplaced,
 	updateBinder,
 	validGrid,
 } from './binders.js';
 
-const TCGDEX = 'https://api.tcgdex.net/v2/';
 const PICK_PAGE = 60;
 const LIST_PAGE = 120;
 
@@ -80,6 +84,17 @@ const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
 const gridText = (binder) => `${binder.rows} × ${binder.cols}`;
+
+// Cover pictures no live binder uses are dropped from the phone once a page
+// load, the first time the person's binders are read (js/binder-cover.js).
+let coversSwept = false;
+
+function sweepOnce(source, binders) {
+	if (!source.readOnly && !coversSwept) {
+		coversSwept = true;
+		sweepCovers(binders);
+	}
+}
 
 // --------------------------------------------------------- whose binders
 
@@ -243,9 +258,58 @@ async function fillRecords(items, index, isAlive) {
 
 // ---------------------------------------------------------- the form
 
+// What a change of size does to a binder's pockets (planResize in
+// js/binders.js), in sentences, for the form and the preview sheet.
+function resizeLines(binder, plan) {
+	const lines = [];
+	const out = plan.toTray.length;
+	const gone = [
+		plan.dropped.wants ? plural(plan.dropped.wants, 'placeholder', 'placeholders') : null,
+		plan.dropped.empties ? plural(plan.dropped.empties, 'pocket left empty on purpose', 'pockets left empty on purpose') : null,
+	].filter(Boolean);
+
+	if (plan.how === 'grow') {
+		lines.push('Every card keeps its row and column; the new pockets are empty.');
+	}
+	else if (plan.how === 'keep') {
+		lines.push('Every card still fits at its row and column, so only the empty edge goes.');
+	}
+	else if (plan.how === 'reflow') {
+		lines.push('Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.');
+	}
+	else if (plan.how === 'tray') {
+		lines.push(`Every pocket is emptied, and ${out ? `${plural(out, 'card goes', 'cards go')} to the tray to place by hand` : 'the tray keeps what it has'}.`);
+	}
+
+	if (plan.added) {
+		lines.push(`This binder grows from ${formatCount(binder.page_count)} to ${plural(plan.page_count, 'page', 'pages')}, so nothing falls out.`);
+	}
+
+	if (out && plan.how !== 'tray') {
+		lines.push(`${plural(out, 'card does', 'cards do')} not fit and ${out === 1 ? 'goes' : 'go'} to the tray.`);
+	}
+
+	if (gone.length) {
+		lines.push(`${gone.join(' and ')} ${plan.dropped.wants + plan.dropped.empties === 1 ? 'is' : 'are'} removed.`);
+	}
+
+	if (plan.dropped.art) {
+		lines.push('Michi art is cleared, since it was cut for the old grid.');
+	}
+
+	return lines;
+}
+
+// A resize the person should see before it is saved: one that moves,
+// removes, or sends something to the tray.
+const resizeMatters = (binder, plan) => slotsOf(binder).length > 0
+	&& (plan.reshaped || plan.toTray.length > 0 || plan.dropped.wants + plan.dropped.empties + plan.dropped.art > 0);
+
 // Name, notes, cover color, grid, and pages, for a new binder or an edit.
-// onSubmit(fields) saves; it may throw a message to show.
-function binderForm({binder = null, onCancel, onSubmit}) {
+// onSubmit(fields) saves; it may throw a message to show, or return false
+// to leave the form open with nothing saved. placed is placements() of
+// every binder, for the resize summary.
+function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3};
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
@@ -341,13 +405,14 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 			: 'Grids run up to 5 × 4 or 4 × 5.';
 		gridNote.className = ok ? 'muted' : 'form-error';
 		warning.textContent = '';
+		warning.className = 'muted';
 
-		if (binder && ok && Number.isInteger(pageCount) && pageCount >= 1) {
-			const lost = slotsOutside(binder, {cols, page_count: pageCount, rows});
-			const cards = lost.filter((slot) => slot.entry_id).length;
+		if (binder && ok && Number.isInteger(pageCount) && pageCount >= 1 && pageCount <= MAX_PAGES) {
+			const plan = planResize(binder, {cols, page_count: pageCount, rows}, {placed});
 
-			if (lost.length) {
-				warning.textContent = `${plural(lost.length, 'filled pocket falls', 'filled pockets fall')} outside the new size${cards ? `, and ${plural(cards, 'card comes', 'cards come')} out of the binder` : ''}.`;
+			if (resizeMatters(binder, plan)) {
+				warning.textContent = resizeLines(binder, plan).join(' ');
+				warning.className = plan.toTray.length || plan.dropped.wants || plan.dropped.empties ? 'form-error' : 'muted';
 			}
 		}
 	}
@@ -398,7 +463,9 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 		save.disabled = true;
 
 		try {
-			await onSubmit(clean);
+			if (await onSubmit(clean) === false) {
+				save.disabled = false;
+			}
 		}
 		catch (err) {
 			message.textContent = `Could not save the binder. ${err.message || errorText(err)}`;
@@ -448,6 +515,8 @@ function bindersScreen(root, source) {
 	const editor = h('div', {id: 'binder-editor'});
 	const newButton = source.readOnly ? null : h('button', {class: 'primary', id: 'new-binder', type: 'button'}, 'New binder');
 	let name = 'Family member';
+	// The binders shown, by id, for repainting their covers.
+	let shelf = new Map();
 
 	if (source.readOnly) {
 		heading.querySelector('h2').textContent = `${name}'s binders`;
@@ -496,6 +565,9 @@ function bindersScreen(root, source) {
 
 		const binders = liveBinders(data.binders).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 		const live = data.cards.filter(isLive);
+
+		shelf = new Map(binders.map((binder) => [binder.id, binder]));
+		sweepOnce(source, data.binders);
 		const liveIds = new Set(live.map((entry) => entry.id));
 		const placed = placements(data.binders);
 		const loose = unplaced(live, data.binders).length;
@@ -522,12 +594,29 @@ function bindersScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
+	// A cover picture that arrives later (uploaded, or back in reach once
+	// online) is painted on the covers still showing their color.
+	const stopCovers = onCoversChange(() => {
+		if (!alive) {
+			return;
+		}
+
+		for (const node of body.querySelectorAll('.binder-cover:not([data-cover-image])')) {
+			const binder = shelf.get(node.dataset.binder);
+
+			if (binder) {
+				paintCover(node, binder).catch(() => {});
+			}
+		}
+	});
+
 	root.append(...[heading, body, newButton, editor].filter(Boolean));
 	load();
 
 	return () => {
 		alive = false;
 		stop();
+		stopCovers();
 	};
 }
 
@@ -550,6 +639,21 @@ function binderScreen(root, source, id, pageParam) {
 	let entriesById = new Map();
 	let spread = null;
 	let slotCache = new Map();
+	// Closes the resize preview, if it is open (leaving the screen).
+	let closeResize = () => {};
+	// The tray (see "the tray" below): the copy picked to place next, the
+	// tray position to pick from after a placement lands, and its parts.
+	let picked = null;
+	let advanceFrom = null;
+	let trayClickBlock = 0;
+	let trayNoteTimer = null;
+	const trayStrip = h('div', {'aria-label': 'Cards to place', class: 'bt-strip', id: 'bt-strip', role: 'list'});
+	const trayStatus = h('p', {'aria-live': 'polite', class: 'bt-status', id: 'bt-status'});
+	const trayFill = h('button', {class: 'small bt-fill', id: 'bt-fill', type: 'button'}, 'Fill the rest in order');
+	const tray = source.readOnly ? null : h('section', {'aria-label': 'Tray: cards to place in this binder', class: 'bt', hidden: true, id: 'binder-tray'},
+		trayStrip,
+		h('div', {class: 'bt-foot'}, trayStatus, h('span', {'aria-hidden': 'true', class: 'bt-gap'}), trayFill));
+	const trayNote = h('p', {'aria-live': 'polite', class: 'bt-note', hidden: true, id: 'bt-note'});
 
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
@@ -652,7 +756,9 @@ function binderScreen(root, source, id, pageParam) {
 		};
 
 		if (!source.readOnly) {
-			return h('button', {...attrs, onclick: () => openSheet(pg, position), type: 'button'}, content.node);
+			// With a tray card picked, a tap places it; otherwise it opens
+			// the picker sheet.
+			return h('button', {...attrs, onclick: () => (picked ? placeFromTrayAt(picked, pg, position) : openSheet(pg, position)), type: 'button'}, content.node);
 		}
 
 		if (content.kind === 'card' && content.info && content.info.route) {
@@ -675,7 +781,13 @@ function binderScreen(root, source, id, pageParam) {
 				readOnly: source.readOnly,
 				renderPocket: pocketElement,
 			});
-			spreadHolder.replaceChildren(spread.element);
+			spreadHolder.replaceChildren(...[spread.element, tray, tray && trayNote].filter(Boolean));
+
+			// Held sideways, the binder opens on its pages, whole above the
+			// tab bar, unless Back is bringing back where the person was.
+			if (window.matchMedia && window.matchMedia(SIDEWAYS_QUERY).matches && !(history.state && history.state.scrollY)) {
+				requestAnimationFrame(() => alive && spread && spread.element.scrollIntoView({block: 'start'}));
+			}
 		}
 		else {
 			spread.update(binder);
@@ -710,6 +822,7 @@ function binderScreen(root, source, id, pageParam) {
 			.filter((entry) => entry && isLive(entry))
 			.map((entry) => entryInfo(entry, index, viewing).route), binder.name);
 
+		drawTrayStatus();
 		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(stats.filled)} of ${formatCount(stats.total)} in the binder${stats.wanted ? `, ${plural(stats.wanted, 'placeholder', 'placeholders')}` : ''}.`;
 
 		fillVisible(pages).catch(() => {});
@@ -788,6 +901,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		drawPage();
+		drawTray();
 		drawStats().catch(() => {
 			// No statistics this time; the binder itself is unaffected.
 		});
@@ -825,6 +939,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		placed = placements(data.binders);
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
+		sweepOnce(source, data.binders);
 
 		if (!body.contains(spreadHolder)) {
 			body.replaceChildren(
@@ -853,17 +968,97 @@ function binderScreen(root, source, id, pageParam) {
 			binder,
 			onCancel: () => editor.replaceChildren(),
 			onSubmit: async (fields) => {
-				const lost = slotsOutside(binder, fields);
+				let mode = 'auto';
 
-				if (lost.length && !window.confirm(`${plural(lost.length, 'filled pocket falls', 'filled pockets fall')} outside the new size and will be emptied. Save anyway?`)) {
-					throw new Error('Nothing was changed.');
+				if (resizeMatters(binder, planResize(binder, fields, {placed}))) {
+					mode = await askResize(fields);
+
+					if (!mode) {
+						return false;
+					}
 				}
 
-				await updateBinder(binder.id, fields);
+				await updateBinder(binder.id, fields, {mode});
 				editor.replaceChildren();
+
+				return true;
 			},
+			placed,
 		}));
 		editor.scrollIntoView({block: 'start'});
+	}
+
+	// The preview before a resize is saved, in the app's own sheet: the
+	// first page after the change, what happens to the pockets, and the two
+	// ways to do it (the rule, or everything into the tray). Resolves "auto",
+	// "tray", or null for Cancel.
+	function askResize(fields) {
+		const box = h('dialog', {'aria-labelledby': 'resize-title', class: 'pocket-sheet resize-sheet', id: 'resize-sheet'});
+		const lines = h('div', {'aria-live': 'polite', class: 'resize-lines', id: 'resize-lines'});
+		const preview = h('div', {class: 'resize-preview', id: 'resize-preview'});
+		const choice = h('div', {'aria-label': 'How to resize', class: 'resize-choice', role: 'radiogroup'},
+			h('label', null, h('input', {checked: true, id: 'resize-auto', name: 'resize-mode', type: 'radio', value: 'auto'}), h('span', null, 'Arrange automatically')),
+			h('label', null, h('input', {id: 'resize-tray', name: 'resize-mode', type: 'radio', value: 'tray'}), h('span', null, 'Empty into the tray and arrange by hand'))
+		);
+		const cancel = h('button', {id: 'resize-cancel', type: 'button'}, 'Cancel');
+		const save = h('button', {class: 'primary', id: 'resize-save', type: 'button'}, 'Save');
+		const mode = () => choice.querySelector('input:checked').value;
+
+		function draw() {
+			const plan = planResize(binder, fields, {mode: mode(), placed});
+			const shape = {cols: fields.cols, rows: fields.rows};
+			const first = new Map(plan.slots.filter((slot) => slot.page === 1).map((slot) => [slot.position, slot]));
+			const cells = [];
+
+			for (let position = 1; position <= fields.rows * fields.cols; position++) {
+				const content = pocketContent(first.get(position) || null);
+
+				cells.push(h('div', {'aria-label': content.label, class: `pocket pocket-${content.kind}`, 'data-kind': content.kind, role: 'img'}, content.kind === 'open' ? '' : content.node));
+			}
+
+			lines.replaceChildren(...resizeLines(binder, plan).map((line) => h('p', null, line)));
+			preview.replaceChildren(
+				h('p', {class: 'field-label'}, `Page 1 after the change, ${shape.rows} × ${shape.cols}`),
+				h('div', {class: 'resize-page', style: `--rz-cols: ${shape.cols}`}, cells)
+			);
+		}
+
+		return new Promise((resolve) => {
+			const finish = (value) => {
+				if (box.open) {
+					box.close();
+				}
+
+				box.remove();
+				resolve(value);
+			};
+
+			choice.addEventListener('change', draw);
+			cancel.addEventListener('click', () => finish(null));
+			save.addEventListener('click', () => finish(mode()));
+			box.addEventListener('cancel', (event) => {
+				event.preventDefault();
+				finish(null);
+			});
+			box.addEventListener('click', (event) => {
+				if (event.target === box) {
+					finish(null);
+				}
+			});
+			closeResize = () => finish(null);
+			box.append(
+				h('div', {class: 'sheet-head'}, h('h3', {id: 'resize-title'}, `Change the size of ${binder.name}?`)),
+				h('p', {class: 'muted'}, `New size: ${fields.rows} × ${fields.cols}, ${plural(fields.page_count, 'page', 'pages')}.`),
+				choice,
+				lines,
+				preview,
+				h('div', {class: 'button-row'}, cancel, save)
+			);
+			draw();
+			root.append(box);
+			box.showModal();
+			save.focus();
+		});
 	}
 
 	async function remove() {
@@ -886,6 +1081,273 @@ function binderScreen(root, source, id, pageParam) {
 		// when there is signal. Never waited on, and never an error here.
 		dropBinderCover(deleting);
 		go('binders');
+	}
+
+	// ------------------------------------------------------- the tray
+	//
+	// Copies meant for this binder but in no pocket yet (js/binders.js
+	// staged): small thumbnails docked above the tab bar (beside the spread
+	// when the phone is sideways). Tap one to pick it, then tap a pocket to
+	// place it, and the next one is picked; or drag it onto a pocket where
+	// the pages are directly editable. "Fill the rest in order" puts the
+	// rest in the pockets with nothing in them, in reading order.
+
+	function trayIds() {
+		const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
+
+		return trayOf(binder, {liveIds, placed});
+	}
+
+	// Pockets take a placed card while the pages are editable: the spread
+	// held sideways or on a large screen, or a page zoomed open.
+	const pocketsLive = () => Boolean(spread) && (spread.element.dataset.mode === 'direct' || Boolean(spread.state().zoom));
+
+	function drawTrayStatus() {
+		if (!tray) {
+			return;
+		}
+
+		const ids = trayIds();
+		const entry = picked && entriesById.get(picked);
+
+		trayStatus.textContent = entry
+			? (pocketsLive() ? `Tap a pocket for ${entryInfo(entry, index, viewing).name}` : 'Open a page, then tap a pocket')
+			: `${plural(ids.length, 'card', 'cards')} to place`;
+
+		if (spread) {
+			spread.element.dataset.placing = picked ? 'true' : '';
+		}
+	}
+
+	function drawTray() {
+		if (!tray) {
+			return;
+		}
+
+		const ids = trayIds();
+
+		// The card just placed has left the tray: pick the one now in its
+		// place (after a swap, the card that was in the pocket), or none.
+		if (picked && !ids.includes(picked)) {
+			picked = advanceFrom !== null && ids.length ? ids[Math.min(advanceFrom, ids.length - 1)] : null;
+		}
+
+		advanceFrom = null;
+		tray.hidden = !ids.length;
+		trayStrip.replaceChildren(...ids.map((entryId) => {
+			const entry = entriesById.get(entryId);
+			const info = entryInfo(entry, index, viewing);
+
+			return h('button', {
+				'aria-label': `${info.name}, ${languageLabel(entry.language)}`,
+				'aria-pressed': String(entryId === picked),
+				class: 'bt-card',
+				'data-entry': entryId,
+				role: 'listitem',
+				type: 'button',
+			}, cardArt(info, info.image));
+		}));
+
+		for (const img of trayStrip.querySelectorAll('img')) {
+			img.draggable = false;
+		}
+
+		drawTrayStatus();
+
+		const shown = trayStrip.querySelector('.bt-card[aria-pressed="true"]');
+
+		if (shown && typeof shown.scrollIntoView === 'function') {
+			shown.scrollIntoView({block: 'nearest', inline: 'nearest'});
+		}
+	}
+
+	function trayMessage(text) {
+		clearTimeout(trayNoteTimer);
+		trayNote.textContent = text;
+		trayNote.hidden = !text;
+
+		if (text) {
+			trayNoteTimer = setTimeout(() => {
+				trayNote.textContent = '';
+				trayNote.hidden = true;
+			}, 6000);
+		}
+	}
+
+	// Places a tray card in a pocket; the next tray card is picked once the
+	// save lands (drawTray).
+	async function placeFromTrayAt(entryId, pg, position) {
+		const slot = slotsOn(pg).get(position);
+
+		if (slot && slot.art) {
+			trayMessage('That pocket holds Michi art. Pick another.');
+
+			return;
+		}
+
+		advanceFrom = trayIds().indexOf(entryId);
+		picked = entryId;
+		trayMessage('');
+
+		try {
+			await placeStaged(binder.id, pg, position, entryId);
+		}
+		catch (err) {
+			advanceFrom = null;
+			showError('Could not place the card.', err);
+		}
+	}
+
+	async function fillRest() {
+		picked = null;
+		trayFill.disabled = true;
+
+		try {
+			const {left, placed: count} = await fillTray(binder.id);
+
+			trayMessage(left
+				? `${plural(count, 'card', 'cards')} placed. ${plural(left, 'card does', 'cards do')} not fit: add pages or free some pockets.`
+				: `${plural(count, 'card', 'cards')} placed in order.`);
+		}
+		catch (err) {
+			showError('Could not fill the binder from the tray.', err);
+		}
+		finally {
+			trayFill.disabled = false;
+		}
+	}
+
+	if (tray) {
+		trayStrip.addEventListener('click', (event) => {
+			const card = event.target.closest('.bt-card');
+
+			if (!card || Date.now() < trayClickBlock) {
+				return;
+			}
+
+			picked = picked === card.dataset.entry ? null : card.dataset.entry;
+			trayMessage('');
+
+			for (const item of trayStrip.querySelectorAll('.bt-card')) {
+				item.setAttribute('aria-pressed', String(item.dataset.entry === picked));
+			}
+
+			drawTrayStatus();
+		});
+		trayFill.addEventListener('click', fillRest);
+		trayDrag();
+	}
+
+	// Drag and drop from the tray onto a pocket, with a finger or a mouse:
+	// pointer events, so it works where HTML drag and drop does not (touch).
+	// A move along the strip scrolls it (touch-action in css/binders.css); a
+	// move across it lifts the card.
+	function trayDrag() {
+		let drag = null;
+
+		const pocketAt = (x, y) => {
+			const hit = document.elementFromPoint(x, y);
+			const pocket = hit && hit.closest('.bs-pocket');
+
+			return pocket && !pocket.closest('[inert]') ? pocket : null;
+		};
+
+		const end = () => {
+			if (drag && drag.ghost) {
+				drag.ghost.remove();
+			}
+
+			if (drag && drag.over) {
+				drag.over.classList.remove('bt-over');
+			}
+
+			drag = null;
+		};
+
+		trayStrip.addEventListener('pointerdown', (event) => {
+			const card = event.target.closest('.bt-card');
+
+			drag = card && event.isPrimary && !(event.pointerType === 'mouse' && event.button !== 0)
+				? {card, ghost: null, id: card.dataset.entry, over: null, pointerId: event.pointerId, x: event.clientX, y: event.clientY}
+				: null;
+		});
+
+		trayStrip.addEventListener('pointermove', (event) => {
+			if (!drag || event.pointerId !== drag.pointerId) {
+				return;
+			}
+
+			const dx = event.clientX - drag.x;
+			const dy = event.clientY - drag.y;
+
+			if (!drag.ghost) {
+				if (Math.hypot(dx, dy) < 10) {
+					return;
+				}
+
+				const column = getComputedStyle(trayStrip).flexDirection === 'column';
+				const across = column ? Math.abs(dx) > Math.abs(dy) : Math.abs(dy) > Math.abs(dx);
+
+				if (!across || !pocketsLive()) {
+					drag = null;
+
+					return;
+				}
+
+				const box = drag.card.getBoundingClientRect();
+
+				drag.ghost = h('div', {'aria-hidden': 'true', class: 'bt-ghost', style: `width: ${box.width}px; height: ${box.height}px`}, drag.card.firstElementChild.cloneNode(true));
+				document.body.append(drag.ghost);
+				drag.half = {x: box.width / 2, y: box.height / 2};
+
+				try {
+					trayStrip.setPointerCapture(event.pointerId);
+				}
+				catch {
+					// The pointer went away; pointerup or pointercancel ends it.
+				}
+			}
+
+			event.preventDefault();
+			drag.ghost.style.transform = `translate(${event.clientX - drag.half.x}px, ${event.clientY - drag.half.y}px)`;
+
+			const over = pocketAt(event.clientX, event.clientY);
+
+			if (over !== drag.over) {
+				if (drag.over) {
+					drag.over.classList.remove('bt-over');
+				}
+
+				if (over) {
+					over.classList.add('bt-over');
+				}
+
+				drag.over = over;
+			}
+		});
+
+		trayStrip.addEventListener('pointerup', (event) => {
+			if (!drag || event.pointerId !== drag.pointerId) {
+				return;
+			}
+
+			const {ghost, id: entryId} = drag;
+			const target = ghost ? pocketAt(event.clientX, event.clientY) : null;
+
+			end();
+
+			if (ghost) {
+				// The lift is not a tap on the card under the finger.
+				trayClickBlock = Date.now() + 400;
+
+				if (target) {
+					placeFromTrayAt(entryId, Number(target.dataset.page), Number(target.dataset.position));
+				}
+			}
+		});
+
+		trayStrip.addEventListener('pointercancel', end);
+		trayStrip.addEventListener('dragstart', (event) => event.preventDefault());
 	}
 
 	// ------------------------------------------------- the pocket sheet
@@ -939,6 +1401,9 @@ function binderScreen(root, source, id, pageParam) {
 							event.currentTarget.closest('.sheet-current').hidden = true;
 							chooser.hidden = false;
 						}, type: 'button'}, 'Change'),
+					content.kind === 'card'
+						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
+						: null,
 					slot.art
 						? h('p', {class: 'muted'}, 'Michi art is edited with the art tools, which are not here yet.')
 						: h('button', {class: 'danger', id: 'pocket-clear', onclick: () => act(() => clearPocket(binder.id, page, position), 'Could not empty the pocket.'), type: 'button'}, 'Take out')
@@ -947,13 +1412,9 @@ function binderScreen(root, source, id, pageParam) {
 
 		chooser.append(...pocketChooser(page, position, message));
 		sheet.replaceChildren(header, current || '', chooser, message);
+		// Focus goes to Close, not the search field: most people scroll the
+		// list, and on a phone a focused field raises the keyboard over it.
 		sheet.showModal();
-
-		const search = sheet.querySelector('#owned-search');
-
-		if (!slot && search) {
-			search.focus();
-		}
 	}
 
 	// The three ways to fill a pocket: one of your cards, a placeholder, or
@@ -971,7 +1432,12 @@ function binderScreen(root, source, id, pageParam) {
 
 			ownedPanel.hidden = want;
 			wantPanel.hidden = !want;
-			(want ? wantPanel.querySelector('#want-search') : ownedPanel.querySelector('#owned-search')).focus();
+
+			// A placeholder is found by typing its name; your cards are
+			// mostly scrolled, so their search waits for a tap.
+			if (want) {
+				wantPanel.querySelector('#want-search').focus();
+			}
 		});
 
 		ownedPanel.append(...ownedPicker(page, position, message));
@@ -1106,7 +1572,10 @@ function binderScreen(root, source, id, pageParam) {
 		return [search, filter, confirmBox, count, results, more];
 	}
 
-	// A placeholder: search the catalog by name, in the viewing language.
+	// A placeholder: search the catalog by name or number, in the viewing
+	// language, with the shared card search (js/wishlist.js searchCards: kept
+	// on the phone for a day, so a search made once works offline, and no
+	// TCG Pocket cards).
 	function wantPicker(page, position, message) {
 		const lang = viewing;
 		const catalog = catalogFor(lang);
@@ -1119,15 +1588,20 @@ function binderScreen(root, source, id, pageParam) {
 		async function choose(card) {
 			await act(() => placePlaceholder(binder.id, page, position, {
 				card_id: card.id,
-				catalog,
+				catalog: card.catalog || catalog,
 				image: card.image || null,
 				name: card.name,
 				variant_id: null,
 			}), 'Could not save the placeholder.');
 
-			// The set name, for the tile; the placeholder works without it.
-			importApi.cardDetail(lang, card.id)
-				.then((detail) => (detail && detail.set ? saveToCardIndex([recordFrom(catalog, lang, detail)]) : null))
+			// The set name, for the tile: from the search when it knew it,
+			// else read from the catalog. The placeholder works without it.
+			const known = card.setName
+				? Promise.resolve([{catalog: card.catalog || catalog, collector_number: card.localId, id: card.id, localizations: {[lang]: {image: card.image || null, lang, name: card.name, set_name: card.setName}}, set_id: card.setId}])
+				: importApi.cardDetail(lang, card.id).then((detail) => (detail && detail.set ? [recordFrom(catalog, lang, detail)] : null));
+
+			known
+				.then((records) => (records ? saveToCardIndex(records) : null))
 				.then((filled) => {
 					if (filled && alive && binder) {
 						index = filled;
@@ -1149,49 +1623,45 @@ function binderScreen(root, source, id, pageParam) {
 				return;
 			}
 
-			if (!navigator.onLine) {
-				status.textContent = 'Searching the catalog needs a connection. Your own cards are under Your cards.';
-
-				return;
-			}
-
 			const ticket = ++asked;
 
 			status.textContent = 'Searching…';
 			results.replaceChildren();
 
 			try {
-				const response = await fetch(`${TCGDEX}${encodeURIComponent(lang)}/cards?name=${encodeURIComponent(query)}&pagination:itemsPerPage=${PICK_PAGE}`);
-
-				if (!response.ok) {
-					throw new Error(`TCGdex answered ${response.status}.`);
-				}
-
-				const cards = await response.json();
+				const {more, results: list} = await searchCards(query, lang);
 
 				if (ticket !== asked || !alive) {
 					return;
 				}
 
-				const list = Array.isArray(cards) ? cards : [];
-
 				status.textContent = list.length
-					? `${plural(list.length, 'card', 'cards')} named like "${query}"${list.length === PICK_PAGE ? ', the first ones shown' : ''}.`
-					: `No ${languageLabel(lang)} cards are named like "${query}".`;
+					? `${plural(list.length + more, 'card', 'cards')} found for "${query}"${more ? `, the first ${formatCount(list.length)} shown` : ''}.`
+					: `No ${languageLabel(lang)} cards found for "${query}".`;
 				results.replaceChildren(...list.map((card) => {
-					const cut = String(card.id).lastIndexOf('-');
-					const setId = cut > 0 ? card.id.slice(0, cut) : '';
-					const info = {name: card.name, number: card.localId, setName: setId};
+					// The set's real name when the set list is on the phone;
+					// never its raw id.
+					const info = {name: card.name, number: card.localId, setName: card.setName};
 
 					return h('button', {class: 'pick', 'data-card': card.id, onclick: () => choose(card), type: 'button'},
 						h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low'))),
 						h('span', {class: 'tile-name'}, card.name),
-						h('span', {class: 'tile-meta'}, [card.localId ? `#${card.localId}` : null, setId].filter(Boolean).join(' · '))
+						h('span', {class: 'tile-meta'}, [card.localId ? `#${card.localId}` : null, card.setName].filter(Boolean).join(' · '))
 					);
 				}));
 			}
 			catch (err) {
-				if (ticket === asked) {
+				if (ticket !== asked) {
+					return;
+				}
+
+				if (err instanceof SearchHint) {
+					status.textContent = err.message;
+				}
+				else if (!navigator.onLine) {
+					status.textContent = 'This search needs a connection the first time. Your own cards are under Your cards.';
+				}
+				else {
 					status.textContent = `The catalog search did not work. ${errorText(err)}`;
 				}
 			}
@@ -1206,13 +1676,23 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}) : () => {};
 
+	// A cover picture that arrives later is painted on the spread's board.
+	const stopCovers = onCoversChange(() => {
+		if (alive && spread) {
+			spread.refreshCover();
+		}
+	});
+
 	root.append(...[back, body, sheet].filter(Boolean));
 	load();
 
 	return () => {
 		alive = false;
 		closeSheet();
+		closeResize();
+		clearTimeout(trayNoteTimer);
 		stop();
+		stopCovers();
 
 		if (spread) {
 			spread.destroy();

@@ -22,11 +22,15 @@
 //                              (a binder list cover, the spread's board)
 //   dropBinderCover(binder)    a deleted binder's cover off the bucket and
 //                              the phone
+//   sweepCovers(binders)       pictures kept on this phone that no live
+//                              binder uses any more, dropped
+//   onCoversChange(listener)   runs after each pass over the upload queue,
+//                              so a view can repaint a cover that arrived
 //   coverPath(...)             the bucket path for a cover image
 
 import {currentUser, getClient, onUser} from './auth.js';
 import {coverAspect} from './binder-spread.js';
-import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, isHex, setCoverImage} from './binders.js';
+import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, isHex, liveBinders, setCoverImage} from './binders.js';
 import {loadDocument, newId, nowIso} from './collection.js';
 import {h} from './dom.js';
 import {detectCorners} from './photos/detect.js';
@@ -211,6 +215,47 @@ export function paintCover(node, binder) {
 
 		return false;
 	});
+}
+
+// ------------------------------------------------------------- the sweep
+
+// A picture saved this recently is kept even if no binder names it yet:
+// saveCoverImage() stores the picture a moment before the binder's record.
+const SWEEP_GRACE_MS = 10 * 60 * 1000;
+
+// Drops the cover pictures kept on this phone that no live binder in
+// binders (the person's whole list) uses: the binder was deleted or its
+// cover replaced on another phone, which only removed its own copy (E-21).
+// A picture waiting to upload, shown in this session (a family member's
+// cover), or saved in the last few minutes stays. Best effort: resolves to
+// the number dropped, never throws.
+export async function sweepCovers(binders) {
+	try {
+		const used = new Set(liveBinders(binders).map(coverImageOf).filter(Boolean).map((image) => image.id));
+		const waiting = new Set((await idb('queue', 'readonly', (s) => s.getAll())).filter((row) => row.op === 'upload').map((row) => row.image_id));
+		const ids = await idb('blobs', 'readonly', (s) => s.getAllKeys());
+		let dropped = 0;
+
+		for (const id of ids) {
+			if (used.has(id) || waiting.has(id) || urls.has(id)) {
+				continue;
+			}
+
+			const row = await idb('blobs', 'readonly', (s) => s.get(id));
+
+			if (row && Date.now() - Number(row.at || 0) < SWEEP_GRACE_MS) {
+				continue;
+			}
+
+			await forgetLocal(id);
+			dropped++;
+		}
+
+		return dropped;
+	}
+	catch {
+		return 0;
+	}
 }
 
 // ------------------------------------------------------------- the queue

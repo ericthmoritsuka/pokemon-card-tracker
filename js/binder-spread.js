@@ -37,6 +37,11 @@ export const HINT_TIMES = 3;
 // opens at full size for placing cards.
 export const OVERVIEW_QUERY = '(orientation: portrait) and (max-width: 599px)';
 
+// A phone held sideways: the spread is sized to the height above the tab
+// bar there (css/binder-spread.css), and turning the phone brings it into
+// view whole.
+export const SIDEWAYS_QUERY = '(orientation: landscape) and (max-height: 500px)';
+
 // Back from a zoomed page lands on the spread's own history entry, whose URL
 // still names the spread the zoom started from; after stepping through the
 // pages that is the wrong one. Zooming marks that entry (history.state
@@ -148,6 +153,19 @@ const pageH = (rows) => (rows * POCKET_H) + ((rows + 1) * GAP) + FOLIO;
 export const pageAspect = (rows, cols) => pageW(cols) / pageH(rows);
 
 export const coverAspect = (rows, cols) => (pageW(cols) + (2 * MARGIN)) / (pageH(rows) + (2 * MARGIN));
+
+// The open book's shape, width over height: two pages side by side on the
+// cover board, whose padding and gap between the pages are BOOK_PAD of its
+// width each (css/binder-spread.css .bs-book). A book W wide has pages
+// W * (1 - 3 * BOOK_PAD) / 2 wide, and is a page's height plus
+// 2 * BOOK_PAD * W tall, so the spread sized to a height fits it exactly.
+const BOOK_PAD = 0.032;
+
+export function spreadAspect(rows, cols) {
+	const page = pageAspect(rows, cols);
+
+	return page / (((1 - (3 * BOOK_PAD)) / 2) + (2 * BOOK_PAD * page));
+}
 
 // Where Back from a zoomed page lands: the URL's place, unless this is the
 // spread entry a zoom left from and the zoomed page moved on. Used once.
@@ -291,7 +309,8 @@ const finished = (animation) => (animation && animation.finished ? animation.fin
 //               handles its own taps
 // onChange      ({spread, zoom, pages}) => void after the place changes
 //
-// Returns {element, update, state, pages, turn, goTo, zoom, unzoom, destroy}.
+// Returns {element, update, refreshCover, state, pages, turn, goTo, zoom,
+// unzoom, destroy}.
 export function binderSpread({
 	base = '',
 	binder: start,
@@ -366,15 +385,52 @@ export function binderSpread({
 		return grid;
 	}
 
+	// The inside cover: the binder's name and notes on a label. The cover
+	// keeps the page's shape whatever the notes' length: notes that do not
+	// fit fade out at the label's foot, and More lets them scroll inside the
+	// label (fitNotes() decides once the label is laid out).
+	function insideCover(side) {
+		const notes = binder.notes ? el('span', {class: 'bs-inside-notes'}, binder.notes) : null;
+		const more = notes ? el('button', {'aria-expanded': 'false', class: 'bs-inside-more', hidden: true, type: 'button'}, 'More') : null;
+		const label = el('div', {class: 'bs-inside-label'}, el('span', {class: 'bs-inside-name'}, binder.name || ''), notes, more);
+
+		if (more) {
+			more.addEventListener('click', () => {
+				const open = label.dataset.open !== 'true';
+
+				label.dataset.open = String(open);
+				more.setAttribute('aria-expanded', String(open));
+				more.textContent = open ? 'Less' : 'More';
+				notes.scrollTop = 0;
+			});
+		}
+
+		return el('div', {class: 'bs-page bs-inside', 'data-side': side}, label);
+	}
+
+	// Marks inside-cover notes that are cut off, so the fade and More show.
+	function fitNotes() {
+		for (const label of element.querySelectorAll('.bs-inside-label')) {
+			const notes = label.querySelector('.bs-inside-notes');
+			const more = label.querySelector('.bs-inside-more');
+
+			if (!notes || !more || label.dataset.open === 'true') {
+				continue;
+			}
+
+			const clipped = notes.scrollHeight > notes.clientHeight + 1;
+
+			label.dataset.clipped = String(clipped);
+			more.hidden = !clipped;
+		}
+	}
+
 	// One page, or an inside cover for null. inSpread pages get the Open
 	// button in overview; a zoomed page and every page in direct mode are
 	// live.
 	function sheet(page, side, {live = true, open = false} = {}) {
 		if (!page) {
-			return el('div', {class: 'bs-page bs-inside', 'data-side': side},
-				el('div', {class: 'bs-inside-label'},
-					el('span', {class: 'bs-inside-name'}, binder.name || ''),
-					binder.notes ? el('span', {class: 'bs-inside-notes'}, binder.notes) : null));
+			return insideCover(side);
 		}
 
 		const node = el('div', {class: 'bs-page', 'data-page': page, 'data-side': side},
@@ -449,7 +505,7 @@ export function binderSpread({
 		element.style.setProperty('--bs-foot', pct((GAP + FOLIO) / tall));
 		element.style.setProperty('--bs-gap-c', pct(GAP / (w - (2 * GAP))));
 		element.style.setProperty('--bs-gap-r', pct(GAP / (tall - (2 * GAP) - FOLIO)));
-		element.style.setProperty('--bs-spread-aspect', ((2 * pageAspect(binder.rows, binder.cols)) + 0.06).toFixed(4));
+		element.style.setProperty('--bs-spread-aspect', spreadAspect(binder.rows, binder.cols).toFixed(4));
 		jump.replaceChildren(...Array.from({length: spreadCount(binder.page_count)}, (_, i) => {
 			const {left, right} = spreadPages(binder.page_count, i + 1);
 
@@ -513,6 +569,7 @@ export function binderSpread({
 		drawControls();
 		drawHint();
 		placeEdges();
+		fitNotes();
 	}
 
 	// The edge arrows go outside the book when there is room beside it.
@@ -522,7 +579,12 @@ export function binderSpread({
 		element.dataset.edges = room >= 48 ? 'outside' : 'inside';
 	}
 
-	const resizes = typeof ResizeObserver === 'function' ? new ResizeObserver(() => alive && placeEdges()) : null;
+	const resizes = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+		if (alive) {
+			placeEdges();
+			fitNotes();
+		}
+	}) : null;
 
 	function changed() {
 		drawControls();
@@ -639,6 +701,7 @@ export function binderSpread({
 
 		// One frame for the new pages to lay out before anything moves.
 		await nextFrame();
+		fitNotes();
 
 		const angle = forward ? -180 : 180;
 		const timing = {duration: TURN_MS, easing: 'cubic-bezier(0.45, 0.05, 0.35, 1)', fill: 'forwards'};
@@ -718,6 +781,8 @@ export function binderSpread({
 		finally {
 			busy = false;
 		}
+
+		fitNotes();
 
 		// A save that landed mid-turn redraws the new place now.
 		if (dirty && alive) {
@@ -944,6 +1009,10 @@ export function binderSpread({
 
 		draw();
 		changed();
+
+		if (!overview() && window.matchMedia && window.matchMedia(SIDEWAYS_QUERY).matches) {
+			element.scrollIntoView({block: 'start'});
+		}
 	}
 
 	if (overviewQuery) {
@@ -1007,6 +1076,14 @@ export function binderSpread({
 		element,
 		goTo,
 		pages: visiblePages,
+		// Asks for the cover image again, for a picture that was not on the
+		// phone or in reach before (js/binder-cover.js onCoversChange).
+		refreshCover() {
+			if (!element.dataset.coverImage) {
+				coverKey = null;
+				drawCover();
+			}
+		},
 		state: () => ({...state}),
 		turn,
 		unzoom,

@@ -304,7 +304,9 @@
 	right: 4%;
 }
 
-/* The inside of the cover, lined in a darker shade of it. */
+/* The inside of the cover, lined in a darker shade of it. It keeps the
+   page's shape whatever its label holds: overflow hidden lets aspect-ratio
+   decide the height instead of the notes (DESIGN.md section 11). */
 .bs-inside {
 	align-items: center;
 	background:
@@ -314,28 +316,73 @@
 	color: var(--cover-text, #ffffff);
 	display: flex;
 	justify-content: center;
+	overflow: hidden;
+	padding: 10% 0;
 }
 
 .bs-inside-label {
 	border: 1px solid color-mix(in srgb, var(--cover-text, #ffffff) 35%, transparent);
 	border-radius: 4px;
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	gap: 2px;
+	max-height: 100%;
 	max-width: 76%;
+	min-height: 0;
 	padding: 6px 10px;
 	text-align: center;
 }
 
+/* Words wrap whole; only a string with no break point (a long link) is cut
+   to fit. */
 .bs-inside-name {
+	flex: none;
 	font-size: 0.85rem;
 	font-weight: 700;
-	overflow-wrap: anywhere;
+	line-height: 1.25;
+	overflow-wrap: break-word;
 }
 
 .bs-inside-notes {
 	font-size: 0.7rem;
+	line-height: 1.35;
+	min-height: 0;
 	opacity: 0.85;
-	overflow-wrap: anywhere;
+	overflow: hidden;
+	overflow-wrap: break-word;
+	white-space: pre-line;
+}
+
+/* Notes longer than the label fade out at its foot, with More beneath;
+   More lets them scroll inside the label, still the page's shape. */
+.bs-inside-label[data-clipped="true"]:not([data-open="true"]) .bs-inside-notes {
+	-webkit-mask-image: linear-gradient(to bottom, #000000 calc(100% - 2.6em), transparent);
+	mask-image: linear-gradient(to bottom, #000000 calc(100% - 2.6em), transparent);
+}
+
+.bs-inside-label[data-open="true"] .bs-inside-notes {
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+button.bs-inside-more {
+	align-self: center;
+	background: transparent;
+	border: 1px solid color-mix(in srgb, var(--cover-text, #ffffff) 55%, transparent);
+	border-radius: 999px;
+	color: inherit;
+	flex: none;
+	font-size: 0.75rem;
+	min-height: 32px;
+	padding: 2px 14px;
+	position: relative;
+}
+
+/* A 44 px target around the smaller pill. */
+button.bs-inside-more::after {
+	content: "";
+	inset: -6px -8px;
+	position: absolute;
 }
 
 /* In the overview a page is one button that opens it. */
@@ -357,6 +404,12 @@ button.bs-open:active {
 }
 
 /* Small pockets in the overview: art only. */
+.bs[data-mode="overview"] .bs-spread button.bs-inside-more {
+	font-size: 0.6rem;
+	min-height: 24px;
+	padding: 1px 10px;
+}
+
 .bs[data-mode="overview"] .bs-spread .badge,
 .bs[data-mode="overview"] .bs-spread .card-back-name,
 .bs[data-mode="overview"] .bs-spread .card-back-status {
@@ -533,7 +586,7 @@ button.bs-edge:disabled {
 .bs[data-mode="overview"] button.bs-edge {
 	font-size: 1.3rem;
 	height: 52px;
-	width: 32px;
+	width: 44px;
 }
 
 .bs-bar {
@@ -595,7 +648,8 @@ button.bs-edge:disabled {
 
 button.bs-hint-close {
 	flex: 0 0 auto;
-	min-height: 40px;
+	min-height: 44px;
+	min-width: 44px;
 	padding: 4px 12px;
 }
 
@@ -751,16 +805,26 @@ button.bc-handle:focus-visible::after {
 	}
 }
 
-/* A phone held sideways: the app's header scrolls away with the page while
-   a binder is open, instead of sticking over the spread, and the spread is
-   sized to the height left above the tab bar, so both pages show whole. */
+/* A phone held sideways (js/binder-spread.js SIDEWAYS_QUERY): the app's
+   header scrolls away with the page while a binder is open, instead of
+   sticking over the spread, and the spread is sized to the height left
+   above the tab bar, so both pages show whole when it is scrolled to the
+   top: the screen less the scroll margin (4 px), the "Page N of M" line
+   (24 px, which the zip's pull reaches into), the tab bar, the Scan disc's
+   rise above the bar (28 px, style.css .scan-disc), and a 4 px gap. */
 @media (orientation: landscape) and (max-height: 500px) {
 	body:has(#binder-spread) .shell-top {
 		position: static;
 	}
 
 	.bs {
-		--bs-chrome: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 24px);
-		scroll-margin-top: 8px;
+		--bs-chrome: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 60px);
+		scroll-margin-top: 4px;
+	}
+
+	.bs-label {
+		font-size: 0.9rem;
+		line-height: 22px;
+		margin-bottom: 2px;
 	}
 }
