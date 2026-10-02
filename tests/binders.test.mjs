@@ -907,12 +907,22 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await until(() => pushed().length === 1 && pushed()[0].slots.some((slot) => slot.entry_id === 'c2'));
 		assert.equal(pushed()[0].name, 'Trade binder');
 
+		// A colour in a member's document that is not a hex colour never
+		// reaches a style: the default cover shows, and nothing is fetched.
+		fake.documents.get(owner.id).doc.binders[0].cover_color = '#123456; background-image: url(https://tracker.invalid/a.png); outline: 9px solid lime';
+
 		// The kid sees it read only.
 		fake.members.push({group_id: fake.groups[0].id, role: 'member', user_id: kid.id});
 		fake.profiles.set(owner.id, {display_name: 'Eric', user_id: owner.id});
 
 		const {context, errors, page} = await device(fake, 'kid');
+		const injected = [];
 
+		await context.route('https://tracker.invalid/**', (route) => {
+			injected.push(route.request().url());
+
+			return route.abort();
+		});
 		await signIn(page, fake, kid.email);
 		await waitForStatus(page, 'Synced');
 		await page.goto(url('binders'));
@@ -925,11 +935,15 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('#new-binder').count(), 0, 'no New binder in the view');
 		await page.waitForSelector('.binder-cover');
 		assert.equal(await page.locator('.binder-fill').textContent(), '1 / 8');
+		assert.doesNotMatch(await page.locator('.binder-cover').getAttribute('style'), /url|outline/);
+		assert.equal(await page.locator('.binder-cover').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
 
 		await page.click('.binder-cover');
 		await page.waitForSelector('#binder-spread .bs-page');
 		assert.ok(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/binders/`));
 		await waitForKind(page, 1, 'card', 1);
+		assert.equal(await page.locator('#binder-body').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
+		assert.equal(await page.locator('#binder-spread').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
 		assert.equal(await page.locator('#binder-spread .bs-pocket button').count(), 0, 'no pocket can be tapped to edit');
 		assert.equal(await page.locator('#bs-spread a.pocket').count(), 1, 'the owned card opens its card page');
 		assert.equal(await page.locator('#edit-binder, #binder-cover-image, #delete-binder, #pocket-sheet').count(), 0);
@@ -953,6 +967,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// Viewing changed nothing for either person.
 		assert.equal((await localDoc(page)).binders.length, 0);
 		assert.equal(pushed().length, 1);
+		assert.deepEqual(injected, [], 'nothing fetched from a crafted colour');
 		assert.deepEqual(errors, []);
 		assert.deepEqual(ownerDevice.errors, []);
 		await context.close();

@@ -24,7 +24,7 @@
 // The math at the top is pure, so Node tests it (tests/binder-spread.test.mjs);
 // nothing here touches the DOM until binderSpread() runs.
 
-import {coverImageOf, coverTextColor, DEFAULT_COVER, pageOfPocket} from './binders.js';
+import {coverImageOf, coverTextColor, DEFAULT_COVER, isHex, pageOfPocket} from './binders.js';
 
 export const TURN_MS = 450;
 export const FADE_MS = 220;
@@ -430,7 +430,7 @@ export function binderSpread({
 	}
 
 	function drawShape() {
-		const color = binder.cover_color || DEFAULT_COVER;
+		const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
 
 		element.style.setProperty('--cover', color);
 		element.style.setProperty('--cover-text', coverTextColor(color));

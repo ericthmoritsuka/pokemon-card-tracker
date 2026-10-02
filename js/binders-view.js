@@ -52,6 +52,7 @@ import {
 	coverTextColor,
 	createBinder,
 	deleteBinder,
+	isHex,
 	leaveEmpty,
 	liveBinders,
 	locate,
@@ -417,7 +418,9 @@ export const bindersListView = (root) => bindersScreen(root, MINE);
 export const familyBindersView = (root, {userId}) => bindersScreen(root, familySource(userId));
 
 function cover(binder, stats, base) {
-	const color = binder.cover_color || DEFAULT_COVER;
+	// A family member's colour comes from their document: only a hex colour
+	// reaches the style attribute.
+	const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
 	const node = link(`${base}/${encodeURIComponent(binder.id)}`, {
 		class: 'binder-cover',
 		'data-binder': binder.id,
@@ -775,8 +778,8 @@ function binderScreen(root, source, id, pageParam) {
 		meta.textContent = `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`;
 		notes.textContent = binder.notes || '';
 		notes.hidden = !binder.notes;
-		body.style.setProperty('--cover', binder.cover_color || DEFAULT_COVER);
-		body.style.setProperty('--cover-text', coverTextColor(binder.cover_color || DEFAULT_COVER));
+		body.style.setProperty('--cover', isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER);
+		body.style.setProperty('--cover-text', coverTextColor(isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER));
 
 		if (!source.readOnly) {
 			const loose = unplaced(data.cards.filter(isLive), data.binders).length;

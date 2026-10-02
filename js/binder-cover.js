@@ -26,7 +26,7 @@
 
 import {currentUser, getClient, onUser} from './auth.js';
 import {coverAspect} from './binder-spread.js';
-import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, setCoverImage} from './binders.js';
+import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, isHex, setCoverImage} from './binders.js';
 import {loadDocument, newId, nowIso} from './collection.js';
 import {h} from './dom.js';
 import {detectCorners} from './photos/detect.js';
@@ -186,7 +186,7 @@ export function coverImageUrl(binder) {
 // and --cover-image with data-cover-image="true" once the picture is ready.
 // Returns a promise that settles when the image is on (or known missing).
 export function paintCover(node, binder) {
-	const color = binder.cover_color || DEFAULT_COVER;
+	const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
 	const image = coverImageOf(binder);
 
 	node.style.setProperty('--cover', color);
