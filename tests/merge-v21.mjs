@@ -1,21 +1,18 @@
+// A frozen copy of js/merge.js as v21 shipped it (commit 02afb5a), so
+// tests/merge.test.mjs can play a phone still running the old rules. Never
+// update it: it stands for the old app.
+//
 // Merging two versions of one person's document, entry by entry (DESIGN.md
 // section 3). Pure functions with no DOM or storage, so Node can test them
 // (tests/merge.test.mjs).
 //
 // The rules, for two versions of the entry with one id:
-//   1. A delete sticks. A tombstone (deleted_at set) wins over a live
-//      version, however much newer the live one is, unless the live one was
-//      restored on purpose after the delete (restored_at later than
-//      deleted_at, see restoreEntry). So an offline phone that edits a card
-//      after another phone deleted it cannot bring the card back.
-//   2. Otherwise the newer updated_at wins.
-//   3. At the same updated_at, a tombstone wins.
-//   4. Otherwise the one whose content sorts last wins, so every device makes
+//   1. The newer updated_at wins.
+//   2. At the same updated_at, a tombstone (deleted_at set) wins.
+//   3. Otherwise the one whose content sorts last wins, so every device makes
 //      the same choice and the two copies end up identical.
-// When rule 1 picks the older version, the result is stamped just after
-// both (the bump rule), so stamps() sees it as a change and pushes it, and a
-// phone still on the old rules (newer updated_at wins) takes it too.
-// (Decided 2026-10-02, Eric's audit fixes; plans/sync-merge-plan.md.)
+// A tombstone is an entry like any other, so a deletion is never dropped and
+// a phone holding an older copy cannot bring the card back.
 
 export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings'];
 
@@ -52,59 +49,6 @@ export function newerEntry(a, b) {
 	return stableJson(a) >= stableJson(b) ? a : b;
 }
 
-// The stamp just after both versions'.
-function stampAfter(a, b) {
-	const newest = Math.max(time(a.updated_at), time(b.updated_at));
-
-	return new Date(Number.isFinite(newest) ? newest + 1 : 0).toISOString();
-}
-
-// The version a rule other than "newer wins" picks, or null when the plain
-// rule (newerEntry) decides.
-function specialPick(a, b) {
-	const deadA = Boolean(a.deleted_at);
-
-	if (deadA !== Boolean(b.deleted_at)) {
-		const dead = deadA ? a : b;
-		const live = deadA ? b : a;
-
-		return time(live.restored_at) > time(dead.deleted_at) ? live : dead;
-	}
-
-	return null;
-}
-
-// Merges two versions of one entry (the rules at the top). Returns one of
-// the two objects when its content is the result, else a new object.
-export function mergeEntry(a, b) {
-	if (a === b) {
-		return a;
-	}
-
-	const special = specialPick(a, b);
-
-	if (!special) {
-		return newerEntry(a, b);
-	}
-
-	return newerEntry(a, b) === special ? special : {...special, updated_at: stampAfter(a, b)};
-}
-
-// Brings a deleted entry back on purpose: deleted_at cleared, and
-// restored_at stamped after the delete, so the merge lets this version win
-// over the tombstone (rule 1). Nothing in the app calls it yet: deletes are
-// permanent until a "Recently deleted" screen exists (Eric, 2026-10-02).
-export function restoreEntry(entry, now = Date.now()) {
-	if (!entry || !entry.deleted_at) {
-		return entry;
-	}
-
-	const {merged_into: _merged, ...rest} = entry;
-	const at = nextStamp(later(entry.updated_at, entry.deleted_at), now);
-
-	return {...rest, deleted_at: null, restored_at: at, updated_at: at};
-}
-
 // Merges two versions of one list. Entries keep the local order, and entries
 // only the other side has follow in its order. Neither input is changed.
 export function mergeEntries(local, remote) {
@@ -127,23 +71,13 @@ export function mergeEntries(local, remote) {
 
 		const mine = merged.get(entry.id);
 
-		merged.set(entry.id, mine ? mergeEntry(mine, entry) : entry);
+		merged.set(entry.id, mine ? newerEntry(mine, entry) : entry);
 	}
 
 	return [...merged.values(), ...loose];
 }
 
 const later = (a, b) => (time(a) >= time(b) ? a : b);
-
-// A stamp strictly newer than the entry's last one, so the merge always
-// takes the new version: even when two edits land in one millisecond, and
-// even on a phone whose clock is behind the phone that wrote `previous`.
-// Every write in the app takes its updated_at from here.
-export function nextStamp(previous, now = Date.now()) {
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
-}
 
 // Merges two whole documents. Every list is merged entry by entry; settings
 // go to whichever side changed them last; other fields keep the local value

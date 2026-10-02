@@ -3,7 +3,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {countChanged, mergeDocuments, mergeEntries, nextStamp, sameContent, stableJson, stamps} from '../js/merge.js';
+import {countChanged, mergeDocuments, mergeEntries, mergeEntry, nextStamp, restoreEntry, sameContent, stableJson, stamps} from '../js/merge.js';
+
+import * as v21 from './merge-v21.mjs';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -125,4 +127,100 @@ test('nextStamp is later than the previous stamp even with a slow clock', () => 
 	const edited = card('a', 0, {notes: 'from the slow phone', updated_at: nextStamp(at(5), slow)});
 
 	assert.equal(mergeEntries([card('a', 5)], [edited])[0].notes, 'from the slow phone');
+});
+
+// ------------------------------------------------------- sticky deletes
+
+test('a delete stays deleted when an offline phone edits the card later', () => {
+	const tombstone = card('a', 5, {deleted_at: at(5)});
+	const edit = card('a', 6, {notes: 'edited offline'});
+
+	for (const [merged] of [mergeEntries([tombstone], [edit]), mergeEntries([edit], [tombstone])]) {
+		assert.equal(merged.deleted_at, at(5));
+		assert.ok(merged.updated_at > at(6), 'stamped later than the edit, so it is pushed and every phone takes it');
+		assert.equal(merged.updated_at, '2026-10-01T10:06:00.001Z');
+	}
+
+	assert.deepEqual(mergeEntries([tombstone], [edit]), mergeEntries([edit], [tombstone]), 'both phones end up the same');
+});
+
+test('a restore on purpose brings an entry back; one older than the delete does not', () => {
+	const tombstone = card('a', 5, {deleted_at: at(5)});
+	const restored = restoreEntry(tombstone, Date.parse(at(7)));
+
+	assert.equal(restored.deleted_at, null);
+	assert.equal(restored.restored_at, at(7));
+	assert.equal(restored.updated_at, at(7));
+
+	for (const [merged] of [mergeEntries([tombstone], [restored]), mergeEntries([restored], [tombstone])]) {
+		assert.equal(merged.deleted_at, null);
+	}
+
+	// Restored at minute 4, then deleted again at minute 5: the delete wins.
+	const early = card('a', 4, {restored_at: at(4)});
+
+	assert.equal(mergeEntries([early], [tombstone])[0].deleted_at, at(5));
+
+	// A restore made on a phone with a slow clock still comes after the
+	// delete it undoes.
+	assert.ok(restoreEntry(tombstone, Date.parse(at(1))).restored_at > at(5));
+	assert.equal(restoreEntry(card('b', 1)).id, 'b', 'a live entry is returned as it is');
+	assert.equal('merged_into' in restoreEntry(card('c', 2, {deleted_at: at(2), merged_into: 'x'})), false);
+});
+
+test('the sticky result wins on a v21 phone too', () => {
+	const tombstone = card('a', 5, {deleted_at: at(5)});
+	const edit = card('a', 6, {notes: 'edited offline'});
+	const [merged] = mergeEntries([tombstone], [edit]);
+
+	// The v21 phone holds the edit and receives the result.
+	for (const [old] of [v21.mergeEntries([edit], [merged]), v21.mergeEntries([merged], [edit])]) {
+		assert.equal(old.deleted_at, at(5));
+		assert.equal(old, merged);
+	}
+});
+
+test('a result that differs from both sides gets a stamp newer than both; equal content returns the same object', () => {
+	const tombstone = card('a', 5, {deleted_at: at(5)});
+	const edit = card('a', 6, {notes: 'edited offline'});
+	const [merged] = mergeEntries([edit], [tombstone]);
+
+	assert.notEqual(merged, tombstone);
+	assert.ok(merged.updated_at > edit.updated_at && merged.updated_at > tombstone.updated_at);
+
+	// Once merged, merging again with either side changes nothing.
+	assert.equal(mergeEntries([merged], [edit])[0], merged);
+	assert.equal(mergeEntries([tombstone], [merged])[0], merged);
+
+	const same = card('b', 3, {notes: 'x'});
+
+	assert.equal(mergeEntries([same], [{...same}])[0], same);
+	assert.equal(mergeEntry(same, same), same);
+
+	// Stamps see the change, so the merged document is pushed.
+	const local = doc([tombstone]);
+	const remote = doc([edit]);
+	const both = mergeDocuments(local, remote);
+
+	assert.equal(sameContent(both, local), false);
+	assert.equal(sameContent(both, remote), false);
+});
+
+test('two tombstones: the later one wins', () => {
+	const first = card('a', 5, {deleted_at: at(5)});
+	const second = card('a', 7, {deleted_at: at(7)});
+
+	assert.equal(mergeEntries([first], [second])[0], second);
+	assert.equal(mergeEntries([second], [first])[0], second);
+});
+
+test('deletes stick in every list: binders, lists, wishes, and lists added later', () => {
+	const dead = {deleted_at: at(5), id: 'x', name: 'gone', updated_at: at(5)};
+	const live = {deleted_at: null, id: 'x', name: 'renamed offline', updated_at: at(8)};
+
+	for (const list of ['binders', 'goals', 'wishlist', 'collections', 'openings', 'future']) {
+		const merged = mergeDocuments({[list]: [live]}, {[list]: [dead]});
+
+		assert.equal(merged[list][0].deleted_at, at(5), list);
+	}
 });

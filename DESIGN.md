@@ -193,6 +193,17 @@ as a tombstone (`deleted_at`) so an offline phone cannot bring a deleted card ba
 and no real conflict resolution; one owner on one or two devices does not need it. *(Decided by Eric, 2026-10-01.)* *(Replaces
 the relational schema of the first versions.)*
 
+**Deletes stick, and stamps only move forward.** The audit found that "the newer one wins" let an
+offline phone's later edit bring a deleted card, binder, list, or photo back. A tombstone now wins
+over any live version unless that version was restored on purpose after the delete
+(`restored_at` later than `deleted_at`, written by `restoreEntry` in `js/merge.js`). Nothing in the
+app restores yet, so deletes are permanent until a "Recently deleted" screen exists. When a rule
+like this picks the older version, the result is stamped 1 ms after both, so it is pushed and a
+phone still on v21 (which takes the newer stamp) accepts it. Every write takes its stamp from one
+`nextStamp`, which is always later than the version it replaces, so a phone whose clock is behind
+can no longer lose a real later edit. There is no clock correction: stamps are monotonic only.
+*(Decided 2026-10-02, Eric's audit fixes; design in `plans/sync-merge-plan.md`.)*
+
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
 pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline
