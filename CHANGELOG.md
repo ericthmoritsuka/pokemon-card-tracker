@@ -13,6 +13,10 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-02
 
+- **07:17** Version 21: binder pages turn on the middle of the spine, so a page no longer looks
+  stuck to its own side and then jumps across at the end of the turn (most visible on wide
+  screens). `e611001`
+
 - **05:47** Version 20: international twins. `9c642f9`
   - A Japanese or Korean card with no image or English name of its own borrows them from the
     matching English print, on card pages and in My Cards. When the match is not certain, the
