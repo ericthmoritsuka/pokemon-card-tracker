@@ -1311,6 +1311,100 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		}
 	});
 
+	test('a cover picture that arrives later is painted, and pictures no live binder uses leave the phone', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const withCover = (id, imageId, fields = {}) => binderOf(id, {cover_image: {at: AT, id: imageId, path: null, type: 'image/webp'}, created_at: AT, name: `Binder ${id}`, page_count: 2, updated_at: AT, ...fields});
+		// b-gone was deleted on another phone, which removed only its own copy
+		// of the picture.
+		const binders = [withCover('b-late', 'img-late'), withCover('b-later', 'img-later'), withCover('b-kept', 'img-kept'), withCover('b-gone', 'img-gone', {deleted_at: AT})];
+
+		// Puts a picture on the phone the way the cover module keeps one.
+		const putPicture = (rows) => page.evaluate(async (list) => {
+			await (await import('/pokemon-card-tracker/js/binder-cover.js')).localCover('none');
+
+			const db = await new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-binder-covers', 1);
+
+				open.onsuccess = () => resolve(open.result);
+				open.onerror = () => reject(open.error);
+			});
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 30;
+			canvas.height = 40;
+			canvas.getContext('2d').fillRect(0, 0, 30, 40);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+			const tx = db.transaction(['blobs', 'queue'], 'readwrite');
+
+			for (const row of list) {
+				tx.objectStore('blobs').put({at: row.old ? 0 : Date.now(), blob, type: blob.type}, row.id);
+
+				if (row.queued) {
+					tx.objectStore('queue').put({at: 0, binder_id: 'b-other', image_id: row.id, key: `upload:${row.id}`, op: 'upload'}, `upload:${row.id}`);
+				}
+			}
+
+			await new Promise((resolve) => {
+				tx.oncomplete = resolve;
+			});
+			db.close();
+		}, rows);
+
+		const onPhone = () => page.evaluate(async () => {
+			const {localCover} = await import('/pokemon-card-tracker/js/binder-cover.js');
+			const out = {};
+
+			for (const id of ['img-kept', 'img-gone', 'img-fresh', 'img-queued']) {
+				out[id] = Boolean(await localCover(id));
+			}
+
+			return out;
+		});
+
+		await seedLocal(page, documentWith(CARDS, binders), RECORDS);
+		// Two old pictures (one no binder uses), one just saved, and one
+		// waiting to upload.
+		await putPicture([{id: 'img-kept', old: true}, {id: 'img-gone', old: true}, {id: 'img-fresh'}, {id: 'img-queued', old: true, queued: true}]);
+
+		// Opening the binder list sweeps once.
+		await page.goto(url('binders'));
+		await page.waitForSelector('.binder-cover[data-binder="b-late"]');
+
+		const end = Date.now() + 5000;
+		let found = await onPhone();
+
+		while (found['img-gone'] && Date.now() < end) {
+			await page.waitForTimeout(100);
+			found = await onPhone();
+		}
+
+		assert.deepEqual(found, {'img-fresh': true, 'img-gone': false, 'img-kept': true, 'img-queued': true});
+		await page.waitForSelector('.binder-cover[data-binder="b-kept"][data-cover-image="true"]');
+		assert.equal(await page.locator('.binder-cover[data-binder="b-late"]').getAttribute('data-cover-image'), null);
+
+		// A late picture lands on the phone (an upload elsewhere finishing, a
+		// download back online): the next pass over the queue repaints the
+		// list, and the spread's board.
+		const arrive = async (id) => {
+			await putPicture([{id}]);
+			await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binder-cover.js')).flushCovers());
+		};
+
+		await arrive('img-late');
+		await page.waitForSelector('.binder-cover[data-binder="b-late"][data-cover-image="true"]');
+
+		await page.click('.binder-cover[data-binder="b-later"]');
+		await page.waitForSelector('#binder-spread .bs-page');
+		await page.waitForTimeout(300);
+		assert.equal(await page.locator('#binder-spread').getAttribute('data-cover-image'), null);
+		await arrive('img-later');
+		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.coverImage === 'true');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a binder made signed in syncs, and a family member sees it read only', async () => {
 		const {FakeSupabase} = await import('./fake-supabase.mjs');
 		const fake = new FakeSupabase();

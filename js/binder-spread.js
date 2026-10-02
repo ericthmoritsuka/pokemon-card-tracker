@@ -309,7 +309,8 @@ const finished = (animation) => (animation && animation.finished ? animation.fin
 //               handles its own taps
 // onChange      ({spread, zoom, pages}) => void after the place changes
 //
-// Returns {element, update, state, pages, turn, goTo, zoom, unzoom, destroy}.
+// Returns {element, update, refreshCover, state, pages, turn, goTo, zoom,
+// unzoom, destroy}.
 export function binderSpread({
 	base = '',
 	binder: start,
@@ -1075,6 +1076,14 @@ export function binderSpread({
 		element,
 		goTo,
 		pages: visiblePages,
+		// Asks for the cover image again, for a picture that was not on the
+		// phone or in reach before (js/binder-cover.js onCoversChange).
+		refreshCover() {
+			if (!element.dataset.coverImage) {
+				coverKey = null;
+				drawCover();
+			}
+		},
 		state: () => ({...state}),
 		turn,
 		unzoom,

@@ -18,7 +18,7 @@
 // holding a tile of it shows as art and is left alone.
 
 import {currentUser} from './auth.js';
-import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
+import {dropBinderCover, onCoversChange, paintCover, pickCoverImage, sweepCovers} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
 import {SIDEWAYS_QUERY, binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
@@ -79,6 +79,17 @@ const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
 const gridText = (binder) => `${binder.rows} × ${binder.cols}`;
+
+// Cover pictures no live binder uses are dropped from the phone once a page
+// load, the first time the person's binders are read (js/binder-cover.js).
+let coversSwept = false;
+
+function sweepOnce(source, binders) {
+	if (!source.readOnly && !coversSwept) {
+		coversSwept = true;
+		sweepCovers(binders);
+	}
+}
 
 // --------------------------------------------------------- whose binders
 
@@ -497,6 +508,8 @@ function bindersScreen(root, source) {
 	const editor = h('div', {id: 'binder-editor'});
 	const newButton = source.readOnly ? null : h('button', {class: 'primary', id: 'new-binder', type: 'button'}, 'New binder');
 	let name = 'Family member';
+	// The binders shown, by id, for repainting their covers.
+	let shelf = new Map();
 
 	if (source.readOnly) {
 		heading.querySelector('h2').textContent = `${name}'s binders`;
@@ -545,6 +558,9 @@ function bindersScreen(root, source) {
 
 		const binders = liveBinders(data.binders).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 		const live = data.cards.filter(isLive);
+
+		shelf = new Map(binders.map((binder) => [binder.id, binder]));
+		sweepOnce(source, data.binders);
 		const liveIds = new Set(live.map((entry) => entry.id));
 		const placed = placements(data.binders);
 		const loose = unplaced(live, data.binders).length;
@@ -571,12 +587,29 @@ function bindersScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
+	// A cover picture that arrives later (uploaded, or back in reach once
+	// online) is painted on the covers still showing their color.
+	const stopCovers = onCoversChange(() => {
+		if (!alive) {
+			return;
+		}
+
+		for (const node of body.querySelectorAll('.binder-cover:not([data-cover-image])')) {
+			const binder = shelf.get(node.dataset.binder);
+
+			if (binder) {
+				paintCover(node, binder).catch(() => {});
+			}
+		}
+	});
+
 	root.append(...[heading, body, newButton, editor].filter(Boolean));
 	load();
 
 	return () => {
 		alive = false;
 		stop();
+		stopCovers();
 	};
 }
 
@@ -872,6 +905,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		placed = placements(data.binders);
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
+		sweepOnce(source, data.binders);
 
 		if (!body.contains(spreadHolder)) {
 			body.replaceChildren(
@@ -1338,6 +1372,13 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}) : () => {};
 
+	// A cover picture that arrives later is painted on the spread's board.
+	const stopCovers = onCoversChange(() => {
+		if (alive && spread) {
+			spread.refreshCover();
+		}
+	});
+
 	root.append(...[back, body, sheet].filter(Boolean));
 	load();
 
@@ -1346,6 +1387,7 @@ function binderScreen(root, source, id, pageParam) {
 		closeSheet();
 		closeResize();
 		stop();
+		stopCovers();
 
 		if (spread) {
 			spread.destroy();
