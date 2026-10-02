@@ -36,9 +36,9 @@
 
 .fb-count {
 	align-items: center;
-	background: var(--selected-bg);
+	background: var(--accent);
 	border-radius: var(--radius-pill);
-	color: var(--selected-text);
+	color: var(--on-accent);
 	display: inline-flex;
 	font: var(--type-label);
 	height: 22px;
