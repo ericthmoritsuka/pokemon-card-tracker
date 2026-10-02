@@ -364,6 +364,25 @@ describe('Add photo', () => {
 		await page.waitForFunction(() => window.T.live() === 0, null, {timeout: 5000});
 	});
 
+	test('a route change from code closes the sheet and stops its camera', async () => {
+		const {page} = phone;
+
+		await openCard(page);
+		await page.evaluate(() => {
+			window.T.tracks = [];
+		});
+		await page.click('.ph-add');
+		await page.click('.ph-take');
+		await page.waitForSelector('.ph-shutter:not([disabled])');
+		assert.equal(await page.evaluate(() => window.T.live()), 1);
+		await page.evaluate(async (base) => (await import(`${base}js/dom.js`)).go('cards'), BASE);
+		await page.waitForFunction(() => window.location.pathname.endsWith('/cards'));
+		await page.waitForSelector('.ph-sheet', {state: 'detached'});
+		await page.waitForFunction(() => window.T.live() === 0, null, {timeout: 5000});
+		assert.equal(await page.evaluate(() => document.body.style.overflow), '');
+		await page.waitForSelector('.card-grid .tile');
+	});
+
 	test('a camera whose picture never plays is stopped, and the gallery is offered', async () => {
 		const {page} = phone;
 
@@ -567,7 +586,16 @@ describe('the scanner', () => {
 		await page.waitForFunction(() => document.querySelector('#scan-confirm .scan-actions'));
 		assert.deepEqual(await page.locator('.scan-sheet-body').evaluate((body) => [...body.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent)), [], 'no stray text in the sheet body');
 		assert.deepEqual(await strayWords(page, '#scan-confirm'), []);
+		// After the sheet's rise, then scrolled to its end, where the stray
+		// words were.
+		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/sheets-scan-sheet.png`});
+		await page.evaluate(() => {
+			for (const el of [document.querySelector('#scan-confirm'), document.querySelector('.scan-sheet-body')]) {
+				el.scrollTop = el.scrollHeight;
+			}
+		});
+		await page.screenshot({path: `${SHOTS}/sheets-scan-sheet-end.png`});
 
 		await markScreen(page, '#scan');
 		await page.goBack();
