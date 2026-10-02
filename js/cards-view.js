@@ -104,6 +104,10 @@ export function collectionCsv(entries, index) {
 	for (const entry of entries) {
 		const record = index.get(`${entry.catalog}|${entry.card_id}`) || {};
 		const shown = display(record, [entry.language, catalogLanguage(entry.catalog)]) || {};
+		// The names the app shows: a copy the catalog has no names for in
+		// its language (a Korean copy on a Japanese record) carries the
+		// names the source gave it (DESIGN.md section 5).
+		const source = sourceNames(entry, record) || {};
 		const finish = importedFinish(entry);
 		const manual = manualPrice(entry) || {};
 
@@ -112,10 +116,10 @@ export function collectionCsv(entries, index) {
 			entry.card_id,
 			entry.catalog,
 			record.set_id,
-			shown.set_name,
+			source.setName || shown.set_name,
 			asText(record.collector_number),
 			// Names are always quoted: plenty of card names hold commas.
-			`"${String(shown.name || '').replace(/"/g, '""')}"`,
+			`"${String(source.name || shown.name || '').replace(/"/g, '""')}"`,
 			languageChip(entry.language),
 			entry.variant_id,
 			finish ? finishLabel(finish) : '',
