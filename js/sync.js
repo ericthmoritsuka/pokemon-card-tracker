@@ -665,6 +665,25 @@ export async function memberDocument(userId) {
 	return data ? data.doc : null;
 }
 
+// Family members' favorite Pokémon, as Map user_id -> the stored value (a
+// National Dex number, or whatever the document holds). Only that one field
+// comes back, never the rest of their documents: a JSON path select of
+// doc->settings->favorite_pokemon, one request for every member.
+export async function memberFavorites(userIds) {
+	if (!userIds.length) {
+		return new Map();
+	}
+
+	const client = await getClient();
+	const {data, error} = await client.from('documents').select('user_id,favorite:doc->settings->favorite_pokemon').in('user_id', userIds);
+
+	if (error) {
+		throw error;
+	}
+
+	return new Map((data || []).map((row) => [row.user_id, row.favorite]));
+}
+
 export async function updateDisplayName(name) {
 	const user = currentUser();
 	const client = await getClient();

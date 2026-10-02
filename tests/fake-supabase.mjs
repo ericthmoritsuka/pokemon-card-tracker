@@ -7,7 +7,12 @@
 // and sign-out; the auth settings; and
 // PostgREST for the four tables and four functions in supabase/setup.sql,
 // with the same row-level rules. updated_at is set by the "server" on every
-// write, as the trigger does.
+// write, as the trigger does. A select may name a JSON path
+// (favorite:doc->settings->favorite_pokemon), and a filter may be in.(...).
+//
+// revoke(userId) ends every session the account has, as
+// supabase/reset-password.sql does: its refresh tokens are refused and its
+// access tokens get 401 from PostgREST.
 
 import {createHash, randomUUID} from 'node:crypto';
 
@@ -16,12 +21,12 @@ export const PUBLISHABLE_KEY = 'sb_publishable_Ycfz9bobfuvHWdDKjaoQQA_LDYmm0vJ';
 
 const b64url = (value) => Buffer.from(value).toString('base64url');
 
-function jwt(user) {
+function jwt(user, sessionId) {
 	const now = Math.floor(Date.now() / 1000);
 
 	return [
 		b64url(JSON.stringify({alg: 'HS256', typ: 'JWT'})),
-		b64url(JSON.stringify({aud: 'authenticated', email: user.email, exp: now + 3600, iat: now, role: 'authenticated', sub: user.id})),
+		b64url(JSON.stringify({aud: 'authenticated', email: user.email, exp: now + 3600, iat: now, role: 'authenticated', session_id: sessionId, sub: user.id})),
 		b64url('fake-signature'),
 	].join('.');
 }
@@ -36,6 +41,7 @@ export class FakeSupabase {
 		this.challenges = new Map();
 		this.codes = new Map();
 		this.sessions = new Map();
+		this.revoked = new Set();
 		this.profiles = new Map();
 		this.groups = [];
 		this.members = [];
@@ -97,10 +103,11 @@ export class FakeSupabase {
 	}
 
 	session(user) {
-		const access = jwt(user);
+		const sessionId = randomUUID();
+		const access = jwt(user, sessionId);
 		const refresh = randomUUID();
 
-		this.sessions.set(refresh, user.id);
+		this.sessions.set(refresh, {sessionId, userId: user.id});
 
 		return {
 			access_token: access,
@@ -129,23 +136,22 @@ export class FakeSupabase {
 		return {reached, release};
 	}
 
+	// Ends every session of the account: refresh tokens are refused, and its
+	// access tokens no longer pass.
+	revoke(userId) {
+		for (const [refresh, session] of this.sessions) {
+			if (session.userId === userId) {
+				this.revoked.add(session.sessionId);
+				this.sessions.delete(refresh);
+			}
+		}
+	}
+
 	callerOf(request) {
 		const headers = request.headers();
 		const token = (headers.authorization || '').replace(/^Bearer /, '');
-		const parts = token.split('.');
 
-		if (parts.length !== 3) {
-			return null;
-		}
-
-		try {
-			const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-
-			return this.users.get(payload.sub) || null;
-		}
-		catch {
-			return null;
-		}
+		return this.userOfToken(token);
 	}
 
 	sharesGroup(a, b) {
@@ -305,13 +311,13 @@ export class FakeSupabase {
 			}
 
 			if (grant === 'refresh_token') {
-				const userId = this.sessions.get(body.refresh_token);
+				const found = this.sessions.get(body.refresh_token);
 
-				if (!userId) {
-					return this.json(route, 400, {code: 'refresh_token_not_found', msg: 'Invalid Refresh Token'});
+				if (!found) {
+					return this.json(route, 400, {code: 'refresh_token_not_found', error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token: Refresh Token Not Found'});
 				}
 
-				return this.json(route, 200, this.session(this.users.get(userId)));
+				return this.json(route, 200, this.session(this.users.get(found.userId)));
 			}
 		}
 
@@ -416,6 +422,8 @@ export class FakeSupabase {
 		socket.ws.send(JSON.stringify(socket.arrays === false ? {event, join_ref: joinRef, payload, ref, topic} : [joinRef, ref, topic, event, payload]));
 	}
 
+	// The account an access token belongs to, or null for none, a broken
+	// one, or one whose session was revoked.
 	userOfToken(token) {
 		const parts = String(token || '').split('.');
 
@@ -424,7 +432,13 @@ export class FakeSupabase {
 		}
 
 		try {
-			return this.users.get(JSON.parse(Buffer.from(parts[1], 'base64url').toString()).sub) || null;
+			const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+
+			if (payload.session_id && this.revoked.has(payload.session_id)) {
+				return null;
+			}
+
+			return this.users.get(payload.sub) || null;
 		}
 		catch {
 			return null;
@@ -494,12 +508,36 @@ export class FakeSupabase {
 
 		for (const [key, value] of url.searchParams) {
 			if (value.startsWith('eq.')) {
-				filters[key] = value.slice(3);
+				filters[key] = [value.slice(3)];
+			}
+			else if (value.startsWith('in.(') && value.endsWith(')')) {
+				filters[key] = value.slice(4, -1).split(',').map((item) => item.trim().replace(/^"(.*)"$/, '$1'));
 			}
 		}
 
-		const columns = (url.searchParams.get('select') || '*').split(',').map((column) => column.trim());
-		const pick = (row) => (columns[0] === '*' ? row : Object.fromEntries(columns.map((column) => [column, row[column]])));
+		// A column, or a JSON path in one (alias:doc->settings->favorite_pokemon,
+		// named after its last key without an alias). -> gives JSON, ->> text.
+		const columns = (url.searchParams.get('select') || '*').split(',').map((column) => {
+			const [alias, path] = column.includes(':') ? column.trim().split(':') : [null, column.trim()];
+			const keys = path.split(/->>?/);
+			const text = path.includes('->>');
+
+			return {alias: alias || keys[keys.length - 1], keys, text};
+		});
+		const read = (row, {keys, text}) => {
+			let value = row;
+
+			for (const key of keys) {
+				value = value === null || value === undefined ? undefined : value[key];
+			}
+
+			if (value === undefined) {
+				return null;
+			}
+
+			return text && value !== null && typeof value !== 'string' ? JSON.stringify(value) : value;
+		};
+		const pick = (row) => (columns[0].keys[0] === '*' ? row : Object.fromEntries(columns.map((column) => [column.alias, read(row, column)])));
 		const rows = (list) => {
 			const picked = list.map(pick);
 
@@ -511,7 +549,7 @@ export class FakeSupabase {
 
 			return this.json(route, method === 'POST' ? 201 : 200, picked);
 		};
-		const matches = (row) => Object.entries(filters).every(([key, value]) => String(row[key]) === value);
+		const matches = (row) => Object.entries(filters).every(([key, values]) => values.includes(String(row[key])));
 
 		if (path.startsWith('rpc/')) {
 			return this.rpc(route, caller, path.slice(4), body || {});
