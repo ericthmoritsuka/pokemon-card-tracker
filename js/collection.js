@@ -315,32 +315,94 @@ export async function deleteCard(id) {
 	return entry || null;
 }
 
-// Adds or updates imported entries by import_key in one save. An entry
-// whose key is already present is updated when its catalog match or its
-// source names changed and left alone otherwise; a key whose entry was deleted is skipped, so a rerun
-// never brings back a card the owner removed.
-export async function applyImport(entries) {
-	const doc = await loadDocument();
+// The fields an import compares to decide whether a row changed.
+const IMPORT_COMPARED = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'name_local', 'set_name_local'];
+
+// A fixed namespace for import ids. Never change it: every phone must turn
+// the same import key into the same id.
+const IMPORT_NAMESPACE = '7be437b4-f8be-497e-9069-eee96a6cffac';
+
+const hex = (bytes) => [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+const uuidText = (text) => `${text.slice(0, 8)}-${text.slice(8, 12)}-${text.slice(12, 16)}-${text.slice(16, 20)}-${text.slice(20, 32)}`;
+
+// The entry id for an imported row: a UUID version 5 of its import key, so
+// the same file imported on two phones (or signed out, then signed in) gives
+// the same ids and the merge sees one entry per copy (plans/sync-merge-plan.md
+// section 1a). Lowercase hex and hyphens, which photo paths accept
+// (supabase/photos.sql). Falls back to a random id where crypto.subtle is
+// missing; the merge's duplicate repair (js/merge.js) covers that phone.
+export async function importEntryId(importKey) {
+	const subtle = globalThis.crypto && globalThis.crypto.subtle;
+
+	if (!subtle) {
+		return newId();
+	}
+
+	const namespace = IMPORT_NAMESPACE.replace(/-/g, '').match(/../g).map((pair) => Number.parseInt(pair, 16));
+	const name = new TextEncoder().encode(String(importKey));
+	const input = new Uint8Array(namespace.length + name.length);
+
+	input.set(namespace);
+	input.set(name, namespace.length);
+
+	const bytes = new Uint8Array(await subtle.digest('SHA-1', input)).slice(0, 16);
+
+	bytes[6] = (bytes[6] & 0x0f) | 0x50;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+	return uuidText(hex(bytes));
+}
+
+// import_key -> the entry an import should compare with. A live entry wins
+// over a tombstone with the same key, so a duplicate the merge folded away
+// (js/merge.js, merged_into) never hides the copy that is still there.
+function entriesByKey(cards) {
 	const byKey = new Map();
 
-	for (const card of doc.cards) {
-		if (card.import_key) {
+	for (const card of cards) {
+		if (!card || !card.import_key) {
+			continue;
+		}
+
+		const there = byKey.get(card.import_key);
+
+		if (!there || (!isLive(there) && isLive(card))) {
 			byKey.set(card.import_key, card);
 		}
 	}
 
+	return byKey;
+}
+
+// What an import does to the cards, without saving anything: a pure step, so
+// Node tests it (tests/import.test.mjs). An entry whose key is already
+// present is updated when its catalog match or its source names changed and
+// left alone otherwise; a key whose entry was deleted is skipped, so a rerun
+// never brings back a card the owner removed. New entries take their id from
+// `ids` (import_key -> id, see importEntryId) and are stamped one
+// millisecond apart from `now`, so "date added" keeps the export's order.
+// Returns {cards, counts}: a new list, with changed entries as new objects;
+// the list passed in is not changed.
+export function planImport(cards, entries, {ids = new Map(), now = Date.now()} = {}) {
+	const out = [...cards];
+	const byKey = entriesByKey(out);
+	const position = new Map(out.map((card, i) => [card, i]));
+	const taken = new Set(out.map((card) => card.id));
 	const counts = {added: 0, skippedDeleted: 0, unchanged: 0, updated: 0};
-	const compared = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'name_local', 'set_name_local'];
-	const base = Date.now();
 
 	entries.forEach((fields, i) => {
 		const existing = byKey.get(fields.import_key);
 
 		if (!existing) {
-			// One millisecond apart, so "date added" keeps the export's order.
-			const at = new Date(base + i).toISOString();
+			const at = new Date(now + i).toISOString();
+			const wanted = ids.get(fields.import_key);
+			const id = wanted && !taken.has(wanted) ? wanted : newId();
+			const entry = {...pick(fields), created_at: at, deleted_at: null, id, updated_at: at};
 
-			doc.cards.push({...pick(fields), created_at: at, deleted_at: null, id: newId(), updated_at: at});
+			out.push(entry);
+			taken.add(id);
+			byKey.set(entry.import_key, entry);
 			counts.added++;
 
 			return;
@@ -353,7 +415,7 @@ export async function applyImport(entries) {
 		}
 
 		const next = pick(fields);
-		const changed = compared.some((key) => (existing[key] ?? null) !== (next[key] ?? null));
+		const changed = IMPORT_COMPARED.some((key) => (existing[key] ?? null) !== (next[key] ?? null));
 
 		if (!changed) {
 			counts.unchanged++;
@@ -361,16 +423,39 @@ export async function applyImport(entries) {
 			return;
 		}
 
-		for (const key of compared) {
+		const updated = {...existing};
+
+		for (const key of IMPORT_COMPARED) {
 			if (next[key] === undefined) {
-				delete existing[key];
+				delete updated[key];
 			}
 		}
 
-		Object.assign(existing, next, {updated_at: nextStamp(existing.updated_at)});
+		Object.assign(updated, next, {updated_at: nextStamp(existing.updated_at, now)});
+		out[position.get(existing)] = updated;
+		position.set(updated, position.get(existing));
+		byKey.set(updated.import_key, updated);
 		counts.updated++;
 	});
 
+	return {cards: out, counts};
+}
+
+// Adds or updates imported entries by import_key in one save (planImport).
+export async function applyImport(entries) {
+	const doc = await loadDocument();
+	const byKey = entriesByKey(doc.cards);
+	const ids = new Map();
+
+	for (const fields of entries) {
+		if (!byKey.has(fields.import_key) && !ids.has(fields.import_key)) {
+			ids.set(fields.import_key, await importEntryId(fields.import_key));
+		}
+	}
+
+	const {cards, counts} = planImport(doc.cards, entries, {ids, now: Date.now()});
+
+	doc.cards = cards;
 	await saveDocument(doc);
 
 	return counts;
@@ -379,7 +464,7 @@ export async function applyImport(entries) {
 export async function importKeys() {
 	const doc = await loadDocument();
 
-	return new Map(doc.cards.filter((card) => card.import_key).map((card) => [card.import_key, card]));
+	return entriesByKey(doc.cards);
 }
 
 // ------------------------------------------------------------ ownership
