@@ -539,7 +539,12 @@ function cardsScreen(root, {
 		const twins = twinSlides(group.twinItem, {size: 'low'});
 
 		Object.assign(group, {name: mainName(names), names, twinShown: twinShown(twins, twinName(group.twinItem)), twins});
-		group.search = searchOf(group);
+
+		// Folded on the first search, not before the first paint: folding
+		// every name of 1,600 copies costs more than drawing the tiles.
+		let search = null;
+
+		Object.defineProperty(group, 'search', {configurable: true, enumerable: true, get: () => (search = search ?? searchOf(group))});
 
 		return group;
 	}
