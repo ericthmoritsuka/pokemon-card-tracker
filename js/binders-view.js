@@ -20,7 +20,7 @@
 import {currentUser} from './auth.js';
 import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
-import {binderSpread} from './binder-spread.js';
+import {SIDEWAYS_QUERY, binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -724,6 +724,12 @@ function binderScreen(root, source, id, pageParam) {
 				renderPocket: pocketElement,
 			});
 			spreadHolder.replaceChildren(spread.element);
+
+			// Held sideways, the binder opens on its pages, whole above the
+			// tab bar, unless Back is bringing back where the person was.
+			if (window.matchMedia && window.matchMedia(SIDEWAYS_QUERY).matches && !(history.state && history.state.scrollY)) {
+				requestAnimationFrame(() => alive && spread && spread.element.scrollIntoView({block: 'start'}));
+			}
 		}
 		else {
 			spread.update(binder);

@@ -661,3 +661,118 @@ describe('presets', () => {
 		await context.close();
 	});
 });
+
+describe('long notes on the inside cover', () => {
+	// 500 characters, the notes field's limit, in whole words.
+	const NOTES = 'Kanto and Johto in Dex order, starters first, then the window display cards and the trade pile. '.repeat(6).slice(0, 500).trim();
+
+	for (const [name, viewport] of [['upright', PORTRAIT], ['sideways', LANDSCAPE]]) {
+		test(`keep the page's shape ${name}, fade with More, and do not distort the turn`, async () => {
+			const fake = new FakeStorageSupabase();
+			const {context, errors, page} = await device(fake, {viewport});
+
+			await open(page);
+
+			const sizes = () => page.evaluate(() => {
+				const box = (selector) => {
+					const rect = document.querySelector(selector).getBoundingClientRect();
+
+					return {height: Math.round(rect.height), width: Math.round(rect.width)};
+				};
+
+				return {book: box('#bs-book'), inside: box('.bs-inside'), page: box('.bs-side-right .bs-page')};
+			});
+			const short = await sizes();
+
+			await page.evaluate(async (notes) => {
+				const {updateBinder} = await import('/pokemon-card-tracker/js/binders.js');
+				const binder = window.H.binder();
+
+				await updateBinder(binder.id, {cols: binder.cols, cover_color: binder.cover_color, name: binder.name, notes, page_count: binder.page_count, rows: binder.rows});
+				await window.H.reload();
+			}, NOTES);
+			await page.waitForFunction((notes) => document.querySelector('.bs-inside-notes')?.textContent === notes, NOTES);
+			await page.waitForFunction(() => document.querySelector('.bs-inside-label')?.dataset.clipped === 'true');
+
+			const long = await sizes();
+
+			assert.deepEqual(long, short, 'the book, the inside cover, and page 1 keep their size');
+			assert.equal(long.inside.height, long.page.height, 'the inside cover is a page tall');
+			assert.ok(await page.locator('.bs-inside-more').isVisible(), 'More shows');
+			assert.deepEqual(await page.locator('.bs-inside-notes').evaluate((el) => [getComputedStyle(el).overflowWrap, getComputedStyle(el).wordBreak]), ['break-word', 'normal'], 'words wrap whole');
+			await shot(page, `notes-long-${name}`);
+
+			// More scrolls the notes inside the label; the page keeps its shape.
+			await page.locator('.bs-inside-more').tap();
+			assert.equal(await page.locator('.bs-inside-more').textContent(), 'Less');
+			assert.equal(await page.locator('.bs-inside-more').getAttribute('aria-expanded'), 'true');
+
+			const scrolled = await page.locator('.bs-inside-notes').evaluate((el) => {
+				el.scrollTop = el.scrollHeight;
+
+				return {overflow: getComputedStyle(el).overflowY, top: el.scrollTop};
+			});
+
+			assert.equal(scrolled.overflow, 'auto');
+			assert.ok(scrolled.top > 0, 'the notes scroll inside the label');
+			assert.deepEqual(await sizes(), short);
+			await shot(page, `notes-more-${name}`);
+			await page.locator('.bs-inside-more').tap();
+			assert.equal(await page.locator('.bs-inside-more').textContent(), 'More');
+
+			// The turn away from the inside cover and back: the book never
+			// changes height while the leaf moves.
+			const heights = await page.evaluate(async () => {
+				const book = document.getElementById('bs-book');
+				const seen = new Set();
+				let running = true;
+				const tick = () => {
+					seen.add(Math.round(book.getBoundingClientRect().height));
+
+					if (running) {
+						requestAnimationFrame(tick);
+					}
+				};
+
+				requestAnimationFrame(tick);
+				await window.H.spread().turn(1);
+				await window.H.spread().turn(-1);
+				running = false;
+
+				return [...seen];
+			});
+
+			assert.deepEqual(heights, [short.book.height], `book heights during the turns: ${heights}`);
+			assert.equal(await page.locator('.bs-inside-label').getAttribute('data-clipped'), 'true', 'the fade is back after the turn');
+			assert.deepEqual(errors, []);
+			await context.close();
+		});
+	}
+});
+
+describe('touch targets', () => {
+	test('the page arrows and Got it are at least 44 x 44 px', async () => {
+		const fake = new FakeStorageSupabase();
+		const {context, errors, page} = await device(fake);
+
+		await open(page, '?spread=2');
+
+		for (const selector of ['#bs-prev', '#bs-next', '#bs-hint-close']) {
+			const box = await page.locator(selector).boundingBox();
+
+			assert.ok(box.width >= 44 && box.height >= 44, `${selector} is ${box.width} x ${box.height}`);
+		}
+
+		await page.locator('.bs-open[data-open="2"]').tap();
+		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.zoom === '2');
+
+		for (const selector of ['#bs-zoom-back', '#bs-zoom-prev', '#bs-zoom-next']) {
+			const box = await page.locator(selector).boundingBox();
+
+			assert.ok(box.width >= 44 && box.height >= 44, `${selector} is ${box.width} x ${box.height}`);
+		}
+
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

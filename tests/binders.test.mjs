@@ -1240,6 +1240,57 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
+	test('held sideways, the spread opens whole above the tab bar and clear of the Scan button', async () => {
+		for (const viewport of [{height: 390, width: 844}, {height: 412, width: 915}]) {
+			const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
+
+			await fakeServices(context, {search: 0, single: 0}, {offline: false});
+			await context.route('https://*.supabase.co/**', (route) => route.abort());
+
+			const page = await context.newPage();
+			const errors = [];
+			const binder = binderOf('b-wide', {
+				created_at: AT,
+				name: 'Wide binder',
+				notes: 'Long notes that fill the inside cover. '.repeat(12).trim(),
+				page_count: 10,
+				slots: CARDS.slice(0, 3).map((item, i) => ({entry_id: item.id, page: 1, placed_at: AT, position: 7 + i})),
+				updated_at: AT,
+			});
+
+			page.on('pageerror', (err) => errors.push(err));
+			await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+			await page.goto(url(`binders/${binder.id}`));
+			await page.waitForSelector('#binder-spread[data-mode="direct"] .bs-page');
+			await page.waitForFunction(() => Math.abs(document.getElementById('binder-spread').getBoundingClientRect().top - 4) < 2, null, {timeout: 5000});
+
+			const box = await page.evaluate(() => {
+				const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+				const pockets = [...document.querySelectorAll('#bs-spread .bs-pocket')].map((el) => el.getBoundingClientRect().bottom);
+
+				return {
+					book: rect('#bs-book'),
+					disc: rect('.scan-disc'),
+					label: rect('#bs-label'),
+					lowestPocket: Math.max(...pockets),
+					pull: rect('.bs-zip-pull'),
+					spine: rect('.bs-spine'),
+					tabs: rect('.tabs'),
+				};
+			});
+			const size = `${viewport.width} x ${viewport.height}`;
+
+			assert.ok(box.label.top >= 0 && box.pull.top >= 0, `${size}: the page line and the zip show (${box.label.top}, ${box.pull.top})`);
+			assert.ok(box.book.bottom <= box.tabs.top, `${size}: the book ends at ${box.book.bottom}, above the tab bar at ${box.tabs.top}`);
+			assert.ok(box.book.bottom <= box.disc.top, `${size}: the book ends at ${box.book.bottom}, above the Scan disc at ${box.disc.top}`);
+			assert.ok(box.spine.bottom <= box.disc.top && box.lowestPocket <= box.disc.top, `${size}: the spine and the bottom pockets clear the disc`);
+			assert.equal(await page.locator('.bs-side-right .bs-page').evaluate((el) => Math.round(el.getBoundingClientRect().height)), await page.locator('.bs-inside').evaluate((el) => Math.round(el.getBoundingClientRect().height)), `${size}: long notes keep the inside cover a page tall`);
+			await page.screenshot({path: `/tmp/binders-landscape-${viewport.width}.png`});
+			assert.deepEqual(errors, []);
+			await context.close();
+		}
+	});
+
 	test('a binder made signed in syncs, and a family member sees it read only', async () => {
 		const {FakeSupabase} = await import('./fake-supabase.mjs');
 		const fake = new FakeSupabase();

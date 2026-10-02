@@ -18,6 +18,7 @@ import {
 	spreadCount,
 	spreadLabel,
 	spreadOfPage,
+	spreadAspect,
 	spreadOfPocket,
 	spreadPages,
 	writeSpreadState,
@@ -105,6 +106,18 @@ describe('spread math', () => {
 		assert.ok(pageAspect(3, 3) > 0.65 && pageAspect(3, 3) < 0.75);
 		assert.ok(pageAspect(3, 4) > pageAspect(3, 3));
 		assert.ok(coverAspect(3, 3) > pageAspect(3, 3));
+	});
+
+	test('a spread sized to a height is exactly that tall', () => {
+		// css/binder-spread.css: the board's padding and the gap between the
+		// pages are 3.2% of its width each.
+		for (const [rows, cols] of [[1, 1], [2, 2], [3, 3], [3, 4], [5, 4], [4, 5]]) {
+			const width = 300 * spreadAspect(rows, cols);
+			const page = (width * (1 - (3 * 0.032))) / 2;
+			const height = (page / pageAspect(rows, cols)) + (2 * 0.032 * width);
+
+			assert.ok(Math.abs(height - 300) < 0.001, `${rows} x ${cols}: ${height}`);
+		}
 	});
 });
 
