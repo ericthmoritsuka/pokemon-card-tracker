@@ -265,8 +265,14 @@ export function tileArt({
 	return frame;
 }
 
+// The quiet line a tile shows instead of a price when its card has no
+// market price at all: Japanese, Korean, and Chinese prints, and cards
+// TCGdex has no price for. A card whose price is still downloading shows
+// nothing rather than this.
+export const noPrice = () => h('span', {class: 'price-tile price-none'}, 'No price');
+
 // A whole tile: the art, the name lines, the meta line, and the price
-// (js/price-view.js tilePrice) last when one is known. route makes it a
+// (js/price-view.js tilePrice, or noPrice()) last when one is known. route makes it a
 // link into the app; tag 'button' makes a picker tile instead (onclick).
 // names: the nodes catalog-views.js tileNames() makes, or a plain string.
 export function cardTile({

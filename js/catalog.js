@@ -137,12 +137,12 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // uses four, so a long run rides out a short outage.
 const BACKOFF_MS = [1000, 3000, 8000];
 
-async function getJson(path, attempts = 2) {
+async function getJson(path, attempts = 2, init = undefined) {
 	for (let attempt = 1; ; attempt++) {
 		let response;
 
 		try {
-			response = await fetch(API + path);
+			response = await fetch(API + path, init);
 		}
 		catch (err) {
 			if (attempt < attempts && navigator.onLine) {
@@ -395,7 +395,9 @@ export async function priceRecords(entries) {
 
 // One record per card someone owns, shaped like the catalog card in
 // DESIGN.md section 4: {id, catalog, set_id, collector_number, official,
-// release_date, localizations: {lang: {name, set_name, image}}}. It is what
+// release_date, localizations: {lang: {name, set_name, image}}}, and once
+// the background pass below has read the card's set, {dex_ids, types,
+// category, rarity} for the filters (js/filter-bar.js). It is what
 // lets My Cards draw names and images without a request per card. Keyed by
 // "<catalog>|<card id>", because the Japanese and Korean catalogs reuse the
 // same IDs (both have S4a).
@@ -409,19 +411,279 @@ export async function cardIndex() {
 	return new Map(Object.entries((hit && hit.data) || {}));
 }
 
-export async function saveToCardIndex(records) {
-	const index = await cardIndex();
+// Saves run one after another: each reads, changes, and writes the whole
+// index, so two fills at once would otherwise lose one's records (E-28).
+let indexWrites = Promise.resolve();
 
-	for (const record of records) {
-		const key = indexKey(record.catalog, record.id);
-		const old = index.get(key);
+export function saveToCardIndex(records) {
+	const write = indexWrites.then(async () => {
+		const index = await cardIndex();
 
-		index.set(key, old
-			? {...old, ...record, localizations: {...old.localizations, ...record.localizations}}
-			: record);
+		for (const record of records) {
+			const key = indexKey(record.catalog, record.id);
+			const old = index.get(key);
+
+			index.set(key, old
+				? {...old, ...record, localizations: {...old.localizations, ...record.localizations}}
+				: record);
+		}
+
+		await cachePut(INDEX_KEY, Object.fromEntries(index));
+
+		return index;
+	});
+
+	indexWrites = write.catch(() => {});
+
+	return write;
+}
+
+// ------------------------------------------------- background details
+
+// What the filters need and the card index lacks: each card's National Dex
+// numbers, energy types, category, and rarity. One GraphQL request per
+// owned set reads them for the whole set (DESIGN.md section 11, "Filters
+// and Sorting"); Japanese, Korean, and Chinese sets are read in their own
+// catalog with the @locale directive, and their types and rarities come in
+// English like the international ones. A set's answer is kept on the phone
+// and asked again after a week only when an owned card was missing from it
+// (TCGdex fills a new set in over a few weeks).
+const DETAILS_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
+const DETAIL_FIELDS = 'id dexId types category rarity';
+
+export const hasDetails = (record) => Boolean(record) && typeof record.category === 'string';
+
+export const setIdOfCard = (cardId) => {
+	const cut = String(cardId).lastIndexOf('-');
+
+	return cut > 0 ? String(cardId).slice(0, cut) : null;
+};
+
+export function cardDetailsQuery(catalog, setId) {
+	const locale = catalog === 'international' ? '' : ` @locale(lang: ${JSON.stringify(catalogLanguage(catalog))})`;
+
+	return `{ cards(filters: {id: ${JSON.stringify(`${setId}-`)}}, pagination: {page: 1, itemsPerPage: 1000})${locale} { ${DETAIL_FIELDS} } }`;
+}
+
+const graphql = async (query) => {
+	const body = await getJson('graphql', 2, {
+		body: JSON.stringify({query}),
+		headers: {'content-type': 'application/json'},
+		method: 'POST',
+	});
+
+	if (!body || !body.data) {
+		throw new Error(`TCGdex GraphQL: ${(body && body.errors && body.errors[0] && body.errors[0].message) || 'no data'}`);
 	}
 
-	await cachePut(INDEX_KEY, Object.fromEntries(index));
+	return body.data;
+};
 
-	return index;
+// {cardId: {dex_ids, types, category, rarity}} from a set's GraphQL answer.
+// The id filter matches a substring, so "base1-" would also find "base10-"
+// were it not for the exact set check.
+export function detailsFrom(cards, setId) {
+	const out = {};
+
+	for (const card of cards || []) {
+		if (!card || typeof card.id !== 'string' || setIdOfCard(card.id) !== setId) {
+			continue;
+		}
+
+		out[card.id] = {
+			category: typeof card.category === 'string' ? card.category : null,
+			dex_ids: Array.isArray(card.dexId) ? card.dexId.filter(Number.isInteger) : [],
+			rarity: typeof card.rarity === 'string' && card.rarity !== 'None' ? card.rarity : null,
+			types: Array.isArray(card.types) ? card.types.filter((type) => typeof type === 'string') : [],
+		};
+	}
+
+	return out;
+}
+
+// The sets whose owned cards lack details, as [{catalog, setId, ids}].
+export function setsNeedingDetails(entries, index) {
+	const sets = new Map();
+
+	for (const entry of entries || []) {
+		const catalog = entry.catalog || 'international';
+		const record = index.get(indexKey(catalog, entry.card_id));
+
+		if (!entry.card_id || hasDetails(record)) {
+			continue;
+		}
+
+		const setId = (record && record.set_id) || setIdOfCard(entry.card_id);
+
+		if (!setId) {
+			continue;
+		}
+
+		const key = `${catalog}|${setId}`;
+
+		if (!sets.has(key)) {
+			sets.set(key, {catalog, ids: new Set(), setId});
+		}
+
+		sets.get(key).ids.add(entry.card_id);
+	}
+
+	return [...sets.values()];
+}
+
+// One set's details: the saved answer, or a fresh one when there is none,
+// or when it is over a week old and lacks one of the owned cards asked for.
+// Null when neither is to be had (offline, or TCGdex failing).
+export async function setDetails({catalog, ids = new Set(), setId}, {now = Date.now()} = {}) {
+	const key = `details:${catalog}:${setId}`;
+	const hit = await cacheGet(key);
+	const lacks = hit && [...ids].some((id) => !Object.hasOwn(hit.data || {}, id));
+
+	if (hit && (!lacks || now - hit.at < DETAILS_RECHECK_MS || !navigator.onLine)) {
+		return hit.data;
+	}
+
+	if (!navigator.onLine) {
+		return null;
+	}
+
+	try {
+		const data = await graphql(cardDetailsQuery(catalog, setId));
+		const details = detailsFrom(data.cards, setId);
+
+		await cachePut(key, details);
+
+		return details;
+	}
+	catch {
+		return hit ? hit.data : null;
+	}
+}
+
+// The index records a set's details add for the owned cards in it.
+export const detailRecords = ({catalog, ids}, details) => [...ids]
+	.filter((id) => details && details[id])
+	.map((id) => ({catalog, id, ...details[id]}));
+
+// ---------------------------------------------------- background prices
+
+// The US estimate on a tile comes from the full TCGdex record card detail
+// saves ("card:<lang>:<id>"). The background pass reads the records of owned
+// international cards the phone lacks, and refreshes those older than a
+// week, a few at a time, saved under the same key and shape as card detail
+// saves them, so card detail and the tiles read the same record. GraphQL
+// carries no pricing (checked 2026-10-02), so this is the REST card
+// endpoint. Japanese, Korean, and Chinese prints have no market price and
+// are never asked for.
+export const PRICE_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
+
+// The cards due, as [{cardId, langs, at}]: the ones never read first, in the
+// order given (the list order on screen), then the oldest saved ones. A card
+// that answered 404 within the last day is left alone.
+export async function pricesDue(entries, {now = Date.now(), maxAge = PRICE_REFRESH_MS} = {}) {
+	const wanted = new Map();
+
+	for (const entry of entries || []) {
+		if ((entry.catalog || 'international') !== 'international' || !entry.card_id) {
+			continue;
+		}
+
+		if (!wanted.has(entry.card_id)) {
+			wanted.set(entry.card_id, new Set(['en']));
+		}
+
+		if (entry.language && !ASIAN.has(entry.language)) {
+			wanted.get(entry.card_id).add(entry.language);
+		}
+	}
+
+	if (!wanted.size) {
+		return [];
+	}
+
+	let found;
+
+	try {
+		const db = await openDb();
+
+		found = await new Promise((resolve, reject) => {
+			const tx = db.transaction(STORE, 'readonly');
+			const store = tx.objectStore(STORE);
+			const ages = new Map();
+
+			for (const [cardId, langs] of wanted) {
+				for (const lang of langs) {
+					const request = store.get(`card:${lang}:${cardId}`);
+
+					request.onsuccess = () => {
+						const hit = request.result;
+
+						if (hit && hit.data && hit.data.id) {
+							ages.set(cardId, Math.max(ages.get(cardId) || 0, hit.at || 0));
+						}
+					};
+				}
+
+				const missing = store.get(`missing:card:en:${cardId}`);
+
+				missing.onsuccess = () => {
+					if (missing.result && now - missing.result.at < MISSING_FOR_MS && !ages.has(cardId)) {
+						ages.set(cardId, -1);
+					}
+				};
+			}
+
+			tx.oncomplete = () => resolve(ages);
+			tx.onerror = () => reject(tx.error);
+			tx.onabort = () => reject(tx.error);
+		});
+	}
+	catch {
+		return [];
+	}
+
+	const never = [];
+	const stale = [];
+
+	for (const [cardId, langs] of wanted) {
+		const at = found.get(cardId);
+
+		if (at === undefined) {
+			never.push({at: 0, cardId, langs: [...langs]});
+		}
+		else if (at > 0 && now - at > maxAge) {
+			stale.push({at, cardId, langs: [...langs]});
+		}
+	}
+
+	return [...never, ...stale.sort((a, b) => a.at - b.at)];
+}
+
+// Reads one card's full record and saves it the way card detail does. The
+// English record first; a print TCGdex lists only in its own language (a
+// Portuguese-only card) falls back to that. Resolves to the record, or null
+// when TCGdex has none. Throws when TCGdex cannot be reached.
+export async function readPriceRecord({cardId, langs = ['en']}) {
+	for (const lang of langs) {
+		try {
+			const record = await getJson(`${lang}/cards/${encodeURIComponent(cardId)}`, 2);
+
+			if (record && record.id) {
+				await cachePut(`card:${lang}:${cardId}`, record);
+
+				return record;
+			}
+		}
+		catch (err) {
+			if (!err || err.status !== 404) {
+				throw err;
+			}
+
+			if (lang === 'en') {
+				await cachePut(`missing:card:en:${cardId}`, true);
+			}
+		}
+	}
+
+	return null;
 }

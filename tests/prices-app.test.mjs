@@ -1,6 +1,6 @@
 // Browser tests for the prices in the app itself (js/price-view.js placed by
 // js/catalog-views.js, js/cards-view.js, and js/binders-view.js): the price
-// slot on card detail, a tile's price, the on-demand Stats panel on My
+// slot on card detail, a tile's price, the on-demand Value sheet on My
 // Cards, and the statistics bar on a set and a binder. Headless Chromium at 360 x 740
 // against tests/pages-server.mjs, signed out.
 //
@@ -116,7 +116,7 @@ async function noSideways(page, where) {
 }
 
 describe('prices in the app', () => {
-	test('card detail price slot, tile prices, the Stats panel, and the statistics on a set and a binder', async () => {
+	test('card detail price slot, tile prices, the Value sheet, and the statistics on a set and a binder', async () => {
 		const device = await phone();
 		const {page} = device;
 
@@ -180,16 +180,17 @@ describe('prices in the app', () => {
 		assert.ok(await page.locator('.tile:has-text("Charizard")').evaluate((tile) => tile.lastElementChild.classList.contains('tile-price')), 'the price is the last line');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-tiles.png'});
 
-		// The whole collection's value is on demand, collapsed at first.
-		assert.equal(await page.locator('#cards-stats-toggle').getAttribute('aria-expanded'), 'false');
-		assert.ok(await page.locator('#cards-stats').isHidden());
+		// The whole collection's value is on demand: a small Value button
+		// opens a sheet led by how many copies are priced.
 		assert.equal(await page.locator('.price-stats').count(), 0, 'no headline total');
-		await page.click('#cards-stats-toggle');
-		await page.waitForSelector('#cards-stats .price-stats');
-		assert.equal(await page.locator('#cards-stats-toggle').getAttribute('aria-expanded'), 'true');
-		assert.equal(await page.locator('#cards-stats .price-stats').getAttribute('aria-label'), 'Value of your collection');
-		assert.match(plain(await page.locator('#cards-stats .price-stats-counts').textContent()), /1 card by Liga.*1 card by US estimate/);
-		assert.equal(plain(await page.locator('#cards-stats .price-stats-total').textContent()), '~R$ 4.952,24');
+		await page.click('#cards-value');
+		await page.waitForSelector('.value-sheet[open] .price-stats');
+		assert.equal(plain(await page.locator('.value-sheet .vs-coverage').textContent()), 'Priced: 2 of 2 copies');
+		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of your collection');
+		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /1 card by Liga.*1 card by US estimate/);
+		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), '~R$ 4.952,24');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'My Cards');
 
 		// Back on card detail, a Liga price typed in shows on the copy's row.

@@ -1,0 +1,51 @@
+/* The Value sheet (js/value-sheet.js), and the quiet line a tile shows
+   when its card has no market price. */
+
+.value-sheet[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+.vs-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.vs-coverage {
+	font-size: 1.125rem;
+	margin: 0 0 var(--space-1);
+}
+
+.vs-reasons {
+	color: var(--muted);
+	margin: 0;
+	padding-left: 1.25em;
+}
+
+.vs-reasons li + li {
+	margin-top: var(--space-1);
+}
+
+.value-sheet button.vs-unpriced {
+	margin-top: var(--space-2);
+	min-height: var(--target);
+	padding-left: 0;
+	padding-right: 0;
+	text-align: left;
+	width: auto;
+}
+
+.vs-of {
+	font: var(--type-heading);
+	margin: var(--space-4) 0 0;
+}
+
+.value-sheet .price-stats {
+	margin-top: var(--space-2);
+}
+
+.price-none {
+	color: var(--muted);
+	font-weight: 400;
+}

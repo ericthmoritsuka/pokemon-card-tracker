@@ -843,6 +843,20 @@ unknown never counts as zero. The statistics bar sits on binders, checklists, se
 whole collection it is an on-demand Stats panel the person opens, never a headline total on the
 home screen, which keeps the "no portfolio" decision.
 
+**Background prices and the Value sheet** (Eric, 2026-10-02). A tile's US estimate comes from the
+full TCGdex record card detail saves, so tiles used to show a price only for cards whose page had
+been opened. Now, after My Cards first draws, a background pass reads the full record of every
+owned international card the phone lacks, two requests at a time, the cards on screen first, and
+saves it under card detail's own key; a record older than a week is read again the same way.
+TCGdex's GraphQL carries no pricing (checked 2026-10-02), so this is the REST card endpoint, one
+request per card. Japanese, Korean, and Chinese prints have no market price and are never asked
+for; their tiles, and cards TCGdex has no price for, show a quiet "No price", while a card whose
+price is still downloading shows nothing. The Stats toggle and panel on My Cards gave way to a
+small **Value** button that opens a bottom sheet led by coverage: "Priced: N of M copies", how many
+are Asian prints with no market price, how many still wait for a price, how many TCGdex has no
+price for, then the statistics bar under "Of the priced copies", and a link that filters My Cards
+to the copies without a price. The sheet takes any list of copies, so the Trade view can open it.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
@@ -1029,6 +1043,29 @@ and sort bar.
   range, collection, binder (placed or not), goal (missing from), owned or not, duplicates only.
 - **Sort by:** price, rarity, date added (newest or oldest first), set release date, collector
   number, name, National Dex number.
+
+**Built first for My Cards** (Eric, 2026-10-02), as `js/filter-bar.js`, which takes plain items so
+the binder card picker, the tray, and the wishlist can reuse it:
+
+- **Search first,** over owned cards and offline: names in every language the phone has for a card
+  (shown or not, readings included), the set name, the collector number ("25", "025", or "25/165"),
+  and the card ID. A word starting with "#" is a National Dex number or range: "#25" or "#025"
+  finds every card whose `dex_ids` include 25, and "#1-151" a range. A search starts the "Show
+  more" paging again at the matching tiles. No match offers the Sets catalog.
+- **Filters,** in a bottom sheet with the count of active ones on its button, each also shown as a
+  clearable chip: region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
+  "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone means
+  that one number), energy type (the eleven TCG types, with the themes' colors), category
+  (Pokémon, Trainer, Energy), set, language, rarity, priced or not, and not in a binder yet. A card
+  with several Dex numbers (a TAG TEAM) fits a region or range when any of them does; a card with
+  none (a Trainer, an Energy, or one whose details are not read yet) never fits a Dex filter.
+- **Sorts:** newest or oldest added, name, Pokédex number, set and number, price (unknown last).
+- The last sort and filters are remembered per screen on the device; the search text is not.
+- **Card details** for the filters (`dex_ids`, `types`, `category`, `rarity`) are added to the card
+  index by one TCGdex GraphQL request per owned set, in the background after My Cards first draws,
+  two sets at a time; Japanese, Korean, and Chinese sets are read in their own catalogs with the
+  `@locale` directive, which returns their types and rarities in English. Each set's answer is
+  kept, and asked again after a week only when an owned card was missing from it.
 
 ### Pack Openings
 

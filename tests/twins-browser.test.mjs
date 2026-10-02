@@ -228,6 +228,12 @@ async function appContext() {
 		}
 
 		if (url.pathname === '/v2/graphql') {
+			// My Cards' card details (js/catalog.js setDetails) are not the
+			// twins' business: answered empty and not counted.
+			if (/dexId types category rarity/.test(route.request().postData() || '')) {
+				return route.fulfill({body: JSON.stringify({data: {cards: []}}), contentType: 'application/json'});
+			}
+
 			seen.graphql++;
 
 			return route.fulfill({body: '{}', contentType: 'application/json', status: 404});

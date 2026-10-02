@@ -8,29 +8,38 @@ import {
 	cardIndex,
 	catalogFor,
 	catalogLanguage,
-	compareNumbers,
+	detailRecords,
 	importApi,
 	indexKey,
 	isLanguage,
-	languageLabel,
+	pricesDue,
+	readPriceRecord,
 	savedCardRecords,
 	saveToCardIndex,
 	setDetailOnce,
+	setDetails,
+	setIdOfCard,
+	setsNeedingDetails,
 	viewingLanguage,
 } from './catalog.js';
 import {currentUser} from './auth.js';
+import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {isLive, listCards, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
+import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {finishLabel} from './monprice.js';
-import {statsBar, tilePrice} from './price-view.js';
-import {manualPrice} from './prices.js';
+import {tilePrice} from './price-view.js';
+import {manualPrice, savedRates, tileValue} from './prices.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
+// Its own line: tests/photos-harness.mjs checks the line above as it is.
+import {noPrice} from './tile.js';
 import {tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
+import {openValueSheet, priceState} from './value-sheet.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -48,15 +57,6 @@ function readSetting(key, allowed, fallback) {
 	}
 	catch {
 		return fallback;
-	}
-}
-
-function writeSetting(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
 	}
 }
 
@@ -196,21 +196,44 @@ export {canShareFiles};
 
 // ------------------------------------------------------------ the view
 
-const SORTS = [
-	{label: 'Newest added', value: 'newest'},
-	{label: 'Oldest added', value: 'oldest'},
-	{label: 'Name A to Z', value: 'name'},
-	{label: 'Set, newest first', value: 'set'},
-];
-
+// The choice of sort and filters, per screen (js/filter-bar.js). The old
+// sort and language keys seed it once, so nobody loses their sort.
+const CHOICE_KEY = 'cardTracker.cardsChoice';
 const SORT_KEY = 'cardTracker.cardsSort';
 const FILTER_KEY = 'cardTracker.cardsLanguage';
+const OLD_SORTS = ['newest', 'oldest', 'name', 'set'];
 const PAGE = 120;
+
+const legacyChoice = () => {
+	let language = '';
+
+	try {
+		const saved = localStorage.getItem(FILTER_KEY);
+
+		language = saved && saved !== 'all' ? saved : '';
+	}
+	catch {
+		// No language filter then.
+	}
+
+	return {filters: {language}, sort: readSetting(SORT_KEY, OLD_SORTS, 'newest')};
+};
+
+// The search text this history entry remembered, for Back from a card page.
+const queryFromHistory = () => (history.state && typeof history.state.query === 'string' ? history.state.query : '');
 
 // How long My Cards gathers twins found in the background before drawing
 // them, so a refresh over hundreds of Japanese cards redraws a few times,
 // not once a card.
 const TWIN_REDRAW_MS = 1000;
+
+// How long the background pass gathers card details and prices before
+// showing them, for the same reason.
+const FILL_REDRAW_MS = 1500;
+
+// Requests the background pass keeps in flight: a few, so a first visit
+// with 1,500 cards does not crowd TCGdex or the phone's connection.
+const FILL_CONCURRENCY = 2;
 
 // What a group's international twin changes on its tile: the image and the
 // English name (js/twins.js). Empty until the twins are loaded.
@@ -317,6 +340,7 @@ async function fillMissingRecords(entries, index, isAlive) {
 export function myCardsView(root) {
 	return cardsScreen(root, {
 		load: listCards,
+		loadBinders: listBinders,
 		watch: (reload) => onChange(reload),
 	});
 }
@@ -325,6 +349,7 @@ export function myCardsView(root) {
 // server each time; scanning and importing still save to you.
 export function familyCardsView(root, {userId}) {
 	let name = 'Family member';
+	let binders = [];
 
 	whenMemberName(userId, (memberLabel) => {
 		name = memberLabel;
@@ -339,6 +364,7 @@ export function familyCardsView(root, {userId}) {
 
 	return cardsScreen(root, {
 		emptyText: () => `${name} hasn't added cards yet.`,
+		label: 'these cards',
 		load: async () => {
 			if (!currentUser()) {
 				throw new Error('Sign in to see your family\'s cards.');
@@ -350,37 +376,44 @@ export function familyCardsView(root, {userId}) {
 
 			const doc = await memberDocument(userId);
 
+			binders = (doc && doc.binders) || [];
+
 			return ((doc && doc.cards) || []).filter(isLive);
 		},
+		loadBinders: () => binders,
 		readOnly: true,
+		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
 	});
 }
 
-function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = false, title = 'My Cards', watch = null}) {
+function cardsScreen(root, {
+	emptyText = null,
+	label = 'your collection',
+	load: loadEntries,
+	loadBinders = () => [],
+	readOnly = false,
+	storageKey = CHOICE_KEY,
+	title = 'My Cards',
+	watch = null,
+}) {
 	let alive = true;
 	// Back from a card page shows as many tiles as before, so the scroll
 	// position it returns to is still there.
 	let shown = Math.max(PAGE, fromHistory('shown', PAGE));
 	let groups = [];
-	// The tiles drawn, by group key, so a twin can redraw just its own.
+	// The tiles drawn, by group key, so a twin or a price can redraw just
+	// its own.
 	const tiles = new Map();
 	let entries = [];
 	let index = new Map();
 	// Full TCGdex records saved on the phone, for the tiles' US estimates.
 	let saved = new Map();
+	// Copies placed in a binder, by entry ID.
+	let placed = new Map();
+	let rates = savedRates();
 
 	const viewing = viewingLanguage();
-	const sort = h('select', {'aria-label': 'Sort cards', id: 'cards-sort', onchange: () => {
-		writeSetting(SORT_KEY, sort.value);
-		shown = PAGE;
-		draw();
-	}}, SORTS.map(({label, value}) => h('option', {value}, label)));
-	const filter = h('select', {'aria-label': 'Show copies in', id: 'cards-language', onchange: () => {
-		writeSetting(FILTER_KEY, filter.value);
-		shown = PAGE;
-		draw();
-	}});
 	const summary = h('p', {class: 'muted', id: 'cards-summary'});
 	const grid = h('div', {class: 'card-grid'});
 	const more = h('button', {hidden: true, onclick: () => {
@@ -391,22 +424,34 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	const body = h('div');
 
 	// The whole collection's value is on demand only, never a headline
-	// total (DESIGN.md section 10).
-	const statsPanel = h('div', {class: 'cards-stats', hidden: true, id: 'cards-stats'});
-	const statsToggle = h('button', {'aria-controls': 'cards-stats', 'aria-expanded': 'false', class: 'link-button', id: 'cards-stats-toggle', type: 'button', onclick: () => {
-		statsPanel.hidden = !statsPanel.hidden;
-		statsToggle.setAttribute('aria-expanded', String(!statsPanel.hidden));
-		statsToggle.textContent = statsPanel.hidden ? 'Stats' : 'Hide stats';
-		drawStats();
-	}}, 'Stats');
+	// total (DESIGN.md section 10): a small button opens the Value sheet.
+	const valueButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-value', id: 'cards-value', onclick: () => openValue(), type: 'button'}, 'Value');
 
-	function drawStats() {
-		if (!statsPanel.hidden) {
-			statsPanel.replaceChildren(statsBar({cardsById: new Map([...index, ...saved]), entries, label: readOnly ? 'these cards' : 'your collection'}));
-		}
+	const bar = filterBar({
+		extra: [valueButton],
+		id: 'cards',
+		legacy: storageKey === CHOICE_KEY ? legacyChoice : null,
+		onChange: (state, reason) => {
+			shown = PAGE;
+			rememberInHistory(reason === 'query' ? {query: state.query, shown} : {shown});
+			draw();
+		},
+		query: queryFromHistory(),
+		storageKey,
+	});
+
+	function openValue() {
+		ensurePrices(groups);
+		openValueSheet({
+			cardsById: new Map([...index, ...saved]),
+			entries,
+			filling: Boolean(background),
+			label,
+			onShowUnpriced: () => bar.setFilter('price', 'unpriced'),
+			rates,
+			saved,
+		});
 	}
-
-	sort.value = readSetting(SORT_KEY, SORTS.map((option) => option.value), 'newest');
 
 	function redrawNames() {
 		if (alive && groups.length) {
@@ -417,6 +462,8 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 
 	function build() {
 		const map = new Map();
+
+		rates = savedRates();
 
 		for (const entry of entries) {
 			const key = `${entry.catalog}|${entry.card_id}|${entry.language}`;
@@ -440,23 +487,54 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 			const times = group.entries.map((entry) => String(entry.created_at)).sort();
 			// Asian prints: an English name first, the original under it.
 			const nameLang = source ? first.language : (local && local.lang) || base;
+			const setId = (record && record.set_id) || setIdOfCard(first.card_id);
 
 			return withTwin({
 				...group,
 				catalog: first.catalog,
 				cardId: first.card_id,
+				category: (record && record.category) || null,
+				dexIds: (record && record.dex_ids) || [],
 				language: first.language,
 				local,
 				nameLang,
 				newest: times[times.length - 1],
+				number: (record && record.collector_number) || null,
 				oldest: times[0],
-				plainNames: namesFor({lang: nameLang, name: (source && source.name) || (local && local.name) || first.card_id}, redrawNames),
+				plainNames: namesFor({
+					category: (record && record.category) || null,
+					dexId: (record && record.dex_ids) || null,
+					lang: nameLang,
+					name: (source && source.name) || (local && local.name) || first.card_id,
+				}, redrawNames),
+				priceDone: false,
+				rarity: (record && record.rarity) || null,
 				record,
 				recordKey: `${first.catalog}|${first.card_id}`,
+				releaseDate: (record && record.release_date) || '',
+				setKey: setId ? `${first.catalog}|${setId}` : null,
 				setName: (source && source.setName) || (local && local.set_name) || null,
+				sourceName: source && source.name,
 				twinItem: {card_id: first.card_id, catalog: first.catalog},
+				types: (record && record.types) || [],
+				unplaced: group.entries.some((entry) => !placed.has(entry.id)),
 			});
 		});
+
+		bar.setItems(groups);
+	}
+
+	// Every text a tile can be found by: its names in each language the
+	// phone has (shown or not), the reading, the set, the number, the ID.
+	function searchOf(group) {
+		const {names, record} = group;
+		const texts = [names.english, names.original, names.reading, group.sourceName, group.setName, group.number, group.cardId];
+
+		for (const localization of Object.values((record && record.localizations) || {})) {
+			texts.push(localization.name, localization.set_name);
+		}
+
+		return searchTextOf(texts);
 	}
 
 	// A group's names and images with its international twin (js/twins.js):
@@ -466,7 +544,37 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		const names = withTwinName(group.plainNames, group.twinItem);
 		const twins = twinSlides(group.twinItem, {size: 'low'});
 
-		return Object.assign(group, {name: mainName(names), names, twinShown: twinShown(twins, twinName(group.twinItem)), twins});
+		Object.assign(group, {name: mainName(names), names, twinShown: twinShown(twins, twinName(group.twinItem)), twins});
+
+		// Folded on the first search, not before the first paint: folding
+		// every name of 1,600 copies costs more than drawing the tiles.
+		let search = null;
+
+		Object.defineProperty(group, 'search', {configurable: true, enumerable: true, get: () => (search = search ?? searchOf(group))});
+
+		return group;
+	}
+
+	// The tile's price, its value for the price sort, and whether every copy
+	// has one, for the price filter and the Value sheet's coverage. Read
+	// only when asked, as the full records are slow to read for 1,600 copies.
+	function priceOf(group) {
+		const card = saved.get(group.recordKey) || null;
+		const value = tileValue(group.entries, card, {rates});
+		const states = group.entries.map((entry) => priceState(entry, card, rates));
+
+		group.price = value ? value.brl : null;
+		group.priced = states.every((state) => state === 'priced');
+		group.noPrice = !value && states.some((state) => state === 'asian' || state === 'none');
+		group.priceDone = true;
+	}
+
+	function ensurePrices(list) {
+		for (const group of list) {
+			if (!group.priceDone) {
+				priceOf(group);
+			}
+		}
 	}
 
 	// Whether a group's twin would draw differently now.
@@ -483,21 +591,25 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 
 		moved.forEach(withTwin);
 
-		if (sort.value === 'name') {
+		if (bar.state.sort === 'name' || bar.state.query) {
 			draw();
 
 			return;
 		}
 
 		for (const group of moved) {
-			const old = tiles.get(group.key);
+			replaceTile(group);
+		}
+	}
 
-			if (old && old.isConnected) {
-				const next = tile(group);
+	function replaceTile(group) {
+		const old = tiles.get(group.key);
 
-				tiles.set(group.key, next);
-				old.replaceWith(next);
-			}
+		if (old && old.isConnected) {
+			const next = tile(group);
+
+			tiles.set(group.key, next);
+			old.replaceWith(next);
 		}
 	}
 
@@ -528,8 +640,10 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	// Neither holds up the tiles, and offline the saved ones still show. The
 	// timer inside the frame callback runs once that frame is painted, so a
 	// quick read of the twins cannot hold up the first one.
+	const afterPaint = (work) => requestAnimationFrame(() => setTimeout(() => alive && work(), 0));
+
 	function startTwins() {
-		requestAnimationFrame(() => setTimeout(() => alive && loadTwinsNow(), 0));
+		afterPaint(loadTwinsNow);
 	}
 
 	function loadTwinsNow() {
@@ -548,37 +662,25 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 			});
 	}
 
-	function sorted(list) {
-		const by = sort.value;
-		const name = (group) => group.name;
-
-		return [...list].sort((a, b) => {
-			if (by === 'newest') {
-				return b.newest.localeCompare(a.newest);
-			}
-
-			if (by === 'oldest') {
-				return a.oldest.localeCompare(b.oldest);
-			}
-
-			if (by === 'name') {
-				return name(a).localeCompare(name(b)) || a.language.localeCompare(b.language);
-			}
-
-			const dateA = (a.record && a.record.release_date) || '';
-			const dateB = (b.record && b.record.release_date) || '';
-
-			return dateB.localeCompare(dateA)
-				|| String(a.record && a.record.set_id).localeCompare(String(b.record && b.record.set_id))
-				|| compareNumbers(a.record ? a.record.collector_number : '', b.record ? b.record.collector_number : '');
-		});
-	}
-
 	const routeOf = (group) => {
 		const lang = group.local && isLanguage(group.local.lang) ? group.local.lang : catalogLanguage(group.catalog);
 
 		return routeTo('cards', lang, group.cardId);
 	};
+
+	function priceNode(group) {
+		const price = tilePrice(group.entries, saved.get(group.recordKey) || group.record, {rates});
+
+		if (price) {
+			return price;
+		}
+
+		if (!group.priceDone) {
+			priceOf(group);
+		}
+
+		return group.noPrice ? noPrice() : null;
+	}
 
 	function tile(group) {
 		const {local, record} = group;
@@ -590,7 +692,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		const catalogSrc = local ? cardImage(local.image, 'low') : null;
 
 		return withMainPhoto(cardTile({
-			price: tilePrice(group.entries, saved.get(group.recordKey) || record),
+			price: priceNode(group),
 			art: {
 				count: group.entries.length,
 				finish: groupFinish(group.entries),
@@ -605,35 +707,68 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});
 	}
 
-	function draw() {
-		const languages = new Map();
+	// The price line of a drawn tile, put right after a price arrives.
+	function patchPrice(group) {
+		const element = tiles.get(group.key);
 
-		for (const group of groups) {
-			languages.set(group.language, (languages.get(group.language) || 0) + group.entries.length);
+		if (!element || !element.isConnected) {
+			return;
 		}
 
-		const wanted = readSetting(FILTER_KEY, ['all', ...languages.keys()], 'all');
+		const node = priceNode(group);
+		const slot = element.querySelector('.tile-price');
 
-		filter.replaceChildren(
-			h('option', {value: 'all'}, 'All languages'),
-			...[...languages.entries()]
-				.sort((a, b) => b[1] - a[1])
-				.map(([code, n]) => h('option', {value: code}, `${languageLabel(code)} (${formatCount(n)})`))
-		);
-		filter.value = wanted;
+		if (!node) {
+			if (slot) {
+				slot.remove();
+			}
+		}
+		else if (slot) {
+			slot.replaceChildren(node);
+		}
+		else {
+			element.append(h('span', {class: 'tile-price'}, node));
+		}
+	}
 
-		const visible = sorted(groups.filter((group) => wanted === 'all' || group.language === wanted));
+	const needsPrices = () => bar.state.sort === 'price' || Boolean(bar.state.filters.price);
+
+	function draw() {
+		const {filters, query, sort} = bar.state;
+
+		if (needsPrices()) {
+			ensurePrices(groups);
+		}
+
+		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
 		const copies = visible.reduce((sum, group) => sum + group.entries.length, 0);
+		const narrowed = Boolean(query.trim()) || activeFilters(filters).length > 0;
 
-		summary.textContent = `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
+		summary.textContent = narrowed
+			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
+			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
 		tiles.clear();
-		grid.replaceChildren(...visible.slice(0, shown).map((group) => {
-			const element = tile(group);
+		// The search the grid shows, for the tests to wait on.
+		grid.dataset.query = query;
 
-			tiles.set(group.key, element);
+		if (!visible.length) {
+			grid.replaceChildren(h('div', {class: 'card empty-state cards-none', id: 'cards-none'},
+				h('p', {class: 'big'}, query.trim() ? `No cards match "${query.trim()}"` : 'No cards match these filters'),
+				activeFilters(filters).length ? h('button', {class: 'button', onclick: () => bar.clearFilters(), type: 'button'}, 'Clear filters') : null,
+				query.trim() ? h('a', {class: 'button', 'data-link': 'sets', href: `${BASE}sets`}, 'Search the catalog') : null
+			));
+		}
+		else {
+			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
+				const element = tile(group);
 
-			return element;
-		}));
+				tiles.set(group.key, element);
+
+				return element;
+			}));
+		}
+
+		// Swiping on a card page follows this order, filters included.
 		offerCardList(visible.map(routeOf), heading.textContent);
 		more.hidden = visible.length <= shown;
 		more.textContent = `Show more (${formatCount(visible.length - shown)} left)`;
@@ -691,9 +826,184 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		}
 	}
 
+	// ------------------------------------------------- background pass
+
+	// After the first paint, a few requests at a time: first each owned
+	// set's card details (types, Dex numbers, category, rarity: one GraphQL
+	// request per set), then the full records that carry the US prices, for
+	// the international cards without one and those older than a week. Both
+	// are kept on the phone, so a second visit sends nothing until a week
+	// has passed. A save reloads the screen; the pass then runs once more
+	// when it ends, for any card that was added.
+	let background = null;
+	let again = false;
+
+	function startBackground() {
+		if (!alive) {
+			return;
+		}
+
+		if (background) {
+			again = true;
+
+			return;
+		}
+
+		background = runBackground()
+			.catch(() => {
+				// The tiles keep what they have; the next visit tries again.
+			})
+			.finally(() => {
+				background = null;
+
+				if (again && alive) {
+					again = false;
+					startBackground();
+				}
+			});
+	}
+
+	async function runBackground() {
+		await fillDetails();
+
+		if (alive) {
+			await fillPrices();
+		}
+	}
+
+	async function fillDetails() {
+		const sets = setsNeedingDetails(entries, index);
+		let pending = [];
+		let flushing = Promise.resolve();
+		let last = Date.now();
+
+		const flush = () => {
+			if (!pending.length) {
+				return flushing;
+			}
+
+			const records = pending;
+
+			pending = [];
+			last = Date.now();
+			flushing = flushing.then(async () => {
+				const next = await saveToCardIndex(records);
+
+				if (!alive) {
+					return;
+				}
+
+				index = next;
+				detailsArrived();
+			});
+
+			return flushing;
+		};
+
+		await pool(sets, FILL_CONCURRENCY, async (set) => {
+			if (!alive) {
+				return;
+			}
+
+			const details = await setDetails(set);
+
+			pending.push(...detailRecords(set, details));
+
+			if (Date.now() - last > FILL_REDRAW_MS) {
+				flush();
+			}
+		});
+		await flush();
+	}
+
+	// Details change what a tile is found by and, for a Japanese or Korean
+	// Pokémon, its English name; the grid is drawn again only when that
+	// shows: a new name, the Pokédex sort, or a filter that reads them.
+	function detailsArrived() {
+		const before = new Map(groups.map((group) => [group.key, group.name]));
+
+		build();
+
+		const renamed = groups.some((group) => before.get(group.key) !== group.name);
+		const {filters, sort} = bar.state;
+
+		if (renamed || sort === 'dex' || filters.region || filters.type || filters.category || filters.rarity) {
+			draw();
+		}
+	}
+
+	async function fillPrices() {
+		// The cards on screen first, in their order, then the rest.
+		const {filters, query, sort} = bar.state;
+		const order = [...sortItems(applyFilters(groups, {filters, query}), sort).flatMap((group) => group.entries), ...entries];
+		const due = await pricesDue(order);
+		const arrived = new Set();
+		let failures = 0;
+		let timer = null;
+
+		const show = () => {
+			timer = null;
+
+			if (!alive) {
+				return;
+			}
+
+			for (const group of groups) {
+				if (arrived.has(group.recordKey)) {
+					priceOf(group);
+					patchPrice(group);
+				}
+			}
+
+			arrived.clear();
+
+			// Filtered to the unpriced copies, a priced one leaves the grid.
+			if (bar.state.filters.price) {
+				draw();
+			}
+		};
+
+		await pool(due, FILL_CONCURRENCY, async (item) => {
+			if (!alive || failures >= 3) {
+				return;
+			}
+
+			try {
+				const record = await readPriceRecord(item);
+
+				failures = 0;
+
+				if (record && alive) {
+					saved.set(`international|${item.cardId}`, record);
+					arrived.add(`international|${item.cardId}`);
+					timer = timer || setTimeout(show, FILL_REDRAW_MS);
+				}
+			}
+			catch {
+				// Offline, or TCGdex failing: three in a row end the pass.
+				failures++;
+			}
+		});
+
+		if (timer) {
+			clearTimeout(timer);
+			show();
+		}
+	}
+
+	// ------------------------------------------------------------ load
+
 	async function load() {
 		try {
-			[entries, index] = await Promise.all([loadEntries(), cardIndex()]);
+			let binders;
+
+			// A family member's binders come with their cards, so they are
+			// read after them.
+			[[entries, binders], index] = await Promise.all([
+				loadEntries().then(async (list) => [list, await Promise.resolve(loadBinders()).catch(() => [])]),
+				cardIndex(),
+			]);
+			placed = placements(liveBinders(binders || []));
 			saved = await savedCardRecords(entries);
 		}
 		catch (err) {
@@ -730,19 +1040,15 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 			return;
 		}
 
-		body.replaceChildren(
-			h('div', {class: 'toolbar two'}, h('span', {class: 'select-wrap'}, sort), h('span', {class: 'select-wrap'}, filter)),
-			summary,
-			statsToggle,
-			statsPanel,
-			grid,
-			more
-		);
+		if (!body.contains(grid)) {
+			body.replaceChildren(bar.element, summary, grid, more);
+		}
+
 		build();
 		draw();
-		drawStats();
 		fillViewingLanguage();
 		startTwins();
+		afterPaint(startBackground);
 
 		const filled = await fillMissingRecords(entries, index, () => alive);
 
@@ -752,7 +1058,8 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 			saved = await savedCardRecords(entries);
 			build();
 			draw();
-			drawStats();
+			// The new records' sets may need their details too.
+			startBackground();
 		}
 	}
 
@@ -767,6 +1074,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		alive = false;
 		stop();
 		stopTwins();
+		bar.destroy();
 		clearTimeout(twinTimer);
 	};
 }
