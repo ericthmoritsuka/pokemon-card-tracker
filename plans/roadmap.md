@@ -7,8 +7,9 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v21** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
-  `e611001`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
+- **Live:** version **v22** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
+  `0b718b7`), the first round of audit fixes (see `CHANGELOG.md` and the status in
+  `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
   scanner (v17), own photos with the carousel, the zoom and compare viewer, the twelve TCG energy
   themes, Brazil-first prices, (v16) name-and-password sign-in for a family member without an
@@ -73,7 +74,9 @@ the audit below to confirm or drop:
    `plans/audit-engineering.md`, and a senior QA tester who collects cards (every flow end to
    end at phone sizes, offline, family, prices, themes, scanner with the Weedle photo, attempts
    to break things, accessibility) writing `plans/audit-qa.md`. Merge into one prioritized list
-   for Eric, then fix in blocks. **Report delivered 2026-10-02; waiting for Eric to choose blocks.**
+   for Eric, then fix in blocks. **Report delivered 2026-10-02; Eric chose to fix the whole list. v22 shipped blocks A, B
+   (the v22 half of the sync plan), D, E, and G; the rest is listed under "Status" in
+   `plans/audit.md`.**
    The prioritized list with severity, effort, and fix blocks A to J is `plans/audit.md`; the two
    audits are `plans/audit-engineering.md` and `plans/audit-qa.md`, `plans/audit-verify.md`
    re-checks the engineering findings, and `plans/sync-merge-plan.md` designs the sync block.
@@ -127,7 +130,8 @@ the audit below to confirm or drop:
   `shell`, `scan`, `scan-browser`, `photos`, `photos-browser`, `photos-viewer`,
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
-  `account-password`;
+  `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
+  `my-cards-browser`;
   `photos-sql` needs Docker. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal

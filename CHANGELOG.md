@@ -7,12 +7,49 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-02)
 
-- Whole-app audit done (report only): the prioritized list is `plans/audit.md`. Nothing is fixed
-  yet; Eric chooses which fix blocks come first.
+- Audit fixes, next: family view and account (block F), shared modules (H), performance (J),
+  merging edits field by field (C), and the scanner (I). See `plans/audit.md`.
 
 ## Live
 
 ### 2026-10-02
+
+- **11:08** Version 22: the first round of audit fixes. `0b718b7`
+  - **Your cards stay right.** Importing the same monprice file on a second phone, or signed out
+    and then signing in, no longer doubles your cards, and a collection already doubled is
+    repaired at the next sync (each card keeps its oldest copy, with its photos, Liga price,
+    notes, and binder pocket). Something you delete stays deleted, even if another phone edited
+    it offline. With the app open in two tabs, both keep their edits. The same wish added on two
+    phones becomes one. Removed photos and covers stay on the server for 14 days, so other
+    phones never show a broken image.
+  - **Import** refuses a Count above 999, asks before saving any row above 50 copies, and reads
+    numbers written as ="001".
+  - **Card pages:** tap a copy to fix its language, finish, condition, or notes, or remove it
+    (with Undo, and a note when it leaves a binder). Add copies by hand, 1 to 20 at a time, even
+    for cards you do not own yet. Add to wishlist from the card page. Your copies and Ver na Liga
+    are now on the first screen, and the previous and next arrows sit beside Back instead of
+    covering them. An owned card opens from what the phone knows while TCGdex is down.
+    Portuguese finishes read "Normal" and "Reverse holo" instead of "Normal, Padrão".
+  - **My Cards:** a search over your cards (names in any language, sets, numbers, and Pokédex
+    numbers such as "#25" or "#1-151"), and a Filters sheet: region or generation, Pokédex range,
+    energy type, category, set, language, rarity, price, or not in a binder yet, with sorting by
+    newest, oldest, name, Pokédex number, set, or price. Prices fill in by themselves in the
+    background and refresh weekly; Japanese, Korean, and Chinese prints say "No price". The big
+    Stats panel is now a small Value button that says how many copies are priced.
+  - **Binders:** held sideways, both pages fit above the tab bar. Long notes fade with a More
+    button instead of stretching the binder. Changing the grid keeps cards in place when it can,
+    otherwise moves them up in reading order and adds pages, with a preview first. Each binder
+    has a tray of cards to place: tap a card, then a pocket, drag it, or fill the rest in order.
+    The placeholder search works offline and skips TCG Pocket. The empty-binder hint matches how
+    the phone is held.
+  - **Back** closes the open sheet or viewer (Add photo, Cover image, a scanned card, the image
+    viewer, a binder pocket) instead of leaving the screen, and the camera always turns off.
+  - **Smaller fixes:** a dot on Scan counts unsaved tray cards; a new version waits for Reload,
+    so Scan never fails after an update; lists get "Any language" and checklists read past the
+    first 300 Asian cards; the Pokémon screen with every finish is fast again; the CSV export
+    gives Korean copies their Korean names; the Liga form refuses slips such as a lowest price
+    above the average; the stray "null" texts are gone; a password reset also signs out other
+    devices.
 
 - **07:17** Version 21: binder pages turn on the middle of the spine, so a page no longer looks
   stuck to its own side and then jumps across at the end of the turn (most visible on wide

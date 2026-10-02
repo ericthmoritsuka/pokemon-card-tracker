@@ -28,6 +28,31 @@
 - The v21 page turn is clean at every size with normal notes.
 - The Weedle photo is a sure `me04-001` at both framings.
 
+## Status
+
+Updated 2026-10-02 with version 22 (`0b718b7`).
+
+**Done in v22:**
+- **Block A:** all items.
+- **Block B:** plan commits 1 to 6 (deterministic import ids with the repair, sticky deletes, forward-only stamps, wish dedupe, delayed bucket deletes), plus Q-34, Q-08, E-13 (the `="..."` wrapper), and E-37.
+- **Block D:** all items. Back closes Add photo, Cover image, the scan sheets, the viewer, and the binder pocket sheet.
+- **Block E:** Q-01, Q-02, Q-04, Q-06, Q-07, Q-30, N-04, N-05, and N-06, plus Add to wishlist on card detail.
+- **Block G:** all items, including N-02 and N-03.
+
+**Still open:**
+- **Block C**, the v23 half of the sync plan.
+- **Block F:** Q-33, Q-35, N-01, E-07, and Q-32.
+- **Blocks H, I, and J**, and the remaining Low items.
+- **Follow-ups found while fixing:**
+  - The "Whose cards" sheet still leaves the screen on Back. Moving it onto `openDialogSheet` needs care, because picking a person closes the sheet and changes route at once.
+  - The wishlist screen's finish labels still show raw Portuguese words (`variantLabel` in `js/wishlist.js`).
+  - Copy removal holds for 8 seconds for Undo, because `js/collection.js` has no `restoreCard`. "Remove all N" saves once per copy; a `deleteCards(ids)` export would fix that.
+  - `priceSection` draws its own Ver na Liga, which `css/copies.css` hides on card detail. A `ligaLink: false` option in `js/price-view.js` would be cleaner.
+  - The app's own CSV export still cannot be imported back: its columns differ from monprice's, so it needs its own reader (roadmap step 2).
+  - Japanese and Korean tile meta lines still wrap to three lines at 360 px (Q-05, tiles part).
+  - There is no bulk way to add unplaced cards to a binder's tray.
+  - The first background price fill sends about one TCGdex request per international card, two at a time, then only weekly refreshes. TCGdex's GraphQL has no prices.
+
 ## Top 12, in the order I would fix them
 
 | # | Item | Severity | Effort | Sources |
