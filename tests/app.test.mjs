@@ -793,6 +793,106 @@ describe('importing on two phones', () => {
 	});
 });
 
+describe('the import screen', () => {
+	// TCGdex as the matcher asks it (js/monprice.js matchRows): the set by its
+	// printed abbreviation, the set's card list, and each card's printings.
+	async function fakeImportCatalog(context) {
+		await context.route('https://api.tcgdex.net/**', (route) => {
+			const {pathname, search} = new URL(route.request().url());
+			const json = (body) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status: 200});
+
+			if (/\/v2\/en\/sets$/.test(pathname)) {
+				return json(/abbreviation\.official=eq:tst1/.test(decodeURIComponent(search)) ? [{id: 'tst1', name: 'Test set tst1'}] : []);
+			}
+
+			if (/\/v2\/\w+\/sets\/tst1$/.test(pathname)) {
+				return json({
+					cards: Array.from({length: 9}, (_, i) => ({id: `tst1-00${i + 1}`, image: null, localId: `00${i + 1}`, name: `Test card ${i + 1}`})),
+					cardCount: {official: 9, total: 9},
+					id: 'tst1',
+					name: 'Test set tst1',
+					releaseDate: '2026-01-01',
+				});
+			}
+
+			const card = /\/v2\/\w+\/cards\/(tst1-00\d)$/.exec(pathname);
+
+			if (card) {
+				return json({id: card[1], image: null, localId: card[1].slice(-3), name: `Test card ${card[1]}`, rarity: 'Common', set: {id: 'tst1', name: 'Test set tst1'}, variants_detailed: [{type: 'normal', variantId: 'normal'}]});
+			}
+
+			return route.fulfill({body: '{}', contentType: 'application/json', status: 404});
+		});
+	}
+
+	const CSV = [
+		'Name;Set;Number;Language;Finish Type;Count;ID;Release Date',
+		'Test card 1;Test set;001/009;PT;NORMAL;1;tst1_int_1;2026-01-01',
+		'Test card 2;Test set;="002/009";PT;NORMAL;60;tst1_int_2;2026-01-01',
+		'Test card 3;Test set;003/009;PT;NORMAL;99999;tst1_int_3;2026-01-01',
+	].join('\r\n');
+
+	async function pickFile(page) {
+		await page.goto(url('import'));
+		await page.setInputFiles('#monprice-file', {buffer: Buffer.from(CSV), mimeType: 'text/csv', name: 'weird-rows.csv'});
+		await page.waitForSelector('button.primary.wide');
+	}
+
+	test('a huge Count is refused, a large one is left out unless ticked, and the report says why', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await fakeImportCatalog(context);
+		await pickFile(page);
+
+		const save = page.locator('button.primary.wide');
+
+		assert.match(await page.locator('#import-large').textContent(), /One row asks for more than 50 copies of one card\. That is usually a typo in the Count column, so it is left out unless you tick it\./);
+		assert.match(await page.locator('#import-large li').textContent(), /Save all 60 copies: Line 3/);
+		assert.equal(await save.textContent(), 'Save 1 copy');
+
+		await page.locator('#import-large input').check();
+		assert.equal(await save.textContent(), 'Save 61 copies');
+		await page.locator('#import-large input').uncheck();
+		assert.equal(await save.textContent(), 'Save 1 copy');
+
+		const refused = page.locator('details.report-line', {hasText: 'Rows the file could not describe: 1'});
+
+		await refused.locator('summary').click();
+		assert.match(await refused.textContent(), /count 99,999 is more than 999 copies of one card, which looks like a typo; fix the Count in the file and import it again/);
+
+		await save.click();
+		await page.waitForSelector('.status .big');
+		assert.match(await page.locator('.status .big').textContent(), /^Saved\. 1 added/);
+		assert.equal(liveCount(await localDoc(page)), 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('leaving the screen while it saves keeps the import', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await fakeImportCatalog(context);
+		await pickFile(page);
+		await page.locator('#import-large input').check();
+
+		// Save, then leave for My Cards straight away, before "Saved" shows.
+		await page.locator('button.primary.wide').click();
+		await page.evaluate(() => {
+			const link = document.createElement('a');
+
+			link.href = '/pokemon-card-tracker/cards';
+			link.dataset.link = 'cards';
+			document.body.append(link);
+			link.click();
+		});
+		await page.waitForFunction(() => /^61 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''), null, {timeout: 15000});
+		await page.reload();
+		await page.waitForFunction(() => /^61 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
 describe('deletes stick', () => {
 	test('a card deleted on one phone stays deleted after an offline phone edits it', async () => {
 		const fake = new FakeSupabase();

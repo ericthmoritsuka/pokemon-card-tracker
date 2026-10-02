@@ -5,7 +5,7 @@ import {languageChip} from './cards-view.js';
 import {applyImport, importKeys} from './collection.js';
 import {importApi, languageLabel, saveToCardIndex} from './catalog.js';
 import {BASE, errorText, h, namedError} from './dom.js';
-import {finishLabel, importEntries, matchRows, parseExport} from './monprice.js';
+import {LARGE_COUNT, finishLabel, importEntries, matchRows, parseExport} from './monprice.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -73,6 +73,11 @@ function groupBy(results, key) {
 	}
 
 	return groups;
+}
+
+function holdPage(event) {
+	event.preventDefault();
+	event.returnValue = '';
 }
 
 export function importView(root) {
@@ -183,7 +188,12 @@ export function importView(root) {
 		const only = saved.filter((result) => result.finishHow === 'only printing');
 		const reverse = saved.filter((result) => result.variantId && result.row.finish === 'REVERSE_HOLOFOIL');
 
-		const entries = importEntries(saved);
+		// Rows asking for more than LARGE_COUNT copies are saved only when
+		// ticked below (plans/audit-qa.md Q-08).
+		const large = saved.filter((result) => result.row.large);
+		const confirmed = new Set();
+		const chosen = () => saved.filter((result) => !result.row.large || confirmed.has(result));
+		let entries = importEntries(chosen());
 
 		const already = entries.filter((entry) => existing.has(entry.import_key)).length;
 		const languages = groupBy(parsed.rows.map((row) => ({row})), (result) => result.row.language);
@@ -202,6 +212,37 @@ export function importView(root) {
 
 		const save = h('button', {class: 'primary wide', onclick: doSave, type: 'button'}, `Save ${plural(entries.length, 'copy', 'copies')}`);
 		const saveStatus = h('p', {'aria-live': 'polite', class: 'status muted'});
+
+		function chooseAgain() {
+			entries = importEntries(chosen());
+			save.textContent = `Save ${plural(entries.length, 'copy', 'copies')}`;
+			save.disabled = !entries.length;
+		}
+
+		save.disabled = !entries.length;
+
+		const largeCheck = large.length ? h('div', {class: 'notice', id: 'import-large', role: 'group', 'aria-labelledby': 'import-large-title'},
+			h('h3', {id: 'import-large-title'}, 'Check these counts'),
+			h('p', null, large.length === 1
+				? `One row asks for more than ${LARGE_COUNT} copies of one card. That is usually a typo in the Count column, so it is left out unless you tick it.`
+				: `${formatCount(large.length)} rows ask for more than ${LARGE_COUNT} copies of one card. That is usually a typo in the Count column, so they are left out unless you tick them.`),
+			h('ul', {class: 'report-rows'}, ...large.map((result) => {
+				const box = h('input', {type: 'checkbox'});
+
+				box.addEventListener('change', () => {
+					if (box.checked) {
+						confirmed.add(result);
+					}
+					else {
+						confirmed.delete(result);
+					}
+
+					chooseAgain();
+				});
+
+				return h('li', null, h('label', null, box, ` Save all ${formatCount(result.row.count)} copies: ${rowText(result)}`));
+			}))
+		) : null;
 
 		status.replaceChildren(
 			h('div', {class: 'card'},
@@ -229,17 +270,31 @@ export function importView(root) {
 			reportLine(`Reverse holos set to the plain reverse: ${plural(reverse.length, 'row', 'rows')}. Check for Poké Ball and Master Ball patterns.`, reverse, null),
 			reportLine(`Not matched: ${plural(unmatched.length, 'row', 'rows')} (${plural(copiesOf(unmatched), 'copy', 'copies')}). Not saved; add these by hand later.`, unmatched, (result) => result.reason, {open: unmatched.length > 0 && unmatched.length <= 30}),
 			parsed.errors.length ? parseErrors(parsed.errors) : null,
+			largeCheck,
 			h('div', {class: 'actions'}, save, saveStatus),
 		].filter(Boolean));
 
 		async function doSave() {
+			const saving = entries;
+
 			save.disabled = true;
 			saveStatus.textContent = 'Saving...';
+
+			if (largeCheck) {
+				largeCheck.querySelectorAll('input').forEach((box) => {
+					box.disabled = true;
+				});
+			}
+
+			// Closing or reloading the page mid-save would lose the import, so
+			// the browser asks first. Moving to another screen is safe: the
+			// save goes on.
+			window.addEventListener('beforeunload', holdPage);
 
 			try {
 				await saveToCardIndex(cards);
 
-				const counts = await applyImport(entries);
+				const counts = await applyImport(saving);
 
 				if (!alive) {
 					return;
@@ -257,7 +312,17 @@ export function importView(root) {
 			}
 			catch (err) {
 				save.disabled = false;
+
+				if (largeCheck) {
+					largeCheck.querySelectorAll('input').forEach((box) => {
+						box.disabled = false;
+					});
+				}
+
 				saveStatus.textContent = `Could not save. Nothing was changed. ${errorText(err)}`;
+			}
+			finally {
+				window.removeEventListener('beforeunload', holdPage);
 			}
 		}
 	}
