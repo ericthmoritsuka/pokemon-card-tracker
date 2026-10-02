@@ -11,13 +11,16 @@ import {
 	languageLabel,
 	logoImage,
 	priceRecords,
+	savedCardRecords,
 	setDetail,
 	setList,
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
+import {listBinders, locationText, placements} from './binders.js';
 import {speciesNames} from './checklists.js';
 import {onChange, ownedBySet, ownedIn, sourceNames} from './collection.js';
+import {closeCopySheet, isRemoving, languageName, onRemovals, openAddSheet, openEditSheet} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h} from './dom.js';
 import {flagBadge} from './flags.js';
@@ -29,6 +32,9 @@ import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos} from './photos/index.js';
 import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
 import {twinConfirm} from './twins-view.js';
+import {plainVariantId} from './scan/finish.js';
+import {lensMember, toast} from './shell.js';
+import {addToWishlist, listWishlist} from './wishlist.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -612,6 +618,20 @@ const chip = (code) => (code === 'zh-cn' ? 'CHS' : code === 'zh-tw' ? 'CHT' : St
 const FOILS = {masterball: 'Master Ball pattern', pokeball: 'Poké Ball pattern'};
 const STAMPS = {'1st-edition': '1st Edition stamp'};
 
+// TCGdex writes some Portuguese records' variant fields in Portuguese
+// ("Padrão", "Poké Bola", "Logo da coleção") where the English record of the
+// same variantId has its English value (checked against TCGdex on
+// 2026-10-02, sv03.5-001 and sv08.5-001). Known words are read as the English
+// value, so finishes are named as on English pages; the standard size is
+// never named at all.
+const TCGDEX_WORDS = {
+	foil: {'master bola': 'masterball', 'poké bola': 'pokeball', 'poke bola': 'pokeball'},
+	size: {padrão: 'standard', padrao: 'standard'},
+	stamp: {'logo da coleção': 'set-logo', 'logo da colecao': 'set-logo'},
+};
+
+const inEnglish = (kind, value) => TCGDEX_WORDS[kind][String(value).trim().toLowerCase()] || value;
+
 const sentence = (text) => {
 	// "1999-2000-copyright" becomes "1999-2000 copyright".
 	const words = String(text).replace(/_+/g, ' ').replace(/-(?=\D)|(?<=\D)-/g, ' ');
@@ -627,19 +647,30 @@ function variantText(variant) {
 	}
 
 	if (variant.foil) {
-		parts.push(FOILS[variant.foil] || `${sentence(variant.foil)} foil`);
+		const foil = inEnglish('foil', variant.foil);
+
+		parts.push(FOILS[foil] || `${sentence(foil)} foil`);
 	}
 
-	for (const stamp of variant.stamp || []) {
+	for (const raw of variant.stamp || []) {
+		const stamp = inEnglish('stamp', raw);
+
 		parts.push(STAMPS[stamp] || `${sentence(stamp)} stamp`);
 	}
 
-	if (variant.size && variant.size !== 'standard') {
-		parts.push(sentence(variant.size));
+	const size = variant.size ? inEnglish('size', variant.size) : null;
+
+	if (size && String(size).toLowerCase() !== 'standard') {
+		parts.push(sentence(size));
 	}
 
 	return parts.join(', ');
 }
+
+// The finish select's options for a card: each variant TCGdex gives an ID.
+const finishChoices = (variants) => variants
+	.filter((variant) => variant && variant.variantId)
+	.map((variant) => ({label: variantText(variant), value: variant.variantId}));
 
 export function cardView(root, {lang, cardId}) {
 	let alive = true;
@@ -659,6 +690,9 @@ export function cardView(root, {lang, cardId}) {
 	let twinDrawn = null;
 	const twinChanged = (key) => alive && current && (!key || key === twinKey(twinItem)) && twinShown() !== twinDrawn && draw(current);
 	const stopTwins = onTwinsChange(twinChanged);
+	// A family member's card is read only: no copy sheets, no Add, no
+	// wishlist button (plans/design-review.md, "Family Read-Only Mode").
+	const readOnly = Boolean(lensMember());
 	// At least 48 px wide, like its height, however short the label ("‹ 151").
 	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
 	const body = h('div', {class: 'card-detail'},
@@ -684,8 +718,13 @@ export function cardView(root, {lang, cardId}) {
 	// copy on a Japanese record). Null shows the catalog's names.
 	let source = null;
 
-	function draw(card) {
+	// The catalog's error while card detail shows what the phone knows
+	// instead (Q-07), else null.
+	let unreachable = null;
+
+	function draw(card, failure = null) {
 		current = card;
+		unreachable = failure;
 		render(card);
 		twin.check(card);
 		drawCopies(card, Array.isArray(card.variants_detailed) ? card.variants_detailed : []);
@@ -734,12 +773,14 @@ export function cardView(root, {lang, cardId}) {
 			}
 		}
 
-		// The art beside the facts, at about 45 percent of the width, so the
-		// facts, the price with Ver na Liga, and Your copies show without a
-		// long scroll (plans/design-review.md section 3, "Card Detail").
+		// The art beside the facts, at about 45 percent of the width, then
+		// Your copies and Ver na Liga, so all of them are on the first screen
+		// at 360 x 740; the Liga price form and the US and EU markets come
+		// after (plans/design-review.md section 3, "Card Detail"; Q-04).
 		// replaceChildren prints a null argument as "null", so the optional
-		// variants section is filtered out when there is none.
+		// sections are filtered out when there are none.
 		body.replaceChildren(...[
+			unreachable ? unreachableNotice(unreachable) : null,
 			h('div', {class: 'card-hero'},
 				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high'), twins})),
 				h('div', {class: 'hero-facts'},
@@ -755,8 +796,9 @@ export function cardView(root, {lang, cardId}) {
 				)
 			),
 			twin.element,
-			priceSlot,
 			copies,
+			ligaRow,
+			priceSlot,
 			variants && variants.length
 				? h('section', {class: 'variants-section'},
 					h('h3', null, 'Variants'),
@@ -766,12 +808,27 @@ export function cardView(root, {lang, cardId}) {
 		].filter(Boolean));
 	}
 
-	const copies = h('section', {class: 'copies', hidden: true});
+	// Shown while TCGdex fails: what follows is the phone's saved record.
+	function unreachableNotice(err) {
+		return h('div', {class: 'notice card-unreachable', id: 'card-unreachable', role: 'status'},
+			h('div', {class: 'card-unreachable-text'},
+				h('p', null, 'The card catalog is not answering. This is what the phone has saved.'),
+				h('p', {class: 'card-unreachable-why'}, err && err.message ? err.message : errorText(err))
+			),
+			h('button', {class: 'small', id: 'card-retry', onclick: load, type: 'button'}, 'Try again')
+		);
+	}
 
-	// The price, full width under the hero (js/price-view.js): the Liga price
-	// the person typed in, with Ver na Liga, then the US and EU references.
-	// It carries the one Ver na Liga button, and says why there is none for
-	// Korean and Chinese prints.
+	const copies = h('section', {'aria-labelledby': 'copies-title', class: 'copies', hidden: true});
+
+	// Ver na Liga, or why there is none, right under Your copies, with Add
+	// to wishlist beside it.
+	const ligaRow = h('div', {class: 'card-liga', hidden: true, id: 'card-liga'});
+
+	// The price, full width under Ver na Liga (js/price-view.js): the Liga
+	// price the person typed in and its form, then the US and EU references.
+	// The section draws its own Ver na Liga too; css/copies.css hides that
+	// one on card detail, where the button above stands for it.
 	const priceSlot = h('div', {class: 'price-slot', id: 'card-price'});
 	// The person's live copies of this card, and the Ver na Liga link once
 	// known (null for none).
@@ -839,6 +896,88 @@ export function cardView(root, {lang, cardId}) {
 	function setLiga(href) {
 		ligaHref = href || null;
 		drawPrice();
+		drawLigaRow();
+	}
+
+	// The wishlist item for this card, any language or finish, once read;
+	// undefined until then.
+	let wished;
+	let wishing = false;
+
+	function ligaControl() {
+		if (ligaHref) {
+			return h('a', {class: 'button primary liga-link', href: ligaHref, id: 'card-liga-link', rel: 'noopener noreferrer', target: '_blank'},
+				'Ver na Liga',
+				h('span', {'aria-hidden': 'true', class: 'liga-out'}, ' ↗'),
+				h('span', {class: 'copies-sr'}, ' (opens Liga Pokémon)')
+			);
+		}
+
+		const language = priceLanguage();
+		const asian = ['ko', 'zh-cn', 'zh-tw'].includes(language);
+
+		return h('p', {class: 'muted liga-none', id: 'card-liga-none'}, asian ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
+	}
+
+	function wishControl() {
+		if (readOnly || wished === undefined) {
+			return null;
+		}
+
+		if (wished) {
+			// Short enough for half the row at 360 px; the language is in the
+			// label and the tooltip.
+			const which = wished.language ? ` in ${languageName(wished.language)}` : '';
+
+			return link('wishlist', {'aria-label': `On your wishlist${which}. Open the wishlist`, class: 'button wish-on', id: 'card-wished', title: `On your wishlist${which}`},
+				h('span', {'aria-hidden': 'true', class: 'wish-check'}, '✓ '),
+				'On your wishlist'
+			);
+		}
+
+		return h('button', {class: 'wish-add', disabled: wishing, id: 'card-wish', onclick: wish, type: 'button'}, 'Add to wishlist');
+	}
+
+	async function wish() {
+		wishing = true;
+		drawLigaRow();
+
+		try {
+			wished = await addToWishlist(cardId, {catalog: catalogFor(lang), language: lang});
+			toast(`Added to your wishlist (${languageName(lang)}).`);
+		}
+		catch (err) {
+			toast(`Not added to the wishlist. ${errorText(err)}`);
+		}
+		finally {
+			wishing = false;
+			drawLigaRow();
+		}
+	}
+
+	async function readWish() {
+		try {
+			const catalog = catalogFor(lang);
+			const items = await listWishlist();
+
+			wished = items.find((item) => item.card_id === cardId && (item.catalog || 'international') === catalog) || null;
+		}
+		catch {
+			wished = null;
+		}
+
+		drawLigaRow();
+	}
+
+	// Drawn once the copies are read, like the price, so a Korean copy on a
+	// Japanese record never flashes the Japanese button.
+	function drawLigaRow() {
+		if (!alive || !current || !ownedKnown) {
+			return;
+		}
+
+		ligaRow.replaceChildren(...[ligaControl(), wishControl()].filter(Boolean));
+		ligaRow.hidden = false;
 	}
 
 	let ligaRun = 0;
@@ -862,11 +1001,13 @@ export function cardView(root, {lang, cardId}) {
 	// Japanese set's number and official total (DESIGN.md section 10,
 	// "Languages on Liga"), so it gets the button once an English name is
 	// found. Korean and Chinese prints, and a Japanese record shown for
-	// Korean copies, get none: whether Liga lists them is unchecked.
+	// Korean copies, get none: whether Liga lists them is unchecked. That
+	// holds for a Korean copy the scanner saved with no Korean name as much
+	// as for an imported one (Q-30): what counts is the copies' language.
 	function showJapaneseLiga(card) {
 		const set = card.set || {};
 		const names = shownNames(card);
-		const href = !source && names.english
+		const href = !source && priceLanguage() === 'ja' && names.english
 			? ligaUrl({
 				localId: card.localId,
 				name: names.english,
@@ -914,9 +1055,52 @@ export function cardView(root, {lang, cardId}) {
 		}
 	}
 
+	// What one copy's finish is called on its row.
+	function finishName(entry, variants) {
+		const variant = variants.find((item) => item.variantId && item.variantId === entry.variant_id);
+
+		if (variant) {
+			return variantText(variant);
+		}
+
+		if (entry.variant_id && unreachable) {
+			return 'Finish (catalog offline)';
+		}
+
+		return entry.finish_raw
+			? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
+			: 'Finish not set';
+	}
+
+	// The name and number the sheets show under their title.
+	function sheetCard(card) {
+		const set = card.set || {};
+		const official = set.cardCount && set.cardCount.official;
+
+		return {
+			id: cardId,
+			name: mainName(shownNames(card)),
+			number: card.localId ? (official ? `${card.localId} / ${official}` : card.localId) : null,
+		};
+	}
+
+	function addButton(card, variants) {
+		return h('button', {class: 'small copy-add', id: 'copy-add', onclick: () => openAddSheet({
+			card: sheetCard(card),
+			catalog: catalogFor(lang),
+			finishes: finishChoices(variants),
+			lang,
+			plain: plainVariantId(variants),
+		}), type: 'button'}, 'Add a copy');
+	}
+
+	let copiesRun = 0;
+
 	async function drawCopies(card, variants) {
+		const run = ++copiesRun;
 		let mine;
 		let record;
+		let placed = new Map();
 
 		try {
 			const catalog = catalogFor(lang);
@@ -928,16 +1112,26 @@ export function cardView(root, {lang, cardId}) {
 		catch {
 			ownedKnown = true;
 			drawPrice();
+			drawLigaRow();
 
 			return;
 		}
 
-		if (!alive) {
+		try {
+			placed = placements(await listBinders());
+		}
+		catch {
+			// No binder places this time; the copies still show.
+		}
+
+		if (!alive || run !== copiesRun) {
 			return;
 		}
 
-		const names = mine ? mine.entries.map((entry) => sourceNames(entry, record)) : [];
-		const next = names.length && names.every(Boolean) ? {...names[0], language: mine.entries[0].language} : null;
+		// A copy whose removal waits for its Undo is already gone here.
+		const live = mine ? mine.entries.filter((entry) => !isRemoving(entry.id)) : [];
+		const names = live.map((entry) => sourceNames(entry, record));
+		const next = names.length && names.every(Boolean) ? {...names[0], language: live[0].language} : null;
 
 		if ((next && next.name) !== (source && source.name) || (next && next.setName) !== (source && source.setName)) {
 			source = next;
@@ -945,12 +1139,30 @@ export function cardView(root, {lang, cardId}) {
 			drawLiga(card);
 		}
 
-		owned = mine ? mine.entries : [];
+		owned = live;
 		ownedKnown = true;
 		drawPrice();
 
-		if (!mine) {
-			copies.hidden = true;
+		// Which language decides the Japanese button can change with the
+		// copies (Q-30).
+		if (lang === 'ja') {
+			showJapaneseLiga(card);
+		}
+		else {
+			drawLigaRow();
+		}
+
+		readWish();
+
+		if (!live.length) {
+			// Family view keeps the section away; otherwise it offers Add.
+			copies.hidden = readOnly;
+			copies.replaceChildren(...(readOnly ? [] : [
+				h('div', {class: 'copies-head'},
+					h('h3', {id: 'copies-title'}, 'Not in your cards'),
+					addButton(card, variants)
+				),
+			]));
 
 			return;
 		}
@@ -959,33 +1171,94 @@ export function cardView(root, {lang, cardId}) {
 		const flagged = (language) => flagBadge([language], {className: 'flags-inline'});
 		const groups = new Map();
 
-		for (const entry of mine.entries) {
-			const variant = variants.find((item) => item.variantId && item.variantId === entry.variant_id);
-			const finish = variant
-				? variantText(variant)
-				: entry.finish_raw
-					? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
-					: 'Finish not set';
+		for (const entry of live) {
+			const finish = finishName(entry, variants);
 			// Each copy's own name, when it differs from the one shown above.
 			const localName = entry.name_local && entry.name_local !== shownName ? entry.name_local : null;
 			// Its Liga price, when one is saved on it.
 			const price = copyPriceText(entry);
-			const key = `${entry.language}|${localName}|${finish}|${price}`;
+			const found = placed.get(entry.id);
+			const where = found ? {binder_id: found.binder.id, binder_name: found.binder.name, page: found.slot.page, position: found.slot.position} : null;
+			const condition = entry.condition || null;
+			const notes = entry.notes || null;
+			const key = JSON.stringify([entry.language, localName, finish, price, condition, notes, where && [where.binder_id, where.page, where.position]]);
+			const group = groups.get(key) || {condition, entries: [], finish, language: entry.language, localName, notes, price, where};
 
-			groups.set(key, {count: (groups.get(key) || {count: 0}).count + 1, finish, language: entry.language, localName, price});
+			group.entries.push(entry);
+			groups.set(key, group);
 		}
+
+		const rowContent = (group) => [
+			flagged(group.language),
+			h('span', {class: 'copy-text'},
+				[languageName(group.language), group.localName, group.finish, group.condition].filter(Boolean).join(' · ') + (group.entries.length > 1 ? ` ×${group.entries.length}` : '')
+			),
+			group.price ? h('span', {class: 'copy-price'}, group.price) : null,
+			group.where ? h('span', {class: 'copy-place'}, locationText(group.where)) : null,
+			group.notes ? h('span', {class: 'copy-note'}, group.notes) : null,
+		];
 
 		copies.hidden = false;
 		copies.replaceChildren(
-			h('h3', null, `Your copies (${mine.total})`),
-			h('ul', {class: 'variants'}, [...groups.values()].map((group) =>
-				h('li', null,
-					flagged(group.language),
-					[languageLabel(group.language), group.localName, group.finish].filter(Boolean).join(' · ') + (group.count > 1 ? ` ×${group.count}` : ''),
-					group.price ? h('span', {class: 'copy-price'}, group.price) : null
-				)
+			h('div', {class: 'copies-head'},
+				h('h3', {id: 'copies-title'}, `Your copies (${live.length})`),
+				readOnly ? null : addButton(card, variants)
+			),
+			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
+				h('li', null, readOnly
+					? rowContent(group)
+					: h('button', {
+						'aria-haspopup': 'dialog',
+						class: 'copy-row',
+						onclick: () => openEditSheet({
+							card: sheetCard(card),
+							catalog: catalogFor(lang),
+							entries: group.entries,
+							finishes: finishChoices(variants),
+							placeText: group.where ? locationText(group.where) : null,
+							where: group.where,
+						}),
+						type: 'button',
+					}, rowContent(group)))
 			))
 		);
+	}
+
+	// What the phone knows about the card while TCGdex fails (Q-07): the
+	// card index record My Cards keeps for owned cards, and any full record
+	// saved in another language (an English record for a Portuguese copy),
+	// shaped like a TCGdex card. Null when the phone knows nothing.
+	async function knownCard() {
+		const catalog = catalogFor(lang);
+		const [index, owned] = await Promise.all([cardIndex().catch(() => new Map()), ownedIn(catalog).catch(() => new Map())]);
+		const record = index.get(`${catalog}|${cardId}`) || null;
+		const entries = (owned.get(cardId) || {entries: []}).entries;
+		const saved = (await savedCardRecords(entries.length ? entries : [{card_id: cardId, catalog, language: lang}]).catch(() => new Map())).get(`${catalog}|${cardId}`) || null;
+
+		if (!record && !saved && !entries.length) {
+			return null;
+		}
+
+		const localizations = (record && record.localizations) || {};
+		const local = localizations[lang] || Object.values(localizations)[0] || {};
+		const base = saved || {};
+		const set = base.set || {};
+		const official = (set.cardCount && set.cardCount.official) || (record && record.official) || null;
+
+		return {
+			...base,
+			id: cardId,
+			image: local.image || base.image || null,
+			localId: base.localId || (record && record.collector_number) || cardId,
+			name: local.name || base.name || cardId,
+			set: {
+				...set,
+				cardCount: official ? {...(set.cardCount || {}), official} : set.cardCount,
+				id: set.id || (record && record.set_id) || null,
+				name: local.set_name || set.name || (record && record.set_id) || null,
+			},
+			variants_detailed: Array.isArray(base.variants_detailed) ? base.variants_detailed : [],
+		};
 	}
 
 	async function load() {
@@ -997,7 +1270,20 @@ export function cardView(root, {lang, cardId}) {
 			}
 		}
 		catch (err) {
-			if (alive) {
+			if (!alive) {
+				return;
+			}
+
+			const known = await knownCard().catch(() => null);
+
+			if (!alive) {
+				return;
+			}
+
+			if (known) {
+				draw(known, err);
+			}
+			else {
 				body.replaceChildren(loadFailure(err, 'This card', load));
 			}
 		}
@@ -1011,11 +1297,15 @@ export function cardView(root, {lang, cardId}) {
 
 	// A copy added, removed, or priced elsewhere (or arriving with a sync)
 	// redraws Your copies and the price.
-	const stopWatching = onChange(() => {
+	const redrawCopies = () => {
 		if (alive && current) {
 			drawCopies(current, Array.isArray(current.variants_detailed) ? current.variants_detailed : []);
 		}
-	});
+	};
+	const stopWatching = onChange(redrawCopies);
+	// A removal waiting for its Undo hides the copy at once, and Undo brings
+	// it back.
+	const stopRemovals = onRemovals(redrawCopies);
 
 	return () => {
 		alive = false;
@@ -1023,6 +1313,8 @@ export function cardView(root, {lang, cardId}) {
 		swipe.stop();
 		twin.destroy();
 		stopTwins();
+		stopRemovals();
+		closeCopySheet();
 		photos.destroy();
 	};
 }

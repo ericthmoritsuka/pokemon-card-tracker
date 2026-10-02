@@ -1,0 +1,237 @@
+/* Your copies on card detail, Ver na Liga beside Add to wishlist, and the
+   sheets that edit and add copies (js/catalog-views.js, js/copy-sheet.js).
+   Uses the palette tokens from style.css, so it follows the light and dark
+   schemes and every theme. */
+
+.copies-sr {
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	height: 1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
+/* The heading with Add a copy at its right, as in the design review. */
+.copies-head {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: space-between;
+}
+
+.copies-head h3 {
+	margin: 0;
+}
+
+.card-detail .copies {
+	margin-bottom: var(--space-2);
+}
+
+.copy-rows {
+	list-style: none;
+	margin: var(--space-1) 0 0;
+	padding: 0;
+}
+
+.copy-rows li {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	padding: var(--space-2) 0;
+}
+
+.copy-rows.editable li {
+	padding: 0;
+}
+
+.copy-rows li + li {
+	border-top: 1px solid var(--border);
+	margin-top: 0;
+}
+
+/* A row is one button that opens the edit sheet: the whole row is the
+   target, at least 48 px tall, with a chevron saying that it opens. */
+button.copy-row {
+	align-items: baseline;
+	background: none;
+	border: 0;
+	border-radius: 0;
+	flex-wrap: wrap;
+	font-weight: 400;
+	justify-content: flex-start;
+	padding: var(--space-3) var(--space-6) var(--space-3) 0;
+	position: relative;
+	text-align: left;
+}
+
+button.copy-row::after {
+	color: var(--muted);
+	content: "\203A";
+	font-size: 1.5rem;
+	line-height: 1;
+	position: absolute;
+	right: var(--space-2);
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+.copy-text {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.copy-rows .copy-price,
+.copy-place,
+.copy-note {
+	color: var(--muted);
+	display: block;
+	font-size: 0.875rem;
+	overflow-wrap: anywhere;
+	width: 100%;
+}
+
+.copy-note {
+	font-style: italic;
+}
+
+/* Ver na Liga and Add to wishlist side by side, two thumbs wide. */
+.card-liga {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: var(--space-2) 0 var(--space-3);
+}
+
+.card-liga > * {
+	flex: 1 1 140px;
+}
+
+/* Half the row each at 360 px: less side padding keeps one line. */
+.card-liga > .button,
+.card-liga > button {
+	padding-left: var(--space-2);
+	padding-right: var(--space-2);
+	white-space: nowrap;
+}
+
+.card-liga .liga-none {
+	align-self: center;
+	margin: 0;
+}
+
+.wish-check {
+	margin-right: var(--space-1);
+}
+
+.liga-out {
+	margin-left: var(--space-1);
+}
+
+.card-liga .wish-on {
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	box-shadow: inset 0 -4px 0 var(--tab-mark);
+	color: var(--selected-text);
+}
+
+/* The price section draws a Ver na Liga of its own; on card detail the
+   button above stands for it, so the price panel starts with the Liga
+   price and its form. */
+.card-detail .price-slot .price-liga-link,
+.card-detail .price-slot .price-liga-none {
+	display: none;
+}
+
+.card-detail .price-slot .price-actions:not(:has(.price-edit)) {
+	display: none;
+}
+
+/* The catalog is down: one short line, the reason small under it, and Try
+   again beside them, so Your copies still shows on the first screen. */
+.card-unreachable {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	margin-top: var(--space-2);
+	padding: var(--space-2) var(--space-3);
+}
+
+.card-unreachable-text {
+	flex: 1;
+	min-width: 0;
+}
+
+.card-unreachable p {
+	font-size: 0.875rem;
+	margin: 0;
+}
+
+.card-unreachable .card-unreachable-why {
+	color: var(--muted);
+	font-size: 0.75rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.card-unreachable button {
+	flex: none;
+}
+
+/* The sheets. */
+
+.copy-sheet {
+	overflow-y: auto;
+}
+
+.copy-sub {
+	margin: 0 0 var(--space-2);
+}
+
+.copy-form {
+	display: grid;
+	gap: var(--space-3);
+}
+
+.copy-field label {
+	margin-bottom: var(--space-1);
+}
+
+.copy-field .select-wrap {
+	display: block;
+}
+
+.copy-notes {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	color: var(--text);
+	font: inherit;
+	min-height: 64px;
+	padding: var(--space-2) var(--space-3);
+	resize: vertical;
+	width: 100%;
+}
+
+.copy-notes:focus-visible {
+	outline: 3px solid var(--accent-strong);
+	outline-offset: 2px;
+}
+
+.copy-scope {
+	grid-template-columns: 1fr 1fr;
+	margin: 0;
+}
+
+.copy-danger {
+	border-top: 1px solid var(--border);
+	margin-top: var(--space-4);
+	padding-top: var(--space-4);
+}
+
+.copy-leaves {
+	margin: var(--space-2) 0 0;
+}
