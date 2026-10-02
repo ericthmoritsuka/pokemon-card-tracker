@@ -130,6 +130,12 @@ async function fakeServices(context, counts, net) {
 				return reply({sets: GRAPHQL_SETS});
 			}
 
+			// My Cards reads each owned set's card details in the background
+			// (js/catalog.js setDetails); that is not the checklists' list.
+			if (/dexId types category rarity/.test(query)) {
+				return reply({cards: []});
+			}
+
 			if (dex) {
 				counts.dexCards++;
 
