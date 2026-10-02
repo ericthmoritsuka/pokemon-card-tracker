@@ -1,19 +1,24 @@
 # Roadmap and Handoff
 
-Written 2026-10-01 at the end of a long build day, so the next session can continue without the
-old conversation. Read this first, then `CHANGELOG.md` (what is live and when) and `DESIGN.md`
+Written 2026-10-01 at the end of a long build day and updated 2026-10-02 after versions 15 to 20,
+so the next session can continue without the old conversation. Read this first, then `CHANGELOG.md` (what is live and when) and `DESIGN.md`
 (requirements and decisions, with their reasons). `plans/design-review.md` is the approved UI
 spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v17** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
-  `c2e76d2`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
-  the monprice import, sign-in and live sync, the family group, checklists, wishlists, binders
-  (single page), the scanner (v17), own photos with the carousel, the zoom and compare viewer,
-  the twelve TCG energy themes, Brazil-first prices, and (v16) name-and-password sign-in for a
-  family member without an email (`@family.invalid` accounts Eric creates in the dashboard;
-  `supabase/reset-password.sql` resets one).
+- **Live:** version **v20** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
+  `9c642f9`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
+  the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
+  scanner (v17), own photos with the carousel, the zoom and compare viewer, the twelve TCG energy
+  themes, Brazil-first prices, (v16) name-and-password sign-in for a family member without an
+  email (`@family.invalid` accounts Eric creates in the dashboard; `supabase/reset-password.sql`
+  resets one), (v18) binder spreads, (v19) every card of a Pokémon from a checklist, and (v20)
+  international twins on card pages and My Cards. Every built module is now wired in.
+- **Eric's brother's account** (`tadeu.moritsuka@family.invalid`): Eric said on 2026-10-01 he
+  thinks he created it and added it to the family. Not yet confirmed that the dashboard accepted
+  the `.invalid` address or that a sign-in worked; if it refused, change `ACCOUNT_NAME_DOMAIN` in
+  `js/auth.js`, the domain in `supabase/reset-password.sql`, and the docs.
 - **Supabase is fully set up:** `setup.sql`, `realtime.sql`, and `photos.sql` have all been run
   (checked: realtime ready, photo bucket and its four policies present). Sign-ups are closed,
   Google sign-in works, Eric is the owner, and two family members are invited.
@@ -35,54 +40,40 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## Next Steps, in Order
 
-1. **Scanner: done in v17.** Next for it: Eric's real-card test, then the ideas above. Known
-   gaps: a card filling 100% of the guide's height at a strong slant is still cut at the weakness
-   row; perfectly regular vertical stripes still pass the presence check.
-2. **Wire binder spreads** (module committed in `64117ab`: `js/binder-spread.js`,
-   `js/binder-cover.js`, `js/binder-presets.js`, `css/binder-spread.css`). The exact
-   `js/binders-view.js` diff was saved at `/tmp/bs-integration/binders-view.diff` with its
-   generator `/tmp/bs-integration/patch.py`; if `/tmp` was cleared, rebuild it from the module's
-   API (`binderSpread({binder, renderPocket(page, position), onPocket, onChange, page, path, base,
-   readOnly})`, `presetPicker`, `paintCover`, `pickCoverImage`). The binders view must keep the
-   price stats bar added in v14. Add `css/binder-spread.css` to `index.html` (the JS files are
-   already in `SHELL`). Then update `tests/binders.test.mjs` selectors (`#pocket-grid`,
-   `#page-prev`, `#page-next`, `#page-select`, and pocket labels now "Page P, pocket N").
-   Follow-ups: delete a binder's cover file from the bucket when the binder is deleted; landscape
-   leaves little height for the spread (shell bars).
-3. **Wire every card of a Pokémon** (committed in `f92bebe`: `js/pokemon-cards.js`,
-   `js/pokemon-cards-view.js`, `css/pokemon-cards.css`; additive helpers in `js/checklists.js`).
-   The integration lines are the `INTEGRATION` table in `tests/pokemon-cards-harness.mjs` (routes
-   and account views in `app.js`, the stylesheet, the languages control and the new checklist row
-   in `js/checklists-view.js`). Its `checklists-view.js` anchor for `root.append` no longer
-   matches, because v14 added the stats bar there: update the anchor, then make the harness assert
-   against the real files instead of patching them, as `tests/binders.test.mjs` does. Then update
-   `tests/checklists.test.mjs` (owned-row expansion and the read-only `.dex-row button` checks).
-4. **Wire international twins** (committed in `ce0cbe6`: `js/twins.js`, `js/twins-view.js`,
-   `css/twins.css`). Integration:
-   - `js/catalog-views.js`: import `{onTwinsChange, twinName, twinSlides}` from `./twins.js` and
-     `{twinConfirm}` from `./twins-view.js`; in `cardView` after the photos setup,
-     `const twin = twinConfirm({cardId, catalog: catalogFor(lang)})` and
-     `const stopTwins = onTwinsChange(() => alive && current && draw(current))`; wrap the
-     shown names so an Asian print without an English name takes `twinName({card_id: cardId,
-     catalog: catalogFor(lang)})`; call `twin.check(card)` in `draw`; pass
-     `twins: twinSlides(card, {catalog: catalogFor(lang)})` into `photos.show(...)`; place
-     `twin.element` right after the card hero; call `twin.destroy()` and `stopTwins()` in cleanup.
-   - `js/cards-view.js`: names fall back to `twinName({card_id, catalog})` when no English name
-     exists; tile sources get `twinSlides(entry, {size: 'low'})` through `tileSrc(..., {twins})`
-     and `withMainPhoto(..., {twins})`; after the first build, `loadTwins()` then rebuild, and
-     `refreshTwins(entries)`; subscribe with `onTwinsChange` and unsubscribe in cleanup.
-   - Add `css/twins.css` to `index.html` (the JS is already in `SHELL`).
-   Note: it matches Japanese records only; Korean copies sit on Japanese records, so they are
-   covered. Japanese `M6` (Storm Emerald) has no English counterpart yet, so most of Eric's Korean
-   cards stay unmatched until it appears; the weekly recheck fills them in later.
-5. **Whole-app audit**, report only: a staff software engineer (bugs, sync and merge, offline and
+Steps 1 to 4 of the 2026-10-01 list are done: the scanner (v15, fixed in v17), binder spreads
+(v18), every card of a Pokémon (v19), and international twins (v20). Loose ends they left, for
+the audit below to confirm or drop:
+
+- **Scanner:** Eric's real-card test, then the ideas above. Known gaps: a card filling 100% of the
+  guide's height at a strong slant is still cut at the weakness row; perfectly regular vertical
+  stripes still pass the presence check. Worth committing the benchmark into `lab/` (it uses
+  TCGdex images only) so it survives `/tmp` being cleared.
+- **Binders (v18):** the empty-binder hint still says "Tap a pocket", which in portrait means
+  tapping the page first; the binder screen's action buttons no longer stick (they covered the
+  spread); new binders default to 40 pages; old `binders/<id>/<page>` links open the spread
+  holding that page; another phone keeps a deleted binder's cover in its local cache; in
+  landscape the raised Scan button sits over the bottom of the spine.
+- **Every card of a Pokémon (v19):** a list with no `languages` field shows "All" and counts any
+  language. Once Edit saves languages there is no way back to "All" (ticking every box counts the
+  same but shows seven flags). On an "All" list the first visit to a Pokémon makes four Asian
+  catalog requests plus one per Japanese or Korean set with that Pokémon, cached afterwards. Owned
+  rows no longer expand inline; the row links to the Pokémon's screen instead.
+- **Twins (v20):** Ver na Liga on a Japanese Trainer now builds its link from the twin's English
+  name; check against Liga's Japanese pages that this is right. Set detail tiles do not use twins.
+  No test opens a family member's cards with Japanese entries. Twins and the Pokémon screen each
+  fetch and cache their own TCGdex set list (twins also asks for card counts): one shared list
+  would do. Japanese `M6` (Storm Emerald) has
+  no English counterpart yet, so most of Eric's Korean cards stay unmatched until it appears; the
+  weekly recheck fills them in later.
+
+1. **Whole-app audit**, report only: a staff software engineer (bugs, sync and merge, offline and
    the service worker, Supabase RLS and storage policies, unsafe HTML, performance with 1,600+
    cards, duplication between parallel-built modules, dead code, test gaps) writing
    `plans/audit-engineering.md`, and a senior QA tester who collects cards (every flow end to
    end at phone sizes, offline, family, prices, themes, scanner with the Weedle photo, attempts
    to break things, accessibility) writing `plans/audit-qa.md`. Merge into one prioritized list
    for Eric, then fix in blocks.
-6. **Remaining pieces for a complete first version:** Add to wishlist on card detail (the export
+2. **Remaining pieces for a complete first version:** Add to wishlist on card detail (the export
    `addToWishlist` exists); a Trade view (spares per card and language; none exists yet, and the
    stats bar should go on it); removing or trading away a copy; CSV re-import (strip the `="..."`
    wrapper the export writes around numbers); condition at scan; adding Eric's 16 unmatched cards
@@ -91,7 +82,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
    own rings and "Your copies"; truncated selects on My Cards; `css/binders.css` and
    `css/wishlist.css` onto the design tokens; the unused `.wl-badge-on`); README still describes
    the old Menu.
-7. **Later, not scheduled:** image-first recognition (DESIGN.md section 6, "Later: image-first
+3. **Later, not scheduled:** image-first recognition (DESIGN.md section 6, "Later: image-first
    recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
    graded cards, Korean and Japanese script detection for the scanner (vendor `jpn` and `kor`
    models).
@@ -99,8 +90,9 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 ## Open Decisions for Eric
 
 - **Do a list's languages decide its ticks?** Today a checklist ticks from any language (his Kanto
-  list shows 141 of 151). Proposed: lists without a `languages` field keep counting any language;
-  new lists follow their setting (Portuguese by default). The change is in `js/checklists-view.js`,
+  list shows 141 of 151), and since v19 a list without a `languages` field says "All" so the label
+  matches. Proposed: lists without a `languages` field keep counting any language; new lists
+  follow their setting (Portuguese by default). The change is in `js/checklists-view.js`,
   `checklistScreen`'s `load()`: call `resolveOwned(entriesInLanguages(data.entries,
   listLanguages(found)), ...)`, using the helpers exported from `js/checklists.js`.
 - **The family switcher's place:** v13 moved it to a "Mine" chip in the header with a bottom
@@ -119,13 +111,18 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
   from `sw.js`.
 - **Stage exact files**, never `git add -A`, so another agent's in-progress work is not committed.
 - **Test the exact commit on a clean worktree before pushing:** `git worktree add --detach
-  <tmp>/vNN HEAD`, run every suite there, push only if green, then remove the worktree.
+  <tmp>/vNN HEAD`, run every suite there, push only if green, then remove the worktree. A session
+  isolated in its own worktree cannot add another, so there use `git archive -o <tmp>/vNN.tar
+  <sha>` and unpack it instead (the project needs no install). Browser suites can time out when
+  other agents run browsers at the same time (`app`'s 1,600-entry sign-in test did once); re-run
+  the suite alone before believing a failure.
 - **Suites:** `PLAYWRIGHT=/home/me/dev/projects/pages-workspace/playwright/node_modules/playwright
   node --test --test-timeout=300000 tests/<name>.test.mjs` for `merge`, `names`, `liga`, `themes`,
   `wishlist`, `binders`, `checklists`, `app`, `live-sync`, `themes-app`, `wishlist-browser`,
   `shell`, `scan`, `scan-browser`, `photos`, `photos-browser`, `photos-viewer`,
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
-  `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`;
+  `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
+  `account-password`;
   `photos-sql` needs Docker. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal

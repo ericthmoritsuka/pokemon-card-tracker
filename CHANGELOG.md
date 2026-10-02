@@ -5,12 +5,19 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-10-01)
+## In Progress (2026-10-02)
 
-- Built and waiting to be wired in: international twins for Japanese and Korean cards. See
-  `plans/roadmap.md`.
+- Nothing is waiting to be wired in. Next: a whole-app audit. See `plans/roadmap.md`.
 
 ## Live
+
+### 2026-10-02
+
+- **05:47** Version 20: international twins. `9c642f9`
+  - A Japanese or Korean card with no image or English name of its own borrows them from the
+    matching English print, on card pages and in My Cards. When the match is not certain, the
+    card page asks you to confirm it.
+  - My Cards opens as fast as before; the borrowed images fill in right after.
 
 ### 2026-10-01
 
