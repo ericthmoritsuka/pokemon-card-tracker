@@ -285,6 +285,41 @@ describe('the tabs', () => {
 		assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), [`${BASE}scan`]);
 	});
 
+	test('unsaved tray cards put a count dot on the Scan tab', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const scanTab = page.locator('.tabs a[data-tab="scan"]');
+		const saveDraft = (count) => page.evaluate(async (n) => {
+			const {saveSession} = await import('/pokemon-card-tracker/js/scan/draft.js');
+
+			await saveSession({items: Array.from({length: n}, (_, i) => ({id: `item-${i + 1}`}))});
+		}, count);
+
+		await page.goto(url('cards'));
+		await page.waitForSelector('main h2');
+		assert.equal(await page.locator('#scan-dot').count(), 0, 'no dot without a draft');
+		assert.equal(await scanTab.getAttribute('aria-label'), null);
+
+		await saveDraft(2);
+		await page.waitForSelector('.tab-scan .scan-disc #scan-dot');
+		assert.equal(await page.locator('#scan-dot').textContent(), '2');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, 2 unsaved cards in the tray');
+
+		// A cold start reads the draft left on the phone.
+		await saveDraft(1);
+		await page.reload();
+		await page.waitForSelector('#scan-dot');
+		assert.equal(await page.locator('#scan-dot').textContent(), '1');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, 1 unsaved card in the tray');
+
+		// Saved or discarded, the tray is empty and the dot goes.
+		await saveDraft(0);
+		await page.waitForFunction(() => !document.getElementById('scan-dot'));
+		assert.equal(await scanTab.getAttribute('aria-label'), null);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('an empty My Cards and an empty binder offer Scan', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 

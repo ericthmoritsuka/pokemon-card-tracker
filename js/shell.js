@@ -1,6 +1,7 @@
 // The app shell around every screen (plans/design-review.md sections 2 and
 // 3, "Shared Header"): the avatar that opens Profile, the "Mine" switcher and
-// family view-only mode, the offline strip, toasts, and the five tabs.
+// family view-only mode, the offline strip, toasts, and the five tabs, with
+// a count dot on Scan while the scanner's draft tray holds unsaved cards.
 //
 // Family view-only mode is a lens on a family member's data. It starts on a
 // family route (family/<id>, family/<id>/binders, family/<id>/lists,
@@ -13,6 +14,7 @@ import {accountLabel, currentUser, onUser} from './auth.js';
 import {spriteUrl} from './checklists.js';
 import {BASE, go, h} from './dom.js';
 import {familyMembers} from './family.js';
+import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -141,6 +143,39 @@ function drawTabs() {
 			tab.removeAttribute('aria-current');
 		}
 	}
+}
+
+// Unsaved tray cards (plans/design-review.md, "A draft resumes"): a count
+// dot on the Scan disc, and the count in the tab's name, so a draft left on
+// the phone is not forgotten. js/scan/draft.js says the count on every save;
+// at start it is read once from the draft itself.
+function drawScanDot(count) {
+	const tab = document.querySelector('.tabs a[data-tab="scan"]');
+	const disc = tab && tab.querySelector('.scan-disc');
+
+	if (!disc) {
+		return;
+	}
+
+	let dot = document.getElementById('scan-dot');
+
+	if (!count) {
+		if (dot) {
+			dot.remove();
+		}
+
+		tab.removeAttribute('aria-label');
+
+		return;
+	}
+
+	if (!dot) {
+		dot = h('span', {'aria-hidden': 'true', class: 'scan-dot', id: 'scan-dot'});
+		disc.append(dot);
+	}
+
+	dot.textContent = count > 99 ? '99+' : formatCount(count);
+	tab.setAttribute('aria-label', `Scan, ${formatCount(count)} unsaved ${count === 1 ? 'card' : 'cards'} in the tray`);
 }
 
 // --------------------------------------------------- the "Mine" switcher
@@ -352,6 +387,19 @@ export function startShell() {
 	window.addEventListener('online', () => drawOffline());
 	window.addEventListener('offline', () => drawOffline());
 
+	let draftSaved = false;
+
+	window.addEventListener(DRAFT_EVENT, (event) => {
+		draftSaved = true;
+		drawScanDot((event.detail && event.detail.count) || 0);
+	});
+
 	drawAccount();
 	drawOffline();
+	// A save that lands first knows better than this read.
+	draftCount().then((count) => {
+		if (!draftSaved) {
+			drawScanDot(count);
+		}
+	});
 }
