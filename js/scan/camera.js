@@ -4,7 +4,7 @@
 // than the lab. The capture geometry (guide frame plus margin) is the lab's,
 // so the straightening and reading code sees what the benchmark measured.
 
-import {captureRect, GUIDE_FILL} from '../../lab/js/camera.js';
+import {cancelled, captureRect, GUIDE_FILL, playStream, stopStream} from '../../lab/js/camera.js';
 import {guideRect} from '../../lab/js/pipeline.js';
 import {THUMB_H, THUMB_W, toGrey} from './steady.js';
 
@@ -29,10 +29,17 @@ const supports = (caps, key, value) => {
 };
 
 // Starts the rear camera into `video`. Throws CameraUnavailable with a
-// reason a person can act on.
-export async function startCamera(video) {
+// reason a person can act on. signal (an AbortSignal) cancels the start:
+// the stream is stopped, even one that arrives after the cancel, and it
+// throws an AbortError. A start that fails after the camera opened stops
+// it too.
+export async function startCamera(video, {signal = null} = {}) {
 	if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
 		throw new CameraUnavailable('This browser gives no camera access here.');
+	}
+
+	if (signal && signal.aborted) {
+		throw cancelled();
 	}
 
 	let stream;
@@ -49,6 +56,16 @@ export async function startCamera(video) {
 		throw new CameraUnavailable(denied ? 'Camera access is turned off for this app.' : 'The camera could not start.', err);
 	}
 
+	const stillWanted = () => {
+		if (signal && signal.aborted) {
+			stopStream(stream);
+
+			throw cancelled();
+		}
+	};
+
+	stillWanted();
+
 	const track = stream.getVideoTracks()[0];
 	const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null;
 
@@ -63,6 +80,8 @@ export async function startCamera(video) {
 			catch {
 				// Keeps the resolution the first ask got.
 			}
+
+			stillWanted();
 		}
 	}
 
@@ -75,21 +94,7 @@ export async function startCamera(video) {
 		}
 	}
 
-	video.srcObject = stream;
-	video.muted = true;
-	video.setAttribute('playsinline', '');
-	await video.play();
-
-	if (!video.videoWidth) {
-		await new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new CameraUnavailable('The camera sent no picture within 10 seconds.')), 10000);
-
-			video.addEventListener('loadedmetadata', () => {
-				clearTimeout(timer);
-				resolve();
-			}, {once: true});
-		});
-	}
+	await playStream(video, stream, {noPicture: () => new CameraUnavailable('The camera sent no picture within 10 seconds.'), signal});
 
 	let torchOn = false;
 	let zoom = caps && caps.zoom ? (track.getSettings().zoom || caps.zoom.min) : null;
@@ -99,11 +104,7 @@ export async function startCamera(video) {
 			return {height: video.videoHeight, width: video.videoWidth};
 		},
 		stop() {
-			for (const t of stream.getTracks()) {
-				t.stop();
-			}
-
-			video.srcObject = null;
+			stopStream(stream, video);
 		},
 		get torch() {
 			return torchOn;

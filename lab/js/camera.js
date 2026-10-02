@@ -20,9 +20,96 @@ const supports = (caps, key, value) => {
 	return options === value || (Array.isArray(options) && options.includes(value));
 };
 
-export async function startCamera(video) {
+// An AbortError, for a camera start that was cancelled.
+export const cancelled = () => new DOMException('The camera start was cancelled.', 'AbortError');
+
+// Ends every track of `stream` and empties `video` if it shows it.
+export function stopStream(stream, video = null) {
+	for (const t of stream.getTracks()) {
+		t.stop();
+	}
+
+	if (video && video.srcObject === stream) {
+		video.srcObject = null;
+	}
+}
+
+// Waits for `promise`, or rejects with cancelled() when `signal` aborts
+// first.
+export function unlessAborted(promise, signal) {
+	if (!signal) {
+		return promise;
+	}
+
+	if (signal.aborted) {
+		return Promise.reject(cancelled());
+	}
+
+	return new Promise((resolve, reject) => {
+		const onAbort = () => reject(cancelled());
+
+		signal.addEventListener('abort', onAbort, {once: true});
+		promise.then((value) => {
+			signal.removeEventListener('abort', onAbort);
+			resolve(value);
+		}, (err) => {
+			signal.removeEventListener('abort', onAbort);
+			reject(err);
+		});
+	});
+}
+
+// Shows `stream` in `video` and waits for its first picture: play(), then
+// the frame size within 10 seconds (noPicture() is the error after that).
+// On any failure, or `signal` aborting, the stream's tracks are stopped
+// before it throws, so the camera light never stays on.
+export async function playStream(video, stream, {noPicture, signal = null}) {
+	let timer = 0;
+
+	try {
+		if (signal && signal.aborted) {
+			throw cancelled();
+		}
+
+		video.srcObject = stream;
+		video.muted = true;
+		video.setAttribute('playsinline', '');
+
+		const playing = video.play();
+
+		// Emptying the video below cuts a pending play() short; that
+		// rejection is expected and handled here.
+		playing.catch(() => {});
+		await unlessAborted(playing, signal);
+
+		if (!video.videoWidth) {
+			await unlessAborted(new Promise((resolve, reject) => {
+				timer = setTimeout(() => reject(noPicture()), 10000);
+				video.addEventListener('loadedmetadata', () => {
+					clearTimeout(timer);
+					resolve();
+				}, {once: true});
+			}), signal);
+		}
+	}
+	catch (err) {
+		clearTimeout(timer);
+		stopStream(stream, video);
+
+		throw err;
+	}
+}
+
+// Starts the rear camera into `video`. signal (an AbortSignal) cancels the
+// start: the stream is stopped, even one that arrives after the cancel, and
+// it throws an AbortError.
+export async function startCamera(video, {signal = null} = {}) {
 	if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
 		throw new Error('This browser has no camera access here. Open the lab over HTTPS (or localhost) in Chrome.');
+	}
+
+	if (signal && signal.aborted) {
+		throw cancelled();
 	}
 
 	const started = performance.now();
@@ -34,6 +121,13 @@ export async function startCamera(video) {
 			width: {ideal: 3840},
 		},
 	});
+
+	if (signal && signal.aborted) {
+		stopStream(stream);
+
+		throw cancelled();
+	}
+
 	const track = stream.getVideoTracks()[0];
 	const caps = typeof track.getCapabilities === 'function' ? track.getCapabilities() : null;
 
@@ -46,20 +140,7 @@ export async function startCamera(video) {
 		}
 	}
 
-	video.srcObject = stream;
-	video.muted = true;
-	await video.play();
-
-	if (!video.videoWidth) {
-		await new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error('The camera sent no frame within 10 seconds.')), 10000);
-
-			video.addEventListener('loadedmetadata', () => {
-				clearTimeout(timer);
-				resolve();
-			}, {once: true});
-		});
-	}
+	await playStream(video, stream, {noPicture: () => new Error('The camera sent no frame within 10 seconds.'), signal});
 
 	let torchOn = false;
 	let zoom = caps && caps.zoom ? (track.getSettings().zoom || caps.zoom.min) : null;
@@ -72,11 +153,7 @@ export async function startCamera(video) {
 		label: track.label || 'Camera',
 		startMs: Math.round(performance.now() - started),
 		stop() {
-			for (const t of stream.getTracks()) {
-				t.stop();
-			}
-
-			video.srcObject = null;
+			stopStream(stream, video);
 		},
 		get torch() {
 			return torchOn;
