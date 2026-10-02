@@ -905,6 +905,42 @@ also where Michi art can cross facing pages, which settles that open question. *
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
 cards are not in any binder yet.
 
+**Resizing a binder** (Eric, 2026-10-02). When a binder's grid changes:
+
+- **Growing** (rows and columns both at least the old ones): every card keeps its row and column
+  on its page; the new columns and rows appear empty on the right and at the bottom; the pages
+  are unchanged.
+- **Shrinking or reshaping:** if every placed pocket still fits at its own row and column, the
+  positions are kept and the empty edge is cut. Otherwise the whole binder is laid out again in
+  reading order (page by page, row by row): pockets with nothing in them close up, while
+  placeholders and pockets left empty on purpose keep their place in the sequence and move with
+  the cards. Pages are added when needed so nothing falls out, and the editor says so ("This
+  binder grows from 12 to 27 pages"), unless the person asked for fewer pages.
+- **Fewer pages** can still push cards out, with the warning; those cards land in the binder's
+  tray instead of leaving it, and placeholders and empty-on-purpose pockets on the cut pages go.
+- **Michi art** is cleared on any change of shape.
+- Each binder carries a numeric **`layout`**, one more on every change of shape (and when it is
+  emptied into the tray); a binder without it counts as 0. A later sync change uses it so pockets
+  saved for two different grids never mix.
+- Before saving, the editor shows the first page after the change and what happens to the
+  pockets, in the app's own sheet, with **"Empty into the tray and arrange by hand"** as the other
+  way: every card goes to the tray in reading order, and placeholders and empty-on-purpose pockets
+  are removed.
+
+The 40-page default for new binders and every preset stays (decided).
+
+**The tray** (Eric, 2026-10-02). Each binder has a tray (`staged`, a list of entry ids) of cards
+meant for it but not in a pocket yet: cards a resize pushed out, a binder emptied to arrange by
+hand, or a card taken out of a pocket with "To the tray". A copy is in at most one tray, and never
+in a tray and a pocket at once. The tray is a strip of small thumbnails (about 56 px wide, the
+cached card image) docked at the bottom of the binder screen above the tab bar, scrolling
+sideways; held sideways it is a column beside the spread, so the spread still fits above the tab
+bar. Tap a thumbnail to pick it (it lights up), tap a pocket to place it, and the next tray card is
+picked; a card placed on another card swaps with it. Where the spread is directly editable
+(sideways, tablets, laptops, a zoomed page) cards can also be dragged onto pockets. **Fill the rest
+in order** places the remaining cards in the pockets with nothing in them, in reading order. A copy
+deleted from the collection leaves the tray.
+
 ### Themes
 
 A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:
