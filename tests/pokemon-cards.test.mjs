@@ -1,6 +1,7 @@
 // Unit tests for every card of a Pokémon (js/pokemon-cards.js) and the list
 // languages in js/checklists.js, over the real TCGdex responses recorded in
-// tests/pokemon-cards-fixtures.mjs (Jigglypuff, dex 39).
+// tests/pokemon-cards-fixtures.mjs (Jigglypuff, dex 39), and the lines that
+// wire the screen into the app (tests/pokemon-cards-harness.mjs).
 //
 // Run: node --test tests/pokemon-cards.test.mjs
 
@@ -8,6 +9,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {FIXTURES} from './pokemon-cards-fixtures.mjs';
+import {checkIntegration} from './pokemon-cards-harness.mjs';
 
 // js/tile.js reaches js/dom.js, which listens for errors on window when it
 // loads; the finish rules are tile.js's own, so they are tested through it.
@@ -154,10 +156,17 @@ describe('selecting the prints', () => {
 });
 
 describe('languages and ownership', () => {
-	test('a list reads Portuguese only until it names its languages', () => {
-		assert.deepEqual(checklists.listLanguages({}), ['pt']);
-		assert.deepEqual(checklists.listLanguages(null), ['pt']);
-		assert.deepEqual(checklists.listLanguages({languages: []}), ['pt']);
+	test('a list reads every language until it names its own', () => {
+		const all = ['en', 'pt', 'fr', 'ja', 'ko', 'zh-cn', 'zh-tw'];
+
+		assert.deepEqual(checklists.listLanguages({}), all);
+		assert.deepEqual(checklists.listLanguages(null), all);
+		assert.deepEqual(checklists.listLanguages({languages: []}), all);
+		assert.deepEqual(checklists.listLanguages({languages: ['xx']}), all);
+		assert.equal(checklists.namesLanguages({}), false);
+		assert.equal(checklists.namesLanguages({languages: ['xx']}), false);
+		assert.equal(checklists.namesLanguages({languages: ['pt']}), true);
+		assert.deepEqual(catalogsFor(checklists.listLanguages({})), ['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
 		assert.deepEqual(checklists.listLanguages({languages: ['pt', 'en', 'pt', 'xx']}), ['pt', 'en']);
 		assert.deepEqual(checklists.listLanguages({languages: ['ja']}), ['ja']);
 	});
@@ -188,6 +197,14 @@ describe('languages and ownership', () => {
 		assert.ok(ptEn.has('international|swsh3-67'));
 		assert.ok(!ptEn.has('international|xy1-87'), 'a deleted copy never counts');
 		assert.ok(copiesByPrint(entries, ['ja']).has('ja|SV2a-039'));
+
+		// A list that names no languages counts every live copy, as its
+		// checklist does, even one with no language recorded.
+		const any = copiesByPrint([...entries, copy('f', {card_id: 'base2-54', catalog: 'international'})], null);
+
+		assert.deepEqual(any.get('international|sv03.5-039').map((entry) => entry.id), ['a', 'b']);
+		assert.ok(any.has('ja|SV2a-039') && any.has('international|base2-54'));
+		assert.ok(!any.has('international|xy1-87'), 'a deleted copy never counts');
 		assert.deepEqual(checklists.entriesInLanguages(entries, ['en']).map((entry) => entry.id), ['b', 'c']);
 	});
 
@@ -272,5 +289,11 @@ describe('parsing', () => {
 		assert.equal(dexFromParam('0'), null);
 		assert.equal(dexFromParam('1026'), null);
 		assert.equal(dexFromParam('3x'), null);
+	});
+});
+
+describe('the integration', () => {
+	test('app.js, index.html, sw.js, and js/checklists-view.js carry the screen\'s lines', async () => {
+		await checkIntegration();
 	});
 });

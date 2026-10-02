@@ -2,8 +2,8 @@
 // js/checklists-view.js). Headless Chromium at 360 x 740 against
 // tests/pages-server.mjs.
 //
-// Every outside service is faked: TCGdex (the GraphQL card list and single
-// cards), PokeAPI (names), the sprite repository, and Supabase
+// Every outside service is faked: TCGdex (the GraphQL card list, set list,
+// and one Pokémon's cards, and single cards), PokeAPI (names), the sprite repository, and Supabase
 // (tests/fake-supabase.mjs, or a route that fails the test signed out). The
 // collection is made up.
 //
@@ -24,7 +24,7 @@ const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 const BASE = '/pokemon-card-tracker/';
 const VIEWPORT = {height: 740, width: 360};
 // Files the offline test needs from the service worker's shell list.
-const NEW_FILES = ['js/checklists.js', 'js/checklists-view.js', 'js/flags.js', 'js/names.js'];
+const NEW_FILES = ['js/checklists.js', 'js/checklists-view.js', 'js/flags.js', 'js/names.js', 'js/pokemon-cards.js', 'js/pokemon-cards-view.js'];
 
 let pages;
 let origin;
@@ -81,6 +81,16 @@ const GRAPHQL_CARDS = [
 	{dexId: [133], id: 'tst1-133'},
 ];
 
+// The set list, and each Pokémon's cards, for every card of a Pokémon
+// (js/pokemon-cards.js).
+const GRAPHQL_SETS = [{id: 'tst1', name: 'Test set one', releaseDate: '2026-01-01', serie: {id: 'tst'}}];
+
+// An Asian catalog's cards of one Pokémon, by "<lang>/<dex>" (none
+// elsewhere), and the details of their sets.
+const ASIAN_LISTS = {'ja/7': [{id: 'tstj-007', image: null, localId: '007', name: 'ゼニガメ'}]};
+
+const SET_DETAILS = {'ja/sets/tstj': {id: 'tstj', name: 'Test set JA', releaseDate: '2026-02-01', serie: {id: 'tst'}}};
+
 const SINGLE_CARDS = {
 	'en/cards/tst1-001': {dexId: [1], id: 'tst1-001', image: null, localId: '001', name: 'Test Bulbasaur', set: {id: 'tst1', name: 'Test set one'}},
 	'ja/cards/tstj-007': {dexId: [7], id: 'tstj-007', image: null, localId: '007', name: 'ゼニガメ', set: {id: 'tstj', name: 'Test set JA'}},
@@ -106,9 +116,41 @@ async function fakeServices(context, counts, net) {
 		const {pathname} = new URL(route.request().url());
 
 		if (pathname === '/v2/graphql') {
+			const {query} = JSON.parse(route.request().postData() || '{}');
+			const reply = (data) => route.fulfill({body: JSON.stringify({data}), contentType: 'application/json', status: 200});
+			const dex = /cards\(filters: \{dexId: (\d+)\}\)/.exec(query);
+
+			if (/^\{ sets /.test(query)) {
+				counts.sets++;
+
+				return reply({sets: GRAPHQL_SETS});
+			}
+
+			if (dex) {
+				counts.dexCards++;
+
+				return reply({cards: GRAPHQL_CARDS.filter((card) => (card.dexId || []).includes(Number(dex[1]))).map((card) => ({id: card.id, image: null, localId: card.id.split('-').pop(), name: `Test ${NAMES[card.dexId[0]]}`, rarity: null}))});
+			}
+
 			counts.graphql++;
 
-			return route.fulfill({body: JSON.stringify({data: {cards: GRAPHQL_CARDS}}), contentType: 'application/json', status: 200});
+			return reply({cards: GRAPHQL_CARDS});
+		}
+
+		const asian = /^\/v2\/([a-z-]+)\/cards$/.exec(pathname);
+
+		if (asian) {
+			counts.asian++;
+
+			const dex = (new URL(route.request().url()).searchParams.get('dexId') || '').replace(/^eq:/, '');
+
+			return route.fulfill({body: JSON.stringify(ASIAN_LISTS[`${asian[1]}/${dex}`] || []), contentType: 'application/json', status: 200});
+		}
+
+		const set = SET_DETAILS[pathname.replace('/v2/', '')];
+
+		if (set) {
+			return route.fulfill({body: JSON.stringify(set), contentType: 'application/json', status: 200});
 		}
 
 		const single = SINGLE_CARDS[pathname.replace('/v2/', '')];
@@ -142,7 +184,7 @@ async function fakeServices(context, counts, net) {
 
 async function device(fake, name, {serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
-	const counts = {graphql: 0, names: 0, single: 0};
+	const counts = {asian: 0, dexCards: 0, graphql: 0, names: 0, sets: 0, single: 0};
 	const net = {offline: false};
 
 	await fakeServices(context, counts, net);
@@ -194,6 +236,15 @@ const shownErrors = (page) => page.locator('#errors .error').allTextContents();
 async function waitForSummary(page, text) {
 	await page.waitForFunction((expected) => (document.getElementById('checklist-summary') || {}).textContent === expected, text, {timeout: 15000});
 }
+
+// The title of a Pokémon's cards screen (js/pokemon-cards-view.js).
+async function waitForPokemonTitle(page, text) {
+	await page.waitForFunction((expected) => (document.getElementById('pc-title') || {}).textContent === expected, text, {timeout: 15000}).catch(async (err) => {
+		throw new Error(`Title is "${await page.locator('#pc-title').textContent()}", not "${text}". Status: "${await page.locator('#pc-status').textContent()}". ${err.message}`);
+	});
+}
+
+const flagsIn = (page, selector) => page.locator(`${selector} img.flag`).evaluateAll((flags) => flags.map((flag) => flag.dataset.lang));
 
 async function signIn(page, fake, email) {
 	await page.goto(url('signin'));
@@ -328,26 +379,48 @@ describe('checklists', () => {
 		// Hand ticks never count as owned anywhere else: the cards are untouched.
 		assert.equal((await localDoc(page)).cards.length, CARDS.length);
 
-		// Tapping an owned entry lists its cards.
-		await row(1).locator('button').click();
-		await row(1).locator('.dex-cards .tile').waitFor();
-		assert.equal(await row(1).locator('.dex-cards .tile').count(), 1);
-		// One Portuguese and one English copy: viewed in English, the corner
-		// flags the Portuguese one, and no count shows, since no language
-		// holds two (js/tile.js).
-		assert.equal(await row(1).locator('.badge-qty').count(), 0);
-		assert.equal(await row(1).locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
-		assert.match(await row(1).locator('.tile-name').textContent(), /Test Bulbasaur/);
-		assert.equal(await row(1).locator('button.dex-entry').getAttribute('aria-expanded'), 'true');
-		await page.screenshot({path: '/tmp/checklists-owned-cards.png'});
+		// An owned row carries its mark with nothing to tap, and the entry
+		// opens every card of the Pokémon (js/pokemon-cards-view.js). A list
+		// that names no languages counts a copy in any language, as its ticks
+		// do, and says so, with no flags; the Pokémon's screen agrees.
+		const listPath = new URL(page.url()).pathname;
 
-		// A Japanese print shows its English name, with the original and
-		// PokeAPI's romaji under it.
-		await row(7).locator('button').click();
-		await row(7).locator('.dex-cards .tile').waitFor();
-		assert.equal(await row(7).locator('.tile-name').textContent(), 'Squirtle');
-		assert.equal(await row(7).locator('.tile-original').textContent(), 'ゼニガメ (Zenigame)');
-		await row(7).locator('button').click();
+		assert.equal(await row(1).locator('button').count(), 0, 'no hand tick on an owned row');
+		assert.equal(await row(1).locator('a.dex-link').getAttribute('href'), `${listPath}/pokemon/1`);
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Counts copies in any language');
+		assert.equal(await page.locator('#list-languages img.flag').count(), 0);
+		assert.equal(await page.locator('#list-languages-edit').getAttribute('aria-label'), 'Change the list\'s languages (any language)');
+		await row(1).locator('a.dex-link').click();
+		await page.waitForURL(`**${listPath}/pokemon/1`);
+		// Both copies count, the Portuguese and the English one, and every
+		// catalog is shown.
+		await waitForPokemonTitle(page, 'Bulbasaur, 1 of 1 card');
+		assert.equal(await page.locator('#pc-back').textContent(), '‹ Kanto');
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.deepEqual(await page.locator('.pc-section').evaluateAll((sections) => sections.map((section) => section.dataset.catalog)), ['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
+		assert.deepEqual(await flagsIn(page, '.pc-cell[data-card="tst1-001"] .badge-lang'), ['pt', 'en']);
+		assert.match(await page.locator('.pc-cell[data-card="tst1-001"] .tile-name').textContent(), /Test Bulbasaur/);
+		assert.equal(counts.sets, 1);
+		assert.equal(counts.dexCards, 1);
+		assert.equal(counts.asian, 4, 'one list from each Asian catalog');
+		await page.screenshot({path: '/tmp/checklists-pokemon-cards.png'});
+		await page.click('#pc-back');
+		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		assert.equal(new URL(page.url()).pathname, listPath);
+
+		// A Japanese print with no English name shows the English one, with
+		// the original and PokeAPI's romaji under it.
+		await row(7).locator('a.dex-link').click();
+		await waitForPokemonTitle(page, 'Squirtle, 1 of 1 card');
+
+		const squirtle = page.locator('.pc-section[data-catalog="ja"] .pc-cell[data-card="tstj-007"]');
+
+		assert.equal(await squirtle.locator('.tile-name').textContent(), 'Squirtle');
+		assert.equal(await squirtle.locator('.tile-original').textContent(), 'ゼニガメ (Zenigame)');
+		assert.deepEqual(await flagsIn(page, '.pc-cell[data-card="tstj-007"] .badge-lang'), ['ja']);
+		await page.click('#pc-back');
+		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
 
 		// Missing only, remembered across a reload.
 		await page.click('#checklist-filter label:has-text("Missing")');
@@ -543,7 +616,9 @@ describe('checklists', () => {
 		await page.click('.list-tile');
 		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
 		assert.equal(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/lists/`), true);
-		assert.ok(await page.locator('.dex-row[data-dex="3"] button').isDisabled(), 'no hand ticks in the view');
+		assert.equal(await page.locator('.dex-row button').count(), 0, 'no hand ticks in the view');
+		assert.equal(await page.locator('#list-languages-edit').count(), 0, 'no languages Edit in the view');
+		assert.equal(await page.locator('.dex-row[data-dex="3"] a.dex-link').getAttribute('href'), `${new URL(page.url()).pathname}/pokemon/3`);
 		assert.equal(await page.locator('.actions').count(), 0, 'no Rename or Delete in the view');
 		await page.screenshot({path: '/tmp/checklists-family.png'});
 

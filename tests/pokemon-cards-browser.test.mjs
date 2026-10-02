@@ -1,7 +1,8 @@
 // Browser tests for every card of a Pokémon (js/pokemon-cards-view.js),
 // opened from a checklist row. Headless Chromium at 360 x 740 against
-// tests/pokemon-cards-harness.mjs, which serves the real app with the
-// screen's integration lines applied.
+// tests/pokemon-cards-harness.mjs, which checks that the real app.js,
+// index.html, sw.js, and js/checklists-view.js carry the screen's
+// integration lines, then serves the real app.
 //
 // TCGdex answers with the real responses for Jigglypuff (dex 39) recorded in
 // tests/pokemon-cards-fixtures.mjs; PokeAPI, the sprite and image hosts, and
@@ -17,7 +18,7 @@ import {after, before, describe, test} from 'node:test';
 import {speciesRows} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {FIXTURES} from './pokemon-cards-fixtures.mjs';
-import {shellGaps, startHarness} from './pokemon-cards-harness.mjs';
+import {startHarness} from './pokemon-cards-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -32,12 +33,6 @@ let browser;
 
 before(async () => {
 	harness = await startHarness();
-
-	const gaps = await shellGaps();
-
-	if (gaps.length) {
-		console.log(`# sw.js SHELL lacks ${gaps.join(', ')}, not this screen's; the harness lists them so the app opens offline.`);
-	}
 	browser = await chromium.launch();
 });
 
@@ -74,7 +69,9 @@ const CARDS = [
 	entry('c7', {card_id: 'SV2a-039', catalog: 'ja', language: 'ja', variant_id: MASTER_BALL_JA}),
 ];
 
-const GOAL = {created_at: AT, deleted_at: null, dex_list: [35, 39], hand_ticks: {}, id: LIST, kind: 'custom_pokemon', level: null, name: 'Pink ones', target: null, updated_at: AT};
+// A list that names Portuguese as its one language (a list that names none
+// counts every language: tests/checklists.test.mjs).
+const GOAL = {created_at: AT, deleted_at: null, dex_list: [35, 39], hand_ticks: {}, id: LIST, kind: 'custom_pokemon', languages: ['pt'], level: null, name: 'Pink ones', target: null, updated_at: AT};
 
 function documentWith(cards, goals = [GOAL]) {
 	return {binders: [], cards, collections: [], goals, openings: [], person: 'local', updated_at: AT, user_id: null, version: 1, wishlist: []};
@@ -330,7 +327,7 @@ describe('every card of a Pokémon', () => {
 		await page.click('.dex-row[data-dex="39"] a.dex-link');
 		assert.equal(new URL(page.url()).pathname, `${BASE}lists/${LIST}/pokemon/39`);
 
-		// Portuguese only, the default: 41 cards list Jigglypuff, four are TCG
+		// Portuguese only: 41 cards list Jigglypuff, four are TCG
 		// Pocket, and three are owned in Portuguese (the TAG TEAM card among
 		// them). An English copy does not count.
 		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');

@@ -23,6 +23,7 @@ import {
 	isChecklist,
 	listLanguages,
 	nameOf,
+	namesLanguages,
 	setListLanguages,
 	speciesNames,
 	spriteUrl,
@@ -64,8 +65,8 @@ const FILTER_KEY = 'cardTracker.pokemonCardsFilter';
 const FINISHES_KEY = 'cardTracker.pokemonCardsEveryFinish';
 const CONCURRENCY = 4;
 
-// The languages a list can hold, Portuguese first (the default), then the
-// order of the catalog's language list.
+// The languages a list can hold, Portuguese first, then the order of the
+// catalog's language list.
 const LANGUAGE_CHOICES = ['pt', ...LANGUAGES.map((lang) => lang.code).filter((code) => code !== 'pt')];
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
@@ -153,11 +154,14 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 	const element = h('div', {class: 'pc-languages', id: 'list-languages'});
 
+	// A list that names no languages counts a copy in any language, as its
+	// ticks do, and says so rather than showing every flag.
 	function drawFlags() {
+		const all = !namesLanguages(goal);
 		const languages = listLanguages(goal);
-		const names = languages.map(languageLabel).join(', ');
+		const names = all ? 'Counts copies in any language' : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
-			'aria-label': `Change the list's languages (${names})`,
+			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
 			class: 'small',
 			id: 'list-languages-edit',
 			onclick: openEditor,
@@ -166,7 +170,9 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 		element.replaceChildren(
 			h('span', {class: 'pc-languages-label'}, 'Languages'),
-			flagBadge(languages, {className: 'flags-inline', prefix: 'Counts copies in'}),
+			all
+				? h('span', {class: 'pc-languages-all', id: 'list-languages-all'}, 'All')
+				: flagBadge(languages, {className: 'flags-inline', prefix: 'Counts copies in'}),
 			h('span', {class: 'pc-languages-names muted'}, names),
 			edit
 		);
@@ -564,7 +570,7 @@ function screen(root, source, listId, dexParam) {
 			return;
 		}
 
-		const owned = copiesByPrint(entries, listLanguages(goal));
+		const owned = copiesByPrint(entries, namesLanguages(goal) ? listLanguages(goal) : null);
 		const shown = catalogsFor(listLanguages(goal));
 		const allStates = [];
 		const routes = [];

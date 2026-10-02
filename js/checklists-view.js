@@ -8,16 +8,14 @@
 // tab's Checklists | Wishlist switch is dom.js listsSwitch().
 
 import {currentUser} from './auth.js';
-import {offerCardList} from './card-swipe.js';
-import {cardImage, catalogFor, catalogLanguage, importApi, isLanguage, priceRecords, viewingLanguage} from './catalog.js';
-import {mainName, tileNames} from './catalog-views.js';
+import {priceRecords} from './catalog.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, showError} from './dom.js';
 import {whenMemberName} from './family.js';
-import {cardNames, hasOwnNames, searchKey, speciesSearchTerms} from './names.js';
+import {searchKey, speciesSearchTerms} from './names.js';
+import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
 import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
-import {cardTile, groupFinish} from './tile.js';
 import {
 	MAX_DEX,
 	REGIONS,
@@ -29,7 +27,6 @@ import {
 	isChecklist,
 	listChecklists,
 	nameOf,
-	ownedCards,
 	speciesNames,
 	progress,
 	regionById,
@@ -560,13 +557,13 @@ function checklistScreen(root, source, id) {
 	let tables = null;
 	let result = null;
 	let signature = null;
-	let expanded = null;
 	let saving = 0;
 	let show = readChoice(FILTER_KEY, FILTERS.map((option) => option.value), 'all');
 
 	const back = link(source.base, {class: 'back'}, '‹ All lists');
 	const title = h('h2', {id: 'checklist-title'}, 'List');
 	const meta = h('p', {class: 'muted', id: 'checklist-meta'});
+	const languages = languagesControl({listId: id, readOnly: source.readOnly});
 	const summary = h('p', {class: 'checklist-summary', id: 'checklist-summary'});
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'checklist-status'});
 	// The value of the owned cards on the list (js/price-view.js).
@@ -670,87 +667,6 @@ function checklistScreen(root, source, id) {
 		);
 	}
 
-	function ownedPanel(n, entries) {
-		const panel = h('div', {class: 'dex-cards', id: `dex-cards-${n}`});
-		const viewing = viewingLanguage();
-
-		panel.append(h('p', {class: 'muted'}, 'Loading the cards...'));
-
-		ownedCards(entries).then(async (cards) => {
-			const species = await speciesNames().catch(() => null);
-			const tiles = await Promise.all(cards.map(async (card) => {
-				const base = catalogLanguage(card.catalog);
-				const languages = card.entries.map((entry) => entry.language);
-				let record = card.record;
-				let local = null;
-
-				if (record) {
-					const localizations = record.localizations || {};
-					const order = [catalogFor(viewing) === card.catalog ? viewing : null, ...languages, base];
-
-					local = order.map((lang) => lang && localizations[lang]).find(Boolean) || Object.values(localizations)[0] || null;
-				}
-				else {
-					// A card this phone never indexed (a family member's, or
-					// one synced from another phone): read it, cache first.
-					try {
-						const detail = await importApi.cardDetail(base, card.cardId);
-
-						if (detail) {
-							record = {collector_number: detail.localId};
-							local = {image: detail.image || null, lang: base, name: detail.name, set_name: detail.set && detail.set.name};
-						}
-					}
-					catch {
-						// The card-back tile carries the card ID.
-					}
-				}
-
-				const lang = local && isLanguage(local.lang) ? local.lang : base;
-				// Asian prints: the English name first, the original under it.
-				const names = local && hasOwnNames(lang)
-					? cardNames({lang, name: local.name}, species)
-					: {english: null, original: (local && local.name) || card.cardId, reading: null};
-				const info = {
-					name: mainName(names),
-					number: record && record.collector_number,
-					setName: local && local.set_name,
-				};
-				const route = `cards/${encodeURIComponent(lang)}/${encodeURIComponent(card.cardId)}`;
-				const byLanguage = new Map();
-
-				for (const code of languages) {
-					byLanguage.set(code, (byLanguage.get(code) || 0) + 1);
-				}
-
-				// The count names the copies in the language the corner shows:
-				// the viewing language when one is in it, else the only one.
-				const count = byLanguage.has(viewing)
-					? byLanguage.get(viewing)
-					: byLanguage.size === 1 ? card.entries.length : 0;
-
-				return {
-					node: cardTile({
-						art: {count, finish: groupFinish(card.entries), info, languages, src: local ? cardImage(local.image, 'low') : null, viewing},
-						meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
-						names: tileNames(names, lang),
-						route,
-					}),
-					route,
-				};
-			}));
-
-			if (alive) {
-				panel.replaceChildren(h('div', {class: 'card-grid'}, tiles.map((tile) => tile.node)));
-				offerCardList(tiles.map((tile) => tile.route), goal ? goal.name : null);
-			}
-		}).catch((err) => {
-			panel.replaceChildren(h('p', {class: 'muted'}, `The cards could not be listed. ${errorText(err)}`));
-		});
-
-		return panel;
-	}
-
 	async function toggleHand(n) {
 		const on = !handTicks(goal).has(n);
 		const before = goal;
@@ -789,43 +705,29 @@ function checklistScreen(root, source, id) {
 		}
 	}
 
+	// A row opens every card of its Pokémon (js/pokemon-cards-view.js). The
+	// mark on the right ticks a missing Pokémon by hand, or clears the tick.
 	function row(n) {
 		const {entries, kind} = state(n);
 		const name = nameOf(names, n);
-		const attrs = {class: 'dex-entry', type: 'button'};
-
-		if (kind === 'owned') {
-			attrs['aria-expanded'] = expanded === n ? 'true' : 'false';
-			attrs.onclick = () => {
-				expanded = expanded === n ? null : n;
-				drawList();
-			};
-		}
-		else if (!source.readOnly) {
-			attrs['aria-pressed'] = kind === 'hand' ? 'true' : 'false';
-			attrs['aria-label'] = `${dexLabel(n)} ${name}, ${kind === 'hand' ? 'marked by hand. Tap to clear the mark' : 'missing. Tap to mark by hand'}`;
-			attrs.onclick = () => toggleHand(n);
-		}
-		else {
-			attrs.disabled = true;
-		}
-
-		const item = h('li', {class: `dex-row ${kind}`, 'data-dex': n},
-			h('button', attrs,
-				sprite(n, name),
-				h('span', {class: 'dex-text'},
-					h('span', {class: 'dex-num'}, dexLabel(n)),
-					h('span', {class: 'dex-name'}, name)
-				),
-				mark(kind, entries.length)
+		const entry = link(pokemonRoute(source.base, id, n), {class: 'dex-entry dex-link'},
+			sprite(n, name),
+			h('span', {class: 'dex-text'},
+				h('span', {class: 'dex-num'}, dexLabel(n)),
+				h('span', {class: 'dex-name'}, name)
 			)
 		);
+		const tick = kind === 'owned' || source.readOnly
+			? h('span', {class: 'dex-tick'}, mark(kind, entries.length))
+			: h('button', {
+				'aria-label': `${dexLabel(n)} ${name}, ${kind === 'hand' ? 'marked by hand. Tap to clear the mark' : 'missing. Tap to mark by hand'}`,
+				'aria-pressed': kind === 'hand' ? 'true' : 'false',
+				class: 'dex-tick',
+				onclick: () => toggleHand(n),
+				type: 'button',
+			}, mark(kind, entries.length));
 
-		if (kind === 'owned' && expanded === n) {
-			item.append(ownedPanel(n, entries));
-		}
-
-		return item;
+		return h('li', {class: `dex-row dex-row-linked ${kind}`, 'data-dex': n}, entry, tick);
 	}
 
 	function drawList() {
@@ -971,6 +873,7 @@ function checklistScreen(root, source, id) {
 		}
 
 		goal = found;
+		languages.update(goal);
 		drawHead();
 		drawActions();
 		drawList();
@@ -1034,7 +937,7 @@ function checklistScreen(root, source, id) {
 	// the stored list back halfway would flicker.
 	const stop = source.watch ? source.watch(() => alive && !saving && load()) : () => {};
 
-	root.append(...[back, title, meta, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
+	root.append(...[back, title, meta, languages.element, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
 	load();
 
 	return () => {

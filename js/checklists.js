@@ -11,7 +11,7 @@
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
-import {cardIndex, catalogLanguage, importApi, indexKey, isLanguage} from './catalog.js';
+import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 
 export const MAX_DEX = 1025;
@@ -258,17 +258,23 @@ export const setHandTick = (id, dex, on) => changeChecklist(id, (goal) => {
 // Each list's languages (DESIGN.md section 11, "Every card of a Pokémon"):
 // the prints a Pokémon's cards screen shows (js/pokemon-cards.js), and the
 // languages a copy must be in to count as owned there. Stored on the goal
-// as languages, a list of language codes. A list saved before the setting
-// existed has none, and reads as Portuguese only.
+// as languages, a list of language codes. A list with none names no
+// languages and counts a copy in any language, the way its checklist ticks:
+// whether a list's languages decide its ticks is still open
+// (plans/roadmap.md, "Open Decisions for Eric").
 
-export const DEFAULT_LIST_LANGUAGES = ['pt'];
+export const ALL_LIST_LANGUAGES = LANGUAGES.map((lang) => lang.code);
 
 const cleanLanguages = (languages) => [...new Set((Array.isArray(languages) ? languages : []).filter(isLanguage))];
 
+// Whether the list names its own languages.
+export const namesLanguages = (goal) => cleanLanguages(goal && goal.languages).length > 0;
+
+// The list's languages; every language for a list that names none.
 export function listLanguages(goal) {
 	const saved = cleanLanguages(goal && goal.languages);
 
-	return saved.length ? saved : [...DEFAULT_LIST_LANGUAGES];
+	return saved.length ? saved : [...ALL_LIST_LANGUAGES];
 }
 
 export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {

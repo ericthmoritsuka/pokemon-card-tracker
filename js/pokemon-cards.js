@@ -231,13 +231,14 @@ export const printKey = (catalog, cardId) => `${catalog}|${cardId}`;
 
 // The live copies that count for a list, by printKey: those in one of the
 // list's languages. A Portuguese-only list counts a card only for a
-// Portuguese copy.
+// Portuguese copy; null languages (a list that names none) count every
+// copy, as its checklist does.
 export function copiesByPrint(entries, languages) {
-	const allowed = new Set(languages || []);
+	const allowed = languages ? new Set(languages) : null;
 	const out = new Map();
 
 	for (const entry of entries || []) {
-		if (!entry || !isLive(entry) || !entry.card_id || !allowed.has(entry.language)) {
+		if (!entry || !isLive(entry) || !entry.card_id || (allowed && !allowed.has(entry.language))) {
 			continue;
 		}
 
