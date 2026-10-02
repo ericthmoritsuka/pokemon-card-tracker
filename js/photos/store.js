@@ -19,16 +19,27 @@
 //   blobs  photo id -> {blob, type, at}         the image itself, and
 //          photo id + "#detail" -> the same     its detail copy
 //   queue  photo id -> {op, photo_id, entry_id, user_id, type, at, error}
-//                                               op is upload or delete
+//                                               op is upload or delete; a
+//                                               delete also holds path,
+//                                               paths, list, and not_before
 //          photo id + "#detail" -> the same     op upload-detail
 //   made   photo id -> {entry_id, photo}        photos this phone took, so a
 //                                               sync that drops one from its
 //                                               entry puts it back
+//          "swept:" + photo id -> {swept, at}   photos of deleted cards whose
+//                                               bucket delete this phone has
+//                                               already queued
+//
+// A removed photo leaves the phone at once, but its bucket file stays for a
+// grace period (model.js bucketDeleteState): another phone may still show
+// it, and the delete must reach the server first, so no phone can bring the
+// photo back pointing at a missing file.
 
 import {currentUser, getClient, onUser} from '../auth.js';
-import {listCards, loadDocument, onChange, updateCards} from '../collection.js';
+import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
+import {onSyncStatus, serverHolds} from '../sync.js';
 
-import {PHOTO_BUCKET, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
+import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
 
 const DB_NAME = 'card-tracker-photos';
 const STORES = ['blobs', 'queue', 'made'];
@@ -296,19 +307,28 @@ export async function restoreDroppedPhotos() {
 		return 0;
 	}
 
+	// A photo taken on a copy the merge has since folded into another
+	// (js/merge.js, merged_into) belongs to the copy it was folded into.
+	const {cards} = await loadDocument();
 	const byEntry = new Map();
 
 	for (const row of made) {
-		if (!byEntry.has(row.entry_id)) {
-			byEntry.set(row.entry_id, []);
+		const entry = row && row.photo ? resolveEntry(cards, row.entry_id) : null;
+
+		if (!entry) {
+			continue;
 		}
 
-		byEntry.get(row.entry_id).push(row.photo);
+		if (!byEntry.has(entry.id)) {
+			byEntry.set(entry.id, []);
+		}
+
+		byEntry.get(entry.id).push(row.photo);
 	}
 
 	const patches = [];
 
-	for (const entry of await listCards()) {
+	for (const entry of cards.filter((card) => card && !card.deleted_at)) {
 		const photos = byEntry.has(entry.id) ? restoredPhotos(entry, byEntry.get(entry.id)) : null;
 
 		if (photos) {
@@ -343,10 +363,12 @@ export async function queuedItems() {
 }
 
 // The live entry as the document holds it now, never a copy a view kept.
+// When the merge folded the copy into another (js/merge.js, merged_into),
+// that is the one.
 async function freshEntry(entryOrId) {
 	const id = typeof entryOrId === 'string' ? entryOrId : entryOrId && entryOrId.id;
 
-	return (await listCards()).find((card) => card.id === id) || null;
+	return resolveEntry((await loadDocument()).cards, id);
 }
 
 // Saves a new photo on the phone, adds it to its entry, and queues its
@@ -399,8 +421,9 @@ export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null)
 }
 
 // Removes a photo: a tombstone in its entry (and the pin cleared when it
-// pointed there), the phone's copy dropped, and the bucket's copy deleted
-// when there is one.
+// pointed there), the phone's copy dropped, and the bucket's copy queued for
+// deletion once the grace period has passed and the server holds the
+// tombstone.
 export async function removePhotoFromEntry(entryOrId, photoId) {
 	const at = new Date().toISOString();
 	const entry = await freshEntry(entryOrId);
@@ -421,19 +444,9 @@ export async function removePhotoFromEntry(entryOrId, photoId) {
 	await rememberMade(entry.id, photo).catch(() => {});
 
 	const queued = await idb('queue', 'readonly', (s) => s.get(photoId));
-	const detail = photo.detail ? detailPath(photo.path, photo.detail.type) : null;
 
 	if (photo.path) {
-		await idb('queue', 'readwrite', (s) => s.put({
-			at: Date.now(),
-			entry_id: entry.id,
-			error: null,
-			op: 'delete',
-			path: photo.path,
-			paths: [photo.path, detail].filter(Boolean),
-			photo_id: photoId,
-			user_id: pathOwner(photo.path),
-		}, photoId));
+		await idb('queue', 'readwrite', (s) => s.put(deleteRow(entry.id, photo, Date.now()), photoId));
 	}
 	else if (queued) {
 		await idb('queue', 'readwrite', (s) => s.delete(photoId));
@@ -457,8 +470,9 @@ const permanent = (err) => {
 };
 
 async function uploadOne(client, row, userId) {
-	const cards = await listCards();
-	const entry = cards.find((card) => card.id === row.entry_id);
+	// The copy the photo was taken on, or the one the merge folded it into,
+	// which holds its photos now.
+	const entry = resolveEntry((await loadDocument()).cards, row.entry_id);
 	const photo = entry && (entry.photos || []).find((item) => item.id === row.photo_id);
 
 	// The card or the photo was removed before it went up: nothing to send.
@@ -520,6 +534,25 @@ async function uploadDetail(client, row, entry, photo, userId) {
 	return true;
 }
 
+// The queue row that deletes a photo's files from the bucket, no earlier
+// than the grace period after `at`.
+function deleteRow(entryId, photo, at) {
+	const detail = photo.detail ? detailPath(photo.path, photo.detail.type) : null;
+
+	return {
+		at,
+		entry_id: entryId,
+		error: null,
+		list: 'cards',
+		not_before: at + BUCKET_DELETE_GRACE_MS,
+		op: 'delete',
+		path: photo.path,
+		paths: [photo.path, detail].filter(Boolean),
+		photo_id: photo.id,
+		user_id: pathOwner(photo.path),
+	};
+}
+
 async function deleteOne(client, row) {
 	const {error} = await client.storage.from(PHOTO_BUCKET).remove(row.paths && row.paths.length ? row.paths : [row.path]);
 
@@ -566,6 +599,20 @@ export function flushQueue() {
 			for (const row of rows) {
 				if (row.user_id && row.user_id !== user.id) {
 					continue;
+				}
+
+				// A delete waits for the grace period and the server; one
+				// whose photo is live again is dropped.
+				if (row.op === 'delete') {
+					const state = bucketDeleteState(row, doc, serverHolds, Date.now());
+
+					if (state === 'cancel') {
+						await idb('queue', 'readwrite', (s) => s.delete(queueKey(row))).catch(() => {});
+					}
+
+					if (state !== 'go') {
+						continue;
+					}
 				}
 
 				try {
@@ -622,13 +669,89 @@ export function flushQueue() {
 	return flushing;
 }
 
+// ------------------------------------------------------------- sweep
+
+const getAllKeys = (store) => idb(store, 'readonly', (s) => s.getAllKeys());
+
+const SWEPT = 'swept:';
+
+const time = (value) => {
+	const ms = Date.parse(value);
+
+	return Number.isNaN(ms) ? Date.now() : ms;
+};
+
+// Housekeeping after a sync (plans/audit-engineering.md E-21). Photos of
+// deleted cards, and removed photos, leave this phone's storage, whichever
+// phone removed them. A deleted card's photos (not one the merge folded
+// into another copy: those photos live on) are also queued for deletion
+// from the bucket, once per phone, after the same grace period as a removed
+// photo. Family members' photos kept here are never touched: only photos in
+// this phone's own document are looked at.
+export async function sweepPhotos() {
+	const doc = await loadDocument();
+	const live = new Set();
+	const dead = new Map();
+
+	for (const card of doc.cards || []) {
+		for (const photo of (card && Array.isArray(card.photos) ? card.photos : [])) {
+			if (!photo || !photo.id) {
+				continue;
+			}
+
+			if (!card.deleted_at && !photo.deleted_at) {
+				live.add(photo.id);
+			}
+			else if (!dead.has(photo.id) || !card.merged_into) {
+				dead.set(photo.id, {card, photo});
+			}
+		}
+	}
+
+	for (const id of live) {
+		dead.delete(id);
+	}
+
+	if (!dead.size) {
+		return 0;
+	}
+
+	let dropped = 0;
+
+	for (const key of await getAllKeys('blobs').catch(() => [])) {
+		if (dead.has(String(key).replace(/#detail$/, ''))) {
+			forgetUrl(key);
+			await idb('blobs', 'readwrite', (s) => s.delete(key)).catch(() => {});
+			dropped++;
+		}
+	}
+
+	const marked = new Set(await getAllKeys('made').catch(() => []));
+	const queued = new Set(await getAllKeys('queue').catch(() => []));
+
+	for (const [id, {card, photo}] of dead) {
+		const gone = card.deleted_at && !card.merged_into && !photo.deleted_at && photo.path;
+
+		if (!gone || !doc.user_id || pathOwner(photo.path) !== doc.user_id || marked.has(`${SWEPT}${id}`) || queued.has(id)) {
+			continue;
+		}
+
+		await idb('queue', 'readwrite', (s) => s.put(deleteRow(card.id, photo, time(card.deleted_at)), id));
+		await idb('made', 'readwrite', (s) => s.put({at: Date.now(), swept: true}, `${SWEPT}${id}`));
+	}
+
+	return dropped;
+}
+
 // ------------------------------------------------------------- start
 
 let started = false;
 
 // Starts the queue and the photo restore once per page: flushes now, when
-// the phone comes back online, and when someone signs in; restores dropped
-// photos after every sync. Safe to call from every view that shows photos.
+// the phone comes back online, when someone signs in, and when a sync
+// finishes (a waiting delete may go once the server holds its tombstone);
+// restores dropped photos and sweeps removed ones after every sync. Safe to
+// call from every view that shows photos.
 export function startPhotoSync() {
 	if (started) {
 		return;
@@ -652,9 +775,16 @@ export function startPhotoSync() {
 	});
 	onChange((doc, {source}) => {
 		if (source === 'sync' || source === 'account') {
-			restoreDroppedPhotos().catch(() => {});
-			flushQueue();
+			restoreDroppedPhotos().then(() => sweepPhotos()).catch(() => {}).then(() => flushQueue());
 		}
 	});
-	flushQueue();
+
+	// Every finished sync: the server may now hold a removal a waiting
+	// delete needs, and this phone's own deletes are swept.
+	onSyncStatus(({phase}) => {
+		if (phase === 'synced') {
+			sweepPhotos().catch(() => {}).then(() => flushQueue());
+		}
+	});
+	sweepPhotos().catch(() => {}).then(() => flushQueue());
 }

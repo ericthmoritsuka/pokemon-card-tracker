@@ -193,6 +193,50 @@ as a tombstone (`deleted_at`) so an offline phone cannot bring a deleted card ba
 and no real conflict resolution; one owner on one or two devices does not need it. *(Decided by Eric, 2026-10-01.)* *(Replaces
 the relational schema of the first versions.)*
 
+**Deletes stick, and stamps only move forward.** The audit found that "the newer one wins" let an
+offline phone's later edit bring a deleted card, binder, list, or photo back. A tombstone now wins
+over any live version unless that version was restored on purpose after the delete
+(`restored_at` later than `deleted_at`, written by `restoreEntry` in `js/merge.js`). Nothing in the
+app restores yet, so deletes are permanent until a "Recently deleted" screen exists. When a rule
+like this picks the older version, the result is stamped 1 ms after both, so it is pushed and a
+phone still on v21 (which takes the newer stamp) accepts it. Every write takes its stamp from one
+`nextStamp`, which is always later than the version it replaces, so a phone whose clock is behind
+can no longer lose a real later edit. There is no clock correction: stamps are monotonic only.
+*(Decided 2026-10-02, Eric's audit fixes; design in `plans/sync-merge-plan.md`.)*
+
+**One import row is one copy, on every phone.** An imported copy's id is a UUID version 5 of its
+`import_key`, so the same file imported on two phones, or signed out before the first sign-in,
+gives the same ids instead of doubling the collection. Documents doubled before v22 are repaired by
+every merge: live copies that share an `import_key` fold into the oldest one (earliest
+`created_at`, then the lowest id), which keeps every photo, its own pin while it still shows an
+image, the newest Liga price, and the newest non-empty value of each field a person sets (notes
+included). The others become tombstones with `merged_into`, binder pockets that held them are
+redirected, and a photo waiting to upload on a folded copy goes up under the survivor. Between two
+versions of one imported id, the copy someone used wins over a fresh import of it. *(Decided
+2026-10-02, Eric's audit fixes: oldest survives, newest non-empty note.)*
+
+**The same wish on two phones is one wish.** Live wishes for the same card, catalog, language,
+and finish fold into the oldest after every merge, taking the priority of the most recently edited
+one and the newest non-empty note; the others become tombstones with `merged_into`. A wish id is
+not derived from its fields, because an edit can change the language or finish. *(Decided
+2026-10-02, Eric's audit fixes.)*
+
+**Two tabs on one phone merge like two phones.** Every save re-reads the stored document in the
+same IndexedDB transaction and, when another tab wrote since, merges into it entry by entry
+before writing; a BroadcastChannel then tells the other tabs, which merge the stored document into
+theirs so they show the change. Signed out, one tab's edit no longer erases another's. *(Decided
+2026-10-02, Eric's audit fixes.)*
+
+**Bucket files outlive their removal by 14 days.** A removed photo or binder cover leaves the
+phone at once, but its file in the bucket is deleted only after a 14-day grace period, once the
+server holds the version that removed it, and only while no live entry or binder still shows it
+(`bucketDeleteState` in `js/photos/model.js`). Another phone that still shows the file, or brings
+the photo back, never points at a missing file. After every sync each phone also sweeps its own
+storage: photos of deleted cards and removed photos, and its owner's covers that no live binder
+shows, leave the phone, and a deleted card's photos are queued for the same delayed bucket delete.
+Family members' files kept on the phone are never swept. *(Decided 2026-10-02, Eric's audit
+fixes.)*
+
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
 pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline
@@ -315,7 +359,10 @@ card
 ```
 
 **Each person's document, in Supabase and on their phone.** One JSON document per person
-(section 3). Every entry carries `id`, `updated_at`, and `deleted_at` for the merge.
+(section 3). Every entry carries `id`, `updated_at`, and `deleted_at` for the merge. Two optional
+fields serve the merge rules of 2026-10-02 (section 3): `restored_at` on an entry brought back on
+purpose after a delete, and `merged_into` on a tombstone left by folding duplicate copies, naming
+the copy that holds its photos and pockets now.
 
 ```
 {

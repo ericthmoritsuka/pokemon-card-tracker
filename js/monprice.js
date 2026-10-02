@@ -111,14 +111,25 @@ const CSV_COLUMNS = {
 	setName: 'Set',
 };
 
-function parseCsv(text) {
+// A cell as a spreadsheet-safe export writes it, ="001", reads as 001. The
+// app's own CSV export wraps numbers that way so Excel keeps them as text
+// (js/cards-view.js), and a file saved back from a spreadsheet may too.
+const unwrap = (value) => {
+	const match = /^="(.*)"$/s.exec(value);
+
+	return match ? match[1] : value;
+};
+
+export function parseCsv(text) {
+	text = text.replace(/^\uFEFF/, '');
+
 	const firstLine = text.slice(0, text.search(/\r?\n|$/));
 	const delimiter = firstLine.split(';').length >= firstLine.split(',').length ? ';' : ',';
 	const [header, ...records] = parseDelimited(text, delimiter);
 	const index = {};
 
 	for (const [key, column] of Object.entries(CSV_COLUMNS)) {
-		index[key] = header.findIndex((name) => name.trim() === column);
+		index[key] = header.findIndex((name) => unwrap(name.trim()) === column);
 	}
 
 	const missing = ['id', 'number', 'language'].filter((key) => index[key] < 0).map((key) => CSV_COLUMNS[key]);
@@ -128,7 +139,7 @@ function parseCsv(text) {
 	}
 
 	return records.map((fields, i) => {
-		const get = (key) => (index[key] < 0 ? '' : (fields[index[key]] || '').trim());
+		const get = (key) => (index[key] < 0 ? '' : unwrap((fields[index[key]] || '').trim()).trim());
 
 		return {
 			count: get('count'),
@@ -145,7 +156,7 @@ function parseCsv(text) {
 	});
 }
 
-function parseJson(text) {
+export function parseJson(text) {
 	const data = JSON.parse(text);
 	const list = Array.isArray(data) ? data : data && data.pokemon;
 
@@ -168,8 +179,16 @@ function parseJson(text) {
 	}));
 }
 
+// Counts a real collection never holds for one card in one language and
+// finish: a row above LARGE_COUNT is flagged in the import report and saved
+// only when the person ticks it; a row above MAX_COUNT is refused. One row
+// with a Count of 99999 once saved a 36 MB document (plans/audit-qa.md Q-08).
+export const LARGE_COUNT = 50;
+export const MAX_COUNT = 999;
+
 // Returns {format, rows, errors}. A row with an error is reported and
-// never imported.
+// never imported. A row whose count is above LARGE_COUNT carries large:
+// true.
 export function parseExport(text, fileName = '') {
 	const clean = text.replace(/^﻿/, '');
 	const isJson = /\.json$/i.test(fileName) || /^\s*[[{]/.test(clean);
@@ -194,13 +213,16 @@ export function parseExport(text, fileName = '') {
 		if (!Number.isInteger(count) || count < 1) {
 			problems.push(`count "${item.count}" is not a whole number of 1 or more`);
 		}
+		else if (count > MAX_COUNT) {
+			problems.push(`count ${count.toLocaleString('en-US')} is more than ${MAX_COUNT} copies of one card, which looks like a typo; fix the Count in the file and import it again`);
+		}
 
 		if (!item.number) {
 			problems.push('the number is empty');
 		}
 
 		const row = {
-			count: Number.isInteger(count) && count > 0 ? count : 0,
+			count: Number.isInteger(count) && count > 0 && count <= MAX_COUNT ? count : 0,
 			finish: (item.finish || 'NORMAL').toUpperCase(),
 			language,
 			languageRaw: item.language,
@@ -218,7 +240,7 @@ export function parseExport(text, fileName = '') {
 			errors.push({...row, reason: problems.join('; ')});
 		}
 		else {
-			rows.push(row);
+			rows.push(row.count > LARGE_COUNT ? {...row, large: true} : row);
 		}
 	}
 

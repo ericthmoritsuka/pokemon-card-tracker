@@ -26,6 +26,8 @@ import {
 	warp,
 } from '../js/photos/geometry.js';
 import {
+	BUCKET_DELETE_GRACE_MS,
+	bucketDeleteState,
 	gallerySlides,
 	livePhotos,
 	mainImage,
@@ -421,5 +423,80 @@ describe('entry field merging', () => {
 		assert.equal(patched[0].path, 'u1/e1/p1.webp');
 		assert.equal(patched[1], e.photos[1]);
 		assert.equal(patchedPhotos(e, 'missing', {}), null);
+	});
+});
+
+describe('delayed bucket deletes', () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	const removedAt = Date.parse(LATER);
+	const removed = (fields = {}) => entry('e1', {photos: [photo('p1', {deleted_at: LATER})], updated_at: LATER, ...fields});
+	const row = (fields = {}) => ({
+		at: removedAt,
+		entry_id: 'e1',
+		list: 'cards',
+		not_before: removedAt + BUCKET_DELETE_GRACE_MS,
+		op: 'delete',
+		path: 'u1/e1/p1.webp',
+		paths: ['u1/e1/p1.webp', 'u1/e1/p1-detail.webp'],
+		photo_id: 'p1',
+		...fields,
+	});
+	const holds = (version) => (list, id, at) => list === 'cards' && id === 'e1' && at === version;
+
+	test('bucketDeleteState waits for the grace period and the server, and cancels when the photo is live again', () => {
+		const doc = {binders: [], cards: [removed()]};
+
+		assert.equal(BUCKET_DELETE_GRACE_MS, 14 * DAY);
+		assert.equal(bucketDeleteState(row(), doc, holds(LATER), removedAt + DAY), 'wait', 'inside the grace period');
+		assert.equal(bucketDeleteState(row(), doc, holds(null), removedAt + 15 * DAY), 'wait', 'the server does not hold the removal yet');
+		assert.equal(bucketDeleteState(row(), doc, holds(LATER), removedAt + 15 * DAY), 'go');
+
+		// Another phone's edit is newer and not pushed yet: wait for it.
+		const edited = {binders: [], cards: [removed({updated_at: '2026-09-03T00:00:00.000Z'})]};
+
+		assert.equal(bucketDeleteState(row(), edited, holds(LATER), removedAt + 15 * DAY), 'wait');
+
+		// The photo is live again on a live copy.
+		const back = {binders: [], cards: [entry('e1', {photos: [photo('p1')]})]};
+
+		assert.equal(bucketDeleteState(row(), back, holds(AT), removedAt + 15 * DAY), 'cancel');
+
+		// A row an older version queued, with no not_before: the grace period
+		// counts from when it was queued.
+		assert.equal(bucketDeleteState(row({not_before: undefined}), doc, holds(LATER), removedAt + DAY), 'wait');
+		assert.equal(bucketDeleteState(row({not_before: undefined}), doc, holds(LATER), removedAt + 15 * DAY), 'go');
+	});
+
+	test('a path a live entry still holds is never deleted', () => {
+		// The merge folded e1 into e0 (js/merge.js): the photo lives on, on
+		// e0, with the path it was taken under.
+		const folded = {binders: [], cards: [
+			entry('e0', {photos: [photo('p1')]}),
+			entry('e1', {deleted_at: LATER, merged_into: 'e0', photos: [photo('p1')], updated_at: LATER}),
+		]};
+
+		assert.equal(bucketDeleteState(row(), folded, () => true, removedAt + 30 * DAY), 'cancel');
+
+		// Another photo record pointing at the same file keeps it too.
+		const shared = {binders: [], cards: [removed(), entry('e2', {photos: [photo('p9', {path: 'u1/e1/p1.webp'})]})]};
+
+		assert.equal(bucketDeleteState(row(), shared, () => true, removedAt + 30 * DAY), 'cancel');
+	});
+
+	test('a cover delete waits for the server to hold the binder that dropped it, and stops if a live binder shows it', () => {
+		const cover = {
+			at: removedAt, entry_id: 'b1', image_id: 'img1', key: 'delete:img1', list: 'binders',
+			not_before: removedAt + BUCKET_DELETE_GRACE_MS, op: 'delete', path: 'u1/binder-b1/img1.webp',
+		};
+		const deleted = {binders: [{cover_image: {id: 'img1', path: cover.path}, deleted_at: LATER, id: 'b1', updated_at: LATER}], cards: []};
+		const binderHolds = (version) => (list, id, at) => list === 'binders' && id === 'b1' && at === version;
+
+		assert.equal(bucketDeleteState(cover, deleted, binderHolds(LATER), removedAt + DAY), 'wait');
+		assert.equal(bucketDeleteState(cover, deleted, binderHolds(AT), removedAt + 15 * DAY), 'wait');
+		assert.equal(bucketDeleteState(cover, deleted, binderHolds(LATER), removedAt + 15 * DAY), 'go');
+
+		const shown = {binders: [{cover_image: {id: 'img1', path: cover.path}, deleted_at: null, id: 'b1', updated_at: AT}], cards: []};
+
+		assert.equal(bucketDeleteState(cover, shown, () => true, removedAt + 15 * DAY), 'cancel');
 	});
 });

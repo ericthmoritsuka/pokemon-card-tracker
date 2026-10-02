@@ -260,6 +260,59 @@ describe('merge survival', () => {
 		assert.equal(merged.wishlist.find((item) => item.id === 'w2').priority, 'low');
 		assert.deepEqual(merged.cards, []);
 	});
+
+	const live = (list) => list.filter((item) => !item.deleted_at);
+
+	test('the same card wished on two phones merges into one item', () => {
+		const phone = newWish('sv08.5-003', {language: 'pt'}, at(1), 'phone');
+		const laptop = newWish('sv08.5-003', {language: 'pt'}, at(2), 'laptop');
+
+		for (const merged of [mergeDocuments(doc([phone]), doc([laptop])), mergeDocuments(doc([laptop]), doc([phone]))]) {
+			assert.deepEqual(live(merged.wishlist).map((item) => item.id), ['phone']);
+			assert.equal(merged.wishlist.find((item) => item.id === 'laptop').merged_into, 'phone');
+			assert.equal(sortWishes(merged.wishlist).length, 1);
+		}
+
+		assert.ok(sameContent(mergeDocuments(doc([phone]), doc([laptop])), mergeDocuments(doc([laptop]), doc([phone]))));
+
+		// Removing the survivor removes the wish everywhere.
+		const merged = mergeDocuments(doc([phone]), doc([laptop]));
+		const removed = deletedWish(live(merged.wishlist)[0], Date.parse(at(9)));
+
+		assert.deepEqual(live(mergeDocuments(merged, {wishlist: [removed]}).wishlist), []);
+	});
+
+	test('a duplicate made by an edit is merged too', () => {
+		const first = wish('w1', 'sv08.5-003', {language: 'pt'});
+		const second = wish('w2', 'sv08.5-003', {language: 'en'});
+		const local = doc([first, second]);
+		// The second item is changed to Portuguese: now it asks for the same
+		// print as the first.
+		const change = editedWish(second, {language: 'pt'}, Date.parse(at(3)));
+		const merged = mergeDocuments(local, {wishlist: [change]});
+
+		assert.equal(live(merged.wishlist).length, 1);
+		assert.equal(live(merged.wishlist)[0].id, 'w1');
+	});
+
+	test('the survivor keeps the earliest date, and the newest note and priority', () => {
+		const older = editedWish(newWish('sv08.5-003', {note: 'the old note'}, at(1), 'older'), {}, Date.parse(at(2)));
+		const newer = editedWish(newWish('sv08.5-003', {}, at(3), 'newer'), {priority: 'high'}, Date.parse(at(6)));
+		const middle = editedWish(newWish('sv08.5-003', {note: 'middle note'}, at(4), 'middle'), {priority: 'low'}, Date.parse(at(5)));
+		const merged = mergeDocuments(doc([older, middle]), doc([newer]));
+		const [kept] = live(merged.wishlist);
+
+		assert.equal(kept.id, 'older');
+		assert.equal(kept.created_at, at(1));
+		assert.equal(kept.priority, 'high', 'from the most recently edited item');
+		assert.equal(kept.note, 'middle note', 'the newest note that is not empty');
+		assert.ok(kept.updated_at > at(6));
+
+		// Different languages or finishes stay separate items.
+		const apart = mergeDocuments(doc([newWish('x-1', {language: 'pt'}, at(1), 'p')]), doc([newWish('x-1', {language: 'en'}, at(1), 'e'), newWish('x-1', {variantId: 'holo'}, at(1), 'h')]));
+
+		assert.equal(live(apart.wishlist).length, 3);
+	});
 });
 
 describe('search parsing', () => {

@@ -13,6 +13,7 @@
 
 import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
+import {nextStamp} from './merge.js';
 
 export const MAX_DEX = 1025;
 
@@ -115,15 +116,6 @@ function schedulePush() {
 	}, PUSH_DELAY_MS);
 }
 
-// A stamp strictly newer than the entry's last one, so the merge always
-// takes the new version even when two edits land in one millisecond.
-function nextStamp(previous) {
-	const now = Date.now();
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
-}
-
 async function saveGoal(entry) {
 	await mergeIntoLocal({goals: [entry]});
 	schedulePush();
@@ -166,6 +158,12 @@ const changeChecklist = (id, change) => serial(async () => {
 
 	change(next);
 	next.updated_at = nextStamp(goal.updated_at);
+
+	// A delete carries the same stamp, so it is never older than the version
+	// it removed.
+	if (next.deleted_at && !goal.deleted_at) {
+		next.deleted_at = next.updated_at;
+	}
 
 	return saveGoal(next);
 });

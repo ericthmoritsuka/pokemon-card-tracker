@@ -6,10 +6,11 @@
 //
 // Every entry carries id, updated_at, and deleted_at, so the sync merges
 // entry by entry (js/merge.js): the newer updated_at wins, and a deletion
-// stays as a tombstone so an offline phone cannot bring a deleted card back.
+// stays as a tombstone that sticks, so an offline phone cannot bring a
+// deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
 import {cardIndex} from './catalog.js';
-import {LISTS, mergeDocuments, sameContent} from './merge.js';
+import {LISTS, mergeDocuments, nextStamp, sameContent} from './merge.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -97,11 +98,125 @@ function normalize(doc) {
 	return doc;
 }
 
+// ------------------------------------------------------- tabs
+//
+// Two tabs of the app (or the installed app and a Chrome tab, which share
+// storage on Android) each hold the document in memory. Every save
+// therefore re-reads the stored document inside its own IndexedDB
+// transaction, and when another tab wrote since this one last read or
+// wrote, merges this tab's version into it entry by entry (js/merge.js)
+// before writing; then it tells the other tabs through a BroadcastChannel,
+// and they merge the stored document into theirs so they show the change.
+// A save writes a fresh revision id beside the document, so "another tab
+// wrote" is one comparison and the common case costs no merge. Signed in,
+// the sync merges with the server as before.
+
+const REV_KEY = 'local:rev';
+const CHANNEL = 'card-tracker-collection';
+
+let knownRev = null;
+let knownStamp = null;
+let channel = null;
+
+// Reads the stored document and its revision in one transaction.
+async function readStored() {
+	const db = await openDb();
+
+	return new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE, 'readonly');
+		const docRequest = tx.objectStore(STORE).get(LOCAL_PERSON);
+		const revRequest = tx.objectStore(STORE).get(REV_KEY);
+
+		tx.oncomplete = () => resolve({rev: revRequest.result ?? null, stored: docRequest.result || null});
+		tx.onerror = () => reject(tx.error);
+		tx.onabort = () => reject(tx.error);
+	});
+}
+
+const changedElsewhere = (stored, rev) => Boolean(stored) && (rev !== knownRev || stored.updated_at !== knownStamp);
+
+// Puts `next`'s content into `doc`, the object every view and edit holds.
+function replaceContent(doc, next) {
+	for (const key of Object.keys(doc)) {
+		delete doc[key];
+	}
+
+	Object.assign(doc, next);
+}
+
+// Merges the stored version into `doc` in place, entry by entry. The
+// stored version names the account when this tab's does not yet (another
+// tab signed in).
+function absorb(doc, stored) {
+	const merged = mergeDocuments(doc, stored);
+
+	for (const key of Object.keys(merged)) {
+		if (key !== 'user_id' && key !== 'person') {
+			doc[key] = merged[key];
+		}
+	}
+
+	doc.user_id = doc.user_id || stored.user_id || null;
+	normalize(doc);
+}
+
+const notify = (doc, source) => listeners.forEach((listener) => listener(doc, {source}));
+
+// Another tab saved: merge what it stored into this tab's document, so the
+// screen shows it. When the other tab switched to another account, this tab
+// follows. Returns true when anything was taken in.
+async function refreshFromStore() {
+	if (!current) {
+		return false;
+	}
+
+	const {rev, stored} = await readStored();
+
+	if (!changedElsewhere(stored, rev)) {
+		return false;
+	}
+
+	const doc = current;
+	let source = 'tab';
+
+	if (doc.user_id && stored.user_id !== doc.user_id) {
+		replaceContent(doc, normalize({...stored}));
+		source = 'account';
+	}
+	else {
+		absorb(doc, stored);
+	}
+
+	knownRev = rev;
+	knownStamp = stored.updated_at;
+	notify(doc, source);
+
+	return true;
+}
+
+function listenToTabs() {
+	if (channel || typeof BroadcastChannel !== 'function') {
+		return;
+	}
+
+	channel = new BroadcastChannel(CHANNEL);
+	channel.onmessage = () => {
+		refreshFromStore().catch(() => {
+			// The next save merges with the stored document anyway.
+		});
+	};
+}
+
 export async function loadDocument() {
 	if (!current) {
-		const stored = await idb('readonly', (store) => store.get(LOCAL_PERSON));
+		const {rev, stored} = await readStored();
 
-		current = normalize(stored || emptyDocument());
+		if (!current) {
+			current = normalize(stored || emptyDocument());
+			knownRev = rev;
+			knownStamp = stored ? stored.updated_at : null;
+			listenToTabs();
+		}
 	}
 
 	return current;
@@ -109,12 +224,68 @@ export async function loadDocument() {
 
 // source is 'local' for the person's own edits, 'sync' for entries merged in
 // from the server, and 'account' when the document changes hands. Only
-// 'local' saves are pushed.
-async function saveDocument(doc, source = 'local') {
-	doc.updated_at = nowIso();
-	await idb('readwrite', (store) => store.put(doc, LOCAL_PERSON));
+// 'local' saves are pushed. Other tabs see the change with source 'tab'.
+// replace: write this document as it is, never merged with the stored one
+// (only for a switch of account).
+async function saveDocument(doc, source = 'local', {replace = false} = {}) {
+	const rev = newId();
+	const db = await openDb();
+	let tookOver = false;
+
+	await new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE, 'readwrite');
+		const store = tx.objectStore(STORE);
+		const docRequest = store.get(LOCAL_PERSON);
+		const revRequest = store.get(REV_KEY);
+
+		// Requests in one transaction finish in order, so the document is read
+		// by now. Everything below is synchronous, inside the transaction, so
+		// no other tab can write in between.
+		revRequest.onsuccess = () => {
+			const stored = docRequest.result;
+
+			if (!replace && changedElsewhere(stored, revRequest.result ?? null)) {
+				if (doc.user_id && stored.user_id && stored.user_id !== doc.user_id) {
+					// Another tab switched accounts: this tab's version goes to
+					// its owner's stash, never into the other account, and this
+					// tab takes the stored document.
+					const key = `user:${doc.user_id}`;
+					const mine = {...doc};
+					const stash = store.get(key);
+
+					stash.onsuccess = () => store.put(stash.result ? mergeDocuments(mine, stash.result) : mine, key);
+					replaceContent(doc, normalize({...stored}));
+					tookOver = true;
+				}
+				else {
+					absorb(doc, stored);
+				}
+			}
+
+			doc.updated_at = nowIso();
+			store.put(doc, LOCAL_PERSON);
+			store.put(rev, REV_KEY);
+			knownRev = rev;
+			knownStamp = doc.updated_at;
+		};
+
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => {
+			knownRev = null;
+			reject(tx.error);
+		};
+		tx.onabort = () => {
+			knownRev = null;
+			reject(tx.error);
+		};
+	});
+
 	current = doc;
-	listeners.forEach((listener) => listener(doc, {source}));
+	notify(doc, tookOver ? 'account' : source);
+
+	if (channel) {
+		channel.postMessage({rev});
+	}
 }
 
 // listener(doc, {source}) runs after every save. Returns the unsubscribe
@@ -156,6 +327,9 @@ export async function mergeIntoLocal(other) {
 export async function useAccount(userId) {
 	const doc = await loadDocument();
 
+	// Another tab may have signed in or switched accounts already.
+	await refreshFromStore().catch(() => {});
+
 	if (doc.user_id === userId) {
 		return {adopted: false};
 	}
@@ -179,7 +353,7 @@ export async function useAccount(userId) {
 	}
 
 	Object.assign(doc, next);
-	await saveDocument(doc, 'account');
+	await saveDocument(doc, 'account', {replace: true});
 
 	if (stashed) {
 		await idb('readwrite', (store) => store.delete(`user:${userId}`));
@@ -225,6 +399,21 @@ function pick(fields) {
 
 export const isLive = (entry) => !entry.deleted_at;
 
+// The live entry an id stands for now: the entry itself, or, when the merge
+// folded it into another copy of the same card (js/merge.js, merged_into),
+// the copy it was folded into. Null when there is no live one. Photo uploads
+// and the photo restore use it, so a photo taken on a duplicate is not lost.
+export function resolveEntry(cards, id) {
+	const byId = new Map((cards || []).filter(Boolean).map((card) => [card.id, card]));
+	let entry = byId.get(id);
+
+	for (let hops = 0; entry && entry.deleted_at && entry.merged_into && hops < 32; hops++) {
+		entry = byId.get(entry.merged_into);
+	}
+
+	return entry && isLive(entry) ? entry : null;
+}
+
 // The names the source gave a copy (name_local, set_name_local), when the
 // catalog record has no localization in the copy's own language: a Korean
 // copy on a Japanese record, or any fallback match (DESIGN.md section 5).
@@ -268,7 +457,7 @@ export async function updateCard(id, patch) {
 		throw new Error(`No card entry ${id}.`);
 	}
 
-	Object.assign(entry, pick(patch), {updated_at: nowIso()});
+	Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at)});
 	await saveDocument(doc);
 
 	return entry;
@@ -280,14 +469,14 @@ export async function updateCard(id, patch) {
 // changed.
 export async function updateCards(patches) {
 	const doc = await loadDocument();
-	const at = nowIso();
+	const now = Date.now();
 	const changed = [];
 
 	for (const {id, patch} of patches) {
 		const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 		if (entry) {
-			Object.assign(entry, pick(patch), {updated_at: at});
+			Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at, now)});
 			changed.push(entry);
 		}
 	}
@@ -305,7 +494,7 @@ export async function deleteCard(id) {
 	const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 	if (entry) {
-		const at = nowIso();
+		const at = nextStamp(entry.updated_at);
 
 		entry.deleted_at = at;
 		entry.updated_at = at;
@@ -315,32 +504,94 @@ export async function deleteCard(id) {
 	return entry || null;
 }
 
-// Adds or updates imported entries by import_key in one save. An entry
-// whose key is already present is updated when its catalog match or its
-// source names changed and left alone otherwise; a key whose entry was deleted is skipped, so a rerun
-// never brings back a card the owner removed.
-export async function applyImport(entries) {
-	const doc = await loadDocument();
+// The fields an import compares to decide whether a row changed.
+const IMPORT_COMPARED = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'name_local', 'set_name_local'];
+
+// A fixed namespace for import ids. Never change it: every phone must turn
+// the same import key into the same id.
+const IMPORT_NAMESPACE = '7be437b4-f8be-497e-9069-eee96a6cffac';
+
+const hex = (bytes) => [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+
+const uuidText = (text) => `${text.slice(0, 8)}-${text.slice(8, 12)}-${text.slice(12, 16)}-${text.slice(16, 20)}-${text.slice(20, 32)}`;
+
+// The entry id for an imported row: a UUID version 5 of its import key, so
+// the same file imported on two phones (or signed out, then signed in) gives
+// the same ids and the merge sees one entry per copy (plans/sync-merge-plan.md
+// section 1a). Lowercase hex and hyphens, which photo paths accept
+// (supabase/photos.sql). Falls back to a random id where crypto.subtle is
+// missing; the merge's duplicate repair (js/merge.js) covers that phone.
+export async function importEntryId(importKey) {
+	const subtle = globalThis.crypto && globalThis.crypto.subtle;
+
+	if (!subtle) {
+		return newId();
+	}
+
+	const namespace = IMPORT_NAMESPACE.replace(/-/g, '').match(/../g).map((pair) => Number.parseInt(pair, 16));
+	const name = new TextEncoder().encode(String(importKey));
+	const input = new Uint8Array(namespace.length + name.length);
+
+	input.set(namespace);
+	input.set(name, namespace.length);
+
+	const bytes = new Uint8Array(await subtle.digest('SHA-1', input)).slice(0, 16);
+
+	bytes[6] = (bytes[6] & 0x0f) | 0x50;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+	return uuidText(hex(bytes));
+}
+
+// import_key -> the entry an import should compare with. A live entry wins
+// over a tombstone with the same key, so a duplicate the merge folded away
+// (js/merge.js, merged_into) never hides the copy that is still there.
+function entriesByKey(cards) {
 	const byKey = new Map();
 
-	for (const card of doc.cards) {
-		if (card.import_key) {
+	for (const card of cards) {
+		if (!card || !card.import_key) {
+			continue;
+		}
+
+		const there = byKey.get(card.import_key);
+
+		if (!there || (!isLive(there) && isLive(card))) {
 			byKey.set(card.import_key, card);
 		}
 	}
 
+	return byKey;
+}
+
+// What an import does to the cards, without saving anything: a pure step, so
+// Node tests it (tests/import.test.mjs). An entry whose key is already
+// present is updated when its catalog match or its source names changed and
+// left alone otherwise; a key whose entry was deleted is skipped, so a rerun
+// never brings back a card the owner removed. New entries take their id from
+// `ids` (import_key -> id, see importEntryId) and are stamped one
+// millisecond apart from `now`, so "date added" keeps the export's order.
+// Returns {cards, counts}: a new list, with changed entries as new objects;
+// the list passed in is not changed.
+export function planImport(cards, entries, {ids = new Map(), now = Date.now()} = {}) {
+	const out = [...cards];
+	const byKey = entriesByKey(out);
+	const position = new Map(out.map((card, i) => [card, i]));
+	const taken = new Set(out.map((card) => card.id));
 	const counts = {added: 0, skippedDeleted: 0, unchanged: 0, updated: 0};
-	const compared = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'name_local', 'set_name_local'];
-	const base = Date.now();
 
 	entries.forEach((fields, i) => {
 		const existing = byKey.get(fields.import_key);
 
 		if (!existing) {
-			// One millisecond apart, so "date added" keeps the export's order.
-			const at = new Date(base + i).toISOString();
+			const at = new Date(now + i).toISOString();
+			const wanted = ids.get(fields.import_key);
+			const id = wanted && !taken.has(wanted) ? wanted : newId();
+			const entry = {...pick(fields), created_at: at, deleted_at: null, id, updated_at: at};
 
-			doc.cards.push({...pick(fields), created_at: at, deleted_at: null, id: newId(), updated_at: at});
+			out.push(entry);
+			taken.add(id);
+			byKey.set(entry.import_key, entry);
 			counts.added++;
 
 			return;
@@ -353,7 +604,7 @@ export async function applyImport(entries) {
 		}
 
 		const next = pick(fields);
-		const changed = compared.some((key) => (existing[key] ?? null) !== (next[key] ?? null));
+		const changed = IMPORT_COMPARED.some((key) => (existing[key] ?? null) !== (next[key] ?? null));
 
 		if (!changed) {
 			counts.unchanged++;
@@ -361,16 +612,39 @@ export async function applyImport(entries) {
 			return;
 		}
 
-		for (const key of compared) {
+		const updated = {...existing};
+
+		for (const key of IMPORT_COMPARED) {
 			if (next[key] === undefined) {
-				delete existing[key];
+				delete updated[key];
 			}
 		}
 
-		Object.assign(existing, next, {updated_at: nowIso()});
+		Object.assign(updated, next, {updated_at: nextStamp(existing.updated_at, now)});
+		out[position.get(existing)] = updated;
+		position.set(updated, position.get(existing));
+		byKey.set(updated.import_key, updated);
 		counts.updated++;
 	});
 
+	return {cards: out, counts};
+}
+
+// Adds or updates imported entries by import_key in one save (planImport).
+export async function applyImport(entries) {
+	const doc = await loadDocument();
+	const byKey = entriesByKey(doc.cards);
+	const ids = new Map();
+
+	for (const fields of entries) {
+		if (!byKey.has(fields.import_key) && !ids.has(fields.import_key)) {
+			ids.set(fields.import_key, await importEntryId(fields.import_key));
+		}
+	}
+
+	const {cards, counts} = planImport(doc.cards, entries, {ids, now: Date.now()});
+
+	doc.cards = cards;
 	await saveDocument(doc);
 
 	return counts;
@@ -379,7 +653,7 @@ export async function applyImport(entries) {
 export async function importKeys() {
 	const doc = await loadDocument();
 
-	return new Map(doc.cards.filter((card) => card.import_key).map((card) => [card.import_key, card]));
+	return entriesByKey(doc.cards);
 }
 
 // ------------------------------------------------------------ ownership

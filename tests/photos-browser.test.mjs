@@ -458,7 +458,7 @@ describe('own photos and the carousel', () => {
 		assert.ok(await page.evaluate((id) => window.H.store.localPhoto(id).then(Boolean), firstPhoto.id), 'kept on the phone');
 	});
 
-	test('removing a photo tombstones it, clears the pin, and deletes it from the bucket', async () => {
+	test('removing a photo tombstones it, clears the pin, and deletes it from the bucket after the grace period', async () => {
 		const {page} = phone;
 
 		await page.evaluate(() => window.H.openDetail('e1'));
@@ -475,6 +475,21 @@ describe('own photos and the carousel', () => {
 		assert.ok(entry.photos[0].deleted_at, 'kept as a tombstone');
 		assert.equal(entry.main_image, null, 'the pin went with it');
 		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0);
+		assert.equal(await page.evaluate((id) => window.H.store.localPhoto(id).then(Boolean), firstPhoto.id), false, 'the phone\'s copy goes at once');
+
+		// The bucket's copy waits 14 days, for phones that may still show it.
+		const [row] = await page.evaluate(() => window.H.store.queuedItems());
+		const days = (row.not_before - row.at) / (24 * 60 * 60 * 1000);
+
+		assert.equal(row.op, 'delete');
+		assert.equal(row.path, firstPhoto.path);
+		assert.equal(days, 14);
+		await page.evaluate(() => window.H.store.flushQueue());
+		assert.ok(fake.objects.has(firstPhoto.path), 'still in the bucket during the grace period');
+
+		// Once the grace period has passed and the server holds the removal,
+		// the file goes.
+		await page.evaluate(() => window.H.expireDeletes());
 		await until(page, async () => (await window.H.store.queuedItems()).length === 0);
 		assert.equal(fake.objects.has(firstPhoto.path), false);
 	});
@@ -525,6 +540,110 @@ describe('signed out', () => {
 
 			return card.condition === 'Near Mint' && (card.photos || []).some((photo) => photo.id === id);
 		}, photoId);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('duplicate copies', () => {
+	test('a photo on a collapsed duplicate still uploads, under the survivor', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('dupes@example.test');
+		let offline = false;
+		const {context, errors, page} = await device(fake, user, {offline: () => offline});
+		const key = 'monprice|me01_int_001|en|NORMAL|0';
+
+		await open(page);
+
+		// This copy came from an import; another phone imported the same row
+		// earlier, which this phone has not seen yet.
+		const e1 = await page.evaluate(async (importKey) => {
+			const {updateCards} = await import('/pokemon-card-tracker/js/collection.js');
+			const [entry] = await updateCards([{id: window.H.ids().e1, patch: {import_key: importKey}}]);
+
+			return entry;
+		}, key);
+
+		offline = true;
+		fake.offline = true;
+		await context.setOffline(true);
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+		assert.equal(await page.evaluate(() => window.H.store.pendingUploads().size), 1);
+
+		const taken = (await entryOf(page, 'e1')).photos[0];
+
+		// The sync brings the older copy in, and the merge folds this one
+		// into it.
+		await page.evaluate(async ({entry, importKey}) => {
+			const {mergeIntoLocal} = await import('/pokemon-card-tracker/js/collection.js');
+			const older = '2026-01-01T00:00:00.000Z';
+
+			await mergeIntoLocal({cards: [{
+				card_id: entry.card_id, catalog: entry.catalog, created_at: older, deleted_at: null, id: 'older-copy',
+				import_key: importKey, language: entry.language, language_source: 'import', updated_at: older,
+			}]});
+		}, {entry: e1, importKey: key});
+
+		const folded = await page.evaluate(async (id) => (await window.H.loadDocument()).cards.find((card) => card.id === id), e1.id);
+
+		assert.equal(folded.merged_into, 'older-copy');
+
+		offline = false;
+		fake.offline = false;
+		await context.setOffline(false);
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 10000});
+
+		const survivor = await page.evaluate(async () => (await window.H.listCards()).find((card) => card.id === 'older-copy'));
+		const moved = survivor.photos.find((item) => item.id === taken.id);
+
+		assert.ok(moved, 'the survivor holds the photo');
+		assert.equal(moved.path, taken.path, 'it keeps the folder it was taken in');
+		assert.ok(fake.objects.has(taken.path), 'and it reached the bucket');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('housekeeping', () => {
+	test('a deleted card\'s photo leaves the phone, and the bucket after the grace period', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('sweep@example.test');
+		const {context, errors, page} = await device(fake, user, {offline: () => false});
+
+		await open(page);
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 10000});
+
+		const taken = (await entryOf(page, 'e1')).photos[0];
+
+		assert.ok(fake.objects.has(taken.path));
+		await page.evaluate(async (id) => {
+			const {deleteCard} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await deleteCard(id);
+			await window.H.sync.syncNow();
+		}, await page.evaluate(() => window.H.ids().e1));
+
+		await until(page, async (id) => !(await window.H.store.localPhoto(id)), taken.id);
+		await until(page, async () => (await window.H.store.queuedItems()).some((row) => row.op === 'delete'));
+
+		const [row] = await page.evaluate(() => window.H.store.queuedItems());
+
+		assert.equal(row.photo_id, taken.id);
+		assert.ok(fake.objects.has(taken.path), 'the bucket keeps it during the grace period');
+
+		await page.evaluate(() => window.H.expireDeletes());
+		await until(page, async () => (await window.H.store.queuedItems()).length === 0);
+		assert.equal(fake.objects.has(taken.path), false);
+
+		// Queued once: a later sync does not queue it again.
+		await page.evaluate(() => window.H.sync.syncNow());
+		await page.evaluate(() => window.H.store.sweepPhotos());
+		assert.deepEqual(await page.evaluate(() => window.H.store.queuedItems()), []);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

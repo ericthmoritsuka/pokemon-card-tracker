@@ -15,6 +15,8 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {stamps} from '../js/merge.js';
+
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
@@ -212,6 +214,53 @@ describe('signed out', () => {
 		await page.waitForFunction(() => /^31 copies/.test(document.getElementById('cards-summary').textContent));
 		assert.ok(await page.locator('#sync-status').isHidden());
 		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('two tabs signed out keep each other\'s edits, and each shows the other\'s', async () => {
+		const {context, errors, page: tabA} = await device(null, 'phone');
+
+		await seedLocal(tabA, documentWith(syntheticEntries(30)));
+		await tabA.waitForSelector('.tile');
+
+		const tabB = await context.newPage();
+		const errorsB = [];
+
+		tabB.on('pageerror', (err) => errorsB.push(err));
+		await tabB.goto(url('cards'));
+		await tabB.waitForFunction(() => /^30 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+
+		// A adds a card, then B, which loaded before A's edit, adds another
+		// and deletes one; A then edits a card B never touched.
+		const cardA = await addCard(tabA, {card_id: 'tst1-001', catalog: 'international', language: 'en', language_source: 'manual'});
+
+		await tabB.waitForFunction(() => /^31 copies/.test(document.getElementById('cards-summary').textContent), null, {timeout: 5000});
+
+		const cardB = await addCard(tabB, {card_id: 'tst2-002', catalog: 'international', language: 'pt', language_source: 'manual'});
+
+		await tabB.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).deleteCard('e-00004'));
+		await tabA.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).updateCard('e-00005', {notes: 'from tab A'}));
+		await tabA.waitForFunction(() => /^31 copies/.test(document.getElementById('cards-summary').textContent), null, {timeout: 5000});
+
+		// What both tabs hold, and what is stored, after a reload.
+		for (const tab of [tabA, tabB]) {
+			const doc = await localDoc(tab);
+			const byId = new Map(doc.cards.map((card) => [card.id, card]));
+
+			assert.ok(byId.has(cardA.id) && byId.has(cardB.id), 'both new cards are held');
+			assert.ok(byId.get('e-00004').deleted_at, 'the delete is held');
+			assert.equal(byId.get('e-00005').notes, 'from tab A');
+		}
+
+		await tabA.reload();
+		await tabA.waitForFunction(() => /^31 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+
+		const stored = await localDoc(tabA);
+
+		assert.equal(liveCount(stored), 31);
+		assert.ok(stored.cards.some((card) => card.id === cardA.id));
+		assert.ok(stored.cards.some((card) => card.id === cardB.id));
+		assert.deepEqual([...errors, ...errorsB], []);
 		await context.close();
 	});
 });
@@ -576,6 +625,311 @@ describe('sync', () => {
 		assert.equal(liveCount(await localDoc(page)), 20);
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+});
+
+// ------------------------------------------- the same import on two phones
+
+// Rows shaped as js/monprice.js importEntries makes them.
+const importRows = (count) => Array.from({length: count}, (_, i) => ({
+	card_id: `${SETS[i % SETS.length]}-${String(Math.floor(i / SETS.length) + 1).padStart(3, '0')}`,
+	catalog: 'international',
+	import_key: `monprice|row_int_${i}|pt|NORMAL|0`,
+	language: 'pt',
+	language_source: 'import',
+	name_local: `Test card ${i}`,
+	set_name_local: 'Test set',
+	variant_id: 'normal',
+}));
+
+const applyImport = (page, rows) => page.evaluate(async (list) => (await import('/pokemon-card-tracker/js/collection.js')).applyImport(list), rows);
+
+// Puts records straight into the collection database (as an older version
+// of the app left them), then reloads.
+async function seedStore(page, records) {
+	await page.goto(url('cards'));
+	await page.evaluate(async (pairs) => {
+		await new Promise((resolve, reject) => {
+			const open = indexedDB.open('card-tracker-collection', 1);
+
+			open.onupgradeneeded = () => open.result.createObjectStore('documents');
+			open.onsuccess = () => {
+				const tx = open.result.transaction('documents', 'readwrite');
+
+				for (const [key, value] of pairs) {
+					tx.objectStore('documents').put(value, key);
+				}
+
+				tx.oncomplete = () => {
+					open.result.close();
+					resolve();
+				};
+				tx.onerror = () => reject(tx.error);
+			};
+			open.onerror = () => reject(open.error);
+		});
+	}, Object.entries(records));
+	await page.reload();
+}
+
+// A document a v21 phone pair left doubled: every imported row twice, with
+// random ids. The second copies were imported a day later; one of them sits
+// in a binder pocket and holds a photo.
+function doubledDocument(count, userId) {
+	const rows = importRows(count);
+	const first = Date.parse('2026-09-01T00:00:00.000Z');
+	const second = Date.parse('2026-09-02T00:00:00.000Z');
+	const entry = (fields, i, start, prefix) => {
+		const at = new Date(start + i).toISOString();
+
+		return {...fields, created_at: at, deleted_at: null, id: `${prefix}-${String(i).padStart(4, '0')}`, updated_at: at};
+	};
+	const cards = [...rows.map((fields, i) => entry(fields, i, first, 'a')), ...rows.map((fields, i) => entry(fields, i, second, 'b'))];
+	const photoed = cards.find((card) => card.id === 'b-0001');
+
+	photoed.photos = [{created_at: photoed.created_at, deleted_at: null, id: 'photo-1', path: `${userId}/b-0001/photo-1.webp`, side: 'front'}];
+	photoed.main_image = 'photo-1';
+
+	const binder = {
+		art: [], cols: 3, cover_color: '#1b1b1f', created_at: '2026-09-03T00:00:00.000Z', deleted_at: null, id: 'binder-1',
+		name: 'Main binder', notes: '', page_count: 4, rows: 3,
+		slots: [{entry_id: 'b-0002', page: 1, placed_at: '2026-09-03T00:00:00.000Z', position: 1}],
+		updated_at: '2026-09-03T00:00:00.000Z',
+	};
+
+	return {...documentWith(cards), binders: [binder], user_id: userId};
+}
+
+function checkRepaired(doc, count) {
+	const live = doc.cards.filter((card) => !card.deleted_at);
+
+	assert.equal(live.length, count, 'one live copy per row');
+	assert.equal(new Set(live.map((card) => card.import_key)).size, count);
+	assert.ok(live.every((card) => card.id.startsWith('a-')), 'the older copies survive');
+	assert.equal(doc.cards.find((card) => card.id === 'b-0002').merged_into, 'a-0002');
+
+	const kept = live.find((card) => card.id === 'a-0001');
+
+	assert.deepEqual((kept.photos || []).map((item) => item.id), ['photo-1'], 'the photo moved to the survivor');
+	assert.equal(kept.main_image, 'photo-1');
+	assert.equal(doc.binders[0].slots[0].entry_id, 'a-0002', 'the pocket now holds the survivor');
+}
+
+describe('importing on two phones', () => {
+	test('the same import on a second phone, signed out then signed in, keeps one copy per row; importing again reports unchanged', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+		const rows = importRows(50);
+
+		await phone.page.goto(url('cards'));
+		assert.equal((await applyImport(phone.page, rows)).added, 50);
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		assert.equal(liveCount(docRow(fake, owner).doc), 50);
+
+		// The second phone imports the same file before ever signing in.
+		await laptop.page.goto(url('cards'));
+		assert.equal((await applyImport(laptop.page, rows)).added, 50);
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		assert.equal(liveCount(docRow(fake, owner).doc), 50, 'the server holds one copy per row');
+		assert.equal(liveCount(await localDoc(laptop.page)), 50);
+		assert.equal(liveCount(await localDoc(phone.page)), 50);
+
+		const again = await applyImport(laptop.page, rows);
+
+		assert.deepEqual(again, {added: 0, skippedDeleted: 0, unchanged: 50, updated: 0});
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+
+	test('a document already doubled by v21 is repaired at the first sync, pocket and photo kept', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'phone');
+		const doubled = doubledDocument(20, owner.id);
+
+		fake.documents.set(owner.id, {doc: {...doubled, person: undefined, user_id: undefined}, updated_at: fake.now(), user_id: owner.id});
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		checkRepaired(docRow(fake, owner).doc, 20);
+		checkRepaired(await localDoc(page), 20);
+		assert.match(await page.locator('#cards-summary').textContent(), /^20 copies/);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a doubled document the server already holds is repaired at the next sync, with nothing new to download', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'phone');
+		const doubled = doubledDocument(10, owner.id);
+		const serverDoc = structuredClone({...doubled, person: undefined, user_id: undefined});
+		const stamp = fake.now();
+
+		fake.documents.set(owner.id, {doc: serverDoc, updated_at: stamp, user_id: owner.id});
+
+		// The phone last synced this very document, so the server has nothing
+		// new for it.
+		await seedStore(page, {
+			local: doubled,
+			[`meta:sync:${owner.id}`]: {base: [...stamps(serverDoc)], updated_at: stamp},
+		});
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		const fullReads = fake.log.filter((entry) => entry.path === '/rest/v1/documents' && entry.method === 'GET' && /select=doc/.test(decodeURIComponent(entry.search)));
+
+		assert.equal(fullReads.length, 0, 'the full document was not downloaded');
+		checkRepaired(docRow(fake, owner).doc, 10);
+		checkRepaired(await localDoc(page), 10);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('the import screen', () => {
+	// TCGdex as the matcher asks it (js/monprice.js matchRows): the set by its
+	// printed abbreviation, the set's card list, and each card's printings.
+	async function fakeImportCatalog(context) {
+		await context.route('https://api.tcgdex.net/**', (route) => {
+			const {pathname, search} = new URL(route.request().url());
+			const json = (body) => route.fulfill({body: JSON.stringify(body), contentType: 'application/json', status: 200});
+
+			if (/\/v2\/en\/sets$/.test(pathname)) {
+				return json(/abbreviation\.official=eq:tst1/.test(decodeURIComponent(search)) ? [{id: 'tst1', name: 'Test set tst1'}] : []);
+			}
+
+			if (/\/v2\/\w+\/sets\/tst1$/.test(pathname)) {
+				return json({
+					cards: Array.from({length: 9}, (_, i) => ({id: `tst1-00${i + 1}`, image: null, localId: `00${i + 1}`, name: `Test card ${i + 1}`})),
+					cardCount: {official: 9, total: 9},
+					id: 'tst1',
+					name: 'Test set tst1',
+					releaseDate: '2026-01-01',
+				});
+			}
+
+			const card = /\/v2\/\w+\/cards\/(tst1-00\d)$/.exec(pathname);
+
+			if (card) {
+				return json({id: card[1], image: null, localId: card[1].slice(-3), name: `Test card ${card[1]}`, rarity: 'Common', set: {id: 'tst1', name: 'Test set tst1'}, variants_detailed: [{type: 'normal', variantId: 'normal'}]});
+			}
+
+			return route.fulfill({body: '{}', contentType: 'application/json', status: 404});
+		});
+	}
+
+	const CSV = [
+		'Name;Set;Number;Language;Finish Type;Count;ID;Release Date',
+		'Test card 1;Test set;001/009;PT;NORMAL;1;tst1_int_1;2026-01-01',
+		'Test card 2;Test set;="002/009";PT;NORMAL;60;tst1_int_2;2026-01-01',
+		'Test card 3;Test set;003/009;PT;NORMAL;99999;tst1_int_3;2026-01-01',
+	].join('\r\n');
+
+	async function pickFile(page) {
+		await page.goto(url('import'));
+		await page.setInputFiles('#monprice-file', {buffer: Buffer.from(CSV), mimeType: 'text/csv', name: 'weird-rows.csv'});
+		await page.waitForSelector('button.primary.wide');
+	}
+
+	test('a huge Count is refused, a large one is left out unless ticked, and the report says why', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await fakeImportCatalog(context);
+		await pickFile(page);
+
+		const save = page.locator('button.primary.wide');
+
+		assert.match(await page.locator('#import-large').textContent(), /One row asks for more than 50 copies of one card\. That is usually a typo in the Count column, so it is left out unless you tick it\./);
+		assert.match(await page.locator('#import-large li').textContent(), /Save all 60 copies: Line 3/);
+		assert.equal(await save.textContent(), 'Save 1 copy');
+
+		await page.locator('#import-large input').check();
+		assert.equal(await save.textContent(), 'Save 61 copies');
+		await page.locator('#import-large input').uncheck();
+		assert.equal(await save.textContent(), 'Save 1 copy');
+
+		const refused = page.locator('details.report-line', {hasText: 'Rows the file could not describe: 1'});
+
+		await refused.locator('summary').click();
+		assert.match(await refused.textContent(), /count 99,999 is more than 999 copies of one card, which looks like a typo; fix the Count in the file and import it again/);
+
+		await save.click();
+		await page.waitForSelector('.status .big');
+		assert.match(await page.locator('.status .big').textContent(), /^Saved\. 1 added/);
+		assert.equal(liveCount(await localDoc(page)), 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('leaving the screen while it saves keeps the import', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await fakeImportCatalog(context);
+		await pickFile(page);
+		await page.locator('#import-large input').check();
+
+		// Save, then leave for My Cards straight away, before "Saved" shows.
+		await page.locator('button.primary.wide').click();
+		await page.evaluate(() => {
+			const link = document.createElement('a');
+
+			link.href = '/pokemon-card-tracker/cards';
+			link.dataset.link = 'cards';
+			document.body.append(link);
+			link.click();
+		});
+		await page.waitForFunction(() => /^61 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''), null, {timeout: 15000});
+		await page.reload();
+		await page.waitForFunction(() => /^61 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('deletes stick', () => {
+	test('a card deleted on one phone stays deleted after an offline phone edits it', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith(syntheticEntries(10, 'p')));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const target = 'p-00003';
+
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await phone.page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).deleteCard(id), target);
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+
+		// Later, the offline laptop gives the same card a note.
+		await laptop.page.waitForTimeout(20);
+		await laptop.page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(id, {notes: 'edited offline'}), target);
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			assert.ok(doc.cards.find((card) => card.id === target).deleted_at, 'still deleted');
+			assert.equal(liveCount(doc), 9);
+		}
+
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
 	});
 });
 

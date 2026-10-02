@@ -19,6 +19,7 @@ import {currentUser, onUser} from './auth.js';
 import {MAX_DEX, spriteUrl} from './checklists.js';
 import {loadDocument, mergeIntoLocal, onChange} from './collection.js';
 import {BASE} from './dom.js';
+import {nextStamp} from './merge.js';
 import {canonicalTheme, DEFAULT_THEME, isTheme, palette, suggestedTheme, themeById, TYPES} from './themes.js';
 
 export const THEME_KEY = 'card-tracker-theme';
@@ -134,15 +135,6 @@ function schedulePush() {
 				// The next sync (opening the app, coming back online) pushes it.
 			});
 	}, PUSH_DELAY_MS);
-}
-
-// A stamp strictly newer than the last one, so the merge always takes the
-// new settings even when two changes land in one millisecond.
-function nextStamp(previous) {
-	const now = Date.now();
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
 }
 
 // Merges `patch` into the signed-in person's settings. Signed out, there is

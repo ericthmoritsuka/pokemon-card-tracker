@@ -89,10 +89,10 @@ const gridText = (binder) => `${binder.rows} × ${binder.cols}`;
 // load, the first time the person's binders are read (js/binder-cover.js).
 let coversSwept = false;
 
-function sweepOnce(source, binders) {
+function sweepOnce(source) {
 	if (!source.readOnly && !coversSwept) {
 		coversSwept = true;
-		sweepCovers(binders);
+		sweepCovers().catch(() => {});
 	}
 }
 
@@ -567,7 +567,7 @@ function bindersScreen(root, source) {
 		const live = data.cards.filter(isLive);
 
 		shelf = new Map(binders.map((binder) => [binder.id, binder]));
-		sweepOnce(source, data.binders);
+		sweepOnce(source);
 		const liveIds = new Set(live.map((entry) => entry.id));
 		const placed = placements(data.binders);
 		const loose = unplaced(live, data.binders).length;
@@ -939,7 +939,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		placed = placements(data.binders);
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
-		sweepOnce(source, data.binders);
+		sweepOnce(source);
 
 		if (!body.contains(spreadHolder)) {
 			body.replaceChildren(

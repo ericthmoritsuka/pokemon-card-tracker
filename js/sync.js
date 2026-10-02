@@ -209,7 +209,10 @@ async function syncOnce() {
 			}
 		}
 
-		const merged = remote ? mergeDocuments(local, remote) : local;
+		// Always a merge, even with nothing new from the server: the merge
+		// also repairs the document (js/merge.js folds duplicate copies), and
+		// a repaired document differs from `base`, so it is pushed.
+		const merged = mergeDocuments(local, remote || {});
 
 		// Without a fresh read, the server still holds what the last sync
 		// left there, whose stamps are `base`.
@@ -271,6 +274,15 @@ async function syncOnce() {
 	}
 
 	throw new Error('Another device kept saving at the same moment. Your changes are kept on this phone and are saved on the next try.');
+}
+
+// True when the server held this version of the entry at the last sync
+// ("cards", id, updated_at), so every phone can get it from there. The
+// photo and cover queues use it to delete a bucket file only once the
+// version that removed it is on the server (js/photos/model.js
+// bucketDeleteState). False while signed out or before the first sync.
+export function serverHolds(list, id, at) {
+	return Boolean(base) && base.get(`${list}|${id}`) === String(at);
 }
 
 // Runs one sync at a time; a request during a sync runs another after it.
