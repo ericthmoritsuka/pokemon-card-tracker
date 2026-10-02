@@ -208,6 +208,21 @@ describe('languages and ownership', () => {
 		assert.deepEqual(checklists.entriesInLanguages(entries, ['en']).map((entry) => entry.id), ['b', 'c']);
 	});
 
+	test('ownership is worked out once per collection and languages', () => {
+		const entries = [
+			copy('a', {card_id: 'sv03.5-039', catalog: 'international', language: 'pt'}),
+			copy('b', {card_id: 'sv03.5-039', catalog: 'international', language: 'de'}),
+		];
+		const any = cards.copiesByPrintOnce(entries, null);
+
+		assert.equal(cards.copiesByPrintOnce(entries, null), any, 'the same answer for the same array');
+		assert.deepEqual(any.get('international|sv03.5-039').map((entry) => entry.id), ['a', 'b']);
+		assert.notEqual(cards.copiesByPrintOnce(entries, ['pt']), any);
+		assert.equal(cards.copiesByPrintOnce(entries, ['pt']), cards.copiesByPrintOnce(entries, ['pt']));
+		assert.deepEqual(cards.copiesByPrintOnce(entries, ['pt']).get('international|sv03.5-039').map((entry) => entry.id), ['a']);
+		assert.notEqual(cards.copiesByPrintOnce([...entries], null), any, 'a new collection is worked out again');
+	});
+
 	test('the wishlist language is the list\'s one language for that catalog', () => {
 		assert.equal(wishLanguage(['pt'], 'international'), 'pt');
 		assert.equal(wishLanguage(['pt', 'en'], 'international'), null);
@@ -267,6 +282,42 @@ describe('counting every finish', () => {
 
 		assert.deepEqual(sum, {missing: 4, owned: 2, total: 6, unknown: 1});
 		assert.deepEqual(tally([state, unknown], false), {missing: 1, owned: 1, total: 2, unknown: 0});
+	});
+
+	test('a finish record is read once a session, and only its variants are kept', async () => {
+		const realFetch = globalThis.fetch;
+		const asked = [];
+
+		globalThis.fetch = async (url) => {
+			asked.push(String(url));
+
+			const detail = FIXTURES.cards[String(url).replace('https://api.tcgdex.net/v2/', '')];
+
+			return new Response(JSON.stringify(detail || {}), {headers: {'content-type': 'application/json'}, status: detail ? 200 : 404});
+		};
+
+		try {
+			const print = {catalog: 'international', cardId: 'sv03.5-039'};
+
+			assert.equal(cards.knownRecord(print), undefined);
+
+			const first = await cards.printRecord(print);
+
+			assert.deepEqual(Object.keys(first).sort(), ['variants', 'variants_detailed']);
+			assert.deepEqual(cardFinishes(first, variantFinish), ['normal', 'reverse']);
+			assert.equal(cards.knownRecord(print), first);
+			assert.equal(await cards.printRecord(print), first);
+			assert.equal(asked.length, 1, 'the second read stays on the phone');
+
+			// A record that cannot be read is not kept, so a later visit asks again.
+			const lost = {catalog: 'international', cardId: 'zz-404'};
+
+			assert.equal(await cards.printRecord(lost), null);
+			assert.equal(cards.knownRecord(lost), undefined);
+		}
+		finally {
+			globalThis.fetch = realFetch;
+		}
 	});
 
 	test('every recorded Jigglypuff card has at least one finish', () => {

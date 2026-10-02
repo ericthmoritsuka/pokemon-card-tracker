@@ -231,4 +231,35 @@ describe('prices in the app', () => {
 		assert.deepEqual(device.seen.supabase, [], 'Supabase is never contacted');
 		await device.context.close();
 	});
+
+	test('the CSV export writes the names the app shows, a Korean copy\'s own', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await page.goto(url('cards'));
+		await page.waitForSelector('#cards-empty');
+
+		const rows = await page.evaluate(async () => {
+			const {collectionCsv} = await import('/pokemon-card-tracker/js/cards-view.js');
+			const at = '2026-09-01T00:00:00.000Z';
+			const copy = (id, fields) => ({card_id: 'SV2a-001', catalog: 'ja', created_at: at, deleted_at: null, id, language_source: 'import', updated_at: at, ...fields});
+			// A Japanese record, as the card index keeps it: no Korean names.
+			const index = new Map([['ja|SV2a-001', {collector_number: '001', id: 'SV2a-001', localizations: {ja: {name: 'フシギダネ', set_name: 'ポケモンカード151'}}, set_id: 'SV2a'}]]);
+			const text = collectionCsv([
+				copy('k1', {language: 'ko', name_local: '이상해씨', set_name_local: '포켓몬 카드 151'}),
+				copy('k2', {language: 'ko', name_local: '이상해씨'}),
+				copy('j1', {language: 'ja'}),
+			], index);
+
+			return text.replace(/^\uFEFF/, '').trim().split('\r\n').map((line) => line.split(';'));
+		});
+
+		assert.equal(rows[0][4], 'Set');
+		assert.equal(rows[0][6], 'Name');
+		assert.deepEqual([rows[1][4], rows[1][6], rows[1][7]], ['포켓몬 카드 151', '"이상해씨"', 'KO']);
+		assert.deepEqual([rows[2][4], rows[2][6]], ['ポケモンカード151', '"이상해씨"'], 'no set name from the source keeps the catalog\'s');
+		assert.deepEqual([rows[3][4], rows[3][6]], ['ポケモンカード151', '"フシギダネ"'], 'a Japanese copy keeps the Japanese name');
+		assert.deepEqual(device.errors, []);
+		await device.context.close();
+	});
 });

@@ -285,6 +285,41 @@ describe('the tabs', () => {
 		assert.deepEqual(manifest.shortcuts.map((shortcut) => shortcut.url), [`${BASE}scan`]);
 	});
 
+	test('unsaved tray cards put a count dot on the Scan tab', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const scanTab = page.locator('.tabs a[data-tab="scan"]');
+		const saveDraft = (count) => page.evaluate(async (n) => {
+			const {saveSession} = await import('/pokemon-card-tracker/js/scan/draft.js');
+
+			await saveSession({items: Array.from({length: n}, (_, i) => ({id: `item-${i + 1}`}))});
+		}, count);
+
+		await page.goto(url('cards'));
+		await page.waitForSelector('main h2');
+		assert.equal(await page.locator('#scan-dot').count(), 0, 'no dot without a draft');
+		assert.equal(await scanTab.getAttribute('aria-label'), null);
+
+		await saveDraft(2);
+		await page.waitForSelector('.tab-scan .scan-disc #scan-dot');
+		assert.equal(await page.locator('#scan-dot').textContent(), '2');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, 2 unsaved cards in the tray');
+
+		// A cold start reads the draft left on the phone.
+		await saveDraft(1);
+		await page.reload();
+		await page.waitForSelector('#scan-dot');
+		assert.equal(await page.locator('#scan-dot').textContent(), '1');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, 1 unsaved card in the tray');
+
+		// Saved or discarded, the tray is empty and the dot goes.
+		await saveDraft(0);
+		await page.waitForFunction(() => !document.getElementById('scan-dot'));
+		assert.equal(await scanTab.getAttribute('aria-label'), null);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('an empty My Cards and an empty binder offer Scan', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 
@@ -301,6 +336,20 @@ describe('the tabs', () => {
 		await page.goto(url(`binders/${binder.id}`));
 		await page.waitForSelector('#binder-empty:not([hidden])');
 		assert.equal(await page.locator('#binder-empty-scan').getAttribute('href'), `${BASE}scan`);
+
+		// Held upright a page opens before its pockets take a tap, and the
+		// hint says so; sideways the pockets take one at once.
+		assert.equal(await page.locator('#binder-empty-text').textContent(), 'Nothing in this binder yet. Tap a page, then a pocket, to place a card you own, or scan new ones.');
+		await page.setViewportSize({height: 360, width: 740});
+		await page.waitForFunction(() => /^Nothing in this binder yet\. Tap a pocket to place/.test(document.getElementById('binder-empty-text').textContent));
+		await page.setViewportSize(VIEWPORT);
+		await page.waitForFunction(() => /Tap a page, then a pocket/.test(document.getElementById('binder-empty-text').textContent));
+
+		// A pocket left empty on purpose, or art, is a binder in use: no hint.
+		await page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/binders.js')).leaveEmpty(id, 1, 1), binder.id);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-summary:not(:empty)');
+		assert.ok(await page.locator('#binder-empty').isHidden(), 'no hint once a pocket is left empty on purpose');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -426,6 +475,8 @@ describe('family view-only mode', () => {
 		await page.waitForSelector('#owner-sheet[open]');
 		await page.waitForTimeout(300);
 		assert.deepEqual(await page.locator('#owner-sheet .owner-name').allTextContents(), ['Mine', 'Eric\'s']);
+		// The binder pocket sheet's head rule stays on its own sheet.
+		assert.equal(await page.locator('#owner-sheet .sheet-head').evaluate((el) => getComputedStyle(el).columnGap), '12px');
 		await page.screenshot({path: '/tmp/shell-owner-sheet-light.png'});
 		await page.click(`#owner-sheet .owner-option[data-member="${owner.id}"]`);
 		await page.waitForSelector('#family-strip');
@@ -528,7 +579,10 @@ describe('swiping between cards', () => {
 		await page.waitForTimeout(300);
 		assert.ok(page.url().endsWith(routes[pick - 1]), 'the page stays');
 
-		// The edge arrows do the same, one-handed.
+		// The arrows beside the position do the same, in the top row with
+		// Back, so they never float over the page.
+		assert.equal(await page.locator('.card-top #card-nav #card-prev').count(), 1);
+		assert.equal(await page.locator('.card-top #card-nav #card-position').count(), 1);
 		await page.click('#card-next');
 		await page.waitForFunction((route) => window.location.pathname.endsWith(route), routes[pick]);
 		await page.click('#card-prev');

@@ -255,6 +255,21 @@ describe('price section', () => {
 		assert.equal(await section.locator('#price-1-low_nm').getAttribute('aria-invalid'), 'true');
 		assert.ok((await storedCards(page)).every((entry) => !entry.price_manual));
 
+		// A typing slip, a lowest above the average, and a US-style amount are
+		// refused too, each on its own field.
+		const refused = async (lowText, avgText, message, field) => {
+			await page.fill('#price-1-low_nm', lowText);
+			await page.fill('#price-1-avg', avgText);
+			await section.locator('button[type="submit"]').click();
+			assert.equal(await text(section.locator('.price-form-status')), message);
+			assert.equal(await section.locator(`#price-1-${field}`).getAttribute('aria-invalid'), 'true');
+			assert.ok((await storedCards(page)).every((entry) => !entry.price_manual));
+		};
+
+		await refused('99999999999', '1', 'Lowest NM price must be under R$ 1.000.000,00. Check for an extra zero.', 'low_nm');
+		await refused('45,90', '40', 'The lowest NM price cannot be above the average price.', 'low_nm');
+		await refused('', '1,234.56', 'Average price: use a comma for cents and dots for thousands, such as 1.234,56.', 'avg');
+
 		await page.fill('#price-1-low_nm', '45,90');
 		await page.fill('#price-1-avg', '52,3');
 		assert.equal(await text(section.locator('button[type="submit"]')), 'Save to 2 copies');

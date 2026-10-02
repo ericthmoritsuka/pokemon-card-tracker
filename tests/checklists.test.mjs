@@ -571,6 +571,45 @@ describe('checklists', () => {
 		await context.close();
 	});
 
+	test('more than 300 Japanese cards fill in over visits, and saved records never count against the limit', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const reads = [];
+
+		// 320 made-up Japanese cards, card n showing Pokémon n.
+		await context.route(/\/v2\/ja\/cards\/jbig-\d+$/, (route) => {
+			const n = Number(/jbig-(\d+)$/.exec(route.request().url())[1]);
+
+			reads.push(n);
+
+			return route.fulfill({body: JSON.stringify({dexId: [n], id: `jbig-${n}`, localId: String(n), name: `Test ${n}`}), contentType: 'application/json', status: 200});
+		});
+		await page.goto(url('lists'));
+
+		const visit = () => page.evaluate(async () => {
+			const {resolveOwned} = await import('/pokemon-card-tracker/js/checklists.js');
+			const at = '2026-09-01T00:00:00.000Z';
+			const entries = Array.from({length: 320}, (_, i) => ({card_id: `jbig-${i + 1}`, catalog: 'ja', created_at: at, deleted_at: null, id: `e${i + 1}`, language: 'ja', updated_at: at}));
+			const result = await resolveOwned(entries);
+
+			return {owned: result.byDex.size, unresolved: result.unresolved};
+		});
+
+		assert.deepEqual(await visit(), {owned: 300, unresolved: 20}, 'the first visit reads 300 from the network');
+		assert.equal(reads.length, 300);
+
+		// The next visit takes the 300 from the phone and reads only the 20 left.
+		await page.reload();
+		assert.deepEqual(await visit(), {owned: 320, unresolved: 0});
+		assert.equal(reads.length, 320);
+		assert.equal(new Set(reads).size, 320, 'no card read twice');
+
+		await page.reload();
+		assert.deepEqual(await visit(), {owned: 320, unresolved: 0});
+		assert.equal(reads.length, 320, 'nothing read once every record is saved');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a list made signed in syncs, and a family member sees it read only', {timeout: TEST_TIMEOUT}, async () => {
 		const fake = new FakeSupabase();
 		const owner = fake.addUser('owner@example.test');

@@ -193,9 +193,12 @@ export async function completeSignIn(code) {
 	return user;
 }
 
+// Never creates an account: sign-up is closed in the dashboard, and
+// shouldCreateUser: false keeps it closed even if that switch is turned
+// back on. An address with no account gets "not been invited".
 export async function sendSignInLink(email) {
 	const client = await getClient();
-	const {error} = await client.auth.signInWithOtp({email, options: {emailRedirectTo: siteUrl()}});
+	const {error} = await client.auth.signInWithOtp({email, options: {emailRedirectTo: siteUrl(), shouldCreateUser: false}});
 
 	if (error) {
 		throw error;

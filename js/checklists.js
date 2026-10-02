@@ -11,7 +11,7 @@
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
-import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage} from './catalog.js';
+import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 
 export const MAX_DEX = 1025;
@@ -277,7 +277,16 @@ export function listLanguages(goal) {
 	return saved.length ? saved : [...ALL_LIST_LANGUAGES];
 }
 
+// languages null (Any language) removes the field, so the list counts a
+// copy in any language again, German, Spanish, Italian, and copies with no
+// language recorded included, which no set of the codes above can say.
 export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {
+	if (languages === null) {
+		delete goal.languages;
+
+		return;
+	}
+
 	const list = cleanLanguages(languages);
 
 	if (!list.length) {
@@ -423,8 +432,11 @@ const postGraphql = (url, query) => fetchJson(url, {
 //
 // GraphQL answers in English only, so Japanese, Korean, and Chinese cards are
 // read one card at a time (cache first, shared with the card detail view),
-// four at a time. So is any international card the bulk list lacks, up to
-// SINGLE_CARD_LIMIT a visit.
+// four at a time. So is any international card the bulk list lacks. Cards
+// whose records are already on the phone are read from there, every one of
+// them, and only the reads that need the network count against
+// SINGLE_CARD_LIMIT a visit, so a large Asian collection fills in over a few
+// visits.
 
 const TCGDEX_GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
 const INTERNATIONAL_KEY = 'dexmap:international';
@@ -598,7 +610,23 @@ export async function resolveOwned(entries, {force = false, isAlive = () => true
 	}
 
 	const singles = [...cards.entries()].filter(([key]) => !known.has(key));
-	const wanted = singles.slice(0, SINGLE_CARD_LIMIT);
+
+	// Every record already saved on the phone first, in one read and with no
+	// request, so the limit below never keeps the same cards out visit after
+	// visit.
+	if (singles.length) {
+		const saved = await savedCardRecords(singles.map(([, card]) => ({card_id: card.cardId, catalog: card.catalog, language: card.language})));
+
+		for (const [key, card] of singles) {
+			const detail = saved.get(indexKey(card.catalog || 'international', card.cardId));
+
+			if (detail) {
+				known.set(key, Array.isArray(detail.dexId) ? detail.dexId.filter(validDex) : []);
+			}
+		}
+	}
+
+	const wanted = singles.filter(([key]) => !known.has(key)).slice(0, SINGLE_CARD_LIMIT);
 	let done = 0;
 
 	if (wanted.length) {

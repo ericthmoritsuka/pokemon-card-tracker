@@ -80,6 +80,11 @@
 	min-height: 48px;
 }
 
+/* Any language takes its own row, above the languages it stands for. */
+.pc-language-any {
+	grid-column: 1 / -1;
+}
+
 .pc-language-choice input {
 	height: 22px;
 	margin: 0;

@@ -251,8 +251,13 @@ export class FakeSupabase {
 		if (path === '/otp') {
 			const email = String(body.email).toLowerCase();
 
+			// An address with no account: Supabase answers otp_disabled when
+			// the client sends create_user false, and signup_disabled (with
+			// sign-up closed) otherwise.
 			if (!this.userByEmail(email)) {
-				return this.json(route, 422, {code: 'signup_disabled', error_code: 'signup_disabled', msg: 'Signups not allowed for otp'});
+				return body.create_user === false
+					? this.json(route, 422, {code: 'otp_disabled', error_code: 'otp_disabled', msg: 'Signups not allowed for otp'})
+					: this.json(route, 422, {code: 'signup_disabled', error_code: 'signup_disabled', msg: 'Signups not allowed for otp'});
 			}
 
 			this.challenges.set(email, body.code_challenge);

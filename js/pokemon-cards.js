@@ -254,6 +254,32 @@ export function copiesByPrint(entries, languages) {
 	return out;
 }
 
+// copiesByPrint, worked out once per entries array and set of languages:
+// the Pokémon screen draws many times over the same collection while its
+// cards and finishes arrive. A new collection is a new array (a save loads
+// it again), so it is never served an old answer.
+const ownedMemo = new WeakMap();
+
+export function copiesByPrintOnce(entries, languages) {
+	if (!Array.isArray(entries)) {
+		return copiesByPrint(entries, languages);
+	}
+
+	const key = languages ? [...languages].join(',') : '*';
+	let byLanguages = ownedMemo.get(entries);
+
+	if (!byLanguages) {
+		byLanguages = new Map();
+		ownedMemo.set(entries, byLanguages);
+	}
+
+	if (!byLanguages.has(key)) {
+		byLanguages.set(key, copiesByPrint(entries, languages));
+	}
+
+	return byLanguages.get(key);
+}
+
 // ----------------------------------------------------------- finishes
 
 // The plain print (normal, or holo on a holo rare) has no finish code in
@@ -586,15 +612,55 @@ export async function loadAsian(catalog, n, {force = false} = {}) {
 	return {error, missingList: false, prints: asianPrints({briefs: briefs.data, catalog, sets}), unreadSets};
 }
 
+// The finish part of the records read so far ({variants,
+// variants_detailed}), by printKey, kept for as long as the app is open:
+// leaving the Pokémon screen and coming back, or opening another list with
+// the same Pokémon, finds them here without reading IndexedDB again. A
+// record that could not be read is not kept, so a later visit online tries
+// again. Capped, oldest out first, so a long session stays small.
+const RECORD_CACHE_LIMIT = 5000;
+const finishRecords = new Map();
+
+const finishPart = (record) => ({
+	variants: (record && record.variants) || null,
+	variants_detailed: record && Array.isArray(record.variants_detailed) ? record.variants_detailed : null,
+});
+
+// A print's finish record already read in this session, or undefined.
+export const knownRecord = (print) => finishRecords.get(printKey(print.catalog, print.cardId));
+
 // A print's TCGdex record, cache first under the card detail view's keys,
-// for its finishes. Null when it is not on the phone and cannot be read.
+// for its finishes (only the variants are kept). Null when it is not on the
+// phone and cannot be read.
 export async function printRecord(print) {
+	const key = printKey(print.catalog, print.cardId);
+
+	if (finishRecords.has(key)) {
+		return finishRecords.get(key);
+	}
+
+	let record;
+
 	try {
-		return await importApi.cardDetail(catalogLanguage(print.catalog), print.cardId);
+		record = await importApi.cardDetail(catalogLanguage(print.catalog), print.cardId);
 	}
 	catch {
 		return null;
 	}
+
+	if (!record) {
+		return null;
+	}
+
+	const part = finishPart(record);
+
+	finishRecords.set(key, part);
+
+	if (finishRecords.size > RECORD_CACHE_LIMIT) {
+		finishRecords.delete(finishRecords.keys().next().value);
+	}
+
+	return part;
 }
 
 // Validates a dex route parameter.

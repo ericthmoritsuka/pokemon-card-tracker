@@ -399,6 +399,36 @@ describe('every card of a Pokémon', () => {
 		await finishesRead(page);
 		assert.ok(await page.locator('#pc-finishes').isChecked(), 'the switch is remembered');
 		assert.equal(counts.cardsIn.en, 37, 'the records came from the phone');
+
+		// Leaving the screen and coming back finds the records kept for the
+		// session: no "Reading finishes", and a handful of draws rather than
+		// one per record.
+		await page.click('#pc-back');
+		await page.waitForSelector('.dex-row[data-dex="39"] a.dex-link');
+		await page.evaluate(() => {
+			window.pcDraws = 0;
+			window.pcStatuses = [];
+			new MutationObserver((changes) => {
+				for (const change of changes) {
+					if (change.target.id === 'pc-sections' && change.addedNodes.length) {
+						window.pcDraws++;
+					}
+
+					if (change.target.id === 'pc-status') {
+						window.pcStatuses.push(change.target.textContent);
+					}
+				}
+			}).observe(document.body, {childList: true, subtree: true});
+		});
+		await page.click('.dex-row[data-dex="39"] a.dex-link');
+		await waitForTitle(page, `Jigglypuff, 3 of ${INTERNATIONAL_FINISHES} finishes`, 40000);
+		await page.waitForTimeout(500);
+
+		const revisit = await page.evaluate(() => ({draws: window.pcDraws, statuses: window.pcStatuses}));
+
+		assert.ok(revisit.draws <= 8, `${revisit.draws} draws on a return visit`);
+		assert.ok(!revisit.statuses.some((text) => /Reading finishes/.test(text)), revisit.statuses.join(' | '));
+		assert.equal(counts.cardsIn.en, 37);
 		await page.click('label[for="pc-finishes"]');
 		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
 
@@ -491,6 +521,79 @@ describe('every card of a Pokémon', () => {
 		net.offline = false;
 		await context.setOffline(false);
 		assert.deepEqual(counts.other, []);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Any language counts every copy, and a list can go back to it', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		// German, Spanish, and Italian copies, one with no language recorded,
+		// and one Portuguese, on a list that names no languages.
+		const cards = [
+			entry('d1', {card_id: 'sv03.5-039', catalog: 'international', language: 'de'}),
+			entry('d2', {card_id: 'sm12-165', catalog: 'international', language: 'es'}),
+			entry('d3', {card_id: 'base2-54', catalog: 'international', language: 'it'}),
+			entry('d4', {card_id: 'swsh3-67', catalog: 'international', language: null}),
+			entry('d5', {card_id: 'xy1-87', catalog: 'international'}),
+		];
+		const anyGoal = {...GOAL};
+
+		delete anyGoal.languages;
+		await seedLocal(page, documentWith(cards, [anyGoal]));
+
+		const owned = () => page.evaluate(() => Number((/, (\d+) of /.exec(document.getElementById('pc-title').textContent) || [])[1]));
+		const waitOwned = (n) => page.waitForFunction((expected) => new RegExp(`^Jigglypuff, ${expected} of `).test(document.getElementById('pc-title').textContent), n, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Title is "${await titleText(page)}", not ${n} owned. ${err.message}`);
+		});
+		const savedLanguages = async () => (await localDoc(page)).goals.find((goal) => goal.id === LIST).languages;
+
+		await page.goto(url(`lists/${LIST}/pokemon/39`));
+		await waitOwned(5);
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+
+		// Edit opens on Any language, and Save keeps it.
+		await page.click('#list-languages-edit');
+		assert.ok(await page.locator('#list-languages-any').isChecked());
+		assert.equal(await page.locator('#list-languages-editor input[value="pt"]:checked').count(), 0);
+		await page.screenshot({path: `${SHOTS}-any-editor.png`});
+		await page.click('#list-languages-save');
+		await waitOwned(5);
+		assert.equal(await savedLanguages(), undefined, 'still no languages field');
+
+		// Portuguese alone counts the Portuguese copy only.
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-editor input[value="pt"]');
+		assert.equal(await page.locator('#list-languages-any').isChecked(), false, 'a language unticks Any');
+		await page.click('#list-languages-save');
+		await waitOwned(1);
+		assert.deepEqual(await savedLanguages(), ['pt']);
+
+		// Back to Any language: the field goes, and every copy counts again.
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		assert.equal(await page.locator('#list-languages-editor input[value="pt"]').isChecked(), false);
+		await page.click('#list-languages-save');
+		await waitOwned(5);
+		assert.equal(await savedLanguages(), undefined);
+		await page.waitForSelector('#list-languages-all');
+
+		// Nothing ticked is refused.
+		await page.click('#list-languages-edit');
+		await page.uncheck('#list-languages-any');
+		await page.click('#list-languages-save');
+		assert.equal(await page.locator('#list-languages-editor .form-error').textContent(), 'Pick at least one language, or Any language.');
+
+		// Every box ticked is the same as Any language, so nothing is dropped.
+		for (const box of await page.locator('#list-languages-editor input[name="list-language"]:not([value="any"])').all()) {
+			await box.check();
+		}
+
+		await page.click('#list-languages-save');
+		await page.waitForSelector('#list-languages-all');
+		await waitOwned(5);
+		assert.equal(await savedLanguages(), undefined);
+		assert.equal(await owned(), 5);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

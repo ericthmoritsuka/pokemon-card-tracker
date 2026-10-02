@@ -285,8 +285,10 @@ remembered between launches. The full spec is `plans/design-review.md`. *(Approv
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
 that list, in its current order and filters, as context. Swiping left or right anywhere on the
 page except the image moves to the next or previous card; swiping on the image changes the image
-in the carousel. A small position line ("12 of 1,359") and edge arrows do the same for one-handed
-use, and the browser back button returns to the list at the same scroll position.
+in the carousel. A small position line ("12 of 1,359") between a previous and a next arrow, beside
+Back, does the same with a tap, and the browser back button returns to the list at the same scroll
+position. The arrows first floated at the bottom corners, where on a phone they covered the copies
+list and Ver na Liga, so since 2026-10-02 they sit in the top row and never cover the page.
 
 **Sets lists physical cards only.** The TCG Pocket series (digital-only cards) is hidden from the
 Sets list. *(Decided by Eric, 2026-10-01.)*
@@ -629,7 +631,8 @@ tier). Firebase is an equivalent alternative.
   RFC 2606, so no mail can ever go to it) and adds it to the group like any other. The person
   signs in with the account name and a password, and changes the password in Profile. A
   forgotten password cannot be reset by email: Eric sets a new one with
-  `supabase/reset-password.sql`. *(Decided by Eric, 2026-10-01.)*
+  `supabase/reset-password.sql`, which also ends the account's sessions, so a phone that knew
+  the old password does not stay signed in. *(Decided by Eric, 2026-10-01.)*
 - Row-level security from the start: a person writes only their own `documents` row and storage
   files, and reads their own plus those of anyone sharing a group with them.
 - Server storage holds only owned-card images and uploads (section 3); the full catalog's images

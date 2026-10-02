@@ -20,7 +20,7 @@
 import {currentUser} from './auth.js';
 import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
-import {binderSpread} from './binder-spread.js';
+import {OVERVIEW_QUERY, binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -52,6 +52,7 @@ import {
 	coverTextColor,
 	createBinder,
 	deleteBinder,
+	isHex,
 	leaveEmpty,
 	liveBinders,
 	locate,
@@ -417,7 +418,9 @@ export const bindersListView = (root) => bindersScreen(root, MINE);
 export const familyBindersView = (root, {userId}) => bindersScreen(root, familySource(userId));
 
 function cover(binder, stats, base) {
-	const color = binder.cover_color || DEFAULT_COVER;
+	// A family member's colour comes from their document: only a hex colour
+	// reaches the style attribute.
+	const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
 	const node = link(`${base}/${encodeURIComponent(binder.id)}`, {
 		class: 'binder-cover',
 		'data-binder': binder.id,
@@ -562,9 +565,12 @@ function binderScreen(root, source, id, pageParam) {
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
-	// An empty binder offers the scanner, where new cards come from.
+	// An empty binder offers the scanner, where new cards come from. Its
+	// words follow the spread (drawSummary): held upright, a page is tapped
+	// open before its pockets take a tap.
+	const emptyText = h('p', {id: 'binder-empty-text'});
 	const emptyHint = source.readOnly ? null : h('div', {class: 'card empty-state binder-empty', hidden: true, id: 'binder-empty'},
-		h('p', null, 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.'),
+		emptyText,
 		h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binder-empty-scan'}, 'Scan cards')
 	);
 
@@ -686,8 +692,15 @@ function binderScreen(root, source, id, pageParam) {
 		const stats = binderStats(binder, placed, new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id)));
 		const where = pages.length > 1 ? `Pages ${pages[0]} and ${pages[1]}` : `Page ${pages[0]}`;
 
+		// Any pocket in use (a card, a Gone card, a placeholder, art, or one
+		// left empty on purpose) means the binder is not new.
 		if (emptyHint) {
-			emptyHint.hidden = stats.filled > 0 || stats.wanted > 0;
+			const upright = Boolean(window.matchMedia && window.matchMedia(OVERVIEW_QUERY).matches);
+
+			emptyHint.hidden = slotsOf(binder, placed).length > 0;
+			emptyText.textContent = upright
+				? 'Nothing in this binder yet. Tap a page, then a pocket, to place a card you own, or scan new ones.'
+				: 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.';
 		}
 
 		// A card page opened from this binder swipes through its cards in
@@ -765,8 +778,8 @@ function binderScreen(root, source, id, pageParam) {
 		meta.textContent = `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`;
 		notes.textContent = binder.notes || '';
 		notes.hidden = !binder.notes;
-		body.style.setProperty('--cover', binder.cover_color || DEFAULT_COVER);
-		body.style.setProperty('--cover-text', coverTextColor(binder.cover_color || DEFAULT_COVER));
+		body.style.setProperty('--cover', isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER);
+		body.style.setProperty('--cover-text', coverTextColor(isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER));
 
 		if (!source.readOnly) {
 			const loose = unplaced(data.cards.filter(isLive), data.binders).length;
