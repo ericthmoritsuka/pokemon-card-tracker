@@ -41,6 +41,7 @@ import {whenMemberName} from './family.js';
 import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
+import {SearchHint, searchCards} from './wishlist.js';
 import {
 	COVER_SWATCHES,
 	DEFAULT_COVER,
@@ -66,7 +67,6 @@ import {
 	validGrid,
 } from './binders.js';
 
-const TCGDEX = 'https://api.tcgdex.net/v2/';
 const PICK_PAGE = 60;
 const LIST_PAGE = 120;
 
@@ -1074,13 +1074,9 @@ function binderScreen(root, source, id, pageParam) {
 
 		chooser.append(...pocketChooser(page, position, message));
 		sheet.replaceChildren(header, current || '', chooser, message);
+		// Focus goes to Close, not the search field: most people scroll the
+		// list, and on a phone a focused field raises the keyboard over it.
 		sheet.showModal();
-
-		const search = sheet.querySelector('#owned-search');
-
-		if (!slot && search) {
-			search.focus();
-		}
 	}
 
 	// The three ways to fill a pocket: one of your cards, a placeholder, or
@@ -1098,7 +1094,12 @@ function binderScreen(root, source, id, pageParam) {
 
 			ownedPanel.hidden = want;
 			wantPanel.hidden = !want;
-			(want ? wantPanel.querySelector('#want-search') : ownedPanel.querySelector('#owned-search')).focus();
+
+			// A placeholder is found by typing its name; your cards are
+			// mostly scrolled, so their search waits for a tap.
+			if (want) {
+				wantPanel.querySelector('#want-search').focus();
+			}
 		});
 
 		ownedPanel.append(...ownedPicker(page, position, message));
@@ -1233,7 +1234,10 @@ function binderScreen(root, source, id, pageParam) {
 		return [search, filter, confirmBox, count, results, more];
 	}
 
-	// A placeholder: search the catalog by name, in the viewing language.
+	// A placeholder: search the catalog by name or number, in the viewing
+	// language, with the shared card search (js/wishlist.js searchCards: kept
+	// on the phone for a day, so a search made once works offline, and no
+	// TCG Pocket cards).
 	function wantPicker(page, position, message) {
 		const lang = viewing;
 		const catalog = catalogFor(lang);
@@ -1246,15 +1250,20 @@ function binderScreen(root, source, id, pageParam) {
 		async function choose(card) {
 			await act(() => placePlaceholder(binder.id, page, position, {
 				card_id: card.id,
-				catalog,
+				catalog: card.catalog || catalog,
 				image: card.image || null,
 				name: card.name,
 				variant_id: null,
 			}), 'Could not save the placeholder.');
 
-			// The set name, for the tile; the placeholder works without it.
-			importApi.cardDetail(lang, card.id)
-				.then((detail) => (detail && detail.set ? saveToCardIndex([recordFrom(catalog, lang, detail)]) : null))
+			// The set name, for the tile: from the search when it knew it,
+			// else read from the catalog. The placeholder works without it.
+			const known = card.setName
+				? Promise.resolve([{catalog: card.catalog || catalog, collector_number: card.localId, id: card.id, localizations: {[lang]: {image: card.image || null, lang, name: card.name, set_name: card.setName}}, set_id: card.setId}])
+				: importApi.cardDetail(lang, card.id).then((detail) => (detail && detail.set ? [recordFrom(catalog, lang, detail)] : null));
+
+			known
+				.then((records) => (records ? saveToCardIndex(records) : null))
 				.then((filled) => {
 					if (filled && alive && binder) {
 						index = filled;
@@ -1276,49 +1285,45 @@ function binderScreen(root, source, id, pageParam) {
 				return;
 			}
 
-			if (!navigator.onLine) {
-				status.textContent = 'Searching the catalog needs a connection. Your own cards are under Your cards.';
-
-				return;
-			}
-
 			const ticket = ++asked;
 
 			status.textContent = 'Searching…';
 			results.replaceChildren();
 
 			try {
-				const response = await fetch(`${TCGDEX}${encodeURIComponent(lang)}/cards?name=${encodeURIComponent(query)}&pagination:itemsPerPage=${PICK_PAGE}`);
-
-				if (!response.ok) {
-					throw new Error(`TCGdex answered ${response.status}.`);
-				}
-
-				const cards = await response.json();
+				const {more, results: list} = await searchCards(query, lang);
 
 				if (ticket !== asked || !alive) {
 					return;
 				}
 
-				const list = Array.isArray(cards) ? cards : [];
-
 				status.textContent = list.length
-					? `${plural(list.length, 'card', 'cards')} named like "${query}"${list.length === PICK_PAGE ? ', the first ones shown' : ''}.`
-					: `No ${languageLabel(lang)} cards are named like "${query}".`;
+					? `${plural(list.length + more, 'card', 'cards')} found for "${query}"${more ? `, the first ${formatCount(list.length)} shown` : ''}.`
+					: `No ${languageLabel(lang)} cards found for "${query}".`;
 				results.replaceChildren(...list.map((card) => {
-					const cut = String(card.id).lastIndexOf('-');
-					const setId = cut > 0 ? card.id.slice(0, cut) : '';
-					const info = {name: card.name, number: card.localId, setName: setId};
+					// The set's real name when the set list is on the phone;
+					// never its raw id.
+					const info = {name: card.name, number: card.localId, setName: card.setName};
 
 					return h('button', {class: 'pick', 'data-card': card.id, onclick: () => choose(card), type: 'button'},
 						h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low'))),
 						h('span', {class: 'tile-name'}, card.name),
-						h('span', {class: 'tile-meta'}, [card.localId ? `#${card.localId}` : null, setId].filter(Boolean).join(' · '))
+						h('span', {class: 'tile-meta'}, [card.localId ? `#${card.localId}` : null, card.setName].filter(Boolean).join(' · '))
 					);
 				}));
 			}
 			catch (err) {
-				if (ticket === asked) {
+				if (ticket !== asked) {
+					return;
+				}
+
+				if (err instanceof SearchHint) {
+					status.textContent = err.message;
+				}
+				else if (!navigator.onLine) {
+					status.textContent = 'This search needs a connection the first time. Your own cards are under Your cards.';
+				}
+				else {
 					status.textContent = `The catalog search did not work. ${errorText(err)}`;
 				}
 			}

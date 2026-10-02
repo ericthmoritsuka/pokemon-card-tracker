@@ -693,7 +693,16 @@ const SINGLE_CARDS = {
 const SEARCH = [
 	{id: 'tst2-025', localId: '025', name: 'Test Pikachu'},
 	{id: 'tst3-026', localId: '026', name: 'Test Pikachu ex'},
+	// A TCG Pocket card: not printed, so the search leaves it out.
+	{id: 'A1-094', image: 'https://assets.tcgdex.net/en/tcgp/A1/094', localId: '094', name: 'Test Pikachu Pocket'},
 ];
+
+// The set list the shared search reads set names from.
+const SERIES = {
+	'en/series': [{id: 'tst', name: 'Test series'}],
+	'en/series/tst': {id: 'tst', name: 'Test series', sets: [{cardCount: {official: 30}, id: 'tst2', name: 'Test set two'}, {cardCount: {official: 30}, id: 'tst3', name: 'Test set three'}]},
+	'en/sets': [],
+};
 
 function documentWith(cards, binders = []) {
 	return {binders, cards, collections: [], goals: [], openings: [], person: 'local', updated_at: AT, user_id: null, version: 1, wishlist: []};
@@ -716,6 +725,10 @@ async function fakeServices(context, counts, net) {
 			const query = url.searchParams.get('name').toLowerCase();
 
 			return route.fulfill({body: JSON.stringify(SEARCH.filter((item) => item.name.toLowerCase().includes(query))), contentType: 'application/json', status: 200});
+		}
+
+		if (SERIES[path]) {
+			return route.fulfill({body: JSON.stringify(SERIES[path]), contentType: 'application/json', status: 200});
 		}
 
 		if (SINGLE_CARDS[path]) {
@@ -937,6 +950,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await pocket(page, 1).click();
 		await page.waitForSelector('#pocket-sheet[open]');
 		assert.equal(await page.locator('#sheet-title').textContent(), 'Page 1, pocket 1');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'owned-search', 'the search field waits for a tap, so no keyboard rises');
 		assert.ok(await page.locator('#owned-filter input[value="unplaced"]').isChecked());
 		assert.equal(await page.locator('#owned-count').textContent(), '3 cards not in a binder yet.');
 		// The third card's name is read from TCGdex for the picker.
@@ -984,8 +998,9 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.fill('#want-search', 'pika');
 		await page.click('#want-go');
 		await page.waitForSelector('#want-results .pick');
-		assert.equal(await page.locator('#want-results .pick').count(), 2);
+		assert.equal(await page.locator('#want-results .pick').count(), 2, 'the TCG Pocket card is left out');
 		assert.equal(counts.search, 1);
+		assert.equal(await page.locator('#want-results .pick[data-card="tst2-025"] .tile-meta').textContent(), '#025 · Test set two', 'the set\'s name, not its id');
 		await page.screenshot({path: '/tmp/binders-placeholder-search.png'});
 		await page.click('#want-results .pick[data-card="tst2-025"]');
 		await waitForKind(page, 3, 'want');
@@ -1133,7 +1148,8 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await pocket(page, 3, 1).getAttribute('aria-label'), /Test Pikachu/);
 		assert.equal(await page.locator('.binder-head').evaluate((el) => getComputedStyle(el).borderLeftColor), 'rgb(27, 27, 31)', 'the binder stylesheet is cached');
 
-		// Placing works offline; the catalog search says it needs a connection.
+		// Placing works offline; a catalog search made before works from the
+		// phone, and a new one says it needs a connection.
 		await openPage(page, 1);
 		await pocket(page, 6).click();
 		await page.click('#owned-results .pick[data-entry="c3"]');
@@ -1142,7 +1158,11 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('label:has-text("Placeholder")');
 		await page.fill('#want-search', 'pika');
 		await page.click('#want-go');
-		assert.match(await page.locator('#want-status').textContent(), /needs a connection/);
+		await page.waitForSelector('#want-results .pick[data-card="tst2-025"]');
+		assert.equal(await page.locator('#want-results .pick').count(), 2);
+		await page.fill('#want-search', 'bulba');
+		await page.click('#want-go');
+		await page.waitForFunction(() => /needs a connection/.test(document.getElementById('want-status').textContent));
 		await page.click('#sheet-close');
 		await page.screenshot({path: '/tmp/binders-offline.png'});
 		assert.deepEqual(counts, before, 'nothing was fetched offline');
