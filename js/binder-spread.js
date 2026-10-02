@@ -838,8 +838,8 @@ export function binderSpread({
 	zoomBack.addEventListener('click', unzoom);
 	zoomPrev.addEventListener('click', () => stepZoom(-1));
 	zoomNext.addEventListener('click', () => stepZoom(1));
-	prevEdge.addEventListener('click', () => turn(-1));
-	nextEdge.addEventListener('click', () => turn(1));
+	prevEdge.addEventListener('click', () => turn(-1).catch(() => {}));
+	nextEdge.addEventListener('click', () => turn(1).catch(() => {}));
 	jump.addEventListener('change', () => goTo(Number(jump.value)));
 
 	// ------------------------------------------------------- gestures
@@ -877,7 +877,7 @@ export function binderSpread({
 		if (Math.abs(dx) >= SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 1.5) {
 			// The finger's lift is not a tap on the pocket under it.
 			suppressUntil = Date.now() + 400;
-			turn(dx < 0 ? 1 : -1);
+			turn(dx < 0 ? 1 : -1).catch(() => {});
 		}
 	});
 

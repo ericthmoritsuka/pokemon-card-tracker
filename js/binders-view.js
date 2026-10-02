@@ -699,7 +699,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(stats.filled)} of ${formatCount(stats.total)} in the binder${stats.wanted ? `, ${plural(stats.wanted, 'placeholder', 'placeholders')}` : ''}.`;
 
-		fillVisible(pages);
+		fillVisible(pages).catch(() => {});
 	}
 
 	// Catalog records for the cards on the pages shown that the phone has
@@ -1270,7 +1270,7 @@ export function unplacedView(root) {
 		more.hidden = groups.length <= shown;
 		more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
 
-		fillRecords(visible.map((group) => ({cardId: group.first.card_id, catalog: group.first.catalog})), index, () => alive).then((filled) => {
+		fillRecords(visible.map((group) => ({cardId: group.first.card_id, catalog: group.first.catalog})), index, () => alive).catch(() => null).then((filled) => {
 			if (filled && alive) {
 				index = filled;
 				build(groups.flatMap((group) => group.entries));
