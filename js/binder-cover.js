@@ -33,6 +33,7 @@ import {detectCorners} from './photos/detect.js';
 import {decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './photos/encode.js';
 import {clampPoint, scaleCorners, warp} from './photos/geometry.js';
 import {PHOTO_BUCKET, photoExtension} from './photos/model.js';
+import {openSheet} from './sheet.js';
 
 const DB_NAME = 'card-tracker-binder-covers';
 const STORES = ['blobs', 'queue'];
@@ -477,11 +478,11 @@ function startCorners(width, height, aspect) {
 
 // Opens the Cover image sheet for a binder. onSaved(binder) runs after a
 // new image is saved or the image is taken away. Returns {close, element}.
+// It is a js/sheet.js sheet: Escape, the system Back, and a route change
+// close it too.
 export function pickCoverImage({binder, onSaved = null}) {
 	const size = coverSize(binder);
 	const aspect = size.width / size.height;
-	const opener = document.activeElement;
-	const overflow = document.body.style.overflow;
 	const title = h('h2', {class: 'ph-sheet-title', id: 'bc-title'}, 'Cover image');
 	const dismiss = h('button', {'aria-label': 'Close', class: 'ph-sheet-close', id: 'bc-close', type: 'button'}, '×');
 	const body = h('div', {class: 'ph-sheet-body'});
@@ -500,28 +501,29 @@ export function pickCoverImage({binder, onSaved = null}) {
 		sheet.addEventListener(type, (event) => event.stopPropagation(), {passive: true});
 	}
 
+	let handle = null;
+
 	function close() {
-		if (closed) {
-			return;
-		}
-
-		closed = true;
-		document.removeEventListener('keydown', onKey, true);
-		document.body.style.overflow = overflow;
-		sheet.remove();
-
-		if (opener && opener.focus) {
-			opener.focus({preventScroll: true});
-		}
-	}
-
-	function onKey(event) {
-		if (event.key === 'Escape') {
-			close();
+		if (handle) {
+			handle.close();
 		}
 	}
 
 	const message = (text, kind = 'muted') => h('p', {class: `ph-message ${kind}`, role: kind === 'error' ? 'alert' : null}, text);
+
+	// Rewrites a message in place, so a second error shows as the first did.
+	function setMessage(element, text, kind = 'muted') {
+		element.className = `ph-message ${kind}`;
+
+		if (kind === 'error') {
+			element.setAttribute('role', 'alert');
+		}
+		else {
+			element.removeAttribute('role');
+		}
+
+		element.textContent = text;
+	}
 
 	function start(note = null) {
 		title.textContent = 'Cover image';
@@ -557,8 +559,10 @@ export function pickCoverImage({binder, onSaved = null}) {
 					}
 				}
 				catch (err) {
-					remove.disabled = false;
-					start(message(`Could not change the cover: ${(err && err.message) || err}`, 'error'));
+					if (!closed) {
+						remove.disabled = false;
+						start(message(`Could not change the cover: ${(err && err.message) || err}`, 'error'));
+					}
 				}
 			});
 		}
@@ -581,10 +585,16 @@ export function pickCoverImage({binder, onSaved = null}) {
 		body.replaceChildren(message('Opening the picture…'));
 
 		try {
-			fit(await decodeImageFile(file));
+			const source = await decodeImageFile(file);
+
+			if (!closed) {
+				fit(source);
+			}
 		}
 		catch (err) {
-			start(message((err && err.message) || String(err), 'error'));
+			if (!closed) {
+				start(message((err && err.message) || String(err), 'error'));
+			}
 		}
 	}
 
@@ -739,7 +749,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 			catch (err) {
 				save.disabled = false;
 				save.textContent = 'Save cover';
-				status.replaceWith(message(`Could not save the cover: ${(err && err.message) || err}`, 'error'));
+				setMessage(status, `Could not save the cover: ${(err && err.message) || err}`, 'error');
 			}
 		});
 
@@ -749,9 +759,11 @@ export function pickCoverImage({binder, onSaved = null}) {
 	}
 
 	dismiss.addEventListener('click', close);
-	document.addEventListener('keydown', onKey, true);
-	document.body.style.overflow = 'hidden';
-	document.body.append(sheet);
+	handle = openSheet(sheet, {
+		onClose() {
+			closed = true;
+		},
+	});
 	start();
 
 	return {close, element: sheet};
