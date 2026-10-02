@@ -619,7 +619,19 @@ export function binderSpread({
 		const reverse = el('div', {class: 'bs-face bs-face-back'}, back, backShade);
 		const leaf = el('div', {'aria-hidden': 'true', class: `bs-leaf ${forward ? 'bs-leaf-forward' : 'bs-leaf-back'}`, inert: true}, front, reverse);
 
-		Object.assign(leaf.style, {height: `${box.height}px`, left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`});
+		// The sheet hinges on the middle of the spine, not on its own inner
+		// edge: the pages sit a gap apart, so turning on the edge would stand
+		// the sheet up beside the spine and land it that gap too far over,
+		// then jump when the real page replaces it.
+		const spine = (leftSide.offsetLeft + leftSide.offsetWidth + rightSide.offsetLeft) / 2;
+
+		Object.assign(leaf.style, {
+			height: `${box.height}px`,
+			left: `${box.left}px`,
+			top: `${box.top}px`,
+			transformOrigin: `${spine - box.left}px 50%`,
+			width: `${box.width}px`,
+		});
 		from.replaceChildren(under, el('span', {'aria-hidden': 'true', class: 'bs-fx'}, sweep));
 		onto.append(el('span', {'aria-hidden': 'true', class: 'bs-fx'}, cast));
 		book.append(leaf);
