@@ -2430,6 +2430,25 @@ progress {
 	width: 30px;
 }
 
+/* Unsaved cards in the scan tray: a count on the disc, so the draft is not
+   forgotten after leaving Scan. */
+.scan-dot {
+	background: var(--danger);
+	border: 2px solid var(--scan-ring);
+	border-radius: 999px;
+	color: #ffffff;
+	font-size: 0.6875rem;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	line-height: 16px;
+	min-width: 20px;
+	padding: 0 4px;
+	position: absolute;
+	right: -4px;
+	text-align: center;
+	top: -4px;
+}
+
 .tab-scan[aria-current="page"] .scan-disc {
 	outline: 3px solid var(--tab-mark);
 	outline-offset: 2px;
@@ -2727,8 +2746,7 @@ progress {
 	}
 }
 
-/* Swiping through a list: the position beside Back, and an arrow at each
-   bottom corner, above the tabs and clear of the raised Scan button. */
+/* Swiping through a list: the position and its arrows beside Back. */
 .card-top {
 	align-items: center;
 	display: flex;
@@ -2752,23 +2770,21 @@ progress {
 	margin: 0;
 }
 
-.card-nav {
-	bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + var(--space-2));
+/* The previous and next arrows sit around the position line in the row
+   beside Back, so nothing floats over the copies or Ver na Liga. */
+.card-steps {
+	align-items: center;
 	display: flex;
-	justify-content: space-between;
-	margin: var(--space-4) calc(-1 * var(--space-2)) 0;
-	pointer-events: none;
-	position: sticky;
-	z-index: 5;
+	flex: none;
+	gap: var(--space-1);
 }
 
 .card-nav-arrow {
 	border-radius: 50%;
-	box-shadow: var(--elevation-3);
-	font-size: 1.5rem;
+	flex: none;
+	font-size: 1.25rem;
 	height: var(--target);
 	padding: 0;
-	pointer-events: auto;
 	width: var(--target);
 }
 
