@@ -296,6 +296,10 @@ export function photoCarousel({
 	}
 
 	function show(target, {announce = true} = {}) {
+		if (destroyed) {
+			return;
+		}
+
 		const {slides: list} = state;
 		const i = typeof target === 'number' ? target : list.findIndex((slide) => slide.id === target);
 
@@ -360,9 +364,10 @@ export function photoCarousel({
 	});
 
 	let viewer = null;
+	let destroyed = false;
 
 	function openFull() {
-		if (!state.slides.length) {
+		if (!state.slides.length || destroyed) {
 			return;
 		}
 
@@ -385,14 +390,23 @@ export function photoCarousel({
 
 	return {
 		current: () => state.slides[index] || null,
+		// Closes the viewer (the screen is going); after it, a late save or
+		// photo download changes nothing.
 		destroy() {
+			destroyed = true;
+
 			if (viewer) {
 				viewer.close();
+				viewer = null;
 			}
 		},
 		element,
 		show,
 		update(next) {
+			if (destroyed) {
+				return;
+			}
+
 			state = {...state, ...next};
 			render();
 		},

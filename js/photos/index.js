@@ -84,27 +84,32 @@ export async function savePhoto({blob, detail = null, entry, side = 'front', typ
 	return photo;
 }
 
-// The Add photo button. entries() returns the live copies the photo can go
-// on; the button hides itself while there are none (photos belong to a
-// physical card). onSaved(photo) runs after a save.
-export function addPhotoButton({describe = describeCopy, entries, label = 'Add photo', onSaved = null}) {
+// The Add photo button and the sheet it opens. close() closes that sheet
+// and stops onSaved: the screen it belonged to is going.
+function addPhotoControl({describe = describeCopy, entries, label = 'Add photo', onSaved = null}) {
 	const button = h('button', {class: 'ph-add', type: 'button'}, label);
+	let sheet = null;
+	let alive = true;
 
 	button.addEventListener('click', () => {
 		const list = entries();
 
-		if (!list.length) {
+		if (!list.length || !alive) {
 			return;
 		}
 
-		openAddPhoto({
+		if (sheet) {
+			sheet.close();
+		}
+
+		sheet = openAddPhoto({
 			describe,
 			entries: list,
 			keepDetail: keepDetailCopies(),
 			async save(fields) {
 				const photo = await savePhoto(fields);
 
-				if (onSaved) {
+				if (onSaved && alive) {
 					onSaved(photo);
 				}
 
@@ -113,7 +118,24 @@ export function addPhotoButton({describe = describeCopy, entries, label = 'Add p
 		});
 	});
 
-	return button;
+	return {
+		button,
+		close() {
+			alive = false;
+
+			if (sheet) {
+				sheet.close();
+				sheet = null;
+			}
+		},
+	};
+}
+
+// The Add photo button. entries() returns the live copies the photo can go
+// on; the button hides itself while there are none (photos belong to a
+// physical card). onSaved(photo) runs after a save.
+export function addPhotoButton(options) {
+	return addPhotoControl(options).button;
 }
 
 // Card detail's image block for one card. Call show() from every render
@@ -143,13 +165,18 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		resolveDetail: (slide) => detailUrl(slide.photo),
 		resolveSrc: (slide) => photoUrl(slide.photo),
 	});
-	const add = readOnly ? null : addPhotoButton({
+	// Destroyed with the card page: its Add photo sheet closes with it, so
+	// nothing is captured or saved for the copies of a card no longer shown.
+	const addControl = readOnly ? null : addPhotoControl({
 		describe,
 		entries: () => entries,
 		onSaved(photo) {
-			wantSlide = photo.id;
+			if (alive) {
+				wantSlide = photo.id;
+			}
 		},
 	});
+	const add = addControl ? addControl.button : null;
 	const element = h('div', {class: 'ph-card'}, carousel.element, add);
 
 	function draw() {
@@ -206,6 +233,10 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 			stopChange();
 			stopPhotos();
 			carousel.destroy();
+
+			if (addControl) {
+				addControl.close();
+			}
 		},
 		element,
 		refresh: load,
