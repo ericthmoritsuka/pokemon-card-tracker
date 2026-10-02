@@ -59,8 +59,8 @@ import {
 	placeCard,
 	placePlaceholder,
 	placements,
+	planResize,
 	slotsOf,
-	slotsOutside,
 	unplaced,
 	updateBinder,
 	validGrid,
@@ -242,9 +242,58 @@ async function fillRecords(items, index, isAlive) {
 
 // ---------------------------------------------------------- the form
 
+// What a change of size does to a binder's pockets (planResize in
+// js/binders.js), in sentences, for the form and the preview sheet.
+function resizeLines(binder, plan) {
+	const lines = [];
+	const out = plan.toTray.length;
+	const gone = [
+		plan.dropped.wants ? plural(plan.dropped.wants, 'placeholder', 'placeholders') : null,
+		plan.dropped.empties ? plural(plan.dropped.empties, 'pocket left empty on purpose', 'pockets left empty on purpose') : null,
+	].filter(Boolean);
+
+	if (plan.how === 'grow') {
+		lines.push('Every card keeps its row and column; the new pockets are empty.');
+	}
+	else if (plan.how === 'keep') {
+		lines.push('Every card still fits at its row and column, so only the empty edge goes.');
+	}
+	else if (plan.how === 'reflow') {
+		lines.push('Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.');
+	}
+	else if (plan.how === 'tray') {
+		lines.push(`Every pocket is emptied, and ${out ? `${plural(out, 'card goes', 'cards go')} to the tray to place by hand` : 'the tray keeps what it has'}.`);
+	}
+
+	if (plan.added) {
+		lines.push(`This binder grows from ${formatCount(binder.page_count)} to ${plural(plan.page_count, 'page', 'pages')}, so nothing falls out.`);
+	}
+
+	if (out && plan.how !== 'tray') {
+		lines.push(`${plural(out, 'card does', 'cards do')} not fit and ${out === 1 ? 'goes' : 'go'} to the tray.`);
+	}
+
+	if (gone.length) {
+		lines.push(`${gone.join(' and ')} ${plan.dropped.wants + plan.dropped.empties === 1 ? 'is' : 'are'} removed.`);
+	}
+
+	if (plan.dropped.art) {
+		lines.push('Michi art is cleared, since it was cut for the old grid.');
+	}
+
+	return lines;
+}
+
+// A resize the person should see before it is saved: one that moves,
+// removes, or sends something to the tray.
+const resizeMatters = (binder, plan) => slotsOf(binder).length > 0
+	&& (plan.reshaped || plan.toTray.length > 0 || plan.dropped.wants + plan.dropped.empties + plan.dropped.art > 0);
+
 // Name, notes, cover color, grid, and pages, for a new binder or an edit.
-// onSubmit(fields) saves; it may throw a message to show.
-function binderForm({binder = null, onCancel, onSubmit}) {
+// onSubmit(fields) saves; it may throw a message to show, or return false
+// to leave the form open with nothing saved. placed is placements() of
+// every binder, for the resize summary.
+function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3};
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
@@ -340,13 +389,14 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 			: 'Grids run up to 5 × 4 or 4 × 5.';
 		gridNote.className = ok ? 'muted' : 'form-error';
 		warning.textContent = '';
+		warning.className = 'muted';
 
-		if (binder && ok && Number.isInteger(pageCount) && pageCount >= 1) {
-			const lost = slotsOutside(binder, {cols, page_count: pageCount, rows});
-			const cards = lost.filter((slot) => slot.entry_id).length;
+		if (binder && ok && Number.isInteger(pageCount) && pageCount >= 1 && pageCount <= MAX_PAGES) {
+			const plan = planResize(binder, {cols, page_count: pageCount, rows}, {placed});
 
-			if (lost.length) {
-				warning.textContent = `${plural(lost.length, 'filled pocket falls', 'filled pockets fall')} outside the new size${cards ? `, and ${plural(cards, 'card comes', 'cards come')} out of the binder` : ''}.`;
+			if (resizeMatters(binder, plan)) {
+				warning.textContent = resizeLines(binder, plan).join(' ');
+				warning.className = plan.toTray.length || plan.dropped.wants || plan.dropped.empties ? 'form-error' : 'muted';
 			}
 		}
 	}
@@ -397,7 +447,9 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 		save.disabled = true;
 
 		try {
-			await onSubmit(clean);
+			if (await onSubmit(clean) === false) {
+				save.disabled = false;
+			}
 		}
 		catch (err) {
 			message.textContent = `Could not save the binder. ${err.message || errorText(err)}`;
@@ -547,6 +599,8 @@ function binderScreen(root, source, id, pageParam) {
 	let entriesById = new Map();
 	let spread = null;
 	let slotCache = new Map();
+	// Closes the resize preview, if it is open (leaving the screen).
+	let closeResize = () => {};
 
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
@@ -840,17 +894,97 @@ function binderScreen(root, source, id, pageParam) {
 			binder,
 			onCancel: () => editor.replaceChildren(),
 			onSubmit: async (fields) => {
-				const lost = slotsOutside(binder, fields);
+				let mode = 'auto';
 
-				if (lost.length && !window.confirm(`${plural(lost.length, 'filled pocket falls', 'filled pockets fall')} outside the new size and will be emptied. Save anyway?`)) {
-					throw new Error('Nothing was changed.');
+				if (resizeMatters(binder, planResize(binder, fields, {placed}))) {
+					mode = await askResize(fields);
+
+					if (!mode) {
+						return false;
+					}
 				}
 
-				await updateBinder(binder.id, fields);
+				await updateBinder(binder.id, fields, {mode});
 				editor.replaceChildren();
+
+				return true;
 			},
+			placed,
 		}));
 		editor.scrollIntoView({block: 'start'});
+	}
+
+	// The preview before a resize is saved, in the app's own sheet: the
+	// first page after the change, what happens to the pockets, and the two
+	// ways to do it (the rule, or everything into the tray). Resolves "auto",
+	// "tray", or null for Cancel.
+	function askResize(fields) {
+		const box = h('dialog', {'aria-labelledby': 'resize-title', class: 'pocket-sheet resize-sheet', id: 'resize-sheet'});
+		const lines = h('div', {'aria-live': 'polite', class: 'resize-lines', id: 'resize-lines'});
+		const preview = h('div', {class: 'resize-preview', id: 'resize-preview'});
+		const choice = h('div', {'aria-label': 'How to resize', class: 'resize-choice', role: 'radiogroup'},
+			h('label', null, h('input', {checked: true, id: 'resize-auto', name: 'resize-mode', type: 'radio', value: 'auto'}), h('span', null, 'Arrange automatically')),
+			h('label', null, h('input', {id: 'resize-tray', name: 'resize-mode', type: 'radio', value: 'tray'}), h('span', null, 'Empty into the tray and arrange by hand'))
+		);
+		const cancel = h('button', {id: 'resize-cancel', type: 'button'}, 'Cancel');
+		const save = h('button', {class: 'primary', id: 'resize-save', type: 'button'}, 'Save');
+		const mode = () => choice.querySelector('input:checked').value;
+
+		function draw() {
+			const plan = planResize(binder, fields, {mode: mode(), placed});
+			const shape = {cols: fields.cols, rows: fields.rows};
+			const first = new Map(plan.slots.filter((slot) => slot.page === 1).map((slot) => [slot.position, slot]));
+			const cells = [];
+
+			for (let position = 1; position <= fields.rows * fields.cols; position++) {
+				const content = pocketContent(first.get(position) || null);
+
+				cells.push(h('div', {'aria-label': content.label, class: `pocket pocket-${content.kind}`, 'data-kind': content.kind, role: 'img'}, content.kind === 'open' ? '' : content.node));
+			}
+
+			lines.replaceChildren(...resizeLines(binder, plan).map((line) => h('p', null, line)));
+			preview.replaceChildren(
+				h('p', {class: 'field-label'}, `Page 1 after the change, ${shape.rows} × ${shape.cols}`),
+				h('div', {class: 'resize-page', style: `--rz-cols: ${shape.cols}`}, cells)
+			);
+		}
+
+		return new Promise((resolve) => {
+			const finish = (value) => {
+				if (box.open) {
+					box.close();
+				}
+
+				box.remove();
+				resolve(value);
+			};
+
+			choice.addEventListener('change', draw);
+			cancel.addEventListener('click', () => finish(null));
+			save.addEventListener('click', () => finish(mode()));
+			box.addEventListener('cancel', (event) => {
+				event.preventDefault();
+				finish(null);
+			});
+			box.addEventListener('click', (event) => {
+				if (event.target === box) {
+					finish(null);
+				}
+			});
+			closeResize = () => finish(null);
+			box.append(
+				h('div', {class: 'sheet-head'}, h('h3', {id: 'resize-title'}, `Change the size of ${binder.name}?`)),
+				h('p', {class: 'muted'}, `New size: ${fields.rows} × ${fields.cols}, ${plural(fields.page_count, 'page', 'pages')}.`),
+				choice,
+				lines,
+				preview,
+				h('div', {class: 'button-row'}, cancel, save)
+			);
+			draw();
+			root.append(box);
+			box.showModal();
+			save.focus();
+		});
 	}
 
 	async function remove() {
@@ -1199,6 +1333,7 @@ function binderScreen(root, source, id, pageParam) {
 	return () => {
 		alive = false;
 		closeSheet();
+		closeResize();
 		stop();
 
 		if (spread) {

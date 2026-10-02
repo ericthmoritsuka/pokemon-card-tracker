@@ -10,6 +10,13 @@
 //                path is null until it is uploaded
 //   preset       the quick pick it was made with (js/binder-presets.js),
 //                such as "9-pocket-zip", or "custom"
+//   layout       a whole number, one more each time the grid changes shape
+//                (or the binder is emptied into its tray), so pockets saved
+//                for one grid are never read on another; missing counts as 0
+//   staged       the binder's tray: entry ids of copies meant for this
+//                binder but not in a pocket yet, in the order they go in.
+//                A copy is in at most one tray, and never in a tray and a
+//                pocket at once
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -347,7 +354,7 @@ function checkPocket(binder, page, position) {
 }
 
 // Puts content in one pocket. content is {entry_id}, {want}, {empty: true},
-// or null to take out whatever is there.
+// or null to take out whatever is there. A copy placed leaves every tray.
 export function setPocket(binders, {at = nowIso(), binderId, content, page, position}) {
 	const target = findLive(binders, binderId);
 
@@ -364,13 +371,20 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	const here = (slot) => slot.page === page && slot.position === position;
 	const entryId = content && content.entry_id;
 
-	// One pocket per copy: take it out of every other pocket, in any binder.
+	// One pocket per copy: take it out of every other pocket and every tray,
+	// in any binder.
 	if (entryId) {
 		for (const binder of liveBinders(binders)) {
 			if ((binder.slots || []).some((slot) => slot.entry_id === entryId && !(binder.id === binderId && here(slot)))) {
 				const next = edit(binder);
 
 				next.slots = next.slots.filter((slot) => slot.entry_id !== entryId || (binder.id === binderId && here(slot)));
+			}
+
+			if (stagedOf(binder).includes(entryId)) {
+				const next = edit(binder);
+
+				next.staged = stagedOf(next).filter((id) => id !== entryId);
 			}
 		}
 	}
@@ -396,14 +410,308 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	return [...changed.values()];
 }
 
-// The slots a new grid or page count would leave out. Positions keep their
-// numbers, so a grid of another shape keeps cards in reading order; Michi art
-// is sliced to one grid, so it goes when the shape changes.
-export function slotsOutside(binder, {cols, page_count, rows}) {
-	const smaller = {...binder, cols, page_count, rows};
-	const reshaped = rows !== binder.rows || cols !== binder.cols;
+// ----------------------------------------------------------- the tray
+//
+// A binder's tray (staged) holds copies meant for it that are not in a
+// pocket yet: cards a resize pushed out, a binder emptied to be arranged by
+// hand, or a card taken out of a pocket to go somewhere else.
 
-	return slotsOf(binder).filter((slot) => (reshaped && slot.art) || !inGrid(smaller, slot));
+export const layoutOf = (binder) => (isWhole(binder && binder.layout) && binder.layout >= 0 ? binder.layout : 0);
+
+// The tray as saved: entry ids, each once, in order.
+export function stagedOf(binder) {
+	const seen = new Set();
+
+	for (const id of Array.isArray(binder && binder.staged) ? binder.staged : []) {
+		if (typeof id === 'string' && id) {
+			seen.add(id);
+		}
+	}
+
+	return [...seen];
+}
+
+// The tray as shown: copies still in the collection (liveIds, when given)
+// and in no pocket (placed, when given). A copy deleted from the collection
+// leaves the tray here, and the next save of the binder drops it.
+export function trayOf(binder, {liveIds = null, placed = null} = {}) {
+	return stagedOf(binder).filter((id) => (!liveIds || liveIds.has(id)) && (!placed || !placed.has(id)));
+}
+
+// Changes made one after another on the same binders: each set of changed
+// binders applied over the list, and the latest copy of each kept.
+const withChanges = (binders, changed) => binders.map((binder) => changed.find((item) => item.id === binder.id) || binder);
+
+function gather(...lists) {
+	const out = new Map();
+
+	for (const binder of lists.flat()) {
+		out.set(binder.id, binder);
+	}
+
+	return [...out.values()];
+}
+
+// Puts copies in a binder's tray, at index (the end when left out), taking
+// each out of every pocket and every other tray first.
+export function stageCards(binders, {at = nowIso(), binderId, entryIds, index = null}) {
+	const target = findLive(binders, binderId);
+	const ids = [...new Set((entryIds || []).filter((id) => typeof id === 'string' && id))];
+	const changed = new Map();
+	const edit = (binder) => {
+		if (!changed.has(binder.id)) {
+			changed.set(binder.id, copyOf(binder, at));
+		}
+
+		return changed.get(binder.id);
+	};
+
+	if (!ids.length) {
+		return [];
+	}
+
+	for (const binder of liveBinders(binders)) {
+		if ((binder.slots || []).some((slot) => ids.includes(slot.entry_id))) {
+			const next = edit(binder);
+
+			next.slots = next.slots.filter((slot) => !ids.includes(slot.entry_id));
+		}
+
+		if (binder.id !== binderId && stagedOf(binder).some((id) => ids.includes(id))) {
+			const next = edit(binder);
+
+			next.staged = stagedOf(next).filter((id) => !ids.includes(id));
+		}
+	}
+
+	const next = edit(target);
+	const rest = stagedOf(next).filter((id) => !ids.includes(id));
+	const cut = index === null ? rest.length : Math.min(Math.max(0, index), rest.length);
+
+	next.staged = [...rest.slice(0, cut), ...ids, ...rest.slice(cut)];
+
+	return [...changed.values()];
+}
+
+// Takes the card in a pocket out into the binder's tray, at the end.
+export function pocketToTray(binders, {at = nowIso(), binderId, page, position}) {
+	const target = findLive(binders, binderId);
+	const slot = pageSlots(target, page, placements(binders)).get(position);
+
+	if (!slot || !slot.entry_id) {
+		throw new Error('There is no card in that pocket to move to the tray.');
+	}
+
+	return stageCards(binders, {at, binderId, entryIds: [slot.entry_id]});
+}
+
+// Places a card from the tray in a pocket. A card already in that pocket
+// swaps into the tray, where the placed one was, so it is the next to go;
+// a placeholder or a pocket left empty on purpose is replaced.
+export function placeFromTray(binders, {at = nowIso(), binderId, entryId, page, position}) {
+	const target = findLive(binders, binderId);
+	const index = stagedOf(target).indexOf(entryId);
+	const occupant = pageSlots(target, page, placements(binders)).get(position);
+	const placedNow = setPocket(binders, {at, binderId, content: {entry_id: entryId}, page, position});
+
+	if (!occupant || !occupant.entry_id || occupant.entry_id === entryId) {
+		return placedNow;
+	}
+
+	const swapped = stageCards(withChanges(binders, placedNow), {at, binderId, entryIds: [occupant.entry_id], index: index < 0 ? null : index});
+
+	return gather(placedNow, swapped);
+}
+
+// The pockets with nothing in them, in reading order: [{page, position}].
+export function openPockets(binder, placed) {
+	const filled = new Set(slotsOf(binder, placed).map((slot) => `${slot.page}|${slot.position}`));
+	const out = [];
+
+	for (let page = 1; page <= binder.page_count; page++) {
+		for (let position = 1; position <= pocketsPerPage(binder); position++) {
+			if (!filled.has(`${page}|${position}`)) {
+				out.push({page, position});
+			}
+		}
+	}
+
+	return out;
+}
+
+// "Fill the rest in order": the tray's cards go into the pockets with
+// nothing in them, in reading order, from page 1. Placeholders and pockets
+// left empty on purpose are passed over. Returns {changed, placed, left}:
+// the binders to save, and how many cards went in and how many stay.
+export function fillFromTray(binders, {at = nowIso(), binderId, liveIds = null}) {
+	const target = findLive(binders, binderId);
+	const placedMap = placements(binders);
+	const tray = trayOf(target, {liveIds, placed: placedMap});
+	const open = openPockets(target, placedMap);
+	const going = tray.slice(0, open.length);
+
+	if (!going.length) {
+		return {changed: [], left: tray.length, placed: 0};
+	}
+
+	const next = copyOf(target, at);
+
+	next.slots = structuredClone(slotsOf(target, placedMap));
+	next.slots.push(...going.map((entryId, i) => ({entry_id: entryId, page: open[i].page, placed_at: at, position: open[i].position})));
+	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+	// The tray keeps what did not fit; copies deleted since leave it.
+	next.staged = stagedOf(target).filter((id) => !going.includes(id) && (!liveIds || liveIds.has(id)));
+
+	return {changed: [next], left: tray.length - going.length, placed: going.length};
+}
+
+// --------------------------------------------------------- resizing
+//
+// Eric's rule (DESIGN.md section 11, "Resizing a binder", 2026-10-02):
+//   - a grid that grows (rows and columns both at least the old ones) keeps
+//     every pocket at its row and column, on its page;
+//   - a grid that shrinks or changes shape keeps every pocket at its row and
+//     column when all of them still fit, and otherwise lays the whole binder
+//     out again in reading order: pockets with nothing in them close up,
+//     placeholders and pockets left empty on purpose keep their place in the
+//     sequence, and pages are added so nothing falls out (unless the person
+//     asked for fewer pages);
+//   - fewer pages push out what is on the pages cut;
+//   - Michi art goes on any change of shape;
+//   - the layout number goes up by one on any change of shape.
+// mode "tray" empties the binder instead: every card goes to the tray, to
+// be arranged by hand, and placeholders and empty-on-purpose pockets go.
+//
+// Returns the plan, without changing the binder:
+//   how         "same" (only the pages changed), "grow", "keep", "reflow",
+//               or "tray"
+//   reshaped    the grid changed shape
+//   page_count  the pages after the change: the ones asked for, or more
+//   added       pages added so nothing falls out
+//   slots       the binder's slots after the change, in reading order
+//   toTray      entry ids that go to the tray, in reading order
+//   dropped     {wants, empties, art}: placeholders, empty-on-purpose
+//               pockets, and Michi art tiles that go
+//   moved       slots that changed page, row, or column
+//   layout      the layout number after the change
+export function planResize(binder, {cols, page_count: asked, rows}, {mode = 'auto', placed = undefined} = {}) {
+	const shape = {cols, rows};
+	const per = rows * cols;
+	const reshaped = rows !== binder.rows || cols !== binder.cols;
+	const grows = rows >= binder.rows && cols >= binder.cols;
+	const all = slotsOf(binder, placed);
+	const art = all.filter((slot) => slot.art);
+	const items = all.filter((slot) => !slot.art);
+	const dropped = {art: 0, empties: 0, wants: 0};
+	const toTray = [];
+	const lose = (slot) => {
+		if (slot.entry_id) {
+			toTray.push(slot.entry_id);
+		}
+		else if (slot.want) {
+			dropped.wants++;
+		}
+		else if (slot.empty) {
+			dropped.empties++;
+		}
+		else if (slot.art) {
+			dropped.art++;
+		}
+	};
+	const atOwnPlace = (slot) => {
+		const {col, row} = cellOf(binder, slot.position);
+
+		return {...slot, position: positionOf(shape, row, col)};
+	};
+
+	let how;
+	let pageCount = asked;
+	let laid;
+
+	if (mode === 'tray') {
+		how = 'tray';
+		laid = [];
+		items.forEach(lose);
+	}
+	else if (!reshaped || grows || items.every((slot) => cellOf(binder, slot.position).row <= rows && cellOf(binder, slot.position).col <= cols)) {
+		how = !reshaped ? 'same' : grows ? 'grow' : 'keep';
+		laid = items.map(atOwnPlace);
+	}
+	else {
+		how = 'reflow';
+
+		// More pages only make up for the smaller grid; a person who asked
+		// for fewer pages gets the pages asked for.
+		if (asked >= binder.page_count) {
+			pageCount = Math.min(MAX_PAGES, Math.max(asked, Math.ceil(items.length / per)));
+		}
+
+		laid = items.map((slot, i) => ({...slot, page: Math.floor(i / per) + 1, position: (i % per) + 1}));
+	}
+
+	const slots = [];
+
+	for (const slot of laid) {
+		if (slot.page <= pageCount) {
+			slots.push(slot);
+		}
+		else {
+			lose(slot);
+		}
+	}
+
+	// Michi art is sliced to one grid: it stays only while the shape does.
+	for (const slot of art) {
+		if (!reshaped && mode !== 'tray' && slot.page <= pageCount) {
+			slots.push(slot);
+		}
+		else {
+			lose(slot);
+		}
+	}
+
+	slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	const before = new Map(items.map((slot) => [slot, cellOf(binder, slot.position)]));
+	const moved = laid.filter((slot, i) => {
+		const old = items[i];
+		const cell = cellOf(shape, slot.position);
+		const was = before.get(old);
+
+		return slot.page !== old.page || cell.row !== was.row || cell.col !== was.col;
+	}).length;
+
+	return {
+		added: pageCount - asked,
+		dropped,
+		how,
+		layout: reshaped || mode === 'tray' ? layoutOf(binder) + 1 : layoutOf(binder),
+		moved,
+		page_count: pageCount,
+		reshaped,
+		slots,
+		toTray,
+	};
+}
+
+// The binder after a resize: the fields, the plan's slots and pages, cards
+// that fall out in its tray (after any already there), Michi art cleared
+// on a change of shape, and the layout number. at stamps the copy.
+export function resizedBinder(binder, fields, {at = nowIso(), mode = 'auto', placed = undefined} = {}) {
+	const plan = planResize(binder, fields, {mode, placed});
+	const next = copyOf(binder, at);
+
+	Object.assign(next, fields);
+	next.page_count = plan.page_count;
+	next.slots = structuredClone(plan.slots);
+	next.layout = plan.layout;
+	next.staged = [...new Set([...stagedOf(binder), ...plan.toTray])];
+
+	if (plan.reshaped) {
+		next.art = [];
+	}
+
+	return {binder: next, plan};
 }
 
 // ------------------------------------------------------------- saving
@@ -481,27 +789,16 @@ export function createBinder(fields) {
 	});
 }
 
-// Changes name, notes, cover, grid, or pages. A smaller grid or fewer pages
-// drops the slots that fall outside; the copies in them become unplaced.
-// Michi art is kept only while the grid keeps its shape.
-export function updateBinder(id, fields) {
+// Changes name, notes, cover, grid, or pages, by the resize rule above
+// (planResize): mode "auto" for the rule, "tray" to empty every card into
+// the tray. Cards that fall out land in the binder's tray.
+export function updateBinder(id, fields, {mode = 'auto'} = {}) {
 	const clean = cleanFields(fields);
 
 	return serial(async () => {
-		const binder = findLive(await allBinders(), id);
-		const at = nowIso();
-		const next = copyOf(binder, at);
-		const reshaped = clean.rows !== binder.rows || clean.cols !== binder.cols;
-		const out = new Set(slotsOutside(binder, clean).map((slot) => `${slot.page}|${slot.position}`));
-		const smaller = {...binder, ...clean};
-
-		Object.assign(next, clean);
-		next.slots = next.slots.filter((slot) => inGrid(smaller, slot) && !out.has(`${slot.page}|${slot.position}`));
-
-		if (reshaped) {
-			next.art = [];
-		}
-
+		const binders = await allBinders();
+		const binder = findLive(binders, id);
+		const {binder: next} = resizedBinder(binder, clean, {at: nowIso(), mode, placed: placements(binders)});
 		const [saved] = await saveBinders([next]);
 
 		return saved;
@@ -564,6 +861,22 @@ export const placePlaceholder = (binderId, page, position, want) => pocketChange
 export const leaveEmpty = (binderId, page, position) => pocketChange(binderId, page, position, {empty: true});
 
 export const clearPocket = (binderId, page, position) => pocketChange(binderId, page, position, null);
+
+// The tray, saved. Each reads what the last change saved, like the pockets.
+const liveCardIds = async () => new Set(((await loadDocument()).cards || []).filter(isLive).map((entry) => entry.id));
+
+export const moveToTray = (binderId, page, position) => serial(async () => saveBinders(pocketToTray(await allBinders(), {binderId, page, position})));
+
+export const placeStaged = (binderId, page, position, entryId) => serial(async () => saveBinders(placeFromTray(await allBinders(), {binderId, entryId, page, position})));
+
+// Resolves {placed, left}.
+export const fillTray = (binderId) => serial(async () => {
+	const result = fillFromTray(await allBinders(), {binderId, liveIds: await liveCardIds()});
+
+	await saveBinders(result.changed);
+
+	return {left: result.left, placed: result.placed};
+});
 
 // Where a copy is, for card detail: {binder_id, binder_name, page, position,
 // row, col}, or null when it is in no binder.

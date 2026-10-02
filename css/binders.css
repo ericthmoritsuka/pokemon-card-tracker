@@ -446,3 +446,77 @@
 .leave-empty {
 	margin-top: 8px;
 }
+
+/* ------------------------------------------------- the resize preview */
+
+/* Two ways to resize, as full-width choices a thumb can hit. */
+.resize-choice {
+	display: grid;
+	gap: 8px;
+	margin: 8px 0 12px;
+}
+
+.resize-choice label {
+	align-items: center;
+	background: var(--surface, #ffffff);
+	border: 1px solid var(--border, #d9d9e0);
+	border-radius: 10px;
+	display: flex;
+	font-weight: 600;
+	gap: 10px;
+	min-height: 48px;
+	padding: 6px 12px;
+}
+
+.resize-choice label:has(input:checked) {
+	border: 2px solid var(--text, #1b1b1f);
+}
+
+.resize-choice input {
+	flex: none;
+	height: 20px;
+	margin: 0;
+	width: 20px;
+}
+
+.resize-lines p {
+	margin: 0 0 6px;
+}
+
+.resize-preview .field-label {
+	font-weight: 600;
+	margin: 12px 0 6px;
+}
+
+/* Page 1 after the change, small: the pockets in their new grid. */
+.resize-page {
+	background: var(--surface, #ffffff);
+	border: 1px solid var(--border, #d9d9e0);
+	border-radius: 8px;
+	display: grid;
+	gap: 4px;
+	grid-template-columns: repeat(var(--rz-cols, 3), minmax(0, 1fr));
+	margin: 0 auto 12px;
+	max-width: min(100%, calc(var(--rz-cols, 3) * 64px));
+	padding: 6px;
+}
+
+.resize-page .pocket {
+	border-radius: 4px;
+}
+
+.resize-page .pocket-tag,
+.resize-page .pocket-text {
+	font-size: 0.55rem;
+	padding: 1px 3px;
+}
+
+.resize-page .badge,
+.resize-page .card-back-name,
+.resize-page .card-back-status {
+	display: none;
+}
+
+.resize-sheet .button-row {
+	margin-top: 4px;
+}

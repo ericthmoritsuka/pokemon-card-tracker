@@ -23,17 +23,26 @@ import {
 	clampPage,
 	cleanFields,
 	coverTextColor,
+	fillFromTray,
+	layoutOf,
 	locate,
 	nextStamp,
+	openPockets,
 	pageOfPocket,
 	pageSlots,
+	placeFromTray,
 	placeholdersFor,
 	placements,
+	planResize,
+	pocketToTray,
 	positionOf,
+	resizedBinder,
 	setPocket,
 	slotsOf,
-	slotsOutside,
+	stageCards,
+	stagedOf,
 	totalPockets,
+	trayOf,
 	unplaced,
 	validGrid,
 } from '../js/binders.js';
@@ -231,20 +240,299 @@ describe('the one-pocket rule', () => {
 		assert.deepEqual(binderStats(binders[0], placements(binders), live), {filled: 1, total: 36, wanted: 1}, 'a deleted copy does not count as filled');
 	});
 
-	test('a smaller grid or fewer pages names the pockets that fall off', () => {
+});
+
+// A slot as [page, position, what]: an entry id, "want:<card>", "empty", or
+// "art".
+const shapeOf = (slots) => slots.map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? `want:${slot.want.card_id}` : slot.empty ? 'empty' : 'art')]);
+
+const want = (cardId) => ({card_id: cardId, catalog: 'international', image: null, name: cardId, variant_id: null});
+
+describe('resizing a binder (Eric, 2026-10-02)', () => {
+	test('a growing grid keeps every card at its row and column, with new pockets empty on the right and at the bottom', () => {
 		const binder = binderOf('a', {
-			art: [{first_position: 1, id: 'art1', page: 1}],
+			page_count: 2,
 			slots: [
-				{entry_id: 'c1', page: 1, placed_at: at(0), position: 9},
-				{entry_id: 'c2', page: 4, placed_at: at(0), position: 1},
-				{entry_id: 'c3', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 6},
+				{page: 1, placed_at: at(0), position: 9, want: want('tst1-009')},
+				{empty: true, page: 2, placed_at: at(0), position: 5},
+			],
+		});
+		const plan = planResize(binder, {cols: 4, page_count: 2, rows: 4});
+
+		assert.equal(plan.how, 'grow');
+		assert.equal(plan.page_count, 2, 'pages unchanged');
+		assert.equal(plan.added, 0);
+		// Row 2, column 3 is position 6 of 3 x 3 and position 7 of 4 x 4.
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 7, 'c2'], [1, 11, 'want:tst1-009'], [2, 6, 'empty']]);
+		assert.deepEqual(plan.toTray, []);
+		assert.equal(plan.moved, 0, 'nothing changes row or column');
+		assert.equal(plan.layout, 1, 'a binder with no layout counts as 0, and a change of shape adds one');
+	});
+
+	test('a shrinking grid where every card still fits keeps them in place and cuts the empty edge', () => {
+		const binder = binderOf('a', {
+			layout: 4,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 5},
+				{empty: true, page: 3, placed_at: at(0), position: 4},
+			],
+		});
+		const plan = planResize(binder, {cols: 2, page_count: 4, rows: 2});
+
+		assert.equal(plan.how, 'keep');
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 4, 'c2'], [3, 3, 'empty']]);
+		assert.equal(plan.page_count, 4);
+		assert.equal(plan.layout, 5);
+	});
+
+	test('a shrink that would push a card out reflows in reading order: plain empty pockets close up, placeholders and empty-on-purpose move with the cards', () => {
+		const binder = binderOf('a', {
+			page_count: 2,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{page: 1, placed_at: at(0), position: 3, want: want('tst1-003')},
+				{empty: true, page: 1, placed_at: at(0), position: 5},
+				{entry_id: 'c2', page: 1, placed_at: at(0), position: 9},
+				{entry_id: 'c3', page: 2, placed_at: at(0), position: 2},
+			],
+		});
+		const plan = planResize(binder, {cols: 2, page_count: 2, rows: 2});
+
+		assert.equal(plan.how, 'reflow');
+		assert.deepEqual(shapeOf(plan.slots), [[1, 1, 'c1'], [1, 2, 'want:tst1-003'], [1, 3, 'empty'], [1, 4, 'c2'], [2, 1, 'c3']]);
+		assert.equal(plan.page_count, 2, 'they fit in the pages there are');
+		assert.deepEqual(plan.toTray, []);
+	});
+
+	test('a reflow adds pages so nothing falls out, and says how many', () => {
+		const slots = [];
+
+		for (let i = 1; i <= 9; i++) {
+			slots.push({entry_id: `c${i}`, page: 1, placed_at: at(0), position: i});
+		}
+
+		slots.push({page: 2, placed_at: at(0), position: 1, want: want('tst1-010')});
+
+		const binder = binderOf('a', {page_count: 2, slots});
+		const plan = planResize(binder, {cols: 2, page_count: 2, rows: 2});
+
+		assert.equal(plan.how, 'reflow');
+		assert.equal(plan.page_count, 3, '10 pockets in use need 3 pages of 4');
+		assert.equal(plan.added, 1);
+		assert.deepEqual(plan.toTray, []);
+		assert.deepEqual(shapeOf(plan.slots).at(-1), [3, 2, 'want:tst1-010']);
+	});
+
+	test('fewer pages still push cards out, and they land in the tray in reading order', () => {
+		const binder = binderOf('a', {
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{entry_id: 'c2', page: 3, placed_at: at(0), position: 2},
+				{page: 4, placed_at: at(0), position: 1, want: want('tst1-004')},
+				{entry_id: 'c3', page: 4, placed_at: at(0), position: 9},
+			],
+			staged: ['c9'],
+		});
+		const plan = planResize(binder, {cols: 3, page_count: 2, rows: 3});
+
+		assert.equal(plan.how, 'same');
+		assert.deepEqual(plan.toTray, ['c2', 'c3']);
+		assert.deepEqual(plan.dropped, {art: 0, empties: 0, wants: 1});
+		assert.equal(plan.layout, 0, 'the grid kept its shape');
+
+		// A reflow with fewer pages asked for does not add them back.
+		const reflow = planResize(binder, {cols: 2, page_count: 1, rows: 2});
+
+		assert.equal(reflow.how, 'reflow');
+		assert.equal(reflow.page_count, 1);
+		assert.deepEqual(shapeOf(reflow.slots), [[1, 1, 'c1'], [1, 2, 'c2'], [1, 3, 'want:tst1-004'], [1, 4, 'c3']]);
+
+		const {binder: next} = resizedBinder(binder, {cols: 3, page_count: 2, rows: 3}, {at: at(5)});
+
+		assert.deepEqual(next.staged, ['c9', 'c2', 'c3'], 'after the cards already in the tray');
+		assert.deepEqual(shapeOf(next.slots), [[1, 1, 'c1']]);
+		assert.equal(next.page_count, 2);
+		assert.ok(next.updated_at > binder.updated_at);
+		assert.equal(binder.slots.length, 4, 'the binder passed in is not changed');
+	});
+
+	test('Michi art is cleared on any change of shape, and kept when only the pages change', () => {
+		const binder = binderOf('a', {
+			art: [{first_position: 1, id: 'art1', page: 2}],
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
 				{art: {art_id: 'art1', tile: 0}, page: 2, position: 1},
 			],
 		});
+		const grown = resizedBinder(binder, {cols: 4, page_count: 4, rows: 3}, {at: at(5)});
 
-		assert.deepEqual(slotsOutside(binder, {cols: 3, page_count: 3, rows: 3}).map((slot) => slot.entry_id), ['c2']);
-		assert.deepEqual(slotsOutside(binder, {cols: 2, page_count: 4, rows: 2}).map((slot) => slot.entry_id || 'art').sort(), ['art', 'c1']);
-		assert.deepEqual(slotsOutside(binder, {cols: 4, page_count: 4, rows: 3}).map((slot) => slot.entry_id || 'art'), ['art'], 'art goes when the shape changes');
+		assert.deepEqual(shapeOf(grown.binder.slots), [[1, 1, 'c1']]);
+		assert.deepEqual(grown.binder.art, []);
+		assert.equal(grown.plan.dropped.art, 1);
+		assert.equal(grown.binder.layout, 1);
+
+		const longer = resizedBinder(binder, {cols: 3, page_count: 6, rows: 3}, {at: at(5)});
+
+		assert.deepEqual(shapeOf(longer.binder.slots), [[1, 1, 'c1'], [2, 1, 'art']]);
+		assert.equal(longer.binder.art.length, 1);
+		assert.equal(layoutOf(longer.binder), 0);
+	});
+
+	test('the layout number goes up on every change of shape', () => {
+		let binder = binderOf('a', {slots: [{entry_id: 'c1', page: 1, placed_at: at(0), position: 1}]});
+
+		assert.equal(layoutOf(binder), 0);
+		binder = resizedBinder(binder, {cols: 4, page_count: 4, rows: 3}).binder;
+		binder = resizedBinder(binder, {cols: 4, page_count: 8, rows: 3}).binder;
+		binder = resizedBinder(binder, {cols: 2, page_count: 8, rows: 2}).binder;
+		assert.equal(layoutOf(binder), 2);
+		assert.equal(layoutOf({layout: -1}), 0);
+		assert.equal(layoutOf({layout: 'x'}), 0);
+	});
+
+	test('"Empty into the tray" moves every card to the tray in reading order and empties every pocket', () => {
+		const binder = binderOf('a', {
+			slots: [
+				{entry_id: 'c2', page: 2, placed_at: at(0), position: 1},
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 4},
+				{page: 1, placed_at: at(0), position: 5, want: want('tst1-005')},
+				{empty: true, page: 1, placed_at: at(0), position: 6},
+			],
+		});
+		const {binder: next, plan} = resizedBinder(binder, {cols: 2, page_count: 4, rows: 2}, {at: at(5), mode: 'tray'});
+
+		assert.equal(plan.how, 'tray');
+		assert.deepEqual(next.slots, []);
+		assert.deepEqual(next.staged, ['c1', 'c2']);
+		assert.deepEqual(plan.dropped, {art: 0, empties: 1, wants: 1});
+		assert.equal(next.layout, 1);
+		assert.equal(next.page_count, 4);
+	});
+
+	test('a copy really in another binder is not carried along', () => {
+		const binders = [
+			binderOf('a', {slots: [{entry_id: 'c1', page: 1, placed_at: at(1), position: 9}]}),
+			binderOf('b', {slots: [{entry_id: 'c1', page: 1, placed_at: at(2), position: 1}]}),
+		];
+		const plan = planResize(binders[0], {cols: 2, page_count: 4, rows: 2}, {placed: placements(binders)});
+
+		assert.deepEqual(plan.slots, []);
+		assert.deepEqual(plan.toTray, []);
+	});
+});
+
+describe('the tray', () => {
+	const trayBinders = () => [
+		binderOf('a', {
+			page_count: 2,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: at(0), position: 1},
+				{page: 1, placed_at: at(0), position: 2, want: want('tst1-002')},
+				{empty: true, page: 1, placed_at: at(0), position: 3},
+			],
+			staged: ['c2', 'c3', 'c4'],
+		}),
+		binderOf('b', {slots: [{entry_id: 'c5', page: 1, placed_at: at(0), position: 1}], staged: ['c6']}),
+	];
+
+	test('the tray is saved once per copy, and shows only live copies in no pocket', () => {
+		assert.deepEqual(stagedOf({staged: ['c1', 'c1', '', 7, 'c2']}), ['c1', 'c2']);
+		assert.deepEqual(stagedOf({}), []);
+
+		const binders = trayBinders();
+
+		binders[1].slots.push({entry_id: 'c3', page: 1, placed_at: at(1), position: 2});
+		assert.deepEqual(trayOf(binders[0], {liveIds: new Set(['c2', 'c3']), placed: placements(binders)}), ['c2'], 'c3 is in a pocket and c4 was deleted');
+	});
+
+	test('pick and place: a tray card goes in a pocket and leaves the tray; the next one is first', () => {
+		let binders = trayBinders();
+		const changed = placeFromTray(binders, {at: at(5), binderId: 'a', entryId: 'c2', page: 1, position: 4});
+
+		binders = apply(binders, changed);
+		assert.equal(where(binders, 'c2'), 'a:1:4');
+		assert.deepEqual(stagedOf(binders[0]), ['c3', 'c4']);
+	});
+
+	test('placing on a card swaps it into the tray, where the placed one was', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, placeFromTray(binders, {at: at(5), binderId: 'a', entryId: 'c3', page: 1, position: 1}));
+		assert.equal(where(binders, 'c3'), 'a:1:1');
+		assert.equal(where(binders, 'c1'), null);
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c1', 'c4']);
+		assert.equal(count(binders, 'c1'), 0);
+
+		// A placeholder is simply replaced.
+		binders = apply(binders, placeFromTray(binders, {at: at(6), binderId: 'a', entryId: 'c2', page: 1, position: 2}));
+		assert.deepEqual(shapeOf(slotsOf(binders[0])).slice(0, 3), [[1, 1, 'c3'], [1, 2, 'c2'], [1, 3, 'empty']]);
+		assert.deepEqual(stagedOf(binders[0]), ['c1', 'c4']);
+	});
+
+	test('a copy is in one tray or one pocket: staging takes it out of the others', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, stageCards(binders, {at: at(5), binderId: 'a', entryIds: ['c5', 'c6']}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4', 'c5', 'c6']);
+		assert.deepEqual(stagedOf(binders[1]), []);
+		assert.equal(where(binders, 'c5'), null);
+
+		// Placing a tray copy anywhere, through the picker, takes it out of the tray.
+		binders = apply(binders, setPocket(binders, {at: at(6), binderId: 'b', content: {entry_id: 'c3'}, page: 2, position: 2}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c4', 'c5', 'c6']);
+		assert.equal(where(binders, 'c3'), 'b:2:2');
+	});
+
+	test('a card taken out of a pocket can go to the tray', () => {
+		let binders = trayBinders();
+
+		binders = apply(binders, pocketToTray(binders, {at: at(5), binderId: 'a', page: 1, position: 1}));
+		assert.equal(where(binders, 'c1'), null);
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4', 'c1']);
+		assert.throws(() => pocketToTray(binders, {binderId: 'a', page: 1, position: 2}), /no card in that pocket/);
+	});
+
+	test('"Fill the rest in order" uses the open pockets in reading order and passes over placeholders and empty-on-purpose', () => {
+		let binders = trayBinders();
+
+		assert.deepEqual(openPockets(binders[0]).slice(0, 2), [{page: 1, position: 4}, {page: 1, position: 5}]);
+
+		const result = fillFromTray(binders, {at: at(5), binderId: 'a', liveIds: new Set(['c1', 'c2', 'c3', 'c4'])});
+
+		assert.deepEqual([result.placed, result.left], [3, 0]);
+		binders = apply(binders, result.changed);
+		assert.deepEqual(shapeOf(slotsOf(binders[0])), [[1, 1, 'c1'], [1, 2, 'want:tst1-002'], [1, 3, 'empty'], [1, 4, 'c2'], [1, 5, 'c3'], [1, 6, 'c4']]);
+		assert.deepEqual(stagedOf(binders[0]), []);
+	});
+
+	test('a deleted copy leaves the tray, and what does not fit stays', () => {
+		const binders = trayBinders();
+
+		binders[0] = {...binders[0], cols: 2, page_count: 1, rows: 2};
+
+		const result = fillFromTray(binders, {at: at(5), binderId: 'a', liveIds: new Set(['c1', 'c3', 'c4'])});
+
+		assert.deepEqual([result.placed, result.left], [1, 1], 'one open pocket, two live cards in the tray');
+		assert.deepEqual(stagedOf(result.changed[0]), ['c4'], 'c2 was deleted, c3 went in, c4 waits');
+	});
+
+	test('cards pushed out by a shrink land in the tray instead of leaving the binder', () => {
+		const binders = trayBinders();
+		const {binder: next} = resizedBinder(binders[0], {cols: 1, page_count: 1, rows: 1}, {at: at(5), placed: placements(binders)});
+
+		assert.deepEqual(shapeOf(next.slots), [[1, 1, 'c1']]);
+		assert.deepEqual(next.staged, ['c2', 'c3', 'c4']);
+
+		// Fewer pages asked for and a smaller grid: the tail goes to the tray.
+		const more = {...binders[0], slots: [...binders[0].slots, {entry_id: 'c7', page: 2, placed_at: at(0), position: 1}]};
+		const shrunk = resizedBinder(more, {cols: 1, page_count: 1, rows: 2}, {at: at(5)});
+
+		assert.deepEqual(shapeOf(shrunk.binder.slots), [[1, 1, 'c1'], [1, 2, 'want:tst1-002']]);
+		assert.deepEqual(shrunk.binder.staged, ['c2', 'c3', 'c4', 'c7']);
+		assert.deepEqual(shrunk.plan.dropped, {art: 0, empties: 1, wants: 0});
 	});
 });
 
@@ -786,22 +1074,27 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await page.locator('#unplaced-grid .tile').textContent(), /Test Squirtle/);
 		await page.screenshot({path: '/tmp/binders-unplaced.png'});
 
-		// Editing to a smaller grid warns which pockets fall off; Cancel keeps it.
+		// Editing the size says what happens to the pockets; Cancel keeps it.
+		const reflowText = 'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.';
+
 		await page.goto(url(`binders/${binderId}`));
 		await page.waitForSelector('#edit-binder');
 		await page.click('#edit-binder');
 		assert.equal(await page.locator('#binder-resize-warning').textContent(), '');
 		await page.click('.grid-pick[data-grid="2x2"]');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 filled pocket falls outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), reflowText);
 		await page.selectOption('#binder-rows', '1');
 		await page.selectOption('#binder-cols', '2');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '3 filled pockets fall outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), reflowText);
+		await page.selectOption('#binder-rows', '4');
+		await page.selectOption('#binder-cols', '4');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), 'Every card keeps its row and column; the new pockets are empty.');
 		await page.selectOption('#binder-rows', '3');
 		await page.selectOption('#binder-cols', '3');
 		await page.fill('#binder-pages', '2');
 		assert.equal(await page.locator('#binder-resize-warning').textContent(), '');
 		await page.fill('#binder-pages', '1');
-		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 filled pocket falls outside the new size, and 1 card comes out of the binder.');
+		assert.equal(await page.locator('#binder-resize-warning').textContent(), '1 card does not fit and goes to the tray.');
 		await page.click('#binder-cancel');
 		assert.equal(await page.locator('#binder-form').count(), 0);
 
@@ -873,6 +1166,75 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.waitForSelector('#cards-summary');
 		await page.click('.tabs a[data-tab="lists"]');
 		await page.waitForSelector('h2');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a resize shows the first page in a sheet before saving, reflows with the placeholders, and adds a page', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const wanted = (cardId) => ({card_id: cardId, catalog: 'international', image: null, name: `Test ${cardId}`, variant_id: null});
+		const binder = binderOf('b-resize', {
+			created_at: AT,
+			name: 'Resize binder',
+			page_count: 1,
+			slots: [
+				{entry_id: 'c1', page: 1, placed_at: AT, position: 1},
+				{page: 1, placed_at: AT, position: 2, want: wanted('tst2-025')},
+				{empty: true, page: 1, placed_at: AT, position: 3},
+				{entry_id: 'c2', page: 1, placed_at: AT, position: 5},
+				{page: 1, placed_at: AT, position: 7, want: wanted('tst3-026')},
+				{entry_id: 'c3', page: 1, placed_at: AT, position: 9},
+			],
+			updated_at: AT,
+		});
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#edit-binder');
+		await page.click('#edit-binder');
+		await page.click('.grid-pick[data-grid="2x2"]');
+		await page.click('#binder-save');
+		await page.waitForSelector('#resize-sheet[open]');
+
+		const kinds = () => page.locator('#resize-preview .pocket').evaluateAll((cells) => cells.map((cell) => cell.dataset.kind));
+		const lines = () => page.locator('#resize-lines p').allTextContents();
+
+		assert.deepEqual(await kinds(), ['card', 'want', 'empty', 'card']);
+		assert.deepEqual(await lines(), [
+			'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.',
+			'This binder grows from 1 to 2 pages, so nothing falls out.',
+		]);
+		await page.screenshot({path: '/tmp/binders-resize-sheet.png'});
+
+		// Cancel leaves the form open and the binder as it was.
+		await page.click('#resize-cancel');
+		await page.waitForSelector('#resize-sheet', {state: 'detached'});
+		assert.equal(await page.locator('#binder-form').count(), 1);
+		assert.equal(await page.locator('#binder-save').isDisabled(), false);
+		assert.equal((await localDoc(page)).binders[0].rows, 3);
+
+		// The other way: everything into the tray.
+		await page.click('#binder-save');
+		await page.waitForSelector('#resize-sheet[open]');
+		await page.click('label:has(#resize-tray)');
+		assert.deepEqual(await kinds(), ['open', 'open', 'open', 'open']);
+		assert.deepEqual(await lines(), [
+			'Every pocket is emptied, and 3 cards go to the tray to place by hand.',
+			'2 placeholders and 1 pocket left empty on purpose are removed.',
+		]);
+
+		// Back to the rule, and save.
+		await page.click('label:has(#resize-auto)');
+		await page.click('#resize-save');
+		await page.waitForFunction(() => document.getElementById('binder-meta').textContent === '2 × 2 · 2 pages');
+
+		const saved = (await localDoc(page)).binders[0];
+		const shape = (slots) => slots.map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? slot.want.card_id : 'empty')]);
+
+		assert.deepEqual([saved.rows, saved.cols, saved.page_count, saved.layout], [2, 2, 2, 1]);
+		assert.deepEqual(shape(saved.slots), [[1, 1, 'c1'], [1, 2, 'tst2-025'], [1, 3, 'empty'], [1, 4, 'c2'], [2, 1, 'tst3-026'], [2, 2, 'c3']]);
+		assert.equal(await page.locator('#binder-form').count(), 0);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
