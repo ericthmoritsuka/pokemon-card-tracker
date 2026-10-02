@@ -7,27 +7,37 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v14** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
-  `23c0c4f`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
+- **Live:** version **v17** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
+  `c2e76d2`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, binders
-  (single page), the scanner (first version), own photos with the carousel, the zoom and compare
-  viewer, the twelve TCG energy themes, and Brazil-first prices.
+  (single page), the scanner (v17), own photos with the carousel, the zoom and compare viewer,
+  the twelve TCG energy themes, Brazil-first prices, and (v16) name-and-password sign-in for a
+  family member without an email (`@family.invalid` accounts Eric creates in the dashboard;
+  `supabase/reset-password.sql` resets one).
 - **Supabase is fully set up:** `setup.sql`, `realtime.sql`, and `photos.sql` have all been run
   (checked: realtime ready, photo bucket and its four policies present). Sign-ups are closed,
   Google sign-in works, Eric is the owner, and two family members are invited.
-- **Scanner v15 is live** (`b7a6145`): parallel reads of name, HP, attack, number, total, label,
-  and copyright; a name route; an artwork tiebreak; slant correction; a prefilled search when
-  unsure. Benchmark: 74% top-1 over 240 captures (40% before); the Weedle photo
-  (`/home/me/Downloads/20261001_152008.jpg`, never copy it into the repo) matches `me04-001`.
-  Estimated about 2.4 s per card on a mid-range phone, still above the 2 s target. Ideas from its
-  author: redo the full 240-capture benchmark with the final code; measure on the real phone
+- **Scanner v17 is live** (`b7a6145` for v15, `c2e76d2` for v17): parallel reads of name, HP,
+  attack, number, total, label, and copyright; a name route; an artwork tiebreak; slant
+  correction; edges that must close at the card's bottom corners (so screen UI and headings stay
+  out); auto capture when the card fills the guide's height; nothing preselected unless sure or
+  a lead, with the search prefilled otherwise. Benchmark: 195 of 240 right card first (81%; v15
+  measured the same way was 192, and its quoted 74% came from a run before it was finished). The
+  benchmark scripts are not in the repo: they were in `/tmp/scan-bench` (`run.mjs`, `bench.js`,
+  `summarize.py`, run as `REPO=<tree> node run.mjs --noold`) and are lost if `/tmp` is cleared.
+  The Weedle photo (`/home/me/Downloads/20261001_152008.jpg`, never copy it into the repo) is a
+  sure `me04-001` at both framings; capture to result at 4x CPU throttling is 1.1 to 2.3 s warm
+  and up to 2.6 s for the first auto capture, near the 2 s target, and throttling does not fully
+  reach the OCR workers, so a real phone may be slower. Ideas from the v15 author: measure on the real phone
   (the scanner logs per-read timings); smaller crops or matching as soon as the number reads;
   name lists for translated Pokémon names (Portuguese Paradox Pokémon, French, German, trainers);
   a "read a photo from the gallery" option, since that is how Eric tested.
 
 ## Next Steps, in Order
 
-1. **Scanner: done in v15.** Next for it: Eric's real-card test, then the ideas above.
+1. **Scanner: done in v17.** Next for it: Eric's real-card test, then the ideas above. Known
+   gaps: a card filling 100% of the guide's height at a strong slant is still cut at the weakness
+   row; perfectly regular vertical stripes still pass the presence check.
 2. **Wire binder spreads** (module committed in `64117ab`: `js/binder-spread.js`,
    `js/binder-cover.js`, `js/binder-presets.js`, `css/binder-spread.css`). The exact
    `js/binders-view.js` diff was saved at `/tmp/bs-integration/binders-view.diff` with its

@@ -7,15 +7,24 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-01)
 
-- Fixing the scanner on photos where the card sits among other things on a screen: it can take
-  the heading above the card for the card's name, auto capture does not fire when the card fills
-  the frame from top to bottom, and the prefilled search does not open when it is unsure.
 - Built and waiting to be wired in: binder spreads with a page turn, every card of a Pokémon in
   a list, and international twins for Japanese and Korean cards. See `plans/roadmap.md`.
 
 ## Live
 
 ### 2026-10-01
+
+- **21:19** Version 17: the scanner on cards shown among other things, such as a card on a
+  laptop screen. `c2e76d2`
+  - Finds the card's own edges, so a heading above it is no longer read as the card's name. Your
+    Weedle photo, framed the way the guide asks, is now a sure match every time.
+  - Auto capture fires when the card fills the frame from top to bottom.
+  - When it is not sure, nothing is picked for you: it shows what it read, the cards it thinks
+    are close, and a search already filled in with the name.
+  - A misread number can no longer make a card look sure when the name read says another
+    Pokémon.
+  - Right card first on 195 of 240 test captures (81%), against 192 for version 15 measured the
+    same way. The 74% quoted for version 15 came from a run before it was finished.
 
 - **19:53** Version 16: a login for a family member without an email. They pick "Sign in with a
   name and password" and can change the password in Profile. Eric creates the account in the
@@ -26,8 +35,8 @@ are Recife time. Each line ends with its commit.
   together, finds a card by name when the number is unreadable, compares the artwork to break
   ties, straightens cards photographed at an angle, and shows what it read with a prefilled
   search when it is unsure. Right card first on 74% of test captures, up from 40%. Your Weedle
-  photo matches only when the card fills the frame from top to bottom and you press the shutter;
-  the fix is in progress. `b7a6145`
+  photo matched only when the card filled the frame from top to bottom and you pressed the
+  shutter, fixed in version 17. `b7a6145`
 
 - **15:29** Version 14. `23c0c4f`
   - Themes on the twelve TCG energy types (Default, Grass, Fire, Water, Lightning, Psychic,
