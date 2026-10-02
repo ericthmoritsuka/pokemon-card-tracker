@@ -209,7 +209,10 @@ async function syncOnce() {
 			}
 		}
 
-		const merged = remote ? mergeDocuments(local, remote) : local;
+		// Always a merge, even with nothing new from the server: the merge
+		// also repairs the document (js/merge.js folds duplicate copies), and
+		// a repaired document differs from `base`, so it is pushed.
+		const merged = mergeDocuments(local, remote || {});
 
 		// Without a fresh read, the server still holds what the last sync
 		// left there, whose stamps are `base`.

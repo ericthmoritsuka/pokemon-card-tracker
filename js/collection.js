@@ -225,6 +225,21 @@ function pick(fields) {
 
 export const isLive = (entry) => !entry.deleted_at;
 
+// The live entry an id stands for now: the entry itself, or, when the merge
+// folded it into another copy of the same card (js/merge.js, merged_into),
+// the copy it was folded into. Null when there is no live one. Photo uploads
+// and the photo restore use it, so a photo taken on a duplicate is not lost.
+export function resolveEntry(cards, id) {
+	const byId = new Map((cards || []).filter(Boolean).map((card) => [card.id, card]));
+	let entry = byId.get(id);
+
+	for (let hops = 0; entry && entry.deleted_at && entry.merged_into && hops < 32; hops++) {
+		entry = byId.get(entry.merged_into);
+	}
+
+	return entry && isLive(entry) ? entry : null;
+}
+
 // The names the source gave a copy (name_local, set_name_local), when the
 // catalog record has no localization in the copy's own language: a Korean
 // copy on a Japanese record, or any fallback match (DESIGN.md section 5).

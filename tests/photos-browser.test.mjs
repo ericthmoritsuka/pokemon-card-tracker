@@ -530,6 +530,67 @@ describe('signed out', () => {
 	});
 });
 
+describe('duplicate copies', () => {
+	test('a photo on a collapsed duplicate still uploads, under the survivor', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('dupes@example.test');
+		let offline = false;
+		const {context, errors, page} = await device(fake, user, {offline: () => offline});
+		const key = 'monprice|me01_int_001|en|NORMAL|0';
+
+		await open(page);
+
+		// This copy came from an import; another phone imported the same row
+		// earlier, which this phone has not seen yet.
+		const e1 = await page.evaluate(async (importKey) => {
+			const {updateCards} = await import('/pokemon-card-tracker/js/collection.js');
+			const [entry] = await updateCards([{id: window.H.ids().e1, patch: {import_key: importKey}}]);
+
+			return entry;
+		}, key);
+
+		offline = true;
+		fake.offline = true;
+		await context.setOffline(true);
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+		assert.equal(await page.evaluate(() => window.H.store.pendingUploads().size), 1);
+
+		const taken = (await entryOf(page, 'e1')).photos[0];
+
+		// The sync brings the older copy in, and the merge folds this one
+		// into it.
+		await page.evaluate(async ({entry, importKey}) => {
+			const {mergeIntoLocal} = await import('/pokemon-card-tracker/js/collection.js');
+			const older = '2026-01-01T00:00:00.000Z';
+
+			await mergeIntoLocal({cards: [{
+				card_id: entry.card_id, catalog: entry.catalog, created_at: older, deleted_at: null, id: 'older-copy',
+				import_key: importKey, language: entry.language, language_source: 'import', updated_at: older,
+			}]});
+		}, {entry: e1, importKey: key});
+
+		const folded = await page.evaluate(async (id) => (await window.H.loadDocument()).cards.find((card) => card.id === id), e1.id);
+
+		assert.equal(folded.merged_into, 'older-copy');
+
+		offline = false;
+		fake.offline = false;
+		await context.setOffline(false);
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 10000});
+
+		const survivor = await page.evaluate(async () => (await window.H.listCards()).find((card) => card.id === 'older-copy'));
+		const moved = survivor.photos.find((item) => item.id === taken.id);
+
+		assert.ok(moved, 'the survivor holds the photo');
+		assert.equal(moved.path, taken.path, 'it keeps the folder it was taken in');
+		assert.ok(fake.objects.has(taken.path), 'and it reached the bucket');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
 describe('the camera', () => {
 	test('Take photo opens the rear camera with the guide frame, and a capture goes to the corner editor', async () => {
 		const fake = new FakeStorageSupabase();

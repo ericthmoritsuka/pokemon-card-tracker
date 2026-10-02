@@ -15,6 +15,8 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {stamps} from '../js/merge.js';
+
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
@@ -575,6 +577,211 @@ describe('sync', () => {
 		assert.equal(liveCount(await localDoc(page)), 20);
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+});
+
+// ------------------------------------------- the same import on two phones
+
+// Rows shaped as js/monprice.js importEntries makes them.
+const importRows = (count) => Array.from({length: count}, (_, i) => ({
+	card_id: `${SETS[i % SETS.length]}-${String(Math.floor(i / SETS.length) + 1).padStart(3, '0')}`,
+	catalog: 'international',
+	import_key: `monprice|row_int_${i}|pt|NORMAL|0`,
+	language: 'pt',
+	language_source: 'import',
+	name_local: `Test card ${i}`,
+	set_name_local: 'Test set',
+	variant_id: 'normal',
+}));
+
+const applyImport = (page, rows) => page.evaluate(async (list) => (await import('/pokemon-card-tracker/js/collection.js')).applyImport(list), rows);
+
+// Puts records straight into the collection database (as an older version
+// of the app left them), then reloads.
+async function seedStore(page, records) {
+	await page.goto(url('cards'));
+	await page.evaluate(async (pairs) => {
+		await new Promise((resolve, reject) => {
+			const open = indexedDB.open('card-tracker-collection', 1);
+
+			open.onupgradeneeded = () => open.result.createObjectStore('documents');
+			open.onsuccess = () => {
+				const tx = open.result.transaction('documents', 'readwrite');
+
+				for (const [key, value] of pairs) {
+					tx.objectStore('documents').put(value, key);
+				}
+
+				tx.oncomplete = () => {
+					open.result.close();
+					resolve();
+				};
+				tx.onerror = () => reject(tx.error);
+			};
+			open.onerror = () => reject(open.error);
+		});
+	}, Object.entries(records));
+	await page.reload();
+}
+
+// A document a v21 phone pair left doubled: every imported row twice, with
+// random ids. The second copies were imported a day later; one of them sits
+// in a binder pocket and holds a photo.
+function doubledDocument(count, userId) {
+	const rows = importRows(count);
+	const first = Date.parse('2026-09-01T00:00:00.000Z');
+	const second = Date.parse('2026-09-02T00:00:00.000Z');
+	const entry = (fields, i, start, prefix) => {
+		const at = new Date(start + i).toISOString();
+
+		return {...fields, created_at: at, deleted_at: null, id: `${prefix}-${String(i).padStart(4, '0')}`, updated_at: at};
+	};
+	const cards = [...rows.map((fields, i) => entry(fields, i, first, 'a')), ...rows.map((fields, i) => entry(fields, i, second, 'b'))];
+	const photoed = cards.find((card) => card.id === 'b-0001');
+
+	photoed.photos = [{created_at: photoed.created_at, deleted_at: null, id: 'photo-1', path: `${userId}/b-0001/photo-1.webp`, side: 'front'}];
+	photoed.main_image = 'photo-1';
+
+	const binder = {
+		art: [], cols: 3, cover_color: '#1b1b1f', created_at: '2026-09-03T00:00:00.000Z', deleted_at: null, id: 'binder-1',
+		name: 'Main binder', notes: '', page_count: 4, rows: 3,
+		slots: [{entry_id: 'b-0002', page: 1, placed_at: '2026-09-03T00:00:00.000Z', position: 1}],
+		updated_at: '2026-09-03T00:00:00.000Z',
+	};
+
+	return {...documentWith(cards), binders: [binder], user_id: userId};
+}
+
+function checkRepaired(doc, count) {
+	const live = doc.cards.filter((card) => !card.deleted_at);
+
+	assert.equal(live.length, count, 'one live copy per row');
+	assert.equal(new Set(live.map((card) => card.import_key)).size, count);
+	assert.ok(live.every((card) => card.id.startsWith('a-')), 'the older copies survive');
+	assert.equal(doc.cards.find((card) => card.id === 'b-0002').merged_into, 'a-0002');
+
+	const kept = live.find((card) => card.id === 'a-0001');
+
+	assert.deepEqual((kept.photos || []).map((item) => item.id), ['photo-1'], 'the photo moved to the survivor');
+	assert.equal(kept.main_image, 'photo-1');
+	assert.equal(doc.binders[0].slots[0].entry_id, 'a-0002', 'the pocket now holds the survivor');
+}
+
+describe('importing on two phones', () => {
+	test('the same import on a second phone, signed out then signed in, keeps one copy per row; importing again reports unchanged', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+		const rows = importRows(50);
+
+		await phone.page.goto(url('cards'));
+		assert.equal((await applyImport(phone.page, rows)).added, 50);
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		assert.equal(liveCount(docRow(fake, owner).doc), 50);
+
+		// The second phone imports the same file before ever signing in.
+		await laptop.page.goto(url('cards'));
+		assert.equal((await applyImport(laptop.page, rows)).added, 50);
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		assert.equal(liveCount(docRow(fake, owner).doc), 50, 'the server holds one copy per row');
+		assert.equal(liveCount(await localDoc(laptop.page)), 50);
+		assert.equal(liveCount(await localDoc(phone.page)), 50);
+
+		const again = await applyImport(laptop.page, rows);
+
+		assert.deepEqual(again, {added: 0, skippedDeleted: 0, unchanged: 50, updated: 0});
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+
+	test('a document already doubled by v21 is repaired at the first sync, pocket and photo kept', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'phone');
+		const doubled = doubledDocument(20, owner.id);
+
+		fake.documents.set(owner.id, {doc: {...doubled, person: undefined, user_id: undefined}, updated_at: fake.now(), user_id: owner.id});
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		checkRepaired(docRow(fake, owner).doc, 20);
+		checkRepaired(await localDoc(page), 20);
+		assert.match(await page.locator('#cards-summary').textContent(), /^20 copies/);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a doubled document the server already holds is repaired at the next sync, with nothing new to download', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'phone');
+		const doubled = doubledDocument(10, owner.id);
+		const serverDoc = structuredClone({...doubled, person: undefined, user_id: undefined});
+		const stamp = fake.now();
+
+		fake.documents.set(owner.id, {doc: serverDoc, updated_at: stamp, user_id: owner.id});
+
+		// The phone last synced this very document, so the server has nothing
+		// new for it.
+		await seedStore(page, {
+			local: doubled,
+			[`meta:sync:${owner.id}`]: {base: [...stamps(serverDoc)], updated_at: stamp},
+		});
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		const fullReads = fake.log.filter((entry) => entry.path === '/rest/v1/documents' && entry.method === 'GET' && /select=doc/.test(decodeURIComponent(entry.search)));
+
+		assert.equal(fullReads.length, 0, 'the full document was not downloaded');
+		checkRepaired(docRow(fake, owner).doc, 10);
+		checkRepaired(await localDoc(page), 10);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('deletes stick', () => {
+	test('a card deleted on one phone stays deleted after an offline phone edits it', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith(syntheticEntries(10, 'p')));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const target = 'p-00003';
+
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await phone.page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).deleteCard(id), target);
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+
+		// Later, the offline laptop gives the same card a note.
+		await laptop.page.waitForTimeout(20);
+		await laptop.page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(id, {notes: 'edited offline'}), target);
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			assert.ok(doc.cards.find((card) => card.id === target).deleted_at, 'still deleted');
+			assert.equal(liveCount(doc), 9);
+		}
+
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
 	});
 });
 

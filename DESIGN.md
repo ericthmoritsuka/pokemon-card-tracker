@@ -204,6 +204,17 @@ phone still on v21 (which takes the newer stamp) accepts it. Every write takes i
 can no longer lose a real later edit. There is no clock correction: stamps are monotonic only.
 *(Decided 2026-10-02, Eric's audit fixes; design in `plans/sync-merge-plan.md`.)*
 
+**One import row is one copy, on every phone.** An imported copy's id is a UUID version 5 of its
+`import_key`, so the same file imported on two phones, or signed out before the first sign-in,
+gives the same ids instead of doubling the collection. Documents doubled before v22 are repaired by
+every merge: live copies that share an `import_key` fold into the oldest one (earliest
+`created_at`, then the lowest id), which keeps every photo, its own pin while it still shows an
+image, the newest Liga price, and the newest non-empty value of each field a person sets (notes
+included). The others become tombstones with `merged_into`, binder pockets that held them are
+redirected, and a photo waiting to upload on a folded copy goes up under the survivor. Between two
+versions of one imported id, the copy someone used wins over a fresh import of it. *(Decided
+2026-10-02, Eric's audit fixes: oldest survives, newest non-empty note.)*
+
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
 pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline
@@ -324,7 +335,10 @@ card
 ```
 
 **Each person's document, in Supabase and on their phone.** One JSON document per person
-(section 3). Every entry carries `id`, `updated_at`, and `deleted_at` for the merge.
+(section 3). Every entry carries `id`, `updated_at`, and `deleted_at` for the merge. Two optional
+fields serve the merge rules of 2026-10-02 (section 3): `restored_at` on an entry brought back on
+purpose after a delete, and `merged_into` on a tombstone left by folding duplicate copies, naming
+the copy that holds its photos and pockets now.
 
 ```
 {

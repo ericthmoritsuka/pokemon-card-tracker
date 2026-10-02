@@ -17,6 +17,8 @@
 // phone still on the old rules (newer updated_at wins) takes it too.
 // (Decided 2026-10-02, Eric's audit fixes; plans/sync-merge-plan.md.)
 
+import {mergePhotoLists} from './photos/model.js';
+
 export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings'];
 
 function time(value) {
@@ -59,6 +61,9 @@ function stampAfter(a, b) {
 	return new Date(Number.isFinite(newest) ? newest + 1 : 0).toISOString();
 }
 
+// An imported copy nobody has changed since the import.
+const untouchedImport = (entry) => Boolean(entry.import_key) && !entry.restored_at && time(entry.updated_at) === time(entry.created_at);
+
 // The version a rule other than "newer wins" picks, or null when the plain
 // rule (newerEntry) decides.
 function specialPick(a, b) {
@@ -69,6 +74,23 @@ function specialPick(a, b) {
 		const live = deadA ? b : a;
 
 		return time(live.restored_at) > time(dead.deleted_at) ? live : dead;
+	}
+
+	// Two phones that imported the same row made the same id
+	// (js/collection.js importEntryId). The copy someone has used since (a
+	// photo, a price, a note) wins over a fresh import of the same row,
+	// whichever is newer; between two fresh imports, the earlier one wins.
+	if (!deadA && a.import_key && a.import_key === b.import_key) {
+		const freshA = untouchedImport(a);
+		const freshB = untouchedImport(b);
+
+		if (freshA !== freshB) {
+			return freshA ? b : a;
+		}
+
+		if (freshA && time(a.created_at) !== time(b.created_at)) {
+			return time(a.created_at) < time(b.created_at) ? a : b;
+		}
 	}
 
 	return null;
@@ -177,7 +199,260 @@ export function mergeDocuments(local, remote) {
 		out.updated_at = later(local.updated_at, remote.updated_at);
 	}
 
+	out.cards = refoldPhotos(collapseImportDuplicates(out.cards));
+	out.binders = redirectPockets(out.binders, out.cards);
+
 	return out;
+}
+
+// ------------------------------------------------------- duplicate copies
+//
+// Before v22, every import gave its rows random ids, so the same file
+// imported on two phones (or signed out, then signed in) left two live
+// entries per physical card. One import_key is one physical copy
+// (js/monprice.js importKey), so live entries that share a key are always
+// the same card, and every merge folds them into one (plans/sync-merge-plan.md
+// section 1b). This runs on every merge for good, not once: a v21 phone's
+// random ids and a v22 phone's import ids for the same rows still meet.
+
+// What a person sets on a copy; the newest non-empty value is kept.
+const USER_FIELDS = ['condition', 'purchase_price', 'purchase_currency', 'storage', 'grader', 'grade', 'cert_number', 'graded_price', 'notes', 'opening_id'];
+
+// What the import set; taken from the most recently edited copy.
+const IMPORT_FIELDS = ['card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'language_source', 'name_local', 'set_name_local', 'photo_path'];
+
+const filled = (value) => value !== undefined && value !== null && value !== '';
+
+const byId = (a, b) => {
+	if (String(a.id) === String(b.id)) {
+		return 0;
+	}
+
+	return String(a.id) < String(b.id) ? -1 : 1;
+};
+
+const order = (diff) => (Number.isNaN(diff) ? 0 : diff);
+
+const newestFirst = (a, b) => order(time(b.updated_at) - time(a.updated_at)) || byId(a, b);
+
+const oldestFirst = (a, b) => order(time(a.created_at) - time(b.created_at)) || byId(a, b);
+
+function stampAfterAll(entries) {
+	const times = entries.map((entry) => time(entry.updated_at)).filter(Number.isFinite);
+
+	return new Date((times.length ? Math.max(...times) : 0) + 1).toISOString();
+}
+
+// Live entries grouped by `key(entry)`, only groups of two or more.
+function liveGroups(list, key) {
+	const groups = new Map();
+
+	for (const entry of list) {
+		const value = entry && entry.id && !entry.deleted_at ? key(entry) : null;
+
+		if (value) {
+			if (!groups.has(value)) {
+				groups.set(value, []);
+			}
+
+			groups.get(value).push(entry);
+		}
+	}
+
+	return [...groups.values()].filter((members) => members.length > 1);
+}
+
+const livePhotoIds = (photos) => new Set((Array.isArray(photos) ? photos : []).filter((photo) => photo && photo.id && !photo.deleted_at).map((photo) => photo.id));
+
+// One copy out of the group: the oldest (earliest created_at, then the
+// lowest id) survives, so every phone picks the same one. It keeps every
+// photo of the group, its own pin while that still shows a live image (else
+// the newest other pin), the newest Liga price, the newest non-empty value of
+// each field a person sets, and the import fields of the most recently
+// edited copy.
+function survivorOf(members) {
+	const [survivor] = [...members].sort(oldestFirst);
+	const newest = [...members].sort(newestFirst);
+	const kept = {...survivor};
+
+	for (const key of IMPORT_FIELDS) {
+		if (newest[0][key] === undefined) {
+			delete kept[key];
+		}
+		else {
+			kept[key] = newest[0][key];
+		}
+	}
+
+	for (const key of USER_FIELDS) {
+		const from = newest.find((member) => filled(member[key]));
+
+		if (from) {
+			kept[key] = from[key];
+		}
+	}
+
+	if (members.some((member) => member.is_favorite)) {
+		kept.is_favorite = true;
+	}
+
+	const priced = newest.find((member) => member.price_manual);
+
+	if (priced) {
+		kept.price_manual = priced.price_manual;
+	}
+
+	if (members.some((member) => Array.isArray(member.photos))) {
+		kept.photos = [survivor, ...newest.filter((member) => member !== survivor)]
+			.reduce((photos, member) => mergePhotoLists(photos, member.photos), []);
+	}
+
+	const live = livePhotoIds(kept.photos);
+	const shows = (pin) => pin === 'official' || pin === 'twin' || live.has(pin);
+
+	if (!shows(survivor.main_image)) {
+		const pinned = newest.find((member) => member !== survivor && filled(member.main_image) && shows(member.main_image));
+
+		if (pinned) {
+			kept.main_image = pinned.main_image;
+		}
+	}
+
+	return kept;
+}
+
+// Folds live cards that share an import_key into one. The others become
+// tombstones that name the survivor in merged_into; all of them, survivor
+// included, are stamped just after the newest of the group, so every phone
+// computes the same result. Returns the list passed in when nothing changed.
+export function collapseImportDuplicates(cards) {
+	if (!Array.isArray(cards)) {
+		return cards;
+	}
+
+	const replace = new Map();
+
+	for (const members of liveGroups(cards, (card) => card.import_key || null)) {
+		const kept = survivorOf(members);
+		const at = stampAfterAll(members);
+
+		replace.set(kept.id, {...kept, deleted_at: null, updated_at: at});
+
+		for (const member of members) {
+			if (member.id !== kept.id) {
+				replace.set(member.id, {...member, deleted_at: at, merged_into: kept.id, updated_at: at});
+			}
+		}
+	}
+
+	return replace.size ? cards.map((card) => (card && replace.get(card.id)) || card) : cards;
+}
+
+// merged_into id -> the live entry it ends at, following chains.
+function mergedTargets(list) {
+	const next = new Map();
+
+	for (const entry of list || []) {
+		if (entry && entry.deleted_at && entry.merged_into) {
+			next.set(entry.id, entry.merged_into);
+		}
+	}
+
+	const resolve = (id) => {
+		let at = id;
+
+		for (let hops = 0; next.has(at) && hops < 32; hops++) {
+			at = next.get(at);
+		}
+
+		return at;
+	};
+
+	return {next, resolve};
+}
+
+// The survivor keeps every photo of the copies folded into it, even when a
+// version of it that never saw them (an edit from a phone that had not
+// synced yet) wins a later merge. Photos are never dropped from a list, only
+// tombstoned, so a union can never bring a removed photo back.
+function refoldPhotos(cards) {
+	if (!Array.isArray(cards)) {
+		return cards;
+	}
+
+	const {next, resolve} = mergedTargets(cards);
+
+	if (!next.size) {
+		return cards;
+	}
+
+	const sources = new Map();
+
+	for (const card of cards) {
+		if (card && next.has(card.id) && Array.isArray(card.photos) && card.photos.length) {
+			const target = resolve(card.id);
+
+			if (!sources.has(target)) {
+				sources.set(target, []);
+			}
+
+			sources.get(target).push(card);
+		}
+	}
+
+	if (!sources.size) {
+		return cards;
+	}
+
+	return cards.map((card) => {
+		if (!card || card.deleted_at || !sources.has(card.id)) {
+			return card;
+		}
+
+		const photos = sources.get(card.id).sort(byId).reduce((list, source) => mergePhotoLists(list, source.photos), Array.isArray(card.photos) ? card.photos : []);
+
+		if (stableJson(photos) === stableJson(card.photos || [])) {
+			return card;
+		}
+
+		return {...card, photos, updated_at: stampAfter(card, card)};
+	});
+}
+
+// Binder pockets that hold a copy folded into another now hold the
+// survivor. Each pocket keeps its placed_at, so "placed last wins"
+// (js/binders.js placements) still decides when the survivor ends up in two
+// pockets. A rewritten binder is stamped 1 ms after its own version. This
+// runs after every merge, so a stale pocket coming back from a phone that has
+// not repaired yet is redirected again.
+export function redirectPockets(binders, cards) {
+	if (!Array.isArray(binders)) {
+		return binders;
+	}
+
+	const {next, resolve} = mergedTargets(cards);
+
+	if (!next.size) {
+		return binders;
+	}
+
+	let changed = false;
+
+	const out = binders.map((binder) => {
+		if (!binder || binder.deleted_at || !Array.isArray(binder.slots) || !binder.slots.some((slot) => slot && next.has(slot.entry_id))) {
+			return binder;
+		}
+
+		changed = true;
+
+		return {
+			...binder,
+			slots: binder.slots.map((slot) => (slot && next.has(slot.entry_id) ? {...slot, entry_id: resolve(slot.entry_id)} : slot)),
+			updated_at: stampAfter(binder, binder),
+		};
+	});
+
+	return changed ? out : binders;
 }
 
 // "list|id" -> updated_at for every entry, plus "settings" -> its content:

@@ -26,7 +26,7 @@
 //                                               entry puts it back
 
 import {currentUser, getClient, onUser} from '../auth.js';
-import {listCards, loadDocument, onChange, updateCards} from '../collection.js';
+import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
 
 import {PHOTO_BUCKET, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
 
@@ -296,19 +296,28 @@ export async function restoreDroppedPhotos() {
 		return 0;
 	}
 
+	// A photo taken on a copy the merge has since folded into another
+	// (js/merge.js, merged_into) belongs to the copy it was folded into.
+	const {cards} = await loadDocument();
 	const byEntry = new Map();
 
 	for (const row of made) {
-		if (!byEntry.has(row.entry_id)) {
-			byEntry.set(row.entry_id, []);
+		const entry = row && row.photo ? resolveEntry(cards, row.entry_id) : null;
+
+		if (!entry) {
+			continue;
 		}
 
-		byEntry.get(row.entry_id).push(row.photo);
+		if (!byEntry.has(entry.id)) {
+			byEntry.set(entry.id, []);
+		}
+
+		byEntry.get(entry.id).push(row.photo);
 	}
 
 	const patches = [];
 
-	for (const entry of await listCards()) {
+	for (const entry of cards.filter((card) => card && !card.deleted_at)) {
 		const photos = byEntry.has(entry.id) ? restoredPhotos(entry, byEntry.get(entry.id)) : null;
 
 		if (photos) {
@@ -343,10 +352,12 @@ export async function queuedItems() {
 }
 
 // The live entry as the document holds it now, never a copy a view kept.
+// When the merge folded the copy into another (js/merge.js, merged_into),
+// that is the one.
 async function freshEntry(entryOrId) {
 	const id = typeof entryOrId === 'string' ? entryOrId : entryOrId && entryOrId.id;
 
-	return (await listCards()).find((card) => card.id === id) || null;
+	return resolveEntry((await loadDocument()).cards, id);
 }
 
 // Saves a new photo on the phone, adds it to its entry, and queues its
@@ -457,8 +468,9 @@ const permanent = (err) => {
 };
 
 async function uploadOne(client, row, userId) {
-	const cards = await listCards();
-	const entry = cards.find((card) => card.id === row.entry_id);
+	// The copy the photo was taken on, or the one the merge folded it into,
+	// which holds its photos now.
+	const entry = resolveEntry((await loadDocument()).cards, row.entry_id);
 	const photo = entry && (entry.photos || []).find((item) => item.id === row.photo_id);
 
 	// The card or the photo was removed before it went up: nothing to send.
