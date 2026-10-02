@@ -48,6 +48,16 @@ const REVERSE = 'cm4kqul3x1bwlz1f';
 const HIDDEN = 'me01-001-nonumber';
 const NORMAL = 'endfynwn4n10gzq';
 
+// Bulbasaur again, as a photo of it shown in an app on a laptop screen,
+// taken at a slant so the card is wider at the top (tests/scan-harness.mjs
+// cardVideo, screen): the app's heading, its set's name, just above the
+// card, the app's text beside it, and the screen's edge in the margin. Held
+// two ways: its widest row filling the guide's width (so it is shorter than
+// the guide, with the heading inside the capture), and its height filling
+// the guide's height (so its top runs into the margin).
+const SCREEN_WIDTH = 'me01-001-screen-width';
+const SCREEN_HEIGHT = 'me01-001-screen-height';
+
 const AT = '2026-09-01T00:00:00.000Z';
 
 let harness;
@@ -66,6 +76,8 @@ async function startAll() {
 	}
 
 	videos[HIDDEN] = await cardVideo(maker, BULBASAUR, {hideNumber: true});
+	videos[SCREEN_WIDTH] = await cardVideo(maker, BULBASAUR, {angle: 0, screen: {fit: 'width', heading: 'Mega Evolution', keystone: 1.3}});
+	videos[SCREEN_HEIGHT] = await cardVideo(maker, BULBASAUR, {angle: 0, screen: {fit: 'height', heading: 'Mega Evolution', keystone: 1.3}});
 
 	await maker.close();
 }
@@ -491,6 +503,52 @@ describe('scanner', () => {
 		assert.deepEqual(saved.map((entry) => [entry.card_id, entry.language_source]), [[BULBASAUR, 'scan']]);
 		await closeApp(app);
 		await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
+	});
+
+	test('a card on a laptop screen, at a slant: captured on its own whichever way it fills the guide, read without the heading, and found', async () => {
+		for (const frame of [SCREEN_WIDTH, SCREEN_HEIGHT]) {
+			const profile = `screen-${randomUUID()}`;
+
+			await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
+
+			const app = await launch(profile, frame);
+			const {page} = app;
+
+			// No shutter: the sheet opens only if the still card was taken on
+			// its own.
+			await page.goto(url('scan'));
+			await page.waitForSelector('#scan-confirm .scan-card-lines', {timeout: 60000});
+			await until(async () => {
+				const list = await tiles(page);
+
+				return list.length === 1 && SETTLED.has(list[0].status);
+			}, 60000, `${frame} read and looked up`);
+			assert.equal(await captures(page), 1, `${frame}: one capture, taken on its own`);
+
+			const item = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items[0]);
+
+			assert.doesNotMatch(item.read.name.text, /Mega|Evolution/i, `${frame}: the heading above the card is not read as its name`);
+			assert.equal(item.names[0] && item.names[0].name, 'Bulbasaur', `${frame}: the name read off the card ("${item.read.name.text}") is Bulbasaur's`);
+			assert.equal(item.readSetName, null);
+
+			// Found first. Seen at this slant, the bottom of the card is small
+			// and its number may misread as another card of the set (001 as
+			// 007): then nothing is chosen for the person, and the search is
+			// open, filled in with the name.
+			const candidates = item.candidates.map((c) => c.id).join(', ');
+
+			assert.equal(item.candidates[0].id, BULBASAUR, `${frame}: Bulbasaur first (${candidates})`);
+			assert.ok(!item.card || item.card.id === BULBASAUR, `${frame}: no other card chosen (${item.card && item.card.id})`);
+
+			if (!item.card) {
+				assert.equal(item.sure, false);
+				await page.waitForSelector('#scan-search-panel:not([hidden])');
+				assert.equal(await page.inputValue('#scan-search'), 'Bulbasaur');
+			}
+
+			await closeApp(app);
+			await rm(`${PROFILES}/${profile}`, {force: true, recursive: true});
+		}
 	});
 
 	test('camera off: offers the search and the phone check, and a searched card saves', async () => {

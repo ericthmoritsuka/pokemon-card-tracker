@@ -100,7 +100,7 @@ export function confirmSheet(ctx, itemId) {
 			return results;
 		}
 
-		const clues = {...cluesOf(item.read), names: item.names || []};
+		const clues = {...cluesOf(item.readSetName ? {...item.read, name: null} : item.read), names: item.names || []};
 		const ranked = rankCards(clues, results.map((result, index) => ({...result, index, official: result.official ? String(result.official) : null})));
 
 		return ranked.sort((a, b) => b.score - a.score || a.index - b.index);
@@ -156,13 +156,14 @@ export function confirmSheet(ctx, itemId) {
 		}
 	});
 
-	// A card the read could not settle (no number, or nothing found) opens
-	// with the search showing, filled with the best name read, so a poor
+	// A card the read could not settle (no card good enough to show as the
+	// answer: session.js isLead) opens with the search showing, filled with
+	// the best name read, beside the candidates to pick from, so a poor
 	// photo still ends in a saved card within a few taps.
 	let seeded = false;
 
 	function seedSearch(item) {
-		if (seeded || item.sure || item.confirmed || !item.read || (item.read.number && item.candidates.length)) {
+		if (seeded || item.sure || item.confirmed || !item.read || item.card || item.status !== 'ready') {
 			return;
 		}
 
@@ -232,12 +233,15 @@ export function confirmSheet(ctx, itemId) {
 				? 'The reader is not on this phone yet. This card is read as soon as there is a connection.'
 				: 'This card\'s set is not on this phone yet. It is looked up as soon as there is a connection.'));
 		}
+		else if (item.candidates.length) {
+			lines.push(h('p', {class: 'scan-card-name'}, 'Which card is it?'));
+		}
 		else {
 			lines.push(h('p', {class: 'scan-card-name'}, 'No card found'));
 		}
 
 		const look = needsLook(item) ? lookReason(item) : null;
-		const readText = !item.sure && !item.confirmed ? readLine(item.read) : null;
+		const readText = !item.sure && !item.confirmed ? readLine(item.read, {setName: item.readSetName}) : null;
 
 		if (readText && (look || !card)) {
 			lines.push(h('p', {class: 'scan-read-line', id: 'scan-read'}, readText));

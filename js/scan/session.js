@@ -45,6 +45,11 @@ export const LANGUAGE_SURE = 0.5;
 // A collector number read with less word confidence than this asks for a look.
 export const NUMBER_SURE = 0.6;
 
+// A name read that matched a species this well (js/scan/match.js looks
+// cards up by it from here) names that Pokémon clearly enough to stop a
+// number match for another card from counting as sure.
+export const NAME_CLEAR = 0.75;
+
 // The catalog a copy in `language` can be saved against: its own, or, for
 // Korean, the Japanese record (Korean sets reuse the Japanese set codes and
 // numbering, DESIGN.md section 5).
@@ -116,6 +121,7 @@ export function addCapture(session, {at = nowIso(), id = newId()} = {}) {
 		names: [],
 		partial: false,
 		read: null,
+		readSetName: null,
 		status: 'reading',
 		sure: false,
 		timings: {},
@@ -168,13 +174,16 @@ export function summariseRead(read) {
 
 // What was read, in words, for a card that needs a look: "Name: Weedle,
 // HP: 50, number: unreadable". Null when nothing was read (a card added
-// from the search).
-export function readLine(read) {
+// from the search). setName: the set's name the name strip read instead of
+// a name (js/scan/match.js), said as such.
+export function readLine(read, {setName = null} = {}) {
 	if (!read) {
 		return null;
 	}
 
-	const parts = [`Name: ${read.name && read.name.text ? read.name.text : 'unreadable'}`];
+	const parts = [setName
+		? `Name: unreadable ("${setName}" is a set's name)`
+		: `Name: ${read.name && read.name.text ? read.name.text : 'unreadable'}`];
 
 	if (read.hp && read.hp.value) {
 		parts.push(`HP: ${read.hp.value}`);
@@ -194,12 +203,17 @@ export function readLine(read) {
 }
 
 // What the search box starts with for a card that needs a look: the
-// species the read name matched (spelled right), else the name as read.
+// species the read name matched (spelled right), else the name as read,
+// unless it was a set's name (item.readSetName).
 export function searchPrefill(item) {
 	const best = item && item.names && item.names[0];
 
 	if (best && best.score >= 0.75) {
 		return best.name;
+	}
+
+	if (item && item.readSetName) {
+		return '';
 	}
 
 	return (item && item.read && item.read.name && item.read.name.text) || '';
@@ -278,11 +292,15 @@ export function markMatching(session, id, now = nowIso()) {
 // (DESIGN.md section 6, "Scan safety").
 //
 // With a number read, as before: an exact number and total, one card ahead
-// by more than a point, a clear read, every set searched. Without one, the
-// text clues must carry it: at least three agreeing (the name and two of
-// the total, the HP, an attack, a partly read number), none against, and
-// no card within a point. The artwork never counts here; it only orders.
-export function judgeMatch(read, candidates, partial = false) {
+// by more than a point, a clear read, every set searched; and now nothing
+// read against it: no conflicting clue (an HP that differs), and no name
+// read that clearly names another Pokémon (`names`, the species the read
+// name matched, js/scan/match.js), since one misread digit turns a card
+// into its neighbour in the same set. Without a number, the text clues must
+// carry it: at least three agreeing (the name and two of the total, the
+// HP, an attack, a partly read number), none against, and no card within a
+// point. The artwork never counts here; it only orders.
+export function judgeMatch(read, candidates, partial = false, names = []) {
 	const number = read && read.number;
 	const [top, second] = candidates;
 
@@ -316,7 +334,22 @@ export function judgeMatch(read, candidates, partial = false) {
 	const reasons = top.reasons || [];
 
 	if (!reasons.includes('number and total')) {
-		return {sure: false, why: `The number read as ${printed} matches no card exactly.`};
+		return {
+			sure: false,
+			why: candidates.some((c) => (c.reasons || []).includes('number and total'))
+				? `The number reads ${printed}, but the other clues point to another card. Tap the right one.`
+				: `The number read as ${printed} matches no card exactly.`,
+		};
+	}
+
+	const named = names && names[0] && names[0].score >= NAME_CLEAR ? names[0].name : null;
+
+	if (named && !(top.agree || []).includes('name')) {
+		return {sure: false, why: `The number reads ${printed}, but the name reads as ${named}. Tap the right card.`};
+	}
+
+	if ((top.conflicts || []).length) {
+		return {sure: false, why: `The number reads ${printed}, but the ${top.conflicts.includes('hp') ? 'HP' : top.conflicts[0]} does not fit. Check it.`};
 	}
 
 	if (second && second.score >= top.score - 1) {
@@ -348,21 +381,42 @@ const cardOf = (candidate) => ({
 	setName: candidate.setName || null,
 });
 
-// The catalog answered. The best candidate is chosen and its finish waits
-// for the card's variants (applyVariants). A candidate list that is empty
-// leaves the item ready with no card: it needs a look (search or remove).
-export function applyMatch(session, id, {candidates = [], names = [], partial = false} = {}, now = nowIso()) {
+// Whether the best candidate is worth showing as the card before anyone
+// taps it, as a guess to confirm: at least two identity clues agree with it
+// (number and total, or the name and the HP, say), none is against it (nor
+// a name read that clearly names another Pokémon: `names`, as judgeMatch),
+// and no other card is within a point. Anything less (one clue, a tie, a
+// misread number that fits no card exactly) is a list to pick from, never a
+// card that looks like the answer.
+export function isLead(candidates, names = []) {
+	const [top, second] = candidates || [];
+	const named = names && names[0] && names[0].score >= NAME_CLEAR;
+
+	return Boolean(top) && (top.agree || []).length >= 2 && !(top.conflicts || []).length && !(named && !(top.agree || []).includes('name')) && !(second && second.score >= top.score - 1);
+}
+
+// The catalog answered. The best candidate is chosen when the match is sure
+// or a lead (isLead), and its finish waits for the card's variants
+// (applyVariants). Otherwise the item is ready with no card: its sheet
+// offers the candidates to pick from and a search filled in with what was
+// read. An empty candidate list leaves only the search.
+//
+// setName: the set's name the name strip read (js/scan/match.js), judged as
+// no name at all.
+export function applyMatch(session, id, {candidates = [], names = [], partial = false, setName = null} = {}, now = nowIso()) {
 	const item = mustFind(session, id);
-	const judged = judgeMatch(item.read, candidates, partial);
+	const read = setName && item.read ? {...item.read, name: null} : item.read;
+	const judged = judgeMatch(read, candidates, partial, names);
 
 	item.candidates = candidates.slice(0, 6);
 	item.names = (names || []).slice(0, 3);
+	item.readSetName = setName || null;
 	item.partial = partial;
 	item.sure = judged.sure;
 	item.why = judged.why;
 	item.status = 'ready';
 	item.waitingFor = null;
-	setCard(item, candidates[0] || null);
+	setCard(item, candidates.length && (judged.sure || isLead(candidates, names)) ? candidates[0] : null);
 	touch(session, now);
 
 	return item;
@@ -499,8 +553,10 @@ export function blocker(item) {
 		return 'waiting';
 	}
 
+	// No card chosen: unsure while there are candidates to pick from,
+	// unmatched when there are none.
 	if (!item.card) {
-		return 'unmatched';
+		return item.candidates && item.candidates.length ? 'unsure' : 'unmatched';
 	}
 
 	if (!item.sure && !item.confirmed) {

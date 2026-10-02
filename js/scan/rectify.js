@@ -120,8 +120,10 @@ function findEdges(work) {
 // How much of a straight line at `index` (a column, or a row with
 // `vertical`) is a sharp step, over the part of the other axis from..to: a
 // card's edge steps all along it; text, buttons, and the screen around a
-// card on a laptop do not.
-function continuity({grey, height, width}, index, from, to, vertical = false) {
+// card on a laptop do not. `slack`: how far off the line, either way, the
+// step may be (a card turned a little leaves its edge a few pixels off a
+// line straight across, towards its ends).
+function continuity({grey, height, width}, index, from, to, vertical = false, slack = 1) {
 	const length = vertical ? height : width;
 	const d = 2;
 	let on = 0;
@@ -133,8 +135,13 @@ function continuity({grey, height, width}, index, from, to, vertical = false) {
 	for (let j = from; j < to; j++) {
 		let best = 0;
 
-		for (let k = -1; k <= 1; k++) {
+		for (let k = -slack; k <= slack; k++) {
 			const i = index + k;
+
+			if (i - d < 0 || i + d >= length) {
+				continue;
+			}
+
 			const a = vertical ? grey[(i - d) * width + j] : grey[j * width + i - d];
 			const b = vertical ? grey[(i + d) * width + j] : grey[j * width + i + d];
 
@@ -178,20 +185,26 @@ function peaks(values, start, end, share = 0.25, count = 6) {
 // index, sampled every 2 pixels, then the line most of those points lie on
 // (pairs of points tried as lines, the one with the most points within 2
 // pixels kept, then fitted to its points). Points off the card (the screen
-// around it) fall off the line. Returns {p, q, ts}: position = p + q * t,
-// and ts the samples on the line, so how much of any stretch the edge runs
-// along can be counted.
+// around it) fall off the line.
+//
+// A side that leans (a card seen at a slant, wider at the top) leaves the
+// first search's reach towards its ends, so the line is then followed: the
+// strongest step close to where the line runs, along its whole length, and
+// fitted again, for as long as that finds more of it.
+//
+// Returns {p, q, ts}: position = p + q * t, and ts the samples on the line,
+// so how much of any stretch the edge runs along can be counted.
 function edgeLine({grey, height, width}, index, vertical, reach) {
 	const length = vertical ? height : width;
 	const along = vertical ? width : height;
 	const d = 2;
-	const points = [];
 
-	for (let t = 2; t < along - 2; t += 2) {
+	// The strongest step at t within from..to, or null.
+	const stepAt = (t, from, to) => {
 		let best = 0;
 		let at = -1;
 
-		for (let i = Math.max(d, index - reach); i <= Math.min(length - d - 1, index + reach); i++) {
+		for (let i = Math.max(d, from); i <= Math.min(length - d - 1, to); i++) {
 			const a = vertical ? grey[(i - d) * width + t] : grey[t * width + i - d];
 			const b = vertical ? grey[(i + d) * width + t] : grey[t * width + i + d];
 			const value = Math.abs(a - b);
@@ -202,7 +215,34 @@ function edgeLine({grey, height, width}, index, vertical, reach) {
 			}
 		}
 
-		if (best > 12) {
+		return best > 12 ? at : null;
+	};
+
+	const fit = (on) => {
+		let st = 0;
+		let si = 0;
+		let stt = 0;
+		let sti = 0;
+
+		for (const [t, i] of on) {
+			st += t;
+			si += i;
+			stt += t * t;
+			sti += t * i;
+		}
+
+		const den = on.length * stt - st * st;
+		const q = den ? (on.length * sti - st * si) / den : 0;
+
+		return {p: (si - q * st) / on.length, q};
+	};
+
+	const points = [];
+
+	for (let t = 2; t < along - 2; t += 2) {
+		const at = stepAt(t, index - reach, index + reach);
+
+		if (at !== null) {
 			points.push([t, at]);
 		}
 	}
@@ -211,52 +251,90 @@ function edgeLine({grey, height, width}, index, vertical, reach) {
 		return null;
 	}
 
-	const near = (p, q) => points.filter(([t, i]) => Math.abs(p + q * t - i) <= 2);
-	let best = [];
-	const step = Math.max(1, Math.floor(points.length / 12));
+	// The points on the line most of `list` lies on: pairs of points tried
+	// as lines, the one with the most points within 2 pixels kept.
+	const mostOn = (list) => {
+		const near = (p, q) => list.filter(([t, i]) => Math.abs(p + q * t - i) <= 2);
+		const step = Math.max(1, Math.floor(list.length / 12));
+		let on = [];
 
-	for (let m = 0; m < points.length; m += step) {
-		for (let n = m + Math.max(4, Math.floor(points.length / 4)); n < points.length; n += step * 2) {
-			const [t1, i1] = points[m];
-			const [t2, i2] = points[n];
-			const q = (i2 - i1) / (t2 - t1);
+		for (let m = 0; m < list.length; m += step) {
+			for (let n = m + Math.max(4, Math.floor(list.length / 4)); n < list.length; n += step * 2) {
+				const [t1, i1] = list[m];
+				const [t2, i2] = list[n];
+				const q = (i2 - i1) / (t2 - t1);
 
-			if (Math.abs(q) > 0.12) {
-				continue;
-			}
+				if (Math.abs(q) > 0.12) {
+					continue;
+				}
 
-			const on = near(i1 - q * t1, q);
+				const found = near(i1 - q * t1, q);
 
-			if (on.length > best.length) {
-				best = on;
+				if (found.length > on.length) {
+					on = found;
+				}
 			}
 		}
-	}
+
+		return on;
+	};
+
+	let best = mostOn(points);
 
 	if (best.length < 8) {
 		return null;
 	}
 
-	let st = 0;
-	let si = 0;
-	let stt = 0;
-	let sti = 0;
+	let line = fit(best);
+	const follow = Math.max(3, Math.round(length * 0.012));
 
-	for (const [t, i] of best) {
-		st += t;
-		si += i;
-		stt += t * t;
-		sti += t * i;
+	for (let pass = 0; pass < 2; pass++) {
+		const tracked = [];
+
+		for (let t = 2; t < along - 2; t += 2) {
+			const at = stepAt(t, Math.round(line.p + line.q * t) - follow, Math.round(line.p + line.q * t) + follow);
+
+			if (at !== null) {
+				tracked.push([t, at]);
+			}
+		}
+
+		const on = tracked.length >= 8 ? mostOn(tracked) : [];
+
+		if (on.length <= best.length) {
+			break;
+		}
+
+		best = on;
+		line = fit(on);
 	}
 
-	const den = best.length * stt - st * st;
-	const q = den ? (best.length * sti - st * si) / den : 0;
-
-	return {p: (si - q * st) / best.length, q, ts: best.map(([t]) => t)};
+	return {...line, ts: best.map(([t]) => t)};
 }
 
 // The share of t0..t1 a line runs along, its samples being 2 pixels apart.
 const coverage = (line, t0, t1) => line.ts.filter((t) => t >= t0 && t <= t1).length / Math.max(1, (t1 - t0) / 2);
+
+// How well a box's bottom corners are made, 0 to 1: at each, both lines
+// that meet there must run along the stretch next to it (5 to 15 % of the
+// side's length in, past the card's rounded corner). A card's border is
+// closed; a box that borrows a side from something else (the edge of the
+// screen the card is shown on, a panel beside it) has a corner where one of
+// its lines stops short. The bottom corners are the ones checked: the
+// bottom edge is always in a capture the reader can use (the number strip
+// sits on it), while the top is often cut off, lost in glare, or bowed by
+// the lens, so a side line may fit only its lower part.
+function cornerSupport({bottom, left, right}, yTop, yBottom, w) {
+	const h = yBottom - yTop;
+	const corner = (side, inward) => {
+		const x = side.p + side.q * yBottom;
+		const along = inward > 0 ? [x + w * 0.05, x + w * 0.15] : [x - w * 0.15, x - w * 0.05];
+
+		return Math.min(coverage(side, yBottom - h * 0.15, yBottom - h * 0.05), coverage(bottom, ...along));
+	};
+
+	return Math.min(corner(left, 1), corner(right, -1));
+}
 
 // The card as the best card-shaped four-sided box of straight edges, for a
 // capture the outermost edges mislead: a photo of the card on a screen, with
@@ -264,8 +342,11 @@ const coverage = (line, t0, t1) => line.ts.filter((t) => t >= t0 && t <= t1).len
 // sides lean opposite ways. Every strong column and row near each side is
 // followed as a line; a box must have about the card's 63:88 shape, or,
 // with its top lost, take its top from its width. Of the boxes whose sides
-// run along at least 45 % of their length, the widest wins (the card's own
-// edge is outside its inner border), helped a little by straighter sides.
+// run along at least 45 % of their length, the one with the best corners
+// wins (cornerSupport: a box with a side borrowed from the screen around the
+// card is wider than the card, and its top, worked out from that width,
+// takes in the heading above it), then the widest (the card's own edge is
+// outside its inner border), helped a little by straighter sides.
 // Returns {left, right, top, bottom} as lines, top null when worked out.
 function findQuad(work) {
 	const {height, width} = work;
@@ -315,7 +396,8 @@ function findQuad(work) {
 					const s0 = xLeft + w * 0.08;
 					const s1 = xRight - w * 0.08;
 					const sides = [coverage(left, t0, t1), coverage(right, t0, t1), coverage(bottom, s0, s1), ...(top ? [coverage(top, s0, s1)] : [])];
-					const score = w / width + Math.min(...sides) * 0.3 - (top ? 0 : 0.05);
+					const corners = cornerSupport({bottom, left, right}, yTop, yBottom, w);
+					const score = w / width + Math.min(...sides) * 0.3 + corners * 0.5 - (top ? 0 : 0.05);
 
 					if (Math.min(...sides) >= 0.45 && (!best || score > best.score)) {
 						best = {bottom, left, right, score, top, w};
@@ -395,10 +477,21 @@ function plausible(work, edges) {
 	const top = edges.top === null || Math.abs((edges.bottom - edges.top) * CARD_RATIO - w) / w > 0.06 ? Math.max(0, edges.bottom - w / CARD_RATIO) : edges.top;
 	const span = [Math.round(top + (edges.bottom - top) * 0.1), Math.round(top + (edges.bottom - top) * 0.9)];
 
+	// The bottom corners closed, as in cornerSupport: the bottom edge runs
+	// out to both sides, so a side borrowed from the screen around the card
+	// (past where the card's bottom stops) is not taken for the card's. Near
+	// the corners a card turned a little (less than measureTilt turns back)
+	// has its edge a few pixels off the row through its middle. Whether the
+	// sides run down to the bottom is not asked here: the dark lower corner
+	// of a full-art card can barely stand out from a dark table.
+	const slack = Math.max(2, Math.round(w * 0.02));
+
 	return w >= work.width * 0.6
 		&& continuity(work, edges.left, span[0], span[1]) >= 0.5
 		&& continuity(work, edges.right, span[0], span[1]) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.1), Math.round(edges.right - w * 0.1), true) >= 0.5;
+		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.1), Math.round(edges.right - w * 0.1), true) >= 0.5
+		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.05), Math.round(edges.left + w * 0.15), true, slack) >= 0.5
+		&& continuity(work, edges.bottom, Math.round(edges.right - w * 0.15), Math.round(edges.right - w * 0.05), true, slack) >= 0.5;
 }
 
 // The card's tilt in degrees, from where its left and right edges sit in the

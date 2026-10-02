@@ -804,9 +804,10 @@ export function scanView(root) {
 
 		if (!item.read) {
 			// Added from the search, so there is nothing to look up again: search
-			// in the new language.
+			// in the new language. The card it had is no candidate there.
 			change(() => {
 				item.card = null;
+				item.candidates = [];
 				item.variants = null;
 				item.variantId = null;
 				item.confirmed = false;

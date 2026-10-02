@@ -51,11 +51,81 @@ export function difference(a, b) {
 	return sum / a.length;
 }
 
+// A row's step at least this strong (0 to 255) can be a card's edge.
+const EDGE_STEP = 24;
+
+// Of the rows in the middle band, the share a side edge must run along.
+const EDGE_ROWS = 0.65;
+
+// A side of the card near columns from..to as a straight line, which may
+// lean: in each row of the middle band, the strongest step within those
+// columns, then the line (leaning up to 0.15 of a column per row) that most
+// of those steps lie on, within a column. In a cluttered scene the
+// strongest step of each row falls anywhere, so no line gathers them.
+// Returns {share, x}: the share of the rows on the line, and where it
+// crosses the middle row.
+function sideLine(grey, width, height, from, to) {
+	const y0 = Math.round(height * 0.15);
+	const y1 = Math.round(height * 0.85);
+	const points = [];
+
+	for (let y = y0; y < y1; y++) {
+		let best = 0;
+		let at = -1;
+
+		for (let x = Math.max(1, from); x < Math.min(width - 1, to); x++) {
+			const step = Math.abs(grey[y * width + x + 1] - grey[y * width + x - 1]);
+
+			if (step > best) {
+				best = step;
+				at = x;
+			}
+		}
+
+		if (best >= EDGE_STEP) {
+			points.push([y - (y0 + y1) / 2, at]);
+		}
+	}
+
+	let found = {count: 0, x: null};
+
+	for (let lean = -15; lean <= 15; lean++) {
+		const bins = new Map();
+
+		for (const [y, x] of points) {
+			const bin = Math.round(x - (lean / 100) * y);
+
+			bins.set(bin, (bins.get(bin) || 0) + 1);
+		}
+
+		for (const [bin, n] of bins) {
+			const count = n + (bins.get(bin - 1) || 0) + (bins.get(bin + 1) || 0);
+
+			if (count > found.count) {
+				found = {count, x: bin};
+			}
+		}
+	}
+
+	return {share: found.count / Math.max(1, y1 - y0), x: found.x};
+}
+
 // Whether a card seems to be in the frame, and whether glare is washing it
 // out. A card held in the guide makes two strong vertical edges near the
 // thumbnail's left and right sides (the capture keeps a 6 % margin around
-// the guide, so they sit about 5 % in), each standing out against the table
-// beyond it, and plenty of detail between them.
+// the guide, so they sit about 5 % in), and plenty of detail between them.
+// Either rule below says the edges are the card's:
+//
+// - each stands out against a flat table beyond it (the outermost column);
+// - or each is one straight line down most of the frame, the two far enough
+//   apart to be the card filling the guide. This is the card held to fill
+//   the guide's height: seen at a slant its top is wider than its bottom
+//   and reaches the margin, and a card shown on a screen has the app's text
+//   right beside it, so nothing beyond its edges is flat.
+//
+// A cluttered scene has strong steps everywhere but no two long straight
+// edges where a card's would be, and a card held so large that its edges
+// leave the frame has neither.
 // Returns {present, glare, edges: {left, right}, detail}.
 export function presence(grey, width, height) {
 	const columns = new Float64Array(width);
@@ -112,12 +182,16 @@ export function presence(grey, width, height) {
 
 	const detail = Math.sqrt(variance / grey.length);
 	const strong = (edge, outside) => edge >= 16 && outside <= Math.max(6, edge * 0.3);
+	const againstTable = strong(left, outsideLeft) && strong(right, outsideRight);
+	const leftLine = againstTable ? null : sideLine(grey, width, height, 1, side);
+	const rightLine = againstTable ? null : sideLine(grey, width, height, width - side, width - 1);
+	const straight = !againstTable && leftLine.share >= EDGE_ROWS && rightLine.share >= EDGE_ROWS && rightLine.x - leftLine.x >= width * 0.7;
 
 	return {
 		detail: Math.round(detail),
 		edges: {left: Math.round(left), right: Math.round(right)},
 		glare: bright / grey.length > 0.03,
-		present: strong(left, outsideLeft) && strong(right, outsideRight) && detail >= 14,
+		present: (againstTable || straight) && detail >= 14,
 	};
 }
 

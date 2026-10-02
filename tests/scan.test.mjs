@@ -11,6 +11,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
+import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
@@ -520,6 +521,66 @@ describe('auto-capture', () => {
 		assert.ok(fired >= 1);
 	});
 
+	// A card held to fill the guide's height, seen at a slant on a laptop
+	// screen: its wider top reaches the thumbnail's outermost columns, and the
+	// app's text sits right beside its right side, so nothing beyond its
+	// edges is flat.
+	function slantFrame() {
+		const grey = new Uint8Array(W * H).fill(30);
+
+		for (let y = 0; y < H; y++) {
+			const f = y / H;
+			const left = 1 + 4 * f;
+			const right = W - 2 - 4 * f;
+
+			for (let x = 0; x < W; x++) {
+				if (y >= 3 && y < H - 3 && x >= left && x <= right) {
+					grey[y * W + x] = (y % 6 < 2 && x % 4 < 3 && x > left + 3 && x < right - 3) ? 40 : 205;
+				}
+				else if (x > right + 1 && y > H * 0.3 && y < H * 0.7 && (y % 5 < 2) && (x % 3 === 0)) {
+					grey[y * W + x] = 200;
+				}
+			}
+		}
+
+		return grey;
+	}
+
+	test('sees a card that fills the guide\'s height at a slant, with the screen\'s text beside it', () => {
+		const frame = slantFrame();
+
+		assert.equal(presence(frame, W, H).present, true);
+
+		const detector = createAutoCapture();
+		let fired = 0;
+
+		for (let i = 0; i < 10; i++) {
+			if (detector.push(frame, presence(frame, W, H))) {
+				fired++;
+				detector.captured(frame);
+			}
+		}
+
+		assert.equal(fired, 1, 'held still: captured once');
+
+		// Not a card filling the guide: two long edges too close together,
+		// with the screen's text beyond them.
+		const narrow = new Uint8Array(W * H).fill(30);
+
+		for (let y = 3; y < H - 3; y++) {
+			for (let x = 0; x < W; x++) {
+				if (x >= 13 && x < W - 13) {
+					narrow[y * W + x] = y % 6 < 2 ? 40 : 205;
+				}
+				else if ((x < 4 || x >= W - 4) && y % 5 < 2 && x % 3 === 0) {
+					narrow[y * W + x] = 200;
+				}
+			}
+		}
+
+		assert.equal(presence(narrow, W, H).present, false);
+	});
+
 	test('the shutter counts as the capture, so the same still card is not taken again on its own', () => {
 		const detector = createAutoCapture();
 
@@ -788,5 +849,194 @@ describe('the name route', () => {
 		assert.equal(S.readLine(S.summariseRead({name: null, number: null})), 'Name: unreadable, number: unreadable');
 		assert.equal(S.searchPrefill({names: [{dex: 25, name: 'Pikachu', score: 0.8}], read}), 'Pikachu');
 		assert.equal(S.searchPrefill({names: [], read}), 'Pikac');
+	});
+});
+
+describe('a card photographed on a screen', () => {
+	const W = 520;
+	const H = 726;
+
+	// The card's corners in an invented photo of it on a laptop screen, as
+	// the capture cuts it: seen at a slant, so it is wider at the top, and
+	// its widest row fills the guide while it is shorter than its shape.
+	const CORNERS = [{x: 0.058 * W, y: 0.105 * H}, {x: 0.94 * W, y: 0.117 * H}, {x: 0.847 * W, y: 0.898 * H}, {x: 0.121 * W, y: 0.89 * H}];
+
+	// The photo: a dark screen, the app's heading in large light letters
+	// just above the card, the app's text beside it, a button under it, and
+	// the screen's edge as a long straight line in the margin past the
+	// card's right side.
+	function screenPhoto() {
+		const [tl, tr, br, bl] = CORNERS;
+		const lerp = (a, b, t) => a + (b - a) * t;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			const xl = lerp(tl.x, bl.x, (y - tl.y) / (bl.y - tl.y));
+			const xr = lerp(tr.x, br.x, (y - tr.y) / (br.y - tr.y));
+
+			for (let x = 0; x < W; x++) {
+				const yt = lerp(tl.y, tr.y, (x - tl.x) / (tr.x - tl.x));
+				const yb = lerp(bl.y, br.y, (x - bl.x) / (br.x - bl.x));
+				let value = x > 0.986 * W ? 5 : 27;
+
+				if (x >= xl && x <= xr && y >= yt && y <= yb) {
+					const u = (x - xl) / (xr - xl);
+					const v = (y - yt) / (yb - yt);
+
+					if (u < 0.035 || u > 0.965 || v < 0.025 || v > 0.975) {
+						value = 200;
+					}
+					else if (u > 0.07 && u < 0.93 && v > 0.11 && v < 0.48) {
+						value = 60 + ((x * 7 + y * 13) % 50);
+					}
+					else if (u > 0.1 && u < 0.8 && v > 0.55 && v < 0.85 && Math.floor(v * 100) % 5 === 0) {
+						value = 40;
+					}
+					else {
+						value = 175;
+					}
+				}
+				else if (y > 0.035 * H && y < 0.075 * H && x > 0.06 * W && x < 0.45 * W && Math.floor(x / 9) % 3 !== 2) {
+					value = 225;
+				}
+				else if (x > xr + 6 && x < 0.98 * W && y > 0.3 * H && y < 0.7 * H && (y / (0.06 * H)) % 1 < 0.4) {
+					value = 210;
+				}
+				else if (x > 0.15 * W && x < 0.85 * W && y > 0.915 * H && y < 0.965 * H) {
+					value = 55;
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {data, height: H, width: W};
+	}
+
+	test('the card is straightened to its own border, without the heading above it or the screen beside it', () => {
+		const straight = rectify(screenPhoto());
+
+		assert.ok(straight.found, straight.note);
+		assert.ok(straight.corners, 'found as a slanted box');
+
+		for (const [index, corner] of straight.corners.entries()) {
+			const truth = CORNERS[index];
+
+			assert.ok(Math.abs(corner.x - truth.x) <= W * 0.02 && Math.abs(corner.y - truth.y) <= H * 0.02, `corner ${index} at ${Math.round(corner.x)}, ${Math.round(corner.y)}, not ${Math.round(truth.x)}, ${Math.round(truth.y)}`);
+		}
+	});
+
+	// What a read of that photo found before the fix: the heading read where
+	// the name should be, and the hidden number misread.
+	const sets = [
+		{cardCount: {official: 86}, id: 'me04', name: 'Chaos Rising', serie: 'me'},
+		{cardCount: {official: 5}, id: 'fut2020', name: 'Pokémon Futsal 2020', serie: 'misc'},
+		{cardCount: {official: 165}, id: 'sv03.5', name: '151', serie: 'sv'},
+	];
+	const details = {
+		fut2020: {
+			cardCount: {official: 5},
+			cards: [{id: 'fut2020-1', image: null, localId: '1', name: 'Pikachu on the Ball'}, {id: 'fut2020-2', image: null, localId: '2', name: 'Bulbasaur on the Ball'}],
+			id: 'fut2020',
+			name: 'Pokémon Futsal 2020',
+			releaseDate: '2020-09-11',
+		},
+	};
+	const prints = {
+		13: [
+			{cardId: 'me04-001', image: null, localId: '001', name: 'Weedle', releaseDate: '2026-03-27', setId: 'me04', setName: 'Chaos Rising'},
+			{cardId: 'sv03.5-013', image: null, localId: '013', name: 'Weedle', releaseDate: '2023-09-22', setId: 'sv03.5', setName: '151'},
+		],
+	};
+	const api = {
+		allSets: async () => sets,
+		setDetail: async (lang, id) => details[id] || {cardCount: {official: 0}, cards: [], id},
+		species: async () => SPECIES,
+		speciesPrints: async (dex) => prints[dex] || [],
+	};
+	const misread = {confidence: 0.44, number: '1', numberPrinted: '01', setCodeRun: '', side: 'left', total: '6', totalPrinted: '006'};
+
+	test('a set\'s name read as the card\'s name is no name, and nothing is offered as the answer', async () => {
+		assert.equal(E.setNameRead('Chaos Rising', sets, SPECIES), 'Chaos Rising');
+		assert.equal(E.setNameRead('Weedle', sets, SPECIES), null);
+		assert.equal(E.setNameRead('Pikachu', [{name: 'Pikachu'}], SPECIES), null, 'a set named for a species leaves the name alone');
+
+		const heading = S.summariseRead(nameRead('Chaos Rising', {number: misread}));
+		const found = await findCandidates(heading, 'en', {api});
+
+		assert.equal(found.setName, 'Chaos Rising');
+		assert.deepEqual(found.names, []);
+		assert.equal(found.candidates[0].id, 'fut2020-1', 'the misread number still finds what it fits');
+
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, {at: AT, id: 'w'});
+
+		S.applyRead(session, 'w', heading, AT);
+		S.applyMatch(session, 'w', found, AT);
+		assert.equal(item.sure, false);
+		assert.equal(item.card, null, 'no card preselected as if it were the answer');
+		assert.equal(S.blocker(item), 'unsure', 'the candidates wait for a tap');
+		assert.match(item.why, /01\/006 matches no card exactly/);
+		assert.equal(S.searchPrefill(item), '', 'the set\'s name is not searched for as a name');
+		assert.equal(S.readLine(item.read, {setName: item.readSetName}), 'Name: unreadable ("Chaos Rising" is a set\'s name), number: 01/006');
+
+		S.chooseCard(session, 'w', {...prints[13][0], id: 'me04-001', lang: 'en', localId: '001', official: '86', reasons: ['search'], score: 0}, AT);
+		assert.equal(item.card.id, 'me04-001');
+		assert.equal(S.blocker(item), 'finishes', 'a tap settles it');
+	});
+
+	test('a doubtful number that fits no card exactly does not bury the cards the name found', async () => {
+		// Misread as 02/006, a number neither Weedle print has.
+		const weedle = S.summariseRead(nameRead('Weedle', {number: {...misread, number: '2', numberPrinted: '02'}}));
+		const found = await findCandidates(weedle, 'en', {api});
+
+		assert.deepEqual(found.routes, ['number', 'name']);
+		assert.equal(found.candidates[0].name, 'Weedle', `the name route's prints come first, not ${found.candidates[0].id}`);
+		assert.ok(found.candidates.findIndex((c) => c.id === 'fut2020-2') > 0);
+
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, {at: AT, id: 'w'});
+
+		S.applyRead(session, 'w', weedle, AT);
+		S.applyMatch(session, 'w', found, AT);
+		assert.equal(item.card, null, 'two Weedle prints are level: neither is shown as the answer');
+		assert.equal(S.searchPrefill(item), 'Weedle');
+
+		// One digit misread into the card's neighbour in its own set (001 as
+		// 007, both of 132) read clearly enough to count, while the name read
+		// names the card itself: never sure of the neighbour, and the named
+		// card is there to pick.
+		SPECIES[1] = 'Bulbasaur';
+
+		const neighbours = {
+			...api,
+			allSets: async () => [...sets, {cardCount: {official: 132}, id: 'me01', name: 'Mega Evolution', serie: 'me'}],
+			setDetail: async (lang, id) => (id === 'me01'
+				? {abbreviation: {official: 'MEG'}, cardCount: {official: 132}, cards: [{id: 'me01-001', image: null, localId: '001', name: 'Bulbasaur'}, {id: 'me01-007', image: null, localId: '007', name: 'Tangrowth'}], id, name: 'Mega Evolution', releaseDate: '2025-09-26'}
+				: api.setDetail(lang, id)),
+			speciesPrints: async (dex) => (dex === 1 ? [{cardId: 'me01-001', image: null, localId: '001', name: 'Bulbasaur', releaseDate: '2025-09-26', setId: 'me01', setName: 'Mega Evolution'}] : []),
+		};
+		const slip = S.summariseRead(nameRead('Bylbasaur', {number: {confidence: 0.73, number: '7', numberPrinted: '007', setCodeRun: 'MEG', side: 'left', total: '132', totalPrinted: '132'}}));
+		const both = await findCandidates(slip, 'en', {api: neighbours});
+
+		assert.deepEqual(both.routes, ['number', 'name'], 'the name route runs although the number fits a card exactly');
+		assert.ok(both.candidates.some((c) => c.id === 'me01-001'));
+
+		const slipped = S.addCapture(session, {at: AT, id: 's'});
+
+		S.applyRead(session, 's', slip, AT);
+		S.applyMatch(session, 's', both, AT);
+		assert.equal(slipped.sure, false, `not sure (${slipped.why})`);
+		assert.ok(!slipped.card || slipped.card.id === 'me01-001', 'the neighbour is never chosen for the person');
+
+		// A number and total that fit a card exactly, but read poorly, are
+		// still a guess worth showing: preselected, and it needs a tap.
+		const lead = S.addCapture(session, {at: AT, id: 'l'});
+
+		S.applyRead(session, 'l', read('3', '131', undefined, 0.4), AT);
+		S.applyMatch(session, 'l', {candidates: [candidate('sv08.5-003', {agree: ['number', 'total'], conflicts: []})]}, AT);
+		assert.equal(lead.card.id, 'sv08.5-003');
+		assert.equal(lead.sure, false);
+		assert.equal(S.blocker(lead), 'unsure');
 	});
 });

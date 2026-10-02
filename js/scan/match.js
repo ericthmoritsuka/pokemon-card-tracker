@@ -28,7 +28,7 @@ import {speciesNames} from '../checklists.js';
 import {loadInternational} from '../pokemon-cards.js';
 import {confusedVariants, sameNumber} from '../../lab/js/match.js';
 import {artworkSims} from './artwork.js';
-import {cluesOf, matchSpecies, orderByArtwork, rankCards, TIE_POINTS} from './evidence.js';
+import {cluesOf, matchSpecies, orderByArtwork, rankCards, setNameRead, TIE_POINTS} from './evidence.js';
 import {ASIAN_LANGUAGES, searchOrder} from './session.js';
 
 // The catalog could not be reached for something the match needs.
@@ -109,11 +109,12 @@ const ARTWORK_CARDS = 16;
 // A candidate as the tray keeps it: no set record, no attack lists.
 const kept = ({abilities, agree, attacks, conflicts, dexIds, first, hp, set, ...rest}) => ({...rest, agree, conflicts, hp: hp || null});
 
-// Returns {candidates, names, partial, searched, ms, routes}. Each
+// Returns {candidates, names, partial, searched, ms, routes, setName}. Each
 // candidate is {id, image, lang, localId, name, official, reasons,
 // releaseDate, score, confidence, agree, conflicts, setCode, setId,
 // setName, artwork}, best first. names are the species the read name
-// matched: [{dex, name, score}].
+// matched: [{dex, name, score}]. setName is the set the read name turned
+// out to be (so it was not used as a name), or null.
 //
 // partial is true when some set that could hold the card was out of reach,
 // so the list may be missing the right card. Throws WaitingForSignal when
@@ -178,9 +179,20 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 
 	// ---- the name, against the species list
 
+	// A name that is exactly a set's name is the heading of the page the
+	// card was photographed on, not the card's name (evidence.js
+	// setNameRead): it neither finds cards nor counts for or against them.
+	// The English set list is the one the name route reads anyway.
 	const latin = !ASIAN_LANGUAGES.includes(language);
-	const species = clues.name && clues.name.text && latin && api.species ? await api.species().catch(() => []) : [];
-	const names = species.length ? matchSpecies(clues.name.text, species) : [];
+	const named = Boolean(clues.name && clues.name.text && latin && api.species);
+	const [species, englishSets] = named ? await Promise.all([api.species().catch(() => []), listFor('en')]) : [[], null];
+	const setName = named ? setNameRead(clues.name.text, englishSets, species) : null;
+
+	if (setName) {
+		clues.name = null;
+	}
+
+	const names = species.length && clues.name ? matchSpecies(clues.name.text, species) : [];
 
 	clues.names = names;
 
@@ -304,11 +316,17 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	// The name route runs when the number did not settle it: no number read,
 	// or no card with that exact number and total. A clean number read never
 	// waits for a species list to download.
+	//
+	// A number can also be misread into another card of the same set (001
+	// as 007, both out of 132): when the name read clearly names a species
+	// that no card with the exact number is, the name route runs as well, so
+	// the card the name names is there to weigh against it.
 	await numberRoute();
 
-	const exact = Boolean(read && read.number) && [...byId.values()].some((card) => sameNumber(card.localId, read.number.number) && String(card.official) === String(read.number.total));
+	const exactCards = read && read.number ? [...byId.values()].filter((card) => sameNumber(card.localId, read.number.number) && String(card.official) === String(read.number.total)) : [];
+	const nameElsewhere = exactCards.length > 0 && names.length > 0 && names[0].score >= NAME_LOOKUP && !rankCards(clues, exactCards).some((card) => card.agree.includes('name'));
 
-	if (!read || !read.number || !exact) {
+	if (!exactCards.length || nameElsewhere) {
 		await nameRoute();
 	}
 
@@ -318,7 +336,7 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	// ---- HP and attacks, from the leading cards' full records
 
 	const close = ranked.filter((card) => card.score >= (ranked[0] ? ranked[0].score : 0) - 4).slice(0, read && read.number ? DETAIL_CARDS : DETAIL_CARDS_NAME_ONLY);
-	const uncertain = ranked.length > 1 && (!ranked[0].agree.includes('number') || !ranked[0].agree.includes('total') || ranked[1].score >= ranked[0].score - TIE_POINTS);
+	const uncertain = ranked.length > 1 && (nameElsewhere || !ranked[0].agree.includes('number') || !ranked[0].agree.includes('total') || ranked[1].score >= ranked[0].score - TIE_POINTS);
 
 	if (api.cardDetail && (clues.hp || clues.attackText) && uncertain && close.length) {
 		const details = new Map();
@@ -370,7 +388,7 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 		}
 	}
 
-	return {candidates, ms: Math.round(now() - started), names, partial: unreachable > 0, routes, searched};
+	return {candidates, ms: Math.round(now() - started), names, partial: unreachable > 0, routes, searched, setName};
 }
 
 // The card's full TCGdex record (for variants_detailed), cache first. Throws

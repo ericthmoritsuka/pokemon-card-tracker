@@ -310,9 +310,18 @@ const linesOf = (result) => (result.lines && result.lines.length
 	? result.lines
 	: String(result.text || '').split(/\n+/).map((text) => ({text, words: []})));
 
-// The first line of an OCR result that holds a collector number, with the
-// confidence and box of the words that make up the number. As in
-// lab/js/pipeline.js, which does not export it.
+// A number whose words read with less confidence than this is not a number
+// read at all: the OCR made digits out of what covers the strip (a label
+// over a card shown on a screen, a thumb, moire), "01/08" at 0.03. Taken as
+// a number, it kept the attack box from being read and pulled every card
+// numbered 1 level with the right one; left out, the card is read as one
+// whose number did not read. On the 240-capture benchmark it changed no
+// capture's first card.
+export const NUMBER_FLOOR = 0.15;
+
+// The first line of an OCR result that holds a collector number read above
+// NUMBER_FLOOR, with the confidence and box of the words that make up the
+// number. As in lab/js/pipeline.js, which does not export it.
 function findNumber(side, result) {
 	for (const line of linesOf(result)) {
 		const parsed = parseNumber(line.text);
@@ -338,6 +347,10 @@ function findNumber(side, result) {
 			}
 			: null;
 		const plausible = Number(parsed.number.replace(/\D/g, '')) <= Number(parsed.total) * 2;
+
+		if (used.length && confidence / 100 < NUMBER_FLOOR) {
+			continue;
+		}
 
 		return {
 			...parsed,

@@ -216,6 +216,29 @@ export function matchSpecies(text, species, {limit = 4, min = 0.7} = {}) {
 	return out.sort((a, b) => b.score - a.score || b.name.length - a.name.length).slice(0, limit);
 }
 
+// The set whose name the read name is, when it is exactly one (after
+// folding accents and lookalikes) and is not also exactly a species name:
+// the heading of the app or page a card is shown on ("Chaos Rising" just
+// above a card on a laptop screen), read where the name strip should be.
+// A card's name strip never prints its set's name, so such a read is no
+// name at all. `sets` is [{name}], `species` as for matchSpecies. Returns
+// the set name, or null.
+export function setNameRead(text, sets, species = []) {
+	const read = nameKey(text);
+
+	if (read.length < 4) {
+		return null;
+	}
+
+	const set = (sets || []).find((entry) => entry && entry.name && nameKey(entry.name) === read);
+
+	if (!set || (species || []).some((name) => name && nameKey(name) === read)) {
+		return null;
+	}
+
+	return set.name;
+}
+
 // ------------------------------------------------------------ HP
 
 // The HP printed top right: "HP 70" on modern cards, "80 HP" on older ones,
@@ -302,6 +325,13 @@ const BY_AGREEMENT = [0.1, 0.4, 0.7, 0.85, 0.93, 0.97];
 // A read name counts against a card only when it was read this well.
 export const NAME_SURE = 0.9;
 
+// A number and total read together with less word confidence than this
+// (session.js NUMBER_SURE) are a doubtful read. When they do not both match
+// a card, the half that does (its number alone, or its total) counts for it
+// only in proportion: a misread "01/006" is not much of a clue that a card
+// is number 1, and must not outrank the cards the name found.
+export const NUMBER_TRUST = 0.6;
+
 const isModern = (date) => Boolean(date) && date >= LEFT_NUMBER_FROM;
 
 // The clues of one read, flattened for scoring: {number, total, numberExact
@@ -371,8 +401,12 @@ export function scoreCard(clues, card) {
 		agree.add(totalExact ? 'total' : 'number');
 	}
 	else {
+		// A partly read number ("001/") carries its own, fixed confidence; a
+		// whole pair that does not fit this card counts as well as it read.
+		const trust = clues.pair ? Math.min(1, clues.numberConfidence / NUMBER_TRUST) : 1;
+
 		if (numberExact) {
-			score += WEIGHTS.number;
+			score += WEIGHTS.number * trust;
 			reasons.push('number');
 			agree.add('number');
 		}
@@ -382,12 +416,12 @@ export function scoreCard(clues, card) {
 		}
 
 		if (totalExact) {
-			score += WEIGHTS.total;
+			score += WEIGHTS.total * trust;
 			reasons.push('total');
 			agree.add('total');
 		}
 		else if (totalNear) {
-			score += WEIGHTS.total / 2;
+			score += (WEIGHTS.total / 2) * trust;
 			reasons.push('total one digit off');
 		}
 	}

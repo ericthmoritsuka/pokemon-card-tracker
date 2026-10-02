@@ -367,10 +367,23 @@ export async function cardImage(cardId) {
 // degrees, over a wood-colored table. width x height is the camera frame.
 // hideNumber blurs the bottom 12 % of the card out of reading, as a thumb,
 // a sleeve edge, or a bad photo would, so only the top of the card reads.
+//
+// screen draws the card as a photo of it shown in an app on a laptop: a
+// dark screen instead of the table, the app's `heading` in large light
+// letters just above the card, the app's text to its right, a button under
+// it, and the screen's edge as a long straight line in the capture margin
+// past the card's right side. screen.keystone (top width over bottom width)
+// draws the card as seen at a slant, wider at the top. screen.fit says
+// what `fill` measures: 'width', the card's widest row against the guide's
+// width (so a keystoned card is shorter than the guide, with the heading
+// inside the capture), or 'height', the card's height against the guide's
+// (so its top runs past the guide's sides into the margin).
+//
 // Uses `browser` (Playwright) to decode the WebP and draw the frame.
-export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, height = 1920, hideNumber = false, width = 1080} = {}) {
+export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, height = 1920, hideNumber = false, screen = null, width = 1080} = {}) {
 	const dir = join(CACHE_DIR, 'video');
-	const file = join(dir, `${cardId}-${width}x${height}-${angle}-${fill}${hideNumber ? '-nonumber' : ''}.y4m`);
+	const look = screen ? `-screen-${String(screen.heading).replace(/[^a-z0-9]+/gi, '_')}-${screen.keystone || 1}-${screen.fit || 'width'}` : '';
+	const file = join(dir, `${cardId}-${width}x${height}-${angle}-${fill}${hideNumber ? '-nonumber' : ''}${look}.y4m`);
 
 	await mkdir(dir, {recursive: true});
 
@@ -380,7 +393,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 	const webp = (await readFile(await cardImage(cardId))).toString('base64');
 	const page = await browser.newPage();
-	const rgba = Buffer.from(await page.evaluate(async ({angle, fill, height, hideNumber, webp, width}) => {
+	const rgba = Buffer.from(await page.evaluate(async ({angle, fill, height, hideNumber, screen, webp, width}) => {
 		const img = new Image();
 
 		img.src = `data:image/webp;base64,${webp}`;
@@ -408,7 +421,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 		const ctx = canvas.getContext('2d');
 
-		ctx.fillStyle = '#7a6250';
+		ctx.fillStyle = screen ? '#1b1b20' : '#7a6250';
 		ctx.fillRect(0, 0, width, height);
 
 		// lab/js/pipeline.js guideRect with lab/js/camera.js GUIDE_FILL.
@@ -422,7 +435,59 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 		ctx.translate(width / 2, height / 2);
 		ctx.rotate(angle * Math.PI / 180);
-		ctx.drawImage(face, -gw * fill / 2, -gh * fill / 2, gw * fill, gh * fill);
+
+		if (!screen) {
+			ctx.drawImage(face, -gw * fill / 2, -gh * fill / 2, gw * fill, gh * fill);
+		}
+		else {
+			// The card's widths at its top and bottom, their mean the card's
+			// own shape for its height.
+			const keystone = screen.keystone || 1;
+			const ch = screen.fit === 'height' ? gh * fill : (gw * fill * (1 + keystone)) / (2 * keystone) * 88 / 63;
+			const mean = ch * 63 / 88;
+			const top = (mean * 2 * keystone) / (1 + keystone);
+			const bottom = (mean * 2) / (1 + keystone);
+			const edge = Math.max(top, bottom) / 2 + gw * 0.04;
+
+			ctx.fillStyle = '#e8c8cc';
+			ctx.font = `bold ${Math.round(ch * 0.045)}px sans-serif`;
+			ctx.fillText(screen.heading, -mean / 2, -ch / 2 - ch * 0.04);
+			ctx.fillStyle = '#d0d0d8';
+			ctx.font = `bold ${Math.round(ch * 0.03)}px sans-serif`;
+
+			// Right beside the card's sides at its middle, the app's details
+			// on the right and its menu on the left (the card, drawn after,
+			// covers what falls under its wider top).
+			for (const [i, word] of ['Set', 'Name', 'No.', '001', 'Rarity', 'Common', 'Illus.', 'Eng'].entries()) {
+				ctx.textAlign = 'left';
+				ctx.fillText(word, mean / 2 + gw * 0.03, -ch * 0.4 + i * ch * 0.08);
+				ctx.textAlign = 'right';
+				ctx.fillText(['Cards', 'Sets', 'Scan', 'Lists', 'Binders', 'Trade', 'Help', 'Profile'][i], -mean / 2 - gw * 0.03, -ch * 0.4 + i * ch * 0.08);
+			}
+
+			ctx.textAlign = 'left';
+
+			ctx.fillStyle = '#2c2c33';
+			ctx.fillRect(-mean * 0.4, ch / 2 + ch * 0.02, mean * 0.8, ch * 0.06);
+			ctx.fillStyle = '#d0d0d8';
+			ctx.fillText('Add photo', -mean * 0.1, ch / 2 + ch * 0.065);
+			ctx.fillStyle = '#050505';
+			ctx.fillRect(edge, -height, width, height * 2);
+
+			// Row by row, in perspective: the card turned back about its
+			// horizontal axis, so a row of the card a share v down it lands a
+			// share s = keystone v / (1 + (keystone - 1) v) down the drawing,
+			// at width top / (1 + (keystone - 1) v).
+			const rows = Math.round(ch);
+
+			for (let row = 0; row < rows; row++) {
+				const s = (row + 0.5) / rows;
+				const v = s / (keystone - s * (keystone - 1));
+				const w = top / (1 + (keystone - 1) * v);
+
+				ctx.drawImage(face, 0, Math.min(face.height - 1, v * face.height), face.width, Math.max(1, face.height / rows), -w / 2, -ch / 2 + row, w, 1.5);
+			}
+		}
 
 		const data = ctx.getImageData(0, 0, width, height).data;
 		let binary = '';
@@ -432,7 +497,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 		}
 
 		return btoa(binary);
-	}, {angle, fill, height, hideNumber, webp, width}), 'base64');
+	}, {angle, fill, height, hideNumber, screen, webp, width}), 'base64');
 
 	await page.close();
 
