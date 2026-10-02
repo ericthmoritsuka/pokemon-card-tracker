@@ -70,11 +70,20 @@ export function formatBrlCompact(value) {
 	return rounded >= 100 ? COMPACT.format(rounded) : MONEY.BRL.format(rounded);
 }
 
+// An amount written the US way, a comma before a dot ("1,234.56") or a
+// comma followed by three digits ("1,234"): read the Brazilian way it would
+// be a thousand times too small, so it is refused rather than guessed.
+export function usStyleAmount(text) {
+	const value = String(text ?? '').replace(/R\$|\s/gi, '');
+
+	return /,.*\./.test(value) || /,\d{3,}$/.test(value);
+}
+
 // What someone types for an amount in reais: "45,90", "45.90", "R$ 1.234,56",
 // "1234". A comma is the decimal mark and dots group thousands; with no comma,
 // a single dot followed by one or two digits is the decimal mark. Returns the
 // amount to the cent, null for an empty field, or NaN for anything that is
-// not an amount above zero.
+// not an amount above zero, US-style amounts included (usStyleAmount).
 export function parseBrl(text) {
 	let value = String(text ?? '').replace(/R\$|\s/gi, '');
 
@@ -83,7 +92,7 @@ export function parseBrl(text) {
 	}
 
 	if (value.includes(',')) {
-		if ((value.match(/,/g) || []).length > 1) {
+		if ((value.match(/,/g) || []).length > 1 || usStyleAmount(value)) {
 			return NaN;
 		}
 
@@ -158,11 +167,19 @@ export const LIGA_SOURCE = 'Liga Pokémon';
 
 export const MANUAL_FIELDS = {avg: 'Average price', low_nm: 'Lowest NM price'};
 
+// No single card the family keeps is worth this much, so an amount at or
+// above it is a typing slip (an extra zero or two), not a price.
+export const MANUAL_MAX_BRL = 1000000;
+
+const fieldError = (field, message) => Object.assign(new Error(message), {field});
+
 // A clean price_manual from what the editor holds, or null when neither
 // amount is given. low_nm and avg are numbers in reais or null. Throws on an
-// amount that is not above zero or a date that is not YYYY-MM-DD.
+// amount that is not above zero or not under MANUAL_MAX_BRL, a lowest price
+// above the average, or a date that is not YYYY-MM-DD; an amount's error
+// names its field as err.field.
 export function cleanManualPrice({avg = null, date, low_nm: lowNm = null, source} = {}, now = new Date()) {
-	const amount = (value, label) => {
+	const amount = (value, label, field) => {
 		if (value === null || value === undefined || value === '') {
 			return null;
 		}
@@ -173,17 +190,29 @@ export function cleanManualPrice({avg = null, date, low_nm: lowNm = null, source
 			return null;
 		}
 
+		if (typeof value === 'string' && usStyleAmount(value)) {
+			throw fieldError(field, `${label}: use a comma for cents and dots for thousands, such as 1.234,56.`);
+		}
+
 		if (!(parsed > 0)) {
-			throw new Error(`${label} must be an amount in reais above zero, such as 45,90.`);
+			throw fieldError(field, `${label} must be an amount in reais above zero, such as 45,90.`);
+		}
+
+		if (parsed >= MANUAL_MAX_BRL) {
+			throw fieldError(field, `${label} must be under ${formatBrl(MANUAL_MAX_BRL)}. Check for an extra zero.`);
 		}
 
 		return parsed;
 	};
-	const low = amount(lowNm, MANUAL_FIELDS.low_nm);
-	const average = amount(avg, MANUAL_FIELDS.avg);
+	const low = amount(lowNm, MANUAL_FIELDS.low_nm, 'low_nm');
+	const average = amount(avg, MANUAL_FIELDS.avg, 'avg');
 
 	if (low === null && average === null) {
 		return null;
+	}
+
+	if (low !== null && average !== null && low > average) {
+		throw fieldError('low_nm', 'The lowest NM price cannot be above the average price.');
 	}
 
 	const day = date ? String(date) : today(now);

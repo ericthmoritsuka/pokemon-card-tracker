@@ -26,6 +26,7 @@ import {
 	formatBrlCompact,
 	listStats,
 	manualPrice,
+	MANUAL_MAX_BRL,
 	parseBrl,
 	parseEuroRates,
 	parseRates,
@@ -37,6 +38,7 @@ import {
 	tileValue,
 	TREND_MIN_BRL,
 	usdToBrl,
+	usStyleAmount,
 	valueOf,
 } from '../js/prices.js';
 
@@ -375,6 +377,18 @@ describe('numbers and money', () => {
 		assert.ok(Number.isNaN(parseBrl('-5')));
 	});
 
+	test('refuses a US-style amount instead of reading it a thousand times too small', () => {
+		assert.ok(Number.isNaN(parseBrl('1,234.56')), 'not 1.23');
+		assert.ok(Number.isNaN(parseBrl('R$ 12,345.00')));
+		assert.ok(Number.isNaN(parseBrl('1,234')), 'three digits after the comma are thousands, not cents');
+		assert.ok(usStyleAmount('1,234.56'));
+		assert.ok(usStyleAmount('1,234'));
+		assert.ok(!usStyleAmount('1.234,56'));
+		assert.ok(!usStyleAmount('45,90'));
+		assert.ok(!usStyleAmount('45.90'));
+		assert.equal(parseBrl('1.234,56'), 1234.56, 'the Brazilian way still reads');
+	});
+
 	test('says how old a date is', () => {
 		const now = new Date(2026, 9, 1, 15, 0);
 
@@ -409,6 +423,27 @@ describe('manual Liga prices', () => {
 		assert.equal(cleanManualPrice({avg: '', low_nm: ''}, now), null);
 		assert.throws(() => cleanManualPrice({low_nm: 'abc'}, now), /Lowest NM price/);
 		assert.throws(() => cleanManualPrice({avg: '5', date: '01/10/2026'}, now), /date/);
+	});
+
+	test('refuses an amount that is a typing slip, and a lowest above the average', () => {
+		const field = (fields) => {
+			try {
+				cleanManualPrice(fields, now);
+			}
+			catch (err) {
+				return [err.field, err.message];
+			}
+
+			return null;
+		};
+
+		assert.equal(MANUAL_MAX_BRL, 1000000);
+		assert.deepEqual(field({avg: '1', low_nm: '99999999999'}), ['low_nm', 'Lowest NM price must be under R$\u00a01.000.000,00. Check for an extra zero.']);
+		assert.equal(field({avg: '1.000.000,00'})[0], 'avg', 'the cap itself is refused');
+		assert.equal(cleanManualPrice({avg: '999.999,99'}, now).avg, 999999.99);
+		assert.deepEqual(field({avg: '40', low_nm: '45,90'}), ['low_nm', 'The lowest NM price cannot be above the average price.']);
+		assert.equal(cleanManualPrice({avg: '45,90', low_nm: '45,90'}, now).low_nm, 45.9, 'equal is fine');
+		assert.deepEqual(field({low_nm: '1,234.56'}), ['low_nm', 'Lowest NM price: use a comma for cents and dots for thousands, such as 1.234,56.']);
 	});
 
 	test('ignores a manual price that is not in reais or holds no amount', () => {

@@ -35,6 +35,7 @@ import {
 	savedRates,
 	tileValue,
 	today,
+	usStyleAmount,
 	usdToBrl,
 } from './prices.js';
 
@@ -147,7 +148,8 @@ function ligaEditor({current, group, id, onCancel, onSave}) {
 	form.addEventListener('submit', async (event) => {
 		event.preventDefault();
 
-		const bad = [[low, MANUAL_FIELDS.low_nm], [avg, MANUAL_FIELDS.avg]].find(([item]) => Number.isNaN(parseBrl(item.input.value)));
+		// A US-style amount gets its own words from cleanManualPrice below.
+		const bad = [[low, MANUAL_FIELDS.low_nm], [avg, MANUAL_FIELDS.avg]].find(([item]) => Number.isNaN(parseBrl(item.input.value)) && !usStyleAmount(item.input.value));
 
 		for (const item of [low, avg]) {
 			item.input.removeAttribute('aria-invalid');
@@ -167,6 +169,13 @@ function ligaEditor({current, group, id, onCancel, onSave}) {
 			manual = cleanManualPrice({avg: avg.input.value, date: date.value, low_nm: low.input.value, source: source.value});
 		}
 		catch (err) {
+			const wrong = {avg, low_nm: low}[err.field];
+
+			if (wrong) {
+				wrong.input.setAttribute('aria-invalid', 'true');
+				wrong.input.focus();
+			}
+
 			status.textContent = err.message;
 
 			return;
