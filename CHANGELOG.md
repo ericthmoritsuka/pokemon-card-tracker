@@ -7,7 +7,8 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-10-02)
 
-- Nothing is waiting to be wired in. Next: a whole-app audit. See `plans/roadmap.md`.
+- Whole-app audit done (report only): the prioritized list is `plans/audit.md`. Nothing is fixed
+  yet; Eric chooses which fix blocks come first.
 
 ## Live
 

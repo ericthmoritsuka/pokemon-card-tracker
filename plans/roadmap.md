@@ -1,20 +1,21 @@
 # Roadmap and Handoff
 
-Written 2026-10-01 at the end of a long build day and updated 2026-10-02 after versions 15 to 20,
+Written 2026-10-01 at the end of a long build day and updated 2026-10-02 after versions 15 to 21 and the whole-app audit,
 so the next session can continue without the old conversation. Read this first, then `CHANGELOG.md` (what is live and when) and `DESIGN.md`
 (requirements and decisions, with their reasons). `plans/design-review.md` is the approved UI
 spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v20** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
-  `9c642f9`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
+- **Live:** version **v21** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
+  `e611001`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
   scanner (v17), own photos with the carousel, the zoom and compare viewer, the twelve TCG energy
   themes, Brazil-first prices, (v16) name-and-password sign-in for a family member without an
   email (`@family.invalid` accounts Eric creates in the dashboard; `supabase/reset-password.sql`
   resets one), (v18) binder spreads, (v19) every card of a Pokémon from a checklist, and (v20)
-  international twins on card pages and My Cards. Every built module is now wired in.
+  international twins on card pages and My Cards, and (v21) binder pages that turn on the middle of
+  the spine. Every built module is now wired in.
 - **Eric's brother's account** (`tadeu.moritsuka@family.invalid`): Eric said on 2026-10-01 he
   thinks he created it and added it to the family. Not yet confirmed that the dashboard accepted
   the `.invalid` address or that a sign-in worked; if it refused, change `ACCOUNT_NAME_DOMAIN` in
@@ -29,7 +30,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
   a lead, with the search prefilled otherwise. Benchmark: 195 of 240 right card first (81%; v15
   measured the same way was 192, and its quoted 74% came from a run before it was finished). The
   benchmark scripts are not in the repo: they were in `/tmp/scan-bench` (`run.mjs`, `bench.js`,
-  `summarize.py`, run as `REPO=<tree> node run.mjs --noold`) and are lost if `/tmp` is cleared.
+  `summarize.py`, run as `REPO=<tree> node run.mjs --noold`) and are lost if `/tmp` is cleared (still there on 2026-10-02).
   The Weedle photo (`/home/me/Downloads/20261001_152008.jpg`, never copy it into the repo) is a
   sure `me04-001` at both framings; capture to result at 4x CPU throttling is 1.1 to 2.3 s warm
   and up to 2.6 s for the first auto capture, near the 2 s target, and throttling does not fully
@@ -72,7 +73,11 @@ the audit below to confirm or drop:
    `plans/audit-engineering.md`, and a senior QA tester who collects cards (every flow end to
    end at phone sizes, offline, family, prices, themes, scanner with the Weedle photo, attempts
    to break things, accessibility) writing `plans/audit-qa.md`. Merge into one prioritized list
-   for Eric, then fix in blocks.
+   for Eric, then fix in blocks. **Report delivered 2026-10-02; waiting for Eric to choose blocks.**
+   The prioritized list with severity, effort, and fix blocks A to J is `plans/audit.md`; the two
+   audits are `plans/audit-engineering.md` and `plans/audit-qa.md`, `plans/audit-verify.md`
+   re-checks the engineering findings, and `plans/sync-merge-plan.md` designs the sync block.
+   Screenshots stay outside the repo in `~/dev/projects/card-tracker-audit-2026-10-02/`.
 2. **Remaining pieces for a complete first version:** Add to wishlist on card detail (the export
    `addToWishlist` exists); a Trade view (spares per card and language; none exists yet, and the
    stats bar should go on it); removing or trading away a copy; CSV re-import (strip the `="..."`
