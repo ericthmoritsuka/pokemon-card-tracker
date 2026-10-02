@@ -680,3 +680,130 @@ describe('checklists', () => {
 		await ownerDevice.context.close();
 	});
 });
+
+describe('list screens keep up with changes', () => {
+	const KANTO = {created_at: AT, deleted_at: null, dex_list: null, hand_ticks: {}, id: 'list-kanto', kind: 'region', level: null, name: 'Kanto', target: 'kanto', updated_at: AT};
+	const JOHTO = {...KANTO, id: 'list-johto', name: 'Johto', target: 'johto'};
+	const merge = (page, other) => page.evaluate(async (doc) => (await import('/pokemon-card-tracker/js/collection.js')).mergeIntoLocal(doc), other);
+
+	test('a list or Pokémon screen opened before its list arrives shows it once it does', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS));
+
+		// A new phone opens a list link before its first sync brings the list.
+		await page.goto(url(`lists/${KANTO.id}`));
+		await page.waitForSelector('#checklist-notice .empty-state');
+		assert.match(await page.locator('#checklist-notice').textContent(), /This list is not here/);
+		assert.equal(await page.locator('#checklist-content').isHidden(), true);
+
+		await merge(page, {goals: [KANTO]});
+		await waitForSummary(page, '4 owned, 147 missing.');
+		assert.equal(await page.locator('#checklist-notice').textContent(), '');
+		assert.equal(await page.locator('#checklist-title').textContent(), 'Kanto');
+		assert.equal(await page.locator('.dex-row').count(), 151);
+
+		// The same for a Pokémon's screen inside a list.
+		await page.goto(url(`lists/${JOHTO.id}/pokemon/152`));
+		await page.waitForSelector('#pc-notice .empty-state');
+		assert.equal(await page.locator('#pc-content').isHidden(), true);
+		await merge(page, {goals: [JOHTO]});
+		await page.waitForFunction(() => document.getElementById('pc-content') && !document.getElementById('pc-content').hidden, null, {timeout: 15000});
+		assert.equal(await page.locator('#pc-notice').textContent(), '');
+		assert.equal(await page.locator('#pc-back').textContent(), '‹ Johto');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a hand tick redraws only the tapped row, once', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, [KANTO]));
+		await page.goto(url(`lists/${KANTO.id}`));
+		await waitForSummary(page, '4 owned, 147 missing.');
+		await page.waitForFunction(() => !document.getElementById('checklist-status').textContent.trim(), null, {timeout: 15000});
+		await page.evaluate(() => {
+			const list = document.getElementById('dex-list');
+
+			window.listChanges = {rowsAdded: 0, wholeList: 0};
+			new MutationObserver((changes) => {
+				for (const change of changes) {
+					if (change.target === list && change.addedNodes.length > 1) {
+						window.listChanges.wholeList++;
+					}
+
+					window.listChanges.rowsAdded += change.addedNodes.length;
+				}
+			}).observe(list, {childList: true});
+		});
+
+		await page.locator('.dex-row[data-dex="2"] button').click();
+		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
+		// The save lands, and the screen reads the stored list back.
+		await page.waitForFunction(async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return Boolean(doc.goals[0].hand_ticks['2']);
+		});
+		await page.waitForTimeout(1000);
+		assert.deepEqual(await page.evaluate(() => window.listChanges), {rowsAdded: 1, wholeList: 0});
+		assert.match(await page.locator('.dex-row[data-dex="2"]').getAttribute('class'), /\bhand\b/);
+		assert.equal(await page.locator('.dex-row').count(), 151);
+		// The focus stays on the tick, for a keyboard.
+		assert.equal(await page.evaluate(() => document.activeElement.closest('.dex-row').dataset.dex), '2');
+
+		// Under Missing, a ticked row leaves the list, still without a redraw.
+		await page.click('#checklist-filter label:has-text("Missing")');
+		await page.evaluate(() => {
+			window.listChanges = {rowsAdded: 0, wholeList: 0};
+		});
+		await page.locator('.dex-row[data-dex="3"] button').click();
+		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		await page.waitForTimeout(1000);
+		assert.equal(await page.locator('.dex-row').count(), 145);
+		assert.equal(await page.locator('.dex-row[data-dex="3"]').count(), 0);
+		assert.deepEqual(await page.evaluate(() => window.listChanges), {rowsAdded: 0, wholeList: 0});
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a list that arrives while the Lists screen is loading still shows', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, [KANTO]));
+
+		// The card list request waits, so the first load is still running
+		// when the second list arrives.
+		let release;
+		const held = new Promise((resolve) => {
+			release = resolve;
+		});
+		let reached;
+		const arrived = new Promise((resolve) => {
+			reached = resolve;
+		});
+
+		await context.route('https://api.tcgdex.net/v2/graphql', async (route) => {
+			const {query} = JSON.parse(route.request().postData() || '{}');
+
+			if (!/^\{ sets /.test(query || '') && !/dexId types category rarity/.test(query || '')) {
+				reached();
+				await held;
+			}
+
+			return route.fallback();
+		});
+		await page.goto(url('lists'));
+		await page.waitForSelector('.list-tile');
+		await arrived;
+		await merge(page, {goals: [JOHTO]});
+		await page.waitForTimeout(300);
+		release();
+		await page.waitForFunction(() => document.querySelectorAll('.list-tile .owned-count').length === 2, null, {timeout: 15000});
+		assert.deepEqual(await page.locator('.list-tile .list-name').allTextContents(), ['Kanto', 'Johto']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

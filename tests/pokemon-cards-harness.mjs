@@ -64,8 +64,8 @@ export const INTEGRATION = {
 		},
 		{
 			// After the meta line, with the v14 price stats bar kept.
-			name: 'checklistScreen root.append shows the languages control after meta, and the stats bar',
-			pattern: /\troot\.append\(\.\.\.\[back, title, meta, languages\.element, [^\]]*\bstatsSlot\b[^\]]*\]/,
+			name: 'checklistScreen content.append shows the languages control after meta, and the stats bar',
+			pattern: /\tcontent\.append\(\.\.\.\[title, meta, languages\.element, [^\]]*\bstatsSlot\b[^\]]*\]/,
 		},
 		{
 			line: '\t\tconst entry = link(pokemonRoute(source.base, id, n), {class: \'dex-entry dex-link\'},',
