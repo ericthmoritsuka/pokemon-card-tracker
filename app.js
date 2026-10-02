@@ -67,7 +67,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 
@@ -245,9 +245,19 @@ async function registerServiceWorker() {
 	}
 
 	const hadController = Boolean(navigator.serviceWorker.controller);
+	let reloading = false;
+	let offered = false;
 
 	navigator.serviceWorker.addEventListener('controllerchange', () => {
+		// After Reload, the waiting version took over: load its files.
+		if (reloading) {
+			window.location.reload();
+
+			return;
+		}
+
 		// A toast floats over the page, so nothing shifts when it shows.
+		// Reload in another tab moved this one to the new version too.
 		if (hadController) {
 			toast('A new version is installed.', {action: () => window.location.reload(), actionLabel: 'Reload', timeout: 0});
 		}
@@ -256,8 +266,37 @@ async function registerServiceWorker() {
 		}
 	});
 
+	// A new version installs in the background and waits, so this page keeps
+	// running on one version's files until the person taps Reload.
+	function offer(worker) {
+		if (offered || !worker || !navigator.serviceWorker.controller) {
+			return;
+		}
+
+		offered = true;
+		toast('A new version is installed.', {
+			action: () => {
+				reloading = true;
+				worker.postMessage('skip-waiting');
+			},
+			actionLabel: 'Reload',
+			timeout: 0,
+		});
+	}
+
 	try {
-		await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), {scope: BASE});
+		const registration = await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), {scope: BASE});
+
+		offer(registration.waiting);
+		registration.addEventListener('updatefound', () => {
+			const worker = registration.installing;
+
+			worker?.addEventListener('statechange', () => {
+				if (worker.state === 'installed') {
+					offer(worker);
+				}
+			});
+		});
 	}
 	catch (err) {
 		showError('Offline support could not be set up.', err);

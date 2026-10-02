@@ -717,6 +717,48 @@ describe('the import report', () => {
 	});
 });
 
+describe('a new version', () => {
+	test('waits for Reload, keeps the old files until then, and takes over after it', async () => {
+		const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
+		const version = sw.match(/const VERSION = '([^']+)'/)[1];
+		const {context, errors, page} = await device(null, 'phone', {serviceWorkers: 'allow'});
+
+		try {
+			await page.goto(url('cards'));
+			await page.evaluate(() => navigator.serviceWorker.ready);
+			await page.reload();
+			await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+
+			const before = await page.evaluate(() => caches.keys());
+
+			// Release a new version: the same files with another VERSION.
+			server.setOverride((pathname) => (pathname === `${BASE}sw.js` ? sw.replace(`const VERSION = '${version}'`, 'const VERSION = \'vnext\'') : null));
+			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
+			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+
+			// Waiting: the page and its cache stay on the old version.
+			await page.getByText('A new version is installed.').waitFor();
+			const waiting = await page.evaluate(() => caches.keys());
+
+			assert.ok(before.every((key) => waiting.includes(key)), 'the old version\'s cache is kept');
+
+			// Reload hands over to the new version and loads its files.
+			await page.getByRole('button', {name: 'Reload'}).click();
+			await page.waitForFunction(async () => {
+				const keys = await caches.keys();
+
+				return keys.some((key) => key.endsWith('vnext')) && Boolean(navigator.serviceWorker.controller);
+			}, null, {timeout: 30000});
+			await page.waitForSelector('main h2');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+});
+
 describe('the self-hosted font', () => {
 	test('Poppins comes from the app, is precached, and still draws offline', async () => {
 		const index = await readFile(new URL('../index.html', import.meta.url), 'utf8');

@@ -52,9 +52,21 @@ async function fileFor(pathname) {
 	}
 }
 
+// A test can serve other content for a path with setOverride(fn): fn gets
+// the pathname and returns a body string, or null to serve the file.
 export function startPagesServer(port = 0) {
+	let override = () => null;
 	const server = createServer(async (request, response) => {
 		const {pathname} = new URL(request.url, 'http://localhost');
+		const body = await override(pathname);
+
+		if (body !== null && body !== undefined) {
+			response.writeHead(200, {'Cache-Control': 'no-cache', 'Content-Type': TYPES[extname(pathname)] || 'application/octet-stream'});
+			response.end(body);
+
+			return;
+		}
+
 		const file = await fileFor(pathname);
 		const target = file || join(ROOT, '404.html');
 
@@ -67,7 +79,14 @@ export function startPagesServer(port = 0) {
 
 	return new Promise((done) => {
 		server.listen(port, '127.0.0.1', () => {
-			done({close: () => new Promise((closed) => server.close(closed)), origin: `http://localhost:${server.address().port}`, server});
+			done({
+				close: () => new Promise((closed) => server.close(closed)),
+				origin: `http://localhost:${server.address().port}`,
+				server,
+				setOverride: (fn) => {
+					override = fn || (() => null);
+				},
+			});
 		});
 	});
 }

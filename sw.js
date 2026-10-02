@@ -181,10 +181,18 @@ self.addEventListener('install', (event) => {
 			await cache.addAll(
 				SHELL.map((path) => new Request(scopeUrl(path), {cache: 'reload'}))
 			);
-
-			await self.skipWaiting();
 		})()
 	);
+});
+
+// A new version waits until the person taps Reload, so an open page never
+// mixes its old modules with new ones (a tab that loads on first open, such
+// as Scan, would otherwise import files from the new version). The first
+// install has nothing to wait for and takes over at once.
+self.addEventListener('message', (event) => {
+	if (event.data === 'skip-waiting') {
+		self.skipWaiting();
+	}
 });
 
 self.addEventListener('activate', (event) => {
