@@ -20,6 +20,7 @@
 
 import {LANGUAGES, catalogFor, catalogLanguage, compareNumbers, importApi, isLanguage, setList} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
+import {nextStamp} from './merge.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
 
@@ -151,13 +152,8 @@ export function newWish(cardId, options = {}, at = nowIso(), id = newId()) {
 	};
 }
 
-// A stamp strictly newer than the entry's last one, so the merge always
-// takes the new version even when two edits land in one millisecond.
-export function nextStamp(previous, now = Date.now()) {
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
-}
+// The stamp every write uses (js/merge.js), kept as an export here too.
+export {nextStamp};
 
 // A changed copy of an entry; the entry passed in is left alone, because the
 // merge compares versions. patch: {language, variantId, priority, note}.

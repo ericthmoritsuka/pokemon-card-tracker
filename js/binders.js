@@ -33,6 +33,7 @@
 // (tests/binders.test.mjs). The rest read and save the document on the phone.
 
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
+import {nextStamp} from './merge.js';
 
 export const MAX_PAGES = 200;
 
@@ -178,13 +179,8 @@ export function cleanCoverImage(value) {
 
 export const coverImageOf = (binder) => cleanCoverImage(binder && binder.cover_image);
 
-// A stamp strictly newer than the entry's last one, so the merge always
-// takes the new version even when two edits land in one millisecond.
-export function nextStamp(previous, now = Date.now()) {
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
-}
+// The stamp every write uses (js/merge.js), kept as an export here too.
+export {nextStamp};
 
 export const liveBinders = (binders) => (binders || []).filter((binder) => binder && isLive(binder));
 

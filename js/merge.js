@@ -75,6 +75,16 @@ export function mergeEntries(local, remote) {
 
 const later = (a, b) => (time(a) >= time(b) ? a : b);
 
+// A stamp strictly newer than the entry's last one, so the merge always
+// takes the new version: even when two edits land in one millisecond, and
+// even on a phone whose clock is behind the phone that wrote `previous`.
+// Every write in the app takes its updated_at from here.
+export function nextStamp(previous, now = Date.now()) {
+	const before = Date.parse(previous);
+
+	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
+}
+
 // Merges two whole documents. Every list is merged entry by entry; settings
 // go to whichever side changed them last; other fields keep the local value
 // and gain any the remote side has that the local one lacks.

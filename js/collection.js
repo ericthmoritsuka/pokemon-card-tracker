@@ -9,7 +9,7 @@
 // stays as a tombstone so an offline phone cannot bring a deleted card back.
 
 import {cardIndex} from './catalog.js';
-import {LISTS, mergeDocuments, sameContent} from './merge.js';
+import {LISTS, mergeDocuments, nextStamp, sameContent} from './merge.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -268,7 +268,7 @@ export async function updateCard(id, patch) {
 		throw new Error(`No card entry ${id}.`);
 	}
 
-	Object.assign(entry, pick(patch), {updated_at: nowIso()});
+	Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at)});
 	await saveDocument(doc);
 
 	return entry;
@@ -280,14 +280,14 @@ export async function updateCard(id, patch) {
 // changed.
 export async function updateCards(patches) {
 	const doc = await loadDocument();
-	const at = nowIso();
+	const now = Date.now();
 	const changed = [];
 
 	for (const {id, patch} of patches) {
 		const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 		if (entry) {
-			Object.assign(entry, pick(patch), {updated_at: at});
+			Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at, now)});
 			changed.push(entry);
 		}
 	}
@@ -305,7 +305,7 @@ export async function deleteCard(id) {
 	const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 	if (entry) {
-		const at = nowIso();
+		const at = nextStamp(entry.updated_at);
 
 		entry.deleted_at = at;
 		entry.updated_at = at;
@@ -367,7 +367,7 @@ export async function applyImport(entries) {
 			}
 		}
 
-		Object.assign(existing, next, {updated_at: nowIso()});
+		Object.assign(existing, next, {updated_at: nextStamp(existing.updated_at)});
 		counts.updated++;
 	});
 

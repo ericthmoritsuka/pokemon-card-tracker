@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {countChanged, mergeDocuments, mergeEntries, sameContent, stableJson, stamps} from '../js/merge.js';
+import {countChanged, mergeDocuments, mergeEntries, nextStamp, sameContent, stableJson, stamps} from '../js/merge.js';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -110,4 +110,19 @@ test('countChanged counts entries that differ from what the server holds', () =>
 	assert.equal(countChanged(local, stamps(server)), 2);
 	assert.equal(countChanged(server, stamps(server)), 0);
 	assert.equal(countChanged(local, null), 3);
+});
+
+test('nextStamp is later than the previous stamp even with a slow clock', () => {
+	// The phone's clock says 09:58, but the version it edits says 10:05: the
+	// edit is stamped just after 10:05, so it beats the version it replaced.
+	const slow = Date.parse('2026-10-01T09:58:00.000Z');
+
+	assert.equal(nextStamp(at(5), slow), '2026-10-01T10:05:00.001Z');
+	assert.equal(nextStamp(at(5), Date.parse(at(9))), at(9), 'a clock that is ahead is used as it is');
+	assert.equal(nextStamp(null, Date.parse(at(1))), at(1));
+	assert.equal(nextStamp('not a date', Date.parse(at(1))), at(1));
+
+	const edited = card('a', 0, {notes: 'from the slow phone', updated_at: nextStamp(at(5), slow)});
+
+	assert.equal(mergeEntries([card('a', 5)], [edited])[0].notes, 'from the slow phone');
 });
