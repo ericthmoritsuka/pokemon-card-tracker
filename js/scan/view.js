@@ -14,6 +14,7 @@ import {addCard, deleteCard, listCards, onChange} from '../collection.js';
 import {saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
+import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail} from './camera.js';
 import * as draft from './draft.js';
@@ -41,8 +42,14 @@ export function scanView(root) {
 	let owned = new Map();
 	let family = [];
 	let camera = null;
+	// The camera start in progress (an AbortController), so there is never
+	// a second one, and leaving or hiding the page can cancel it.
+	let cameraStart = null;
 	let sheet = null;
-	let sheetOpener = null;
+	// The sheet layer's js/sheet.js handle while a sheet shows: Escape, the
+	// system Back, and Tab staying inside. Swapping one sheet for another
+	// keeps it.
+	let sheetHandle = null;
 	let loop = null;
 	let discarded = null;
 	let alive = true;
@@ -307,46 +314,22 @@ export function scanView(root) {
 
 	// ------------------------------------------------------------ sheets
 
-	function trapFocus(event) {
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			closeSheet();
-
-			return;
-		}
-
-		if (event.key !== 'Tab' || !sheet) {
-			return;
-		}
-
-		const focusable = [...sheet.el.querySelectorAll('button:not([disabled]), select, input, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.closest('[hidden]'));
-
-		if (!focusable.length) {
-			return;
-		}
-
-		const first = focusable[0];
-		const last = focusable[focusable.length - 1];
-
-		if (event.shiftKey && document.activeElement === first) {
-			event.preventDefault();
-			last.focus();
-		}
-		else if (!event.shiftKey && document.activeElement === last) {
-			event.preventDefault();
-			first.focus();
-		}
-	}
-
 	function showSheet(next) {
-		const opener = sheet ? sheetOpener : document.activeElement;
-
 		sheet = next;
-		sheetOpener = opener;
 		sheetLayer.replaceChildren(next.el);
 		sheetLayer.hidden = false;
 		screen.classList.add('has-sheet');
 		detector.pause();
+
+		if (!sheetHandle) {
+			sheetHandle = openSheet(sheetLayer, {
+				focusables: () => (sheet ? [...sheet.el.querySelectorAll('button:not([disabled]), select, input, [tabindex]:not([tabindex="-1"])')] : []),
+				lockScroll: false,
+				mount: null,
+				onClose: sheetClosed,
+				remove: false,
+			});
+		}
 
 		const focus = next.el.querySelector('.scan-sheet-title');
 
@@ -357,21 +340,20 @@ export function scanView(root) {
 	}
 
 	function closeSheet() {
-		if (!sheet) {
-			return;
+		if (sheetHandle) {
+			sheetHandle.close();
 		}
+	}
 
+	// After the sheet layer closes, however it closed (focus goes back to
+	// what opened it).
+	function sheetClosed() {
+		sheetHandle = null;
 		sheet = null;
 		sheetLayer.replaceChildren();
 		sheetLayer.hidden = true;
 		screen.classList.remove('has-sheet');
 		detector.resume();
-
-		if (sheetOpener && sheetOpener.isConnected) {
-			sheetOpener.focus({preventScroll: true});
-		}
-
-		sheetOpener = null;
 	}
 
 	function openItem(id) {
@@ -961,10 +943,29 @@ export function scanView(root) {
 	}
 
 	async function openCamera() {
+		// Already on, or starting: hiding and showing the page during a
+		// start must not open the camera twice.
+		if (camera || cameraStart || !alive) {
+			return;
+		}
+
+		const run = new AbortController();
+		let started;
+
+		cameraStart = run;
+
 		try {
-			camera = await startCamera(video);
+			started = await startCamera(video, {signal: run.signal});
 		}
 		catch (err) {
+			if (run.signal.aborted) {
+				// Left or hidden while starting: startCamera has stopped the
+				// stream it opened.
+				return;
+			}
+
+			cameraStart = null;
+
 			if (alive) {
 				showCameraOff(err instanceof CameraUnavailable ? err : new CameraUnavailable('The camera could not start.', err));
 			}
@@ -972,12 +973,15 @@ export function scanView(root) {
 			return;
 		}
 
-		if (!alive) {
-			camera.stop();
-			camera = null;
+		cameraStart = null;
+
+		if (!alive || document.hidden) {
+			started.stop();
 
 			return;
 		}
+
+		camera = started;
 
 		cameraOff.hidden = true;
 		shutter.disabled = false;
@@ -1051,6 +1055,11 @@ export function scanView(root) {
 	function stopCamera() {
 		clearInterval(loop);
 		loop = null;
+
+		if (cameraStart) {
+			cameraStart.abort();
+			cameraStart = null;
+		}
 
 		if (camera) {
 			camera.stop();
@@ -1135,7 +1144,6 @@ export function scanView(root) {
 		}
 	});
 
-	document.addEventListener('keydown', trapFocus);
 	document.addEventListener('visibilitychange', onVisibility);
 	window.addEventListener('online', onOnline);
 	window.addEventListener('offline', onOffline);
@@ -1183,7 +1191,6 @@ export function scanView(root) {
 		closeSheet();
 		persist();
 		stopOwned();
-		document.removeEventListener('keydown', trapFocus);
 		document.removeEventListener('visibilitychange', onVisibility);
 		window.removeEventListener('online', onOnline);
 		window.removeEventListener('offline', onOffline);

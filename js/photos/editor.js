@@ -13,6 +13,7 @@
 
 import {captureRect, grab, startCamera} from '../../lab/js/camera.js';
 import {h} from '../dom.js';
+import {openSheet} from '../sheet.js';
 
 import {detectCorners} from './detect.js';
 import {
@@ -70,12 +71,17 @@ function contain(element) {
 // (the photo goes on one of them). save({entry, blob, type, side, detail})
 // stores it and resolves with the new photo; detail is {blob, type, width,
 // height} or null. keepDetail: make a detail copy too. Returns {close}.
+//
+// The sheet is a js/sheet.js sheet: Escape, the system Back, and a route
+// change close it too, and closing it always stops the camera, even one
+// still starting.
 export function openAddPhoto({describe = describeCopy, entries, keepDetail = false, save}) {
 	let camera = null;
+	// The camera start in progress, so a newer start, a step back, or
+	// closing the sheet can cancel it (startCamera stops its stream).
+	let cameraStart = null;
 	let closed = false;
 
-	const overflow = document.body.style.overflow;
-	const opener = document.activeElement;
 	const title = h('h2', {class: 'ph-sheet-title', id: 'ph-sheet-title'}, 'Add photo');
 	const dismiss = h('button', {'aria-label': 'Close', class: 'ph-sheet-close', type: 'button'}, '×');
 	const body = h('div', {class: 'ph-sheet-body'});
@@ -92,29 +98,26 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 
 	const choice = {entry: entries[0], side: 'front'};
 
+	let handle = null;
+
 	function close() {
-		if (closed) {
-			return;
-		}
-
-		closed = true;
-		stopCamera();
-		document.removeEventListener('keydown', onKey, true);
-		document.body.style.overflow = overflow;
-		sheet.remove();
-
-		if (opener && opener.focus) {
-			opener.focus({preventScroll: true});
+		if (handle) {
+			handle.close();
 		}
 	}
 
-	function onKey(event) {
-		if (event.key === 'Escape') {
-			close();
-		}
+	// After the sheet closes, however it closed.
+	function onClosed() {
+		closed = true;
+		stopCamera();
 	}
 
 	function stopCamera() {
+		if (cameraStart) {
+			cameraStart.abort();
+			cameraStart = null;
+		}
+
 		if (camera) {
 			camera.stop();
 			camera = null;
@@ -123,6 +126,20 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 
 	function message(text, kind = 'muted') {
 		return h('p', {class: `ph-message ${kind}`, role: kind === 'error' ? 'alert' : null}, text);
+	}
+
+	// Rewrites a message in place, so a second error shows as the first did.
+	function setMessage(element, text, kind = 'muted') {
+		element.className = `ph-message ${kind}`;
+
+		if (kind === 'error') {
+			element.setAttribute('role', 'alert');
+		}
+		else {
+			element.removeAttribute('role');
+		}
+
+		element.textContent = text;
 	}
 
 	// ----------------------------------------------------------- step 1
@@ -175,21 +192,24 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			});
 		}
 
-		body.replaceChildren(
+		// replaceChildren prints a null argument as the text "null", so the
+		// note and the copy picker are left out when there is none.
+		body.replaceChildren(...[
 			note,
 			copy,
 			sides,
 			h('p', {class: 'muted ph-tip'}, 'Lay the card on a plain, dark surface and fill most of the picture with it.'),
 			h('div', {class: 'ph-actions'}, take, pick, cancel),
 			gallery,
-			system
-		);
+			system,
+		].filter(Boolean));
 		take.focus({preventScroll: true});
 	}
 
 	// ----------------------------------------------------------- camera
 
 	async function openCamera() {
+		stopCamera();
 		title.textContent = 'Take photo';
 
 		const video = h('video', {autoplay: true, class: 'ph-video', muted: true, playsinline: true});
@@ -202,15 +222,28 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		body.replaceChildren(h('div', {class: 'ph-camera'}, video, guide), status, h('div', {class: 'ph-actions'}, shutter, torch, back));
 		back.addEventListener('click', () => start());
 
+		const run = new AbortController();
+
+		cameraStart = run;
+
 		try {
-			camera = await startCamera(video);
+			camera = await startCamera(video, {signal: run.signal});
 		}
 		catch (err) {
+			if (run.signal.aborted) {
+				// Back, a newer start, or the sheet closed: startCamera has
+				// stopped the stream it opened.
+				return;
+			}
+
+			cameraStart = null;
 			// No permission or no camera: the system camera app still works.
 			start(message(`The camera did not start (${(err && err.message) || err}). Choose a photo from the gallery, or use "Take photo" again to try once more.`, 'error'));
 
 			return;
 		}
+
+		cameraStart = null;
 
 		if (closed) {
 			stopCamera();
@@ -239,6 +272,10 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		torch.hidden = !camera.torchSupported;
 		torch.addEventListener('click', () => camera && camera.setTorch(!camera.torch).catch(() => {}));
 		shutter.addEventListener('click', () => {
+			if (closed || !camera) {
+				return;
+			}
+
 			const {height, width} = camera.frame;
 			const {image} = grab(video, width, height);
 			const canvas = canvasOf(image.width, image.height);
@@ -255,10 +292,16 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		body.replaceChildren(message('Opening the photo…'));
 
 		try {
-			edit(await decodeImageFile(file, keepDetail ? DETAIL_SOURCE_SIDE : SOURCE_SIDE));
+			const source = await decodeImageFile(file, keepDetail ? DETAIL_SOURCE_SIDE : SOURCE_SIDE);
+
+			if (!closed) {
+				edit(source);
+			}
 		}
 		catch (err) {
-			start(message((err && err.message) || String(err), 'error'));
+			if (!closed) {
+				start(message((err && err.message) || String(err), 'error'));
+			}
 		}
 	}
 
@@ -455,6 +498,10 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		});
 		retake.addEventListener('click', () => start());
 		saveButton.addEventListener('click', async () => {
+			if (closed) {
+				return;
+			}
+
 			saveButton.disabled = true;
 			saveButton.textContent = 'Saving…';
 
@@ -470,6 +517,12 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 					detail = {blob: encoded.blob, height: encoded.height, type: encoded.type, width: encoded.width};
 				}
 
+				// Closed while encoding (Back to another screen): nothing is
+				// saved on a copy no longer shown.
+				if (closed) {
+					return;
+				}
+
 				const saved = await save({blob, detail, entry: choice.entry, side: choice.side, type});
 
 				sheet.dataset.saved = saved ? saved.id : '';
@@ -478,7 +531,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			catch (err) {
 				saveButton.disabled = false;
 				saveButton.textContent = 'Save';
-				status.replaceWith(message(`Could not save the photo: ${(err && err.message) || err}`, 'error'));
+				setMessage(status, `Could not save the photo: ${(err && err.message) || err}`, 'error');
 			}
 		});
 
@@ -488,9 +541,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		stage.dataset.previewSize = `${previewSize.width}x${previewSize.height}`;
 	}
 
-	document.addEventListener('keydown', onKey, true);
-	document.body.style.overflow = 'hidden';
-	document.body.append(sheet);
+	handle = openSheet(sheet, {onClose: onClosed});
 	start();
 
 	return {close, element: sheet};

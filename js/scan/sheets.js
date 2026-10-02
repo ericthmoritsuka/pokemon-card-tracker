@@ -426,14 +426,17 @@ export function confirmSheet(ctx, itemId) {
 		}
 
 		seedSearch(item);
-		body.replaceChildren(
+		// replaceChildren prints a null argument as the text "null", so the
+		// Finish field and the owned lines are left out when there is none
+		// (a card not found yet has neither).
+		body.replaceChildren(...[
 			...cardBlock(item),
 			languageBlock(item),
 			finishBlock(item),
 			conditionBlock(item),
 			ownedLines(item),
-			actions(item)
-		);
+			actions(item),
+		].filter(Boolean));
 	}
 
 	refresh();
