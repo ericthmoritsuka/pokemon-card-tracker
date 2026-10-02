@@ -17,9 +17,10 @@
 //     Escape, Save) takes the entry away too, so the next Back leaves the
 //     screen as it should, rather than doing nothing;
 //   - closes when the screen under it goes: a route change by code (go() in
-//     js/dom.js), or closeSheets() from the router, or its owner's cleanup
-//     calling close(). Those leave the history alone, since the address has
-//     already moved on.
+//     js/dom.js), closeSheets() from the router, or its owner's cleanup
+//     calling close(). When the address has already moved on, its entry
+//     stays behind the new screen; when the screen is only drawn again at
+//     the same address, the entry is taken away as for any other close.
 //
 // The Back handling is a popstate listener on window in the capture phase,
 // which runs before the router's own popstate listener (app.js) and the
@@ -363,11 +364,12 @@ export function openDialogSheet(dialog, {onClose = null} = {}) {
 	return handle;
 }
 
-// Closes every open sheet without touching the history: the screen under
-// them is going (app.js calls this as it draws a new route).
+// Closes every open sheet: the screen under them is going (app.js calls
+// this as it draws a route). Their history entries go too, unless the
+// address has already moved on.
 export function closeSheets(reason = 'route') {
-	for (const entry of [...stack].reverse()) {
-		finish(entry, reason);
+	if (stack.length) {
+		stack[0].close(reason);
 	}
 }
 
