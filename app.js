@@ -292,6 +292,11 @@ async function registerServiceWorker() {
 	try {
 		const registration = await navigator.serviceWorker.register(new URL('sw.js', import.meta.url), {scope: BASE});
 
+		// Some browsers, and tests that block workers, give no registration.
+		if (!registration) {
+			return;
+		}
+
 		offer(registration.waiting);
 		registration.addEventListener('updatefound', () => {
 			const worker = registration.installing;
