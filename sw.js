@@ -125,6 +125,7 @@ const SHELL = [
 	'js/scan/tile.js',
 	'js/scan/view.js',
 	'js/settings.js',
+	'js/sheet.js',
 	'js/shell.js',
 	'js/sync.js',
 	'js/themes.js',

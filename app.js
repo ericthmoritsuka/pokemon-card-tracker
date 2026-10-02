@@ -38,6 +38,7 @@ import {pokemonCardsAccountViews, pokemonCardsRoutes} from './js/pokemon-cards-v
 import {euroRates, exchangeRates} from './js/prices.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
+import {closeSheets} from './js/sheet.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
@@ -148,6 +149,10 @@ function restoreScroll(y) {
 }
 
 function render() {
+	// A sheet still open (a route change from code, a redraw) closes with
+	// the screen it was opened over.
+	closeSheets();
+
 	if (cleanup) {
 		try {
 			cleanup();

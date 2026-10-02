@@ -175,7 +175,8 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 				? h('span', {class: 'pc-languages-all', id: 'list-languages-all'}, 'All')
 				: flagBadge(languages, {className: 'flags-inline', prefix: 'Counts copies in'}),
 			h('span', {class: 'pc-languages-names muted'}, names),
-			edit
+			// replaceChildren prints a null argument as "null".
+			...(edit ? [edit] : [])
 		);
 	}
 
