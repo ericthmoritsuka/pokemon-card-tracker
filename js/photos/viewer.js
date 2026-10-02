@@ -26,6 +26,7 @@
 // reads the other's exports until a function runs, so the cycle is safe.
 
 import {h} from '../dom.js';
+import {openSheet} from '../sheet.js';
 
 import {OWNER, contain, plainArt, settleIndex} from './carousel.js';
 import {comparePair} from './model.js';
@@ -650,6 +651,9 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 // onClose(index) runs after it closes, with the image it ended on;
 // onRemove(slide), when given, offers Remove photo. compare: open in
 // Compare. Returns {close, compare, element}.
+//
+// It opens as a js/sheet.js sheet: the system Back closes it (Compare too,
+// in one step) instead of leaving the card, and so does a route change.
 export function openViewer({
 	art = plainArt,
 	compare: startInCompare = false,
@@ -665,8 +669,6 @@ export function openViewer({
 	let linked = true;
 	let leader = null;
 	let hintTimer = 0;
-	let closed = false;
-	const opener = document.activeElement;
 
 	const close = h('button', {'aria-label': 'Close', class: 'ph-full-close', type: 'button'}, '×');
 	const compareButton = h('button', {'aria-pressed': 'false', class: 'ph-full-compare', type: 'button'}, 'Compare');
@@ -896,17 +898,8 @@ export function openViewer({
 		const inPicker = event.target && event.target.tagName === 'SELECT';
 		const pane = comparing ? leader || panes[0] : panes[0];
 
-		if (event.key === 'Escape') {
-			event.preventDefault();
-
-			if (comparing) {
-				leaveCompare();
-			}
-			else {
-				done();
-			}
-		}
-		else if ((event.key === 'ArrowRight' || event.key === 'ArrowLeft') && !inPicker) {
+		// Escape (leaving Compare first) and Tab are js/sheet.js's.
+		if ((event.key === 'ArrowRight' || event.key === 'ArrowLeft') && !inPicker) {
 			event.preventDefault();
 
 			if (!comparing) {
@@ -929,24 +922,19 @@ export function openViewer({
 			event.preventDefault();
 			pane.reset();
 		}
-		else if (event.key === 'Tab') {
-			// Focus stays inside the dialog.
-			const stops = focusables();
-			const i = stops.indexOf(document.activeElement);
+	}
 
-			event.preventDefault();
-			stops[(i + (event.shiftKey ? stops.length - 1 : 1) + stops.length) % stops.length].focus();
+	let sheet = null;
+
+	function done() {
+		if (sheet) {
+			sheet.close();
 		}
 	}
 
-	const overflow = document.body.style.overflow;
-
-	function done() {
-		if (closed) {
-			return;
-		}
-
-		closed = true;
+	// After it closes, however it closed (focus goes back to the opener,
+	// unless onClose places it).
+	function onClosed() {
 		clearTimeout(hintTimer);
 		document.removeEventListener('keydown', onKey, true);
 
@@ -955,13 +943,6 @@ export function openViewer({
 		}
 		else {
 			window.removeEventListener('resize', onResize);
-		}
-
-		document.body.style.overflow = overflow;
-		dialog.remove();
-
-		if (opener && opener.focus && !onClose) {
-			opener.focus({preventScroll: true});
 		}
 
 		if (onClose) {
@@ -981,8 +962,20 @@ export function openViewer({
 	});
 
 	document.addEventListener('keydown', onKey, true);
-	document.body.style.overflow = 'hidden';
-	document.body.append(dialog);
+	sheet = openSheet(dialog, {
+		focusables,
+		onClose: onClosed,
+		onEscape() {
+			if (comparing) {
+				leaveCompare();
+
+				return true;
+			}
+
+			return false;
+		},
+		returnFocus: !onClose,
+	});
 	drawBar();
 	panes[0].show(slides[at]);
 	close.focus({preventScroll: true});
