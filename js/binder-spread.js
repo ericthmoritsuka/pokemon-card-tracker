@@ -37,6 +37,15 @@ export const HINT_TIMES = 3;
 // opens at full size for placing cards.
 export const OVERVIEW_QUERY = '(orientation: portrait) and (max-width: 599px)';
 
+// Back from a zoomed page lands on the spread's own history entry, whose URL
+// still names the spread the zoom started from; after stepping through the
+// pages that is the wrong one. Zooming marks that entry (history.state
+// bsReturn) and the zoomed entry with one key, stepping records here the
+// spread holding the page shown, and the spread drawn on Back (by the app's
+// router, or by onPop) opens there. Kept for the page load only.
+const returns = new Map();
+let returnKeys = 0;
+
 // ---------------------------------------------------------- spread math
 
 const whole = (value, fallback) => {
@@ -139,6 +148,22 @@ const pageH = (rows) => (rows * POCKET_H) + ((rows + 1) * GAP) + FOLIO;
 export const pageAspect = (rows, cols) => pageW(cols) / pageH(rows);
 
 export const coverAspect = (rows, cols) => (pageW(cols) + (2 * MARGIN)) / (pageH(rows) + (2 * MARGIN));
+
+// Where Back from a zoomed page lands: the URL's place, unless this is the
+// spread entry a zoom left from and the zoomed page moved on. Used once.
+function landing(place, pageCount) {
+	const key = history.state && !history.state.bsZoom ? history.state.bsReturn : null;
+
+	if (place.zoom || !key || !returns.has(key)) {
+		return place;
+	}
+
+	const spread = returns.get(key);
+
+	returns.delete(key);
+
+	return {spread: clampSpread(pageCount, spread), zoom: null};
+}
 
 // ---------------------------------------------------------- the hint
 
@@ -278,7 +303,7 @@ export function binderSpread({
 	renderPocket,
 }) {
 	let binder = start;
-	let state = readSpreadState(window.location.search, binder.page_count, routePage);
+	let state = landing(readSpreadState(window.location.search, binder.page_count, routePage), binder.page_count);
 	let busy = false;
 	let pending = 0;
 	let alive = true;
@@ -515,13 +540,23 @@ export function binderSpread({
 		return `${pathname}${writeSpreadState(window.location.search, next)}${window.location.hash}`;
 	}
 
-	const replaceUrl = () => history.replaceState(history.state, '', urlFor(state));
+	const replaceUrl = (at = state) => history.replaceState(history.state, '', urlFor(at));
 
 	// Zooming adds a history entry, like opening a screen: the spread's entry
-	// keeps its scroll position for Back.
+	// keeps its scroll position and the return key for Back.
 	function pushZoomUrl() {
-		history.replaceState({...(history.state || {}), scrollY: window.scrollY}, '');
-		history.pushState({bsZoom: true, inApp: true}, '', urlFor(state));
+		const key = `bs-${++returnKeys}`;
+
+		returns.set(key, state.spread);
+		history.replaceState({...(history.state || {}), bsReturn: key, scrollY: window.scrollY}, '');
+		history.pushState({bsReturn: key, bsZoom: true, inApp: true}, '', urlFor(state));
+	}
+
+	// The zoomed page moved: Back should land on the spread holding it.
+	function noteReturn() {
+		if (history.state && history.state.bsZoom && history.state.bsReturn) {
+			returns.set(history.state.bsReturn, state.spread);
+		}
 	}
 
 	// ------------------------------------------------------- the hint
@@ -764,6 +799,7 @@ export function binderSpread({
 
 		state = {spread: spreadOfPage(to), zoom: to};
 		replaceUrl();
+		noteReturn();
 
 		if (reducedMotion()) {
 			const old = zoomSheet.firstElementChild;
@@ -909,7 +945,12 @@ export function binderSpread({
 			return;
 		}
 
-		const next = readSpreadState(window.location.search, binder.page_count, routePage);
+		const fromUrl = readSpreadState(window.location.search, binder.page_count, routePage);
+		const next = landing(fromUrl, binder.page_count);
+
+		if (next !== fromUrl) {
+			replaceUrl(next);
+		}
 
 		if (next.spread !== state.spread || next.zoom !== state.zoom) {
 			state = next;

@@ -20,6 +20,8 @@
 //   coverImageUrl(binder)      an object URL for the cover, or null
 //   paintCover(node, binder)   puts the cover color and image on an element
 //                              (a binder list cover, the spread's board)
+//   dropBinderCover(binder)    a deleted binder's cover off the bucket and
+//                              the phone
 //   coverPath(...)             the bucket path for a cover image
 
 import {currentUser, getClient, onUser} from './auth.js';
@@ -416,6 +418,31 @@ export async function removeCoverImage(binderId) {
 	flushCovers();
 
 	return saved;
+}
+
+// A deleted binder's cover: a waiting upload is dropped, the file's delete
+// from the bucket is queued (so offline it goes when there is signal, and
+// a failed try is retried as uploads are), and the phone's copy goes. Best
+// effort: it never throws, since the binder is gone either way and a cover
+// left behind only takes space. Resolves true when there was a cover and it
+// was dropped.
+export async function dropBinderCover(binder) {
+	const image = coverImageOf(binder);
+
+	if (!image) {
+		return false;
+	}
+
+	try {
+		await dropOld(image);
+		startCoverSync();
+		flushCovers();
+
+		return true;
+	}
+	catch {
+		return false;
+	}
 }
 
 async function dropOld(image) {

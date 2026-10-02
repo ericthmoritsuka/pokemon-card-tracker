@@ -3,9 +3,14 @@
 // family member:
 //   binders                                 the person's binders, as covers
 //   binders/unplaced                        owned cards not in any binder
-//   binders/<id>[/<page>]                   one binder, one page at a time
+//   binders/<id>[/<page>]                   one binder, open as a spread
 //   family/<userId>/binders                 a family member's, view only
 //   family/<userId>/binders/<id>[/<page>]   one of theirs, view only
+//
+// A binder opens like a real one (js/binder-spread.js): facing pages turned
+// around the spine, with ?spread=<k> (and &page=<p> for a page zoomed on a
+// phone held upright) keeping the place. This file draws the pockets and
+// their picker sheet.
 //
 // app.js wires these in from binderRoutes below; binderAccountViews lists the
 // views to redraw on sign-in and sign-out. js/shell.js draws the view-only
@@ -13,6 +18,9 @@
 // holding a tile of it shows as art and is left alone.
 
 import {currentUser} from './auth.js';
+import {dropBinderCover, paintCover, pickCoverImage} from './binder-cover.js';
+import {presetFor, presetPicker} from './binder-presets.js';
+import {binderSpread} from './binder-spread.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -39,7 +47,6 @@ import {
 	GRID_PICKS,
 	MAX_PAGES,
 	binderStats,
-	clampPage,
 	clearPocket,
 	cleanFields,
 	coverTextColor,
@@ -238,7 +245,7 @@ async function fillRecords(items, index, isAlive) {
 // Name, notes, cover color, grid, and pages, for a new binder or an edit.
 // onSubmit(fields) saves; it may throw a message to show.
 function binderForm({binder = null, onCancel, onSubmit}) {
-	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 20, rows: 3};
+	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3};
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
 	const notes = h('textarea', {class: 'search binder-notes-input', id: 'binder-notes', maxlength: 500, rows: 2});
@@ -272,6 +279,25 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 		customRadio.checked = true;
 	});
 
+	// A size fills in the grid and pages. Custom keeps what the form has and
+	// stays marked until the person changes a field (check() then marks the
+	// size that matches, if any).
+	const presets = presetPicker({
+		onPick: (picked) => {
+			if (!picked.rows) {
+				rowsSelect.focus();
+
+				return;
+			}
+
+			rowsSelect.value = String(picked.rows);
+			colsSelect.value = String(picked.cols);
+			pages.value = String(picked.page_count);
+			check();
+		},
+		value: presetFor(start),
+	});
+
 	const picks = h('div', {class: 'grid-picks'}, GRID_PICKS.map(([rows, cols]) => h('button', {
 		class: 'small grid-pick',
 		'data-grid': `${rows}x${cols}`,
@@ -295,12 +321,15 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 		name: name.value,
 		notes: notes.value,
 		page_count: Number(pages.value),
+		preset: presetFor({cols: colsSelect.value, page_count: pages.value, rows: rowsSelect.value}),
 		rows: Number(rowsSelect.value),
 	});
 
 	function check() {
 		const {cols, page_count: pageCount, rows} = fields();
 		const ok = validGrid(rows, cols);
+
+		presets.set({cols, page_count: pageCount, rows});
 
 		for (const pick of picks.children) {
 			pick.setAttribute('aria-pressed', String(pick.dataset.grid === `${rows}x${cols}`));
@@ -334,6 +363,8 @@ function binderForm({binder = null, onCancel, onSubmit}) {
 		notes,
 		h('span', {class: 'field-label'}, 'Cover color'),
 		swatches,
+		h('span', {class: 'field-label'}, 'Size'),
+		presets.element,
 		h('span', {class: 'field-label'}, 'Grid'),
 		picks,
 		h('div', {class: 'toolbar two grid-steppers'}, h('span', {class: 'select-wrap'}, rowsSelect), h('span', {class: 'select-wrap'}, colsSelect)),
@@ -387,8 +418,7 @@ export const familyBindersView = (root, {userId}) => bindersScreen(root, familyS
 
 function cover(binder, stats, base) {
 	const color = binder.cover_color || DEFAULT_COVER;
-
-	return link(`${base}/${encodeURIComponent(binder.id)}`, {
+	const node = link(`${base}/${encodeURIComponent(binder.id)}`, {
 		class: 'binder-cover',
 		'data-binder': binder.id,
 		style: `--cover: ${color}; --cover-text: ${coverTextColor(color)}`,
@@ -399,6 +429,12 @@ function cover(binder, stats, base) {
 		h('span', null, `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`),
 		h('span', {'aria-label': `${stats.filled} of ${stats.total} pockets filled`, class: 'binder-fill'}, `${formatCount(stats.filled)} / ${formatCount(stats.total)}`)
 	));
+
+	paintCover(node, binder).catch(() => {
+		// The cover color shows instead.
+	});
+
+	return node;
 }
 
 function bindersScreen(root, source) {
@@ -503,19 +539,21 @@ function binderScreen(root, source, id, pageParam) {
 	let binder = null;
 	let data = null;
 	let index = new Map();
-	let page = Number.parseInt(pageParam, 10) || 1;
+	// The route's page (binders/<id>/<page>, the links card detail makes):
+	// js/binder-spread.js opens on the spread holding it, then keeps its
+	// place in the URL's search part.
+	const routePage = Number.parseInt(pageParam, 10) || null;
 	let placed = new Map();
 	let entriesById = new Map();
+	let spread = null;
+	let slotCache = new Map();
 
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
 	const title = h('h2', {id: 'binder-title'}, 'Binder');
 	const meta = h('p', {class: 'muted', id: 'binder-meta'});
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
-	const prev = h('button', {'aria-label': 'Previous page', class: 'small', id: 'page-prev', type: 'button'}, '‹ Prev');
-	const next = h('button', {'aria-label': 'Next page', class: 'small', id: 'page-next', type: 'button'}, 'Next ›');
-	const pageSelect = h('select', {'aria-label': 'Page', id: 'page-select'});
-	const grid = h('div', {class: 'pocket-grid', id: 'pocket-grid'});
+	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
 	// The value of the copies in the binder (js/price-view.js), at the top.
 	const statsSlot = h('div', {class: 'binder-stats', id: 'binder-stats'});
@@ -538,49 +576,6 @@ function binderScreen(root, source, id, pageParam) {
 			}
 		});
 	}
-
-	const pageRoute = () => `${source.base}/${encodeURIComponent(id)}${page > 1 ? `/${page}` : ''}`;
-
-	function setPage(n) {
-		const wanted = clampPage(binder, n);
-
-		if (wanted === page) {
-			return;
-		}
-
-		page = wanted;
-		history.replaceState(history.state, '', BASE + pageRoute());
-		drawPage();
-		window.scrollTo(0, 0);
-	}
-
-	prev.addEventListener('click', () => setPage(page - 1));
-	next.addEventListener('click', () => setPage(page + 1));
-	pageSelect.addEventListener('change', () => setPage(Number(pageSelect.value)));
-
-	// A horizontal swipe across the grid turns the page.
-	let touchStart = null;
-
-	grid.addEventListener('touchstart', (event) => {
-		const touch = event.changedTouches[0];
-
-		touchStart = {x: touch.clientX, y: touch.clientY};
-	}, {passive: true});
-	grid.addEventListener('touchend', (event) => {
-		if (!touchStart || !binder) {
-			return;
-		}
-
-		const touch = event.changedTouches[0];
-		const dx = touch.clientX - touchStart.x;
-		const dy = touch.clientY - touchStart.y;
-
-		touchStart = null;
-
-		if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-			setPage(page + (dx < 0 ? 1 : -1));
-		}
-	}, {passive: true});
 
 	// One pocket's content, as a tile.
 	function pocketContent(slot) {
@@ -630,41 +625,66 @@ function binderScreen(root, source, id, pageParam) {
 		return {kind: 'empty', label: 'Left empty on purpose', node: h('span', {class: 'pocket-text'}, 'Empty')};
 	}
 
+	function slotsOn(pg) {
+		if (!slotCache.has(pg)) {
+			slotCache.set(pg, pageSlots(binder, pg, placed));
+		}
+
+		return slotCache.get(pg);
+	}
+
+	// One pocket, for js/binder-spread.js: a button that opens the picker
+	// sheet, or read only, a link to an owned card.
+	function pocketElement(pg, position) {
+		const content = pocketContent(slotsOn(pg).get(position) || null);
+		const attrs = {
+			'aria-label': `Page ${pg}, pocket ${position}: ${content.label}`,
+			class: `pocket pocket-${content.kind}`,
+			'data-kind': content.kind,
+			'data-page': pg,
+			'data-position': position,
+		};
+
+		if (!source.readOnly) {
+			return h('button', {...attrs, onclick: () => openSheet(pg, position), type: 'button'}, content.node);
+		}
+
+		if (content.kind === 'card' && content.info && content.info.route) {
+			return link(content.info.route, attrs, content.node);
+		}
+
+		return h('div', attrs, content.node);
+	}
+
 	function drawPage() {
-		const slots = pageSlots(binder, page, placed);
+		slotCache = new Map();
+
+		if (!spread) {
+			spread = binderSpread({
+				base: BASE,
+				binder,
+				onChange: drawSummary,
+				page: routePage,
+				path: `${source.base}/${encodeURIComponent(id)}`,
+				readOnly: source.readOnly,
+				renderPocket: pocketElement,
+			});
+			spreadHolder.replaceChildren(spread.element);
+		}
+		else {
+			spread.update(binder);
+		}
+
+		drawSummary();
+	}
+
+	function drawSummary() {
+		const pages = spread.pages();
 		const per = binder.rows * binder.cols;
-		let filled = 0;
-
-		grid.style.setProperty('--cols', binder.cols);
-		grid.replaceChildren(...Array.from({length: per}, (_, i) => {
-			const position = i + 1;
-			const slot = slots.get(position) || null;
-			const content = pocketContent(slot);
-			const attrs = {
-				'aria-label': `Pocket ${position}: ${content.label}`,
-				class: `pocket pocket-${content.kind}`,
-				'data-kind': content.kind,
-				'data-position': position,
-			};
-
-			if (content.kind === 'card') {
-				filled++;
-			}
-
-			if (!source.readOnly) {
-				return h('button', {...attrs, onclick: () => openSheet(position), type: 'button'}, content.node);
-			}
-
-			// Read only: an owned card opens its card page; nothing else does
-			// anything.
-			if (content.kind === 'card' && content.info && content.info.route) {
-				return link(content.info.route, attrs, content.node);
-			}
-
-			return h('div', attrs, content.node);
-		}));
-
+		const live = (slot) => slot.entry_id && entriesById.get(slot.entry_id) && isLive(entriesById.get(slot.entry_id));
+		const filled = pages.reduce((sum, pg) => sum + [...slotsOn(pg).values()].filter(live).length, 0);
 		const stats = binderStats(binder, placed, new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id)));
+		const where = pages.length > 1 ? `Pages ${pages[0]} and ${pages[1]}` : `Page ${pages[0]}`;
 
 		if (emptyHint) {
 			emptyHint.hidden = stats.filled > 0 || stats.wanted > 0;
@@ -677,37 +697,36 @@ function binderScreen(root, source, id, pageParam) {
 			.filter((entry) => entry && isLive(entry))
 			.map((entry) => entryInfo(entry, index, viewing).route), binder.name);
 
-		prev.disabled = page <= 1;
-		next.disabled = page >= binder.page_count;
-		pageSelect.value = String(page);
-		summary.textContent = `Page ${page} of ${binder.page_count}: ${filled} of ${per} pockets filled. ${formatCount(stats.filled)} of ${formatCount(stats.total)} in the binder${stats.wanted ? `, ${plural(stats.wanted, 'placeholder', 'placeholders')}` : ''}.`;
+		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(stats.filled)} of ${formatCount(stats.total)} in the binder${stats.wanted ? `, ${plural(stats.wanted, 'placeholder', 'placeholders')}` : ''}.`;
 
-		fillVisible(slots);
+		fillVisible(pages);
 	}
 
-	// Catalog records for the cards on this page that the phone has none
-	// for, such as a family member's cards.
-	async function fillVisible(slots) {
+	// Catalog records for the cards on the pages shown that the phone has
+	// none for, such as a family member's cards.
+	async function fillVisible(pages) {
 		const items = [];
 
-		for (const slot of slots.values()) {
-			const entry = slot.entry_id && entriesById.get(slot.entry_id);
+		for (const pg of pages) {
+			for (const slot of slotsOn(pg).values()) {
+				const entry = slot.entry_id && entriesById.get(slot.entry_id);
 
-			if (entry) {
-				items.push({cardId: entry.card_id, catalog: entry.catalog});
-			}
-			else if (slot.want) {
-				items.push({cardId: slot.want.card_id, catalog: slot.want.catalog || 'international'});
+				if (entry) {
+					items.push({cardId: entry.card_id, catalog: entry.catalog});
+				}
+				else if (slot.want) {
+					items.push({cardId: slot.want.card_id, catalog: slot.want.catalog || 'international'});
+				}
 			}
 		}
 
-		const shownPage = page;
+		const shown = pages.join(',');
 		const filled = await fillRecords(items, index, () => alive);
 
 		if (filled && alive) {
 			index = filled;
 
-			if (page === shownPage) {
+			if (spread && spread.pages().join(',') === shown) {
 				drawPage();
 			}
 		}
@@ -748,8 +767,6 @@ function binderScreen(root, source, id, pageParam) {
 		notes.hidden = !binder.notes;
 		body.style.setProperty('--cover', binder.cover_color || DEFAULT_COVER);
 		body.style.setProperty('--cover-text', coverTextColor(binder.cover_color || DEFAULT_COVER));
-		pageSelect.replaceChildren(...Array.from({length: binder.page_count}, (_, i) => h('option', {value: i + 1}, `Page ${i + 1}`)));
-		page = clampPage(binder, page);
 
 		if (!source.readOnly) {
 			const loose = unplaced(data.cards.filter(isLive), data.binders).length;
@@ -781,6 +798,11 @@ function binderScreen(root, source, id, pageParam) {
 		binder = liveBinders(data.binders).find((item) => item.id === id) || null;
 
 		if (!binder) {
+			if (spread) {
+				spread.destroy();
+				spread = null;
+			}
+
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
 				? 'This binder is not there any more.'
 				: 'This binder is not on this phone. It may have been deleted.')));
@@ -791,12 +813,11 @@ function binderScreen(root, source, id, pageParam) {
 		placed = placements(data.binders);
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
 
-		if (!body.contains(grid)) {
+		if (!body.contains(spreadHolder)) {
 			body.replaceChildren(
 				h('div', {class: 'binder-head'}, title, meta, notes),
 				statsSlot,
-				h('div', {class: 'page-nav'}, prev, h('span', {class: 'select-wrap'}, pageSelect), next),
-				grid,
+				spreadHolder,
 				summary,
 				emptyHint,
 				unplacedLink,
@@ -804,6 +825,7 @@ function binderScreen(root, source, id, pageParam) {
 					? null
 					: h('div', {class: 'actions'},
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
+						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
 					),
 				editor
@@ -836,13 +858,21 @@ function binderScreen(root, source, id, pageParam) {
 			return;
 		}
 
+		const deleting = binder;
+
 		try {
-			await deleteBinder(binder.id);
-			go('binders');
+			await deleteBinder(deleting.id);
 		}
 		catch (err) {
 			showError('Could not delete the binder.', err);
+
+			return;
 		}
+
+		// Its cover image leaves the bucket too: queued, so offline it goes
+		// when there is signal. Never waited on, and never an error here.
+		dropBinderCover(deleting);
+		go('binders');
 	}
 
 	// ------------------------------------------------- the pocket sheet
@@ -870,7 +900,9 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
-	function openSheet(position) {
+	// The sheet for one pocket. The page travels with it, so a redraw while
+	// it is open (a sync, a turn) cannot move what it saves to another page.
+	function openSheet(page, position) {
 		const slot = pageSlots(binder, page, placed).get(position) || null;
 		const content = pocketContent(slot);
 		const chooser = h('div', {class: 'chooser', hidden: Boolean(slot)});
@@ -900,7 +932,7 @@ function binderScreen(root, source, id, pageParam) {
 				))
 			: null;
 
-		chooser.append(...pocketChooser(position, message));
+		chooser.append(...pocketChooser(page, position, message));
 		sheet.replaceChildren(header, current || '', chooser, message);
 		sheet.showModal();
 
@@ -913,7 +945,7 @@ function binderScreen(root, source, id, pageParam) {
 
 	// The three ways to fill a pocket: one of your cards, a placeholder, or
 	// empty on purpose.
-	function pocketChooser(position, message) {
+	function pocketChooser(page, position, message) {
 		const ownedPanel = h('div', {id: 'owned-panel'});
 		const wantPanel = h('div', {hidden: true, id: 'want-panel'});
 		const tabs = h('div', {class: 'segmented sheet-tabs', role: 'radiogroup'},
@@ -929,8 +961,8 @@ function binderScreen(root, source, id, pageParam) {
 			(want ? wantPanel.querySelector('#want-search') : ownedPanel.querySelector('#owned-search')).focus();
 		});
 
-		ownedPanel.append(...ownedPicker(position, message));
-		wantPanel.append(...wantPicker(position, message));
+		ownedPanel.append(...ownedPicker(page, position, message));
+		wantPanel.append(...wantPicker(page, position, message));
 
 		return [
 			tabs,
@@ -941,7 +973,7 @@ function binderScreen(root, source, id, pageParam) {
 	}
 
 	// Your cards, one tile per copy: those not in a binder yet first.
-	function ownedPicker(position, message) {
+	function ownedPicker(page, position, message) {
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'owned-search', placeholder: 'Search your cards', type: 'search'});
 		const filter = h('div', {class: 'segmented', id: 'owned-filter', role: 'radiogroup'},
 			h('label', null, h('input', {checked: true, name: 'owned-filter', type: 'radio', value: 'unplaced'}), h('span', null, 'Not in a binder yet')),
@@ -1062,7 +1094,7 @@ function binderScreen(root, source, id, pageParam) {
 	}
 
 	// A placeholder: search the catalog by name, in the viewing language.
-	function wantPicker(position, message) {
+	function wantPicker(page, position, message) {
 		const lang = viewing;
 		const catalog = catalogFor(lang);
 		const search = h('input', {'aria-label': 'Search the catalog by name', autocomplete: 'off', class: 'search', id: 'want-search', placeholder: 'Card name, such as Pikachu', type: 'search'});
@@ -1168,6 +1200,10 @@ function binderScreen(root, source, id, pageParam) {
 		alive = false;
 		closeSheet();
 		stop();
+
+		if (spread) {
+			spread.destroy();
+		}
 	};
 }
 

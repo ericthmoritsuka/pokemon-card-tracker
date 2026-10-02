@@ -368,6 +368,21 @@ describe('spreads on a phone held upright', () => {
 		await page.click('#bs-zoom-back');
 		await settle(page);
 		assert.equal((await state(page)).view, 'spread');
+
+		// Stepping past the spread's pages and going Back lands on the spread
+		// holding the page last shown, not the one the zoom started from.
+		await page.click('.bs-side-right .bs-open');
+		await settle(page);
+		await page.click('#bs-zoom-next');
+		await settle(page);
+		s = await state(page);
+		assert.deepEqual([s.zoom, s.urlSpread], ['4', '3']);
+		await page.goBack();
+		await settle(page);
+		s = await state(page);
+		assert.deepEqual([s.view, s.spread, s.urlSpread, s.left, s.right], ['spread', '3', '3', '4', '5']);
+		await page.selectOption('#bs-jump', '1');
+		await settle(page);
 	});
 
 	test('the sideways hint shows a few times, then never; Got it ends it', async () => {

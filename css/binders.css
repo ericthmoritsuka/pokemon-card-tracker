@@ -207,36 +207,18 @@
 	white-space: pre-line;
 }
 
-.page-nav {
-	align-items: center;
-	display: grid;
-	gap: 8px;
-	grid-template-columns: auto 1fr auto;
-	margin-bottom: 12px;
+/* The spread needs the screen's height, so the binder's own buttons (Edit,
+   Cover image, Delete) stay at the foot of the screen instead of sticking
+   over the pages, with Delete on a row of its own. */
+#binder-body .actions {
+	position: static;
 }
 
-.page-nav button {
-	min-height: 44px;
+#binder-body .actions .danger {
+	grid-column: 1 / -1;
 }
 
-.page-nav select {
-	min-height: 44px;
-	text-align: center;
-}
-
-/* The page: the binder's grid, one pocket per card, 6 px gutters so a 5-wide
-   page still fits a phone. */
-.pocket-grid {
-	background: var(--surface, #ffffff);
-	border: 1px solid var(--border, #d9d9e0);
-	border-radius: 12px;
-	display: grid;
-	gap: 6px;
-	grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
-	padding: 8px;
-	touch-action: pan-y;
-}
-
+/* One pocket, as js/binder-spread.js lays it in a page of the spread. */
 .pocket {
 	align-items: stretch;
 	aspect-ratio: 63 / 88;

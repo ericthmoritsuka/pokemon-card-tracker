@@ -750,3 +750,17 @@ button.bc-handle:focus-visible::after {
 		position: static;
 	}
 }
+
+/* A phone held sideways: the app's header scrolls away with the page while
+   a binder is open, instead of sticking over the spread, and the spread is
+   sized to the height left above the tab bar, so both pages show whole. */
+@media (orientation: landscape) and (max-height: 500px) {
+	body:has(#binder-spread) .shell-top {
+		position: static;
+	}
+
+	.bs {
+		--bs-chrome: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 24px);
+		scroll-margin-top: 8px;
+	}
+}

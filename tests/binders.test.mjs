@@ -501,18 +501,47 @@ const localDoc = (page) => page.evaluate(async () => (await import('/pokemon-car
 
 const shownErrors = (page) => page.locator('#errors .error').allTextContents();
 
-const pocket = (page, n) => page.locator(`#pocket-grid .pocket[data-position="${n}"]`);
+// A pocket: on the page zoomed open (a phone held upright places cards
+// there), or with pg, on that page of the spread.
+const pocketAt = (n, pg = null) => (pg
+	? `#bs-spread .bs-page[data-page="${pg}"] .pocket[data-position="${n}"]`
+	: `#bs-zoom-sheet .pocket[data-position="${n}"]`);
 
-async function kindOf(page, n) {
-	return pocket(page, n).getAttribute('data-kind');
+const pocket = (page, n, pg = null) => page.locator(pocketAt(n, pg));
+
+async function kindOf(page, n, pg = null) {
+	return pocket(page, n, pg).getAttribute('data-kind');
 }
 
-async function waitForKind(page, n, kind) {
-	await page.waitForFunction(({position, wanted}) => {
-		const el = document.querySelector(`#pocket-grid .pocket[data-position="${position}"]`);
+async function waitForKind(page, n, kind, pg = null) {
+	await page.waitForFunction(({selector, wanted}) => {
+		const el = document.querySelector(selector);
 
 		return el && el.dataset.kind === wanted;
-	}, {position: n, wanted: kind}, {timeout: 10000});
+	}, {selector: pocketAt(n, pg), wanted: kind}, {timeout: 10000});
+}
+
+// The spread at rest on spread k, no page turning.
+async function waitForSpread(page, k) {
+	await page.waitForFunction((wanted) => {
+		const root = document.getElementById('binder-spread');
+
+		return root && root.dataset.view === 'spread' && root.dataset.spread === wanted && !root.dataset.turning;
+	}, String(k), {timeout: 10000});
+}
+
+async function waitForZoom(page, pg) {
+	await page.waitForFunction((wanted) => {
+		const root = document.getElementById('binder-spread');
+
+		return root && root.dataset.zoom === wanted && root.querySelector(`#bs-zoom-sheet .bs-page[data-page="${wanted}"]`);
+	}, String(pg), {timeout: 10000});
+}
+
+// Opens page pg of the spread at full size, as a tap on it does.
+async function openPage(page, pg) {
+	await page.click(`.bs-open[data-open="${pg}"]`);
+	await waitForZoom(page, pg);
 }
 
 async function signIn(page, fake, email) {
@@ -592,15 +621,18 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.screenshot({path: '/tmp/binders-form.png', fullPage: true});
 		await page.click('#binder-save');
 		await page.waitForURL(/\/binders\/[0-9a-f-]+$/);
-		await page.waitForSelector('#pocket-grid .pocket');
+		await page.waitForSelector('#binder-spread .bs-page');
 
 		const binderId = new URL(page.url()).pathname.split('/').pop();
 
+		// It opens like a real binder: page 1 alone on the right, the inside
+		// cover on the left.
 		assert.equal(await page.locator('#binder-title').textContent(), 'Generations 1 and 2');
 		assert.equal(await page.locator('#binder-meta').textContent(), '3 × 3 · 3 pages');
-		assert.equal(await page.locator('#pocket-grid .pocket').count(), 9);
-		assert.equal(await page.locator('#page-select').inputValue(), '1');
-		assert.ok(await page.locator('#page-prev').isDisabled());
+		assert.equal(await page.locator('#bs-spread .bs-side-right .bs-page[data-page="1"] .pocket').count(), 9);
+		assert.equal(await page.locator('#bs-spread .bs-side-left .bs-inside').count(), 1);
+		assert.equal(await page.locator('#bs-jump').inputValue(), '1');
+		assert.ok(await page.locator('#bs-prev').isDisabled());
 
 		let doc = await localDoc(page);
 		let binder = doc.binders[0];
@@ -610,7 +642,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 			{cols: 3, cover: '#1b1b1f', name: 'Generations 1 and 2', notes: 'Kanto and Johto in Dex order', pages: 3, rows: 3});
 		assert.ok(binder.id && binder.updated_at && binder.deleted_at === null);
 
-		// Place an owned card: the picker opens on "Not in a binder yet".
+		// A phone held upright shows the spread as an overview: tap page 1 to
+		// open it, then place an owned card. The picker opens on "Not in a
+		// binder yet".
+		await openPage(page, 1);
 		await pocket(page, 1).click();
 		await page.waitForSelector('#pocket-sheet[open]');
 		assert.equal(await page.locator('#sheet-title').textContent(), 'Page 1, pocket 1');
@@ -624,7 +659,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('#owned-results .pick[data-entry="c1"]');
 		await page.waitForSelector('#pocket-sheet:not([open])', {state: 'attached'});
 		await waitForKind(page, 1, 'card');
-		assert.match(await pocket(page, 1).getAttribute('aria-label'), /Pocket 1: Test Bulbasaur, Portuguese/);
+		assert.match(await pocket(page, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Bulbasaur, Portuguese/);
 		assert.equal(await pocket(page, 1).locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 
 		// Try to place it twice: it is not offered as unplaced, and picking it
@@ -682,33 +717,45 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await page.locator('#sheet-current-label').textContent(), /Test Bulbasaur/);
 		await page.click('#sheet-close');
 
-		// Page through.
-		await page.click('#page-next');
-		await page.waitForFunction(() => document.getElementById('page-select').value === '2');
-		assert.equal(new URL(page.url()).pathname, `${BASE}binders/${binderId}/2`);
-		assert.equal(await page.locator('#pocket-grid .pocket[data-kind="open"]').count(), 9);
+		// Page through: the open page steps to page 2, and the URL keeps it.
+		await page.click('#bs-zoom-next');
+		await waitForZoom(page, 2);
+		assert.equal(new URL(page.url()).pathname, `${BASE}binders/${binderId}`);
+		assert.equal(new URL(page.url()).search, '?spread=2&page=2');
+		assert.equal(await page.locator('#bs-zoom-sheet .pocket[data-kind="open"]').count(), 9);
 		await pocket(page, 5).click();
 		await page.click('#owned-results .pick[data-entry="c2"]');
 		await waitForKind(page, 5, 'card');
-		await page.click('#page-next');
-		await page.waitForFunction(() => document.getElementById('page-select').value === '3');
-		assert.ok(await page.locator('#page-next').isDisabled());
-		await page.selectOption('#page-select', '2');
-		await page.waitForFunction(() => document.getElementById('page-select').value === '2');
+		await page.click('#bs-zoom-next');
+		await waitForZoom(page, 3);
+		assert.ok(await page.locator('#bs-zoom-next').isDisabled());
 
-		// Reload: the page and every pocket come back from the phone.
+		// Back to both pages: the spread holding page 3 (pages 2 and 3, the
+		// last in a 3-page binder), not the one the zoom started from.
+		await page.click('#bs-zoom-back');
+		await waitForSpread(page, 2);
+		assert.equal(new URL(page.url()).search, '?spread=2');
+		assert.ok(await page.locator('#bs-next').isDisabled());
+		await page.selectOption('#bs-jump', '1');
+		await waitForSpread(page, 1);
+		await page.click('#bs-next');
+		await waitForSpread(page, 2);
+
+		// Reload: the spread and every pocket come back from the phone.
 		await page.reload();
-		await page.waitForSelector('#pocket-grid .pocket');
-		assert.equal(await page.locator('#page-select').inputValue(), '2');
-		await waitForKind(page, 5, 'card');
-		assert.match(await pocket(page, 5).getAttribute('aria-label'), /Test Charmander/);
-		await page.click('#page-prev');
-		await page.waitForFunction(() => document.getElementById('page-select').value === '1');
-		assert.equal(await kindOf(page, 1), 'open');
-		assert.equal(await kindOf(page, 2), 'card');
-		assert.equal(await kindOf(page, 3), 'want');
-		assert.equal(await kindOf(page, 4), 'empty');
+		await page.waitForSelector('#binder-spread .bs-page');
+		assert.equal(await page.locator('#bs-jump').inputValue(), '2');
+		await waitForKind(page, 5, 'card', 2);
+		assert.match(await pocket(page, 5, 2).getAttribute('aria-label'), /^Page 2, pocket 5: Test Charmander/);
+		assert.match(await page.locator('#binder-summary').textContent(), /^Pages 2 and 3 of 3: 1 of 18 pockets filled\. 2 of 27 in the binder, 1 placeholder\.$/);
+		await page.click('#bs-prev');
+		await waitForSpread(page, 1);
+		assert.equal(await kindOf(page, 1, 1), 'open');
+		assert.equal(await kindOf(page, 2, 1), 'card');
+		assert.equal(await kindOf(page, 3, 1), 'want');
+		assert.equal(await kindOf(page, 4, 1), 'empty');
 		assert.equal(new URL(page.url()).pathname, `${BASE}binders/${binderId}`);
+		assert.equal(new URL(page.url()).search, '');
 
 		// Where is this card?
 		const location = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binders.js')).binderLocation('c1'));
@@ -787,13 +834,14 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		net.offline = true;
 		await context.setOffline(true);
 		await page.goto(url(`binders/${binderId}`));
-		await page.waitForSelector('#pocket-grid .pocket');
-		await waitForKind(page, 2, 'card');
-		assert.equal(await kindOf(page, 3), 'want');
-		assert.match(await pocket(page, 3).getAttribute('aria-label'), /Test Pikachu/);
+		await page.waitForSelector('#binder-spread .bs-page');
+		await waitForKind(page, 2, 'card', 1);
+		assert.equal(await kindOf(page, 3, 1), 'want');
+		assert.match(await pocket(page, 3, 1).getAttribute('aria-label'), /Test Pikachu/);
 		assert.equal(await page.locator('.binder-head').evaluate((el) => getComputedStyle(el).borderLeftColor), 'rgb(27, 27, 31)', 'the binder stylesheet is cached');
 
 		// Placing works offline; the catalog search says it needs a connection.
+		await openPage(page, 1);
 		await pocket(page, 6).click();
 		await page.click('#owned-results .pick[data-entry="c3"]');
 		await waitForKind(page, 6, 'card');
@@ -848,7 +896,8 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await ownerDevice.page.click('.grid-pick[data-grid="2x2"]');
 		await ownerDevice.page.fill('#binder-pages', '2');
 		await ownerDevice.page.click('#binder-save');
-		await ownerDevice.page.waitForSelector('#pocket-grid .pocket');
+		await ownerDevice.page.waitForSelector('#binder-spread .bs-page');
+		await openPage(ownerDevice.page, 1);
 		await pocket(ownerDevice.page, 1).click();
 		await ownerDevice.page.click('#owned-results .pick[data-entry="c2"]');
 		await waitForKind(ownerDevice.page, 1, 'card');
@@ -878,16 +927,27 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('.binder-fill').textContent(), '1 / 8');
 
 		await page.click('.binder-cover');
-		await page.waitForSelector('#pocket-grid .pocket');
+		await page.waitForSelector('#binder-spread .bs-page');
 		assert.ok(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/binders/`));
-		await waitForKind(page, 1, 'card');
-		assert.equal(await page.locator('#pocket-grid button').count(), 0, 'no pocket can be tapped to edit');
-		assert.equal(await page.locator('#pocket-grid a.pocket').count(), 1, 'the owned card opens its card page');
-		assert.equal(await page.locator('#edit-binder, #delete-binder, #pocket-sheet').count(), 0);
-		assert.match(await pocket(page, 1).getAttribute('aria-label'), /Test Charmander/);
-		await page.click('#page-next');
-		await page.waitForFunction(() => document.getElementById('page-select').value === '2');
-		assert.ok(new URL(page.url()).pathname.endsWith('/2'));
+		await waitForKind(page, 1, 'card', 1);
+		assert.equal(await page.locator('#binder-spread .bs-pocket button').count(), 0, 'no pocket can be tapped to edit');
+		assert.equal(await page.locator('#bs-spread a.pocket').count(), 1, 'the owned card opens its card page');
+		assert.equal(await page.locator('#edit-binder, #binder-cover-image, #delete-binder, #pocket-sheet').count(), 0);
+		assert.match(await pocket(page, 1, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Charmander/);
+
+		// Opened at full size it is still read only, and the card links on.
+		await openPage(page, 1);
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket button').count(), 0);
+		assert.equal(await page.locator('#bs-zoom-sheet a.pocket').count(), 1);
+		await page.click('#bs-zoom-back');
+		await waitForSpread(page, 1);
+
+		// Turning the page works for a viewer too: page 2 alone, the last.
+		await page.click('#bs-next');
+		await waitForSpread(page, 2);
+		assert.equal(await page.locator('#bs-jump').inputValue(), '2');
+		assert.equal(new URL(page.url()).search, '?spread=2');
+		assert.ok(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/binders/`));
 		await page.screenshot({path: '/tmp/binders-family.png'});
 
 		// Viewing changed nothing for either person.
@@ -897,5 +957,64 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.deepEqual(ownerDevice.errors, []);
 		await context.close();
 		await ownerDevice.context.close();
+	});
+
+	test('deleting a binder deletes its cover image from the bucket, and offline it waits for signal', async () => {
+		const {FakeStorageSupabase} = await import('./photos-fake-storage.mjs');
+		const fake = new FakeStorageSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const binder = binderOf('b-cover', {created_at: AT, name: 'Covered binder', page_count: 2, updated_at: AT});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		// A cover image, saved the way the Cover image sheet saves one, goes up.
+		const image = await page.evaluate(async (binderId) => {
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 80;
+			canvas.getContext('2d').fillStyle = '#3366cc';
+			canvas.getContext('2d').fillRect(0, 0, 60, 80);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+			const {saveCoverImage} = await import('/pokemon-card-tracker/js/binder-cover.js');
+
+			return (await saveCoverImage(binderId, blob, 'image/webp')).cover_image;
+		}, binder.id);
+
+		assert.equal(image.path, `${owner.id}/binder-${binder.id}/${image.id}.webp`);
+		await until(() => fake.objects.has(image.path));
+
+		// The spread shows it; then the binder is deleted with no signal.
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForFunction(() => document.getElementById('binder-spread')?.dataset.coverImage === 'true');
+		await context.setOffline(true);
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.click('#delete-binder');
+		await page.waitForURL(/\/binders$/);
+		await page.waitForSelector('.empty-state');
+		assert.ok((await localDoc(page)).binders.find((item) => item.id === binder.id).deleted_at, 'the binder is deleted at once');
+
+		const localCover = () => page.evaluate(async (id) => Boolean(await (await import('/pokemon-card-tracker/js/binder-cover.js')).localCover(id)), image.id);
+		const end = Date.now() + 5000;
+
+		while (await localCover() && Date.now() < end) {
+			await page.waitForTimeout(100);
+		}
+
+		assert.equal(await localCover(), false, 'the phone\'s copy is gone');
+		assert.ok(fake.objects.has(image.path), 'offline, the file waits in the bucket');
+		assert.equal(fake.storageLog('remove').length, 0);
+
+		// Back online, the queued delete goes.
+		await context.setOffline(false);
+		await until(() => !fake.objects.has(image.path));
+		assert.equal(fake.storageLog('remove').length, 1);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
 	});
 });
