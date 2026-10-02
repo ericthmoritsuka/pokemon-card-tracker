@@ -53,15 +53,19 @@ import {
 	coverTextColor,
 	createBinder,
 	deleteBinder,
+	fillTray,
 	leaveEmpty,
 	liveBinders,
 	locate,
+	moveToTray,
 	pageSlots,
 	placeCard,
 	placePlaceholder,
+	placeStaged,
 	placements,
 	planResize,
 	slotsOf,
+	trayOf,
 	unplaced,
 	updateBinder,
 	validGrid,
@@ -634,6 +638,19 @@ function binderScreen(root, source, id, pageParam) {
 	let slotCache = new Map();
 	// Closes the resize preview, if it is open (leaving the screen).
 	let closeResize = () => {};
+	// The tray (see "the tray" below): the copy picked to place next, the
+	// tray position to pick from after a placement lands, and its parts.
+	let picked = null;
+	let advanceFrom = null;
+	let trayClickBlock = 0;
+	let trayNoteTimer = null;
+	const trayStrip = h('div', {'aria-label': 'Cards to place', class: 'bt-strip', id: 'bt-strip', role: 'list'});
+	const trayStatus = h('p', {'aria-live': 'polite', class: 'bt-status', id: 'bt-status'});
+	const trayFill = h('button', {class: 'small bt-fill', id: 'bt-fill', type: 'button'}, 'Fill the rest in order');
+	const tray = source.readOnly ? null : h('section', {'aria-label': 'Tray: cards to place in this binder', class: 'bt', hidden: true, id: 'binder-tray'},
+		trayStrip,
+		h('div', {class: 'bt-foot'}, trayStatus, h('span', {'aria-hidden': 'true', class: 'bt-gap'}), trayFill));
+	const trayNote = h('p', {'aria-live': 'polite', class: 'bt-note', hidden: true, id: 'bt-note'});
 
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
@@ -733,7 +750,9 @@ function binderScreen(root, source, id, pageParam) {
 		};
 
 		if (!source.readOnly) {
-			return h('button', {...attrs, onclick: () => openSheet(pg, position), type: 'button'}, content.node);
+			// With a tray card picked, a tap places it; otherwise it opens
+			// the picker sheet.
+			return h('button', {...attrs, onclick: () => (picked ? placeFromTrayAt(picked, pg, position) : openSheet(pg, position)), type: 'button'}, content.node);
 		}
 
 		if (content.kind === 'card' && content.info && content.info.route) {
@@ -756,7 +775,7 @@ function binderScreen(root, source, id, pageParam) {
 				readOnly: source.readOnly,
 				renderPocket: pocketElement,
 			});
-			spreadHolder.replaceChildren(spread.element);
+			spreadHolder.replaceChildren(...[spread.element, tray, tray && trayNote].filter(Boolean));
 
 			// Held sideways, the binder opens on its pages, whole above the
 			// tab bar, unless Back is bringing back where the person was.
@@ -790,6 +809,7 @@ function binderScreen(root, source, id, pageParam) {
 			.filter((entry) => entry && isLive(entry))
 			.map((entry) => entryInfo(entry, index, viewing).route), binder.name);
 
+		drawTrayStatus();
 		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(stats.filled)} of ${formatCount(stats.total)} in the binder${stats.wanted ? `, ${plural(stats.wanted, 'placeholder', 'placeholders')}` : ''}.`;
 
 		fillVisible(pages);
@@ -868,6 +888,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		drawPage();
+		drawTray();
 		drawStats().catch(() => {
 			// No statistics this time; the binder itself is unaffected.
 		});
@@ -1049,6 +1070,273 @@ function binderScreen(root, source, id, pageParam) {
 		go('binders');
 	}
 
+	// ------------------------------------------------------- the tray
+	//
+	// Copies meant for this binder but in no pocket yet (js/binders.js
+	// staged): small thumbnails docked above the tab bar (beside the spread
+	// when the phone is sideways). Tap one to pick it, then tap a pocket to
+	// place it, and the next one is picked; or drag it onto a pocket where
+	// the pages are directly editable. "Fill the rest in order" puts the
+	// rest in the pockets with nothing in them, in reading order.
+
+	function trayIds() {
+		const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
+
+		return trayOf(binder, {liveIds, placed});
+	}
+
+	// Pockets take a placed card while the pages are editable: the spread
+	// held sideways or on a large screen, or a page zoomed open.
+	const pocketsLive = () => Boolean(spread) && (spread.element.dataset.mode === 'direct' || Boolean(spread.state().zoom));
+
+	function drawTrayStatus() {
+		if (!tray) {
+			return;
+		}
+
+		const ids = trayIds();
+		const entry = picked && entriesById.get(picked);
+
+		trayStatus.textContent = entry
+			? (pocketsLive() ? `Tap a pocket for ${entryInfo(entry, index, viewing).name}` : 'Open a page, then tap a pocket')
+			: `${plural(ids.length, 'card', 'cards')} to place`;
+
+		if (spread) {
+			spread.element.dataset.placing = picked ? 'true' : '';
+		}
+	}
+
+	function drawTray() {
+		if (!tray) {
+			return;
+		}
+
+		const ids = trayIds();
+
+		// The card just placed has left the tray: pick the one now in its
+		// place (after a swap, the card that was in the pocket), or none.
+		if (picked && !ids.includes(picked)) {
+			picked = advanceFrom !== null && ids.length ? ids[Math.min(advanceFrom, ids.length - 1)] : null;
+		}
+
+		advanceFrom = null;
+		tray.hidden = !ids.length;
+		trayStrip.replaceChildren(...ids.map((entryId) => {
+			const entry = entriesById.get(entryId);
+			const info = entryInfo(entry, index, viewing);
+
+			return h('button', {
+				'aria-label': `${info.name}, ${languageLabel(entry.language)}`,
+				'aria-pressed': String(entryId === picked),
+				class: 'bt-card',
+				'data-entry': entryId,
+				role: 'listitem',
+				type: 'button',
+			}, cardArt(info, info.image));
+		}));
+
+		for (const img of trayStrip.querySelectorAll('img')) {
+			img.draggable = false;
+		}
+
+		drawTrayStatus();
+
+		const shown = trayStrip.querySelector('.bt-card[aria-pressed="true"]');
+
+		if (shown && typeof shown.scrollIntoView === 'function') {
+			shown.scrollIntoView({block: 'nearest', inline: 'nearest'});
+		}
+	}
+
+	function trayMessage(text) {
+		clearTimeout(trayNoteTimer);
+		trayNote.textContent = text;
+		trayNote.hidden = !text;
+
+		if (text) {
+			trayNoteTimer = setTimeout(() => {
+				trayNote.textContent = '';
+				trayNote.hidden = true;
+			}, 6000);
+		}
+	}
+
+	// Places a tray card in a pocket; the next tray card is picked once the
+	// save lands (drawTray).
+	async function placeFromTrayAt(entryId, pg, position) {
+		const slot = slotsOn(pg).get(position);
+
+		if (slot && slot.art) {
+			trayMessage('That pocket holds Michi art. Pick another.');
+
+			return;
+		}
+
+		advanceFrom = trayIds().indexOf(entryId);
+		picked = entryId;
+		trayMessage('');
+
+		try {
+			await placeStaged(binder.id, pg, position, entryId);
+		}
+		catch (err) {
+			advanceFrom = null;
+			showError('Could not place the card.', err);
+		}
+	}
+
+	async function fillRest() {
+		picked = null;
+		trayFill.disabled = true;
+
+		try {
+			const {left, placed: count} = await fillTray(binder.id);
+
+			trayMessage(left
+				? `${plural(count, 'card', 'cards')} placed. ${plural(left, 'card does', 'cards do')} not fit: add pages or free some pockets.`
+				: `${plural(count, 'card', 'cards')} placed in order.`);
+		}
+		catch (err) {
+			showError('Could not fill the binder from the tray.', err);
+		}
+		finally {
+			trayFill.disabled = false;
+		}
+	}
+
+	if (tray) {
+		trayStrip.addEventListener('click', (event) => {
+			const card = event.target.closest('.bt-card');
+
+			if (!card || Date.now() < trayClickBlock) {
+				return;
+			}
+
+			picked = picked === card.dataset.entry ? null : card.dataset.entry;
+			trayMessage('');
+
+			for (const item of trayStrip.querySelectorAll('.bt-card')) {
+				item.setAttribute('aria-pressed', String(item.dataset.entry === picked));
+			}
+
+			drawTrayStatus();
+		});
+		trayFill.addEventListener('click', fillRest);
+		trayDrag();
+	}
+
+	// Drag and drop from the tray onto a pocket, with a finger or a mouse:
+	// pointer events, so it works where HTML drag and drop does not (touch).
+	// A move along the strip scrolls it (touch-action in css/binders.css); a
+	// move across it lifts the card.
+	function trayDrag() {
+		let drag = null;
+
+		const pocketAt = (x, y) => {
+			const hit = document.elementFromPoint(x, y);
+			const pocket = hit && hit.closest('.bs-pocket');
+
+			return pocket && !pocket.closest('[inert]') ? pocket : null;
+		};
+
+		const end = () => {
+			if (drag && drag.ghost) {
+				drag.ghost.remove();
+			}
+
+			if (drag && drag.over) {
+				drag.over.classList.remove('bt-over');
+			}
+
+			drag = null;
+		};
+
+		trayStrip.addEventListener('pointerdown', (event) => {
+			const card = event.target.closest('.bt-card');
+
+			drag = card && event.isPrimary && !(event.pointerType === 'mouse' && event.button !== 0)
+				? {card, ghost: null, id: card.dataset.entry, over: null, pointerId: event.pointerId, x: event.clientX, y: event.clientY}
+				: null;
+		});
+
+		trayStrip.addEventListener('pointermove', (event) => {
+			if (!drag || event.pointerId !== drag.pointerId) {
+				return;
+			}
+
+			const dx = event.clientX - drag.x;
+			const dy = event.clientY - drag.y;
+
+			if (!drag.ghost) {
+				if (Math.hypot(dx, dy) < 10) {
+					return;
+				}
+
+				const column = getComputedStyle(trayStrip).flexDirection === 'column';
+				const across = column ? Math.abs(dx) > Math.abs(dy) : Math.abs(dy) > Math.abs(dx);
+
+				if (!across || !pocketsLive()) {
+					drag = null;
+
+					return;
+				}
+
+				const box = drag.card.getBoundingClientRect();
+
+				drag.ghost = h('div', {'aria-hidden': 'true', class: 'bt-ghost', style: `width: ${box.width}px; height: ${box.height}px`}, drag.card.firstElementChild.cloneNode(true));
+				document.body.append(drag.ghost);
+				drag.half = {x: box.width / 2, y: box.height / 2};
+
+				try {
+					trayStrip.setPointerCapture(event.pointerId);
+				}
+				catch {
+					// The pointer went away; pointerup or pointercancel ends it.
+				}
+			}
+
+			event.preventDefault();
+			drag.ghost.style.transform = `translate(${event.clientX - drag.half.x}px, ${event.clientY - drag.half.y}px)`;
+
+			const over = pocketAt(event.clientX, event.clientY);
+
+			if (over !== drag.over) {
+				if (drag.over) {
+					drag.over.classList.remove('bt-over');
+				}
+
+				if (over) {
+					over.classList.add('bt-over');
+				}
+
+				drag.over = over;
+			}
+		});
+
+		trayStrip.addEventListener('pointerup', (event) => {
+			if (!drag || event.pointerId !== drag.pointerId) {
+				return;
+			}
+
+			const {ghost, id: entryId} = drag;
+			const target = ghost ? pocketAt(event.clientX, event.clientY) : null;
+
+			end();
+
+			if (ghost) {
+				// The lift is not a tap on the card under the finger.
+				trayClickBlock = Date.now() + 400;
+
+				if (target) {
+					placeFromTrayAt(entryId, Number(target.dataset.page), Number(target.dataset.position));
+				}
+			}
+		});
+
+		trayStrip.addEventListener('pointercancel', end);
+		trayStrip.addEventListener('dragstart', (event) => event.preventDefault());
+	}
+
 	// ------------------------------------------------- the pocket sheet
 
 	function closeSheet() {
@@ -1100,6 +1388,9 @@ function binderScreen(root, source, id, pageParam) {
 							event.currentTarget.closest('.sheet-current').hidden = true;
 							chooser.hidden = false;
 						}, type: 'button'}, 'Change'),
+					content.kind === 'card'
+						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
+						: null,
 					slot.art
 						? h('p', {class: 'muted'}, 'Michi art is edited with the art tools, which are not here yet.')
 						: h('button', {class: 'danger', id: 'pocket-clear', onclick: () => act(() => clearPocket(binder.id, page, position), 'Could not empty the pocket.'), type: 'button'}, 'Take out')
@@ -1386,6 +1677,7 @@ function binderScreen(root, source, id, pageParam) {
 		alive = false;
 		closeSheet();
 		closeResize();
+		clearTimeout(trayNoteTimer);
 		stop();
 		stopCovers();
 

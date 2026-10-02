@@ -1405,6 +1405,145 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
+	test('the tray: pick a card, tap a pocket, the next is picked; swap, send back, and fill the rest in order', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		// c4 is a deleted copy: it leaves the tray.
+		const binder = binderOf('b-tray', {
+			cols: 2,
+			created_at: AT,
+			name: 'Tray binder',
+			page_count: 2,
+			rows: 2,
+			slots: [{entry_id: 'c1', page: 1, placed_at: AT, position: 1}],
+			staged: ['c2', 'c3', 'c4'],
+			updated_at: AT,
+		});
+		const tray = () => page.locator('#bt-strip .bt-card').evaluateAll((cards) => cards.map((card) => `${card.dataset.entry}${card.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
+		const saved = async () => (await localDoc(page)).binders[0];
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		assert.deepEqual(await tray(), ['c2', 'c3'], 'the deleted copy is not in the tray');
+		assert.equal(await page.locator('#bt-status').textContent(), '2 cards to place');
+
+		const thumb = await page.locator('#bt-strip .bt-card').first().boundingBox();
+
+		assert.ok(thumb.width >= 50 && thumb.width <= 62, `a thumbnail is ${thumb.width} px wide`);
+
+		// The tray sits above the tab bar, clear of the Scan disc, at 360 px.
+		const fit = await page.evaluate(() => {
+			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+			const fill = rect('#bt-fill');
+			const disc = rect('.scan-disc');
+
+			return {fillClear: fill.left >= disc.right || fill.right <= disc.left, trayBottom: rect('#binder-tray').bottom, tabsTop: rect('.tabs').top, width: document.documentElement.scrollWidth};
+		});
+
+		assert.ok(fit.trayBottom <= fit.tabsTop + 1, 'the tray ends at the tab bar');
+		assert.ok(fit.fillClear, 'Fill the rest in order is beside the Scan disc');
+		assert.equal(fit.width, 360, 'nothing scrolls sideways');
+
+		// Pick c2; in the overview a page opens first.
+		await page.click('#bt-strip .bt-card[data-entry="c2"]');
+		assert.deepEqual(await tray(), ['c2*', 'c3']);
+		assert.equal(await page.locator('#bt-status').textContent(), 'Open a page, then tap a pocket');
+		await openPage(page, 1);
+		assert.equal(await page.locator('#bt-status').textContent(), 'Tap a pocket for Test Charmander');
+		await page.screenshot({path: '/tmp/binders-tray-picked.png'});
+		await pocket(page, 2).click();
+		await waitForKind(page, 2, 'card');
+		await page.waitForFunction(() => document.querySelector('#bt-strip .bt-card[aria-pressed="true"]')?.dataset.entry === 'c3');
+		assert.deepEqual(await tray(), ['c3*'], 'the next card is picked');
+		assert.equal(await page.locator('#pocket-sheet[open]').count(), 0, 'placing does not open the picker');
+
+		// Onto a card: they swap, and the card that was there is picked next.
+		await pocket(page, 1).click();
+		await page.waitForFunction(() => document.querySelector('#bt-strip .bt-card[aria-pressed="true"]')?.dataset.entry === 'c1');
+		assert.deepEqual(await tray(), ['c1*']);
+		assert.deepEqual((await saved()).slots.map((slot) => [slot.position, slot.entry_id]), [[1, 'c3'], [2, 'c2']]);
+
+		// Unpicked, a pocket opens its sheet, and a card can go back to the tray.
+		await page.click('#bt-strip .bt-card[data-entry="c1"]');
+		assert.deepEqual(await tray(), ['c1']);
+		await pocket(page, 2).click();
+		await page.waitForSelector('#pocket-sheet[open]');
+		await page.click('#pocket-to-tray');
+		await waitForKind(page, 2, 'open');
+		await page.waitForFunction(() => document.querySelectorAll('#bt-strip .bt-card').length === 2);
+		assert.deepEqual(await tray(), ['c1', 'c2']);
+
+		// Fill the rest in order: the open pockets, in reading order.
+		await page.click('#bt-fill');
+		await page.waitForSelector('#binder-tray[hidden]', {state: 'attached'});
+		assert.equal(await page.locator('#bt-note').textContent(), '2 cards placed in order.');
+		assert.deepEqual((await saved()).slots.map((slot) => [slot.page, slot.position, slot.entry_id]), [[1, 1, 'c3'], [1, 2, 'c1'], [1, 3, 'c2']]);
+		assert.deepEqual((await saved()).staged, []);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the tray: drag a card onto a pocket where the pages are directly editable, and sideways it is a column beside them', async () => {
+		const binder = binderOf('b-drag', {created_at: AT, name: 'Drag binder', page_count: 4, staged: ['c2', 'c3'], updated_at: AT});
+
+		// A laptop with a mouse.
+		const desk = await browser.newContext({serviceWorkers: 'block', viewport: {height: 800, width: 1280}});
+
+		await fakeServices(desk, {search: 0, single: 0}, {offline: false});
+		await desk.route('https://*.supabase.co/**', (route) => route.abort());
+
+		const page = await desk.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err));
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-spread[data-mode="direct"] .bs-page');
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+
+		const from = await page.locator('#bt-strip .bt-card[data-entry="c3"]').boundingBox();
+		const to = await page.locator(pocketAt(5, 1)).boundingBox();
+
+		await page.mouse.move(from.x + (from.width / 2), from.y + (from.height / 2));
+		await page.mouse.down();
+		await page.mouse.move(from.x + (from.width / 2), from.y - 40, {steps: 4});
+		await page.mouse.move(to.x + (to.width / 2), to.y + (to.height / 2), {steps: 8});
+		assert.equal(await page.locator('.bs-pocket.bt-over').count(), 1, 'the pocket under the card is marked');
+		await page.mouse.up();
+		await waitForKind(page, 5, 'card', 1);
+		assert.deepEqual((await localDoc(page)).binders[0].staged, ['c2']);
+		assert.equal(await page.locator('.bt-ghost').count(), 0);
+		assert.deepEqual(errors, []);
+		await desk.close();
+
+		// A phone held sideways: the tray is a column beside the spread, and
+		// the spread still clears the tab bar and the Scan disc.
+		const side = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport: {height: 390, width: 844}});
+
+		await fakeServices(side, {search: 0, single: 0}, {offline: false});
+		await side.route('https://*.supabase.co/**', (route) => route.abort());
+
+		const phone = await side.newPage();
+
+		await seedLocal(phone, documentWith(CARDS, [binder]), RECORDS);
+		await phone.goto(url(`binders/${binder.id}`));
+		await phone.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		await phone.waitForFunction(() => Math.abs(document.getElementById('binder-spread').getBoundingClientRect().top - 4) < 2, null, {timeout: 5000});
+
+		const box = await phone.evaluate(() => {
+			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
+
+			return {book: rect('#bs-book'), disc: rect('.scan-disc'), next: rect('#bs-next'), tabs: rect('.tabs'), tray: rect('#binder-tray')};
+		});
+
+		assert.ok(box.tray.left >= box.next.right, 'the tray is beside the spread and its arrow');
+		assert.ok(box.tray.bottom <= box.tabs.top, 'the tray ends above the tab bar');
+		assert.ok(box.book.bottom <= box.disc.top, 'the spread clears the Scan disc');
+		await phone.screenshot({path: '/tmp/binders-tray-landscape.png'});
+		await side.close();
+	});
+
 	test('a binder made signed in syncs, and a family member sees it read only', async () => {
 		const {FakeSupabase} = await import('./fake-supabase.mjs');
 		const fake = new FakeSupabase();
