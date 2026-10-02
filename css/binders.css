@@ -355,7 +355,8 @@
 	background: rgba(0, 0, 0, 0.45);
 }
 
-.sheet-head {
+/* The pocket sheet's own head; the shell's sheets keep style.css's. */
+.pocket-sheet .sheet-head {
 	align-items: center;
 	display: flex;
 	gap: 8px;
@@ -363,7 +364,7 @@
 	margin-bottom: 8px;
 }
 
-.sheet-head h3 {
+.pocket-sheet .sheet-head h3 {
 	margin: 0;
 }
 

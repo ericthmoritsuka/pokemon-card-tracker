@@ -475,6 +475,8 @@ describe('family view-only mode', () => {
 		await page.waitForSelector('#owner-sheet[open]');
 		await page.waitForTimeout(300);
 		assert.deepEqual(await page.locator('#owner-sheet .owner-name').allTextContents(), ['Mine', 'Eric\'s']);
+		// The binder pocket sheet's head rule stays on its own sheet.
+		assert.equal(await page.locator('#owner-sheet .sheet-head').evaluate((el) => getComputedStyle(el).columnGap), '12px');
 		await page.screenshot({path: '/tmp/shell-owner-sheet-light.png'});
 		await page.click(`#owner-sheet .owner-option[data-member="${owner.id}"]`);
 		await page.waitForSelector('#family-strip');
