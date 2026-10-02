@@ -216,6 +216,53 @@ describe('signed out', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('two tabs signed out keep each other\'s edits, and each shows the other\'s', async () => {
+		const {context, errors, page: tabA} = await device(null, 'phone');
+
+		await seedLocal(tabA, documentWith(syntheticEntries(30)));
+		await tabA.waitForSelector('.tile');
+
+		const tabB = await context.newPage();
+		const errorsB = [];
+
+		tabB.on('pageerror', (err) => errorsB.push(err));
+		await tabB.goto(url('cards'));
+		await tabB.waitForFunction(() => /^30 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+
+		// A adds a card, then B, which loaded before A's edit, adds another
+		// and deletes one; A then edits a card B never touched.
+		const cardA = await addCard(tabA, {card_id: 'tst1-001', catalog: 'international', language: 'en', language_source: 'manual'});
+
+		await tabB.waitForFunction(() => /^31 copies/.test(document.getElementById('cards-summary').textContent), null, {timeout: 5000});
+
+		const cardB = await addCard(tabB, {card_id: 'tst2-002', catalog: 'international', language: 'pt', language_source: 'manual'});
+
+		await tabB.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).deleteCard('e-00004'));
+		await tabA.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).updateCard('e-00005', {notes: 'from tab A'}));
+		await tabA.waitForFunction(() => /^31 copies/.test(document.getElementById('cards-summary').textContent), null, {timeout: 5000});
+
+		// What both tabs hold, and what is stored, after a reload.
+		for (const tab of [tabA, tabB]) {
+			const doc = await localDoc(tab);
+			const byId = new Map(doc.cards.map((card) => [card.id, card]));
+
+			assert.ok(byId.has(cardA.id) && byId.has(cardB.id), 'both new cards are held');
+			assert.ok(byId.get('e-00004').deleted_at, 'the delete is held');
+			assert.equal(byId.get('e-00005').notes, 'from tab A');
+		}
+
+		await tabA.reload();
+		await tabA.waitForFunction(() => /^31 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
+
+		const stored = await localDoc(tabA);
+
+		assert.equal(liveCount(stored), 31);
+		assert.ok(stored.cards.some((card) => card.id === cardA.id));
+		assert.ok(stored.cards.some((card) => card.id === cardB.id));
+		assert.deepEqual([...errors, ...errorsB], []);
+		await context.close();
+	});
 });
 
 describe('source names', () => {

@@ -221,6 +221,12 @@ one and the newest non-empty note; the others become tombstones with `merged_int
 not derived from its fields, because an edit can change the language or finish. *(Decided
 2026-10-02, Eric's audit fixes.)*
 
+**Two tabs on one phone merge like two phones.** Every save re-reads the stored document in the
+same IndexedDB transaction and, when another tab wrote since, merges into it entry by entry
+before writing; a BroadcastChannel then tells the other tabs, which merge the stored document into
+theirs so they show the change. Signed out, one tab's edit no longer erases another's. *(Decided
+2026-10-02, Eric's audit fixes.)*
+
 **Bucket files outlive their removal by 14 days.** A removed photo or binder cover leaves the
 phone at once, but its file in the bucket is deleted only after a 14-day grace period, once the
 server holds the version that removed it, and only while no live entry or binder still shows it

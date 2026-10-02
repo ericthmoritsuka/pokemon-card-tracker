@@ -6,7 +6,8 @@
 //
 // Every entry carries id, updated_at, and deleted_at, so the sync merges
 // entry by entry (js/merge.js): the newer updated_at wins, and a deletion
-// stays as a tombstone so an offline phone cannot bring a deleted card back.
+// stays as a tombstone that sticks, so an offline phone cannot bring a
+// deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
 import {cardIndex} from './catalog.js';
 import {LISTS, mergeDocuments, nextStamp, sameContent} from './merge.js';
@@ -97,11 +98,125 @@ function normalize(doc) {
 	return doc;
 }
 
+// ------------------------------------------------------- tabs
+//
+// Two tabs of the app (or the installed app and a Chrome tab, which share
+// storage on Android) each hold the document in memory. Every save
+// therefore re-reads the stored document inside its own IndexedDB
+// transaction, and when another tab wrote since this one last read or
+// wrote, merges this tab's version into it entry by entry (js/merge.js)
+// before writing; then it tells the other tabs through a BroadcastChannel,
+// and they merge the stored document into theirs so they show the change.
+// A save writes a fresh revision id beside the document, so "another tab
+// wrote" is one comparison and the common case costs no merge. Signed in,
+// the sync merges with the server as before.
+
+const REV_KEY = 'local:rev';
+const CHANNEL = 'card-tracker-collection';
+
+let knownRev = null;
+let knownStamp = null;
+let channel = null;
+
+// Reads the stored document and its revision in one transaction.
+async function readStored() {
+	const db = await openDb();
+
+	return new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE, 'readonly');
+		const docRequest = tx.objectStore(STORE).get(LOCAL_PERSON);
+		const revRequest = tx.objectStore(STORE).get(REV_KEY);
+
+		tx.oncomplete = () => resolve({rev: revRequest.result ?? null, stored: docRequest.result || null});
+		tx.onerror = () => reject(tx.error);
+		tx.onabort = () => reject(tx.error);
+	});
+}
+
+const changedElsewhere = (stored, rev) => Boolean(stored) && (rev !== knownRev || stored.updated_at !== knownStamp);
+
+// Puts `next`'s content into `doc`, the object every view and edit holds.
+function replaceContent(doc, next) {
+	for (const key of Object.keys(doc)) {
+		delete doc[key];
+	}
+
+	Object.assign(doc, next);
+}
+
+// Merges the stored version into `doc` in place, entry by entry. The
+// stored version names the account when this tab's does not yet (another
+// tab signed in).
+function absorb(doc, stored) {
+	const merged = mergeDocuments(doc, stored);
+
+	for (const key of Object.keys(merged)) {
+		if (key !== 'user_id' && key !== 'person') {
+			doc[key] = merged[key];
+		}
+	}
+
+	doc.user_id = doc.user_id || stored.user_id || null;
+	normalize(doc);
+}
+
+const notify = (doc, source) => listeners.forEach((listener) => listener(doc, {source}));
+
+// Another tab saved: merge what it stored into this tab's document, so the
+// screen shows it. When the other tab switched to another account, this tab
+// follows. Returns true when anything was taken in.
+async function refreshFromStore() {
+	if (!current) {
+		return false;
+	}
+
+	const {rev, stored} = await readStored();
+
+	if (!changedElsewhere(stored, rev)) {
+		return false;
+	}
+
+	const doc = current;
+	let source = 'tab';
+
+	if (doc.user_id && stored.user_id !== doc.user_id) {
+		replaceContent(doc, normalize({...stored}));
+		source = 'account';
+	}
+	else {
+		absorb(doc, stored);
+	}
+
+	knownRev = rev;
+	knownStamp = stored.updated_at;
+	notify(doc, source);
+
+	return true;
+}
+
+function listenToTabs() {
+	if (channel || typeof BroadcastChannel !== 'function') {
+		return;
+	}
+
+	channel = new BroadcastChannel(CHANNEL);
+	channel.onmessage = () => {
+		refreshFromStore().catch(() => {
+			// The next save merges with the stored document anyway.
+		});
+	};
+}
+
 export async function loadDocument() {
 	if (!current) {
-		const stored = await idb('readonly', (store) => store.get(LOCAL_PERSON));
+		const {rev, stored} = await readStored();
 
-		current = normalize(stored || emptyDocument());
+		if (!current) {
+			current = normalize(stored || emptyDocument());
+			knownRev = rev;
+			knownStamp = stored ? stored.updated_at : null;
+			listenToTabs();
+		}
 	}
 
 	return current;
@@ -109,12 +224,68 @@ export async function loadDocument() {
 
 // source is 'local' for the person's own edits, 'sync' for entries merged in
 // from the server, and 'account' when the document changes hands. Only
-// 'local' saves are pushed.
-async function saveDocument(doc, source = 'local') {
-	doc.updated_at = nowIso();
-	await idb('readwrite', (store) => store.put(doc, LOCAL_PERSON));
+// 'local' saves are pushed. Other tabs see the change with source 'tab'.
+// replace: write this document as it is, never merged with the stored one
+// (only for a switch of account).
+async function saveDocument(doc, source = 'local', {replace = false} = {}) {
+	const rev = newId();
+	const db = await openDb();
+	let tookOver = false;
+
+	await new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE, 'readwrite');
+		const store = tx.objectStore(STORE);
+		const docRequest = store.get(LOCAL_PERSON);
+		const revRequest = store.get(REV_KEY);
+
+		// Requests in one transaction finish in order, so the document is read
+		// by now. Everything below is synchronous, inside the transaction, so
+		// no other tab can write in between.
+		revRequest.onsuccess = () => {
+			const stored = docRequest.result;
+
+			if (!replace && changedElsewhere(stored, revRequest.result ?? null)) {
+				if (doc.user_id && stored.user_id && stored.user_id !== doc.user_id) {
+					// Another tab switched accounts: this tab's version goes to
+					// its owner's stash, never into the other account, and this
+					// tab takes the stored document.
+					const key = `user:${doc.user_id}`;
+					const mine = {...doc};
+					const stash = store.get(key);
+
+					stash.onsuccess = () => store.put(stash.result ? mergeDocuments(mine, stash.result) : mine, key);
+					replaceContent(doc, normalize({...stored}));
+					tookOver = true;
+				}
+				else {
+					absorb(doc, stored);
+				}
+			}
+
+			doc.updated_at = nowIso();
+			store.put(doc, LOCAL_PERSON);
+			store.put(rev, REV_KEY);
+			knownRev = rev;
+			knownStamp = doc.updated_at;
+		};
+
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => {
+			knownRev = null;
+			reject(tx.error);
+		};
+		tx.onabort = () => {
+			knownRev = null;
+			reject(tx.error);
+		};
+	});
+
 	current = doc;
-	listeners.forEach((listener) => listener(doc, {source}));
+	notify(doc, tookOver ? 'account' : source);
+
+	if (channel) {
+		channel.postMessage({rev});
+	}
 }
 
 // listener(doc, {source}) runs after every save. Returns the unsubscribe
@@ -156,6 +327,9 @@ export async function mergeIntoLocal(other) {
 export async function useAccount(userId) {
 	const doc = await loadDocument();
 
+	// Another tab may have signed in or switched accounts already.
+	await refreshFromStore().catch(() => {});
+
 	if (doc.user_id === userId) {
 		return {adopted: false};
 	}
@@ -179,7 +353,7 @@ export async function useAccount(userId) {
 	}
 
 	Object.assign(doc, next);
-	await saveDocument(doc, 'account');
+	await saveDocument(doc, 'account', {replace: true});
 
 	if (stashed) {
 		await idb('readwrite', (store) => store.delete(`user:${userId}`));
