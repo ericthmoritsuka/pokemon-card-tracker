@@ -631,16 +631,43 @@ describe('the cover image', () => {
 		assert.notEqual(status, 200);
 	});
 
-	test('taking the image away shows the color and deletes the old file', async () => {
+	test('taking the image away shows the color and queues the old file\'s delete', async () => {
 		const {page} = phone;
-		const path = await page.evaluate(() => window.H.binder().cover_image.path);
+		const {id, path} = await page.evaluate(() => window.H.binder().cover_image);
 
 		await page.click('#h-cover');
 		await page.click('#bc-remove');
 		await page.waitForFunction(() => !document.getElementById('binder-spread').dataset.coverImage && !window.H.binder().cover_image);
 		await page.waitForFunction(() => !document.getElementById('h-list-cover').dataset.coverImage);
-		await page.waitForTimeout(300);
-		assert.equal(fake.objects.has(path), false, 'the old cover is gone from the bucket');
+
+		// The phone's copy goes at once; the bucket's waits for the 14-day
+		// grace period (js/photos/model.js bucketDeleteState), for phones that
+		// may still show it.
+		const state = await page.evaluate(async (imageId) => {
+			const {localCover} = await import('/pokemon-card-tracker/js/binder-cover.js');
+			const queue = await new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-binder-covers', 1);
+
+				open.onsuccess = () => {
+					const request = open.result.transaction('queue', 'readonly').objectStore('queue').getAll();
+
+					request.onsuccess = () => {
+						open.result.close();
+						resolve(request.result);
+					};
+					request.onerror = () => reject(request.error);
+				};
+				open.onerror = () => reject(open.error);
+			});
+
+			return {local: Boolean(await localCover(imageId)), queue};
+		}, id);
+		const row = state.queue.find((item) => item.op === 'delete' && item.path === path);
+
+		assert.equal(state.local, false, 'the phone\'s copy is gone');
+		assert.ok(row, 'the bucket delete is queued');
+		assert.equal((row.not_before - row.at) / (24 * 60 * 60 * 1000), 14);
+		assert.ok(fake.objects.has(path), 'the bucket keeps it during the grace period');
 		assert.deepEqual(phone.errors, []);
 	});
 });

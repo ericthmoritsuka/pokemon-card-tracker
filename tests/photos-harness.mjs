@@ -207,6 +207,7 @@ export const HARNESS_HTML = `<!doctype html>
 	import {applyHomography, solveHomography} from '${BASE}js/photos/geometry.js';
 	import {SWIPE_EVENT, cardPhotos, isCarouselGesture, mainImage, photoSettingsCard, tileSrc, withMainPhoto} from '${BASE}js/photos/index.js';
 	import * as store from '${BASE}js/photos/store.js';
+	import * as sync from '${BASE}js/sync.js';
 
 	const counts = {carouselSwipes: 0, pageSwipes: 0, pagePointerMovesFromCarousel: 0};
 
@@ -413,8 +414,51 @@ export const HARNESS_HTML = `<!doctype html>
 		return {bytes: blob.size, height: bitmap.height, type: blob.type, width: bitmap.width};
 	}
 
+	// A removed photo's bucket file waits for a grace period and for the
+	// server to hold the removal (js/photos/model.js bucketDeleteState). This
+	// makes every waiting delete due, as if the grace period had passed, then
+	// syncs and flushes the queue.
+	async function expireDeletes() {
+		await new Promise((resolve, reject) => {
+			const open = indexedDB.open('card-tracker-photos', 1);
+
+			open.onsuccess = () => {
+				const tx = open.result.transaction('queue', 'readwrite');
+				const cursor = tx.objectStore('queue').openCursor();
+
+				cursor.onsuccess = () => {
+					const at = cursor.result;
+
+					if (at) {
+						if (at.value.op === 'delete') {
+							at.update({...at.value, not_before: Date.now() - 1});
+						}
+
+						at.continue();
+					}
+				};
+				tx.oncomplete = () => {
+					open.result.close();
+					resolve();
+				};
+				tx.onerror = () => reject(tx.error);
+			};
+			open.onerror = () => reject(open.error);
+		});
+		await sync.syncNow();
+		await store.flushQueue();
+	}
+
+	let syncing = false;
+
 	async function start() {
 		await restoreSession();
+
+		// The app starts the sync beside the photos (app.js startAccount).
+		if (!syncing) {
+			syncing = true;
+			sync.startSync();
+		}
 
 		const user = currentUser();
 
@@ -434,6 +478,7 @@ export const HARNESS_HTML = `<!doctype html>
 	window.H = {
 		counts,
 		drawTiles,
+		expireDeletes,
 		ids: () => ids,
 		listCards,
 		loadDocument,
@@ -442,6 +487,7 @@ export const HARNESS_HTML = `<!doctype html>
 		photoInfo,
 		start,
 		store,
+		sync,
 		user: () => currentUser(),
 	};
 

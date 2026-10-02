@@ -276,3 +276,78 @@ export function patchedPhotos(entry, photoId, patch) {
 
 	return photos.map((photo) => (photo && photo.id === photoId ? {...photo, ...patch} : photo));
 }
+
+// ------------------------------------------------------- bucket deletes
+
+// How long a removed photo or binder cover stays in the bucket after it is
+// removed, for other phones that may still show it (Eric, 2026-10-02).
+export const BUCKET_DELETE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Whether a queued delete of a bucket file may go now, for card photos
+// (js/photos/store.js) and binder covers (js/binder-cover.js) alike. The
+// phone's own copy is deleted at once; the bucket's waits, because another
+// phone may still show the file, or bring the photo or cover back.
+//
+// row: the queue row, {path, paths?, photo_id? | image_id?, list, entry_id,
+//      not_before, at}. list is 'cards' or 'binders', entry_id the entry
+//      or binder the file belonged to.
+// doc: the phone's document now.
+// serverHolds(list, id, updated_at): true when the server holds that
+//      version of the entry (js/sync.js).
+//
+// Returns:
+//   'cancel'  the photo or cover is live again, or a live entry or binder
+//             still shows the file: drop the delete;
+//   'go'      the grace period has passed and the server holds the version
+//             that removed it: delete the file;
+//   'wait'    anything else.
+export function bucketDeleteState(row, doc, serverHolds, now = Date.now(), graceMs = BUCKET_DELETE_GRACE_MS) {
+	const paths = new Set([row.path, ...(Array.isArray(row.paths) ? row.paths : [])].filter(Boolean));
+	const cards = (doc && Array.isArray(doc.cards) ? doc.cards : []).filter(Boolean);
+	const binders = (doc && Array.isArray(doc.binders) ? doc.binders : []).filter(Boolean);
+	let holder = null;
+
+	for (const card of cards) {
+		for (const photo of Array.isArray(card.photos) ? card.photos : []) {
+			const files = photo && photo.path ? [photo.path, photo.detail ? detailPath(photo.path, photo.detail.type) : null] : [];
+			const same = photo && ((row.photo_id && photo.id === row.photo_id) || files.some((file) => file && paths.has(file)));
+
+			if (!same) {
+				continue;
+			}
+
+			if (isLive(card) && isLive(photo)) {
+				return 'cancel';
+			}
+
+			if (photo.id === row.photo_id && (!holder || isLive(card))) {
+				holder = card;
+			}
+		}
+	}
+
+	for (const binder of binders) {
+		const cover = isLive(binder) ? binder.cover_image : null;
+
+		if (cover && ((row.image_id && cover.id === row.image_id) || (cover.path && paths.has(cover.path)))) {
+			return 'cancel';
+		}
+	}
+
+	const notBefore = Number.isFinite(row.not_before) ? row.not_before : (Number(row.at) || 0) + graceMs;
+
+	if (now < notBefore) {
+		return 'wait';
+	}
+
+	const list = row.list || (row.image_id ? 'binders' : 'cards');
+	const entry = list === 'cards'
+		? holder || cards.find((card) => card.id === row.entry_id)
+		: binders.find((binder) => binder.id === (row.entry_id || row.binder_id));
+
+	if (entry && !serverHolds(list, entry.id, entry.updated_at)) {
+		return 'wait';
+	}
+
+	return 'go';
+}

@@ -13,7 +13,11 @@
 //     owner's id first), so the owner and their family group can read it. A
 //     new picture gets a new id, so no cache ever serves an old cover.
 // Taken signed out or offline, it waits in an upload queue here and goes up
-// when there is signal and someone is signed in, as card photos do.
+// when there is signal and someone is signed in, as card photos do. A
+// replaced or deleted cover leaves the phone at once, but its bucket file
+// waits for the grace period and for the server to hold the binder version
+// that dropped it (js/photos/model.js bucketDeleteState), since another
+// phone may still show it.
 //
 //   pickCoverImage({binder})   the sheet: choose or take a picture, fit its
 //                              four corners, save; or take the image away
@@ -32,7 +36,8 @@ import {h} from './dom.js';
 import {detectCorners} from './photos/detect.js';
 import {decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './photos/encode.js';
 import {clampPoint, scaleCorners, warp} from './photos/geometry.js';
-import {PHOTO_BUCKET, photoExtension} from './photos/model.js';
+import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, photoExtension} from './photos/model.js';
+import {onSyncStatus, serverHolds} from './sync.js';
 
 const DB_NAME = 'card-tracker-binder-covers';
 const STORES = ['blobs', 'queue'];
@@ -105,7 +110,10 @@ export const localCover = async (imageId) => {
 	return row ? row.blob : null;
 };
 
-const saveLocal = (imageId, blob) => idb('blobs', 'readwrite', (s) => s.put({at: Date.now(), blob, type: blob.type}, imageId));
+// `path` is the image's bucket path (null until it is known); `mine` marks a
+// cover saved on this phone. The sweep below uses both to tell this
+// person's covers from a family member's.
+const saveLocal = (imageId, blob, {mine = false, path = null} = {}) => idb('blobs', 'readwrite', (s) => s.put({at: Date.now(), blob, mine, path, type: blob.type}, imageId));
 
 const urls = new Map();
 const fetching = new Map();
@@ -166,7 +174,7 @@ export function coverImageUrl(binder) {
 					throw error || new Error('No cover image there.');
 				}
 
-				await saveLocal(image.id, data).catch(() => {});
+				await saveLocal(image.id, data, {path: image.path}).catch(() => {});
 				failedAt.delete(image.id);
 
 				return remember(image.id, data);
@@ -276,6 +284,20 @@ export function flushCovers() {
 					continue;
 				}
 
+				// A delete waits for the grace period and the server; one whose
+				// cover is back on a live binder is dropped.
+				if (row.op === 'delete') {
+					const state = bucketDeleteState(row, doc, serverHolds, Date.now());
+
+					if (state === 'cancel') {
+						await idb('queue', 'readwrite', (s) => s.delete(row.key)).catch(() => {});
+					}
+
+					if (state !== 'go') {
+						continue;
+					}
+				}
+
 				try {
 					if (row.op === 'delete') {
 						const {error} = await client.storage.from(PHOTO_BUCKET).remove([row.path]);
@@ -361,8 +383,10 @@ const enqueue = (row) => idb('queue', 'readwrite', (s) => s.put({at: Date.now(),
 
 let started = false;
 
-// Flushes now, when the phone comes back online, and on sign-in. Safe to
-// call from every view that shows covers.
+// Flushes now, when the phone comes back online, on sign-in, and when a
+// sync finishes (a waiting delete may go once the server holds the binder
+// version that dropped the cover, and other phones' deletes are swept).
+// Safe to call from every view that shows covers.
 export function startCoverSync() {
 	if (started) {
 		return;
@@ -377,7 +401,50 @@ export function startCoverSync() {
 		failedAt.clear();
 		flushCovers();
 	});
-	flushCovers();
+
+	onSyncStatus(({phase}) => {
+		if (phase === 'synced') {
+			sweepCovers().catch(() => {}).then(() => flushCovers());
+		}
+	});
+	sweepCovers().catch(() => {}).then(() => flushCovers());
+}
+
+// Housekeeping (plans/audit-engineering.md E-21): drops this person's
+// cover pictures that no live binder of theirs shows any more, which
+// another phone deleted or replaced. A family member's covers kept here are
+// left alone, and so is anything a live binder still shows.
+export async function sweepCovers() {
+	const doc = await loadDocument();
+	const binders = (doc.binders || []).filter(Boolean);
+	const shown = new Set(binders.filter((binder) => !binder.deleted_at).map((binder) => coverImageOf(binder)).filter(Boolean).map((image) => image.id));
+	const ofDeleted = new Set(binders.filter((binder) => binder.deleted_at).map((binder) => coverImageOf(binder)).filter(Boolean).map((image) => image.id));
+	const db = await openDb();
+	const [keys, rows] = await new Promise((resolve, reject) => {
+		const tx = db.transaction('blobs', 'readonly');
+		const keyRequest = tx.objectStore('blobs').getAllKeys();
+		const rowRequest = tx.objectStore('blobs').getAll();
+
+		tx.oncomplete = () => resolve([keyRequest.result, rowRequest.result]);
+		tx.onerror = () => reject(tx.error);
+		tx.onabort = () => reject(tx.error);
+	});
+	let dropped = 0;
+
+	for (let i = 0; i < keys.length; i++) {
+		const row = rows[i] || {};
+		const mine = row.mine || (doc.user_id && row.path && String(row.path).split('/')[0] === doc.user_id);
+		// A cover saved this minute may not be on its binder yet; a deleted
+		// binder's cover never comes back.
+		const settled = !(Date.now() - Number(row.at) < 60 * 1000);
+
+		if (!shown.has(keys[i]) && (ofDeleted.has(keys[i]) || (mine && settled))) {
+			await forgetLocal(keys[i]).catch(() => {});
+			dropped++;
+		}
+	}
+
+	return dropped;
 }
 
 // Saves an encoded cover for a binder: on the phone at once, the record on
@@ -388,7 +455,7 @@ export async function saveCoverImage(binderId, blob, type = blob.type) {
 	const id = newId();
 	const image = {at: nowIso(), id, path: doc.user_id ? coverPath(doc.user_id, binderId, id, type) : null, type};
 
-	await saveLocal(id, blob);
+	await saveLocal(id, blob, {mine: true, path: image.path});
 	remember(id, blob);
 
 	const saved = await setCoverImage(binderId, image);
@@ -396,7 +463,7 @@ export async function saveCoverImage(binderId, blob, type = blob.type) {
 	await enqueue({binder_id: binderId, image_id: id, key: `upload:${id}`, op: 'upload', type, user_id: doc.user_id || null});
 
 	if (before) {
-		await dropOld(before);
+		await dropOld(before, binderId);
 	}
 
 	startCoverSync();
@@ -411,7 +478,7 @@ export async function removeCoverImage(binderId) {
 	const saved = await setCoverImage(binderId, null);
 
 	if (before) {
-		await dropOld(before);
+		await dropOld(before, binderId);
 	}
 
 	startCoverSync();
@@ -421,8 +488,9 @@ export async function removeCoverImage(binderId) {
 }
 
 // A deleted binder's cover: a waiting upload is dropped, the file's delete
-// from the bucket is queued (so offline it goes when there is signal, and
-// a failed try is retried as uploads are), and the phone's copy goes. Best
+// from the bucket is queued (it goes after the grace period, once the
+// server holds the deleted binder, and a failed try is retried as uploads
+// are), and the phone's copy goes. Best
 // effort: it never throws, since the binder is gone either way and a cover
 // left behind only takes space. Resolves true when there was a cover and it
 // was dropped.
@@ -434,7 +502,7 @@ export async function dropBinderCover(binder) {
 	}
 
 	try {
-		await dropOld(image);
+		await dropOld(image, binder.id);
 		startCoverSync();
 		flushCovers();
 
@@ -445,11 +513,23 @@ export async function dropBinderCover(binder) {
 	}
 }
 
-async function dropOld(image) {
+async function dropOld(image, binderId) {
 	await idb('queue', 'readwrite', (s) => s.delete(`upload:${image.id}`)).catch(() => {});
 
 	if (image.path) {
-		await enqueue({image_id: image.id, key: `delete:${image.id}`, op: 'delete', path: image.path, user_id: image.path.split('/')[0]});
+		const at = Date.now();
+
+		await enqueue({
+			at,
+			entry_id: binderId || null,
+			image_id: image.id,
+			key: `delete:${image.id}`,
+			list: 'binders',
+			not_before: at + BUCKET_DELETE_GRACE_MS,
+			op: 'delete',
+			path: image.path,
+			user_id: image.path.split('/')[0],
+		});
 	}
 
 	await forgetLocal(image.id).catch(() => {});

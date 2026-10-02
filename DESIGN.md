@@ -221,6 +221,16 @@ one and the newest non-empty note; the others become tombstones with `merged_int
 not derived from its fields, because an edit can change the language or finish. *(Decided
 2026-10-02, Eric's audit fixes.)*
 
+**Bucket files outlive their removal by 14 days.** A removed photo or binder cover leaves the
+phone at once, but its file in the bucket is deleted only after a 14-day grace period, once the
+server holds the version that removed it, and only while no live entry or binder still shows it
+(`bucketDeleteState` in `js/photos/model.js`). Another phone that still shows the file, or brings
+the photo back, never points at a missing file. After every sync each phone also sweeps its own
+storage: photos of deleted cards and removed photos, and its owner's covers that no live binder
+shows, leave the phone, and a deleted card's photos are queued for the same delayed bucket delete.
+Family members' files kept on the phone are never swept. *(Decided 2026-10-02, Eric's audit
+fixes.)*
+
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
 pocket, and history, and the screen groups them back into one tile with a `×3` badge. Two offline

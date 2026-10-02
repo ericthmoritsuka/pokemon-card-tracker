@@ -959,7 +959,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await ownerDevice.context.close();
 	});
 
-	test('deleting a binder deletes its cover image from the bucket, and offline it waits for signal', async () => {
+	test('deleting a binder deletes its cover image from the bucket after the grace period, and offline it waits for signal', async () => {
 		const {FakeStorageSupabase} = await import('./photos-fake-storage.mjs');
 		const fake = new FakeStorageSupabase();
 		const owner = fake.addUser('owner@example.test');
@@ -1009,12 +1009,112 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.ok(fake.objects.has(image.path), 'offline, the file waits in the bucket');
 		assert.equal(fake.storageLog('remove').length, 0);
 
-		// Back online, the queued delete goes.
+		// Back online, the deleted binder syncs, but the file stays in the
+		// bucket for the 14-day grace period, for phones that still show it.
 		await context.setOffline(false);
+		await waitForStatus(page, 'Synced');
+
+		const covers = (op) => page.evaluate((change) => new Promise((resolve, reject) => {
+			const open = indexedDB.open('card-tracker-binder-covers', 1);
+
+			open.onsuccess = () => {
+				const tx = open.result.transaction('queue', 'readwrite');
+				const store = tx.objectStore('queue');
+				const rows = store.getAll();
+
+				tx.oncomplete = () => {
+					open.result.close();
+					resolve(rows.result);
+				};
+				tx.onerror = () => reject(tx.error);
+
+				if (change) {
+					// As if the grace period had passed.
+					rows.onsuccess = () => rows.result.forEach((row) => store.put({...row, not_before: Date.now() - 1}, row.key));
+				}
+			};
+			open.onerror = () => reject(open.error);
+		}), op);
+		const flush = () => page.evaluate(async () => (await import('/pokemon-card-tracker/js/binder-cover.js')).flushCovers());
+		const [waiting] = await covers(false);
+
+		assert.equal(waiting.op, 'delete');
+		assert.equal(waiting.entry_id, binder.id);
+		assert.equal((waiting.not_before - waiting.at) / (24 * 60 * 60 * 1000), 14);
+		await flush();
+		assert.ok(fake.objects.has(image.path), 'the grace period has not passed');
+		assert.equal(fake.storageLog('remove').length, 0);
+
+		// After the grace period, with the server holding the deleted binder,
+		// the delete goes.
+		await covers(true);
+		await flush();
 		await until(() => !fake.objects.has(image.path));
 		assert.equal(fake.storageLog('remove').length, 1);
+		assert.deepEqual(await covers(false), []);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+
+	test('another phone drops a deleted binder\'s cover from its storage at its next sync', async () => {
+		const {FakeStorageSupabase} = await import('./photos-fake-storage.mjs');
+		const fake = new FakeStorageSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const binder = binderOf('b-elsewhere', {created_at: AT, name: 'Shared binder', page_count: 2, updated_at: AT});
+		const phone = await device(fake, 'phone');
+		const tablet = await device(fake, 'tablet');
+
+		await seedLocal(phone.page, documentWith(CARDS, [binder]), RECORDS);
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+
+		const image = await phone.page.evaluate(async (binderId) => {
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 80;
+			canvas.getContext('2d').fillRect(0, 0, 60, 80);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+			const {saveCoverImage} = await import('/pokemon-card-tracker/js/binder-cover.js');
+
+			return (await saveCoverImage(binderId, blob, 'image/webp')).cover_image;
+		}, binder.id);
+
+		await until(() => fake.objects.has(image.path));
+		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/sync.js')).syncNow());
+
+		// The tablet shows the cover, so it keeps a copy.
+		await signIn(tablet.page, fake, owner.email);
+		await waitForStatus(tablet.page, 'Synced');
+		await tablet.page.goto(url(`binders/${binder.id}`));
+		await tablet.page.waitForFunction(() => document.getElementById('binder-spread')?.dataset.coverImage === 'true');
+
+		const tabletCover = () => tablet.page.evaluate(async (id) => Boolean(await (await import('/pokemon-card-tracker/js/binder-cover.js')).localCover(id)), image.id);
+
+		assert.equal(await tabletCover(), true);
+
+		// The phone deletes the binder; the tablet's next sync drops its copy.
+		await phone.page.goto(url(`binders/${binder.id}`));
+		await phone.page.waitForSelector('#delete-binder');
+		phone.page.once('dialog', (dialog) => dialog.accept());
+		await phone.page.click('#delete-binder');
+		await phone.page.waitForURL(/\/binders$/);
+		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/sync.js')).syncNow());
+		assert.ok(fake.documents.get(owner.id).doc.binders.find((item) => item.id === binder.id).deleted_at, 'the server holds the delete');
+		await tablet.page.evaluate(async () => (await import('/pokemon-card-tracker/js/sync.js')).syncNow());
+
+		const end = Date.now() + 10000;
+
+		while (await tabletCover() && Date.now() < end) {
+			await tablet.page.waitForTimeout(100);
+		}
+
+		assert.equal(await tabletCover(), false, 'the tablet\'s copy is gone');
+		assert.ok(fake.objects.has(image.path), 'the bucket keeps it for the grace period');
+		assert.deepEqual([...phone.errors, ...tablet.errors], []);
+		await phone.context.close();
+		await tablet.context.close();
 	});
 });

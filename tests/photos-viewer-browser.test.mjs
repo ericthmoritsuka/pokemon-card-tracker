@@ -635,6 +635,11 @@ for (const [name, viewport] of [['portrait', {height: 740, width: 360}], ['lands
 			page.once('dialog', (dialog) => dialog.accept());
 			await page.click('.ph-full-remove');
 			await page.waitForFunction(() => document.querySelectorAll('.ph-carousel .ph-slide').length === 1);
+
+			// The bucket's files wait for the grace period (js/photos/model.js
+			// bucketDeleteState); the harness lets it pass.
+			await until(page, async () => (await window.H.store.queuedItems()).some((row) => row.op === 'delete' && row.paths.length === 2));
+			await page.evaluate(() => window.H.expireDeletes());
 			await until(page, async () => (await window.H.store.queuedItems()).length === 0);
 			assert.equal(fake.objects.has(photo.path), false, 'the photo is gone from the bucket');
 			assert.equal(fake.objects.has(detailPath), false, 'and so is its detail copy');
