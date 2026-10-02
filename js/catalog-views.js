@@ -27,6 +27,8 @@ import {cardNames, hasOwnNames} from './names.js';
 import {copyPriceText, priceSection, statsBar} from './price-view.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos} from './photos/index.js';
+import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
+import {twinConfirm} from './twins-view.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -113,6 +115,19 @@ export function originalLine({english, original, reading}) {
 }
 
 export const mainName = (names) => names.english || names.original;
+
+// The names with a confident or confirmed international twin's English name
+// (js/twins.js), for a Japanese Trainer or Energy that js/names.js has no
+// English name for. item is {card_id, catalog}.
+export function withTwinName(names, item) {
+	if (names.english) {
+		return names;
+	}
+
+	const english = twinName(item);
+
+	return english ? {...names, english} : names;
+}
 
 // A tile's name: the main name, and the original line under it. lang is
 // the language the original is written in.
@@ -635,6 +650,15 @@ export function cardView(root, {lang, cardId}) {
 	const position = cardPosition(route);
 	const swipe = cardSwipe(root, route);
 	const photos = cardPhotos({cardId, catalog: catalogFor(lang)});
+	// A Japanese print's international twin: its image joins the carousel,
+	// its English name leads for a Trainer or Energy, and the picker asks
+	// when the matcher was unsure (js/twins.js, js/twins-view.js).
+	const twinItem = {card_id: cardId, catalog: catalogFor(lang)};
+	const twin = twinConfirm({cardId, catalog: catalogFor(lang)});
+	const twinShown = () => JSON.stringify([twinSlides(twinItem), twinName(twinItem)]);
+	let twinDrawn = null;
+	const twinChanged = (key) => alive && current && (!key || key === twinKey(twinItem)) && twinShown() !== twinDrawn && draw(current);
+	const stopTwins = onTwinsChange(twinChanged);
 	const back = link('sets', {class: 'back'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
 	const body = h('div', {class: 'card-detail'},
 		h('div', {class: 'card-hero'}, h('div', {class: 'art loading hero-art', 'aria-hidden': 'true'}))
@@ -662,6 +686,7 @@ export function cardView(root, {lang, cardId}) {
 	function draw(card) {
 		current = card;
 		render(card);
+		twin.check(card);
 		drawCopies(card, Array.isArray(card.variants_detailed) ? card.variants_detailed : []);
 		drawLiga(card);
 	}
@@ -669,12 +694,12 @@ export function cardView(root, {lang, cardId}) {
 	// The names shown: English first for an Asian print, in the language the
 	// name is written in (a Korean copy's own name on a Japanese record).
 	const nameLang = () => (source && source.language) || lang;
-	const shownNames = (card) => namesFor({
+	const shownNames = (card) => withTwinName(namesFor({
 		category: card.category || null,
 		dexId: card.dexId || null,
 		lang: nameLang(),
 		name: (source && source.name) || card.name,
-	}, redrawNames);
+	}, redrawNames), twinItem);
 
 	let current = null;
 
@@ -694,7 +719,9 @@ export function cardView(root, {lang, cardId}) {
 		const setName = (source && source.setName) || set.name;
 		const info = {name, number: card.localId, setName};
 		const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : null;
+		const twins = twinSlides(twinItem);
 
+		twinDrawn = twinShown();
 		document.title = `${name} | Card Tracker`;
 
 		if (set.id) {
@@ -713,7 +740,7 @@ export function cardView(root, {lang, cardId}) {
 		// variants section is filtered out when there is none.
 		body.replaceChildren(...[
 			h('div', {class: 'card-hero'},
-				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high')})),
+				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high'), twins})),
 				h('div', {class: 'hero-facts'},
 					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name),
 					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
@@ -726,6 +753,7 @@ export function cardView(root, {lang, cardId}) {
 					)
 				)
 			),
+			twin.element,
 			priceSlot,
 			copies,
 			variants && variants.length
@@ -976,6 +1004,9 @@ export function cardView(root, {lang, cardId}) {
 
 	root.append(h('div', {class: 'card-top'}, back, swipe.line), body, ...[swipe.element].filter(Boolean));
 	load();
+	// The twins saved on this phone load once a session; a card drawn before
+	// they are in is drawn again only when its twin then shows something.
+	loadTwins().then(() => twinChanged(null), () => {});
 
 	// A copy added, removed, or priced elsewhere (or arriving with a sync)
 	// redraws Your copies and the price.
@@ -989,6 +1020,8 @@ export function cardView(root, {lang, cardId}) {
 		alive = false;
 		stopWatching();
 		swipe.stop();
+		twin.destroy();
+		stopTwins();
 		photos.destroy();
 	};
 }

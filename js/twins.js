@@ -742,11 +742,13 @@ export function twinKey(item, catalog = null) {
 //             (js/catalog.js importApi, cache first, by default)
 //   store     idbStore() or memoryStore()
 //   now, wait the clock and the retry delay
+//   online    whether the device has a connection (navigator.onLine)
 export function createTwins({
 	concurrency = 4,
 	fetch: fetchFn = (...args) => globalThis.fetch(...args),
 	ja = {cardDetail: (id) => importApi.cardDetail('ja', id), setDetail: (id) => importApi.setDetail('ja', id)},
 	now = () => Date.now(),
+	online = () => !globalThis.navigator || globalThis.navigator.onLine !== false,
 	store = idbStore(),
 	wait = sleep,
 } = {}) {
@@ -756,6 +758,7 @@ export function createTwins({
 	const setCards = new Map();
 	let setList = null;
 	let indexCache = null;
+	let refreshing = Promise.resolve();
 
 	const changed = (key) => {
 		for (const listener of listeners) {
@@ -787,6 +790,10 @@ export function createTwins({
 						continue;
 					}
 
+					// No connection: refreshTwins stops there rather than
+					// waiting out the retries again for every card.
+					err.network = true;
+
 					throw err;
 				}
 
@@ -800,6 +807,7 @@ export function createTwins({
 					const err = new Error(`TCGdex answered ${response.status} for a GraphQL query.`);
 
 					err.status = response.status;
+					err.network = RETRY.has(response.status);
 
 					throw err;
 				}
@@ -1045,7 +1053,10 @@ export function createTwins({
 		|| ((saved.status === 'none' || saved.status === 'weak') && now() - saved.checked_at >= RECHECK_MS);
 
 	// The saved result, worked out first when due. A person's "none" decision
-	// stops the checks.
+	// stops the checks. A card already being worked out is not started
+	// again: card detail asks on every redraw.
+	const working = new Map();
+
 	async function ensureTwin(record, {catalog = 'ja', force = false, setDate = null} = {}) {
 		await loaded();
 
@@ -1059,15 +1070,30 @@ export function createTwins({
 			return twinState(key);
 		}
 
-		await findTwin(record, {catalog, setDate});
+		if (!working.has(key)) {
+			working.set(key, findTwin(record, {catalog, setDate}).finally(() => working.delete(key)));
+		}
+
+		await working.get(key);
 
 		return twinState(key);
 	}
 
 	// Brings every due Japanese card among items (entries or index records)
 	// up to date in the background, loading each record cache first.
-	// Returns how many were checked.
-	async function refreshTwins(items) {
+	// Returns how many were checked. Calls run one after another, so a view
+	// opened twice never checks the same card twice, and a run stops when
+	// the device is offline or TCGdex cannot be reached: the next call
+	// carries on from there.
+	function refreshTwins(items) {
+		const run = refreshing.then(() => refreshDue(items));
+
+		refreshing = run.catch(() => 0);
+
+		return run;
+	}
+
+	async function refreshDue(items) {
 		await loaded();
 
 		const keys = [...new Set(items.map((item) => twinKey(item)).filter((key) => key && key.startsWith('ja|')))];
@@ -1081,6 +1107,10 @@ export function createTwins({
 		// One card at a time: the requests inside are already four wide, and
 		// the cards of one set share their English data.
 		for (const key of todo) {
+			if (!online()) {
+				break;
+			}
+
 			try {
 				const record = await ja.cardDetail(key.slice(3));
 
@@ -1089,8 +1119,12 @@ export function createTwins({
 					checked++;
 				}
 			}
-			catch {
-				// Offline or a TCGdex error: the next refresh tries again.
+			catch (err) {
+				// A TCGdex error for this card: the next refresh tries it
+				// again. Unreachable: stop until the next refresh.
+				if (err && err.network) {
+					break;
+				}
 			}
 		}
 

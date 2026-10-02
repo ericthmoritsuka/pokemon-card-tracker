@@ -261,7 +261,20 @@ export const logoImage = (base) => (base ? `${base}.webp` : null);
 // the import loaded opens offline in the catalog browser too.
 const MISSING_FOR_MS = 24 * 60 * 60 * 1000;
 
-async function fetchOnce(key, path) {
+// Callers asking for the same key at once (twins checking a card in the
+// background while a checklist opens) share one request instead of each
+// sending it; each still gets its own copy, so none can change another's.
+const inFlight = new Map();
+
+function fetchOnce(key, path) {
+	if (!inFlight.has(key)) {
+		inFlight.set(key, readOnce(key, path).finally(() => inFlight.delete(key)));
+	}
+
+	return inFlight.get(key).then((data) => (data && typeof data === 'object' ? structuredClone(data) : data));
+}
+
+async function readOnce(key, path) {
 	const hit = await cacheGet(key);
 
 	if (hit) {

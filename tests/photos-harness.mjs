@@ -40,8 +40,9 @@ export const INTEGRATION = {
 		import: 'import {cardPhotos} from \'./photos/index.js\';',
 		// In cardView, after const swipe = cardSwipe(root, route);
 		create: '\tconst photos = cardPhotos({cardId, catalog: catalogFor(lang)});',
-		// In render(), replacing the hero-art line.
-		art: '\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\')})),',
+		// In render(), replacing the hero-art line. twins is the
+		// international twin's slide (js/twins.js twinSlides), or none.
+		art: '\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\'), twins})),',
 		// In the returned cleanup, after alive = false;
 		destroy: '\t\tphotos.destroy();',
 	},
@@ -54,10 +55,11 @@ export const INTEGRATION = {
 		catalogSrc: '\t\tconst catalogSrc = local ? cardImage(local.image, \'low\') : null;',
 		// return cardTile({...}) becomes
 		wrap: '\t\treturn withMainPhoto(cardTile({',
-		// art.src becomes
-		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc),',
+		// art.src becomes (twins: the group's international twin slide,
+		// js/twins.js twinSlides)
+		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {twins: group.twins}),',
 		// and the call closes with
-		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src));',
+		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});',
 	},
 	app: {
 		// Among the imports, and in startAccount after startSync(); (and the

@@ -20,7 +20,7 @@ import {
 } from './catalog.js';
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
-import {mainName, namesFor, tileNames} from './catalog-views.js';
+import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {isLive, listCards, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -30,6 +30,7 @@ import {manualPrice} from './prices.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
 import {tileSrc, withMainPhoto} from './photos/index.js';
+import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -202,6 +203,15 @@ const SORT_KEY = 'cardTracker.cardsSort';
 const FILTER_KEY = 'cardTracker.cardsLanguage';
 const PAGE = 120;
 
+// How long My Cards gathers twins found in the background before drawing
+// them, so a refresh over hundreds of Japanese cards redraws a few times,
+// not once a card.
+const TWIN_REDRAW_MS = 1000;
+
+// What a group's international twin changes on its tile: the image and the
+// English name (js/twins.js). Empty until the twins are loaded.
+const twinShown = (twins, name) => (twins.length || name ? `${twins.map((twin) => twin.src).join(' ')}|${name || ''}` : '');
+
 // Card records the index lacks: cards synced from another device or held by
 // a family member, which this phone never imported. TCGdex card IDs are
 // "<set id>-<number>", so each set is read once, cache first, and a card
@@ -349,6 +359,8 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	// position it returns to is still there.
 	let shown = Math.max(PAGE, fromHistory('shown', PAGE));
 	let groups = [];
+	// The tiles drawn, by group key, so a twin can redraw just its own.
+	const tiles = new Map();
 	let entries = [];
 	let index = new Map();
 	// Full TCGdex records saved on the phone, for the tiles' US estimates.
@@ -424,24 +436,112 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 			const times = group.entries.map((entry) => String(entry.created_at)).sort();
 			// Asian prints: an English name first, the original under it.
 			const nameLang = source ? first.language : (local && local.lang) || base;
-			const names = namesFor({lang: nameLang, name: (source && source.name) || (local && local.name) || first.card_id}, redrawNames);
 
-			return {
+			return withTwin({
 				...group,
 				catalog: first.catalog,
 				cardId: first.card_id,
 				language: first.language,
 				local,
-				name: mainName(names),
 				nameLang,
-				names,
 				newest: times[times.length - 1],
 				oldest: times[0],
+				plainNames: namesFor({lang: nameLang, name: (source && source.name) || (local && local.name) || first.card_id}, redrawNames),
 				record,
 				recordKey: `${first.catalog}|${first.card_id}`,
 				setName: (source && source.setName) || (local && local.set_name) || null,
-			};
+				twinItem: {card_id: first.card_id, catalog: first.catalog},
+			});
 		});
+	}
+
+	// A group's names and images with its international twin (js/twins.js):
+	// the twin's image for the tile, and for a Japanese Trainer or Energy
+	// with no English name, the twin's.
+	function withTwin(group) {
+		const names = withTwinName(group.plainNames, group.twinItem);
+		const twins = twinSlides(group.twinItem, {size: 'low'});
+
+		return Object.assign(group, {name: mainName(names), names, twinShown: twinShown(twins, twinName(group.twinItem)), twins});
+	}
+
+	// Whether a group's twin would draw differently now.
+	const twinMoved = (group) => twinShown(twinSlides(group.twinItem, {size: 'low'}), twinName(group.twinItem)) !== group.twinShown;
+
+	// Redraws only the tiles whose twin changed, or the whole grid when the
+	// cards are sorted by name, since a new name can move a tile.
+	function applyTwins() {
+		const moved = groups.filter(twinMoved);
+
+		if (!moved.length) {
+			return;
+		}
+
+		moved.forEach(withTwin);
+
+		if (sort.value === 'name') {
+			draw();
+
+			return;
+		}
+
+		for (const group of moved) {
+			const old = tiles.get(group.key);
+
+			if (old && old.isConnected) {
+				const next = tile(group);
+
+				tiles.set(group.key, next);
+				old.replaceWith(next);
+			}
+		}
+	}
+
+	// A twin found or answered ("<catalog>|<card id>"): drawn a moment
+	// later, with any others found meanwhile, when it changes a tile here.
+	let twinTimer = null;
+
+	function twinsChanged(key) {
+		if (!alive || !groups.length || twinTimer) {
+			return;
+		}
+
+		if (!groups.some((group) => group.recordKey === key && twinMoved(group))) {
+			return;
+		}
+
+		twinTimer = setTimeout(() => {
+			twinTimer = null;
+
+			if (alive) {
+				applyTwins();
+			}
+		}, TWIN_REDRAW_MS);
+	}
+
+	// After the first paint: the twins saved on this phone, drawn when any
+	// tile shows one, then the due Japanese cards checked in the background.
+	// Neither holds up the tiles, and offline the saved ones still show. The
+	// timer inside the frame callback runs once that frame is painted, so a
+	// quick read of the twins cannot hold up the first one.
+	function startTwins() {
+		requestAnimationFrame(() => setTimeout(() => alive && loadTwinsNow(), 0));
+	}
+
+	function loadTwinsNow() {
+		loadTwins()
+			.then(() => {
+				if (!alive) {
+					return;
+				}
+
+				applyTwins();
+
+				return refreshTwins(entries);
+			})
+			.catch(() => {
+				// No twins this visit; the tiles are unchanged.
+			});
 	}
 
 	function sorted(list) {
@@ -492,13 +592,13 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 				finish: groupFinish(group.entries),
 				info,
 				languages: [group.language],
-				src: tileSrc(group.entries, catalogSrc),
+				src: tileSrc(group.entries, catalogSrc, {twins: group.twins}),
 				viewing,
 			},
 			meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
 			route: routeOf(group),
-		}), group.entries, catalogSrc, (src) => cardArt(info, src));
+		}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});
 	}
 
 	function draw() {
@@ -522,7 +622,14 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		const copies = visible.reduce((sum, group) => sum + group.entries.length, 0);
 
 		summary.textContent = `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
-		grid.replaceChildren(...visible.slice(0, shown).map(tile));
+		tiles.clear();
+		grid.replaceChildren(...visible.slice(0, shown).map((group) => {
+			const element = tile(group);
+
+			tiles.set(group.key, element);
+
+			return element;
+		}));
 		offerCardList(visible.map(routeOf), heading.textContent);
 		more.hidden = visible.length <= shown;
 		more.textContent = `Show more (${formatCount(visible.length - shown)} left)`;
@@ -631,6 +738,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 		draw();
 		drawStats();
 		fillViewingLanguage();
+		startTwins();
 
 		const filled = await fillMissingRecords(entries, index, () => alive);
 
@@ -645,6 +753,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	}
 
 	const stop = watch ? watch(() => alive && load()) : () => {};
+	const stopTwins = onTwinsChange(twinsChanged);
 	const heading = h('div', {class: 'view-head'}, h('h2', null, title));
 
 	root.append(heading, body);
@@ -653,5 +762,7 @@ function cardsScreen(root, {emptyText = null, load: loadEntries, readOnly = fals
 	return () => {
 		alive = false;
 		stop();
+		stopTwins();
+		clearTimeout(twinTimer);
 	};
 }

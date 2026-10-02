@@ -9,8 +9,68 @@
 // network during the test.
 //
 // ?card=<Japanese card id> picks which seeded card the block is for.
+//
+// INTEGRATION lists the lines that wire twins into the app, and
+// checkIntegration asserts that each one is in the real file, so a change
+// to a shared file that drops one fails tests/twins.test.mjs instead of
+// leaving the module unused.
 
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BASE = '/pokemon-card-tracker/';
+
+export const INTEGRATION = {
+	'index.html': [
+		// After the last stylesheet link, css/prices.css.
+		'\t<link rel="stylesheet" href="/pokemon-card-tracker/css/twins.css">',
+	],
+	'js/cards-view.js': [
+		'import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from \'./twins.js\';',
+		// Names and tile images in build() (through withTwin()) and tile().
+		'\t\tconst names = withTwinName(group.plainNames, group.twinItem);',
+		'\t\tconst twins = twinSlides(group.twinItem, {size: \'low\'});',
+		'\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {twins: group.twins}),',
+		'\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});',
+		// After the first build and draw in load(): loadTwins, then
+		// refreshTwins.
+		'\t\tstartTwins();',
+		'\tconst stopTwins = onTwinsChange(twinsChanged);',
+		'\t\tstopTwins();',
+	],
+	'js/catalog-views.js': [
+		'import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from \'./twins.js\';',
+		'import {twinConfirm} from \'./twins-view.js\';',
+		// cardView, after the photos setup.
+		'\tconst twin = twinConfirm({cardId, catalog: catalogFor(lang)});',
+		'\tconst stopTwins = onTwinsChange(twinChanged);',
+		'\t\ttwin.check(card);',
+		'\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\'), twins})),',
+		// Right after the card hero.
+		'\t\t\ttwin.element,',
+		'\t\ttwin.destroy();',
+		'\t\tstopTwins();',
+	],
+	'sw.js': [
+		'\t\'js/twins-view.js\',',
+		'\t\'js/twins.js\',',
+		'\t\'css/twins.css\',',
+	],
+};
+
+// Asserts that the real files carry every line in INTEGRATION.
+export async function checkIntegration() {
+	for (const [path, wanted] of Object.entries(INTEGRATION)) {
+		const lines = new Set((await readFile(join(ROOT, path), 'utf8')).split('\n'));
+
+		for (const line of wanted) {
+			assert.ok(lines.has(line), `${path} has: ${line.trim()}`);
+		}
+	}
+}
 
 export const HARNESS_PATH = `${BASE}twins-harness.html`;
 

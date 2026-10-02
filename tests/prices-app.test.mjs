@@ -137,7 +137,17 @@ describe('prices in the app', () => {
 		// one Ver na Liga, and none left in the hero facts.
 		await page.goto(url(`cards/en/${charizard.id}`));
 		await page.waitForSelector('#card-price .price');
-		assert.ok(await page.evaluate(() => document.querySelector('.card-hero').nextElementSibling.id === 'card-price'), 'the slot follows the hero');
+		// The international twin picker sits between them only when it has
+		// something to ask, and is hidden otherwise.
+		assert.ok(await page.evaluate(() => {
+			let next = document.querySelector('.card-hero').nextElementSibling;
+
+			while (next && next.classList.contains('tw-block') && next.hidden) {
+				next = next.nextElementSibling;
+			}
+
+			return Boolean(next) && next.id === 'card-price';
+		}), 'the slot follows the hero');
 		assert.equal(await page.locator('.card-detail a:has-text("Ver na Liga")').count(), 1);
 		assert.equal(await page.locator('#card-price a.price-liga-link').count(), 1);
 		assert.equal(await page.locator('.hero-facts a, .hero-facts .liga-none').count(), 0);

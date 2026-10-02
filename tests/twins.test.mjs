@@ -26,6 +26,7 @@ import {
 } from '../js/twins.js';
 
 import {CASES, ENGLISH} from './twins-fixtures.mjs';
+import {checkIntegration} from './twins-harness.mjs';
 
 const INDEX = englishIndex(ENGLISH);
 
@@ -253,16 +254,17 @@ function fakeJapanese(cases) {
 	};
 }
 
-function instance({failures = 0, sets = nearM4(), cases = ['M4-001', 'M4-107'], start = Date.parse('2026-10-01T12:00:00Z')} = {}) {
+function instance({cases = ['M4-001', 'M4-107'], failures = 0, fetch = null, online = () => true, sets = nearM4(), start = Date.parse('2026-10-01T12:00:00Z')} = {}) {
 	const tcgdex = fakeTcgdex(sets, {failures});
 	const japanese = fakeJapanese(cases);
 	const clock = {now: start};
 	const waits = [];
 	const store = memoryStore();
 	const twins = createTwins({
-		fetch: tcgdex.fetch,
+		fetch: fetch || tcgdex.fetch,
 		ja: japanese.ja,
 		now: () => clock.now,
+		online,
 		store,
 		wait: async (ms) => {
 			waits.push(ms);
@@ -373,6 +375,55 @@ describe('the data layer', () => {
 		assert.equal(checked, 2);
 		assert.ok(japanese.calls.includes('card M4-001') && japanese.calls.includes('card M4-107'));
 		assert.equal(await twins.refreshTwins([{card_id: 'M4-001', catalog: 'ja'}]), 0);
+	});
+
+	test('refreshTwins calls run one after another, so a card is checked once', async () => {
+		const items = [{card_id: 'M4-001', catalog: 'ja'}, {card_id: 'M4-107', catalog: 'ja'}];
+		const once = instance();
+
+		await once.twins.refreshTwins(items);
+
+		const {japanese, tcgdex, twins} = instance();
+		const counts = await Promise.all([twins.refreshTwins(items), twins.refreshTwins(items)]);
+
+		assert.deepEqual(counts, [2, 0]);
+		assert.deepEqual(japanese.calls, once.japanese.calls);
+		assert.equal(tcgdex.calls.length, once.tcgdex.calls.length);
+	});
+
+	test('ensureTwin asked again while it works a card out sends no more requests', async () => {
+		const once = instance();
+
+		await once.twins.ensureTwin(CASES['M4-001'].record);
+
+		const {tcgdex, twins} = instance();
+		const states = await Promise.all([twins.ensureTwin(CASES['M4-001'].record), twins.ensureTwin(CASES['M4-001'].record)]);
+
+		assert.equal(tcgdex.calls.length, once.tcgdex.calls.length);
+		assert.ok(states.every((state) => state.twin && state.twin.id === 'me04-001'));
+	});
+
+	test('refreshTwins stops offline, and when TCGdex cannot be reached', async () => {
+		const items = [{card_id: 'M4-001', catalog: 'ja'}, {card_id: 'M4-107', catalog: 'ja'}];
+		const offline = instance({online: () => false});
+
+		assert.equal(await offline.twins.refreshTwins(items), 0);
+		assert.deepEqual(offline.japanese.calls, []);
+
+		// The connection drops: the retries run out on the first card, and the
+		// second is left for the next refresh.
+		let fetches = 0;
+		const dropped = instance({fetch: async () => {
+			fetches++;
+
+			throw new TypeError('Failed to fetch');
+		}});
+
+		assert.equal(await dropped.twins.refreshTwins(items), 0);
+		assert.equal(fetches, 5);
+		assert.deepEqual(dropped.waits, [1000, 3000, 8000, 16000]);
+		assert.ok(!dropped.japanese.calls.includes('card M4-107'));
+		assert.equal(dropped.twins.twinState({card_id: 'M4-001', catalog: 'ja'}).status, null, 'nothing saved, so it stays due');
 	});
 
 	test('the helpers lend only a confident or confirmed twin, and the English name only for Trainers and Energy', async () => {
@@ -503,5 +554,11 @@ describe('the data layer', () => {
 		})));
 
 		assert.equal(peak, 4);
+	});
+});
+
+describe('the integration', () => {
+	test('card detail, My Cards, the stylesheet, and the shell carry the twins lines', async () => {
+		await checkIntegration();
 	});
 });
