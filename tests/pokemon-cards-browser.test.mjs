@@ -399,6 +399,36 @@ describe('every card of a Pokémon', () => {
 		await finishesRead(page);
 		assert.ok(await page.locator('#pc-finishes').isChecked(), 'the switch is remembered');
 		assert.equal(counts.cardsIn.en, 37, 'the records came from the phone');
+
+		// Leaving the screen and coming back finds the records kept for the
+		// session: no "Reading finishes", and a handful of draws rather than
+		// one per record.
+		await page.click('#pc-back');
+		await page.waitForSelector('.dex-row[data-dex="39"] a.dex-link');
+		await page.evaluate(() => {
+			window.pcDraws = 0;
+			window.pcStatuses = [];
+			new MutationObserver((changes) => {
+				for (const change of changes) {
+					if (change.target.id === 'pc-sections' && change.addedNodes.length) {
+						window.pcDraws++;
+					}
+
+					if (change.target.id === 'pc-status') {
+						window.pcStatuses.push(change.target.textContent);
+					}
+				}
+			}).observe(document.body, {childList: true, subtree: true});
+		});
+		await page.click('.dex-row[data-dex="39"] a.dex-link');
+		await waitForTitle(page, `Jigglypuff, 3 of ${INTERNATIONAL_FINISHES} finishes`, 40000);
+		await page.waitForTimeout(500);
+
+		const revisit = await page.evaluate(() => ({draws: window.pcDraws, statuses: window.pcStatuses}));
+
+		assert.ok(revisit.draws <= 8, `${revisit.draws} draws on a return visit`);
+		assert.ok(!revisit.statuses.some((text) => /Reading finishes/.test(text)), revisit.statuses.join(' | '));
+		assert.equal(counts.cardsIn.en, 37);
 		await page.click('label[for="pc-finishes"]');
 		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
 

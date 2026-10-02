@@ -36,8 +36,9 @@ import {
 	CATALOG_HEADINGS,
 	catalogsFor,
 	cardFinishes,
-	copiesByPrint,
+	copiesByPrintOnce,
 	dexFromParam,
+	knownRecord,
 	loadAsian,
 	loadInternational,
 	newestFirst,
@@ -343,6 +344,7 @@ function screen(root, source, listId, dexParam) {
 	let finishStep = null;
 	let loadStep = null;
 	let catalogRun = 0;
+	let frame = 0;
 
 	// catalog -> {prints, error, missingList, unreadSets}, absent while it
 	// loads; pending: catalog -> the run loading it.
@@ -565,12 +567,32 @@ function screen(root, source, listId, dexParam) {
 		return {cell, route};
 	}
 
+	// One draw per animation frame for what streams in (finish records,
+	// download progress): a Pokémon with hundreds of prints would otherwise
+	// rebuild the whole grid once per record. A tap still draws at once.
+	function drawSoon() {
+		if (!frame) {
+			frame = requestAnimationFrame(() => {
+				frame = 0;
+
+				if (alive) {
+					draw();
+				}
+			});
+		}
+	}
+
 	function draw() {
+		if (frame) {
+			cancelAnimationFrame(frame);
+			frame = 0;
+		}
+
 		if (!goal) {
 			return;
 		}
 
-		const owned = copiesByPrint(entries, namesLanguages(goal) ? listLanguages(goal) : null);
+		const owned = copiesByPrintOnce(entries, namesLanguages(goal) ? listLanguages(goal) : null);
 		const shown = catalogsFor(listLanguages(goal));
 		const allStates = [];
 		const routes = [];
@@ -627,6 +649,18 @@ function screen(root, source, listId, dexParam) {
 
 	async function loadFinishes() {
 		const run = ++finishRun;
+
+		// Records read earlier in this session, on this screen or another,
+		// come in at once, with one draw for all of them.
+		for (const print of shownPrints()) {
+			const key = printKey(print.catalog, print.cardId);
+			const known = records.has(key) ? undefined : knownRecord(print);
+
+			if (known) {
+				records.set(key, known);
+			}
+		}
+
 		const todo = shownPrints().filter((print) => !records.has(printKey(print.catalog, print.cardId)));
 
 		if (!todo.length) {
@@ -651,7 +685,7 @@ function screen(root, source, listId, dexParam) {
 
 				if (alive && run === finishRun) {
 					finishStep = {done, stage: 'finishes', total: todo.length};
-					draw();
+					drawSoon();
 				}
 			}
 		}));
@@ -692,7 +726,7 @@ function screen(root, source, listId, dexParam) {
 					onProgress: (step) => {
 						if (alive && pending.get(catalog) === run) {
 							loadStep = step;
-							draw();
+							drawSoon();
 						}
 					},
 				})
@@ -780,6 +814,12 @@ function screen(root, source, listId, dexParam) {
 	return () => {
 		alive = false;
 		finishRun++;
+
+		if (frame) {
+			cancelAnimationFrame(frame);
+			frame = 0;
+		}
+
 		stop();
 	};
 }
