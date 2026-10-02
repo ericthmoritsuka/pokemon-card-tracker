@@ -4,12 +4,14 @@
 // A grid offers its cards, in the order and with the filters on screen, with
 // offerCardList(). When a card in it is tapped, app.js calls
 // followCardLink(), and that list becomes the card page's context: a
-// position line ("12 of 1,359") with an arrow at each edge, a horizontal
-// swipe anywhere on the page except inside [data-swipe-own] (the image
-// carousel will carry it), and the arrow keys. A move replaces the history
-// entry, so Back returns to the list, where app.js restores the scroll
-// position. The context is kept for this tab in sessionStorage, so a reload
-// on a card page keeps it.
+// position line ("12 of 1,359") between a previous and a next arrow beside
+// Back, a horizontal swipe anywhere on the page except inside
+// [data-swipe-own] (the image carousel will carry it), and the arrow keys.
+// The arrows sit in the top row so they never cover the page: floating at
+// the bottom corners they hid the copies list and Ver na Liga on a phone.
+// A move replaces the history entry, so Back returns to the list, where
+// app.js restores the scroll position. The context is kept for this tab in
+// sessionStorage, so a reload on a card page keeps it.
 
 import {go, h} from './dom.js';
 
@@ -114,8 +116,9 @@ function move(route, direction) {
 }
 
 // The position line, the arrows, and the gestures for one card page.
-// Returns {element, line, stop}: element holds the arrows and line the
-// position text, both null when the card has no context.
+// Returns {element, line, stop}: line holds the arrows and the position
+// text, for the row beside Back, and is null when the card has no context;
+// element is always null now that nothing floats over the page.
 export function cardSwipe(root, route) {
 	const position = cardPosition(route);
 
@@ -139,14 +142,13 @@ export function cardSwipe(root, route) {
 		onclick: () => move(position.next, 'forward'),
 		type: 'button',
 	}, '›');
-	const line = h('p', {
+	const text = h('p', {
 		'aria-label': `Card ${formatCount(position.index + 1)} of ${formatCount(position.total)}${position.label ? ` in ${position.label}` : ''}`,
 		class: 'card-position',
 		id: 'card-position',
 	}, `${formatCount(position.index + 1)} of ${formatCount(position.total)}`);
-	// The arrows sit at the two bottom corners, in the thumb's reach and
-	// clear of the raised Scan button.
-	const element = h('nav', {'aria-label': 'Cards in this list', class: 'card-nav', id: 'card-nav'}, prev, next);
+	// A swipe anywhere is the one-handed way; the arrows are for a tap.
+	const line = h('nav', {'aria-label': 'Cards in this list', class: 'card-steps', id: 'card-nav'}, prev, text, next);
 
 	let start = null;
 
@@ -201,7 +203,7 @@ export function cardSwipe(root, route) {
 	document.addEventListener('keydown', onKey);
 
 	return {
-		element,
+		element: null,
 		line,
 		stop: () => {
 			root.removeEventListener('touchstart', onStart);

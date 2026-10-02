@@ -528,7 +528,10 @@ describe('swiping between cards', () => {
 		await page.waitForTimeout(300);
 		assert.ok(page.url().endsWith(routes[pick - 1]), 'the page stays');
 
-		// The edge arrows do the same, one-handed.
+		// The arrows beside the position do the same, in the top row with
+		// Back, so they never float over the page.
+		assert.equal(await page.locator('.card-top #card-nav #card-prev').count(), 1);
+		assert.equal(await page.locator('.card-top #card-nav #card-position').count(), 1);
 		await page.click('#card-next');
 		await page.waitForFunction((route) => window.location.pathname.endsWith(route), routes[pick]);
 		await page.click('#card-prev');
