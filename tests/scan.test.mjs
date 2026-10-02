@@ -109,13 +109,13 @@ describe('the tray state machine', () => {
 		S.applyRead(session, 'b', read('3', '131', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		assert.equal(second.language, null);
 		assert.equal(second.languageHint, 'non-latin');
-		assert.deepEqual(S.languageChoices(second).slice(0, 4), ['ja', 'ko', 'zh-cn', 'zh-tw']);
+		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw'], 'Portuguese and English, then the Asian languages');
 
 		const third = S.addCapture(session, {at: AT, id: 'c'});
 
 		S.applyRead(session, 'c', read('3', '131', {code: 'fr', confidence: 0.22, source: 'label'}), AT);
 		assert.equal(third.language, null, 'one label read is not enough');
-		assert.equal(S.languageChoices(third)[0], 'fr', 'the guess goes first');
+		assert.deepEqual(S.languageChoices(third).slice(0, 3), ['pt', 'en', 'fr'], 'the guess comes after Portuguese and English');
 
 		S.applyMatch(session, 'c', {candidates: [candidate('sv08.5-003')]}, AT);
 		S.applyVariants(session, 'c', 'sv08.5-003', PINSIR, AT);
@@ -124,6 +124,22 @@ describe('the tray state machine', () => {
 
 		S.setLanguage(session, 'c', 'fr', 'hand', AT);
 		assert.equal(S.blocker(third), null);
+	});
+
+	test('the language chips lead with Portuguese and English, then the guess, each once', () => {
+		const order = (languageHint) => S.languageChoices({languageHint});
+
+		for (const hint of [null, 'pt', 'en', 'unknown']) {
+			assert.deepEqual(order(hint).slice(0, 4), ['pt', 'en', 'ja', 'ko'], `hint ${hint}`);
+		}
+
+		assert.deepEqual(order('non-latin').slice(0, 4), ['pt', 'en', 'ja', 'ko'], 'the first four chips: no More needed for Portuguese or English');
+		assert.deepEqual(order('ko').slice(0, 4), ['pt', 'en', 'ko', 'ja']);
+		assert.deepEqual(order('de').slice(0, 3), ['pt', 'en', 'de']);
+
+		for (const hint of [null, 'non-latin', 'fr', 'zh-tw']) {
+			assert.deepEqual([...order(hint)].sort(), [...S.SCAN_LANGUAGES].sort(), `every language once for ${hint}`);
+		}
 	});
 
 	test('a card whose photo was lost mid-read asks for a new scan or a search', () => {

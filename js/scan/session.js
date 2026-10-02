@@ -221,9 +221,9 @@ export function searchPrefill(item) {
 
 // The read is in: the item moves on to matching. The language is taken from
 // the card only when the read is sure of it; otherwise nothing is
-// preselected and languageHint orders the chips (Japanese, Korean, and
-// Chinese first for "non-latin"). A language already set by hand or by Set
-// for all is kept.
+// preselected and languageHint orders the chips after Portuguese and
+// English (Japanese, Korean, and Chinese next for "non-latin"). A language
+// already set by hand or by Set for all is kept.
 export function applyRead(session, id, read, now = nowIso()) {
 	const item = mustFind(session, id);
 	const summary = summariseRead(read);
@@ -921,22 +921,20 @@ export function takeUndo(session, now = nowIso()) {
 	return last ? last.entryIds : [];
 }
 
-// The languages a tile's chips offer, in the order to show them: the read's
-// guess first when it was not sure, Japanese, Korean, and Chinese first for
-// a card that read no Latin label, otherwise (a card added from the search)
-// the fixed order. An order, never a preselection.
+// The languages a tile's chips offer, in the order to show them: Portuguese
+// and English always first (the owner collects in Brazil, so those are most
+// of the cards he holds; Q-21 in plans/audit-qa.md), then the read's guess
+// when it is neither (Japanese, Korean, and Chinese for a card that read no
+// Latin label), then the rest in the fixed order. An order, never a
+// preselection.
+export const LEADING_LANGUAGES = ['pt', 'en'];
+
 export function languageChoices(item) {
 	const hint = item.languageHint;
-	let order = [...SCAN_LANGUAGES];
+	const guessed = hint === 'non-latin' ? ASIAN_LANGUAGES : isScanLanguage(hint) ? [hint] : [];
+	const order = [...LEADING_LANGUAGES, ...guessed, ...SCAN_LANGUAGES];
 
-	if (hint === 'non-latin') {
-		order = [...ASIAN_LANGUAGES, ...SCAN_LANGUAGES.filter((code) => !ASIAN_LANGUAGES.includes(code))];
-	}
-	else if (isScanLanguage(hint)) {
-		order = [hint, ...SCAN_LANGUAGES.filter((code) => code !== hint)];
-	}
-
-	return order;
+	return order.filter((code, index) => order.indexOf(code) === index);
 }
 
 // The finish chip for the item's current pick, or null on the plain print.
