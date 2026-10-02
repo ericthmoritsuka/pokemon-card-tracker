@@ -6,7 +6,7 @@
   - `plans/audit-qa.md`: Q-01 to Q-38, by a senior QA tester who collects cards.
   - `plans/audit-verify.md`: a second engineer reproduced the engineering findings that were only read in code, and re-rated several.
   - `plans/sync-merge-plan.md`: a commit-by-commit design for the sync block (B below).
-  - Eric's notes from the same session: N-01 to N-04.
+  - Eric's notes from the same session: N-01 to N-06.
 - **Scope:** report only. Nothing in the app changed. Eric chooses what gets fixed.
 
 **Severity:**
@@ -116,6 +116,8 @@ This overlaps roadmap step 2.
 | Edit a copy (language, finish, condition) and remove it; Add on an unowned card | High | L | Q-01 |
 | Search over owned cards on My Cards | High | M | Q-02 |
 | One filter bar for My Cards and the binder's card picker (later the tray and the wishlist): region or generation, energy type, category (Pokémon, Trainer, Energy), set, language, rarity, and not in a binder yet; sort by name, Pokédex number, set and number, date added, or price. It needs `dexId`, `types`, `category`, and `rarity` added to the card index, with one cached GraphQL request per owned set | Medium (a feature) | L (5 to 8 h with the search) | N-04, Q-02 |
+| Tiles show a price only for cards whose page was opened: the US estimate lives in the full TCGdex record, which is saved only by card detail or the import. Fill the missing full records in the background for owned international cards (a few at a time, refreshed about weekly), in the same pass as N-04's data step; tiles with no market price say so instead of looking unfinished. Japanese, Korean, and Chinese prints have no market price in TCGdex, so only a typed Liga price fills them | Medium | M | N-05 |
+| The Stats panel opens in the middle of My Cards and its totals, average, min, and max cover only the copies that happen to have a price. Replace it with a small "Value" button in the toolbar that opens a sheet (reusable from the Trade view later), led by coverage ("Priced: 412 of 1,600 copies", how many are Asian prints with no market price, how many still need a price), with totals labeled "of the priced copies" and a link to the unpriced list | Medium | S (M with N-05) | N-06 |
 | Your copies and Ver na Liga near the top of card detail | Medium | M | Q-04 |
 | An owned card opens with its copies while TCGdex is down | Low | M | Q-07 |
 | Truncated selects and three-line tiles at 360 px | Low | S | Q-05 |
