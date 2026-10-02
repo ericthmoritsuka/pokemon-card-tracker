@@ -133,23 +133,28 @@ describe('prices in the app', () => {
 			variant_id: variant(exeggcute, 'Normal'),
 		});
 
-		// Card detail: the price, full width right after the hero, with the
-		// one Ver na Liga, and none left in the hero facts.
+		// Card detail: the hero, Your copies, Ver na Liga, then the price,
+		// full width (Q-04), and no Ver na Liga in the hero facts.
 		await page.goto(url(`cards/en/${charizard.id}`));
 		await page.waitForSelector('#card-price .price');
-		// The international twin picker sits between them only when it has
+		await page.waitForSelector('#card-liga a.liga-link');
+		// The international twin picker sits after the hero only when it has
 		// something to ask, and is hidden otherwise.
-		assert.ok(await page.evaluate(() => {
+		assert.deepEqual(await page.evaluate(() => {
+			const order = [];
 			let next = document.querySelector('.card-hero').nextElementSibling;
 
-			while (next && next.classList.contains('tw-block') && next.hidden) {
+			while (next && order.length < 3) {
+				if (!(next.classList.contains('tw-block') && next.hidden)) {
+					order.push(next.id || next.className);
+				}
+
 				next = next.nextElementSibling;
 			}
 
-			return Boolean(next) && next.id === 'card-price';
-		}), 'the slot follows the hero');
-		assert.equal(await page.locator('.card-detail a:has-text("Ver na Liga")').count(), 1);
-		assert.equal(await page.locator('#card-price a.price-liga-link').count(), 1);
+			return order;
+		}), ['copies', 'card-liga', 'card-price'], 'the slot follows Your copies and Ver na Liga');
+		assert.equal(await page.locator('#card-liga a:has-text("Ver na Liga")').count(), 1);
 		assert.equal(await page.locator('.hero-facts a, .hero-facts .liga-none').count(), 0);
 
 		const slot = await page.evaluate(() => {

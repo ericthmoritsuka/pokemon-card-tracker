@@ -268,7 +268,9 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 		return {done, page};
 	}
 
-	const linkSelector = '.card-detail a:has-text("Ver na Liga")';
+	// The one Ver na Liga, right under Your copies (Q-04). The price panel
+	// draws its own too, which css/copies.css hides on card detail.
+	const linkSelector = '#card-liga a:has-text("Ver na Liga")';
 
 	test('an English card links to Liga\'s search for it', async () => {
 		const {done, page} = await open('cards/en/tst1-020');
@@ -278,9 +280,9 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 		assert.equal(await link.getAttribute('href'), `${SEARCH}Charizard-GX%20(020%2F147)`);
 		assert.equal(await link.getAttribute('target'), '_blank');
 		assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
-		assert.equal(await page.locator('.card-detail .price-liga-link .price-sr').textContent(), ' (opens Liga Pokémon)');
-		assert.equal(await page.locator(linkSelector).count(), 1, 'one Ver na Liga, in the price section');
-		assert.equal(await page.locator('.hero-facts a').count(), 0, 'none left in the hero facts');
+		assert.equal(await page.locator('#card-liga .liga-link .copies-sr').textContent(), ' (opens Liga Pokémon)');
+		assert.equal(await page.locator(linkSelector).count(), 1, 'one Ver na Liga, under Your copies');
+		assert.equal(await page.locator('.hero-facts a').count(), 0, 'none in the hero facts');
 
 		// The rest of card detail is still there.
 		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX');
@@ -327,9 +329,9 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 			// Let the names load and any lookup the view might start settle.
 			await page.waitForTimeout(500);
 			assert.equal(await page.locator(linkSelector).count(), 0, path);
-			await page.waitForSelector('.card-detail .price-liga-none');
+			await page.waitForSelector('#card-liga-none');
 
-			const none = await page.locator('.card-detail .price-liga-none').textContent();
+			const none = await page.locator('#card-liga-none').textContent();
 
 			assert.equal(none, path.includes('/ko/') ? 'No Liga link for Korean prints.' : path.includes('/zh-tw/') ? 'No Liga link for Chinese (Traditional) prints.' : 'No Liga link for this card.', path);
 			await done();
@@ -365,7 +367,8 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 			await page.waitForSelector('.facts');
 			await page.waitForTimeout(500);
 			assert.equal(await page.locator(linkSelector).count(), 0, path);
-			assert.equal(await page.locator('.card-detail .price-liga-none').textContent(), 'No Liga link for this card.', path);
+			await page.waitForSelector('#card-liga-none');
+			assert.equal(await page.locator('#card-liga-none').textContent(), 'No Liga link for this card.', path);
 			await done();
 		}
 	});
