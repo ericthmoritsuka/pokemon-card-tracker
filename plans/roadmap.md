@@ -16,7 +16,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
   resets one), (v18) binder spreads, (v19) every card of a Pokémon from a checklist, and (v20)
   international twins on card pages and My Cards, and (v21) binder pages that turn on the middle of
   the spine. Every built module is now wired in.
-- **Eric's brother's account** (`tadeu.moritsuka@family.invalid`): Eric said on 2026-10-01 he
+- **A family member's name-and-password account:** Eric said on 2026-10-01 he
   thinks he created it and added it to the family. Not yet confirmed that the dashboard accepted
   the `.invalid` address or that a sign-in worked; if it refused, change `ACCOUNT_NAME_DOMAIN` in
   `js/auth.js`, the domain in `supabase/reset-password.sql`, and the docs.
