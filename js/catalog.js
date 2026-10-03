@@ -607,6 +607,93 @@ export const detailRecords = ({catalog, ids}, details) => [...ids]
 	.filter((id) => details && details[id])
 	.map((id) => ({catalog, id, ...details[id]}));
 
+// ------------------------------------------------------- goal lookups
+//
+// Set and artist goals (js/goals.js) read a whole set, or an illustrator's
+// cards, through GraphQL, one request each, kept on the phone under their
+// own keys, so a goal's missing list opens offline in a card shop.
+// GraphQL's variants_detailed has no variantId (checked 2026-10-03), so
+// each finish is told by its type, foil, and stamps. Asian catalogs are
+// read with @locale, as for the card details above; the illustrator
+// filter works there too (checked on the Japanese catalog, 2026-10-03).
+
+const GOAL_CARD_FIELDS = 'id localId name image rarity illustrator variants { normal reverse holo firstEdition } variants_detailed { type subtype foil stamp size }';
+
+const localeOf = (catalog) => (catalog === 'international' ? '' : ` @locale(lang: ${JSON.stringify(catalogLanguage(catalog))})`);
+
+// One set's cards with their finishes. The id filter matches a substring,
+// so setCardsFrom keeps only the set's own cards.
+export const setCardsQuery = (catalog, setId) =>
+	`{ cards(filters: {id: ${JSON.stringify(`${setId}-`)}}, pagination: {page: 1, itemsPerPage: 1000})${localeOf(catalog)} { ${GOAL_CARD_FIELDS} } }`;
+
+// TCGdex's illustrator filter matches any part of the name, in any case;
+// illustratorCardsFrom keeps the exact name. Pages of ILLUSTRATOR_PAGE.
+export const ILLUSTRATOR_PAGE = 500;
+
+export const illustratorQuery = (catalog, name, page = 1) =>
+	`{ cards(filters: {illustrator: ${JSON.stringify(String(name))}}, pagination: {page: ${Number(page)}, itemsPerPage: ${ILLUSTRATOR_PAGE}})${localeOf(catalog)} { ${GOAL_CARD_FIELDS} set { id name } } }`;
+
+// An illustrator's name compared loosely: case, accents, and spacing aside.
+export const artistKey = (name) => String(name || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+const goalCard = (card) => ({
+	id: card.id,
+	illustrator: typeof card.illustrator === 'string' ? card.illustrator : null,
+	image: card.image || null,
+	localId: card.localId || null,
+	name: card.name || null,
+	rarity: typeof card.rarity === 'string' && card.rarity !== 'None' ? card.rarity : null,
+	setId: (card.set && card.set.id) || null,
+	setName: (card.set && card.set.name) || null,
+	variants: card.variants || null,
+	variants_detailed: Array.isArray(card.variants_detailed) ? card.variants_detailed : null,
+});
+
+// {cardId: card} for one set from its GraphQL answer.
+export function setCardsFrom(cards, setId) {
+	const out = {};
+
+	for (const card of cards || []) {
+		if (card && typeof card.id === 'string' && setIdOfCard(card.id) === setId) {
+			out[card.id] = goalCard(card);
+		}
+	}
+
+	return out;
+}
+
+// [card] by one illustrator, the exact name only.
+export function illustratorCardsFrom(cards, name) {
+	const wanted = artistKey(name);
+
+	return (cards || []).filter((card) => card && typeof card.id === 'string' && artistKey(card.illustrator) === wanted).map(goalCard);
+}
+
+// One set's cards with their finishes: {data, at}, from the phone first
+// (refreshed behind it at most once an hour, like the set views).
+export const setCards = (catalog, setId, onUpdate) =>
+	cached(`goalset:${catalog}:${setId}`, async () => setCardsFrom((await graphql(setCardsQuery(catalog, setId))).cards, setId), onUpdate);
+
+async function loadIllustrator(catalog, name) {
+	const all = [];
+
+	for (let page = 1; page <= 20; page++) {
+		const cards = (await graphql(illustratorQuery(catalog, name, page))).cards || [];
+
+		all.push(...cards);
+
+		if (cards.length < ILLUSTRATOR_PAGE) {
+			break;
+		}
+	}
+
+	return illustratorCardsFrom(all, name);
+}
+
+// Every card by one illustrator in one catalog: {data, at}, as setCards.
+export const illustratorCards = (catalog, name, onUpdate) =>
+	cached(`goalartist:${catalog}:${artistKey(name)}`, () => loadIllustrator(catalog, name), onUpdate);
+
 // ---------------------------------------------------- background prices
 
 // The US estimate on a tile comes from the full TCGdex record card detail

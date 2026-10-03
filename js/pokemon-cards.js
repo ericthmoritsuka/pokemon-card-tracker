@@ -533,6 +533,11 @@ async function kept(key, load, {force = false, maxAge = REFETCH_AFTER_MS, newAge
 	}
 }
 
+// Every international set's name, release date, and series ({setId:
+// {...}}), the copy this screen keeps: an artist goal (js/goals.js) dates
+// its cards with it. {data, error}
+export const internationalSets = ({force = false} = {}) => kept('sets:international', async () => setsIndexFrom(await graphql(SETS_QUERY)), {force});
+
 // The international prints of Pokémon n. {prints, error, missingList}:
 // missingList when the bulk list is not on the phone (offline before the
 // first visit, or its download failed); error is the first failure.

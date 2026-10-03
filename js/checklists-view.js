@@ -12,6 +12,8 @@ import {priceRecords} from './catalog.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
+import {goalsSection} from './goals-view.js';
+import {isGoal, listGoals} from './goals.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
 import {statsBar} from './price-view.js';
@@ -78,9 +80,9 @@ function saveChoice(key, value) {
 const MINE = {
 	base: 'lists',
 	load: async () => {
-		const [goals, entries] = await Promise.all([listChecklists(), listCards()]);
+		const [goals, entries, targets] = await Promise.all([listChecklists(), listCards(), listGoals()]);
 
-		return {entries, goals};
+		return {entries, goals, targets};
 	},
 	readOnly: false,
 	watch: (reload) => onChange(reload),
@@ -113,6 +115,7 @@ function familySource(userId) {
 			return {
 				entries: (doc.cards || []).filter(isLive),
 				goals: (doc.goals || []).filter((goal) => isLive(goal) && isChecklist(goal)),
+				targets: (doc.goals || []).filter((goal) => isLive(goal) && isGoal(goal)),
 			};
 		},
 		readOnly: true,
@@ -335,6 +338,8 @@ function listsScreen(root, source) {
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'lists-status'});
 	const body = h('div', {id: 'lists-body'});
 	const adder = source.readOnly ? null : addPanel();
+	// Set and artist goals (js/goals-view.js).
+	const goals = goalsSection({base: source.userId ? `family/${encodeURIComponent(source.userId)}/goals` : 'goals', readOnly: source.readOnly});
 
 	if (source.readOnly) {
 		whenMemberName(source.userId, (name) => {
@@ -396,6 +401,8 @@ function listsScreen(root, source) {
 			if (!alive) {
 				return;
 			}
+
+			goals.update(data.targets, data.entries);
 
 			// Draw at once without progress, then again once owned cards
 			// are resolved.
@@ -542,7 +549,7 @@ function listsScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, body, adder].filter(Boolean));
+	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, body, goals.element, adder].filter(Boolean));
 	load();
 
 	return () => {
