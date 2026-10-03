@@ -36,6 +36,7 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
+import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
@@ -1378,6 +1379,22 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
+	// How many copies like the one in a pocket you have (same card,
+	// language, finish, and condition), with a stepper to fix the count while
+	// paging through the binder (js/copy-sheet.js). The copy in the pocket
+	// stays there: the count never goes below 1, and + adds copies in no
+	// pocket.
+	function pocketCount(entry, label) {
+		const key = alikeKey(entry);
+		const alike = [...entriesById.values()].filter((item) => isLive(item) && alikeKey(item) === key);
+		const places = new Map([...placed].map(([entryId, where]) => [entryId, {binder_id: where.binder.id, binder_name: where.binder.name, page: where.slot.page, position: where.slot.position}]));
+
+		return h('div', {class: 'pocket-count', id: 'pocket-count'},
+			h('p', {class: 'pocket-count-label', id: 'pocket-count-label'}, 'Copies like this'),
+			copyStepper({entries: alike, keep: entry.id, label, min: 1, places}).element
+		);
+	}
+
 	// The sheet for one pocket. The page travels with it, so a redraw while
 	// it is open (a sync, a turn) cannot move what it saves to another page.
 	function openSheet(page, position) {
@@ -1394,6 +1411,7 @@ function binderScreen(root, source, id, pageParam) {
 		const current = slot
 			? h('div', {class: 'sheet-current'},
 				h('p', {class: 'big', id: 'sheet-current-label'}, content.label),
+				content.kind === 'card' ? pocketCount(entriesById.get(slot.entry_id), content.label) : null,
 				h('div', {class: 'button-row'},
 					content.info && content.info.route && (content.kind === 'card' || content.kind === 'want')
 						? link(content.info.route, {class: 'button', onclick: closeSheet}, 'Open card')
