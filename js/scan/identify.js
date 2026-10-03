@@ -23,7 +23,7 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, SURE_DISTANCE} from './picture.js';
-import {cropImage, rectify} from './rectify.js';
+import {CARD_MAX_HEIGHT, cropImage, rectify, warpCrop} from './rectify.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
 // fingerprinting: three times the fingerprint's thumbnail.
@@ -108,9 +108,15 @@ let queue = Promise.resolve();
 // photo shows no card edges, the part a camera's guide would hold (the
 // middle, card-shaped) is tried too.
 //
+// guide: where the scanner's guide sits in the capture ({x, y, w, h} in its
+// pixels). The person lines the card up to it, so the guide itself is
+// fingerprinted as one more crop, whatever edges were found (Eric's phone,
+// 2026-10-03: twice the top edge was worked out from a wrong side, and the
+// crop as found lost to a clean image of the same card by a mile).
+//
 // pictureFirst false reads the card in full, as before the switch (the
 // benchmark's comparison).
-export function identify(image, {photo = false, straight = false, readOptions = {}, pictureFirst = true} = {}) {
+export function identify(image, {guide = null, photo = false, straight = false, readOptions = {}, pictureFirst = true} = {}) {
 	const run = queue.then(async () => {
 		const started = performance.now();
 		let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
@@ -133,26 +139,36 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 		if (pictureFirst) {
 			try {
 				const index = await loadFingerprints();
-				const others = rectified.others || [];
-				const crops = [card, ...others.map((other) => rectified.cut(other.rect, OTHER_CROP_HEIGHT))];
+				const others = [...(rectified.others || [])];
+				const guideCrop = !straight && guide && guide.w > 0 && guide.h > 0 ? {how: 'the guide', rect: guide} : null;
+				const cutOther = (other, height) => (other === guideCrop || !rectified.cut ? warpCrop(image, 0, other.rect, Math.min(1, height / other.rect.h)) : rectified.cut(other.rect, height));
+
+				if (guideCrop) {
+					others.push(guideCrop);
+				}
+
+				const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
 				const matched = matchCrops(index, crops);
 				const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
 
 				if (how) {
-					card = rectified.cut(others[matched.crop - 1].rect);
+					const won = others[matched.crop - 1];
+
+					card = cutOther(won, Math.min(CARD_MAX_HEIGHT, won.rect.h));
 				}
 
 				fingerprintMs = matched.timings.fingerprint;
 				matchMs = matched.timings.match;
 
-				// An edge worked out rather than found, and a weak match: the
-				// crop is likely off, so the box moved up and down (rectify.js
-				// variants) is fingerprinted too, and the closest kept.
+				// A weak match: the crop is likely off (an edge worked out from
+				// a wrong side, or a side taken at the border's inner line), so
+				// the box moved up and down and resized (rectify.js variants) is
+				// fingerprinted too, and the closest kept.
 				const best = matched.groups[0] ? matched.groups[0].score : Infinity;
 				let chosen = matched;
 				let chosenHow = how;
 
-				if (rectified.guessed && (rectified.variants || []).length && best > SURE_DISTANCE) {
+				if ((rectified.variants || []).length && best > SURE_DISTANCE) {
 					const shifted = rectified.variants.map((v) => rectified.variant(v, OTHER_CROP_HEIGHT));
 					const again = matchCrops(index, shifted);
 					const score = again.groups[0] ? again.groups[0].score : Infinity;

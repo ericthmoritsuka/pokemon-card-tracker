@@ -1527,12 +1527,82 @@ describe('a weak picture with an edge worked out tries the box moved (Eric, 2026
 		assert.ok(Math.abs(moved.width / moved.height - 63 / 88) < 0.006);
 	});
 
-	test('a card with all four edges found has nothing guessed and no variants', () => {
+	test('the moves reach 12 % up and down, and the box made larger and smaller (Eric, 2026-10-03, version 25)', () => {
+		const straight = rectify(capture({lostTop: true}));
+		const hows = straight.variants.map((v) => v.how);
+
+		assert.ok(hows.includes('moved up 12 %') || hows.includes('moved up 9 %'), hows.join(', '));
+		assert.ok(hows.includes('moved down 12 %'), hows.join(', '));
+		assert.ok(hows.includes('larger by 8 %') && hows.includes('smaller by 7 %'), hows.join(', '));
+		assert.ok(hows.includes('larger by 8 %, from the bottom edge'), hows.join(', '));
+
+		const larger = straight.variants.find((v) => v.how === 'larger by 8 %');
+
+		assert.ok(Math.abs(larger.rect.w / straight.rect.w - 1.08) < 0.01);
+	});
+
+	test('a card with all four edges found has nothing guessed; its moves are there for a weak match', () => {
 		const straight = rectify(capture());
 
 		assert.ok(straight.found, straight.note);
 		assert.equal(straight.guessed, null);
-		assert.deepEqual(straight.variants, []);
+		assert.ok(straight.variants.every((v) => v.how !== 'hung from the top edge found'));
+	});
+});
+
+describe('a silver border on a light table (synthetic, version 25 geometry, 2026-10-03)', () => {
+	// Table 224, the card's border 222 inside a thin outline of 196 (all a
+	// silver border shows against a light table), its inner line a strong
+	// step to a green body at 150, and a busy art box. The card fills the
+	// guide, which the capture pads by 10 %.
+	function lightTable() {
+		const W = 600;
+		const H = Math.round(W * 1.2 * 88 / 63 / 1.2);
+		const cw = W / 1.2;
+		const ch = cw * 88 / 63;
+		const x0 = (W - cw) / 2;
+		const y0 = (H - ch) / 2;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const u = (x - x0) / cw;
+				const v = (y - y0) / ch;
+				let value = 224 + ((x * 7 + y * 13) % 5) - 2;
+
+				if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+					const outline = Math.min(u * cw, (1 - u) * cw, v * ch, (1 - v) * ch) < 1.5;
+
+					if (outline) {
+						value = 196;
+					}
+					else if (u < 0.045 || u > 0.955 || v < 0.035 || v > 0.965) {
+						value = 222;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.5) {
+						value = 50 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 90);
+					}
+					else {
+						value = 150;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {cw, data, height: H, width: W, x0};
+	}
+
+	test('the sides are the card\'s outline, not the border\'s inner line', () => {
+		const image = lightTable();
+		const straight = rectify(image);
+		const left = straight.rect ? straight.rect.x : Math.min(...straight.corners.map((p) => p.x));
+		const width = straight.rect ? straight.rect.w : Math.max(...straight.corners.map((p) => p.x)) - left;
+
+		assert.ok(straight.found, straight.note);
+		assert.ok(Math.abs(width - image.cw) <= image.cw * 0.02, `width ${width} against ${image.cw}: ${straight.note}`);
+		assert.ok(Math.abs(left - image.x0) <= image.cw * 0.02, `left ${left} against ${image.x0}`);
 	});
 });
 
@@ -1804,7 +1874,7 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.match(text, /- Capture: 25 ms \(taken automatically\)/);
 		assert.match(text, /- Guide: 312 x 436 at 36, 14 on a 384 x 464 screen area; in the 2160 x 3840 frame, guide 1755 x 2452 at 202, 694, captured 2106 x 2942 at 27, 449/);
 		assert.match(text, /- Edges: left, right, and bottom found; top GUESSED/);
-		assert.match(text, /- Crops tried for the guessed edge: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
+		assert.match(text, /- Crops tried for a weak match: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
 		assert.match(text, /- Catalog lookup: shown after 90 ms from what the phone had; full records 2400 ms/);
 	});
 });

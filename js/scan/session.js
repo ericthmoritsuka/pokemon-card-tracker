@@ -1295,7 +1295,10 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}`);
 
 		if ((report.picture.variants || []).length) {
-			lines.push(`- Crops tried for the guessed edge: ${report.picture.variants.join(', ')}; ${report.picture.before !== null ? `${report.picture.how} won (the crop as found was ${report.picture.before} away)` : 'none beat the crop as found'}`);
+			lines.push(`- Crops tried for a weak match: ${report.picture.variants.join(', ')}; ${report.picture.before !== null ? `${report.picture.how} won (the crop as found was ${report.picture.before} away)` : 'none beat the crop as found'}`);
+		}
+		else if (report.picture.how) {
+			lines.push(`- Crop used: ${report.picture.how}, which matched closer than the box the edges made`);
 		}
 
 		for (const [index, group] of report.picture.groups.entries()) {

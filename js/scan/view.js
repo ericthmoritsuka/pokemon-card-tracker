@@ -715,7 +715,11 @@ export function scanView(root) {
 		// app closing starts again next time.
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null});
+		// Where the guide sits in the capture, for identify.js to fingerprint
+		// it as one more crop.
+		const guideIn = area && area.capture ? {h: area.guide.h, w: area.guide.w, x: area.guide.x - area.capture.x, y: area.guide.y - area.capture.y} : null;
+
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null, guide: guideIn});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -781,7 +785,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, photo = false, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, straight = false} = {}) {
 		let result;
 
 		try {
@@ -799,7 +803,7 @@ export function scanView(root) {
 					drawn = fraction;
 					draw();
 				}
-			}}, photo, straight});
+			}}, guide: guideIn, photo, straight});
 			engineState = 'ready';
 			drawStatus();
 		}
