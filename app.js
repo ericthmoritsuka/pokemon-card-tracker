@@ -38,6 +38,7 @@ import {pokemonCardsAccountViews, pokemonCardsRoutes} from './js/pokemon-cards-v
 import {euroRates, exchangeRates} from './js/prices.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
+import {tradeAccountViews, tradeRoutes} from './js/trade-view.js';
 import {closeSheets} from './js/sheet.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
@@ -64,11 +65,12 @@ const ROUTES = [
 	...pokemonCardsRoutes,
 	...binderRoutes,
 	...WISHLIST_ROUTES,
+	...tradeRoutes,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 
