@@ -14,6 +14,20 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **20:05** Version 29: collections and goals. `31e9329`
+  - **Collections:** a new part of the Lists tab. Pick cards by hand, or let a collection fill
+    itself from a rule (rarity, set, language, type, region, favorites; a "Star" preset gathers
+    every SIR and IR). Each shows its count and value and opens like My Cards, with filters and
+    the Value sheet. Add a card from its page, or a whole scan from the Done sheet. Two phones
+    adding different cards both keep theirs.
+  - **Set goals:** track one set as numbered (up to the set number), with secrets (every card),
+    or master (every card in every finish, ball patterns and stamps included).
+  - **Artist goals:** every card by one illustrator, started from the illustrator's name on a
+    card page.
+  - Each goal shows a ring and "N of M", All, Owned, and Missing with counts, and one tap to the
+    wishlist, and its missing list works offline once opened. Make one from New goal on the Lists
+    tab or Make this a goal on a set page.
+
 - **14:30** Version 28: spares, favorites, and cards the catalog lacks. `58b1cc4`
   - **Spares:** a Trade view lists the copies beyond the first of each card in a language, with
     the filter bar and the Value sheet over the spares. Open it from Spares on My Cards or from
