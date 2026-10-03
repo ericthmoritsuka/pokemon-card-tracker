@@ -155,7 +155,8 @@ describe('prices in the app', () => {
 			return order;
 		}), ['copies', 'card-liga', 'card-price'], 'the slot follows Your copies and Ver na Liga');
 		assert.equal(await page.locator('#card-liga a:has-text("Ver na Liga")').count(), 1);
-		assert.equal(await page.locator('.hero-facts a, .hero-facts .liga-none').count(), 0);
+		// Ver na Liga is not among the facts; the illustrator's goal link is.
+		assert.equal(await page.locator('.hero-facts a:not(.illustrator-goal), .hero-facts .liga-none').count(), 0);
 
 		const slot = await page.evaluate(() => {
 			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();
