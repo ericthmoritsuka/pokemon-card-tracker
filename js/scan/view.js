@@ -156,6 +156,8 @@ export function scanView(root) {
 		}
 	}, type: 'file'});
 	const photoButton = h('button', {class: 'scan-text-button', id: 'scan-photo-open', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo');
+	// Empties the tray in one tap, with Undo, as Discard session does.
+	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
@@ -174,7 +176,7 @@ export function scanView(root) {
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, setAllButton), photoInput),
+			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -345,6 +347,7 @@ export function scanView(root) {
 
 		count.textContent = parts.join(' · ');
 		setAllButton.hidden = items.length < 2;
+		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
 		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
 
