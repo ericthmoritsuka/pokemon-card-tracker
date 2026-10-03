@@ -505,6 +505,18 @@ export function startShell() {
 		button.addEventListener('click', openOwnerSheet);
 	}
 
+	// "Sign in again" under the title opens the sign-in panel (the session
+	// ended, js/auth.js); in every other phase a tap syncs (app.js).
+	const status = document.getElementById('sync-status');
+
+	if (status) {
+		status.addEventListener('click', () => {
+			if (syncStatus().phase === 'signin') {
+				go('signin');
+			}
+		});
+	}
+
 	onUser(() => {
 		favorites = new Map();
 		myFavorite = null;

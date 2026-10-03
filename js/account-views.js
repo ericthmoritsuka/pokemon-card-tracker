@@ -14,9 +14,11 @@ import {
 	googleEnabled,
 	isAccountNameEmail,
 	MIN_PASSWORD_LENGTH,
+	onSession,
 	onUser,
 	passwordErrorText,
 	sendSignInLink,
+	sessionExpired,
 	signInErrorText,
 	signInWithGoogle,
 	signInWithName,
@@ -281,12 +283,42 @@ function signInPanel({onIntent = false} = {}) {
 		tick();
 	}
 
+	// The server ended the session (js/auth.js): the same person signs in
+	// again, by link or by name and password, and what waited goes up.
+	let ended = false;
+
+	function signInAgain(user) {
+		ended = true;
+		message.replaceChildren(h('div', {class: 'notice', id: 'signin-again', role: 'status'},
+			h('p', null, `Your session on this phone has ended. Sign in again as ${accountLabel(user.email)} to keep saving; your cards and any changes waiting stay on this phone until then.`)
+		));
+
+		if (isAccountNameEmail(user.email)) {
+			passwordForm();
+			body.querySelector('#signin-name').value = accountLabel(user.email);
+		}
+		else {
+			sentTo = sentTo || user.email;
+			form();
+		}
+	}
+
 	function draw(user) {
 		if (!alive) {
 			return;
 		}
 
-		if (user) {
+		if (user && sessionExpired()) {
+			if (!ended) {
+				signInAgain(user);
+			}
+		}
+		else if (user) {
+			if (ended) {
+				ended = false;
+				message.replaceChildren();
+			}
+
 			signedIn(user);
 		}
 		else if (!body.childElementCount) {
@@ -295,6 +327,7 @@ function signInPanel({onIntent = false} = {}) {
 	}
 
 	const stop = onUser(draw);
+	const stopSession = onSession(() => draw(currentUser()));
 
 	draw(currentUser());
 
@@ -303,6 +336,7 @@ function signInPanel({onIntent = false} = {}) {
 		stop: () => {
 			alive = false;
 			stop();
+			stopSession();
 		},
 	};
 }
@@ -478,6 +512,12 @@ export function profileView(root) {
 	async function loadFamily(fresh = false, keepMessage = null) {
 		let overview;
 
+		if (sessionExpired()) {
+			family.replaceChildren(h('p', {class: 'muted'}, 'Your family group shows once you sign in again.'));
+
+			return;
+		}
+
 		try {
 			overview = await familyOverview({fresh});
 		}
@@ -540,8 +580,45 @@ export function profileView(root) {
 
 	drawAccountSprite();
 
+	// The server ended the session (js/auth.js): Sign in again comes first,
+	// with the sign-in panel, until a new sign-in brings it back.
+	const session = h('section', {'aria-labelledby': 'session-heading', class: 'card', hidden: true, id: 'profile-session'});
+	let sessionPanel = null;
+
+	function drawSession() {
+		if (!alive) {
+			return;
+		}
+
+		if (sessionExpired()) {
+			if (!sessionPanel) {
+				sessionPanel = signInPanel();
+				session.replaceChildren(h('h3', {id: 'session-heading'}, 'Sign in again'), sessionPanel.element);
+			}
+
+			session.hidden = false;
+			loadFamily();
+
+			return;
+		}
+
+		if (sessionPanel) {
+			sessionPanel.stop();
+			sessionPanel = null;
+			session.replaceChildren();
+			loadFamily(true);
+		}
+
+		session.hidden = true;
+	}
+
+	const stopSession = onSession(drawSession);
+
+	drawSession();
+
 	root.append(
 		h('h2', null, 'Profile'),
+		session,
 		h('div', {class: 'card profile-account'},
 			accountSprite,
 			h('div', {class: 'profile-account-text'},
@@ -587,6 +664,12 @@ export function profileView(root) {
 		alive = false;
 		stopStatus();
 		stopSprite();
+		stopSession();
+
+		if (sessionPanel) {
+			sessionPanel.stop();
+		}
+
 		favorite.stop();
 		theme.stop();
 	};

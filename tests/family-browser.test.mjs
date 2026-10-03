@@ -498,3 +498,105 @@ describe('a family member\'s Sets and cards', () => {
 		await context.close();
 	});
 });
+
+describe('a session the server stops accepting', () => {
+	const localIds = (page) => page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).map((item) => item.card_id).sort());
+
+	test('offers Sign in again with the change kept on the phone, and a new sign-in merges it', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith([entry('o-1', {card_id: 'tst1-001'})]));
+		await signIn(page, fake, owner.email);
+		await waitForSynced(page);
+
+		// The server ends every session of the account (as
+		// supabase/reset-password.sql does), then a card is added.
+		fake.revoke(owner.id);
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-002', catalog: 'international', language: 'en', language_source: 'manual'}));
+		await page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Sign in again, 1 change waiting', null, {timeout: 20000});
+		assert.equal(await page.locator('#sync-status').getAttribute('data-phase'), 'signin');
+		assert.equal(await page.locator('#sync-status').getAttribute('title'), '', 'no raw server words');
+		assert.ok(fake.log.some((item) => item.search === '?grant_type=refresh_token'), 'the session was refreshed once before giving up');
+		assert.deepEqual(await localIds(page), ['tst1-001', 'tst1-002'], 'the change stays on the phone');
+		assert.equal(await page.locator('#account.avatar').count(), 1, 'not signed out');
+		await page.screenshot({clip: {height: 120, width: VIEWPORT.width, x: 0, y: 0}, path: '/tmp/family-revoked-header.png'});
+
+		// Profile: Sign in again first, no raw "permission denied".
+		await page.click('#account');
+		await page.waitForSelector('#profile-session:not([hidden]) #signin-again');
+		assert.match(await page.locator('#profile-sync').textContent(), /^Sync: Sign in again, 1 change waiting\.$/);
+		assert.match(await page.locator('#family').textContent(), /shows once you sign in again/);
+		assert.equal(await page.locator('#profile-session #signin-email').inputValue(), owner.email, 'the address is filled in');
+		assert.doesNotMatch(await page.locator('#view').textContent(), /permission denied/i);
+		await page.screenshot({fullPage: true, path: '/tmp/family-revoked-profile.png'});
+
+		// Nothing more is sent while the session is over.
+		const sent = fake.log.length;
+
+		await page.click('.profile-account button');
+		await page.waitForTimeout(500);
+		assert.equal(fake.log.slice(sent).filter((item) => item.path.startsWith('/rest/')).length, 0, 'Sync now waits for the sign-in');
+
+		// A reload still asks to sign in again, as the same person.
+		await page.reload();
+		await page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Sign in again, 1 change waiting', null, {timeout: 20000});
+		assert.deepEqual(await localIds(page), ['tst1-001', 'tst1-002']);
+
+		// The header line opens Sign in; the link signs in again and the
+		// waiting card reaches the server.
+		await page.click('#sync-status');
+		await page.waitForSelector('#signin-again');
+		assert.equal(new URL(page.url()).pathname, `${BASE}signin`);
+		await page.click('button:has-text("Send link")');
+		await page.waitForSelector('#check-email');
+		await page.goto(`${url()}?code=${fake.issueCode(owner.email)}`);
+		await waitForSynced(page);
+
+		const server = fake.documents.get(owner.id).doc.cards.filter((item) => !item.deleted_at).map((item) => item.card_id).sort();
+
+		assert.deepEqual(server, ['tst1-001', 'tst1-002']);
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.sessionEnded')), null);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('signing in again by name and password in the same page merges the waiting change; Sign out still signs out', async () => {
+		const fake = new FakeSupabase();
+		const member = fake.addUser('member-a@family.invalid', {password: 'first-password'});
+		const {context, errors, page} = await device(fake, 'member');
+
+		await page.goto(url('signin'));
+		await page.click('#signin-use-password');
+		await page.fill('#signin-name', 'member-a');
+		await page.fill('#signin-password', 'first-password');
+		await page.click('#signin-password-form button[type="submit"]');
+		await page.waitForSelector('#account.avatar');
+		await waitForSynced(page);
+
+		fake.revoke(member.id);
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst3-010', catalog: 'international', language: 'en', language_source: 'manual'}));
+		await page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Sign in again, 1 change waiting', null, {timeout: 20000});
+
+		await page.click('#account');
+		await page.waitForSelector('#profile-session #signin-password-form');
+		assert.equal(await page.locator('#profile-session #signin-name').inputValue(), 'member-a', 'the account name is filled in');
+		await page.fill('#profile-session #signin-password', 'first-password');
+		await page.click('#profile-session #signin-password-form button[type="submit"]');
+		await waitForSynced(page);
+		await page.waitForSelector('#profile-session', {state: 'hidden'});
+		assert.deepEqual(fake.documents.get(member.id).doc.cards.map((item) => item.card_id), ['tst3-010']);
+
+		// Sign out on purpose is still a sign out.
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.click('#sign-out');
+		await page.waitForSelector('#account:not(.avatar)');
+		await page.waitForTimeout(300);
+		assert.equal(await page.locator('#account').textContent(), 'Sign in');
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.sessionEnded')), null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

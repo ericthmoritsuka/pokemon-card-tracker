@@ -15,6 +15,15 @@
 // The project URL and the publishable key are public by design: row-level
 // security on the server decides what each signed-in person can read and
 // write (supabase/setup.sql).
+//
+// A session the server stops accepting (supabase/reset-password.sql ends an
+// account's sessions; a refresh token can expire) is never a silent sign
+// out. When the server refuses a request with a token that does not pass,
+// the session is refreshed once; if the refresh is refused too, the session
+// is over: the person stays on this phone as themselves, with their cards
+// and the changes still waiting, and sessionExpired() is true until they
+// sign in again (js/sync.js then shows "Sign in again" and pushes what
+// waited). Only Sign out signs out.
 
 import {BASE} from './dom.js';
 
@@ -24,14 +33,30 @@ export const SUPABASE_KEY = 'sb_publishable_Ycfz9bobfuvHWdDKjaoQQA_LDYmm0vJ';
 const STORAGE_KEY = 'card-tracker-auth';
 const SETTINGS_KEY = 'cardTracker.authSettings';
 const SETTINGS_FOR_MS = 10 * 60 * 1000;
+// Who was signed in when the server ended the session, so a reload still
+// offers "Sign in again" rather than looking signed out.
+const ENDED_KEY = 'cardTracker.sessionEnded';
+// When this phone last signed out on purpose, in any tab: the SIGNED_OUT
+// that follows is that, not the server ending the session.
+const SIGNED_OUT_KEY = 'cardTracker.signedOutAt';
+const SIGNED_OUT_FOR_MS = 15 * 1000;
+// One session check at a time, and not again this soon after the last.
+const VERIFY_GAP_MS = 5 * 1000;
 
 export const ACCOUNT_NAME_DOMAIN = 'family.invalid';
 export const MIN_PASSWORD_LENGTH = 8;
 
 let clientPromise = null;
 let user = null;
+let expired = false;
+// A sign-in link or Google is coming back in this page load.
+let returning = false;
+let signingOut = false;
+let verifying = null;
+let verifiedAt = 0;
 
 const listeners = new Set();
+const sessionListeners = new Set();
 
 // The address a sign-in link or Google sends the browser back to. Supabase
 // only redirects to an address on its allow list (README.md, Setup).
@@ -49,12 +74,32 @@ export function getClient() {
 					persistSession: true,
 					storageKey: STORAGE_KEY,
 				},
+				global: {fetch: watchedFetch},
 			});
 
 			client.auth.onAuthStateChange((event, session) => {
+				// Read now: whether this SIGNED_OUT is one the person asked for.
+				const deliberate = event === 'SIGNED_OUT' && (signingOut || signedOutLately());
+
 				// Supabase asks that this callback not await its own calls, so
 				// listeners run on the next turn.
-				setTimeout(() => setUser(session ? session.user : event === 'SIGNED_OUT' ? null : user), 0);
+				setTimeout(() => {
+					if (session) {
+						setUser(session.user);
+						setExpired(false);
+					}
+					else if (event === 'SIGNED_OUT') {
+						// Supabase dropped a session the server refused: keep the
+						// person and their waiting changes, and ask them to sign in
+						// again.
+						if (deliberate || !user) {
+							setUser(null);
+						}
+						else {
+							setExpired(true);
+						}
+					}
+				}, 0);
 			});
 
 			return client;
@@ -84,12 +129,209 @@ function setUser(next) {
 
 	user = next || null;
 
+	if (!user) {
+		setExpired(false);
+	}
+
 	if (changed) {
 		listeners.forEach((listener) => listener(user));
 	}
 }
 
 export const currentUser = () => user;
+
+// ------------------------------------------------------- an ended session
+
+// True while the server no longer accepts this phone's session for the
+// person still shown as signed in: nothing reaches the server until they
+// sign in again.
+export const sessionExpired = () => expired;
+
+// listener({expired}) runs when the session ends and when a new sign-in
+// brings it back (for the same person too, which onUser does not report).
+// Returns the unsubscribe function.
+export function onSession(listener) {
+	sessionListeners.add(listener);
+
+	return () => sessionListeners.delete(listener);
+}
+
+function readEnded() {
+	try {
+		const saved = JSON.parse(localStorage.getItem(ENDED_KEY) || 'null');
+
+		return saved && saved.user && saved.user.id ? saved : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+function setExpired(value) {
+	if (value && !user) {
+		return;
+	}
+
+	try {
+		if (value) {
+			localStorage.setItem(ENDED_KEY, JSON.stringify({at: Date.now(), user: {email: user.email, id: user.id}}));
+		}
+		else {
+			localStorage.removeItem(ENDED_KEY);
+		}
+	}
+	catch {
+		// This visit still knows.
+	}
+
+	if (expired !== value) {
+		expired = value;
+		sessionListeners.forEach((listener) => listener({expired}));
+	}
+}
+
+function signedOutLately() {
+	try {
+		return Date.now() - Number(localStorage.getItem(SIGNED_OUT_KEY) || 0) < SIGNED_OUT_FOR_MS;
+	}
+	catch {
+		return false;
+	}
+}
+
+// Whether an error from Supabase Auth means the session is over (the
+// refresh token refused, no session left), rather than no signal.
+export function isSessionRefusal(err) {
+	if (!err) {
+		return false;
+	}
+
+	const name = String(err.name || '');
+	const text = `${err.code || ''} ${err.error_code || ''} ${err.message || ''}`;
+
+	if (/RetryableFetchError/.test(name)) {
+		return false;
+	}
+
+	if (/AuthSessionMissingError|AuthInvalidTokenResponseError/.test(name)) {
+		return true;
+	}
+
+	if (/refresh_token_not_found|refresh_token_already_used|session_not_found|session_expired|bad_jwt|invalid refresh token|refresh token not found|jwt expired|invalid jwt/i.test(text)) {
+		return true;
+	}
+
+	const status = Number(err.status);
+
+	return name === 'AuthApiError' && status >= 400 && status < 500 && status !== 429;
+}
+
+// Whether a refused request (an HTTP status, and its error's words) could
+// be the session: a 401, or a refusal that names the token. js/photos uses
+// it to wait for a sign-in rather than give up on an upload.
+export function isAuthStatus(status, message = '') {
+	const code = Number(status);
+
+	return code === 401 || ((code === 400 || code === 403) && /jwt|token|session|unauthorized/i.test(String(message)) && !/row-level security/i.test(String(message)));
+}
+
+// The server ended the session: keep the person on this phone, drop the dead
+// session (so a reload or a sign-in link starts clean), and ask them to sign
+// in again.
+async function endSession() {
+	if (!user || expired) {
+		return;
+	}
+
+	setExpired(true);
+
+	try {
+		const client = await getClient();
+
+		await client.auth.signOut({scope: 'local'});
+	}
+	catch {
+		// The session is unusable either way.
+	}
+}
+
+// A request was refused with a token that may no longer pass. Refresh the
+// session once: a fresh token means it was only stale, and a refused
+// refresh means the session is over.
+function verifySession() {
+	if (verifying || expired || !user || Date.now() - verifiedAt < VERIFY_GAP_MS) {
+		return verifying;
+	}
+
+	verifying = (async () => {
+		// Never inside the client's own request.
+		await new Promise((resolve) => {
+			setTimeout(resolve, 0);
+		});
+
+		const client = await getClient();
+		const {data, error} = await client.auth.refreshSession();
+
+		if (error) {
+			if (isSessionRefusal(error)) {
+				await endSession();
+			}
+		}
+		else if (data && data.session) {
+			setExpired(false);
+			sessionListeners.forEach((listener) => listener({expired: false, renewed: true}));
+		}
+	})().catch(() => {}).finally(() => {
+		verifying = null;
+		verifiedAt = Date.now();
+	});
+
+	return verifying;
+}
+
+function bearerOf(input, init) {
+	try {
+		const fromInit = init && init.headers ? new Headers(init.headers).get('authorization') : null;
+		const fromRequest = input && typeof input === 'object' && input.headers ? input.headers.get('authorization') : null;
+
+		return String(fromInit || fromRequest || '');
+	}
+	catch {
+		return '';
+	}
+}
+
+// Every request the Supabase client makes passes here, so a refusal that
+// may mean the session is over is noticed wherever it happens: the sync, a
+// family read, a photo upload. Only data and storage requests made with a
+// person's token count; a refusal of the publishable key alone is just
+// being signed out.
+async function watchedFetch(input, init) {
+	const response = await fetch(input, init);
+
+	if (response.ok || response.status >= 500) {
+		return response;
+	}
+
+	const address = String(input && typeof input === 'object' && 'url' in input ? input.url : input);
+
+	if (!/\/(rest|storage)\/v1\//.test(address) || !/^Bearer [^.\s]+\.[^.\s]+\.[^.\s]+$/.test(bearerOf(input, init))) {
+		return response;
+	}
+
+	if (response.status === 401) {
+		verifySession();
+	}
+	else if (response.status === 400 || response.status === 403) {
+		response.clone().text().then((text) => {
+			if (isAuthStatus(response.status, text)) {
+				verifySession();
+			}
+		}).catch(() => {});
+	}
+
+	return response;
+}
 
 // listener(user or null) runs when someone signs in or out. Returns the
 // unsubscribe function.
@@ -102,11 +344,22 @@ export function onUser(listener) {
 // Reads the session saved on this phone, if any. A saved session counts as
 // signed in even with no signal: the token is refreshed when the phone is
 // back online.
+//
+// A session the server ended on an earlier visit comes back as the same
+// person with sessionExpired() true, unless a sign-in link is coming back
+// right now, which then signs them in.
 export async function restoreSession() {
 	const saved = storedSession();
 
 	if (!saved) {
-		return null;
+		const ended = readEnded();
+
+		if (ended && !returning) {
+			setUser(ended.user);
+			setExpired(true);
+		}
+
+		return user;
 	}
 
 	if (saved.user) {
@@ -121,8 +374,9 @@ export async function restoreSession() {
 			setUser(data.session.user);
 		}
 		else if (!storedSession()) {
-			// Supabase dropped a session it could not refresh.
-			setUser(null);
+			// Supabase dropped a session it could not refresh: the server
+			// ended it, so ask for a new sign-in rather than signing out.
+			setExpired(true);
 		}
 	}
 	catch {
@@ -155,6 +409,8 @@ export function takeAuthReturn() {
 		return null;
 	}
 
+	returning = Boolean(code || tokens);
+
 	for (const key of ['code', 'error', 'error_code', 'error_description']) {
 		query.delete(key);
 	}
@@ -176,6 +432,8 @@ export async function completeInvite(tokens) {
 	}
 
 	setUser(data.user || (data.session && data.session.user));
+	// A new session: what waited on the phone can go up (js/sync.js).
+	setExpired(false);
 
 	return user;
 }
@@ -189,6 +447,8 @@ export async function completeSignIn(code) {
 	}
 
 	setUser(data.user || (data.session && data.session.user));
+	// A new session: what waited on the phone can go up (js/sync.js).
+	setExpired(false);
 
 	return user;
 }
@@ -230,6 +490,8 @@ export async function signInWithName(name, password) {
 	}
 
 	setUser(data.user || (data.session && data.session.user));
+	// A new session: what waited on the phone can go up (js/sync.js).
+	setExpired(false);
 
 	return user;
 }
@@ -257,7 +519,19 @@ export async function signInWithGoogle() {
 // the phone.
 export async function signOut() {
 	const client = await getClient();
-	const {error} = await client.auth.signOut({scope: 'local'});
+
+	signingOut = true;
+
+	try {
+		localStorage.setItem(SIGNED_OUT_KEY, String(Date.now()));
+	}
+	catch {
+		// This tab still knows.
+	}
+
+	const {error} = await client.auth.signOut({scope: 'local'}).finally(() => {
+		signingOut = false;
+	});
 
 	setUser(null);
 
