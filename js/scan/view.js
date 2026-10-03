@@ -11,17 +11,17 @@
 // js/collection.js and offers Undo session; Discard saves nothing.
 
 import {addCard, deleteCard, listCards, onChange} from '../collection.js';
-import {saveToCardIndex} from '../catalog.js';
+import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail, thumbnailFrame} from './camera.js';
+import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
-import {EngineUnavailable, identify, releaseEngineSoon} from './identify.js';
+import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
 import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
-import {loadFingerprints, pictureMatch, pictureVerdict} from './picture.js';
+import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
@@ -43,6 +43,37 @@ function textFirst() {
 		return false;
 	}
 }
+
+// The language last picked in Scan (by a tap on a card's sheet, or Set for
+// all), which a card the picture settled starts in (session.js
+// defaultLanguage). Portuguese before any pick: most cards scanned here are
+// Portuguese (session.js LEADING_LANGUAGES).
+const LANGUAGE_KEY = 'card-tracker:scan-language';
+
+function lastLanguage() {
+	try {
+		return localStorage.getItem(LANGUAGE_KEY) || 'pt';
+	}
+	catch {
+		return 'pt';
+	}
+}
+
+function rememberLanguage(code) {
+	try {
+		localStorage.setItem(LANGUAGE_KEY, code);
+	}
+	catch {
+		// Not kept; the next card starts in Portuguese.
+	}
+}
+
+// How long the first answer to a picture match waits for each set's record
+// before showing the card from what the phone has (the card index, the
+// fingerprint index's own ids and pictures). The records keep loading
+// behind it, and the card is named again when they come.
+const QUICK_MS = 120;
+
 const PHOTO_HEIGHT = 420;
 
 // A photo from the gallery is read at most this many pixels on its longer
@@ -87,11 +118,18 @@ export function scanView(root) {
 	const working = new Set();
 	// Photos picked from the gallery, whose sheet opens once looked up.
 	const openWhenMatched = new Set();
+	// Straightened cards waiting for their label row to be read (no text was
+	// read for them), dropped once read.
+	const cardImages = new Map();
 	const detector = createAutoCapture();
+	// Where the guide is (camera.js layoutGuide): on the screen, and the
+	// guide and capture area in the camera's frame. Laid out again when the
+	// screen or the camera's frame changes size.
+	let geometry = null;
 	const thumbCanvas = document.createElement('canvas');
 
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
-	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Fill the frame. Hold still.'));
+	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Card inside the frame. Hold still.'));
 	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
 	const cameraOff = h('div', {class: 'scan-camera-off', hidden: true, id: 'scan-camera-off'});
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
@@ -121,8 +159,9 @@ export function scanView(root) {
 		}
 	}});
 
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, status, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
-		h('div', {class: 'scan-stage'}, video, guide, status, cameraOff),
+		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
 			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, setAllButton), photoInput),
@@ -174,8 +213,13 @@ export function scanView(root) {
 		setLanguage: (id, code) => {
 			const rematch = change(() => S.setLanguage(session, id, code));
 
+			rememberLanguage(code);
+
 			if (rematch) {
 				rematchItem(id);
+			}
+			else {
+				localiseLater(id);
 			}
 		},
 	};
@@ -445,6 +489,7 @@ export function scanView(root) {
 		const before = item && item.card && item.card.id;
 
 		change(() => S.chooseCard(session, id, candidate));
+		localiseLater(id);
 
 		const after = S.findItem(session, id);
 
@@ -460,6 +505,7 @@ export function scanView(root) {
 
 	function remove(id) {
 		artworks.delete(id);
+		cardImages.delete(id);
 		progress.delete(id);
 		change(() => S.removeItem(session, id));
 		draft.deletePhoto(id).catch(() => {});
@@ -472,7 +518,15 @@ export function scanView(root) {
 	}
 
 	function applySetAll(field, value, options) {
-		const {rematch} = change(() => S.setForAll(session, field, value, options));
+		const {changed, rematch} = change(() => S.setForAll(session, field, value, options));
+
+		if (field === 'language') {
+			rememberLanguage(value);
+
+			for (const id of changed.filter((other) => !rematch.includes(other))) {
+				localiseLater(id);
+			}
+		}
 
 		for (const id of rematch) {
 			rematchItem(id);
@@ -630,10 +684,11 @@ export function scanView(root) {
 			return;
 		}
 
+		const area = currentGeometry();
 		const grabbed = performance.now();
-		const frame = grabFrame(video);
+		const frame = grabFrame(video, area && area.capture);
 		const captureMs = Math.round(performance.now() - grabbed);
-		const thumb = thumbnail(video, thumbCanvas);
+		const thumb = thumbnail(video, thumbCanvas, area && area.capture);
 
 		detector.captured(thumb);
 		scanStats.captures++;
@@ -660,7 +715,7 @@ export function scanView(root) {
 		// app closing starts again next time.
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved});
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -726,7 +781,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, photo = false, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, photo = false, straight = false} = {}) {
 		let result;
 
 		try {
@@ -768,6 +823,13 @@ export function scanView(root) {
 
 		progress.delete(id);
 		artworks.set(id, result.artwork);
+
+		// A card the picture settled with no text read: its straightened image
+		// is kept until its label row has been read in the background.
+		if (!result.read && result.picture) {
+			cardImages.set(id, result.card);
+		}
+
 		scanStats.reads.push({ocr: result.timings.ocr, rectify: result.timings.rectify, total: result.timings.total, workers: result.timings.workers});
 
 		// An automatic capture with no card edges and no number read was not a
@@ -802,7 +864,7 @@ export function scanView(root) {
 		}
 
 		item.timings = {...result.timings};
-		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, source: photo ? 'photo' : 'camera'});
+		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'});
 		item.picture = result.picture || null;
 		change(() => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
 
@@ -898,42 +960,167 @@ export function scanView(root) {
 	// Picture first (js/scan/picture.js): the artwork groups, a number read
 	// to choose inside one, and the text route behind them for a card the
 	// picture could not settle.
+	//
+	// Shown in two steps, because waiting for every set's record took 0.4 to
+	// 5.8 s on Eric's phone (version 24): first from what the phone has (the
+	// records already kept, waiting QUICK_MS for each, then the card index
+	// and the fingerprint index's own ids and pictures), then again with the
+	// full records behind it. The second answer replaces the first only when
+	// nobody has touched the card in between; otherwise it just fills in the
+	// names.
 	async function pictureItemNow(id) {
 		const item = S.findItem(session, id);
 		const started = performance.now();
 		const language = item.language || item.languageHint;
 		const artwork = artworks.get(id) || null;
-		const found = await pictureMatch(item.picture, item.read, language, {textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+		const index = await Promise.race([cardIndex().catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), QUICK_MS))]);
+		const known = knownFrom(index);
+		const quick = await pictureMatch(item.picture, item.read, language, {known, wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
 		}
 
-		if (found.unnamed && !online()) {
-			// Recognised, but none of its sets is on this phone yet: it is named
-			// and its finishes loaded once there is signal.
+		const quickMs = Math.round(performance.now() - started);
+		let shown = null;
+
+		// Recognised, but none of its sets is on this phone yet, and no
+		// signal: it is named and its finishes loaded once there is signal.
+		if (!(quick.unnamed && !online())) {
+			showPicture(id, quick, {language, ms: quickMs});
+			shown = snapshot(S.findItem(session, id));
+			maybeOpenFirst(id);
+		}
+
+		const full = await pictureMatch(item.picture, item.read, language, {known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+
+		if (!alive || !S.findItem(session, id)) {
+			return;
+		}
+
+		const fullMs = Math.round(performance.now() - started);
+		const current = S.findItem(session, id);
+
+		if (!shown && full.unnamed && !online()) {
 			change(() => S.markWaiting(session, id, 'catalog'));
 
 			return;
 		}
 
-		const current = S.findItem(session, id);
-
-		current.confirmed = false;
-		current.timings = {...current.timings, match: Math.round(performance.now() - started)};
-
-		if (current.report) {
-			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {language, ms: current.timings.match})};
+		if (!shown || sameAs(shown, current)) {
+			showPicture(id, full, {fullMs: shown ? fullMs : null, language, ms: shown ? quickMs : fullMs});
 		}
-
-		change(() => S.applyPicture(session, id, found));
-
-		if (current.card) {
-			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+		else if (current.report && current.report.match) {
+			current.report = {...current.report, match: {...current.report.match, fullMs}};
+			persist();
 		}
 
 		await loadVariants(id);
-		maybeOpenFirst(id);
+
+		if (!shown) {
+			maybeOpenFirst(id);
+		}
+	}
+
+	// What a picture answer left on the card, to tell whether anyone changed
+	// it before the next one.
+	const snapshot = (item) => ({card: item.card ? item.card.id : null, confirmed: item.confirmed, language: item.language, languageBy: item.languageBy});
+	const sameAs = (before, item) => {
+		const now = snapshot(item);
+
+		return now.card === before.card && now.confirmed === before.confirmed && now.language === before.language && now.languageBy === before.languageBy;
+	};
+
+	// A picture answer onto the card: the match, the language a settled card
+	// starts in, the scan report, and, behind it, the print in that language
+	// and the label row read.
+	function showPicture(id, found, {fullMs = null, language, ms}) {
+		const current = S.findItem(session, id);
+
+		current.confirmed = false;
+		current.timings = {...current.timings, match: ms};
+
+		if (current.report) {
+			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, language, ms})};
+		}
+
+		change(() => {
+			S.applyPicture(session, id, found);
+
+			if (found.card) {
+				S.defaultLanguage(session, id, lastLanguage());
+			}
+		});
+
+		const after = S.findItem(session, id);
+
+		if (after.card) {
+			announce(`Added ${after.card.name}${after.language ? `, ${flagLanguageName(after.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+		}
+
+		localiseLater(id);
+		checkLabelLater(id);
+	}
+
+	// The card's name and picture in its language's print, read behind the
+	// tray (a set record, kept on the phone once read).
+	function localiseLater(id) {
+		const item = S.findItem(session, id);
+
+		if (!item || !item.card) {
+			return;
+		}
+
+		const cardId = item.card.id;
+
+		localPrint(item.card, item.language).then((local) => {
+			const now = S.findItem(session, id);
+
+			if (alive && now && now.card && now.card.id === cardId && (local || now.card.own)) {
+				change(() => S.localisePrint(session, id, cardId, local));
+			}
+		}).catch(() => {});
+	}
+
+	// A card that starts in the last picked language has its label row read
+	// in the background (a few small OCR calls), which corrects the language
+	// when it clearly names another. Waits a moment, so the tray and the
+	// sheet draw first.
+	function checkLabelLater(id) {
+		const image = cardImages.get(id);
+		const item = S.findItem(session, id);
+
+		if (!image || !item || item.languageBy !== 'default') {
+			return;
+		}
+
+		cardImages.delete(id);
+		setTimeout(async () => {
+			let label = null;
+
+			try {
+				label = await readLanguageLabel(image);
+			}
+			catch {
+				// No reader on this phone yet: the default stands.
+				return;
+			}
+
+			if (!alive || !S.findItem(session, id)) {
+				return;
+			}
+
+			const changed = change(() => S.applyLabel(session, id, label));
+
+			if (changed) {
+				if (S.needsRematch(S.findItem(session, id))) {
+					rematchItem(id);
+				}
+				else {
+					localiseLater(id);
+				}
+			}
+		}, 300);
 	}
 
 	// A language that lives in another catalog (a Japanese match changed to
@@ -1057,23 +1244,53 @@ export function scanView(root) {
 
 	// ------------------------------------------------------------ the camera
 
+	// The guide inside the part of the video that shows (camera.js
+	// layoutGuide), so its whole outline is on the screen whatever the room
+	// above the tray.
 	function placeGuide() {
-		const {height, width} = camera.frame;
-		const box = guideBox(width, height);
-		const stage = video.getBoundingClientRect();
-		// The video covers the stage (object-fit: cover), so map frame
-		// fractions through the scale it is drawn at.
-		const scale = Math.max(stage.width / width, stage.height / height);
-		const drawnW = width * scale;
-		const drawnH = height * scale;
-		const offsetX = (stage.width - drawnW) / 2;
-		const offsetY = (stage.height - drawnH) / 2;
+		if (!camera || !video.videoWidth) {
+			return;
+		}
 
-		guide.style.left = `${offsetX + box.x * drawnW}px`;
-		guide.style.top = `${offsetY + box.y * drawnH}px`;
-		guide.style.width = `${box.w * drawnW}px`;
-		guide.style.height = `${box.h * drawnH}px`;
+		const box = stage.getBoundingClientRect();
+
+		if (!box.width || !box.height) {
+			return;
+		}
+
+		geometry = {...layoutGuide(camera.frame, box), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
+
+		const {screen: place} = geometry;
+
+		guide.style.left = `${place.x}px`;
+		guide.style.top = `${place.y}px`;
+		guide.style.width = `${place.w}px`;
+		guide.style.height = `${place.h}px`;
 		guide.hidden = false;
+	}
+
+	// The layout for the camera's frame as it is now (a phone turned, or the
+	// camera switching resolution, changes it between resizes).
+	function currentGeometry() {
+		if (camera && video.videoWidth && (!geometry || geometry.frame.width !== video.videoWidth || geometry.frame.height !== video.videoHeight)) {
+			placeGuide();
+		}
+
+		return geometry;
+	}
+
+	// The geometry as the scan report keeps it.
+	function geometryReport(area, how) {
+		const rect = (r) => `${Math.round(r.w)} x ${Math.round(r.h)} at ${Math.round(r.x)}, ${Math.round(r.y)}`;
+
+		return {
+			capture: rect(area.capture),
+			frame: `${area.frame.width} x ${area.frame.height}`,
+			guide: rect(area.guide),
+			how,
+			screen: rect(area.screen),
+			stage: `${area.stage.width} x ${area.stage.height}`,
+		};
 	}
 
 	function showCameraOff(err) {
@@ -1234,6 +1451,8 @@ export function scanView(root) {
 			camera = null;
 		}
 
+		geometry = null;
+
 		shutter.disabled = true;
 
 		if (wakeLock) {
@@ -1258,7 +1477,8 @@ export function scanView(root) {
 				return;
 			}
 
-			const shot = thumbnailFrame(video, thumbCanvas);
+			const area = currentGeometry();
+			const shot = thumbnailFrame(video, thumbCanvas, area && area.capture);
 
 			if (!shot) {
 				return;
@@ -1267,7 +1487,7 @@ export function scanView(root) {
 			const thumb = shot.grey;
 			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
 
-			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Fill the frame. Hold still.';
+			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
 
 			if (detector.push(thumb, seen)) {
@@ -1317,6 +1537,17 @@ export function scanView(root) {
 	window.addEventListener('online', onOnline);
 	window.addEventListener('offline', onOffline);
 	window.addEventListener('resize', onResize);
+	window.addEventListener('orientationchange', onResize);
+	// The stage changes size without the window doing so too (the tray
+	// growing, the browser's toolbar sliding away), and the camera's frame
+	// changes size when the phone turns.
+	const stageWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null;
+
+	if (stageWatch) {
+		stageWatch.observe(stage);
+	}
+
+	video.addEventListener('resize', onResize);
 
 	const stopOwned = onChange(() => refreshOwned());
 
@@ -1345,6 +1576,9 @@ export function scanView(root) {
 		// The reader and the name lists start with the screen, alongside the
 		// camera, so the first capture does not wait for them.
 		startEngine();
+		// The card index, read once, so a picture match can name a card from
+		// it at once.
+		cardIndex().catch(() => {});
 
 		if (online()) {
 			warmNameRoute();
@@ -1364,6 +1598,13 @@ export function scanView(root) {
 		window.removeEventListener('online', onOnline);
 		window.removeEventListener('offline', onOffline);
 		window.removeEventListener('resize', onResize);
+		window.removeEventListener('orientationchange', onResize);
+
+		if (stageWatch) {
+			stageWatch.disconnect();
+		}
+
+		video.removeEventListener('resize', onResize);
 		document.documentElement.classList.remove('scan-open');
 
 		for (const url of photoUrls.values()) {

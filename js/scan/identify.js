@@ -21,8 +21,8 @@
 // language.
 
 import {artVector} from './artwork.js';
-import {captureRect} from './camera.js';
-import {compactPicture, loadFingerprints, matchCrops, needsText} from './picture.js';
+import {defaultCapture} from './camera.js';
+import {compactPicture, loadFingerprints, matchCrops, needsText, SURE_DISTANCE} from './picture.js';
 import {cropImage, rectify} from './rectify.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
@@ -116,7 +116,7 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 		let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
 
 		if (photo && !rectified.found) {
-			const middle = rectify(cropImage(image, captureRect(image.width, image.height)));
+			const middle = rectify(cropImage(image, defaultCapture(image.width, image.height)));
 
 			if (middle.found) {
 				rectified = {...middle, note: `${middle.note} (in the middle of the photo)`};
@@ -128,6 +128,7 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 		let picture = null;
 		let fingerprintMs = null;
 		let matchMs = null;
+		let variantsTried = [];
 
 		if (pictureFirst) {
 			try {
@@ -141,9 +142,33 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 					card = rectified.cut(others[matched.crop - 1].rect);
 				}
 
-				picture = compactPicture(matched, {how});
 				fingerprintMs = matched.timings.fingerprint;
 				matchMs = matched.timings.match;
+
+				// An edge worked out rather than found, and a weak match: the
+				// crop is likely off, so the box moved up and down (rectify.js
+				// variants) is fingerprinted too, and the closest kept.
+				const best = matched.groups[0] ? matched.groups[0].score : Infinity;
+				let chosen = matched;
+				let chosenHow = how;
+
+				if (rectified.guessed && (rectified.variants || []).length && best > SURE_DISTANCE) {
+					const shifted = rectified.variants.map((v) => rectified.variant(v, OTHER_CROP_HEIGHT));
+					const again = matchCrops(index, shifted);
+					const score = again.groups[0] ? again.groups[0].score : Infinity;
+
+					variantsTried = rectified.variants.map((v) => v.how);
+					fingerprintMs += again.timings.fingerprint;
+					matchMs += again.timings.match;
+
+					if (score < best) {
+						chosen = again;
+						chosenHow = rectified.variants[again.crop].how;
+						card = rectified.variant(rectified.variants[again.crop]);
+					}
+				}
+
+				picture = compactPicture(chosen, {how: chosenHow, variants: variantsTried, before: chosen === matched ? null : best});
 			}
 			catch {
 				// No index on this phone yet: the card is read in full.
@@ -188,6 +213,7 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 			artwork,
 			card,
 			found: rectified.found,
+			guessed: rectified.guessed || null,
 			note: rectified.note || null,
 			ocr: Boolean(read),
 			picture,
@@ -200,6 +226,20 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 	queue = run.catch(() => {});
 
 	return run;
+}
+
+// The label row alone (read.js readLabel) of a straightened card, for the
+// language of a card the picture settled with no text read. Starts the
+// engine if it is not running; runs outside the one-card-at-a-time queue
+// (a few small reads that share the pool's workers), so the next capture is
+// never held up by it. Returns {code, confidence, text, ms}.
+export async function readLanguageLabel(card) {
+	const engine = await warmEngine();
+	const started = performance.now();
+	const {readLabel} = await import('./read.js');
+	const label = await readLabel(card, engine.ocr);
+
+	return {...label, ms: Math.round(performance.now() - started)};
 }
 
 // read.js, imported with the engine: it is only needed when text is read.

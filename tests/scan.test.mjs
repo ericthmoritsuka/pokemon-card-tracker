@@ -11,7 +11,8 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {pictureMatch, pictureVerdict} from '../js/scan/picture.js';
+import {knownFrom, localPrint, pictureMatch, pictureVerdict} from '../js/scan/picture.js';
+import {layoutGuide} from '../js/scan/camera.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -1339,7 +1340,7 @@ describe('picture first (Eric, 2026-10-03)', () => {
 	test('one card well ahead is the card, with no text read', async () => {
 		const picture = {gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
 
-		assert.deepEqual(pictureVerdict(picture), {clear: true, several: false, sure: true});
+		assert.deepEqual(pictureVerdict(picture), {clear: true, close: true, several: false, sure: true});
 
 		const found = await pictureMatch(picture, null, null, {api});
 
@@ -1422,5 +1423,388 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		assert.equal(item.card.lang, 'ja');
 		assert.equal(S.blocker(item), null);
 		assert.deepEqual(S.entriesToSave(session, new Map())[0].fields, {card_id: 'M6-047', catalog: 'ja', fallback: true, language: 'ko', language_source: 'scan', variant_id: null});
+	});
+});
+
+describe('the guide on the screen and the capture around it (Eric, 2026-10-03)', () => {
+	// Eric's phone: 384 CSS px wide, the rear camera 2160 x 3840 portrait,
+	// and the video area above the tray a few hundred pixels tall.
+	const frame = {height: 3840, width: 2160};
+
+	test('the whole guide is inside the part of the video that shows, with a margin, at 63:88', () => {
+		for (const height of [380, 410, 440, 470, 560]) {
+			const stage = {height, width: 384};
+			const {capture, guide, scale, screen} = layoutGuide(frame, stage);
+
+			assert.ok(screen.y >= 13.9 && screen.y + screen.h <= height - 13.9, `${height}: top ${screen.y}, bottom ${screen.y + screen.h}`);
+			assert.ok(screen.x >= 13.9 && screen.x + screen.w <= 384 - 13.9, `${height}: left ${screen.x}`);
+			assert.ok(Math.abs(screen.w / screen.h - 63 / 88) < 0.001);
+			// Never larger than the lab's guide, 0.86 of the frame's width.
+			assert.ok(guide.w <= 2160 * 0.86 + 1, `${height}: guide ${guide.w}`);
+
+			// The guide in frame pixels is the screen guide through the cover
+			// scale: drawn back, it lands where the outline is.
+			const offsetY = (height - frame.height * scale) / 2;
+
+			assert.ok(Math.abs(guide.y * scale + offsetY - screen.y) < 1, `${height}: guide maps back`);
+			// The capture holds the guide with room on every side, inside the
+			// frame.
+			assert.ok(capture.x >= 0 && capture.y >= 0 && capture.x + capture.w <= frame.width && capture.y + capture.h <= frame.height);
+			assert.ok(guide.y - capture.y >= guide.h * 0.09 && capture.y + capture.h - (guide.y + guide.h) >= guide.h * 0.09, `${height}: room above and below`);
+			assert.ok(guide.x - capture.x >= Math.min(guide.w * 0.09, guide.x) - 1, `${height}: room beside`);
+		}
+	});
+
+	test('a short stage gives a smaller guide, not one cut off under the tray', () => {
+		const short = layoutGuide(frame, {height: 410, width: 384});
+		const tall = layoutGuide(frame, {height: 560, width: 384});
+
+		assert.ok(short.screen.h <= 410 - 28);
+		assert.ok(short.guide.h < tall.guide.h);
+		// The lab's guide was about 461 px tall here whatever the stage.
+		assert.ok(tall.screen.h > 455 && tall.screen.h < 462, `${tall.screen.h}`);
+	});
+
+	test('a landscape camera in a portrait stage keeps the guide on the drawn video', () => {
+		const {screen, visible} = layoutGuide({height: 1080, width: 1920}, {height: 450, width: 360});
+
+		assert.ok(screen.y >= visible.y && screen.y + screen.h <= visible.y + visible.h);
+		assert.ok(screen.x >= visible.x && screen.x + screen.w <= visible.x + visible.w);
+	});
+});
+
+describe('a weak picture with an edge worked out tries the box moved (Eric, 2026-10-03)', () => {
+	// A synthetic capture: table 70, card border 215, body 180, and a busy
+	// art box. lostTop: the card's top fifth is the colour of the table
+	// (glare, or a light border on a light table), so its top edge is not
+	// found where a card's shape puts it.
+	function capture({lostTop = false} = {}) {
+		const W = 520;
+		const H = 726;
+		const cw = W / 1.2;
+		const ch = cw * 88 / 63;
+		const x0 = (W - cw) / 2;
+		const y0 = (H - ch) / 2;
+		const top = lostTop ? 0.2 : 0;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const u = (x - x0) / cw;
+				const v = (y - y0) / ch;
+				let value = 70;
+
+				if (v >= top && v < 1 && u >= 0 && u < 1) {
+					if (u < 0.04 || u > 0.96 || v > 0.97 || (!lostTop && v < 0.03)) {
+						value = 215;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.25 && v < 0.48) {
+						value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
+					}
+					else {
+						value = 180;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {data, height: H, width: W};
+	}
+
+	test('the top edge is reported as guessed, with crops moved up and down to try', () => {
+		const straight = rectify(capture({lostTop: true}));
+
+		assert.ok(straight.found, straight.note);
+		assert.equal(straight.guessed, 'top');
+		assert.ok(straight.variants.length >= 2, `${straight.variants.length} variants`);
+		assert.ok(straight.variants.some((v) => /up/.test(v.how)) && straight.variants.some((v) => /down/.test(v.how)));
+
+		const moved = straight.variant(straight.variants[0], 402);
+
+		assert.equal(moved.height, 402);
+		assert.ok(Math.abs(moved.width / moved.height - 63 / 88) < 0.006);
+	});
+
+	test('a card with all four edges found has nothing guessed and no variants', () => {
+		const straight = rectify(capture());
+
+		assert.ok(straight.found, straight.note);
+		assert.equal(straight.guessed, null);
+		assert.deepEqual(straight.variants, []);
+	});
+});
+
+describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
+	const card = (id, score) => ({catalog: 'en', id, image: null, score, set: id.split('-')[0]});
+	const picture = (score, gap, cards = 1) => ({gap, groups: [{cards: Array.from({length: cards}, (_, i) => card(`me04-0${10 + i}`, score)), score}, {cards: [card('sv01-001', score + gap)], score: score + gap}]});
+
+	test('close with a clear lead is sure; a good capture was about 30 away', () => {
+		assert.equal(pictureVerdict(picture(29.2, 42.7)).sure, true);
+		assert.equal(pictureVerdict(picture(31.6, 30.4)).sure, true);
+		assert.equal(pictureVerdict(picture(45, 10)).sure, true);
+	});
+
+	test('between 45 and 60 the lead counts, but only the number makes it sure', () => {
+		const verdict = pictureVerdict(picture(52, 20));
+
+		assert.equal(verdict.clear, true);
+		assert.equal(verdict.sure, false);
+	});
+
+	test('past 60 nothing is clear, whatever the lead: that is a wrong crop', () => {
+		for (const [score, gap] of [[68.5, 3.5], [68.4, 1.4], [76.1, 0.1], [65, 25]]) {
+			const verdict = pictureVerdict(picture(score, gap));
+
+			assert.equal(verdict.clear, false, `${score}`);
+			assert.equal(verdict.sure, false, `${score}`);
+		}
+	});
+
+	test('a one-card group past SURE_DISTANCE with no number read is shown, not sure', async () => {
+		const api = {setDetail: async () => ({cardCount: {official: 100}, cards: [{id: 'me04-010', localId: '010', name: 'Card'}], name: 'Set'})};
+		const found = await pictureMatch(picture(52, 20), null, 'pt', {api});
+
+		assert.equal(found.card.id, 'me04-010');
+		assert.equal(found.sure, false);
+	});
+});
+
+describe('auto-capture with a card held by hand (Eric, 2026-10-03)', () => {
+	const W = THUMB_W;
+	const H = THUMB_H;
+
+	// A card of `size` (a share of the thumbnail's width, card-shaped),
+	// centred and moved by dx, dy pixels (fractions too: each pixel averages
+	// 4 x 4 samples, as a camera's does), on a table with some texture of
+	// its own (so nothing beyond the card is flat), the card's face light
+	// with dark text lines and a busy art box that move with it.
+	function heldCard(size, dx = 0, dy = 0) {
+		const grey = new Uint8Array(W * H);
+		const cw = W * size;
+		const ch = cw * 88 / 63;
+		const left = (W - cw) / 2 + dx;
+		const top = (H - ch) / 2 + dy;
+		const at = (px, py) => {
+			const u = (px - left) / cw;
+			const v = (py - top) / ch;
+
+			if (u < 0 || u >= 1 || v < 0 || v >= 1) {
+				return 70 + ((Math.floor(px) * 5 + Math.floor(py) * 3) % 9);
+			}
+
+			if (u > 0.1 && u < 0.9 && v > 0.12 && v < 0.5) {
+				return 60 + ((Math.floor(u * 40) * 37 + Math.floor(v * 50) * 23) % 120);
+			}
+
+			return v > 0.55 && Math.floor(v * 40) % 3 === 0 && u > 0.1 && u < 0.8 ? 50 : 215;
+		};
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				let sum = 0;
+
+				for (let sy = 0; sy < 4; sy++) {
+					for (let sx = 0; sx < 4; sx++) {
+						sum += at(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4);
+					}
+				}
+
+				grey[y * W + x] = Math.round(sum / 16);
+			}
+		}
+
+		return grey;
+	}
+
+	test('a card held smaller than the guide, a little off its middle, is seen', () => {
+		for (const [size, dx, dy] of [[0.6, 0, 0], [0.62, 3, -2], [0.7, -2, 3]]) {
+			assert.equal(presence(heldCard(size, dx, dy), W, H).present, true, `${size} at ${dx}, ${dy}`);
+		}
+	});
+
+	test('a box the wrong shape for a card is not', () => {
+		const grey = new Uint8Array(W * H).fill(72);
+
+		// Square, half the thumbnail across.
+		for (let y = 22; y < 54; y++) {
+			for (let x = 16; x < 48; x++) {
+				grey[y * W + x] = (x + y) % 5 ? 210 : 60;
+			}
+		}
+
+		assert.equal(presence(grey, W, H).present, false);
+	});
+
+	// A hand shaking by 0.6 of a thumbnail pixel (about 1 % of the capture's
+	// width) between frames: the full thumbnails differ by more than STILL
+	// (the old rule never fired), their coarse copies by about half of it.
+	test('a hand that shakes about 1 % of the width still takes the picture within half a second', () => {
+		const detector = createAutoCapture();
+		const shake = [[0, 0], [0.6, 0], [0, 0], [0.6, 0], [0, 0], [0.6, 0], [0, 0]];
+
+		assert.ok(difference(heldCard(0.8), heldCard(0.8, 0.6, 0)) > 6, 'the old rule saw this as moving');
+		let frames = 0;
+		let fired = false;
+
+		for (const [dx, dy] of [...shake, ...shake]) {
+			const frame = heldCard(0.8, dx, dy);
+
+			frames++;
+
+			if (detector.push(frame, presence(frame, W, H))) {
+				fired = true;
+				break;
+			}
+		}
+
+		assert.ok(fired, 'captured');
+		assert.ok(frames <= 5, `after ${frames} frames (${frames * 125} ms)`);
+	});
+
+	test('the same card, still shaking a little, is not taken twice', () => {
+		const detector = createAutoCapture();
+		let fired = 0;
+
+		for (let i = 0; i < 40; i++) {
+			const frame = heldCard(0.8, i % 2 ? 0.6 : 0, 0);
+
+			if (detector.push(frame, presence(frame, W, H))) {
+				fired++;
+				detector.captured(frame);
+			}
+		}
+
+		assert.equal(fired, 1);
+	});
+});
+
+describe('the language of a card the picture settled (Eric, 2026-10-03)', () => {
+	const settled = () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {id: 'me04-090', image: 'https://img/en/me04-090', lang: 'en', localId: '090', name: 'Ampharos', official: 86, setId: 'me04', setName: 'Chaos Rising'}, sure: true}, AT);
+
+		return {item, session};
+	};
+
+	test('starts in the last language picked, and a label read clearly naming another corrects it', () => {
+		const {item, session} = settled();
+
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT), true);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+		assert.notEqual(S.blocker(item), 'language', 'a language is set, so it does not hold the save');
+
+		assert.equal(S.applyLabel(session, item.id, {code: 'en', confidence: 0.3}, AT), false, 'a weak read leaves it');
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: 'en', confidence: 0.67, ms: 240, text: 'Weakness Resistance'}, AT), true);
+		assert.equal(item.language, 'en');
+		assert.equal(item.languageBy, 'read');
+		assert.match(S.reportText(item, {at: AT}), /Label row read in the background: en \(67 %\), 240 ms/);
+	});
+
+	test('a label that agrees confirms it; a language picked by hand is never changed', () => {
+		const {item, session} = settled();
+
+		S.defaultLanguage(session, item.id, 'pt', AT);
+		assert.equal(S.applyLabel(session, item.id, {code: 'pt', confidence: 1}, AT), false);
+		assert.equal(item.languageBy, 'read');
+
+		const other = settled();
+
+		S.setLanguage(other.session, other.item.id, 'fr', 'hand', AT);
+		assert.equal(S.defaultLanguage(other.session, other.item.id, 'pt', AT), false);
+		assert.equal(S.applyLabel(other.session, other.item.id, {code: 'en', confidence: 1}, AT), false);
+		assert.equal(other.item.language, 'fr');
+	});
+
+	test('a Japanese record keeps its hint rather than the last Western pick', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {id: 'M4-001', lang: 'ja', localId: '001', name: 'Weedle JA', setId: 'M4'}, sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT), false);
+		assert.equal(item.language, null);
+	});
+
+	test('the Portuguese print\'s name and picture are shown, and the English ones come back', async () => {
+		const {item, session} = settled();
+		const api = {setDetail: async (lang, set) => (lang === 'pt' && set === 'me04' ? {cards: [{id: 'me04-090', image: 'https://img/pt/me04-090', localId: '090', name: 'Ampharos PT'}], name: 'Caos Crescente'} : null)};
+		const local = await localPrint(item.card, 'pt', {api});
+
+		assert.deepEqual(local, {image: 'https://img/pt/me04-090', lang: 'pt', name: 'Ampharos PT', setName: 'Caos Crescente'});
+		assert.equal(await localPrint(item.card, 'en', {api}), null);
+		assert.equal(await localPrint(item.card, 'fr', {api}), null, 'no French record');
+
+		S.localisePrint(session, item.id, 'me04-090', local, AT);
+		assert.equal(item.card.name, 'Ampharos PT');
+		assert.equal(item.card.setName, 'Caos Crescente');
+		assert.equal(item.card.id, 'me04-090', 'still saved against the same record');
+		assert.equal(item.card.catalog, 'international');
+
+		S.localisePrint(session, item.id, 'me04-090', null, AT);
+		assert.equal(item.card.name, 'Ampharos');
+		assert.equal(item.card.image, 'https://img/en/me04-090');
+		assert.equal(item.card.own, undefined);
+	});
+});
+
+describe('a picture match shown at once from what the phone has (Eric, 2026-10-03)', () => {
+	const card = (id, score) => ({catalog: 'en', id, image: `https://assets/${id}`, score, set: id.split('-')[0]});
+	const picture = {gap: 30, groups: [{cards: [card('me04-058', 29)], score: 29}, {cards: [card('sv01-001', 59)], score: 59}]};
+
+	test('a set record that is slow to come is not waited for: the card index names the card', async () => {
+		const slow = {setDetail: () => new Promise((resolve) => setTimeout(() => resolve({cardCount: {official: 86}, cards: [{id: 'me04-058', localId: '058', name: 'Slowking'}], name: 'Chaos Rising'}), 400))};
+		const index = new Map([['international|me04-058', {catalog: 'international', id: 'me04-058', localizations: {en: {image: 'https://img/me04-058', lang: 'en', name: 'Slowking', set_name: 'Chaos Rising'}}, official: 86}]]);
+		const started = Date.now();
+		const quick = await pictureMatch(picture, null, 'pt', {api: slow, known: knownFrom(index), wait: 50});
+
+		assert.ok(Date.now() - started < 300, `${Date.now() - started} ms`);
+		assert.equal(quick.card.name, 'Slowking');
+		assert.equal(quick.card.setName, 'Chaos Rising');
+		assert.equal(quick.card.official, 86);
+		assert.equal(quick.sure, true);
+		assert.equal(quick.unnamed, false);
+
+		// Not in the card index either: named by its id for now, with the
+		// index's own picture.
+		const bare = await pictureMatch(picture, null, 'pt', {api: slow, known: knownFrom(new Map()), wait: 50});
+
+		assert.equal(bare.card.id, 'me04-058');
+		assert.equal(bare.card.image, 'https://assets/me04-058');
+		assert.equal(bare.unnamed, true);
+	});
+});
+
+describe('the scan report says where the guide was and what was guessed (Eric, 2026-10-03)', () => {
+	test('guide and capture geometry, a guessed edge, the moved crops tried, and the lookup in two steps', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const result = {
+			angle: 1.3,
+			card: {height: 1400, width: 1002},
+			found: true,
+			guessed: 'top',
+			note: 'Card edges found; top edge worked out from the width.',
+			ocr: false,
+			picture: {before: 68.4, gap: 21.5, groups: [{cards: [{id: 'me04-023'}], score: 31.2}, {cards: [{id: 'sv01-001'}], score: 52.7}], how: 'moved up 3 %', variants: ['moved up 6 %', 'moved up 3 %', 'moved down 3 %']},
+			ratio: 0.716,
+			read: null,
+			timings: {fingerprint: 30, match: 40, rectify: 80, total: 160},
+		};
+
+		item.report = S.reportOfRead(result, {captureMs: 25, frame: '2106 x 2942', geometry: {capture: '2106 x 2942 at 27, 449', frame: '2160 x 3840', guide: '1755 x 2452 at 202, 694', how: 'auto', screen: '312 x 436 at 36, 14', stage: '384 x 464'}});
+		item.report.match = S.reportOfMatch({candidates: [], routes: ['picture']}, {fullMs: 2400, language: 'pt', ms: 90});
+
+		const text = S.reportText(item, {at: AT});
+
+		assert.match(text, /- Capture: 25 ms \(taken automatically\)/);
+		assert.match(text, /- Guide: 312 x 436 at 36, 14 on a 384 x 464 screen area; in the 2160 x 3840 frame, guide 1755 x 2452 at 202, 694, captured 2106 x 2942 at 27, 449/);
+		assert.match(text, /- Edges: left, right, and bottom found; top GUESSED/);
+		assert.match(text, /- Crops tried for the guessed edge: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
+		assert.match(text, /- Catalog lookup: shown after 90 ms from what the phone had; full records 2400 ms/);
 	});
 });

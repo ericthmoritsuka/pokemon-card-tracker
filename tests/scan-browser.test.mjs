@@ -340,11 +340,15 @@ describe('scanner', () => {
 		await page.goto(url('scan'));
 		list = await waitForTray(page, 3, 'the auto capture of Spinarak');
 
-		// Settled, so no tap on the card; the language label on this flat
-		// still sometimes reads too faintly to be sure, which asks for the
-		// language instead.
+		// Settled, so no tap on the card. Its picture settles it with no text
+		// read, so it starts in the language last picked (French, from
+		// Bulbasaur), and its label row, read behind it, makes it English
+		// when it reads clearly; on this flat still it sometimes reads too
+		// faintly, which leaves French. (With the text route, a faint label
+		// asks for the language instead.)
 		assert.ok(['ready', 'language'].includes(list[0].status), `the name settles the 102/189 tie (${list[0].status})`);
-		assert.match(list[0].label, /^Spinarak, /);
+		// Shown in its language's print: Mimigal while French, Spinarak in English.
+		assert.match(list[0].label, /^(Spinarak|Mimigal), /);
 
 		await page.click('#scan-shutter');
 		list = await waitForTray(page, 4, 'the shutter capture of Spinarak');
@@ -388,7 +392,19 @@ describe('scanner', () => {
 
 		await page.click('#scan-done-open');
 		await page.waitForSelector('#scan-done');
-		assert.equal(await text(page, '#scan-done-count'), '4 cards · EN 3 · FR 1');
+
+		// Pikachu read English off its label; Bulbasaur French by hand; each
+		// Spinarak English by its label or by a tap, or French by the last pick.
+		const held = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.map((item) => [item.card.id, item.language]));
+		const counted = new Map();
+
+		for (const [, code] of held) {
+			counted.set(code, (counted.get(code) || 0) + 1);
+		}
+
+		assert.deepEqual(held.filter(([id]) => id !== SPINARAK).map(([id, code]) => `${id} ${code}`).sort(), [`${BULBASAUR} fr`, `${PIKACHU} en`]);
+		assert.ok(held.filter(([id]) => id === SPINARAK).every(([, code]) => ['en', 'fr'].includes(code)), held.join('; '));
+		assert.equal(await text(page, '#scan-done-count'), `4 cards · ${[...counted].sort((a, b) => b[1] - a[1]).map(([code, n]) => `${code.toUpperCase()} ${n}`).join(' · ')}`);
 
 		list = await tiles(page);
 		assert.deepEqual(list.slice(0, 2).map((tile) => tile.qty), ['×2', '×2'], 'scanned twice');

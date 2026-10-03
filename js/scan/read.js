@@ -402,6 +402,32 @@ const shiftLines = (result, y0) => linesOf(result).map((read) => ({
 	words: read.words.map((word) => ({...word, bbox: {...word.bbox, y0: word.bbox.y0 + y0, y1: word.bbox.y1 + y0}})),
 }));
 
+// ------------------------------------------------------------ the label alone
+
+// Reads only the label row (Weakness, Resistance, Retreat, in the card's
+// language) of a straightened card, as readCard reads it: its two most
+// text-like lines, then the whole band sparse when they name no language.
+// For a card the picture settled with no text read, whose language was set
+// from the person's last pick: a few small OCR calls, in the background,
+// can still correct it (js/scan/view.js). Returns parseLabel's {code,
+// confidence, ...} and the text read.
+export async function readLabel(card, ocr, {textPx = TEXT_PX} = {}) {
+	const rect = regionRect(card, REGIONS.label);
+	const band = prepareRegion(card, rect, scaleFor(card, REGIONS.label, textPx), {sharpen: SHARPEN});
+	const lines = await Promise.all(findTextLines(band, textPx, 2).map((line) => ocr(cropRows(band, line), OCR_SETTINGS.label)));
+	let text = lines.map((result) => result.text || '').join('\n');
+	let label = parseLabel(text);
+
+	if (!label.code) {
+		const sparse = await ocr(band, OCR_SETTINGS.sparse);
+
+		text = [text, sparse.text].filter(Boolean).join('\n');
+		label = parseLabel(text);
+	}
+
+	return {...label, text: text.trim().slice(0, 200)};
+}
+
 // ------------------------------------------------------------ the whole read
 
 // Reads one straightened card with `ocr`, an async function (image, {psm,

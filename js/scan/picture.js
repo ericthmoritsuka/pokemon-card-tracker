@@ -25,6 +25,24 @@ import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
 export {AUTO_GAP};
 
+// How close the first group must be for the picture to count at all, and
+// for it to settle the card alone. Measured on real captures (Eric's
+// phone, version 24, 2026-10-03): the right card was 29.2 and 31.6 away
+// when the crop was right, and 68.4 to 76.1 away when an edge was wrong,
+// with leads of 0.1 to 3.5, and once (me04-007, distance 68.5) still first.
+// On the benchmark (240 simulated captures) the right card's distance is
+// 9.8 at the median, 29.8 at the 90th percentile, and 37.9 at the 95th;
+// the three wrong first places were 66.9 to 78.3 away. So:
+//
+// - SURE_DISTANCE: at or under 45, a lead of AUTO_GAP settles a one-card
+//   group with no text. Between 45 and 60 the picture is probably right
+//   (four benchmark glare reads, all right) but not certain, so the
+//   number is read to confirm it.
+// - CLEAR_DISTANCE: above 60 nothing is clear, whatever the lead: that
+//   distance is a wrong crop, and a lead there means nothing.
+export const SURE_DISTANCE = 45;
+export const CLEAR_DISTANCE = 60;
+
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
 
 let indexPromise = null;
@@ -80,30 +98,39 @@ const GROUP_CARDS = 8;
 
 // The match as the tray card keeps it (small enough to store with the
 // draft): {gap, groups: [{score, cards: [{id, catalog, set, image, score}]}]}.
-export function compactPicture(matched, {how = null} = {}) {
+// how: the crop the fingerprint chose, when not the box as found; variants:
+// the moved crops tried for an edge worked out (identify.js), and before
+// the first crop's distance when one of them won.
+export function compactPicture(matched, {before = null, how = null, variants = []} = {}) {
 	return {
+		before: typeof before === 'number' && Number.isFinite(before) ? Math.round(before * 10) / 10 : null,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
 			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, id, image, score, set}) => ({catalog, id, image, score, set})),
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
+		variants: variants.length ? variants : undefined,
 	};
 }
 
-// What the picture alone says: sure (one card, a clear lead), several
-// (a clear lead, but the group holds more than one card), or neither (the
-// lead is small).
+// What the picture alone says: sure (one card, close, with a clear lead),
+// several (a clear lead, but the group holds more than one card), or
+// neither (the lead is small, or the first group is too far away to mean
+// anything: CLEAR_DISTANCE). A clear one-card group between SURE_DISTANCE
+// and CLEAR_DISTANCE is not sure: its number is read to confirm it.
 export function pictureVerdict(picture) {
 	const lead = picture && picture.groups && picture.groups[0];
 
 	if (!lead) {
-		return {clear: false, several: false, sure: false};
+		return {clear: false, close: false, several: false, sure: false};
 	}
 
-	const clear = picture.gap === null || picture.gap >= AUTO_GAP;
+	const near = typeof lead.score !== 'number' || lead.score <= CLEAR_DISTANCE;
+	const clear = near && (picture.gap === null || picture.gap >= AUTO_GAP);
+	const close = typeof lead.score !== 'number' || lead.score <= SURE_DISTANCE;
 
-	return {clear, several: clear && lead.cards.length > 1, sure: clear && lead.cards.length === 1};
+	return {clear, close, several: clear && lead.cards.length > 1, sure: clear && close && lead.cards.length === 1};
 }
 
 // Whether text has to be read for this picture: anything short of one card
@@ -126,17 +153,40 @@ const within = (promise, ms, fallback) => Promise.race([promise, new Promise((re
 // before the signal came back.
 const describeMs = () => (typeof navigator !== 'undefined' && navigator.onLine === false ? 3000 : 12000);
 
+// The catalog the app saves an index catalog's cards against (js/catalog.js
+// catalogFor): Western prints share the international one.
+const savedCatalog = (catalog) => (['ja', 'ko', 'zh-cn', 'zh-tw'].includes(catalog) ? catalog : 'international');
+
+// What the phone already knows about some index cards, with no request: the
+// card index (js/catalog.js cardIndex, every card the family owns or this
+// phone imported), as a Map of "<catalog>|<id>" to its record. Returns a
+// function (card) => {name, image, official, setName} or null.
+export function knownFrom(index) {
+	return (card) => {
+		const record = index && index.get(`${savedCatalog(card.catalog)}|${card.id}`);
+
+		if (!record) {
+			return null;
+		}
+
+		const local = (record.localizations || {})[langOf(card.catalog)] || Object.values(record.localizations || {})[0] || {};
+
+		return local.name ? {image: local.image || null, name: local.name, official: record.official || null, setName: local.set_name || null} : null;
+	};
+}
+
 // Names, numbers, and set names for the index cards, from each set's record
 // (js/catalog.js keeps them on the phone once read). A set out of reach
-// leaves its cards named by their id.
-async function describe(cards, api) {
+// within `wait` ms leaves its cards named from `known` (knownFrom), or by
+// their number in their set.
+async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
 	const sets = new Map();
 
 	for (const card of cards) {
 		const key = `${langOf(card.catalog)}|${card.set}`;
 
 		if (!sets.has(key)) {
-			sets.set(key, within(Promise.resolve().then(() => api.setDetail(langOf(card.catalog), card.set)).catch(() => null), describeMs(), null));
+			sets.set(key, within(Promise.resolve().then(() => api.setDetail(langOf(card.catalog), card.set)).catch(() => null), wait, null));
 		}
 	}
 
@@ -152,26 +202,48 @@ async function describe(cards, api) {
 		const set = details.get(`${langOf(card.catalog)}|${card.set}`);
 		const record = set && (set.cards || []).find((c) => c.id === card.id);
 		const localId = (record && record.localId) || localIdOf(card);
+		const kept = !record && known ? known(card) : null;
 
 		return {
 			agree: [],
 			conflicts: [],
 			id: card.id,
-			image: (record && record.image) || card.image,
+			image: (record && record.image) || (kept && kept.image) || card.image,
 			lang: langOf(card.catalog),
 			localId,
-			name: (record && record.name) || card.id,
-			named: Boolean(record),
-			official: (set && set.cardCount && set.cardCount.official) || null,
+			name: (record && record.name) || (kept && kept.name) || card.id,
+			named: Boolean(record || kept),
+			official: (set && set.cardCount && set.cardCount.official) || (kept && kept.official) || null,
 			picture: card.score,
 			reasons: ['picture'],
 			releaseDate: (set && set.releaseDate) || '',
 			score: card.score,
 			setCode: null,
 			setId: card.set,
-			setName: (set && set.name) || card.set,
+			setName: (set && set.name) || (kept && kept.setName) || card.set,
 		};
 	});
+}
+
+// The Western languages TCGdex lists a set's cards in under their own
+// names (its international records are English).
+const LOCAL_PRINTS = ['pt', 'fr', 'de', 'it', 'es'];
+
+// The print of an international card in `language`: its name, picture, and
+// set name from that language's set record (js/catalog.js keeps it on the
+// phone once read), or null when the language is English or Asian, or the
+// record has no such card. For a Portuguese copy, the tray shows the
+// Portuguese name and picture rather than the English ones.
+export async function localPrint(card, language, {api = {setDetail: importApi.setDetail}, wait = describeMs()} = {}) {
+	if (!card || card.lang !== 'en' || !LOCAL_PRINTS.includes(language)) {
+		return null;
+	}
+
+	const set = await within(Promise.resolve().then(() => api.setDetail(language, card.setId)).catch(() => null), wait, null);
+	const data = set && set.data !== undefined ? set.data : set;
+	const record = data && (data.cards || []).find((c) => c.id === card.id);
+
+	return record && record.name ? {image: record.image || null, lang: language, name: record.name, setName: data.name || null} : null;
 }
 
 // Whether a candidate is what the number read says: the number, and the
@@ -235,14 +307,20 @@ function languageFits(candidate, language) {
 // findCandidates), tried when the picture is unsure and the number read
 // names none of its cards, so a card the index cannot have (a set with no
 // images yet) is still found by its number.
-export async function pictureMatch(picture, read, language, {api = {setDetail: importApi.setDetail}, now = () => performance.now(), textRoute = null} = {}) {
+//
+// wait: how long to wait for each set's record (default: a few seconds
+// offline, longer online); known: what the phone knows with no request
+// (knownFrom). The scanner first asks with a short wait, to show the card
+// at once from what is on the phone, then again in full behind it
+// (js/scan/view.js pictureItemNow).
+export async function pictureMatch(picture, read, language, {api = {setDetail: importApi.setDetail}, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	const verdict = pictureVerdict(picture);
 	const number = read && read.number && read.number.number ? read.number : null;
 	const groups = (picture && picture.groups) || [];
 	const leadCards = groups[0] ? groups[0].cards : [];
 	const rest = groups.slice(1).map((group) => group.cards[0]).filter(Boolean);
-	const described = await describe([...leadCards, ...rest], api);
+	const described = await describe([...leadCards, ...rest], api, {known, wait});
 	const lead = described.slice(0, leadCards.length);
 	const others = described.slice(leadCards.length);
 	const fitting = lead.filter((c) => languageFits(c, language));
@@ -288,7 +366,8 @@ export async function pictureMatch(picture, read, language, {api = {setDetail: i
 		const narrowed = matches.length ? matches.filter((c) => languageFits(c, language)) : fitting;
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || Boolean(language && language !== 'non-latin')});
+			// Past SURE_DISTANCE only the number read makes it sure.
+			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(language && language !== 'non-latin'))});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

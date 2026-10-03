@@ -743,10 +743,25 @@ export function cropImage(img, {h, w, x, y}) {
 	return {data, height: h, width: w};
 }
 
-// Returns {card, angle, found, note, rect, corners, ratio, others, cut}. `card` is the straightened crop
-// when the edges were found and make a card-shaped box, otherwise the input
-// (scaled to CARD_MAX_HEIGHT at most; found false, with the reason in
-// `note`).
+// How far up and down, as shares of the card's height, the crop is moved
+// for the `variants` of a card whose top edge was worked out rather than
+// found: a top worked out from a bottom found a little wrong is off by
+// about as much (Eric's phone, 2026-10-03: right card 68 to 76 away, the
+// wrong crop rather than a close confusion).
+const SHIFTS = [-0.06, -0.03, 0.03, 0.06];
+
+// Returns {card, angle, found, note, rect, corners, ratio, others, cut,
+// guessed, variants, variant}. `card` is the straightened crop when the
+// edges were found and make a card-shaped box, otherwise the input (scaled
+// to CARD_MAX_HEIGHT at most; found false, with the reason in `note`).
+//
+// guessed: 'top' when the top edge was worked out from the width (not
+// found, or not where a card's shape puts it), 'bottom' when the box was
+// too tall and snapped up from its bottom (the bottom may be the wrong
+// edge), else null. variants: other crops worth fingerprinting when the
+// picture match of `card` is weak, each {how}; variant(v, height) cuts one.
+// They are only cut when asked for (js/scan/identify.js), so a good capture
+// pays nothing for them.
 export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	const scale = Math.min(1, WORK_HEIGHT / img.height);
 	const level = greyCopy(img, scale);
@@ -786,20 +801,34 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 			const tall = Math.min(maxHeight, across / CARD_RATIO);
 			const down = Math.max(Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y));
 
+			// Moving the box up or down by a share of its height: every corner
+			// along the card's own sides.
+			const shifted = (share) => {
+				const dx = ((corners[3].x - corners[0].x + corners[2].x - corners[1].x) / 2) * share;
+				const dy = ((corners[3].y - corners[0].y + corners[2].y - corners[1].y) / 2) * share;
+
+				return corners.map((point) => ({x: point.x + dx, y: point.y + dy}));
+			};
+			const inside = (points) => points.every((point) => point.x >= 0 && point.y >= 0 && point.x <= img.width && point.y <= img.height);
+			const variants = quad.top ? [] : SHIFTS.map((share) => ({corners: shifted(share), how: shiftName(share)})).filter((v) => inside(v.corners));
+
 			return {
 				angle: Math.round((turned + Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
 				card: warpQuad(img, corners, Math.round(tall * CARD_RATIO), Math.round(tall)),
 				corners,
 				found: true,
+				guessed: quad.top ? null : 'top',
 				note: quad.top ? 'Card edges found, at a slant.' : 'Card edges found, at a slant; top edge worked out from the width.',
 				others: [],
 				ratio: Math.round((across / down) * 1000) / 1000,
 				rect: null,
+				variant: (v, height = Math.round(tall)) => warpQuad(img, v.corners, Math.round(height * CARD_RATIO), Math.round(height)),
+				variants: variants.map(({corners: c, how}) => ({corners: c, how})),
 			};
 		}
 	}
 
-	const asIs = (note) => ({angle: 0, card: img.height > maxHeight ? warpCrop(img, 0, {h: img.height, w: img.width, x: 0, y: 0}, maxHeight / img.height) : img, found: false, note, rect: null});
+	const asIs = (note) => ({angle: 0, card: img.height > maxHeight ? warpCrop(img, 0, {h: img.height, w: img.width, x: 0, y: 0}, maxHeight / img.height) : img, found: false, guessed: null, note, rect: null, variants: []});
 
 	if (edges.left === null || edges.right === null || edges.bottom === null) {
 		return asIs('Card edges not found; read the frame as it is.');
@@ -811,6 +840,8 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	const width = right - left;
 	let top = edges.top === null ? null : edges.top / scale;
 	let note = 'Card edges found.';
+	let guessed = null;
+	const foundTop = top;
 
 	if (width < img.width * 0.45) {
 		return asIs('The edges found are too close together to be the card; read the frame as it is.');
@@ -826,6 +857,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	if (top === null || Math.abs((bottom - top) - expected) / expected > 0.06) {
 		top = Math.max(0, bottom - expected);
 		note = 'Card edges found; top edge worked out from the width.';
+		guessed = 'top';
 	}
 	else {
 		// The four edges found make a box within 6 % of a card's shape, but
@@ -852,6 +884,12 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		if (Math.abs(ratio / CARD_RATIO - 1) > 0.01) {
 			top = Math.max(0, bottom - expected);
 			note = 'Card edges found; snapped to a card\'s shape.';
+
+			// Too tall: snapping up from the bottom trusts the bottom edge,
+			// which may be a line inside the card or the capture's own edge.
+			if (ratio < CARD_RATIO) {
+				guessed = 'bottom';
+			}
 		}
 	}
 
@@ -867,10 +905,30 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 
 	const out = Math.min(1, maxHeight / rect.h);
 
+	// The crops to try when the picture match is weak: the box moved up and
+	// down, and, when a top edge was found but not used, the box hung from
+	// that top instead of the bottom.
+	const variants = [];
+
+	if (guessed) {
+		const fits = (r) => r.y >= 0 && r.y + r.h <= img.height;
+
+		if (foundTop !== null && Math.abs(foundTop - top) > rect.h * 0.015) {
+			variants.push({how: 'hung from the top edge found', rect: {...rect, y: Math.round(foundTop)}});
+		}
+
+		for (const share of SHIFTS) {
+			variants.push({how: shiftName(share), rect: {...rect, y: Math.round(rect.y + share * rect.h)}});
+		}
+
+		variants.splice(0, variants.length, ...variants.filter((v) => fits(v.rect)));
+	}
+
 	return {
 		angle: Math.round(angle * 10) / 10,
 		card: warpCrop(img, -angle, rect, out),
 		found: true,
+		guessed,
 		note,
 		// The width over the height of the box the edges made, before the
 		// snap (a card is 0.716), for the scan report.
@@ -880,5 +938,9 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		// Straightens another rect of the same capture (one of `others`), at
 		// `height` pixels high.
 		cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -angle, r, height / r.h),
+		variant: (v, height = Math.min(maxHeight, v.rect.h)) => warpCrop(img, -angle, v.rect, height / v.rect.h),
+		variants,
 	};
 }
+
+const shiftName = (share) => `moved ${share < 0 ? 'up' : 'down'} ${Math.round(Math.abs(share) * 100)} %`;

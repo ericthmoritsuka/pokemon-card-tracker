@@ -15,16 +15,50 @@
 export const THUMB_W = 64;
 export const THUMB_H = 88;
 
-// Mean absolute grey difference (0 to 255) below which two thumbnails count
-// as the same, still frame. Sensor noise averages out at this size.
+// Mean absolute grey difference (0 to 255) between the coarse copies of two
+// thumbnails (coarse: 4 x 4 blocks averaged) below which they count as the
+// same, still frame. Measured on a card drawn on a table and moved between
+// frames (2026-10-03): the full 64 x 88 thumbnails differ by 5.8 for a move
+// of 0.6 % of the capture's width and 9.1 for 1 %, so the old rule (6 on the
+// full thumbnail) took a hand steadier than most to hold still; the coarse
+// copies differ by 2.8 and 4.4, and by 6.5 at 1.5 %. A different card in
+// the same place differs by 15 or more either way.
 export const STILL = 6;
 
-// After a capture, a difference above this from the captured frame means the
-// card was moved or swapped.
+// After a capture, a coarse difference above this from the captured frame
+// means the card was moved or swapped. Shake of 2 % of the width is 8.5.
 export const CHANGED = 20;
 
-// Frames in a row that must be still: at about eight a second, half a second.
-export const STEADY_FRAMES = 4;
+// Frames in a row that must be still: at about eight a second, under half a
+// second (three differences, so four frames).
+export const STEADY_FRAMES = 3;
+
+// The thumbnail averaged over COARSE x COARSE blocks, for the steadiness
+// check: shake of a pixel or two moves fine detail (text, edges) a whole
+// pixel but barely changes the blocks.
+const COARSE = 4;
+
+export function coarse(grey, width = THUMB_W, height = THUMB_H) {
+	const w = Math.floor(width / COARSE);
+	const h = Math.floor(height / COARSE);
+	const out = new Uint8Array(w * h);
+
+	for (let by = 0; by < h; by++) {
+		for (let bx = 0; bx < w; bx++) {
+			let sum = 0;
+
+			for (let y = by * COARSE; y < (by + 1) * COARSE; y++) {
+				for (let x = bx * COARSE; x < (bx + 1) * COARSE; x++) {
+					sum += grey[y * width + x];
+				}
+			}
+
+			out[by * w + bx] = Math.round(sum / (COARSE * COARSE));
+		}
+	}
+
+	return out;
+}
 
 // Grey (luminance) thumbnail from RGBA bytes.
 export function toGrey(rgba, width, height) {
@@ -81,16 +115,33 @@ const band = (height) => [Math.round(height * 0.15), Math.round(height * 0.85)];
 // strongest step of each row falls anywhere, so no line gathers them.
 // Returns {lean, share, x}: the share of the rows on the line, how far it
 // leans (columns per row), and where it crosses the middle row.
-function sideLine(grey, width, height, from, to) {
+//
+// outer: 'low' or 'high' takes, in each row, the strong step nearest
+// column `from` (or `to`) instead of the strongest: from outside the card
+// in, its edge is the first strong step met, where its text, inside, may
+// step harder.
+function sideLine(grey, width, height, from, to, outer = null) {
 	const [y0, y1] = band(height);
 	const points = [];
 
 	for (let y = y0; y < y1; y++) {
 		let best = 0;
 		let at = -1;
+		const lo = Math.max(1, from);
+		const hi = Math.min(width - 1, to);
 
-		for (let x = Math.max(1, from); x < Math.min(width - 1, to); x++) {
+		for (let i = 0; i < hi - lo; i++) {
+			const x = outer === 'high' ? hi - 1 - i : lo + i;
 			const step = Math.abs(grey[y * width + x + 1] - grey[y * width + x - 1]);
+
+			if (outer && step >= EDGE_STEP) {
+				// The step's peak: the next column out may step harder still.
+				const next = outer === 'high' ? x - 1 : x + 1;
+
+				best = step;
+				at = next >= lo && next < hi && Math.abs(grey[y * width + next + 1] - grey[y * width + next - 1]) > step ? next : x;
+				break;
+			}
 
 			if (step > best) {
 				best = step;
@@ -284,16 +335,21 @@ export function colourfulness(rgba, width, height) {
 
 // Whether a card seems to be in the frame, and whether glare is washing it
 // out. A card held in the guide makes two strong vertical edges near the
-// thumbnail's left and right sides (the capture keeps a 6 % margin around
-// the guide, so they sit about 5 % in), and plenty of detail between them.
-// Either rule below says the edges are the card's:
+// thumbnail's left and right sides (the capture keeps a 10 % margin around
+// the guide, js/scan/camera.js CAPTURE_PAD, so they sit about 8 % in), and
+// plenty of detail between them. Any rule below says the edges are the
+// card's:
 //
 // - each stands out against a flat table beyond it (the outermost column);
 // - or each is one straight line down most of the frame, the two far enough
 //   apart to be the card filling the guide. This is the card held to fill
 //   the guide's height: seen at a slant its top is wider than its bottom
 //   and reaches the margin, and a card shown on a screen has the app's text
-//   right beside it, so nothing beyond its edges is flat.
+//   right beside it, so nothing beyond its edges is flat;
+// - or all four edges are straight lines that make a card-shaped box inside
+//   the frame (boxed): a card held smaller than the guide, or a little off
+//   its middle (Eric, 2026-10-03: waiting for the card to fill the guide
+//   exactly made auto capture slow, so he pressed the shutter).
 //
 // And nothing else may say it is not a card:
 //
@@ -398,14 +454,15 @@ function judge(grey, width, height, colour) {
 	const leftLine = againstTable ? null : sideLine(grey, width, height, 1, side);
 	const rightLine = againstTable ? null : sideLine(grey, width, height, width - side, width - 1);
 	const straight = !againstTable && leftLine.share >= EDGE_ROWS && rightLine.share >= EDGE_ROWS && rightLine.x - leftLine.x >= width * 0.7;
+	const box = againstTable || straight ? null : boxed(grey, width, height);
 
 	// Lines between the sides, more than a fifth of the way in from each.
 	let reason = null;
 
-	if (againstTable || straight) {
-		const lean = straight ? (leftLine.lean + rightLine.lean) / 2 : 0;
-		const from = straight ? leftLine.x : leftAt;
-		const to = straight ? rightLine.x : rightAt;
+	if (againstTable || straight || box) {
+		const lean = straight ? (leftLine.lean + rightLine.lean) / 2 : box ? box.lean : 0;
+		const from = straight ? leftLine.x : box ? box.left : leftAt;
+		const to = straight ? rightLine.x : box ? box.right : rightAt;
 		const inset = (to - from) * 0.2;
 
 		if (longLines(grey, width, height, lean, from + inset, to - inset) >= 3) {
@@ -420,9 +477,79 @@ function judge(grey, width, height, colour) {
 		detail: Math.round(detail),
 		edges: {left: Math.round(left), right: Math.round(right)},
 		glare: bright / grey.length > 0.03,
-		present: (againstTable || straight) && detail >= 14 && !reason,
+		present: (againstTable || straight || Boolean(box)) && detail >= 14 && !reason,
 		reason,
 	};
+}
+
+// The thumbnail turned on its side (rows become columns), so sideLine can
+// look for a card's top and bottom edges as it looks for its sides.
+function transpose(grey, width, height) {
+	const out = new Uint8Array(width * height);
+
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			out[x * height + y] = grey[y * width + x];
+		}
+	}
+
+	return out;
+}
+
+// How far in from each side the edges of a card held smaller than the
+// guide may be, as a share of the thumbnail, and how small it may be held:
+// the guide is the middle 1 / 1.2 of the capture (camera.js CAPTURE_PAD),
+// so a card at 0.6 of the guide's size spans half the capture.
+const BOX_SIDE = 0.34;
+const BOX_MIN = 0.5;
+const BOX_ACROSS = 0.5;
+const BOX_EDGE = 0.04;
+
+// A card held smaller than the guide, or off its middle, but inside it:
+// four straight edges (sideLine on the thumbnail, and on it turned on its
+// side for the top and bottom), each running along most of its band, that
+// make a box of a card's shape (63:88, within 12 %; the thumbnail has about
+// the capture's shape) at least BOX_MIN of the thumbnail across. Two long
+// edges alone, too close together for a card filling the guide, are not
+// enough (a phone's screen beside the card makes those); the top and bottom
+// must be there too, at the right distance. Returns {left, right, lean} or
+// null.
+function boxed(grey, width, height) {
+	const side = Math.round(width * BOX_SIDE);
+	const left = sideLine(grey, width, height, 1, side, 'low');
+	const right = sideLine(grey, width, height, width - side, width - 1, 'high');
+
+	// Each edge clear of the thumbnail's own edge (a card inside the guide
+	// has table around it): in a cluttered scene the first strong step of
+	// every row is at the very edge, which makes a line there.
+	const clear = (line, lo, hi, room) => line.x !== null && line.x >= lo + room && line.x <= hi - room;
+	const room = Math.max(2, Math.round(width * BOX_EDGE));
+
+	if (left.share < EDGE_ROWS || right.share < EDGE_ROWS || !clear(left, 1, width - 2, room) || !clear(right, 1, width - 2, room) || right.x - left.x < width * BOX_MIN) {
+		return null;
+	}
+
+	const turned = transpose(grey, width, height);
+	const across = Math.round(height * BOX_SIDE);
+	const top = sideLine(turned, height, width, 1, across, 'low');
+	const bottom = sideLine(turned, height, width, height - across, height - 1, 'high');
+
+	// The top and bottom are looked for across the middle band of columns,
+	// which for a card held small reaches past its sides, and its text runs
+	// across them: half the band is enough, with the shape check below.
+	const roomDown = Math.max(2, Math.round(height * BOX_EDGE));
+
+	if (top.share < BOX_ACROSS || bottom.share < BOX_ACROSS || !clear(top, 1, height - 2, roomDown) || !clear(bottom, 1, height - 2, roomDown)) {
+		return null;
+	}
+
+	const shape = (right.x - left.x) / (bottom.x - top.x);
+
+	if (Math.abs(shape / (63 / 88) - 1) > 0.12) {
+		return null;
+	}
+
+	return {lean: (left.lean + right.lean) / 2, left: left.x, right: right.x};
 }
 
 // The detector. push(thumbnail, {present}) returns true when it is time to
@@ -438,14 +565,15 @@ export function createAutoCapture({changed = CHANGED, steadyFrames = STEADY_FRAM
 
 	return {
 		captured(thumbnail) {
-			last = thumbnail;
+			last = thumbnail ? coarse(thumbnail) : null;
 			state = 'cooldown';
 			steady = 0;
 		},
 		pause() {
 			paused = true;
 		},
-		push(thumbnail, {present}) {
+		push(full, {present}) {
+			const thumbnail = coarse(full);
 			const moved = difference(thumbnail, previous);
 
 			previous = thumbnail;
