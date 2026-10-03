@@ -1853,9 +1853,10 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 
 		S.applyRead(session, western.id, read('135', '167', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		S.applyPicture(session, western.id, {candidates: [en], card: en, sure: true}, AT);
-		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), false, 'an international record cannot hold a Korean copy, and Portuguese is not applied');
-		assert.equal(western.language, null);
-		assert.equal(S.languageChoices(western)[0], 'ko');
+		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), true, 'no Asian print shares the picture: the last Western pick (version 26)');
+		assert.equal(western.language, 'pt');
+		assert.equal(S.languageChoices(western)[0], 'pt');
+		assert.match(S.reportText(western, {at: AT}), /no Latin label was read, but no Japanese, Korean, or Chinese print shares this picture/);
 	});
 
 	test('a background label read with no Latin text takes a Western default back', () => {
@@ -1876,9 +1877,80 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 
 		S.applyPicture(session, lone.id, {candidates: [en], card: en, sure: true}, AT);
 		S.defaultLanguage(session, lone.id, 'pt', AT, {asian: 'ko'});
-		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), true);
-		assert.equal(lone.language, null, 'no print to hold it: asked');
-		assert.equal(S.blocker(lone), 'language');
+		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), false);
+		assert.equal(lone.language, 'pt', 'no Asian print shares the picture: the Western pick stands (version 26)');
+		assert.notEqual(S.blocker(lone), 'language');
+	});
+
+	// Misty's Vitality me05-080, a Portuguese Trainer on Eric's phone (version
+	// 26): picture sure, label row read nothing, and it went Korean.
+	const misty = {id: 'me05-080', lang: 'en', localId: '080', name: 'Misty\'s Vitality', official: 84, setId: 'me05'};
+	const mistyJa = {id: 'M5-099', lang: 'ja', localId: '099', name: 'Misty JA', official: 90, setId: 'M5'};
+
+	test('a Trainer whose label row read nothing keeps the Western pick (Misty\'s Vitality, version 26)', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0, text: ''}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), false);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+		assert.notEqual(item.languageHint, 'non-latin');
+		assert.match(S.reportText(item, {at: AT}), /no Latin label was read, but a Trainer card has no weakness row to read/);
+
+		const grouped = S.addCapture(session, AT);
+
+		S.applyPicture(session, grouped.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, grouped.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, grouped.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), false, 'even with an Asian print in the group');
+		assert.equal(grouped.language, 'pt');
+	});
+
+	test('an Asian print in another picture group does not count, only the card\'s own group', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const other = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyPicture(session, item.id, {candidates: [misty, other], card: misty, groupLangs: ['en'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), false);
+		assert.equal(item.language, 'pt');
+	});
+
+	test('a Trainer left with no language takes the Western pick once its label row reads nothing', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyRead(session, item.id, read('80', '84', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, item.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en', 'ja'], sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'}), false, 'category not known yet, an Asian print in the group');
+		assert.equal(item.language, null);
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), true);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+	});
+
+	test('an Eevee-like group with a Japanese print and no Latin row still goes Asian; a full-art one only leads with the Asian chips', () => {
+		const session = S.newSession(AT, 's1');
+		const en = {category: 'Pokemon', id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [en, ja], card: en, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Pokemon', western: 'pt'}), true);
+		assert.equal(item.language, 'ko');
+		assert.equal(item.languageHint, 'non-latin');
+
+		const full = S.addCapture(session, AT);
+
+		S.applyPicture(session, full.id, {candidates: [{...en, full: true}, ja], card: {...en, full: true}, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, full.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, full.id, {code: null, confidence: 0}, AT, {asian: 'ko', western: 'pt'}), false);
+		assert.equal(full.language, 'pt', 'weak: the Western default stays');
+		assert.equal(S.languageChoices(full)[0], 'ko', 'but the Asian chips lead');
 	});
 
 	test('the report says the label was read when it was (Skrelp, version 25)', () => {

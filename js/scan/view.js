@@ -20,7 +20,7 @@ import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumb
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
-import {cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
@@ -1148,7 +1148,11 @@ export function scanView(root) {
 		const image = cardImages.get(id);
 		const item = S.findItem(session, id);
 
-		if (!image || !item || item.languageBy !== 'default') {
+		// A card left with no language because its label row read nothing is
+		// read again too: a Trainer or Energy then takes the Western pick.
+		const open = item && (item.languageBy === 'default' || (!item.languageBy && !item.language && item.card && item.languageHint === 'non-latin'));
+
+		if (!image || !open) {
 			return;
 		}
 
@@ -1164,11 +1168,23 @@ export function scanView(root) {
 				return;
 			}
 
-			if (!alive || !S.findItem(session, id)) {
+			const now = alive && S.findItem(session, id);
+
+			if (!now) {
 				return;
 			}
 
-			const changed = change(() => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage()}));
+			// Only a label row with no Latin text needs the category.
+			const card = now.card;
+			const category = card && !card.category && (!label || !label.code || label.code === 'non-latin') ? await cardCategory(card) : null;
+
+			const later = alive && S.findItem(session, id);
+
+			if (!later || (later.card && later.card.id) !== (card && card.id)) {
+				return;
+			}
+
+			const changed = change(() => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage(), category, western: lastLanguage()}));
 
 			if (changed) {
 				if (S.needsRematch(S.findItem(session, id))) {

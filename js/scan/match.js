@@ -407,3 +407,20 @@ export async function cardVariants(card, {api = importApi} = {}) {
 		throw err;
 	}
 }
+
+// The card's category from its record ("Pokemon", "Trainer", "Energy", as
+// TCGdex writes them), or null when the record is out of reach within ms.
+// The label row read uses it: a Trainer or Energy has no weakness row, so a
+// row that read nothing says nothing about its language.
+export async function cardCategory(card, {api = importApi, ms = 1500} = {}) {
+	if (!card || !card.lang || !card.id) {
+		return null;
+	}
+
+	const detail = await Promise.race([
+		Promise.resolve().then(() => api.cardDetail(card.lang, card.id)).catch(() => null),
+		new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+	]);
+
+	return (detail && typeof detail.category === 'string' && detail.category) || null;
+}

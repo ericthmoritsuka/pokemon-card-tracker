@@ -216,6 +216,7 @@ async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
 		return {
 			agree: [],
 			conflicts: [],
+			...(card.full ? {full: true} : {}),
 			id: card.id,
 			image: (record && record.image) || (kept && kept.image) || card.image,
 			lang: langOf(card.catalog),
@@ -348,7 +349,8 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 	// sets never on this phone): the view waits for signal rather than show
 	// bare ids.
 	const unnamed = lead.length > 0 && !lead.some((c) => c.named);
-	const done = (result) => ({candidates: [], card: null, disagree: false, hand: null, ms: Math.round(now() - started), sure: false, unnamed, why: null, ...result});
+	const groupLangs = [...new Set(lead.map((c) => c.lang))];
+	const done = (result) => ({candidates: [], card: null, disagree: false, groupLangs, hand: null, ms: Math.round(now() - started), sure: false, unnamed, why: null, ...result});
 
 	// The lead group's own order: the number read first, then the language,
 	// then, with no Asian language known, the international record before a
