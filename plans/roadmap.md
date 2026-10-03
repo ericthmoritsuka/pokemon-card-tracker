@@ -7,8 +7,8 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v23** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
-  `b0bbbd1`), the second round of audit fixes (see `CHANGELOG.md` and the status in
+- **Live:** version **v24** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (commit
+  `c3c56ff`): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
   scanner (v17), own photos with the carousel, the zoom and compare viewer, the twelve TCG energy

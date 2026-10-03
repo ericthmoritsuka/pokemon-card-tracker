@@ -14,6 +14,21 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **09:34** Version 24: the scanner recognises cards by their picture. `c3c56ff`
+  - It matches the card's artwork against every card in the catalog in a fraction of a second,
+    with no text to read, so full-art cards such as an SIR are found too. On the test set the
+    right card comes first 99% of the time, up from 83%, and no card was saved wrongly as sure.
+  - Text is read only to choose between prints that share the same art (a reprint, or the
+    Japanese print), so most scans skip it entirely, and Scan opens without downloading the
+    reading engine.
+  - When it is not sure, it shows the five closest cards as pictures to tap. When the picture
+    and the number disagree, the card waits for a look instead of being saved.
+  - Crops are snapped to the card's true shape, so a strip of table beside the card no longer
+    throws the reads off.
+  - A Korean card from a set the catalog does not have yet can be added by hand, with its number
+    filled in. Traditional Chinese cards are recognised too.
+  - The scan report lists the five closest artworks and whether text was read.
+
 - **07:55** Version 23: the second round of audit fixes. `b0bbbd1`
   - **Scanner:** a card held turned up to about 20 degrees is found and captured on its own, and
     stripes or a blank sheet no longer pass as a card. Every scanned card has a **Scan report**
