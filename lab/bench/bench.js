@@ -57,6 +57,10 @@ export const PASSES = {
 	jpeg: {angle: 1.5, blur: 0.6, quality: 0.3},
 	// The number strip blurred out, so only the top of the card reads.
 	nonumber: {angle: 1, blur: 0.4, hideNumber: true, quality: 0.8},
+	// Held at a slant in the hand: turned 10 to 20 degrees either way, so
+	// the card's corners run out of the capture. Not in the default run,
+	// which stays comparable with the 240 reads measured before it.
+	slant: {angle: 20, blur: 0.6, minAngle: 10, quality: 0.8},
 	tilt: {angle: 4.5, blur: 0.6, quality: 0.8},
 };
 
@@ -67,7 +71,8 @@ async function capture(bitmap, id, passName) {
 	const h = bitmap.height;
 	const W = Math.round(w * 1.12);
 	const H = Math.round(h * 1.12);
-	const angle = (rand() * 2 - 1) * k.angle;
+	const turn = rand() * 2 - 1;
+	const angle = k.minAngle ? Math.sign(turn) * (k.minAngle + Math.abs(turn) * (k.angle - k.minAngle)) : turn * k.angle;
 	const scale = 0.95 + rand() * 0.06;
 	const dx = (rand() * 2 - 1) * 0.02 * w;
 	const dy = (rand() * 2 - 1) * 0.02 * h;

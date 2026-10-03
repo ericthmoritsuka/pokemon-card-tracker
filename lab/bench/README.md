@@ -54,6 +54,7 @@ and scaled a little, at a seeded random, so every run sees the same images.
 | `tilt` | Up to 4.5 degrees turned. |
 | `jpeg` | JPEG quality 0.3. |
 | `nonumber` | The bottom 12 % blurred out, as a thumb or a sleeve edge would hide the number. |
+| `slant` | Turned 10 to 20 degrees either way, so the corners run out of the capture. Not in the default run, which stays comparable with earlier measurements; ask for it with `--passes slant`. |
 
 ## Images and Data
 

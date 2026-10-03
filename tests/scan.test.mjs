@@ -13,7 +13,7 @@ import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -597,6 +597,69 @@ describe('auto-capture', () => {
 		assert.equal(presence(narrow, W, H).present, false);
 	});
 
+	// cardFrame turned by `degrees` about the thumbnail's centre, slightly
+	// smaller so the turned card still mostly fits.
+	function turnedFrame(degrees, size = 0.9) {
+		const flat = cardFrame();
+		const grey = new Uint8Array(W * H).fill(90);
+		const radians = (degrees * Math.PI) / 180;
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const dx = (x - W / 2) / size;
+				const dy = (y - H / 2) / size;
+				const sx = Math.round(W / 2 + dx * Math.cos(radians) + dy * Math.sin(radians));
+				const sy = Math.round(H / 2 - dx * Math.sin(radians) + dy * Math.cos(radians));
+
+				if (sx >= 0 && sx < W && sy >= 0 && sy < H) {
+					grey[y * W + x] = flat[sy * W + sx];
+				}
+			}
+		}
+
+		return grey;
+	}
+
+	test('sees a card turned up to about 20 degrees in the hand, either way (Q-16)', () => {
+		for (const degrees of [-20, -12, -6, 6, 12, 20]) {
+			const seen = presence(turnedFrame(degrees), W, H);
+
+			assert.equal(seen.present, true, `turned ${degrees} degrees`);
+		}
+
+		assert.equal(presence(cardFrame(), W, H).turn, 0, 'a straight card is judged as it is');
+	});
+
+	test('regular stripes and a frame with no colour are not a card', () => {
+		for (const period of [8, 10, 14, 20]) {
+			const stripes = new Uint8Array(W * H).map((_, i) => (Math.floor((i % W) / (period / 2)) % 2 ? 235 : 25));
+			const seen = presence(stripes, W, H);
+
+			assert.equal(seen.present, false, `stripes ${period} px apart`);
+			assert.equal(seen.reason, 'stripes');
+		}
+
+		assert.equal(presence(cardFrame(), W, H, {colour: 12}).present, true, 'a card with colour in its art');
+		assert.equal(presence(cardFrame(), W, H, {colour: 0.4}).reason, 'colourless', 'the same shapes with no colour: paper');
+	});
+
+	test('colourfulness: artwork has colour, paper and a tint do not', () => {
+		const rgba = (fn) => {
+			const out = new Uint8ClampedArray(W * H * 4);
+
+			for (let i = 0; i < W * H; i++) {
+				out.set([...fn(i % W, Math.floor(i / W)), 255], i * 4);
+			}
+
+			return out;
+		};
+		const paper = rgba((x, y) => (y % 6 < 1 && x > 10 && x < 50 ? [40, 40, 40] : [245, 232, 205]));
+		const art = rgba((x, y) => [(x * 37) % 255, (y * 53) % 255, ((x + y) * 29) % 255]);
+
+		assert.ok(colourfulness(paper, W, H) < COLOURLESS, `paper ${colourfulness(paper, W, H)}`);
+		assert.ok(colourfulness(art, W, H) > COLOURLESS * 3, `art ${colourfulness(art, W, H)}`);
+	});
+
 	test('the shutter counts as the capture, so the same still card is not taken again on its own', () => {
 		const detector = createAutoCapture();
 
@@ -865,6 +928,63 @@ describe('the name route', () => {
 		assert.equal(S.readLine(S.summariseRead({name: null, number: null})), 'Name: unreadable, number: unreadable');
 		assert.equal(S.searchPrefill({names: [{dex: 25, name: 'Pikachu', score: 0.8}], read}), 'Pikachu');
 		assert.equal(S.searchPrefill({names: [], read}), 'Pikac');
+	});
+});
+
+describe('a card turned in the hand (Q-16)', () => {
+	const W = 520;
+	const H = 726;
+
+	// A capture with a card as wide as the guide (the capture keeps a 6 %
+	// margin) turned `degrees` clockwise about the centre, over a table, so
+	// at 12 degrees and more its corners run out of the capture: a light
+	// border, a busy art box, and text lines on a lighter text box.
+	function turnedCapture(degrees) {
+		const cw = W / 1.12;
+		const ch = cw * 88 / 63;
+		const radians = (degrees * Math.PI) / 180;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const dx = x - W / 2;
+				const dy = y - H / 2;
+				const u = (dx * Math.cos(radians) + dy * Math.sin(radians)) / cw + 0.5;
+				const v = (-dx * Math.sin(radians) + dy * Math.cos(radians)) / ch + 0.5;
+				let value = 70;
+
+				if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+					if (u < 0.04 || u > 0.96 || v < 0.03 || v > 0.97) {
+						value = 215;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.48) {
+						value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
+					}
+					else if (u > 0.1 && u < 0.8 && v > 0.55 && v < 0.85 && Math.floor(v * 100) % 5 === 0) {
+						value = 45;
+					}
+					else {
+						value = 180;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {cw, image: {data, height: H, width: W}};
+	}
+
+	test('turned up to 20 degrees either way, the card is found and stood straight at its own size', () => {
+		for (const degrees of [-20, -12, -5, 0, 5, 12, 20]) {
+			const {cw, image} = turnedCapture(degrees);
+			const straight = rectify(image);
+
+			assert.ok(straight.found, `${degrees} degrees: ${straight.note}`);
+			assert.ok(Math.abs(straight.angle - degrees) <= 1.5, `${degrees} degrees read as ${straight.angle}`);
+			assert.ok(Math.abs(straight.card.width - cw) <= cw * 0.06, `${degrees} degrees: ${straight.card.width} px wide, not ${Math.round(cw)}`);
+			assert.ok(Math.abs(straight.card.height / straight.card.width - 88 / 63) <= 0.08, `${degrees} degrees: card-shaped`);
+		}
 	});
 });
 

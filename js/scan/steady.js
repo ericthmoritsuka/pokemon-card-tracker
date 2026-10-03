@@ -57,16 +57,32 @@ const EDGE_STEP = 24;
 // Of the rows in the middle band, the share a side edge must run along.
 const EDGE_ROWS = 0.65;
 
+// The colour spread (colourfulness) below which the middle of the frame has
+// no colour to speak of: a sheet of paper, a printed page, a grey wall.
+// Every card has colour in its artwork; the greyest of the 40 benchmark
+// cards (a full-art Froslass) measures 3.5, white paper with black text 0,
+// and strongly tinted paper about 2.
+export const COLOURLESS = 2.5;
+
+// A turn in the hand smaller than this (degrees) is left to sideLine's lean.
+const TURN_MIN = 4;
+
+// The most a card held by hand is taken to be turned, either way, in
+// degrees, as js/scan/rectify.js TILT_MAX.
+const TURN_MAX = 22;
+
+// The middle band's rows, as [y0, y1).
+const band = (height) => [Math.round(height * 0.15), Math.round(height * 0.85)];
+
 // A side of the card near columns from..to as a straight line, which may
 // lean: in each row of the middle band, the strongest step within those
 // columns, then the line (leaning up to 0.15 of a column per row) that most
 // of those steps lie on, within a column. In a cluttered scene the
 // strongest step of each row falls anywhere, so no line gathers them.
-// Returns {share, x}: the share of the rows on the line, and where it
-// crosses the middle row.
+// Returns {lean, share, x}: the share of the rows on the line, how far it
+// leans (columns per row), and where it crosses the middle row.
 function sideLine(grey, width, height, from, to) {
-	const y0 = Math.round(height * 0.15);
-	const y1 = Math.round(height * 0.85);
+	const [y0, y1] = band(height);
 	const points = [];
 
 	for (let y = y0; y < y1; y++) {
@@ -87,7 +103,7 @@ function sideLine(grey, width, height, from, to) {
 		}
 	}
 
-	let found = {count: 0, x: null};
+	let found = {count: 0, lean: 0, x: null};
 
 	for (let lean = -15; lean <= 15; lean++) {
 		const bins = new Map();
@@ -102,12 +118,168 @@ function sideLine(grey, width, height, from, to) {
 			const count = n + (bins.get(bin - 1) || 0) + (bins.get(bin + 1) || 0);
 
 			if (count > found.count) {
-				found = {count, x: bin};
+				found = {count, lean: lean / 100, x: bin};
 			}
 		}
 	}
 
-	return {share: found.count / Math.max(1, y1 - y0), x: found.x};
+	return {lean: found.lean, share: found.count / Math.max(1, y1 - y0), x: found.x};
+}
+
+// How far the thumbnail's content is turned, in degrees (positive:
+// clockwise), the way js/scan/rectify.js measures a capture's tilt: the
+// angle at which its sharp steps line up best (every edge of a card runs
+// parallel to one of its sides), over every whole degree up to TURN_MAX.
+export function thumbTurn(grey, width, height) {
+	const across = [];
+	const down = [];
+
+	for (let y = 1; y < height - 1; y++) {
+		for (let x = 1; x < width - 1; x++) {
+			const gx = Math.abs(grey[y * width + x + 1] - grey[y * width + x - 1]);
+			const gy = Math.abs(grey[(y + 1) * width + x] - grey[(y - 1) * width + x]);
+
+			if (gx >= EDGE_STEP && gx > gy * 2) {
+				across.push(x, y);
+			}
+			else if (gy >= EDGE_STEP && gy > gx * 2) {
+				down.push(x, y);
+			}
+		}
+	}
+
+	const size = width + height + 4;
+	const bins = new Int32Array(size * 2);
+	const offset = Math.ceil((width + height) / 2) + 2;
+	let best = 0;
+	let bestScore = -1;
+
+	for (let degrees = -TURN_MAX; degrees <= TURN_MAX; degrees++) {
+		const t = Math.tan((degrees * Math.PI) / 180);
+		let score = 0;
+
+		bins.fill(0);
+
+		for (let i = 0; i < across.length; i += 2) {
+			bins[Math.round(across[i] + t * across[i + 1]) + offset]++;
+		}
+
+		for (let i = 0; i < down.length; i += 2) {
+			bins[size + Math.round(down[i + 1] - t * down[i]) + offset]++;
+		}
+
+		for (let i = 0; i < bins.length; i++) {
+			score += bins[i] * bins[i];
+		}
+
+		// The straighter of two equal scores.
+		if (score > bestScore || (score === bestScore && Math.abs(degrees) < Math.abs(best))) {
+			best = degrees;
+			bestScore = score;
+		}
+	}
+
+	return best;
+}
+
+// The thumbnail turned by `degrees` about its centre (nearest pixel), so a
+// card turned clockwise by that much stands straight. Where the turned
+// picture reaches past the thumbnail's edges it repeats the nearest edge
+// pixel, as flat as the table there.
+export function turnThumb(grey, width, height, degrees) {
+	const out = new Uint8Array(width * height);
+	const radians = (degrees * Math.PI) / 180;
+	const cos = Math.cos(radians);
+	const sin = Math.sin(radians);
+	const cx = (width - 1) / 2;
+	const cy = (height - 1) / 2;
+
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const dx = x - cx;
+			const dy = y - cy;
+			const sx = Math.min(width - 1, Math.max(0, Math.round(cx + dx * cos - dy * sin)));
+			const sy = Math.min(height - 1, Math.max(0, Math.round(cy + dx * sin + dy * cos)));
+
+			out[y * width + x] = grey[sy * width + sx];
+		}
+	}
+
+	return out;
+}
+
+// How many straight lines, leaning by `lean`, run down most of the middle
+// band (EDGE_ROWS of its rows step within a column of them) and cross the
+// middle row between columns from and to. A card has its two sides (and
+// the inner border just inside them); between them its art, text, and
+// boxes make no line that long. Regular vertical stripes make one at every
+// stripe.
+function longLines(grey, width, height, lean, from, to) {
+	const [y0, y1] = band(height);
+	const middle = (y0 + y1) / 2;
+	const pad = Math.ceil(0.15 * height) + 2;
+	const hits = new Int32Array(width + pad * 2);
+
+	for (let y = y0; y < y1; y++) {
+		for (let x = 1; x < width - 1; x++) {
+			if (Math.abs(grey[y * width + x + 1] - grey[y * width + x - 1]) >= EDGE_STEP) {
+				hits[Math.round(x - lean * (y - middle)) + pad]++;
+			}
+		}
+	}
+
+	const need = EDGE_ROWS * (y1 - y0);
+	let lines = 0;
+
+	for (let x = Math.max(1, Math.ceil(from)); x <= Math.min(width - 2, Math.floor(to)); x++) {
+		const i = x + pad;
+
+		if (hits[i] >= need && hits[i] >= hits[i - 1] && hits[i] > hits[i + 1]) {
+			lines++;
+		}
+	}
+
+	return lines;
+}
+
+// The colour spread in the middle of a capture's thumbnail (RGBA bytes of
+// width x height), where a card held in the guide shows its artwork: the
+// spread of each pixel's chromaticity (its red against green, and its red
+// and green against blue, over its brightness), so a uniform tint (paper
+// under warm light) is no colour, and dark pixels count for little.
+export function colourfulness(rgba, width, height) {
+	let n = 0;
+	let sa = 0;
+	let sb = 0;
+	let saa = 0;
+	let sbb = 0;
+
+	for (let y = Math.round(height * 0.18); y < Math.round(height * 0.46); y++) {
+		for (let x = Math.round(width * 0.2); x < Math.round(width * 0.8); x++) {
+			const p = (y * width + x) * 4;
+			const r = rgba[p];
+			const g = rgba[p + 1];
+			const b = rgba[p + 2];
+			const sum = r + g + b + 30;
+			const a = (r - g) / sum;
+			const c = (r + g - 2 * b) / sum / 2;
+
+			n++;
+			sa += a;
+			sb += c;
+			saa += a * a;
+			sbb += c * c;
+		}
+	}
+
+	if (!n) {
+		return 0;
+	}
+
+	const va = Math.max(0, saa / n - (sa / n) ** 2);
+	const vb = Math.max(0, sbb / n - (sb / n) ** 2);
+
+	return Math.round(Math.sqrt(va + vb) * 1000) / 10;
 }
 
 // Whether a card seems to be in the frame, and whether glare is washing it
@@ -123,11 +295,42 @@ function sideLine(grey, width, height, from, to) {
 //   and reaches the margin, and a card shown on a screen has the app's text
 //   right beside it, so nothing beyond its edges is flat.
 //
+// And nothing else may say it is not a card:
+//
+// - regular stripes make straight lines all across the frame, where a card
+//   has none between its sides;
+// - a frame with no colour in its middle (`colour`, from colourfulness,
+//   when the caller has it) is paper or a wall, not a card's artwork.
+//
 // A cluttered scene has strong steps everywhere but no two long straight
 // edges where a card's would be, and a card held so large that its edges
 // leave the frame has neither.
-// Returns {present, glare, edges: {left, right}, detail}.
-export function presence(grey, width, height) {
+// A card turned more than a few degrees is judged on the thumbnail turned
+// straight (thumbTurn, turnThumb), where its sides stand upright again.
+//
+// Returns {present, glare, edges: {left, right}, detail, reason, turn}:
+// reason says why a frame with detail is not a card ('stripes',
+// 'colourless'), or null; turn is the degrees the card was turned when it
+// was judged on the turned thumbnail, else 0.
+export function presence(grey, width, height, {colour = null} = {}) {
+	const level = judge(grey, width, height, colour);
+
+	if (level.present || level.reason || level.detail < 14) {
+		return {...level, turn: 0};
+	}
+
+	const turn = thumbTurn(grey, width, height);
+
+	if (Math.abs(turn) < TURN_MIN) {
+		return {...level, turn: 0};
+	}
+
+	const turned = judge(turnThumb(grey, width, height, turn), width, height, colour);
+
+	return turned.present || turned.reason ? {...turned, detail: level.detail, glare: level.glare, turn} : {...level, turn: 0};
+}
+
+function judge(grey, width, height, colour) {
 	const columns = new Float64Array(width);
 	const y0 = Math.round(height * 0.2);
 	const y1 = Math.round(height * 0.8);
@@ -149,13 +352,21 @@ export function presence(grey, width, height) {
 	const side = Math.max(2, Math.round(width * 0.2));
 	let left = 0;
 	let right = 0;
+	let leftAt = 2;
+	let rightAt = width - 3;
 
 	for (let x = 2; x < side; x++) {
-		left = Math.max(left, columns[x]);
+		if (columns[x] > left) {
+			left = columns[x];
+			leftAt = x;
+		}
 	}
 
 	for (let x = width - side; x < width - 2; x++) {
-		right = Math.max(right, columns[x]);
+		if (columns[x] > right) {
+			right = columns[x];
+			rightAt = x;
+		}
 	}
 
 	const outsideLeft = columns[1];
@@ -183,15 +394,34 @@ export function presence(grey, width, height) {
 	const detail = Math.sqrt(variance / grey.length);
 	const strong = (edge, outside) => edge >= 16 && outside <= Math.max(6, edge * 0.3);
 	const againstTable = strong(left, outsideLeft) && strong(right, outsideRight);
+
 	const leftLine = againstTable ? null : sideLine(grey, width, height, 1, side);
 	const rightLine = againstTable ? null : sideLine(grey, width, height, width - side, width - 1);
 	const straight = !againstTable && leftLine.share >= EDGE_ROWS && rightLine.share >= EDGE_ROWS && rightLine.x - leftLine.x >= width * 0.7;
+
+	// Lines between the sides, more than a fifth of the way in from each.
+	let reason = null;
+
+	if (againstTable || straight) {
+		const lean = straight ? (leftLine.lean + rightLine.lean) / 2 : 0;
+		const from = straight ? leftLine.x : leftAt;
+		const to = straight ? rightLine.x : rightAt;
+		const inset = (to - from) * 0.2;
+
+		if (longLines(grey, width, height, lean, from + inset, to - inset) >= 3) {
+			reason = 'stripes';
+		}
+		else if (colour !== null && colour < COLOURLESS) {
+			reason = 'colourless';
+		}
+	}
 
 	return {
 		detail: Math.round(detail),
 		edges: {left: Math.round(left), right: Math.round(right)},
 		glare: bright / grey.length > 0.03,
-		present: (againstTable || straight) && detail >= 14,
+		present: (againstTable || straight) && detail >= 14 && !reason,
+		reason,
 	};
 }
 

@@ -16,7 +16,7 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail} from './camera.js';
+import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, releaseEngineSoon, warmEngine} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
@@ -1090,13 +1090,14 @@ export function scanView(root) {
 				return;
 			}
 
-			const thumb = thumbnail(video, thumbCanvas);
+			const shot = thumbnailFrame(video, thumbCanvas);
 
-			if (!thumb) {
+			if (!shot) {
 				return;
 			}
 
-			const seen = presence(thumb, THUMB_W, THUMB_H);
+			const thumb = shot.grey;
+			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
 
 			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Fill the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
