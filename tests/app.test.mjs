@@ -1110,3 +1110,163 @@ describe('the app shell', () => {
 		await context.close();
 	});
 });
+
+// ------------------------------------------- one entry edited on two phones
+
+const binders = (page, call, ...args) => page.evaluate(async ({name, list}) => {
+	const module = await import('/pokemon-card-tracker/js/binders.js');
+
+	return module[name](...list);
+}, {list: args, name: call});
+
+const binderPocket = (n) => `#bs-spread .bs-page[data-page="1"] .pocket[data-position="${n}"]`;
+
+async function waitForCardIn(page, n) {
+	await page.waitForFunction((selector) => {
+		const el = document.querySelector(selector);
+
+		return el && el.dataset.kind === 'card';
+	}, binderPocket(n), {timeout: 15000});
+}
+
+describe('one entry edited on two phones', () => {
+	test('pockets placed on two phones while one is offline both show after sync', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith(syntheticEntries(4, 'p')));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+
+		const binder = await binders(phone.page, 'createBinder', {cols: 3, cover_color: '#1d2e60', name: 'Shared binder', notes: '', page_count: 2, rows: 3});
+
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		// The laptop goes offline and places a card; the phone places another
+		// in a different pocket of the same binder and saves it first.
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await binders(laptop.page, 'placeCard', binder.id, 1, 2, 'p-00002');
+		await binders(phone.page, 'placeCard', binder.id, 1, 1, 'p-00001');
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+
+		const placed = (doc) => doc.binders[0].slots.filter((slot) => slot.entry_id).map((slot) => `${slot.position}:${slot.entry_id}`).sort();
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			assert.deepEqual(placed(doc), ['1:p-00001', '2:p-00002']);
+		}
+
+		for (const {page} of [phone, laptop]) {
+			await page.goto(url(`binders/${binder.id}`));
+			await waitForCardIn(page, 1);
+			await waitForCardIn(page, 2);
+		}
+
+		// A pocket emptied on one phone stays empty after the other phone
+		// renames the binder offline.
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await binders(phone.page, 'clearPocket', binder.id, 1, 1);
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+		await binders(laptop.page, 'updateBinder', binder.id, {cols: 3, cover_color: '#1d2e60', name: 'Renamed offline', notes: '', page_count: 2, rows: 3});
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			assert.deepEqual(placed(doc), ['2:p-00002']);
+			assert.equal(doc.binders[0].name, 'Renamed offline');
+		}
+
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+
+	test('a note on one phone and a Liga price typed on an offline phone both stay on the copy', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith(syntheticEntries(3, 'p')));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const target = 'p-00001';
+		const price = {avg: 12.5, currency: 'BRL', date: '2026-10-01', low_nm: 9, source: 'liga'};
+		const update = (page, patch) => page.evaluate(async ({id, fields}) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(id, fields), {fields: patch, id: target});
+
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await update(phone.page, {notes: 'from the phone'});
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+		await laptop.page.waitForTimeout(20);
+		await update(laptop.page, {price_manual: price});
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			const card = doc.cards.find((entry) => entry.id === target);
+
+			assert.equal(card.notes, 'from the phone');
+			assert.deepEqual(card.price_manual, price);
+		}
+
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+
+	test('a binder deleted on one phone stays deleted after an offline phone places a card in it', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith(syntheticEntries(2, 'p')));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+
+		const binder = await binders(phone.page, 'createBinder', {cols: 3, cover_color: '#1d2e60', name: 'Going away', notes: '', page_count: 1, rows: 3});
+
+		await syncNow(phone.page);
+		await signIn(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+		await laptop.context.setOffline(true);
+		await waitForStatus(laptop.page, 'Offline');
+		await binders(phone.page, 'deleteBinder', binder.id);
+		await syncNow(phone.page);
+		await waitForStatus(phone.page, 'Synced');
+		await laptop.page.waitForTimeout(20);
+		await binders(laptop.page, 'placeCard', binder.id, 1, 1, 'p-00001');
+		await laptop.context.setOffline(false);
+		await waitForStatus(laptop.page, 'Synced');
+		await syncNow(phone.page);
+
+		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
+			assert.ok(doc.binders.find((item) => item.id === binder.id).deleted_at, 'still deleted');
+		}
+
+		assert.deepEqual(await binders(laptop.page, 'listBinders'), []);
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+});
