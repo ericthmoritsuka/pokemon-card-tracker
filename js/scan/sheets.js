@@ -12,6 +12,7 @@ import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
 import {cluesOf, rankCards} from './evidence.js';
 import {findVariant, finishOptions} from './finish.js';
 import {
+	ASIAN_LANGUAGES,
 	blocker,
 	canSave,
 	CONDITIONS,
@@ -327,8 +328,10 @@ export function confirmSheet(ctx, itemId) {
 				: item.languageBy === 'all'
 					? 'set for all'
 					: item.languageBy === 'default'
-						? 'your last pick'
-						: 'not sure, pick one';
+						? (ASIAN_LANGUAGES.includes(item.language) ? 'no Latin label, your last Asian pick' : 'your last pick')
+						: item.languageHint === 'non-latin'
+							? 'no Latin label read, pick one'
+							: 'not sure, pick one';
 
 		return h('fieldset', {class: 'scan-field', id: 'scan-language'},
 			h('legend', null, 'Printed in ', h('span', {class: 'scan-source', id: 'scan-language-source'}, source)),

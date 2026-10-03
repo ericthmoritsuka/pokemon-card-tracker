@@ -111,7 +111,7 @@ describe('the tray state machine', () => {
 		S.applyRead(session, 'b', read('3', '131', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		assert.equal(second.language, null);
 		assert.equal(second.languageHint, 'non-latin');
-		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw'], 'Portuguese and English, then the Asian languages');
+		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['ja', 'ko', 'zh-tw', 'zh-cn', 'pt', 'en'], 'no Latin label: the Asian languages first (Eric, version 25)');
 
 		const third = S.addCapture(session, {at: AT, id: 'c'});
 
@@ -128,14 +128,16 @@ describe('the tray state machine', () => {
 		assert.equal(S.blocker(third), null);
 	});
 
-	test('the language chips lead with Portuguese and English, then the guess, each once', () => {
-		const order = (languageHint) => S.languageChoices({languageHint});
+	test('the language chips lead with Portuguese and English, then the guess, each once; Asian first with no Latin label', () => {
+		const order = (languageHint, asianGuess) => S.languageChoices({asianGuess, languageHint});
 
 		for (const hint of [null, 'pt', 'en', 'unknown']) {
 			assert.deepEqual(order(hint).slice(0, 4), ['pt', 'en', 'ja', 'ko'], `hint ${hint}`);
 		}
 
-		assert.deepEqual(order('non-latin').slice(0, 4), ['pt', 'en', 'ja', 'ko'], 'the first four chips: no More needed for Portuguese or English');
+		assert.deepEqual(order('non-latin').slice(0, 4), ['ja', 'ko', 'zh-tw', 'zh-cn'], 'no Latin label read: Japanese, Korean, and Chinese first');
+		assert.deepEqual(order('non-latin', 'ko').slice(0, 4), ['ko', 'ja', 'zh-tw', 'zh-cn'], 'the last Asian pick leads');
+		assert.deepEqual(order('non-latin', 'zh-tw').slice(0, 4), ['zh-tw', 'ja', 'ko', 'zh-cn']);
 		assert.deepEqual(order('ko').slice(0, 4), ['pt', 'en', 'ko', 'ja']);
 		assert.deepEqual(order('de').slice(0, 3), ['pt', 'en', 'de']);
 
@@ -1403,6 +1405,31 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		assert.deepEqual(unsure.candidates.map((c) => c.id), ['sv01-089', 'sv02-010', 'me04-001']);
 	});
 
+	test('no Latin label: the last Asian pick orders the group and the text route, but makes nothing sure (version 25)', async () => {
+		const picture = {gap: 36.4, groups: [{cards: [card('sv06-135', 'en', 'sv06', 35.3), card('SV5a-050', 'ja', 'SV5a', 35.5)], score: 35.3}, {cards: [card('sv01-089', 'en', 'sv01', 71.7)], score: 71.7}]};
+		const found = await pictureMatch(picture, null, 'non-latin', {api, asian: 'ko'});
+
+		assert.equal(found.card.id, 'SV5a-050', 'the Japanese record holds a Korean copy');
+		assert.equal(found.sure, false);
+
+		const asked = [];
+		const korean = await pictureMatch({gap: 1, groups: [{cards: [card('sv01-089', 'en', 'sv01', 70)], score: 70}]}, number('047', '076'), 'non-latin', {api, asian: 'ko', textRoute: async (read, lang) => {
+			asked.push(lang);
+
+			return {candidates: []};
+		}});
+
+		assert.deepEqual(asked, ['ko']);
+		assert.equal(korean.hand.language, 'ko', 'Korean 047/076 (set M6) starts in Korean');
+
+		// A number read that names one print outranks the Asian pick.
+		const twins = {gap: 68, groups: [{cards: [card('swsh3-102', 'en', 'swsh3', 3.5), card('SJ-002', 'zh-tw', 'SJ', 9.6)], score: 3.5}, {cards: [card('sm11-37', 'en', 'sm11', 71.6)], score: 71.6}]};
+		const spinarak = await pictureMatch(twins, number('102', '189'), 'non-latin', {api: {setDetail: async (lang, set) => (set === 'swsh3' ? {cardCount: {official: 189}, cards: [{id: 'swsh3-102', localId: '102', name: 'Spinarak'}], name: 'Darkness Ablaze'} : null)}, asian: 'ko'});
+
+		assert.equal(spinarak.card.id, 'swsh3-102');
+		assert.equal(spinarak.sure, true);
+	});
+
 	test('a number that names a set the catalog has not got yet offers Add by hand', async () => {
 		const picture = {gap: 1, groups: [{cards: [card('sv01-089', 'en', 'sv01', 70)], score: 70}, {cards: [card('sv02-010', 'en', 'sv02', 71)], score: 71}]};
 		const read = number('047', '076');
@@ -1527,12 +1554,82 @@ describe('a weak picture with an edge worked out tries the box moved (Eric, 2026
 		assert.ok(Math.abs(moved.width / moved.height - 63 / 88) < 0.006);
 	});
 
-	test('a card with all four edges found has nothing guessed and no variants', () => {
+	test('the moves reach 12 % up and down, and the box made larger and smaller (Eric, 2026-10-03, version 25)', () => {
+		const straight = rectify(capture({lostTop: true}));
+		const hows = straight.variants.map((v) => v.how);
+
+		assert.ok(hows.includes('moved up 12 %') || hows.includes('moved up 9 %'), hows.join(', '));
+		assert.ok(hows.includes('moved down 12 %'), hows.join(', '));
+		assert.ok(hows.includes('larger by 8 %') && hows.includes('smaller by 7 %'), hows.join(', '));
+		assert.ok(hows.includes('larger by 8 %, from the bottom edge'), hows.join(', '));
+
+		const larger = straight.variants.find((v) => v.how === 'larger by 8 %');
+
+		assert.ok(Math.abs(larger.rect.w / straight.rect.w - 1.08) < 0.01);
+	});
+
+	test('a card with all four edges found has nothing guessed; its moves are there for a weak match', () => {
 		const straight = rectify(capture());
 
 		assert.ok(straight.found, straight.note);
 		assert.equal(straight.guessed, null);
-		assert.deepEqual(straight.variants, []);
+		assert.ok(straight.variants.every((v) => v.how !== 'hung from the top edge found'));
+	});
+});
+
+describe('a silver border on a light table (synthetic, version 25 geometry, 2026-10-03)', () => {
+	// Table 224, the card's border 222 inside a thin outline of 196 (all a
+	// silver border shows against a light table), its inner line a strong
+	// step to a green body at 150, and a busy art box. The card fills the
+	// guide, which the capture pads by 10 %.
+	function lightTable() {
+		const W = 600;
+		const H = Math.round(W * 1.2 * 88 / 63 / 1.2);
+		const cw = W / 1.2;
+		const ch = cw * 88 / 63;
+		const x0 = (W - cw) / 2;
+		const y0 = (H - ch) / 2;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const u = (x - x0) / cw;
+				const v = (y - y0) / ch;
+				let value = 224 + ((x * 7 + y * 13) % 5) - 2;
+
+				if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+					const outline = Math.min(u * cw, (1 - u) * cw, v * ch, (1 - v) * ch) < 1.5;
+
+					if (outline) {
+						value = 196;
+					}
+					else if (u < 0.045 || u > 0.955 || v < 0.035 || v > 0.965) {
+						value = 222;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.5) {
+						value = 50 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 90);
+					}
+					else {
+						value = 150;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {cw, data, height: H, width: W, x0};
+	}
+
+	test('the sides are the card\'s outline, not the border\'s inner line', () => {
+		const image = lightTable();
+		const straight = rectify(image);
+		const left = straight.rect ? straight.rect.x : Math.min(...straight.corners.map((p) => p.x));
+		const width = straight.rect ? straight.rect.w : Math.max(...straight.corners.map((p) => p.x)) - left;
+
+		assert.ok(straight.found, straight.note);
+		assert.ok(Math.abs(width - image.cw) <= image.cw * 0.02, `width ${width} against ${image.cw}: ${straight.note}`);
+		assert.ok(Math.abs(left - image.x0) <= image.cw * 0.02, `left ${left} against ${image.x0}`);
 	});
 });
 
@@ -1546,11 +1643,20 @@ describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
 		assert.equal(pictureVerdict(picture(45, 10)).sure, true);
 	});
 
-	test('between 45 and 60 the lead counts, but only the number makes it sure', () => {
-		const verdict = pictureVerdict(picture(52, 20));
+	test('up to 55 a lead of 20 or more is sure too (Skrelp under a flashlight, version 25)', () => {
+		assert.equal(pictureVerdict(picture(46.4, 25.7)).sure, true);
+		assert.equal(pictureVerdict(picture(55, 20)).sure, true);
+		assert.equal(pictureVerdict(picture(52, 19.9)).sure, false);
+		assert.equal(pictureVerdict(picture(46, 15)).sure, false);
+		assert.equal(pictureVerdict(picture(56, 30)).sure, false);
+	});
+
+	test('between 45 and 60 a smaller lead counts, but only the number makes it sure', () => {
+		const verdict = pictureVerdict(picture(52, 15));
 
 		assert.equal(verdict.clear, true);
 		assert.equal(verdict.sure, false);
+		assert.equal(pictureVerdict(picture(58, 40)).sure, false);
 	});
 
 	test('past 60 nothing is clear, whatever the lead: that is a wrong crop', () => {
@@ -1564,7 +1670,7 @@ describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
 
 	test('a one-card group past SURE_DISTANCE with no number read is shown, not sure', async () => {
 		const api = {setDetail: async () => ({cardCount: {official: 100}, cards: [{id: 'me04-010', localId: '010', name: 'Card'}], name: 'Set'})};
-		const found = await pictureMatch(picture(52, 20), null, 'pt', {api});
+		const found = await pictureMatch(picture(52, 15), null, 'pt', {api});
 
 		assert.equal(found.card.id, 'me04-010');
 		assert.equal(found.sure, false);
@@ -1730,6 +1836,63 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 		assert.equal(item.language, null);
 	});
 
+	test('no Latin label read: never the Western last pick, but the last Asian one when its record can hold it (Chinese Eevee, version 25)', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const en = {id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyRead(session, item.id, read('50', '66', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, item.id, {candidates: [ja, en], card: ja, sure: false}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'}), true, 'Korean copies are saved against the Japanese record');
+		assert.equal(item.language, 'ko');
+		assert.equal(item.languageBy, 'default');
+		assert.match(S.reportText(item, {at: AT}), /Language: ko \(your last Asian pick in Scan; no Latin label was read/);
+
+		const western = S.addCapture(session, AT);
+
+		S.applyRead(session, western.id, read('135', '167', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, western.id, {candidates: [en], card: en, sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), false, 'an international record cannot hold a Korean copy, and Portuguese is not applied');
+		assert.equal(western.language, null);
+		assert.equal(S.languageChoices(western)[0], 'ko');
+	});
+
+	test('a background label read with no Latin text takes a Western default back', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const en = {id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyPicture(session, item.id, {candidates: [en, ja], card: en, sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0, text: ''}, AT, {asian: 'ko'}), true);
+		assert.equal(item.language, 'ko', 'the picture group holds a Japanese print');
+		assert.equal(item.languageHint, 'non-latin');
+		assert.ok(S.needsRematch(item), 'looked up again, so the Japanese print is shown');
+
+		const lone = S.addCapture(session, AT);
+
+		S.applyPicture(session, lone.id, {candidates: [en], card: en, sure: true}, AT);
+		S.defaultLanguage(session, lone.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), true);
+		assert.equal(lone.language, null, 'no print to hold it: asked');
+		assert.equal(S.blocker(lone), 'language');
+	});
+
+	test('the report says the label was read when it was (Skrelp, version 25)', () => {
+		const {item, session} = settled();
+
+		S.defaultLanguage(session, item.id, 'pt', AT);
+		S.applyLabel(session, item.id, {code: 'pt', confidence: 0.36, ms: 300, text: 'Fraqueza'}, AT);
+
+		const text = S.reportText(item, {at: AT});
+
+		assert.match(text, /Language: pt \(your last pick in Scan; the label row read pt at 36 %, which agrees\)/);
+		assert.doesNotMatch(text, /no text was read/);
+	});
+
 	test('the Portuguese print\'s name and picture are shown, and the English ones come back', async () => {
 		const {item, session} = settled();
 		const api = {setDetail: async (lang, set) => (lang === 'pt' && set === 'me04' ? {cards: [{id: 'me04-090', image: 'https://img/pt/me04-090', localId: '090', name: 'Ampharos PT'}], name: 'Caos Crescente'} : null)};
@@ -1804,7 +1967,28 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.match(text, /- Capture: 25 ms \(taken automatically\)/);
 		assert.match(text, /- Guide: 312 x 436 at 36, 14 on a 384 x 464 screen area; in the 2160 x 3840 frame, guide 1755 x 2452 at 202, 694, captured 2106 x 2942 at 27, 449/);
 		assert.match(text, /- Edges: left, right, and bottom found; top GUESSED/);
-		assert.match(text, /- Crops tried for the guessed edge: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
+		assert.match(text, /- Crops tried for a weak match: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
 		assert.match(text, /- Catalog lookup: shown after 90 ms from what the phone had; full records 2400 ms/);
+
+		item.report.match = S.reportOfMatch({candidates: [], routes: ['picture']}, {fullMs: 2400, indexMs: 4, language: 'pt', ms: 90});
+		assert.match(S.reportText(item, {at: AT}), /- Catalog lookup: shown after 90 ms from what the phone had \(card index ready after 4 ms\); full records 2400 ms, behind it/);
+	});
+
+	test('the full records naming the same card keep the finishes loaded meanwhile', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const card = {id: 'me04-090', lang: 'en', localId: '090', name: 'me04-090', setId: 'me04'};
+
+		S.applyPicture(session, item.id, {candidates: [card], card, sure: true}, AT);
+		S.applyVariants(session, item.id, 'me04-090', PINSIR, AT);
+
+		const loaded = item.variants;
+
+		S.applyPicture(session, item.id, {candidates: [{...card, name: 'Ampharos'}], card: {...card, name: 'Ampharos'}, sure: true}, AT);
+		assert.equal(item.card.name, 'Ampharos');
+		assert.equal(item.variants, loaded);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {...card, id: 'me04-091', localId: '091'}, sure: true}, AT);
+		assert.equal(item.variants, null, 'another card loads its own');
 	});
 });

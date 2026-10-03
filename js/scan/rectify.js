@@ -32,18 +32,69 @@ function greyCopy(img, scale) {
 	const height = Math.max(1, Math.round(img.height * scale));
 	const grey = new Float32Array(width * height);
 
+	// Each pixel of the copy averages the block of source pixels it covers
+	// (up to 4 x 4). Taking a single source pixel, as before, skipped a
+	// card's thin outline at two pixels in three on a 4K capture, when that
+	// outline is all that tells a silver border from a light table.
+	const reach = Math.min(3, Math.max(0, Math.ceil(1 / scale - 0.01) - 1));
+
 	for (let y = 0; y < height; y++) {
-		const sy = Math.min(img.height - 1, Math.floor(y / scale));
+		const sy = Math.min(img.height - 1 - reach, Math.floor((y + 0.5) / scale - reach / 2));
 
 		for (let x = 0; x < width; x++) {
-			const sx = Math.min(img.width - 1, Math.floor(x / scale));
-			const i = (sy * img.width + sx) * 4;
+			const sx = Math.min(img.width - 1 - reach, Math.floor((x + 0.5) / scale - reach / 2));
+			let sum = 0;
 
-			grey[y * width + x] = (img.data[i] + img.data[i + 1] + img.data[i + 2]) / 3;
+			for (let dy = 0; dy <= reach; dy++) {
+				const row = (sy + dy) * img.width;
+
+				for (let dx = 0; dx <= reach; dx++) {
+					const i = (row + sx + dx) * 4;
+
+					sum += img.data[i] + img.data[i + 1] + img.data[i + 2];
+				}
+			}
+
+			grey[y * width + x] = sum / (3 * (reach + 1) * (reach + 1));
 		}
 	}
 
 	return {grey, height, width};
+}
+
+// How sharp a brightness step must be to count as part of an edge, on the
+// detection copy: 18 levels, or less on a quiet table. A silver or white
+// border on a light table steps only 10 to 20 levels at the card's outline
+// (synthetic captures at the version 25 geometry, 2026-10-03), so half its
+// length fell short of 18, the box was judged not card-shaped, and the
+// fallback took the art box's inner line for the card. The table's own
+// noise is measured in the capture's outer band (it is table around the
+// guide), and a step must stand four times clear of it, never under 9.
+const STEP = 18;
+
+function stepFor({grey, height, width}) {
+	const band = Math.max(4, Math.round(Math.min(width, height) * 0.03));
+	const values = [];
+	const sample = (x, y) => {
+		if (x >= 2 && x < width - 2) {
+			values.push(Math.abs(grey[y * width + x - 2] - grey[y * width + x + 2]));
+		}
+	};
+
+	for (let y = 0; y < height; y += 3) {
+		for (let x = 2; x < band; x += 2) {
+			sample(x, y);
+			sample(width - 1 - x, y);
+		}
+	}
+
+	if (values.length < 50) {
+		return STEP;
+	}
+
+	values.sort((a, b) => a - b);
+
+	return Math.max(9, Math.min(STEP, values[Math.floor(values.length * 0.75)] * 4));
 }
 
 // Sum of horizontal brightness steps per column, over rows y0..y1 (or of
@@ -104,16 +155,45 @@ function outerEdge(values, start, end, fromEnd) {
 	return null;
 }
 
+// The outermost edge in out[start..end) that runs straight along the side:
+// a peak of at least a fifth of the window's strongest whose step is sharp
+// along most of the line (continuity), taken from the outside in. A silver
+// or white border on a light table steps far less than the border's inner
+// line (the art or the text box), so the half-strength rule of outerEdge
+// took that inner line for the card's edge, a card about 7 % too narrow
+// (synthetic captures at the version 25 geometry, 2026-10-03: widths 98 to
+// 162 px short of 1400, and the picture match lost). The table's grain, a
+// glare's soft rim, and a shadow do not run straight along the side, so
+// they fail the continuity test. Falls back to outerEdge.
+function straightEdge(work, values, start, end, fromEnd, vertical, span) {
+	const fallback = outerEdge(values, start, end, fromEnd);
+	const list = peaks(values, start, end, 0.2, Infinity).sort((a, b) => (fromEnd ? b - a : a - b));
+
+	for (const index of list) {
+		if (fallback !== null && (fromEnd ? index <= fallback : index >= fallback)) {
+			break;
+		}
+
+		if (continuity(work, index, span[0], span[1], vertical, 1) >= 0.45) {
+			return index;
+		}
+	}
+
+	return fallback;
+}
+
 function findEdges(work) {
 	const {height, width} = work;
 	const columns = profile(work, Math.round(height * 0.2), Math.round(height * 0.8));
 	const rows = profile(work, Math.round(width * 0.2), Math.round(width * 0.8), true);
+	const down = [Math.round(height * 0.2), Math.round(height * 0.8)];
+	const across = [Math.round(width * 0.2), Math.round(width * 0.8)];
 
 	return {
-		bottom: outerEdge(rows, Math.round(height * 0.75), height, true),
-		left: outerEdge(columns, 0, Math.round(width * 0.25), false),
-		right: outerEdge(columns, Math.round(width * 0.75), width, true),
-		top: outerEdge(rows, 0, Math.round(height * 0.25), false),
+		bottom: straightEdge(work, rows, Math.round(height * 0.75), height, true, true, across),
+		left: straightEdge(work, columns, 0, Math.round(width * 0.25), false, false, down),
+		right: straightEdge(work, columns, Math.round(width * 0.75), width, true, false, down),
+		top: straightEdge(work, rows, 0, Math.round(height * 0.25), false, true, across),
 	};
 }
 
@@ -130,7 +210,7 @@ function findEdges(work) {
 // judged; `unseen` is what a line mostly outside it scores (0: cannot count
 // as an edge; 1: a corner that cannot be checked is not held against the
 // card).
-function continuity({grey, height, outside = null, width}, index, from, to, vertical = false, slack = 1, unseen = 0) {
+function continuity({grey, height, outside = null, step = STEP, width}, index, from, to, vertical = false, slack = 1, unseen = 0) {
 	const length = vertical ? height : width;
 	const d = 2;
 	let on = 0;
@@ -162,7 +242,7 @@ function continuity({grey, height, outside = null, width}, index, from, to, vert
 			best = Math.max(best, Math.abs(a - b));
 		}
 
-		if (best > 18) {
+		if (best > step) {
 			on++;
 		}
 	}
@@ -212,7 +292,7 @@ function peaks(values, start, end, share = 0.25, count = 6) {
 //
 // Returns {p, q, ts}: position = p + q * t, and ts the samples on the line,
 // so how much of any stretch the edge runs along can be counted.
-function edgeLine({grey, height, width}, index, vertical, reach) {
+function edgeLine({grey, height, step: sharp = STEP, width}, index, vertical, reach) {
 	const length = vertical ? height : width;
 	const along = vertical ? width : height;
 	const d = 2;
@@ -233,7 +313,7 @@ function edgeLine({grey, height, width}, index, vertical, reach) {
 			}
 		}
 
-		return best > 12 ? at : null;
+		return best > sharp * (2 / 3) ? at : null;
 	};
 
 	const fit = (on) => {
@@ -672,7 +752,7 @@ function rotateGrey(work, degrees) {
 		}
 	}
 
-	return {grey: out, height, outside, width};
+	return {grey: out, height, outside, step: work.step, width};
 }
 
 // Where a point of a copy turned by rotateGrey(copy, -degrees) lies on the
@@ -743,12 +823,29 @@ export function cropImage(img, {h, w, x, y}) {
 	return {data, height: h, width: w};
 }
 
-// How far up and down, as shares of the card's height, the crop is moved
-// for the `variants` of a card whose top edge was worked out rather than
-// found: a top worked out from a bottom found a little wrong is off by
-// about as much (Eric's phone, 2026-10-03: right card 68 to 76 away, the
-// wrong crop rather than a close confusion).
-const SHIFTS = [-0.06, -0.03, 0.03, 0.06];
+// The crops tried when the picture match of the box found is weak
+// (js/scan/identify.js `variants`): the box moved up and down by a share
+// of its height, and made a little smaller or larger. Eric's phone,
+// 2026-10-03 (version 25): with the top edge worked out, the right card
+// was 46 and 76 away while a clean image of the same card matched at a 65
+// lead, and moving the box 3 and 6 % did not reach it. A top worked out
+// from a wrong bottom is off by up to about a tenth of the card, and a side
+// taken at the border's inner line (a silver border on a light table)
+// makes the box about 7 % too small, which no move mends.
+const shiftName = (share) => `moved ${share < 0 ? 'up' : 'down'} ${Math.round(Math.abs(share) * 100)} %`;
+const SHIFTS = [-0.12, -0.09, -0.06, -0.03, 0.03, 0.06, 0.09, 0.12];
+const ZOOMS = [[1.08, 0.5], [1.08, 1], [1.04, 1], [0.93, 0.5]];
+
+// The moves as {how, share, zoom, anchor}: anchor is where along the box's
+// height the resizing is held still (0.5 its middle, 1 its bottom edge).
+const MOVES = [
+	...SHIFTS.map((share) => ({anchor: 0.5, how: shiftName(share), share, zoom: 1})),
+	...ZOOMS.map(([zoom, anchor]) => ({anchor, how: `${zoom > 1 ? 'larger' : 'smaller'} by ${Math.round(Math.abs(zoom - 1) * 100)} %${anchor === 1 ? ', from the bottom edge' : ''}`, share: 0, zoom})),
+];
+
+// A crop may run past the capture by this share of its height (the card's
+// own margin), the cut repeating the capture's edge there.
+const OVERRUN = 0.03;
 
 // Returns {card, angle, found, note, rect, corners, ratio, others, cut,
 // guessed, variants, variant}. `card` is the straightened crop when the
@@ -759,12 +856,16 @@ const SHIFTS = [-0.06, -0.03, 0.03, 0.06];
 // found, or not where a card's shape puts it), 'bottom' when the box was
 // too tall and snapped up from its bottom (the bottom may be the wrong
 // edge), else null. variants: other crops worth fingerprinting when the
-// picture match of `card` is weak, each {how}; variant(v, height) cuts one.
-// They are only cut when asked for (js/scan/identify.js), so a good capture
-// pays nothing for them.
+// picture match of `card` is weak (MOVES), each {how}; variant(v, height)
+// cuts one. They are only cut when asked for (js/scan/identify.js), so a
+// good capture pays nothing for them. others: boxes always fingerprinted
+// beside `card`, each {how, rect} (rect.angle: its own turn, when it has
+// one); cut(rect, height) cuts one.
 export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	const scale = Math.min(1, WORK_HEIGHT / img.height);
 	const level = greyCopy(img, scale);
+
+	level.step = stepFor(level);
 	let work = level;
 	let angle = measureTilt(work);
 
@@ -801,16 +902,31 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 			const tall = Math.min(maxHeight, across / CARD_RATIO);
 			const down = Math.max(Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y));
 
-			// Moving the box up or down by a share of its height: every corner
-			// along the card's own sides.
-			const shifted = (share) => {
-				const dx = ((corners[3].x - corners[0].x + corners[2].x - corners[1].x) / 2) * share;
-				const dy = ((corners[3].y - corners[0].y + corners[2].y - corners[1].y) / 2) * share;
+			// Moving the box along the card's own sides by a share of its
+			// height, and resizing it about a point on its middle line.
+			const downX = (corners[3].x - corners[0].x + corners[2].x - corners[1].x) / 2;
+			const downY = (corners[3].y - corners[0].y + corners[2].y - corners[1].y) / 2;
+			const moved = ({anchor, share, zoom}) => {
+				const cx = (corners[0].x + corners[1].x) / 2 + downX * anchor;
+				const cy = (corners[0].y + corners[1].y) / 2 + downY * anchor;
 
-				return corners.map((point) => ({x: point.x + dx, y: point.y + dy}));
+				return corners.map((point) => ({x: cx + (point.x - cx) * zoom + downX * share, y: cy + (point.y - cy) * zoom + downY * share}));
 			};
-			const inside = (points) => points.every((point) => point.x >= 0 && point.y >= 0 && point.x <= img.width && point.y <= img.height);
-			const variants = quad.top ? [] : SHIFTS.map((share) => ({corners: shifted(share), how: shiftName(share)})).filter((v) => inside(v.corners));
+			const slack = down * OVERRUN;
+			const inside = (points) => points.every((point) => point.x >= -slack && point.y >= -slack && point.x <= img.width + slack && point.y <= img.height + slack);
+			const variants = MOVES.map((move) => ({corners: moved(move), how: move.how})).filter((v) => inside(v.corners));
+
+			// The box of the outermost edges, when they were found but judged not
+			// card-shaped: a silver border on a light table steps so little that
+			// a sound box can fail the test, and the fingerprint then chooses.
+			const others = [];
+
+			if (edges.left !== null && edges.right !== null && edges.bottom !== null && edges.right - edges.left >= work.width * 0.45) {
+				const w = (edges.right - edges.left) / scale;
+				const h = w / CARD_RATIO;
+
+				others.push({how: 'the outermost edges', rect: {angle, h: Math.round(h), w: Math.round(w), x: Math.round(edges.left / scale), y: Math.round(edges.bottom / scale - h)}});
+			}
 
 			return {
 				angle: Math.round((turned + Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
@@ -819,11 +935,12 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 				found: true,
 				guessed: quad.top ? null : 'top',
 				note: quad.top ? 'Card edges found, at a slant.' : 'Card edges found, at a slant; top edge worked out from the width.',
-				others: [],
+				others,
 				ratio: Math.round((across / down) * 1000) / 1000,
 				rect: null,
+				cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -(r.angle || 0), r, height / r.h),
 				variant: (v, height = Math.round(tall)) => warpQuad(img, v.corners, Math.round(height * CARD_RATIO), Math.round(height)),
-				variants: variants.map(({corners: c, how}) => ({corners: c, how})),
+				variants,
 			};
 		}
 	}
@@ -905,24 +1022,24 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 
 	const out = Math.min(1, maxHeight / rect.h);
 
-	// The crops to try when the picture match is weak: the box moved up and
-	// down, and, when a top edge was found but not used, the box hung from
-	// that top instead of the bottom.
+	// The crops to try when the picture match is weak (MOVES), and, when a
+	// top edge was found but not used, the box hung from that top instead of
+	// the bottom.
 	const variants = [];
+	const fits = (r) => r.y >= -r.h * OVERRUN && r.y + r.h <= img.height + r.h * OVERRUN && r.x >= -r.h * OVERRUN && r.x + r.w <= img.width + r.h * OVERRUN;
 
-	if (guessed) {
-		const fits = (r) => r.y >= 0 && r.y + r.h <= img.height;
-
-		if (foundTop !== null && Math.abs(foundTop - top) > rect.h * 0.015) {
-			variants.push({how: 'hung from the top edge found', rect: {...rect, y: Math.round(foundTop)}});
-		}
-
-		for (const share of SHIFTS) {
-			variants.push({how: shiftName(share), rect: {...rect, y: Math.round(rect.y + share * rect.h)}});
-		}
-
-		variants.splice(0, variants.length, ...variants.filter((v) => fits(v.rect)));
+	if (guessed && foundTop !== null && Math.abs(foundTop - top) > rect.h * 0.015) {
+		variants.push({how: 'hung from the top edge found', rect: {...rect, y: Math.round(foundTop)}});
 	}
+
+	for (const {anchor, how, share, zoom} of MOVES) {
+		const w = rect.w * zoom;
+		const h = rect.h * zoom;
+
+		variants.push({how, rect: {h: Math.round(h), w: Math.round(w), x: Math.round(rect.x + (rect.w - w) / 2), y: Math.round(rect.y + (rect.h - h) * anchor + share * rect.h)}});
+	}
+
+	variants.splice(0, variants.length, ...variants.filter((v) => fits(v.rect)));
 
 	return {
 		angle: Math.round(angle * 10) / 10,
@@ -937,10 +1054,9 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		others: others.map(({how, rect: r}) => ({how, rect: r})),
 		// Straightens another rect of the same capture (one of `others`), at
 		// `height` pixels high.
-		cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -angle, r, height / r.h),
+		cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -(r.angle ?? angle), r, height / r.h),
 		variant: (v, height = Math.min(maxHeight, v.rect.h)) => warpCrop(img, -angle, v.rect, height / v.rect.h),
 		variants,
 	};
 }
 
-const shiftName = (share) => `moved ${share < 0 ? 'up' : 'down'} ${Math.round(Math.abs(share) * 100)} %`;

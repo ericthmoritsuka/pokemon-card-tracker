@@ -20,7 +20,7 @@ import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumb
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
-import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
@@ -46,25 +46,35 @@ function textFirst() {
 
 // The language last picked in Scan (by a tap on a card's sheet, or Set for
 // all), which a card the picture settled starts in (session.js
-// defaultLanguage). Portuguese before any pick: most cards scanned here are
-// Portuguese (session.js LEADING_LANGUAGES).
+// defaultLanguage). Two are kept: the last Western pick (Portuguese before
+// any: most cards scanned here are Portuguese, session.js
+// LEADING_LANGUAGES) and the last Asian one (Korean before any: most of the
+// owner's Asian cards are Korean), for a card whose label row read no Latin
+// text. A Western pick never starts such a card (Eric's phone, version 25:
+// a Chinese Eevee started in Portuguese).
 const LANGUAGE_KEY = 'card-tracker:scan-language';
+const ASIAN_LANGUAGE_KEY = 'card-tracker:scan-language-asian';
 
-function lastLanguage() {
+function stored(key, fallback, fits) {
 	try {
-		return localStorage.getItem(LANGUAGE_KEY) || 'pt';
+		const value = localStorage.getItem(key);
+
+		return value && fits(value) ? value : fallback;
 	}
 	catch {
-		return 'pt';
+		return fallback;
 	}
 }
 
+const lastLanguage = () => stored(LANGUAGE_KEY, 'pt', (code) => !S.ASIAN_LANGUAGES.includes(code));
+const lastAsianLanguage = () => stored(ASIAN_LANGUAGE_KEY, 'ko', (code) => S.ASIAN_LANGUAGES.includes(code));
+
 function rememberLanguage(code) {
 	try {
-		localStorage.setItem(LANGUAGE_KEY, code);
+		localStorage.setItem(S.ASIAN_LANGUAGES.includes(code) ? ASIAN_LANGUAGE_KEY : LANGUAGE_KEY, code);
 	}
 	catch {
-		// Not kept; the next card starts in Portuguese.
+		// Not kept; the next card starts in Portuguese, or Korean.
 	}
 }
 
@@ -73,6 +83,29 @@ function rememberLanguage(code) {
 // fingerprint index's own ids and pictures). The records keep loading
 // behind it, and the card is named again when they come.
 const QUICK_MS = 120;
+
+// Resolves with `promise`, or with `fallback` after ms.
+const within = (promise, ms, fallback) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
+// The text route's catalog calls, answered only from what the phone has
+// within a moment (js/catalog.js keeps set lists and records once read):
+// no full records for HP and attacks, and no artwork tiebreak. A set list
+// out of reach counts as out of reach, so the route answers at once.
+const quickApi = {
+	...DEFAULT_API,
+	allSets: (lang) => within(DEFAULT_API.allSets(lang), QUICK_MS * 2, null).then((list) => {
+		if (!list) {
+			throw new WaitingForSignal();
+		}
+
+		return list;
+	}),
+	artworkSims: null,
+	cardDetail: async () => null,
+	setDetail: (lang, setId) => within(Promise.resolve().then(() => DEFAULT_API.setDetail(lang, setId)), QUICK_MS, null),
+	species: null,
+	speciesPrints: async () => [],
+};
 
 const PHOTO_HEIGHT = 420;
 
@@ -104,6 +137,9 @@ export function scanView(root) {
 	let sheetHandle = null;
 	let loop = null;
 	let discarded = null;
+	// The card index once read (js/catalog.js cardIndex), kept for the
+	// quick picture answer.
+	let knownIndex = null;
 	let alive = true;
 	let wakeLock = null;
 	let engineState = 'idle';
@@ -146,6 +182,8 @@ export function scanView(root) {
 		}
 	}, type: 'file'});
 	const photoButton = h('button', {class: 'scan-text-button', id: 'scan-photo-open', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo');
+	// Empties the tray in one tap, with Undo, as Discard session does.
+	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
@@ -164,7 +202,7 @@ export function scanView(root) {
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, setAllButton), photoInput),
+			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -335,6 +373,7 @@ export function scanView(root) {
 
 		count.textContent = parts.join(' · ');
 		setAllButton.hidden = items.length < 2;
+		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
 		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
 
@@ -715,7 +754,11 @@ export function scanView(root) {
 		// app closing starts again next time.
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null});
+		// Where the guide sits in the capture, for identify.js to fingerprint
+		// it as one more crop.
+		const guideIn = area && area.capture ? {h: area.guide.h, w: area.guide.w, x: area.guide.x - area.capture.x, y: area.guide.y - area.capture.y} : null;
+
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null, guide: guideIn});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -781,7 +824,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, photo = false, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, straight = false} = {}) {
 		let result;
 
 		try {
@@ -799,7 +842,7 @@ export function scanView(root) {
 					drawn = fraction;
 					draw();
 				}
-			}}, photo, straight});
+			}}, guide: guideIn, photo, straight});
 			engineState = 'ready';
 			drawStatus();
 		}
@@ -973,9 +1016,18 @@ export function scanView(root) {
 		const started = performance.now();
 		const language = item.language || item.languageHint;
 		const artwork = artworks.get(id) || null;
-		const index = await Promise.race([cardIndex().catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), QUICK_MS))]);
+		// The card index read when the scanner opened, or, while that is still
+		// being read, at most QUICK_MS of waiting for it.
+		const index = knownIndex || await within(cardIndex().catch(() => null), QUICK_MS, null);
+		const indexMs = Math.round(performance.now() - started);
 		const known = knownFrom(index);
-		const quick = await pictureMatch(item.picture, item.read, language, {known, wait: QUICK_MS});
+		const asian = lastAsianLanguage();
+		// The text route from what the phone has too (quickApi), so a card the
+		// picture could not settle (a set with no images yet, a number that
+		// names none of the five) is shown at once rather than after every
+		// set list and record has been fetched (Eric's phone, version 25: 0.6
+		// to 2 s to show, 1.8 to 6.9 s for the full records).
+		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -987,12 +1039,14 @@ export function scanView(root) {
 		// Recognised, but none of its sets is on this phone yet, and no
 		// signal: it is named and its finishes loaded once there is signal.
 		if (!(quick.unnamed && !online())) {
-			showPicture(id, quick, {language, ms: quickMs});
+			showPicture(id, quick, {indexMs, language, ms: quickMs});
 			shown = snapshot(S.findItem(session, id));
 			maybeOpenFirst(id);
+			// The finishes load beside the full records, not after them.
+			loadVariants(id);
 		}
 
-		const full = await pictureMatch(item.picture, item.read, language, {known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+		const full = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -1008,14 +1062,18 @@ export function scanView(root) {
 		}
 
 		if (!shown || sameAs(shown, current)) {
-			showPicture(id, full, {fullMs: shown ? fullMs : null, language, ms: shown ? quickMs : fullMs});
+			showPicture(id, full, {fullMs: shown ? fullMs : null, indexMs, language, ms: shown ? quickMs : fullMs});
 		}
 		else if (current.report && current.report.match) {
 			current.report = {...current.report, match: {...current.report.match, fullMs}};
 			persist();
 		}
 
-		await loadVariants(id);
+		const after = S.findItem(session, id);
+
+		if (after && after.card && after.variants === null) {
+			await loadVariants(id);
+		}
 
 		if (!shown) {
 			maybeOpenFirst(id);
@@ -1034,21 +1092,21 @@ export function scanView(root) {
 	// A picture answer onto the card: the match, the language a settled card
 	// starts in, the scan report, and, behind it, the print in that language
 	// and the label row read.
-	function showPicture(id, found, {fullMs = null, language, ms}) {
+	function showPicture(id, found, {fullMs = null, indexMs = null, language, ms}) {
 		const current = S.findItem(session, id);
 
 		current.confirmed = false;
 		current.timings = {...current.timings, match: ms};
 
 		if (current.report) {
-			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, language, ms})};
+			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, indexMs, language, ms})};
 		}
 
 		change(() => {
 			S.applyPicture(session, id, found);
 
 			if (found.card) {
-				S.defaultLanguage(session, id, lastLanguage());
+				S.defaultLanguage(session, id, lastLanguage(), undefined, {asian: lastAsianLanguage()});
 			}
 		});
 
@@ -1110,7 +1168,7 @@ export function scanView(root) {
 				return;
 			}
 
-			const changed = change(() => S.applyLabel(session, id, label));
+			const changed = change(() => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage()}));
 
 			if (changed) {
 				if (S.needsRematch(S.findItem(session, id))) {
@@ -1578,7 +1636,9 @@ export function scanView(root) {
 		startEngine();
 		// The card index, read once, so a picture match can name a card from
 		// it at once.
-		cardIndex().catch(() => {});
+		cardIndex().then((index) => {
+			knownIndex = index;
+		}).catch(() => {});
 
 		if (online()) {
 			warmNameRoute();

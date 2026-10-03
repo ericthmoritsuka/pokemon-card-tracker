@@ -35,12 +35,18 @@ export {AUTO_GAP};
 // the three wrong first places were 66.9 to 78.3 away. So:
 //
 // - SURE_DISTANCE: at or under 45, a lead of AUTO_GAP settles a one-card
-//   group with no text. Between 45 and 60 the picture is probably right
-//   (four benchmark glare reads, all right) but not certain, so the
-//   number is read to confirm it.
+//   group with no text.
+// - FIRM_DISTANCE: at or under 55, a lead of FIRM_GAP does too (Eric's
+//   phone, version 25: Skrelp under a flashlight was 46.4 away with a lead
+//   of 25.7, plainly right, and was left "Not sure"). A wrong first place
+//   has never led by more than 5.8, and its distance was past 60.
+// - Between those and CLEAR_DISTANCE the picture is probably right but not
+//   certain, so the number is read to confirm it.
 // - CLEAR_DISTANCE: above 60 nothing is clear, whatever the lead: that
 //   distance is a wrong crop, and a lead there means nothing.
 export const SURE_DISTANCE = 45;
+export const FIRM_DISTANCE = 55;
+export const FIRM_GAP = 20;
 export const CLEAR_DISTANCE = 60;
 
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
@@ -117,8 +123,10 @@ export function compactPicture(matched, {before = null, how = null, variants = [
 // What the picture alone says: sure (one card, close, with a clear lead),
 // several (a clear lead, but the group holds more than one card), or
 // neither (the lead is small, or the first group is too far away to mean
-// anything: CLEAR_DISTANCE). A clear one-card group between SURE_DISTANCE
-// and CLEAR_DISTANCE is not sure: its number is read to confirm it.
+// anything: CLEAR_DISTANCE). close: near enough, for its lead, to settle
+// the card: SURE_DISTANCE with AUTO_GAP, or FIRM_DISTANCE with FIRM_GAP. A
+// clear one-card group short of that is not sure: its number is read to
+// confirm it.
 export function pictureVerdict(picture) {
 	const lead = picture && picture.groups && picture.groups[0];
 
@@ -126,11 +134,12 @@ export function pictureVerdict(picture) {
 		return {clear: false, close: false, several: false, sure: false};
 	}
 
-	const near = typeof lead.score !== 'number' || lead.score <= CLEAR_DISTANCE;
-	const clear = near && (picture.gap === null || picture.gap >= AUTO_GAP);
-	const close = typeof lead.score !== 'number' || lead.score <= SURE_DISTANCE;
+	const score = typeof lead.score === 'number' ? lead.score : 0;
+	const gap = picture.gap === null || picture.gap === undefined ? Infinity : picture.gap;
+	const clear = score <= CLEAR_DISTANCE && gap >= AUTO_GAP;
+	const close = clear && (score <= SURE_DISTANCE || (score <= FIRM_DISTANCE && gap >= FIRM_GAP));
 
-	return {clear, close, several: clear && lead.cards.length > 1, sure: clear && close && lead.cards.length === 1};
+	return {clear, close, several: clear && lead.cards.length > 1, sure: close && lead.cards.length === 1};
 }
 
 // Whether text has to be read for this picture: anything short of one card
@@ -308,13 +317,22 @@ function languageFits(candidate, language) {
 // names none of its cards, so a card the index cannot have (a set with no
 // images yet) is still found by its number.
 //
+// asian: the last Asian language picked, for a card whose label row read
+// no Latin text (language 'non-latin'): the group's print in that language
+// comes first (a Korean copy is the Japanese record's), the text route
+// searches it first, and the add-by-hand prefill starts in it. It orders
+// only; it never makes a card sure.
+//
 // wait: how long to wait for each set's record (default: a few seconds
 // offline, longer online); known: what the phone knows with no request
 // (knownFrom). The scanner first asks with a short wait, to show the card
 // at once from what is on the phone, then again in full behind it
 // (js/scan/view.js pictureItemNow).
-export async function pictureMatch(picture, read, language, {api = {setDetail: importApi.setDetail}, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
+export async function pictureMatch(picture, read, said, {api = {setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
 	const started = now();
+	// The language read or picked (`said`), or for a card with no Latin label
+	// the last Asian pick, to order by.
+	const language = said === 'non-latin' && ASIAN.includes(asian) ? asian : said;
 	const verdict = pictureVerdict(picture);
 	const number = read && read.number && read.number.number ? read.number : null;
 	const groups = (picture && picture.groups) || [];
@@ -363,11 +381,13 @@ export async function pictureMatch(picture, read, language, {api = {setDetail: i
 			return done({candidates, card: ordered[0], sure: true});
 		}
 
-		const narrowed = matches.length ? matches.filter((c) => languageFits(c, language)) : fitting;
+		// A number read outranks the last Asian pick (an ordering only): it filters
+		// by the language read or picked.
+		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said)) : fitting;
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
 			// Past SURE_DISTANCE only the number read makes it sure.
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(language && language !== 'non-latin'))});
+			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(said && said !== 'non-latin'))});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

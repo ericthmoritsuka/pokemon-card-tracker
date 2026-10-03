@@ -691,6 +691,20 @@ describe('scanner', () => {
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-report')), 'on');
 		await page.screenshot({path: `${SHOTS}/scan-report.png`});
 
+		// Clear, beside Pick a photo, empties the tray in one tap, and Undo
+		// brings the card back (Eric, 2026-10-03).
+		await page.mouse.click(180, 8);
+		await page.waitForSelector('#scan-sheet-layer', {state: 'hidden'});
+		assert.equal(await text(page, '#scan-clear'), 'Clear');
+		await page.screenshot({path: `${SHOTS}/scan-clear.png`});
+		await page.click('#scan-clear');
+		await page.waitForSelector('#scan-undo-discard');
+		assert.equal((await tiles(page)).length, 0);
+		assert.ok(await page.locator('#scan-clear').isHidden(), 'nothing left to clear');
+		await page.click('#scan-undo-discard');
+		await until(async () => (await tiles(page)).length === 1, 5000, 'the card back');
+		assert.ok(await page.locator('#scan-clear').isVisible());
+
 		await browser.close();
 		await rm(photo, {force: true});
 		assert.deepEqual(errors.map(String), []);
