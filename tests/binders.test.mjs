@@ -661,9 +661,13 @@ describe('the integration', () => {
 		}
 	});
 
-	test('sw.js lists every module in js/', async () => {
+	test('sw.js lists every module in js/ and its folders, and every stylesheet in css/', async () => {
 		const sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
-		const unlisted = (await readdir(new URL('../js/', import.meta.url))).filter((name) => name.endsWith('.js') && !sw.includes(`\t'js/${name}',\n`));
+		const files = [
+			...(await readdir(new URL('../js/', import.meta.url), {recursive: true})).filter((name) => name.endsWith('.js')).map((name) => `js/${name}`),
+			...(await readdir(new URL('../css/', import.meta.url))).filter((name) => name.endsWith('.css')).map((name) => `css/${name}`),
+		];
+		const unlisted = files.filter((path) => !sw.includes(`\t'${path}',\n`));
 
 		assert.deepEqual(unlisted, []);
 	});
