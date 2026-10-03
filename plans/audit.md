@@ -30,6 +30,8 @@
 
 ## Status
 
+Updated 2026-10-03 with version 26 (`adc0e7b`): block C done (plan commits 8 to 11 and 13; 12, the clock offset, skipped), the remaining Low items done except a residual 15 px swatch shift and Q-30, scanner round 3 (border edges on light tables, sure by lead, Asian language default, Clear), the sw.js per-folder CORS memory, and the Phone check scan report switch. Still open: block H (shared modules), Q-19, Q-20, and real-phone checks of the scanner.
+
 Updated 2026-10-03 with version 23 (`b0bbbd1`). v23 added block F, block J (except the optional sw.js part of E-20), most of block I (Q-16, Q-21, stripes, the benchmark in `lab/bench/`, plus a scan report and Pick a photo), N-07 (copy stepper), and N-08 (Poké Ball Scan disc).
 
 Still open after v23: block C, block H, the remaining Low items, Q-19 (rejecting paper on the shutter, Move closer), Q-20 (re-adding the same card after a return), full-art number reads (the Ampharos SIR's outlined digits), the artwork-first recognizer (prototype in progress), the sw.js per-folder CORS memory for E-20, a Profile switch for the scan report, and `sheets-browser`, which flakes two random tests per run on this machine (v22 too).

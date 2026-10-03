@@ -14,6 +14,26 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **12:27** Version 26. `adc0e7b`
+  - **Scanner:** on a light table it finds the card's own edge instead of the silver border's
+    inner line, which made crops too narrow; it also tries the guide frame itself and slightly
+    moved or resized crops when a match is weak. A clear match with a big lead now counts as
+    sure. A card with no Latin text starts in your last Asian language (Korean at first), never
+    a Western one, with Japanese, Korean, and Chinese first. **Clear** empties the scan tray in
+    one tap, with Undo. Cards the picture cannot settle show at once.
+  - **Sync:** edits to different parts of one card, binder, list, or wish on two phones now both
+    survive: a price and a photo, a note and a condition, pockets in one binder, hand ticks. A
+    pocket emptied stays empty, and an untick stays unticked. Older app versions fall back to
+    the old rule without losing deletes, photos, cleared pockets, or unticks, and a phone that
+    meets newer sync rules says "Update the app to keep syncing".
+  - **Sets:** search finds printed codes such as MEW or CRI; All, Owned, and Missing show counts;
+    statistics say copies; the Korean screen explains where Korean Scarlet and Violet copies live.
+  - **Smaller fixes:** Ver na Liga handles Japanese promo sets; German, Spanish, and Italian
+    copies show language names; a tile mixing finishes says which finish its price is for; the
+    CSV export has consistent headers and a currency column; tile images no longer repeat the
+    card name to screen readers; Profile fits at 200% zoom; Portuguese and French images
+    download once instead of twice; Phone check has the scan report switch.
+
 - **10:43** Version 25: the scanner on a real phone. `bdb3474`
   - The guide fits the part of the camera view you can see, so its whole outline shows whatever
     Chrome's and Android's bars take. Before, its bottom could sit under the tray.
