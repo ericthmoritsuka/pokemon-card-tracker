@@ -95,7 +95,7 @@ export function scanView(root) {
 	const thumbCanvas = document.createElement('canvas');
 
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
-	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Fill the frame. Hold still.'));
+	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Card inside the frame. Hold still.'));
 	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
 	const cameraOff = h('div', {class: 'scan-camera-off', hidden: true, id: 'scan-camera-off'});
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
@@ -1306,7 +1306,7 @@ export function scanView(root) {
 			const thumb = shot.grey;
 			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
 
-			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Fill the frame. Hold still.';
+			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
 
 			if (detector.push(thumb, seen)) {

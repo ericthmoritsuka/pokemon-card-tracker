@@ -1570,3 +1570,112 @@ describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
 		assert.equal(found.sure, false);
 	});
 });
+
+describe('auto-capture with a card held by hand (Eric, 2026-10-03)', () => {
+	const W = THUMB_W;
+	const H = THUMB_H;
+
+	// A card of `size` (a share of the thumbnail's width, card-shaped),
+	// centred and moved by dx, dy pixels (fractions too: each pixel averages
+	// 4 x 4 samples, as a camera's does), on a table with some texture of
+	// its own (so nothing beyond the card is flat), the card's face light
+	// with dark text lines and a busy art box that move with it.
+	function heldCard(size, dx = 0, dy = 0) {
+		const grey = new Uint8Array(W * H);
+		const cw = W * size;
+		const ch = cw * 88 / 63;
+		const left = (W - cw) / 2 + dx;
+		const top = (H - ch) / 2 + dy;
+		const at = (px, py) => {
+			const u = (px - left) / cw;
+			const v = (py - top) / ch;
+
+			if (u < 0 || u >= 1 || v < 0 || v >= 1) {
+				return 70 + ((Math.floor(px) * 5 + Math.floor(py) * 3) % 9);
+			}
+
+			if (u > 0.1 && u < 0.9 && v > 0.12 && v < 0.5) {
+				return 60 + ((Math.floor(u * 40) * 37 + Math.floor(v * 50) * 23) % 120);
+			}
+
+			return v > 0.55 && Math.floor(v * 40) % 3 === 0 && u > 0.1 && u < 0.8 ? 50 : 215;
+		};
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				let sum = 0;
+
+				for (let sy = 0; sy < 4; sy++) {
+					for (let sx = 0; sx < 4; sx++) {
+						sum += at(x + (sx + 0.5) / 4, y + (sy + 0.5) / 4);
+					}
+				}
+
+				grey[y * W + x] = Math.round(sum / 16);
+			}
+		}
+
+		return grey;
+	}
+
+	test('a card held smaller than the guide, a little off its middle, is seen', () => {
+		for (const [size, dx, dy] of [[0.6, 0, 0], [0.62, 3, -2], [0.7, -2, 3]]) {
+			assert.equal(presence(heldCard(size, dx, dy), W, H).present, true, `${size} at ${dx}, ${dy}`);
+		}
+	});
+
+	test('a box the wrong shape for a card is not', () => {
+		const grey = new Uint8Array(W * H).fill(72);
+
+		// Square, half the thumbnail across.
+		for (let y = 22; y < 54; y++) {
+			for (let x = 16; x < 48; x++) {
+				grey[y * W + x] = (x + y) % 5 ? 210 : 60;
+			}
+		}
+
+		assert.equal(presence(grey, W, H).present, false);
+	});
+
+	// A hand shaking by 0.6 of a thumbnail pixel (about 1 % of the capture's
+	// width) between frames: the full thumbnails differ by more than STILL
+	// (the old rule never fired), their coarse copies by about half of it.
+	test('a hand that shakes about 1 % of the width still takes the picture within half a second', () => {
+		const detector = createAutoCapture();
+		const shake = [[0, 0], [0.6, 0], [0, 0], [0.6, 0], [0, 0], [0.6, 0], [0, 0]];
+
+		assert.ok(difference(heldCard(0.8), heldCard(0.8, 0.6, 0)) > 6, 'the old rule saw this as moving');
+		let frames = 0;
+		let fired = false;
+
+		for (const [dx, dy] of [...shake, ...shake]) {
+			const frame = heldCard(0.8, dx, dy);
+
+			frames++;
+
+			if (detector.push(frame, presence(frame, W, H))) {
+				fired = true;
+				break;
+			}
+		}
+
+		assert.ok(fired, 'captured');
+		assert.ok(frames <= 5, `after ${frames} frames (${frames * 125} ms)`);
+	});
+
+	test('the same card, still shaking a little, is not taken twice', () => {
+		const detector = createAutoCapture();
+		let fired = 0;
+
+		for (let i = 0; i < 40; i++) {
+			const frame = heldCard(0.8, i % 2 ? 0.6 : 0, 0);
+
+			if (detector.push(frame, presence(frame, W, H))) {
+				fired++;
+				detector.captured(frame);
+			}
+		}
+
+		assert.equal(fired, 1);
+	});
+});
