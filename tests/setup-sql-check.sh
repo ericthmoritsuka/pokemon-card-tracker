@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs supabase/setup.sql twice against a throwaway Postgres container, then
+# Runs supabase/setup.sql (and the optional supabase/min-client.sql) twice
+# against a throwaway Postgres container, then
 # checks its row-level security and functions as three made-up users
 # (tests/setup-sql-check.sql). Needs Docker or Podman. Nothing touches the
 # real Supabase project.
@@ -21,5 +22,6 @@ done
 
 "${engine}" exec "${name}" mkdir -p /check/supabase /check/tests
 "${engine}" cp supabase/setup.sql "${name}:/check/supabase/setup.sql"
+"${engine}" cp supabase/min-client.sql "${name}:/check/supabase/min-client.sql"
 "${engine}" cp tests/setup-sql-check.sql "${name}:/check/tests/setup-sql-check.sql"
 "${engine}" exec "${name}" psql --quiet --username=postgres --file=/check/tests/setup-sql-check.sql

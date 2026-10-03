@@ -1270,3 +1270,57 @@ describe('one entry edited on two phones', () => {
 		await laptop.context.close();
 	});
 });
+
+describe('merge rules on the server', () => {
+	test('every save carries merge_version and the base_stamp it merged against', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'phone');
+
+		await seedLocal(page, documentWith(syntheticEntries(3, 'p')));
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Synced');
+
+		const first = structuredClone(docRow(fake, owner));
+
+		assert.equal(first.doc.merge_version, 2);
+		assert.equal(first.doc.base_stamp, null, 'the first upload is an insert');
+
+		await addCard(page, {card_id: 'tst1-009', catalog: 'international', language: 'en', language_source: 'manual'});
+		await syncNow(page);
+		await waitForStatus(page, 'Synced');
+
+		const second = docRow(fake, owner);
+
+		assert.equal(second.doc.base_stamp, first.updated_at, 'the updated_at the write was guarded by');
+		assert.notEqual(second.updated_at, first.updated_at);
+		assert.equal(second.doc.merge_version, 2);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a document saved by an app with newer merge rules stops the push', async () => {
+		const fake = new FakeSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const serverDoc = {...documentWith(syntheticEntries(2, 's')), merge_version: 3, person: undefined, user_id: undefined};
+
+		fake.documents.set(owner.id, {doc: serverDoc, updated_at: fake.now(), user_id: owner.id});
+
+		const {context, page} = await device(fake, 'phone');
+
+		await seedLocal(page, documentWith(syntheticEntries(1, 'p')));
+		await signIn(page, fake, owner.email);
+		await waitForStatus(page, 'Update the app to keep syncing');
+
+		const writes = () => fake.log.filter((entry) => entry.device === 'phone' && (entry.method === 'PATCH' || entry.method === 'POST') && entry.path.endsWith('/documents')).length;
+		const before = writes();
+
+		await addCard(page, {card_id: 'tst1-010', catalog: 'international', language: 'en', language_source: 'manual'});
+		await syncNow(page);
+		await waitForStatus(page, 'Update the app to keep syncing');
+		assert.equal(writes(), before, 'nothing was pushed');
+		assert.equal(docRow(fake, owner).doc.cards.length, 2, 'the server document is untouched');
+		assert.equal((await localDoc(page)).cards.length, 2, 'the phone keeps its own cards, unmerged');
+		await context.close();
+	});
+});
