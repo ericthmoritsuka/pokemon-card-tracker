@@ -417,6 +417,99 @@ describe('Done and Undo', () => {
 	});
 });
 
+describe('the scan report', () => {
+	// What js/scan/identify.js answers for a full-art Portuguese card whose
+	// name sat on busy art: the number (a secret rare, past the set total)
+	// read, the name did not.
+	const result = (fields = {}) => ({
+		angle: 12.4,
+		card: {height: 1400, width: 1002},
+		found: true,
+		note: 'Card edges found, at a slant.',
+		read: {
+			attackText: '',
+			copyrightYear: 2026,
+			hp: null,
+			label: {code: 'pt', confidence: 0.67},
+			language: {code: 'pt', confidence: 0.67, source: 'label'},
+			name: {confidence: 0.2, suffix: null, text: 'Rmpharas'},
+			number: {confidence: 0.91, number: '107', numberPrinted: '107', side: 'left', total: '86', totalPrinted: '086'},
+			partial: {number: null, total: null},
+			raw: {
+				hp: {confidence: 0, lines: [{text: '', words: []}], text: ''},
+				label: {confidence: 0, lines: [{text: 'fraqueza resistencia', words: [{confidence: 80, text: 'fraqueza'}, {confidence: 70, text: 'resistencia'}]}], text: 'fraqueza resistencia'},
+				name: {confidence: 0, lines: [{text: 'Rmpharas', words: [{confidence: 31, text: 'Rmpharas'}]}], text: 'Rmpharas\n~~ ee'},
+				numberLeft: {confidence: 0, lines: [{text: 'MEG PT 107/086', words: [{confidence: 92, text: '107/086'}]}], text: 'MEG PT 107/086'},
+				numberRight: {confidence: 0, lines: [], text: ''},
+			},
+			setCodeBox: {langCode: 'PT', run: 'MEG', setCode: 'MEG', text: 'MEG PT'},
+			timings: {hp: 410, label: 380, name: 620, numberLeft: 540, numberRight: 300, ocr: 1450},
+			wizards: false,
+			...fields,
+		},
+		timings: {artwork: 12, ocr: 1450, rectify: 96, total: 1580, workers: 2},
+	});
+	const device = {cores: 8, memory: 4, online: true, screen: '412 x 915 at 2.6x', userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/129'};
+	const found = {
+		candidates: Array.from({length: 6}, (_, i) => candidate(`me04-${107 + i}`, {agree: i ? ['total'] : ['number', 'total'], confidence: i ? 0.3 : 0.8, name: i ? 'Other' : 'Ampharos', official: '86', reasons: ['number and total', 'pt catalog'], score: 9 - i, setName: 'Chaos Rising'})),
+		names: [{dex: 181, name: 'Ampharos', score: 0.62}],
+		partial: false,
+		routes: ['number', 'name'],
+		searched: ['pt', 'en'],
+		setName: null,
+	};
+
+	test('says what each read got, how long each step took, and which cards were weighed, in text', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, {at: AT, id: 'a'});
+
+		item.report = S.reportOfRead(result(), {captureMs: 35, frame: '1041 x 1453', source: 'camera'});
+		S.applyRead(session, 'a', result().read, AT);
+		S.applyMatch(session, 'a', found, AT);
+		item.report = {...item.report, match: S.reportOfMatch(found, {language: 'pt', ms: 210})};
+
+		const text = S.reportText(item, {at: AT, device});
+
+		assert.ok(JSON.stringify(item.report).length < 6000, 'small enough to keep with the draft');
+		assert.doesNotMatch(text, /data:image|base64/, 'no images');
+
+		for (const expected of [
+			'Browser: Mozilla/5.0 (Linux; Android 14) Chrome/129',
+			'CPU cores: 8; memory: 4 GB',
+			'Capture: 35 ms',
+			'Edges and straightening: 96 ms; card edges found, turned 12.4 degrees, card 1002x1400 px. Card edges found, at a slant.',
+			'Name strip: 620 ms, confidence 31: "Rmpharas | ~~ ee"',
+			'Number, bottom left: 540 ms, confidence 92: "MEG PT 107/086"',
+			'Weakness row (language): 380 ms, confidence 75: "fraqueza resistencia"',
+			'Artwork fingerprint: 12 ms',
+			'Catalog lookup: 210 ms; routes number, name; searched for pt',
+			'Number: 107/086 (91 %, left side); past the set total: a secret rare',
+			'Set code box: "MEG PT", set MEG, language PT',
+			'Script: Latin script. Language guess: pt',
+			'Species the name matched: Ampharos (0.62)',
+			'Candidates (6 found, first 5 shown)',
+			'1. Ampharos, 107/86, Chaos Rising (me04-107, en): score 9, confidence 80 %',
+			'why: number and total; pt catalog; agrees: number, total',
+		]) {
+			assert.ok(text.includes(expected), `has "${expected}" in:\n${text}`);
+		}
+
+		assert.doesNotMatch(text, /^6\. /m, 'five candidates at most');
+	});
+
+	test('a card with no Latin weakness row says Japanese or Korean text is suspected', () => {
+		const item = S.addCapture(S.newSession(AT, 's1'), {at: AT, id: 'a'});
+
+		item.report = S.reportOfRead(result({language: {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}, number: null}));
+
+		const text = S.reportText(item, {at: AT, device});
+
+		assert.match(text, /Script: No Latin weakness row was read: Japanese, Korean, or Chinese text is suspected/);
+		assert.match(text, /Number: unreadable/);
+		assert.match(text, /Catalog lookup: not done yet/);
+	});
+});
+
 describe('wishlist marks', () => {
 	const family = [
 		{name: 'Member A', user_id: 'u-ana', wishlist: [newWish('sv08.5-003', {language: 'pt'}, AT, 'w1')]},

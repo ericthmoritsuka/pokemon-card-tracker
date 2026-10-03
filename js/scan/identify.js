@@ -18,7 +18,8 @@
 import {artVector} from './artwork.js';
 import {createPool} from './ocr.js';
 import {readCard} from './read.js';
-import {rectify} from './rectify.js';
+import {captureRect} from './camera.js';
+import {cropImage, rectify} from './rectify.js';
 
 export class EngineUnavailable extends Error {
 	constructor(cause) {
@@ -84,25 +85,46 @@ export function releaseEngineSoon() {
 let queue = Promise.resolve();
 
 // Reads an ImageData-shaped capture (the guide frame plus its margin, or a
-// straightened card when `straight` is true). Returns {artwork, card, found,
-// read, timings: {rectify, ocr, total}}. card is the straightened card
-// image; artwork its artwork vector.
-export function identify(image, {straight = false, readOptions = {}} = {}) {
+// straightened card when `straight` is true). Returns {angle, artwork, card,
+// found, note, read, timings: {artwork, rectify, ocr, total, workers}}. card
+// is the straightened card image; artwork its artwork vector; angle and note
+// what the straightening found (js/scan/rectify.js), for the scan report.
+//
+// photo: a photo picked from the gallery rather than the camera's capture
+// area. Its card may sit anywhere in a larger picture, so when the whole
+// photo shows no card edges, the part a camera's guide would hold (the
+// middle, card-shaped) is tried too.
+export function identify(image, {photo = false, straight = false, readOptions = {}} = {}) {
 	const run = queue.then(async () => {
 		const engine = await warmEngine();
 		const started = performance.now();
-		const rectified = straight ? {card: image, found: true} : rectify(image);
+		let rectified = straight ? {card: image, found: true} : rectify(image);
+
+		if (photo && !rectified.found) {
+			const middle = rectify(cropImage(image, captureRect(image.width, image.height)));
+
+			if (middle.found) {
+				rectified = {...middle, note: `${middle.note} (in the middle of the photo)`};
+			}
+		}
+
 		const rectifyMs = Math.round(performance.now() - started);
 		const read = await readCard(rectified.card, engine.ocr, readOptions);
 
 		read.script = null;
 
+		const artAt = performance.now();
+		const artwork = artVector(rectified.card);
+		const artworkMs = Math.round(performance.now() - artAt);
+
 		return {
-			artwork: artVector(rectified.card),
+			angle: rectified.angle ?? 0,
+			artwork,
 			card: rectified.card,
 			found: rectified.found,
+			note: rectified.note || null,
 			read,
-			timings: {ocr: read.timings.ocr, rectify: rectifyMs, total: Math.round(performance.now() - started), workers: engine.size},
+			timings: {artwork: artworkMs, ocr: read.timings.ocr, rectify: rectifyMs, total: Math.round(performance.now() - started), workers: engine.size},
 		};
 	});
 

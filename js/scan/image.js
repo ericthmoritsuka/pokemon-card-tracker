@@ -34,16 +34,20 @@ export function imageBlob(image, {maxHeight = Infinity, quality = 0.85} = {}) {
 	});
 }
 
-export async function blobImage(blob) {
+// The image in a Blob as ImageData, scaled down to at most maxSide pixels
+// on its longer side.
+export async function blobImage(blob, {maxSide = Infinity} = {}) {
 	const bitmap = await createImageBitmap(blob);
+	const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
 	const canvas = document.createElement('canvas');
 
-	canvas.width = bitmap.width;
-	canvas.height = bitmap.height;
+	canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+	canvas.height = Math.max(1, Math.round(bitmap.height * scale));
 
 	const ctx = canvas.getContext('2d', {willReadFrequently: true});
 
-	ctx.drawImage(bitmap, 0, 0);
+	ctx.imageSmoothingQuality = 'high';
+	ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
 	bitmap.close && bitmap.close();
 
 	return ctx.getImageData(0, 0, canvas.width, canvas.height);

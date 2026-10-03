@@ -944,3 +944,246 @@ export function itemFinishChip(item) {
 	return option ? option.chip : null;
 }
 
+
+// ------------------------------------------------------------ the scan report
+
+// The scan report: everything a read and a lookup did, as plain text the
+// owner can copy on the phone and paste to us (no images). reportOfRead and
+// reportOfMatch keep the facts on the tray card (item.report), small enough
+// to store with the draft, so a report still shows after the app closes;
+// reportText words them.
+
+// The OCR reads, in the order the report lists them, with their names.
+export const REPORT_FIELDS = [
+	['name', 'Name strip'],
+	['hp', 'HP'],
+	['numberLeft', 'Number, bottom left'],
+	['numberRight', 'Number, bottom right'],
+	['setCode', 'Set code box'],
+	['label', 'Weakness row (language)'],
+	['attacks', 'Attack names'],
+];
+
+// How many candidates the report lists.
+export const REPORT_CANDIDATES = 5;
+
+// The mean confidence (0 to 100) of the words OCR found, or null.
+function wordConfidence(result) {
+	const words = (result.lines || []).flatMap((line) => line.words || []);
+
+	if (!words.length) {
+		return typeof result.confidence === 'number' && result.confidence > 0 ? result.confidence : null;
+	}
+
+	return Math.round(words.reduce((sum, word) => sum + (word.confidence || 0), 0) / words.length);
+}
+
+// What the read left for the report: result is js/scan/identify.js's
+// answer. captureMs: how long the capture took; source: 'camera' or
+// 'photo'; frame: the image's size, "width x height".
+export function reportOfRead(result, {captureMs = null, frame = null, source = 'camera'} = {}) {
+	const read = result.read || {};
+	const raw = read.raw || {};
+	const timings = read.timings || {};
+	const fields = {};
+
+	for (const [key] of REPORT_FIELDS) {
+		if (raw[key]) {
+			fields[key] = {confidence: wordConfidence(raw[key]), ms: timings[key] ?? null, text: String(raw[key].text || '').trim().slice(0, 300)};
+		}
+	}
+
+	const number = read.number || null;
+	const box = read.setCodeBox || {};
+
+	return {
+		artworkMs: result.timings && result.timings.artwork != null ? result.timings.artwork : null,
+		attackText: read.attackText ? String(read.attackText).slice(0, 200) : '',
+		captureMs,
+		copyrightYear: read.copyrightYear || null,
+		fields,
+		frame,
+		hp: read.hp && read.hp.value ? {after: Boolean(read.hp.after), value: read.hp.value} : null,
+		label: read.label ? {code: read.label.code || null, confidence: read.label.confidence || 0} : null,
+		language: read.language ? {code: read.language.code || null, confidence: read.language.confidence || 0, source: read.language.source || null} : null,
+		name: read.name && read.name.text ? {confidence: read.name.confidence || 0, suffix: read.name.suffix || null, text: String(read.name.text).slice(0, 60)} : null,
+		number: number
+			? {
+				confidence: number.confidence || 0,
+				printed: `${number.numberPrinted}/${number.totalPrinted}`,
+				// A number past the set's total: a secret rare (a special
+				// illustration, a gold card), numbered after the set proper.
+				secret: Number(number.number) > Number(number.total),
+				side: number.side || null,
+			}
+			: null,
+		ocrMs: result.timings ? result.timings.ocr : null,
+		partial: read.partial && (read.partial.number || read.partial.total) ? `${read.partial.number || '?'}/${read.partial.total || '?'}` : null,
+		rectify: {
+			angle: result.angle ?? null,
+			card: result.card ? `${result.card.width}x${result.card.height}` : null,
+			found: Boolean(result.found),
+			ms: result.timings ? result.timings.rectify : null,
+			note: result.note || null,
+		},
+		setCodeBox: box.text ? {langCode: box.langCode || null, setCode: box.setCode || null, text: String(box.text).trim().slice(0, 60)} : null,
+		source,
+		totalMs: result.timings ? result.timings.total : null,
+		wizards: Boolean(read.wizards),
+		workers: result.timings ? result.timings.workers ?? null : null,
+	};
+}
+
+// What the lookup left for the report: found is js/scan/match.js
+// findCandidates's answer, ms how long it took, language what was searched
+// for.
+export function reportOfMatch(found, {language = null, ms = null} = {}) {
+	return {
+		artwork: found.artwork || null,
+		candidates: (found.candidates || []).slice(0, REPORT_CANDIDATES).map((c) => ({
+			agree: c.agree || [],
+			artwork: typeof c.artwork === 'number' ? Math.round(c.artwork * 100) / 100 : null,
+			confidence: c.confidence ?? null,
+			conflicts: c.conflicts || [],
+			id: c.id,
+			lang: c.lang || null,
+			name: c.name,
+			number: `${c.localId}${c.official ? `/${c.official}` : ''}`,
+			reasons: c.reasons || [],
+			score: typeof c.score === 'number' ? Math.round(c.score * 100) / 100 : c.score,
+			setName: c.setName || c.setId || null,
+		})),
+		count: (found.candidates || []).length,
+		language,
+		ms,
+		names: (found.names || []).slice(0, 3).map((n) => ({name: n.name, score: Math.round((n.score || 0) * 100) / 100})),
+		partial: Boolean(found.partial),
+		routes: found.routes || [],
+		searched: (found.searched || []).slice(0, 12),
+		setName: found.setName || null,
+	};
+}
+
+// The script the label row suggests, in words: a Latin label read names the
+// language; none read means a Japanese, Korean, or Chinese print is
+// suspected (the reader has only the English model, so it cannot tell those
+// apart), or the row was blurred or covered.
+export function scriptLine(report) {
+	const language = report && report.language;
+	const code = language && language.code;
+
+	if (code && code !== 'non-latin') {
+		return `Latin script. Language guess: ${code} (${Math.round((language.confidence || 0) * 100)} %, from ${language.source || 'the label row'}).`;
+	}
+
+	return 'No Latin weakness row was read: Japanese, Korean, or Chinese text is suspected (or the row was blurred or covered). This reader has no Japanese or Korean model, so it cannot tell which; pick the language by hand.';
+}
+
+const ms = (value) => (typeof value === 'number' ? `${value} ms` : 'not timed');
+const pct = (value) => (typeof value === 'number' ? `${Math.round(value <= 1 ? value * 100 : value)} %` : '?');
+const oneLine = (text) => String(text || '').replace(/\s*\n\s*/g, ' | ').trim();
+
+// The report as text. device: {userAgent, cores, memory, screen, camera,
+// online, version}; at: when it was made (ISO time).
+export function reportText(item, {at = nowIso(), device = {}} = {}) {
+	const report = (item && item.report) || {};
+	const lines = [`Card Tracker scan report, ${at}`];
+
+	lines.push('', 'Device');
+	lines.push(`- Browser: ${device.userAgent || 'unknown'}`);
+	lines.push(`- CPU cores: ${device.cores || 'unknown'}; memory: ${device.memory ? `${device.memory} GB` : 'not reported'}; screen: ${device.screen || 'unknown'}`);
+
+	if (device.camera) {
+		lines.push(`- Camera: ${device.camera}`);
+	}
+
+	lines.push(`- Online: ${device.online === false ? 'no' : 'yes'}${device.version ? `; app ${device.version}` : ''}; OCR workers: ${report.workers ?? '?'}`);
+
+	lines.push('', 'Steps');
+	lines.push(`- Source: ${report.source === 'photo' ? 'a photo picked from the gallery' : 'the camera'}${report.frame ? `, ${report.frame}` : ''}`);
+	lines.push(`- Capture: ${ms(report.captureMs)}`);
+
+	if (report.rectify) {
+		lines.push(`- Edges and straightening: ${ms(report.rectify.ms)}; ${report.rectify.found ? 'card edges found' : 'card edges NOT found'}${typeof report.rectify.angle === 'number' ? `, turned ${report.rectify.angle} degrees` : ''}${report.rectify.card ? `, card ${report.rectify.card} px` : ''}. ${report.rectify.note || ''}`.trim());
+	}
+
+	lines.push(`- OCR, all reads: ${ms(report.ocrMs)} (reads run side by side, so their times overlap)`);
+
+	for (const [key, title] of REPORT_FIELDS) {
+		const field = report.fields && report.fields[key];
+
+		if (field) {
+			lines.push(`  - ${title}: ${ms(field.ms)}, confidence ${field.confidence ?? '?'}: "${oneLine(field.text) || '(nothing)'}"`);
+		}
+	}
+
+	lines.push(`- Artwork fingerprint: ${ms(report.artworkMs)}`);
+
+	const match = report.match;
+
+	if (match) {
+		lines.push(`- Catalog lookup: ${ms(match.ms)}; routes ${match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
+		lines.push(`- Artwork tiebreak: ${match.candidates.some((c) => c.artwork !== null) ? 'compared the level cards' : 'not needed or not possible'}`);
+	}
+	else {
+		lines.push('- Catalog lookup: not done yet');
+	}
+
+	lines.push(`- Total from capture to read: ${ms(report.totalMs)}`);
+
+	lines.push('', 'What was read');
+	lines.push(`- Name: ${report.name ? `"${report.name.text}" (${pct(report.name.confidence)})${report.name.suffix ? `, suffix ${report.name.suffix}` : ''}` : 'unreadable'}`);
+	lines.push(`- HP: ${report.hp ? `${report.hp.value}${report.hp.after ? ' (printed after the number, an old card)' : ''}` : 'unreadable'}`);
+
+	if (report.number) {
+		lines.push(`- Number: ${report.number.printed} (${pct(report.number.confidence)}, ${report.number.side || '?'} side)${report.number.secret ? '; past the set total: a secret rare' : ''}`);
+	}
+	else {
+		lines.push(`- Number: unreadable${report.partial ? `; partly read as ${report.partial}` : ''}`);
+	}
+
+	if (report.setCodeBox) {
+		lines.push(`- Set code box: "${report.setCodeBox.text}"${report.setCodeBox.setCode ? `, set ${report.setCodeBox.setCode}` : ''}${report.setCodeBox.langCode ? `, language ${report.setCodeBox.langCode}` : ''}`);
+	}
+
+	lines.push(`- Copyright year: ${report.copyrightYear || 'unread'}${report.wizards ? '; Wizards of the Coast' : ''}`);
+
+	if (report.attackText) {
+		lines.push(`- Attack names: "${oneLine(report.attackText)}"`);
+	}
+
+	lines.push(`- Language: ${report.language ? `${report.language.code || 'none'} (${pct(report.language.confidence)}, ${report.language.source || '?'})` : 'unknown'}`);
+	lines.push(`- Script: ${scriptLine(report)}`);
+
+	if (match) {
+		if (match.setName) {
+			lines.push(`- The name strip read a set's name ("${match.setName}"), so it was not used as a name.`);
+		}
+
+		lines.push(`- Species the name matched: ${match.names.length ? match.names.map((n) => `${n.name} (${n.score})`).join(', ') : 'none'}`);
+
+		lines.push('', `Candidates (${match.count} found, first ${Math.min(match.count, REPORT_CANDIDATES)} shown)`);
+
+		if (!match.candidates.length) {
+			lines.push('- none');
+		}
+
+		for (const [index, c] of match.candidates.entries()) {
+			lines.push(`${index + 1}. ${c.name}, ${c.number}, ${c.setName} (${c.id}, ${c.lang || '?'}): score ${c.score}${c.confidence !== null ? `, confidence ${pct(c.confidence)}` : ''}${c.artwork !== null ? `, artwork ${c.artwork}` : ''}`);
+			lines.push(`   why: ${c.reasons.join('; ') || 'nothing'}${c.agree.length ? `; agrees: ${c.agree.join(', ')}` : ''}${c.conflicts.length ? `; against: ${c.conflicts.join(', ')}` : ''}`);
+		}
+	}
+
+	lines.push('', 'Result');
+
+	if (item && item.card) {
+		lines.push(`- Shown: ${item.card.name}, ${item.card.localId}${item.card.official ? `/${item.card.official}` : ''}, ${item.card.setName || item.card.setId} (${item.card.id})`);
+	}
+	else {
+		lines.push('- Shown: no card');
+	}
+
+	lines.push(`- ${item && item.sure ? 'Sure match' : `Not sure${item && item.why ? `: ${item.why}` : ''}`}`);
+
+	return lines.join('\n');
+}
