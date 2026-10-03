@@ -429,7 +429,7 @@ Nothing a reader must act on goes below 14 px.
 | `accent-strong` | Yes | Links, focus ring, progress ring stroke |
 | `panel`, `frame`, `frame-soft` | Yes | Panel tint and text box frame |
 | `danger` | No | `#dc0a2d` in every theme |
-| `scan` | No | The Scan button: red disc, white ring and glyph, the app's one fixed brand mark |
+| `scan`, `scan-ring`, `scan-glyph` | Yes | The Scan button: a Poké Ball per theme (disc, ring, glyph), the red Poké Ball by default. Was the one fixed brand mark; Eric reversed that on 2026-10-02. Mapping in `DESIGN.md` Themes; the finish badge keeps a fixed `pokeball` red |
 | `owned` | No | Yellow `#ffcb05` disc with a navy check; complete rings |
 | `warn` | No | Amber fill with a `?` glyph, dark text |
 | `badge-ink`, `badge-paper` | No | Quantity pill near-black with white text; language chip white with ink text and a 1 px ink border |

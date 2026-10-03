@@ -37,6 +37,10 @@
 	--header-text: #ffffff;
 	--on-accent: #ffffff;
 	--panel: var(--surface);
+	/* The Scan disc, a Poke Ball per theme: the default is the red one. */
+	--scan: #dc0a2d;
+	--scan-glyph: #ffffff;
+	--scan-ring: #ffffff;
 	--selected-bg: #1d2e60;
 	--selected-text: #ffffff;
 	--tab-mark: #ffcb05;
@@ -80,6 +84,9 @@
 	--link: #306cb3;
 	--on-accent: #ffffff;
 	--panel: #ffffff;
+	--scan: #dc0a2d;
+	--scan-glyph: #ffffff;
+	--scan-ring: #ffffff;
 	--selected-bg: #1d2e60;
 	--selected-text: #ffffff;
 	--tab-mark: #ffcb05;
@@ -107,6 +114,9 @@
 	--link: #2f7d33;
 	--on-accent: #ffffff;
 	--panel: #f1f9ef;
+	--scan: #2f7d33;
+	--scan-glyph: #ffffff;
+	--scan-ring: #ffffff;
 	--selected-bg: #2f7d33;
 	--selected-text: #ffffff;
 	--tab-mark: #58a643;
@@ -133,6 +143,9 @@
 	--link: #b8420f;
 	--on-accent: #ffffff;
 	--panel: #fef4ee;
+	--scan: #c2410c;
+	--scan-glyph: #ffd23f;
+	--scan-ring: #ffd23f;
 	--selected-bg: #c4460f;
 	--selected-text: #ffffff;
 	--tab-mark: #e9722d;
@@ -160,6 +173,9 @@
 	--link: #1767ab;
 	--on-accent: #ffffff;
 	--panel: #eef7fd;
+	--scan: #1b4f9c;
+	--scan-glyph: #a8d8ff;
+	--scan-ring: #a8d8ff;
 	--selected-bg: #1767ab;
 	--selected-text: #ffffff;
 	--tab-mark: #3a9cd6;
@@ -187,6 +203,9 @@
 	--link: #8e6900;
 	--on-accent: #1b1b1f;
 	--panel: #fefae7;
+	--scan: #1e6fd9;
+	--scan-glyph: #ffd23f;
+	--scan-ring: #ffd23f;
 	--selected-bg: #f5ca3a;
 	--selected-text: #1b1b1f;
 	--tab-mark: #ab9127;
@@ -215,6 +234,9 @@
 	--link: #7a32a5;
 	--on-accent: #ffffff;
 	--panel: #f9f2fc;
+	--scan: #6b3fa0;
+	--scan-glyph: #f6a8d8;
+	--scan-ring: #f6a8d8;
 	--selected-bg: #8636b4;
 	--selected-text: #ffffff;
 	--tab-mark: #bb6fdd;
@@ -243,6 +265,9 @@
 	--link: #974620;
 	--on-accent: #ffffff;
 	--panel: #fbf4ef;
+	--scan: #b4531f;
+	--scan-glyph: #fff1d6;
+	--scan-ring: #fff1d6;
 	--selected-bg: #a24a20;
 	--selected-text: #ffffff;
 	--tab-mark: #d27f4a;
@@ -270,6 +295,9 @@
 	--link: #1d3337;
 	--on-accent: #ffffff;
 	--panel: #f1f6f6;
+	--scan: #1b1b1f;
+	--scan-glyph: #4ad37a;
+	--scan-ring: #4ad37a;
 	--selected-bg: #24484e;
 	--selected-text: #ffffff;
 	--tab-mark: #4d8a92;
@@ -297,6 +325,9 @@
 	--link: #566370;
 	--on-accent: #ffffff;
 	--panel: #f5f6f8;
+	--scan: #4a6b8a;
+	--scan-glyph: #d0d6dc;
+	--scan-ring: #d0d6dc;
 	--selected-bg: #4f5b68;
 	--selected-text: #ffffff;
 	--tab-mark: #8b96a1;
@@ -323,6 +354,9 @@
 	--link: #7f5f12;
 	--on-accent: #ffffff;
 	--panel: #fbf7ec;
+	--scan: #1b1b1f;
+	--scan-glyph: #ffd23f;
+	--scan-ring: #ffd23f;
 	--selected-bg: #7a5a0e;
 	--selected-text: #ffffff;
 	--tab-mark: #b19033;
@@ -351,6 +385,9 @@
 	--link: #716f69;
 	--on-accent: #ffffff;
 	--panel: #fcfbfa;
+	--scan: #ffffff;
+	--scan-glyph: #dc0a2d;
+	--scan-ring: #dc0a2d;
 	--selected-bg: #3b3b42;
 	--selected-text: #ffffff;
 	--tab-mark: #96948e;
@@ -377,6 +414,9 @@
 	--link: #ba4385;
 	--on-accent: #ffffff;
 	--panel: #fef6fa;
+	--scan: #d9509a;
+	--scan-glyph: #ffffff;
+	--scan-ring: #ffffff;
 	--selected-bg: #b23f7d;
 	--selected-text: #ffffff;
 	--tab-mark: #c57ea4;
@@ -404,6 +444,9 @@
 		--link: #8db4ec;
 		--on-accent: #ffffff;
 		--panel: #1f2128;
+		--scan: #dc0a2d;
+		--scan-glyph: #ffffff;
+		--scan-ring: #ffffff;
 		--selected-bg: #1d2e60;
 		--selected-text: #ffffff;
 		--tab-mark: #ffcb05;
@@ -427,6 +470,9 @@
 		--link: #62b84a;
 		--on-accent: #1b1b1f;
 		--panel: #242d2b;
+		--scan: #2f7d33;
+		--scan-glyph: #ffffff;
+		--scan-ring: #ffffff;
 		--selected-bg: #62b84a;
 		--selected-text: #1b1b1f;
 		--tab-mark: #62b84a;
@@ -449,6 +495,9 @@
 		--link: #f5782f;
 		--on-accent: #1b1b1f;
 		--panel: #302829;
+		--scan: #c2410c;
+		--scan-glyph: #ffd23f;
+		--scan-ring: #ffd23f;
 		--selected-bg: #f5782f;
 		--selected-text: #1b1b1f;
 		--tab-mark: #f5782f;
@@ -472,6 +521,9 @@
 		--link: #3ea8e6;
 		--on-accent: #1b1b1f;
 		--panel: #212c37;
+		--scan: #426dad;
+		--scan-glyph: #a8d8ff;
+		--scan-ring: #a8d8ff;
 		--selected-bg: #3ea8e6;
 		--selected-text: #1b1b1f;
 		--tab-mark: #3ea8e6;
@@ -495,6 +547,9 @@
 		--link: #f8d238;
 		--on-accent: #1b1b1f;
 		--panel: #302f29;
+		--scan: #1e6fd9;
+		--scan-glyph: #ffd23f;
+		--scan-ring: #ffd23f;
 		--selected-bg: #f8d238;
 		--selected-text: #1b1b1f;
 		--tab-mark: #f8d238;
@@ -519,6 +574,9 @@
 		--link: #bc72de;
 		--on-accent: #1b1b1f;
 		--panel: #2b2736;
+		--scan: #805aad;
+		--scan-glyph: #f7aedb;
+		--scan-ring: #f7aedb;
 		--selected-bg: #bb6fdd;
 		--selected-text: #1b1b1f;
 		--tab-mark: #bb6fdd;
@@ -543,6 +601,9 @@
 		--link: #d6824c;
 		--on-accent: #1b1b1f;
 		--panel: #2e292b;
+		--scan: #b4531f;
+		--scan-glyph: #fff1d6;
+		--scan-ring: #fff1d6;
 		--selected-bg: #d6824c;
 		--selected-text: #1b1b1f;
 		--tab-mark: #d6824c;
@@ -566,6 +627,9 @@
 		--link: #62989f;
 		--on-accent: #1b1b1f;
 		--panel: #232930;
+		--scan: #2f8a4f;
+		--scan-glyph: #1b1b1f;
+		--scan-ring: #1b1b1f;
 		--selected-bg: #518c94;
 		--selected-text: #1b1b1f;
 		--tab-mark: #4d8a92;
@@ -589,6 +653,9 @@
 		--link: #a9b7c4;
 		--on-accent: #1b1b1f;
 		--panel: #2a2d34;
+		--scan: #4e6e8c;
+		--scan-glyph: #d0d6dc;
+		--scan-ring: #d0d6dc;
 		--selected-bg: #a9b7c4;
 		--selected-text: #1b1b1f;
 		--tab-mark: #a9b7c4;
@@ -611,6 +678,9 @@
 		--link: #d8b03e;
 		--on-accent: #1b1b1f;
 		--panel: #2e2c2a;
+		--scan: #f5c518;
+		--scan-glyph: #1b1b1f;
+		--scan-ring: #1b1b1f;
 		--selected-bg: #d8b03e;
 		--selected-text: #1b1b1f;
 		--tab-mark: #d8b03e;
@@ -635,6 +705,9 @@
 		--link: #e6e3da;
 		--on-accent: #1b1b1f;
 		--panel: #2f3136;
+		--scan: #ffffff;
+		--scan-glyph: #dc0a2d;
+		--scan-ring: #dc0a2d;
 		--selected-bg: #e6e3da;
 		--selected-text: #1b1b1f;
 		--tab-mark: #e6e3da;
@@ -657,6 +730,9 @@
 		--link: #f39cca;
 		--on-accent: #1b1b1f;
 		--panel: #302b35;
+		--scan: #d9509a;
+		--scan-glyph: #ffffff;
+		--scan-ring: #ffffff;
 		--selected-bg: #f39cca;
 		--selected-text: #1b1b1f;
 		--tab-mark: #f39cca;
@@ -744,9 +820,10 @@
 	--target: 48px;
 	--scan-size: 64px;
 
-	/* Fixed color roles, the same in every theme. */
-	--scan: #dc0a2d;
-	--scan-ring: #ffffff;
+	/* Fixed color roles, the same in every theme. --pokeball is the finish
+	   badge's red Poke Ball; the Scan disc's --scan tokens are themed, in
+	   the first :root block above. */
+	--pokeball: #dc0a2d;
 	--owned: #ffcb05;
 	--owned-ink: #1d2e60;
 	--warn: #f5a524;
@@ -2395,8 +2472,9 @@ progress {
 	top: 0;
 }
 
-/* Scan: the app's one fixed brand mark, a red disc with a white ring, the
-   largest target, raised over the bar. */
+/* Scan: a Poke Ball in the theme's colors (--scan, --scan-ring, and
+   --scan-glyph, from js/themes.js), the largest target, raised over the
+   bar. */
 .tabs .tab-scan {
 	color: var(--text);
 }
@@ -2413,7 +2491,7 @@ progress {
 	border: 3px solid var(--scan-ring);
 	border-radius: 50%;
 	box-shadow: var(--elevation-3);
-	color: var(--scan-ring);
+	color: var(--scan-glyph);
 	display: flex;
 	height: var(--scan-size);
 	justify-content: center;
@@ -2431,7 +2509,8 @@ progress {
 }
 
 /* Unsaved cards in the scan tray: a count on the disc, so the draft is not
-   forgotten after leaving Scan. */
+   forgotten after leaving Scan. Red in every theme, outlined in the ring,
+   which every disc keeps at 3:1. */
 .scan-dot {
 	background: var(--danger);
 	border: 2px solid var(--scan-ring);
@@ -2603,7 +2682,7 @@ progress {
 }
 
 .ball {
-	background: linear-gradient(var(--scan) 0 45%, var(--badge-ink) 45% 55%, var(--badge-paper) 55%);
+	background: linear-gradient(var(--pokeball) 0 45%, var(--badge-ink) 45% 55%, var(--badge-paper) 55%);
 	border: 1px solid var(--badge-ink);
 	border-radius: 50%;
 	display: inline-flex;

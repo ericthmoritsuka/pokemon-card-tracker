@@ -25,6 +25,8 @@
 //     dark mode lightened, until they reach 4.5:1 on the panel, the page, and
 //     the plain surface.
 //   - The active tab mark reaches 3:1 on the tab bar, as a UI shape.
+//   - The Scan disc is a Poké Ball per theme (BALLS below): the disc reaches
+//     3:1 on the tab bar, and its ring and glyph 3:1 on the disc.
 //   - Destructive actions use one red in every theme, so danger never
 //     changes color.
 //
@@ -527,6 +529,57 @@ function headerFor(theme, scheme, color, toward, text) {
 	return untilOk(color, toward, (bg) => [bg, worstMotifPixel(theme, scheme, bg, text)].every((pixel) => contrast(text, pixel) >= AA && contrast(over(text, 0.85, pixel), pixel) >= AA));
 }
 
+// ------------------------------------------------------------ Poké Balls
+
+// The raised Scan button is a Poké Ball that follows the theme (Eric,
+// 2026-10-02): the default keeps the red Poké Ball, and each energy type
+// takes the ball whose colors sit with its own. A ball is a disc color and a
+// ring color, hand-picked here; scanVars() then adjusts them by rule, so
+// every pair holds at 3:1 (the WCAG floor for UI shapes) in both schemes:
+//
+//   - The disc is darkened in light mode, or lightened in dark mode, until
+//     it reaches 3:1 on the tab bar (the plain surface). The two black balls
+//     (Dusk, Ultra) would need to go grey to get there in dark mode, so each
+//     turns inside out instead: its band color becomes the disc, and black
+//     the ring.
+//   - The ring, and the glyph drawn in the ring's color, are lightened or
+//     darkened until they reach 3:1 on the disc. The scan tray's count dot
+//     wears the ring as its border, so it is outlined on every disc.
+//
+// Premier's white disc is the one exception: nothing white reaches 3:1 on
+// the white light-mode bar, and a grey disc is no Premier Ball, so in light
+// mode its red ring carries the edge (3:1 on the bar, checked in its place)
+// and the glyph is red. In dark mode the white disc passes on its own.
+//
+// The small Poké Ball finish badge on tiles (.ball) is not a theme: it is a
+// real Poké Ball in every theme, on style.css's fixed --pokeball.
+export const BALLS = {
+	colorless: {disc: WHITE, name: 'Premier Ball', ring: RED},
+	darkness: {dark: {disc: '#2f8a4f', ring: INK}, disc: INK, name: 'Dusk Ball', ring: '#4ad37a'},
+	default: {disc: RED, name: 'Poké Ball', ring: WHITE},
+	dragon: {dark: {disc: '#f5c518', ring: INK}, disc: INK, name: 'Ultra Ball', ring: '#ffd23f'},
+	fairy: {disc: '#d9509a', name: 'Heal Ball', ring: WHITE},
+	fighting: {disc: '#b4531f', name: 'Sport Ball', ring: '#fff1d6'},
+	fire: {disc: '#c2410c', name: 'Repeat Ball', ring: '#ffd23f'},
+	grass: {disc: '#2f7d33', name: 'Nest Ball', ring: WHITE},
+	lightning: {disc: '#1e6fd9', name: 'Quick Ball', ring: '#ffd23f'},
+	metal: {disc: '#4a6b8a', name: 'Heavy Ball', ring: '#d0d6dc'},
+	psychic: {disc: '#6b3fa0', name: 'Master Ball', ring: '#f6a8d8'},
+	water: {disc: '#1b4f9c', name: 'Dive Ball', ring: '#a8d8ff'},
+};
+
+// The Scan disc's custom properties for one scheme: --scan (the disc),
+// --scan-ring, and --scan-glyph (the icon, in the ring's color).
+export function scanVars(theme, scheme) {
+	const base = BASE[scheme];
+	const ball = BALLS[theme.id];
+	const picked = scheme === 'dark' && ball.dark ? ball.dark : ball;
+	const disc = picked.disc === WHITE ? WHITE : until(picked.disc, scheme === 'light' ? BLACK : WHITE, [base.surface], AA_SHAPE);
+	const ring = until(picked.ring, luminance(picked.ring) > luminance(disc) ? WHITE : BLACK, [disc], AA_SHAPE);
+
+	return {'--scan': disc, '--scan-glyph': ring, '--scan-ring': ring};
+}
+
 // ------------------------------------------------------------ palettes
 
 // The custom properties a theme sets, for one color scheme.
@@ -534,7 +587,7 @@ export function palette(theme, scheme) {
 	const base = BASE[scheme];
 
 	if (theme.id === DEFAULT_THEME) {
-		return defaultPalette(scheme);
+		return sorted({...defaultPalette(scheme), ...scanVars(theme, scheme)});
 	}
 
 	const panel = mix(base.surface, theme.light, scheme === 'light' ? theme.tint : Math.min(theme.tint, 0.08));
@@ -593,7 +646,7 @@ export function palette(theme, scheme) {
 		'--selected-text': vars['--on-accent'],
 	});
 
-	return sorted(vars);
+	return sorted({...vars, ...scanVars(theme, scheme)});
 }
 
 // Red text that reads on the plain surface, where destructive buttons sit.
@@ -673,6 +726,13 @@ export function textPairs(theme, scheme) {
 		['header alert', vars['--header-alert'], header, AA],
 		['avatar initial', vars['--avatar-text'], vars['--avatar-bg'], AA],
 		['destructive button', vars['--danger-text'], base.surface, AA],
+		['scan ring on the disc', vars['--scan-ring'], vars['--scan'], AA_SHAPE],
+		['scan glyph on the disc', vars['--scan-glyph'], vars['--scan'], AA_SHAPE],
+		// A white disc (Premier Ball) cannot reach 3:1 on the white bar; its
+		// ring is its edge there.
+		vars['--scan'] === WHITE && scheme === 'light'
+			? ['scan ring on the tab bar', vars['--scan-ring'], base.surface, AA_SHAPE]
+			: ['scan disc on the tab bar', vars['--scan'], base.surface, AA_SHAPE],
 	];
 
 	// The default's yellow tab mark is the pokedex's, on a tab that also

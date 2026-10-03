@@ -1018,6 +1018,28 @@ the two apps share a palette. *(Requested by Eric, 2026-10-01.)*
 - Text on every theme meets WCAG AA contrast; bright types such as Electric and Fairy switch text
   to dark automatically.
 - Destructive actions stay red in every theme, so danger never changes color.
+- The raised Scan button is a Poké Ball that follows the theme, one ball type per theme, in the
+  spirit of the different balls in the games. *(Eric, 2026-10-02; it was the app's one fixed
+  brand mark before.)* The disc keeps 3:1 on the tab bar and the ring and glyph 3:1 on the disc,
+  light and dark; the two black balls turn inside out in dark mode (band color as the disc, black
+  ring), and the white Premier Ball's red ring carries its edge on the white light-mode bar. The
+  small Poké Ball finish badge on tiles stays a red Poké Ball in every theme.
+
+  | Theme | Ball | Disc / ring |
+  | --- | --- | --- |
+  | Default | Poké Ball | red / white |
+  | Grass | Nest Ball | green / white |
+  | Fire | Repeat Ball | orange-red / yellow |
+  | Water | Dive Ball | deep blue / light blue |
+  | Lightning | Quick Ball | blue / yellow |
+  | Psychic | Master Ball | purple / pink |
+  | Fighting | Sport Ball | brown-orange / cream |
+  | Darkness | Dusk Ball | black / green (dark mode: green / black) |
+  | Metal | Heavy Ball | steel blue / grey |
+  | Dragon | Ultra Ball | black / yellow (dark mode: yellow / black) |
+  | Colorless | Premier Ball | white / red, with a red glyph |
+  | Fairy | Heal Ball | pink / white |
+
 - The theme is saved in the person's document (`settings.theme`), so it follows them across
   devices once sync exists; before sign-in it lives on the device.
 
