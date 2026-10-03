@@ -536,7 +536,6 @@ describe('when TCGdex fails, and in family view', () => {
 		assert.equal(await page.locator('.copies li').count(), 0, 'not your copy');
 		assert.equal(await page.locator('.copies .copy-row').count(), 0, 'rows open nothing');
 		assert.equal(await page.locator('.copies .copy-stepper').count(), 0, 'no stepper');
-		assert.equal(await page.locator('.copies li').textContent(), 'Portuguese · Normal', 'the language in words, read only');
 		assert.equal(await page.locator('#copy-add').count(), 0);
 		assert.equal(await page.locator('#card-wish, #card-wished').count(), 0);
 		assert.equal(await page.locator('#copy-sheet[open]').count(), 0);
