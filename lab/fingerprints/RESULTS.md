@@ -35,8 +35,11 @@ Eric's phone with real cards before removing the OCR-first route.
 
 ## What Was Built
 
-Since the scanner went fingerprint first, the app uses `fingerprint.js`, `matcher.js`, `pack.js`, and `index.bin` from
-`js/vision/`; the lab imports them from there.
+Since the scanner went fingerprint first, the app uses `fingerprint.js`, `matcher.js`, `pack.js`,
+and `index.bin` from `js/vision/`; the lab imports them from there. On 2026-10-03 the index was
+extended with the 2,146 Traditional Chinese (`zh-tw`) cards TCGdex has images for (S and SV sets;
+2,122 of them share artwork with another card, 1,458 with a Japanese one): 25,767 cards, 1,505 KB,
+1,202 KB gzipped. Simplified Chinese (`zh-cn`) has no images on TCGdex, so it is not indexed.
 
 | File | What it does |
 | --- | --- |
@@ -270,7 +273,8 @@ gap threshold on real photos.
 ```sh
 export FP_CACHE=~/.cache/pokemon-card-tracker-fingerprints   # outside the repo
 export PLAYWRIGHT=/path/to/node_modules/playwright
-node lab/fingerprints/build-index.mjs
+node lab/fingerprints/build-index.mjs --catalogs en,pt,ja,zh-tw
+node lab/fingerprints/build-index.mjs --extend zh-tw   # add a catalog to the shipped index, downloading only its images
 node lab/fingerprints/measure.mjs --bench lab/bench/dataset.json --timing --throttle 4 --out rows.json
 node lab/fingerprints/summarize.mjs rows.json --formula '128-bit art + card + colour, full-art weights'
 ```

@@ -628,7 +628,9 @@ Tesseract now loads only when a card needs text, so Scan opens without its 7 MB.
 crop is snapped to a card's 63 by 88 shape (crops that came out 0.733 to 0.740 wide for their
 height missed the read boxes), and when the box was too wide the fingerprint also tries it with
 the extra trimmed from either side. A number that names a set the catalog has not got yet (Korean
-`M6`) offers "Add by hand". **Still open:** whether TCGdex's terms allow bulk image processing for
+`M6`) offers "Add by hand". The index holds the English, Portuguese (`sm3.5`), Japanese, and
+Traditional Chinese images TCGdex has (25,767 cards, 1.2 MB gzipped); Simplified Chinese has no
+images there, so those cards match only through a print with the same art. **Still open:** whether TCGdex's terms allow bulk image processing for
 an index, which has to be confirmed before the index rebuild is scheduled.
 
 **Known hard parts:**

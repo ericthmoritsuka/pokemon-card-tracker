@@ -258,6 +258,10 @@ export async function pictureMatch(picture, read, language, {api = {setDetail: i
 	// then, with no Asian language known, the international record before a
 	// Japanese or Chinese twin (most cards scanned are Portuguese or English:
 	// session.js LEADING_LANGUAGES), then the picture's distance.
+	// A label row that read no Latin text ("non-latin") does not count as
+	// an Asian language: on the benchmark a blurred or glared Latin label
+	// read that way 27 times, and putting the Japanese twin first then cost
+	// 24 right cards of 240.
 	const asianKnown = ASIAN.includes(language);
 	const western = (c) => (asianKnown || ASIAN.includes(c.lang) ? 0 : 1);
 	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (western(b) - western(a)) || a.score - b.score);
