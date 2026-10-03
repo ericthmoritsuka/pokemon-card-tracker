@@ -1969,5 +1969,26 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.match(text, /- Edges: left, right, and bottom found; top GUESSED/);
 		assert.match(text, /- Crops tried for a weak match: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
 		assert.match(text, /- Catalog lookup: shown after 90 ms from what the phone had; full records 2400 ms/);
+
+		item.report.match = S.reportOfMatch({candidates: [], routes: ['picture']}, {fullMs: 2400, indexMs: 4, language: 'pt', ms: 90});
+		assert.match(S.reportText(item, {at: AT}), /- Catalog lookup: shown after 90 ms from what the phone had \(card index ready after 4 ms\); full records 2400 ms, behind it/);
+	});
+
+	test('the full records naming the same card keep the finishes loaded meanwhile', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const card = {id: 'me04-090', lang: 'en', localId: '090', name: 'me04-090', setId: 'me04'};
+
+		S.applyPicture(session, item.id, {candidates: [card], card, sure: true}, AT);
+		S.applyVariants(session, item.id, 'me04-090', PINSIR, AT);
+
+		const loaded = item.variants;
+
+		S.applyPicture(session, item.id, {candidates: [{...card, name: 'Ampharos'}], card: {...card, name: 'Ampharos'}, sure: true}, AT);
+		assert.equal(item.card.name, 'Ampharos');
+		assert.equal(item.variants, loaded);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {...card, id: 'me04-091', localId: '091'}, sure: true}, AT);
+		assert.equal(item.variants, null, 'another card loads its own');
 	});
 });

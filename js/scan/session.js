@@ -453,7 +453,16 @@ export function applyPicture(session, id, found, now = nowIso()) {
 	item.hand = found.hand || null;
 	item.status = 'ready';
 	item.waitingFor = null;
+
+	// The same card again (the full records after the quick answer): its
+	// finishes, loaded meanwhile, are kept.
+	const same = item.card && found.card && item.card.id === found.card.id && item.variants !== null ? {finishBy: item.finishBy, variantId: item.variantId, variants: item.variants} : null;
+
 	setCard(item, found.card || null);
+
+	if (same) {
+		Object.assign(item, same);
+	}
 
 	if (!item.languageBy && !item.language && found.card && ['ja', 'zh-tw', 'zh-cn'].includes(found.card.lang)) {
 		item.languageHint = 'non-latin';
@@ -1251,7 +1260,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 // for. fullMs: for a picture match shown at once from what the phone had,
 // how long the full records took behind it (null when not yet in, or not
 // done that way).
-export function reportOfMatch(found, {fullMs = null, language = null, ms = null} = {}) {
+export function reportOfMatch(found, {fullMs = null, indexMs = null, language = null, ms = null} = {}) {
 	return {
 		artwork: found.artwork || null,
 		candidates: (found.candidates || []).slice(0, REPORT_CANDIDATES).map((c) => ({
@@ -1269,6 +1278,7 @@ export function reportOfMatch(found, {fullMs = null, language = null, ms = null}
 		})),
 		count: (found.candidates || []).length,
 		fullMs,
+		indexMs,
 		language,
 		ms,
 		names: (found.names || []).slice(0, 3).map((n) => ({name: n.name, score: Math.round((n.score || 0) * 100) / 100})),
@@ -1400,7 +1410,9 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	const match = report.match;
 
 	if (match) {
-		lines.push(`- Catalog lookup: ${match.fullMs !== undefined && match.fullMs !== null ? `shown after ${ms(match.ms)} from what the phone had; full records ${ms(match.fullMs)}` : ms(match.ms)}; routes ${match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
+		const index = typeof match.indexMs === 'number' ? ` (card index ready after ${ms(match.indexMs)})` : '';
+
+		lines.push(`- Catalog lookup: ${match.fullMs !== undefined && match.fullMs !== null ? `shown after ${ms(match.ms)} from what the phone had${index}; full records ${ms(match.fullMs)}, behind it` : `${ms(match.ms)}${index}`}; routes ${match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
 		lines.push(`- Artwork tiebreak: ${match.candidates.some((c) => c.artwork !== null) ? 'compared the level cards' : 'not needed or not possible'}`);
 	}
 	else {

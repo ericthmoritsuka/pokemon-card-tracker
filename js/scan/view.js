@@ -20,7 +20,7 @@ import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumb
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
-import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
@@ -84,6 +84,29 @@ function rememberLanguage(code) {
 // behind it, and the card is named again when they come.
 const QUICK_MS = 120;
 
+// Resolves with `promise`, or with `fallback` after ms.
+const within = (promise, ms, fallback) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
+// The text route's catalog calls, answered only from what the phone has
+// within a moment (js/catalog.js keeps set lists and records once read):
+// no full records for HP and attacks, and no artwork tiebreak. A set list
+// out of reach counts as out of reach, so the route answers at once.
+const quickApi = {
+	...DEFAULT_API,
+	allSets: (lang) => within(DEFAULT_API.allSets(lang), QUICK_MS * 2, null).then((list) => {
+		if (!list) {
+			throw new WaitingForSignal();
+		}
+
+		return list;
+	}),
+	artworkSims: null,
+	cardDetail: async () => null,
+	setDetail: (lang, setId) => within(Promise.resolve().then(() => DEFAULT_API.setDetail(lang, setId)), QUICK_MS, null),
+	species: null,
+	speciesPrints: async () => [],
+};
+
 const PHOTO_HEIGHT = 420;
 
 // A photo from the gallery is read at most this many pixels on its longer
@@ -114,6 +137,9 @@ export function scanView(root) {
 	let sheetHandle = null;
 	let loop = null;
 	let discarded = null;
+	// The card index once read (js/catalog.js cardIndex), kept for the
+	// quick picture answer.
+	let knownIndex = null;
 	let alive = true;
 	let wakeLock = null;
 	let engineState = 'idle';
@@ -990,10 +1016,18 @@ export function scanView(root) {
 		const started = performance.now();
 		const language = item.language || item.languageHint;
 		const artwork = artworks.get(id) || null;
-		const index = await Promise.race([cardIndex().catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), QUICK_MS))]);
+		// The card index read when the scanner opened, or, while that is still
+		// being read, at most QUICK_MS of waiting for it.
+		const index = knownIndex || await within(cardIndex().catch(() => null), QUICK_MS, null);
+		const indexMs = Math.round(performance.now() - started);
 		const known = knownFrom(index);
 		const asian = lastAsianLanguage();
-		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, wait: QUICK_MS});
+		// The text route from what the phone has too (quickApi), so a card the
+		// picture could not settle (a set with no images yet, a number that
+		// names none of the five) is shown at once rather than after every
+		// set list and record has been fetched (Eric's phone, version 25: 0.6
+		// to 2 s to show, 1.8 to 6.9 s for the full records).
+		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -1005,9 +1039,11 @@ export function scanView(root) {
 		// Recognised, but none of its sets is on this phone yet, and no
 		// signal: it is named and its finishes loaded once there is signal.
 		if (!(quick.unnamed && !online())) {
-			showPicture(id, quick, {language, ms: quickMs});
+			showPicture(id, quick, {indexMs, language, ms: quickMs});
 			shown = snapshot(S.findItem(session, id));
 			maybeOpenFirst(id);
+			// The finishes load beside the full records, not after them.
+			loadVariants(id);
 		}
 
 		const full = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
@@ -1026,14 +1062,18 @@ export function scanView(root) {
 		}
 
 		if (!shown || sameAs(shown, current)) {
-			showPicture(id, full, {fullMs: shown ? fullMs : null, language, ms: shown ? quickMs : fullMs});
+			showPicture(id, full, {fullMs: shown ? fullMs : null, indexMs, language, ms: shown ? quickMs : fullMs});
 		}
 		else if (current.report && current.report.match) {
 			current.report = {...current.report, match: {...current.report.match, fullMs}};
 			persist();
 		}
 
-		await loadVariants(id);
+		const after = S.findItem(session, id);
+
+		if (after && after.card && after.variants === null) {
+			await loadVariants(id);
+		}
 
 		if (!shown) {
 			maybeOpenFirst(id);
@@ -1052,14 +1092,14 @@ export function scanView(root) {
 	// A picture answer onto the card: the match, the language a settled card
 	// starts in, the scan report, and, behind it, the print in that language
 	// and the label row read.
-	function showPicture(id, found, {fullMs = null, language, ms}) {
+	function showPicture(id, found, {fullMs = null, indexMs = null, language, ms}) {
 		const current = S.findItem(session, id);
 
 		current.confirmed = false;
 		current.timings = {...current.timings, match: ms};
 
 		if (current.report) {
-			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, language, ms})};
+			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, indexMs, language, ms})};
 		}
 
 		change(() => {
@@ -1596,7 +1636,9 @@ export function scanView(root) {
 		startEngine();
 		// The card index, read once, so a picture match can name a card from
 		// it at once.
-		cardIndex().catch(() => {});
+		cardIndex().then((index) => {
+			knownIndex = index;
+		}).catch(() => {});
 
 		if (online()) {
 			warmNameRoute();
