@@ -46,25 +46,35 @@ function textFirst() {
 
 // The language last picked in Scan (by a tap on a card's sheet, or Set for
 // all), which a card the picture settled starts in (session.js
-// defaultLanguage). Portuguese before any pick: most cards scanned here are
-// Portuguese (session.js LEADING_LANGUAGES).
+// defaultLanguage). Two are kept: the last Western pick (Portuguese before
+// any: most cards scanned here are Portuguese, session.js
+// LEADING_LANGUAGES) and the last Asian one (Korean before any: most of the
+// owner's Asian cards are Korean), for a card whose label row read no Latin
+// text. A Western pick never starts such a card (Eric's phone, version 25:
+// a Chinese Eevee started in Portuguese).
 const LANGUAGE_KEY = 'card-tracker:scan-language';
+const ASIAN_LANGUAGE_KEY = 'card-tracker:scan-language-asian';
 
-function lastLanguage() {
+function stored(key, fallback, fits) {
 	try {
-		return localStorage.getItem(LANGUAGE_KEY) || 'pt';
+		const value = localStorage.getItem(key);
+
+		return value && fits(value) ? value : fallback;
 	}
 	catch {
-		return 'pt';
+		return fallback;
 	}
 }
 
+const lastLanguage = () => stored(LANGUAGE_KEY, 'pt', (code) => !S.ASIAN_LANGUAGES.includes(code));
+const lastAsianLanguage = () => stored(ASIAN_LANGUAGE_KEY, 'ko', (code) => S.ASIAN_LANGUAGES.includes(code));
+
 function rememberLanguage(code) {
 	try {
-		localStorage.setItem(LANGUAGE_KEY, code);
+		localStorage.setItem(S.ASIAN_LANGUAGES.includes(code) ? ASIAN_LANGUAGE_KEY : LANGUAGE_KEY, code);
 	}
 	catch {
-		// Not kept; the next card starts in Portuguese.
+		// Not kept; the next card starts in Portuguese, or Korean.
 	}
 }
 
@@ -979,7 +989,8 @@ export function scanView(root) {
 		const artwork = artworks.get(id) || null;
 		const index = await Promise.race([cardIndex().catch(() => null), new Promise((resolve) => setTimeout(() => resolve(null), QUICK_MS))]);
 		const known = knownFrom(index);
-		const quick = await pictureMatch(item.picture, item.read, language, {known, wait: QUICK_MS});
+		const asian = lastAsianLanguage();
+		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -996,7 +1007,7 @@ export function scanView(root) {
 			maybeOpenFirst(id);
 		}
 
-		const full = await pictureMatch(item.picture, item.read, language, {known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+		const full = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -1052,7 +1063,7 @@ export function scanView(root) {
 			S.applyPicture(session, id, found);
 
 			if (found.card) {
-				S.defaultLanguage(session, id, lastLanguage());
+				S.defaultLanguage(session, id, lastLanguage(), undefined, {asian: lastAsianLanguage()});
 			}
 		});
 
@@ -1114,7 +1125,7 @@ export function scanView(root) {
 				return;
 			}
 
-			const changed = change(() => S.applyLabel(session, id, label));
+			const changed = change(() => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage()}));
 
 			if (changed) {
 				if (S.needsRematch(S.findItem(session, id))) {

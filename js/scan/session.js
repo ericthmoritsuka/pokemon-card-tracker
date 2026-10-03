@@ -549,31 +549,74 @@ export function chooseCard(session, id, candidate, now = nowIso()) {
 }
 
 // The language a card the picture settled starts in, when nothing set one:
-// `code` (the person's last pick), as languageBy 'default'. Only for a card
-// whose catalog holds that language's prints (a Japanese record keeps its
-// hint instead). Returns whether it was set.
-export function defaultLanguage(session, id, code, now = nowIso()) {
+// `code` (the person's last Western pick), as languageBy 'default'. Only for
+// a card whose catalog holds that language's prints.
+//
+// A card whose label row read no Latin text, or whose record is Japanese or
+// Chinese (languageHint 'non-latin'), never starts in a Western pick: it
+// starts in `asian`, the last Asian language picked (Korean before any
+// pick: most of the owner's Asian cards are Korean), when its record can
+// hold that print (a Korean copy is saved against the Japanese record). On
+// Eric's phone (version 25) a Chinese Eevee whose label read nothing
+// started in Portuguese. Returns whether it was set.
+export function defaultLanguage(session, id, code, now = nowIso(), {asian = null} = {}) {
 	const item = mustFind(session, id);
 
-	if (item.languageBy || item.language || !item.card || !isScanLanguage(code) || !catalogFits(code, item.card.catalog)) {
+	if (item.languageBy || item.language || !item.card) {
 		return false;
 	}
 
-	item.language = code;
+	const noLatin = item.languageHint === 'non-latin';
+
+	if (noLatin && asian) {
+		item.asianGuess = asian;
+	}
+
+	const pick = noLatin ? asian : code;
+
+	if (!isScanLanguage(pick) || !catalogFits(pick, item.card.catalog)) {
+		touch(session, now);
+
+		return false;
+	}
+
+	item.language = pick;
 	item.languageBy = 'default';
 	touch(session, now);
 
 	return true;
 }
 
+// Whether a label read found no Latin text at all.
+const noLatinText = (label) => Boolean(label) && (!label.code || label.code === 'non-latin');
+
 // The label row, read in the background for a card whose language was a
 // default: {code, confidence}. A clear read (LANGUAGE_SURE) of a language
 // whose prints the card's catalog holds replaces the default, or confirms
-// it; anything else leaves it. Returns true when the language changed.
-export function applyLabel(session, id, label, now = nowIso()) {
+// it; a weaker one leaves it. A read that found no Latin text at all takes
+// a Western default back (it was the last pick, and nothing on the card
+// says so): the card then starts in `asian` (the last Asian pick) when the
+// picture's candidates hold a print that language is saved against, and
+// otherwise in nothing, with the Asian chips first. Returns true when the
+// language changed (the caller looks the card up again when its record
+// cannot hold the new language: needsRematch).
+export function applyLabel(session, id, label, now = nowIso(), {asian = null} = {}) {
 	const item = mustFind(session, id);
 
 	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || ''} : null;
+
+	if (item.languageBy === 'default' && noLatinText(label) && !ASIAN_LANGUAGES.includes(item.language)) {
+		const guess = asian || 'ko';
+		const printed = (item.candidates || []).some((c) => c && c.lang && catalogFits(guess, catalogFor(c.lang)));
+
+		item.languageHint = 'non-latin';
+		item.asianGuess = guess;
+		item.language = printed ? guess : null;
+		item.languageBy = printed ? 'default' : null;
+		touch(session, now);
+
+		return true;
+	}
 
 	if (item.languageBy !== 'default' || !label || !label.code || label.code === 'non-latin' || (label.confidence || 0) < LANGUAGE_SURE || !isScanLanguage(label.code) || !item.card || !catalogFits(label.code, item.card.catalog)) {
 		touch(session, now);
@@ -1066,17 +1109,21 @@ export function takeUndo(session, now = nowIso()) {
 }
 
 // The languages a tile's chips offer, in the order to show them: Portuguese
-// and English always first (the owner collects in Brazil, so those are most
-// of the cards he holds; Q-21 in plans/audit-qa.md), then the read's guess
-// when it is neither (Japanese, Korean, and Chinese for a card that read no
-// Latin label), then the rest in the fixed order. An order, never a
-// preselection.
+// and English first (the owner collects in Brazil, so those are most of the
+// cards he holds; Q-21 in plans/audit-qa.md), then the read's guess when it
+// is neither, then the rest in the fixed order. A card whose label row read
+// no Latin text ('non-latin') leads with the Asian languages instead: the
+// last Asian one picked (item.asianGuess), then Japanese, Korean, and
+// Chinese (Traditional, Simplified). An order, never a preselection.
 export const LEADING_LANGUAGES = ['pt', 'en'];
+
+const ASIAN_CHIPS = ['ja', 'ko', 'zh-tw', 'zh-cn'];
 
 export function languageChoices(item) {
 	const hint = item.languageHint;
-	const guessed = hint === 'non-latin' ? ASIAN_LANGUAGES : isScanLanguage(hint) ? [hint] : [];
-	const order = [...LEADING_LANGUAGES, ...guessed, ...SCAN_LANGUAGES];
+	const order = hint === 'non-latin'
+		? [...(ASIAN_LANGUAGES.includes(item.asianGuess) ? [item.asianGuess] : []), ...ASIAN_CHIPS, ...LEADING_LANGUAGES, ...SCAN_LANGUAGES]
+		: [...LEADING_LANGUAGES, ...(isScanLanguage(hint) ? [hint] : []), ...SCAN_LANGUAGES];
 
 	return order.filter((code, index) => order.indexOf(code) === index);
 }
@@ -1251,6 +1298,35 @@ const ms = (value) => (typeof value === 'number' ? `${value} ms` : 'not timed');
 const pct = (value) => (typeof value === 'number' ? `${Math.round(value <= 1 ? value * 100 : value)} %` : '?');
 const oneLine = (text) => String(text || '').replace(/\s*\n\s*/g, ' | ').trim();
 
+// Where the card's language came from, in words, for the scan report. A
+// default says whether the label row was read (Skrelp on Eric's phone,
+// version 25, read pt at 36 % and the report said no text was read).
+export function languageSource(item) {
+	const check = item.labelCheck;
+	const ocr = Boolean(item.report && item.report.ocr);
+
+	if (item.languageBy === 'default') {
+		const asian = ASIAN_LANGUAGES.includes(item.language);
+		const pick = asian ? 'your last Asian pick in Scan' : 'your last pick in Scan';
+
+		if (check && check.code && check.code !== 'non-latin') {
+			return `${pick}; the label row read ${check.code} at ${Math.round((check.confidence || 0) * 100)} %, ${check.code === item.language ? 'which agrees' : 'too faint to change it'}`;
+		}
+
+		if (check || item.languageHint === 'non-latin') {
+			return `${pick}; no Latin label was read, so a Japanese, Korean, or Chinese print is suspected`;
+		}
+
+		return `${pick} (${ocr ? 'the label row named no language' : 'no text was read'})`;
+	}
+
+	if (!item.language && item.languageHint === 'non-latin') {
+		return 'no Latin label was read; pick it';
+	}
+
+	return {all: 'set for all', hand: 'picked by you', read: 'read from the card'}[item.languageBy] || 'not set';
+}
+
 // The report as text. device: {userAgent, cores, memory, screen, camera,
 // online, version}; at: when it was made (ISO time).
 export function reportText(item, {at = nowIso(), device = {}} = {}) {
@@ -1388,7 +1464,7 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	lines.push(`- ${item && item.sure ? 'Sure match' : `Not sure${item && item.why ? `: ${item.why}` : ''}`}`);
 
 	if (item) {
-		const by = {all: 'set for all', default: 'your last pick in Scan (no text was read)', hand: 'picked by you', read: 'read from the card'}[item.languageBy] || 'not set';
+		const by = languageSource(item);
 
 		lines.push(`- Language: ${item.language || 'none'} (${by})${item.card && item.card.print ? `; showing the ${item.card.print} print` : ''}`);
 

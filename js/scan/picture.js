@@ -317,13 +317,22 @@ function languageFits(candidate, language) {
 // names none of its cards, so a card the index cannot have (a set with no
 // images yet) is still found by its number.
 //
+// asian: the last Asian language picked, for a card whose label row read
+// no Latin text (language 'non-latin'): the group's print in that language
+// comes first (a Korean copy is the Japanese record's), the text route
+// searches it first, and the add-by-hand prefill starts in it. It orders
+// only; it never makes a card sure.
+//
 // wait: how long to wait for each set's record (default: a few seconds
 // offline, longer online); known: what the phone knows with no request
 // (knownFrom). The scanner first asks with a short wait, to show the card
 // at once from what is on the phone, then again in full behind it
 // (js/scan/view.js pictureItemNow).
-export async function pictureMatch(picture, read, language, {api = {setDetail: importApi.setDetail}, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
+export async function pictureMatch(picture, read, said, {api = {setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
 	const started = now();
+	// The language read or picked (`said`), or for a card with no Latin label
+	// the last Asian pick, to order by.
+	const language = said === 'non-latin' && ASIAN.includes(asian) ? asian : said;
 	const verdict = pictureVerdict(picture);
 	const number = read && read.number && read.number.number ? read.number : null;
 	const groups = (picture && picture.groups) || [];
@@ -376,7 +385,7 @@ export async function pictureMatch(picture, read, language, {api = {setDetail: i
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
 			// Past SURE_DISTANCE only the number read makes it sure.
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(language && language !== 'non-latin'))});
+			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(said && said !== 'non-latin'))});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

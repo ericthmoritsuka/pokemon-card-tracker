@@ -111,7 +111,7 @@ describe('the tray state machine', () => {
 		S.applyRead(session, 'b', read('3', '131', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		assert.equal(second.language, null);
 		assert.equal(second.languageHint, 'non-latin');
-		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw'], 'Portuguese and English, then the Asian languages');
+		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['ja', 'ko', 'zh-tw', 'zh-cn', 'pt', 'en'], 'no Latin label: the Asian languages first (Eric, version 25)');
 
 		const third = S.addCapture(session, {at: AT, id: 'c'});
 
@@ -128,14 +128,16 @@ describe('the tray state machine', () => {
 		assert.equal(S.blocker(third), null);
 	});
 
-	test('the language chips lead with Portuguese and English, then the guess, each once', () => {
-		const order = (languageHint) => S.languageChoices({languageHint});
+	test('the language chips lead with Portuguese and English, then the guess, each once; Asian first with no Latin label', () => {
+		const order = (languageHint, asianGuess) => S.languageChoices({asianGuess, languageHint});
 
 		for (const hint of [null, 'pt', 'en', 'unknown']) {
 			assert.deepEqual(order(hint).slice(0, 4), ['pt', 'en', 'ja', 'ko'], `hint ${hint}`);
 		}
 
-		assert.deepEqual(order('non-latin').slice(0, 4), ['pt', 'en', 'ja', 'ko'], 'the first four chips: no More needed for Portuguese or English');
+		assert.deepEqual(order('non-latin').slice(0, 4), ['ja', 'ko', 'zh-tw', 'zh-cn'], 'no Latin label read: Japanese, Korean, and Chinese first');
+		assert.deepEqual(order('non-latin', 'ko').slice(0, 4), ['ko', 'ja', 'zh-tw', 'zh-cn'], 'the last Asian pick leads');
+		assert.deepEqual(order('non-latin', 'zh-tw').slice(0, 4), ['zh-tw', 'ja', 'ko', 'zh-cn']);
 		assert.deepEqual(order('ko').slice(0, 4), ['pt', 'en', 'ko', 'ja']);
 		assert.deepEqual(order('de').slice(0, 3), ['pt', 'en', 'de']);
 
@@ -1403,6 +1405,24 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		assert.deepEqual(unsure.candidates.map((c) => c.id), ['sv01-089', 'sv02-010', 'me04-001']);
 	});
 
+	test('no Latin label: the last Asian pick orders the group and the text route, but makes nothing sure (version 25)', async () => {
+		const picture = {gap: 36.4, groups: [{cards: [card('sv06-135', 'en', 'sv06', 35.3), card('SV5a-050', 'ja', 'SV5a', 35.5)], score: 35.3}, {cards: [card('sv01-089', 'en', 'sv01', 71.7)], score: 71.7}]};
+		const found = await pictureMatch(picture, null, 'non-latin', {api, asian: 'ko'});
+
+		assert.equal(found.card.id, 'SV5a-050', 'the Japanese record holds a Korean copy');
+		assert.equal(found.sure, false);
+
+		const asked = [];
+		const korean = await pictureMatch({gap: 1, groups: [{cards: [card('sv01-089', 'en', 'sv01', 70)], score: 70}]}, number('047', '076'), 'non-latin', {api, asian: 'ko', textRoute: async (read, lang) => {
+			asked.push(lang);
+
+			return {candidates: []};
+		}});
+
+		assert.deepEqual(asked, ['ko']);
+		assert.equal(korean.hand.language, 'ko', 'Korean 047/076 (set M6) starts in Korean');
+	});
+
 	test('a number that names a set the catalog has not got yet offers Add by hand', async () => {
 		const picture = {gap: 1, groups: [{cards: [card('sv01-089', 'en', 'sv01', 70)], score: 70}, {cards: [card('sv02-010', 'en', 'sv02', 71)], score: 71}]};
 		const read = number('047', '076');
@@ -1807,6 +1827,63 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 		S.applyPicture(session, item.id, {candidates: [], card: {id: 'M4-001', lang: 'ja', localId: '001', name: 'Weedle JA', setId: 'M4'}, sure: true}, AT);
 		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT), false);
 		assert.equal(item.language, null);
+	});
+
+	test('no Latin label read: never the Western last pick, but the last Asian one when its record can hold it (Chinese Eevee, version 25)', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const en = {id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyRead(session, item.id, read('50', '66', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, item.id, {candidates: [ja, en], card: ja, sure: false}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'}), true, 'Korean copies are saved against the Japanese record');
+		assert.equal(item.language, 'ko');
+		assert.equal(item.languageBy, 'default');
+		assert.match(S.reportText(item, {at: AT}), /Language: ko \(your last Asian pick in Scan; no Latin label was read/);
+
+		const western = S.addCapture(session, AT);
+
+		S.applyRead(session, western.id, read('135', '167', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, western.id, {candidates: [en], card: en, sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), false, 'an international record cannot hold a Korean copy, and Portuguese is not applied');
+		assert.equal(western.language, null);
+		assert.equal(S.languageChoices(western)[0], 'ko');
+	});
+
+	test('a background label read with no Latin text takes a Western default back', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const en = {id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyPicture(session, item.id, {candidates: [en, ja], card: en, sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0, text: ''}, AT, {asian: 'ko'}), true);
+		assert.equal(item.language, 'ko', 'the picture group holds a Japanese print');
+		assert.equal(item.languageHint, 'non-latin');
+		assert.ok(S.needsRematch(item), 'looked up again, so the Japanese print is shown');
+
+		const lone = S.addCapture(session, AT);
+
+		S.applyPicture(session, lone.id, {candidates: [en], card: en, sure: true}, AT);
+		S.defaultLanguage(session, lone.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), true);
+		assert.equal(lone.language, null, 'no print to hold it: asked');
+		assert.equal(S.blocker(lone), 'language');
+	});
+
+	test('the report says the label was read when it was (Skrelp, version 25)', () => {
+		const {item, session} = settled();
+
+		S.defaultLanguage(session, item.id, 'pt', AT);
+		S.applyLabel(session, item.id, {code: 'pt', confidence: 0.36, ms: 300, text: 'Fraqueza'}, AT);
+
+		const text = S.reportText(item, {at: AT});
+
+		assert.match(text, /Language: pt \(your last pick in Scan; the label row read pt at 36 %, which agrees\)/);
+		assert.doesNotMatch(text, /no text was read/);
 	});
 
 	test('the Portuguese print\'s name and picture are shown, and the English ones come back', async () => {
