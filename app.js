@@ -31,6 +31,7 @@ import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
 import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
 import {BASE, go, pushRoute, showError} from './js/dom.js';
+import {COLLECTIONS_ACCOUNT_VIEWS, COLLECTIONS_ROUTES} from './js/collections-view.js';
 import {goalAccountViews, goalRoutes} from './js/goals-view.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
@@ -67,12 +68,13 @@ const ROUTES = [
 	...goalRoutes,
 	...binderRoutes,
 	...WISHLIST_ROUTES,
+	...COLLECTIONS_ROUTES,
 	...tradeRoutes,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...goalAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...goalAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 
