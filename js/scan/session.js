@@ -8,16 +8,27 @@
 // Each item is one physical card held up to the camera:
 //   {id, captured_at, status, waitingFor, read, candidates, partial, card,
 //    variants, variantId, finishBy, language, languageBy, languageHint,
-//    condition, conditionBy, confirmed, sure, why, timings}
+//    condition, conditionBy, confirmed, sure, why, timings, labelCheck}
+//
+// languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
+// 'default' (the last language picked, for a card the picture settled), or
+// null. labelCheck: the label row read in the background for a default
+// language, {code, confidence, ms, text}. card.print and card.own: the
+// language whose print's name and picture are shown, and the catalog's own
+// ones to go back to.
 //
 // status:  reading   the photo is being read
 //          matching  the read is being looked up in the catalog
 //          ready     a card is chosen (or none was found: card null)
 //          waiting   OCR or the catalog is out of reach; resolves online
 //
-// Nothing here remembers a choice from one card for the next: language comes
-// from that card's read (or a tap), the finish starts on the card's plain
-// print, and the condition starts unset.
+// Nothing here remembers a choice from one card for the next, with one
+// exception the view makes: a card the picture settled with no text read
+// starts in the language last picked in Scan (Portuguese before any pick;
+// languageBy 'default', Eric, 2026-10-03), and its label row, read in the
+// background, can correct it. Otherwise language comes from that card's
+// read (or a tap), the finish starts on the card's plain print, and the
+// condition starts unset.
 //
 // The functions change the session in place and return what the caller
 // needs to know.
@@ -532,6 +543,77 @@ export function chooseCard(session, id, candidate, now = nowIso()) {
 	item.confirmed = true;
 	item.status = 'ready';
 	item.waitingFor = null;
+	touch(session, now);
+
+	return item;
+}
+
+// The language a card the picture settled starts in, when nothing set one:
+// `code` (the person's last pick), as languageBy 'default'. Only for a card
+// whose catalog holds that language's prints (a Japanese record keeps its
+// hint instead). Returns whether it was set.
+export function defaultLanguage(session, id, code, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	if (item.languageBy || item.language || !item.card || !isScanLanguage(code) || !catalogFits(code, item.card.catalog)) {
+		return false;
+	}
+
+	item.language = code;
+	item.languageBy = 'default';
+	touch(session, now);
+
+	return true;
+}
+
+// The label row, read in the background for a card whose language was a
+// default: {code, confidence}. A clear read (LANGUAGE_SURE) of a language
+// whose prints the card's catalog holds replaces the default, or confirms
+// it; anything else leaves it. Returns true when the language changed.
+export function applyLabel(session, id, label, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || ''} : null;
+
+	if (item.languageBy !== 'default' || !label || !label.code || label.code === 'non-latin' || (label.confidence || 0) < LANGUAGE_SURE || !isScanLanguage(label.code) || !item.card || !catalogFits(label.code, item.card.catalog)) {
+		touch(session, now);
+
+		return false;
+	}
+
+	const changed = item.language !== label.code;
+
+	item.language = label.code;
+	item.languageBy = 'read';
+	touch(session, now);
+
+	return changed;
+}
+
+// The card's name, picture, and set name in its language's print (`local`:
+// {lang, name, image, setName} from that language's set record), or back to
+// the catalog's own when local is null. The English ones are kept to come
+// back to. cardId guards against a card changed meanwhile.
+export function localisePrint(session, id, cardId, local, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	if (!item.card || item.card.id !== cardId) {
+		return item;
+	}
+
+	const own = item.card.own || {image: item.card.image, name: item.card.name, setName: item.card.setName};
+
+	if (local) {
+		item.card = {...item.card, image: local.image || own.image, name: local.name, own, print: local.lang, setName: local.setName || own.setName};
+	}
+	else if (item.card.own) {
+		const card = {...item.card, image: own.image, name: own.name, setName: own.setName};
+
+		delete card.own;
+		delete card.print;
+		item.card = card;
+	}
+
 	touch(session, now);
 
 	return item;
@@ -1119,8 +1201,10 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 
 // What the lookup left for the report: found is js/scan/match.js
 // findCandidates's answer, ms how long it took, language what was searched
-// for.
-export function reportOfMatch(found, {language = null, ms = null} = {}) {
+// for. fullMs: for a picture match shown at once from what the phone had,
+// how long the full records took behind it (null when not yet in, or not
+// done that way).
+export function reportOfMatch(found, {fullMs = null, language = null, ms = null} = {}) {
 	return {
 		artwork: found.artwork || null,
 		candidates: (found.candidates || []).slice(0, REPORT_CANDIDATES).map((c) => ({
@@ -1137,6 +1221,7 @@ export function reportOfMatch(found, {language = null, ms = null} = {}) {
 			setName: c.setName || c.setId || null,
 		})),
 		count: (found.candidates || []).length,
+		fullMs,
 		language,
 		ms,
 		names: (found.names || []).slice(0, 3).map((n) => ({name: n.name, score: Math.round((n.score || 0) * 100) / 100})),
@@ -1236,7 +1321,7 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	const match = report.match;
 
 	if (match) {
-		lines.push(`- Catalog lookup: ${ms(match.ms)}; routes ${match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
+		lines.push(`- Catalog lookup: ${match.fullMs !== undefined && match.fullMs !== null ? `shown after ${ms(match.ms)} from what the phone had; full records ${ms(match.fullMs)}` : ms(match.ms)}; routes ${match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
 		lines.push(`- Artwork tiebreak: ${match.candidates.some((c) => c.artwork !== null) ? 'compared the level cards' : 'not needed or not possible'}`);
 	}
 	else {
@@ -1298,6 +1383,16 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	}
 
 	lines.push(`- ${item && item.sure ? 'Sure match' : `Not sure${item && item.why ? `: ${item.why}` : ''}`}`);
+
+	if (item) {
+		const by = {all: 'set for all', default: 'your last pick in Scan (no text was read)', hand: 'picked by you', read: 'read from the card'}[item.languageBy] || 'not set';
+
+		lines.push(`- Language: ${item.language || 'none'} (${by})${item.card && item.card.print ? `; showing the ${item.card.print} print` : ''}`);
+
+		if (item.labelCheck) {
+			lines.push(`- Label row read in the background: ${item.labelCheck.code ? `${item.labelCheck.code} (${pct(item.labelCheck.confidence)})` : 'no language'}${item.labelCheck.ms !== null ? `, ${ms(item.labelCheck.ms)}` : ''}${item.labelCheck.text ? `: "${oneLine(item.labelCheck.text)}"` : ''}`);
+		}
+	}
 
 	return lines.join('\n');
 }

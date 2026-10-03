@@ -228,6 +228,20 @@ export function identify(image, {photo = false, straight = false, readOptions = 
 	return run;
 }
 
+// The label row alone (read.js readLabel) of a straightened card, for the
+// language of a card the picture settled with no text read. Starts the
+// engine if it is not running; runs outside the one-card-at-a-time queue
+// (a few small reads that share the pool's workers), so the next capture is
+// never held up by it. Returns {code, confidence, text, ms}.
+export async function readLanguageLabel(card) {
+	const engine = await warmEngine();
+	const started = performance.now();
+	const {readLabel} = await import('./read.js');
+	const label = await readLabel(card, engine.ocr);
+
+	return {...label, ms: Math.round(performance.now() - started)};
+}
+
 // read.js, imported with the engine: it is only needed when text is read.
 async function readCard(card, ocr, options) {
 	const {readCard: read} = await import('./read.js');

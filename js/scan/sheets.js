@@ -326,7 +326,9 @@ export function confirmSheet(ctx, itemId) {
 				? 'picked by you'
 				: item.languageBy === 'all'
 					? 'set for all'
-					: 'not sure, pick one';
+					: item.languageBy === 'default'
+						? 'your last pick'
+						: 'not sure, pick one';
 
 		return h('fieldset', {class: 'scan-field', id: 'scan-language'},
 			h('legend', null, 'Printed in ', h('span', {class: 'scan-source', id: 'scan-language-source'}, source)),

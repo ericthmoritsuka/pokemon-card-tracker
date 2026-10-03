@@ -11,7 +11,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {pictureMatch, pictureVerdict} from '../js/scan/picture.js';
+import {knownFrom, localPrint, pictureMatch, pictureVerdict} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
@@ -1677,5 +1677,134 @@ describe('auto-capture with a card held by hand (Eric, 2026-10-03)', () => {
 		}
 
 		assert.equal(fired, 1);
+	});
+});
+
+describe('the language of a card the picture settled (Eric, 2026-10-03)', () => {
+	const settled = () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {id: 'me04-090', image: 'https://img/en/me04-090', lang: 'en', localId: '090', name: 'Ampharos', official: 86, setId: 'me04', setName: 'Chaos Rising'}, sure: true}, AT);
+
+		return {item, session};
+	};
+
+	test('starts in the last language picked, and a label read clearly naming another corrects it', () => {
+		const {item, session} = settled();
+
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT), true);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+		assert.notEqual(S.blocker(item), 'language', 'a language is set, so it does not hold the save');
+
+		assert.equal(S.applyLabel(session, item.id, {code: 'en', confidence: 0.3}, AT), false, 'a weak read leaves it');
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: 'en', confidence: 0.67, ms: 240, text: 'Weakness Resistance'}, AT), true);
+		assert.equal(item.language, 'en');
+		assert.equal(item.languageBy, 'read');
+		assert.match(S.reportText(item, {at: AT}), /Label row read in the background: en \(67 %\), 240 ms/);
+	});
+
+	test('a label that agrees confirms it; a language picked by hand is never changed', () => {
+		const {item, session} = settled();
+
+		S.defaultLanguage(session, item.id, 'pt', AT);
+		assert.equal(S.applyLabel(session, item.id, {code: 'pt', confidence: 1}, AT), false);
+		assert.equal(item.languageBy, 'read');
+
+		const other = settled();
+
+		S.setLanguage(other.session, other.item.id, 'fr', 'hand', AT);
+		assert.equal(S.defaultLanguage(other.session, other.item.id, 'pt', AT), false);
+		assert.equal(S.applyLabel(other.session, other.item.id, {code: 'en', confidence: 1}, AT), false);
+		assert.equal(other.item.language, 'fr');
+	});
+
+	test('a Japanese record keeps its hint rather than the last Western pick', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [], card: {id: 'M4-001', lang: 'ja', localId: '001', name: 'Weedle JA', setId: 'M4'}, sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT), false);
+		assert.equal(item.language, null);
+	});
+
+	test('the Portuguese print\'s name and picture are shown, and the English ones come back', async () => {
+		const {item, session} = settled();
+		const api = {setDetail: async (lang, set) => (lang === 'pt' && set === 'me04' ? {cards: [{id: 'me04-090', image: 'https://img/pt/me04-090', localId: '090', name: 'Ampharos PT'}], name: 'Caos Crescente'} : null)};
+		const local = await localPrint(item.card, 'pt', {api});
+
+		assert.deepEqual(local, {image: 'https://img/pt/me04-090', lang: 'pt', name: 'Ampharos PT', setName: 'Caos Crescente'});
+		assert.equal(await localPrint(item.card, 'en', {api}), null);
+		assert.equal(await localPrint(item.card, 'fr', {api}), null, 'no French record');
+
+		S.localisePrint(session, item.id, 'me04-090', local, AT);
+		assert.equal(item.card.name, 'Ampharos PT');
+		assert.equal(item.card.setName, 'Caos Crescente');
+		assert.equal(item.card.id, 'me04-090', 'still saved against the same record');
+		assert.equal(item.card.catalog, 'international');
+
+		S.localisePrint(session, item.id, 'me04-090', null, AT);
+		assert.equal(item.card.name, 'Ampharos');
+		assert.equal(item.card.image, 'https://img/en/me04-090');
+		assert.equal(item.card.own, undefined);
+	});
+});
+
+describe('a picture match shown at once from what the phone has (Eric, 2026-10-03)', () => {
+	const card = (id, score) => ({catalog: 'en', id, image: `https://assets/${id}`, score, set: id.split('-')[0]});
+	const picture = {gap: 30, groups: [{cards: [card('me04-058', 29)], score: 29}, {cards: [card('sv01-001', 59)], score: 59}]};
+
+	test('a set record that is slow to come is not waited for: the card index names the card', async () => {
+		const slow = {setDetail: () => new Promise((resolve) => setTimeout(() => resolve({cardCount: {official: 86}, cards: [{id: 'me04-058', localId: '058', name: 'Slowking'}], name: 'Chaos Rising'}), 400))};
+		const index = new Map([['international|me04-058', {catalog: 'international', id: 'me04-058', localizations: {en: {image: 'https://img/me04-058', lang: 'en', name: 'Slowking', set_name: 'Chaos Rising'}}, official: 86}]]);
+		const started = Date.now();
+		const quick = await pictureMatch(picture, null, 'pt', {api: slow, known: knownFrom(index), wait: 50});
+
+		assert.ok(Date.now() - started < 300, `${Date.now() - started} ms`);
+		assert.equal(quick.card.name, 'Slowking');
+		assert.equal(quick.card.setName, 'Chaos Rising');
+		assert.equal(quick.card.official, 86);
+		assert.equal(quick.sure, true);
+		assert.equal(quick.unnamed, false);
+
+		// Not in the card index either: named by its id for now, with the
+		// index's own picture.
+		const bare = await pictureMatch(picture, null, 'pt', {api: slow, known: knownFrom(new Map()), wait: 50});
+
+		assert.equal(bare.card.id, 'me04-058');
+		assert.equal(bare.card.image, 'https://assets/me04-058');
+		assert.equal(bare.unnamed, true);
+	});
+});
+
+describe('the scan report says where the guide was and what was guessed (Eric, 2026-10-03)', () => {
+	test('guide and capture geometry, a guessed edge, the moved crops tried, and the lookup in two steps', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const result = {
+			angle: 1.3,
+			card: {height: 1400, width: 1002},
+			found: true,
+			guessed: 'top',
+			note: 'Card edges found; top edge worked out from the width.',
+			ocr: false,
+			picture: {before: 68.4, gap: 21.5, groups: [{cards: [{id: 'me04-023'}], score: 31.2}, {cards: [{id: 'sv01-001'}], score: 52.7}], how: 'moved up 3 %', variants: ['moved up 6 %', 'moved up 3 %', 'moved down 3 %']},
+			ratio: 0.716,
+			read: null,
+			timings: {fingerprint: 30, match: 40, rectify: 80, total: 160},
+		};
+
+		item.report = S.reportOfRead(result, {captureMs: 25, frame: '2106 x 2942', geometry: {capture: '2106 x 2942 at 27, 449', frame: '2160 x 3840', guide: '1755 x 2452 at 202, 694', how: 'auto', screen: '312 x 436 at 36, 14', stage: '384 x 464'}});
+		item.report.match = S.reportOfMatch({candidates: [], routes: ['picture']}, {fullMs: 2400, language: 'pt', ms: 90});
+
+		const text = S.reportText(item, {at: AT});
+
+		assert.match(text, /- Capture: 25 ms \(taken automatically\)/);
+		assert.match(text, /- Guide: 312 x 436 at 36, 14 on a 384 x 464 screen area; in the 2160 x 3840 frame, guide 1755 x 2452 at 202, 694, captured 2106 x 2942 at 27, 449/);
+		assert.match(text, /- Edges: left, right, and bottom found; top GUESSED/);
+		assert.match(text, /- Crops tried for the guessed edge: moved up 6 %, moved up 3 %, moved down 3 %; moved up 3 % won \(the crop as found was 68.4 away\)/);
+		assert.match(text, /- Catalog lookup: shown after 90 ms from what the phone had; full records 2400 ms/);
 	});
 });
