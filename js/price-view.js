@@ -612,9 +612,9 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 		}
 
 		parts.push(h('p', {class: 'price-stats-counts'},
-			h('span', {class: 'price-count-liga'}, `${plural(stats.liga.count, 'card', 'cards')} by Liga`),
-			h('span', {class: 'price-count-estimate'}, `${plural(stats.estimate.count, 'card', 'cards')} by US estimate (~)`),
-			h('span', {class: 'price-count-unknown'}, `${plural(stats.unknown.count, 'card', 'cards')} unknown`)
+			h('span', {class: 'price-count-liga'}, `${plural(stats.liga.count, 'copy', 'copies')} by Liga`),
+			h('span', {class: 'price-count-estimate'}, `${plural(stats.estimate.count, 'copy', 'copies')} by US estimate (~)`),
+			h('span', {class: 'price-count-unknown'}, `${plural(stats.unknown.count, 'copy', 'copies')} unknown`)
 		));
 
 		const notes = [];
@@ -628,7 +628,7 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 		}
 
 		if (stats.unknown.noRate) {
-			notes.push(notes.length ? ' ' : '', `${plural(stats.unknown.noRate, 'card has', 'cards have')} a US price but no exchange rate is saved on this phone yet.`);
+			notes.push(notes.length ? ' ' : '', `${plural(stats.unknown.noRate, 'copy has', 'copies have')} a US price but no exchange rate is saved on this phone yet.`);
 		}
 
 		if (notes.length) {

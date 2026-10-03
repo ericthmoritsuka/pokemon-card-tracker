@@ -294,8 +294,8 @@ describe('price section', () => {
 		await page.waitForFunction(() => !/~/.test(document.querySelector('#harness-tile').textContent));
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: R$ 52,30');
 		assert.equal(await text(page.locator('.price-stats-total')), 'R$ 104,60');
-		assert.equal(await text(page.locator('.price-count-liga')), '2 cards by Liga');
-		assert.equal(await text(page.locator('.price-count-estimate')), '0 cards by US estimate (~)');
+		assert.equal(await text(page.locator('.price-count-liga')), '2 copies by Liga');
+		assert.equal(await text(page.locator('.price-count-estimate')), '0 copies by US estimate (~)');
 
 		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-manual-saved.png`});
 
@@ -330,7 +330,7 @@ describe('price section', () => {
 		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 1,56 estimate');
 		assert.equal(await text(section.locator('.price-rate')), 'At R$ 5,21 per US$ 1, rate of 2026-09-28, the last rate saved on this phone.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,56US');
-		assert.equal(await text(page.locator('.price-count-estimate')), '1 card by US estimate (~)');
+		assert.equal(await text(page.locator('.price-count-estimate')), '1 copy by US estimate (~)');
 		assert.ok(device.seen.frankfurter.length >= 1, 'it tried for a fresh rate');
 
 		await finish(device, 'offline');
@@ -366,8 +366,8 @@ describe('price section', () => {
 		assert.equal(await text(section.locator('.price-eu-rate')), 'No euro exchange rate is saved on this phone yet, so the reais value is not shown.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: no price');
 		assert.equal(await text(page.locator('.price-stats-none')), 'No prices known for this card yet.');
-		assert.equal(await text(page.locator('.price-count-unknown')), '1 card unknown');
-		assert.match(await text(page.locator('.price-stats-notes')), /1 card has a US price but no exchange rate is saved/);
+		assert.equal(await text(page.locator('.price-count-unknown')), '1 copy unknown');
+		assert.match(await text(page.locator('.price-stats-notes')), /1 copy has a US price but no exchange rate is saved/);
 
 		await finish(device, 'norate');
 	});
@@ -470,9 +470,9 @@ describe('statistics bar', () => {
 		assert.equal(await text(bar.locator('.price-stats-average')), '~R$ 1.652,99');
 		assert.equal(await text(bar.locator('.price-stats-highest')), 'Highest ~R$ 4.899,94, Charizard');
 		assert.equal(await text(bar.locator('.price-stats-lowest')), 'Lowest ~R$ 6,74, Exeggcute');
-		assert.equal(await text(bar.locator('.price-count-liga')), '1 card by Liga');
-		assert.equal(await text(bar.locator('.price-count-estimate')), '2 cards by US estimate (~)');
-		assert.equal(await text(bar.locator('.price-count-unknown')), '2 cards unknown');
+		assert.equal(await text(bar.locator('.price-count-liga')), '1 copy by Liga');
+		assert.equal(await text(bar.locator('.price-count-estimate')), '2 copies by US estimate (~)');
+		assert.equal(await text(bar.locator('.price-count-unknown')), '2 copies unknown');
 		assert.equal(await text(bar.locator('.price-stats-notes')), 'R$ 4.906,68 of the total is estimated from the US market at the rate of 2026-10-01. Unknown prices are left out of the total and the average, not counted as zero.');
 
 		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-stats.png`});
