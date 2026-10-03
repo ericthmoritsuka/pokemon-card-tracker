@@ -275,6 +275,10 @@ export function confirmSheet(ctx, itemId) {
 			}
 		}, type: 'button'}, 'Search'));
 
+		if (item.report) {
+			buttons.push(h('button', {class: 'scan-button', id: 'scan-report-open', onclick: () => ctx.openReport(itemId), type: 'button'}, 'Scan report'));
+		}
+
 		return [head, h('div', {class: 'scan-card-lines'}, ...lines), h('div', {class: 'scan-row'}, ...buttons)];
 	}
 
@@ -436,7 +440,79 @@ export function confirmSheet(ctx, itemId) {
 			conditionBlock(item),
 			ownedLines(item),
 			actions(item),
+			// With the report switched on, it shows here after every scan.
+			item.report && ctx.reportOn ? reportPanel(ctx, itemId, {inline: true}) : null,
 		].filter(Boolean));
+	}
+
+	refresh();
+
+	return {el, itemId, refresh};
+}
+
+// ------------------------------------------------------------ the scan report
+
+// Copies text to the clipboard: the Clipboard API, or a selected text area
+// where it is missing or refused (an older WebView, no permission).
+async function copyText(text, area) {
+	try {
+		await navigator.clipboard.writeText(text);
+
+		return true;
+	}
+	catch {
+		area.focus();
+		area.select();
+
+		try {
+			return document.execCommand('copy');
+		}
+		catch {
+			return false;
+		}
+	}
+}
+
+// The report as a text box (selectable by hand too) with Copy and the
+// switch that shows it after every scan. inline: inside the confirm sheet,
+// headed by its own title.
+function reportPanel(ctx, itemId, {inline = false} = {}) {
+	const text = ctx.reportText(itemId);
+	const area = h('textarea', {'aria-label': 'Scan report', class: 'scan-report-text', id: inline ? 'scan-report-inline' : 'scan-report-text', readonly: true, rows: inline ? 12 : 20, spellcheck: 'false'});
+	const status = h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-report-status'});
+	const always = h('input', {checked: ctx.reportOn, id: 'scan-report-always', onchange: () => ctx.setReportOn(always.checked), type: 'checkbox'});
+
+	area.value = text;
+
+	return h('section', {class: 'scan-report', id: inline ? 'scan-report-panel' : 'scan-report-body'},
+		inline ? h('h3', {class: 'scan-label'}, 'Scan report') : null,
+		area,
+		h('div', {class: 'scan-row'},
+			h('button', {class: 'scan-button scan-primary', id: 'scan-report-copy', onclick: async () => {
+				status.textContent = (await copyText(area.value, area)) ? 'Copied. Paste it into a message.' : 'Copying did not work here; select the text and copy it.';
+			}, type: 'button'}, 'Copy report')),
+		status,
+		h('label', {class: 'scan-check', for: 'scan-report-always'}, always, ' Show the report after every scan'),
+		h('p', {class: 'scan-muted'}, 'Text only, no photos: the phone, each step\'s time, what each read got, and the cards considered.'));
+}
+
+export function reportSheet(ctx, itemId) {
+	const titleId = 'scan-report-title';
+	const body = h('div', {class: 'scan-sheet-body'});
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-report-sheet', id: 'scan-report', role: 'dialog'},
+		sheetHeader('Scan report', () => ctx.closeSheet(), titleId),
+		body);
+
+	function refresh() {
+		if (!findItem(ctx.session, itemId)) {
+			ctx.closeSheet();
+
+			return;
+		}
+
+		body.replaceChildren(
+			reportPanel(ctx, itemId),
+			h('button', {class: 'scan-button scan-wide', id: 'scan-report-back', onclick: () => ctx.openItem(itemId), type: 'button'}, 'Back to the card'));
 	}
 
 	refresh();

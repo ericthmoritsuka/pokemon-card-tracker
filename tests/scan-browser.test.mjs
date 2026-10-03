@@ -19,12 +19,13 @@
 
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {rm} from 'node:fs/promises';
+import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
+import {join} from 'node:path';
 import {after, before, describe, test} from 'node:test';
 
 import {FakeSupabase} from './fake-supabase.mjs';
-import {cardVideo, fakeCameraArgs, routeTcgdex, startScanHarness} from './scan-harness.mjs';
+import {cardImage, cardVideo, fakeCameraArgs, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -587,6 +588,85 @@ describe('scanner', () => {
 
 		assert.deepEqual(saved.map((entry) => [entry.card_id, entry.language, entry.language_source, entry.variant_id]), [[PIKACHU, 'pt', 'scan', NORMAL]]);
 		await context.browser().close();
+		assert.deepEqual(errors.map(String), []);
+	});
+
+	test('a photo picked from the gallery is read like a capture, and its scan report copies as text', async () => {
+		const browser = await chromium.launch();
+		const context = await browser.newContext({viewport: VIEWPORT});
+
+		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
+		await routeTcgdex(context);
+
+		const page = await context.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err));
+
+		// The photo: Bulbasaur's TCGdex scan on a table, turned 8 degrees,
+		// as a JPEG, the way a phone's gallery holds one.
+		const webp = (await readFile(await cardImage(BULBASAUR))).toString('base64');
+		const jpeg = await page.evaluate(async (data) => {
+			const img = new Image();
+
+			img.src = `data:image/webp;base64,${data}`;
+			await img.decode();
+
+			const canvas = document.createElement('canvas');
+
+			canvas.width = Math.round(img.naturalWidth * 1.3);
+			canvas.height = Math.round(img.naturalHeight * 1.3);
+
+			const ctx = canvas.getContext('2d');
+
+			ctx.fillStyle = '#6b5442';
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			ctx.translate(canvas.width / 2, canvas.height / 2);
+			ctx.rotate((8 * Math.PI) / 180);
+			ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+
+			return canvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+		}, webp);
+		const photo = join(PROFILES, `photo-${randomUUID()}.jpg`);
+
+		await mkdir(PROFILES, {recursive: true});
+		await writeFile(photo, Buffer.from(jpeg, 'base64'));
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		assert.equal(await text(page, '#scan-photo-instead'), 'Pick a photo', 'offered with the camera off too');
+		await page.setInputFiles('#scan-photo-input', photo);
+
+		// Its sheet opens once it is looked up, like a first capture.
+		await page.waitForSelector('#scan-confirm #scan-card-name', {timeout: 60000});
+		assert.equal(await text(page, '#scan-card-name'), 'Bulbasaur');
+
+		await page.click('#scan-report-open');
+		await page.waitForSelector('#scan-report-text');
+
+		const report = await page.inputValue('#scan-report-text');
+
+		for (const expected of ['Card Tracker scan report', 'Browser: ', 'Source: a photo picked from the gallery', 'card edges found', 'Name strip: ', 'Number, bottom left: ', 'Catalog lookup: ', 'Script: Latin script.', 'Candidates (', `(${BULBASAUR}, en)`]) {
+			assert.ok(report.includes(expected), `the report has "${expected}":\n${report}`);
+		}
+
+		assert.match(report, /- Number: 001\/132 \(\d+ %, left side\)/);
+		assert.doesNotMatch(report, /data:image/, 'text only');
+
+		await context.grantPermissions(['clipboard-read', 'clipboard-write'], {origin: harness.origin});
+		await page.click('#scan-report-copy');
+		await until(async () => /Copied|select the text/.test(await text(page, '#scan-report-status')), 5000, 'the copy');
+
+		// Switched on, the report shows in the card's sheet itself, and the
+		// switch is remembered.
+		await page.check('#scan-report-always');
+		await page.click('#scan-report-back');
+		await page.waitForSelector('#scan-confirm #scan-report-inline');
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-report')), 'on');
+		await page.screenshot({path: `${SHOTS}/scan-report.png`});
+
+		await browser.close();
+		await rm(photo, {force: true});
 		assert.deepEqual(errors.map(String), []);
 	});
 

@@ -13,7 +13,7 @@ import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -109,13 +109,13 @@ describe('the tray state machine', () => {
 		S.applyRead(session, 'b', read('3', '131', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		assert.equal(second.language, null);
 		assert.equal(second.languageHint, 'non-latin');
-		assert.deepEqual(S.languageChoices(second).slice(0, 4), ['ja', 'ko', 'zh-cn', 'zh-tw']);
+		assert.deepEqual(S.languageChoices(second).slice(0, 6), ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw'], 'Portuguese and English, then the Asian languages');
 
 		const third = S.addCapture(session, {at: AT, id: 'c'});
 
 		S.applyRead(session, 'c', read('3', '131', {code: 'fr', confidence: 0.22, source: 'label'}), AT);
 		assert.equal(third.language, null, 'one label read is not enough');
-		assert.equal(S.languageChoices(third)[0], 'fr', 'the guess goes first');
+		assert.deepEqual(S.languageChoices(third).slice(0, 3), ['pt', 'en', 'fr'], 'the guess comes after Portuguese and English');
 
 		S.applyMatch(session, 'c', {candidates: [candidate('sv08.5-003')]}, AT);
 		S.applyVariants(session, 'c', 'sv08.5-003', PINSIR, AT);
@@ -124,6 +124,22 @@ describe('the tray state machine', () => {
 
 		S.setLanguage(session, 'c', 'fr', 'hand', AT);
 		assert.equal(S.blocker(third), null);
+	});
+
+	test('the language chips lead with Portuguese and English, then the guess, each once', () => {
+		const order = (languageHint) => S.languageChoices({languageHint});
+
+		for (const hint of [null, 'pt', 'en', 'unknown']) {
+			assert.deepEqual(order(hint).slice(0, 4), ['pt', 'en', 'ja', 'ko'], `hint ${hint}`);
+		}
+
+		assert.deepEqual(order('non-latin').slice(0, 4), ['pt', 'en', 'ja', 'ko'], 'the first four chips: no More needed for Portuguese or English');
+		assert.deepEqual(order('ko').slice(0, 4), ['pt', 'en', 'ko', 'ja']);
+		assert.deepEqual(order('de').slice(0, 3), ['pt', 'en', 'de']);
+
+		for (const hint of [null, 'non-latin', 'fr', 'zh-tw']) {
+			assert.deepEqual([...order(hint)].sort(), [...S.SCAN_LANGUAGES].sort(), `every language once for ${hint}`);
+		}
 	});
 
 	test('a card whose photo was lost mid-read asks for a new scan or a search', () => {
@@ -401,6 +417,99 @@ describe('Done and Undo', () => {
 	});
 });
 
+describe('the scan report', () => {
+	// What js/scan/identify.js answers for a full-art Portuguese card whose
+	// name sat on busy art: the number (a secret rare, past the set total)
+	// read, the name did not.
+	const result = (fields = {}) => ({
+		angle: 12.4,
+		card: {height: 1400, width: 1002},
+		found: true,
+		note: 'Card edges found, at a slant.',
+		read: {
+			attackText: '',
+			copyrightYear: 2026,
+			hp: null,
+			label: {code: 'pt', confidence: 0.67},
+			language: {code: 'pt', confidence: 0.67, source: 'label'},
+			name: {confidence: 0.2, suffix: null, text: 'Rmpharas'},
+			number: {confidence: 0.91, number: '107', numberPrinted: '107', side: 'left', total: '86', totalPrinted: '086'},
+			partial: {number: null, total: null},
+			raw: {
+				hp: {confidence: 0, lines: [{text: '', words: []}], text: ''},
+				label: {confidence: 0, lines: [{text: 'fraqueza resistencia', words: [{confidence: 80, text: 'fraqueza'}, {confidence: 70, text: 'resistencia'}]}], text: 'fraqueza resistencia'},
+				name: {confidence: 0, lines: [{text: 'Rmpharas', words: [{confidence: 31, text: 'Rmpharas'}]}], text: 'Rmpharas\n~~ ee'},
+				numberLeft: {confidence: 0, lines: [{text: 'MEG PT 107/086', words: [{confidence: 92, text: '107/086'}]}], text: 'MEG PT 107/086'},
+				numberRight: {confidence: 0, lines: [], text: ''},
+			},
+			setCodeBox: {langCode: 'PT', run: 'MEG', setCode: 'MEG', text: 'MEG PT'},
+			timings: {hp: 410, label: 380, name: 620, numberLeft: 540, numberRight: 300, ocr: 1450},
+			wizards: false,
+			...fields,
+		},
+		timings: {artwork: 12, ocr: 1450, rectify: 96, total: 1580, workers: 2},
+	});
+	const device = {cores: 8, memory: 4, online: true, screen: '412 x 915 at 2.6x', userAgent: 'Mozilla/5.0 (Linux; Android 14) Chrome/129'};
+	const found = {
+		candidates: Array.from({length: 6}, (_, i) => candidate(`me04-${107 + i}`, {agree: i ? ['total'] : ['number', 'total'], confidence: i ? 0.3 : 0.8, name: i ? 'Other' : 'Ampharos', official: '86', reasons: ['number and total', 'pt catalog'], score: 9 - i, setName: 'Chaos Rising'})),
+		names: [{dex: 181, name: 'Ampharos', score: 0.62}],
+		partial: false,
+		routes: ['number', 'name'],
+		searched: ['pt', 'en'],
+		setName: null,
+	};
+
+	test('says what each read got, how long each step took, and which cards were weighed, in text', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, {at: AT, id: 'a'});
+
+		item.report = S.reportOfRead(result(), {captureMs: 35, frame: '1041 x 1453', source: 'camera'});
+		S.applyRead(session, 'a', result().read, AT);
+		S.applyMatch(session, 'a', found, AT);
+		item.report = {...item.report, match: S.reportOfMatch(found, {language: 'pt', ms: 210})};
+
+		const text = S.reportText(item, {at: AT, device});
+
+		assert.ok(JSON.stringify(item.report).length < 6000, 'small enough to keep with the draft');
+		assert.doesNotMatch(text, /data:image|base64/, 'no images');
+
+		for (const expected of [
+			'Browser: Mozilla/5.0 (Linux; Android 14) Chrome/129',
+			'CPU cores: 8; memory: 4 GB',
+			'Capture: 35 ms',
+			'Edges and straightening: 96 ms; card edges found, turned 12.4 degrees, card 1002x1400 px. Card edges found, at a slant.',
+			'Name strip: 620 ms, confidence 31: "Rmpharas | ~~ ee"',
+			'Number, bottom left: 540 ms, confidence 92: "MEG PT 107/086"',
+			'Weakness row (language): 380 ms, confidence 75: "fraqueza resistencia"',
+			'Artwork fingerprint: 12 ms',
+			'Catalog lookup: 210 ms; routes number, name; searched for pt',
+			'Number: 107/086 (91 %, left side); past the set total: a secret rare',
+			'Set code box: "MEG PT", set MEG, language PT',
+			'Script: Latin script. Language guess: pt',
+			'Species the name matched: Ampharos (0.62)',
+			'Candidates (6 found, first 5 shown)',
+			'1. Ampharos, 107/86, Chaos Rising (me04-107, en): score 9, confidence 80 %',
+			'why: number and total; pt catalog; agrees: number, total',
+		]) {
+			assert.ok(text.includes(expected), `has "${expected}" in:\n${text}`);
+		}
+
+		assert.doesNotMatch(text, /^6\. /m, 'five candidates at most');
+	});
+
+	test('a card with no Latin weakness row says Japanese or Korean text is suspected', () => {
+		const item = S.addCapture(S.newSession(AT, 's1'), {at: AT, id: 'a'});
+
+		item.report = S.reportOfRead(result({language: {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}, number: null}));
+
+		const text = S.reportText(item, {at: AT, device});
+
+		assert.match(text, /Script: No Latin weakness row was read: Japanese, Korean, or Chinese text is suspected/);
+		assert.match(text, /Number: unreadable/);
+		assert.match(text, /Catalog lookup: not done yet/);
+	});
+});
+
 describe('wishlist marks', () => {
 	const family = [
 		{name: 'Member A', user_id: 'u-ana', wishlist: [newWish('sv08.5-003', {language: 'pt'}, AT, 'w1')]},
@@ -579,6 +688,69 @@ describe('auto-capture', () => {
 		}
 
 		assert.equal(presence(narrow, W, H).present, false);
+	});
+
+	// cardFrame turned by `degrees` about the thumbnail's centre, slightly
+	// smaller so the turned card still mostly fits.
+	function turnedFrame(degrees, size = 0.9) {
+		const flat = cardFrame();
+		const grey = new Uint8Array(W * H).fill(90);
+		const radians = (degrees * Math.PI) / 180;
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const dx = (x - W / 2) / size;
+				const dy = (y - H / 2) / size;
+				const sx = Math.round(W / 2 + dx * Math.cos(radians) + dy * Math.sin(radians));
+				const sy = Math.round(H / 2 - dx * Math.sin(radians) + dy * Math.cos(radians));
+
+				if (sx >= 0 && sx < W && sy >= 0 && sy < H) {
+					grey[y * W + x] = flat[sy * W + sx];
+				}
+			}
+		}
+
+		return grey;
+	}
+
+	test('sees a card turned up to about 20 degrees in the hand, either way (Q-16)', () => {
+		for (const degrees of [-20, -12, -6, 6, 12, 20]) {
+			const seen = presence(turnedFrame(degrees), W, H);
+
+			assert.equal(seen.present, true, `turned ${degrees} degrees`);
+		}
+
+		assert.equal(presence(cardFrame(), W, H).turn, 0, 'a straight card is judged as it is');
+	});
+
+	test('regular stripes and a frame with no colour are not a card', () => {
+		for (const period of [8, 10, 14, 20]) {
+			const stripes = new Uint8Array(W * H).map((_, i) => (Math.floor((i % W) / (period / 2)) % 2 ? 235 : 25));
+			const seen = presence(stripes, W, H);
+
+			assert.equal(seen.present, false, `stripes ${period} px apart`);
+			assert.equal(seen.reason, 'stripes');
+		}
+
+		assert.equal(presence(cardFrame(), W, H, {colour: 12}).present, true, 'a card with colour in its art');
+		assert.equal(presence(cardFrame(), W, H, {colour: 0.4}).reason, 'colourless', 'the same shapes with no colour: paper');
+	});
+
+	test('colourfulness: artwork has colour, paper and a tint do not', () => {
+		const rgba = (fn) => {
+			const out = new Uint8ClampedArray(W * H * 4);
+
+			for (let i = 0; i < W * H; i++) {
+				out.set([...fn(i % W, Math.floor(i / W)), 255], i * 4);
+			}
+
+			return out;
+		};
+		const paper = rgba((x, y) => (y % 6 < 1 && x > 10 && x < 50 ? [40, 40, 40] : [245, 232, 205]));
+		const art = rgba((x, y) => [(x * 37) % 255, (y * 53) % 255, ((x + y) * 29) % 255]);
+
+		assert.ok(colourfulness(paper, W, H) < COLOURLESS, `paper ${colourfulness(paper, W, H)}`);
+		assert.ok(colourfulness(art, W, H) > COLOURLESS * 3, `art ${colourfulness(art, W, H)}`);
 	});
 
 	test('the shutter counts as the capture, so the same still card is not taken again on its own', () => {
@@ -849,6 +1021,63 @@ describe('the name route', () => {
 		assert.equal(S.readLine(S.summariseRead({name: null, number: null})), 'Name: unreadable, number: unreadable');
 		assert.equal(S.searchPrefill({names: [{dex: 25, name: 'Pikachu', score: 0.8}], read}), 'Pikachu');
 		assert.equal(S.searchPrefill({names: [], read}), 'Pikac');
+	});
+});
+
+describe('a card turned in the hand (Q-16)', () => {
+	const W = 520;
+	const H = 726;
+
+	// A capture with a card as wide as the guide (the capture keeps a 6 %
+	// margin) turned `degrees` clockwise about the centre, over a table, so
+	// at 12 degrees and more its corners run out of the capture: a light
+	// border, a busy art box, and text lines on a lighter text box.
+	function turnedCapture(degrees) {
+		const cw = W / 1.12;
+		const ch = cw * 88 / 63;
+		const radians = (degrees * Math.PI) / 180;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const dx = x - W / 2;
+				const dy = y - H / 2;
+				const u = (dx * Math.cos(radians) + dy * Math.sin(radians)) / cw + 0.5;
+				const v = (-dx * Math.sin(radians) + dy * Math.cos(radians)) / ch + 0.5;
+				let value = 70;
+
+				if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+					if (u < 0.04 || u > 0.96 || v < 0.03 || v > 0.97) {
+						value = 215;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.48) {
+						value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
+					}
+					else if (u > 0.1 && u < 0.8 && v > 0.55 && v < 0.85 && Math.floor(v * 100) % 5 === 0) {
+						value = 45;
+					}
+					else {
+						value = 180;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {cw, image: {data, height: H, width: W}};
+	}
+
+	test('turned up to 20 degrees either way, the card is found and stood straight at its own size', () => {
+		for (const degrees of [-20, -12, -5, 0, 5, 12, 20]) {
+			const {cw, image} = turnedCapture(degrees);
+			const straight = rectify(image);
+
+			assert.ok(straight.found, `${degrees} degrees: ${straight.note}`);
+			assert.ok(Math.abs(straight.angle - degrees) <= 1.5, `${degrees} degrees read as ${straight.angle}`);
+			assert.ok(Math.abs(straight.card.width - cw) <= cw * 0.06, `${degrees} degrees: ${straight.card.width} px wide, not ${Math.round(cw)}`);
+			assert.ok(Math.abs(straight.card.height / straight.card.width - 88 / 63) <= 0.08, `${degrees} degrees: card-shaped`);
+		}
 	});
 });
 

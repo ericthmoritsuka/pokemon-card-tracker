@@ -210,6 +210,16 @@ html.scan-open body {
 	white-space: nowrap;
 }
 
+.scan-tray-actions {
+	display: flex;
+	flex: 0 0 auto;
+	gap: 4px;
+}
+
+.scan-photo-input[hidden] {
+	display: none;
+}
+
 .scan-text-button[hidden] {
 	display: none;
 }
@@ -946,4 +956,39 @@ html.scan-open body {
 			opacity: 0;
 		}
 	}
+}
+
+/* ------------------------------------------------------------ the scan report */
+
+.scan-report {
+	display: grid;
+	gap: 8px;
+}
+
+.scan-report-text {
+	background: var(--scan-surface-2);
+	border: 1px solid var(--scan-border);
+	border-radius: 12px;
+	box-sizing: border-box;
+	color: var(--scan-text);
+	font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+	font-size: 12px;
+	line-height: 1.4;
+	padding: 8px;
+	resize: vertical;
+	white-space: pre-wrap;
+	width: 100%;
+}
+
+.scan-check {
+	align-items: center;
+	color: var(--scan-text);
+	display: flex;
+	gap: 8px;
+	min-height: 48px;
+}
+
+.scan-check input {
+	height: 22px;
+	width: 22px;
 }

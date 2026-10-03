@@ -123,16 +123,30 @@ function findEdges(work) {
 // card on a laptop do not. `slack`: how far off the line, either way, the
 // step may be (a card turned a little leaves its edge a few pixels off a
 // line straight across, towards its ends).
-function continuity({grey, height, width}, index, from, to, vertical = false, slack = 1) {
+//
+// On a copy turned to undo the tilt (rotateGrey), the corners of the copy
+// came from outside the capture, and a card turned in the hand often runs
+// out of the capture there. Only the part of the line inside the capture is
+// judged; `unseen` is what a line mostly outside it scores (0: cannot count
+// as an edge; 1: a corner that cannot be checked is not held against the
+// card).
+function continuity({grey, height, outside = null, width}, index, from, to, vertical = false, slack = 1, unseen = 0) {
 	const length = vertical ? height : width;
 	const d = 2;
 	let on = 0;
+	let seen = 0;
 
 	if (index - d - 1 < 0 || index + d + 1 >= length) {
 		return 0;
 	}
 
 	for (let j = from; j < to; j++) {
+		if (outside && outside[vertical ? index * width + j : j * width + index]) {
+			continue;
+		}
+
+		seen++;
+
 		let best = 0;
 
 		for (let k = -slack; k <= slack; k++) {
@@ -153,7 +167,11 @@ function continuity({grey, height, width}, index, from, to, vertical = false, sl
 		}
 	}
 
-	return on / Math.max(1, to - from);
+	if (seen < (to - from) / 3) {
+		return unseen;
+	}
+
+	return on / Math.max(1, seen);
 }
 
 // The local peaks of out[start..end) at least `share` of its strongest, the
@@ -313,7 +331,36 @@ function edgeLine({grey, height, width}, index, vertical, reach) {
 }
 
 // The share of t0..t1 a line runs along, its samples being 2 pixels apart.
-const coverage = (line, t0, t1) => line.ts.filter((t) => t >= t0 && t <= t1).length / Math.max(1, (t1 - t0) / 2);
+// On a copy turned straight (rotateGrey), only the stretch inside the
+// capture counts: a card turned in the hand runs out of the capture at its
+// corners, and the part of its edge out there cannot be seen. A stretch
+// mostly out of it scores `unseen` (0: a side cannot count as found
+// there; 1: a corner that cannot be seen is not held against the box).
+function coverage(line, t0, t1, unseen = 0) {
+	const on = line.ts.filter((t) => t >= t0 && t <= t1).length;
+	const work = line.work;
+
+	if (!work || !work.outside) {
+		return on / Math.max(1, (t1 - t0) / 2);
+	}
+
+	let all = 0;
+	let seen = 0;
+
+	for (let t = Math.ceil(t0); t <= t1; t += 2) {
+		const at = Math.round(line.p + line.q * t);
+		const x = line.vertical ? t : at;
+		const y = line.vertical ? at : t;
+
+		all++;
+
+		if (x >= 0 && y >= 0 && x < work.width && y < work.height && !work.outside[y * work.width + x]) {
+			seen++;
+		}
+	}
+
+	return seen < all / 3 ? unseen : Math.min(1, on / Math.max(1, seen));
+}
 
 // How well a box's bottom corners are made, 0 to 1: at each, both lines
 // that meet there must run along the stretch next to it (5 to 15 % of the
@@ -330,7 +377,7 @@ function cornerSupport({bottom, left, right}, yTop, yBottom, w) {
 		const x = side.p + side.q * yBottom;
 		const along = inward > 0 ? [x + w * 0.05, x + w * 0.15] : [x - w * 0.15, x - w * 0.05];
 
-		return Math.min(coverage(side, yBottom - h * 0.15, yBottom - h * 0.05), coverage(bottom, ...along));
+		return Math.min(coverage(side, yBottom - h * 0.15, yBottom - h * 0.05, 1), coverage(bottom, ...along, 1));
 	};
 
 	return Math.min(corner(left, 1), corner(right, -1));
@@ -360,7 +407,7 @@ function findQuad(work) {
 			const line = edgeLine(work, index, vertical, Math.round((vertical ? height : width) * 0.03));
 
 			if (line && !out.some((other) => Math.abs(other.p - line.p) < 3 && Math.abs(other.q - line.q) < 0.02)) {
-				out.push(line);
+				out.push({...line, vertical, work});
 			}
 		}
 
@@ -490,44 +537,118 @@ function plausible(work, edges) {
 		&& continuity(work, edges.left, span[0], span[1]) >= 0.5
 		&& continuity(work, edges.right, span[0], span[1]) >= 0.5
 		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.1), Math.round(edges.right - w * 0.1), true) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.05), Math.round(edges.left + w * 0.15), true, slack) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.right - w * 0.15), Math.round(edges.right - w * 0.05), true, slack) >= 0.5;
+		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.05), Math.round(edges.left + w * 0.15), true, slack, 1) >= 0.5
+		&& continuity(work, edges.bottom, Math.round(edges.right - w * 0.15), Math.round(edges.right - w * 0.05), true, slack, 1) >= 0.5;
 }
 
-// The card's tilt in degrees, from where its left and right edges sit in the
-// upper and the lower part of the image. Positive means turned clockwise.
-function measureTilt(work) {
-	const {height, width} = work;
-	const upper = [Math.round(height * 0.15), Math.round(height * 0.45)];
-	const lower = [Math.round(height * 0.55), Math.round(height * 0.85)];
-	const rise = (lower[0] + lower[1] - upper[0] - upper[1]) / 2;
-	const angles = [];
+// The most a card held by hand is taken to be turned in the plane, either
+// way, in degrees. A card turned further is read as it is.
+export const TILT_MAX = 22;
 
-	for (const [start, end, fromEnd] of [[0, Math.round(width * 0.25), false], [Math.round(width * 0.75), width, true]]) {
-		const top = outerEdge(profile(work, upper[0], upper[1]), start, end, fromEnd);
-		const bottom = outerEdge(profile(work, lower[0], lower[1]), start, end, fromEnd);
+// The card's tilt in degrees (positive: turned clockwise), as the angle at
+// which the image's strong edges line up best. Every edge on a card runs
+// parallel to one of its sides (its border, the art box, the text lines),
+// so the pixels where the brightness steps sharply, projected across lines
+// at the right angle, pile up in a few narrow bins; at a wrong angle they
+// spread out. The angle whose bins are most piled up (the largest sum of
+// squared counts) wins: every second degree up to TILT_MAX either way, then
+// half degrees and tenths around the best. Near-vertical steps are projected along lines
+// leaning by the angle, near-horizontal ones along lines rising by it.
+//
+// It replaces the lab's reading of the tilt from where the left and right
+// edges sit high and low in the frame, which smeared out past about 5
+// degrees (a turned edge spreads over many columns) and gave 0, so a card
+// held at a 12 degree slant was read crooked (Q-16 in plans/audit-qa.md). A
+// card seen at a slant from below or above (wider at the top) leans its two
+// sides opposite ways and keeps its rows level, so it comes out near 0, and
+// findQuad takes the lean.
+function measureTilt({grey, height, width}) {
+	const step = 2;
+	const across = [];
+	const down = [];
 
-		if (top !== null && bottom !== null) {
-			angles.push((Math.atan2(top - bottom, rise) * 180) / Math.PI);
+	for (let y = step; y < height - step; y += step) {
+		for (let x = step; x < width - step; x += step) {
+			const gx = Math.abs(grey[y * width + x + step] - grey[y * width + x - step]);
+			const gy = Math.abs(grey[(y + step) * width + x] - grey[(y - step) * width + x]);
+
+			// A step across the row is part of a near-vertical edge, a step
+			// down the column of a near-horizontal one; corners and diagonal
+			// strokes, neither.
+			if (gx >= 40 && gx > gy * 2) {
+				across.push(x, y);
+			}
+			else if (gy >= 40 && gy > gx * 2) {
+				down.push(x, y);
+			}
 		}
 	}
 
-	if (!angles.length) {
+	if (across.length + down.length < 200) {
 		return 0;
 	}
 
-	// Two edges that disagree by more than a degree are not both the card's.
-	if (angles.length === 2 && Math.abs(angles[0] - angles[1]) > 1) {
-		return 0;
+	// Bins two pixels wide, each half with room for any line at up to
+	// TILT_MAX.
+	const size = width + height + 8;
+	const bins = new Int32Array(size * 2);
+	const offset = Math.ceil((width + height) / 2) + 4;
+	const score = (degrees) => {
+		const t = Math.tan((degrees * Math.PI) / 180);
+		let sum = 0;
+
+		bins.fill(0);
+
+		// A vertical edge turned clockwise runs to the left as it goes down:
+		// x + t y is the same all along it. A horizontal one runs down as it
+		// goes right: y - t x is.
+		for (let i = 0; i < across.length; i += 2) {
+			bins[Math.round((across[i] + t * across[i + 1]) / 2) + offset]++;
+		}
+
+		for (let i = 0; i < down.length; i += 2) {
+			bins[size + Math.round((down[i + 1] - t * down[i]) / 2) + offset]++;
+		}
+
+		for (let i = 0; i < bins.length; i++) {
+			sum += bins[i] * bins[i];
+		}
+
+		return sum;
+	};
+	let best = 0;
+	let bestScore = score(0);
+
+	// Every second degree, then half degrees, then tenths around the best.
+	for (const [spread, by] of [[TILT_MAX, 2], [1.5, 0.5], [0.4, 0.1]]) {
+		const around = best;
+
+		for (let k = -Math.round(spread / by); k <= Math.round(spread / by); k++) {
+			const degrees = Math.round((around + k * by) * 10) / 10;
+
+			if (Math.abs(degrees) > TILT_MAX || degrees === around) {
+				continue;
+			}
+
+			const value = score(degrees);
+
+			if (value > bestScore) {
+				best = degrees;
+				bestScore = value;
+			}
+		}
 	}
 
-	return angles.reduce((a, b) => a + b, 0) / angles.length;
+	return best;
 }
 
-// Turns a grey detection copy by `degrees`, like rotate below.
+// Turns a grey detection copy by `degrees` about its centre, like warpCrop.
+// `outside` marks the pixels that came from beyond the copy's edges (more
+// than a pixel out), which continuity leaves out.
 function rotateGrey(work, degrees) {
 	const {grey, height, width} = work;
 	const out = new Float32Array(width * height);
+	const outside = new Uint8Array(width * height);
 	const radians = (-degrees * Math.PI) / 180;
 	const cos = Math.cos(radians);
 	const sin = Math.sin(radians);
@@ -538,14 +659,33 @@ function rotateGrey(work, degrees) {
 		for (let x = 0; x < width; x++) {
 			const dx = x - cx;
 			const dy = y - cy;
-			const sx = Math.min(width - 1, Math.max(0, Math.round(cx + dx * cos - dy * sin)));
-			const sy = Math.min(height - 1, Math.max(0, Math.round(cy + dx * sin + dy * cos)));
+			const fx = Math.round(cx + dx * cos - dy * sin);
+			const fy = Math.round(cy + dx * sin + dy * cos);
+			const sx = Math.min(width - 1, Math.max(0, fx));
+			const sy = Math.min(height - 1, Math.max(0, fy));
 
 			out[y * width + x] = grey[sy * width + sx];
+
+			if (Math.abs(fx - sx) > 1 || Math.abs(fy - sy) > 1) {
+				outside[y * width + x] = 1;
+			}
 		}
 	}
 
-	return {grey: out, height, width};
+	return {grey: out, height, outside, width};
+}
+
+// Where a point of a copy turned by rotateGrey(copy, -degrees) lies on the
+// copy as it was.
+function unturn({x, y}, degrees, {height, width}) {
+	const radians = (degrees * Math.PI) / 180;
+	const dx = x - width / 2;
+	const dy = y - height / 2;
+
+	return {
+		x: width / 2 + dx * Math.cos(radians) - dy * Math.sin(radians),
+		y: height / 2 + dx * Math.sin(radians) + dy * Math.cos(radians),
+	};
 }
 
 // Cuts `rect` (in the coordinates of `img` turned by `degrees` about its
@@ -609,7 +749,8 @@ export function cropImage(img, {h, w, x, y}) {
 // `note`).
 export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	const scale = Math.min(1, WORK_HEIGHT / img.height);
-	let work = greyCopy(img, scale);
+	const level = greyCopy(img, scale);
+	let work = level;
 	let angle = measureTilt(work);
 
 	if (Math.abs(angle) >= 0.3) {
@@ -623,20 +764,29 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 
 	// The lab's outermost edges, kept when they make a card whose sides run
 	// straight; otherwise the best card-shaped four-sided box, which may
-	// lean (a photo of a card on a screen, taken at a slant).
+	// lean (a photo of a card on a screen, taken at a slant). findQuad takes
+	// a lean of up to about 7 degrees itself, so a small tilt is looked for
+	// on the copy as it is first, as before; a larger one on the copy turned
+	// straight, its corners then turned back onto the capture.
 	if (!plausible(work, edges)) {
-		const quad = findQuad(angle ? greyCopy(img, scale) : work);
+		const tries = !angle ? [[work, 0]] : Math.abs(angle) < 4 ? [[level, 0], [work, angle]] : [[work, angle], [level, 0]];
 
-		if (quad) {
+		for (const [grid, turned] of tries) {
+			const quad = findQuad(grid);
+
+			if (!quad) {
+				continue;
+			}
+
 			const top = quad.top || {p: quad.bottom.p - quad.w / CARD_RATIO, q: quad.bottom.q};
-
 			const corners = [cross(quad.left, top), cross(quad.right, top), cross(quad.right, quad.bottom), cross(quad.left, quad.bottom)]
+				.map((point) => unturn(point, turned, grid))
 				.map((point) => ({x: point.x / scale, y: point.y / scale}));
 			const across = Math.max(Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y));
 			const tall = Math.min(maxHeight, across / CARD_RATIO);
 
 			return {
-				angle: Math.round((Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
+				angle: Math.round((turned + Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
 				card: warpQuad(img, corners, Math.round(tall * CARD_RATIO), Math.round(tall)),
 				corners,
 				found: true,

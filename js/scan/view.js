@@ -16,18 +16,23 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail} from './camera.js';
+import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, releaseEngineSoon, warmEngine} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
 import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import * as S from './session.js';
-import {confirmSheet, doneSheet, setAllSheet} from './sheets.js';
+import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 
 const FRAME_MS = 125;
 const PHOTO_HEIGHT = 420;
+
+// A photo from the gallery is read at most this many pixels on its longer
+// side: a phone camera's 4000 x 3000 photo would hold 48 MB of pixels, and
+// the camera's own captures are smaller than this.
+const PHOTO_MAX_SIDE = 2400;
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -64,6 +69,8 @@ export function scanView(root) {
 	// Cards being read or looked up right now, so resume() never starts a
 	// second read of the same card.
 	const working = new Set();
+	// Photos picked from the gallery, whose sheet opens once looked up.
+	const openWhenMatched = new Set();
 	const detector = createAutoCapture();
 	const thumbCanvas = document.createElement('canvas');
 
@@ -74,6 +81,17 @@ export function scanView(root) {
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
 	const count = h('p', {class: 'scan-count', id: 'scan-count'});
 	const setAllButton = h('button', {class: 'scan-text-button', id: 'scan-setall-open', onclick: () => openSetAll('language'), type: 'button'}, 'Set for all');
+	// A photo from the gallery, read the way a capture is.
+	const photoInput = h('input', {accept: 'image/*', class: 'scan-photo-input', hidden: true, id: 'scan-photo-input', onchange: () => {
+		const [file] = photoInput.files || [];
+
+		photoInput.value = '';
+
+		if (file) {
+			readPhoto(file);
+		}
+	}, type: 'file'});
+	const photoButton = h('button', {class: 'scan-text-button', id: 'scan-photo-open', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
@@ -91,7 +109,7 @@ export function scanView(root) {
 		h('div', {class: 'scan-stage'}, video, guide, status, cameraOff),
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, count, setAllButton),
+			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, setAllButton), photoInput),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -115,17 +133,26 @@ export function scanView(root) {
 		},
 		openDone,
 		openItem,
+		openReport,
 		openSetAll,
 		get owned() {
 			return owned;
 		},
 		photoUrl: (id) => photoUrls.get(id) || null,
 		remove,
+		get reportOn() {
+			return draft.reportAlwaysOn();
+		},
+		reportText: (id) => S.reportText(S.findItem(session, id), {device: deviceInfo()}),
 		save,
 		get session() {
 			return session;
 		},
 		setCondition: (id, value) => change(() => S.setCondition(session, id, value)),
+		setReportOn: (on) => {
+			draft.setReportAlwaysOn(on);
+			draw();
+		},
 		setFinish: (id, variantId) => change(() => S.setFinish(session, id, variantId)),
 		setLanguage: (id, code) => {
 			const rematch = change(() => S.setLanguage(session, id, code));
@@ -364,6 +391,24 @@ export function scanView(root) {
 		showSheet(confirmSheet(ctx, id));
 	}
 
+	function openReport(id) {
+		if (S.findItem(session, id)) {
+			showSheet(reportSheet(ctx, id));
+		}
+	}
+
+	// The phone, for the scan report: nothing that names the person.
+	function deviceInfo() {
+		return {
+			camera: camera && camera.frame.width ? `${camera.frame.width} x ${camera.frame.height}` : null,
+			cores: navigator.hardwareConcurrency || null,
+			memory: navigator.deviceMemory || null,
+			online: online(),
+			screen: `${window.screen.width} x ${window.screen.height} at ${window.devicePixelRatio || 1}x`,
+			userAgent: navigator.userAgent,
+		};
+	}
+
 	function openDone() {
 		if (!session.items.length) {
 			return;
@@ -563,7 +608,9 @@ export function scanView(root) {
 			return;
 		}
 
+		const grabbed = performance.now();
 		const frame = grabFrame(video);
+		const captureMs = Math.round(performance.now() - grabbed);
 		const thumb = thumbnail(video, thumbCanvas);
 
 		detector.captured(thumb);
@@ -591,7 +638,44 @@ export function scanView(root) {
 		// app closing starts again next time.
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
-		await readItem(item.id, frame, {auto: how === 'auto', fullSaved});
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved});
+	}
+
+	// A photo picked from the gallery joins the tray like a capture and is
+	// read the same way (the whole photo first, then the part a camera's
+	// guide would hold), and its sheet opens when it is looked up.
+	async function readPhoto(file) {
+		const started = performance.now();
+		let frame;
+
+		try {
+			frame = await blobImage(file, {maxSide: PHOTO_MAX_SIDE});
+		}
+		catch {
+			setNote('That photo could not be opened. Try another one.');
+
+			return;
+		}
+
+		const captureMs = Math.round(performance.now() - started);
+
+		setNote(null);
+		noteText = null;
+
+		if (discarded) {
+			discarded = null;
+			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		}
+
+		const item = S.addCapture(session);
+
+		openWhenMatched.add(item.id);
+		persist();
+		draw();
+
+		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+
+		await readItem(item.id, frame, {captureMs, fullSaved, photo: true});
 	}
 
 	function flash() {
@@ -620,7 +704,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, fullSaved = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, photo = false, straight = false} = {}) {
 		let result;
 
 		try {
@@ -638,7 +722,7 @@ export function scanView(root) {
 					drawn = fraction;
 					draw();
 				}
-			}}, straight});
+			}}, photo, straight});
 			engineState = 'ready';
 			drawStatus();
 		}
@@ -696,6 +780,7 @@ export function scanView(root) {
 		}
 
 		item.timings = {...result.timings};
+		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, source: photo ? 'photo' : 'camera'});
 		change(() => S.applyRead(session, id, result.read));
 
 		if (fullSaved) {
@@ -732,12 +817,13 @@ export function scanView(root) {
 		change(() => S.markMatching(session, id));
 
 		const started = performance.now();
+		const language = item.language || item.languageHint;
 		let found;
 
 		try {
 			// The language picked, or else the read's guess ("non-latin"
 			// searches Japanese first), never another card's.
-			found = await findCandidates(item.read, item.language || item.languageHint, {artwork: artworks.get(id) || null});
+			found = await findCandidates(item.read, language, {artwork: artworks.get(id) || null});
 		}
 		catch (err) {
 			if (alive && S.findItem(session, id)) {
@@ -759,6 +845,11 @@ export function scanView(root) {
 
 		current.confirmed = false;
 		current.timings = {...current.timings, match: Math.round(performance.now() - started)};
+
+		if (current.report) {
+			current.report = {...current.report, match: S.reportOfMatch(found, {language, ms: current.timings.match})};
+		}
+
 		change(() => S.applyMatch(session, id, found));
 
 		const last = scanStats.reads[scanStats.reads.length - 1];
@@ -833,8 +924,12 @@ export function scanView(root) {
 	// The first scan of a session opens its sheet; later ones go straight to
 	// the tray (plans/design-review.md: "The first scan opens the confirm
 	// sheet; Scan next sends later cards straight to the tray").
+	// The first scan of a session opens its sheet; with the scan report
+	// switched on, or for a photo picked from the gallery, every one does.
 	function maybeOpenFirst(id) {
-		if (!session.sheetShown && !sheet && S.findItem(session, id)) {
+		const wanted = openWhenMatched.delete(id) || draft.reportAlwaysOn();
+
+		if ((!session.sheetShown || wanted) && !sheet && S.findItem(session, id)) {
 			session.sheetShown = true;
 			persist();
 			openItem(id);
@@ -919,6 +1014,7 @@ export function scanView(root) {
 			h('p', {class: 'scan-card-name', id: 'scan-camera-off-title'}, 'Camera is off'),
 			h('p', {class: 'scan-muted'}, err && err.message ? err.message : 'The camera could not start.'),
 			h('button', {class: 'scan-button scan-primary', id: 'scan-search-instead', onclick: addBySearch, type: 'button'}, 'Search by name or number'),
+			h('button', {class: 'scan-button', id: 'scan-photo-instead', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo'),
 			h('a', {class: 'scan-button', 'data-link': 'check', href: `${BASE}check`, id: 'scan-phone-check'}, 'Run phone check')
 		);
 	}
@@ -1090,13 +1186,14 @@ export function scanView(root) {
 				return;
 			}
 
-			const thumb = thumbnail(video, thumbCanvas);
+			const shot = thumbnailFrame(video, thumbCanvas);
 
-			if (!thumb) {
+			if (!shot) {
 				return;
 			}
 
-			const seen = presence(thumb, THUMB_W, THUMB_H);
+			const thumb = shot.grey;
+			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
 
 			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Fill the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);

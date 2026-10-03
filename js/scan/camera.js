@@ -6,7 +6,7 @@
 
 import {cancelled, captureRect, GUIDE_FILL, playStream, stopStream} from '../../lab/js/camera.js';
 import {guideRect} from '../../lab/js/pipeline.js';
-import {THUMB_H, THUMB_W, toGrey} from './steady.js';
+import {colourfulness, THUMB_H, THUMB_W, toGrey} from './steady.js';
 
 export {captureRect, GUIDE_FILL};
 
@@ -132,8 +132,10 @@ export function guideBox(width, height) {
 	return {h: guide.h / height, w: guide.w / width, x: guide.x / width, y: guide.y / height};
 }
 
-// A small grey picture of the capture area, for the steadiness check.
-export function thumbnail(video, canvas) {
+// A small grey picture of the capture area, for the steadiness check, and
+// how much colour its middle has (steady.js colourfulness: a card's artwork
+// has some, a sheet of paper none). Null before the video has a picture.
+export function thumbnailFrame(video, canvas) {
 	const width = video.videoWidth;
 	const height = video.videoHeight;
 
@@ -152,7 +154,16 @@ export function thumbnail(video, canvas) {
 	ctx.imageSmoothingQuality = 'medium';
 	ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, THUMB_W, THUMB_H);
 
-	return toGrey(ctx.getImageData(0, 0, THUMB_W, THUMB_H).data, THUMB_W, THUMB_H);
+	const rgba = ctx.getImageData(0, 0, THUMB_W, THUMB_H).data;
+
+	return {colour: colourfulness(rgba, THUMB_W, THUMB_H), grey: toGrey(rgba, THUMB_W, THUMB_H)};
+}
+
+// The grey thumbnail alone.
+export function thumbnail(video, canvas) {
+	const frame = thumbnailFrame(video, canvas);
+
+	return frame ? frame.grey : null;
 }
 
 // The full-resolution capture area as ImageData.
