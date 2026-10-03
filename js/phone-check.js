@@ -2,6 +2,7 @@
 // test), kept so each family phone can still be checked.
 
 import {BASE, errorText, h, namedError, showError} from './dom.js';
+import {reportAlwaysOn, setReportAlwaysOn} from './scan/draft.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
 const SHELL_CACHE_PREFIX = 'card-tracker-shell-';
@@ -264,6 +265,13 @@ export function phoneCheckView(root) {
 		h('div', {class: 'link-grid'},
 			h('a', {class: 'button', href: BASE + 'camera', 'data-link': 'camera'}, 'Camera test'),
 			h('a', {class: 'button', href: BASE + 'storage', 'data-link': 'storage'}, 'Storage test')
+		),
+		h('section', {class: 'card'},
+			h('h2', null, 'Scanner'),
+			h('label', null,
+				h('input', {checked: reportAlwaysOn(), id: 'scan-report-always', onchange: (event) => setReportAlwaysOn(event.target.checked), type: 'checkbox'}),
+				' Show the scan report after every scan'),
+			h('p', {class: 'muted'}, 'Each scan then opens its card with the report: the phone, each step\'s time, what each read got, and the cards considered. Copy it and send it to Eric.')
 		),
 		h('section', {class: 'card'},
 			h('h2', null, 'Device report'),
