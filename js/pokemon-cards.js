@@ -600,7 +600,9 @@ export async function loadAsian(catalog, n, {force = false} = {}) {
 	await pool(setIds, CONCURRENCY, async (setId) => {
 		try {
 			// Cache first, under the set view's key (js/catalog.js).
-			sets.set(setId, await importApi.setDetail(lang, setId));
+			// A set TCGdex no longer has answers null (404): its cards say so
+			// rather than show no set name at all (E-12).
+			sets.set(setId, (await importApi.setDetail(lang, setId)) || {name: SET_GONE});
 		}
 		catch (err) {
 			sets.set(setId, null);
@@ -618,6 +620,8 @@ export async function loadAsian(catalog, n, {force = false} = {}) {
 // the same Pokémon, finds them here without reading IndexedDB again. A
 // record that could not be read is not kept, so a later visit online tries
 // again. Capped, oldest out first, so a long session stays small.
+export const SET_GONE = 'Set not found';
+
 const RECORD_CACHE_LIMIT = 5000;
 const finishRecords = new Map();
 

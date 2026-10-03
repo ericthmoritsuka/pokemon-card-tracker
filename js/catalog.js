@@ -4,6 +4,8 @@
 // returned at once, and a fresh copy is fetched behind it (at most once an
 // hour per key). A set opened once therefore opens again with no signal.
 
+import {flagLanguageName} from './flags.js';
+
 const API = 'https://api.tcgdex.net/v2/';
 
 export const LANGUAGES = [
@@ -18,7 +20,9 @@ export const LANGUAGES = [
 
 export const isLanguage = (code) => LANGUAGES.some((lang) => lang.code === code);
 
-export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: code}).label;
+// German, Spanish, and Italian copies are not catalogs, but they have names
+// (js/flags.js), so they never show a raw code.
+export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: flagLanguageName(code)}).label;
 
 // Western-language prints share one international card record; Japanese,
 // Korean, and Chinese prints have their own catalogs (DESIGN.md section 3).
