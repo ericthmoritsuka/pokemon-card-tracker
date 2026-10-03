@@ -38,8 +38,10 @@ export const INTEGRATION = {
 	catalogViews: {
 		// After the last import line.
 		import: 'import {cardPhotos} from \'./photos/index.js\';',
-		// In cardView, after const swipe = cardSwipe(root, route);
-		create: '\tconst photos = cardPhotos({cardId, catalog: catalogFor(lang)});',
+		// In cardView, after const swipe = cardSwipe(root, route); (and the
+		// family member lens, whose card shows that member's photos read
+		// only).
+		create: '\tconst photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang)});',
 		// In render(), replacing the hero-art line. twins is the
 		// international twin's slide (js/twins.js twinSlides), or none.
 		art: '\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\'), twins})),',
@@ -130,7 +132,7 @@ export async function checkIntegration() {
 	const {art, create, destroy, import: photosImport} = INTEGRATION.catalogViews;
 
 	assert.ok(lines(catalogViews).has(photosImport), 'js/catalog-views.js imports cardPhotos');
-	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n\tconst photos = cardPhotos\(\{cardId, catalog: catalogFor\(lang\)\}\);$/m, 'cardView creates the photos after the swipe');
+	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n(?:\t\/\/.*\n|\tconst member = lensMember\(\);\n)*\tconst photos = member \? memberPhotos\(cardId, catalogFor\(lang\)\) : cardPhotos\(\{cardId, catalog: catalogFor\(lang\)\}\);$/m, 'cardView creates the photos after the swipe');
 	assert.ok(lines(card[0]).has(create));
 	assert.ok(lines(card[0]).has(art), 'the hero art is the photos block');
 	assert.match(card[0], /\treturn \(\) => \{\n\t\talive = false;\n(?:\t\t.*\n)*?\t\tphotos\.destroy\(\);\n\t\};\n\}\n$/, 'the cleanup destroys the photos');

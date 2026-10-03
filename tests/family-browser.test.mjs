@@ -61,6 +61,17 @@ async function fakeNetwork(context, {sprites = null} = {}) {
 		const set = /\/v2\/(\w+)\/sets\/(tst\d+)$/.exec(pathname);
 		const card = /\/v2\/(\w+)\/cards\/((tst\d+)-(\d+))$/.exec(pathname);
 		const setBrief = (setId) => ({cardCount: {official: 60, total: 60}, id: setId, logo: null, name: `Test set ${setId}`, releaseDate: '2026-01-01', serie: {id: 'tst', name: 'Test series'}});
+		const series = /\/v2\/(\w+)\/series(\/tst)?$/.exec(pathname);
+
+		if (series) {
+			const serie = {id: 'tst', name: 'Test series', releaseDate: '2026-01-01'};
+
+			return route.fulfill({
+				body: JSON.stringify(series[2] ? {...serie, sets: ['tst1', 'tst2', 'tst3'].map(setBrief)} : [serie]),
+				contentType: 'application/json',
+				status: 200,
+			});
+		}
 
 		if (list) {
 			return route.fulfill({body: JSON.stringify(['tst1', 'tst2', 'tst3'].map(setBrief)), contentType: 'application/json', status: 200});
@@ -371,6 +382,118 @@ describe('the "Whose cards" sheet', () => {
 			return option && option.textContent === 'M' && !option.querySelector('img');
 		}, people.member.id);
 		assert.equal(await page.locator('#owner-sheet .owner-option[data-member=""] .owner-initial').textContent(), 'O', 'you have no favorite: your initial');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('a family member\'s Sets and cards', () => {
+	const PRICE = {avg: 80, currency: 'BRL', date: '2026-09-20', low_nm: 70, source: 'Liga Pokémon'};
+
+	// The rings and the "N / M" text of one set tile.
+	const ring = (page, setId) => page.locator(`.set-tile[href$="/sets/en/${setId}"] .owned-count`).textContent();
+
+	test('Sets rings, a set page, and a card page show Member A\'s cards, with no edit controls; Done shows yours again', async () => {
+		const fake = new FakeSupabase();
+		const people = family(fake, {memberCards: [
+			entry('m-1', {card_id: 'tst2-001', condition: 'LP', price_manual: PRICE}),
+			entry('m-2', {card_id: 'tst2-002'}),
+			entry('m-3', {card_id: 'tst2-003'}),
+			entry('m-4', {card_id: 'tst2-004', deleted_at: AT}),
+		]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith([
+			entry('o-1', {card_id: 'tst1-001'}),
+			entry('o-2', {card_id: 'tst1-002'}),
+			entry('o-3', {card_id: 'tst2-001', condition: 'NM'}),
+		]));
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+
+		// Into Member A's view, then Sets.
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#family-strip');
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForSelector('.set-tile[href$="/sets/en/tst2"]');
+		await page.waitForFunction(() => /^3 \/ 60$/.test((document.querySelector('.set-tile[href$="/sets/en/tst2"] .owned-count') || {}).textContent || ''));
+		assert.equal(await ring(page, 'tst1'), '0 / 60', 'none of your tst1 cards');
+		assert.equal(await ring(page, 'tst2'), '3 / 60', 'Member A\'s three live cards');
+		assert.match(await page.locator('#family-strip').textContent(), /^Member A's collection, view only/);
+		await page.screenshot({path: '/tmp/family-sets.png'});
+
+		// Their set page.
+		await page.click('.set-tile[href$="/sets/en/tst2"]');
+		await page.waitForFunction(() => / · 3 \/ 60 owned$/.test((document.querySelector('#view .muted') || {}).textContent || ''));
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 3);
+
+		// Their card: their copy, with their saved Liga price, and nothing to
+		// change.
+		await page.click('.card-grid a[href$="/cards/en/tst2-001"]');
+		await page.waitForSelector('#copies-title');
+		await page.waitForFunction(() => document.getElementById('copies-title').textContent === 'Member A\'s copies (1)');
+		await page.waitForSelector('#card-price .price-liga');
+		assert.match(await page.locator('.copy-rows').textContent(), / · LP/, 'Member A\'s copy');
+		assert.doesNotMatch(await page.locator('.copy-rows').textContent(), / · NM/, 'not your copy');
+		assert.equal(await page.locator('#copy-add').count(), 0, 'no Add a copy');
+		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
+		assert.equal(await page.locator('.ph-add').count(), 0, 'no Add photo');
+		assert.equal(await page.locator('.ph-use-main:visible').count(), 0, 'no Main image');
+		assert.equal(await page.locator('#card-wish, #card-wished').count(), 0, 'no Add to wishlist');
+		assert.equal(await page.locator('#card-price form').count(), 0, 'no Liga price form');
+		assert.equal(await page.locator('#card-price .price-edit').count(), 0, 'no Update Liga price');
+		assert.match(await page.locator('#card-price .price-liga').textContent(), /R\$\s?70/, 'Member A\'s saved Liga price shows');
+		await page.screenshot({fullPage: true, path: '/tmp/family-card.png'});
+
+		// A card only you own: not in Member A's cards, and no Add.
+		// In the app, as a link would: a reload would end the lens.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('cards/en/tst1-001'));
+		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Not in Member A\'s cards');
+		assert.ok(await page.locator('#family-strip').count(), 'the lens followed the card');
+		assert.equal(await page.locator('#copy-add').count(), 0);
+		assert.equal(await page.locator('#card-price form').count(), 0, 'no Liga price form');
+		assert.match(await page.locator('#card-price .price-liga').textContent(), /No Liga price saved by Member A\./);
+
+		// Done: the same card with your copy, Add a copy, and the form.
+		await page.click('#family-done');
+		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Your copies (1)');
+		assert.equal(await page.locator('#family-strip').count(), 0);
+		assert.equal(await page.locator('#copy-add').count(), 1);
+		assert.equal(await page.locator('.ph-add').count(), 1);
+		await page.waitForSelector('#card-price form');
+
+		// And Sets shows your rings again.
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForFunction(() => /^2 \/ 60$/.test((document.querySelector('.set-tile[href$="/sets/en/tst1"] .owned-count') || {}).textContent || ''));
+		assert.equal(await ring(page, 'tst2'), '1 / 60');
+
+		// Member A's document was read once for the three screens.
+		const reads = fake.log.filter((item) => item.path === '/rest/v1/documents' && item.method === 'GET' && new URLSearchParams(item.search).get('user_id') === `eq.${people.member.id}`);
+
+		assert.ok(reads.length <= 3, `few reads of Member A's document (${reads.length})`);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('offline, Sets says Member A\'s cards could not be read rather than showing rings', async () => {
+		const fake = new FakeSupabase();
+		const people = family(fake, {memberCards: [entry('m-1', {card_id: 'tst2-001'})]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#family-strip');
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForSelector('.set-tile[href$="/sets/en/tst2"]');
+		await context.setOffline(true);
+		await page.click('.set-tile[href$="/sets/en/tst2"]');
+		await page.waitForSelector('#set-member-note');
+		assert.match(await page.locator('#set-member-note').textContent(), /^Member A's cards could not be read\. A family member's cards show when you are online\./);
+		await context.setOffline(false);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
