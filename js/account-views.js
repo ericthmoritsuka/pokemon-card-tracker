@@ -691,7 +691,7 @@ function uploadsCard() {
 	let alive = true;
 	let run = 0;
 
-	const list = h('ul', {class: 'members', id: 'photo-uploads-list'});
+	const list = h('ul', {class: 'photo-uploads', id: 'photo-uploads-list', style: 'list-style: none; margin: 0; padding: 0'});
 	const element = h('section', {'aria-labelledby': 'photo-uploads-heading', class: 'card', hidden: true, id: 'photo-uploads'},
 		h('h3', {id: 'photo-uploads-heading'}, 'Photos not uploaded'),
 		h('p', {class: 'muted'}, 'These photos are on this phone only. Retry sends one again; Remove takes it off its card.'),
