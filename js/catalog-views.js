@@ -35,6 +35,8 @@ import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist} from './wishlist.js';
+import {isCustomId} from './custom-card.js';
+import {customCardView} from './custom-card-view.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -819,6 +821,12 @@ const finishChoices = (variants) => variants
 	.map((variant) => ({label: variantText(variant), value: variant.variantId}));
 
 export function cardView(root, {lang, cardId}) {
+	// A hand-made card has no catalog record: its own page
+	// (js/custom-card-view.js), told by its id ("hand_...").
+	if (isCustomId(cardId)) {
+		return customCardView(root, {cardId});
+	}
+
 	let alive = true;
 
 	// Opened from a list, the card keeps it: a position line, edge arrows,

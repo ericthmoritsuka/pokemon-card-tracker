@@ -40,6 +40,8 @@ import {noPrice} from './tile.js';
 import {tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 import {openValueSheet, priceState} from './value-sheet.js';
+import {customRecord, customRoute, isCustom} from './custom-card.js';
+import {openCustomCardSheet} from './custom-card-view.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -98,11 +100,16 @@ export function collectionCsv(entries, index) {
 		'entry_id', 'card_id', 'catalog', 'set_id', 'set', 'number', 'name', 'language',
 		'variant_id', 'finish', 'finish_matched', 'language_source', 'created_at', 'updated_at',
 		'liga_low_nm', 'liga_avg', 'currency', 'price_source', 'price_date',
+		// What a re-import needs to give back the same copies (DESIGN.md
+		// section 9, 2026-10-03), after the columns older exports had.
+		'condition', 'notes', 'name_local', 'set_name_local', 'finish_raw', 'fallback', 'import_key',
+		'number_local', 'set_code',
 	];
 	const lines = [header.map(csvField).join(';')];
 
 	for (const entry of entries) {
-		const record = index.get(`${entry.catalog}|${entry.card_id}`) || {};
+		// A hand-made card has no catalog record: its own fields stand in.
+		const record = index.get(`${entry.catalog}|${entry.card_id}`) || customRecord(entry) || {};
 		const shown = display(record, [entry.language, catalogLanguage(entry.catalog)]) || {};
 		// The names the app shows: a copy the catalog has no names for in
 		// its language (a Korean copy on a Japanese record) carries the
@@ -135,6 +142,15 @@ export function collectionCsv(entries, index) {
 			typeof manual.low_nm === 'number' || typeof manual.avg === 'number' ? manual.currency || 'BRL' : '',
 			manual.source,
 			manual.date,
+			entry.condition,
+			entry.notes,
+			entry.name_local,
+			entry.set_name_local,
+			entry.finish_raw,
+			entry.fallback ? 'Yes' : '',
+			entry.import_key,
+			asText(entry.number_local),
+			entry.set_code,
 		].map((value, i) => (i === NAME_COLUMN ? value : csvField(value))).join(';'));
 	}
 
@@ -275,7 +291,8 @@ async function fillMissingRecords(entries, index, isAlive) {
 	for (const entry of entries) {
 		const key = indexKey(entry.catalog, entry.card_id);
 
-		if (entry.card_id && !index.has(key)) {
+		// A hand-made card has no record to read (js/custom-card.js).
+		if (entry.card_id && !index.has(key) && !isCustom(entry)) {
 			missing.set(key, {catalog: entry.catalog, cardId: entry.card_id, lang: catalogLanguage(entry.catalog)});
 		}
 	}
@@ -492,7 +509,16 @@ export function cardsScreen(root, {
 
 		groups = [...map.values()].map((group) => {
 			const first = group.entries[0];
-			const record = index.get(`${first.catalog}|${first.card_id}`) || null;
+			// A hand-made card's own fields stand in for a catalog record,
+			// and as its "saved" record, so the Value sheet counts it as
+			// having no market price rather than waiting for one.
+			const custom = customRecord(first);
+			const record = index.get(`${first.catalog}|${first.card_id}`) || custom;
+
+			if (custom) {
+				saved.set(`${first.catalog}|${first.card_id}`, custom);
+			}
+
 			const base = catalogLanguage(first.catalog);
 			const viewingFits = catalogFor(viewing) === first.catalog;
 			const local = display(record, [viewingFits ? viewing : null, first.language, base]);
@@ -679,6 +705,10 @@ export function cardsScreen(root, {
 	}
 
 	const routeOf = (group) => {
+		if (group.catalog === 'custom') {
+			return customRoute(group.cardId, group.language);
+		}
+
 		const lang = group.local && isLanguage(group.local.lang) ? group.local.lang : catalogLanguage(group.catalog);
 
 		return routeTo('cards', lang, group.cardId);
@@ -786,7 +816,7 @@ export function cardsScreen(root, {
 		}
 
 		// Swiping on a card page follows this order, filters included.
-		offerCardList(visible.map(routeOf), heading.textContent);
+		offerCardList(visible.map(routeOf), heading.querySelector('h2').textContent);
 		more.hidden = visible.length <= shown;
 		more.textContent = `Show more (${formatCount(visible.length - shown)} left)`;
 	}
@@ -1084,7 +1114,8 @@ export function cardsScreen(root, {
 					h('p', {class: 'big'}, 'No cards yet'),
 					h('p', {class: 'muted'}, 'Scan your cards one by one, or bring your collection over from monprice. Imported cards are matched to the catalog and listed in a report before anything is saved.'),
 					h('a', {class: 'button primary', 'data-link': 'scan', href: `${BASE}scan`, id: 'cards-empty-scan'}, 'Scan your first card'),
-					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import from monprice')
+					h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`}, 'Import from monprice'),
+					h('button', {class: 'button', id: 'cards-empty-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add a card by hand')
 				)
 			);
 
@@ -1217,7 +1248,10 @@ export function cardsScreen(root, {
 
 	const stop = watch ? watch((doc, info) => alive && changed(doc, info)) : () => {};
 	const stopTwins = onTwinsChange(twinsChanged);
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title), tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null);
+	// A card the catalog does not have is added by hand (js/custom-card-view.js).
+	const handButton = readOnly ? null : h('button', {class: 'small', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
+	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title), tradeLink, handButton);
 
 	root.append(heading, body);
 	load();

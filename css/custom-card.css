@@ -1,0 +1,57 @@
+/* Hand-made cards (js/custom-card-view.js): the sheet that adds or edits
+   one, its card page, and Add by hand on the import report. The sheet is
+   built from the copy sheets' parts (css/copies.css). Uses the palette
+   tokens from style.css, so it follows the light and dark schemes and every
+   theme. */
+
+.hand-sheet {
+	overflow-y: auto;
+}
+
+/* Set code and number side by side: both are short. */
+.hand-pair {
+	display: grid;
+	gap: var(--space-3);
+	grid-template-columns: 1fr 1fr;
+}
+
+.hand-form input.search {
+	width: 100%;
+}
+
+/* My Cards' heading keeps its title on the left, the button on the right. */
+#cards-add-hand {
+	flex: none;
+}
+
+.custom-note {
+	font-size: 0.85rem;
+	margin: var(--space-2) 0;
+}
+
+.custom-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.custom-link {
+	margin: var(--space-3) 0;
+}
+
+.custom-link p {
+	margin: 0 0 var(--space-2);
+}
+
+/* Add by hand on an unmatched import row, under its reason. */
+.report-rows .report-hand {
+	display: inline-block;
+	margin-top: var(--space-1);
+}
+
+.report-hand-done {
+	color: var(--muted);
+	display: block;
+	font-size: 0.8rem;
+	font-weight: 600;
+}

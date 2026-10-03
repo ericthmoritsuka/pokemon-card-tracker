@@ -18,6 +18,7 @@ import {listBinders, placements} from './binders.js';
 import {addCard, deleteCards, listCards, restoreCard, updateCard, updateCards} from './collection.js';
 import {errorText, h} from './dom.js';
 import {flagLanguageName} from './flags.js';
+import {FINISHES} from './monprice.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
 import {toast} from './shell.js';
@@ -46,7 +47,9 @@ export const languageName = (code) => (isLanguage(code) ? languageLabel(code) : 
 export function copyLanguages(catalog, current = null) {
 	const codes = catalog === 'international'
 		? ['pt', 'en', 'fr', 'de', 'it', 'es']
-		: catalog === 'ja' ? ['ja', 'ko'] : [catalog];
+		: catalog === 'ja' ? ['ja', 'ko']
+			// A hand-made card (js/custom-card.js) can be in any language.
+			: catalog === 'custom' ? ['pt', 'en', 'fr', 'de', 'it', 'es', 'ja', 'ko', 'zh-cn', 'zh-tw'] : [catalog];
 
 	if (current && !codes.includes(current)) {
 		codes.push(current);
@@ -82,7 +85,8 @@ export function alikeFields(entry) {
 		variant_id: entry.variant_id || null,
 	};
 
-	for (const key of ['condition', 'fallback', 'name_local', 'set_name_local']) {
+	// A hand-made card's own facts ride on every copy (js/custom-card.js).
+	for (const key of ['condition', 'fallback', 'name_local', 'set_name_local', 'number_local', 'set_code']) {
 		if (entry[key]) {
 			fields[key] = entry[key];
 		}
@@ -302,6 +306,12 @@ function finishOptions(finishes, current) {
 	return options;
 }
 
+// A hand-made card has no catalog printings: its finish is one of
+// monprice's words, kept in finish_raw like an unmatched import's.
+export const rawFinishes = () => Object.entries(FINISHES).map(([value, label]) => ({label, value}));
+
+const finishKey = (catalog) => (catalog === 'custom' ? 'finish_raw' : 'variant_id');
+
 function head(title, close) {
 	return h('div', {class: 'sheet-head'},
 		h('h2', {id: 'copy-sheet-title'}, title),
@@ -324,7 +334,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'copy-error'});
 
 	const language = select('copy-language', copyLanguages(catalog, first.language).map(({code, label}) => ({label, value: code})), first.language);
-	const finish = select('copy-finish', finishOptions(finishes, first.variant_id), first.variant_id || NOT_SET);
+	const finish = select('copy-finish', finishOptions(finishes, first[finishKey(catalog)]), first[finishKey(catalog)] || NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: NOTES_MAX, name: 'copy-notes', rows: 2}, first.notes || '');
 
@@ -411,7 +421,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 			condition: condition.value || null,
 			language: language.value,
 			notes: notes.value.trim().slice(0, NOTES_MAX),
-			variant_id: finish.value || null,
+			[finishKey(catalog)]: finish.value || null,
 		})})).filter((item) => Object.keys(item.patch).length);
 
 		try {
@@ -456,15 +466,20 @@ export function changes(entry, catalog, next) {
 	}
 
 	// A copy whose language belongs to another catalog (a Korean copy on a
-	// Japanese record) is a fallback match (DESIGN.md section 5).
-	const fallback = catalogFor(next.language) !== catalog;
+	// Japanese record) is a fallback match (DESIGN.md section 5). A
+	// hand-made card belongs to no catalog, so it never is.
+	const fallback = catalog !== 'custom' && catalogFor(next.language) !== catalog;
 
 	if (fallback !== Boolean(entry.fallback)) {
 		patch.fallback = fallback;
 	}
 
-	if ((next.variant_id || null) !== (entry.variant_id || null)) {
+	if (next.variant_id !== undefined && (next.variant_id || null) !== (entry.variant_id || null)) {
 		patch.variant_id = next.variant_id || null;
+	}
+
+	if (next.finish_raw !== undefined && (next.finish_raw || null) !== (entry.finish_raw || null)) {
+		patch.finish_raw = next.finish_raw || null;
 	}
 
 	if ((next.condition || null) !== (entry.condition || null)) {
@@ -486,7 +501,9 @@ export function changes(entry, catalog, next) {
 //   finishes    [{value, label}]
 //   plain       the plain print's variantId, picked first (the scanner's
 //               rule: never the last finish chosen)
-export function openAddSheet({card, catalog, finishes, lang, plain = null}) {
+//   extra       fields every new copy carries: a hand-made card's own
+//               facts (js/custom-card.js)
+export function openAddSheet({card, catalog, extra = null, finishes, lang, plain = null}) {
 	const sheet = sheetElement();
 	const close = () => sheet.close();
 	const languages = copyLanguages(catalog);
@@ -533,9 +550,13 @@ export function openAddSheet({card, catalog, finishes, lang, plain = null}) {
 			return;
 		}
 
-		const fields = {card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: finish.value || null};
+		const fields = {...extra, card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: catalog === 'custom' ? null : finish.value || null};
 
-		if (catalogFor(language.value) !== catalog) {
+		if (catalog === 'custom' && finish.value) {
+			fields.finish_raw = finish.value;
+		}
+
+		if (catalog !== 'custom' && catalogFor(language.value) !== catalog) {
 			fields.fallback = true;
 		}
 
@@ -713,3 +734,7 @@ export function copyStepper({entries, keep = null, label, min = 0, onChange = nu
 		draw();
 	}};
 }
+
+// The sheet parts js/custom-card-view.js builds its sheet from, so a
+// hand-made card's sheet looks and behaves like the copy sheets.
+export {conditionOptions, dialog as sheetDialog, field as sheetField, select as sheetSelect, show as showSheet};

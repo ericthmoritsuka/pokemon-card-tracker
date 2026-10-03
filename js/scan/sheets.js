@@ -6,6 +6,7 @@
 
 import {cardImage, languageLabel} from '../catalog.js';
 import {cardArt} from '../catalog-views.js';
+import {openCustomCardSheet} from '../custom-card-view.js';
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
@@ -300,8 +301,14 @@ export function confirmSheet(ctx, itemId) {
 		return [h('form', {class: 'scan-hand', id: 'scan-hand', onsubmit: (event) => {
 			event.preventDefault();
 
+			// The hand-made card sheet (js/custom-card-view.js), prefilled from
+			// the read; once the card is saved, it leaves the tray.
 			try {
-				ctx.addByHand(itemId, {language: item.language || item.hand.language, number: numberInput.value, setId: setInput.value});
+				openCustomCardSheet({
+					onSaved: () => ctx.remove(itemId),
+					openPage: false,
+					prefill: {language: item.language || item.hand.language, number: numberInput.value, setCode: setInput.value},
+				});
 			}
 			catch (err) {
 				problem.textContent = err.message;

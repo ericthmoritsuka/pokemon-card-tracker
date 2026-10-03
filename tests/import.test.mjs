@@ -8,8 +8,8 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {importEntryId, planImport} from '../js/collection.js';
-import {LARGE_COUNT, MAX_COUNT, importEntries, parseCsv, parseExport, parseJson} from '../js/monprice.js';
+import {importEntryId, planImport, planOwnImport} from '../js/collection.js';
+import {LARGE_COUNT, MAX_COUNT, importEntries, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
 
 const HEADER = 'Name;Set;Number;Language;Finish Type;Count;ID;Release Date';
 
@@ -225,5 +225,165 @@ describe('importEntryId', () => {
 		assert.match(`${id}-detail`, /^[A-Za-z0-9_-]{1,64}$/);
 		assert.equal(await importEntryId('monprice|sv1_int_001|pt|NORMAL|0'), id, 'stable');
 		assert.notEqual(await importEntryId('monprice|sv1_int_001|pt|NORMAL|1'), id, 'the next copy gets its own id');
+	});
+});
+
+// ------------------------------------------------- the app's own CSV
+
+// As js/cards-view.js collectionCsv writes it: semicolons, a BOM, the name
+// always quoted, numbers wrapped in ="...", prices with a decimal comma.
+const OWN_HEADER = [
+	'entry_id', 'card_id', 'catalog', 'set_id', 'set', 'number', 'name', 'language',
+	'variant_id', 'finish', 'finish_matched', 'language_source', 'created_at', 'updated_at',
+	'liga_low_nm', 'liga_avg', 'currency', 'price_source', 'price_date',
+	'condition', 'notes', 'name_local', 'set_name_local', 'finish_raw', 'fallback', 'import_key',
+	'number_local', 'set_code',
+].join(';');
+
+const ownId = (n) => `aaaaaaaa-bbbb-4ccc-8ddd-${String(n).padStart(12, '0')}`;
+
+function ownLine(n, fields = {}) {
+	const values = {
+		card_id: `tst1-00${n}`, catalog: 'international', condition: '', created_at: `2026-09-0${n}T10:00:00.000Z`, currency: '', entry_id: ownId(n),
+		fallback: '', finish: '', finish_matched: 'Yes', finish_raw: '', import_key: '', language: 'PT', language_source: 'scan',
+		liga_avg: '', liga_low_nm: '', name: '"Test card"', name_local: '', notes: '', number: `"=""00${n}"""`, number_local: '',
+		price_date: '', price_source: '', set: 'Test set', set_code: '', set_id: 'tst1', set_name_local: '', updated_at: `2026-09-0${n}T10:00:00.000Z`,
+		variant_id: 'normal', ...fields,
+	};
+
+	return OWN_HEADER.split(';').map((name) => values[name]).join(';');
+}
+
+const ownCsv = (...lines) => `﻿${OWN_HEADER}\r\n${lines.join('\r\n')}\r\n`;
+
+const OWN_NOW = Date.parse('2026-10-03T12:00:00.000Z');
+
+describe('parseOwnCsv', () => {
+	test('parseExport tells the app\'s own export from a monprice file by its header', () => {
+		const parsed = parseExport(ownCsv(ownLine(1)), 'card-tracker-2026-10-03.csv');
+
+		assert.equal(parsed.format, 'own');
+		assert.equal(parsed.rows.length, 1);
+		assert.equal(isOwnCsv(`${HEADER}\r\n`), false);
+		assert.equal(parseExport(`${HEADER}\r\nBulbasaur;Test Set;001/100;EN;NORMAL;1;tst1_int_1;\r\n`).format, 'CSV');
+	});
+
+	test('a row gives back the entry: id, card, language code, finish, condition, notes, names, and Liga price', () => {
+		const {errors, rows} = parseOwnCsv(ownCsv(ownLine(1, {
+			condition: 'Near Mint', currency: 'BRL', fallback: 'Yes', import_key: 'monprice|tst1_int_1|pt|NORMAL|0',
+			language: 'CHS', liga_avg: '12,00', liga_low_nm: '9,5', name_local: '"Nome; com ponto e vírgula"', notes: '"Line one\nline two"',
+			price_date: '2026-10-01', price_source: 'Liga Pokémon', set_name_local: 'Coleção',
+		})));
+
+		assert.deepEqual(errors, []);
+		assert.deepEqual(rows[0], {
+			card_id: 'tst1-001', catalog: 'international', condition: 'Near Mint', created_at: '2026-09-01T10:00:00.000Z', fallback: true,
+			finish_raw: null, id: ownId(1), import_key: 'monprice|tst1_int_1|pt|NORMAL|0', language: 'zh-cn', language_source: 'scan', line: 2,
+			name_local: 'Nome; com ponto e vírgula', notes: 'Line one\nline two', number_local: null,
+			price_manual: {avg: 12, currency: 'BRL', date: '2026-10-01', low_nm: 9.5, source: 'Liga Pokémon'},
+			set_code: null, set_name_local: 'Coleção', variant_id: 'normal',
+		});
+	});
+
+	test('rows with a bad id, an unknown catalog or language, a repeated id, or no card are reported', () => {
+		const {errors, rows} = parseOwnCsv(ownCsv(
+			ownLine(1, {entry_id: 'not-an-id'}),
+			ownLine(2, {catalog: 'pocket'}),
+			ownLine(3, {language: 'XX'}),
+			ownLine(4),
+			ownLine(4),
+			ownLine(5, {card_id: ''}),
+			ownLine(6, {catalog: 'custom', name: '""', name_local: ''}),
+		));
+
+		assert.equal(rows.length, 1);
+		assert.deepEqual(errors.map((error) => error.line), [2, 3, 4, 6, 7, 8]);
+		assert.match(errors[0].reason, /not an entry id/);
+		assert.match(errors[1].reason, /catalog "pocket"/);
+		assert.match(errors[2].reason, /language "XX"/);
+		assert.match(errors[3].reason, /earlier line/);
+		assert.match(errors[4].reason, /card_id is empty/);
+		assert.match(errors[5].reason, /needs a name/);
+	});
+
+	test('an export from before the newer columns leaves those fields alone, and reads its finish label back', () => {
+		const old = OWN_HEADER.split(';').slice(0, 19);
+		const line = ownLine(1, {finish: 'Reverse holo', finish_matched: 'No', variant_id: ''}).split(';').slice(0, 19);
+		const {rows} = parseOwnCsv(`${old.join(';')}\n${line.join(';')}\n`);
+
+		assert.equal(rows[0].finish_raw, 'REVERSE_HOLOFOIL');
+		assert.equal(rows[0].condition, undefined);
+		assert.equal(rows[0].notes, undefined);
+		assert.equal(rows[0].import_key, undefined);
+		assert.equal(rows[0].price_manual, null, 'the price columns were there, empty');
+	});
+});
+
+describe('planOwnImport', () => {
+	const rowsOf = (...lines) => parseOwnCsv(ownCsv(...lines)).rows;
+
+	test('importing the same file twice adds nothing, and new copies keep their ids and dates', () => {
+		const rows = rowsOf(ownLine(1), ownLine(2));
+		const first = planOwnImport([], rows, {now: OWN_NOW});
+
+		assert.deepEqual(first.counts, {added: 2, revived: 0, skippedDeleted: 0, unchanged: 0, updated: 0});
+		assert.deepEqual(first.cards.map((card) => card.id), [ownId(1), ownId(2)]);
+		assert.equal(first.cards[0].created_at, '2026-09-01T10:00:00.000Z');
+		assert.equal('line' in first.cards[0], false, 'only entry fields are kept');
+
+		const second = planOwnImport(first.cards, rows, {now: OWN_NOW + 1000});
+
+		assert.deepEqual(second.counts, {added: 0, revived: 0, skippedDeleted: 0, unchanged: 2, updated: 0});
+		assert.deepEqual(second.statuses, ['unchanged', 'unchanged']);
+		assert.deepEqual(second.cards, first.cards);
+	});
+
+	test('a copy already here changes only the fields that differ, stamped as edited', () => {
+		const {cards} = planOwnImport([], rowsOf(ownLine(1)), {now: OWN_NOW});
+		const here = [{...cards[0], photos: [{id: 'p1'}], storage: 'Box A'}];
+		const next = planOwnImport(here, rowsOf(ownLine(1, {condition: 'Damaged'})), {now: OWN_NOW + 1000});
+
+		assert.equal(next.counts.updated, 1);
+		assert.equal(next.cards[0].condition, 'Damaged');
+		assert.deepEqual(next.cards[0].photos, [{id: 'p1'}], 'fields the CSV does not carry stay');
+		assert.equal(next.cards[0].storage, 'Box A');
+		assert.ok(next.cards[0].updated_at > here[0].updated_at);
+		assert.equal(next.cards[0].field_stamps.condition, next.cards[0].updated_at);
+		assert.equal(here[0].condition, undefined, 'the list passed in is left alone');
+	});
+
+	test('a deleted copy stays deleted unless revive is ticked', () => {
+		const {cards} = planOwnImport([], rowsOf(ownLine(1), ownLine(2)), {now: OWN_NOW});
+		const deleted = [{...cards[0], deleted_at: '2026-10-03T12:30:00.000Z', updated_at: '2026-10-03T12:30:00.000Z'}, cards[1]];
+		const rows = rowsOf(ownLine(1), ownLine(2));
+		const kept = planOwnImport(deleted, rows, {now: OWN_NOW + 3600000});
+
+		assert.deepEqual(kept.counts, {added: 0, revived: 0, skippedDeleted: 1, unchanged: 1, updated: 0});
+		assert.deepEqual(kept.statuses, ['deleted', 'unchanged']);
+		assert.ok(kept.cards[0].deleted_at);
+
+		const back = planOwnImport(deleted, rows, {now: OWN_NOW + 3600000, revive: true});
+
+		assert.equal(back.counts.revived, 1);
+		assert.equal(back.cards[0].deleted_at, null);
+		assert.ok(back.cards[0].restored_at > deleted[0].deleted_at, 'restored after the delete, so the merge keeps it');
+		assert.equal(back.cards.length, 2);
+	});
+
+	test('a row whose import key a live copy holds is that copy, never a second one', () => {
+		const here = [{card_id: 'tst1-001', catalog: 'international', created_at: '2026-09-01T10:00:00.000Z', deleted_at: null, id: 'other-id', import_key: 'monprice|tst1_int_1|pt|NORMAL|0', language: 'pt', updated_at: '2026-09-01T10:00:00.000Z', variant_id: 'normal'}];
+		const {cards, counts} = planOwnImport(here, rowsOf(ownLine(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0'})), {now: OWN_NOW});
+
+		assert.equal(counts.unchanged, 1);
+		assert.equal(cards.length, 1);
+	});
+
+	test('a copy the merge folded into another is matched to the one that holds it now', () => {
+		const live = {card_id: 'tst1-001', catalog: 'international', created_at: '2026-09-01T10:00:00.000Z', deleted_at: null, id: 'keeper', language: 'pt', updated_at: '2026-09-01T10:00:00.000Z', variant_id: 'normal'};
+		const folded = {...live, deleted_at: '2026-09-02T10:00:00.000Z', id: ownId(1), merged_into: 'keeper', updated_at: '2026-09-02T10:00:00.000Z'};
+		const {cards, counts} = planOwnImport([folded, live], rowsOf(ownLine(1)), {now: OWN_NOW});
+
+		assert.deepEqual(counts, {added: 0, revived: 0, skippedDeleted: 0, unchanged: 1, updated: 0});
+		assert.equal(cards.length, 2);
 	});
 });
