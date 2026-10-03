@@ -29,7 +29,7 @@ import {
 	spriteUrl,
 } from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, h} from './dom.js';
+import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
@@ -329,7 +329,8 @@ function originalNames(tables, n, languages) {
 		out.push({lang: 'zh-Hans', text: tables['zh-hans'][n]});
 	}
 
-	if (languages.includes('zh-tw') && tables['zh-hant'] && tables['zh-hant'][n]) {
+	// Simplified and Traditional that are the same characters (皮卡丘) show once.
+	if (languages.includes('zh-tw') && tables['zh-hant'] && tables['zh-hant'][n] && !(languages.includes('zh-cn') && tables['zh-hans'] && tables['zh-hans'][n] === tables['zh-hant'][n])) {
 		out.push({lang: 'zh-Hant', text: tables['zh-hant'][n]});
 	}
 
@@ -403,7 +404,7 @@ function screen(root, source, listId, dexParam) {
 				saveChoice(FILTER_KEY, value);
 				draw();
 			}, type: 'radio', value}),
-			h('span', null, label)
+			h('span', {'data-label': label}, label)
 		))
 	);
 	const finishSwitch = h('input', {checked: everyFinish, id: 'pc-finishes', role: 'switch', type: 'checkbox'});
@@ -672,6 +673,7 @@ function screen(root, source, listId, dexParam) {
 
 		drawHead(counts);
 		drawStatus(counts);
+		segmentCounts(filterControl, loaded ? Object.fromEntries(FILTERS.map(({value}) => [value, allStates.filter((state) => passesFilter(state, value, everyFinish)).length])) : null);
 		sections.replaceChildren(...blocks);
 
 		// The grid on screen, in this order and with this filter, is the

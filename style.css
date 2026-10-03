@@ -1180,6 +1180,11 @@ select {
 .logo-text {
 	color: var(--muted);
 	font-weight: 700;
+	line-height: 1.2;
+	max-height: 64px;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	text-align: center;
 }
 
 .set-name {

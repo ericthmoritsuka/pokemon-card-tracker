@@ -86,6 +86,7 @@
 }
 
 .pc-language-choice input {
+	flex: none;
 	height: 22px;
 	margin: 0;
 	width: 22px;

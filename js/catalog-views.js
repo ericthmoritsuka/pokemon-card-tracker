@@ -21,7 +21,7 @@ import {speciesNames} from './checklists.js';
 import {onChange, ownedBySet, ownedIn, sourceNames} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
-import {BASE, errorText, h} from './dom.js';
+import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
@@ -401,7 +401,13 @@ export function setsView(root) {
 		const total = set.cardCount.total ?? set.cardCount.official;
 		const logo = h('div', {class: 'logo'});
 		const src = logoImage(set.logo);
-		const noLogo = () => logo.replaceChildren(h('span', {class: 'logo-text'}, set.id));
+		const name = h('span', {class: 'set-name'}, set.name);
+		// Without a logo the name stands in for it, large, and is not said
+		// again underneath (Q-12).
+		const noLogo = () => {
+			logo.replaceChildren(h('span', {class: 'logo-text'}, set.name));
+			name.hidden = true;
+		};
 
 		if (src) {
 			const img = h('img', {alt: '', decoding: 'async', loading: 'lazy'});
@@ -432,7 +438,7 @@ export function setsView(root) {
 
 		return link(routeTo('sets', lang, set.id), {class: 'set-tile'},
 			logo,
-			h('span', {class: 'set-name'}, set.name),
+			name,
 			h('span', {class: 'set-foot'}, h('span', {class: 'set-meta'}, set.id), progress)
 		);
 	}
@@ -443,7 +449,7 @@ export function setsView(root) {
 		}
 
 		const query = search.value.trim().toLowerCase();
-		const matches = (set) => !query || set.name.toLowerCase().includes(query) || set.id.toLowerCase().includes(query);
+		const matches = (set) => !query || set.name.toLowerCase().includes(query) || set.id.toLowerCase().includes(query) || (set.code && set.code.toLowerCase().includes(query));
 		let groups;
 
 		if (sort.value === 'name') {
@@ -471,9 +477,9 @@ export function setsView(root) {
 		}
 
 		if (lang === 'ko') {
-			children.push(
+			children.unshift(
 				h('div', {class: 'notice'},
-					h('p', null, 'Korean sets in this catalog end at the SV5 era. Newer Korean cards, such as M4 and M6, use the Japanese sets, which have the same set codes.'),
+					h('p', null, 'Korean sets in this catalog end at the SV5 era. Your Korean copies of newer cards, from Scarlet & Violet on (such as M4 and M6), live under the Japanese sets, which have the same set codes, and show there as "Owned in KO".'),
 					h('button', {type: 'button', onclick: () => changeLanguage('ja')}, 'Show Japanese sets')
 				)
 			);
@@ -602,7 +608,7 @@ export function setView(root, {lang, setId}) {
 					draw(...shown);
 				}
 			}, type: 'radio', value}),
-			h('span', null, label)
+			h('span', {'data-label': label}, label)
 		))
 	);
 
@@ -631,6 +637,7 @@ export function setView(root, {lang, setId}) {
 		const have = sorted.filter((card) => owned.has(card.id)).length;
 
 		meta.textContent += ` · ${have} / ${sorted.length} owned`;
+		segmentCounts(filter, {all: sorted.length, missing: sorted.length - have, owned: have});
 		drawStats(set, sorted).catch(() => {
 			// No statistics this time; the set itself is unaffected.
 		});
