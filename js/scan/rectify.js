@@ -768,6 +768,20 @@ function unturn({x, y}, degrees, {height, width}) {
 	};
 }
 
+// The four corners (top left, top right, bottom right, bottom left) in
+// `img`'s own coordinates of the box warpCrop(img, -angle, rect) cuts: for
+// drawing the box on the capture (the scan report's capture image).
+export function rectQuad(img, rect, angle = 0) {
+	const radians = (angle * Math.PI) / 180;
+	const cos = Math.cos(radians);
+	const sin = Math.sin(radians);
+	const cx = img.width / 2;
+	const cy = img.height / 2;
+	const at = (x, y) => ({x: cx + (x - cx) * cos - (y - cy) * sin, y: cy + (x - cx) * sin + (y - cy) * cos});
+
+	return [at(rect.x, rect.y), at(rect.x + rect.w, rect.y), at(rect.x + rect.w, rect.y + rect.h), at(rect.x, rect.y + rect.h)];
+}
+
 // Cuts `rect` (in the coordinates of `img` turned by `degrees` about its
 // centre) out of `img`, scaled by `scale`, in one bilinear pass.
 export function warpCrop(img, degrees, rect, scale = 1) {
@@ -1045,6 +1059,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		angle: Math.round(angle * 10) / 10,
 		card: warpCrop(img, -angle, rect, out),
 		found: true,
+		foundTop: foundTop === null ? null : Math.round(foundTop),
 		guessed,
 		note,
 		// The width over the height of the box the edges made, before the

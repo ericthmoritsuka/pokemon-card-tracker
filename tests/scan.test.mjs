@@ -13,7 +13,8 @@ import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {knownFrom, localPrint, pictureMatch, pictureVerdict} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
-import {rectify} from '../js/scan/rectify.js';
+import {captureCaption, captureStamp} from '../js/scan/image.js';
+import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
@@ -1853,9 +1854,10 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 
 		S.applyRead(session, western.id, read('135', '167', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
 		S.applyPicture(session, western.id, {candidates: [en], card: en, sure: true}, AT);
-		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), false, 'an international record cannot hold a Korean copy, and Portuguese is not applied');
-		assert.equal(western.language, null);
-		assert.equal(S.languageChoices(western)[0], 'ko');
+		assert.equal(S.defaultLanguage(session, western.id, 'pt', AT, {asian: 'ko'}), true, 'no Asian print shares the picture: the last Western pick (version 26)');
+		assert.equal(western.language, 'pt');
+		assert.equal(S.languageChoices(western)[0], 'pt');
+		assert.match(S.reportText(western, {at: AT}), /no Latin label was read, but no Japanese, Korean, or Chinese print shares this picture/);
 	});
 
 	test('a background label read with no Latin text takes a Western default back', () => {
@@ -1876,9 +1878,80 @@ describe('the language of a card the picture settled (Eric, 2026-10-03)', () => 
 
 		S.applyPicture(session, lone.id, {candidates: [en], card: en, sure: true}, AT);
 		S.defaultLanguage(session, lone.id, 'pt', AT, {asian: 'ko'});
-		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), true);
-		assert.equal(lone.language, null, 'no print to hold it: asked');
-		assert.equal(S.blocker(lone), 'language');
+		assert.equal(S.applyLabel(session, lone.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), false);
+		assert.equal(lone.language, 'pt', 'no Asian print shares the picture: the Western pick stands (version 26)');
+		assert.notEqual(S.blocker(lone), 'language');
+	});
+
+	// Misty's Vitality me05-080, a Portuguese Trainer on Eric's phone (version
+	// 26): picture sure, label row read nothing, and it went Korean.
+	const misty = {id: 'me05-080', lang: 'en', localId: '080', name: 'Misty\'s Vitality', official: 84, setId: 'me05'};
+	const mistyJa = {id: 'M5-099', lang: 'ja', localId: '099', name: 'Misty JA', official: 90, setId: 'M5'};
+
+	test('a Trainer whose label row read nothing keeps the Western pick (Misty\'s Vitality, version 26)', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(item.language, 'pt');
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0, text: ''}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), false);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+		assert.notEqual(item.languageHint, 'non-latin');
+		assert.match(S.reportText(item, {at: AT}), /no Latin label was read, but a Trainer card has no weakness row to read/);
+
+		const grouped = S.addCapture(session, AT);
+
+		S.applyPicture(session, grouped.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, grouped.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, grouped.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), false, 'even with an Asian print in the group');
+		assert.equal(grouped.language, 'pt');
+	});
+
+	test('an Asian print in another picture group does not count, only the card\'s own group', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+		const other = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+
+		S.applyPicture(session, item.id, {candidates: [misty, other], card: misty, groupLangs: ['en'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko'}), false);
+		assert.equal(item.language, 'pt');
+	});
+
+	test('a Trainer left with no language takes the Western pick once its label row reads nothing', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, AT);
+
+		S.applyRead(session, item.id, read('80', '84', {code: 'non-latin', confidence: 0.5, source: 'no Latin label read'}), AT);
+		S.applyPicture(session, item.id, {candidates: [misty, mistyJa], card: misty, groupLangs: ['en', 'ja'], sure: true}, AT);
+		assert.equal(S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'}), false, 'category not known yet, an Asian print in the group');
+		assert.equal(item.language, null);
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Trainer', western: 'pt'}), true);
+		assert.equal(item.language, 'pt');
+		assert.equal(item.languageBy, 'default');
+	});
+
+	test('an Eevee-like group with a Japanese print and no Latin row still goes Asian; a full-art one only leads with the Asian chips', () => {
+		const session = S.newSession(AT, 's1');
+		const en = {category: 'Pokemon', id: 'sv06-135', lang: 'en', localId: '135', name: 'Eevee', official: 167, setId: 'sv06'};
+		const ja = {id: 'SV5a-050', lang: 'ja', localId: '050', name: 'Eevee JA', official: 66, setId: 'SV5a'};
+		const item = S.addCapture(session, AT);
+
+		S.applyPicture(session, item.id, {candidates: [en, ja], card: en, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, item.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, item.id, {code: null, confidence: 0}, AT, {asian: 'ko', category: 'Pokemon', western: 'pt'}), true);
+		assert.equal(item.language, 'ko');
+		assert.equal(item.languageHint, 'non-latin');
+
+		const full = S.addCapture(session, AT);
+
+		S.applyPicture(session, full.id, {candidates: [{...en, full: true}, ja], card: {...en, full: true}, groupLangs: ['en', 'ja'], sure: true}, AT);
+		S.defaultLanguage(session, full.id, 'pt', AT, {asian: 'ko'});
+		assert.equal(S.applyLabel(session, full.id, {code: null, confidence: 0}, AT, {asian: 'ko', western: 'pt'}), false);
+		assert.equal(full.language, 'pt', 'weak: the Western default stays');
+		assert.equal(S.languageChoices(full)[0], 'ko', 'but the Asian chips lead');
 	});
 
 	test('the report says the label was read when it was (Skrelp, version 25)', () => {
@@ -1990,5 +2063,81 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 
 		S.applyPicture(session, item.id, {candidates: [], card: {...card, id: 'me04-091', localId: '091'}, sure: true}, AT);
 		assert.equal(item.variants, null, 'another card loads its own');
+	});
+});
+
+describe('a number whose slash read as another character (Palafin, Eric\'s phone, version 26)', () => {
+	test('two 3-digit groups with one character between them split into number and total', () => {
+		const palafin = E.misreadNumbers('Rd 10227084 k 9) | aa 92026 Pakémon/Nintendo/Cre');
+
+		assert.deepEqual(palafin.map((m) => `${m.numberPrinted}/${m.totalPrinted}`), ['022/084']);
+		assert.equal(palafin[0].misread, true);
+		assert.deepEqual(E.misreadNumbers('023 7086').map((m) => `${m.number}/${m.total}`), ['23/86']);
+		assert.deepEqual(E.misreadNumbers('045l120 | 0451120').map((m) => `${m.number}/${m.total}`), ['45/120']);
+		assert.deepEqual(E.misreadNumbers('©2024 2025 Pokémon'), [], 'a copyright year is no number');
+		assert.deepEqual(E.misreadNumbers('Pokémon 1995'), []);
+	});
+
+	test('a split whose total is a known set total comes first', () => {
+		assert.deepEqual(E.misreadNumbers('a 1012217 b 0127086').map((m) => `${m.number}/${m.total}`), ['101/217', '12/86']);
+		assert.deepEqual(E.misreadNumbers('a 1012217 b 0127086', [86]).map((m) => `${m.number}/${m.total}`), ['12/86', '101/217']);
+	});
+
+	const sets = {
+		'en|me05': {cardCount: {official: 84}, cards: [{id: 'me05-022', localId: '022', name: 'Palafin'}, {id: 'me05-080', localId: '080', name: 'Misty\'s Vitality'}], name: 'M5'},
+		'en|sv01': {cardCount: {official: 198}, cards: [{id: 'sv01-089', localId: '089', name: 'Drifloon'}], name: 'Scarlet & Violet'},
+	};
+	const api = {setDetail: async (lang, set) => sets[`${lang}|${set}`] || null};
+	const card = (id, set, score) => ({catalog: 'en', id, image: `https://assets/${id}`, score, set});
+	const misread = (text) => {
+		const misreads = E.misreadNumbers(text);
+
+		return {misreads, number: {...misreads[0], confidence: 0.3, side: 'left'}};
+	};
+
+	test('a weak picture takes the split that names one of its cards', async () => {
+		const picture = {gap: 2, groups: [{cards: [card('sv01-089', 'sv01', 75)], score: 75}, {cards: [card('me05-022', 'me05', 77)], score: 77}]};
+		const found = await pictureMatch(picture, misread('Rd 10227084 k 9)'), 'pt', {api});
+
+		assert.equal(found.card.id, 'me05-022');
+		assert.equal(found.sure, false, 'a misread number never makes the card sure alone');
+	});
+
+	test('a split never stands against a sure picture match', async () => {
+		const picture = {gap: 41, groups: [{cards: [card('me05-080', 'me05', 33)], score: 33}, {cards: [card('sv01-089', 'sv01', 74)], score: 74}]};
+		const found = await pictureMatch(picture, misread('Rd 10227084 k 9)'), 'pt', {api});
+
+		assert.equal(found.card.id, 'me05-080');
+		assert.equal(found.sure, true);
+		assert.equal(found.disagree, false);
+	});
+
+	test('the read line says the slash was misread', () => {
+		const summary = S.summariseRead({...misread('023 7086'), language: {code: 'pt', confidence: 0.5}});
+
+		assert.equal(summary.number.misread, true);
+		assert.match(S.readLine(summary), /number: 023\/086 \(slash misread\)/);
+	});
+});
+
+describe('the capture images for the scan report (Eric, version 26)', () => {
+	test('a box cut at an angle is drawn where it sits on the capture', () => {
+		const img = {height: 200, width: 100};
+
+		assert.deepEqual(rectQuad(img, {h: 100, w: 50, x: 25, y: 50}, 0), [{x: 25, y: 50}, {x: 75, y: 50}, {x: 75, y: 150}, {x: 25, y: 150}]);
+
+		const turned = rectQuad(img, {h: 100, w: 50, x: 25, y: 50}, 90).map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
+
+		assert.deepEqual(turned, [{x: 100, y: 75}, {x: 100, y: 125}, {x: 0, y: 125}, {x: 0, y: 75}]);
+	});
+
+	test('file names carry the time, and the caption names the crop, the guessed edge, and the read', () => {
+		assert.equal(captureStamp(new Date(2026, 9, 3, 14, 5, 9)), '20261003-140509');
+		assert.deepEqual(captureCaption({guessed: 'top', main: [], picture: {distance: 75, gap: 2.1}, regions: ['numberLeft', 'numberRight', 'label'], won: {how: 'the guide'}}), [
+			'Crop that won: the guide',
+			'Edge worked out (dashed): top',
+			'Picture: distance 75, lead 2.1; read: numberLeft, numberRight, label',
+		]);
+		assert.equal(captureCaption({guessed: null, main: null, picture: null, regions: [], won: {how: 'the frame as it is', quad: null}})[1], 'No card edges found');
 	});
 });

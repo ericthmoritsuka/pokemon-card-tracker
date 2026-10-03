@@ -169,6 +169,7 @@ export function summariseRead(read) {
 		number: number
 			? {
 				confidence: number.confidence,
+				...(number.misread ? {misread: true} : {}),
 				number: number.number,
 				numberPrinted: number.numberPrinted,
 				setCodeRun: number.setCodeRun || '',
@@ -177,6 +178,7 @@ export function summariseRead(read) {
 				totalPrinted: number.totalPrinted,
 			}
 			: null,
+		...(number && number.misread && read.misreads && read.misreads.length ? {misreads: read.misreads.slice(0, 4).map((m) => ({number: m.number, numberPrinted: m.numberPrinted, total: m.total, totalPrinted: m.totalPrinted}))} : {}),
 		partial: partial ? {number: partial.number || null, total: partial.total || null} : null,
 		script: (read && read.script) || null,
 		wizards: Boolean(read && read.wizards),
@@ -201,7 +203,7 @@ export function readLine(read, {setName = null} = {}) {
 	}
 
 	if (read.number) {
-		parts.push(`number: ${read.number.numberPrinted}/${read.number.totalPrinted}`);
+		parts.push(`number: ${read.number.numberPrinted}/${read.number.totalPrinted}${read.number.misread ? ' (slash misread)' : ''}`);
 	}
 	else if (read.partial && (read.partial.number || read.partial.total)) {
 		parts.push(`number: ${read.partial.number || '?'}/${read.partial.total || '?'}`);
@@ -379,6 +381,8 @@ export function judgeMatch(read, candidates, partial = false, names = []) {
 }
 
 const cardOf = (candidate) => ({
+	...(candidate.category ? {category: candidate.category} : {}),
+	...(candidate.full ? {full: true} : {}),
 	catalog: catalogFor(candidate.lang),
 	id: candidate.id,
 	image: candidate.image || null,
@@ -463,6 +467,10 @@ export function applyPicture(session, id, found, now = nowIso()) {
 	if (same) {
 		Object.assign(item, same);
 	}
+
+	// The languages of the picture's own group (the lead artwork, not the
+	// other groups shown after it): whether an Asian print shares this art.
+	item.groupLangs = Array.isArray(found.groupLangs) ? found.groupLangs : null;
 
 	if (!item.languageBy && !item.language && found.card && ['ja', 'zh-tw', 'zh-cn'].includes(found.card.lang)) {
 		item.languageHint = 'non-latin';
@@ -575,13 +583,22 @@ export function defaultLanguage(session, id, code, now = nowIso(), {asian = null
 		return false;
 	}
 
-	const noLatin = item.languageHint === 'non-latin';
+	const evidence = item.languageHint === 'non-latin' ? asianEvidence(item) : null;
+	const noLatin = Boolean(evidence && evidence.level);
+
+	if (evidence && !evidence.level) {
+		// Nothing but a missing label points to an Asian print: Western it is.
+		item.languageHint = null;
+		item.labelIgnored = evidence.why;
+	}
 
 	if (noLatin && asian) {
 		item.asianGuess = asian;
 	}
 
-	const pick = noLatin ? asian : code;
+	// A weak sign (a full-art card, whose row sits over the art) orders the
+	// Asian chips first but keeps a Western pick its record can hold.
+	const pick = !noLatin || (evidence.level === 'weak' && catalogFits(code, item.card.catalog)) ? code : asian;
 
 	if (!isScanLanguage(pick) || !catalogFits(pick, item.card.catalog)) {
 		touch(session, now);
@@ -599,6 +616,35 @@ export function defaultLanguage(session, id, code, now = nowIso(), {asian = null
 // Whether a label read found no Latin text at all.
 const noLatinText = (label) => Boolean(label) && (!label.code || label.code === 'non-latin');
 
+// TCGdex's categories for cards with no weakness and resistance row.
+const NO_LABEL_ROW = /^(trainer|energy|dresseur|entrenador|allenatore|treinador|energie|energ[ií]a|[eé]nergie|トレーナー|エネルギー)/i;
+
+// The languages of the card's picture group: the picture's own group when
+// the match came from the picture, otherwise the card and its candidates.
+const groupLangs = (item) => (item.groupLangs && item.groupLangs.length ? item.groupLangs : [item.card && item.card.lang, ...(item.candidates || []).map((c) => c && c.lang)].filter(Boolean));
+
+// Whether a label row that read no Latin text says the card is a Japanese,
+// Korean, or Chinese print: {level, why}. level 'strong' for a Pokémon
+// whose picture group holds an Asian print; 'weak' when that Pokémon is
+// full art (its row is printed over the art, where it often reads
+// nothing); null when nothing else points to an Asian print: a Trainer or
+// an Energy (no weakness row to read; Misty's Vitality on Eric's phone,
+// version 26, went Korean), or a group with no Asian print at all. A
+// category not known yet counts as a Pokémon.
+export function asianEvidence(item) {
+	const category = item.card && item.card.category;
+
+	if (category && NO_LABEL_ROW.test(category)) {
+		return {level: null, why: `a ${category} card has no weakness row to read`};
+	}
+
+	if (!groupLangs(item).some((lang) => ASIAN_LANGUAGES.includes(lang))) {
+		return {level: null, why: 'no Japanese, Korean, or Chinese print shares this picture'};
+	}
+
+	return item.card && item.card.full ? {level: 'weak', why: 'a full-art card, whose row is printed over the art'} : {level: 'strong', why: null};
+}
+
 // The label row, read in the background for a card whose language was a
 // default: {code, confidence}. A clear read (LANGUAGE_SURE) of a language
 // whose prints the card's catalog holds replaces the default, or confirms
@@ -609,17 +655,52 @@ const noLatinText = (label) => Boolean(label) && (!label.code || label.code === 
 // otherwise in nothing, with the Asian chips first. Returns true when the
 // language changed (the caller looks the card up again when its record
 // cannot hold the new language: needsRematch).
-export function applyLabel(session, id, label, now = nowIso(), {asian = null} = {}) {
+export function applyLabel(session, id, label, now = nowIso(), {asian = null, category = null, western = null} = {}) {
 	const item = mustFind(session, id);
 
 	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || ''} : null;
 
-	if (item.languageBy === 'default' && noLatinText(label) && !ASIAN_LANGUAGES.includes(item.language)) {
+	if (category && item.card) {
+		item.card.category = category;
+	}
+
+	const open = item.languageBy === 'default' || (!item.languageBy && !item.language && Boolean(item.card));
+
+	if (open && noLatinText(label) && !ASIAN_LANGUAGES.includes(item.language)) {
+		const evidence = asianEvidence(item);
+
+		if (!evidence.level) {
+			// A missing label alone is no evidence: the Western pick stands, or
+			// is applied when the card had none.
+			item.languageHint = null;
+			item.labelIgnored = evidence.why;
+
+			const fits = !item.language && isScanLanguage(western) && !ASIAN_LANGUAGES.includes(western) && catalogFits(western, item.card.catalog);
+
+			if (fits) {
+				item.language = western;
+				item.languageBy = 'default';
+			}
+
+			touch(session, now);
+
+			return fits;
+		}
+
 		const guess = asian || 'ko';
-		const printed = (item.candidates || []).some((c) => c && c.lang && catalogFits(guess, catalogFor(c.lang)));
+		const printed = groupLangs(item).some((lang) => catalogFits(guess, catalogFor(lang)));
 
 		item.languageHint = 'non-latin';
 		item.asianGuess = guess;
+		item.labelIgnored = null;
+
+		if (evidence.level === 'weak' && item.language) {
+			// Asian chips first, the Western default kept.
+			touch(session, now);
+
+			return false;
+		}
+
 		item.language = printed ? guess : null;
 		item.languageBy = printed ? 'default' : null;
 		touch(session, now);
@@ -1321,6 +1402,10 @@ export function languageSource(item) {
 
 		if (check && check.code && check.code !== 'non-latin') {
 			return `${pick}; the label row read ${check.code} at ${Math.round((check.confidence || 0) * 100)} %, ${check.code === item.language ? 'which agrees' : 'too faint to change it'}`;
+		}
+
+		if (item.labelIgnored && (check || item.read)) {
+			return `${pick}; no Latin label was read, but ${item.labelIgnored}`;
 		}
 
 		if (check || item.languageHint === 'non-latin') {

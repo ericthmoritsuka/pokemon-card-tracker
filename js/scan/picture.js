@@ -216,6 +216,7 @@ async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
 		return {
 			agree: [],
 			conflicts: [],
+			...(card.full ? {full: true} : {}),
 			id: card.id,
 			image: (record && record.image) || (kept && kept.image) || card.image,
 			lang: langOf(card.catalog),
@@ -317,6 +318,26 @@ function languageFits(candidate, language) {
 // names none of its cards, so a card the index cannot have (a set with no
 // images yet) is still found by its number.
 //
+// The number to go by: the one read, or for a number whose slash read as
+// another character (read.misreads, Palafin "10227084" on Eric's phone,
+// version 26), the split whose number and total fit a candidate, else whose
+// total is a candidate's set total, else the reader's first. A split never
+// stands against a sure picture: it is dropped when no card of the
+// picture's group is near it.
+function misreadSettled(read, described, lead, verdict) {
+	const number = read && read.number && read.number.number ? read.number : null;
+
+	if (!number || !number.misread) {
+		return number;
+	}
+
+	const splits = (read.misreads && read.misreads.length ? read.misreads : [number]).map((split) => ({...number, ...split}));
+	const totals = new Set(described.map((c) => (c.official ? String(Number(c.official)) : null)).filter(Boolean));
+	const pick = splits.find((split) => described.some((c) => numberFits(c, split))) || splits.find((split) => totals.has(split.total)) || splits[0];
+
+	return verdict.sure && !lead.some((c) => numberNear(c, pick)) ? null : pick;
+}
+
 // asian: the last Asian language picked, for a card whose label row read
 // no Latin text (language 'non-latin'): the group's print in that language
 // comes first (a Korean copy is the Japanese record's), the text route
@@ -334,13 +355,13 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 	// the last Asian pick, to order by.
 	const language = said === 'non-latin' && ASIAN.includes(asian) ? asian : said;
 	const verdict = pictureVerdict(picture);
-	const number = read && read.number && read.number.number ? read.number : null;
 	const groups = (picture && picture.groups) || [];
 	const leadCards = groups[0] ? groups[0].cards : [];
 	const rest = groups.slice(1).map((group) => group.cards[0]).filter(Boolean);
 	const described = await describe([...leadCards, ...rest], api, {known, wait});
 	const lead = described.slice(0, leadCards.length);
 	const others = described.slice(leadCards.length);
+	const number = misreadSettled(read, described, lead, verdict);
 	const fitting = lead.filter((c) => languageFits(c, language));
 	const byNumber = (list) => list.filter((c) => numberFits(c, number));
 	const printed = number ? `${number.numberPrinted || number.number}${number.total ? `/${number.totalPrinted || number.total}` : ''}` : null;
@@ -348,7 +369,8 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 	// sets never on this phone): the view waits for signal rather than show
 	// bare ids.
 	const unnamed = lead.length > 0 && !lead.some((c) => c.named);
-	const done = (result) => ({candidates: [], card: null, disagree: false, hand: null, ms: Math.round(now() - started), sure: false, unnamed, why: null, ...result});
+	const groupLangs = [...new Set(lead.map((c) => c.lang))];
+	const done = (result) => ({candidates: [], card: null, disagree: false, groupLangs, hand: null, ms: Math.round(now() - started), sure: false, unnamed, why: null, ...result});
 
 	// The lead group's own order: the number read first, then the language,
 	// then, with no Asian language known, the international record before a
