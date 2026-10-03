@@ -12,6 +12,29 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-03
+
+- **07:55** Version 23: the second round of audit fixes. `b0bbbd1`
+  - **Scanner:** a card held turned up to about 20 degrees is found and captured on its own, and
+    stripes or a blank sheet no longer pass as a card. Every scanned card has a **Scan report**
+    you can copy and send (the phone, each step's time, what each read got, the cards
+    considered), and **Pick a photo** reads a card from your gallery. The language chips start
+    with Portuguese and English.
+  - **Copies:** each row of Your copies has a "− N +" stepper (tap the number to type a count),
+    and a binder's pocket sheet has one too. Removing saves at once, and Undo brings back the
+    same copies with their photos and binder pockets.
+  - **Family view:** Sets, set pages, and card pages show the member's own cards, with no edit
+    buttons. The "Whose cards" sheet shows each person's favorite Pokémon and closes with Back.
+  - **Sign-in:** if the server stops accepting your session, the app says "Sign in again" and
+    keeps your waiting changes. A photo that did not upload says why, with Retry and Remove in
+    Profile.
+  - **Faster:** hand ticks on a list are instant, My Cards updates in place after an edit
+    instead of reloading, family wishlists download only the wishlists, and a change from another
+    phone no longer downloads your whole collection again. Offline, a Portuguese or French card
+    whose image is not saved shows its English art.
+  - **The Scan button** is a Poké Ball that follows your theme: Nest, Repeat, Dive, Quick,
+    Master, Sport, Dusk, Heavy, Ultra, Premier, or Heal Ball, and the red Poké Ball by default.
+
 ### 2026-10-02
 
 - **11:08** Version 22: the first round of audit fixes. `0b718b7`

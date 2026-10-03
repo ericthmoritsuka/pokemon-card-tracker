@@ -30,7 +30,11 @@
 
 ## Status
 
-Updated 2026-10-02 with version 22 (`0b718b7`).
+Updated 2026-10-03 with version 23 (`b0bbbd1`). v23 added block F, block J (except the optional sw.js part of E-20), most of block I (Q-16, Q-21, stripes, the benchmark in `lab/bench/`, plus a scan report and Pick a photo), N-07 (copy stepper), and N-08 (Poké Ball Scan disc).
+
+Still open after v23: block C, block H, the remaining Low items, Q-19 (rejecting paper on the shutter, Move closer), Q-20 (re-adding the same card after a return), full-art number reads (the Ampharos SIR's outlined digits), the artwork-first recognizer (prototype in progress), the sw.js per-folder CORS memory for E-20, a Profile switch for the scan report, and `sheets-browser`, which flakes two random tests per run on this machine (v22 too).
+
+Earlier status, with version 22 (`0b718b7`):
 
 **Done in v22:**
 - **Block A:** all items.
