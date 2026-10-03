@@ -1,0 +1,37 @@
+/* The Trade view (js/trade-view.js), the Spares button on My Cards, and the
+   favorite star on tiles and card pages. */
+
+/* The favorite star sits bottom-right, left of a status badge when a tile
+   has one. */
+.badge-fav {
+	background: var(--badge-paper);
+	bottom: var(--space-1);
+	color: var(--badge-ink);
+	right: var(--space-1);
+	text-transform: none;
+}
+
+.badge-fav:has(~ .badge-status) {
+	right: calc(var(--space-1) * 2 + 20px);
+}
+
+.view-head .view-head-link {
+	align-items: center;
+	flex: none;
+	width: auto;
+	display: inline-flex;
+	justify-content: center;
+	text-decoration: none;
+}
+
+/* The star toggle on a card page. */
+.favorite-toggle {
+	align-items: center;
+	display: inline-flex;
+	gap: var(--space-1);
+	min-height: var(--target);
+}
+
+.favorite-toggle[aria-pressed="true"] {
+	font-weight: 600;
+}

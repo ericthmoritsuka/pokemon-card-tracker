@@ -21,6 +21,7 @@
 //   language     the copies' language code
 //   rarity       TCGdex's English rarity
 //   unplaced     true when a copy is in no binder yet
+//   favorite     true when a copy is a favorite
 //   priced       false when a copy has no price
 //   price        the tile's value in reais, or null
 //   newest, oldest  ISO times the copies were added
@@ -65,9 +66,12 @@ export const SORTS = [
 
 // Every filter the bar knows, in the order the sheet shows them. dex is a
 // Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'price', 'unplaced'];
+export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'price', 'unplaced', 'favorite'];
 
-export const emptyFilters = () => ({category: '', dex: '', language: '', price: '', rarity: '', region: '', set: '', type: '', unplaced: false});
+// The filters that are a checkbox, not a choice.
+export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
+
+export const emptyFilters = () => ({category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', type: '', unplaced: false});
 
 export const MAX_DEX = REGIONS[REGIONS.length - 1].last;
 
@@ -163,6 +167,7 @@ export const matchesQuery = (item, {dex, words}) => matchesWords(item, words) &&
 
 const matchers = {
 	category: (item, value) => item.category === value,
+	favorite: (item, value) => !value || item.favorite === true,
 	dex: (item, value) => {
 		const range = dexRange(value);
 
@@ -222,6 +227,7 @@ export function filterOptions(items) {
 	};
 	const maps = {category: new Map(), language: new Map(), rarity: new Map(), region: new Map(), set: new Map(), type: new Map()};
 	let unplaced = 0;
+	let favorite = 0;
 	let unpriced = 0;
 	let priced = 0;
 
@@ -239,6 +245,7 @@ export function filterOptions(items) {
 		count(maps.language, item.language, languageLabel(item.language));
 		count(maps.rarity, item.rarity, item.rarity);
 		unplaced += item.unplaced === true ? 1 : 0;
+		favorite += item.favorite === true ? 1 : 0;
 		unpriced += item.priced === false ? 1 : 0;
 		priced += item.priced === true ? 1 : 0;
 	}
@@ -253,6 +260,7 @@ export function filterOptions(items) {
 		region: inOrder(maps.region, REGION_OPTIONS.map((region) => ({label: region.label, value: region.id}))),
 		set: [...maps.set.values()].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate) || collator.compare(a.label, b.label)),
 		type: inOrder(maps.type, ENERGIES.map((energy) => ({label: energy.name, value: energy.name}))),
+		favorite,
 		unplaced,
 	};
 }
@@ -280,8 +288,8 @@ function readChoice(storageKey, legacy) {
 	for (const kind of FILTERS) {
 		const value = saved && saved.filters ? saved.filters[kind] : undefined;
 
-		if (kind === 'unplaced') {
-			filters.unplaced = value === true;
+		if (BOOLEAN_FILTERS.includes(kind)) {
+			filters[kind] = value === true;
 		}
 		else if (typeof value === 'string') {
 			filters[kind] = value;
@@ -344,7 +352,7 @@ export function filterBar({
 
 	for (const kind of FILTERS) {
 		if (!offered.includes(kind)) {
-			state.filters[kind] = kind === 'unplaced' ? false : '';
+			state.filters[kind] = BOOLEAN_FILTERS.includes(kind) ? false : '';
 		}
 	}
 
@@ -404,6 +412,10 @@ export function filterBar({
 	// --------------------------------------------------- the active chips
 
 	const labelOf = (kind, value) => {
+		if (kind === 'favorite') {
+			return 'Favorites';
+		}
+
 		if (kind === 'unplaced') {
 			return 'Not in a binder';
 		}
@@ -453,7 +465,7 @@ export function filterBar({
 				'aria-label': `Remove filter ${labelOf(kind, state.filters[kind])}`,
 				class: 'chip fb-chip',
 				'data-filter': kind,
-				onclick: () => setFilter(kind, kind === 'unplaced' ? false : ''),
+				onclick: () => setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : ''),
 				type: 'button',
 			}, h('span', null, labelOf(kind, state.filters[kind])), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
 			active.length > 1 ? h('button', {class: 'chip fb-clear', onclick: clearFilters, type: 'button'}, 'Clear all') : null,
@@ -467,7 +479,7 @@ export function filterBar({
 	let showButton = null;
 
 	function setFilter(kind, value) {
-		state.filters[kind] = kind === 'unplaced' ? value === true : String(value || '');
+		state.filters[kind] = BOOLEAN_FILTERS.includes(kind) ? value === true : String(value || '');
 		changed('filter');
 		drawSheet();
 	}
@@ -595,6 +607,15 @@ export function filterBar({
 
 		if (kind === 'price') {
 			return select('price', 'Price', 'Priced or not', options.price);
+		}
+
+		if (kind === 'favorite') {
+			const star = h('input', {checked: state.filters.favorite, id: `${id}-f-favorite`, onchange: () => setFilter('favorite', star.checked), type: 'checkbox'});
+
+			return h('div', {class: 'fb-field fb-check', 'data-filter': 'favorite'},
+				star,
+				h('label', {for: star.id}, `Favorites only (${options.favorite.toLocaleString('en-US')})`)
+			);
 		}
 
 		const box = h('input', {checked: state.filters.unplaced, id: `${id}-f-unplaced`, onchange: () => setFilter('unplaced', box.checked), type: 'checkbox'});
