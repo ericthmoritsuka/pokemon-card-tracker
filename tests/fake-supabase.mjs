@@ -46,6 +46,9 @@ export class FakeSupabase {
 		this.gates = [];
 		this.sockets = [];
 		this.changeIds = 0;
+		// true: a change carries the whole row, doc included, as the real
+		// server sends a row under Realtime's max_record_bytes (1 MB).
+		this.realtimeDocs = false;
 	}
 
 	// A password makes it an account that signs in with one, as an account
@@ -211,7 +214,7 @@ export class FakeSupabase {
 			}
 
 			if (url.pathname.startsWith('/rest/v1/')) {
-				return await this.rest(route, request, url, body);
+				return await this.rest(route, request, url, body, entry);
 			}
 		}
 		catch (err) {
@@ -439,8 +442,11 @@ export class FakeSupabase {
 	// A postgres_changes event for a documents row, sent to every channel
 	// whose subscription matches and whose caller row-level security lets
 	// read the row. The record carries user_id and updated_at only, as the
-	// real server sends for a row too large for one message.
+	// real server sends for a row too large for one message, unless
+	// realtimeDocs is set and the row is under 1 MB: then doc comes too.
 	pushChange(row, type = 'UPDATE') {
+		const whole = this.realtimeDocs && JSON.stringify(row).length <= 1048576;
+
 		for (const socket of this.sockets) {
 			for (const [topic, join] of socket.joins) {
 				if (!this.canRead(join.caller, row.user_id)) {
@@ -457,13 +463,14 @@ export class FakeSupabase {
 					continue;
 				}
 
-				const record = {updated_at: row.updated_at, user_id: row.user_id};
+				const record = whole ? {doc: structuredClone(row.doc), updated_at: row.updated_at, user_id: row.user_id} : {updated_at: row.updated_at, user_id: row.user_id};
+				const columns = [{name: 'user_id', type: 'uuid'}, {name: 'updated_at', type: 'timestamptz'}];
 
 				this.wsSend(socket, [null, null, topic, 'postgres_changes', {
 					data: {
-						columns: [{name: 'user_id', type: 'uuid'}, {name: 'updated_at', type: 'timestamptz'}],
+						columns: whole ? [{name: 'doc', type: 'jsonb'}, ...columns] : columns,
 						commit_timestamp: row.updated_at,
-						errors: null,
+						errors: this.realtimeDocs && !whole ? ['Error 413: Payload Too Large'] : null,
 						old_record: type === 'INSERT' ? undefined : {user_id: row.user_id},
 						record,
 						schema: 'public',
@@ -478,7 +485,9 @@ export class FakeSupabase {
 
 	// ------------------------------------------------------------- rest
 
-	async rest(route, request, url, body) {
+	// entry.answered: the bytes of the rows answered, for tests that measure
+	// what a read downloads.
+	async rest(route, request, url, body, entry = {}) {
 		const caller = this.callerOf(request);
 		const path = url.pathname.slice('/rest/v1/'.length);
 		const method = request.method();
@@ -499,9 +508,24 @@ export class FakeSupabase {
 		}
 
 		const columns = (url.searchParams.get('select') || '*').split(',').map((column) => column.trim());
-		const pick = (row) => (columns[0] === '*' ? row : Object.fromEntries(columns.map((column) => [column, row[column]])));
+		// A column, or a JSON path in one with an alias as PostgREST reads
+		// it: "wishlist:doc->wishlist" answers {wishlist: row.doc.wishlist},
+		// null where the path is missing.
+		const value = (row, spec) => {
+			const [column, ...path] = spec.split(/->>?/);
+
+			return path.reduce((at, key) => (at && typeof at === 'object' && key in at ? at[key] : null), row[column]);
+		};
+		const pick = (row) => (columns[0] === '*' ? row : Object.fromEntries(columns.map((column) => {
+			const cut = column.indexOf(':');
+			const name = cut > 0 ? column.slice(0, cut) : column.split(/->>?/).pop();
+
+			return [name, value(row, cut > 0 ? column.slice(cut + 1) : column)];
+		})));
 		const rows = (list) => {
 			const picked = list.map(pick);
+
+			entry.answered = JSON.stringify(single ? picked[0] ?? null : picked).length;
 
 			if (single) {
 				return picked.length === 1

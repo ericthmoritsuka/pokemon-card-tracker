@@ -539,13 +539,14 @@ function refresh({warm = true} = {}) {
 			const {memberName} = await import('./account-views.js');
 			const overview = await sync.familyOverview({fresh: true});
 			const others = ((overview && overview.members) || []).filter((member) => member.user_id !== user.id);
+			// Each member's wishlist alone, never their whole document.
 			const members = await Promise.all(others.map(async (member) => {
-				const doc = await sync.memberDocument(member.user_id);
+				const items = await sync.memberWishes(member.user_id);
 
 				return {
 					name: memberName(member),
 					user_id: member.user_id,
-					wishlist: sortWishes(((doc && doc.wishlist) || []).filter((item) => item && item.id)),
+					wishlist: sortWishes((items || []).filter((item) => item && item.id)),
 				};
 			}));
 
@@ -564,8 +565,8 @@ function refresh({warm = true} = {}) {
 	return refreshing;
 }
 
-// Reads every other family member's document from the server and keeps their
-// wishlists on the phone: [{user_id, name, wishlist}]. Returns the saved
+// Reads every other family member's wishlist from the server and keeps them
+// on the phone: [{user_id, name, wishlist}]. Returns the saved
 // copy when the phone is offline, signed out, or the server did not answer.
 export const refreshFamilyWishlists = async (options) => (await refresh(options)).members;
 
@@ -597,11 +598,21 @@ export async function familyWishlists() {
 }
 
 // Keeps the cache fresh while the app runs: now, whenever the connection
-// comes back, and when someone signs in. Returns the stop function.
+// comes back, and when someone signs in, each time only when the saved copy
+// is more than ten minutes old, as for the scanner (E-18). Returns the stop
+// function.
 export function keepFamilyWishlistsCached() {
 	let stopUser = () => {};
 	const refresh = () => {
-		refreshFamilyWishlists().catch(() => {});
+		cachedFamilyWishlists()
+			.then((saved) => {
+				if (!saved.at || Date.now() - saved.at > REFRESH_AFTER_MS) {
+					return refreshFamilyWishlists();
+				}
+
+				return null;
+			})
+			.catch(() => {});
 	};
 
 	window.addEventListener('online', refresh);
