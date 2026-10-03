@@ -12,6 +12,7 @@ import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {pictureMatch, pictureVerdict} from '../js/scan/picture.js';
+import {layoutGuide} from '../js/scan/camera.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -1339,7 +1340,7 @@ describe('picture first (Eric, 2026-10-03)', () => {
 	test('one card well ahead is the card, with no text read', async () => {
 		const picture = {gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
 
-		assert.deepEqual(pictureVerdict(picture), {clear: true, several: false, sure: true});
+		assert.deepEqual(pictureVerdict(picture), {clear: true, close: true, several: false, sure: true});
 
 		const found = await pictureMatch(picture, null, null, {api});
 
@@ -1422,5 +1423,150 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		assert.equal(item.card.lang, 'ja');
 		assert.equal(S.blocker(item), null);
 		assert.deepEqual(S.entriesToSave(session, new Map())[0].fields, {card_id: 'M6-047', catalog: 'ja', fallback: true, language: 'ko', language_source: 'scan', variant_id: null});
+	});
+});
+
+describe('the guide on the screen and the capture around it (Eric, 2026-10-03)', () => {
+	// Eric's phone: 384 CSS px wide, the rear camera 2160 x 3840 portrait,
+	// and the video area above the tray a few hundred pixels tall.
+	const frame = {height: 3840, width: 2160};
+
+	test('the whole guide is inside the part of the video that shows, with a margin, at 63:88', () => {
+		for (const height of [380, 410, 440, 470, 560]) {
+			const stage = {height, width: 384};
+			const {capture, guide, scale, screen} = layoutGuide(frame, stage);
+
+			assert.ok(screen.y >= 13.9 && screen.y + screen.h <= height - 13.9, `${height}: top ${screen.y}, bottom ${screen.y + screen.h}`);
+			assert.ok(screen.x >= 13.9 && screen.x + screen.w <= 384 - 13.9, `${height}: left ${screen.x}`);
+			assert.ok(Math.abs(screen.w / screen.h - 63 / 88) < 0.001);
+			// Never larger than the lab's guide, 0.86 of the frame's width.
+			assert.ok(guide.w <= 2160 * 0.86 + 1, `${height}: guide ${guide.w}`);
+
+			// The guide in frame pixels is the screen guide through the cover
+			// scale: drawn back, it lands where the outline is.
+			const offsetY = (height - frame.height * scale) / 2;
+
+			assert.ok(Math.abs(guide.y * scale + offsetY - screen.y) < 1, `${height}: guide maps back`);
+			// The capture holds the guide with room on every side, inside the
+			// frame.
+			assert.ok(capture.x >= 0 && capture.y >= 0 && capture.x + capture.w <= frame.width && capture.y + capture.h <= frame.height);
+			assert.ok(guide.y - capture.y >= guide.h * 0.09 && capture.y + capture.h - (guide.y + guide.h) >= guide.h * 0.09, `${height}: room above and below`);
+			assert.ok(guide.x - capture.x >= Math.min(guide.w * 0.09, guide.x) - 1, `${height}: room beside`);
+		}
+	});
+
+	test('a short stage gives a smaller guide, not one cut off under the tray', () => {
+		const short = layoutGuide(frame, {height: 410, width: 384});
+		const tall = layoutGuide(frame, {height: 560, width: 384});
+
+		assert.ok(short.screen.h <= 410 - 28);
+		assert.ok(short.guide.h < tall.guide.h);
+		// The lab's guide was about 461 px tall here whatever the stage.
+		assert.ok(tall.screen.h > 455 && tall.screen.h < 462, `${tall.screen.h}`);
+	});
+
+	test('a landscape camera in a portrait stage keeps the guide on the drawn video', () => {
+		const {screen, visible} = layoutGuide({height: 1080, width: 1920}, {height: 450, width: 360});
+
+		assert.ok(screen.y >= visible.y && screen.y + screen.h <= visible.y + visible.h);
+		assert.ok(screen.x >= visible.x && screen.x + screen.w <= visible.x + visible.w);
+	});
+});
+
+describe('a weak picture with an edge worked out tries the box moved (Eric, 2026-10-03)', () => {
+	// A synthetic capture: table 70, card border 215, body 180, and a busy
+	// art box. lostTop: the card's top fifth is the colour of the table
+	// (glare, or a light border on a light table), so its top edge is not
+	// found where a card's shape puts it.
+	function capture({lostTop = false} = {}) {
+		const W = 520;
+		const H = 726;
+		const cw = W / 1.2;
+		const ch = cw * 88 / 63;
+		const x0 = (W - cw) / 2;
+		const y0 = (H - ch) / 2;
+		const top = lostTop ? 0.2 : 0;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const u = (x - x0) / cw;
+				const v = (y - y0) / ch;
+				let value = 70;
+
+				if (v >= top && v < 1 && u >= 0 && u < 1) {
+					if (u < 0.04 || u > 0.96 || v > 0.97 || (!lostTop && v < 0.03)) {
+						value = 215;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.25 && v < 0.48) {
+						value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
+					}
+					else {
+						value = 180;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {data, height: H, width: W};
+	}
+
+	test('the top edge is reported as guessed, with crops moved up and down to try', () => {
+		const straight = rectify(capture({lostTop: true}));
+
+		assert.ok(straight.found, straight.note);
+		assert.equal(straight.guessed, 'top');
+		assert.ok(straight.variants.length >= 2, `${straight.variants.length} variants`);
+		assert.ok(straight.variants.some((v) => /up/.test(v.how)) && straight.variants.some((v) => /down/.test(v.how)));
+
+		const moved = straight.variant(straight.variants[0], 402);
+
+		assert.equal(moved.height, 402);
+		assert.ok(Math.abs(moved.width / moved.height - 63 / 88) < 0.006);
+	});
+
+	test('a card with all four edges found has nothing guessed and no variants', () => {
+		const straight = rectify(capture());
+
+		assert.ok(straight.found, straight.note);
+		assert.equal(straight.guessed, null);
+		assert.deepEqual(straight.variants, []);
+	});
+});
+
+describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
+	const card = (id, score) => ({catalog: 'en', id, image: null, score, set: id.split('-')[0]});
+	const picture = (score, gap, cards = 1) => ({gap, groups: [{cards: Array.from({length: cards}, (_, i) => card(`me04-0${10 + i}`, score)), score}, {cards: [card('sv01-001', score + gap)], score: score + gap}]});
+
+	test('close with a clear lead is sure; a good capture was about 30 away', () => {
+		assert.equal(pictureVerdict(picture(29.2, 42.7)).sure, true);
+		assert.equal(pictureVerdict(picture(31.6, 30.4)).sure, true);
+		assert.equal(pictureVerdict(picture(45, 10)).sure, true);
+	});
+
+	test('between 45 and 60 the lead counts, but only the number makes it sure', () => {
+		const verdict = pictureVerdict(picture(52, 20));
+
+		assert.equal(verdict.clear, true);
+		assert.equal(verdict.sure, false);
+	});
+
+	test('past 60 nothing is clear, whatever the lead: that is a wrong crop', () => {
+		for (const [score, gap] of [[68.5, 3.5], [68.4, 1.4], [76.1, 0.1], [65, 25]]) {
+			const verdict = pictureVerdict(picture(score, gap));
+
+			assert.equal(verdict.clear, false, `${score}`);
+			assert.equal(verdict.sure, false, `${score}`);
+		}
+	});
+
+	test('a one-card group past SURE_DISTANCE with no number read is shown, not sure', async () => {
+		const api = {setDetail: async () => ({cardCount: {official: 100}, cards: [{id: 'me04-010', localId: '010', name: 'Card'}], name: 'Set'})};
+		const found = await pictureMatch(picture(52, 20), null, 'pt', {api});
+
+		assert.equal(found.card.id, 'me04-010');
+		assert.equal(found.sure, false);
 	});
 });

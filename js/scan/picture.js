@@ -25,6 +25,24 @@ import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
 export {AUTO_GAP};
 
+// How close the first group must be for the picture to count at all, and
+// for it to settle the card alone. Measured on real captures (Eric's
+// phone, version 24, 2026-10-03): the right card was 29.2 and 31.6 away
+// when the crop was right, and 68.4 to 76.1 away when an edge was wrong,
+// with leads of 0.1 to 3.5, and once (me04-007, distance 68.5) still first.
+// On the benchmark (240 simulated captures) the right card's distance is
+// 9.8 at the median, 29.8 at the 90th percentile, and 37.9 at the 95th;
+// the three wrong first places were 66.9 to 78.3 away. So:
+//
+// - SURE_DISTANCE: at or under 45, a lead of AUTO_GAP settles a one-card
+//   group with no text. Between 45 and 60 the picture is probably right
+//   (four benchmark glare reads, all right) but not certain, so the
+//   number is read to confirm it.
+// - CLEAR_DISTANCE: above 60 nothing is clear, whatever the lead: that
+//   distance is a wrong crop, and a lead there means nothing.
+export const SURE_DISTANCE = 45;
+export const CLEAR_DISTANCE = 60;
+
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
 
 let indexPromise = null;
@@ -80,30 +98,39 @@ const GROUP_CARDS = 8;
 
 // The match as the tray card keeps it (small enough to store with the
 // draft): {gap, groups: [{score, cards: [{id, catalog, set, image, score}]}]}.
-export function compactPicture(matched, {how = null} = {}) {
+// how: the crop the fingerprint chose, when not the box as found; variants:
+// the moved crops tried for an edge worked out (identify.js), and before
+// the first crop's distance when one of them won.
+export function compactPicture(matched, {before = null, how = null, variants = []} = {}) {
 	return {
+		before: typeof before === 'number' && Number.isFinite(before) ? Math.round(before * 10) / 10 : null,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
 			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, id, image, score, set}) => ({catalog, id, image, score, set})),
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
+		variants: variants.length ? variants : undefined,
 	};
 }
 
-// What the picture alone says: sure (one card, a clear lead), several
-// (a clear lead, but the group holds more than one card), or neither (the
-// lead is small).
+// What the picture alone says: sure (one card, close, with a clear lead),
+// several (a clear lead, but the group holds more than one card), or
+// neither (the lead is small, or the first group is too far away to mean
+// anything: CLEAR_DISTANCE). A clear one-card group between SURE_DISTANCE
+// and CLEAR_DISTANCE is not sure: its number is read to confirm it.
 export function pictureVerdict(picture) {
 	const lead = picture && picture.groups && picture.groups[0];
 
 	if (!lead) {
-		return {clear: false, several: false, sure: false};
+		return {clear: false, close: false, several: false, sure: false};
 	}
 
-	const clear = picture.gap === null || picture.gap >= AUTO_GAP;
+	const near = typeof lead.score !== 'number' || lead.score <= CLEAR_DISTANCE;
+	const clear = near && (picture.gap === null || picture.gap >= AUTO_GAP);
+	const close = typeof lead.score !== 'number' || lead.score <= SURE_DISTANCE;
 
-	return {clear, several: clear && lead.cards.length > 1, sure: clear && lead.cards.length === 1};
+	return {clear, close, several: clear && lead.cards.length > 1, sure: clear && close && lead.cards.length === 1};
 }
 
 // Whether text has to be read for this picture: anything short of one card
@@ -288,7 +315,8 @@ export async function pictureMatch(picture, read, language, {api = {setDetail: i
 		const narrowed = matches.length ? matches.filter((c) => languageFits(c, language)) : fitting;
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || Boolean(language && language !== 'non-latin')});
+			// Past SURE_DISTANCE only the number read makes it sure.
+			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(language && language !== 'non-latin'))});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

@@ -16,7 +16,7 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail, thumbnailFrame} from './camera.js';
+import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
@@ -88,6 +88,10 @@ export function scanView(root) {
 	// Photos picked from the gallery, whose sheet opens once looked up.
 	const openWhenMatched = new Set();
 	const detector = createAutoCapture();
+	// Where the guide is (camera.js layoutGuide): on the screen, and the
+	// guide and capture area in the camera's frame. Laid out again when the
+	// screen or the camera's frame changes size.
+	let geometry = null;
 	const thumbCanvas = document.createElement('canvas');
 
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
@@ -121,8 +125,9 @@ export function scanView(root) {
 		}
 	}});
 
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, status, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
-		h('div', {class: 'scan-stage'}, video, guide, status, cameraOff),
+		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
 			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, setAllButton), photoInput),
@@ -630,10 +635,11 @@ export function scanView(root) {
 			return;
 		}
 
+		const area = currentGeometry();
 		const grabbed = performance.now();
-		const frame = grabFrame(video);
+		const frame = grabFrame(video, area && area.capture);
 		const captureMs = Math.round(performance.now() - grabbed);
-		const thumb = thumbnail(video, thumbCanvas);
+		const thumb = thumbnail(video, thumbCanvas, area && area.capture);
 
 		detector.captured(thumb);
 		scanStats.captures++;
@@ -660,7 +666,7 @@ export function scanView(root) {
 		// app closing starts again next time.
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved});
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -726,7 +732,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, photo = false, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, photo = false, straight = false} = {}) {
 		let result;
 
 		try {
@@ -802,7 +808,7 @@ export function scanView(root) {
 		}
 
 		item.timings = {...result.timings};
-		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, source: photo ? 'photo' : 'camera'});
+		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'});
 		item.picture = result.picture || null;
 		change(() => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
 
@@ -1057,23 +1063,53 @@ export function scanView(root) {
 
 	// ------------------------------------------------------------ the camera
 
+	// The guide inside the part of the video that shows (camera.js
+	// layoutGuide), so its whole outline is on the screen whatever the room
+	// above the tray.
 	function placeGuide() {
-		const {height, width} = camera.frame;
-		const box = guideBox(width, height);
-		const stage = video.getBoundingClientRect();
-		// The video covers the stage (object-fit: cover), so map frame
-		// fractions through the scale it is drawn at.
-		const scale = Math.max(stage.width / width, stage.height / height);
-		const drawnW = width * scale;
-		const drawnH = height * scale;
-		const offsetX = (stage.width - drawnW) / 2;
-		const offsetY = (stage.height - drawnH) / 2;
+		if (!camera || !video.videoWidth) {
+			return;
+		}
 
-		guide.style.left = `${offsetX + box.x * drawnW}px`;
-		guide.style.top = `${offsetY + box.y * drawnH}px`;
-		guide.style.width = `${box.w * drawnW}px`;
-		guide.style.height = `${box.h * drawnH}px`;
+		const box = stage.getBoundingClientRect();
+
+		if (!box.width || !box.height) {
+			return;
+		}
+
+		geometry = {...layoutGuide(camera.frame, box), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
+
+		const {screen: place} = geometry;
+
+		guide.style.left = `${place.x}px`;
+		guide.style.top = `${place.y}px`;
+		guide.style.width = `${place.w}px`;
+		guide.style.height = `${place.h}px`;
 		guide.hidden = false;
+	}
+
+	// The layout for the camera's frame as it is now (a phone turned, or the
+	// camera switching resolution, changes it between resizes).
+	function currentGeometry() {
+		if (camera && video.videoWidth && (!geometry || geometry.frame.width !== video.videoWidth || geometry.frame.height !== video.videoHeight)) {
+			placeGuide();
+		}
+
+		return geometry;
+	}
+
+	// The geometry as the scan report keeps it.
+	function geometryReport(area, how) {
+		const rect = (r) => `${Math.round(r.w)} x ${Math.round(r.h)} at ${Math.round(r.x)}, ${Math.round(r.y)}`;
+
+		return {
+			capture: rect(area.capture),
+			frame: `${area.frame.width} x ${area.frame.height}`,
+			guide: rect(area.guide),
+			how,
+			screen: rect(area.screen),
+			stage: `${area.stage.width} x ${area.stage.height}`,
+		};
 	}
 
 	function showCameraOff(err) {
@@ -1234,6 +1270,8 @@ export function scanView(root) {
 			camera = null;
 		}
 
+		geometry = null;
+
 		shutter.disabled = true;
 
 		if (wakeLock) {
@@ -1258,7 +1296,8 @@ export function scanView(root) {
 				return;
 			}
 
-			const shot = thumbnailFrame(video, thumbCanvas);
+			const area = currentGeometry();
+			const shot = thumbnailFrame(video, thumbCanvas, area && area.capture);
 
 			if (!shot) {
 				return;
@@ -1317,6 +1356,17 @@ export function scanView(root) {
 	window.addEventListener('online', onOnline);
 	window.addEventListener('offline', onOffline);
 	window.addEventListener('resize', onResize);
+	window.addEventListener('orientationchange', onResize);
+	// The stage changes size without the window doing so too (the tray
+	// growing, the browser's toolbar sliding away), and the camera's frame
+	// changes size when the phone turns.
+	const stageWatch = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null;
+
+	if (stageWatch) {
+		stageWatch.observe(stage);
+	}
+
+	video.addEventListener('resize', onResize);
 
 	const stopOwned = onChange(() => refreshOwned());
 
@@ -1364,6 +1414,13 @@ export function scanView(root) {
 		window.removeEventListener('online', onOnline);
 		window.removeEventListener('offline', onOffline);
 		window.removeEventListener('resize', onResize);
+		window.removeEventListener('orientationchange', onResize);
+
+		if (stageWatch) {
+			stageWatch.disconnect();
+		}
+
+		video.removeEventListener('resize', onResize);
 		document.documentElement.classList.remove('scan-open');
 
 		for (const url of photoUrls.values()) {

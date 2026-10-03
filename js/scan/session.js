@@ -1042,8 +1042,11 @@ function wordConfidence(result) {
 
 // What the read left for the report: result is js/scan/identify.js's
 // answer. captureMs: how long the capture took; source: 'camera' or
-// 'photo'; frame: the image's size, "width x height".
-export function reportOfRead(result, {captureMs = null, frame = null, source = 'camera'} = {}) {
+// 'photo'; frame: the image's size, "width x height"; geometry: where the
+// guide and the capture were (js/scan/view.js geometryReport: the camera's
+// frame, the stage, the guide on the screen, the guide and the capture in
+// the frame, and how the capture was taken), or null.
+export function reportOfRead(result, {captureMs = null, frame = null, geometry = null, source = 'camera'} = {}) {
 	const read = result.read || {};
 	const raw = read.raw || {};
 	const timings = read.timings || {};
@@ -1065,6 +1068,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, source = '
 		copyrightYear: read.copyrightYear || null,
 		fields,
 		frame,
+		geometry: geometry || null,
 		hp: read.hp && read.hp.value ? {after: Boolean(read.hp.after), value: read.hp.value} : null,
 		label: read.label ? {code: read.label.code || null, confidence: read.label.confidence || 0} : null,
 		language: read.language ? {code: read.language.code || null, confidence: read.language.confidence || 0, source: read.language.source || null} : null,
@@ -1087,10 +1091,12 @@ export function reportOfRead(result, {captureMs = null, frame = null, source = '
 		picture: result.picture
 			? {
 				fingerprintMs: result.timings ? result.timings.fingerprint ?? null : null,
+				before: result.picture.before ?? null,
 				gap: result.picture.gap,
 				groups: result.picture.groups.slice(0, 5).map((group) => ({cards: group.cards.slice(0, 4).map((c) => c.id), score: group.score})),
 				how: result.picture.how || null,
 				matchMs: result.timings ? result.timings.match ?? null : null,
+				variants: result.picture.variants || [],
 			}
 			: null,
 		partial: read.partial && (read.partial.number || read.partial.total) ? `${read.partial.number || '?'}/${read.partial.total || '?'}` : null,
@@ -1098,6 +1104,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, source = '
 			angle: result.angle ?? null,
 			card: result.card ? `${result.card.width}x${result.card.height}` : null,
 			found: Boolean(result.found),
+			guessed: result.guessed || null,
 			ms: result.timings ? result.timings.rectify : null,
 			note: result.note || null,
 			ratio: typeof result.ratio === 'number' ? result.ratio : null,
@@ -1177,10 +1184,22 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 
 	lines.push('', 'Steps');
 	lines.push(`- Source: ${report.source === 'photo' ? 'a photo picked from the gallery' : 'the camera'}${report.frame ? `, ${report.frame}` : ''}`);
-	lines.push(`- Capture: ${ms(report.captureMs)}`);
+	lines.push(`- Capture: ${ms(report.captureMs)}${report.geometry && report.geometry.how ? ` (${report.geometry.how === 'auto' ? 'taken automatically' : 'shutter'})` : ''}`);
+
+	if (report.geometry) {
+		const g = report.geometry;
+
+		lines.push(`- Guide: ${g.screen} on a ${g.stage} screen area; in the ${g.frame} frame, guide ${g.guide}, captured ${g.capture}`);
+	}
 
 	if (report.rectify) {
 		lines.push(`- Edges and straightening: ${ms(report.rectify.ms)}; ${report.rectify.found ? 'card edges found' : 'card edges NOT found'}${typeof report.rectify.angle === 'number' ? `, turned ${report.rectify.angle} degrees` : ''}${report.rectify.card ? `, card ${report.rectify.card} px` : ''}. ${report.rectify.note || ''}`.trim());
+	}
+
+	if (report.rectify && report.rectify.found) {
+		const guessed = report.rectify.guessed;
+
+		lines.push(`- Edges: ${guessed === 'top' ? 'left, right, and bottom found; top GUESSED (worked out from the width)' : guessed === 'bottom' ? 'all four found, but the box was too tall; snapped up from the bottom, which may be the wrong edge' : 'all four found'}`);
 	}
 
 	if (report.rectify && typeof report.rectify.ratio === 'number') {
@@ -1189,6 +1208,10 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 
 	if (report.picture) {
 		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}`);
+
+		if ((report.picture.variants || []).length) {
+			lines.push(`- Crops tried for the guessed edge: ${report.picture.variants.join(', ')}; ${report.picture.before !== null ? `${report.picture.how} won (the crop as found was ${report.picture.before} away)` : 'none beat the crop as found'}`);
+		}
 
 		for (const [index, group] of report.picture.groups.entries()) {
 			lines.push(`  ${index + 1}. ${group.cards.join(', ')}: distance ${group.score}`);
