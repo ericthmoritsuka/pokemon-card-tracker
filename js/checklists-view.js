@@ -10,7 +10,7 @@
 import {currentUser} from './auth.js';
 import {priceRecords} from './catalog.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h, listsSwitch, showError} from './dom.js';
+import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
@@ -600,7 +600,7 @@ function checklistScreen(root, source, id) {
 				saveChoice(FILTER_KEY, value);
 				drawList();
 			}, type: 'radio', value}),
-			h('span', null, label)
+			h('span', {'data-label': label}, label)
 		))
 	);
 
@@ -643,6 +643,7 @@ function checklistScreen(root, source, id) {
 		}
 
 		parts.push(`${formatCount(counts.missing)} missing`);
+		segmentCounts(filter, {all: counts.total, missing: counts.missing, owned: counts.ticked});
 		summary.textContent = `${parts.join(', ')}.`;
 	}
 

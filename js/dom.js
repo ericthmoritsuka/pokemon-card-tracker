@@ -96,6 +96,18 @@ export function h(tag, attrs, ...children) {
 	return el;
 }
 
+// The All, Owned, and Missing segments with their counts ("All 207",
+// "Owned 9", "Missing 198"): each segment's text is its label, then its
+// number from counts ({all, owned, missing}). The label is kept in
+// data-label, so a redraw never stacks a second number.
+export function segmentCounts(control, counts) {
+	for (const span of control.querySelectorAll('span[data-label]')) {
+		const n = counts && counts[span.closest('label').querySelector('input').value];
+
+		span.textContent = typeof n === 'number' ? `${span.dataset.label} ${n.toLocaleString('en-US')}` : span.dataset.label;
+	}
+}
+
 export function namedError(name, message) {
 	const err = new Error(message);
 

@@ -905,10 +905,8 @@ export function valueOf(entries, cardsById, options = {}) {
 	};
 }
 
-// The value a tile shows for its copies (one card, possibly several
-// copies): the newest Liga price among them, else the US estimate of the
-// first copy that has one. Returns copyValue's shape or null when unknown.
-export function tileValue(entries, card, {basis = 'avg', rates = null} = {}) {
+// The copy a tile's price comes from, and its value (see tileValue).
+function tilePick(entries, card, {basis = 'avg', rates = null} = {}) {
 	const live = (entries || []).filter((entry) => entry && !entry.deleted_at);
 	let liga = null;
 
@@ -921,16 +919,47 @@ export function tileValue(entries, card, {basis = 'avg', rates = null} = {}) {
 	}
 
 	if (liga) {
-		return copyValue(liga.entry, card, {basis, rates});
+		return {entry: liga.entry, value: copyValue(liga.entry, card, {basis, rates})};
 	}
 
 	for (const entry of live) {
 		const value = copyValue(entry, card, {basis, rates});
 
 		if (value.kind === 'estimate') {
-			return value;
+			return {entry, value};
 		}
 	}
 
 	return null;
+}
+
+// The value a tile shows for its copies (one card, possibly several
+// copies): the newest Liga price among them, else the US estimate of the
+// first copy that has one. Returns copyValue's shape or null when unknown.
+export function tileValue(entries, card, options = {}) {
+	const pick = tilePick(entries, card, options);
+
+	return pick ? pick.value : null;
+}
+
+// The finish a tile's price is for, such as "Reverse Holo", when the tile's
+// copies are of more than one finish; null when they are all one finish or
+// the finish cannot be told, as the price then needs no label.
+export function tileFinish(entries, card, options = {}) {
+	const live = (entries || []).filter((entry) => entry && !entry.deleted_at);
+	const finishes = extractPrices(card);
+	const keyOf = (entry) => {
+		const finish = finishOf(entry, finishes);
+
+		return finish ? finish.label : entry.variant_id || entry.finish_raw || '';
+	};
+
+	if (new Set(live.map(keyOf)).size < 2) {
+		return null;
+	}
+
+	const pick = tilePick(live, card, options);
+	const finish = pick ? finishOf(pick.entry, finishes) : null;
+
+	return finish ? finish.label : null;
 }

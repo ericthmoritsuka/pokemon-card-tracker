@@ -35,6 +35,7 @@ import {
 	roundCents,
 	savedEuroRates,
 	savedRates,
+	tileFinish,
 	tileValue,
 	TREND_MIN_BRL,
 	usdToBrl,
@@ -734,6 +735,17 @@ describe('listStats', () => {
 		assert.deepEqual(value.liga, {count: 2, total: 60});
 		assert.equal(value.estimated.count, 2);
 		assert.deepEqual(value.unknown, {count: 2});
+	});
+});
+
+describe('tileFinish', () => {
+	test('names the finish only when the copies are of several', () => {
+		const liga = {avg: 12, currency: 'BRL', date: '2026-09-20', low_nm: null, source: 'Liga Pokémon'};
+		const mixed = [entry({id: 'a', variant_id: V.reverse}), entry({id: 'b', price_manual: liga, variant_id: V.masterball})];
+
+		assert.ok(tileFinish(mixed, EXEGGCUTE, {rates: RATES}), 'a finish is named');
+		assert.equal(tileFinish([entry({variant_id: V.reverse}), entry({id: 'b', variant_id: V.reverse})], EXEGGCUTE, {rates: RATES}), null);
+		assert.equal(tileFinish([], EXEGGCUTE), null);
 	});
 });
 

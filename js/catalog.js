@@ -4,6 +4,8 @@
 // returned at once, and a fresh copy is fetched behind it (at most once an
 // hour per key). A set opened once therefore opens again with no signal.
 
+import {flagLanguageName} from './flags.js';
+
 const API = 'https://api.tcgdex.net/v2/';
 
 export const LANGUAGES = [
@@ -18,7 +20,9 @@ export const LANGUAGES = [
 
 export const isLanguage = (code) => LANGUAGES.some((lang) => lang.code === code);
 
-export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: code}).label;
+// German, Spanish, and Italian copies are not catalogs, but they have names
+// (js/flags.js), so they never show a raw code.
+export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: flagLanguageName(code)}).label;
 
 // Western-language prints share one international card record; Japanese,
 // Korean, and Chinese prints have their own catalogs (DESIGN.md section 3).
@@ -215,6 +219,17 @@ async function cached(key, load, onUpdate, {revalidate = true} = {}) {
 // Neither carries a set's release date, but the API sorts the set list by
 // it, so one more request gives every set its place in release order
 // (releaseRank 0 is the newest). Each series carries its own releaseDate.
+// The printed set codes of the international sets, which a set brief does
+// not carry (TCGdex keeps abbreviation.official on the full set record, one
+// request per set), so a collector can search "MEW" or "CRI". A brief that
+// does carry the abbreviation wins over this table.
+const PRINTED_CODES = {
+	me01: 'MEG', me02: 'PFL', 'me02.5': 'ASC', me03: 'POR', me04: 'CRI',
+	sv01: 'SVI', sv02: 'PAL', sv03: 'OBF', 'sv03.5': 'MEW', sv04: 'PAR', 'sv04.5': 'PAF', sv05: 'TEF', sv06: 'TWM', 'sv06.5': 'SFA', sv07: 'SCR', sv08: 'SSP', 'sv08.5': 'PRE', sv09: 'JTG', sv10: 'DRI', 'sv10.5b': 'BLK', 'sv10.5w': 'WHT',
+	swsh1: 'SSH', swsh2: 'RCL', swsh3: 'DAA', 'swsh3.5': 'CPA', swsh4: 'VIV', 'swsh4.5': 'SHF', swsh5: 'BST', swsh6: 'CRE', swsh7: 'EVS', swsh8: 'FST', swsh9: 'BRS', swsh10: 'ASR', 'swsh10.5': 'PGO', swsh11: 'LOR', swsh12: 'SIT', 'swsh12.5': 'CRZ',
+	sm1: 'SUM', sm2: 'GRI', sm3: 'BUS', 'sm3.5': 'SLG', sm4: 'CIN', sm5: 'UPR', sm6: 'FLI', sm7: 'CES', 'sm7.5': 'DRM', sm8: 'LOT', sm9: 'TEU', sm10: 'UNB', sm11: 'UNM', 'sm11.5': 'HIF', sm12: 'CEC',
+};
+
 async function loadSetList(lang) {
 	const [series, newestFirst] = await Promise.all([
 		getJson(`${lang}/series`),
@@ -230,6 +245,7 @@ async function loadSetList(lang) {
 		releaseDate: serie.releaseDate || null,
 		sets: (serie.sets || []).map((set) => ({
 			cardCount: set.cardCount || {},
+			code: (set.abbreviation && set.abbreviation.official) || PRINTED_CODES[set.id] || null,
 			id: set.id,
 			logo: set.logo || null,
 			name: set.name,
@@ -240,7 +256,7 @@ async function loadSetList(lang) {
 
 // The key carries a version: a list cached before series dates and ranks were
 // added sorts wrongly, so a new key makes every device fetch the dated one.
-export const setList = (lang, onUpdate) => cached(`setlist3:${lang}`, () => loadSetList(lang), onUpdate);
+export const setList = (lang, onUpdate) => cached(`setlist4:${lang}`, () => loadSetList(lang), onUpdate);
 
 export const setDetail = (lang, setId, onUpdate) =>
 	cached(`set:${lang}:${setId}`, () => getJson(`${lang}/sets/${encodeURIComponent(setId)}`), onUpdate);

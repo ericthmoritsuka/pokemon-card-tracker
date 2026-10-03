@@ -1180,6 +1180,11 @@ select {
 .logo-text {
 	color: var(--muted);
 	font-weight: 700;
+	line-height: 1.2;
+	max-height: 64px;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	text-align: center;
 }
 
 .set-name {
@@ -1210,7 +1215,9 @@ select {
 .card-grid {
 	display: grid;
 	gap: var(--space-2);
-	grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+	/* The minimum grows with the text size, so at 200% text the grid drops to
+	   two columns rather than squeezing names to "Mewt...". */
+	grid-template-columns: repeat(auto-fill, minmax(max(104px, 5.4rem), 1fr));
 	margin-top: var(--space-3);
 }
 
@@ -1985,7 +1992,15 @@ progress {
 .theme-option {
 	font-weight: 600;
 	margin: 0;
+	min-width: 0;
 	position: relative;
+}
+
+/* At 200% zoom a phone is 195 px wide: two swatches a row, not three. */
+@media (max-width: 260px) {
+	.theme-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
 }
 
 .theme-option input {
@@ -2005,6 +2020,7 @@ progress {
 	gap: var(--space-1);
 	justify-content: center;
 	min-height: 64px;
+	overflow-wrap: anywhere;
 	padding: 6px 4px;
 	text-align: center;
 }
@@ -2039,6 +2055,9 @@ progress {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
 	margin: 0 0 var(--space-3);
+	/* Every theme's preview is at least this tall, so the swatches below do
+	   not move when one is picked. */
+	min-height: 17rem;
 	overflow: hidden;
 }
 

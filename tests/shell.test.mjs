@@ -730,7 +730,9 @@ describe('the card tile', () => {
 
 		await page.goto(url('sets/en/tst1'));
 		await page.waitForSelector('.segmented');
-		assert.deepEqual(await page.locator('.segmented span').allTextContents(), ['All', 'Owned', 'Missing']);
+		assert.deepEqual(await page.locator('.segmented span').evaluateAll((spans) => spans.map((span) => span.dataset.label)), ['All', 'Owned', 'Missing']);
+		await page.waitForFunction(() => /^All \d/.test(document.querySelector('.segmented span').textContent));
+		assert.match((await page.locator('.segmented span').allTextContents()).join('|'), /^All \d+\|Owned \d+\|Missing \d+$/);
 
 		const source = await readFile(new URL('../js/checklists-view.js', import.meta.url), 'utf8');
 		const order = /const FILTERS = \[([\s\S]*?)\];/.exec(source)[1].match(/label: '(\w+)'/g).map((item) => item.slice(8, -1));

@@ -187,7 +187,7 @@ describe('prices in the app', () => {
 		await page.waitForSelector('.value-sheet[open] .price-stats');
 		assert.equal(plain(await page.locator('.value-sheet .vs-coverage').textContent()), 'Priced: 2 of 2 copies');
 		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of your collection');
-		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /1 card by Liga.*1 card by US estimate/);
+		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /1 copy by Liga.*1 copy by US estimate/);
 		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), '~R$ 4.952,24');
 		await page.keyboard.press('Escape');
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
@@ -228,7 +228,7 @@ describe('prices in the app', () => {
 		assert.ok(await page.evaluate(() => document.querySelector('.binder-head').nextElementSibling.id === 'binder-stats'), 'right under the binder\'s name');
 		assert.equal(await page.locator('#binder-stats .price-stats').getAttribute('aria-label'), 'Value of Vitrine');
 		assert.equal(plain(await page.locator('#binder-stats .price-stats-total').textContent()), 'R$ 4.852,30');
-		assert.match(plain(await page.locator('#binder-stats .price-stats-counts').textContent()), /2 cards by Liga.*0 cards by US estimate.*0 cards unknown/);
+		assert.match(plain(await page.locator('#binder-stats .price-stats-counts').textContent()), /2 copies by Liga.*0 copies by US estimate.*0 copies unknown/);
 		await noSideways(page, 'the binder');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-binder.png'});
 
@@ -260,8 +260,10 @@ describe('prices in the app', () => {
 			return text.replace(/^\uFEFF/, '').trim().split('\r\n').map((line) => line.split(';'));
 		});
 
-		assert.equal(rows[0][4], 'Set');
-		assert.equal(rows[0][6], 'Name');
+		assert.equal(rows[0][4], 'set');
+		assert.equal(rows[0][6], 'name');
+		assert.ok(rows[0].every((column) => /^[a-z]+(_[a-z]+)*$/.test(column)), 'one header style');
+		assert.equal(rows[0][16], 'currency');
 		assert.deepEqual([rows[1][4], rows[1][6], rows[1][7]], ['포켓몬 카드 151', '"이상해씨"', 'KO']);
 		assert.deepEqual([rows[2][4], rows[2][6]], ['ポケモンカード151', '"이상해씨"'], 'no set name from the source keeps the catalog\'s');
 		assert.deepEqual([rows[3][4], rows[3][6]], ['ポケモンカード151', '"フシギダネ"'], 'a Japanese copy keeps the Japanese name');

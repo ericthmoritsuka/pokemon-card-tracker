@@ -33,6 +33,7 @@ import {
 	parseBrl,
 	savedEuroRates,
 	savedRates,
+	tileFinish,
 	tileValue,
 	today,
 	usStyleAmount,
@@ -247,7 +248,14 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	// copy's language when one is given. With no finishes (a record without
 	// variants), every copy.
 	const group = () => {
-		const mine = selected ? ownedOf(selected) : finishes.length ? [] : copies;
+		let mine = selected ? ownedOf(selected) : finishes.length ? [] : copies;
+
+		// Copies whose finish cannot be told apart belong to no finish
+		// button, so with none of this finish a Liga price goes to them
+		// rather than nowhere.
+		if (!mine.length && finishes.length) {
+			mine = copies.filter((entry) => !finishOf(entry, finishes));
+		}
 
 		return language ? mine.filter((entry) => entry.language === language) : mine;
 	};
@@ -549,11 +557,15 @@ export function tilePrice(entries, card, {basis = 'avg', rates = savedRates()} =
 
 	const text = formatBrlCompact(value.brl);
 
+	// Copies of several finishes share one tile, so the price says whose it is.
+	const finish = tileFinish(entries, card, {basis, rates});
+	const note = finish ? `, ${finish}` : '';
+
 	if (value.kind === 'liga') {
-		return h('span', {class: 'price-tile', title: `Liga Pokémon, ${value.date || 'no date'}`}, text);
+		return h('span', {'aria-label': finish ? `${text}, Liga Pokémon${note}` : null, class: 'price-tile', title: `Liga Pokémon${note}, ${value.date || 'no date'}`}, text);
 	}
 
-	return h('span', {'aria-label': `About ${text}, US market estimate`, class: 'price-tile price-tile-estimate', title: 'Estimated from the US market (TCGplayer)'},
+	return h('span', {'aria-label': `About ${text}, US market estimate${note}`, class: 'price-tile price-tile-estimate', title: `Estimated from the US market (TCGplayer)${note}`},
 		h('span', {'aria-hidden': 'true'}, `~${text}`),
 		h('span', {'aria-hidden': 'true', class: 'price-tile-us'}, 'US')
 	);
@@ -600,9 +612,9 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 		}
 
 		parts.push(h('p', {class: 'price-stats-counts'},
-			h('span', {class: 'price-count-liga'}, `${plural(stats.liga.count, 'card', 'cards')} by Liga`),
-			h('span', {class: 'price-count-estimate'}, `${plural(stats.estimate.count, 'card', 'cards')} by US estimate (~)`),
-			h('span', {class: 'price-count-unknown'}, `${plural(stats.unknown.count, 'card', 'cards')} unknown`)
+			h('span', {class: 'price-count-liga'}, `${plural(stats.liga.count, 'copy', 'copies')} by Liga`),
+			h('span', {class: 'price-count-estimate'}, `${plural(stats.estimate.count, 'copy', 'copies')} by US estimate (~)`),
+			h('span', {class: 'price-count-unknown'}, `${plural(stats.unknown.count, 'copy', 'copies')} unknown`)
 		));
 
 		const notes = [];
@@ -616,7 +628,7 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 		}
 
 		if (stats.unknown.noRate) {
-			notes.push(notes.length ? ' ' : '', `${plural(stats.unknown.noRate, 'card has', 'cards have')} a US price but no exchange rate is saved on this phone yet.`);
+			notes.push(notes.length ? ' ' : '', `${plural(stats.unknown.noRate, 'copy has', 'copies have')} a US price but no exchange rate is saved on this phone yet.`);
 		}
 
 		if (notes.length) {

@@ -375,7 +375,8 @@ describe('every card of a Pokémon', () => {
 		assert.deepEqual({card: wishes[0].card_id, catalog: wishes[0].catalog, language: wishes[0].language, variant: wishes[0].variant_id}, {card: 'xy1-87', catalog: 'international', language: 'pt', variant: null});
 
 		// All, Owned, Missing, in that order, remembered.
-		assert.deepEqual(await page.locator('#pc-filter label').allTextContents(), ['All', 'Owned', 'Missing']);
+		assert.deepEqual(await page.locator('#pc-filter span').evaluateAll((spans) => spans.map((span) => span.dataset.label)), ['All', 'Owned', 'Missing']);
+		assert.match((await page.locator('#pc-filter label').allTextContents()).join('|'), /^All \d+\|Owned \d+\|Missing \d+$/);
 		await page.click('#pc-filter label:has-text("Missing")');
 		assert.equal((await cellIds(page)).length, 34);
 		await page.reload();

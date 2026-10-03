@@ -152,6 +152,19 @@ describe('more checked rules', () => {
 	});
 });
 
+describe('Japanese promos', () => {
+	test('SM1p to SM5p are regular sets with a total; SV-P and M-P are promos', () => {
+		assert.equal(ligaQuery({catalog: 'ja', localId: '025', name: 'Pikachu', official: 51, setId: 'SM1p', setName: 'Sun & Moon'}), 'Pikachu (025/051)');
+		assert.equal(ligaQuery({catalog: 'ja', localId: '12', name: 'Pikachu', official: 114, setId: 'SM4p', setName: 'Test set'}), 'Pikachu (12/114)');
+		assert.equal(ligaQuery({catalog: 'ja', localId: '001', name: 'Pikachu', official: 0, setId: 'SV-P', setName: 'Scarlet & Violet Promotional Cards'}), 'Pikachu (001)');
+		assert.equal(ligaQuery({catalog: 'ja', localId: '001', name: 'Pikachu', official: 0, setId: 'M-P', setName: 'Promos'}), 'Pikachu (001)');
+		assert.equal(isPromoSet('SM1p', 'Test', 'ja'), false);
+		assert.equal(isPromoSet('SV-P', 'Test', 'ja'), true);
+		assert.equal(isPromoSet('SV1S', 'スカーレットex', 'ja'), false);
+		assert.equal(isPromoSet('svp', 'Test'), true, 'the English rule is unchanged');
+	});
+});
+
 describe('ligaUrl encoding', () => {
 	const cases = [
 		[{localId: '20', name: 'Reshiram & Charizard GX', official: 214}, 'Reshiram & Charizard-GX (20/214)', 'Reshiram%20%26%20Charizard-GX%20(20%2F214)'],

@@ -70,7 +70,10 @@ function cardBack({name, number, setName}, missing) {
 // Card art in the 63:88 card shape. It shimmers while the image loads and
 // turns into the card-back tile if the image fails, after trying the English
 // image of a Portuguese or French card (englishImage).
-export function cardArt(info, src, {eager = false} = {}) {
+//
+// decorative: the name is already in text beside the art (a tile), so the
+// image has an empty alt and a screen reader does not say the name twice.
+export function cardArt(info, src, {decorative = false, eager = false} = {}) {
 	const frame = h('div', {class: 'art loading'});
 
 	if (!src) {
@@ -84,7 +87,7 @@ export function cardArt(info, src, {eager = false} = {}) {
 	// Access-Control-Allow-Origin twice, which fails a CORS request outright.
 	// The service worker still tries CORS first (see sw.js).
 	const img = h('img', {
-		alt: info.name,
+		alt: decorative ? '' : info.name,
 		decoding: 'async',
 		height: 88,
 		loading: eager ? 'eager' : 'lazy',
@@ -259,6 +262,7 @@ function statusBadge(code, label) {
 // viewing null shows every language (a picker choosing one physical copy).
 export function tileArt({
 	count = 0,
+	decorative = false,
 	eager = false,
 	finish = null,
 	info,
@@ -268,7 +272,7 @@ export function tileArt({
 	statusLabel = null,
 	viewing = null,
 }) {
-	const frame = h('div', {class: 'art-wrap'}, cardArt(info, src, {eager}));
+	const frame = h('div', {class: 'art-wrap'}, cardArt(info, src, {decorative, eager}));
 	const flags = [...new Set(languages.filter((code) => code && code !== viewing))];
 
 	if (flags.length) {
@@ -318,7 +322,7 @@ export function cardTile({
 	const classes = ['tile', className].filter(Boolean).join(' ');
 	const nameNodes = typeof names === 'string' ? [h('span', {class: 'tile-name'}, names)] : names;
 	const children = [
-		tileArt(art),
+		tileArt({decorative: true, ...art}),
 		...nameNodes,
 		meta === null || meta === '' ? null : h('span', {class: 'tile-meta'}, meta),
 		price ? h('span', {class: 'tile-price'}, price) : null,
