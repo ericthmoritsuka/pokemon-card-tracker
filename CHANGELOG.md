@@ -14,6 +14,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **13:14** Version 27: scanner fixes from your tests. `de41a48`
+  - A Trainer or Energy card keeps your last Western language when its label row reads nothing
+    (those cards have no weakness row). A missing label points to Japanese, Korean, or Chinese
+    only for a Pokémon whose picture matches an Asian print.
+  - A collector number whose slash was misread as a digit ("022/084" read as "10227084") is now
+    understood. It never overrides a sure picture match.
+  - The scan report can save capture images: the straightened card and the whole capture, with
+    the edges, the crop used, and the read areas drawn on, for the last few scans.
+
 - **12:27** Version 26. `adc0e7b`
   - **Scanner:** on a light table it finds the card's own edge instead of the silver border's
     inner line, which made crops too narrow; it also tries the guide frame itself and slightly
