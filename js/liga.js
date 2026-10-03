@@ -19,12 +19,20 @@ const GENDER = /\s*[♀♂]/g;
 
 export const ligaName = (name) => String(name).replace(GENDER, '').replace(SUFFIX, '-$1');
 
-// A promo set: its TCGdex ID ends in "p" (swshp, svp, smp) or its name says
-// Promo. Liga finds a promo by its number alone, with no total.
-export const isPromoSet = (setId, setName) =>
+// A promo set. An English set's TCGdex ID ends in "p" (swshp, svp, smp) or
+// its name says Promo. A Japanese set ID ends in "-P" (SV-P, M-P, SM-P); the
+// lowercase "p" there marks a regular expansion (SM1p to SM5p). Liga finds a
+// promo by its number alone, with no total. `catalog` is the catalog's
+// language ("ja" for the Japanese one), and anything else reads as English.
+export const isPromoSet = (setId, setName, catalog) => {
+	if (catalog === 'ja') {
+		return (typeof setId === 'string' && /-P$/.test(setId)) || (typeof setName === 'string' && /promo|プロモ/i.test(setName));
+	}
+
 	// Trainer kits (tk-ex-p, tk-xy-p) end in "p" for Plusle and Pikachu, not
 	// promo, and keep their total.
-	(typeof setId === 'string' && /p$/.test(setId) && !setId.startsWith('tk-')) || (typeof setName === 'string' && /promo/i.test(setName));
+	return (typeof setId === 'string' && /p$/.test(setId) && !setId.startsWith('tk-')) || (typeof setName === 'string' && /promo/i.test(setName));
+};
 
 // The total is written the way the card prints it. A lettered subset number
 // (GG44, TG03) puts the same letters on the total, "GG44/GG70", because
@@ -42,7 +50,7 @@ function printedTotal(localId, official) {
 // given (never padded or unpadded) over the set's cardCount.official, or
 // "Charizard-V (SWSH050)" for a promo. Null when any part is missing, so no
 // wrong query is ever built.
-export function ligaQuery({localId, name, official, setId, setName} = {}) {
+export function ligaQuery({catalog, localId, name, official, setId, setName} = {}) {
 	if (typeof name !== 'string' || !name.trim()) {
 		return null;
 	}
@@ -53,7 +61,7 @@ export function ligaQuery({localId, name, official, setId, setName} = {}) {
 
 	const liga = ligaName(name);
 
-	if (isPromoSet(setId, setName)) {
+	if (isPromoSet(setId, setName, catalog)) {
 		return `${liga} (${localId})`;
 	}
 

@@ -1157,6 +1157,7 @@ export function cardView(root, {lang, cardId}) {
 		const names = shownNames(card);
 		const href = !source && priceLanguage() === 'ja' && names.english
 			? ligaUrl({
+				catalog: 'ja',
 				localId: card.localId,
 				name: names.english,
 				official: set.cardCount && set.cardCount.official,
