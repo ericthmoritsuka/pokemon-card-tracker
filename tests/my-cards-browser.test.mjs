@@ -792,3 +792,89 @@ describe('saves patch the screen', () => {
 		await context.close();
 	});
 });
+
+describe('card images', () => {
+	const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+	const IMAGE = 'https://assets.tcgdex.net/{lang}/tst/tsa1/004/low.webp';
+
+	// Draws one card art with the app's tile.js and waits for it to settle:
+	// the image shown, or the card back.
+	const art = (page, src) => page.evaluate(async (url) => {
+		const {cardArt} = await import('/pokemon-card-tracker/js/tile.js');
+		const frame = cardArt({name: 'Test Charmander', number: '004', setName: 'Test Alpha'}, url, {eager: true});
+
+		document.body.append(frame);
+
+		for (let i = 0; i < 100 && frame.classList.contains('loading'); i++) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		const img = frame.querySelector('img');
+
+		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
+	}, src);
+
+	test('the English image stands in for a Portuguese one that is not on the phone, offline', async () => {
+		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
+		const net = {offline: false};
+
+		await fakeServices(context, {cards: CARDS});
+		await fakePokeApi(context);
+		// English images send their CORS header once, Portuguese ones twice
+		// (which a browser rejects in cors mode, as TCGdex does today).
+		await context.route('https://assets.tcgdex.net/**', (route) => {
+			const request = route.request();
+
+			// A route still answers while the context is offline, so it
+			// fails the request itself, as the network would.
+			if (net.offline) {
+				return route.abort('internetdisconnected');
+			}
+
+			if (request.url().includes('/en/')) {
+				return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': '*'}, status: 200});
+			}
+
+			return route.fulfill({status: 404});
+		});
+
+		const page = await context.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err.message));
+		await page.goto(`${server.origin}${BASE}check`);
+		await page.evaluate(() => navigator.serviceWorker.ready);
+		await page.reload();
+		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
+
+		// Online, the English image is seen once and kept by the worker.
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'en')), {back: false, fallback: null, shown: IMAGE.replace('{lang}', 'en')});
+
+		// Offline, the Portuguese image was never kept: the English art shows.
+		await context.setOffline(true);
+		net.offline = true;
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
+
+		// A French card the phone has neither image of shows the card back.
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'fr').replace('004', '006')), {back: true, fallback: 'en', shown: null});
+
+		// A Japanese image has no English stand-in.
+		assert.deepEqual(await art(page, 'https://assets.tcgdex.net/ja/tst/TSJ1/025/low.webp'), {back: true, fallback: null, shown: null});
+		net.offline = false;
+		await context.setOffline(false);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('online, the English image stands in for a Portuguese one that fails', async () => {
+		const {context, errors, page} = await phone();
+
+		await context.route('https://assets.tcgdex.net/**', (route) => (route.request().url().includes('/en/')
+			? route.fulfill({body: PNG, contentType: 'image/webp', status: 200})
+			: route.fulfill({status: 404})));
+		await page.goto(`${server.origin}${BASE}check`);
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
