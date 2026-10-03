@@ -264,6 +264,7 @@ export function tileArt({
 	count = 0,
 	decorative = false,
 	eager = false,
+	favorite = false,
 	finish = null,
 	info,
 	languages = [],
@@ -281,6 +282,10 @@ export function tileArt({
 
 	if (count > 1) {
 		frame.append(h('span', {'aria-label': `${count} copies`, class: 'badge badge-qty', role: 'img'}, `×${count}`));
+	}
+
+	if (favorite) {
+		frame.append(h('span', {'aria-label': 'Favorite', class: 'badge badge-fav', role: 'img', title: 'Favorite'}, '★'));
 	}
 
 	const finishNode = finishBadge(finish);

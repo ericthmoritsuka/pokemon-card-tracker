@@ -1147,6 +1147,33 @@ the binder card picker, the tray, and the wishlist can reuse it:
   `@locale` directive, which returns their types and rarities in English. Each set's answer is
   kept, and asked again after a week only when an owned card was missing from it.
 
+### Trade and Favorites
+
+**The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, route `trade` (a member's, read only:
+`family/<id>/trade`). It is My Cards over the spares only, so it has the same bar (search,
+set, language, rarity, price sort, Favorites), the same tiles, and the Value sheet with its coverage
+line. It is reached from the Spares button beside My Cards' heading and from Profile ("Spares to
+trade"). Trade stays a query (section 3), never a stored list.
+
+- A spare is every copy beyond the first of the same card in the same language, whatever its
+  finish, counted with the same function a family wishlist uses (`sparesFor`, `js/wishlist.js`).
+  The copy kept is a favorite if one is marked, otherwise the one added first; the rest are the
+  spares. The default of one kept copy per card and language is not a setting.
+- One tile per card and language. The `×N` badge counts spares; the line under the name reads
+  "2 spares" with the spares' conditions, the finish badge keeps its corner, and the price is
+  the tile's usual one.
+- Empty state: says what a spare is (the Portuguese and English example) and links back to My
+  Cards. There is no filter bar over nothing.
+
+**Favorites** (Eric, 2026-10-03). A star button on the card page marks the card: it sets
+`is_favorite` on every one of your live copies of that card, in every language, and clears it from
+all of them on the next tap. The flag stays per copy in the data (section 4), so a merge keeps
+it field by field and a copy added later is not starred until the star is tapped again; a card
+counts as a favorite when any copy of it is. A tile (one card and language) shows a star in its
+bottom-right corner when any of its copies is a favorite. "Favorites only" is a filter in the
+shared bar, remembered like the others. A family member's stars show on their tiles and card
+pages, with nothing to press.
+
 ### Pack Openings
 
 An opening is a batch scan session with a product attached: "10 packs of Celebração de 30 Anos,

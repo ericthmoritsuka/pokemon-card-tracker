@@ -851,6 +851,7 @@ function dataCard() {
 	return h('section', {'aria-labelledby': 'data-heading', class: 'card', id: 'data-card'},
 		h('h3', {id: 'data-heading'}, 'Your data'),
 		h('div', {class: 'stack-links'},
+			h('a', {class: 'button', 'data-link': 'trade', href: `${BASE}trade`, id: 'profile-trade'}, 'Spares to trade'),
 			h('a', {class: 'button', 'data-link': 'import', href: `${BASE}import`, id: 'profile-import'}, 'Import from monprice'),
 			h('button', {id: 'profile-export', onclick: () => run(false), type: 'button'}, 'Export CSV'),
 			canShareFiles() ? h('button', {id: 'profile-share', onclick: () => run(true), type: 'button'}, 'Share CSV') : null

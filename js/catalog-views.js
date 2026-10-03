@@ -18,7 +18,7 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {speciesNames} from './checklists.js';
-import {onChange, ownedBySet, ownedIn, sourceNames} from './collection.js';
+import {onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
@@ -1394,6 +1394,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.replaceChildren(
 			h('div', {class: 'copies-head'},
 				h('h3', {id: 'copies-title'}, `${whose()} copies (${live.length})`),
+				favoriteControl(live),
 				readOnly ? null : addButton(card, variants)
 			),
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
@@ -1425,6 +1426,28 @@ export function cardView(root, {lang, cardId}) {
 				target.focus({preventScroll: true});
 			}
 		}
+	}
+
+	// The star: the card is a favorite when any copy is, in any language.
+	// Yours toggles all your copies of it (is_favorite on each, so a copy
+	// kept apart on another phone merges field by field); a member's card
+	// shows their star and nothing to press.
+	function favoriteControl(live) {
+		const on = live.some((entry) => entry.is_favorite === true);
+
+		if (readOnly) {
+			return on ? h('span', {class: 'favorite-mark', id: 'favorite-mark'}, '★ Favorite') : null;
+		}
+
+		return h('button', {
+			'aria-label': 'Favorite',
+			'aria-pressed': String(on),
+			class: 'small favorite-toggle',
+			id: 'favorite-toggle',
+			onclick: () => updateCards(live.map((entry) => ({id: entry.id, patch: {is_favorite: !on}}))).catch(() => {}),
+			title: on ? 'Remove from favorites' : 'Mark as a favorite',
+			type: 'button',
+		}, on ? '★' : '☆');
 	}
 
 	// What the phone knows about the card while TCGdex fails (Q-07): the

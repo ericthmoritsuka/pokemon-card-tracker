@@ -343,6 +343,7 @@ export function myCardsView(root) {
 	return cardsScreen(root, {
 		load: listCards,
 		loadBinders: listBinders,
+		tradeRoute: 'trade',
 		watch: (reload) => onChange(reload),
 	});
 }
@@ -386,17 +387,27 @@ export function familyCardsView(root, {userId}) {
 		readOnly: true,
 		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
+		tradeRoute: `family/${encodeURIComponent(userId)}/trade`,
 	});
 }
 
-function cardsScreen(root, {
+// Also the Trade view's screen (js/trade-view.js): metaFor adds a line to a
+// tile's meta, emptyNode draws instead of "No cards yet", toolbar adds
+// buttons beside Value, and offered limits the filters.
+export function cardsScreen(root, {
+	emptyNode = null,
 	emptyText = null,
 	label = 'your collection',
 	load: loadEntries,
 	loadBinders = () => [],
+	metaFor = null,
+	offered = undefined,
+	placeholder = undefined,
 	readOnly = false,
 	storageKey = CHOICE_KEY,
 	title = 'My Cards',
+	toolbar = [],
+	tradeRoute = null,
 	watch = null,
 }) {
 	let alive = true;
@@ -430,9 +441,11 @@ function cardsScreen(root, {
 	const valueButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-value', id: 'cards-value', onclick: () => openValue(), type: 'button'}, 'Value');
 
 	const bar = filterBar({
-		extra: [valueButton],
+		extra: [valueButton, ...toolbar],
+		filters: offered,
 		id: 'cards',
 		legacy: storageKey === CHOICE_KEY ? legacyChoice : null,
+		placeholder,
 		onChange: (state, reason) => {
 			shown = PAGE;
 			rememberInHistory(reason === 'query' ? {query: state.query, shown} : {shown});
@@ -517,6 +530,7 @@ function cardsScreen(root, {
 				setKey: setId ? `${first.catalog}|${setId}` : null,
 				setName: (source && source.setName) || (local && local.set_name) || null,
 				sourceName: source && source.name,
+				favorite: group.entries.some((entry) => entry.is_favorite === true),
 				twinItem: {card_id: first.card_id, catalog: first.catalog},
 				types: (record && record.types) || [],
 				unplaced: group.entries.some((entry) => !placed.has(entry.id)),
@@ -697,13 +711,14 @@ function cardsScreen(root, {
 			price: priceNode(group),
 			art: {
 				count: group.entries.length,
+				favorite: group.entries.some((entry) => entry.is_favorite === true),
 				finish: groupFinish(group.entries),
 				info,
 				languages: [group.language],
 				src: tileSrc(group.entries, catalogSrc, {twins: group.twins}),
 				viewing,
 			},
-			meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
+			meta: [info.number ? `#${info.number}` : null, info.setName, metaFor ? metaFor(group) : null].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
 			route: routeOf(group),
 		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {twins: group.twins});
@@ -1054,6 +1069,12 @@ function cardsScreen(root, {
 			return;
 		}
 
+		if (!entries.length && emptyNode) {
+			body.replaceChildren(emptyNode());
+
+			return;
+		}
+
 		if (!entries.length) {
 			// The empty state leads to the scanner, with the monprice import
 			// as the second way in (plans/design-review.md section 3).
@@ -1196,7 +1217,7 @@ function cardsScreen(root, {
 
 	const stop = watch ? watch((doc, info) => alive && changed(doc, info)) : () => {};
 	const stopTwins = onTwinsChange(twinsChanged);
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title));
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title), tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null);
 
 	root.append(heading, body);
 	load();
