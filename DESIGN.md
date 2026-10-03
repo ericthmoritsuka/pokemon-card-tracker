@@ -607,6 +607,30 @@ script), and a clear disagreement between picture and text flags the card for a 
 saving it. Neither method tells the finish apart, which stays the one-tap finish picker. Schedule
 after the text-first improvements are tested on real cards.
 
+**Switched to picture first (Eric, 2026-10-03).** On Eric's phone each OCR read took 2 to 11
+seconds (5 to 9 per scan), names over artwork read as junk, and a scan failed whenever the number
+did not read cleanly, while finding the card's edges took 0.2 to 0.7 seconds and always worked.
+The fingerprint prototype (`lab/fingerprints/RESULTS.md`: a DCT hash of the art box and of the
+whole card plus a colour layout, matched against an index of every TCGdex image, no model to run)
+put the right card first 95 % of the time against 81 % for OCR, in about 28 ms. So the scanner now
+straightens the card, fingerprints it (`js/vision/`), and matches it against the index
+(`js/vision/index.bin`, precached by the service worker, loaded once per visit):
+
+- The first artwork group leads the second by 10 or more and holds one card: that card, with no
+  text read (the prototype measured no wrong art selected at that lead).
+- It leads but holds several cards (reprints, a Japanese print and its English twin): only the
+  number, total, set code box, and language label are read, to choose inside it.
+- The lead is small: the top five are shown as pictures to tap, a number read that names one of
+  them promotes it, and a number that names none falls back to the text lookup.
+- The picture and a number read disagree: the card needs a look, never a save.
+
+Tesseract now loads only when a card needs text, so Scan opens without its 7 MB. The straightened
+crop is snapped to a card's 63 by 88 shape (crops that came out 0.733 to 0.740 wide for their
+height missed the read boxes), and when the box was too wide the fingerprint also tries it with
+the extra trimmed from either side. A number that names a set the catalog has not got yet (Korean
+`M6`) offers "Add by hand". **Still open:** whether TCGdex's terms allow bulk image processing for
+an index, which has to be confirmed before the index rebuild is scheduled.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.

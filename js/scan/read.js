@@ -416,7 +416,14 @@ const shiftLines = (result, y0) => linesOf(result).map((read) => ({
 // Returns {copyrightYear, crops, hp, label, language, name, number,
 // partial, attackText, raw, setCodeBox, timings, wizards}. timings.ocr is
 // the time from the first OCR call to the last answer, not their sum.
-export async function readCard(card, ocr, {attacks = true, blurName = true, flat = false, now = () => performance.now(), onProgress = null, textPx = TEXT_PX} = {}) {
+// numberOnly: read the collector number, total, set code box, and
+// language label only (no name, HP, or attacks), for a card the picture
+// already narrowed to a few (js/scan/picture.js).
+export async function readCard(card, ocr, {attacks = true, blurName = true, flat = false, now = () => performance.now(), numberOnly = false, onProgress = null, textPx = TEXT_PX} = {}) {
+	if (numberOnly) {
+		attacks = false;
+	}
+
 	const crops = {};
 	const raw = {};
 	const timings = {};
@@ -506,8 +513,8 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 	});
 
 	const left = numberTask('numberLeft', 3);
-	const nameCrop = prepare('name', 'name', {blur: blurName});
-	const name = readLines('name', nameCrop, 2, OCR_SETTINGS.name).then(async (lines) => {
+	const nameCrop = numberOnly ? null : prepare('name', 'name', {blur: blurName});
+	const name = numberOnly ? Promise.resolve(null) : readLines('name', nameCrop, 2, OCR_SETTINGS.name).then(async (lines) => {
 		let parsed = parseName(inkHeights(nameCrop, lines));
 
 		raw.name = asResult(lines);
@@ -538,14 +545,14 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 	const right = numberTask('numberRight', 2);
 	// HP: dark digits on most cards, light ones on the dark name bar of V,
 	// VMAX, and many ex cards, so a miss is read again inverted.
-	const hpCrop = prepare('hp', 'hp', {blur: blurName, luma: true, pad: 8});
+	const hpCrop = numberOnly ? null : prepare('hp', 'hp', {blur: blurName, luma: true, pad: 8});
 	const hpOf = (lines) => {
 		const text = lines.map((line) => line.text).join(' ');
 		const clean = /^\s*(?:HP|PS|PV|KP)?\s*\d{2,3}\s*(?:HP)?\s*$/i.test(text);
 
 		return parseHp(text, clean ? 0.8 : 0.5);
 	};
-	const hp = readLines('hp', hpCrop, 1, OCR_SETTINGS.hp).then(async (lines) => {
+	const hp = numberOnly ? Promise.resolve(null) : readLines('hp', hpCrop, 1, OCR_SETTINGS.hp).then(async (lines) => {
 		raw.hp = asResult(lines);
 
 		let parsed = hpOf(lines);

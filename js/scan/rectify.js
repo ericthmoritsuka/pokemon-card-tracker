@@ -743,7 +743,7 @@ export function cropImage(img, {h, w, x, y}) {
 	return {data, height: h, width: w};
 }
 
-// Returns {card, angle, found, note, rect, corners}. `card` is the straightened crop
+// Returns {card, angle, found, note, rect, corners, ratio, others, cut}. `card` is the straightened crop
 // when the edges were found and make a card-shaped box, otherwise the input
 // (scaled to CARD_MAX_HEIGHT at most; found false, with the reason in
 // `note`).
@@ -784,6 +784,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 				.map((point) => ({x: point.x / scale, y: point.y / scale}));
 			const across = Math.max(Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y));
 			const tall = Math.min(maxHeight, across / CARD_RATIO);
+			const down = Math.max(Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y), Math.hypot(corners[2].x - corners[1].x, corners[2].y - corners[1].y));
 
 			return {
 				angle: Math.round((turned + Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
@@ -791,6 +792,8 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 				corners,
 				found: true,
 				note: quad.top ? 'Card edges found, at a slant.' : 'Card edges found, at a slant; top edge worked out from the width.',
+				others: [],
+				ratio: Math.round((across / down) * 1000) / 1000,
 				rect: null,
 			};
 		}
@@ -817,10 +820,39 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	// often cut off or lost in glare) is replaced by one worked out from the
 	// width, measured up from the bottom edge, which matters more here.
 	const expected = width / CARD_RATIO;
+	let ratio = CARD_RATIO;
+	const others = [];
 
 	if (top === null || Math.abs((bottom - top) - expected) / expected > 0.06) {
 		top = Math.max(0, bottom - expected);
 		note = 'Card edges found; top edge worked out from the width.';
+	}
+	else {
+		// The four edges found make a box within 6 % of a card's shape, but
+		// a real card is exactly 63 by 88. A box a few percent too wide (on
+		// Eric's phone 0.733 to 0.740 against 0.716) has either its top found
+		// too low or a strip beside the card taken for part of it, and the
+		// text boxes and the art box miss either way. The crop is snapped to
+		// the card's shape keeping the width (the sides are the edges found
+		// most surely), and when the box was too wide, the crops that keep
+		// its height instead and trim the extra from the left, the right, or
+		// both are kept as `others`, for the fingerprint to choose between
+		// (js/scan/identify.js).
+		ratio = width / (bottom - top);
+
+		if (ratio > CARD_RATIO * 1.01) {
+			const extra = width - (bottom - top) * CARD_RATIO;
+
+			others.push({how: 'trim left', x: left + extra}, {how: 'trim right', x: left}, {how: 'trim both', x: left + extra / 2});
+			others.forEach((other) => {
+				other.rect = {h: Math.round(bottom - top), w: Math.round(width - extra), x: Math.round(other.x), y: Math.round(top)};
+			});
+		}
+
+		if (Math.abs(ratio / CARD_RATIO - 1) > 0.01) {
+			top = Math.max(0, bottom - expected);
+			note = 'Card edges found; snapped to a card\'s shape.';
+		}
 	}
 
 	const rect = {
@@ -835,5 +867,18 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 
 	const out = Math.min(1, maxHeight / rect.h);
 
-	return {angle: Math.round(angle * 10) / 10, card: warpCrop(img, -angle, rect, out), found: true, note, rect};
+	return {
+		angle: Math.round(angle * 10) / 10,
+		card: warpCrop(img, -angle, rect, out),
+		found: true,
+		note,
+		// The width over the height of the box the edges made, before the
+		// snap (a card is 0.716), for the scan report.
+		ratio: Math.round(ratio * 1000) / 1000,
+		rect,
+		others: others.map(({how, rect: r}) => ({how, rect: r})),
+		// Straightens another rect of the same capture (one of `others`), at
+		// `height` pixels high.
+		cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -angle, r, height / r.h),
+	};
 }

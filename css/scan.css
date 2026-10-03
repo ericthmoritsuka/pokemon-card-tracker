@@ -870,6 +870,26 @@ html.scan-open body {
 	padding: 0 12px;
 }
 
+/* Add by hand: a card whose set the catalog has not got yet. */
+.scan-hand {
+	border-top: 1px solid var(--scan-border);
+	display: grid;
+	gap: 8px;
+	margin-top: 12px;
+	padding-top: 12px;
+}
+
+.scan-hand-input {
+	background: var(--scan-surface-2);
+	border: 1px solid var(--scan-border);
+	border-radius: 12px;
+	color: var(--scan-text);
+	flex: 1 1 0;
+	min-height: 48px;
+	min-width: 0;
+	padding: 0 12px;
+}
+
 .scan-results {
 	display: grid;
 	gap: 8px;

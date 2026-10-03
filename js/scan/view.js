@@ -18,15 +18,31 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {CameraUnavailable, grabFrame, guideBox, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
-import {EngineUnavailable, identify, releaseEngineSoon, warmEngine} from './identify.js';
+import {EngineUnavailable, identify, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob} from './image.js';
 import {cardVariants, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {loadFingerprints, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 
 const FRAME_MS = 125;
+
+// A developer switch (localStorage card-tracker:scan-text-first = on): read
+// every card in full and look it up by text, as before the picture-first
+// switch, to compare the two on a phone. The browser tests of the text
+// route use it.
+const TEXT_FIRST_KEY = 'card-tracker:scan-text-first';
+
+function textFirst() {
+	try {
+		return localStorage.getItem(TEXT_FIRST_KEY) === 'on';
+	}
+	catch {
+		return false;
+	}
+}
 const PHOTO_HEIGHT = 420;
 
 // A photo from the gallery is read at most this many pixels on its longer
@@ -124,6 +140,7 @@ export function scanView(root) {
 	// ------------------------------------------------------------ context for the sheets
 
 	const ctx = {
+		addByHand,
 		applySetAll,
 		chooseCard,
 		closeSheet,
@@ -436,6 +453,11 @@ export function scanView(root) {
 		}
 	}
 
+	// A card whose set the catalog has not got yet, from the add-by-hand form.
+	function addByHand(id, fields) {
+		change(() => S.addByHand(session, id, fields));
+	}
+
 	function remove(id) {
 		artworks.delete(id);
 		progress.delete(id);
@@ -714,7 +736,7 @@ export function scanView(root) {
 
 			progress.set(id, 0.05);
 			draw();
-			result = await identify(frame, {readOptions: {onProgress: (fraction) => {
+			result = await identify(frame, {pictureFirst: !textFirst(), readOptions: {onProgress: (fraction) => {
 				progress.set(id, fraction);
 
 				// At most a redraw every tenth of the way.
@@ -751,7 +773,7 @@ export function scanView(root) {
 		// An automatic capture with no card edges and no number read was not a
 		// card (a hand, the table): it leaves the tray. A shutter capture
 		// always stays, because the person meant it.
-		if (auto && !result.found && !result.read.number) {
+		if (auto && !result.found && !(result.read && result.read.number) && !(result.picture && pictureVerdict(result.picture).sure)) {
 			if (fullSaved) {
 				await fullSaved;
 			}
@@ -781,7 +803,8 @@ export function scanView(root) {
 
 		item.timings = {...result.timings};
 		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, source: photo ? 'photo' : 'camera'});
-		change(() => S.applyRead(session, id, result.read));
+		item.picture = result.picture || null;
+		change(() => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
 
 		if (fullSaved) {
 			await fullSaved;
@@ -810,11 +833,17 @@ export function scanView(root) {
 	async function matchItemNow(id) {
 		const item = S.findItem(session, id);
 
-		if (!item || !item.read) {
+		if (!item || (!item.read && !item.picture)) {
 			return;
 		}
 
 		change(() => S.markMatching(session, id));
+
+		if (item.picture) {
+			await pictureItemNow(id);
+
+			return;
+		}
 
 		const started = performance.now();
 		const language = item.language || item.languageHint;
@@ -866,6 +895,47 @@ export function scanView(root) {
 		maybeOpenFirst(id);
 	}
 
+	// Picture first (js/scan/picture.js): the artwork groups, a number read
+	// to choose inside one, and the text route behind them for a card the
+	// picture could not settle.
+	async function pictureItemNow(id) {
+		const item = S.findItem(session, id);
+		const started = performance.now();
+		const language = item.language || item.languageHint;
+		const artwork = artworks.get(id) || null;
+		const found = await pictureMatch(item.picture, item.read, language, {textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+
+		if (!alive || !S.findItem(session, id)) {
+			return;
+		}
+
+		if (found.unnamed && !online()) {
+			// Recognised, but none of its sets is on this phone yet: it is named
+			// and its finishes loaded once there is signal.
+			change(() => S.markWaiting(session, id, 'catalog'));
+
+			return;
+		}
+
+		const current = S.findItem(session, id);
+
+		current.confirmed = false;
+		current.timings = {...current.timings, match: Math.round(performance.now() - started)};
+
+		if (current.report) {
+			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {language, ms: current.timings.match})};
+		}
+
+		change(() => S.applyPicture(session, id, found));
+
+		if (current.card) {
+			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+		}
+
+		await loadVariants(id);
+		maybeOpenFirst(id);
+	}
+
 	// A language that lives in another catalog (a Japanese match changed to
 	// English): look the card up again in that language.
 	async function rematchItem(id) {
@@ -875,7 +945,7 @@ export function scanView(root) {
 			return;
 		}
 
-		if (!item.read) {
+		if (!item.read && !item.picture) {
 			// Added from the search, so there is nothing to look up again: search
 			// in the new language. The card it had is no candidate there.
 			change(() => {
@@ -1089,7 +1159,7 @@ export function scanView(root) {
 	}
 
 	// The reader starts as the screen opens, and again with the camera if it
-	// failed. Its first download (about 7 MB) is kept by the service worker.
+	// failed: the picture index (about 1.4 MB, kept by the service worker).
 	function startEngine() {
 		if (engineState === 'ready' || engineState === 'loading') {
 			return;
@@ -1097,7 +1167,9 @@ export function scanView(root) {
 
 		engineState = 'loading';
 		drawStatus();
-		warmEngine().then(() => {
+		// The picture index only: the OCR engine loads when a card needs text
+		// (identify.js), so the screen opens without its download.
+		loadFingerprints().then(() => {
 			engineState = 'ready';
 			drawStatus();
 		}).catch(() => {

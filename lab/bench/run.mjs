@@ -58,6 +58,11 @@ console.log('init', JSON.stringify(await page.evaluate((workers) => window.bench
 
 const cdp = await context.newCDPSession(page);
 const options = args.options ? JSON.parse(args.options) : {};
+
+// --picture: the app's picture-first route (bench.js measurePicture).
+if (args.picture) {
+	options.pictureFirst = true;
+}
 const throttle = (rate) => cdp.send('Emulation.setCPUThrottlingRate', {rate});
 
 // With --throttle, a warm run at full speed first, so TCGdex answers are in
@@ -232,6 +237,13 @@ else {
 		const list = rows.filter((r) => r.pass === pass);
 		const times = list.map((r) => r.new.timings);
 		const totals = times.map((t) => t.total).sort((a, b) => a - b);
+
+		if (args.picture) {
+			const ocr = list.filter((r) => r.new.ocr);
+
+			console.log(`${pass}: OCR ran for ${ocr.length}/${list.length}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.new.sure && (r.new.candidates[0] || {}).id !== r.truth).length}); rectify ${median(times.map((t) => t.rectify))} ms, fingerprint ${median(times.map((t) => t.fingerprint))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms; without OCR ${median(list.filter((r) => !r.new.ocr).map((r) => r.new.timings.total))} ms, with OCR ${median(ocr.map((r) => r.new.timings.total))} ms`);
+			continue;
+		}
 
 		console.log(`${pass}: name matched ${list.filter((r) => r.new.names && r.new.names[0] && r.new.names[0].score >= 0.75).length}/${list.length}, number read ${list.filter((r) => r.new.number).length}, HP read ${list.filter((r) => r.new.hp).length}, edges ${list.filter((r) => r.new.found).length}; rectify ${median(times.map((t) => t.rectify))} ms, OCR ${median(times.map((t) => t.ocr))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms`);
 	}

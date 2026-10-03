@@ -451,6 +451,10 @@ describe('scanner', () => {
 		const app = await launch(profile, HIDDEN);
 		const {page} = app;
 
+		// The text route, as before the picture-first switch (view.js
+		// textFirst): this card is found by its picture otherwise.
+		await app.context.addInitScript(() => localStorage.setItem('card-tracker:scan-text-first', 'on'));
+
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-confirm #scan-card-lines, #scan-confirm .scan-card-lines', {timeout: 60000});
 		await until(async () => {
@@ -514,6 +518,10 @@ describe('scanner', () => {
 
 			const app = await launch(profile, frame);
 			const {page} = app;
+
+			// The text route, as before the picture-first switch (view.js
+			// textFirst): this card is found by its picture otherwise.
+			await app.context.addInitScript(() => localStorage.setItem('card-tracker:scan-text-first', 'on'));
 
 			// No shutter: the sheet opens only if the still card was taken on
 			// its own.
@@ -646,11 +654,13 @@ describe('scanner', () => {
 
 		const report = await page.inputValue('#scan-report-text');
 
-		for (const expected of ['Card Tracker scan report', 'Browser: ', 'Source: a photo picked from the gallery', 'card edges found', 'Name strip: ', 'Number, bottom left: ', 'Catalog lookup: ', 'Script: Latin script.', 'Candidates (', `(${BULBASAUR}, en)`]) {
+		// Found by its picture, so no text was read: the report lists the
+		// five best artworks with their distances, the lead, and the crop.
+		for (const expected of ['Card Tracker scan report', 'Browser: ', 'Source: a photo picked from the gallery', 'card edges found', 'Crop shape: the edges made a box ', 'Picture match: ', `1. ${BULBASAUR}: distance `, 'OCR: not run (the picture was enough)', 'Catalog lookup: ', 'Candidates (', `(${BULBASAUR}, en)`]) {
 			assert.ok(report.includes(expected), `the report has "${expected}":\n${report}`);
 		}
 
-		assert.match(report, /- Number: 001\/132 \(\d+ %, left side\)/);
+		assert.match(report, /lead over the second \d+(\.\d)?/);
 		assert.doesNotMatch(report, /data:image/, 'text only');
 
 		await context.grantPermissions(['clipboard-read', 'clipboard-write'], {origin: harness.origin});
@@ -730,7 +740,9 @@ describe('scanner', () => {
 		// Signal comes back: it resolves on its own.
 		net.offline = false;
 		await context.setOffline(false);
-		await until(async () => (await tiles(page))[0].status === 'ready', 60000, 'Bulbasaur matched online');
+		// Found by its picture, no text read, so its language may still be
+		// asked for ('language' rather than 'ready').
+		await until(async () => ['ready', 'language'].includes((await tiles(page))[0].status), 60000, 'Bulbasaur matched online');
 		list = await tiles(page);
 		assert.match(list[0].label, /^Bulbasaur, /);
 		await closeApp(app);

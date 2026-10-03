@@ -200,7 +200,7 @@ export function confirmSheet(ctx, itemId) {
 		const chosen = item.card ? item.candidates.find((c) => c.id === item.card.id) || {...item.card, reasons: []} : null;
 
 		if (showOthers || !item.sure) {
-			return chosen && !others.includes(chosen) ? [chosen, ...others.slice(0, 2)] : others;
+			return chosen && !others.includes(chosen) ? [chosen, ...others.slice(0, others.length - 1)] : others;
 		}
 
 		return chosen ? [chosen] : [];
@@ -209,7 +209,8 @@ export function confirmSheet(ctx, itemId) {
 	function cardBlock(item) {
 		const reason = blocker(item);
 		const photo = ctx.photoUrl(item.id);
-		const others = item.candidates.slice(0, 3);
+		// A picture match offers its top five artworks to tap.
+		const others = item.candidates.slice(0, item.picture ? 5 : 3);
 		const card = item.card;
 		const head = h('div', {class: 'scan-compare'},
 			h('figure', {class: 'scan-photo'},
@@ -279,7 +280,36 @@ export function confirmSheet(ctx, itemId) {
 			buttons.push(h('button', {class: 'scan-button', id: 'scan-report-open', onclick: () => ctx.openReport(itemId), type: 'button'}, 'Scan report'));
 		}
 
-		return [head, h('div', {class: 'scan-card-lines'}, ...lines), h('div', {class: 'scan-row'}, ...buttons)];
+		return [head, h('div', {class: 'scan-card-lines'}, ...lines), h('div', {class: 'scan-row'}, ...buttons), ...handBlock(item)];
+	}
+
+	// A card whose number names a set the catalog has not got yet (Korean and
+	// Japanese M6, say): its set code, number, and language, prefilled from
+	// the read, to add it by hand.
+	function handBlock(item) {
+		if (!item.hand || item.card) {
+			return [];
+		}
+
+		const setInput = h('input', {'aria-label': 'Set code', autocomplete: 'off', class: 'scan-hand-input', id: 'scan-hand-set', placeholder: 'Set code, for example M6', value: item.hand.setCode || ''});
+		const numberInput = h('input', {'aria-label': 'Card number', autocomplete: 'off', class: 'scan-hand-input', id: 'scan-hand-number', inputmode: 'numeric', value: item.hand.number || ''});
+		const languageNote = h('p', {class: 'scan-muted'}, item.language || item.hand.language ? `Language: ${langName(item.language || item.hand.language)}.` : 'Pick the language below first.');
+		const problem = h('p', {'aria-live': 'polite', class: 'scan-why', id: 'scan-hand-problem'});
+
+		return [h('form', {class: 'scan-hand', id: 'scan-hand', onsubmit: (event) => {
+			event.preventDefault();
+
+			try {
+				ctx.addByHand(itemId, {language: item.language || item.hand.language, number: numberInput.value, setId: setInput.value});
+			}
+			catch (err) {
+				problem.textContent = err.message;
+			}
+		}},
+		h('p', {class: 'scan-label'}, `Add by hand${item.hand.total ? ` (number ${item.hand.number}/${item.hand.total})` : ''}`),
+		h('div', {class: 'scan-search-row'}, setInput, numberInput, h('button', {class: 'scan-button scan-primary', id: 'scan-hand-add', type: 'submit'}, 'Add by hand')),
+		languageNote,
+		problem)];
 	}
 
 	function languageBlock(item) {
