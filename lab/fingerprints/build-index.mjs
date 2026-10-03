@@ -16,7 +16,7 @@
 //    browser's own code. Kept in the cache, so a rebuild only describes new
 //    images.
 // 3. Artwork groups: cards whose art box is the same picture.
-// 4. The packed index (pack.js), by default lab/fingerprints/index.bin.
+// 4. The packed index (pack.js), by default js/vision/index.bin.
 
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -24,8 +24,8 @@ import {join, relative, resolve} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
 import {catalogCards, downloadImages, imageFile} from './catalog.mjs';
-import {colorDistance, popcount32} from './fingerprint.js';
-import {packIndex} from './pack.js';
+import {colorDistance, popcount32} from '../../js/vision/fingerprint.js';
+import {packIndex} from '../../js/vision/pack.js';
 import {openPage, REPO, startServer} from './serve.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2)
@@ -236,7 +236,7 @@ async function main() {
 	const groups = artGroups(records, cards.length);
 	const t3 = Date.now();
 	const index = buildIndex(cards, records, groups);
-	const out = resolve(String(args.out || join(REPO, 'lab/fingerprints/index.bin')));
+	const out = resolve(String(args.out || join(REPO, 'js/vision/index.bin')));
 
 	await mkdir(join(out, '..'), {recursive: true});
 	await writeFile(out, index);

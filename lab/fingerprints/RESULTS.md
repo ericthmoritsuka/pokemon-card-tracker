@@ -35,6 +35,9 @@ Eric's phone with real cards before removing the OCR-first route.
 
 ## What Was Built
 
+Since the scanner went fingerprint first, the app uses `fingerprint.js`, `matcher.js`, `pack.js`, and `index.bin` from
+`js/vision/`; the lab imports them from there.
+
 | File | What it does |
 | --- | --- |
 | `fingerprint.js` | The descriptors, browser and Node alike: a 96 x 134 thumbnail of the straightened card, then a DCT pHash of the art box, a pHash of the whole card face, and a colour layout. |

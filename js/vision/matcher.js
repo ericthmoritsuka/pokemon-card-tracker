@@ -216,7 +216,9 @@ export function match(index, img, options = {}) {
 
 // How sure the first group is: the gap between its score and the second's,
 // and whether its cards could still differ by text (more than one card).
-export function verdict(result, {autoGap = 6} = {}) {
+export const AUTO_GAP = 10;
+
+export function verdict(result, {autoGap = AUTO_GAP} = {}) {
 	const [a, b] = result.groups;
 
 	if (!a) {

@@ -5,7 +5,7 @@
 import {rectify} from '../../js/scan/rectify.js';
 import {GUIDE_FILL, grab, startCamera} from '../js/camera.js';
 import {guideRect} from '../js/pipeline.js';
-import {loadIndex, match, verdict} from './matcher.js';
+import {loadIndex, match, verdict} from '../../js/vision/matcher.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,7 +28,7 @@ async function start() {
 	try {
 		const t0 = performance.now();
 
-		index = await loadIndex('index.bin');
+		index = await loadIndex('../../js/vision/index.bin');
 
 		const built = index.header.built ? index.header.built.slice(0, 10) : 'unknown';
 
