@@ -144,7 +144,7 @@ describe('prices in the app', () => {
 			const order = [];
 			let next = document.querySelector('.card-hero').nextElementSibling;
 
-			while (next && order.length < 3) {
+			while (next && order.length < 4) {
 				if (!(next.classList.contains('tw-block') && next.hidden)) {
 					order.push(next.id || next.className);
 				}
@@ -153,7 +153,7 @@ describe('prices in the app', () => {
 			}
 
 			return order;
-		}), ['copies', 'card-liga', 'card-price'], 'the slot follows Your copies and Ver na Liga');
+		}), ['copies', 'card-liga', 'copies-collect-row', 'card-price'], 'the slot follows Your copies, Ver na Liga, and Add to collection');
 		assert.equal(await page.locator('#card-liga a:has-text("Ver na Liga")').count(), 1);
 		// Ver na Liga is not among the facts; the illustrator's goal link is.
 		assert.equal(await page.locator('.hero-facts a:not(.illustrator-goal), .hero-facts .liga-none').count(), 0);
