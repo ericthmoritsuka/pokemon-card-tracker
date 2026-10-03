@@ -14,6 +14,20 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **14:30** Version 28: spares, favorites, and cards the catalog lacks. `58b1cc4`
+  - **Spares:** a Trade view lists the copies beyond the first of each card in a language, with
+    the filter bar and the Value sheet over the spares. Open it from Spares on My Cards or from
+    Profile; a family member's spares open read only.
+  - **Favorites:** a star on a card page marks the card; favorite tiles show a star, and the
+    filters can show only favorites.
+  - **Add by hand:** a card the catalog does not have (an Asian print with no record, a promo
+    numbered past the set, a letter-numbered energy) can be added from My Cards, from the
+    scanner, or from an unmatched row in the import report. It has its own page with copies, a
+    photo, edit, and remove, and offers to link to the catalog card once TCGdex adds it.
+  - **Restore from your own CSV:** Import also reads the app's own export, restoring copies by
+    their id without duplicates; deleted copies stay deleted unless you tick them. The export
+    now also carries condition, notes, names, finish, number, and set code.
+
 - **13:14** Version 27: scanner fixes from your tests. `de41a48`
   - A Trainer or Energy card keeps your last Western language when its label row reads nothing
     (those cards have no weakness row). A missing label points to Japanese, Korean, or Chinese
