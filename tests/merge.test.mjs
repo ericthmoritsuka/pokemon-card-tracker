@@ -441,6 +441,21 @@ test('deleteCards removes several copies in one save, and restoreCard brings the
 		assert.deepEqual(several.map((entry) => entry.id).sort(), [b.id, c.id].sort());
 		assert.deepEqual(saves, ['local']);
 		assert.equal((await collection.listCards()).length, 3);
+
+		// Card writes stamp the fields they change, so another phone's edit
+		// to a different field of the same copy survives the merge.
+		const before = structuredClone((await collection.loadDocument()).cards.find((entry) => entry.id === c.id));
+		const noted = await collection.updateCard(c.id, {notes: 'this phone'});
+
+		assert.equal(validVersion(noted), true);
+		assert.equal(noted.field_stamps.notes, noted.updated_at);
+		assert.equal('condition' in noted.field_stamps, false);
+
+		const otherPhone = stampEntry(before, {...before, condition: 'Damaged', updated_at: nextStamp(noted.updated_at)});
+		const [merged] = mergeEntries([structuredClone(noted)], [otherPhone]);
+
+		assert.equal(merged.notes, 'this phone');
+		assert.equal(merged.condition, 'Damaged');
 		stop();
 	}
 	finally {

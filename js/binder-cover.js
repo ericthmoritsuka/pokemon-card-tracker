@@ -380,7 +380,8 @@ async function uploadOne(client, row, userId) {
 	}
 
 	if (image.path !== path) {
-		await setCoverImage(binder.id, {...image, path});
+		// Filling in the path is not choosing the cover again (fill).
+		await setCoverImage(binder.id, {...image, path}, {fill: true});
 	}
 }
 

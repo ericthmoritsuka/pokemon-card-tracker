@@ -10,7 +10,7 @@
 // deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
 import {cardIndex} from './catalog.js';
-import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent} from './merge.js';
+import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent, stampEntry} from './merge.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -399,6 +399,16 @@ function pick(fields) {
 
 export const isLive = (entry) => !entry.deleted_at;
 
+// Changes a stored entry in place and stamps what changed (js/merge.js
+// stampEntry), so the merge can tell which fields this edit touched and
+// keep another phone's edit to the others.
+function editEntry(entry, change) {
+	const before = {...entry};
+
+	change();
+	Object.assign(entry, stampEntry(before, entry));
+}
+
 // The live entry an id stands for now: the entry itself, or, when the merge
 // folded it into another copy of the same card (js/merge.js, merged_into),
 // the copy it was folded into. Null when there is no live one. Photo uploads
@@ -457,7 +467,7 @@ export async function updateCard(id, patch) {
 		throw new Error(`No card entry ${id}.`);
 	}
 
-	Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at)});
+	editEntry(entry, () => Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at)}));
 	await saveDocument(doc);
 
 	return entry;
@@ -476,7 +486,7 @@ export async function updateCards(patches) {
 		const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 		if (entry) {
-			Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at, now)});
+			editEntry(entry, () => Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at, now)}));
 			changed.push(entry);
 		}
 	}
@@ -496,8 +506,7 @@ export async function deleteCard(id) {
 	if (entry) {
 		const at = nextStamp(entry.updated_at);
 
-		entry.deleted_at = at;
-		entry.updated_at = at;
+		editEntry(entry, () => Object.assign(entry, {deleted_at: at, updated_at: at}));
 		await saveDocument(doc);
 	}
 
@@ -517,8 +526,7 @@ export async function deleteCards(ids) {
 		if (wanted.has(entry.id) && isLive(entry)) {
 			const at = nextStamp(entry.updated_at, now);
 
-			entry.deleted_at = at;
-			entry.updated_at = at;
+			editEntry(entry, () => Object.assign(entry, {deleted_at: at, updated_at: at}));
 			deleted.push(entry);
 		}
 	}
@@ -674,6 +682,7 @@ export function planImport(cards, entries, {ids = new Map(), now = Date.now()} =
 		}
 
 		Object.assign(updated, next, {updated_at: nextStamp(existing.updated_at, now)});
+		Object.assign(updated, stampEntry(existing, updated));
 		out[position.get(existing)] = updated;
 		position.set(updated, position.get(existing));
 		byKey.set(updated.import_key, updated);

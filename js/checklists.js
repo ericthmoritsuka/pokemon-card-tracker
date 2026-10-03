@@ -7,13 +7,15 @@
 //    created_at, updated_at, deleted_at}
 // kind is region (target is a region id), every_pokemon, or custom_pokemon
 // (dex_list holds the numbers). hand_ticks maps a dex number to the time it
-// was ticked. Only the definition is stored; what is owned is computed.
+// was ticked, and hand_unticks (when present) a dex number to the time a
+// hand tick was taken away. Only the definition is stored; what is owned is
+// computed.
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
 import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
-import {nextStamp} from './merge.js';
+import {nextStamp, stampEntry} from './merge.js';
 
 export const MAX_DEX = 1025;
 
@@ -165,7 +167,9 @@ const changeChecklist = (id, change) => serial(async () => {
 		next.deleted_at = next.updated_at;
 	}
 
-	return saveGoal(next);
+	// Stamped field by field, so another phone's edit to other fields (or
+	// other ticks) of the same list survives the merge.
+	return saveGoal(stampEntry(goal, next));
 });
 
 // kind region: {target}; custom_pokemon: {dex_list}; every_pokemon: nothing.
@@ -238,17 +242,31 @@ export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 	goal.deleted_at = nowIso();
 });
 
+// A tick stores when it was made; taking it away stores when in
+// hand_unticks, so the merge knows the tick was removed on purpose rather
+// than never seen (js/merge.js). Each is stamped after the last tick or
+// untick of that dex, whatever the phone's clock says.
 export const setHandTick = (id, dex, on) => changeChecklist(id, (goal) => {
 	const ticks = {...(goal.hand_ticks || {})};
+	const unticks = {...(goal.hand_unticks || {})};
+	const last = [ticks[dex], unticks[dex]].filter(Boolean).sort().pop();
+	const at = nextStamp(last);
 
 	if (on) {
-		ticks[dex] = nowIso();
+		ticks[dex] = at;
+		delete unticks[dex];
 	}
 	else {
 		delete ticks[dex];
+		unticks[dex] = at;
 	}
 
 	goal.hand_ticks = ticks;
+	delete goal.hand_unticks;
+
+	if (Object.keys(unticks).length) {
+		goal.hand_unticks = unticks;
+	}
 });
 
 // ------------------------------------------------------ list languages
