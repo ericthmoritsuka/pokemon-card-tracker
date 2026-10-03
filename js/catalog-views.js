@@ -37,6 +37,7 @@ import {memberCards, memberDocumentKept, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
+import {artistLink, setGoalControl} from './goals-view.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -750,7 +751,10 @@ export function setView(root, {lang, setId}) {
 		}
 	}
 
-	root.append(back, title, meta, stats, filter, note, problem, grid);
+	// "Make this a goal" (js/goals-view.js), for your own cards only.
+	const goal = member ? null : setGoalControl({lang, nameOf: () => (shown ? shown[0].name : null), setId});
+
+	root.append(...[back, title, meta, goal, stats, filter, note, problem, grid].filter(Boolean));
 	load();
 
 	return () => {
@@ -948,7 +952,7 @@ export function cardView(root, {lang, cardId}) {
 						row('Set', setName),
 						row('Number', number),
 						row('Rarity', card.rarity),
-						row('Illustrator', card.illustrator),
+						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
 						row('Catalog', languageLabel(lang))
 					)
 				)

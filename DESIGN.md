@@ -1021,6 +1021,40 @@ other view, can be opened offline in a card shop, and sends any card to the wish
 A missing Pokémon is not a card, so the Every Pokémon goal sends that Pokémon's cheapest card by
 default, and a long press picks another.
 
+**Set and artist goals** (Eric, 2026-10-03), `js/goals.js` and `js/goals-view.js`. A goal is an
+entry in `goals` beside the checklists, saved and merged the same way (field by field): `{kind:
+'set', catalog, target: <set id>, level: numbered | secrets | master}` or `{kind: 'artist', target:
+<illustrator>}`, with the checklists' **languages** setting (any language by default; one that
+names languages counts only copies in them). Goals are made from **New goal** in the Lists tab's
+Goals section (a set from the catalog's set list with its level, or an illustrator, suggested from
+the owned cards' records), from the set page's **Make this a goal** (which becomes "Your goal:
+Master set" once one exists), and from card detail's illustrator line, **All cards by this
+artist**, which shows the cards first and keeps them as a goal only on **Keep as a goal**. One
+goal per set (per catalog) or illustrator; a set goal's level changes on its own screen.
+
+- **Counting.** Numbered counts the cards numbered 1 to `cardCount.official` (a set numbered
+  another way, "SV001", takes its first official cards in number order); with secrets, every card
+  in the set; both count a card once, owned in any finish. Master counts each card in each finish
+  from TCGdex `variants_detailed` (standard size only, so jumbo prints are left out; normal, holo,
+  reverse, Poké Ball and Master Ball patterns, subtypes, and stamps), else from the `variants`
+  flags; a card with neither counts once, and the screen says how many. A copy's finish is read
+  from its `variant_id` when the card's record is on the phone, else from its finish code, else it
+  counts as the plain print. An artist goal counts each print once.
+- **Where the cards come from.** A set goal reads the set record the Sets tab keeps, plus one
+  GraphQL request for the set's cards with rarity and finishes (GraphQL's `variants_detailed` has
+  no `variantId`, checked 2026-10-03, so a finish is told by type, subtype, foil, and stamps). An
+  artist goal asks GraphQL for the illustrator (its filter matches any part of the name in any
+  case, so the exact name is kept, accents and spacing aside) in the international catalog, plus a
+  Japanese, Korean, or Chinese catalog only when the goal's languages name it; TCG Pocket is left
+  out and cards are dated with the set index the Pokémon cards screen keeps. Each answer is kept on
+  the phone, so the goal and its Missing list open offline once seen.
+- **The screen.** The ring and "N of M" (finishes on a master set, cards otherwise), All, Owned,
+  and Missing with counts, the shared search and sort bar (set order or name; rarity, and set for
+  an artist), the shared tiles with missing cards dimmed and one tap to the wishlist. On a master
+  set a part-owned card shows under Owned and Missing, and its wish carries a note naming the
+  missing finishes ("Missing: Reverse holo, Master Ball pattern"), since GraphQL gives no variant ID
+  to wish for. A family member's goal is read only (`family/<id>/goals/<id>`).
+
 ### Binders
 
 A binder mirrors one real binder: a name, a grid, and a page count. Grids run from 1×1 to 5×4 so

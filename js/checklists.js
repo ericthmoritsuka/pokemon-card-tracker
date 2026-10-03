@@ -6,7 +6,8 @@
 //   {id, kind, target, level, name, dex_list, hand_ticks,
 //    created_at, updated_at, deleted_at}
 // kind is region (target is a region id), every_pokemon, or custom_pokemon
-// (dex_list holds the numbers). hand_ticks maps a dex number to the time it
+// (dex_list holds the numbers); the set and artist kinds are js/goals.js's
+// and share the saving below. hand_ticks maps a dex number to the time it
 // was ticked, and hand_unticks (when present) a dex number to the time a
 // hand tick was taken away. Only the definition is stored; what is owned is
 // computed.
@@ -147,8 +148,16 @@ function serial(work) {
 	return run;
 }
 
+// Any live goal by id, a checklist or a set or artist goal (js/goals.js):
+// renaming, deleting, and the languages setting work the same on both.
+export async function getGoalEntry(id) {
+	const doc = await loadDocument();
+
+	return doc.goals.find((goal) => goal.id === id && isLive(goal)) || null;
+}
+
 const changeChecklist = (id, change) => serial(async () => {
-	const goal = await getChecklist(id);
+	const goal = await getGoalEntry(id);
 
 	if (!goal) {
 		throw new Error('This list is not on this phone. It may have been deleted.');
@@ -171,6 +180,12 @@ const changeChecklist = (id, change) => serial(async () => {
 	// other ticks) of the same list survives the merge.
 	return saveGoal(stampEntry(goal, next));
 });
+
+// For js/goals.js: a change to any goal, saved as a checklist's is, and a
+// new goal entry saved in turn with the other changes.
+export const changeGoal = changeChecklist;
+
+export const saveNewGoal = (entry) => serial(() => saveGoal(entry));
 
 // kind region: {target}; custom_pokemon: {dex_list}; every_pokemon: nothing.
 export async function createChecklist({dex_list = null, kind, name, target = null}) {
