@@ -158,8 +158,23 @@ async function device() {
 	return {context, errors, page};
 }
 
+// Opens a route, once more if the first navigation is aborted by one the app
+// was still finishing (seen after a reload on a busy machine).
+async function open(page, target) {
+	try {
+		await page.goto(target);
+	}
+	catch (err) {
+		if (!/ERR_ABORTED/.test(String(err && err.message))) {
+			throw err;
+		}
+
+		await page.goto(target);
+	}
+}
+
 async function seedLocal(page, doc) {
-	await page.goto(url('cards'));
+	await open(page, url('cards'));
 	await page.evaluate(async (stored) => {
 		await new Promise((resolve, reject) => {
 			const open = indexedDB.open('card-tracker-collection', 1);
@@ -198,7 +213,7 @@ const screenKept = (page, selector) => page.locator(selector).evaluate((el) => e
 // Opens My Cards, then the one card's detail by its tile, so Back has a
 // screen to go back to.
 async function openCard(page) {
-	await page.goto(url('cards'));
+	await open(page, url('cards'));
 	await page.waitForSelector('.card-grid .tile');
 	await page.locator('.card-grid .tile').first().click();
 	await page.waitForFunction((route) => window.location.pathname.endsWith(route), CARD_ROUTE);
@@ -512,7 +527,7 @@ describe('the Cover image sheet', () => {
 	test('Back closes it and keeps the binder; the next Back leaves the binder', async () => {
 		const {page} = phone;
 
-		await page.goto(url('binders'));
+		await open(page, url('binders'));
 		await page.locator(`[data-link^="binders/${BINDER}"]`).first().click();
 		await page.waitForSelector('#binder-cover-image');
 		await page.evaluate(() => {
@@ -555,7 +570,7 @@ describe('the scanner', () => {
 	// My Cards, then the Scan tab. probe(T) sets up the camera wrapper on
 	// the fresh page first.
 	const openScan = async (page, probe = null) => {
-		await page.goto(url('cards'));
+		await open(page, url('cards'));
 		await page.waitForSelector('.tabs a[data-tab="scan"]');
 
 		if (probe) {
