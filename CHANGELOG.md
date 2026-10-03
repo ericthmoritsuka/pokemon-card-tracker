@@ -14,6 +14,18 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-03
 
+- **10:43** Version 25: the scanner on a real phone. `bdb3474`
+  - The guide fits the part of the camera view you can see, so its whole outline shows whatever
+    Chrome's and Android's bars take. Before, its bottom could sit under the tray.
+  - The picture is taken around the guide with room to spare, so all four card edges are found
+    instead of one being guessed, which is what made some matches fail.
+  - Auto capture fires sooner with a card held in the hand, and the card no longer has to fill
+    the frame exactly.
+  - A card is marked sure only when its picture match is close and clearly ahead.
+  - Cards recognised by their picture start in the language you last picked (Portuguese at
+    first) and show that print's name; the language label is read in the background to correct
+    it. They appear at once, with the full record loading behind.
+
 - **09:34** Version 24: the scanner recognises cards by their picture. `c3c56ff`
   - It matches the card's artwork against every card in the catalog in a fraction of a second,
     with no text to read, so full-art cards such as an SIR are found too. On the test set the
