@@ -551,8 +551,8 @@ export const TILT_MAX = 22;
 // so the pixels where the brightness steps sharply, projected across lines
 // at the right angle, pile up in a few narrow bins; at a wrong angle they
 // spread out. The angle whose bins are most piled up (the largest sum of
-// squared counts) wins: every whole degree up to TILT_MAX either way, then
-// tenths around the best. Near-vertical steps are projected along lines
+// squared counts) wins: every second degree up to TILT_MAX either way, then
+// half degrees and tenths around the best. Near-vertical steps are projected along lines
 // leaning by the angle, near-horizontal ones along lines rising by it.
 //
 // It replaces the lab's reading of the tilt from where the left and right
@@ -617,26 +617,25 @@ function measureTilt({grey, height, width}) {
 		return sum;
 	};
 	let best = 0;
-	let bestScore = -1;
+	let bestScore = score(0);
 
-	for (let degrees = -TILT_MAX; degrees <= TILT_MAX; degrees++) {
-		const value = score(degrees);
+	// Every second degree, then half degrees, then tenths around the best.
+	for (const [spread, by] of [[TILT_MAX, 2], [1.5, 0.5], [0.4, 0.1]]) {
+		const around = best;
 
-		if (value > bestScore) {
-			best = degrees;
-			bestScore = value;
-		}
-	}
+		for (let k = -Math.round(spread / by); k <= Math.round(spread / by); k++) {
+			const degrees = Math.round((around + k * by) * 10) / 10;
 
-	const coarse = best;
+			if (Math.abs(degrees) > TILT_MAX || degrees === around) {
+				continue;
+			}
 
-	for (let tenth = -9; tenth <= 9; tenth++) {
-		const degrees = coarse + tenth / 10;
-		const value = score(degrees);
+			const value = score(degrees);
 
-		if (value > bestScore) {
-			best = degrees;
-			bestScore = value;
+			if (value > bestScore) {
+				best = degrees;
+				bestScore = value;
+			}
 		}
 	}
 
