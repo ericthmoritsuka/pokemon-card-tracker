@@ -71,14 +71,22 @@ async function search(page, text) {
 }
 
 // Waits for the background pass to bring every card's details into the
-// index (the Fire filter then finds the three Fire cards).
+// index (the Fire filter then finds the three Fire cards). Polled from
+// here: waitForFunction takes the promise an async check returns as true at
+// once, so it would not wait.
 async function detailsIn(page) {
-	await page.waitForFunction(async () => {
+	const start = Date.now();
+	const done = () => page.evaluate(async () => {
 		const {cardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
 		const index = await cardIndex();
 
-		return [...index.values()].every((record) => typeof record.category === 'string');
-	}, null, TIMEOUT);
+		return index.size > 0 && [...index.values()].every((record) => typeof record.category === 'string');
+	});
+
+	while (!await done()) {
+		assert.ok(Date.now() - start < TIMEOUT.timeout, 'every card\'s details reach the index');
+		await page.waitForTimeout(100);
+	}
 }
 
 async function pricesIn(page, log, count = 7) {
@@ -677,6 +685,109 @@ describe('a family member\'s cards', () => {
 
 		assert.ok(loaded);
 		assert.ok(documentWith(COPIES).cards.length);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('saves patch the screen', () => {
+	test('an added, edited, or removed copy redraws the grid once, and a save that changes no copy draws nothing', async () => {
+		const {context, errors, page} = await phone();
+
+		await seed(page, server.origin);
+		await page.locator('.tile').first().waitFor();
+		await detailsIn(page);
+		await page.waitForTimeout(2000);
+
+		const before = summary(page);
+
+		assert.match(await before, /^10 copies in 10 tiles/);
+
+		// Counts the grid's redraws from here on.
+		await page.evaluate(() => {
+			const grid = document.querySelector('.card-grid');
+
+			window.gridDraws = 0;
+			new MutationObserver((changes) => {
+				if (changes.some((change) => change.target === grid && change.addedNodes.length > 1)) {
+					window.gridDraws++;
+				}
+			}).observe(grid, {childList: true});
+		});
+
+		const quiet = async (expected, what) => {
+			await page.waitForTimeout(1500);
+			assert.equal(await page.evaluate(() => window.gridDraws), expected, what);
+		};
+		const run = (work) => page.evaluate(work);
+
+		// A wish touches no copy: nothing redraws.
+		await run(async () => {
+			const {addToWishlist} = await import('/pokemon-card-tracker/js/wishlist.js');
+
+			await addToWishlist('tsa1-001', {catalog: 'international'});
+		});
+		await quiet(0, 'a wish draws nothing');
+
+		// A new copy of a card already shown.
+		await run(async () => {
+			const {addCard} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await addCard({card_id: 'tsa1-006', catalog: 'international', language: 'en', language_source: 'manual'});
+		});
+		await page.waitForFunction(() => /^11 copies in 10 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await quiet(1, 'an added copy redraws once');
+		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty').textContent(), '×2');
+
+		// An edit: the Liga price of the Pikachu changes its tile's price.
+		await run(async () => {
+			const {listCards, updateCard} = await import('/pokemon-card-tracker/js/collection.js');
+			const pikachu = (await listCards()).find((entry) => entry.id === 'c-07');
+
+			await updateCard(pikachu.id, {price_manual: {...pikachu.price_manual, avg: 120, low_nm: 110}});
+		});
+		await quiet(2, 'an edited copy redraws once');
+		assert.match(plain(await page.locator('.tile:has-text("Test Beta"):has-text("Pikachu") .tile-price').textContent()), /R\$ 120/);
+
+		// A removed copy.
+		await run(async () => {
+			const {deleteCard} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await deleteCard('c-10');
+		});
+		await page.waitForFunction(() => /^10 copies in 9 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await quiet(3, 'a removed copy redraws once');
+		assert.equal(await page.locator('.tile:has-text("이상해씨")').count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the card index is read from the phone once per page', async () => {
+		const {context, errors, page} = await phone();
+
+		await seed(page, server.origin);
+		await page.locator('.tile').first().waitFor();
+		await detailsIn(page);
+
+		const result = await page.evaluate(async () => {
+			const {cardIndex, saveToCardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
+			const first = await cardIndex();
+
+			// A caller's copy cannot change the kept one.
+			first.clear();
+
+			const second = await cardIndex();
+
+			await saveToCardIndex([{catalog: 'international', id: 'tsa1-999', localizations: {en: {image: null, lang: 'en', name: 'Test Added', set_name: 'Test Alpha'}}, set_id: 'tsa1'}]);
+
+			const third = await cardIndex();
+
+			return {added: third.get('international|tsa1-999').localizations.en.name, second: second.size, third: third.size};
+		});
+
+		assert.equal(result.second, 9);
+		assert.equal(result.third, 10);
+		assert.equal(result.added, 'Test Added');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

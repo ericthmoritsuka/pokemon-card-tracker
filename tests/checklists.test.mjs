@@ -741,11 +741,11 @@ describe('list screens keep up with changes', () => {
 		await page.locator('.dex-row[data-dex="2"] button').click();
 		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
 		// The save lands, and the screen reads the stored list back.
-		await page.waitForFunction(async () => {
-			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+		for (let tries = 0; !(await localDoc(page)).goals[0].hand_ticks['2']; tries++) {
+			assert.ok(tries < 100, 'the tick is saved');
+			await page.waitForTimeout(100);
+		}
 
-			return Boolean(doc.goals[0].hand_ticks['2']);
-		});
 		await page.waitForTimeout(1000);
 		assert.deepEqual(await page.evaluate(() => window.listChanges), {rowsAdded: 1, wholeList: 0});
 		assert.match(await page.locator('.dex-row[data-dex="2"]').getAttribute('class'), /\bhand\b/);
