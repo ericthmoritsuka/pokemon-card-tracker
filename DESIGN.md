@@ -1254,6 +1254,44 @@ bottom-right corner when any of its copies is a favorite. "Favorites only" is a 
 shared bar, remembered like the others. A family member's stars show on their tiles and card
 pages, with nothing to press.
 
+### Collections
+
+**Collections are a third part of the Lists tab** (Eric, 2026-10-03), `js/collections.js` and
+`js/collections-view.js`: Checklists, Wishlist, Collections. Routes `collections` and
+`collections/<id>`; a member's, read only: `family/<id>/collections[/<id>]`. Each row shows the
+name, the kind, the card count, and the value (the Value sheet's own sums, with "partly priced"
+when some copies have no price). A collection's screen is My Cards over the cards it holds, with
+the shared bar and the Value sheet, as Trade is. Owning is still the base set: a collection is a
+tag, so it never changes a total, and a card can be in any number of them. A collection's count
+and value sum over its own copies, once each (section 3: never over memberships).
+
+- **Two kinds, fixed when made.** Hand-picked holds the copies you add; Fills itself holds every
+  live copy that fits a rule. Rename, change a rule, or delete from Edit; delete is a soft delete
+  with Undo on a toast.
+- **A rule is the filter bar's own fields** (rarity, set, language, type, region, Pokédex range,
+  favorites), each field holding one or more values, any one of which matches, and every field
+  named has to match. A rule must name at least one. Rarity matches TCGdex's English values. The
+  Star preset fills rarity with Illustration rare and Special illustration rare. A rule reads
+  rarity, types, and Pokédex numbers from the card details; the screen reads any set it lacks
+  before it draws, so a collection can briefly miss cards on a phone that has never opened My
+  Cards offline.
+- **Data.** A `collections` entry is `{id, name, kind, rule, entry_ids, removed_ids, created_at,
+  updated_at, deleted_at}`. A hand-picked collection holds copies (card entry ids), not cards:
+  `entry_ids` maps each id to when it was added and `removed_ids` to when it was taken out, and
+  the merge decides each id on its own (the later stamp stands, a removal wins a tie). Two phones
+  adding different cards both keep theirs; a removal sticks; a delete sticks; a name edited on
+  one phone and cards added on another both survive. An id folded into another copy by the
+  duplicate repair follows it (`merged_into`). A card's copies are all added at once from card
+  detail, so a copy bought later is not in the collection until it is added.
+- **Adding.** "Add to collection" sits under the copy rows on card detail: a sheet with a
+  checkbox per hand-picked collection (ticked, partly ticked, or clear for the card's copies),
+  a field to make one and add at once, and a line naming the self-filling collections that hold
+  the card. The scanner's Done sheet has "Add all to a collection" beside Set for all: choose or
+  make a hand-picked collection, and the copies the save writes join it. My Cards has no
+  selection mode yet, so adding several different cards at once from there waits for one.
+- **Family.** A member's collections open read only. A self-filling one of theirs is worked out
+  with the card details this phone has, so it can be short until their cards are in the index.
+
 ### Pack Openings
 
 An opening is a batch scan session with a product attached: "10 packs of Celebração de 30 Anos,

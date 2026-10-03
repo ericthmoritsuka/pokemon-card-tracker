@@ -141,6 +141,10 @@ export function mergeEntry(a, b) {
 //              something out leaves {page, position, placed_at, cleared:
 //              true}, which slotKind reads as nothing.
 //   goal hand_unticks  dex -> when a hand tick was taken away.
+//   collection entry_ids / removed_ids  card entry id -> when it was added to
+//              a hand-picked collection, and when it was taken out. Per id the
+//              later stamp stands, a removal on a tie, so two phones adding
+//              different cards both keep theirs (mergeMembers).
 // Binders also carry layout (js/binders.js): pockets saved for two different
 // layouts, or two different grids, never mix; the side with the higher
 // layout, then the grid changed last, keeps its whole set of pockets.
@@ -150,7 +154,7 @@ export const MERGE_VERSION = 2;
 // Never stamped per field: what the merge itself keeps track of, and the
 // collections that carry stamps of their own inside.
 const BOOKKEEPING = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'restored_at', 'merged_into', 'field_stamps']);
-const KEYED = new Set(['photos', 'slots', 'hand_ticks', 'hand_unticks']);
+const KEYED = new Set(['photos', 'slots', 'hand_ticks', 'hand_unticks', 'entry_ids', 'removed_ids']);
 const OWN_RULE = new Set(['cover_image', 'layout']);
 
 // -1, 0, or 1, with a missing time counting as the earliest.
@@ -376,6 +380,49 @@ function mergeTicks(a, b) {
 	return {ticks, unticks};
 }
 
+// A hand-picked collection's members merged id by id: of the add stamp
+// (entry_ids) and the removal stamp (removed_ids) the later stands, and a
+// removal wins a tie. Both versions' ids are kept, so cards two phones added
+// apart both stay in. Returns {added, removed}.
+function mergeMembers(a, b) {
+	const stampsOf = (entry, key) => (isObject(entry[key]) ? entry[key] : {});
+	const adds = [stampsOf(a, 'entry_ids'), stampsOf(b, 'entry_ids')];
+	const gone = [stampsOf(a, 'removed_ids'), stampsOf(b, 'removed_ids')];
+	const added = {};
+	const removed = {};
+
+	for (const id of new Set([...adds, ...gone].flatMap((map) => Object.keys(map)))) {
+		const add = later(adds[0][id] ?? null, adds[1][id] ?? null);
+		const removal = later(gone[0][id] ?? null, gone[1][id] ?? null);
+
+		if (removal !== null && (add === null || compareTimes(removal, add) >= 0)) {
+			removed[id] = removal;
+		}
+		else {
+			added[id] = add;
+		}
+	}
+
+	return {added, removed};
+}
+
+const hasMembers = (entry) => isObject(entry.entry_ids) || isObject(entry.removed_ids);
+
+// Writes the merged members onto out, only when either version has any.
+function applyMembers(out, a, b) {
+	if (!hasMembers(a) && !hasMembers(b)) {
+		return;
+	}
+
+	const {added, removed} = mergeMembers(a, b);
+
+	out.entry_ids = added;
+
+	if (Object.keys(removed).length) {
+		out.removed_ids = removed;
+	}
+}
+
 // Two cover images: different pictures go to the one made later (its at),
 // the same picture to the version that knows its uploaded path. Null when
 // the rule cannot tell (one side has none).
@@ -510,6 +557,8 @@ function mergeValid(a, b) {
 		}
 	}
 
+	applyMembers(out, a, b);
+
 	if ('cover_image' in a || 'cover_image' in b) {
 		const picked = coverPick(a.cover_image, b.cover_image);
 		const {from, stamp} = pickField(a, b, 'cover_image');
@@ -592,6 +641,8 @@ function mergeFallback(a, b) {
 			out.hand_unticks = unticks;
 		}
 	}
+
+	applyMembers(out, winner, loser);
 
 	const cover = coverPick(winner.cover_image, loser.cover_image);
 
