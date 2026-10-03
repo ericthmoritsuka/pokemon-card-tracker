@@ -683,6 +683,28 @@ describe('scanner', () => {
 		await page.click('#scan-report-copy');
 		await until(async () => /Copied|select the text/.test(await text(page, '#scan-report-status')), 5000, 'the copy');
 
+		// Save capture image downloads the straightened card and the whole
+		// capture as PNGs, drawn in memory (Eric, version 26).
+		const downloads = [];
+
+		page.on('download', (download) => downloads.push(download));
+		await page.click('#scan-report-capture');
+		await until(async () => downloads.length === 2, 10000, 'two capture images');
+
+		const names = downloads.map((download) => download.suggestedFilename());
+
+		assert.match(names[0], /^scan-capture-\d{8}-\d{6}\.png$/);
+		assert.match(names[1], /^scan-capture-\d{8}-\d{6}-whole\.png$/);
+
+		for (const download of downloads) {
+			const bytes = await readFile(await download.path());
+
+			assert.equal(bytes.subarray(1, 4).toString(), 'PNG', `${download.suggestedFilename()} is a PNG`);
+			await writeFile(`${SHOTS}/scan-capture${download.suggestedFilename().endsWith('-whole.png') ? '-whole' : ''}.png`, bytes);
+		}
+
+		assert.match(await text(page, '#scan-report-status'), /Saved scan-capture-.* and scan-capture-.*-whole\.png/);
+
 		// Switched on, the report shows in the card's sheet itself, and the
 		// switch is remembered.
 		await page.check('#scan-report-always');

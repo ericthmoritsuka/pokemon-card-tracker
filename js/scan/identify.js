@@ -23,7 +23,7 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, SURE_DISTANCE} from './picture.js';
-import {CARD_MAX_HEIGHT, cropImage, rectify, warpCrop} from './rectify.js';
+import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop} from './rectify.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
 // fingerprinting: three times the fingerprint's thumbnail.
@@ -122,10 +122,11 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 		let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
 
 		if (photo && !rectified.found) {
-			const middle = rectify(cropImage(image, defaultCapture(image.width, image.height)));
+			const area = cropImage(image, defaultCapture(image.width, image.height));
+			const middle = rectify(area);
 
 			if (middle.found) {
-				rectified = {...middle, note: `${middle.note} (in the middle of the photo)`};
+				rectified = {...middle, note: `${middle.note} (in the middle of the photo)`, source: area};
 			}
 		}
 
@@ -135,6 +136,11 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 		let fingerprintMs = null;
 		let matchMs = null;
 		let variantsTried = [];
+		// The box the edges made, on the capture, and the crop that won.
+		const source = rectified.source || image;
+		const mainQuad = straight || !rectified.found ? null : rectified.corners || (rectified.rect ? rectQuad(source, rectified.rect, rectified.angle || 0) : null);
+		let won = {how: mainQuad ? 'the edges found' : 'the frame as it is', quad: mainQuad};
+		let guideRect = null;
 
 		if (pictureFirst) {
 			try {
@@ -145,16 +151,20 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 
 				if (guideCrop) {
 					others.push(guideCrop);
+					guideRect = guide;
 				}
+
+				const quadOf = (other) => rectQuad(other === guideCrop ? image : source, other.rect, other === guideCrop ? 0 : other.rect.angle ?? (rectified.corners ? 0 : rectified.angle || 0));
 
 				const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
 				const matched = matchCrops(index, crops);
 				const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
 
 				if (how) {
-					const won = others[matched.crop - 1];
+					const other = others[matched.crop - 1];
 
-					card = cutOther(won, Math.min(CARD_MAX_HEIGHT, won.rect.h));
+					card = cutOther(other, Math.min(CARD_MAX_HEIGHT, other.rect.h));
+					won = {how, quad: quadOf(other)};
 				}
 
 				fingerprintMs = matched.timings.fingerprint;
@@ -181,6 +191,10 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 						chosen = again;
 						chosenHow = rectified.variants[again.crop].how;
 						card = rectified.variant(rectified.variants[again.crop]);
+
+						const variant = rectified.variants[again.crop];
+
+						won = {how: chosenHow, quad: variant.corners || rectQuad(source, variant.rect, rectified.angle || 0)};
 					}
 				}
 
@@ -224,11 +238,29 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 			}
 		}
 
+		// What the scan report's capture images draw (js/scan/image.js
+		// captureImages): the capture, the box the edges made with the edge
+		// worked out, the crop that won, the guide, and the regions read. Kept
+		// in memory only, for the last few scans (js/scan/view.js).
+		const trace = {
+			capture: straight ? null : source,
+			card,
+			foundTop: rectified.foundTop ?? null,
+			guessed: rectified.guessed || null,
+			guide: guideRect,
+			main: mainQuad,
+			mainRect: rectified.rect || null,
+			picture: picture && picture.groups && picture.groups[0] ? {distance: picture.groups[0].score, gap: picture.gap ?? null} : null,
+			regions: read ? Object.keys(read.raw || {}) : picture ? ['label'] : [],
+			won,
+		};
+
 		return {
 			angle: rectified.angle ?? 0,
 			artwork,
 			card,
 			found: rectified.found,
+			trace,
 			guessed: rectified.guessed || null,
 			note: rectified.note || null,
 			ocr: Boolean(read),

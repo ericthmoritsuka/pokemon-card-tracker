@@ -525,10 +525,22 @@ function reportPanel(ctx, itemId, {inline = false} = {}) {
 		h('div', {class: 'scan-row'},
 			h('button', {class: 'scan-button scan-primary', id: 'scan-report-copy', onclick: async () => {
 				status.textContent = (await copyText(area.value, area)) ? 'Copied. Paste it into a message.' : 'Copying did not work here; select the text and copy it.';
-			}, type: 'button'}, 'Copy report')),
+			}, type: 'button'}, 'Copy report'),
+			ctx.hasCapture && ctx.hasCapture(itemId)
+				? h('button', {class: 'scan-button', id: 'scan-report-capture', onclick: async () => {
+					try {
+						const names = await ctx.saveCapture(itemId);
+
+						status.textContent = names.length ? `Saved ${names.join(' and ')}. Send them with the report.` : 'This capture is no longer kept.';
+					}
+					catch {
+						status.textContent = 'The capture image could not be made here.';
+					}
+				}, type: 'button'}, 'Save capture image')
+				: null),
 		status,
 		h('label', {class: 'scan-check', for: 'scan-report-always'}, always, ' Show the report after every scan'),
-		h('p', {class: 'scan-muted'}, 'Text only, no photos: the phone, each step\'s time, what each read got, and the cards considered.'));
+		h('p', {class: 'scan-muted'}, 'The report is text only: the phone, each step\'s time, what each read got, and the cards considered. Save capture image downloads the straightened card and the whole capture, with what was found drawn on, for the last few scans.'));
 }
 
 export function reportSheet(ctx, itemId) {

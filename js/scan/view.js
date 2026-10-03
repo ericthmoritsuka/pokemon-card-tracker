@@ -19,7 +19,7 @@ import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
-import {blobImage, imageBlob} from './image.js';
+import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
 import * as S from './session.js';
@@ -109,6 +109,10 @@ const quickApi = {
 
 const PHOTO_HEIGHT = 420;
 
+// How many scans keep their capture in memory for the scan report's "Save
+// capture image": a phone frame is a few megabytes, and nothing is stored.
+const TRACES_KEPT = 3;
+
 // A photo from the gallery is read at most this many pixels on its longer
 // side: a phone camera's 4000 x 3000 photo would hold 48 MB of pixels, and
 // the camera's own captures are smaller than this.
@@ -157,6 +161,9 @@ export function scanView(root) {
 	// Straightened cards waiting for their label row to be read (no text was
 	// read for them), dropped once read.
 	const cardImages = new Map();
+	// The last few scans' captures and what was found on them (identify's
+	// trace), for "Save capture image". Memory only.
+	const traces = new Map();
 	const detector = createAutoCapture();
 	// Where the guide is (camera.js layoutGuide): on the screen, and the
 	// guide and capture area in the camera's frame. Laid out again when the
@@ -238,6 +245,19 @@ export function scanView(root) {
 			return draft.reportAlwaysOn();
 		},
 		reportText: (id) => S.reportText(S.findItem(session, id), {device: deviceInfo()}),
+		hasCapture: (id) => traces.has(id),
+		saveCapture: async (id) => {
+			const trace = traces.get(id);
+
+			if (!trace) {
+				return [];
+			}
+
+			// read.js is on the phone with the app (sw.js), so this works offline.
+			const {REGIONS} = await import('./read.js');
+
+			return saveCaptureImages(trace, {regions: REGIONS});
+		},
 		save,
 		get session() {
 			return session;
@@ -866,6 +886,15 @@ export function scanView(root) {
 
 		progress.delete(id);
 		artworks.set(id, result.artwork);
+
+		if (result.trace && result.trace.card) {
+			traces.delete(id);
+			traces.set(id, result.trace);
+
+			while (traces.size > TRACES_KEPT) {
+				traces.delete(traces.keys().next().value);
+			}
+		}
 
 		// A card the picture settled with no text read: its straightened image
 		// is kept until its label row has been read in the background.

@@ -13,7 +13,8 @@ import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {knownFrom, localPrint, pictureMatch, pictureVerdict} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
-import {rectify} from '../js/scan/rectify.js';
+import {captureCaption, captureStamp} from '../js/scan/image.js';
+import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
@@ -2116,5 +2117,27 @@ describe('a number whose slash read as another character (Palafin, Eric\'s phone
 
 		assert.equal(summary.number.misread, true);
 		assert.match(S.readLine(summary), /number: 023\/086 \(slash misread\)/);
+	});
+});
+
+describe('the capture images for the scan report (Eric, version 26)', () => {
+	test('a box cut at an angle is drawn where it sits on the capture', () => {
+		const img = {height: 200, width: 100};
+
+		assert.deepEqual(rectQuad(img, {h: 100, w: 50, x: 25, y: 50}, 0), [{x: 25, y: 50}, {x: 75, y: 50}, {x: 75, y: 150}, {x: 25, y: 150}]);
+
+		const turned = rectQuad(img, {h: 100, w: 50, x: 25, y: 50}, 90).map((p) => ({x: Math.round(p.x), y: Math.round(p.y)}));
+
+		assert.deepEqual(turned, [{x: 100, y: 75}, {x: 100, y: 125}, {x: 0, y: 125}, {x: 0, y: 75}]);
+	});
+
+	test('file names carry the time, and the caption names the crop, the guessed edge, and the read', () => {
+		assert.equal(captureStamp(new Date(2026, 9, 3, 14, 5, 9)), '20261003-140509');
+		assert.deepEqual(captureCaption({guessed: 'top', main: [], picture: {distance: 75, gap: 2.1}, regions: ['numberLeft', 'numberRight', 'label'], won: {how: 'the guide'}}), [
+			'Crop that won: the guide',
+			'Edge worked out (dashed): top',
+			'Picture: distance 75, lead 2.1; read: numberLeft, numberRight, label',
+		]);
+		assert.equal(captureCaption({guessed: null, main: null, picture: null, regions: [], won: {how: 'the frame as it is', quad: null}})[1], 'No card edges found');
 	});
 });
