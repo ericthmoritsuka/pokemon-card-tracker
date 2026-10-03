@@ -9,8 +9,8 @@
 // keeps the subset the measurements chose (build-index.mjs).
 
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
-import {ART, colorLayout, FACE, phash, QUERY_SHIFTS, thumbnail} from './fingerprint.js';
-import {loadIndex, match} from './matcher.js';
+import {ART, colorLayout, FACE, phash, QUERY_SHIFTS, thumbnail} from '/pokemon-card-tracker/js/vision/fingerprint.js';
+import {loadIndex, match} from '/pokemon-card-tracker/js/vision/matcher.js';
 
 export const RECORD = 64;
 

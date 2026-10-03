@@ -43,7 +43,8 @@ export const INTEGRATION = {
 	},
 	sw: {
 		// In SHELL: the scanner's modules, the lab modules it imports, the
-		// Tesseract.js loader those import (63 KB), and its stylesheet.
+		// Tesseract.js loader those import (63 KB, imported only when a card
+		// needs text), and its stylesheet.
 		shell: [
 			'\t\'js/scan/artwork.js\',',
 			'\t\'js/scan/camera.js\',',
@@ -55,6 +56,7 @@ export const INTEGRATION = {
 			'\t\'js/scan/match.js\',',
 			'\t\'js/scan/ocr.js\',',
 			'\t\'js/scan/read.js\',',
+			'\t\'js/scan/picture.js\',',
 			'\t\'js/scan/rectify.js\',',
 			'\t\'js/scan/routes.js\',',
 			'\t\'js/scan/session.js\',',
@@ -62,6 +64,12 @@ export const INTEGRATION = {
 			'\t\'js/scan/steady.js\',',
 			'\t\'js/scan/tile.js\',',
 			'\t\'js/scan/view.js\',',
+			// The picture-first recogniser and its index (about 1.4 MB, 1.1 MB
+			// gzipped), precached so the first scan needs no download.
+			'\t\'js/vision/fingerprint.js\',',
+			'\t\'js/vision/matcher.js\',',
+			'\t\'js/vision/pack.js\',',
+			'\t\'js/vision/index.bin\',',
 			'\t\'lab/js/camera.js\',',
 			'\t\'lab/js/match.js\',',
 			'\t\'lab/js/ocr.js\',',

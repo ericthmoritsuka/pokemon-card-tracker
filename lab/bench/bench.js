@@ -18,6 +18,8 @@ import {createPool} from '/pokemon-card-tracker/js/scan/ocr.js';
 import {readCard} from '/pokemon-card-tracker/js/scan/read.js';
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
+import {identify} from '/pokemon-card-tracker/js/scan/identify.js';
+import {pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
 
 let pool = null;
 
@@ -175,7 +177,53 @@ async function imageUrl(img) {
 const langOf = (read) => (read.language && read.language.code) || null;
 const small = (cands) => cands.map((c) => ({conf: c.confidence ?? null, id: c.id, reasons: c.reasons, score: c.score}));
 
+// The app's own route since the switch to picture first (run.mjs
+// --picture): js/scan/identify.js (rectify, fingerprint and match, a
+// number-only read when the picture needs one), then js/scan/picture.js
+// pictureMatch, with the text route behind it, as js/scan/view.js does.
+async function measurePicture(image, {crops = false} = {}) {
+	const t0 = performance.now();
+	const result = await identify(image);
+	const read = result.read ? summariseRead(result.read) : null;
+	const lang = read && read.language.code ? read.language.code : null;
+	const t1 = performance.now();
+	const found = await pictureMatch(result.picture, read, lang, {textRoute: (r, l) => findCandidates(r, l, {artwork: result.artwork})});
+	const t2 = performance.now();
+	const list = found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates;
+	const candidates = small(list);
+	const out = {
+		angle: result.angle,
+		candidates,
+		cardSize: `${result.card.width}x${result.card.height}`,
+		found: result.found,
+		hp: null,
+		language: read ? read.language : null,
+		name: null,
+		names: [],
+		noArt: candidates,
+		note: result.note,
+		number: read && read.number ? `${read.number.number}/${read.number.total}` : null,
+		numberOnly: candidates,
+		ocr: result.ocr,
+		picture: result.picture ? {gap: result.picture.gap, how: result.picture.how, top: result.picture.groups.map((g) => `${g.cards.map((c) => c.id).join('+')} ${g.score}`)} : null,
+		ratio: result.ratio,
+		sure: found.sure,
+		timings: {fingerprint: result.timings.fingerprint, match: Math.round(t2 - t1) + (result.timings.match || 0), ocr: result.timings.ocr || 0, rectify: result.timings.rectify, total: Math.round(t2 - t0)},
+		why: found.why,
+	};
+
+	if (crops) {
+		out.crops = {card: await imageUrl(result.card)};
+	}
+
+	return out;
+}
+
 async function measure(image, {crops = false, options = {}} = {}) {
+	if (options.pictureFirst) {
+		return measurePicture(image, {crops});
+	}
+
 	const t0 = performance.now();
 	const r = rectify(image);
 	const t1 = performance.now();

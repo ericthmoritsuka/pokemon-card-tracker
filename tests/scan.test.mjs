@@ -11,6 +11,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
+import {pictureMatch, pictureVerdict} from '../js/scan/picture.js';
 import {rectify} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -1267,5 +1268,159 @@ describe('a card photographed on a screen', () => {
 		assert.equal(lead.card.id, 'sv08.5-003');
 		assert.equal(lead.sure, false);
 		assert.equal(S.blocker(lead), 'unsure');
+	});
+});
+
+describe('picture first (Eric, 2026-10-03)', () => {
+	// A capture whose card has a light strip beside its right edge (a sleeve
+	// edge, a margin of the screen), so the edges found make a box about 3 %
+	// too wide, as on Eric's phone (0.733 to 0.740 against 0.716).
+	function stripCapture() {
+		const W = 520;
+		const H = 726;
+		const cw = W / 1.2;
+		const ch = cw * 88 / 63;
+		const x0 = (W - cw) / 2 - cw * 0.0175;
+		const y0 = (H - ch) / 2;
+		const strip = cw * 0.035;
+		const data = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const u = (x - x0) / cw;
+				const v = (y - y0) / ch;
+				let value = 70;
+
+				if (v >= 0 && v < 1 && u >= 0 && u < 1 + strip / cw) {
+					if (u >= 1) {
+						value = 215;
+					}
+					else if (u < 0.04 || u > 0.96 || v < 0.03 || v > 0.97) {
+						value = 215;
+					}
+					else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.48) {
+						value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
+					}
+					else {
+						value = 180;
+					}
+				}
+
+				data.set([value, value, value, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {data, height: H, width: W};
+	}
+
+	test('a box a few percent too wide is snapped to a card\'s shape, with the trimmed crops kept for the fingerprint', () => {
+		const straight = rectify(stripCapture());
+
+		assert.ok(straight.found, straight.note);
+		assert.ok(straight.ratio > 0.725 && straight.ratio < 0.76, `the box measured ${straight.ratio}`);
+		assert.ok(Math.abs(straight.card.width / straight.card.height - 63 / 88) < 0.006, `snapped: ${straight.card.width}x${straight.card.height}`);
+		assert.deepEqual(straight.others.map((other) => other.how), ['trim left', 'trim right', 'trim both']);
+
+		const trimmed = straight.cut(straight.others[1].rect, 402);
+
+		assert.ok(Math.abs(trimmed.width / trimmed.height - 63 / 88) < 0.006, `the trimmed crop is card-shaped too: ${trimmed.width}x${trimmed.height}`);
+	});
+
+	const sets = {
+		'en|me04': {cardCount: {official: 86}, cards: [{id: 'me04-001', image: 'https://img/me04-001', localId: '001', name: 'Weedle'}, {id: 'me04-090', image: 'https://img/me04-090', localId: '090', name: 'Ampharos'}], name: 'Chaos Rising'},
+		'en|sv01': {cardCount: {official: 198}, cards: [{id: 'sv01-089', localId: '089', name: 'Drifloon'}], name: 'Scarlet & Violet'},
+		'en|sv02': {cardCount: {official: 193}, cards: [{id: 'sv02-010', localId: '010', name: 'Other'}], name: 'Paldea Evolved'},
+		'ja|M4': {cardCount: {official: 83}, cards: [{id: 'M4-001', image: 'https://img/M4-001', localId: '001', name: 'Weedle JA'}], name: 'M4'},
+	};
+	const api = {setDetail: async (lang, set) => sets[`${lang}|${set}`] || null};
+	const card = (id, catalog, set, score) => ({catalog, id, image: `https://assets/${id}`, score, set});
+	const number = (n, total, confidence = 0.9) => ({number: {confidence, number: n, numberPrinted: n, side: 'left', total, totalPrinted: total}});
+
+	test('one card well ahead is the card, with no text read', async () => {
+		const picture = {gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
+
+		assert.deepEqual(pictureVerdict(picture), {clear: true, several: false, sure: true});
+
+		const found = await pictureMatch(picture, null, null, {api});
+
+		assert.equal(found.card.id, 'me04-090');
+		assert.equal(found.card.name, 'Ampharos');
+		assert.equal(found.card.official, 86);
+		assert.equal(found.sure, true);
+	});
+
+	test('the number chooses inside a group of prints that share the picture', async () => {
+		const picture = {gap: 30, groups: [{cards: [card('me04-001', 'en', 'me04', 8), card('M4-001', 'ja', 'M4', 9)], score: 8}, {cards: [card('sv01-089', 'en', 'sv01', 38)], score: 38}]};
+
+		assert.equal(pictureVerdict(picture).several, true);
+
+		const found = await pictureMatch(picture, number('001', '083'), 'non-latin', {api});
+
+		assert.equal(found.card.id, 'M4-001');
+		assert.equal(found.sure, true);
+
+		const unknown = await pictureMatch(picture, null, null, {api});
+
+		assert.equal(unknown.card.id, 'me04-001', 'with no language known, the international record first');
+		assert.equal(unknown.sure, false);
+		assert.match(unknown.why, /2 cards share this picture/);
+	});
+
+	test('a picture and a number that disagree need a look, never a save', async () => {
+		const picture = {gap: 40, groups: [{cards: [card('me04-001', 'en', 'me04', 9)], score: 9}, {cards: [card('sv02-010', 'en', 'sv02', 49)], score: 49}]};
+		const found = await pictureMatch(picture, number('057', '086'), 'pt', {api});
+
+		assert.equal(found.disagree, true);
+		assert.equal(found.sure, false);
+		assert.match(found.why, /looks like Weedle .* but the number reads 057\/086/);
+
+		const session = S.newSession();
+		const item = S.addCapture(session);
+
+		S.applyPicture(session, item.id, found);
+		assert.equal(item.card.id, 'me04-001');
+		assert.equal(S.blocker(item), 'unsure');
+
+		// One confused digit in the total is no disagreement (195 for 198).
+		const near = await pictureMatch({gap: 40, groups: [{cards: [card('sv01-089', 'en', 'sv01', 9)], score: 9}]}, number('089', '195'), 'en', {api});
+
+		assert.equal(near.disagree, false);
+		assert.equal(near.sure, true);
+	});
+
+	test('a small lead offers the top five, and a number read that names one promotes it', async () => {
+		const picture = {gap: 2, groups: [{cards: [card('sv01-089', 'en', 'sv01', 60)], score: 60}, {cards: [card('sv02-010', 'en', 'sv02', 62)], score: 62}, {cards: [card('me04-001', 'en', 'me04', 63)], score: 63}]};
+		const found = await pictureMatch(picture, number('001', '086'), 'pt', {api});
+
+		assert.equal(found.card.id, 'me04-001');
+		assert.equal(found.sure, true);
+		assert.equal(found.candidates.length, 3);
+
+		const unsure = await pictureMatch(picture, null, 'pt', {api});
+
+		assert.equal(unsure.card, null);
+		assert.deepEqual(unsure.candidates.map((c) => c.id), ['sv01-089', 'sv02-010', 'me04-001']);
+	});
+
+	test('a number that names a set the catalog has not got yet offers Add by hand', async () => {
+		const picture = {gap: 1, groups: [{cards: [card('sv01-089', 'en', 'sv01', 70)], score: 70}, {cards: [card('sv02-010', 'en', 'sv02', 71)], score: 71}]};
+		const read = number('047', '076');
+
+		read.number.setCodeRun = 'M6';
+
+		const found = await pictureMatch(picture, read, 'ko', {api, textRoute: async () => ({candidates: []})});
+
+		assert.deepEqual(found.hand, {language: 'ko', number: '047', setCode: 'M6', total: '076'});
+		assert.match(found.why, /catalog has not got that set yet/);
+
+		const session = S.newSession();
+		const item = S.addCapture(session);
+
+		S.applyPicture(session, item.id, found);
+		S.addByHand(session, item.id, {language: 'ko', number: '047', setId: 'M6'});
+		assert.equal(item.card.id, 'M6-047');
+		assert.equal(item.card.lang, 'ja');
+		assert.equal(S.blocker(item), null);
+		assert.deepEqual(S.entriesToSave(session, new Map())[0].fields, {card_id: 'M6-047', catalog: 'ja', fallback: true, language: 'ko', language_source: 'scan', variant_id: null});
 	});
 });

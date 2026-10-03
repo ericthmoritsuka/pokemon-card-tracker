@@ -422,6 +422,68 @@ export function applyMatch(session, id, {candidates = [], names = [], partial = 
 	return item;
 }
 
+// The picture match is in (js/scan/picture.js pictureMatch): the card it
+// settled, or the candidates to tap (the top five artwork groups, as
+// pictures). A picture and a number that disagree leave the card shown but
+// unsure, so it needs a look. A Japanese or Chinese record hints at an
+// Asian print without choosing which (a Korean print shares the Japanese
+// art). hand: the add-by-hand prefill, when the number names a set the
+// catalog has not got yet.
+export function applyPicture(session, id, found, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	item.candidates = (found.candidates || []).slice(0, 8);
+	item.names = [];
+	item.readSetName = null;
+	item.partial = false;
+	item.sure = Boolean(found.sure && found.card);
+	item.why = found.why || null;
+	item.disagree = Boolean(found.disagree);
+	item.hand = found.hand || null;
+	item.status = 'ready';
+	item.waitingFor = null;
+	setCard(item, found.card || null);
+
+	if (!item.languageBy && !item.language && found.card && ['ja', 'zh-tw', 'zh-cn'].includes(found.card.lang)) {
+		item.languageHint = 'non-latin';
+	}
+
+	touch(session, now);
+
+	return item;
+}
+
+// A card whose set the catalog has not got yet, added by hand from its set
+// code and number (the read's prefill, item.hand). It is saved against the
+// record the set will have, `<set>-<number>`, in the catalog its language
+// is saved in (Korean against the Japanese one, DESIGN.md section 5), with
+// no finish to pick.
+export function addByHand(session, id, {setId, number, language}, now = nowIso()) {
+	const item = mustFind(session, id);
+	const setCode = String(setId || '').trim();
+	const localId = String(number || '').trim();
+
+	if (!setCode || !localId || !language) {
+		throw new Error('A set code, a number, and a language are needed.');
+	}
+
+	const lang = language === 'ko' ? 'ja' : catalogFor(language) === 'international' ? 'en' : language;
+
+	setCard(item, {id: `${setCode}-${localId}`, image: null, lang, localId, name: `${setCode} ${localId}`, official: item.hand && item.hand.total ? String(Number(item.hand.total)) : null, setId: setCode, setName: setCode});
+	item.card.byHand = true;
+	item.language = language;
+	item.languageBy = 'hand';
+	item.variants = [];
+	item.variantId = null;
+	item.finishBy = 'plain';
+	item.confirmed = true;
+	item.status = 'ready';
+	item.waitingFor = null;
+	touch(session, now);
+
+	return item;
+}
+
 // A card was chosen (by the match or by a tap): its finish starts over on
 // the plain print once its variants are known.
 function setCard(item, candidate) {
@@ -1017,7 +1079,20 @@ export function reportOfRead(result, {captureMs = null, frame = null, source = '
 				side: number.side || null,
 			}
 			: null,
+		ocr: result.ocr !== undefined ? Boolean(result.ocr) : true,
 		ocrMs: result.timings ? result.timings.ocr : null,
+		// The picture match: the five best artwork groups with their
+		// distances, the lead of the first over the second, the crop the
+		// fingerprint chose, and how long it took.
+		picture: result.picture
+			? {
+				fingerprintMs: result.timings ? result.timings.fingerprint ?? null : null,
+				gap: result.picture.gap,
+				groups: result.picture.groups.slice(0, 5).map((group) => ({cards: group.cards.slice(0, 4).map((c) => c.id), score: group.score})),
+				how: result.picture.how || null,
+				matchMs: result.timings ? result.timings.match ?? null : null,
+			}
+			: null,
 		partial: read.partial && (read.partial.number || read.partial.total) ? `${read.partial.number || '?'}/${read.partial.total || '?'}` : null,
 		rectify: {
 			angle: result.angle ?? null,
@@ -1025,6 +1100,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, source = '
 			found: Boolean(result.found),
 			ms: result.timings ? result.timings.rectify : null,
 			note: result.note || null,
+			ratio: typeof result.ratio === 'number' ? result.ratio : null,
 		},
 		setCodeBox: box.text ? {langCode: box.langCode || null, setCode: box.setCode || null, text: String(box.text).trim().slice(0, 60)} : null,
 		source,
@@ -1107,7 +1183,22 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 		lines.push(`- Edges and straightening: ${ms(report.rectify.ms)}; ${report.rectify.found ? 'card edges found' : 'card edges NOT found'}${typeof report.rectify.angle === 'number' ? `, turned ${report.rectify.angle} degrees` : ''}${report.rectify.card ? `, card ${report.rectify.card} px` : ''}. ${report.rectify.note || ''}`.trim());
 	}
 
-	lines.push(`- OCR, all reads: ${ms(report.ocrMs)} (reads run side by side, so their times overlap)`);
+	if (report.rectify && typeof report.rectify.ratio === 'number') {
+		lines.push(`- Crop shape: the edges made a box ${report.rectify.ratio} wide for its height (a card is 0.716); the crop was snapped to a card's shape${report.picture && report.picture.how ? `, ${report.picture.how}` : ''}`);
+	}
+
+	if (report.picture) {
+		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}`);
+
+		for (const [index, group] of report.picture.groups.entries()) {
+			lines.push(`  ${index + 1}. ${group.cards.join(', ')}: distance ${group.score}`);
+		}
+	}
+	else if (report.ocr !== false) {
+		lines.push('- Picture match: not done (the picture index was not on this phone); read in full');
+	}
+
+	lines.push(report.ocr === false ? '- OCR: not run (the picture was enough)' : `- OCR, all reads: ${ms(report.ocrMs)} (reads run side by side, so their times overlap)`);
 
 	for (const [key, title] of REPORT_FIELDS) {
 		const field = report.fields && report.fields[key];

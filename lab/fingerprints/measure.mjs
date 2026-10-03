@@ -12,7 +12,7 @@
 // out here, over every card in the index, for each way of combining the
 // descriptors, so one run compares them all.
 //
-// --timing loads the packed index (lab/fingerprints/index.bin) in the page
+// --timing loads the packed index (js/vision/index.bin) in the page
 // and times rectify, fingerprint, and match per capture, at --throttle.
 
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
@@ -20,7 +20,7 @@ import {join, relative, resolve} from 'node:path';
 
 import {artGroups, CACHE, describeAll, field, indexOrder, RECORD, signed, words} from './build-index.mjs';
 import {cachedJson, catalogCards} from './catalog.mjs';
-import {colorDistance, popcount32} from './fingerprint.js';
+import {colorDistance, popcount32} from '../../js/vision/fingerprint.js';
 import {openPage, REPO, startServer} from './serve.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2)
@@ -372,7 +372,7 @@ async function main() {
 
 	if (args.timing) {
 		const cdp = await context.newCDPSession(page);
-		const loaded = await page.evaluate((u) => window.fp.loadIndex(u), '/pokemon-card-tracker/lab/fingerprints/index.bin');
+		const loaded = await page.evaluate((u) => window.fp.loadIndex(u), '/pokemon-card-tracker/js/vision/index.bin');
 		const sample = sets.framed.slice(0, 6).concat(sets.fullart.slice(0, 6));
 
 		await downloadHigh(sample);

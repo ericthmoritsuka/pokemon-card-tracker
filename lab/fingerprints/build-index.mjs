@@ -1,7 +1,14 @@
 // Builds the fingerprint index from TCGdex images.
 //
-// node lab/fingerprints/build-index.mjs [--catalogs en,pt,ja] [--out <file>]
-//   [--concurrency 4] [--describe-only]
+// node lab/fingerprints/build-index.mjs [--catalogs en,pt,ja,zh-tw] [--out <file>]
+//   [--concurrency 4] [--describe-only] [--extend zh-tw]
+//
+// --extend <catalogs> adds those catalogs to the index already at --out
+// (js/vision/index.bin) without the images of the cards it holds: their
+// descriptors are taken back from the index, only the new catalog's images
+// are downloaded and described, and the artwork groups are made again over
+// all of them. A card added this way is full art when a card it shares its
+// artwork with is.
 //
 // FP_CACHE=<dir> is where TCGdex answers, images, and descriptors are kept
 // (default ~/.cache/pokemon-card-tracker-fingerprints); it must be outside
@@ -16,7 +23,7 @@
 //    browser's own code. Kept in the cache, so a rebuild only describes new
 //    images.
 // 3. Artwork groups: cards whose art box is the same picture.
-// 4. The packed index (pack.js), by default lab/fingerprints/index.bin.
+// 4. The packed index (pack.js), by default js/vision/index.bin.
 
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -24,8 +31,8 @@ import {join, relative, resolve} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
 import {catalogCards, downloadImages, imageFile} from './catalog.mjs';
-import {colorDistance, popcount32} from './fingerprint.js';
-import {packIndex} from './pack.js';
+import {colorDistance, popcount32} from '../../js/vision/fingerprint.js';
+import {packIndex, unpackIndex} from '../../js/vision/pack.js';
 import {openPage, REPO, startServer} from './serve.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2)
@@ -181,8 +188,13 @@ export function artGroups(records, n, {art = GROUP_ART128, color = GROUP_COLOR} 
 	return out;
 }
 
+// The catalogs an index can hold, in index order. Traditional Chinese
+// (zh-tw) has its own images for the S and SV sets; Simplified Chinese
+// (zh-cn) has none on TCGdex (checked 2026-10-03).
+export const CATALOGS = ['en', 'pt', 'ja', 'zh-tw'];
+
 export function buildIndex(cards, records, groups, {built = new Date().toISOString()} = {}) {
-	const catalogs = ['en', 'pt', 'ja'];
+	const catalogs = CATALOGS;
 	const sets = [...new Set(cards.map((c) => c.set))];
 	const series = sets.map((s) => cards.find((c) => c.set === s).series);
 	const setIndex = new Map(sets.map((s, i) => [s, i]));
@@ -211,12 +223,70 @@ export function buildIndex(cards, records, groups, {built = new Date().toISOStri
 }
 
 // Cards in index order: catalog, then set, then number.
-export const indexOrder = (a, b) => (a.catalog === b.catalog ? 0 : ['en', 'pt', 'ja'].indexOf(a.catalog) - ['en', 'pt', 'ja'].indexOf(b.catalog))
+export const indexOrder = (a, b) => (a.catalog === b.catalog ? 0 : CATALOGS.indexOf(a.catalog) - CATALOGS.indexOf(b.catalog))
 	|| a.set.localeCompare(b.set) || a.id.localeCompare(b.id, 'en', {numeric: true});
 
-async function main() {
+// The cards and descriptor records an index holds (art128, card128, and
+// color only: what the index keeps).
+export function fromIndex(index) {
+	const n = index.count;
+	const records = new Uint8Array(n * RECORD);
+	const cards = [];
+	const bytesOf = (array, i, size) => new Uint8Array(array.buffer, array.byteOffset + i * size, size);
+
+	for (let i = 0; i < n; i++) {
+		const c = index.card(i);
+
+		cards.push({catalog: c.catalog, full: c.full, id: c.id, image: c.image, series: index.header.series[index.set[i]], set: c.set});
+		records.set(bytesOf(index.fields.art, i, 16), i * RECORD + LAYOUT.art128[0]);
+		records.set(bytesOf(index.fields.card, i, 16), i * RECORD + LAYOUT.card128[0]);
+		records.set(bytesOf(index.fields.color, i, 16), i * RECORD + LAYOUT.color[0]);
+	}
+
+	return {cards, records};
+}
+
+export async function extend(out, add) {
 	const t0 = Date.now();
-	const catalogs = args.catalogs ? String(args.catalogs).split(',') : ['en', 'pt', 'ja'];
+	const base = fromIndex(unpackIndex(new Uint8Array(await readFile(out))));
+	const listed = (await catalogCards(CACHE, add)).filter((c) => add.includes(c.catalog) && !base.cards.some((b) => b.catalog === c.catalog));
+
+	console.log(`${base.cards.length} cards in the index; adding ${listed.length} with images: ${add.map((c) => `${c} ${listed.filter((x) => x.catalog === c).length}`).join(', ')}`);
+
+	const dl = await downloadImages(CACHE, listed, {concurrency: Number(args.concurrency || 4), log: console.log});
+
+	console.log(`images: ${dl.fetched} fetched (${(dl.bytes / 1e6).toFixed(0)} MB) in ${dl.seconds} s, ${dl.kept} already kept, ${dl.missing} missing on TCGdex`);
+
+	const added = await describeAll(listed);
+	const all = [...base.cards.map((c, i) => ({c, from: base.records, i})), ...added.cards.map((c, i) => ({c, from: added.records, i}))]
+		.sort((a, b) => indexOrder(a.c, b.c));
+	const cards = all.map((entry) => entry.c);
+	const records = new Uint8Array(all.length * RECORD);
+
+	all.forEach((entry, k) => records.set(entry.from.subarray(entry.i * RECORD, (entry.i + 1) * RECORD), k * RECORD));
+
+	const groups = artGroups(records, cards.length);
+	const fullGroups = new Set(cards.flatMap((c, i) => (c.full ? [groups[i]] : [])));
+
+	cards.forEach((c, i) => {
+		if (add.includes(c.catalog) && fullGroups.has(groups[i])) {
+			c.full = true;
+		}
+	});
+
+	const index = buildIndex(cards, records, groups);
+
+	await writeFile(out, index);
+	console.log(`index: ${out} ${cards.length} cards, ${(index.length / 1024).toFixed(0)} KB, gzipped ${(gzipSync(index).length / 1024).toFixed(0)} KB, in ${Math.round((Date.now() - t0) / 1000)} s`);
+}
+
+async function main() {
+	if (args.extend) {
+		return extend(resolve(String(args.out || join(REPO, 'js/vision/index.bin'))), String(args.extend).split(','));
+	}
+
+	const t0 = Date.now();
+	const catalogs = args.catalogs ? String(args.catalogs).split(',') : CATALOGS;
 	const listed = (await catalogCards(CACHE, catalogs)).sort(indexOrder);
 
 	console.log(`${listed.length} cards with images: ${catalogs.map((c) => `${c} ${listed.filter((x) => x.catalog === c).length}`).join(', ')}; ${listed.filter((c) => c.full).length} full art`);
@@ -236,7 +306,7 @@ async function main() {
 	const groups = artGroups(records, cards.length);
 	const t3 = Date.now();
 	const index = buildIndex(cards, records, groups);
-	const out = resolve(String(args.out || join(REPO, 'lab/fingerprints/index.bin')));
+	const out = resolve(String(args.out || join(REPO, 'js/vision/index.bin')));
 
 	await mkdir(join(out, '..'), {recursive: true});
 	await writeFile(out, index);
