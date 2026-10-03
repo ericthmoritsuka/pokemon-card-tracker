@@ -33,6 +33,7 @@ import {
 	parseBrl,
 	savedEuroRates,
 	savedRates,
+	tileFinish,
 	tileValue,
 	today,
 	usStyleAmount,
@@ -247,7 +248,14 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	// copy's language when one is given. With no finishes (a record without
 	// variants), every copy.
 	const group = () => {
-		const mine = selected ? ownedOf(selected) : finishes.length ? [] : copies;
+		let mine = selected ? ownedOf(selected) : finishes.length ? [] : copies;
+
+		// Copies whose finish cannot be told apart belong to no finish
+		// button, so with none of this finish a Liga price goes to them
+		// rather than nowhere.
+		if (!mine.length && finishes.length) {
+			mine = copies.filter((entry) => !finishOf(entry, finishes));
+		}
 
 		return language ? mine.filter((entry) => entry.language === language) : mine;
 	};
@@ -549,11 +557,15 @@ export function tilePrice(entries, card, {basis = 'avg', rates = savedRates()} =
 
 	const text = formatBrlCompact(value.brl);
 
+	// Copies of several finishes share one tile, so the price says whose it is.
+	const finish = tileFinish(entries, card, {basis, rates});
+	const note = finish ? `, ${finish}` : '';
+
 	if (value.kind === 'liga') {
-		return h('span', {class: 'price-tile', title: `Liga Pokémon, ${value.date || 'no date'}`}, text);
+		return h('span', {'aria-label': finish ? `${text}, Liga Pokémon${note}` : null, class: 'price-tile', title: `Liga Pokémon${note}, ${value.date || 'no date'}`}, text);
 	}
 
-	return h('span', {'aria-label': `About ${text}, US market estimate`, class: 'price-tile price-tile-estimate', title: 'Estimated from the US market (TCGplayer)'},
+	return h('span', {'aria-label': `About ${text}, US market estimate${note}`, class: 'price-tile price-tile-estimate', title: `Estimated from the US market (TCGplayer)${note}`},
 		h('span', {'aria-hidden': 'true'}, `~${text}`),
 		h('span', {'aria-hidden': 'true', class: 'price-tile-us'}, 'US')
 	);
