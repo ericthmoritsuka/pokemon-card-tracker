@@ -179,6 +179,159 @@ export function parseJson(text) {
 	}));
 }
 
+// ------------------------------------------------------ the app's own CSV
+
+// The app's own export (js/cards-view.js collectionCsv) is told apart by its
+// snake_case header: it names entry_id, card_id, and catalog, which no
+// monprice file does.
+export function isOwnCsv(text) {
+	const clean = String(text).replace(/^﻿/, '');
+	const firstLine = clean.slice(0, clean.search(/\r?\n|$/));
+	const names = firstLine.split(/[;,]/).map((name) => unwrap(name.trim().replace(/^"|"$/g, '')));
+
+	return ['entry_id', 'card_id', 'catalog'].every((name) => names.includes(name));
+}
+
+export const OWN_CATALOGS = ['international', 'ja', 'ko', 'zh-cn', 'zh-tw', 'custom'];
+
+const ENTRY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// The finish labels the export writes, back to monprice's words.
+const FINISH_BY_LABEL = new Map(Object.entries(FINISHES).map(([key, label]) => [label.toLowerCase(), key]));
+
+// 45,90 or 45.90 as a number; null when empty or not a price.
+function readPrice(text) {
+	if (!text) {
+		return null;
+	}
+
+	const value = Number(String(text).replace(/\s/g, '').replace(',', '.'));
+
+	return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+const isoOrNull = (text) => (text && !Number.isNaN(Date.parse(text)) ? text : null);
+
+// The rows of the app's own CSV, one per copy: {line, id, created_at,
+// ...entry fields} for js/collection.js planOwnImport, and the rows it
+// cannot use, with their reason. A field whose column the file lacks (an
+// export from before the column was added) is left undefined, so a
+// re-import leaves that field alone. Returns {format: 'own', rows, errors}.
+export function parseOwnCsv(text) {
+	const clean = String(text).replace(/^﻿/, '');
+	const firstLine = clean.slice(0, clean.search(/\r?\n|$/));
+	const delimiter = firstLine.split(';').length >= firstLine.split(',').length ? ';' : ',';
+	const [header, ...records] = parseDelimited(clean, delimiter);
+	const names = header.map((name) => unwrap(name.trim()));
+	const has = (name) => names.includes(name);
+	const rows = [];
+	const errors = [];
+	const seen = new Set();
+
+	records.forEach((fields, i) => {
+		const cell = (name) => {
+			const at = names.indexOf(name);
+
+			return at < 0 ? '' : unwrap((fields[at] || '').trim()).trim();
+		};
+		// undefined when the file has no such column, null when it is empty.
+		const optional = (name) => (has(name) ? cell(name) || null : undefined);
+		const id = cell('entry_id').toLowerCase();
+		const catalog = cell('catalog');
+		const languageRaw = cell('language');
+		const language = LANGUAGE_CODES[languageRaw.toLowerCase()];
+		const problems = [];
+
+		if (!ENTRY_ID.test(id)) {
+			problems.push(`entry_id "${cell('entry_id')}" is not an entry id`);
+		}
+		else if (seen.has(id)) {
+			problems.push(`entry_id ${id} is on an earlier line too`);
+		}
+
+		if (!cell('card_id')) {
+			problems.push('the card_id is empty');
+		}
+
+		if (!OWN_CATALOGS.includes(catalog)) {
+			problems.push(`catalog "${catalog}" is not one the app knows`);
+		}
+
+		if (!language) {
+			problems.push(`language "${languageRaw}" is not one the app knows`);
+		}
+
+		const custom = catalog === 'custom';
+		// A hand-made card's names: their own columns, else what the export
+		// shows for it (name, set, number, set_id).
+		const own = (name, shown) => {
+			if (cell(name)) {
+				return cell(name);
+			}
+
+			if (custom && cell(shown)) {
+				return cell(shown);
+			}
+
+			return has(name) || custom ? null : undefined;
+		};
+		const nameLocal = own('name_local', 'name');
+		const setNameLocal = own('set_name_local', 'set');
+		const numberLocal = own('number_local', 'number');
+		const setCode = own('set_code', 'set_id');
+
+		if (custom && !nameLocal) {
+			problems.push('a hand-made card needs a name');
+		}
+
+		const variantId = cell('variant_id') || null;
+		// The raw finish: its own column, else the label the export wrote for
+		// a copy with no matched finish.
+		let finishRaw = optional('finish_raw');
+
+		if (finishRaw === undefined && !variantId && cell('finish')) {
+			finishRaw = FINISH_BY_LABEL.get(cell('finish').toLowerCase()) || cell('finish');
+		}
+
+		const lowNm = readPrice(cell('liga_low_nm'));
+		const avg = readPrice(cell('liga_avg'));
+		const priced = lowNm !== null || avg !== null;
+		const row = {
+			card_id: cell('card_id'),
+			catalog,
+			condition: optional('condition'),
+			created_at: isoOrNull(cell('created_at')),
+			fallback: has('fallback') ? (/^(yes|true|1)$/i.test(cell('fallback')) ? true : null) : undefined,
+			finish_raw: finishRaw,
+			id,
+			import_key: optional('import_key'),
+			language,
+			language_source: cell('language_source') || 'import',
+			// Line 1 is the header.
+			line: i + 2,
+			name_local: nameLocal,
+			notes: optional('notes'),
+			number_local: numberLocal,
+			price_manual: has('liga_low_nm') || has('liga_avg')
+				? (priced ? {avg, currency: cell('currency') || 'BRL', date: cell('price_date') || null, low_nm: lowNm, source: cell('price_source') || null} : null)
+				: undefined,
+			set_code: setCode,
+			set_name_local: setNameLocal,
+			variant_id: variantId,
+		};
+
+		if (problems.length) {
+			errors.push({...row, languageRaw, name: cell('name'), number: cell('number'), reason: problems.join('; '), setName: cell('set')});
+		}
+		else {
+			seen.add(id);
+			rows.push(row);
+		}
+	});
+
+	return {errors, format: 'own', rows};
+}
+
 // Counts a real collection never holds for one card in one language and
 // finish: a row above LARGE_COUNT is flagged in the import report and saved
 // only when the person ticks it; a row above MAX_COUNT is refused. One row
@@ -188,9 +341,15 @@ export const MAX_COUNT = 999;
 
 // Returns {format, rows, errors}. A row with an error is reported and
 // never imported. A row whose count is above LARGE_COUNT carries large:
-// true.
+// true. The app's own CSV comes back as parseOwnCsv reads it, with format
+// 'own'.
 export function parseExport(text, fileName = '') {
 	const clean = text.replace(/^﻿/, '');
+
+	if (!/\.json$/i.test(fileName) && isOwnCsv(clean)) {
+		return parseOwnCsv(clean);
+	}
+
 	const isJson = /\.json$/i.test(fileName) || /^\s*[[{]/.test(clean);
 	const raw = isJson ? parseJson(clean) : parseCsv(clean);
 	const rows = [];

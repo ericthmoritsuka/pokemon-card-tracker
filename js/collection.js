@@ -383,6 +383,9 @@ const ENTRY_FIELDS = [
 	// The Liga Pokémon price the owner typed in, {low_nm, avg, currency:
 	// 'BRL', source, date} (js/prices.js). null clears it.
 	'price_manual',
+	// A hand-made card's printed number and set code (js/custom-card.js);
+	// its name and set name are name_local and set_name_local.
+	'number_local', 'set_code',
 ];
 
 function pick(fields) {
@@ -457,6 +460,26 @@ export async function addCard(fields) {
 	await saveDocument(doc);
 
 	return entry;
+}
+
+// Several new entries in one save, so a hand-made card's copies are written
+// once (js/custom-card.js). Each is stamped one millisecond after the last.
+// Returns the entries added.
+export async function addCards(list) {
+	const doc = await loadDocument();
+	const now = Date.now();
+	const added = list.map((fields, i) => {
+		const at = fields.created_at || new Date(now + i).toISOString();
+
+		return {...pick(fields), created_at: at, deleted_at: null, id: newId(), updated_at: at};
+	});
+
+	if (added.length) {
+		doc.cards.push(...added);
+		await saveDocument(doc);
+	}
+
+	return added;
 }
 
 export async function updateCard(id, patch) {
@@ -710,6 +733,174 @@ export async function applyImport(entries) {
 	await saveDocument(doc);
 
 	return counts;
+}
+
+// ------------------------------------------------- the app's own CSV
+
+// The fields a re-import of the app's own CSV restores and compares
+// (DESIGN.md section 9). A row leaves out a field (undefined) when its file
+// has no column for it, an older export say, and that field is then left
+// as it is.
+const OWN_COMPARED = [
+	'card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'import_key',
+	'name_local', 'set_name_local', 'condition', 'notes', 'price_manual', 'number_local', 'set_code',
+];
+
+const day = (value) => (value ? String(value).slice(0, 10) : null);
+
+// A Liga price as the CSV can carry it: the two prices and the day.
+const priceText = (value) => (value && typeof value === 'object'
+	? JSON.stringify([value.low_nm ?? null, value.avg ?? null, day(value.date)])
+	: 'null');
+
+function sameField(key, a, b) {
+	if (key === 'price_manual') {
+		return priceText(a) === priceText(b);
+	}
+
+	if (key === 'fallback') {
+		return Boolean(a) === Boolean(b);
+	}
+
+	return (a ?? null) === (b ?? null) || ((a ?? '') === '' && (b ?? '') === '');
+}
+
+// The fields of a row that differ from the entry, as a patch.
+function ownPatch(entry, fields) {
+	const patch = {};
+
+	for (const key of OWN_COMPARED) {
+		if (fields[key] !== undefined && !sameField(key, entry[key], fields[key])) {
+			patch[key] = fields[key];
+		}
+	}
+
+	return patch;
+}
+
+// What re-importing the app's own CSV does, without saving: a pure step,
+// tested in Node (tests/import.test.mjs). rows are js/monprice.js
+// parseOwnCsv rows, {id, created_at, ...fields}. Each row is the entry with
+// its id: absent, it is added with that id (or, when the id is taken by
+// something else, a new one); live and alike, it is left alone; live and
+// different, only the differing fields change; deleted, it stays deleted
+// unless revive is true, which brings it back as Undo does (restoreEntry).
+// A row whose id is unknown but whose import_key a live entry holds is that
+// entry, so a monprice import and a re-import never make two of one copy.
+// Returns {cards, counts, statuses}; the list passed in is not changed.
+export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = {}) {
+	const out = [...cards];
+	const byId = new Map(out.map((card, i) => [card.id, i]));
+	const byKey = entriesByKey(out);
+	const counts = {added: 0, revived: 0, skippedDeleted: 0, unchanged: 0, updated: 0};
+	// Each row's outcome, in order: added, unchanged, updated, deleted (left
+	// deleted), or revived.
+	const statuses = [];
+
+	const stampChange = (i, patch, base = out[i]) => {
+		const updated = {...base, ...pick(patch), updated_at: nextStamp(base.updated_at, now)};
+
+		out[i] = {...updated, ...stampEntry(base, updated)};
+	};
+
+	rows.forEach((row, n) => {
+		let i = byId.get(row.id);
+
+		if (i === undefined && row.import_key) {
+			const keyed = byKey.get(row.import_key);
+
+			if (keyed && isLive(keyed)) {
+				i = out.indexOf(keyed);
+			}
+		}
+
+		if (i !== undefined && !isLive(out[i]) && out[i].merged_into) {
+			const live = resolveEntry(out, out[i].id);
+
+			i = live ? out.indexOf(live) : i;
+		}
+
+		if (i === undefined) {
+			const at = new Date(now + n).toISOString();
+			// Empty cells add nothing, so a new copy carries only its fields.
+			const fields = Object.fromEntries(Object.entries(pick(row)).filter(([, value]) => value !== null));
+			const entry = {...fields, created_at: row.created_at || at, deleted_at: null, id: row.id, updated_at: at};
+
+			out.push(entry);
+			byId.set(entry.id, out.length - 1);
+
+			if (entry.import_key) {
+				byKey.set(entry.import_key, entry);
+			}
+
+			counts.added++;
+			statuses.push('added');
+
+			return;
+		}
+
+		const entry = out[i];
+
+		if (!isLive(entry)) {
+			if (!revive) {
+				counts.skippedDeleted++;
+				statuses.push('deleted');
+
+				return;
+			}
+
+			const restored = restoreEntry(entry, now);
+
+			out[i] = restored;
+
+			const patch = ownPatch(restored, row);
+
+			if (Object.keys(patch).length) {
+				stampChange(i, patch, restored);
+			}
+
+			counts.revived++;
+			statuses.push('revived');
+
+			return;
+		}
+
+		const patch = ownPatch(entry, row);
+
+		if (!Object.keys(patch).length) {
+			counts.unchanged++;
+			statuses.push('unchanged');
+
+			return;
+		}
+
+		stampChange(i, patch);
+		counts.updated++;
+		statuses.push('updated');
+	});
+
+	return {cards: out, counts, statuses};
+}
+
+// Adds, updates, and (when revive) restores the rows of the app's own CSV
+// in one save (planOwnImport).
+export async function applyOwnImport(rows, {revive = false} = {}) {
+	const doc = await loadDocument();
+	const {cards, counts} = planOwnImport(doc.cards, rows, {now: Date.now(), revive});
+
+	doc.cards = cards;
+	await saveDocument(doc);
+
+	return counts;
+}
+
+// What a re-import of these rows would do now, for the report.
+export async function previewOwnImport(rows) {
+	const doc = await loadDocument();
+
+	const {counts, statuses} = planOwnImport(doc.cards, rows);
+
+	return {counts, statuses};
 }
 
 export async function importKeys() {

@@ -438,6 +438,25 @@ Note the natural key that identifies a card independent of any API:
 `set_code + collector_number + language + variant`.
 Carry it in exports so hand-built CSVs still match without an entry ID.
 
+**Hand-made cards** (Eric, 2026-10-03). A card the catalog does not have (an Asian set TCGdex
+lists with no cards, an `MEE` card numbered past the eight TCGdex lists, a basic energy with a
+letter for a number) is added by hand. It is no new kind of record and no new list in the
+document: each copy is an ordinary entry on the catalog `custom`, with a card id made up once,
+`hand_` and 32 hex digits (no hyphen, so nothing reads a set id out of it and asks TCGdex). The
+card's own facts ride on every copy: the name and set name in `name_local` and `set_name_local`
+(the fields the import already uses for names the catalog lacks), the printed number in
+`number_local`, the set code in `set_code`, and the finish in `finish_raw` with monprice's words.
+So hand-made cards sync, merge (field by field, with no change to `js/merge.js`), export, and sit
+in binders like any other copy, with no server or SQL change. Why not a `custom_cards` list with
+the facts once: it needs a new merged list, older apps would drop it, and a copy synced without
+its card would show nothing. The cost is the facts repeated per copy, and Edit card patches every
+copy (only the ones that differ). My Cards and the export read a stand-in record built from the
+copy (`js/custom-card.js customRecord`); the page is `cards/<language>/<hand id>`, with no Liga,
+US, or EU price (a Liga price typed on a copy still shows on its row). When the catalog later
+lists a card with the same set (by TCGdex id, printed code, or name) and number, the card page
+offers to link: the same entries move to the catalog card, keeping photos, notes, prices, and
+binder pockets.
+
 ## 5. Catalog: TCGdex Coverage
 
 Checked against `https://api.tcgdex.net/v2/<language>/sets` on 2026-10-01.
@@ -722,6 +741,12 @@ sets, back to Base Set.
   variant ID is the placeholder `"generated"`, which names no printing.
 - Entries also carry `catalog` (Japanese and Korean IDs can collide), `fallback`, `import_key`
   (what makes reruns safe), and `finish_raw`. A rerun adds nothing.
+- **Unmatched rows are added by hand from the report** (Eric, 2026-10-03): each row of "Not
+  matched" has Add by hand, which opens the hand-made card sheet (section 4) prefilled with the
+  row's name, set, set code, number (before any slash), language, finish, and count. The report
+  stays open for the next row.
+- **The same screen re-imports the app's own CSV** (Eric, 2026-10-03), told apart by its header
+  (`entry_id`, `card_id`, `catalog`); section 9 has the rules.
 
 ## 8. Persistence and Auth
 
@@ -799,6 +824,26 @@ the default resolution when reading collector numbers.
 
 **Option not yet decided:** match TCGplayer's or Deckbox's existing CSV column shape instead of
 inventing one. Buys import from other collection trackers for free, at the cost of awkward columns.
+
+**Re-importing the app's own CSV** (Eric, 2026-10-03). Import accepts the export beside monprice
+files and shows a report before saving: new on this phone, already here with changes, already
+here and the same, and deleted on this phone.
+
+- A row is the copy with its `entry_id`. Absent, it is added with that id and its `created_at`;
+  present and alike, nothing is written; present and different, only the differing fields change,
+  stamped as an edit (section 4, `field_stamps`). A row whose id is unknown but whose
+  `import_key` a live copy holds is that copy, and a copy the merge folded away (`merged_into`)
+  is matched to the copy holding it, so no re-import makes two of one copy.
+- A copy deleted on this phone stays deleted unless the person ticks "Bring back", which restores
+  it the way Undo does (`restored_at`), so the merge keeps it over the tombstone.
+- The export gained the columns a re-import needs, after the old ones so older files still read:
+  `condition`, `notes`, `name_local`, `set_name_local`, `finish_raw`, `fallback`, `import_key`,
+  `number_local`, `set_code`. An older export leaves those fields alone. A hand-made card's row
+  carries its name, set, number, and set code. Not in the CSV: photos, the pinned image, binder
+  pockets, and fields the app does not edit yet (purchase price, storage, grading); a re-import
+  leaves them as they are on the phone, and sync brings them back to a wiped phone that signs in.
+- Tested as a round trip: export, a wiped phone, import, the same copies; the same file again
+  adds nothing.
 
 ## 10. Pricing
 

@@ -36,6 +36,7 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
+import {customRoute} from './custom-card.js';
 import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {openDialogSheet} from './sheet.js';
@@ -181,8 +182,9 @@ function entryInfo(entry, index, viewing) {
 	return {
 		image: local ? cardImage(local.image, 'low') : null,
 		name: (source && source.name) || (local && local.name) || entry.name_local || entry.card_id,
-		number: record && record.collector_number,
-		route: cardRoute(local, entry.catalog, entry.card_id),
+		// A hand-made card's number is on the copy (js/custom-card.js).
+		number: (record && record.collector_number) || entry.number_local || null,
+		route: entry.catalog === 'custom' ? customRoute(entry.card_id, entry.language) : cardRoute(local, entry.catalog, entry.card_id),
 		setName: (source && source.setName) || (local && local.set_name) || null,
 	};
 }
@@ -223,7 +225,8 @@ async function fillRecords(items, index, isAlive) {
 	for (const {catalog, cardId} of items) {
 		const key = indexKey(catalog, cardId);
 
-		if (cardId && !index.has(key)) {
+		// A hand-made card (catalog "custom") has no record to read.
+		if (cardId && !index.has(key) && catalog !== 'custom') {
 			missing.set(key, {catalog, cardId});
 		}
 	}

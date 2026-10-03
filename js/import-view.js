@@ -1,11 +1,16 @@
 // Import from monprice: pick an export, match it against TCGdex, review the
 // match report, then save (DESIGN.md section 7, plans/ux-plan.md section 6).
+// The app's own CSV export comes back through the same screen: its rows
+// already name their cards, so its report says what is new, what changes,
+// and what was deleted here, before anything is saved (DESIGN.md section 9).
+// An unmatched monprice row can be added by hand from its line.
 
 import {languageChip} from './cards-view.js';
-import {applyImport, importKeys} from './collection.js';
+import {applyImport, applyOwnImport, importKeys, previewOwnImport} from './collection.js';
 import {importApi, languageLabel, saveToCardIndex} from './catalog.js';
+import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
-import {LARGE_COUNT, finishLabel, importEntries, matchRows, parseExport} from './monprice.js';
+import {LARGE_COUNT, finishLabel, importEntries, localPart, matchRows, parseExport} from './monprice.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
 
@@ -26,8 +31,9 @@ function rowText(result) {
 }
 
 // One expandable line of the report. Rows are drawn when it is opened, so
-// a 1,400-row report does not build every list up front.
-function reportLine(label, results, explain, {open = false} = {}) {
+// a 1,400-row report does not build every list up front. action(result)
+// returns a control for the row, or null.
+function reportLine(label, results, explain, {action = null, open = false} = {}) {
 	const list = h('ol', {class: 'report-rows'});
 	const details = h('details', {class: 'report-line', open},
 		h('summary', null, h('span', null, label)),
@@ -41,7 +47,8 @@ function reportLine(label, results, explain, {open = false} = {}) {
 
 		list.append(...results.map((result) => h('li', null,
 			h('span', null, rowText(result)),
-			explain ? h('span', {class: 'muted'}, explain(result)) : null
+			explain ? h('span', {class: 'muted'}, explain(result)) : null,
+			action ? action(result) : null
 		)));
 	};
 
@@ -54,6 +61,16 @@ function reportLine(label, results, explain, {open = false} = {}) {
 
 	return details;
 }
+
+// An own-CSV row in the report's words (rowText).
+const ownRow = (row) => ({
+	finish: row.finish_raw || null,
+	language: row.language,
+	line: row.line,
+	name: row.name_local || row.card_id,
+	number: row.number_local || null,
+	setName: row.set_name_local || null,
+});
 
 function copiesOf(results) {
 	return results.reduce((sum, result) => sum + result.row.count, 0);
@@ -84,7 +101,7 @@ export function importView(root) {
 	let alive = true;
 
 	const input = h('input', {accept: '.csv,.json,text/csv,application/json', class: 'offscreen', id: 'monprice-file', type: 'file'});
-	const picker = h('label', {class: 'button primary', for: 'monprice-file'}, 'Pick a monprice file');
+	const picker = h('label', {class: 'button primary', for: 'monprice-file'}, 'Pick a file');
 	const status = h('div', {'aria-live': 'polite'});
 	const report = h('div');
 
@@ -153,6 +170,12 @@ export function importView(root) {
 			return;
 		}
 
+		if (parsed.format === 'own') {
+			showOwnReport(file, parsed, await previewOwnImport(parsed.rows));
+
+			return;
+		}
+
 		let outcome;
 
 		try {
@@ -173,6 +196,31 @@ export function importView(root) {
 		if (alive) {
 			showReport(file, parsed, outcome, await importKeys());
 		}
+	}
+
+	// Add by hand on an unmatched row: the hand-made card sheet, prefilled
+	// from the row, its count included. A row added this way says so.
+	function handButton(result) {
+		const {row} = result;
+		const button = h('button', {class: 'small report-hand', type: 'button'}, 'Add by hand');
+
+		button.addEventListener('click', () => openCustomCardSheet({
+			onSaved: () => {
+				button.replaceWith(h('span', {class: 'report-hand-done'}, 'Added by hand'));
+			},
+			openPage: false,
+			prefill: {
+				count: row.count,
+				finish: row.finish,
+				language: row.language,
+				name: row.name,
+				number: localPart(row.number),
+				setCode: row.setCode,
+				setName: row.setName,
+			},
+		}));
+
+		return button;
 	}
 
 	function parseErrors(errors) {
@@ -268,7 +316,7 @@ export function importView(root) {
 			reportLine(`Finish not resolved: ${plural(unresolved.length, 'row', 'rows')}. Saved with no finish; pick it by hand later.`, unresolved, (result) => result.finishReason),
 			reportLine(`Finish taken from the card's only printing: ${plural(only.length, 'row', 'rows')}`, only, (result) => `monprice says ${finishLabel(result.row.finish).toLowerCase()}; TCGdex lists one printing`),
 			reportLine(`Reverse holos set to the plain reverse: ${plural(reverse.length, 'row', 'rows')}. Check for Poké Ball and Master Ball patterns.`, reverse, null),
-			reportLine(`Not matched: ${plural(unmatched.length, 'row', 'rows')} (${plural(copiesOf(unmatched), 'copy', 'copies')}). Not saved; add these by hand later.`, unmatched, (result) => result.reason, {open: unmatched.length > 0 && unmatched.length <= 30}),
+			reportLine(`Not matched: ${plural(unmatched.length, 'row', 'rows')} (${plural(copiesOf(unmatched), 'copy', 'copies')}). Not saved with the others; add each by hand.`, unmatched, (result) => result.reason, {action: handButton, open: unmatched.length > 0 && unmatched.length <= 30}),
 			parsed.errors.length ? parseErrors(parsed.errors) : null,
 			largeCheck,
 			h('div', {class: 'actions'}, save, saveStatus),
@@ -327,9 +375,93 @@ export function importView(root) {
 		}
 	}
 
+	// The app's own export: each row is a copy with its entry id. Ids already
+	// here update only when a field differs; ids deleted here stay deleted
+	// unless ticked; hand-made cards come back as they were.
+	function showOwnReport(file, parsed, {statuses}) {
+		const by = (kind) => parsed.rows.filter((row, i) => statuses[i] === kind).map((row) => ({row: ownRow(row)}));
+		const added = by('added');
+		const updated = by('updated');
+		const unchanged = by('unchanged');
+		const deleted = by('deleted');
+		const hand = parsed.rows.filter((row) => row.catalog === 'custom');
+		let revive = false;
+
+		const reviveBox = h('input', {id: 'import-revive', type: 'checkbox'});
+		const save = h('button', {class: 'primary wide', id: 'import-save', type: 'button'});
+		const saveStatus = h('p', {'aria-live': 'polite', class: 'status muted'});
+		const willChange = () => added.length + updated.length + (revive ? deleted.length : 0);
+
+		function label() {
+			const n = willChange();
+
+			save.textContent = n ? `Save ${plural(n, 'copy', 'copies')}` : 'Nothing to save';
+			save.disabled = !n;
+		}
+
+		reviveBox.addEventListener('change', () => {
+			revive = reviveBox.checked;
+			label();
+		});
+		label();
+
+		status.replaceChildren(
+			h('div', {class: 'card'},
+				h('h3', null, 'Match report'),
+				h('p', null, `${file.name}: a Card Tracker export, ${plural(parsed.rows.length + parsed.errors.length, 'row', 'rows')}, one per copy.`),
+				h('p', {class: 'muted'}, 'Each row is matched to the copy with the same entry id, so importing the same file twice adds nothing. Nothing is saved until you tap Save.'),
+				hand.length ? h('p', null, hand.length === 1 ? 'One copy is a hand-made card, kept as it is.' : `${formatCount(hand.length)} copies are hand-made cards, kept as they are.`) : null
+			)
+		);
+
+		report.replaceChildren(...[
+			reportLine(`New on this phone: ${plural(added.length, 'copy', 'copies')}`, added, null),
+			reportLine(`Already here, with changes: ${plural(updated.length, 'copy', 'copies')}. Saving updates only what differs.`, updated, null),
+			reportLine(`Already here, the same: ${plural(unchanged.length, 'copy', 'copies')}. Left as they are.`, unchanged, null),
+			deleted.length ? h('div', {class: 'notice', id: 'import-deleted'},
+				h('p', null, `${plural(deleted.length, 'copy was', 'copies were')} deleted on this phone and ${deleted.length === 1 ? 'stays' : 'stay'} deleted.`),
+				h('label', null, reviveBox, deleted.length === 1 ? ' Bring it back' : ` Bring all ${formatCount(deleted.length)} back`)
+			) : null,
+			parsed.errors.length ? parseErrors(parsed.errors) : null,
+			h('div', {class: 'actions'}, save, saveStatus),
+		].filter(Boolean));
+
+		save.addEventListener('click', async () => {
+			save.disabled = true;
+			reviveBox.disabled = true;
+			saveStatus.textContent = 'Saving...';
+			window.addEventListener('beforeunload', holdPage);
+
+			try {
+				const counts = await applyOwnImport(parsed.rows, {revive});
+
+				if (!alive) {
+					return;
+				}
+
+				save.remove();
+				saveStatus.replaceChildren(h('span', {class: 'big'}, `Saved. ${formatCount(counts.added)} added, ${formatCount(counts.updated)} updated, ${formatCount(counts.unchanged)} already up to date${counts.revived ? `, ${formatCount(counts.revived)} brought back` : ''}.`));
+
+				if (counts.skippedDeleted) {
+					saveStatus.append(` ${plural(counts.skippedDeleted, 'copy was', 'copies were')} deleted earlier and stayed deleted.`);
+				}
+
+				saveStatus.after(h('a', {class: 'button primary wide', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'));
+			}
+			catch (err) {
+				label();
+				reviveBox.disabled = false;
+				saveStatus.textContent = `Could not save. Nothing was changed. ${errorText(err)}`;
+			}
+			finally {
+				window.removeEventListener('beforeunload', holdPage);
+			}
+		});
+	}
+
 	root.append(
-		h('h2', null, 'Import from monprice'),
-		h('p', null, 'Export a collection from monprice as CSV or JSON, then pick the file here. The cards are matched to the catalog and listed in a report before anything is saved.'),
+		h('h2', null, 'Import a collection'),
+		h('p', null, 'Pick a monprice export (CSV or JSON), or a CSV this app exported. A monprice file is matched to the catalog; every file is listed in a report before anything is saved.'),
 		h('p', {class: 'muted'}, 'Importing the same file again does not add the cards twice.'),
 		input,
 		picker,
