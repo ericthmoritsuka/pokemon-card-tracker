@@ -993,30 +993,58 @@ function cardsScreen(root, {
 
 	// ------------------------------------------------------------ load
 
-	async function load() {
-		try {
-			let binders;
+	// Each load's number: a load that finishes after a newer one started
+	// draws nothing, so an older read never overwrites a newer one (E-08).
+	let loadRun = 0;
+	// True once a load has drawn, so a save can patch the screen instead.
+	let ready = false;
+	// Each drawn copy's updated_at and card, by entry ID, to tell what a
+	// save changed. Kept as text, because an edit changes the entry object
+	// the screen holds in place.
+	let drawnStamps = new Map();
 
+	const cardOf = (entry) => `${entry.catalog}|${entry.card_id}|${entry.language}`;
+	const stampOf = (entry) => `${entry.updated_at}\n${cardOf(entry)}`;
+
+	const remember = () => {
+		drawnStamps = new Map(entries.map((entry) => [entry.id, stampOf(entry)]));
+	};
+
+	async function load() {
+		const run = ++loadRun;
+		let next;
+
+		ready = false;
+
+		try {
 			// A family member's binders come with their cards, so they are
 			// read after them.
-			[[entries, binders], index] = await Promise.all([
-				loadEntries().then(async (list) => [list, await Promise.resolve(loadBinders()).catch(() => [])]),
+			const [[list, binders], nextIndex] = await Promise.all([
+				loadEntries().then(async (found) => [found, await Promise.resolve(loadBinders()).catch(() => [])]),
 				cardIndex(),
 			]);
-			placed = placements(liveBinders(binders || []));
-			saved = await savedCardRecords(entries);
+
+			next = {binders, index: nextIndex, list, saved: await savedCardRecords(list)};
 		}
 		catch (err) {
-			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
-				? err.message || errorText(err)
-				: `Your cards could not be read from this phone. ${errorText(err)}`)));
+			if (alive && run === loadRun) {
+				body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
+					? err.message || errorText(err)
+					: `Your cards could not be read from this phone. ${errorText(err)}`)));
+			}
 
 			return;
 		}
 
-		if (!alive) {
+		if (!alive || run !== loadRun) {
 			return;
 		}
+
+		entries = next.list;
+		index = next.index;
+		saved = next.saved;
+		placed = placements(liveBinders(next.binders || []));
+		remember();
 
 		if (!entries.length && readOnly) {
 			body.replaceChildren(h('div', {class: 'card empty-state'}, h('p', {class: 'big'}, emptyText())));
@@ -1044,18 +1072,28 @@ function cardsScreen(root, {
 			body.replaceChildren(bar.element, summary, grid, more);
 		}
 
+		ready = true;
 		build();
 		draw();
 		fillViewingLanguage();
 		startTwins();
 		afterPaint(startBackground);
+		await fillMissing(entries, () => alive && run === loadRun);
+	}
 
-		const filled = await fillMissingRecords(entries, index, () => alive);
+	// Card records the index lacks for these copies, read and drawn.
+	async function fillMissing(list, isAlive) {
+		const filled = await fillMissingRecords(list, index, isAlive);
 
-		if (filled && alive) {
+		if (filled && isAlive()) {
 			index = filled;
 			// Reading the missing records saved their prices on the phone too.
-			saved = await savedCardRecords(entries);
+			saved = new Map([...saved, ...await savedCardRecords(list)]);
+
+			if (!isAlive()) {
+				return;
+			}
+
 			build();
 			draw();
 			// The new records' sets may need their details too.
@@ -1063,7 +1101,98 @@ function cardsScreen(root, {
 		}
 	}
 
-	const stop = watch ? watch(() => alive && load()) : () => {};
+	const samePlaces = (a, b) => a.size === b.size && [...a.keys()].every((id) => b.has(id));
+
+	// A save on this phone, a sync, or another tab changed the document.
+	// What My Cards shows is patched from it: copies added, edited, or
+	// removed, and binder places. A change that touches none of them (a
+	// wish, a list, a setting) draws nothing. The first load, the empty
+	// state, and a switch of account load the screen again (E-28).
+	function changed(doc, {source} = {}) {
+		if (!ready || source === 'account' || !doc || !Array.isArray(doc.cards) || !body.contains(grid)) {
+			load();
+
+			return;
+		}
+
+		const live = doc.cards.filter(isLive);
+
+		if (!live.length) {
+			load();
+
+			return;
+		}
+
+		// Copies new to the screen, or moved to another card or language.
+		const added = [];
+		let known = 0;
+		let edited = false;
+
+		for (const entry of live) {
+			const before = drawnStamps.get(entry.id);
+
+			if (before === undefined) {
+				added.push(entry);
+
+				continue;
+			}
+
+			known++;
+
+			if (before !== stampOf(entry)) {
+				edited = true;
+
+				if (!before.endsWith(`\n${cardOf(entry)}`)) {
+					added.push(entry);
+				}
+			}
+		}
+
+		const removed = drawnStamps.size !== known;
+		const nextPlaced = placements(liveBinders(doc.binders || []));
+
+		if (!added.length && !edited && !removed && samePlaces(placed, nextPlaced)) {
+			return;
+		}
+
+		entries = live;
+		placed = nextPlaced;
+		remember();
+		build();
+		draw();
+
+		if (!added.length) {
+			return;
+		}
+
+		// New copies may bring a card the phone has no record, price, twin,
+		// or viewing-language name for yet.
+		const run = loadRun;
+		const isAlive = () => alive && run === loadRun;
+
+		savedCardRecords(added)
+			.then((found) => {
+				if (!isAlive() || !found.size) {
+					return;
+				}
+
+				saved = new Map([...saved, ...found]);
+
+				for (const group of groups) {
+					if (found.has(group.recordKey)) {
+						priceOf(group);
+						patchPrice(group);
+					}
+				}
+			})
+			.catch(() => {});
+		fillMissing(added, isAlive).catch(() => {});
+		fillViewingLanguage();
+		refreshTwins(added).catch(() => {});
+		afterPaint(startBackground);
+	}
+
+	const stop = watch ? watch((doc, info) => alive && changed(doc, info)) : () => {};
 	const stopTwins = onTwinsChange(twinsChanged);
 	const heading = h('div', {class: 'view-head'}, h('h2', null, title));
 

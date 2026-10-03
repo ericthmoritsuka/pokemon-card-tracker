@@ -35,6 +35,20 @@ export function forgetImage(url) {
 	}
 }
 
+// The English image of the same card, for a Portuguese or French one:
+// international prints share one card ID in every Western language, so only
+// the language in the path differs. Null for any other image.
+//
+// Most Portuguese and French images send Access-Control-Allow-Origin twice,
+// so the service worker can keep only a few of them (opaque, capped at 100),
+// while it keeps thousands of English ones. Offline, a Portuguese tile whose
+// image is not on the phone shows the English art instead of the card back
+// (E-20). Online, the English art also stands in for a Portuguese image that
+// fails to load.
+const LOCALIZED_IMAGE = /^(https:\/\/assets\.tcgdex\.net\/)(?:pt|fr)(\/)/;
+
+export const englishImage = (src) => (LOCALIZED_IMAGE.test(String(src || '')) ? String(src).replace(LOCALIZED_IMAGE, '$1en$2') : null);
+
 function imageStatus(missing) {
 	if (!navigator.onLine) {
 		return 'Image not on this phone';
@@ -54,7 +68,8 @@ function cardBack({name, number, setName}, missing) {
 }
 
 // Card art in the 63:88 card shape. It shimmers while the image loads and
-// turns into the card-back tile if the image fails.
+// turns into the card-back tile if the image fails, after trying the English
+// image of a Portuguese or French card (englishImage).
 export function cardArt(info, src, {eager = false} = {}) {
 	const frame = h('div', {class: 'art loading'});
 
@@ -76,9 +91,23 @@ export function cardArt(info, src, {eager = false} = {}) {
 		width: 63,
 	});
 
+	let shown = src;
+	let fallback = englishImage(src);
+
 	img.addEventListener('load', () => frame.classList.remove('loading'), {once: true});
-	img.addEventListener('error', () => {
-		forgetImage(src);
+	img.addEventListener('error', function failed() {
+		forgetImage(shown);
+
+		if (fallback) {
+			shown = fallback;
+			fallback = null;
+			frame.dataset.fallback = 'en';
+			img.addEventListener('error', failed, {once: true});
+			img.src = shown;
+
+			return;
+		}
+
 		frame.classList.remove('loading');
 		frame.replaceChildren(cardBack(info, false));
 	}, {once: true});

@@ -405,10 +405,33 @@ const INDEX_KEY = 'index:cards';
 
 export const indexKey = (catalog, cardId) => `${catalog}|${cardId}`;
 
-export async function cardIndex() {
+const readIndex = async () => {
 	const hit = await cacheGet(INDEX_KEY);
 
 	return new Map(Object.entries((hit && hit.data) || {}));
+};
+
+// The index is read from IndexedDB once per page and kept here, since
+// parsing it whole took about 200 ms at 1,600 records on a slow phone and
+// several screens read it per load (E-28). saveToCardIndex, the only
+// writer, replaces the kept copy with what it wrote. An empty read is not
+// kept, so a failed read is tried again. Each caller gets its own Map, so
+// none can change the kept one.
+let indexMemo = null;
+
+export async function cardIndex() {
+	if (!indexMemo) {
+		const reading = readIndex();
+
+		indexMemo = reading;
+		reading.then((index) => {
+			if (!index.size && indexMemo === reading) {
+				indexMemo = null;
+			}
+		});
+	}
+
+	return new Map(await indexMemo);
 }
 
 // Saves run one after another: each reads, changes, and writes the whole
@@ -417,7 +440,9 @@ let indexWrites = Promise.resolve();
 
 export function saveToCardIndex(records) {
 	const write = indexWrites.then(async () => {
-		const index = await cardIndex();
+		// Read from IndexedDB, not the kept copy, so records another tab
+		// saved are kept too.
+		const index = await readIndex();
 
 		for (const record of records) {
 			const key = indexKey(record.catalog, record.id);
@@ -429,8 +454,9 @@ export function saveToCardIndex(records) {
 		}
 
 		await cachePut(INDEX_KEY, Object.fromEntries(index));
+		indexMemo = Promise.resolve(index);
 
-		return index;
+		return new Map(index);
 	});
 
 	indexWrites = write.catch(() => {});

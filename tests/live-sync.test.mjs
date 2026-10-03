@@ -56,9 +56,9 @@ class LiveFake extends FakeSupabase {
 		super.wsSend(socket, message);
 	}
 
-	async rest(route, request, url, body) {
+	async rest(route, request, url, body, entry) {
 		const before = new Map([...this.documents].map(([id, row]) => [id, row.updated_at]));
-		const result = await super.rest(route, request, url, body);
+		const result = await super.rest(route, request, url, body, entry);
 
 		for (const [id, row] of this.documents) {
 			if (before.get(id) !== row.updated_at) {
@@ -419,6 +419,49 @@ describe('live sync with Realtime', () => {
 		assert.ok(fake.delivered.get('phone') >= 1, 'the phone was sent its own write back');
 		// Its push read updated_at once; the echo adds no read at all.
 		assert.deepEqual(reads(fake, 'phone', mark), {fulls: 0, heads: 1}, 'the phone ignored the echo of its own write');
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+
+	test('a change whose Realtime message carries the row is merged without downloading the row again', async () => {
+		const fake = new LiveFake();
+
+		fake.realtimeDocs = true;
+
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith([card('a-1', '001')]));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await openCards(laptop.page, fake, owner.email);
+		await copies(laptop.page, 1);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const mark = fake.log.length;
+
+		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-005', catalog: 'international', language: 'en', language_source: 'manual'}));
+		await copies(laptop.page, 2, 15000);
+		await waitForStatus(laptop.page, 'Synced');
+		await laptop.page.waitForTimeout(1000);
+		// One updated_at read confirms the server still holds that version;
+		// the row itself came in the message.
+		assert.deepEqual(reads(fake, 'laptop', mark), {fulls: 0, heads: 1}, 'the laptop read updated_at only');
+		assert.deepEqual((await localDoc(laptop.page)).cards.map((entry) => entry.card_id).sort(), ['tst1-001', 'tst1-005']);
+		// Nothing was pushed back: the merged row equals the server's.
+		assert.equal(fake.log.slice(mark).filter((entry) => entry.device === 'laptop' && entry.method === 'PATCH').length, 0);
+
+		// A row too large for one message comes without doc: then the row
+		// is downloaded, as before.
+		fake.realtimeDocs = false;
+
+		const again = fake.log.length;
+
+		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-006', catalog: 'international', language: 'en', language_source: 'manual'}));
+		await copies(laptop.page, 3, 15000);
+		assert.equal(reads(fake, 'laptop', again).fulls, 1, 'downloaded once');
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
 		await laptop.context.close();

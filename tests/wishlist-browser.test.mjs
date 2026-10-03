@@ -467,6 +467,12 @@ describe('wishlist', () => {
 		// Viewing changed nothing for Member B.
 		assert.equal(fake.documents.get(bia.id).doc.wishlist.length, 3);
 
+		// Member B's wishlist is read alone, never their whole document.
+		const biaReads = fake.log.filter((entry) => entry.path === '/rest/v1/documents' && entry.method === 'GET' && decodeURIComponent(entry.search).includes(`user_id=eq.${bia.id}`));
+
+		assert.ok(biaReads.length > 0, 'Member B\'s wishlist was read');
+		assert.deepEqual(biaReads.filter((entry) => !/[?&]select=wishlist:doc->wishlist(&|$)/.test(decodeURIComponent(entry.search))), [], 'only the wishlist path is read');
+
 		// Reload the family view.
 		await page.reload();
 		await waitForSummary(page, '2 cards wanted. You have spares of 1.');

@@ -211,7 +211,7 @@ async function syncOnce() {
 		let stamp = head.data ? head.data.updated_at : null;
 
 		if (stamp && !(stamp === known && holdsBase(local))) {
-			const full = await table().select('doc, updated_at').eq('user_id', user.id).maybeSingle();
+			const full = carriedRow(user.id, stamp) || await table().select('doc, updated_at').eq('user_id', user.id).maybeSingle();
 
 			if (full.error) {
 				throw full.error;
@@ -511,6 +511,33 @@ let channelToken = null;
 
 const inFront = () => document.visibilityState === 'visible';
 
+// The row a Realtime event carried, when it carried the whole document:
+// {user_id, updated_at, doc}. The server leaves doc out of a row too large
+// for one message (Realtime's max_record_bytes, 1 MB by default) and says so
+// in errors; then nothing is kept and the sync downloads the row (E-18).
+let liveRow = null;
+
+function keepLiveRow(change) {
+	const row = change && change.new;
+
+	if (!row || change.errors || !row.updated_at || !row.user_id || !row.doc || typeof row.doc !== 'object' || Array.isArray(row.doc)) {
+		return;
+	}
+
+	liveRow = {doc: row.doc, updated_at: row.updated_at, user_id: row.user_id};
+}
+
+// A sync whose updated_at read matches the row Realtime carried merges that
+// row instead of downloading it again: the server still holds exactly that
+// version. Answers as the full read would, or null. Used once.
+function carriedRow(userId, stamp) {
+	const row = liveRow;
+
+	liveRow = null;
+
+	return row && row.user_id === userId && row.updated_at === stamp ? {data: {doc: row.doc, updated_at: row.updated_at}, error: null} : null;
+}
+
 // What one stamp means: the same as the last one this device saw is nothing
 // new, or this device's own write coming back. Anything else starts a sync,
 // which reads again and downloads the row only when it really changed. A
@@ -622,6 +649,8 @@ function connectLive() {
 			.channel(`own-document:${user.id}`)
 			.on('postgres_changes', {event: '*', filter: `user_id=eq.${user.id}`, schema: 'public', table: 'documents'}, (change) => {
 				const stamp = change && change.new ? change.new.updated_at : undefined;
+
+				keepLiveRow(change);
 
 				checkRemote(stamp || undefined).catch(() => {});
 			})
@@ -740,6 +769,24 @@ export async function memberFavorites(userIds) {
 	}
 
 	return new Map((data || []).map((row) => [row.user_id, row.favorite]));
+}
+
+// Only a family member's wishlist, for the family wishlist cache
+// (js/wishlist.js): PostgREST reads the one JSON path, so the rest of their
+// document stays on the server (E-18). Null when they have no document yet.
+export async function memberWishes(userId) {
+	const client = await getClient();
+	const {data, error} = await client.from('documents').select('wishlist:doc->wishlist').eq('user_id', userId).maybeSingle();
+
+	if (error) {
+		throw error;
+	}
+
+	if (!data) {
+		return null;
+	}
+
+	return Array.isArray(data.wishlist) ? data.wishlist : [];
 }
 
 export async function updateDisplayName(name) {

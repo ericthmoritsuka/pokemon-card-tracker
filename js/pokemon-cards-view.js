@@ -785,6 +785,16 @@ function screen(root, source, listId, dexParam) {
 		}
 	}
 
+	// An error or "not here" shows in its own slot, with the screen hidden
+	// behind it, so a later load that finds the list shows it again (E-01).
+	const notice = h('div', {id: 'pc-notice'});
+	const content = h('div', {id: 'pc-content'});
+
+	function showNotice(node) {
+		content.hidden = Boolean(node);
+		notice.replaceChildren(...[node].filter(Boolean));
+	}
+
 	async function load({force = false} = {}) {
 		const run = ++loadRun;
 		let data;
@@ -794,7 +804,7 @@ function screen(root, source, listId, dexParam) {
 		}
 		catch (err) {
 			if (alive && run === loadRun) {
-				root.replaceChildren(back, h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
+				showNotice(h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
 					? err.message || errorText(err)
 					: `This list could not be read from this phone. ${errorText(err)}`)));
 			}
@@ -807,7 +817,7 @@ function screen(root, source, listId, dexParam) {
 		}
 
 		if (!data.goal) {
-			root.replaceChildren(back, h('div', {class: 'card empty-state'},
+			showNotice(h('div', {class: 'card empty-state'},
 				h('p', {class: 'big'}, 'This list is not here.'),
 				h('p', {class: 'muted'}, 'It may have been deleted on another phone.')
 			));
@@ -815,6 +825,7 @@ function screen(root, source, listId, dexParam) {
 			return;
 		}
 
+		showNotice(null);
 		goal = data.goal;
 		entries = data.entries;
 		wished = new Set((data.wishlist || []).filter(isLive).map((item) => printKey(item.catalog || 'international', item.card_id)));
@@ -834,14 +845,14 @@ function screen(root, source, listId, dexParam) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(
-		back,
+	content.append(
 		h('div', {class: 'pc-head'}, sprite(n), h('div', {class: 'pc-head-text'}, title, originals)),
 		languages.element,
 		h('div', {class: 'pc-controls'}, filterControl, finishControl),
 		status,
 		sections
 	);
+	root.append(back, notice, content);
 	drawHead(null);
 	load();
 

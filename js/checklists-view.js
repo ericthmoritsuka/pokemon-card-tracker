@@ -326,6 +326,8 @@ export const familyChecklistsView = (root, {userId}) => listsScreen(root, family
 function listsScreen(root, source) {
 	let alive = true;
 	let busy = false;
+	// A load asked for while one runs, run once that one ends (E-08).
+	let queued = null;
 	let names = [];
 	let tables = null;
 
@@ -370,6 +372,8 @@ function listsScreen(root, source) {
 
 	async function load({force = false} = {}) {
 		if (busy) {
+			queued = {force: Boolean(queued && queued.force) || force};
+
 			return;
 		}
 
@@ -432,6 +436,13 @@ function listsScreen(root, source) {
 		}
 		finally {
 			busy = false;
+
+			if (queued && alive) {
+				const next = queued;
+
+				queued = null;
+				load(next);
+			}
 		}
 	}
 
@@ -558,6 +569,12 @@ function checklistScreen(root, source, id) {
 	let result = null;
 	let signature = null;
 	let saving = 0;
+	// Each load's number: a load that finishes after a newer one started
+	// draws nothing (E-08).
+	let loadRun = 0;
+	// What the drawn list shows, so a load that changes none of it leaves
+	// the rows alone (E-27).
+	let drawn = null;
 	let show = readChoice(FILTER_KEY, FILTERS.map((option) => option.value), 'all');
 
 	const back = link(source.base, {class: 'back'}, '‹ All lists');
@@ -573,6 +590,8 @@ function checklistScreen(root, source, id) {
 	const empty = h('p', {class: 'muted', hidden: true, id: 'checklist-empty'});
 	const actions = source.readOnly ? null : h('div', {class: 'actions checklist-actions'});
 	const editor = h('div', {hidden: true});
+	const notice = h('div', {id: 'checklist-notice'});
+	const content = h('div', {id: 'checklist-content'});
 
 	const filter = h('div', {'aria-label': 'Show', class: 'segmented', id: 'checklist-filter', role: 'radiogroup'},
 		FILTERS.map(({label, value}) => h('label', null,
@@ -586,15 +605,29 @@ function checklistScreen(root, source, id) {
 	);
 
 
-	function state(n) {
+	// hand: handTicks(goal), built once per draw rather than once per row.
+	function state(n, hand) {
 		const owned = result && result.byDex.get(n);
 
 		if (owned) {
 			return {entries: owned, kind: 'owned'};
 		}
 
-		return {entries: [], kind: handTicks(goal).has(n) ? 'hand' : 'missing'};
+		return {entries: [], kind: hand.has(n) ? 'hand' : 'missing'};
 	}
+
+	const shows = (kind) => (show === 'missing' ? kind === 'missing' : show === 'owned' ? kind !== 'missing' : true);
+
+	// Everything a drawn list depends on.
+	const listKey = () => ({
+		dex: checklistDex(goal).join(','),
+		names,
+		result,
+		show,
+		ticks: Object.keys(goal.hand_ticks || {}).sort().join(','),
+	});
+
+	const sameKey = (a, b) => Boolean(a && b) && Object.keys(a).every((key) => a[key] === b[key]);
 
 	function drawHead() {
 		const counts = progress(goal, result ? result.byDex : new Map());
@@ -671,7 +704,7 @@ function checklistScreen(root, source, id) {
 		const on = !handTicks(goal).has(n);
 		const before = goal;
 
-		// Shown at once; saved behind.
+		// Shown at once, on the tapped row only; saved behind.
 		goal = {...goal, hand_ticks: {...(goal.hand_ticks || {})}};
 
 		if (on) {
@@ -682,7 +715,7 @@ function checklistScreen(root, source, id) {
 		}
 
 		drawHead();
-		drawList();
+		patchRow(n);
 		saving++;
 
 		try {
@@ -691,7 +724,7 @@ function checklistScreen(root, source, id) {
 		catch (err) {
 			goal = before;
 			drawHead();
-			drawList();
+			patchRow(n);
 			showError('The tick was not saved.', err);
 		}
 		finally {
@@ -699,16 +732,51 @@ function checklistScreen(root, source, id) {
 		}
 
 		// Quick taps are saved in turn; once the last one is in, the screen
-		// reads the stored list back.
+		// reads the stored list back, which redraws nothing when it matches.
 		if (!saving && alive) {
 			load();
 		}
 	}
 
+	// Redraws one row after a tick, or takes it out when the filter no
+	// longer shows it. Keeps the focus on the tick for a keyboard.
+	function patchRow(n) {
+		const old = list.querySelector(`.dex-row[data-dex="${n}"]`);
+
+		if (!old) {
+			drawList();
+
+			return;
+		}
+
+		const hand = handTicks(goal);
+		const focused = old.contains(document.activeElement);
+
+		if (shows(state(n, hand).kind)) {
+			const next = row(n, hand);
+
+			old.replaceWith(next);
+
+			if (focused) {
+				const tick = next.querySelector('button.dex-tick');
+
+				if (tick) {
+					tick.focus();
+				}
+			}
+		}
+		else {
+			old.remove();
+		}
+
+		drawEmpty(list.childElementCount);
+		drawn = listKey();
+	}
+
 	// A row opens every card of its Pokémon (js/pokemon-cards-view.js). The
 	// mark on the right ticks a missing Pokémon by hand, or clears the tick.
-	function row(n) {
-		const {entries, kind} = state(n);
+	function row(n, hand) {
+		const {entries, kind} = state(n, hand);
 		const name = nameOf(names, n);
 		const entry = link(pokemonRoute(source.base, id, n), {class: 'dex-entry dex-link'},
 			sprite(n, name),
@@ -731,22 +799,23 @@ function checklistScreen(root, source, id) {
 	}
 
 	function drawList() {
-		const numbers = checklistDex(goal).filter((n) => {
-			const {kind} = state(n);
+		const hand = handTicks(goal);
+		const numbers = checklistDex(goal).filter((n) => shows(state(n, hand).kind));
 
-			if (show === 'missing') {
-				return kind === 'missing';
-			}
+		list.replaceChildren(...numbers.map((n) => row(n, hand)));
+		drawEmpty(numbers.length);
+		drawn = listKey();
+	}
 
-			if (show === 'owned') {
-				return kind !== 'missing';
-			}
+	// Draws the list only when something it shows changed.
+	function drawListIfChanged() {
+		if (!sameKey(drawn, listKey())) {
+			drawList();
+		}
+	}
 
-			return true;
-		});
-
-		list.replaceChildren(...numbers.map(row));
-		empty.hidden = numbers.length > 0;
+	function drawEmpty(count) {
+		empty.hidden = count > 0;
 		empty.textContent = show === 'missing' ? 'Nothing missing. Every Pokémon on this list is ticked.' : 'No Pokémon ticked on this list yet.';
 	}
 
@@ -843,40 +912,54 @@ function checklistScreen(root, source, id) {
 		editor.scrollIntoView({block: 'start'});
 	}
 
+	// An error or "not here" shows in its own slot, with the screen hidden
+	// behind it, so a later load that finds the list (a first sync on a new
+	// phone) shows it again (E-01).
+	function showNotice(node) {
+		content.hidden = Boolean(node);
+		notice.replaceChildren(...[node].filter(Boolean));
+	}
+
 	async function load({force = false} = {}) {
+		const run = ++loadRun;
 		let data;
 
 		try {
 			data = await source.load();
 		}
 		catch (err) {
-			root.replaceChildren(...[back, h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
+			if (!alive || run !== loadRun) {
+				return;
+			}
+
+			showNotice(h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
 				? err.message || errorText(err)
-				: `Your lists could not be read from this phone. ${errorText(err)}`))].filter(Boolean));
+				: `Your lists could not be read from this phone. ${errorText(err)}`)));
 
 			return;
 		}
 
-		if (!alive) {
+		if (!alive || run !== loadRun) {
 			return;
 		}
 
 		const found = data.goals.find((item) => item.id === id);
 
 		if (!found) {
-			root.replaceChildren(...[back, h('div', {class: 'card empty-state'},
+			showNotice(h('div', {class: 'card empty-state'},
 				h('p', {class: 'big'}, 'This list is not here.'),
 				h('p', {class: 'muted'}, 'It may have been deleted on another phone.')
-			)].filter(Boolean));
+			));
 
 			return;
 		}
 
+		showNotice(null);
 		goal = found;
 		languages.update(goal);
 		drawHead();
 		drawActions();
-		drawList();
+		drawListIfChanged();
 
 		const next = cardsSignature(data.entries);
 
@@ -889,22 +972,23 @@ function checklistScreen(root, source, id) {
 			return;
 		}
 
-		signature = next;
-
 		const resolved = await resolveOwned(data.entries, {
 			force,
-			isAlive: () => alive,
+			isAlive: () => alive && run === loadRun,
 			onProgress: (step) => {
-				if (alive) {
+				if (alive && run === loadRun) {
 					status.textContent = progressText(step);
 				}
 			},
 		});
 
-		if (!alive) {
+		if (!alive || run !== loadRun) {
 			return;
 		}
 
+		// Set only once these cards are drawn, so a newer load that cut
+		// this one short resolves them itself.
+		signature = next;
 		result = resolved;
 		drawHead();
 		drawList();
@@ -937,7 +1021,8 @@ function checklistScreen(root, source, id) {
 	// the stored list back halfway would flicker.
 	const stop = source.watch ? source.watch(() => alive && !saving && load()) : () => {};
 
-	root.append(...[back, title, meta, languages.element, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
+	content.append(...[title, meta, languages.element, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
+	root.append(back, notice, content);
 	load();
 
 	return () => {

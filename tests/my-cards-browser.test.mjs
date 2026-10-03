@@ -71,14 +71,22 @@ async function search(page, text) {
 }
 
 // Waits for the background pass to bring every card's details into the
-// index (the Fire filter then finds the three Fire cards).
+// index (the Fire filter then finds the three Fire cards). Polled from
+// here: waitForFunction takes the promise an async check returns as true at
+// once, so it would not wait.
 async function detailsIn(page) {
-	await page.waitForFunction(async () => {
+	const start = Date.now();
+	const done = () => page.evaluate(async () => {
 		const {cardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
 		const index = await cardIndex();
 
-		return [...index.values()].every((record) => typeof record.category === 'string');
-	}, null, TIMEOUT);
+		return index.size > 0 && [...index.values()].every((record) => typeof record.category === 'string');
+	});
+
+	while (!await done()) {
+		assert.ok(Date.now() - start < TIMEOUT.timeout, 'every card\'s details reach the index');
+		await page.waitForTimeout(100);
+	}
 }
 
 async function pricesIn(page, log, count = 7) {
@@ -677,6 +685,195 @@ describe('a family member\'s cards', () => {
 
 		assert.ok(loaded);
 		assert.ok(documentWith(COPIES).cards.length);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('saves patch the screen', () => {
+	test('an added, edited, or removed copy redraws the grid once, and a save that changes no copy draws nothing', async () => {
+		const {context, errors, page} = await phone();
+
+		await seed(page, server.origin);
+		await page.locator('.tile').first().waitFor();
+		await detailsIn(page);
+		await page.waitForTimeout(2000);
+
+		const before = summary(page);
+
+		assert.match(await before, /^10 copies in 10 tiles/);
+
+		// Counts the grid's redraws from here on.
+		await page.evaluate(() => {
+			const grid = document.querySelector('.card-grid');
+
+			window.gridDraws = 0;
+			new MutationObserver((changes) => {
+				if (changes.some((change) => change.target === grid && change.addedNodes.length > 1)) {
+					window.gridDraws++;
+				}
+			}).observe(grid, {childList: true});
+		});
+
+		const quiet = async (expected, what) => {
+			await page.waitForTimeout(1500);
+			assert.equal(await page.evaluate(() => window.gridDraws), expected, what);
+		};
+		const run = (work) => page.evaluate(work);
+
+		// A wish touches no copy: nothing redraws.
+		await run(async () => {
+			const {addToWishlist} = await import('/pokemon-card-tracker/js/wishlist.js');
+
+			await addToWishlist('tsa1-001', {catalog: 'international'});
+		});
+		await quiet(0, 'a wish draws nothing');
+
+		// A new copy of a card already shown.
+		await run(async () => {
+			const {addCard} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await addCard({card_id: 'tsa1-006', catalog: 'international', language: 'en', language_source: 'manual'});
+		});
+		await page.waitForFunction(() => /^11 copies in 10 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await quiet(1, 'an added copy redraws once');
+		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty').textContent(), '×2');
+
+		// An edit: the Liga price of the Pikachu changes its tile's price.
+		await run(async () => {
+			const {listCards, updateCard} = await import('/pokemon-card-tracker/js/collection.js');
+			const pikachu = (await listCards()).find((entry) => entry.id === 'c-07');
+
+			await updateCard(pikachu.id, {price_manual: {...pikachu.price_manual, avg: 120, low_nm: 110}});
+		});
+		await quiet(2, 'an edited copy redraws once');
+		assert.match(plain(await page.locator('.tile:has-text("Test Beta"):has-text("Pikachu") .tile-price').textContent()), /R\$ 120/);
+
+		// A removed copy.
+		await run(async () => {
+			const {deleteCard} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await deleteCard('c-10');
+		});
+		await page.waitForFunction(() => /^10 copies in 9 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await quiet(3, 'a removed copy redraws once');
+		assert.equal(await page.locator('.tile:has-text("이상해씨")').count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the card index is read from the phone once per page', async () => {
+		const {context, errors, page} = await phone();
+
+		await seed(page, server.origin);
+		await page.locator('.tile').first().waitFor();
+		await detailsIn(page);
+
+		const result = await page.evaluate(async () => {
+			const {cardIndex, saveToCardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
+			const first = await cardIndex();
+
+			// A caller's copy cannot change the kept one.
+			first.clear();
+
+			const second = await cardIndex();
+
+			await saveToCardIndex([{catalog: 'international', id: 'tsa1-999', localizations: {en: {image: null, lang: 'en', name: 'Test Added', set_name: 'Test Alpha'}}, set_id: 'tsa1'}]);
+
+			const third = await cardIndex();
+
+			return {added: third.get('international|tsa1-999').localizations.en.name, second: second.size, third: third.size};
+		});
+
+		assert.equal(result.second, 9);
+		assert.equal(result.third, 10);
+		assert.equal(result.added, 'Test Added');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('card images', () => {
+	const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+	const IMAGE = 'https://assets.tcgdex.net/{lang}/tst/tsa1/004/low.webp';
+
+	// Draws one card art with the app's tile.js and waits for it to settle:
+	// the image shown, or the card back.
+	const art = (page, src) => page.evaluate(async (url) => {
+		const {cardArt} = await import('/pokemon-card-tracker/js/tile.js');
+		const frame = cardArt({name: 'Test Charmander', number: '004', setName: 'Test Alpha'}, url, {eager: true});
+
+		document.body.append(frame);
+
+		for (let i = 0; i < 100 && frame.classList.contains('loading'); i++) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+
+		const img = frame.querySelector('img');
+
+		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
+	}, src);
+
+	test('the English image stands in for a Portuguese one that is not on the phone, offline', async () => {
+		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
+		const net = {offline: false};
+
+		await fakeServices(context, {cards: CARDS});
+		await fakePokeApi(context);
+		// English images send their CORS header once, Portuguese ones twice
+		// (which a browser rejects in cors mode, as TCGdex does today).
+		await context.route('https://assets.tcgdex.net/**', (route) => {
+			const request = route.request();
+
+			// A route still answers while the context is offline, so it
+			// fails the request itself, as the network would.
+			if (net.offline) {
+				return route.abort('internetdisconnected');
+			}
+
+			if (request.url().includes('/en/')) {
+				return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': '*'}, status: 200});
+			}
+
+			return route.fulfill({status: 404});
+		});
+
+		const page = await context.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err.message));
+		await page.goto(`${server.origin}${BASE}check`);
+		await page.evaluate(() => navigator.serviceWorker.ready);
+		await page.reload();
+		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
+
+		// Online, the English image is seen once and kept by the worker.
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'en')), {back: false, fallback: null, shown: IMAGE.replace('{lang}', 'en')});
+
+		// Offline, the Portuguese image was never kept: the English art shows.
+		await context.setOffline(true);
+		net.offline = true;
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
+
+		// A French card the phone has neither image of shows the card back.
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'fr').replace('004', '006')), {back: true, fallback: 'en', shown: null});
+
+		// A Japanese image has no English stand-in.
+		assert.deepEqual(await art(page, 'https://assets.tcgdex.net/ja/tst/TSJ1/025/low.webp'), {back: true, fallback: null, shown: null});
+		net.offline = false;
+		await context.setOffline(false);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('online, the English image stands in for a Portuguese one that fails', async () => {
+		const {context, errors, page} = await phone();
+
+		await context.route('https://assets.tcgdex.net/**', (route) => (route.request().url().includes('/en/')
+			? route.fulfill({body: PNG, contentType: 'image/webp', status: 200})
+			: route.fulfill({status: 404})));
+		await page.goto(`${server.origin}${BASE}check`);
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
