@@ -17,10 +17,9 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
-import {listBinders, locationText, placements} from './binders.js';
 import {speciesNames} from './checklists.js';
 import {onChange, ownedBySet, ownedIn, sourceNames} from './collection.js';
-import {closeCopySheet, isRemoving, languageName, onRemovals, openAddSheet, openEditSheet} from './copy-sheet.js';
+import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h} from './dom.js';
 import {flagBadge} from './flags.js';
@@ -1118,7 +1117,7 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		try {
-			placed = placements(await listBinders());
+			placed = await copyPlaces();
 		}
 		catch {
 			// No binder places this time; the copies still show.
@@ -1128,8 +1127,7 @@ export function cardView(root, {lang, cardId}) {
 			return;
 		}
 
-		// A copy whose removal waits for its Undo is already gone here.
-		const live = mine ? mine.entries.filter((entry) => !isRemoving(entry.id)) : [];
+		const live = mine ? mine.entries : [];
 		const names = live.map((entry) => sourceNames(entry, record));
 		const next = names.length && names.every(Boolean) ? {...names[0], language: live[0].language} : null;
 
@@ -1171,32 +1169,51 @@ export function cardView(root, {lang, cardId}) {
 		const flagged = (language) => flagBadge([language], {className: 'flags-inline'});
 		const groups = new Map();
 
+		// One row per set of alike copies (same language, finish, and
+		// condition; js/copy-sheet.js alikeKey), so its stepper counts them.
 		for (const entry of live) {
-			const finish = finishName(entry, variants);
+			const key = alikeKey(entry);
+			const group = groups.get(key) || {condition: entry.condition || null, entries: [], finish: finishName(entry, variants), language: entry.language, localNames: new Set(), notes: new Set(), prices: new Set()};
+
 			// Each copy's own name, when it differs from the one shown above.
-			const localName = entry.name_local && entry.name_local !== shownName ? entry.name_local : null;
-			// Its Liga price, when one is saved on it.
-			const price = copyPriceText(entry);
-			const found = placed.get(entry.id);
-			const where = found ? {binder_id: found.binder.id, binder_name: found.binder.name, page: found.slot.page, position: found.slot.position} : null;
-			const condition = entry.condition || null;
-			const notes = entry.notes || null;
-			const key = JSON.stringify([entry.language, localName, finish, price, condition, notes, where && [where.binder_id, where.page, where.position]]);
-			const group = groups.get(key) || {condition, entries: [], finish, language: entry.language, localName, notes, price, where};
+			if (entry.name_local && entry.name_local !== shownName) {
+				group.localNames.add(entry.name_local);
+			}
+
+			// Its Liga price, when one is saved on it, and its note.
+			if (copyPriceText(entry)) {
+				group.prices.add(copyPriceText(entry));
+			}
+
+			if (entry.notes) {
+				group.notes.add(entry.notes);
+			}
 
 			group.entries.push(entry);
 			groups.set(key, group);
 		}
 
+		// The words of a row. Read only, the language and the count are in
+		// them. With a stepper, the stepper shows the count, and the flag
+		// alone names the language (its label and tooltip say it in words),
+		// so the row stays two lines at most at 360 px.
 		const rowContent = (group) => [
 			flagged(group.language),
 			h('span', {class: 'copy-text'},
-				[languageName(group.language), group.localName, group.finish, group.condition].filter(Boolean).join(' · ') + (group.entries.length > 1 ? ` ×${group.entries.length}` : '')
+				[readOnly ? languageName(group.language) : null, ...group.localNames, group.finish, group.condition].filter(Boolean).join(' · ') + (readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : '')
 			),
-			group.price ? h('span', {class: 'copy-price'}, group.price) : null,
-			group.where ? h('span', {class: 'copy-place'}, locationText(group.where)) : null,
-			group.notes ? h('span', {class: 'copy-note'}, group.notes) : null,
+			...[...group.prices].map((price) => h('span', {class: 'copy-price'}, price)),
+			...group.entries.filter((entry) => placed.has(entry.id)).map((entry) => h('span', {class: 'copy-place'}, placeText(placed.get(entry.id)))),
+			...[...group.notes].map((note) => h('span', {class: 'copy-note'}, note)),
 		];
+
+		const rowLabel = (group) => [languageName(group.language), group.finish, group.condition].filter(Boolean).join(', ');
+
+		// A redraw (after a step, a sync) keeps the focus on the same control
+		// of the same row, so a thumb or a screen reader stays where it was.
+		const focused = copies.contains(document.activeElement) ? document.activeElement : null;
+		const focusRow = focused && focused.closest('[data-alike]') ? focused.closest('[data-alike]').dataset.alike : null;
+		const focusClass = focused ? ['step-less', 'step-more', 'step-count', 'copy-row'].find((name) => focused.classList.contains(name)) : null;
 
 		copies.hidden = false;
 		copies.replaceChildren(
@@ -1205,23 +1222,34 @@ export function cardView(root, {lang, cardId}) {
 				readOnly ? null : addButton(card, variants)
 			),
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
-				h('li', null, readOnly
-					? rowContent(group)
-					: h('button', {
-						'aria-haspopup': 'dialog',
-						class: 'copy-row',
-						onclick: () => openEditSheet({
-							card: sheetCard(card),
-							catalog: catalogFor(lang),
-							entries: group.entries,
-							finishes: finishChoices(variants),
-							placeText: group.where ? locationText(group.where) : null,
-							where: group.where,
-						}),
-						type: 'button',
-					}, rowContent(group)))
+				readOnly
+					? h('li', null, rowContent(group))
+					: h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0])},
+						h('button', {
+							'aria-haspopup': 'dialog',
+							class: 'copy-row',
+							onclick: () => openEditSheet({
+								card: sheetCard(card),
+								catalog: catalogFor(lang),
+								entries: group.entries,
+								finishes: finishChoices(variants),
+								places: placed,
+							}),
+							type: 'button',
+						}, rowContent(group)),
+						copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
+					)
 			))
 		);
+
+		if (focusRow && focusClass) {
+			const row = [...copies.querySelectorAll('[data-alike]')].find((item) => item.dataset.alike === focusRow);
+			const target = row && row.querySelector(`.${focusClass}`);
+
+			if (target && !target.disabled) {
+				target.focus({preventScroll: true});
+			}
+		}
 	}
 
 	// What the phone knows about the card while TCGdex fails (Q-07): the
@@ -1303,9 +1331,6 @@ export function cardView(root, {lang, cardId}) {
 		}
 	};
 	const stopWatching = onChange(redrawCopies);
-	// A removal waiting for its Undo hides the copy at once, and Undo brings
-	// it back.
-	const stopRemovals = onRemovals(redrawCopies);
 
 	return () => {
 		alive = false;
@@ -1313,7 +1338,6 @@ export function cardView(root, {lang, cardId}) {
 		swipe.stop();
 		twin.destroy();
 		stopTwins();
-		stopRemovals();
 		closeCopySheet();
 		photos.destroy();
 	};

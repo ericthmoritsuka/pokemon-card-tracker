@@ -83,6 +83,118 @@ button.copy-row::after {
 	overflow-wrap: anywhere;
 }
 
+/* A row with its stepper: the words open the edit sheet, the stepper sits
+   at the right, and the chevron moves in to give the words room. */
+.copy-rows li.copy-line {
+	align-items: center;
+	flex-wrap: nowrap;
+	gap: var(--space-2);
+}
+
+.copy-line button.copy-row {
+	flex: 1;
+	min-width: 0;
+	padding: var(--space-2) var(--space-5) var(--space-2) 0;
+}
+
+.copy-line button.copy-row::after {
+	right: var(--space-1);
+}
+
+/* "-  N  +": 44 px targets, the number typed in place. */
+.copy-stepper {
+	align-items: center;
+	display: flex;
+	flex: none;
+}
+
+button.step {
+	font-size: 1.25rem;
+	line-height: 1;
+	min-height: 44px;
+	padding: 0;
+	width: 44px;
+}
+
+button.step-less {
+	border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+
+button.step-more {
+	border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.step-count {
+	-moz-appearance: textfield;
+	appearance: textfield;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-left: 0;
+	border-right: 0;
+	color: var(--text);
+	font: inherit;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	height: 44px;
+	margin: 0;
+	padding: 0;
+	text-align: center;
+	width: 2.75rem;
+}
+
+.step-count::-webkit-inner-spin-button,
+.step-count::-webkit-outer-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+.step-count:focus-visible {
+	outline: 3px solid var(--accent-strong);
+	outline-offset: -3px;
+}
+
+.copy-stepper[aria-busy="true"] {
+	opacity: 0.7;
+}
+
+/* Which copy goes: one choice per line, the whole line a target. */
+.copy-pick-list {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.copy-pick-option {
+	align-items: center;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	cursor: pointer;
+	display: flex;
+	font-weight: 400;
+	gap: var(--space-3);
+	margin: 0;
+	min-height: 48px;
+	padding: var(--space-2) var(--space-3);
+}
+
+.copy-pick-option input {
+	flex: none;
+	height: 20px;
+	width: 20px;
+}
+
+/* The pocket sheet's count of copies like the one in the pocket. */
+.pocket-count {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: space-between;
+	margin: var(--space-2) 0;
+}
+
+.pocket-count-label {
+	margin: 0;
+}
+
 .copy-rows .copy-price,
 .copy-place,
 .copy-note {
