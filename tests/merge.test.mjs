@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {collapseImportDuplicates, countChanged, mergeDocuments, mergeEntries, mergeEntry, nextStamp, restoreEntry, sameContent, stableJson, stamps} from '../js/merge.js';
+import {collapseImportDuplicates, countChanged, mergeDocuments, mergeEntries, mergeEntry, nextStamp, restoreEntry, sameContent, stableJson, stampEntry, stamps, validVersion} from '../js/merge.js';
 
 import * as v21 from './merge-v21.mjs';
 
@@ -445,5 +445,375 @@ test('deleteCards removes several copies in one save, and restoreCard brings the
 	}
 	finally {
 		globalThis.BroadcastChannel = channel;
+	}
+});
+
+// ------------------------------------------------------- key by key
+//
+// Versions written by the new app carry field_stamps (stampEntry); versions
+// an older app wrote do not, and fall back to the whole-entry rule.
+
+const made = (id, fields = {}) => ({card_id: 'me01-001', created_at: at(0), deleted_at: null, id, updated_at: at(0), ...fields});
+
+// An edit on a phone with the new app, and on a phone still on v21.
+const edit = (entry, minute, patch) => stampEntry(entry, {...entry, ...patch, updated_at: at(minute)});
+const oldEdit = (entry, minute, patch) => ({...entry, ...patch, updated_at: at(minute)});
+
+const both = (a, b) => {
+	const one = mergeEntry(a, b);
+	const two = mergeEntry(b, a);
+
+	assert.equal(stableJson(one), stableJson(two), 'the same result from either side');
+
+	return one;
+};
+
+const binderOf = (fields = {}) => ({art: [], cols: 3, created_at: at(0), deleted_at: null, id: 'x', name: 'Binder', page_count: 2, rows: 3, slots: [], updated_at: at(0), ...fields});
+
+const pocket = (page, position, minute, content) => ({page, placed_at: at(minute), position, ...content});
+
+// Puts content in a pocket the way js/binders.js setPocket does (null takes
+// it out), stamped.
+const place = (entry, minute, page, position, content) => {
+	const slots = entry.slots.filter((slot) => !(slot.page === page && slot.position === position) && !(content && content.entry_id && slot.entry_id === content.entry_id));
+
+	if (content) {
+		slots.push(pocket(page, position, minute, content));
+	}
+
+	return edit(entry, minute, {slots});
+};
+
+const filled = (entry) => entry.slots.filter((slot) => slot.entry_id).map((slot) => `${slot.page}:${slot.position}:${slot.entry_id}`).sort();
+
+test('stampEntry stamps only the fields that changed, and the version counts as valid', () => {
+	const base = made('a', {notes: 'n'});
+	const next = edit(base, 2, {condition: 'Damaged', notes: undefined});
+
+	assert.equal(validVersion(base), true, 'never edited');
+	assert.equal(validVersion(next), true);
+	assert.deepEqual(next.field_stamps, {at: at(2), condition: at(2), notes: at(2), since: at(0)});
+	assert.equal(validVersion(oldEdit(next, 3, {notes: 'old app'})), false, 'an older app moves updated_at only');
+
+	// A new edit over a version an older app wrote starts its history there.
+	const over = edit(oldEdit(next, 3, {notes: 'old app'}), 4, {grade: '9'});
+
+	assert.deepEqual(over.field_stamps, {at: at(4), grade: at(4), since: at(4)});
+});
+
+test('a Liga price on one phone and a photo on the other both survive (the E-15 repro)', () => {
+	const base = made('a');
+	const price = {avg: 10, currency: 'BRL', date: '2026-10-01', low_nm: 8, source: 'liga'};
+	const phoneA = edit(base, 2, {price_manual: price});
+	const phoneB = edit(base, 3, {photos: [photo('p1')]});
+	const merged = both(phoneA, phoneB);
+
+	assert.deepEqual(merged.price_manual, price);
+	assert.deepEqual(merged.photos.map((item) => item.id), ['p1']);
+	assert.ok(merged.updated_at > phoneB.updated_at, 'stamped after both');
+	assert.equal(validVersion(merged), true);
+
+	// Merging again with either side changes nothing.
+	assert.equal(mergeEntry(merged, phoneA), merged);
+	assert.equal(mergeEntry(phoneB, merged), merged);
+
+	// A phone still on v21 takes the result, since it is newer.
+	assert.equal(v21.mergeEntries([phoneA], [merged])[0], merged);
+	assert.equal(v21.mergeEntries([merged], [phoneB])[0], merged);
+});
+
+test('a note and a condition edited on two phones both survive; the same field goes to the later edit', () => {
+	const base = made('a', {condition: 'Near Mint', notes: 'first'});
+	const phoneA = edit(base, 2, {notes: 'from A'});
+	const phoneB = edit(base, 3, {condition: 'Damaged'});
+	const merged = both(phoneA, phoneB);
+
+	assert.equal(merged.notes, 'from A');
+	assert.equal(merged.condition, 'Damaged');
+
+	const later = both(edit(base, 4, {notes: 'later'}), edit(base, 5, {notes: 'latest'}));
+
+	assert.equal(later.notes, 'latest');
+});
+
+test('pockets placed on two phones in one binder both survive', () => {
+	const base = place(binderOf(), 1, 1, 1, {entry_id: 'c1'});
+	const phoneA = place(base, 2, 1, 2, {entry_id: 'c2'});
+	const phoneB = place(base, 3, 1, 3, {entry_id: 'c3'});
+
+	assert.deepEqual(filled(both(phoneA, phoneB)), ['1:1:c1', '1:2:c2', '1:3:c3']);
+});
+
+test('a cleared pocket stays clear; a later fill wins', () => {
+	const base = place(binderOf(), 1, 1, 1, {entry_id: 'c1'});
+	const cleared = place(base, 3, 1, 1, null);
+	const renamed = edit(base, 4, {name: 'Renamed'});
+	const merged = both(cleared, renamed);
+
+	assert.deepEqual(filled(merged), [], 'the pocket stays clear');
+	assert.equal(merged.name, 'Renamed');
+	assert.deepEqual(merged.slots.find((slot) => slot.cleared), {cleared: true, page: 1, placed_at: at(3), position: 1});
+
+	const refilled = place(base, 5, 1, 1, {entry_id: 'c9'});
+
+	assert.deepEqual(filled(both(cleared, refilled)), ['1:1:c9']);
+
+	// A move leaves a cleared marker where the copy was.
+	const moved = place(base, 2, 1, 5, {entry_id: 'c1'});
+
+	assert.deepEqual(filled(both(moved, renamed)), ['1:5:c1']);
+});
+
+test('hand ticks merge by dex; an untick beats an older tick', () => {
+	const goal = {created_at: at(0), deleted_at: null, hand_ticks: {}, id: 'g', kind: 'every_pokemon', updated_at: at(0)};
+	const base = edit(goal, 1, {hand_ticks: {1: at(1)}});
+	const phoneA = edit(base, 2, {hand_ticks: {1: at(1), 4: at(2)}});
+	const phoneB = edit(base, 3, {hand_ticks: {}, hand_unticks: {1: at(3)}});
+	const merged = both(phoneA, phoneB);
+
+	assert.deepEqual(merged.hand_ticks, {4: at(2)});
+	assert.deepEqual(merged.hand_unticks, {1: at(3)});
+
+	const reticked = edit(phoneB, 5, {hand_ticks: {1: at(5)}, hand_unticks: undefined});
+
+	assert.deepEqual(both(reticked, phoneA).hand_ticks, {1: at(5), 4: at(2)}, 'a tick after the untick wins');
+});
+
+test('a cover upload finishing later neither reverts a newer cover nor drops pockets', () => {
+	const old = {at: at(1), id: 'cover1', path: null, type: 'image/webp'};
+	const base = edit(binderOf({cover_image: null}), 1, {cover_image: old});
+	// Phone A picks a new cover at minute 3. Phone B places a card at minute
+	// 2, then its upload of the old cover fills in the path at minute 4,
+	// without moving the cover's own stamp.
+	const phoneA = edit(base, 3, {cover_image: {at: at(3), id: 'cover2', path: null, type: 'image/webp'}});
+	const placed = place(base, 2, 1, 1, {entry_id: 'c1'});
+	const phoneB = stampEntry(placed, {...placed, cover_image: {...old, path: 'u1/covers/cover1.webp'}, updated_at: at(4)}, {skip: ['cover_image']});
+	const merged = both(phoneA, phoneB);
+
+	assert.equal(merged.cover_image.id, 'cover2');
+	assert.deepEqual(filled(merged), ['1:1:c1']);
+
+	// The same picture: the version that knows its path wins.
+	assert.equal(both(base, phoneB).cover_image.path, 'u1/covers/cover1.webp');
+
+	// Taken away on one phone after the other set it: the later stamp wins.
+	assert.equal(both(edit(phoneA, 5, {cover_image: null}), phoneB).cover_image, null);
+});
+
+test('slots outside the merged grid are dropped', () => {
+	const base = place(binderOf({page_count: 3}), 1, 1, 1, {entry_id: 'c1'});
+	const fewer = edit(base, 5, {page_count: 1});
+	const late = place(base, 4, 3, 2, {entry_id: 'c2'});
+	const merged = both(fewer, late);
+
+	assert.equal(merged.page_count, 1);
+	assert.deepEqual(filled(merged), ['1:1:c1'], 'no ghost card on page 3 when the binder grows again');
+	assert.equal(merged.slots.some((slot) => slot.page > 1), false);
+});
+
+test('pockets from two different layouts never mix: the higher layout keeps its pockets', () => {
+	const base = place(binderOf(), 1, 1, 1, {entry_id: 'c1'});
+	const resized = edit(base, 2, {cols: 4, layout: 1, rows: 4, slots: [pocket(1, 1, 1, {entry_id: 'c1'})]});
+	const placed = place(base, 3, 1, 9, {entry_id: 'c2'});
+	const merged = both(resized, placed);
+
+	assert.equal(merged.layout, 1);
+	assert.equal(merged.rows, 4);
+	assert.deepEqual(filled(merged), ['1:1:c1']);
+});
+
+test('photos always merge by id, even when an older app wrote one side', () => {
+	const base = made('a', {photos: [photo('p1')]});
+	const removed = edit(base, 2, {photos: [photo('p1', {deleted_at: at(2)})]});
+	const added = oldEdit(base, 3, {notes: 'old app', photos: [photo('p1'), photo('p2')]});
+	const merged = both(removed, added);
+
+	assert.equal(merged.notes, 'old app', 'the newer version whole');
+	assert.deepEqual(merged.photos.map((item) => [item.id, Boolean(item.deleted_at)]), [['p1', true], ['p2', false]]);
+	assert.ok(merged.updated_at > added.updated_at);
+});
+
+test('a v21 edit falls back to whole-entry but keeps photo tombstones, cleared pockets, and unticks', () => {
+	const base = place(binderOf(), 1, 1, 1, {entry_id: 'c1'});
+	const cleared = place(base, 2, 1, 1, null);
+	const oldRename = oldEdit(base, 3, {name: 'Old app'});
+	const merged = both(cleared, oldRename);
+
+	assert.equal(merged.name, 'Old app');
+	assert.deepEqual(filled(merged), [], 'the cleared pocket stays clear');
+	assert.equal(validVersion(merged), false);
+
+	const goal = {created_at: at(0), deleted_at: null, hand_ticks: {7: at(0)}, id: 'g', kind: 'every_pokemon', updated_at: at(0)};
+	const untick = edit(goal, 2, {hand_ticks: {}, hand_unticks: {7: at(2)}});
+	const oldGoal = oldEdit(goal, 3, {name: 'Old app'});
+
+	assert.deepEqual(both(untick, oldGoal).hand_ticks, {});
+});
+
+test('a pocket removed by a v21 phone is not brought back by an older copy from the new app (the since rule)', () => {
+	const base = place(binderOf(), 1, 1, 1, {entry_id: 'c1'});
+	const older = edit(base, 2, {notes: 'new app, older'});
+	const removed = oldEdit(base, 3, {slots: []});
+
+	assert.deepEqual(filled(both(older, removed)), [], 'the fallback keeps the newer version whole');
+
+	// The new app edits the v21 version later: its history starts there, so
+	// the older copy's pocket, placed before, is not brought back.
+	const takenOver = edit(removed, 4, {name: 'Renamed'});
+	const merged = both(older, takenOver);
+
+	assert.equal(validVersion(merged), true);
+	assert.deepEqual(filled(merged), []);
+	assert.equal(merged.name, 'Renamed');
+});
+
+test('mergeDocuments keeps the higher merge_version', () => {
+	assert.equal(mergeDocuments(doc([], {merge_version: 2}), doc([])).merge_version, 2);
+	assert.equal(mergeDocuments(doc([]), doc([], {merge_version: 3})).merge_version, 3);
+	assert.equal('merge_version' in mergeDocuments(doc([]), doc([])), false);
+});
+
+// ------------------------------------------------ three phones converge
+
+// A seeded random number generator, so a failure can be replayed.
+function random(seed) {
+	let state = seed >>> 0;
+
+	return () => {
+		state = (state + 0x6d2b79f5) >>> 0;
+
+		let t = state;
+
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+// One random edit on a phone: a card field, a photo added or removed, a
+// card deleted, a pocket filled or emptied, or a hand tick flipped. A phone
+// on v21 edits the way v21 does (no stamps, no markers, no unticks).
+function randomChange(phone, rand, clock) {
+	const pick = (list) => list[Math.floor(rand() * list.length)];
+	const list = pick(['cards', 'cards', 'binders', 'goals']);
+	const entries = phone.doc[list];
+	const live = entries.filter((entry) => !entry.deleted_at);
+
+	if (!live.length) {
+		return;
+	}
+
+	const entry = pick(live);
+	const stamp = nextStamp(entry.updated_at, clock);
+	const next = {...structuredClone(entry), updated_at: stamp};
+
+	if (list === 'cards') {
+		const what = pick(['notes', 'condition', 'price', 'photo', 'unphoto', 'delete']);
+		const shown = (next.photos || []).filter((item) => !item.deleted_at);
+
+		if (what === 'notes') {
+			next.notes = `note ${Math.floor(rand() * 100)}`;
+		}
+		else if (what === 'condition') {
+			next.condition = pick(['Near Mint', 'Damaged', 'Lightly Played']);
+		}
+		else if (what === 'price') {
+			next.price_manual = {avg: Math.floor(rand() * 50), currency: 'BRL'};
+		}
+		else if (what === 'photo') {
+			next.photos = [...(next.photos || []), photo(`p${clock}`)];
+		}
+		else if (what === 'unphoto' && shown.length) {
+			const target = pick(shown);
+
+			next.photos = next.photos.map((item) => (item.id === target.id ? {...item, deleted_at: stamp} : item));
+		}
+		else if (what === 'delete' && rand() < 0.3) {
+			next.deleted_at = stamp;
+		}
+	}
+	else if (list === 'binders') {
+		const page = 1 + Math.floor(rand() * 2);
+		const position = 1 + Math.floor(rand() * 4);
+		const content = rand() < 0.3 ? null : {entry_id: pick(['a', 'b', 'c'])};
+
+		next.slots = next.slots.filter((slot) => !(slot.page === page && slot.position === position) && !(content && slot.entry_id === content.entry_id));
+
+		if (content) {
+			next.slots.push({page, placed_at: stamp, position, ...content});
+		}
+
+		next.slots.sort((x, y) => (x.page - y.page) || (x.position - y.position));
+	}
+	else {
+		const dex = String(1 + Math.floor(rand() * 5));
+		const ticks = {...next.hand_ticks};
+		const unticks = {...(next.hand_unticks || {})};
+
+		if (dex in ticks) {
+			delete ticks[dex];
+
+			if (!phone.old) {
+				unticks[dex] = stamp;
+			}
+		}
+		else {
+			ticks[dex] = stamp;
+			delete unticks[dex];
+		}
+
+		next.hand_ticks = ticks;
+		delete next.hand_unticks;
+
+		if (Object.keys(unticks).length) {
+			next.hand_unticks = unticks;
+		}
+	}
+
+	const saved = phone.old ? next : stampEntry(entry, next);
+
+	phone.doc[list] = entries.map((item) => (item.id === entry.id ? saved : item));
+}
+
+test('three phones, mixed v21 and new, converge', () => {
+	for (let seed = 1; seed <= 60; seed++) {
+		const rand = random(seed);
+		const start = {
+			binders: [binderOf()],
+			cards: ['a', 'b', 'c'].map((id) => made(id, {photos: []})),
+			goals: [{created_at: at(0), deleted_at: null, hand_ticks: {}, id: 'g', kind: 'every_pokemon', updated_at: at(0)}],
+			updated_at: at(0),
+		};
+		const phones = [{doc: structuredClone(start), old: false}, {doc: structuredClone(start), old: false}, {doc: structuredClone(start), old: true}];
+		let server = structuredClone(start);
+		let clock = Date.parse(at(0));
+
+		const sync = (phone) => {
+			const merged = phone.old ? v21.mergeDocuments(phone.doc, server) : mergeDocuments(phone.doc, server);
+
+			server = structuredClone(merged);
+			phone.doc = structuredClone(merged);
+		};
+
+		for (let step = 0; step < 80; step++) {
+			const phone = phones[Math.floor(rand() * phones.length)];
+
+			if (rand() < 0.35) {
+				sync(phone);
+			}
+			else {
+				clock += 1000 + Math.floor(rand() * 5000);
+				randomChange(phone, rand, clock);
+			}
+		}
+
+		for (let round = 0; round < 4; round++) {
+			phones.forEach(sync);
+		}
+
+		const want = stableJson(server);
+
+		phones.forEach((phone, i) => assert.equal(stableJson(phone.doc), want, `seed ${seed}: phone ${i} matches the server`));
 	}
 });

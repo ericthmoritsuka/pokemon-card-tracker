@@ -397,13 +397,23 @@ describe('entry field merging', () => {
 		assert.equal(merged[1].deleted_at, LATER, 'the tombstone wins');
 	});
 
-	test('the document merge keeps the newer entry whole, photos and main_image included', () => {
+	test('the merge keeps photos from both versions', () => {
 		const mine = entry('e1', {main_image: 'p1', photos: [photo('p1')], updated_at: LATER});
 		const theirs = entry('e1', {condition: 'Near Mint', updated_at: AT});
 		const [merged] = mergeEntries([theirs], [mine]);
 
-		assert.equal(merged, mine);
+		assert.equal(merged, mine, 'nothing to add: the newer version itself');
 		assert.equal(merged.main_image, 'p1');
+
+		// A photo only the older version holds is kept too, and a removal
+		// on either side stays.
+		const older = entry('e1', {photos: [photo('p1', {deleted_at: AT}), photo('p2')], updated_at: '2026-09-01T12:00:00.000Z'});
+
+		for (const [both] of [mergeEntries([older], [mine]), mergeEntries([mine], [older])]) {
+			assert.deepEqual(both.photos.map((item) => [item.id, Boolean(item.deleted_at)]), [['p1', true], ['p2', false]]);
+			assert.equal(both.main_image, 'p1');
+			assert.ok(both.updated_at > LATER, 'stamped after both, so it is pushed');
+		}
 	});
 
 	test('photos this phone made come back after a newer edit from another phone drops them', () => {
