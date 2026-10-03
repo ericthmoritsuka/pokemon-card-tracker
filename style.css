@@ -2230,6 +2230,13 @@ progress {
 	opacity: 1;
 }
 
+/* The session ended: a tap signs in again. */
+.sync-status[data-phase="signin"] {
+	color: var(--header-alert);
+	opacity: 1;
+	text-decoration: underline;
+}
+
 .sync-status[data-phase="error"]::before {
 	content: "\25CF\00A0";
 }
