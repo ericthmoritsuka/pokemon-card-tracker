@@ -706,7 +706,7 @@ function cardsScreen(root, {
 			meta: [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
 			route: routeOf(group),
-		}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});
+		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {twins: group.twins});
 	}
 
 	// The price line of a drawn tile, put right after a price arrives.
