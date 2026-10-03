@@ -91,6 +91,21 @@
 	white-space: nowrap;
 }
 
+/* A longer line (uploads after a sign-in, why the server refused it) wraps
+   inside the photo rather than running off it. */
+.ph-pending {
+	border-radius: 12px;
+	max-width: calc(100% - 16px);
+	text-align: center;
+	white-space: normal;
+	width: max-content;
+}
+
+.ph-pending.ph-problem {
+	background: #8a1c1c;
+	border-color: #ffffff;
+}
+
 .ph-dots {
 	display: flex;
 	gap: 4px;

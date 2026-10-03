@@ -159,6 +159,11 @@ export function settleIndex(index, count, dx, velocity, width) {
 //   resolveDetail   the same for a photo's detail copy, which the viewer
 //                   shows when zoomed in (store.js detailUrl)
 //   pending         Set of photo ids still waiting to upload
+//   problems        Map photo id -> why its upload did not go (the server
+//                   refused it, or the person must sign in again), shown
+//                   on the photo in place of the waiting badge
+//   waitingText     what the waiting badge says ("Waiting to upload", or
+//                   while signed out that it uploads after a sign-in)
 //   readOnly        no "Use as main image" (a family member's card)
 //   onUseAsMain(slide), onRemove(slide), onSwipeConsumed(direction, index)
 export function photoCarousel({
@@ -168,13 +173,15 @@ export function photoCarousel({
 	onSwipeConsumed = null,
 	onUseAsMain = null,
 	pending = new Set(),
+	problems = new Map(),
 	readOnly = false,
 	resolveDetail = () => Promise.resolve(null),
 	resolveSrc = () => Promise.resolve(null),
 	slides = [],
+	waitingText = 'Waiting to upload',
 } = {}) {
 	let index = 0;
-	let state = {mainId, pending, slides};
+	let state = {mainId, pending, problems, slides, waitingText};
 	const drawn = new Map();
 
 	const track = h('div', {class: 'ph-track'});
@@ -237,11 +244,16 @@ export function photoCarousel({
 		}
 
 		const waiting = slide.kind === 'photo' && state.pending.has(slide.id);
+		const problem = waiting ? (state.problems && state.problems.get(slide.id)) || null : null;
+		const badgeText = problem || state.waitingText || 'Waiting to upload';
+		const badge = node.querySelector('.ph-pending');
 		const main = slide.id === state.mainId;
 		node.querySelector('.ph-source').textContent = slide.label;
-		node.querySelector('.ph-pending').hidden = !waiting;
+		badge.hidden = !waiting;
+		badge.textContent = badgeText;
+		badge.classList.toggle('ph-problem', Boolean(problem));
 		node.classList.toggle('ph-waiting', waiting);
-		node.setAttribute('aria-label', `${i + 1} of ${count}: ${slide.label}${waiting ? ', waiting to upload' : ''}${main ? ', main image' : ''}`);
+		node.setAttribute('aria-label', `${i + 1} of ${count}: ${slide.label}${waiting ? `, ${badgeText.charAt(0).toLowerCase()}${badgeText.slice(1)}` : ''}${main ? ', main image' : ''}`);
 
 		return node;
 	}

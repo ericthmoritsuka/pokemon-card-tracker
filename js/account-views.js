@@ -42,6 +42,9 @@ import {
 	updateDisplayName,
 } from './sync.js';
 import {photoSettingsCard} from './photos/index.js';
+import {failedUploads, onPhotosChange, removePhotoFromEntry, retryUpload, startPhotoSync} from './photos/store.js';
+import {cardIndex, isLanguage} from './catalog.js';
+import {loadDocument, resolveEntry} from './collection.js';
 
 const RESEND_AFTER_MS = 60 * 1000;
 
@@ -616,6 +619,8 @@ export function profileView(root) {
 
 	drawSession();
 
+	const uploads = uploadsCard();
+
 	root.append(
 		h('h2', null, 'Profile'),
 		session,
@@ -628,6 +633,7 @@ export function profileView(root) {
 				h('button', {onclick: () => syncNow(), type: 'button'}, 'Sync now')
 			)
 		),
+		uploads.element,
 		h('form', {class: 'card', onsubmit: saveName},
 			h('h3', null, 'Display name'),
 			h('label', {class: 'muted', for: 'profile-name'}, 'The name your family sees'),
@@ -665,6 +671,7 @@ export function profileView(root) {
 		stopStatus();
 		stopSprite();
 		stopSession();
+		uploads.stop();
 
 		if (sessionPanel) {
 			sessionPanel.stop();
@@ -672,6 +679,97 @@ export function profileView(root) {
 
 		favorite.stop();
 		theme.stop();
+	};
+}
+
+// ------------------------------------------------- Photos not uploaded
+
+// Card photos whose upload the server refused, or that wait for a new
+// sign-in (js/photos/store.js), each with Retry and Remove. Hidden while
+// there are none. Returns {element, stop}.
+function uploadsCard() {
+	let alive = true;
+	let run = 0;
+
+	const list = h('ul', {class: 'members', id: 'photo-uploads-list'});
+	const element = h('section', {'aria-labelledby': 'photo-uploads-heading', class: 'card', hidden: true, id: 'photo-uploads'},
+		h('h3', {id: 'photo-uploads-heading'}, 'Photos not uploaded'),
+		h('p', {class: 'muted'}, 'These photos are on this phone only. Retry sends one again; Remove takes it off its card.'),
+		list
+	);
+
+	async function cardLabel(doc, index, entryId) {
+		const entry = resolveEntry(doc.cards, entryId);
+
+		if (!entry) {
+			return {label: 'A card no longer in your cards', route: null};
+		}
+
+		const record = index.get(`${entry.catalog}|${entry.card_id}`);
+		const local = record && record.localizations ? record.localizations[entry.language] || Object.values(record.localizations)[0] : null;
+		const lang = isLanguage(entry.language) ? entry.language : 'en';
+
+		return {label: (local && local.name) || entry.card_id, route: `cards/${encodeURIComponent(lang)}/${encodeURIComponent(entry.card_id)}`};
+	}
+
+	async function draw() {
+		const mine = ++run;
+		const [rows, doc, index] = await Promise.all([
+			failedUploads(),
+			loadDocument(),
+			cardIndex().catch(() => new Map()),
+		]);
+
+		if (!alive || mine !== run) {
+			return;
+		}
+
+		const items = await Promise.all(rows.map(async (row) => {
+			const {label, route} = await cardLabel(doc, index, row.entry_id);
+			const retry = h('button', {class: 'small', type: 'button'}, 'Retry');
+			const remove = h('button', {class: 'small danger', type: 'button'}, 'Remove');
+
+			retry.hidden = row.kind === 'auth';
+			retry.addEventListener('click', () => {
+				retry.disabled = true;
+				retryUpload(row.photo_id).catch(() => {});
+			});
+			remove.addEventListener('click', async () => {
+				if (!window.confirm('Remove this photo from its card? It never reached the server, so it leaves this phone too.')) {
+					return;
+				}
+
+				remove.disabled = true;
+				await removePhotoFromEntry(row.entry_id, row.photo_id).catch(() => {
+					remove.disabled = false;
+				});
+			});
+
+			return h('li', {class: 'member', 'data-photo': row.photo_id},
+				h('span', {class: 'member-text'},
+					route ? h('a', {class: 'member-name', 'data-link': route, href: BASE + route}, label) : h('span', {class: 'member-name'}, label),
+					h('span', {class: 'muted'}, row.text)
+				),
+				// Side by side, wrapping under the words together.
+				h('span', {class: 'photo-upload-actions', style: 'display: flex; gap: var(--space-2)'}, retry, remove)
+			);
+		}));
+
+		list.replaceChildren(...items);
+		element.hidden = !items.length;
+	}
+
+	const stopPhotos = onPhotosChange(() => draw().catch(() => {}));
+
+	startPhotoSync();
+	draw().catch(() => {});
+
+	return {
+		element,
+		stop: () => {
+			alive = false;
+			stopPhotos();
+		},
 	};
 }
 

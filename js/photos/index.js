@@ -35,6 +35,8 @@ import {
 	removePhotoFromEntry,
 	setKeepDetailCopies,
 	startPhotoSync,
+	uploadProblems,
+	waitingText,
 } from './store.js';
 
 export {
@@ -187,7 +189,7 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		const slides = gallerySlides({entries, official, twins});
 		const mainId = mainSlideId(slides, pinnedImage(entries));
 
-		carousel.update({mainId, pending: pendingUploads(), slides});
+		carousel.update({mainId, pending: pendingUploads(), problems: uploadProblems(), slides, waitingText: waitingText()});
 
 		if (wantSlide && slides.some((slide) => slide.id === wantSlide)) {
 			carousel.show(wantSlide);

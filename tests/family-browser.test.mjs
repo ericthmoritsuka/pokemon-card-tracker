@@ -15,6 +15,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
+import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
 const require = createRequire(import.meta.url);
@@ -596,6 +597,70 @@ describe('a session the server stops accepting', () => {
 		await page.waitForTimeout(300);
 		assert.equal(await page.locator('#account').textContent(), 'Sign in');
 		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.sessionEnded')), null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('photos the server refused', () => {
+	// Saves a small WebP photo on the copy, as Add photo does.
+	const addPhoto = (page, entryId) => page.evaluate(async (id) => {
+		const canvas = new OffscreenCanvas(60, 84);
+		const draw = canvas.getContext('2d');
+
+		draw.fillStyle = '#3a7';
+		draw.fillRect(0, 0, 60, 84);
+
+		const blob = await canvas.convertToBlob({type: 'image/webp'});
+		const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
+		const {savePhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+		const entry = (await listCards()).find((item) => item.id === id);
+
+		return (await savePhoto({blob, entry, type: 'image/webp'})).id;
+	}, entryId);
+
+	test('Profile lists them with the reason, Retry, and Remove', async () => {
+		const fake = new FakeStorageSupabase();
+		const owner = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith([entry('o-1', {card_id: 'tst1-001'}), entry('o-2', {card_id: 'tst1-002'})]));
+		await signIn(page, fake, owner.email);
+		await waitForSynced(page);
+
+		fake.refuse = {error: 'Payload too large', message: 'The object exceeded the maximum allowed size', status: 413};
+
+		const first = await addPhoto(page, 'o-1');
+		const second = await addPhoto(page, 'o-2');
+
+		await page.click('#account');
+		await page.waitForSelector('#photo-uploads:not([hidden])');
+		await page.waitForFunction(() => document.querySelectorAll('#photo-uploads-list li').length === 2, null, {timeout: 10000});
+		assert.deepEqual(await page.locator('#photo-uploads-list .muted').allTextContents(), ['Not uploaded: too large for the server', 'Not uploaded: too large for the server']);
+		assert.match(await page.locator(`#photo-uploads-list li[data-photo="${first}"] .member-name`).textContent(), /tst1-001/);
+		await page.screenshot({clip: {height: 420, width: VIEWPORT.width, x: 0, y: 160}, path: '/tmp/family-photo-uploads.png'});
+
+		// Remove takes one off its card.
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.click(`#photo-uploads-list li[data-photo="${second}"] button:has-text("Remove")`);
+		await page.waitForFunction((id) => !document.querySelector(`#photo-uploads-list li[data-photo="${id}"]`), second, {timeout: 10000});
+
+		const photos = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).find((item) => item.id === 'o-2').photos);
+
+		assert.ok(photos.every((photo) => photo.deleted_at), 'the refused photo is gone from its card');
+
+		// Retry once the server takes it: it goes up and the list goes.
+		fake.refuse = null;
+		await page.click(`#photo-uploads-list li[data-photo="${first}"] button:has-text("Retry")`);
+		await page.waitForSelector('#photo-uploads', {state: 'hidden', timeout: 10000});
+
+		for (let i = 0; i < 50 && ![...fake.objects.keys()].some((key) => key.includes(first)); i++) {
+			await page.waitForTimeout(200);
+		}
+
+		assert.ok([...fake.objects.keys()].some((key) => key.includes(first)), 'the retried photo reached the server');
+		assert.ok(![...fake.objects.keys()].some((key) => key.includes(second)), 'the removed one never went up');
+		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

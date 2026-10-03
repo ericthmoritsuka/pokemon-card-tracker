@@ -35,7 +35,7 @@
 // it, and the delete must reach the server first, so no phone can bring the
 // photo back pointing at a missing file.
 
-import {currentUser, getClient, onUser} from '../auth.js';
+import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
 import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
@@ -346,17 +346,65 @@ export async function restoreDroppedPhotos() {
 // ------------------------------------------------------------- queue
 
 let pending = new Set();
+let problems = new Map();
 let queueLoaded = false;
 
 async function loadPending() {
 	const rows = await getAll('queue').catch(() => []);
+	const uploads = rows.filter((row) => row.op === 'upload');
 
-	pending = new Set(rows.filter((row) => row.op === 'upload').map((row) => row.photo_id));
+	pending = new Set(uploads.map((row) => row.photo_id));
+	problems = new Map(uploads.filter((row) => problemText(row)).map((row) => [row.photo_id, problemText(row)]));
 	queueLoaded = true;
 }
 
 // Photo ids whose upload has not gone up yet.
 export const pendingUploads = () => new Set(pending);
+
+// Photo ids whose upload did not go, and why in a few words (problemText):
+// the server refused the file, or the session must be signed in again.
+export function uploadProblems() {
+	if (sessionExpired()) {
+		return new Map([...pending].map((id) => [id, problems.get(id) && !/^Sign in/.test(problems.get(id)) ? problems.get(id) : 'Sign in again to upload']));
+	}
+
+	return new Map(problems);
+}
+
+// What a waiting photo says while nothing is wrong: signed out, nothing
+// can upload until someone signs in.
+export const waitingText = () => (currentUser() ? 'Waiting to upload' : 'Saved on this phone; uploads after you sign in');
+
+// The uploads the server refused, or that wait for a new sign-in, for
+// Profile: [{photo_id, entry_id, text, kind}], oldest first.
+export async function failedUploads() {
+	const rows = await getAll('queue').catch(() => []);
+	// With the session over, every waiting upload waits for the sign-in.
+	const ended = sessionExpired();
+	const describe = (row) => (row.error_kind === 'refused' ? problemText(row) : ended ? 'Sign in again to upload' : problemText(row));
+
+	return rows
+		.filter((row) => row.op === 'upload' && describe(row))
+		.sort((a, b) => a.at - b.at)
+		.map((row) => ({entry_id: row.entry_id, kind: row.error_kind === 'refused' ? 'refused' : 'auth', photo_id: row.photo_id, text: describe(row)}));
+}
+
+// Tries a refused upload again now (Profile's Retry): its error is cleared
+// and the queue sent.
+export async function retryUpload(photoId) {
+	for (const key of [photoId, detailKey(photoId)]) {
+		const row = await idb('queue', 'readonly', (s) => s.get(key)).catch(() => null);
+
+		if (row) {
+			await idb('queue', 'readwrite', (s) => s.put({...row, error: null, error_kind: null, error_status: null}, key));
+		}
+	}
+
+	await loadPending().catch(() => {});
+	notify();
+
+	return flushQueue();
+}
 
 export async function queuedItems() {
 	return getAll('queue');
@@ -461,13 +509,57 @@ export async function removePhotoFromEntry(entryOrId, photoId) {
 	flushQueue();
 }
 
-// A failure worth retrying (no connection, a server hiccup) or not (the
-// server refused: retried only at the next start or sign-in).
-const permanent = (err) => {
-	const status = Number(err && (err.status || err.statusCode));
+const statusOf = (err) => Number(err && (err.status || err.statusCode));
 
-	return status >= 400 && status < 500 && status !== 408 && status !== 429;
-};
+// What kind of failure: 'auth' when the session's token was refused (the
+// upload goes again once the session is refreshed or the person signs in
+// again, js/auth.js), 'refused' when the server will not take the file
+// (too large, a policy: retried only at the next start, sign-in, or Retry),
+// else 'retry' (no connection, a server hiccup).
+function failureKind(err) {
+	const status = statusOf(err);
+	const message = (err && err.message) || '';
+
+	if (isAuthStatus(status, message)) {
+		return 'auth';
+	}
+
+	return status >= 400 && status < 500 && status !== 408 && status !== 429 ? 'refused' : 'retry';
+}
+
+const permanent = (err) => failureKind(err) === 'refused';
+
+// Short words for a queue row's failure, for the photo and Profile.
+export function problemText(row) {
+	if (!row || !row.error) {
+		return null;
+	}
+
+	if (row.error_kind === 'auth') {
+		return 'Sign in again to upload';
+	}
+
+	if (row.error_kind !== 'refused') {
+		return null;
+	}
+
+	const status = Number(row.error_status);
+	const message = String(row.error);
+
+	if (status === 413 || /maximum allowed size|too large/i.test(message)) {
+		return 'Not uploaded: too large for the server';
+	}
+
+	if (status === 415 || /mime type/i.test(message)) {
+		return 'Not uploaded: the server does not take this file type';
+	}
+
+	if (/row-level security|unauthorized|permission/i.test(message)) {
+		return 'Not uploaded: the server refused it (no permission)';
+	}
+
+	return `Not uploaded: ${message}`;
+}
 
 async function uploadOne(client, row, userId) {
 	// The copy the photo was taken on, or the one the merge folded it into,
@@ -584,7 +676,7 @@ export function flushQueue() {
 			const user = currentUser();
 			const doc = await loadDocument();
 
-			if (!user || !navigator.onLine || doc.user_id !== user.id) {
+			if (!user || !navigator.onLine || doc.user_id !== user.id || sessionExpired()) {
 				return;
 			}
 
@@ -631,13 +723,18 @@ export function flushQueue() {
 				}
 				catch (err) {
 					const message = (err && err.message) || String(err);
+					const kind = failureKind(err);
 
-					await idb('queue', 'readwrite', (s) => s.put({...row, error: message}, queueKey(row))).catch(() => {});
+					await idb('queue', 'readwrite', (s) => s.put({...row, error: message, error_kind: kind, error_status: statusOf(err) || null}, queueKey(row))).catch(() => {});
 
 					if (!permanent(err)) {
-						retry = true;
+						// A refused token waits for the session to be refreshed or
+						// for a new sign-in (onSession below); with no session
+						// left, retrying on a timer would only be refused again.
+						retry = kind !== 'auth' || !sessionExpired();
 
-						// Lost the connection mid-way: the rest waits too.
+						// Lost the connection (or the session) mid-way: the rest
+						// waits too.
 						break;
 					}
 				}
@@ -771,7 +868,17 @@ export function startPhotoSync() {
 	window.addEventListener('offline', notify);
 	onUser(() => {
 		failedAt.clear();
+		notify();
 		flushQueue();
+	});
+	// The session ended (the photos say to sign in again) or came back (what
+	// waited goes up, the same person signing in again included).
+	onSession(({expired}) => {
+		notify();
+
+		if (!expired) {
+			flushQueue();
+		}
 	});
 	onChange((doc, {source}) => {
 		if (source === 'sync' || source === 'account') {
