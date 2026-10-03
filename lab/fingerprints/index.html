@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<title>Fingerprint Lab</title>
+	<meta name="description" content="A test page that recognises a Pokémon card by its picture: the straightened card's fingerprint against an index of every TCGdex card image.">
+	<meta name="robots" content="noindex">
+	<meta name="theme-color" content="#1d2e60">
+	<link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+	<link rel="stylesheet" href="../lab.css">
+	<style>
+		.matches { display: grid; gap: 0.75rem; list-style: none; margin: 0; padding: 0; }
+		.matches li { border: 1px solid var(--border); border-radius: 8px; display: grid; gap: 0.75rem; grid-template-columns: 72px 1fr; padding: 0.5rem; }
+		.matches img { aspect-ratio: 63 / 88; background: var(--bg); border-radius: 4px; width: 72px; }
+		.matches .members { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+		.verdict { font-weight: 600; }
+		#card-canvas { max-width: 160px; width: 100%; }
+	</style>
+	<script type="module" src="page.js"></script>
+</head>
+<body>
+	<header class="top">
+		<h1>Fingerprint Lab</h1>
+		<p>A test page, not the scanner. It recognises a card by its picture: the card is found and straightened, fingerprinted, and compared with every TCGdex card image. No text is read. <a href="../">Scan Lab</a></p>
+		<p class="muted" id="index-status" role="status">Index: loading.</p>
+	</header>
+
+	<main>
+		<section class="panel" aria-labelledby="capture-heading">
+			<h2 id="capture-heading">1. Capture</h2>
+			<p class="muted">Fill the frame with the card, upright. Sleeves and holo foil are fine.</p>
+			<div class="viewfinder" id="viewfinder">
+				<video id="video" playsinline muted autoplay hidden></video>
+				<div class="guide" id="guide" hidden></div>
+				<p class="placeholder" id="placeholder">Camera is off</p>
+			</div>
+			<div class="actions">
+				<button class="primary" id="start" type="button">Start camera</button>
+				<button id="capture" type="button" disabled>Capture</button>
+			</div>
+			<label class="file">Or match a photo: <input id="photo" type="file" accept="image/*"></label>
+			<p class="status" id="status" role="status" aria-live="polite"></p>
+		</section>
+
+		<section class="panel" id="result-panel" aria-labelledby="result-heading" hidden>
+			<h2 id="result-heading">2. Matches</h2>
+			<div class="card-and-table">
+				<figure class="card-shot">
+					<canvas id="card-canvas"></canvas>
+					<figcaption class="muted" id="card-note"></figcaption>
+				</figure>
+				<div>
+					<p class="verdict" id="verdict"></p>
+					<p class="muted" id="timings"></p>
+				</div>
+			</div>
+			<ol class="matches" id="matches"></ol>
+		</section>
+	</main>
+</body>
+</html>

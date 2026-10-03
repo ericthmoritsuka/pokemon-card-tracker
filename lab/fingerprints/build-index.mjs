@@ -39,9 +39,9 @@ export const RECORD = 64;
 export const LAYOUT = {art128: [8, 16], art64: [0, 8], card128: [32, 16], card64: [24, 8], color: [48, 16]};
 
 // What the index keeps, and the matcher's weights, as measured
-// (RESULTS.md): the 64-bit art-box hash, the 64-bit whole-card hash, and
+// (RESULTS.md): the 128-bit art-box hash, the 128-bit whole-card hash, and
 // the colour layout. Full-art cards lean on the whole card.
-export const FIELDS = {art: {bytes: 8, from: 'art64', type: 'u32'}, card: {bytes: 8, from: 'card64', type: 'u32'}, color: {bytes: 16, from: 'color', type: 'i8'}};
+export const FIELDS = {art: {bytes: 16, from: 'art128', type: 'u32'}, card: {bytes: 16, from: 'card128', type: 'u32'}, color: {bytes: 16, from: 'color', type: 'i8'}};
 export const WEIGHTS = {framed: {art: 1, card: 0.5, color: 0.1}, full: {art: 0.6, card: 1, color: 0.1}};
 
 // Two cards share artwork when their art-box hashes are this close (of 128

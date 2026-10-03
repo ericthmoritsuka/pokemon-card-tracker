@@ -346,6 +346,11 @@ async function main() {
 		console.log(`bench: ${items.length} cards, ${await downloadHigh(items)} high images fetched`);
 
 		for (const item of items) {
+			if (!(await exists(highFile(item)))) {
+				console.log(`bench: no image for ${item.lang} ${item.id}`);
+				continue;
+			}
+
 			const src = `/cache/${relative(CACHE, highFile(item))}`;
 			const benchPasses = ['clean', 'blur', 'glare', 'tilt', 'jpeg', 'nonumber'];
 			const out = await page.evaluate(([s, id, p]) => window.fp.bench(s, id, p), [src, item.id, benchPasses]);
