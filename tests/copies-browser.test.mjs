@@ -154,6 +154,11 @@ const variantOf = (record, type, foil = undefined) => record.variants_detailed.f
 
 const rowTexts = (page) => page.locator('.copies .copy-text').allTextContents();
 
+// Each row's language (its flag's tooltip) and its stepper's count.
+const rowLanguages = (page) => page.locator('.copies li .flags').evaluateAll((flags) => flags.map((flag) => flag.getAttribute('title')));
+
+const rowCounts = (page) => page.locator('.copies .step-count').evaluateAll((inputs) => inputs.map((input) => input.value));
+
 // True when the element is wholly on screen and above the tab bar.
 const onFirstScreen = (page, selector) => page.evaluate((target) => {
 	const el = document.querySelector(target);
@@ -176,7 +181,8 @@ describe('copies on card detail', () => {
 		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
 		await page.goto(url(`cards/pt/${pt.id}`));
 		await page.waitForSelector('.copies .copy-row');
-		assert.deepEqual(await rowTexts(page), ['Portuguese · Normal']);
+		assert.deepEqual(await rowTexts(page), ['Normal']);
+		assert.deepEqual(await rowLanguages(page), ['Portuguese']);
 		assert.equal(await page.locator('.copies-head h3').textContent(), 'Your copies (1)');
 
 		await page.click('.copies .copy-row');
@@ -196,8 +202,8 @@ describe('copies on card detail', () => {
 		await page.fill('#copy-notes', 'From the league night');
 		await page.click('#copy-save');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
-		await page.waitForSelector('.copies .copy-text:has-text("English")');
-		assert.deepEqual(await rowTexts(page), ['English · Reverse holo, Poké Ball pattern · Lightly Played']);
+		await page.waitForSelector('.copies li .flags[title="English"]');
+		assert.deepEqual(await rowTexts(page), ['Reverse holo, Poké Ball pattern · Lightly Played']);
 		assert.equal(await page.locator('.copies .copy-note').textContent(), 'From the league night');
 
 		const [entry] = await entries(page);
@@ -219,7 +225,7 @@ describe('copies on card detail', () => {
 		await done();
 	});
 
-	test('Remove copy says which binder it leaves, and Undo keeps the same copy', async () => {
+	test('Remove copy says which binder it leaves, and Undo restores the same copy', async () => {
 		const {done, page} = await phone();
 		const kept = await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
 		const gone = await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Reverse')});
@@ -240,36 +246,40 @@ describe('copies on card detail', () => {
 		await page.click('#copy-remove');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
 
-		// Gone from the page at once, written only when Undo is no longer on offer.
+		// Written at once: the copy is a tombstone while Undo is on offer.
 		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 1);
 		assert.equal(await page.locator('.copies-head h3').textContent(), 'Your copies (1)');
 
 		const toast = page.locator('.toast', {hasText: 'copy removed'});
 
 		assert.equal(await toast.locator('.toast-text').textContent(), 'Portuguese copy removed. It leaves Vitrine, page 3.');
-		assert.ok((await entries(page)).every((entry) => !entry.deleted_at), 'nothing deleted while Undo is offered');
-		await page.screenshot({path: '/tmp/copies-removed-toast.png'});
-		await toast.locator('button', {hasText: 'Undo'}).click();
-		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 2);
-		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine, page 3, pocket 5', 'back in its pocket');
 
-		// Removed again and written: the copy is a tombstone, the other stays.
-		await page.click('.copies li:has(.copy-place) .copy-row');
-		await page.click('#copy-remove');
-		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 1);
-		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/copy-sheet.js')).flushRemovals());
-
-		const after = await entries(page);
+		let after = await entries(page);
 
 		assert.ok(after.find((entry) => entry.id === gone.id).deleted_at, 'the removed copy is deleted');
 		assert.equal(after.find((entry) => entry.id === kept.id).deleted_at, null);
-		assert.deepEqual(await rowTexts(page), ['Portuguese · Normal']);
+		await page.screenshot({path: '/tmp/copies-removed-toast.png'});
 
-		// The last copy: the card is no longer in your cards, and Add stays.
+		// Undo brings the same entry back, in its pocket, past the tombstone.
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 2);
+		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine, page 3, pocket 5', 'back in its pocket');
+		after = await entries(page);
+
+		const restored = after.find((entry) => entry.id === gone.id);
+
+		assert.equal(restored.deleted_at, null);
+		assert.ok(restored.restored_at, 'restored on purpose, so the merge keeps it');
+		assert.equal(after.length, 2, 'no new entry');
+
+		// The last copies: the card is no longer in your cards, and Add stays.
+		await page.click('.copies li:has(.copy-place) .copy-row');
+		await page.click('#copy-remove');
+		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 1);
+		assert.deepEqual(await rowTexts(page), ['Normal']);
 		await page.click('.copies .copy-row');
 		await page.click('#copy-remove');
 		await page.waitForSelector('.copies-head h3:has-text("Not in your cards")');
-		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/copy-sheet.js')).flushRemovals());
 		assert.ok((await entries(page)).every((entry) => entry.deleted_at));
 		assert.equal(await page.locator('#copy-add').count(), 1);
 		await done();
@@ -284,21 +294,22 @@ describe('copies on card detail', () => {
 
 		await page.goto(url(`cards/pt/${pt.id}`));
 		await page.waitForSelector('.copies .copy-row');
-		assert.deepEqual(await rowTexts(page), ['Portuguese · Normal ×3']);
+		assert.deepEqual(await rowTexts(page), ['Normal']);
+		assert.deepEqual(await rowCounts(page), ['3']);
 		await page.click('.copies .copy-row');
 		assert.equal(await page.locator('#copy-sheet-title').textContent(), 'Edit copies (3 alike)');
 		await page.selectOption('#copy-condition', 'Near Mint');
 		await page.click('#copy-save');
 		await page.waitForSelector('.copies .copy-text:has-text("Near Mint")');
-		assert.deepEqual((await rowTexts(page)).sort(), ['Portuguese · Normal ×2', 'Portuguese · Normal · Near Mint'].sort());
+		assert.deepEqual(await rowTexts(page), ['Normal', 'Normal · Near Mint']);
+		assert.deepEqual(await rowCounts(page), ['2', '1']);
 
-		await page.click('.copies .copy-row:has-text("×2")');
+		await page.click('.copies li:first-child .copy-row');
 		await page.click('#copy-sheet .copy-scope label:has-text("All 2")');
 		assert.equal(await page.locator('#copy-remove').textContent(), 'Remove 2 copies');
 		await page.click('#copy-remove');
 		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 1);
 		assert.equal(await page.locator('.toast-text', {hasText: 'removed'}).textContent(), '2 copies removed.');
-		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/copy-sheet.js')).flushRemovals());
 		assert.equal((await entries(page)).filter((entry) => !entry.deleted_at).length, 1);
 		await done();
 	});
@@ -327,7 +338,8 @@ describe('copies on card detail', () => {
 		assert.equal(await page.locator('#copy-add-save').textContent(), 'Add 3 copies');
 		await page.click('#copy-add-save');
 		await page.waitForSelector('.copies-head h3:has-text("Your copies (3)")');
-		assert.deepEqual(await rowTexts(page), ['Portuguese · Reverse holo · Near Mint ×3']);
+		assert.deepEqual(await rowTexts(page), ['Reverse holo · Near Mint']);
+		assert.deepEqual(await rowCounts(page), ['3']);
 		assert.equal(await page.locator('.toast-text', {hasText: 'Added'}).textContent(), 'Added 3 Portuguese copies.');
 
 		const saved = await entries(page);
@@ -483,7 +495,7 @@ describe('when TCGdex fails, and in family view', () => {
 		assert.equal(await page.locator('.card-detail h2').textContent(), 'Exeggcute');
 		assert.match(await page.locator('.facts').textContent(), /SetEvoluções Prismáticas/);
 		await page.waitForSelector('.copies .copy-row');
-		assert.deepEqual(await rowTexts(page), ['Portuguese · Finish (catalog offline)']);
+		assert.deepEqual(await rowTexts(page), ['Finish (catalog offline)']);
 		assert.equal(await page.locator('#copy-add').count(), 1);
 		await page.screenshot({path: '/tmp/copies-tcgdex-500.png'});
 		assert.ok(await onFirstScreen(page, '.copies .copy-row'), 'the copies on the first screen');
@@ -492,7 +504,7 @@ describe('when TCGdex fails, and in family view', () => {
 		tcgdex.status = null;
 		await page.click('#card-retry');
 		await page.waitForSelector('#card-unreachable', {state: 'detached'});
-		await page.waitForSelector('.copies .copy-text:has-text("Portuguese · Normal")');
+		await page.waitForSelector('.copies .copy-text:text-is("Normal")');
 		await done();
 	});
 
@@ -519,6 +531,8 @@ describe('when TCGdex fails, and in family view', () => {
 		assert.equal(await page.locator('#family-strip').count(), 1, 'still in family view');
 		await page.waitForSelector('.copies li');
 		assert.equal(await page.locator('.copies .copy-row').count(), 0, 'rows open nothing');
+		assert.equal(await page.locator('.copies .copy-stepper').count(), 0, 'no stepper');
+		assert.equal(await page.locator('.copies li').textContent(), 'Portuguese · Normal', 'the language in words, read only');
 		assert.equal(await page.locator('#copy-add').count(), 0);
 		assert.equal(await page.locator('#card-wish, #card-wished').count(), 0);
 		await page.click('.copies li');
@@ -530,6 +544,180 @@ describe('when TCGdex fails, and in family view', () => {
 		await page.waitForSelector('#card-liga');
 		assert.ok(await page.locator('.copies').isHidden());
 		assert.equal(await page.locator('#copy-add').count(), 0);
+		await done();
+	});
+});
+
+describe('the count stepper', () => {
+	const photo = {created_at: '2026-10-01T10:00:00.000Z', id: 'ph1', path: null, type: 'front'};
+
+	// Three alike Portuguese Normal copies: one in a pocket (page 1, pocket
+	// 1 of Vitrine), one with a photo, one free.
+	async function threeAlike(page) {
+		const normal = {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')};
+		const placed = await addCard(page, {...normal, created_at: '2026-09-01T10:00:00.000Z'});
+		const pictured = await addCard(page, {...normal, created_at: '2026-09-02T10:00:00.000Z', photos: [photo]});
+		const free = await addCard(page, {...normal, created_at: '2026-09-03T10:00:00.000Z'});
+		const binder = await page.evaluate(async (entryId) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const made = await binders.createBinder({cols: 3, name: 'Vitrine', page_count: 2, rows: 3});
+
+			await binders.placeCard(made.id, 1, 1, entryId);
+
+			return made;
+		}, placed.id);
+
+		return {binder, free, pictured, placed};
+	}
+
+	const count = (page, scope = '.copies') => page.locator(`${scope} .step-count`).inputValue();
+
+	const waitCount = (page, value, scope = '.copies') => page.waitForFunction(([selector, wanted]) => {
+		const input = document.querySelector(selector);
+
+		return input && input.value === wanted;
+	}, [`${scope} .step-count`, value]);
+
+	test('plus adds an alike copy, minus removes a free one with Undo, then asks which, and a typed count applies the difference', async () => {
+		const {done, page} = await phone();
+		const {free, pictured, placed} = await threeAlike(page);
+
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('.copies .copy-stepper');
+		assert.deepEqual(await rowCounts(page), ['3']);
+		assert.equal(await page.locator('.copies .step-more').getAttribute('aria-label'), 'One copy more: Portuguese, Normal');
+
+		// Thumb-sized targets.
+		for (const selector of ['.copies .step-less', '.copies .step-count', '.copies .step-more']) {
+			const box = await page.locator(selector).boundingBox();
+
+			assert.ok(box.height >= 44 && box.width >= 44, `${selector} is at least 44 px (${box.width} x ${box.height})`);
+		}
+
+		// Plus: one more, alike, with no photos or pocket; the focus stays on
+		// plus through the redraw.
+		await page.click('.copies .step-more');
+		await waitCount(page, '4');
+		assert.ok(await page.evaluate(() => document.activeElement.classList.contains('step-more')), 'the focus stays on plus');
+
+		let live = (await entries(page)).filter((entry) => !entry.deleted_at);
+		const added = live.find((entry) => ![free.id, pictured.id, placed.id].includes(entry.id));
+
+		assert.equal(live.length, 4);
+		assert.deepEqual({card: added.card_id, catalog: added.catalog, language: added.language, photos: added.photos, source: added.language_source, variant: added.variant_id},
+			{card: pt.id, catalog: 'international', language: 'pt', photos: undefined, source: 'manual', variant: variantOf(pt, 'Normal')});
+		assert.equal(await page.locator('.toast').count(), 0, 'one more needs no toast');
+
+		// Minus: the newest free copy goes (the one just added), with Undo.
+		await page.click('.copies .step-less');
+		await waitCount(page, '3');
+		assert.ok((await entries(page)).find((entry) => entry.id === added.id).deleted_at);
+
+		const toast = page.locator('.toast', {hasText: 'copy removed'});
+
+		assert.equal(await toast.locator('.toast-text').textContent(), 'Portuguese copy removed.');
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await waitCount(page, '4');
+		assert.equal((await entries(page)).find((entry) => entry.id === added.id).deleted_at, null);
+
+		// Typed lower: the two free copies go without asking.
+		await page.fill('.copies .step-count', '2');
+		await page.press('.copies .step-count', 'Enter');
+		await waitCount(page, '2');
+		live = (await entries(page)).filter((entry) => !entry.deleted_at);
+		assert.deepEqual(live.map((entry) => entry.id).sort(), [pictured.id, placed.id].sort());
+
+		// Minus with only the copy in a pocket and the one with a photo left:
+		// it asks which.
+		await page.click('.copies .step-less');
+		await page.waitForSelector('#copy-pick-sheet[open]');
+		assert.equal(await page.locator('#copy-pick-sheet-title').textContent(), 'Which copy goes?');
+		assert.deepEqual(await page.locator('#copy-pick-sheet .copy-pick-option').allTextContents(), ['Not in a binder · 1 photo', 'Vitrine, page 1, pocket 1']);
+		assert.ok(await page.locator('#copy-pick-remove').isDisabled());
+		await page.screenshot({path: '/tmp/copies-which-copy.png'});
+
+		// Cancel changes nothing.
+		await page.click('#copy-pick-close');
+		await page.waitForSelector('#copy-pick-sheet', {state: 'hidden'});
+		assert.deepEqual(await rowCounts(page), ['2']);
+		assert.equal((await entries(page)).filter((entry) => !entry.deleted_at).length, 2);
+
+		await page.click('.copies .step-less');
+		await page.waitForSelector('#copy-pick-sheet[open]');
+		await page.click(`#copy-pick-sheet input[value="${placed.id}"]`);
+		await page.click('#copy-pick-remove');
+		await waitCount(page, '1');
+		assert.equal(await page.locator('.toast-text', {hasText: 'Vitrine'}).textContent(), 'Portuguese copy removed. It leaves Vitrine, page 1.');
+		assert.ok((await entries(page)).find((entry) => entry.id === placed.id).deleted_at);
+
+		// Typed to 0: the row goes, and Undo brings it back.
+		await page.fill('.copies .step-count', '0');
+		await page.press('.copies .step-count', 'Enter');
+		await page.waitForSelector('.copies-head h3:has-text("Not in your cards")');
+		await page.locator('.toast', {hasText: 'Portuguese copy removed.'}).last().locator('button', {hasText: 'Undo'}).click();
+		await page.waitForSelector('.copies .copy-stepper');
+		assert.deepEqual(await rowCounts(page), ['1']);
+
+		// Typed higher: the difference is added, with Undo on a toast.
+		await page.fill('.copies .step-count', '5');
+		await page.press('.copies .step-count', 'Enter');
+		await waitCount(page, '5');
+		assert.equal(await page.locator('.toast-text', {hasText: 'Added'}).textContent(), 'Added 4 copies.');
+		assert.equal(await page.locator('.copies-head h3').textContent(), 'Your copies (5)');
+
+		// Nonsense typed is put back.
+		await page.fill('.copies .step-count', '');
+		await page.press('.copies .step-count', 'Enter');
+		assert.equal(await count(page), '5');
+		await page.screenshot({path: '/tmp/copies-stepper.png'});
+		await done();
+	});
+
+	test('the binder pocket sheet counts copies like the one in the pocket, which stays', async () => {
+		const {done, page} = await phone();
+		const {binder, placed} = await threeAlike(page);
+
+		// A copy in another finish is not counted.
+		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Reverse')});
+		await page.goto(url(`binders/${binder.id}`));
+		await page.waitForSelector('#binder-spread');
+
+		// Held upright, a page opens first; then its pocket takes a tap.
+		await page.click('.bs-open[data-open="1"]');
+
+		const pocket = page.locator('#bs-zoom-sheet .pocket[data-position="1"]');
+
+		await pocket.waitFor();
+		await pocket.click();
+		await page.waitForSelector('#pocket-sheet[open] #pocket-count');
+		assert.equal(await page.locator('#pocket-count-label').textContent(), 'Copies like this');
+		assert.equal(await count(page, '#pocket-count'), '3');
+		await page.screenshot({path: '/tmp/copies-pocket-sheet.png'});
+
+		// Minus takes the free copy, then the one with a photo (the only
+		// choice left, so nothing to ask), never the one in the pocket.
+		await page.click('#pocket-count .step-less');
+		await waitCount(page, '2', '#pocket-count');
+		await page.click('#pocket-count .step-less');
+		await waitCount(page, '1', '#pocket-count');
+		assert.ok(await page.locator('#pocket-count .step-less').isDisabled(), 'the copy in the pocket stays');
+		assert.equal(await page.locator('#copy-pick-sheet[open]').count(), 0);
+
+		let live = (await entries(page)).filter((entry) => !entry.deleted_at && entry.variant_id === variantOf(pt, 'Normal'));
+
+		assert.deepEqual(live.map((entry) => entry.id), [placed.id]);
+
+		// Plus adds copies in no pocket.
+		await page.click('#pocket-count .step-more');
+		await waitCount(page, '2', '#pocket-count');
+		live = (await entries(page)).filter((entry) => !entry.deleted_at && entry.variant_id === variantOf(pt, 'Normal'));
+		assert.equal(live.length, 2);
+
+		const binders = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binders.js')).listBinders());
+		const inPockets = binders[0].slots.filter((slot) => slot.entry_id).map((slot) => slot.entry_id);
+
+		assert.deepEqual(inPockets, [placed.id], 'only the placed copy is in a pocket');
+		assert.equal(await page.locator('#pocket-sheet[open]').count(), 1, 'the sheet stays open');
 		await done();
 	});
 });

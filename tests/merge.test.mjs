@@ -377,3 +377,73 @@ test('the same imported row on two phones keeps the copy that was used, whicheve
 	assert.equal(early.created_at, at(3));
 	assert.deepEqual(mergeEntries([imported('same', 30)], [imported('same', 3)]), mergeEntries([imported('same', 3)], [imported('same', 30)]));
 });
+
+// js/collection.js deleteCards and restoreCard, over an in-memory IndexedDB
+// (tests/fake-indexeddb.mjs). Undo after removing copies on card detail and
+// in a binder's pocket sheet uses them.
+test('deleteCards removes several copies in one save, and restoreCard brings them back past the tombstone', async () => {
+	const {fakeIndexedDb} = await import('./fake-indexeddb.mjs');
+
+	globalThis.window = globalThis.window || globalThis;
+	globalThis.indexedDB = fakeIndexedDb();
+
+	// No other tabs here, and an open channel would keep Node running.
+	const channel = globalThis.BroadcastChannel;
+
+	globalThis.BroadcastChannel = undefined;
+
+	try {
+		const collection = await import('../js/collection.js');
+		const saves = [];
+		const stop = collection.onChange((saved, {source}) => saves.push(source));
+		const a = await collection.addCard({card_id: 'tst1-001', catalog: 'international', language: 'pt'});
+		const b = await collection.addCard({card_id: 'tst1-001', catalog: 'international', language: 'pt'});
+		const c = await collection.addCard({card_id: 'tst1-001', catalog: 'international', language: 'pt'});
+
+		saves.length = 0;
+
+		const deleted = await collection.deleteCards([a.id, b.id, 'no-such-id']);
+
+		assert.deepEqual(deleted.map((entry) => entry.id), [a.id, b.id]);
+		assert.deepEqual(saves, ['local'], 'one save for both');
+		assert.deepEqual((await collection.listCards()).map((entry) => entry.id), [c.id]);
+
+		const tombstone = (await collection.loadDocument()).cards.find((entry) => entry.id === a.id);
+
+		assert.ok(tombstone.deleted_at);
+		assert.equal(tombstone.updated_at, tombstone.deleted_at);
+		assert.deepEqual(await collection.deleteCards([a.id]), [], 'a deleted copy is not deleted twice');
+
+		// Restoring one.
+		saves.length = 0;
+
+		const back = await collection.restoreCard(a.id);
+
+		assert.equal(back.id, a.id);
+		assert.equal(back.deleted_at, null);
+		assert.ok(back.restored_at > tombstone.deleted_at, 'restored after the delete');
+		assert.equal(back.updated_at, back.restored_at);
+		assert.deepEqual(saves, ['local']);
+		assert.equal(await collection.restoreCard(a.id), null, 'nothing to restore on a live copy');
+
+		// The restored copy wins over the tombstone another phone still holds,
+		// from either side of the merge.
+		for (const [merged] of [mergeEntries([back], [tombstone]), mergeEntries([tombstone], [back])]) {
+			assert.equal(merged.deleted_at, null);
+		}
+
+		// Several at once, in one save, and a live copy is left as it is.
+		await collection.deleteCards([c.id]);
+		saves.length = 0;
+
+		const several = await collection.restoreCard([b.id, c.id, a.id]);
+
+		assert.deepEqual(several.map((entry) => entry.id).sort(), [b.id, c.id].sort());
+		assert.deepEqual(saves, ['local']);
+		assert.equal((await collection.listCards()).length, 3);
+		stop();
+	}
+	finally {
+		globalThis.BroadcastChannel = channel;
+	}
+});

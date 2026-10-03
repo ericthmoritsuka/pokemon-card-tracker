@@ -1,30 +1,37 @@
-// Copies by hand on card detail (plans/audit-qa.md Q-01, plans/design-review.md
-// "Card Detail"): the sheet that edits one copy's language, finish,
-// condition, and notes, or removes it, and the sheet that adds copies of a
-// card. Card detail (js/catalog-views.js) opens them; neither is shown in
-// family view, which is read only.
+// Copies by hand (plans/audit-qa.md Q-01, plans/design-review.md "Card
+// Detail"): the sheet that edits one copy's language, finish, condition, and
+// notes, or removes it; the sheet that adds copies of a card; and the count
+// stepper ("-  N  +") on each row of Your copies and in a binder's pocket
+// sheet. Card detail (js/catalog-views.js) and the binder view
+// (js/binders-view.js) place them; none is shown in family view, which is
+// read only.
 //
-// A removal waits a few seconds before it is written, with Undo on a toast,
-// so taking a copy back keeps the very same entry: its photos, its binder
-// pocket, and its Liga price. The collection has no way to bring a deleted
-// entry back (js/collection.js deleteCard leaves a tombstone), so the copy
-// stays in the document, hidden from card detail, until the time is up, the
-// person leaves the page, or the app goes to the background.
+// A removal is written at once, with Undo on a toast that brings the very
+// same copies back (js/collection.js restoreCard), so their photos, binder
+// pockets, and Liga prices come back with them.
+//
+// No picker wheel for the count: buttons plus typing work better with
+// Android keyboards and screen readers (Eric, 2026-10-02).
 
 import {catalogFor, isLanguage, languageLabel} from './catalog.js';
-import {addCard, deleteCard, updateCard, updateCards} from './collection.js';
+import {listBinders, placements} from './binders.js';
+import {addCard, deleteCards, listCards, restoreCard, updateCard, updateCards} from './collection.js';
 import {errorText, h} from './dom.js';
 import {flagLanguageName} from './flags.js';
 import {CONDITIONS} from './scan/session.js';
+import {openDialogSheet} from './sheet.js';
 import {toast} from './shell.js';
 
-// The most copies one Add makes: enough for a box of the same card, few
-// enough that a slip of the thumb cannot add thousands (Q-08).
+// The most copies one Add sheet makes: enough for a box of the same card,
+// few enough that a slip of the thumb cannot add thousands (Q-08).
 export const MAX_ADD = 20;
+
+// The most a stepper's count can be typed up to.
+export const MAX_COUNT = 999;
 
 export const NOTES_MAX = 500;
 
-// How long Undo stays on offer before a removal is written.
+// How long Undo stays on a toast.
 export const UNDO_MS = 8000;
 
 // The app's languages, then German, Italian, and Spanish, which the scanner
@@ -48,107 +55,141 @@ export function copyLanguages(catalog, current = null) {
 	return codes.map((code) => ({code, label: languageName(code)}));
 }
 
-// ------------------------------------------------------ waiting removals
+// ---------------------------------------------------------- alike copies
 
-// entry id -> the batch it was removed with.
-const waiting = new Map();
-const watchers = new Set();
+// Copies are alike when they are the same card in the same catalog, in the
+// same language, finish, and condition. A row of Your copies holds alike
+// copies, and the stepper counts them.
+export const alikeKey = (entry) => JSON.stringify([
+	entry.catalog || 'international',
+	entry.card_id,
+	entry.language || null,
+	entry.variant_id || null,
+	// An unmatched monprice finish tells copies apart only without a variant.
+	entry.variant_id ? null : entry.finish_raw || null,
+	entry.condition || null,
+]);
 
-export const isRemoving = (id) => waiting.has(id);
+// What a copy added by + carries over from one alike: the card, language,
+// finish, condition, and the source's names; never notes, photos, prices,
+// or a binder pocket.
+export function alikeFields(entry) {
+	const fields = {
+		card_id: entry.card_id,
+		catalog: entry.catalog || 'international',
+		language: entry.language,
+		language_source: 'manual',
+		variant_id: entry.variant_id || null,
+	};
 
-// listener() runs when a removal starts, is undone, or is written. Returns
-// the unsubscribe function.
-export function onRemovals(listener) {
-	watchers.add(listener);
-
-	return () => watchers.delete(listener);
-}
-
-const notify = () => watchers.forEach((listener) => listener());
-
-async function commit(batch) {
-	if (batch.done) {
-		return;
-	}
-
-	batch.done = true;
-	clearTimeout(batch.timer);
-
-	if (batch.note) {
-		batch.note.remove();
-	}
-
-	const failed = [];
-
-	for (const id of batch.ids) {
-		try {
-			await deleteCard(id);
-		}
-		catch (err) {
-			failed.push(err);
+	for (const key of ['condition', 'fallback', 'name_local', 'set_name_local']) {
+		if (entry[key]) {
+			fields[key] = entry[key];
 		}
 	}
 
-	batch.ids.forEach((id) => waiting.delete(id));
-	notify();
-
-	if (failed.length) {
-		toast(`Could not remove ${failed.length === 1 ? 'the copy' : `${failed.length} copies`}. ${errorText(failed[0])}`);
-	}
-}
-
-function undo(batch) {
-	if (batch.done) {
-		return;
+	if (!entry.variant_id && entry.finish_raw) {
+		fields.finish_raw = entry.finish_raw;
 	}
 
-	batch.done = true;
-	clearTimeout(batch.timer);
-	batch.ids.forEach((id) => waiting.delete(id));
-	notify();
+	return fields;
 }
 
-// Removes copies after UNDO_MS, with message and Undo on a toast. Returns
-// a promise that settles once the removal is written or undone.
-export function removeLater(ids, message) {
-	const batch = {done: false, ids: [...ids], note: null, timer: null};
+export const hasPhotos = (entry) => Array.isArray(entry.photos) && entry.photos.length > 0;
 
-	batch.ids.forEach((id) => waiting.set(id, batch));
-	notify();
+// Where every placed copy is: Map entry id -> {binder_id, binder_name, page,
+// position}.
+export async function copyPlaces() {
+	const placed = placements(await listBinders());
 
-	return new Promise((resolve) => {
-		const finish = (work) => () => Promise.resolve(work(batch)).then(resolve, resolve);
+	return new Map([...placed].map(([id, {binder, slot}]) => [id, {binder_id: binder.id, binder_name: binder.name, page: slot.page, position: slot.position}]));
+}
 
-		batch.note = toast(message, {action: finish(undo), actionLabel: 'Undo', timeout: UNDO_MS});
-		batch.timer = setTimeout(finish(commit), UNDO_MS);
-		batch.flush = finish(commit);
+export const placeText = (where) => `${where.binder_name}, page ${where.page}, pocket ${where.position}`;
+
+const newestFirst = (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''));
+
+// Which copies go when a count drops by n. First the copies in no binder
+// pocket and with no photos, newest first; the rest only when those run
+// out. When the rest must be chosen among (more of them than are still to
+// go), ask is {count, from} and the person picks; otherwise every one goes
+// and ask is null. keep is a copy that never goes (the one in the pocket a
+// binder's sheet is for).
+export function removalPlan(entries, n, {keep = null, places = new Map()} = {}) {
+	const pool = entries.filter((entry) => entry.id !== keep);
+	const free = pool.filter((entry) => !places.has(entry.id) && !hasPhotos(entry)).sort(newestFirst);
+
+	if (n <= free.length) {
+		return {ask: null, chosen: free.slice(0, n)};
+	}
+
+	const rest = pool.filter((entry) => !free.includes(entry)).sort(newestFirst);
+	const more = Math.min(n - free.length, rest.length);
+
+	if (more >= rest.length) {
+		return {ask: null, chosen: [...free, ...rest]};
+	}
+
+	return {ask: {count: more, from: rest}, chosen: free};
+}
+
+// The binder pockets some copies leave, as one sentence: "It leaves
+// Binder A, page 3." places holds only the placed ones. Null for none.
+export function leavesText(places) {
+	const named = [...new Set(places.filter(Boolean).map((where) => `${where.binder_name}, page ${where.page}`))];
+
+	if (!named.length) {
+		return null;
+	}
+
+	const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join('; ')} and ${named[named.length - 1]}`;
+
+	return `${places.length === 1 ? 'It leaves' : 'They leave'} ${list}.`;
+}
+
+// Removes copies now, with Undo on a toast that restores them.
+export async function removeWithUndo(entries, places = new Map()) {
+	const ids = entries.map((entry) => entry.id);
+
+	await deleteCards(ids);
+
+	const what = ids.length === 1 ? `${languageName(entries[0].language)} copy removed.` : `${ids.length} copies removed.`;
+	const leaves = leavesText(entries.map((entry) => places.get(entry.id)).filter(Boolean));
+
+	toast(leaves ? `${what} ${leaves}` : what, {
+		action: () => restoreCard(ids).catch((err) => toast(`Could not bring the copies back. ${errorText(err)}`)),
+		actionLabel: 'Undo',
+		timeout: UNDO_MS,
 	});
 }
 
-// Writes every waiting removal now. Runs when the app is hidden or closed,
-// so a removal is never lost, only its Undo.
-export function flushRemovals() {
-	const batches = new Set(waiting.values());
+// Adds n copies alike to entry.
+export async function addAlike(entry, n) {
+	const fields = alikeFields(entry);
+	const added = [];
 
-	return Promise.all([...batches].map((batch) => batch.flush()));
+	for (let i = 0; i < n; i++) {
+		added.push(await addCard(fields));
+	}
+
+	return added;
 }
 
-window.addEventListener('pagehide', () => {
-	flushRemovals();
-});
-document.addEventListener('visibilitychange', () => {
-	if (document.visibilityState === 'hidden') {
-		flushRemovals();
-	}
-});
+// The alike copies of entry on this phone now, and where the placed ones are.
+async function alikeNow(entry) {
+	const key = alikeKey(entry);
+	const [cards, places] = await Promise.all([listCards(), copyPlaces().catch(() => new Map())]);
 
-// ------------------------------------------------------------ the sheet
+	return {entries: cards.filter((card) => alikeKey(card) === key), places};
+}
 
-function sheetElement() {
-	let sheet = document.getElementById('copy-sheet');
+// ------------------------------------------------------------ the sheets
+
+function dialog(id, title) {
+	let sheet = document.getElementById(id);
 
 	if (!sheet) {
-		sheet = h('dialog', {'aria-labelledby': 'copy-sheet-title', class: 'sheet copy-sheet', id: 'copy-sheet'});
+		sheet = h('dialog', {'aria-labelledby': `${id}-title`, class: `sheet ${id}`, id});
 		sheet.addEventListener('click', (event) => {
 			if (event.target === sheet) {
 				sheet.close();
@@ -157,16 +198,75 @@ function sheetElement() {
 		document.body.append(sheet);
 	}
 
+	sheet.setAttribute('aria-label', title);
+
 	return sheet;
 }
 
-// Closes the sheet if it is open, for card detail's cleanup.
-export function closeCopySheet() {
-	const sheet = document.getElementById('copy-sheet');
-
-	if (sheet && sheet.open) {
-		sheet.close();
+// Shows a sheet: Back and Escape close it, and focus returns where it was
+// (js/sheet.js).
+function show(sheet, onClose = null) {
+	if (!sheet.open) {
+		openDialogSheet(sheet, {onClose});
 	}
+
+	return sheet;
+}
+
+const sheetElement = () => dialog('copy-sheet', 'Copy');
+
+// Closes the copy sheets if they are open, for card detail's cleanup.
+export function closeCopySheet() {
+	for (const id of ['copy-pick-sheet', 'copy-sheet']) {
+		const sheet = document.getElementById(id);
+
+		if (sheet && sheet.open) {
+			sheet.close();
+		}
+	}
+}
+
+// Asks which copies go when every copy left is in a pocket or has photos.
+// Resolves with the chosen entries, or null when the sheet is closed.
+export function askWhich({count, from, places = new Map(), title = null}) {
+	const sheet = dialog('copy-pick-sheet', 'Which copy');
+	let chosen = null;
+
+	return new Promise((resolve) => {
+		const close = () => sheet.close();
+		const remove = h('button', {class: 'danger', disabled: true, id: 'copy-pick-remove', type: 'button'}, count === 1 ? 'Remove this copy' : `Remove these ${count}`);
+		const boxes = from.map((entry) => h('input', {'data-entry': entry.id, name: 'copy-pick', type: count === 1 ? 'radio' : 'checkbox', value: entry.id}));
+		const options = from.map((entry, i) => {
+			const where = places.get(entry.id);
+			const photos = hasPhotos(entry) ? `${entry.photos.length} ${entry.photos.length === 1 ? 'photo' : 'photos'}` : null;
+
+			return h('label', {class: 'copy-pick-option'}, boxes[i], h('span', null, [where ? placeText(where) : 'Not in a binder', photos].filter(Boolean).join(' · ')));
+		});
+
+		for (const box of boxes) {
+			box.addEventListener('change', () => {
+				remove.disabled = boxes.filter((item) => item.checked).length !== count;
+			});
+		}
+
+		remove.addEventListener('click', () => {
+			const ids = new Set(boxes.filter((item) => item.checked).map((item) => item.value));
+
+			chosen = from.filter((entry) => ids.has(entry.id));
+			close();
+		});
+
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'copy-pick-sheet-title'}, title || (count === 1 ? 'Which copy goes?' : `Which ${count} copies go?`)),
+				h('button', {class: 'small', id: 'copy-pick-close', onclick: close, type: 'button'}, 'Cancel')
+			),
+			h('p', {class: 'muted copy-sub'}, 'Every copy left like this is in a binder pocket or has photos.'),
+			h('div', {class: 'copy-pick-list'}, options),
+			h('div', {class: 'copy-danger'}, remove)
+		);
+		show(sheet, () => resolve(chosen));
+	});
 }
 
 const field = (label, id, control) => h('div', {class: 'copy-field'},
@@ -208,30 +308,14 @@ function head(title, close) {
 	);
 }
 
-// The binder pockets some copies sit in, as one sentence for the remove
-// confirmation: "It leaves Binder A, page 3." Null when none does.
-export function leavesText(places) {
-	const named = [...new Set(places.filter(Boolean).map((where) => `${where.binder_name}, page ${where.page}`))];
-
-	if (!named.length) {
-		return null;
-	}
-
-	const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join('; ')} and ${named[named.length - 1]}`;
-
-	return `${places.length === 1 ? 'It leaves' : 'They leave'} ${list}.`;
-}
-
 // The edit sheet for one row of Your copies.
 //
 //   card        {name, number} for the line under the title
 //   entries     the row's copies, all alike (one or more)
 //   catalog     the record's catalog
 //   finishes    [{value, label}] for the finish select
-//   where       the binder place of the row's copies, {binder_name, page,
-//               position}, or null
-//   placeText   where as words ("Binder A, page 3, pocket 5"), or null
-export function openEditSheet({card, catalog, entries, finishes, placeText = null, where = null}) {
+//   places      Map entry id -> binder place, for the placed copies
+export function openEditSheet({card, catalog, entries, finishes, places = new Map()}) {
 	const sheet = sheetElement();
 	const first = entries[0];
 	const many = entries.length > 1;
@@ -243,7 +327,8 @@ export function openEditSheet({card, catalog, entries, finishes, placeText = nul
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: NOTES_MAX, name: 'copy-notes', rows: 2}, first.notes || '');
 
-	// A row of alike copies changes one of them, or all of them.
+	// A row of alike copies changes one of them, or all of them. One of
+	// them is the copy a minus would take (removalPlan).
 	let scope = 'one';
 	const scopeChoice = many
 		? h('div', {'aria-label': 'Change', class: 'segmented copy-scope', role: 'radiogroup'},
@@ -255,31 +340,56 @@ export function openEditSheet({card, catalog, entries, finishes, placeText = nul
 				h('span', null, label)
 			)))
 		: null;
-	const targets = () => (scope === 'all' ? entries : [entries[entries.length - 1]]);
+	const one = () => {
+		const plan = removalPlan(entries, 1, {places});
+
+		return plan.chosen.length ? plan.chosen : [[...entries].sort(newestFirst)[0]];
+	};
+	const targets = () => (scope === 'all' ? entries : one());
 
 	const remove = h('button', {class: 'danger', id: 'copy-remove', type: 'button'});
 	const leaves = h('p', {class: 'muted copy-leaves', id: 'copy-leaves'});
 
 	function drawRemove() {
-		const count = targets().length;
+		const chosen = targets();
+		const text = leavesText(chosen.map((entry) => places.get(entry.id)).filter(Boolean));
 
-		remove.textContent = count === 1 ? 'Remove copy' : `Remove ${count} copies`;
-
-		const text = where ? leavesText(targets().map(() => where)) : null;
-
+		remove.textContent = chosen.length === 1 ? 'Remove copy' : `Remove ${chosen.length} copies`;
 		leaves.textContent = text ? `${text.replace(/\.$/, '')} when removed.` : '';
 		leaves.hidden = !text;
 	}
 
 	drawRemove();
 
-	remove.addEventListener('click', () => {
-		const chosen = targets();
-		const what = chosen.length === 1 ? `${languageName(first.language)} copy removed.` : `${chosen.length} copies removed.`;
-		const text = where ? leavesText(chosen.map(() => where)) : null;
+	remove.addEventListener('click', async () => {
+		let chosen = targets();
+
+		// One copy from a row where every copy is in a pocket or has photos:
+		// ask which.
+		if (scope === 'one') {
+			const plan = removalPlan(entries, 1, {places});
+
+			if (plan.ask) {
+				close();
+
+				const picked = await askWhich({...plan.ask, places});
+
+				if (!picked) {
+					return;
+				}
+
+				chosen = picked;
+			}
+		}
 
 		close();
-		removeLater(chosen.map((entry) => entry.id), text ? `${what} ${text}` : what);
+
+		try {
+			await removeWithUndo(chosen, places);
+		}
+		catch (err) {
+			toast(`Not removed. ${errorText(err)}`);
+		}
 	});
 
 	const form = h('form', {class: 'copy-form', id: 'copy-form'},
@@ -322,15 +432,16 @@ export function openEditSheet({card, catalog, entries, finishes, placeText = nul
 		}
 	});
 
+	const placed = entries.map((entry) => places.get(entry.id)).filter(Boolean);
+
 	sheet.replaceChildren(
 		head(many ? `Edit copies (${entries.length} alike)` : 'Edit copy', close),
-		h('p', {class: 'muted copy-sub'}, [card.name, card.number, placeText].filter(Boolean).join(' · ')),
+		h('p', {class: 'muted copy-sub'}, [card.name, card.number, placed.length === 1 && !many ? placeText(placed[0]) : null].filter(Boolean).join(' · ')),
 		form,
 		h('div', {class: 'copy-danger'}, remove, leaves)
 	);
-	sheet.showModal();
 
-	return sheet;
+	return show(sheet);
 }
 
 // Only what changed, so an untouched field is never stamped as edited and
@@ -449,11 +560,7 @@ export function openAddSheet({card, catalog, finishes, lang, plain = null}) {
 
 		close();
 		toast(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.`, {
-			action: async () => {
-				for (const entry of added) {
-					await deleteCard(entry.id).catch(() => {});
-				}
-			},
+			action: () => deleteCards(added.map((entry) => entry.id)).catch(() => {}),
 			actionLabel: 'Undo',
 			timeout: UNDO_MS,
 		});
@@ -464,7 +571,144 @@ export function openAddSheet({card, catalog, finishes, lang, plain = null}) {
 		h('p', {class: 'muted copy-sub'}, [card.name, card.number].filter(Boolean).join(' · ')),
 		form
 	);
-	sheet.showModal();
 
-	return sheet;
+	return show(sheet);
+}
+
+// ------------------------------------------------------------ the stepper
+
+// "-  N  +" for a set of alike copies. + adds one copy alike at once; -
+// removes one (removalPlan picks which, or asks) with Undo on a toast; the
+// number can be typed, 0 to 999, and the difference is added or removed.
+//
+//   entries     the alike copies now (at least one, the pattern for +)
+//   places      Map entry id -> binder place
+//   label       what the copies are, for screen readers ("Portuguese,
+//               Normal")
+//   keep        a copy that never goes, and min 1: the copy in the pocket a
+//               binder's sheet is for
+//   min         the lowest count (0 on card detail, where 0 removes the row)
+//   onChange    (count) => void after a change is written
+export function copyStepper({entries, keep = null, label, min = 0, onChange = null, places = new Map()}) {
+	const pattern = entries.find((entry) => entry.id === keep) || [...entries].sort(newestFirst)[0];
+	let state = {entries, places};
+	let busy = false;
+
+	const less = h('button', {'aria-label': `One copy fewer: ${label}`, class: 'step step-less', type: 'button'}, '−');
+	const more = h('button', {'aria-label': `One copy more: ${label}`, class: 'step step-more', type: 'button'}, '+');
+	const count = h('input', {
+		'aria-label': `Number of copies: ${label}`,
+		class: 'step-count',
+		enterkeyhint: 'done',
+		inputmode: 'numeric',
+		max: MAX_COUNT,
+		min,
+		type: 'number',
+	});
+	const element = h('div', {class: 'copy-stepper', role: 'group', 'aria-label': `Copies: ${label}`}, less, count, more);
+
+	function draw() {
+		const n = state.entries.length;
+
+		// Never disabled while busy: a disabled button drops the focus. A tap
+		// while a change is being written is ignored instead.
+		count.value = String(n);
+		less.disabled = n <= min;
+		more.disabled = n >= MAX_COUNT;
+		element.setAttribute('aria-busy', busy ? 'true' : 'false');
+	}
+
+	async function set(target) {
+		const n = state.entries.length;
+		const wanted = Math.max(min, Math.min(MAX_COUNT, target));
+
+		if (busy || wanted === n || !Number.isInteger(wanted)) {
+			draw();
+
+			return;
+		}
+
+		busy = true;
+		draw();
+
+		try {
+			if (wanted > n) {
+				const added = await addAlike(pattern, wanted - n);
+
+				if (added.length > 1) {
+					toast(`Added ${added.length} copies.`, {
+						action: () => deleteCards(added.map((entry) => entry.id)).catch(() => {}),
+						actionLabel: 'Undo',
+						timeout: UNDO_MS,
+					});
+				}
+			}
+			else {
+				const plan = removalPlan(state.entries, n - wanted, {keep, places: state.places});
+				let chosen = plan.chosen;
+
+				if (plan.ask) {
+					const picked = await askWhich({...plan.ask, places: state.places});
+
+					if (!picked) {
+						busy = false;
+						draw();
+
+						return;
+					}
+
+					chosen = [...chosen, ...picked];
+				}
+
+				await removeWithUndo(chosen, state.places);
+			}
+
+			state = await alikeNow(pattern);
+
+			if (onChange) {
+				onChange(state.entries.length);
+			}
+		}
+		catch (err) {
+			toast(`Could not change the count. ${errorText(err)}`);
+		}
+
+		busy = false;
+
+		if (element.isConnected) {
+			draw();
+
+			// The focus stays where the finger is, through a redraw too.
+			if (document.activeElement === document.body) {
+				count.focus({preventScroll: true});
+			}
+		}
+	}
+
+	less.addEventListener('click', () => set(state.entries.length - 1));
+	more.addEventListener('click', () => set(state.entries.length + 1));
+	count.addEventListener('change', () => {
+		const typed = Number.parseInt(count.value, 10);
+
+		if (Number.isInteger(typed)) {
+			set(typed);
+		}
+		else {
+			draw();
+		}
+	});
+	count.addEventListener('keydown', (event) => {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			count.blur();
+		}
+	});
+	count.addEventListener('focus', () => count.select());
+
+	draw();
+
+	return {element, refresh: async () => {
+		state = await alikeNow(pattern);
+		draw();
+	}};
 }

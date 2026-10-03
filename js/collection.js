@@ -10,7 +10,7 @@
 // deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
 import {cardIndex} from './catalog.js';
-import {LISTS, mergeDocuments, nextStamp, sameContent} from './merge.js';
+import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent} from './merge.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -502,6 +502,59 @@ export async function deleteCard(id) {
 	}
 
 	return entry || null;
+}
+
+// Several deleteCard calls in one save, so removing many copies at once
+// (Remove all, a count typed lower) writes the document once. Ids with no
+// live entry are skipped. Returns the entries deleted.
+export async function deleteCards(ids) {
+	const wanted = new Set(ids);
+	const doc = await loadDocument();
+	const now = Date.now();
+	const deleted = [];
+
+	for (const entry of doc.cards) {
+		if (wanted.has(entry.id) && isLive(entry)) {
+			const at = nextStamp(entry.updated_at, now);
+
+			entry.deleted_at = at;
+			entry.updated_at = at;
+			deleted.push(entry);
+		}
+	}
+
+	if (deleted.length) {
+		await saveDocument(doc);
+	}
+
+	return deleted;
+}
+
+// Brings deleted copies back on purpose, for Undo after a removal:
+// deleted_at cleared and restored_at stamped after the delete (js/merge.js
+// restoreEntry), so the merge lets them win over the tombstone another
+// phone may already hold. id is one id or a list of them, restored in one
+// save. Returns the restored entry (null when there was none to restore),
+// or the list of restored entries for a list.
+export async function restoreCard(id) {
+	const ids = Array.isArray(id) ? id : [id];
+	const wanted = new Set(ids);
+	const doc = await loadDocument();
+	const now = Date.now();
+	const restored = [];
+
+	doc.cards.forEach((entry, i) => {
+		if (wanted.has(entry.id) && entry.deleted_at) {
+			doc.cards[i] = restoreEntry(entry, now);
+			restored.push(doc.cards[i]);
+		}
+	});
+
+	if (restored.length) {
+		await saveDocument(doc);
+	}
+
+	return Array.isArray(id) ? restored : restored[0] || null;
 }
 
 // The fields an import compares to decide whether a row changed.
