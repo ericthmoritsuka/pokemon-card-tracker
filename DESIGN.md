@@ -408,7 +408,8 @@ by older apps:
     "notes", "is_favorite", "photo_path", "created_at"
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
-  "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages" }],
+  "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages",
+                    "catalog" }],   -- catalog: a set goal's catalog (international, ja, ...)
                                   -- every_pokemon | region | custom_pokemon | set | pokemon | artist
   "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
