@@ -253,6 +253,15 @@ function keep(event, target, url, response) {
 	);
 }
 
+// Set folders ("https://assets.tcgdex.net/pt/sv/sv01/") whose images failed
+// in cors mode and then loaded in no-cors mode: the next image there skips
+// the cors attempt, which downloads the whole image only for the browser to
+// refuse it. TCGdex doubles the header by upload batch, so it is learned per
+// folder, not per language. Kept while this worker runs.
+const corsFails = new Set();
+
+const folderOf = (url) => url.slice(0, url.lastIndexOf('/', url.lastIndexOf('/') - 1) + 1);
+
 async function imageResponse(event) {
 	const request = event.request;
 	const url = request.url;
@@ -266,23 +275,31 @@ async function imageResponse(event) {
 	}
 
 	const [corsCache, opaqueCache] = IMAGE_CACHES;
+	const folder = folderOf(url);
 
-	try {
-		const response = await fetch(url, {credentials: 'omit', mode: 'cors'});
+	if (!corsFails.has(folder)) {
+		try {
+			const response = await fetch(url, {credentials: 'omit', mode: 'cors'});
 
-		// A 503 from an image host outage is passed on, never kept.
-		if (response.ok) {
-			keep(event, corsCache, url, response);
+			// A 503 from an image host outage is passed on, never kept.
+			if (response.ok) {
+				keep(event, corsCache, url, response);
+			}
+
+			return response;
 		}
-
-		return response;
-	}
-	catch {
-		// CORS failed (the doubled header) or the network is down.
+		catch {
+			// CORS failed (the doubled header) or the network is down.
+		}
 	}
 
 	try {
 		const response = await fetch(url, {credentials: 'omit', mode: 'no-cors'});
+
+		if (response.type === 'opaque') {
+			// The network is up, so the cors attempt failed on the header.
+			corsFails.add(folder);
+		}
 
 		if (response.type === 'opaque' || response.ok) {
 			keep(event, response.type === 'opaque' ? opaqueCache : corsCache, url, response);
