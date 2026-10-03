@@ -960,6 +960,7 @@ export function cardView(root, {lang, cardId}) {
 			twin.element,
 			copies,
 			ligaRow,
+			collectSlot,
 			priceSlot,
 			variants && variants.length
 				? h('section', {class: 'variants-section'},
@@ -986,6 +987,7 @@ export function cardView(root, {lang, cardId}) {
 	// Ver na Liga, or why there is none, right under Your copies, with Add
 	// to wishlist beside it.
 	const ligaRow = h('div', {class: 'card-liga', hidden: true, id: 'card-liga'});
+	const collectSlot = h('div', {class: 'copies-collect-row', hidden: true});
 
 	// The price, full width under Ver na Liga (js/price-view.js): the Liga
 	// price the person typed in and its form, then the US and EU references.
@@ -1438,9 +1440,12 @@ export function cardView(root, {lang, cardId}) {
 						copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
 					)
 			)),
-			// Under the rows, so the copies stay on the first screen.
-			readOnly ? null : h('div', {class: 'copies-collect-row'}, collectButton(live, shownName))
 		);
+
+		// Under Ver na Liga, so the copies and the Liga button stay on the
+		// first screen.
+		collectSlot.replaceChildren(...(readOnly ? [] : [collectButton(live, shownName)]));
+		collectSlot.hidden = readOnly;
 
 		if (focusRow && focusClass) {
 			const row = [...copies.querySelectorAll('[data-alike]')].find((item) => item.dataset.alike === focusRow);

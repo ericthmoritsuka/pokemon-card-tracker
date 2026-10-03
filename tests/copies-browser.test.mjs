@@ -405,12 +405,13 @@ describe('card detail layout', () => {
 			await page.waitForSelector('#card-liga-link');
 			await page.waitForSelector('#card-price .price');
 
-			// In this order: hero, copies, Ver na Liga, then the price panel.
+			// In this order: hero, copies, Ver na Liga, Add to collection, then
+			// the price panel.
 			const order = await page.evaluate(() => [...document.querySelector('.card-detail').children]
 				.filter((el) => !el.hidden)
 				.map((el) => el.id || el.className));
 
-			assert.deepEqual(order.slice(0, 4), ['card-hero', 'copies', 'card-liga', 'card-price']);
+			assert.deepEqual(order.slice(0, 5), ['card-hero', 'copies', 'card-liga', 'copies-collect-row', 'card-price']);
 
 			for (const selector of ['.hero-art', '.hero-facts h2', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish']) {
 				assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);

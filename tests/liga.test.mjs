@@ -295,7 +295,7 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 		assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
 		assert.equal(await page.locator('#card-liga .liga-link .copies-sr').textContent(), ' (opens Liga Pokémon)');
 		assert.equal(await page.locator(linkSelector).count(), 1, 'one Ver na Liga, under Your copies');
-		assert.equal(await page.locator('.hero-facts a').count(), 0, 'none in the hero facts');
+		assert.equal(await page.locator('.hero-facts a:not(.illustrator-goal)').count(), 0, 'none in the hero facts but the artist goal link');
 
 		// The rest of card detail is still there.
 		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX');
