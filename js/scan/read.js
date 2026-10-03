@@ -38,7 +38,7 @@ import {
 	SHARPEN,
 	TEXT_PX,
 } from '../../lab/js/pipeline.js';
-import {parseHp, parseName, parsePartialNumber} from './evidence.js';
+import {misreadNumbers, parseHp, parseName, parsePartialNumber} from './evidence.js';
 
 // Regions as fractions of the straightened card, as in lab/js/pipeline.js.
 // Measured on TCGdex high.webp scans (600 x 825) of Scarlet & Violet, Sword
@@ -318,6 +318,10 @@ const linesOf = (result) => (result.lines && result.lines.length
 // whose number did not read. On the 240-capture benchmark it changed no
 // capture's first card.
 export const NUMBER_FLOOR = 0.15;
+
+// The confidence of a number whose slash was misread: enough to look the
+// card up by, never enough to make it sure alone.
+export const MISREAD_CONFIDENCE = 0.3;
 
 // The first line of an OCR result that holds a collector number read above
 // NUMBER_FLOOR, with the confidence and box of the words that make up the
@@ -619,6 +623,23 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 		number = rightNumber.confidence > leftNumber.confidence ? rightNumber : leftNumber;
 	}
 
+	// No number read: one whose slash read as another character ("10227084"
+	// for 022/084), taken weakly (below what makes a card sure on its own);
+	// the picture match picks among the splits (js/scan/picture.js).
+	let misreads = [];
+
+	if (!number) {
+		for (const side of ['left', 'right']) {
+			const list = misreadNumbers(raw[side === 'left' ? 'numberLeft' : 'numberRight'].text);
+
+			if (list.length) {
+				misreads = list;
+				number = {...list[0], box: null, confidence: MISREAD_CONFIDENCE, langCode: null, regulationMark: null, setCode: null, side};
+				break;
+			}
+		}
+	}
+
 	let setCodeBox = {langCode: null, run: '', setCode: null, text: ''};
 	const follow = [];
 
@@ -657,6 +678,7 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 		hp: hpRead,
 		label: labelRead,
 		language: decideLanguage(number, labelRead),
+		misreads,
 		name: nameRead,
 		number,
 		partial,

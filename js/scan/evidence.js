@@ -294,6 +294,49 @@ export function parsePartialNumber(text) {
 	};
 }
 
+// A number whose slash read as one other character ("022/084" as
+// "10227084" on a Portuguese Palafin, version 26, or "023 7086"): two
+// 3-digit groups with one of 7, 1, l, I, |, 2, or / between them, the total
+// ending the run of digits. Every such split, in the order found, those
+// whose total is in `totals` (known set totals, as numbers or strings)
+// first. Each is {number, numberPrinted, total, totalPrinted, misread:
+// true}. Empty when none.
+const MISREAD_SLASH = /(\d{3})\s?([71LI|2/])\s?(\d{3})(?!\d)/g;
+
+export function misreadNumbers(text, totals = []) {
+	const known = new Set([...totals].map((total) => String(Number(total))));
+	const found = [];
+
+	for (const line of String(text || '').toUpperCase().replace(/(?<=\d)O|O(?=\d)/g, '0').split(/\n+/)) {
+		for (let from = 0; from < line.length; from++) {
+			MISREAD_SLASH.lastIndex = from;
+
+			const match = MISREAD_SLASH.exec(line);
+
+			if (!match) {
+				break;
+			}
+
+			from = match.index;
+
+			const [, number, , total] = match;
+
+			if (/^(19|20)\d\d$/.test(line.slice(Math.max(0, match.index - 1), match.index) + number)) {
+				// A copyright year ("2024 2025"), not a number.
+				continue;
+			}
+
+			const split = {misread: true, number: String(Number(number)), numberPrinted: number, total: String(Number(total)), totalPrinted: total};
+
+			if (Number(number) > 0 && Number(total) > 0 && Number(total) <= 400 && !found.some((f) => f.number === split.number && f.total === split.total)) {
+				found.push(split);
+			}
+		}
+	}
+
+	return [...found.filter((f) => known.has(f.total)), ...found.filter((f) => !known.has(f.total))];
+}
+
 // ------------------------------------------------------------ the evidence
 
 // Points per clue. The set code, side, copyright, and catalog carry the

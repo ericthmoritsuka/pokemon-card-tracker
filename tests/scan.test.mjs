@@ -2064,3 +2064,57 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.equal(item.variants, null, 'another card loads its own');
 	});
 });
+
+describe('a number whose slash read as another character (Palafin, Eric\'s phone, version 26)', () => {
+	test('two 3-digit groups with one character between them split into number and total', () => {
+		const palafin = E.misreadNumbers('Rd 10227084 k 9) | aa 92026 Pakémon/Nintendo/Cre');
+
+		assert.deepEqual(palafin.map((m) => `${m.numberPrinted}/${m.totalPrinted}`), ['022/084']);
+		assert.equal(palafin[0].misread, true);
+		assert.deepEqual(E.misreadNumbers('023 7086').map((m) => `${m.number}/${m.total}`), ['23/86']);
+		assert.deepEqual(E.misreadNumbers('045l120 | 0451120').map((m) => `${m.number}/${m.total}`), ['45/120']);
+		assert.deepEqual(E.misreadNumbers('©2024 2025 Pokémon'), [], 'a copyright year is no number');
+		assert.deepEqual(E.misreadNumbers('Pokémon 1995'), []);
+	});
+
+	test('a split whose total is a known set total comes first', () => {
+		assert.deepEqual(E.misreadNumbers('a 1012217 b 0127086').map((m) => `${m.number}/${m.total}`), ['101/217', '12/86']);
+		assert.deepEqual(E.misreadNumbers('a 1012217 b 0127086', [86]).map((m) => `${m.number}/${m.total}`), ['12/86', '101/217']);
+	});
+
+	const sets = {
+		'en|me05': {cardCount: {official: 84}, cards: [{id: 'me05-022', localId: '022', name: 'Palafin'}, {id: 'me05-080', localId: '080', name: 'Misty\'s Vitality'}], name: 'M5'},
+		'en|sv01': {cardCount: {official: 198}, cards: [{id: 'sv01-089', localId: '089', name: 'Drifloon'}], name: 'Scarlet & Violet'},
+	};
+	const api = {setDetail: async (lang, set) => sets[`${lang}|${set}`] || null};
+	const card = (id, set, score) => ({catalog: 'en', id, image: `https://assets/${id}`, score, set});
+	const misread = (text) => {
+		const misreads = E.misreadNumbers(text);
+
+		return {misreads, number: {...misreads[0], confidence: 0.3, side: 'left'}};
+	};
+
+	test('a weak picture takes the split that names one of its cards', async () => {
+		const picture = {gap: 2, groups: [{cards: [card('sv01-089', 'sv01', 75)], score: 75}, {cards: [card('me05-022', 'me05', 77)], score: 77}]};
+		const found = await pictureMatch(picture, misread('Rd 10227084 k 9)'), 'pt', {api});
+
+		assert.equal(found.card.id, 'me05-022');
+		assert.equal(found.sure, false, 'a misread number never makes the card sure alone');
+	});
+
+	test('a split never stands against a sure picture match', async () => {
+		const picture = {gap: 41, groups: [{cards: [card('me05-080', 'me05', 33)], score: 33}, {cards: [card('sv01-089', 'sv01', 74)], score: 74}]};
+		const found = await pictureMatch(picture, misread('Rd 10227084 k 9)'), 'pt', {api});
+
+		assert.equal(found.card.id, 'me05-080');
+		assert.equal(found.sure, true);
+		assert.equal(found.disagree, false);
+	});
+
+	test('the read line says the slash was misread', () => {
+		const summary = S.summariseRead({...misread('023 7086'), language: {code: 'pt', confidence: 0.5}});
+
+		assert.equal(summary.number.misread, true);
+		assert.match(S.readLine(summary), /number: 023\/086 \(slash misread\)/);
+	});
+});

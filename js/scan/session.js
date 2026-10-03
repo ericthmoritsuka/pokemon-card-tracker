@@ -169,6 +169,7 @@ export function summariseRead(read) {
 		number: number
 			? {
 				confidence: number.confidence,
+				...(number.misread ? {misread: true} : {}),
 				number: number.number,
 				numberPrinted: number.numberPrinted,
 				setCodeRun: number.setCodeRun || '',
@@ -177,6 +178,7 @@ export function summariseRead(read) {
 				totalPrinted: number.totalPrinted,
 			}
 			: null,
+		...(number && number.misread && read.misreads && read.misreads.length ? {misreads: read.misreads.slice(0, 4).map((m) => ({number: m.number, numberPrinted: m.numberPrinted, total: m.total, totalPrinted: m.totalPrinted}))} : {}),
 		partial: partial ? {number: partial.number || null, total: partial.total || null} : null,
 		script: (read && read.script) || null,
 		wizards: Boolean(read && read.wizards),
@@ -201,7 +203,7 @@ export function readLine(read, {setName = null} = {}) {
 	}
 
 	if (read.number) {
-		parts.push(`number: ${read.number.numberPrinted}/${read.number.totalPrinted}`);
+		parts.push(`number: ${read.number.numberPrinted}/${read.number.totalPrinted}${read.number.misread ? ' (slash misread)' : ''}`);
 	}
 	else if (read.partial && (read.partial.number || read.partial.total)) {
 		parts.push(`number: ${read.partial.number || '?'}/${read.partial.total || '?'}`);
