@@ -11,7 +11,7 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 
 import {mergeDocuments, sameContent} from '../js/merge.js';
-import {BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, suggestedTheme, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
+import {AA_SHAPE, BALLS, BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, scanVars, suggestedTheme, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
 
 const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
 
@@ -146,6 +146,67 @@ test('destructive red is the same in every theme', () => {
 		assert.deepEqual([...reds], ['#dc0a2d']);
 		assert.deepEqual([...texts], [dangerText(scheme)]);
 	}
+});
+
+test('the Scan disc is a Poké Ball per theme: disc, ring, and glyph, each at 3:1 where it sits', () => {
+	const rows = [];
+
+	assert.deepEqual(Object.keys(BALLS).sort(), THEMES.map((theme) => theme.id).sort(), 'one ball per theme');
+	assert.equal(new Set(Object.values(BALLS).map((ball) => ball.name)).size, THEMES.length, 'no two themes share a ball');
+	assert.deepEqual(BALLS.default, {disc: '#dc0a2d', name: 'Poké Ball', ring: '#ffffff'}, 'the default keeps the red Poké Ball');
+
+	for (const theme of THEMES) {
+		for (const scheme of SCHEMES) {
+			const vars = palette(theme, scheme);
+			const bar = BASE[scheme].surface;
+
+			for (const key of ['--scan', '--scan-ring', '--scan-glyph']) {
+				assert.match(vars[key] || '', /^#[0-9a-f]{6}$/, `${theme.id} ${scheme} sets ${key}`);
+			}
+
+			assert.deepEqual(scanVars(theme, scheme), {'--scan': vars['--scan'], '--scan-glyph': vars['--scan-glyph'], '--scan-ring': vars['--scan-ring']});
+
+			const disc = vars['--scan'];
+			const onBar = contrast(disc, bar);
+			const ring = contrast(vars['--scan-ring'], disc);
+			const glyph = contrast(vars['--scan-glyph'], disc);
+
+			// Premier's white disc sits on the white light-mode bar; its red
+			// ring is its edge there, and must clear the bar instead.
+			if (theme.id === 'colorless' && scheme === 'light') {
+				assert.equal(disc, '#ffffff');
+				assert.ok(contrast(vars['--scan-ring'], bar) >= AA_SHAPE, 'the Premier ring clears the white bar');
+			}
+			else {
+				assert.ok(onBar >= AA_SHAPE, `${theme.id} ${scheme}: disc ${disc} on the tab bar ${bar} is ${onBar.toFixed(2)}`);
+			}
+
+			assert.ok(ring >= AA_SHAPE, `${theme.id} ${scheme}: ring on the disc is ${ring.toFixed(2)}`);
+			assert.ok(glyph >= AA_SHAPE, `${theme.id} ${scheme}: glyph on the disc is ${glyph.toFixed(2)}`);
+			// The tray's count dot is red with the ring as its border, so the
+			// ring's 3:1 outlines it on every disc.
+			assert.equal(vars['--danger'], '#dc0a2d');
+			rows.push(`${theme.id} ${scheme}: ${BALLS[theme.id].name} ${disc} / ${vars['--scan-ring']} / ${vars['--scan-glyph']} (bar ${onBar.toFixed(2)}, ring ${ring.toFixed(2)}, glyph ${glyph.toFixed(2)})`);
+		}
+	}
+
+	console.log(rows.join('\n'));
+
+	// Dark mode keeps a disc on the dark bar: the black balls turn inside out.
+	for (const id of ['darkness', 'dragon']) {
+		assert.equal(palette(themeById(id), 'light')['--scan'], '#1b1b1f', `${id} is black in light mode`);
+		assert.notEqual(palette(themeById(id), 'dark')['--scan'], '#1b1b1f', `${id} is not black on the dark bar`);
+		assert.equal(palette(themeById(id), 'dark')['--scan-ring'], '#1b1b1f', `${id}'s dark ring is black`);
+	}
+
+	// The printed CSS carries the three, and :root's fixed badge red stays.
+	const printed = themeCss();
+
+	assert.equal((printed.match(/--scan: /g) || []).length, THEMES.length * 2);
+	assert.equal((printed.match(/--scan-glyph: /g) || []).length, THEMES.length * 2);
+	assert.match(css, /--pokeball: #dc0a2d;/, 'the finish badge has its own red');
+	assert.match(css, /\.ball \{\n\tbackground: linear-gradient\(var\(--pokeball\)/, 'the finish badge paints --pokeball, not the themed disc');
+	assert.match(css, /\.scan-disc \{[^}]*color: var\(--scan-glyph\)/, 'the disc draws its glyph in --scan-glyph');
 });
 
 test('style.css holds exactly the CSS js/themes.js prints', () => {

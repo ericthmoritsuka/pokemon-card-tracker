@@ -260,6 +260,54 @@ describe('themes signed out', () => {
 		await context.close();
 	});
 
+	test('the Scan disc is the theme\'s Poké Ball, and the finish badge stays a red one', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const disc = () => page.evaluate(() => {
+			const style = getComputedStyle(document.querySelector('.scan-disc'));
+
+			return {disc: style.backgroundColor, glyph: style.color, ring: style.borderTopColor};
+		});
+		const expected = (id, scheme) => {
+			const vars = palette(themeById(id), scheme);
+
+			return {disc: rgbOf(vars['--scan']), glyph: rgbOf(vars['--scan-glyph']), ring: rgbOf(vars['--scan-ring'])};
+		};
+
+		await page.goto(url('profile'));
+		await page.waitForSelector('#theme-grid');
+		assert.deepEqual(await disc(), {disc: 'rgb(220, 10, 45)', glyph: 'rgb(255, 255, 255)', ring: 'rgb(255, 255, 255)'}, 'the default is the red Poké Ball');
+
+		// A tile's finish badge, as js/pokemon-cards-view.js draws it.
+		await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<span class="ball" id="ball-probe"></span>'));
+
+		const badge = () => page.evaluate(() => getComputedStyle(document.getElementById('ball-probe')).backgroundImage);
+
+		assert.match(await badge(), /^linear-gradient\(rgb\(220, 10, 45\)/);
+
+		for (const id of ['grass', 'darkness', 'colorless']) {
+			await chooseTheme(page, id);
+			assert.deepEqual(await disc(), expected(id, 'light'), `${id}'s ball`);
+			assert.match(await badge(), /^linear-gradient\(rgb\(220, 10, 45\)/, `the finish badge is red under ${id}`);
+		}
+
+		// Dark mode: Dusk Ball turns inside out, black ring on green.
+		await context.close();
+
+		const night = await device(null, 'phone', {colorScheme: 'dark'});
+
+		await night.page.goto(url('profile'));
+		await night.page.waitForSelector('#theme-grid');
+		await chooseTheme(night.page, 'darkness');
+		assert.deepEqual(await night.page.evaluate(() => {
+			const style = getComputedStyle(document.querySelector('.scan-disc'));
+
+			return {disc: style.backgroundColor, glyph: style.color, ring: style.borderTopColor};
+		}), expected('darkness', 'dark'));
+		assert.deepEqual(errors, []);
+		assert.deepEqual(night.errors, []);
+		await night.context.close();
+	});
+
 	test('dark mode: a theme switches to its dark palette', async () => {
 		const {context, errors, page} = await device(null, 'phone', {colorScheme: 'dark'});
 
