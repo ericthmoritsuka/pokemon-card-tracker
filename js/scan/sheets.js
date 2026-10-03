@@ -576,10 +576,107 @@ export function reportSheet(ctx, itemId) {
 
 // ------------------------------------------------------------ the Done sheet
 
+// "Add all to a collection": the hand-picked collection the session's cards
+// join when it is saved. The cards are found after the save as the copies
+// made since it began, and added in one step. js/collections.js is read
+// when it is needed, so the scanner opens without it.
+async function addSavedToCollection(collectionId, before, since) {
+	const [{addToCollection, getCollection}, {listCards}, {toast}] = await Promise.all([import('../collections.js'), import('../collection.js'), import('../shell.js')]);
+	const ids = (await listCards()).filter((entry) => !before.has(entry.id) && String(entry.created_at) >= since).map((entry) => entry.id);
+	const collection = await getCollection(collectionId);
+
+	if (!collection || !ids.length) {
+		return;
+	}
+
+	await addToCollection(collectionId, ids);
+	toast(`${ids.length === 1 ? '1 card' : `${ids.length} cards`} added to ${collection.name}.`);
+}
+
 export function doneSheet(ctx) {
 	const titleId = 'scan-done-title';
 	const body = h('div', {class: 'scan-sheet-body'});
 	let skipOwned = false;
+	// The hand-picked collections to choose from (null until read), the one
+	// chosen, and whether the choices are showing.
+	let collections = null;
+	let collectionId = null;
+	let choosing = false;
+	// What was typed in the new-collection field, kept across redraws.
+	let draftName = '';
+
+	async function readCollections() {
+		const {listCollections} = await import('../collections.js');
+
+		const found = (await listCollections()).filter((item) => item.kind === 'hand');
+
+		// One made while this was reading stays in the choices.
+		collections = [...found, ...(collections || []).filter((made) => !found.some((item) => item.id === made.id))];
+		refresh();
+	}
+
+	async function saveSession() {
+		const chosen = collectionId;
+		const since = new Date().toISOString();
+		const before = chosen ? new Set((await (await import('../collection.js')).listCards()).map((entry) => entry.id)) : null;
+
+		await ctx.save({skipOwned});
+
+		if (chosen) {
+			await addSavedToCollection(chosen, before, since).catch(() => {});
+		}
+	}
+
+	function collectionRow() {
+		const picked = (collections || []).find((item) => item.id === collectionId);
+		const row = [h('div', {class: 'scan-done-row'},
+			h('span', {class: 'scan-label'}, 'Collection'),
+			h('div', {class: 'scan-chips'},
+				h('button', {class: 'scan-chip', 'aria-pressed': picked ? 'true' : 'false', id: 'scan-all-collection', onclick: () => {
+					choosing = !choosing;
+
+					if (collections === null) {
+						readCollections().catch(() => {});
+					}
+
+					refresh();
+				}, type: 'button'}, picked ? `In ${picked.name}` : 'Add all to a collection')))];
+
+		if (!choosing) {
+			return row;
+		}
+
+		const name = h('input', {'aria-label': 'New collection name', autocomplete: 'off', class: 'scan-collection-name', id: 'scan-collection-name', maxlength: 60, oninput: () => {
+			draftName = name.value;
+			name.setCustomValidity('');
+		}, placeholder: 'New collection', type: 'text', value: draftName});
+
+		row.push(h('div', {class: 'scan-chips', id: 'scan-collection-choices', role: 'group', 'aria-label': 'Collections'},
+			...(collections || []).map((item) => chip({id: `scan-collection-${item.id}`, label: item.name, onclick: () => {
+				collectionId = collectionId === item.id ? null : item.id;
+				refresh();
+			}, pressed: item.id === collectionId})),
+			h('span', {class: 'scan-collection-new'}, name,
+				h('button', {class: 'scan-chip', id: 'scan-collection-create', onclick: async () => {
+					try {
+						const {createCollection} = await import('../collections.js');
+						const made = await createCollection({kind: 'hand', name: name.value});
+
+						collections = [...(collections || []), made];
+						draftName = '';
+						collectionId = made.id;
+						choosing = false;
+						refresh();
+					}
+					catch (err) {
+						name.setCustomValidity(err.message);
+						name.reportValidity();
+					}
+				}, type: 'button'}, 'Create')),
+			collections && !collections.length ? h('p', {class: 'scan-muted'}, 'No hand-picked collections yet. Name one to start.') : null));
+
+		return row;
+	}
 
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-done', id: 'scan-done', role: 'dialog'},
 		sheetHeader('Save this session', () => ctx.closeSheet(), titleId),
@@ -628,6 +725,8 @@ export function doneSheet(ctx) {
 				h('button', {class: 'scan-chip', id: 'scan-all-finish', onclick: () => ctx.openSetAll('finish'), type: 'button'}, 'Finish'),
 				h('button', {class: 'scan-chip', id: 'scan-all-condition', onclick: () => ctx.openSetAll('condition'), type: 'button'}, 'Condition'))));
 
+		rows.push(...collectionRow());
+
 		const ready = canSave(summary) && saving > 0;
 		const label = summary.look || summary.busy
 			? `Save ${summary.savable}, ${summary.look ? `${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look` : `${summary.busy} still reading`}`
@@ -635,7 +734,7 @@ export function doneSheet(ctx) {
 
 		rows.push(h('div', {class: 'scan-actions'},
 			h('button', {class: 'scan-button', id: 'scan-discard-session', onclick: () => ctx.discard(), type: 'button'}, 'Discard session'),
-			h('button', {class: 'scan-button scan-primary scan-wide', disabled: !ready, id: 'scan-save-session', onclick: () => ctx.save({skipOwned}), type: 'button'}, label)));
+			h('button', {class: 'scan-button scan-primary scan-wide', disabled: !ready, id: 'scan-save-session', onclick: () => saveSession(), type: 'button'}, label)));
 
 		body.replaceChildren(...rows);
 	}

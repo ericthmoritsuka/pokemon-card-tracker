@@ -1,0 +1,181 @@
+/* Collections (js/collections-view.js). Uses the palette tokens from
+   style.css, so it follows the light and dark schemes. */
+
+/* The Lists tab has three parts now. */
+.lists-switch {
+	grid-template-columns: repeat(3, 1fr);
+}
+
+.col-new-row {
+	margin: 0 0 var(--space-3);
+}
+
+.col-new-row button {
+	width: 100%;
+}
+
+.col-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.col-row {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	color: var(--text);
+	display: grid;
+	gap: 2px var(--space-3);
+	grid-template-columns: minmax(0, 1fr) auto;
+	min-height: var(--target);
+	padding: var(--space-3);
+	text-decoration: none;
+}
+
+.col-name {
+	font-weight: 700;
+	overflow-wrap: anywhere;
+}
+
+.col-kind-tag {
+	align-self: start;
+	color: var(--muted);
+	font: var(--type-small);
+}
+
+.col-meta {
+	color: var(--muted);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-3);
+	grid-column: 1 / -1;
+}
+
+.col-actions {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-2);
+}
+
+/* A hand-made card added from here would not join the collection. */
+.col-screen #cards-add-hand {
+	display: none;
+}
+
+.collection-sheet[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+.col-kinds {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.col-kinds .col-kind {
+	align-items: flex-start;
+	display: flex;
+	gap: var(--space-3);
+	min-height: var(--target);
+}
+
+.col-kinds .col-kind input {
+	flex: none;
+	height: 22px;
+	margin: 2px 0 0;
+	width: 22px;
+}
+
+.col-kinds .col-kind span span {
+	display: block;
+	font-weight: 400;
+}
+
+.col-actions a.button {
+	flex: none;
+	width: auto;
+}
+
+.col-actions button {
+	margin-left: auto;
+}
+
+.collection-sheet .search {
+	margin-top: 0;
+}
+
+.col-rule {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.col-rule[hidden] {
+	display: none;
+}
+
+.col-group {
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 0 var(--space-3);
+}
+
+.col-group-summary {
+	cursor: pointer;
+	font-weight: 600;
+	min-height: var(--target);
+	padding: var(--space-3) 0;
+}
+
+.col-options {
+	display: grid;
+	max-height: 38vh;
+	overflow-y: auto;
+	padding-bottom: var(--space-2);
+}
+
+.col-options [hidden] {
+	display: none;
+}
+
+.col-foot {
+	grid-template-columns: auto 1fr;
+}
+
+.col-foot:has(> :only-child) {
+	grid-template-columns: 1fr;
+}
+
+.col-create {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: minmax(0, 1fr) auto;
+	margin-top: var(--space-3);
+}
+
+.col-pick {
+	display: grid;
+	max-height: 40vh;
+	overflow-y: auto;
+}
+
+/* Card detail: Add to collection sits under the copy rows. */
+/* Under the rows, so the copies stay on the first screen. */
+.copies-collect-row {
+	margin: var(--space-2) 0 0;
+}
+
+/* Done sheet in the scanner: the collection chooser's new-name field. */
+.scan-collection-new {
+	display: flex;
+	flex: 1 1 100%;
+	gap: var(--space-2);
+}
+
+.scan-collection-new input {
+	flex: 1;
+	min-width: 0;
+}

@@ -48,7 +48,7 @@ export function go(route, {replace = false} = {}) {
 	window.dispatchEvent(new PopStateEvent('popstate', {state: history.state}));
 }
 
-// The Lists tab's two halves, Checklists and Wishlist, as one segmented
+// The Lists tab's three parts, Checklists, Wishlist, and Collections, as one segmented
 // control of links. userId shows a family member's.
 export function listsSwitch(active, userId = null) {
 	const member = userId ? encodeURIComponent(userId) : null;
@@ -62,7 +62,8 @@ export function listsSwitch(active, userId = null) {
 
 	return h('nav', {'aria-label': 'Lists', class: 'lists-switch'},
 		item('checklists', 'Checklists', member ? `family/${member}/lists` : 'lists'),
-		item('wishlist', 'Wishlist', member ? `wishlist/${member}` : 'wishlist')
+		item('wishlist', 'Wishlist', member ? `wishlist/${member}` : 'wishlist'),
+		item('collections', 'Collections', member ? `family/${member}/collections` : 'collections')
 	);
 }
 

@@ -1258,6 +1258,16 @@ export function cardView(root, {lang, cardId}) {
 		}), type: 'button'}, 'Add a copy');
 	}
 
+	// Tick the collections these copies are in (js/collections-view.js, read
+	// when the button is tapped, so card detail loads without it).
+	function collectButton(live, shownName) {
+		return h('button', {'aria-haspopup': 'dialog', class: 'small col-add', id: 'copies-collect', onclick: () => {
+			import('./collections-view.js')
+				.then((view) => view.openCollectionsSheet({entries: live, name: shownName}))
+				.catch((err) => toast(`Collections did not open. ${errorText(err)}`));
+		}, type: 'button'}, 'Add to collection');
+	}
+
 	let copiesRun = 0;
 
 	async function drawCopies(card, variants) {
@@ -1423,7 +1433,9 @@ export function cardView(root, {lang, cardId}) {
 						}, rowContent(group)),
 						copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
 					)
-			))
+			)),
+			// Under the rows, so the copies stay on the first screen.
+			readOnly ? null : h('div', {class: 'copies-collect-row'}, collectButton(live, shownName))
 		);
 
 		if (focusRow && focusClass) {
