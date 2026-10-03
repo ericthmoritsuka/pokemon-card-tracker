@@ -95,9 +95,9 @@ const importedFinish = (entry) => entry.finish_raw || (entry.import_key ? entry.
 
 export function collectionCsv(entries, index) {
 	const header = [
-		'Entry ID', 'Card ID', 'Catalog', 'Set ID', 'Set', 'Number', 'Name', 'Language',
-		'Variant ID', 'Finish', 'Finish Matched', 'Language Source', 'Created At', 'Updated At',
-		'liga_low_nm', 'liga_avg', 'price_source', 'price_date',
+		'entry_id', 'card_id', 'catalog', 'set_id', 'set', 'number', 'name', 'language',
+		'variant_id', 'finish', 'finish_matched', 'language_source', 'created_at', 'updated_at',
+		'liga_low_nm', 'liga_avg', 'currency', 'price_source', 'price_date',
 	];
 	const lines = [header.map(csvField).join(';')];
 
@@ -131,6 +131,8 @@ export function collectionCsv(entries, index) {
 			// already suit a Brazilian spreadsheet: 45,90.
 			reais(manual.low_nm),
 			reais(manual.avg),
+			// The currency of the two prices above: Liga prices are reais.
+			typeof manual.low_nm === 'number' || typeof manual.avg === 'number' ? manual.currency || 'BRL' : '',
 			manual.source,
 			manual.date,
 		].map((value, i) => (i === NAME_COLUMN ? value : csvField(value))).join(';'));

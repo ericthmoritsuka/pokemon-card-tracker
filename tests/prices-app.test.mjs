@@ -260,8 +260,10 @@ describe('prices in the app', () => {
 			return text.replace(/^\uFEFF/, '').trim().split('\r\n').map((line) => line.split(';'));
 		});
 
-		assert.equal(rows[0][4], 'Set');
-		assert.equal(rows[0][6], 'Name');
+		assert.equal(rows[0][4], 'set');
+		assert.equal(rows[0][6], 'name');
+		assert.ok(rows[0].every((column) => /^[a-z]+(_[a-z]+)*$/.test(column)), 'one header style');
+		assert.equal(rows[0][16], 'currency');
 		assert.deepEqual([rows[1][4], rows[1][6], rows[1][7]], ['포켓몬 카드 151', '"이상해씨"', 'KO']);
 		assert.deepEqual([rows[2][4], rows[2][6]], ['ポケモンカード151', '"이상해씨"'], 'no set name from the source keeps the catalog\'s');
 		assert.deepEqual([rows[3][4], rows[3][6]], ['ポケモンカード151', '"フシギダネ"'], 'a Japanese copy keeps the Japanese name');
