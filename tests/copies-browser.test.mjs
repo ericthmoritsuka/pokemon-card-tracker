@@ -529,20 +529,23 @@ describe('when TCGdex fails, and in family view', () => {
 		await page.waitForSelector('.card-detail h2');
 		await page.waitForSelector('#card-liga-link');
 		assert.equal(await page.locator('#family-strip').count(), 1, 'still in family view');
-		await page.waitForSelector('.copies li');
+		// Signed out, the member's copies cannot be read; your own copy is
+		// never shown in their place (Q-33).
+		await page.waitForSelector('#copies-member-note');
+		assert.match(await page.locator('#copies-member-note').textContent(), /could not be read\. Sign in to see your family's cards\./);
+		assert.equal(await page.locator('.copies li').count(), 0, 'not your copy');
 		assert.equal(await page.locator('.copies .copy-row').count(), 0, 'rows open nothing');
 		assert.equal(await page.locator('.copies .copy-stepper').count(), 0, 'no stepper');
 		assert.equal(await page.locator('.copies li').textContent(), 'Portuguese · Normal', 'the language in words, read only');
 		assert.equal(await page.locator('#copy-add').count(), 0);
 		assert.equal(await page.locator('#card-wish, #card-wished').count(), 0);
-		await page.click('.copies li');
 		assert.equal(await page.locator('#copy-sheet[open]').count(), 0);
 
 		// An unowned card in family view shows no Add either.
 		await page.evaluate(async (route) => (await import('/pokemon-card-tracker/js/dom.js')).go(route), 'cards/pt/tst1-007');
 		await page.waitForSelector('.variants-section');
 		await page.waitForSelector('#card-liga');
-		assert.ok(await page.locator('.copies').isHidden());
+		await page.waitForSelector('#copies-member-note');
 		assert.equal(await page.locator('#copy-add').count(), 0);
 		await done();
 	});

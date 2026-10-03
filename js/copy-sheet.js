@@ -99,8 +99,9 @@ export const hasPhotos = (entry) => Array.isArray(entry.photos) && entry.photos.
 
 // Where every placed copy is: Map entry id -> {binder_id, binder_name, page,
 // position}.
-export async function copyPlaces() {
-	const placed = placements(await listBinders());
+// binders: a family member's list; your own when left out.
+export async function copyPlaces(binders = null) {
+	const placed = placements(binders || await listBinders());
 
 	return new Map([...placed].map(([id, {binder, slot}]) => [id, {binder_id: binder.id, binder_name: binder.name, page: slot.page, position: slot.position}]));
 }

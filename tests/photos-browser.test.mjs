@@ -515,6 +515,13 @@ describe('signed out', () => {
 		assert.equal(entry.photos[0].path, null, 'no account yet, so no folder');
 		assert.equal(await page.evaluate(() => window.H.store.pendingUploads().size), 1);
 		assert.deepEqual(fake.log.filter((item) => item.storage), [], 'nothing sent signed out');
+		// Signed out, the photo says when it will upload (Q-32).
+		await page.waitForFunction(() => {
+			const badge = document.querySelector('.ph-slide .ph-pending:not([hidden])');
+
+			return badge && badge.textContent === 'Saved on this phone; uploads after you sign in';
+		});
+		await shot(page, '11-signed-out-waiting');
 
 		// Signing in adopts the phone's document; the queue then uploads.
 		await page.evaluate((session) => localStorage.setItem('card-tracker-auth', session), JSON.stringify(fake.session(user)));
@@ -541,6 +548,100 @@ describe('signed out', () => {
 			return card.condition === 'Near Mint' && (card.photos || []).some((photo) => photo.id === id);
 		}, photoId);
 		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('uploads the server refuses', () => {
+	const badge = (page) => page.evaluate(() => {
+		const shown = document.querySelector('.ph-slide .ph-pending:not([hidden])');
+
+		return shown ? {problem: shown.classList.contains('ph-problem'), text: shown.textContent} : null;
+	});
+
+	async function photoOn(page) {
+		await open(page);
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+	}
+
+	test('a refused upload says why on the photo, and Retry sends it again', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, user, {offline: () => false});
+
+		fake.refuse = {error: 'Payload too large', message: 'The object exceeded the maximum allowed size', status: 413};
+		await photoOn(page);
+		await page.waitForFunction(() => {
+			const shown = document.querySelector('.ph-slide .ph-pending:not([hidden])');
+
+			return shown && shown.classList.contains('ph-problem');
+		}, null, {timeout: 10000});
+		assert.deepEqual(await badge(page), {problem: true, text: 'Not uploaded: too large for the server'});
+		await shot(page, '12-refused');
+
+		const failed = await page.evaluate(() => window.H.store.failedUploads());
+
+		assert.equal(failed.length, 1);
+		assert.equal(failed[0].kind, 'refused');
+		assert.equal(failed[0].text, 'Not uploaded: too large for the server');
+
+		// Refused is not retried on a timer; Retry sends it once the server
+		// takes it.
+		fake.refuse = null;
+		await page.evaluate((id) => window.H.store.retryUpload(id), failed[0].photo_id);
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 10000});
+		await page.waitForFunction(() => !document.querySelector('.ph-slide .ph-pending:not([hidden])'));
+		assert.equal(fake.objects.size, 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a 401 is not permanent: the session is refreshed and the photo goes up without waiting for the next start', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('owner@example.test');
+		const {context, errors, page} = await device(fake, user, {offline: () => false});
+
+		await open(page);
+
+		const refreshes = fake.log.filter((item) => item.search === '?grant_type=refresh_token').length;
+
+		fake.refuse = {error: 'Unauthorized', message: 'jwt expired', once: true, status: 401};
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+		// Well inside the 30 s retry timer.
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 10000});
+		assert.equal(fake.storageLog('upload').length, 2, 'refused once, then sent again');
+		assert.ok(fake.log.filter((item) => item.search === '?grant_type=refresh_token').length > refreshes, 'the session was refreshed');
+		assert.equal(fake.objects.size, 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a session the server ended says Sign in again on the photo, and the photo goes up after a new sign-in', async () => {
+		const fake = new FakeStorageSupabase();
+		const user = fake.addUser('member-a@family.invalid', {password: 'first-password'});
+		const {context, errors, page} = await device(fake, user, {offline: () => false});
+
+		await open(page);
+		fake.revoke(user.id);
+		await page.evaluate(() => window.H.openDetail('e1'));
+		await pickPhoto(page, QUAD);
+		await save(page);
+		await page.waitForFunction(() => {
+			const shown = document.querySelector('.ph-slide .ph-pending:not([hidden])');
+
+			return shown && shown.textContent === 'Sign in again to upload';
+		}, null, {timeout: 15000});
+		assert.equal(fake.objects.size, 0);
+		assert.equal((await page.evaluate(() => window.H.store.failedUploads()))[0].kind, 'auth');
+
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/auth.js')).signInWithName('member-a', 'first-password'));
+		await page.waitForFunction(() => window.H.store.pendingUploads().size === 0, null, {timeout: 15000});
+		assert.equal(fake.objects.size, 1);
+		assert.deepEqual(errors.filter((text) => !/40[13]/.test(text)), []);
 		await context.close();
 	});
 });

@@ -9,13 +9,20 @@
 // ends with Done, the "Mine" switcher, the avatar (Profile), or Scan, which
 // always saves to you. It lives in memory only, never in storage, so a cold
 // start always opens your own cards.
+//
+// The switcher and its "Whose cards" sheet show each person's favorite
+// Pokémon (DESIGN.md section 11, "Favorite Pokémon"): yours from your
+// settings, a member's from the one field js/family.js reads of their
+// document, and the first letter of the name when there is none or the
+// sprite does not load.
 
 import {accountLabel, currentUser, onUser} from './auth.js';
 import {spriteUrl} from './checklists.js';
 import {BASE, go, h} from './dom.js';
-import {familyMembers} from './family.js';
+import {familyFavorites, familyMembers, knownFavorites} from './family.js';
 import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
+import {openDialogSheet} from './sheet.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
 const formatCount = (n) => Number(n).toLocaleString('en-US');
@@ -39,6 +46,10 @@ const SWITCHER_TABS = new Set(['binders', 'cards', 'lists']);
 let lens = null;
 let members = [];
 let current = {kind: null, params: {}, route: null};
+// Favorite Pokémon: yours, and the members' by user_id.
+let myFavorite = null;
+let favorites = new Map();
+let ownerHandle = null;
 
 // ------------------------------------------------------------- toasts
 
@@ -83,20 +94,17 @@ function memberLabel(userId) {
 	return member ? member.name : null;
 }
 
+// The route under the app's base, as go() takes it.
+const routeHere = () => window.location.pathname.slice(BASE.length);
+
+// Back to your own cards: a family route goes to your screen of the same
+// kind, and a screen the lens only followed you to (Sets, a set, a card) is
+// drawn again with your own cards.
 function exitLens() {
 	const kind = kindOf(current.kind);
 
 	lens = null;
-
-	if (current.params.userId && kind) {
-		go(KINDS[kind].mine);
-
-		return;
-	}
-
-	drawLens();
-	drawTabs();
-	drawSwitcher();
+	go(current.params.userId && kind ? KINDS[kind].mine : routeHere());
 }
 
 function drawLens() {
@@ -202,14 +210,56 @@ function initialOf(name) {
 	return String(name || '?').trim().charAt(0).toUpperCase() || '?';
 }
 
-function pickOwner(userId) {
+const favoriteOf = (userId) => (userId ? favorites.get(userId) || null : myFavorite);
+
+// A person's favorite Pokémon sprite in a circle, or the first letter of
+// their name when they have none or it does not load (offline, before the
+// browser ever kept it).
+function personMark(userId, name, size) {
+	const n = favoriteOf(userId);
+	const mark = h('span', {'aria-hidden': 'true', class: 'owner-initial', 'data-dex': n || null});
+
+	if (!n) {
+		mark.textContent = initialOf(name);
+
+		return mark;
+	}
+
+	const img = h('img', {alt: '', class: 'owner-sprite', decoding: 'async', height: size, src: spriteUrl(n), width: size});
+
+	img.addEventListener('error', () => {
+		delete mark.dataset.dex;
+		mark.textContent = initialOf(name);
+	}, {once: true});
+	mark.append(img);
+
+	return mark;
+}
+
+function closeOwnerSheet() {
 	const sheet = document.getElementById('owner-sheet');
 
 	if (sheet && sheet.open) {
 		sheet.close();
 	}
+}
 
-	const kind = kindOf(current.kind) || kindOf(LENS_TABS[current.route && current.route.tab]) || 'cards';
+// Picking a person changes route while the sheet is still open. go()
+// (js/dom.js pushRoute) then makes the sheet's history entry the new
+// screen's, and the route change closes the sheet (js/sheet.js), so one
+// Back returns to the screen the sheet was opened over. Closing the sheet
+// first would have its entry going away (history.go, a moment later) while
+// the new route is pushed, leaving an extra entry behind it. A route to the
+// address already shown draws that screen again, and the sheet's entry is
+// taken away as for any close.
+function pickOwner(userId) {
+	const selected = lens ? lens.userId : '';
+
+	if (userId === selected) {
+		closeOwnerSheet();
+
+		return;
+	}
 
 	if (!userId) {
 		exitLens();
@@ -217,13 +267,15 @@ function pickOwner(userId) {
 		return;
 	}
 
+	const kind = kindOf(current.kind) || kindOf(LENS_TABS[current.route && current.route.tab]) || 'cards';
+
 	lens = {name: memberLabel(userId), userId};
 	go(KINDS[kind].member(encodeURIComponent(userId)));
 }
 
-function openOwnerSheet() {
-	const sheet = ownerSheet();
+function ownerOptions() {
 	const selected = lens ? lens.userId : '';
+	const me = currentUser();
 	const option = (userId, name, text) => h('li', null, h('button', {
 		'aria-current': userId === selected ? 'true' : null,
 		class: 'owner-option',
@@ -231,9 +283,19 @@ function openOwnerSheet() {
 		onclick: () => pickOwner(userId),
 		type: 'button',
 	},
-	h('span', {'aria-hidden': 'true', class: 'owner-initial'}, initialOf(name)),
+	personMark(userId, name, 36),
 	h('span', {class: 'owner-name'}, text),
 	userId === selected ? h('span', {class: 'owner-state'}, 'Showing') : null));
+
+	return [
+		option('', me ? me.email : 'Me', 'Mine'),
+		...members.map((member) => option(member.user_id, member.name, `${member.name}'s`)),
+	];
+}
+
+function openOwnerSheet() {
+	const sheet = ownerSheet();
+	const list = h('ul', {class: 'owner-list'}, ownerOptions());
 
 	sheet.replaceChildren(
 		h('div', {class: 'sheet-head'},
@@ -241,12 +303,22 @@ function openOwnerSheet() {
 			h('button', {class: 'small', id: 'owner-sheet-close', onclick: () => sheet.close(), type: 'button'}, 'Close')
 		),
 		h('p', {class: 'muted'}, 'A family member\'s cards, binders, and lists open view only. Scanning always saves to you.'),
-		h('ul', {class: 'owner-list'},
-			option('', 'Me', 'Mine'),
-			...members.map((member) => option(member.user_id, member.name, `${member.name}'s`))
-		)
+		list
 	);
-	sheet.showModal();
+
+	// Back closes the sheet and stays on the screen (js/sheet.js).
+	if (!ownerHandle) {
+		ownerHandle = openDialogSheet(sheet, {onClose: () => {
+			ownerHandle = null;
+		}});
+	}
+
+	// Favorites that arrive while the sheet is open are drawn at once.
+	loadFavorites().then((changed) => {
+		if (changed && sheet.open && list.isConnected) {
+			list.replaceChildren(...ownerOptions());
+		}
+	});
 }
 
 function drawSwitcher() {
@@ -259,11 +331,62 @@ function drawSwitcher() {
 	const tab = current.route ? current.route.tab : null;
 	const show = Boolean(currentUser()) && members.length > 0 && (Boolean(lens) || SWITCHER_TABS.has(tab));
 	const text = lens ? `${lens.name || 'Family member'}'s` : 'Mine';
+	const n = favoriteOf(lens ? lens.userId : '');
+	const shown = button.querySelector('.owner-switch-sprite');
 
 	button.hidden = !show;
-	button.textContent = text;
 	button.setAttribute('aria-label', `Whose cards: ${text}. Change`);
 	button.classList.toggle('lensed', Boolean(lens));
+
+	if (!n) {
+		button.textContent = text;
+
+		return;
+	}
+
+	if (shown && shown.dataset.dex === String(n)) {
+		button.lastChild.textContent = text;
+
+		return;
+	}
+
+	// A small sprite before the words; it steps aside if it cannot load.
+	const img = h('img', {
+		alt: '',
+		class: 'owner-switch-sprite',
+		'data-dex': String(n),
+		decoding: 'async',
+		height: 26,
+		src: spriteUrl(n),
+		style: 'margin: -6px 4px -4px -8px; vertical-align: middle',
+		width: 26,
+	});
+
+	img.addEventListener('error', () => img.remove(), {once: true});
+	button.replaceChildren(img, h('span', {class: 'owner-switch-text'}, text));
+}
+
+// Your favorite and the members' (js/family.js): the ones saved on the
+// phone at once, then the server's once a visit. Resolves true when any
+// changed.
+async function loadFavorites() {
+	const before = JSON.stringify([myFavorite, [...favorites]]);
+	const ids = members.map((member) => member.user_id);
+
+	myFavorite = await favoritePokemon().catch(() => null);
+	favorites = new Map([...knownFavorites(ids), ...favorites]);
+
+	if (ids.length) {
+		favorites = await familyFavorites(ids).catch(() => favorites);
+	}
+
+	const changed = JSON.stringify([myFavorite, [...favorites]]) !== before;
+
+	if (changed) {
+		drawSwitcher();
+	}
+
+	return changed;
 }
 
 async function loadMembers() {
@@ -277,6 +400,10 @@ async function loadMembers() {
 	}
 
 	drawSwitcher();
+
+	if (members.length) {
+		loadFavorites();
+	}
 }
 
 // ------------------------------------------------------------ the avatar
@@ -378,11 +505,32 @@ export function startShell() {
 		button.addEventListener('click', openOwnerSheet);
 	}
 
+	// "Sign in again" under the title opens the sign-in panel (the session
+	// ended, js/auth.js); in every other phase a tap syncs (app.js).
+	const status = document.getElementById('sync-status');
+
+	if (status) {
+		status.addEventListener('click', () => {
+			if (syncStatus().phase === 'signin') {
+				go('signin');
+			}
+		});
+	}
+
 	onUser(() => {
+		favorites = new Map();
+		myFavorite = null;
+		closeOwnerSheet();
 		drawAccount();
 		loadMembers();
 	});
-	onSettings(() => drawAccount());
+	onSettings(() => {
+		drawAccount();
+
+		if (members.length) {
+			loadFavorites();
+		}
+	});
 	onSyncStatus(drawOffline);
 	window.addEventListener('online', () => drawOffline());
 	window.addEventListener('offline', () => drawOffline());

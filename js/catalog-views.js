@@ -33,6 +33,7 @@ import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.j
 import {twinConfirm} from './twins-view.js';
 import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
+import {memberCards, memberDocumentKept, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist} from './wishlist.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
@@ -239,11 +240,136 @@ function orderSeries(series, sort) {
 	return newest;
 }
 
+// ------------------------------------------------- a family member's cards
+//
+// While a family member's lens is on (js/shell.js), Sets, a set, and a card
+// show that member's copies, read from their document (js/family.js), and
+// no control that would change anything (plans/design-review.md, "Family
+// Read-Only Mode").
+
+// The member's name for headings, once known.
+function memberLabel(member) {
+	const now = lensMember();
+
+	return (now && now.userId === member.userId && now.name) || member.name || 'Family member';
+}
+
+// Owned copies for one catalog by card ID, as js/collection.js ownedIn
+// gives yours, over the member's copies.
+function ownedFrom(entries, catalog) {
+	const owned = new Map();
+
+	for (const entry of entries) {
+		if (entry.catalog !== catalog) {
+			continue;
+		}
+
+		if (!owned.has(entry.card_id)) {
+			owned.set(entry.card_id, {byLanguage: new Map(), entries: [], total: 0});
+		}
+
+		const item = owned.get(entry.card_id);
+
+		item.total++;
+		item.entries.push(entry);
+		item.byLanguage.set(entry.language, (item.byLanguage.get(entry.language) || 0) + 1);
+	}
+
+	return owned;
+}
+
+// Distinct cards owned by "<catalog>|<set id>", as js/collection.js
+// ownedBySet gives yours. A card this phone's index has no record of counts
+// under the set its ID begins with (TCGdex IDs are <set id>-<number>).
+async function ownedBySetFrom(entries) {
+	const index = await cardIndex().catch(() => new Map());
+	const sets = new Map();
+
+	for (const entry of entries) {
+		const record = index.get(`${entry.catalog}|${entry.card_id}`);
+		const cut = String(entry.card_id || '').lastIndexOf('-');
+		const setId = record ? record.set_id : cut > 0 ? entry.card_id.slice(0, cut) : null;
+
+		if (!setId) {
+			continue;
+		}
+
+		const key = `${entry.catalog}|${setId}`;
+
+		if (!sets.has(key)) {
+			sets.set(key, new Set());
+		}
+
+		sets.get(key).add(entry.card_id);
+	}
+
+	return sets;
+}
+
+// Why a member's cards are not shown, for a notice.
+const memberProblem = (member, err) => `${memberLabel(member)}'s cards could not be read. ${err && err.message ? err.message : errorText(err)}`;
+
+// A member's photos of a card, read only (no Add photo, no Use as main
+// image): js/photos/index.js cardPhotos over their copies, made again once
+// those are read (setEntries). Shaped like cardPhotos for cardView.
+function memberPhotos(cardId, catalog) {
+	let block = cardPhotos({cardId, catalog, entries: [], readOnly: true});
+	let shown = {};
+	let key = '';
+
+	return {
+		destroy: () => block.destroy(),
+		// True when the copies changed and the block was made again.
+		setEntries(entries) {
+			const next = JSON.stringify(entries.map((entry) => [entry.id, entry.main_image || null, entry.photos || []]));
+
+			if (next === key) {
+				return false;
+			}
+
+			key = next;
+			block.destroy();
+			block = cardPhotos({cardId, catalog, entries, readOnly: true});
+
+			return true;
+		},
+		show(next = {}) {
+			shown = {...shown, ...next};
+
+			return block.show(shown);
+		},
+	};
+}
+
+// A member's price section: what they saved and the market prices, but no
+// way to type a Liga price. Its form and Update button are taken out each
+// time it draws, and the line inviting you to add a copy says whose it is.
+function readOnlyPrice(section, member) {
+	const strip = () => {
+		for (const control of section.querySelectorAll('form, .price-edit')) {
+			control.remove();
+		}
+
+		for (const line of section.querySelectorAll('.price-liga .price-none:not([data-member])')) {
+			line.dataset.member = 'true';
+			line.textContent = `No Liga price saved by ${memberLabel(member)}.`;
+		}
+	};
+
+	strip();
+	new MutationObserver(strip).observe(section, {childList: true, subtree: true});
+
+	return section;
+}
+
 export function setsView(root) {
 	let alive = true;
 	let lang = viewingLanguage();
 	let series = null;
 	let owned = new Map();
+	// A family member's rings while their lens is on.
+	const member = lensMember();
+	const memberNote = h('div', {hidden: true, id: 'sets-member-note'});
 
 	const select = h('select', {id: 'viewing', onchange: () => changeLanguage(select.value)},
 		LANGUAGES.map(({code, label}) => h('option', {selected: code === lang, value: code}, label))
@@ -392,10 +518,11 @@ export function setsView(root) {
 			),
 			search
 		),
+		memberNote,
 		list
 	);
 
-	ownedBySet()
+	(member ? memberCards(member.userId).then(ownedBySetFrom) : ownedBySet())
 		.then((sets) => {
 			owned = sets;
 
@@ -403,8 +530,13 @@ export function setsView(root) {
 				draw();
 			}
 		})
-		.catch(() => {
-			// Rings stay at zero.
+		.catch((err) => {
+			// Rings stay at zero; for a member, the notice says why.
+			if (alive && member) {
+				memberNote.className = 'notice';
+				memberNote.replaceChildren(h('p', null, memberProblem(member, err)));
+				memberNote.hidden = false;
+			}
 		});
 
 	load();
@@ -418,6 +550,8 @@ export function setsView(root) {
 
 export function setView(root, {lang, setId}) {
 	let alive = true;
+	// A family member's copies while their lens is on.
+	const member = lensMember();
 
 	const back = link('sets', {class: 'back'}, '‹ All sets');
 	const title = h('h2', null, setId);
@@ -454,7 +588,7 @@ export function setView(root, {lang, setId}) {
 		const records = await priceRecords(entries);
 
 		if (alive && statsKey === key) {
-			stats.replaceChildren(statsBar({cardsById: records, entries, label: `your cards from ${set.name}`}));
+			stats.replaceChildren(statsBar({cardsById: records, entries, label: `${member ? `${memberLabel(member)}'s` : 'your'} cards from ${set.name}`}));
 		}
 	}
 
@@ -504,7 +638,9 @@ export function setView(root, {lang, setId}) {
 		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
 
 		if (!visible.length) {
-			grid.replaceChildren(h('p', {class: 'muted grid-wide'}, show === 'owned' ? 'No cards from this set are saved yet.' : 'Every card in this set is owned.'));
+			const none = member ? `${memberLabel(member)} has no cards from this set.` : 'No cards from this set are saved yet.';
+
+			grid.replaceChildren(h('p', {class: 'muted grid-wide'}, show === 'owned' ? none : 'Every card in this set is owned.'));
 			offerCardList([], set.name);
 
 			return;
@@ -557,10 +693,14 @@ export function setView(root, {lang, setId}) {
 		grid.replaceChildren(...skeletonTiles(12));
 
 		try {
-			owned = await ownedIn(catalogFor(lang));
+			owned = member ? ownedFrom(await memberCards(member.userId), catalogFor(lang)) : await ownedIn(catalogFor(lang));
 		}
-		catch {
+		catch (err) {
 			owned = new Map();
+
+			if (member && alive) {
+				problem.replaceChildren(h('div', {class: 'notice', id: 'set-member-note'}, h('p', null, memberProblem(member, err))));
+			}
 		}
 
 		try {
@@ -679,7 +819,11 @@ export function cardView(root, {lang, cardId}) {
 	const route = routeTo('cards', lang, cardId);
 	const position = cardPosition(route);
 	const swipe = cardSwipe(root, route);
-	const photos = cardPhotos({cardId, catalog: catalogFor(lang)});
+	// A family member's card is read only and shows their copies: no copy
+	// sheets, no Add, no photos to add or pin, no Liga form, no wishlist
+	// button (plans/design-review.md, "Family Read-Only Mode").
+	const member = lensMember();
+	const photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang)});
 	// A Japanese print's international twin: its image joins the carousel,
 	// its English name leads for a Trainer or Energy, and the picker asks
 	// when the matcher was unsure (js/twins.js, js/twins-view.js).
@@ -689,9 +833,9 @@ export function cardView(root, {lang, cardId}) {
 	let twinDrawn = null;
 	const twinChanged = (key) => alive && current && (!key || key === twinKey(twinItem)) && twinShown() !== twinDrawn && draw(current);
 	const stopTwins = onTwinsChange(twinChanged);
-	// A family member's card is read only: no copy sheets, no Add, no
-	// wishlist button (plans/design-review.md, "Family Read-Only Mode").
-	const readOnly = Boolean(lensMember());
+	const readOnly = Boolean(member);
+	// Whose copies the section names.
+	const whose = () => (member ? `${memberLabel(member)}'s` : 'Your');
 	// At least 48 px wide, like its height, however short the label ("‹ 151").
 	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
 	const body = h('div', {class: 'card-detail'},
@@ -873,7 +1017,8 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		priceKey = key;
-		priceSlot.replaceChildren(priceSection({
+
+		const section = priceSection({
 			card: current,
 			entries: owned,
 			language: priceLanguage(),
@@ -885,7 +1030,11 @@ export function cardView(root, {lang, cardId}) {
 				priceKey = [current, ligaHref, copiesKey(owned)];
 			},
 			recordLanguage: lang,
-		}));
+			// Nothing of a family member's is ever saved from here.
+			save: readOnly ? () => Promise.reject(new Error('A family member\'s cards are view only.')) : undefined,
+		});
+
+		priceSlot.replaceChildren(readOnly ? readOnlyPrice(section, member) : section);
 	}
 
 	// Ver na Liga: a link to Liga Pokémon's own search, never a fetch from
@@ -1101,23 +1250,35 @@ export function cardView(root, {lang, cardId}) {
 		let record;
 		let placed = new Map();
 
+		// A family member's document: their copies and their binders.
+		let memberDoc = null;
+
 		try {
 			const catalog = catalogFor(lang);
-			const [owned, index] = await Promise.all([ownedIn(catalog), cardIndex()]);
+
+			memberDoc = member ? await memberDocumentKept(member.userId) : null;
+
+			const memberLive = memberDoc ? (memberDoc.cards || []).filter((entry) => entry && !entry.deleted_at) : null;
+			const [owned, index] = await Promise.all([memberLive ? ownedFrom(memberLive, catalog) : ownedIn(catalog), cardIndex()]);
 
 			mine = owned.get(cardId);
 			record = index.get(`${catalog}|${cardId}`) || null;
 		}
-		catch {
+		catch (err) {
 			ownedKnown = true;
 			drawPrice();
 			drawLigaRow();
+
+			if (member && alive && run === copiesRun) {
+				copies.hidden = false;
+				copies.replaceChildren(h('p', {class: 'muted', id: 'copies-member-note'}, memberProblem(member, err)));
+			}
 
 			return;
 		}
 
 		try {
-			placed = await copyPlaces();
+			placed = await copyPlaces(memberDoc ? memberDoc.binders || [] : null);
 		}
 		catch {
 			// No binder places this time; the copies still show.
@@ -1125,6 +1286,11 @@ export function cardView(root, {lang, cardId}) {
 
 		if (!alive || run !== copiesRun) {
 			return;
+		}
+
+		// The member's photos of their copies join the carousel.
+		if (member && photos.setEntries(mine ? mine.entries : [])) {
+			render(card);
 		}
 
 		const live = mine ? mine.entries : [];
@@ -1150,17 +1316,18 @@ export function cardView(root, {lang, cardId}) {
 			drawLigaRow();
 		}
 
-		readWish();
+		// Your wishlist button is not offered on a member's card.
+		if (!readOnly) {
+			readWish();
+		}
 
 		if (!live.length) {
-			// Family view keeps the section away; otherwise it offers Add.
-			copies.hidden = readOnly;
-			copies.replaceChildren(...(readOnly ? [] : [
-				h('div', {class: 'copies-head'},
-					h('h3', {id: 'copies-title'}, 'Not in your cards'),
-					addButton(card, variants)
-				),
-			]));
+			// A member's card says so; yours offers Add.
+			copies.hidden = false;
+			copies.replaceChildren(h('div', {class: 'copies-head'},
+				h('h3', {id: 'copies-title'}, member ? `Not in ${memberLabel(member)}'s cards` : 'Not in your cards'),
+				readOnly ? null : addButton(card, variants)
+			));
 
 			return;
 		}
@@ -1218,7 +1385,7 @@ export function cardView(root, {lang, cardId}) {
 		copies.hidden = false;
 		copies.replaceChildren(
 			h('div', {class: 'copies-head'},
-				h('h3', {id: 'copies-title'}, `Your copies (${live.length})`),
+				h('h3', {id: 'copies-title'}, `${whose()} copies (${live.length})`),
 				readOnly ? null : addButton(card, variants)
 			),
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
@@ -1331,6 +1498,11 @@ export function cardView(root, {lang, cardId}) {
 		}
 	};
 	const stopWatching = onChange(redrawCopies);
+
+	// A member's name can arrive after the first draw.
+	if (member && !member.name) {
+		whenMemberName(member.userId, redrawCopies);
+	}
 
 	return () => {
 		alive = false;

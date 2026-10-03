@@ -36,7 +36,7 @@
 // by entry (js/merge.js), and the merged document is what gets pushed.
 // Family members' documents are read when shown, not live.
 
-import {currentUser, getClient, onUser} from './auth.js';
+import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
 import {countChanged, mergeDocuments, sameContent, stamps} from './merge.js';
 
@@ -73,7 +73,9 @@ function emit() {
 }
 
 // listener({phase, pending, error, signedIn}) runs now and on every change.
-// phase: off (signed out), synced, saving, offline, error.
+// phase: off (signed out), synced, saving, offline, error, signin (the
+// server ended the session: the changes wait on the phone until the person
+// signs in again, js/auth.js).
 export function onSyncStatus(listener) {
 	statusListeners.add(listener);
 	listener({...status});
@@ -94,6 +96,10 @@ export function statusText({pending, phase}) {
 		return 'Saving';
 	}
 
+	if (phase === 'signin') {
+		return pending ? `Sign in again, ${waiting}` : 'Sign in again';
+	}
+
 	if (phase === 'error') {
 		return pending ? `Not saved, ${waiting}` : 'Not synced';
 	}
@@ -102,8 +108,11 @@ export function statusText({pending, phase}) {
 }
 
 function setPhase(phase, error = null) {
-	status.phase = phase;
-	status.error = error;
+	// While the session is over, every failure is that one.
+	const ended = sessionExpired() && status.signedIn && phase !== 'off';
+
+	status.phase = ended ? 'signin' : phase;
+	status.error = ended ? null : error;
 	emit();
 }
 
@@ -151,6 +160,14 @@ async function syncOnce() {
 	const user = currentUser();
 
 	if (!user) {
+		return;
+	}
+
+	// Nothing reaches the server until the person signs in again.
+	if (sessionExpired()) {
+		await refreshPending();
+		setPhase('signin');
+
 		return;
 	}
 
@@ -400,8 +417,49 @@ export async function pendingChanges() {
 	return status.pending;
 }
 
+// The session ended, or came back (js/auth.js onSession). Ended: the
+// waiting changes stay on the phone and the status asks for a new sign-in.
+// Back for the same person (onUser stays quiet for that): sync at once, so
+// what waited merges with the server. For a new person, begin() runs from
+// onUser instead; the sync waits until the phone's document is theirs.
+let renewedAt = 0;
+
+function watchSession() {
+	onSession(async ({expired, renewed}) => {
+		const user = currentUser();
+
+		if (!user || started !== user.id) {
+			return;
+		}
+
+		if (expired) {
+			clearTimeout(pushTimer);
+			clearTimeout(retryTimer);
+			await refreshPending();
+			setPhase('signin');
+
+			return;
+		}
+
+		// A stale token refreshed after a refusal: try again now, but not in
+		// a loop if the server keeps refusing a fresh one.
+		if (renewed && (status.phase !== 'error' || Date.now() - renewedAt < 60000)) {
+			return;
+		}
+
+		renewedAt = renewed ? Date.now() : renewedAt;
+
+		const doc = await loadDocument().catch(() => null);
+
+		if (doc && doc.user_id === user.id && currentUser() === user) {
+			syncNow();
+		}
+	});
+}
+
 export function startSync() {
 	onUser(handleUser);
+	watchSession();
 
 	onChange((doc, {source}) => {
 		if (source !== 'local' || !currentUser()) {
@@ -663,6 +721,25 @@ export async function memberDocument(userId) {
 	}
 
 	return data ? data.doc : null;
+}
+
+// Family members' favorite Pokémon, as Map user_id -> the stored value (a
+// National Dex number, or whatever the document holds). Only that one field
+// comes back, never the rest of their documents: a JSON path select of
+// doc->settings->favorite_pokemon, one request for every member.
+export async function memberFavorites(userIds) {
+	if (!userIds.length) {
+		return new Map();
+	}
+
+	const client = await getClient();
+	const {data, error} = await client.from('documents').select('user_id,favorite:doc->settings->favorite_pokemon').in('user_id', userIds);
+
+	if (error) {
+		throw error;
+	}
+
+	return new Map((data || []).map((row) => [row.user_id, row.favorite]));
 }
 
 export async function updateDisplayName(name) {

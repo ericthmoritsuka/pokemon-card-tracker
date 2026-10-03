@@ -25,6 +25,7 @@ export class FakeStorageSupabase extends FakeSupabase {
 		this.objects = new Map();
 		this.offline = false;
 		this.offlineAttempts = [];
+		this.refuse = null;
 	}
 
 	async handle(route, device) {
@@ -79,6 +80,18 @@ export class FakeStorageSupabase extends FakeSupabase {
 
 		if (bucket !== BUCKET) {
 			return this.fail(route, 404, 'Bucket not found', 'Bucket not found');
+		}
+
+		// A test's refusal: {status, error, message, once}. once answers only
+		// the next upload that way.
+		if (kind === 'upload' && this.refuse) {
+			const {error, message, once, status} = this.refuse;
+
+			if (once) {
+				this.refuse = null;
+			}
+
+			return this.fail(route, status, error, message);
 		}
 
 		if (kind === 'upload') {
