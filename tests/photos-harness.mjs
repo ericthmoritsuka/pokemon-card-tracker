@@ -61,7 +61,7 @@ export const INTEGRATION = {
 		// js/twins.js twinSlides)
 		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {twins: group.twins}),',
 		// and the call closes with
-		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src), {twins: group.twins});',
+		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {twins: group.twins});',
 	},
 	app: {
 		// Among the imports, and in startAccount after startSync(); (and the
