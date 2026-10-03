@@ -381,7 +381,9 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 			return done({candidates, card: ordered[0], sure: true});
 		}
 
-		const narrowed = matches.length ? matches.filter((c) => languageFits(c, language)) : fitting;
+		// A number read outranks the last Asian pick (an ordering only): it filters
+		// by the language read or picked.
+		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said)) : fitting;
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
 			// Past SURE_DISTANCE only the number read makes it sure.

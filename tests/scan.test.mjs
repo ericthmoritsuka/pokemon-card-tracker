@@ -1421,6 +1421,13 @@ describe('picture first (Eric, 2026-10-03)', () => {
 
 		assert.deepEqual(asked, ['ko']);
 		assert.equal(korean.hand.language, 'ko', 'Korean 047/076 (set M6) starts in Korean');
+
+		// A number read that names one print outranks the Asian pick.
+		const twins = {gap: 68, groups: [{cards: [card('swsh3-102', 'en', 'swsh3', 3.5), card('SJ-002', 'zh-tw', 'SJ', 9.6)], score: 3.5}, {cards: [card('sm11-37', 'en', 'sm11', 71.6)], score: 71.6}]};
+		const spinarak = await pictureMatch(twins, number('102', '189'), 'non-latin', {api: {setDetail: async (lang, set) => (set === 'swsh3' ? {cardCount: {official: 189}, cards: [{id: 'swsh3-102', localId: '102', name: 'Spinarak'}], name: 'Darkness Ablaze'} : null)}, asian: 'ko'});
+
+		assert.equal(spinarak.card.id, 'swsh3-102');
+		assert.equal(spinarak.sure, true);
 	});
 
 	test('a number that names a set the catalog has not got yet offers Add by hand', async () => {
