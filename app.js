@@ -31,6 +31,7 @@ import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
 import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
 import {BASE, go, pushRoute, showError} from './js/dom.js';
+import {goalAccountViews, goalRoutes} from './js/goals-view.js';
 import {importView} from './js/import-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
 import {startPhotoSync} from './js/photos/index.js';
@@ -63,6 +64,7 @@ const ROUTES = [
 	{keys: ['userId'], pattern: /^family\/([^/]+)\/lists$/, render: familyChecklistsView, tab: 'lists', title: 'Family lists | Card Tracker'},
 	{keys: ['userId', 'id'], pattern: /^family\/([^/]+)\/lists\/([^/]+)$/, render: familyChecklistView, tab: 'lists', title: 'Family list | Card Tracker'},
 	...pokemonCardsRoutes,
+	...goalRoutes,
 	...binderRoutes,
 	...WISHLIST_ROUTES,
 	...tradeRoutes,
@@ -70,7 +72,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...goalAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 
