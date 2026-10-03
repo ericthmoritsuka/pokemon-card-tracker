@@ -1023,7 +1023,8 @@ describe('profile and family', () => {
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${owner.id}`);
 		assert.match(await page.locator('.view-only').textContent(), /Eric's cards, view only/);
-		assert.equal(await page.locator('.view-head h2').textContent(), 'Eric\'s cards');
+		// The member's name arrives just after the first draw.
+		await page.waitForFunction(() => (document.querySelector('.view-head h2') || {}).textContent === 'Eric\'s cards');
 		await page.waitForFunction(() => /^25 copies/.test((document.getElementById('cards-summary') || {}).textContent || ''));
 		assert.equal(await page.locator('.actions').count(), 0, 'no Import or Export in the view');
 		await page.screenshot({path: '/tmp/card-tracker-family-view.png'});
