@@ -383,6 +383,9 @@ describe('checklists', () => {
 		let goal = (await localDoc(page)).goals.find((item) => item.kind === 'region');
 
 		assert.deepEqual(Object.keys(goal.hand_ticks).sort(), ['2', '5']);
+		assert.deepEqual(Object.keys(goal.hand_unticks), ['6'], 'the untick is kept, so the merge knows it was on purpose');
+		assert.ok(goal.hand_unticks['6'] > goal.hand_ticks['5']);
+		assert.equal(goal.field_stamps.at, goal.updated_at, 'stamped by the new app');
 		assert.equal(goal.target, 'kanto');
 		assert.ok(goal.id && goal.updated_at && goal.deleted_at === null);
 

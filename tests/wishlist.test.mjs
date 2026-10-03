@@ -218,7 +218,7 @@ describe('builders', () => {
 describe('merge survival', () => {
 	const doc = (wishlist) => ({binders: [], cards: [], collections: [], goals: [], openings: [], updated_at: at(0), wishlist});
 
-	test('wishlist entries merge by id: the newer edit wins from either side', () => {
+	test('wishlist entries merge field by field: a priority on one phone and a note on another both stay', () => {
 		const base = wish('w1', 'sv08.5-003');
 		const phone = editedWish(base, {priority: 'high'}, Date.parse(at(2)));
 		const laptop = editedWish(base, {note: 'laptop'}, Date.parse(at(1)));
@@ -226,7 +226,14 @@ describe('merge survival', () => {
 		for (const merged of [mergeDocuments(doc([phone]), doc([laptop])), mergeDocuments(doc([laptop]), doc([phone]))]) {
 			assert.equal(merged.wishlist.length, 1);
 			assert.equal(merged.wishlist[0].priority, 'high');
+			assert.equal(merged.wishlist[0].note, 'laptop');
 		}
+
+		// The same field edited on both: the later edit wins.
+		const later = editedWish(base, {note: 'later'}, Date.parse(at(4)));
+
+		assert.equal(mergeDocuments(doc([later]), doc([laptop])).wishlist[0].note, 'later');
+		assert.equal(mergeDocuments(doc([laptop]), doc([later])).wishlist[0].note, 'later');
 	});
 
 	test('a removal is not brought back by an offline phone holding an older copy', () => {

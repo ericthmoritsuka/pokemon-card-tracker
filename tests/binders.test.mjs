@@ -38,6 +38,7 @@ import {
 	positionOf,
 	resizedBinder,
 	setPocket,
+	slotKind,
 	slotsOf,
 	stageCards,
 	stagedOf,
@@ -172,7 +173,8 @@ describe('the one-pocket rule', () => {
 		binders = apply(binders, changed);
 		assert.equal(where(binders, 'c1'), 'b:1:3');
 		assert.equal(count(binders, 'c1'), 1, 'the copy sits in one pocket');
-		assert.equal(binders.find((binder) => binder.id === 'a').slots.length, 0, 'the old pocket is empty');
+		assert.deepEqual(slotsOf(binders.find((binder) => binder.id === 'a')), [], 'the old pocket is empty');
+		assert.deepEqual(binders.find((binder) => binder.id === 'a').slots, [{cleared: true, page: 2, placed_at: at(2), position: 5}], 'and says it was emptied');
 	});
 
 	test('a move inside one binder leaves the old pocket empty', () => {
@@ -553,18 +555,38 @@ describe('surviving a merge', () => {
 		}
 	});
 
-	test('the newer edit of a binder wins, pockets and all', () => {
+	test('edits to different pockets of one binder on two phones both survive', () => {
 		let base = [binderOf('a')];
 
 		base = apply(base, setPocket(base, {at: at(1), binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 1}));
 
 		const phoneA = apply(base, setPocket(base, {at: at(2), binderId: 'a', content: {entry_id: 'c2'}, page: 1, position: 2}));
 		const phoneB = apply(base, setPocket(base, {at: at(3), binderId: 'a', content: {entry_id: 'c3'}, page: 1, position: 3}));
-		const merged = mergeDocuments({binders: phoneA}, {binders: phoneB}).binders;
 
-		assert.equal(where(merged, 'c1'), 'a:1:1');
-		assert.equal(where(merged, 'c3'), 'a:1:3');
-		assert.equal(where(merged, 'c2'), null, 'the older edit of the same binder is lost, as with any entry');
+		for (const merged of [mergeDocuments({binders: phoneA}, {binders: phoneB}).binders, mergeDocuments({binders: phoneB}, {binders: phoneA}).binders]) {
+			assert.equal(where(merged, 'c1'), 'a:1:1');
+			assert.equal(where(merged, 'c2'), 'a:1:2');
+			assert.equal(where(merged, 'c3'), 'a:1:3');
+		}
+
+		// A pocket emptied on one phone stays empty when the other phone
+		// renames the binder.
+		const cleared = apply(base, setPocket(base, {at: at(4), binderId: 'a', content: null, page: 1, position: 1}));
+		const renamed = apply(base, [resizedBinder(base[0], {...base[0], name: 'Renamed'}, {at: at(5)}).binder]);
+		const merged = mergeDocuments({binders: cleared}, {binders: renamed}).binders;
+
+		assert.equal(where(merged, 'c1'), null);
+		assert.equal(merged[0].name, 'Renamed');
+	});
+
+	test('a cleared marker is ignored by slotsOf and slotKind', () => {
+		const marker = {cleared: true, page: 1, placed_at: at(2), position: 1};
+		const binder = binderOf('a', {slots: [marker, {entry_id: 'c2', page: 1, placed_at: at(1), position: 2}]});
+
+		assert.equal(slotKind(marker), null);
+		assert.deepEqual(slotsOf(binder).map((slot) => slot.entry_id), ['c2']);
+		assert.equal(binderStats(binder, placements([binder])).filled, 1);
+		assert.deepEqual(openPockets(binder, placements([binder]))[0], {page: 1, position: 1});
 	});
 
 	test('a move on one phone and an edit of the old binder on the other still leave the copy in one pocket', () => {
@@ -572,14 +594,15 @@ describe('surviving a merge', () => {
 
 		base = apply(base, setPocket(base, {at: at(1), binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 1}));
 
-		// Phone A moves c1 from binder a to binder b at minute 2. Phone B,
-		// offline, places c2 in binder a at minute 3, so its binder a (still
-		// holding c1) is the newer one and wins the merge.
+		// Phone A moves c1 from binder a to binder b at minute 2, which leaves a
+		// cleared marker where it was. Phone B, offline, places c2 in binder a
+		// at minute 3. Binder a merges pocket by pocket, so the marker clears
+		// c1 there and c2 stays.
 		const phoneA = apply(base, setPocket(base, {at: at(2), binderId: 'b', content: {entry_id: 'c1'}, page: 1, position: 5}));
 		const phoneB = apply(base, setPocket(base, {at: at(3), binderId: 'a', content: {entry_id: 'c2'}, page: 1, position: 2}));
 
 		for (const merged of [mergeDocuments({binders: phoneA}, {binders: phoneB}).binders, mergeDocuments({binders: phoneB}, {binders: phoneA}).binders]) {
-			assert.equal(count(merged, 'c1'), 2, 'both binders still hold it in storage');
+			assert.equal(count(merged, 'c1'), 1, 'the move cleared the old pocket');
 			assert.equal(where(merged, 'c1'), 'b:1:5', 'the pocket placed last is the real one');
 			assert.equal(where(merged, 'c2'), 'a:1:2');
 
@@ -1121,7 +1144,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.waitForFunction(() => document.getElementById('binder-title').textContent === 'Gens 1 and 2');
 		binder = (await localDoc(page)).binders[0];
 		assert.equal(binder.name, 'Gens 1 and 2');
-		assert.equal(binder.slots.length, 4, 'the pockets are untouched');
+		assert.equal(binder.slots.filter((slot) => !slot.cleared).length, 4, 'the pockets are untouched');
 
 		// Offline: the shell and the binder open from the phone.
 		await page.evaluate(() => navigator.serviceWorker.ready);

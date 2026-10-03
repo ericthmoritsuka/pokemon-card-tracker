@@ -20,7 +20,7 @@
 
 import {LANGUAGES, catalogFor, catalogLanguage, compareNumbers, importApi, isLanguage, setList} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
-import {nextStamp} from './merge.js';
+import {nextStamp, stampEntry} from './merge.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
 
@@ -157,18 +157,20 @@ export {nextStamp};
 
 // A changed copy of an entry; the entry passed in is left alone, because the
 // merge compares versions. patch: {language, variantId, priority, note}.
+// Stamped field by field (js/merge.js stampEntry), so a priority changed on
+// one phone and a note on another both stay.
 export function editedWish(entry, patch, now = Date.now()) {
 	const next = {...entry, ...cleanFields(patch, entryCatalog(entry))};
 
 	next.updated_at = nextStamp(entry.updated_at, now);
 
-	return next;
+	return stampEntry(entry, next);
 }
 
 export function deletedWish(entry, now = Date.now()) {
 	const at = nextStamp(entry.updated_at, now);
 
-	return {...entry, deleted_at: at, updated_at: at};
+	return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
 }
 
 // Live items, high priority first, then newest added.

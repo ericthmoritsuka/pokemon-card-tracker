@@ -115,6 +115,29 @@ begin
 	if hits <> 0 then raise exception 'stale guarded update applied'; end if;
 end $$;
 
+-- The optional minimum-client gate (supabase/min-client.sql), installed
+-- twice: an update must carry base_stamp equal to the row's updated_at.
+reset role;
+\ir ../supabase/min-client.sql
+\ir ../supabase/min-client.sql
+set role authenticated;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
+select pg_temp.expect_error($$update public.documents set doc = '{"cards": [3]}' where user_id = auth.uid()$$, 'out of date');
+select pg_temp.expect_error($$update public.documents set doc = '{"cards": [3], "base_stamp": "2026-01-01T00:00:00Z"}' where user_id = auth.uid()$$, 'out of date');
+do $$
+declare
+	before timestamptz;
+	hits int;
+begin
+	select updated_at into before from public.documents where user_id = auth.uid();
+	update public.documents set doc = jsonb_build_object('cards', '[4]'::jsonb, 'base_stamp', before) where user_id = auth.uid() and updated_at = before;
+	get diagnostics hits = row_count;
+	if hits <> 1 then raise exception 'an update with the current base_stamp was refused'; end if;
+	if (select doc -> 'cards' from public.documents where user_id = auth.uid()) <> '[4]'::jsonb then raise exception 'gated update not saved'; end if;
+end $$;
+-- An old app carrying the base_stamp it saw last is refused once the row moved.
+select pg_temp.expect_error($$update public.documents set doc = doc || '{"cards": [5]}' where user_id = auth.uid()$$, 'out of date');
+
 -- Owner removes the member; the member then sees only their own rows.
 select public.remove_member('00000000-0000-0000-0000-00000000000b');
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000b');

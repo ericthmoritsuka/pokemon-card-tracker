@@ -27,20 +27,27 @@
 //   {page, position, placed_at, empty: true}   left empty on purpose
 //   {page, position, art}                      a tile of Michi art (not
 //       edited here yet; kept as it is)
+//   {page, position, placed_at, cleared: true} taken out: the pocket is
+//       empty, and the marker tells the merge it was emptied on purpose
+//       (slotKind reads it as nothing)
+//
+// The merge (js/merge.js) joins two versions of a binder pocket by pocket,
+// so cards placed in different pockets on two phones both stay. Every change
+// here is stamped against the binder it started from (stamped below).
 //
 // A binder is a physical place, so a card entry sits in at most one pocket
 // across every binder (DESIGN.md section 3). Placing a copy takes it out of
-// wherever it was. Two phones can still disagree after a merge, since the
-// merge keeps the newer version of each binder as a whole: one phone moves a
-// copy from binder A to binder B while the other edits A. Then the copy is in
-// both, and the slot placed last (placed_at) is the real one; the other is
-// read as empty and dropped the next time that binder is saved.
+// wherever it was. Two phones can still disagree after a merge: one phone
+// moves a copy from binder A to binder B while the other, still on an older
+// app, edits A. Then the copy is in both, and the slot placed last
+// (placed_at) is the real one; the other is read as empty and dropped the
+// next time that binder is saved.
 //
 // The pure functions take the binders and the time, so Node can test them
 // (tests/binders.test.mjs). The rest read and save the document on the phone.
 
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
-import {nextStamp} from './merge.js';
+import {nextStamp, stampEntry} from './merge.js';
 
 export const MAX_PAGES = 200;
 
@@ -324,13 +331,27 @@ export function placeholdersFor(binders, catalog, cardId) {
 // Each returns the binders that changed, as new copies with a newer
 // updated_at, ready to merge in. The binders passed in are not changed.
 
+// copy -> the binder it was made from, so stamped() can tell what changed.
+const madeFrom = new WeakMap();
+
 function copyOf(binder, at) {
 	const next = structuredClone(binder);
 
 	next.slots = Array.isArray(next.slots) ? next.slots : [];
 	next.updated_at = nextStamp(binder.updated_at, Date.parse(at));
+	madeFrom.set(next, binder);
 
 	return next;
+}
+
+// Changed copies, each stamped against the binder it was made from
+// (js/merge.js stampEntry): the fields that changed get the new stamp, a
+// pocket emptied or left out gets a cleared marker, and a pocket that
+// changed is placed after what it replaced. So another phone's edit to
+// other pockets or fields of the same binder survives the merge.
+// skip: fields not to stamp (the cover path filled in after an upload).
+function stamped(changed, {skip = []} = {}) {
+	return changed.map((binder) => (madeFrom.has(binder) ? stampEntry(madeFrom.get(binder), binder, {skip}) : binder));
 }
 
 function findLive(binders, id) {
@@ -403,7 +424,7 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 
 	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
 
-	return [...changed.values()];
+	return stamped([...changed.values()]);
 }
 
 // ----------------------------------------------------------- the tray
@@ -486,7 +507,7 @@ export function stageCards(binders, {at = nowIso(), binderId, entryIds, index = 
 
 	next.staged = [...rest.slice(0, cut), ...ids, ...rest.slice(cut)];
 
-	return [...changed.values()];
+	return stamped([...changed.values()]);
 }
 
 // Takes the card in a pocket out into the binder's tray, at the end.
@@ -558,7 +579,7 @@ export function fillFromTray(binders, {at = nowIso(), binderId, liveIds = null})
 	// The tray keeps what did not fit; copies deleted since leave it.
 	next.staged = stagedOf(target).filter((id) => !going.includes(id) && (!liveIds || liveIds.has(id)));
 
-	return {changed: [next], left: tray.length - going.length, placed: going.length};
+	return {changed: stamped([next]), left: tray.length - going.length, placed: going.length};
 }
 
 // --------------------------------------------------------- resizing
@@ -707,7 +728,7 @@ export function resizedBinder(binder, fields, {at = nowIso(), mode = 'auto', pla
 		next.art = [];
 	}
 
-	return {binder: next, plan};
+	return {binder: stamped([next])[0], plan};
 }
 
 // ------------------------------------------------------------- saving
@@ -803,7 +824,10 @@ export function updateBinder(id, fields, {mode = 'auto'} = {}) {
 
 // Sets the cover image record ({id, path, type, at}), or takes the image
 // away with null so the cover color shows again. Nothing else changes.
-export function setCoverImage(id, image) {
+// fill: true when only the uploaded path is being filled in
+// (js/binder-cover.js), which must not count as choosing the cover again: the
+// cover keeps its stamp, so a newer cover picked on another phone still wins.
+export function setCoverImage(id, image, {fill = false} = {}) {
 	const clean = image ? cleanCoverImage(image) : null;
 
 	if (image && !clean) {
@@ -816,7 +840,7 @@ export function setCoverImage(id, image) {
 
 		next.cover_image = clean;
 
-		const [saved] = await saveBinders([next]);
+		const [saved] = await saveBinders(stamped([next], {skip: fill ? ['cover_image'] : []}));
 
 		return saved;
 	});
@@ -828,11 +852,11 @@ export function deleteBinder(id) {
 	return serial(async () => {
 		const binder = findLive(await allBinders(), id);
 		const at = nowIso();
-		const next = copyOf(binder, at);
+		const draft = copyOf(binder, at);
 
-		next.deleted_at = next.updated_at;
+		draft.deleted_at = draft.updated_at;
 
-		await saveBinders([next]);
+		const [next] = await saveBinders(stamped([draft]));
 
 		return next;
 	});

@@ -38,7 +38,7 @@
 
 import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
-import {countChanged, mergeDocuments, sameContent, stamps} from './merge.js';
+import {countChanged, MERGE_VERSION, mergeDocuments, sameContent, stamps} from './merge.js';
 
 const PUSH_DELAY_MS = 3000;
 const RETRY_DELAY_MS = 30000;
@@ -85,7 +85,11 @@ export function onSyncStatus(listener) {
 
 export const syncStatus = () => ({...status});
 
-export function statusText({pending, phase}) {
+export function statusText({error = null, pending, phase}) {
+	if (phase === 'error' && error && error.code === 'update-app') {
+		return UPDATE_APP;
+	}
+
 	const waiting = `${pending.toLocaleString('en-US')} ${pending === 1 ? 'change' : 'changes'} waiting`;
 
 	if (phase === 'offline') {
@@ -128,14 +132,36 @@ async function remember(userId, serverDoc, updatedAt) {
 	await writeMeta(metaKey(userId), {base: [...base], updated_at: updatedAt});
 }
 
-// What goes to the server: the document without the phone's own fields.
-function outgoing(doc) {
+// What goes to the server: the document without the phone's own fields,
+// marked with the merge rules this app uses (merge_version), and with
+// base_stamp, the server's updated_at this write was merged against (null
+// for the first upload). The optional server gate (supabase/min-client.sql)
+// refuses any update whose base_stamp is not the row's current updated_at,
+// which every app older than merge_version 2 fails, since it only carries
+// an old base_stamp along or none.
+function outgoing(doc, stamp = null) {
 	const copy = structuredClone(doc);
 
 	delete copy.person;
 	delete copy.user_id;
+	copy.merge_version = Math.max(Number(copy.merge_version) || 0, MERGE_VERSION);
+	copy.base_stamp = stamp;
 
 	return copy;
+}
+
+// A document saved by an app with newer merge rules than this one. This app
+// stops pushing rather than merge by rules it does not know; its changes
+// wait on the phone until the app is updated.
+export const UPDATE_APP = 'Update the app to keep syncing';
+
+function checkRules(doc) {
+	if (doc && Number(doc.merge_version) > MERGE_VERSION) {
+		const err = new Error(UPDATE_APP);
+
+		err.code = 'update-app';
+		throw err;
+	}
 }
 
 // True when every entry the server held at the last sync is still on the
@@ -226,6 +252,10 @@ async function syncOnce() {
 			}
 		}
 
+		// A newer app saved this document: stop before merging or pushing.
+		checkRules(remote);
+		checkRules(local);
+
 		// Always a merge, even with nothing new from the server: the merge
 		// also repairs the document (js/merge.js folds duplicate copies), and
 		// a repaired document differs from `base`, so it is pushed.
@@ -237,7 +267,7 @@ async function syncOnce() {
 
 		if (!stamp) {
 			// No row yet: the first sync uploads the whole document.
-			const insert = await table().insert({doc: outgoing(merged), user_id: user.id}).select('updated_at').single();
+			const insert = await table().insert({doc: outgoing(merged, null), user_id: user.id}).select('updated_at').single();
 
 			if (insert.error) {
 				// 23505: another device made the row first. Read it and merge.
@@ -253,7 +283,7 @@ async function syncOnce() {
 		}
 		else if (changed) {
 			const update = await table()
-				.update({doc: outgoing(merged)})
+				.update({doc: outgoing(merged, stamp)})
 				.eq('user_id', user.id)
 				.eq('updated_at', stamp)
 				.select('updated_at');

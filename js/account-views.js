@@ -564,7 +564,8 @@ export function profileView(root) {
 
 	const stopStatus = onSyncStatus((status) => {
 		const text = statusText(status);
-		const error = status.phase === 'error' && status.error ? ` ${errorText(status.error)}` : '';
+		// "Update the app to keep syncing" is already the whole message.
+		const error = status.phase === 'error' && status.error && status.error.code !== 'update-app' ? ` ${errorText(status.error)}` : '';
 
 		syncLine.textContent = text ? `Sync: ${text}.${error}` : '';
 	});

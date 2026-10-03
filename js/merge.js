@@ -105,11 +105,575 @@ export function mergeEntry(a, b) {
 
 	const special = specialPick(a, b);
 
-	if (!special) {
+	if (special) {
+		return newerEntry(a, b) === special ? special : bumpTo(special, stampAfter(a, b));
+	}
+
+	if (a.deleted_at && b.deleted_at) {
 		return newerEntry(a, b);
 	}
 
-	return newerEntry(a, b) === special ? special : {...special, updated_at: stampAfter(a, b)};
+	return validVersion(a) && validVersion(b) ? mergeValid(a, b) : mergeFallback(a, b);
+}
+
+// ---------------------------------------------------- key by key
+//
+// From merge_version 2 (plans/sync-merge-plan.md section 2), two live versions merge
+// field by field and pocket by pocket when both were written by an app that
+// stamps, so an edit to one part of an entry on one phone and to another part
+// on a second phone both survive. A version written by an older app falls
+// back to the whole-entry rule above, minus the parts that never lose data
+// (photos, cleared pockets, unticks, the cover by its time).
+//
+// The data that makes it work, all optional, so older apps carry it along:
+//   field_stamps {at, since, <field>: iso}
+//       at     the updated_at of the version that wrote these stamps. When an
+//              older app edits the entry it moves updated_at but not at, so
+//              that version no longer counts as valid (validVersion).
+//       since  when this version's history became trustworthy: created_at,
+//              or the moment a new app took over a version an older app
+//              wrote. An older app removes a pocket or a tick by leaving it
+//              out, so something only one side holds is kept only when it is
+//              newer than the other side's since.
+//       field  when that top-level field last changed; a field without one
+//              counts as since.
+//   binder slots  each pocket by page|position with its placed_at; taking
+//              something out leaves {page, position, placed_at, cleared:
+//              true}, which slotKind reads as nothing.
+//   goal hand_unticks  dex -> when a hand tick was taken away.
+// Binders also carry layout (js/binders.js): pockets saved for two different
+// layouts, or two different grids, never mix; the side with the higher
+// layout, then the grid changed last, keeps its whole set of pockets.
+
+export const MERGE_VERSION = 2;
+
+// Never stamped per field: what the merge itself keeps track of, and the
+// collections that carry stamps of their own inside.
+const BOOKKEEPING = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'restored_at', 'merged_into', 'field_stamps']);
+const KEYED = new Set(['photos', 'slots', 'hand_ticks', 'hand_unticks']);
+const OWN_RULE = new Set(['cover_image', 'layout']);
+
+// -1, 0, or 1, with a missing time counting as the earliest.
+function compareTimes(x, y) {
+	const a = time(x);
+	const b = time(y);
+
+	if (a === b) {
+		return 0;
+	}
+
+	return a > b ? 1 : -1;
+}
+
+function compareJson(x, y) {
+	const a = stableJson(x);
+	const b = stableJson(y);
+
+	if (a === b) {
+		return 0;
+	}
+
+	return a > b ? 1 : -1;
+}
+
+const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+// True when a new app wrote this version: its field_stamps were written with
+// its updated_at, or it was never edited (no stamps, updated_at equal to
+// created_at, which covers every untouched import at no extra size).
+export function validVersion(entry) {
+	if (!entry || !Number.isFinite(time(entry.updated_at))) {
+		return false;
+	}
+
+	if (isObject(entry.field_stamps)) {
+		return time(entry.field_stamps.at) === time(entry.updated_at);
+	}
+
+	return time(entry.created_at) === time(entry.updated_at);
+}
+
+const sinceOf = (entry) => (isObject(entry.field_stamps) && entry.field_stamps.since) || entry.created_at || null;
+
+// When a field last changed; never before since.
+function fieldStamp(entry, key) {
+	const since = sinceOf(entry);
+	const own = isObject(entry.field_stamps) ? entry.field_stamps[key] : null;
+
+	return own && compareTimes(own, since) > 0 ? own : since;
+}
+
+// The field stamps an entry stands for, in one form: since, and every field
+// stamped later than since.
+function canonicalStamps(entry) {
+	const since = sinceOf(entry);
+	const out = {since};
+
+	for (const [key, value] of Object.entries(isObject(entry.field_stamps) ? entry.field_stamps : {})) {
+		if (key !== 'at' && key !== 'since' && compareTimes(value, since) > 0) {
+			out[key] = value;
+		}
+	}
+
+	return out;
+}
+
+// The version as a copy at a new stamp. A valid one stays valid.
+function bumpTo(entry, at) {
+	const out = {...entry, updated_at: at};
+
+	if (validVersion(entry)) {
+		out.field_stamps = {...canonicalStamps(entry), at};
+	}
+
+	return out;
+}
+
+const layoutNumber = (binder) => (Number.isInteger(binder && binder.layout) && binder.layout >= 0 ? binder.layout : 0);
+
+const isArt = (slot) => Boolean(slot && slot.art);
+
+const pocketKey = (slot) => `${slot.page}|${slot.position}`;
+
+const isPocket = (slot) => Boolean(slot) && Number.isInteger(slot.page) && Number.isInteger(slot.position);
+
+// Of two slots in one pocket, the one that stands: placed later, then a
+// cleared marker, then the content that sorts last.
+function slotWins(a, b) {
+	const times = compareTimes(a.placed_at, b.placed_at);
+
+	if (times !== 0) {
+		return times > 0;
+	}
+
+	if (Boolean(a.cleared) !== Boolean(b.cleared)) {
+		return Boolean(a.cleared);
+	}
+
+	return compareJson(a, b) >= 0;
+}
+
+// page|position -> the slot that stands there, art left out.
+function pocketMap(slots) {
+	const out = new Map();
+
+	for (const slot of Array.isArray(slots) ? slots : []) {
+		if (!isPocket(slot) || isArt(slot)) {
+			continue;
+		}
+
+		const key = pocketKey(slot);
+		const there = out.get(key);
+
+		if (!there || slotWins(slot, there)) {
+			out.set(key, slot);
+		}
+	}
+
+	return out;
+}
+
+function inBinderGrid(binder, slot) {
+	const per = Number(binder.rows) * Number(binder.cols);
+	const pages = Number(binder.page_count);
+
+	if (!Number.isFinite(per) || !Number.isFinite(pages)) {
+		return true;
+	}
+
+	return slot.page >= 1 && slot.page <= pages && slot.position >= 1 && slot.position <= per;
+}
+
+const sortSlots = (slots) => slots.sort((a, b) => (a.page - b.page) || (a.position - b.position) || compareJson(a, b));
+
+// Pockets saved for the same grid: same layout number, rows, and columns.
+const sameGrid = (a, b) => layoutNumber(a) === layoutNumber(b) && a.rows === b.rows && a.cols === b.cols;
+
+// The side whose grid stands when two grids differ: the higher layout, then
+// the grid changed last, then the plain rule.
+function gridSide(a, b) {
+	if (layoutNumber(a) !== layoutNumber(b)) {
+		return layoutNumber(a) > layoutNumber(b) ? a : b;
+	}
+
+	const stamp = (entry) => later(fieldStamp(entry, 'rows'), fieldStamp(entry, 'cols'));
+	const times = compareTimes(stamp(a), stamp(b));
+
+	if (times !== 0) {
+		return times > 0 ? a : b;
+	}
+
+	return newerEntry(a, b);
+}
+
+// Pockets merged one by one (both versions valid, same grid). A pocket only
+// one side holds stays when it was placed after the other side's since, and
+// a cleared marker always stays. Art tiles (no placed_at) come with the grid.
+function mergeSlots(a, b) {
+	const mine = pocketMap(a.slots);
+	const theirs = pocketMap(b.slots);
+	const out = [];
+
+	for (const key of new Set([...mine.keys(), ...theirs.keys()])) {
+		const x = mine.get(key);
+		const y = theirs.get(key);
+
+		if (x && y) {
+			out.push(slotWins(x, y) ? x : y);
+		}
+		else if (x) {
+			if (x.cleared || compareTimes(x.placed_at, sinceOf(b)) > 0) {
+				out.push(x);
+			}
+		}
+		else if (y.cleared || compareTimes(y.placed_at, sinceOf(a)) > 0) {
+			out.push(y);
+		}
+	}
+
+	for (const slot of gridSide(a, b).slots || []) {
+		if (isArt(slot)) {
+			out.push(slot);
+		}
+	}
+
+	return out;
+}
+
+// Hand ticks merged dex by dex (both versions valid): the later of the tick
+// and the untick stands, and an untick wins a tie. A tick only one side
+// knows stays when it is newer than the other side's since.
+function mergeTicks(a, b) {
+	const ticksA = isObject(a.hand_ticks) ? a.hand_ticks : {};
+	const ticksB = isObject(b.hand_ticks) ? b.hand_ticks : {};
+	const untA = isObject(a.hand_unticks) ? a.hand_unticks : {};
+	const untB = isObject(b.hand_unticks) ? b.hand_unticks : {};
+	const ticks = {};
+	const unticks = {};
+	const knows = (ticksOf, untOf, dex) => dex in ticksOf || dex in untOf;
+
+	for (const dex of new Set([...Object.keys(ticksA), ...Object.keys(ticksB), ...Object.keys(untA), ...Object.keys(untB)])) {
+		let tick = null;
+
+		if (dex in ticksA && (knows(ticksB, untB, dex) || compareTimes(ticksA[dex], sinceOf(b)) > 0)) {
+			tick = ticksA[dex];
+		}
+
+		if (dex in ticksB && (knows(ticksA, untA, dex) || compareTimes(ticksB[dex], sinceOf(a)) > 0)) {
+			tick = tick === null ? ticksB[dex] : later(tick, ticksB[dex]);
+		}
+
+		const untick = dex in untA || dex in untB ? later(untA[dex] ?? null, untB[dex] ?? null) : null;
+
+		if (tick !== null && (untick === null || compareTimes(tick, untick) > 0)) {
+			ticks[dex] = tick;
+		}
+		else if (untick !== null) {
+			unticks[dex] = untick;
+		}
+	}
+
+	return {ticks, unticks};
+}
+
+// Two cover images: different pictures go to the one made later (its at),
+// the same picture to the version that knows its uploaded path. Null when
+// the rule cannot tell (one side has none).
+function coverPick(x, y) {
+	if (!isObject(x) || !isObject(y)) {
+		return null;
+	}
+
+	if (x.id !== y.id) {
+		const times = compareTimes(x.at, y.at);
+
+		if (times !== 0) {
+			return times > 0 ? x : y;
+		}
+	}
+	else if (Boolean(x.path) !== Boolean(y.path)) {
+		return x.path ? x : y;
+	}
+
+	return compareJson(x, y) >= 0 ? x : y;
+}
+
+// What two versions are compared by: everything but the stamps, with the
+// pockets in one order and no empty unticks.
+function contentOf(entry) {
+	const {field_stamps: _stamps, updated_at: _at, ...rest} = entry;
+
+	if (Array.isArray(rest.slots)) {
+		rest.slots = rest.slots.map(stableJson).sort();
+	}
+
+	if (isObject(rest.hand_unticks) && !Object.keys(rest.hand_unticks).length) {
+		delete rest.hand_unticks;
+	}
+
+	return stableJson(rest);
+}
+
+// The value and stamp of a field decided by its stamp, then by content.
+function pickField(a, b, key) {
+	const stampA = fieldStamp(a, key);
+	const stampB = fieldStamp(b, key);
+	const times = compareTimes(stampA, stampB);
+	const from = times !== 0 ? (times > 0 ? a : b) : (compareJson(a[key], b[key]) >= 0 ? a : b);
+
+	return {from, stamp: times >= 0 ? stampA : stampB};
+}
+
+// Both versions written by a new app: field by field and pocket by pocket.
+function mergeValid(a, b) {
+	const newer = newerEntry(a, b);
+	const older = newer === a ? b : a;
+	const since = later(sinceOf(a), sinceOf(b));
+	const stamps = {since};
+	const out = {id: newer.id};
+
+	if (a.created_at !== undefined || b.created_at !== undefined) {
+		const known = [a.created_at, b.created_at].filter((value) => value !== undefined);
+
+		out.created_at = known.reduce((x, y) => (compareTimes(x, y) <= 0 ? x : y));
+	}
+
+	for (const key of ['deleted_at', 'merged_into']) {
+		if (key in newer) {
+			out[key] = newer[key];
+		}
+	}
+
+	if (a.restored_at || b.restored_at) {
+		out.restored_at = later(a.restored_at || null, b.restored_at || null);
+	}
+
+	const stamped = (key, stamp) => {
+		if (compareTimes(stamp, since) > 0) {
+			stamps[key] = stamp;
+		}
+	};
+
+	for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+		if (BOOKKEEPING.has(key) || KEYED.has(key) || OWN_RULE.has(key)) {
+			continue;
+		}
+
+		const {from, stamp} = pickField(a, b, key);
+
+		if (from[key] !== undefined) {
+			out[key] = from[key];
+		}
+
+		stamped(key, stamp);
+	}
+
+	if ('layout' in a || 'layout' in b) {
+		out.layout = Math.max(layoutNumber(a), layoutNumber(b));
+	}
+
+	if (Array.isArray(a.photos) || Array.isArray(b.photos)) {
+		out.photos = mergePhotoLists(newer.photos, older.photos);
+	}
+
+	if (Array.isArray(a.slots) || Array.isArray(b.slots)) {
+		let slots;
+
+		if (sameGrid(a, b)) {
+			slots = mergeSlots(a, b);
+		}
+		else {
+			const side = gridSide(a, b);
+
+			slots = Array.isArray(side.slots) ? [...side.slots] : [];
+
+			for (const key of ['rows', 'cols']) {
+				if (side[key] === undefined) {
+					delete out[key];
+				}
+				else {
+					out[key] = side[key];
+				}
+			}
+		}
+
+		out.slots = sortSlots(slots.filter((slot) => !isPocket(slot) || inBinderGrid(out, slot)));
+	}
+
+	if (isObject(a.hand_ticks) || isObject(b.hand_ticks) || isObject(a.hand_unticks) || isObject(b.hand_unticks)) {
+		const {ticks, unticks} = mergeTicks(a, b);
+
+		out.hand_ticks = ticks;
+
+		if (Object.keys(unticks).length) {
+			out.hand_unticks = unticks;
+		}
+	}
+
+	if ('cover_image' in a || 'cover_image' in b) {
+		const picked = coverPick(a.cover_image, b.cover_image);
+		const {from, stamp} = pickField(a, b, 'cover_image');
+
+		if (picked) {
+			out.cover_image = picked;
+		}
+		else if (from.cover_image !== undefined) {
+			out.cover_image = from.cover_image;
+		}
+
+		stamped('cover_image', stamp);
+	}
+
+	// The newer version, when it already holds the whole result.
+	if (contentOf(out) === contentOf(newer) && stableJson(stamps) === stableJson(canonicalStamps(newer))) {
+		return newer;
+	}
+
+	const at = stampAfter(a, b);
+
+	out.updated_at = at;
+	out.field_stamps = {...stamps, at};
+
+	return out;
+}
+
+// At least one version written by an older app: the newer version whole, as
+// that app would pick, plus what never loses data. Photos are unioned (older
+// apps only tombstone photos), the other version's cleared pockets and
+// unticks that are newer than what the winner holds there apply, and two
+// cover pictures go by their time. Pockets or ticks only the other version
+// added are not brought back: the older app may have removed them on purpose.
+function mergeFallback(a, b) {
+	const winner = newerEntry(a, b);
+	const loser = winner === a ? b : a;
+	const out = {...winner};
+
+	if (Array.isArray(winner.photos) || Array.isArray(loser.photos)) {
+		out.photos = mergePhotoLists(winner.photos, loser.photos);
+	}
+
+	if (Array.isArray(winner.slots) && Array.isArray(loser.slots) && sameGrid(winner, loser)) {
+		let slots = winner.slots;
+
+		for (const marker of pocketMap(loser.slots).values()) {
+			if (!marker.cleared) {
+				continue;
+			}
+
+			const there = pocketMap(slots).get(pocketKey(marker));
+
+			if (!there || compareTimes(marker.placed_at, there.placed_at) > 0) {
+				slots = [...slots.filter((slot) => isArt(slot) || !isPocket(slot) || pocketKey(slot) !== pocketKey(marker)), marker];
+			}
+		}
+
+		if (slots !== winner.slots) {
+			out.slots = sortSlots(slots);
+		}
+	}
+
+	if (isObject(loser.hand_unticks)) {
+		const ticks = {...(isObject(winner.hand_ticks) ? winner.hand_ticks : {})};
+		const unticks = {...(isObject(winner.hand_unticks) ? winner.hand_unticks : {})};
+		let touched = false;
+
+		for (const [dex, at] of Object.entries(loser.hand_unticks)) {
+			const held = later(ticks[dex] ?? null, unticks[dex] ?? null);
+
+			if (held === null || compareTimes(at, held) > 0) {
+				delete ticks[dex];
+				unticks[dex] = at;
+				touched = true;
+			}
+		}
+
+		if (touched) {
+			out.hand_ticks = ticks;
+			out.hand_unticks = unticks;
+		}
+	}
+
+	const cover = coverPick(winner.cover_image, loser.cover_image);
+
+	if (cover) {
+		out.cover_image = cover;
+	}
+
+	if (stableJson(out) === stableJson(winner)) {
+		return winner;
+	}
+
+	out.updated_at = stampAfter(a, b);
+
+	return out;
+}
+
+// A version a writer made from `before`, stamped: every top-level field
+// whose content changed gets the new stamp (fields removed outright too),
+// field_stamps.at takes the version's updated_at so it counts as valid, and
+// since stays, or starts now when an older app wrote `before`. Binder
+// pockets the writer emptied or left out get a cleared marker, and a pocket
+// whose content changed is placed after what was there, whatever the
+// phone's clock says. skip names fields not to stamp (the cover path filled
+// in after an upload). Returns a new object; neither input is changed.
+export function stampEntry(before, after, {at = after && after.updated_at, skip = []} = {}) {
+	if (!before || !after) {
+		return after;
+	}
+
+	const out = {...after, updated_at: at};
+	const valid = validVersion(before);
+	const stamps = valid ? canonicalStamps(before) : {};
+
+	stamps.since = (valid && sinceOf(before)) || at;
+
+	for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+		if (!BOOKKEEPING.has(key) && !KEYED.has(key) && !skip.includes(key) && stableJson(before[key]) !== stableJson(after[key])) {
+			stamps[key] = at;
+		}
+	}
+
+	stamps.at = at;
+	out.field_stamps = stamps;
+
+	if (Array.isArray(before.slots) && Array.isArray(after.slots) && sameGrid(before, after)) {
+		out.slots = markPockets(before.slots, after, at);
+	}
+
+	return out;
+}
+
+// The writer's pockets with a cleared marker wherever something was taken
+// out (cleared markers already there are kept), and changed pockets placed
+// after what they replace.
+function markPockets(beforeSlots, after, at) {
+	const was = pocketMap(beforeSlots);
+	const now = pocketMap(after.slots);
+	const ms = time(at);
+	let changed = false;
+
+	const slots = after.slots.map((slot) => {
+		const prev = isPocket(slot) && !isArt(slot) ? was.get(pocketKey(slot)) : null;
+
+		if (prev && now.get(pocketKey(slot)) === slot && stableJson(prev) !== stableJson(slot) && compareTimes(slot.placed_at, prev.placed_at) <= 0) {
+			changed = true;
+
+			return {...slot, placed_at: nextStamp(prev.placed_at, ms)};
+		}
+
+		return slot;
+	});
+
+	for (const [key, prev] of was) {
+		if (now.has(key) || !inBinderGrid(after, prev)) {
+			continue;
+		}
+
+		changed = true;
+		slots.push(prev.cleared ? prev : {cleared: true, page: prev.page, placed_at: nextStamp(prev.placed_at, ms), position: prev.position});
+	}
+
+	return changed ? sortSlots(slots) : after.slots;
 }
 
 // Brings a deleted entry back on purpose: deleted_at cleared, and
@@ -124,7 +688,7 @@ export function restoreEntry(entry, now = Date.now()) {
 	const {merged_into: _merged, ...rest} = entry;
 	const at = nextStamp(later(entry.updated_at, entry.deleted_at), now);
 
-	return {...rest, deleted_at: null, restored_at: at, updated_at: at};
+	return stampEntry(entry, {...rest, deleted_at: null, restored_at: at, updated_at: at});
 }
 
 // Merges two versions of one list. Entries keep the local order, and entries
@@ -199,7 +763,13 @@ export function mergeDocuments(local, remote) {
 		out.updated_at = later(local.updated_at, remote.updated_at);
 	}
 
-	out.cards = refoldPhotos(collapseImportDuplicates(out.cards));
+	// The highest merge rules any phone has used on this document. A phone
+	// whose own rules are older stops pushing (js/sync.js).
+	if (local.merge_version || remote.merge_version) {
+		out.merge_version = Math.max(Number(local.merge_version) || 0, Number(remote.merge_version) || 0);
+	}
+
+	out.cards =refoldPhotos(collapseImportDuplicates(out.cards));
 	out.binders = redirectPockets(out.binders, out.cards);
 	out.wishlist = dedupeWishes(out.wishlist);
 
@@ -240,7 +810,7 @@ export function dedupeWishes(wishes) {
 			kept.note = noted.note;
 		}
 
-		replace.set(kept.id, kept);
+		replace.set(kept.id, stampEntry(survivor, kept));
 
 		for (const member of members) {
 			if (member.id !== kept.id) {
@@ -383,7 +953,7 @@ export function collapseImportDuplicates(cards) {
 		const kept = survivorOf(members);
 		const at = stampAfterAll(members);
 
-		replace.set(kept.id, {...kept, deleted_at: null, updated_at: at});
+		replace.set(kept.id, stampEntry(members.find((member) => member.id === kept.id), {...kept, deleted_at: null, updated_at: at}));
 
 		for (const member of members) {
 			if (member.id !== kept.id) {
@@ -462,7 +1032,7 @@ function refoldPhotos(cards) {
 			return card;
 		}
 
-		return {...card, photos, updated_at: stampAfter(card, card)};
+		return bumpTo({...card, photos}, stampAfter(card, card));
 	});
 }
 
@@ -492,11 +1062,10 @@ export function redirectPockets(binders, cards) {
 
 		changed = true;
 
-		return {
+		return bumpTo({
 			...binder,
 			slots: binder.slots.map((slot) => (slot && next.has(slot.entry_id) ? {...slot, entry_id: resolve(slot.entry_id)} : slot)),
-			updated_at: stampAfter(binder, binder),
-		};
+		}, stampAfter(binder, binder));
 	});
 
 	return changed ? out : binders;

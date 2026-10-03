@@ -204,6 +204,23 @@ phone still on v21 (which takes the newer stamp) accepts it. Every write takes i
 can no longer lose a real later edit. There is no clock correction: stamps are monotonic only.
 *(Decided 2026-10-02, Eric's audit fixes; design in `plans/sync-merge-plan.md`.)*
 
+**Edits to different parts of one entry both survive.** Two phones that change the same card,
+binder, list, or wish between syncs no longer lose one side's change. Every write stamps the
+fields it changes (`field_stamps`), so the merge takes each field from the version that changed it
+last: a Liga price typed on one phone and a note on another both stay. Binder pockets merge pocket
+by pocket by `placed_at`, and taking a card out leaves a cleared marker so the pocket stays empty;
+hand ticks merge by dex number against `hand_unticks`; photos are always joined by id; a cover goes
+by when the picture was made, and filling in its uploaded path does not count as choosing it again.
+Pockets saved for two different layouts or grids never mix: the binder reshaped last keeps its
+whole set. A version written by an app before merge_version 2 has no valid stamps, so that pair
+falls back to the whole-entry rule above, still keeping photos, cleared pockets, unticks, and
+deletes; a pocket or tick only one side holds is kept only when it is newer than the other side's
+`since`, because an older app removes them by leaving them out. Edits to the same field at the same
+time are still decided by the clock. A phone that finds a document saved under newer merge rules
+stops syncing and says "Update the app to keep syncing". An optional server gate
+(`supabase/min-client.sql`) refuses saves from older apps once every phone runs the new one.
+*(Decided by Eric, 2026-10-03; design in `plans/sync-merge-plan.md` section 2.)*
+
 **One import row is one copy, on every phone.** An imported copy's id is a UUID version 5 of its
 `import_key`, so the same file imported on two phones, or signed out before the first sign-in,
 gives the same ids instead of doubling the collection. Documents doubled before v22 are repaired by
@@ -363,6 +380,21 @@ card
 fields serve the merge rules of 2026-10-02 (section 3): `restored_at` on an entry brought back on
 purpose after a delete, and `merged_into` on a tombstone left by folding duplicate copies, naming
 the copy that holds its photos and pockets now.
+
+The key-by-key merge of 2026-10-03 (section 3) adds optional fields, all carried along unchanged
+by older apps:
+
+- `field_stamps` on an entry, `{at, since, <field>: time}`, written by every edit. `at` equals the
+  version's `updated_at` while the stamps are trustworthy; an older app's edit moves `updated_at`
+  only, so that version falls back to the whole-entry rule. `since` is when the version's history
+  became trustworthy (its `created_at`, or the first stamped edit after an older app wrote it). A
+  field with no stamp counts as `since`. An entry never edited needs none.
+- A cleared pocket in a binder's `slots`: `{page, position, placed_at, cleared: true}`, read as an
+  empty pocket.
+- `hand_unticks` on a checklist: dex number to the time a hand tick was taken away.
+- `merge_version` on the document: the highest merge rules any phone saved it with (2 from
+  2026-10-03). `base_stamp` on the document as sent: the server `updated_at` the save was merged
+  against, which the optional gate in `supabase/min-client.sql` checks.
 
 ```
 {
@@ -1010,8 +1042,8 @@ cards are not in any binder yet.
   tray instead of leaving it, and placeholders and empty-on-purpose pockets on the cut pages go.
 - **Michi art** is cleared on any change of shape.
 - Each binder carries a numeric **`layout`**, one more on every change of shape (and when it is
-  emptied into the tray); a binder without it counts as 0. A later sync change uses it so pockets
-  saved for two different grids never mix.
+  emptied into the tray); a binder without it counts as 0. The merge uses it so pockets saved for
+  two different grids never mix: the higher layout keeps its whole set (section 3).
 - Before saving, the editor shows the first page after the change and what happens to the
   pockets, in the app's own sheet, with **"Empty into the tray and arrange by hand"** as the other
   way: every card goes to the tray in reading order, and placeholders and empty-on-purpose pockets
