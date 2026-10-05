@@ -92,8 +92,10 @@ the audit below to confirm or drop:
    the old Menu.
 3. **Later, not scheduled:** image-first recognition (DESIGN.md section 6, "Later: image-first
    recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
-   graded cards, Korean and Japanese script detection for the scanner (vendor `jpn` and `kor`
-   models).
+   purchase details (price paid and storage), Korean and Japanese script detection for the
+   scanner (vendor `jpn` and `kor` models).
+   - **Backlog, not soon:** graded cards (grader, grade, certificate, hand-entered value). Eric
+     sees no near demand (2026-10-05); the fields stay reserved in DESIGN.md section 4.
 4. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
