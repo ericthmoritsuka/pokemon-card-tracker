@@ -96,7 +96,17 @@ the audit below to confirm or drop:
    scanner (vendor `jpn` and `kor` models).
    - **Backlog, not soon:** graded cards (grader, grade, certificate, hand-entered value). Eric
      sees no near demand (2026-10-05); the fields stay reserved in DESIGN.md section 4.
-4. **Family view (Eric, 2026-10-05):**
+4. **Binder from a list (Eric, 2026-10-05; replaces "a checklist lays out a binder"):** pick
+   the cards (a checklist, a collection, or a filter such as region, set, type, language), an
+   order (Pokédex number, set and number, name, release), and a pocket size; the app makes the
+   binder and works out the pages. Each pocket stands for a Pokémon (or card), not one copy:
+   it shows a default (the most valuable or rarest copy), carries a count mark when there are
+   more, and tapping it opens a sheet of every owned copy as pictures to pick from. A Pokémon
+   not owned shows a faded placeholder with Add to wishlist. Choices stick: Refresh fills new
+   pockets and updates only defaults never picked by hand. A generated binder is a view, so a
+   card can also sit in another binder. Medium: binders, spreads, the filter bar, checklists,
+   and collections already exist.
+5. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
