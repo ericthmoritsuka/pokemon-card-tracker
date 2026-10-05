@@ -94,6 +94,14 @@ the audit below to confirm or drop:
    recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
    graded cards, Korean and Japanese script detection for the scanner (vendor `jpn` and `kor`
    models).
+4. **Family view (Eric, 2026-10-05):**
+   - **Want on a member's card:** a member's card page hides Want with every other edit
+     button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
+     own wishlist. Show it there, default the language to the member's copy, and say "N has
+     2 spare" when they hold extras.
+   - **Optional: their wishlist one tap closer.** The lens already follows Cards, Binders, and
+     Lists, so a member's wishlist is Lists, then Wishlist. A Wishlist link in the heading of
+     their Cards page, like the Spares link on yours, would save the step.
 
 ## Open Decisions for Eric
 
