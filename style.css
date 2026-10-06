@@ -896,14 +896,30 @@ main {
 	padding: var(--space-4);
 }
 
-/* Panels carry the theme's tint and frame (js/themes.js, FRAMES). */
+/* Panels carry the theme's tint and frame (js/themes.js, FRAMES). The
+   frame is drawn by ::before, so its width (0 to 5 px by theme) never
+   changes a panel's size: nothing inside rewraps and nothing below moves
+   when a theme is picked (Q-38). The padding is the default frame's 1 px
+   plus 16 px, so the default theme looks as it did. */
 .card {
+	background: var(--panel);
+	border-radius: var(--frame-radius);
+	isolation: isolate;
+	margin: var(--space-4) 0;
+	padding: calc(var(--space-4) + 1px);
+	position: relative;
+}
+
+.card::before {
 	background: var(--frame-bg);
 	border: var(--frame-border);
-	border-radius: var(--frame-radius);
+	border-radius: inherit;
 	box-shadow: var(--frame-shadow);
-	margin: var(--space-4) 0;
-	padding: var(--space-4);
+	content: "";
+	inset: 0;
+	pointer-events: none;
+	position: absolute;
+	z-index: -1;
 }
 
 .muted {
@@ -2990,4 +3006,8 @@ progress {
 	box-shadow: none;
 	margin: 0;
 	padding: 0;
+}
+
+#profile-signin .card::before {
+	content: none;
 }
