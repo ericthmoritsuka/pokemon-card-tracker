@@ -94,6 +94,11 @@ the audit below to confirm or drop:
    recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
    purchase details (price paid and storage), Korean and Japanese script detection for the
    scanner (vendor `jpn` and `kor` models).
+   - **Backlog:** the big Liga value box (`statsBar` in js/price-view.js: Total, Average,
+     Highest, Lowest) still sits inline on a checklist (js/checklists-view.js), a set page
+     (js/catalog-views.js), and a binder (js/binders-view.js). Eric dislikes the big box
+     (2026-10-06). Swap it for the small Value button and sheet My Cards uses
+     (js/value-sheet.js); check it in Chrome at phone width first.
    - **Backlog, not soon:** graded cards (grader, grade, certificate, hand-entered value). Eric
      sees no near demand (2026-10-05); the fields stay reserved in DESIGN.md section 4.
 4. **Binder from a list (Eric, 2026-10-05; replaces "a checklist lays out a binder"):** pick
