@@ -41,7 +41,7 @@ describe('ligaQuery', () => {
 		});
 	}
 
-	test('keeps localId exactly as given, never re-padded', () => {
+	test('keeps localId as given outside svp and McDonald\'s 2023', () => {
 		assert.equal(ligaQuery({localId: '4', name: 'Charizard', official: 102}), 'Charizard (4/102)');
 		assert.equal(ligaQuery({localId: '004', name: 'Charizard', official: 102}), 'Charizard (004/102)');
 	});
@@ -139,7 +139,7 @@ describe('more checked rules', () => {
 	});
 
 	test('a promo uses its number alone, with or without an official count', () => {
-		for (const setId of ['swshp', 'svp', 'smp', 'xyp', 'bwp', 'mep']) {
+		for (const setId of ['swshp', 'smp', 'xyp', 'bwp', 'mep']) {
 			assert.equal(ligaQuery({localId: 'SWSH050', name: 'Charizard V', setId}), 'Charizard-V (SWSH050)', setId);
 		}
 
@@ -149,6 +149,39 @@ describe('more checked rules', () => {
 		assert.equal(isPromoSet('swsh9', 'Brilliant Stars'), false);
 		assert.equal(isPromoSet('sv03.5', '151'), false);
 		assert.equal(isPromoSet(undefined, undefined), false);
+	});
+});
+
+// Checked by hand on Liga on 2026-10-05.
+describe('numbering rules checked on 2026-10-05', () => {
+	test('Generations Radiant Collection uses the main set\'s total, with no letters', () => {
+		assert.equal(ligaQuery({localId: 'RC19', name: 'Swirlix', official: 83, setId: 'g1', setName: 'Generations'}), 'Swirlix (RC19/83)');
+		assert.equal(ligaQuery({localId: 'RC28', name: 'Flareon EX', official: 83, setId: 'g1', setName: 'Generations'}), 'Flareon-EX (RC28/83)');
+		assert.equal(ligaQuery({localId: '11', name: 'Charizard EX', official: 83, setId: 'g1', setName: 'Generations'}), 'Charizard-EX (11/83)', 'the main set is unchanged');
+		assert.equal(ligaQuery({localId: 'GG44', name: 'Pikachu', official: 70, setId: 'swsh12.5gg'}), 'Pikachu (GG44/GG70)', 'GG keeps its letters');
+	});
+
+	test('Scarlet & Violet promos write the number over an infinity sign', () => {
+		assert.equal(ligaQuery({localId: '012', name: 'Dondozo', setId: 'svp', setName: 'SVP Black Star Promos'}), 'Dondozo (012/∞)');
+		assert.equal(ligaQuery({localId: '12', name: 'Dondozo', official: 0, setId: 'svp'}), 'Dondozo (012/∞)', 'padded to three digits');
+		assert.equal(ligaUrl({localId: '012', name: 'Dondozo', setId: 'svp'}), `${SEARCH}Dondozo%20(012%2F%E2%88%9E)`);
+		assert.equal(ligaQuery({catalog: 'ja', localId: '001', name: 'Pikachu', setId: 'SV-P'}), 'Pikachu (001)', 'Japanese SV-P is unchanged');
+	});
+
+	test('XY and SWSH promos keep the promo number alone', () => {
+		assert.equal(ligaQuery({localId: 'XY111', name: 'Celebi', setId: 'xyp', setName: 'XY Black Star Promos'}), 'Celebi (XY111)');
+		assert.equal(ligaQuery({localId: 'XY41', name: 'Kyogre EX', setId: 'xyp', setName: 'XY Black Star Promos'}), 'Kyogre-EX (XY41)');
+		assert.equal(ligaQuery({localId: 'SWSH050', name: 'Charizard V', setId: 'swshp'}), 'Charizard-V (SWSH050)');
+	});
+
+	test('McDonald\'s Collection 2023 pads both sides to three digits', () => {
+		assert.equal(ligaQuery({localId: '5', name: 'Cetitan', official: 15, setId: '2023sv', setName: 'McDonald\'s Collection 2023'}), 'Cetitan (005/015)');
+		assert.equal(ligaQuery({localId: '5', name: 'Cetitan', official: 15, setName: 'McDonald\'s Collection 2023'}), 'Cetitan (005/015)', 'matched by name too');
+		assert.equal(ligaQuery({localId: '5', name: 'Pikachu', official: 12, setId: '2016xy', setName: 'McDonald\'s Collection 2016'}), 'Pikachu (5/12)', 'other years are unchanged');
+	});
+
+	test('a zero-padded number pads the total: Paldean Fates', () => {
+		assert.equal(ligaQuery({localId: '039', name: 'Dachsbun', official: 91, setId: 'sv04.5', setName: 'Paldean Fates'}), 'Dachsbun (039/091)');
 	});
 });
 
