@@ -3,6 +3,7 @@
 
 import {BASE, errorText, h, namedError, showError} from './dom.js';
 import {reportAlwaysOn, setReportAlwaysOn} from './scan/draft.js';
+import {clockGap, clockIsOff, clockOffset, onClockOffset} from './sync.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
 const SHELL_CACHE_PREFIX = 'card-tracker-shell-';
@@ -82,6 +83,20 @@ function swStatus() {
 	return yesNo(swControls());
 }
 
+// The phone's clock against the server's, from the last sync that saved
+// (js/sync.js): warn only, the app never corrects it.
+function clockText(estimate = clockOffset()) {
+	if (!estimate) {
+		return 'Not measured yet. Each sync that saves measures it.';
+	}
+
+	if (!clockIsOff(estimate)) {
+		return 'Right, within 2 minutes of the server';
+	}
+
+	return `${clockGap(estimate.offsetMs)} ${estimate.offsetMs < 0 ? 'ahead of' : 'behind'} the server`;
+}
+
 async function deviceRows() {
 	return [
 		['Report time', timestamp()],
@@ -97,6 +112,7 @@ async function deviceRows() {
 		['Secure context', yesNo(window.isSecureContext)],
 		['Service worker controls page', swStatus()],
 		['Shell cache', await shellCacheNames()],
+		['Phone clock', clockText()],
 	];
 }
 
@@ -226,7 +242,25 @@ export function phoneCheckView(root) {
 	const report = h('pre', {class: 'report'}, 'Building the report...');
 	const status = h('p', {class: 'status', role: 'status'});
 
+	// Shown only while the clock is more than 2 minutes off.
+	const clockCard = h('section', {class: 'card', hidden: true, id: 'phone-clock'},
+		h('h2', null, 'Phone clock'),
+		h('p', {id: 'phone-clock-text'})
+	);
+
+	function drawClock() {
+		const estimate = clockOffset();
+
+		clockCard.hidden = !clockIsOff(estimate);
+
+		if (!clockCard.hidden) {
+			clockCard.querySelector('p').textContent = `This phone's clock is ${clockText(estimate)}. Set the date and time to automatic in the phone's settings so edits sync in the right order. The app never changes the clock or your edits' times.`;
+		}
+	}
+
 	async function refresh() {
+		drawClock();
+
 		try {
 			report.textContent = await buildReport();
 		}
@@ -253,6 +287,7 @@ export function phoneCheckView(root) {
 			h('h2', null, 'Phone check'),
 			h('p', null, 'A quick check of what this phone can do from a web app: use the camera, and keep data with no signal.')
 		),
+		clockCard,
 		h('section', {class: 'card'},
 			h('h2', null, 'How to test'),
 			h('ol', null,
@@ -289,9 +324,12 @@ export function phoneCheckView(root) {
 	window.addEventListener('online', refresh);
 	window.addEventListener('offline', refresh);
 
+	const stopClock = onClockOffset(refresh);
+
 	return () => {
 		window.removeEventListener('online', refresh);
 		window.removeEventListener('offline', refresh);
+		stopClock();
 	};
 }
 
