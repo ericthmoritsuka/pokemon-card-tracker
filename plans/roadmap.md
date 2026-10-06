@@ -141,10 +141,13 @@ the audit below to confirm or drop:
    the collection (copy ids it leaves out, merged like `card_ids`); the rule keeps adding new
    matches. Untick it in the card's Add to collection sheet, and show "N left out" on the
    collection with a way to put them back. Today the sheet lists a rule collection as read only.
-8. **Show the app's version (Eric, 2026-10-06):** a small line at the bottom of Profile,
-   "Card Tracker v30", read from the active service worker's cache name
-   (`card-tracker-shell-<VERSION>`, as Phone check already lists). When a newer worker is
-   waiting, say "v30 · v31 ready" with the Reload button. Tiny; ride along with the next release.
+8. **What's new, with the version (Eric, 2026-10-06):** after Reload brings a new version, a
+   short sheet "What's new in vN" shows once, with three or four plain bullets. Profile ends with
+   "Card Tracker vN · What's new", which lists recent versions. The text lives in a small module
+   shipped with the app (works offline), written in friendly words at each release, not
+   CHANGELOG.md. The version comes from the active service worker's cache name
+   (`card-tracker-shell-<VERSION>`); when a newer worker waits, say "vN+1 ready" with Reload.
+   Small; ride along with the next release.
 9. **Family view (Eric, 2026-10-05):** both done in v30.
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
