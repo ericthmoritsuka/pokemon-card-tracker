@@ -286,9 +286,13 @@ describe('price section', () => {
 
 		assert.equal(stored.length, 2);
 
+		// The finish and language it is for, from the finish shown and the
+		// copies' language.
 		for (const entry of stored) {
-			assert.deepEqual(entry.price_manual, {avg: 52.3, currency: 'BRL', date: today, low_nm: 45.9, source: 'Liga Pokémon'});
+			assert.deepEqual(entry.price_manual, {avg: 52.3, currency: 'BRL', date: today, finish: 'Reverse holo', language: 'en', low_nm: 45.9, source: 'Liga Pokémon'});
 		}
+
+		assert.equal(await text(section.locator('.price-for')), 'Reverse holo · EN');
 
 		// The Liga price wins over the US estimate on the tile and in the stats.
 		await page.waitForFunction(() => !/~/.test(document.querySelector('#harness-tile').textContent));
@@ -305,12 +309,104 @@ describe('price section', () => {
 		assert.equal(await page.inputValue('#price-1-low_nm'), '45,90');
 		assert.equal(await page.inputValue('#price-1-source'), 'Liga Pokémon');
 		assert.equal(await page.inputValue('#price-1-date'), today);
+		assert.equal(await page.inputValue('#price-1-finish'), 'Reverse holo');
+		assert.equal(await page.inputValue('#price-1-language'), 'en');
 		await page.fill('#price-1-avg', '');
 		await section.locator('button[type="submit"]').click();
 		await page.waitForFunction(() => document.querySelectorAll('.price-liga-values > div').length === 1);
 		assert.equal((await storedCards(page))[0].price_manual.avg, null);
 
 		await finish(device, 'manual');
+	});
+
+	test('manual Liga price on a Portuguese copy: says its finish and language, and either can be changed', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'portuguese');
+
+		const section = page.locator('section.price');
+
+		await section.locator('form.price-form').waitFor();
+
+		// Defaults from the finish shown and the copy's language; Portuguese
+		// and English, which Liga lists, are offered.
+		assert.equal(await page.inputValue('#price-1-finish'), 'Reverse holo');
+		assert.equal(await page.inputValue('#price-1-language'), 'pt');
+		assert.deepEqual(await page.locator('#price-1-language option').allTextContents(), ['Portuguese', 'English']);
+		assert.ok((await page.locator('#price-1-finish option').allTextContents()).includes('Normal'));
+
+		await page.fill('#price-1-avg', '12');
+		await page.selectOption('#price-1-finish', 'Normal');
+		await section.locator('button[type="submit"]').click();
+		await section.locator('.price-liga-values').waitFor();
+		assert.equal(await text(section.locator('.price-for')), 'Normal · PT');
+
+		const [entry] = await storedCards(page);
+
+		assert.equal(entry.price_manual.finish, 'Normal');
+		assert.equal(entry.price_manual.language, 'pt');
+
+		// "Your copies" rows say it too.
+		const line = await page.evaluate(async () => {
+			const {copyPriceText} = await import('/pokemon-card-tracker/js/price-view.js');
+			const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return copyPriceText((await listCards())[0]);
+		});
+
+		assert.match(plain(line), /^R\$ 12,00 average · Normal · PT \(Liga Pokémon, \d{4}-\d{2}-\d{2}\)$/);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-manual-for.png`});
+
+		await finish(device, 'manual-for');
+	});
+
+	test('a Liga price saved before finish and language shows as before', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'legacy');
+
+		const section = page.locator('section.price');
+
+		await section.locator('.price-liga-values').waitFor();
+		assert.deepEqual((await section.locator('.price-liga-values > div').allTextContents()).map(plain), ['Lowest NM priceR$ 45,90', 'Average priceR$ 52,30']);
+		assert.equal(await section.locator('.price-for').count(), 0);
+		assert.equal(await text(section.locator('.price-liga-date')), 'Liga Pokémon · 2026-09-19 · ' + await page.evaluate(async () => (await import('/pokemon-card-tracker/js/prices.js')).ageText('2026-09-19')));
+
+		const line = await page.evaluate(async () => {
+			const {copyPriceText} = await import('/pokemon-card-tracker/js/price-view.js');
+			const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return copyPriceText((await listCards())[0]);
+		});
+
+		assert.equal(plain(line), 'R$ 45,90 lowest NM, R$ 52,30 average (Liga Pokémon, 2026-09-19)');
+
+		// Update fills in the finish shown and the copy's language.
+		await section.locator('button.price-edit').click();
+		assert.equal(await page.inputValue('#price-1-finish'), 'Normal');
+		assert.equal(await page.inputValue('#price-1-language'), 'en');
+
+		await finish(device, 'legacy');
+	});
+
+	test('a Korean copy on a Japanese record: no Ver na Liga, even with a link handed in (Q-30)', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'korean');
+
+		const section = page.locator('section.price');
+
+		await section.locator('.price-liga-none').waitFor();
+		assert.equal(await text(section.locator('.price-liga-none')), 'No Liga link for Korean prints.');
+		assert.equal(await section.locator('a.price-liga-link').count(), 0);
+
+		// A Liga price can still be typed for it, and says Korean.
+		assert.equal(await page.inputValue('#price-1-language'), 'ko');
+
+		await finish(device, 'korean');
 	});
 
 	test('offline: the last saved rate, with its date', async () => {

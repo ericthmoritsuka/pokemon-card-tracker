@@ -455,6 +455,8 @@ describe('card detail layout', () => {
 		await page.waitForTimeout(300);
 		assert.equal(await page.locator('#card-liga-none').textContent(), 'No Liga link for Korean prints.');
 		assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 0);
+		await page.waitForSelector('#card-price section.price');
+		assert.equal(await page.locator('#card-price a.price-liga-link').count(), 0, 'not even the price panel\'s hidden one');
 
 		// A Japanese copy of the same record has its Liga page.
 		await page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(id, {fallback: false, language: 'ja'}), korean.id);

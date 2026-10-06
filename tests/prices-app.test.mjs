@@ -194,7 +194,8 @@ describe('prices in the app', () => {
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'My Cards');
 
-		// Back on card detail, a Liga price typed in shows on the copy's row.
+		// Back on card detail, a Liga price typed in shows on the copy's row,
+		// with the finish and language it is for.
 		await page.goto(url(`cards/en/${charizard.id}`));
 		await page.waitForSelector('#card-price input[name="low_nm"]');
 		await page.fill('#card-price input[name="low_nm"]', '4.500,00');
@@ -202,7 +203,7 @@ describe('prices in the app', () => {
 		await page.click('#card-price button[type="submit"]');
 		await page.waitForSelector('#card-price .price-liga-values');
 		await page.waitForSelector('.copies .copy-price');
-		assert.match(plain(await page.locator('.copies .copy-price').textContent()), /R\$ 4\.500,00 lowest NM, R\$ 4\.800,00 average \(Liga Pokémon, \d{4}-\d{2}-\d{2}\)/);
+		assert.match(plain(await page.locator('.copies .copy-price').textContent()), /R\$ 4\.500,00 lowest NM, R\$ 4\.800,00 average · Holo, Unlimited · EN \(Liga Pokémon, \d{4}-\d{2}-\d{2}\)/);
 		assert.equal(await page.locator('#card-price .price-edit').count(), 1, 'the saved price stays on screen');
 		await page.screenshot({fullPage: true, path: '/tmp/prices-app-card.png'});
 

@@ -49,6 +49,9 @@ export class FakeSupabase {
 		this.log = [];
 		this.emails = [];
 		this.clock = Date.parse('2026-10-01T12:00:00.000Z') * 1000;
+		// How far the server's clock runs ahead of this machine's (negative:
+		// behind), for the phone clock warning (js/sync.js).
+		this.skewMs = 0;
 		this.gates = [];
 		this.sockets = [];
 		this.changeIds = 0;
@@ -84,9 +87,11 @@ export class FakeSupabase {
 	}
 
 	// The server's clock in microseconds, always moving forward, printed the
-	// way PostgREST prints timestamptz.
+	// way PostgREST prints timestamptz. It keeps up with this machine's clock
+	// (plus skewMs), as a real server's does, so a phone whose clock is right
+	// measures no offset.
 	now() {
-		this.clock += 1000 + Math.floor(Math.random() * 1000);
+		this.clock = Math.max(this.clock + 1000 + Math.floor(Math.random() * 1000), (Date.now() + this.skewMs) * 1000);
 
 		const ms = Math.floor(this.clock / 1000);
 		const micro = String(this.clock % 1000000).padStart(6, '0');

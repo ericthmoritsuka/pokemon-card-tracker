@@ -1,0 +1,51 @@
+/* What's new (js/whats-new.js): the quiet version line that ends Profile,
+   and the sheet that lists what each release changed. */
+
+.whats-new-line {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.875rem;
+	gap: 0 var(--space-1);
+	justify-content: center;
+	margin: var(--space-5) 0 var(--space-3);
+	text-align: center;
+}
+
+.whats-new-line button.link-button {
+	margin-top: 0;
+	min-height: var(--target);
+}
+
+.whats-new-sheet[open] {
+	display: flex;
+	flex-direction: column;
+}
+
+.whats-new-body {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.whats-new-release + .whats-new-release {
+	margin-top: var(--space-4);
+}
+
+.whats-new-release h3 {
+	font-size: 1rem;
+	margin: 0 0 var(--space-1);
+}
+
+.whats-new-date {
+	font-weight: 400;
+}
+
+.whats-new-items {
+	margin: 0;
+	padding-left: 1.25em;
+}
+
+.whats-new-items li + li {
+	margin-top: var(--space-1);
+}

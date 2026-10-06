@@ -68,6 +68,92 @@ let claimedFor = null;
 let claimError = null;
 let lastCheck = 0;
 
+// ------------------------------------------------------ the phone's clock
+//
+// Warn only, never correct (plans/sync-merge-plan.md, "Optional offset
+// estimate", commit 12): stamps always move forward whatever the clock says
+// (js/merge.js nextStamp), and only two edits to the same field at the same
+// time are still decided by it. After each write, the offset is the server's
+// updated_at minus the middle of the request on this phone's clock, when the
+// round trip took under 2 s. The last estimate is kept in memory only;
+// Phone check shows it, and a phone more than 2 minutes off gets one toast
+// per app load.
+
+const CLOCK_TRIP_MS = 2000;
+const CLOCK_WARN_MS = 2 * 60 * 1000;
+
+let clock = null;
+let clockWarned = false;
+const clockListeners = new Set();
+
+// PostgREST prints microseconds, "2026-10-01T12:00:00.123456+00:00"; Date
+// takes milliseconds.
+const stampMs = (stamp) => (typeof stamp === 'string' ? Date.parse(stamp.replace(/(\.\d{3})\d+/, '$1')) : NaN);
+
+// The server's clock minus this phone's, in ms, from one request sent at
+// sentAt and answered at receivedAt (this phone's Date.now()) whose answer
+// carries the server's stamp; null when the round trip was too slow to say.
+export function clockOffsetEstimate({receivedAt, sentAt, stamp}) {
+	const server = stampMs(stamp);
+
+	if (!Number.isFinite(server) || !Number.isFinite(sentAt) || !(receivedAt >= sentAt) || receivedAt - sentAt >= CLOCK_TRIP_MS) {
+		return null;
+	}
+
+	return Math.round(server - (sentAt + receivedAt) / 2);
+}
+
+// The last estimate, {offsetMs, roundTripMs, at}, or null before the first
+// write. offsetMs is the server's clock minus this phone's: below zero, the
+// phone is ahead.
+export const clockOffset = () => (clock ? {...clock} : null);
+
+export const clockIsOff = (estimate = clock) => Boolean(estimate) && Math.abs(estimate.offsetMs) > CLOCK_WARN_MS;
+
+export function onClockOffset(listener) {
+	clockListeners.add(listener);
+
+	return () => clockListeners.delete(listener);
+}
+
+// "5 minutes", "3 hours", "2 days": how far off, rounded.
+export function clockGap(offsetMs) {
+	const minutes = Math.round(Math.abs(offsetMs) / 60000);
+
+	if (minutes < 120) {
+		return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+	}
+
+	const hours = Math.round(minutes / 60);
+
+	return hours < 48 ? `${hours} hours` : `${Math.round(hours / 24)} days`;
+}
+
+export const clockWarning = (estimate) => `Your phone's clock is ${clockGap(estimate.offsetMs)} off. Set it to automatic so edits sync in the right order.`;
+
+function noteClock(sentAt, receivedAt, stamp) {
+	const offsetMs = clockOffsetEstimate({receivedAt, sentAt, stamp});
+
+	if (offsetMs === null) {
+		return;
+	}
+
+	clock = {at: new Date(receivedAt).toISOString(), offsetMs, roundTripMs: receivedAt - sentAt};
+
+	for (const listener of clockListeners) {
+		listener(clockOffset());
+	}
+
+	if (clockIsOff() && !clockWarned) {
+		clockWarned = true;
+
+		const text = clockWarning(clock);
+
+		// js/shell.js imports this module, so the toast is loaded when needed.
+		import('./shell.js').then(({toast}) => toast(text, {timeout: 12000})).catch(() => {});
+	}
+}
+
 function emit() {
 	statusListeners.forEach((listener) => listener({...status}));
 }
@@ -267,7 +353,9 @@ async function syncOnce() {
 
 		if (!stamp) {
 			// No row yet: the first sync uploads the whole document.
+			const sentAt = Date.now();
 			const insert = await table().insert({doc: outgoing(merged, null), user_id: user.id}).select('updated_at').single();
+			const receivedAt = Date.now();
 
 			if (insert.error) {
 				// 23505: another device made the row first. Read it and merge.
@@ -280,13 +368,16 @@ async function syncOnce() {
 			}
 
 			stamp = insert.data.updated_at;
+			noteClock(sentAt, receivedAt, stamp);
 		}
 		else if (changed) {
+			const sentAt = Date.now();
 			const update = await table()
 				.update({doc: outgoing(merged, stamp)})
 				.eq('user_id', user.id)
 				.eq('updated_at', stamp)
 				.select('updated_at');
+			const receivedAt = Date.now();
 
 			if (update.error) {
 				throw update.error;
@@ -299,6 +390,7 @@ async function syncOnce() {
 			}
 
 			stamp = update.data[0].updated_at;
+			noteClock(sentAt, receivedAt, stamp);
 		}
 
 		if (!currentUser() || currentUser().id !== user.id) {
