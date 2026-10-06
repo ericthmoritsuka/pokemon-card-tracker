@@ -219,8 +219,13 @@ async function device(fake, name, {serviceWorkers = 'block'} = {}) {
 	return {context, counts, errors, net, page};
 }
 
+// Seeds the collection from a same-origin page that runs no app code (the
+// manifest). Seeding from My Cards left it reading each owned set's record
+// (en/sets/<id>, js/cards-view.js filling its card index) and checking the
+// Japanese copy's twin in the background; under load those requests went
+// out after the test had moved on, and landed in counts.other.
 async function seedLocal(page, doc) {
-	await page.goto(url('cards'));
+	await page.goto(url('manifest.webmanifest'));
 	await page.evaluate(async (stored) => {
 		await new Promise((resolve, reject) => {
 			const open = indexedDB.open('card-tracker-collection', 1);
@@ -239,7 +244,6 @@ async function seedLocal(page, doc) {
 			open.onerror = () => reject(open.error);
 		});
 	}, doc);
-	await page.reload();
 }
 
 const localDoc = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
