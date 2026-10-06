@@ -765,11 +765,13 @@ button.bc-handle {
 	width: 44px;
 }
 
+/* The theme's tab mark edged in badge ink (yellow by default), as the photo
+   corner editor's handles are (css/photos.css .ph-handle). */
 button.bc-handle::after {
-	background: rgba(29, 46, 96, 0.35);
-	border: 3px solid #ffcb05;
+	background: color-mix(in srgb, var(--badge-ink) 35%, transparent);
+	border: 3px solid var(--tab-mark);
 	border-radius: 3px;
-	box-shadow: 0 0 0 1px #1d2e60;
+	box-shadow: 0 0 0 1px var(--badge-ink);
 	content: "";
 	height: 18px;
 	left: 50%;
@@ -781,7 +783,7 @@ button.bc-handle::after {
 
 button.bc-handle.bc-dragging::after,
 button.bc-handle:focus-visible::after {
-	background: rgba(255, 203, 5, 0.35);
+	background: color-mix(in srgb, var(--tab-mark) 35%, transparent);
 	height: 26px;
 	width: 26px;
 }

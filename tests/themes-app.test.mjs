@@ -75,8 +75,8 @@ async function fakePokeApi(context, log) {
 	await context.route('https://raw.githubusercontent.com/PokeAPI/**', (route) => route.fulfill({body: spritePng, contentType: 'image/png'}));
 }
 
-async function device(fake, name, {colorScheme = 'light', tcgdex = 'fake'} = {}) {
-	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport: VIEWPORT});
+async function device(fake, name, {colorScheme = 'light', tcgdex = 'fake', viewport = VIEWPORT} = {}) {
+	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport});
 	const pokeapi = [];
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -263,6 +263,37 @@ describe('themes signed out', () => {
 		assert.equal(await page.locator('#theme-preview').getAttribute('data-theme'), 'default');
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+
+	// Q-38: the frames are 0 to 5 px wide, so a panel that grew or shrank
+	// with its frame moved every swatch below it, and a quick second tap
+	// landed on the wrong one.
+	test('the swatches stay put while every theme is picked in turn', async () => {
+		for (const width of [360, 390]) {
+			for (const colorScheme of ['light', 'dark']) {
+				const {context, errors, page} = await device(null, 'phone', {colorScheme, viewport: {height: 740, width}});
+
+				await page.goto(url('profile'));
+				await page.waitForSelector('#theme-grid');
+
+				const ids = await page.locator('.theme-option').evaluateAll((options) => options.map((option) => option.dataset.themeId));
+				const where = () => page.evaluate(() => {
+					const swatch = document.querySelector('.theme-option .swatch').getBoundingClientRect();
+
+					return Math.round(swatch.top + scrollY);
+				});
+				const start = await where();
+
+				for (const id of [...ids.slice(1), ids[0]]) {
+					await chooseTheme(page, id);
+					await page.mouse.move(5, 5);
+					assert.equal(await where(), start, `${width} px ${colorScheme}: the swatches stay put after picking ${id}`);
+				}
+
+				assert.deepEqual(errors, []);
+				await context.close();
+			}
+		}
 	});
 
 	test('the Scan disc is the theme\'s Poké Ball, and the finish badge stays a red one', async () => {
