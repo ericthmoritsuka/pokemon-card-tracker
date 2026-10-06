@@ -391,6 +391,24 @@ describe('price section', () => {
 		await finish(device, 'legacy');
 	});
 
+	test('a Korean copy on a Japanese record: no Ver na Liga, even with a link handed in (Q-30)', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'korean');
+
+		const section = page.locator('section.price');
+
+		await section.locator('.price-liga-none').waitFor();
+		assert.equal(await text(section.locator('.price-liga-none')), 'No Liga link for Korean prints.');
+		assert.equal(await section.locator('a.price-liga-link').count(), 0);
+
+		// A Liga price can still be typed for it, and says Korean.
+		assert.equal(await page.inputValue('#price-1-language'), 'ko');
+
+		await finish(device, 'korean');
+	});
+
 	test('offline: the last saved rate, with its date', async () => {
 		const old = Date.now() - 2 * 24 * 60 * 60 * 1000;
 		const device = await phone({rates: 'offline', saved: {brlPerUsd: 5.21, date: '2026-09-28', fetchedAt: old}, savedEur: {brlPerEur: 5.9, date: '2026-09-27', fetchedAt: old}});

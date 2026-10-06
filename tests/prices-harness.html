@@ -11,8 +11,8 @@
 	rate requests (US dollar and euro) go to api.frankfurter.dev, which the
 	test answers itself.
 
-	Scenes: english, portuguese, finishes, manual, legacy, offline, norate,
-	stats, markets.
+	Scenes: english, portuguese, finishes, manual, legacy, korean, offline,
+	norate, stats, markets.
 -->
 <html lang="en">
 <head>
@@ -100,6 +100,12 @@
 				view.stats
 			);
 			await view.redraw();
+		}
+		else if (scene === 'korean') {
+			// A Korean copy on a Japanese record, as the scanner saves it, with
+			// the Japanese print's link handed in: Korean prints get none (Q-30).
+			await copy(exeggcute, {catalog: 'ja', fallback: true, language: 'ko'});
+			app.append(priceSection({card: exeggcute, entries: await listCards(), language: 'ko', ligaHref: englishLiga(exeggcute), recordLanguage: 'ja'}));
 		}
 		else if (scene === 'legacy') {
 			// A Liga price saved before it said its finish and language.

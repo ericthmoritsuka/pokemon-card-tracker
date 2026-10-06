@@ -41,6 +41,10 @@ import {
 
 let sectionCount = 0;
 
+// The printed languages that never get Ver na Liga (DESIGN.md section 10,
+// "Languages on Liga").
+const ASIAN_NO_LIGA = ['ko', 'zh-cn', 'zh-tw'];
+
 // A date that never breaks at its hyphens.
 const day = (date) => h('span', {class: 'price-nowrap'}, date);
 
@@ -304,11 +308,17 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		|| null;
 
 	const set = (card && card.set) || {};
-	const href = ligaHref !== undefined
-		? ligaHref
-		: recordLanguage === 'en' && card
-			? ligaUrl({localId: card.localId, name: card.name, official: set.cardCount && set.cardCount.official, setId: set.id, setName: set.name})
-			: null;
+
+	// Korean and Chinese prints get no link, whatever the record: whether
+	// Liga lists them is unchecked, so a Korean copy on a Japanese record
+	// never gets the Japanese print's page (Q-30).
+	const href = ASIAN_NO_LIGA.includes(language)
+		? null
+		: ligaHref !== undefined
+			? ligaHref
+			: recordLanguage === 'en' && card
+				? ligaUrl({localId: card.localId, name: card.name, official: set.cardCount && set.cardCount.official, setId: set.id, setName: set.name})
+				: null;
 
 	// The copies a Liga price is read from and saved to: this finish, in the
 	// copy's language when one is given. With no finishes (a record without
@@ -373,7 +383,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 		// Japanese prints do get a link once an English name is found, so a
 		// Japanese card without one is just this card.
-		const asian = ['ko', 'zh-cn', 'zh-tw'].includes(language);
+		const asian = ASIAN_NO_LIGA.includes(language);
 
 		return h('p', {class: 'muted price-liga-none'}, asian ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
 	}
