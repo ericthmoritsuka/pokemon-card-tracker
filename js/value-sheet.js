@@ -2,8 +2,10 @@
 // small Value button (DESIGN.md section 10: never a headline total). It
 // leads with how much of the list has a price at all, because a total over
 // half the cards reads as the whole collection's otherwise. My Cards opens
-// it; the Trade view can open it for the spares the same way.
+// it; the Trade view can open it for the spares the same way, and a set, a
+// list, and a binder through valueButton below.
 
+import {cardIndex, savedCardRecords} from './catalog.js';
 import {h} from './dom.js';
 import {statsBar} from './price-view.js';
 import {copyValue, savedRates} from './prices.js';
@@ -126,4 +128,36 @@ export function openValueSheet({cardsById, entries, filling = false, label = 'th
 	sheet.showModal();
 
 	return sheet;
+}
+
+// The small Value button for a screen that is not My Cards (a set, a list,
+// a binder): entries() gives the copies at the tap, and the records the
+// sheet needs are read then, not on every redraw. id names the button;
+// label says what the copies are ("your cards from Base"), or is a function
+// that does at the tap.
+export function valueButton({entries, id, label}) {
+	let opening = false;
+
+	const button = h('button', {'aria-haspopup': 'dialog', class: 'small value-open', id, onclick: async () => {
+		if (opening) {
+			return;
+		}
+
+		opening = true;
+
+		try {
+			const list = entries();
+			const [index, saved] = await Promise.all([cardIndex().catch(() => new Map()), savedCardRecords(list)]);
+
+			if (button.isConnected) {
+				button.focus();
+				openValueSheet({cardsById: new Map([...index, ...saved]), entries: list, label: typeof label === 'function' ? label() : label, saved});
+			}
+		}
+		finally {
+			opening = false;
+		}
+	}, type: 'button'}, 'Value');
+
+	return button;
 }

@@ -10,7 +10,6 @@ import {
 	compareNumbers,
 	languageLabel,
 	logoImage,
-	priceRecords,
 	savedCardRecords,
 	setDetail,
 	setList,
@@ -26,7 +25,8 @@ import {flagBadge} from './flags.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
-import {copyPriceText, priceSection, statsBar} from './price-view.js';
+import {copyPriceText, priceSection} from './price-view.js';
+import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos} from './photos/index.js';
 import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
@@ -34,7 +34,7 @@ import {twinConfirm} from './twins-view.js';
 import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
 import {memberCards, memberDocumentKept, whenMemberName} from './family.js';
-import {addToWishlist, listWishlist} from './wishlist.js';
+import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
@@ -568,36 +568,33 @@ export function setView(root, {lang, setId}) {
 	const note = h('div', {hidden: true});
 	const problem = h('div');
 	const grid = h('div', {class: 'card-grid'});
-	// The value of the copies owned from this set (js/price-view.js).
+	// The value of the copies owned from this set, on demand: a small Value
+	// button opens the sheet (js/value-sheet.js), never a big box.
 	const stats = h('div', {class: 'set-stats', id: 'set-stats'});
 
 	let owned = new Map();
 	let shown = null;
 	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
-	let statsKey = null;
+	// The copies owned from the set, for the Value sheet.
+	let statsEntries = [];
+	let statsSet = null;
 
-	// Redrawn only when the owned copies change, so the filter keeps the
-	// Liga price basis the person picked.
-	async function drawStats(set, cards) {
-		const entries = cards.filter((card) => owned.has(card.id)).flatMap((card) => owned.get(card.id).entries);
-		const key = `${set.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
+	const valueOpen = valueButton({
+		entries: () => statsEntries,
+		id: 'set-value',
+		label: () => `${member ? `${memberLabel(member)}'s` : 'your'} cards from ${statsSet ? statsSet.name : setId}`,
+	});
 
-		if (key === statsKey) {
-			return;
-		}
+	// The button shows only while some copies from the set are owned.
+	function drawStats(set, cards) {
+		statsSet = set;
+		statsEntries = cards.filter((card) => owned.has(card.id)).flatMap((card) => owned.get(card.id).entries);
 
-		statsKey = key;
-
-		if (!entries.length) {
+		if (!statsEntries.length) {
 			stats.replaceChildren();
-
-			return;
 		}
-
-		const records = await priceRecords(entries);
-
-		if (alive && statsKey === key) {
-			stats.replaceChildren(statsBar({cardsById: records, entries, label: `${member ? `${memberLabel(member)}'s` : 'your'} cards from ${set.name}`}));
+		else if (!stats.contains(valueOpen)) {
+			stats.replaceChildren(valueOpen);
 		}
 	}
 
@@ -641,9 +638,7 @@ export function setView(root, {lang, setId}) {
 
 		meta.textContent += ` · ${have} / ${sorted.length} owned`;
 		segmentCounts(filter, {all: sorted.length, missing: sorted.length - have, owned: have});
-		drawStats(set, sorted).catch(() => {
-			// No statistics this time; the set itself is unaffected.
-		});
+		drawStats(set, sorted);
 
 		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
 
@@ -839,8 +834,9 @@ export function cardView(root, {lang, cardId}) {
 	const position = cardPosition(route);
 	const swipe = cardSwipe(root, route);
 	// A family member's card is read only and shows their copies: no copy
-	// sheets, no Add, no photos to add or pin, no Liga form, no wishlist
-	// button (plans/design-review.md, "Family Read-Only Mode").
+	// sheets, no Add, no photos to add or pin, no Liga form
+	// (plans/design-review.md, "Family Read-Only Mode"). Add to wishlist
+	// stays, since it writes only to your own wishlist.
 	const member = lensMember();
 	const photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang)});
 	// A Japanese print's international twin: its image joins the carousel,
@@ -1088,8 +1084,30 @@ export function cardView(root, {lang, cardId}) {
 		return h('p', {class: 'muted liga-none', id: 'card-liga-none'}, asian ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
 	}
 
+	// The language a new wish asks for: the catalog's on your own card. On a
+	// member's card, the language most of their copies are in, so wanting
+	// what they hold asks for that print; only a language the catalog takes
+	// (a Korean copy on a Japanese record cannot be wished for there).
+	function wishLanguage() {
+		if (!readOnly) {
+			return lang;
+		}
+
+		const counts = new Map();
+
+		for (const entry of owned) {
+			if (entry.language && catalogFor(entry.language) === catalogFor(lang)) {
+				counts.set(entry.language, (counts.get(entry.language) || 0) + 1);
+			}
+		}
+
+		const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+		return common ? common[0] : lang;
+	}
+
 	function wishControl() {
-		if (readOnly || wished === undefined) {
+		if (wished === undefined) {
 			return null;
 		}
 
@@ -1111,9 +1129,13 @@ export function cardView(root, {lang, cardId}) {
 		wishing = true;
 		drawLigaRow();
 
+		// Always your own wishlist, on a member's card too: nothing is
+		// written to their document.
+		const language = wishLanguage();
+
 		try {
-			wished = await addToWishlist(cardId, {catalog: catalogFor(lang), language: lang});
-			toast(`Added to your wishlist (${languageName(lang)}).`);
+			wished = await addToWishlist(cardId, {catalog: catalogFor(lang), language});
+			toast(`Added to your wishlist (${languageName(language)}).`);
 		}
 		catch (err) {
 			toast(`Not added to the wishlist. ${errorText(err)}`);
@@ -1348,10 +1370,8 @@ export function cardView(root, {lang, cardId}) {
 			drawLigaRow();
 		}
 
-		// Your wishlist button is not offered on a member's card.
-		if (!readOnly) {
-			readWish();
-		}
+		// Your wishlist, on a member's card too.
+		readWish();
 
 		if (!live.length) {
 			// A member's card says so; yours offers Add.
@@ -1442,6 +1462,13 @@ export function cardView(root, {lang, cardId}) {
 			)),
 		);
 
+		// Under a member's copies, how many they could spare.
+		const spare = spareLine(live);
+
+		if (spare) {
+			copies.append(spare);
+		}
+
 		// Under Ver na Liga, so the copies and the Liga button stay on the
 		// first screen.
 		collectSlot.replaceChildren(...(readOnly ? [] : [collectButton(live, shownName)]));
@@ -1455,6 +1482,14 @@ export function cardView(root, {lang, cardId}) {
 				target.focus({preventScroll: true});
 			}
 		}
+	}
+
+	// On a member's card, the copies beyond one of each language they could
+	// trade (js/wishlist.js sparesFor), else null.
+	function spareLine(live) {
+		const spares = readOnly ? sparesFor({card_id: cardId, catalog: catalogFor(lang)}, live) : 0;
+
+		return spares ? h('p', {class: 'muted copies-spares', id: 'copies-spares'}, `${memberLabel(member)} has ${spares} ${spares === 1 ? 'spare' : 'spares'}`) : null;
 	}
 
 	// The star: the card is a favorite when any copy is, in any language.

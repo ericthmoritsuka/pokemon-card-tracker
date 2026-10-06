@@ -1,5 +1,16 @@
-/* The Value sheet (js/value-sheet.js), and the quiet line a tile shows
-   when its card has no market price. */
+/* The Value sheet (js/value-sheet.js), the small button that opens it on a
+   set, a list, and a binder, and the quiet line a tile shows when its card
+   has no market price. */
+
+.set-stats:not(:empty),
+.checklist-stats:not(:empty),
+.binder-stats:not(:empty) {
+	margin: var(--space-2) 0;
+}
+
+button.value-open {
+	min-height: var(--target);
+}
 
 .value-sheet[open] {
 	display: flex;

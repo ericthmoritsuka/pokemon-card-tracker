@@ -8,7 +8,6 @@
 // tab's Checklists | Wishlist switch is dom.js listsSwitch().
 
 import {currentUser} from './auth.js';
-import {priceRecords} from './catalog.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -16,8 +15,8 @@ import {goalsSection} from './goals-view.js';
 import {isGoal, listGoals} from './goals.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
-import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
+import {valueButton} from './value-sheet.js';
 import {
 	MAX_DEX,
 	REGIONS,
@@ -590,9 +589,11 @@ function checklistScreen(root, source, id) {
 	const languages = languagesControl({listId: id, readOnly: source.readOnly});
 	const summary = h('p', {class: 'checklist-summary', id: 'checklist-summary'});
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'checklist-status'});
-	// The value of the owned cards on the list (js/price-view.js).
+	// The value of the owned cards on the list, on demand: a small Value
+	// button opens the sheet (js/value-sheet.js), never a big box.
 	const statsSlot = h('div', {class: 'checklist-stats', id: 'checklist-stats'});
-	let statsKey = null;
+	let statsEntries = [];
+	const valueOpen = valueButton({entries: () => statsEntries, id: 'checklist-value', label: () => `the owned cards on ${goal ? goal.name : 'this list'}`});
 	const list = h('ul', {class: 'dex-list', id: 'dex-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'checklist-empty'});
 	const actions = source.readOnly ? null : h('div', {class: 'actions checklist-actions'});
@@ -655,8 +656,9 @@ function checklistScreen(root, source, id) {
 	}
 
 	// The owned copies of the list's Pokémon, each once (a TAG TEAM card
-	// counts under every Pokémon on it), redrawn only when they change.
-	async function drawStats() {
+	// counts under every Pokémon on it); the button shows only when there
+	// are some.
+	function drawStats() {
 		const seen = new Map();
 
 		for (const n of checklistDex(goal)) {
@@ -665,25 +667,13 @@ function checklistScreen(root, source, id) {
 			}
 		}
 
-		const entries = [...seen.values()];
-		const key = `${goal.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
+		statsEntries = [...seen.values()];
 
-		if (key === statsKey) {
-			return;
-		}
-
-		statsKey = key;
-
-		if (!entries.length) {
+		if (!statsEntries.length) {
 			statsSlot.replaceChildren();
-
-			return;
 		}
-
-		const records = await priceRecords(entries);
-
-		if (alive && statsKey === key) {
-			statsSlot.replaceChildren(statsBar({cardsById: records, entries, label: `the owned cards on ${goal.name}`}));
+		else if (!statsSlot.contains(valueOpen)) {
+			statsSlot.replaceChildren(valueOpen);
 		}
 	}
 
@@ -974,7 +964,7 @@ function checklistScreen(root, source, id) {
 		if (next === signature && !force) {
 			// The same cards, though a price on one may have changed.
 			if (result) {
-				drawStats().catch(() => {});
+				drawStats();
 			}
 
 			return;
@@ -1000,9 +990,7 @@ function checklistScreen(root, source, id) {
 		result = resolved;
 		drawHead();
 		drawList();
-		drawStats().catch(() => {
-			// No statistics this time; the list itself is unaffected.
-		});
+		drawStats();
 		status.replaceChildren();
 
 		const gap = gapText(result);
