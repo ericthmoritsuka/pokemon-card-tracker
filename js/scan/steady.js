@@ -364,10 +364,11 @@ export function colourfulness(rgba, width, height) {
 // A card turned more than a few degrees is judged on the thumbnail turned
 // straight (thumbTurn, turnThumb), where its sides stand upright again.
 //
-// Returns {present, glare, edges: {left, right}, detail, reason, turn}:
-// reason says why a frame with detail is not a card ('stripes',
-// 'colourless'), or null; turn is the degrees the card was turned when it
-// was judged on the turned thumbnail, else 0.
+// Returns {present, glare, edges: {left, right}, detail, reason, small,
+// turn}: reason says why a frame with detail is not a card ('stripes',
+// 'colourless'), or null; small whether, with no card seen, one is held too
+// far away (smallCard); turn is the degrees the card was turned when it was
+// judged on the turned thumbnail, else 0.
 export function presence(grey, width, height, {colour = null} = {}) {
 	const level = judge(grey, width, height, colour);
 
@@ -473,13 +474,37 @@ function judge(grey, width, height, colour) {
 		}
 	}
 
+	const present = (againstTable || straight || Boolean(box)) && detail >= 14 && !reason;
+
 	return {
 		detail: Math.round(detail),
 		edges: {left: Math.round(left), right: Math.round(right)},
 		glare: bright / grey.length > 0.03,
-		present: (againstTable || straight || Boolean(box)) && detail >= 14 && !reason,
+		present,
 		reason,
+		small: !present && !reason && !againstTable && !straight && !box && (colour === null || colour >= COLOURLESS) && smallCard(grey, width, height),
 	};
+}
+
+// A card held too far away to read, in a thumbnail where nothing else was
+// seen: the four straight edges of a card-shaped box (boxed) between
+// SMALL.min and BOX_MIN of the thumbnail across, with no stripes inside.
+// Its sides run along only part of the middle band, so fewer of its rows
+// are asked of them. It only changes the hint to "Move closer" and keeps a
+// shutter capture in the tray; it never takes the picture.
+//
+// Q-19 (2026-10-02): a card at 0.45 of the guide spans about 0.37 of the
+// thumbnail, its sides about half the band's rows.
+export function smallCard(grey, width = THUMB_W, height = THUMB_H) {
+	const box = boxed(grey, width, height, SMALL);
+
+	if (!box) {
+		return false;
+	}
+
+	const inset = (box.right - box.left) * 0.2;
+
+	return longLines(grey, width, height, box.lean, box.left + inset, box.right - inset) < 3;
 }
 
 // The thumbnail turned on its side (rows become columns), so sideLine can
@@ -505,6 +530,9 @@ const BOX_MIN = 0.5;
 const BOX_ACROSS = 0.5;
 const BOX_EDGE = 0.04;
 
+// boxed's limits for a card held too far away (smallCard).
+const SMALL = {across: 0.3, max: BOX_MIN, min: 0.25, rows: 0.3, side: 0.45};
+
 // A card held smaller than the guide, or off its middle, but inside it:
 // four straight edges (sideLine on the thumbnail, and on it turned on its
 // side for the top and bottom), each running along most of its band, that
@@ -514,8 +542,10 @@ const BOX_EDGE = 0.04;
 // enough (a phone's screen beside the card makes those); the top and bottom
 // must be there too, at the right distance. Returns {left, right, lean} or
 // null.
-function boxed(grey, width, height) {
-	const side = Math.round(width * BOX_SIDE);
+//
+// limits: SMALL looks for a card held too far away (smallCard).
+function boxed(grey, width, height, {across: acrossShare = BOX_ACROSS, max = 1, min = BOX_MIN, rows = EDGE_ROWS, side: sideShare = BOX_SIDE} = {}) {
+	const side = Math.round(width * sideShare);
 	const left = sideLine(grey, width, height, 1, side, 'low');
 	const right = sideLine(grey, width, height, width - side, width - 1, 'high');
 
@@ -525,12 +555,12 @@ function boxed(grey, width, height) {
 	const clear = (line, lo, hi, room) => line.x !== null && line.x >= lo + room && line.x <= hi - room;
 	const room = Math.max(2, Math.round(width * BOX_EDGE));
 
-	if (left.share < EDGE_ROWS || right.share < EDGE_ROWS || !clear(left, 1, width - 2, room) || !clear(right, 1, width - 2, room) || right.x - left.x < width * BOX_MIN) {
+	if (left.share < rows || right.share < rows || !clear(left, 1, width - 2, room) || !clear(right, 1, width - 2, room) || right.x - left.x < width * min || right.x - left.x >= width * max) {
 		return null;
 	}
 
 	const turned = transpose(grey, width, height);
-	const across = Math.round(height * BOX_SIDE);
+	const across = Math.round(height * sideShare);
 	const top = sideLine(turned, height, width, 1, across, 'low');
 	const bottom = sideLine(turned, height, width, height - across, height - 1, 'high');
 
@@ -539,7 +569,7 @@ function boxed(grey, width, height) {
 	// across them: half the band is enough, with the shape check below.
 	const roomDown = Math.max(2, Math.round(height * BOX_EDGE));
 
-	if (top.share < BOX_ACROSS || bottom.share < BOX_ACROSS || !clear(top, 1, height - 2, roomDown) || !clear(bottom, 1, height - 2, roomDown)) {
+	if (top.share < acrossShare || bottom.share < acrossShare || !clear(top, 1, height - 2, roomDown) || !clear(bottom, 1, height - 2, roomDown)) {
 		return null;
 	}
 
