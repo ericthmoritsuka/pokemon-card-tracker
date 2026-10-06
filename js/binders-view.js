@@ -31,7 +31,6 @@ import {
 	indexKey,
 	isLanguage,
 	languageLabel,
-	priceRecords,
 	saveToCardIndex,
 	viewingLanguage,
 } from './catalog.js';
@@ -41,9 +40,9 @@ import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
-import {statsBar} from './price-view.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
+import {valueButton} from './value-sheet.js';
 import {SearchHint, searchCards} from './wishlist.js';
 import {
 	COVER_SWATCHES,
@@ -667,9 +666,11 @@ function binderScreen(root, source, id, pageParam) {
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
 	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
-	// The value of the copies in the binder (js/price-view.js), at the top.
+	// The value of the copies in the binder, on demand and at the top: a
+	// small Value button opens the sheet (js/value-sheet.js), never a big box.
 	const statsSlot = h('div', {class: 'binder-stats', id: 'binder-stats'});
-	let statsKey = null;
+	let statsEntries = [];
+	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder')});
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
@@ -863,30 +864,17 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
-	// Redrawn only when the binder's copies or their prices change, so a
-	// page turn keeps the Liga price basis the person picked.
-	async function drawStats() {
-		const entries = slotsOf(binder, placed)
+	// The binder's live copies; the button shows only when there are some.
+	function drawStats() {
+		statsEntries = slotsOf(binder, placed)
 			.map((slot) => (slot.entry_id ? entriesById.get(slot.entry_id) : null))
 			.filter((entry) => entry && isLive(entry));
-		const key = `${binder.id}|${entries.map((entry) => `${entry.id}:${JSON.stringify(entry.price_manual || null)}`).join(',')}`;
 
-		if (key === statsKey) {
-			return;
-		}
-
-		statsKey = key;
-
-		if (!entries.length) {
+		if (!statsEntries.length) {
 			statsSlot.replaceChildren();
-
-			return;
 		}
-
-		const records = await priceRecords(entries);
-
-		if (alive && statsKey === key) {
-			statsSlot.replaceChildren(statsBar({cardsById: records, entries, label: binder.name}));
+		else if (!statsSlot.contains(valueOpen)) {
+			statsSlot.replaceChildren(valueOpen);
 		}
 	}
 
@@ -907,9 +895,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		drawPage();
 		drawTray();
-		drawStats().catch(() => {
-			// No statistics this time; the binder itself is unaffected.
-		});
+		drawStats();
 	}
 
 	async function load() {

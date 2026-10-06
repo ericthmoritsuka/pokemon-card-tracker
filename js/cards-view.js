@@ -405,12 +405,15 @@ export function familyCardsView(root, {userId}) {
 		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
 		tradeRoute: `family/${encodeURIComponent(userId)}/trade`,
+		wishlistRoute: `wishlist/${encodeURIComponent(userId)}`,
 	});
 }
 
 // Also the Trade view's screen (js/trade-view.js): metaFor adds a line to a
 // tile's meta, emptyNode draws instead of "No cards yet", toolbar adds
-// buttons beside Value, and offered limits the filters.
+// buttons beside Value, and offered limits the filters. wishlistRoute adds a
+// Wishlist link beside Spares (a member's wishlist, one tap from their
+// cards).
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -426,6 +429,7 @@ export function cardsScreen(root, {
 	toolbar = [],
 	tradeRoute = null,
 	watch = null,
+	wishlistRoute = null,
 }) {
 	let alive = true;
 	// Back from a card page shows as many tiles as before, so the scroll
@@ -1251,7 +1255,9 @@ export function cardsScreen(root, {
 	// A card the catalog does not have is added by hand (js/custom-card-view.js).
 	const handButton = readOnly ? null : h('button', {class: 'small', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
 	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title), tradeLink, handButton);
+	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
+	const links = tradeLink && wishLink ? h('div', {class: 'view-head-links'}, tradeLink, wishLink) : tradeLink || wishLink;
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title), links, handButton);
 
 	root.append(heading, body);
 	load();

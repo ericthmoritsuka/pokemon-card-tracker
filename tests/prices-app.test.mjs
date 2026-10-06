@@ -1,7 +1,7 @@
 // Browser tests for the prices in the app itself (js/price-view.js placed by
 // js/catalog-views.js, js/cards-view.js, and js/binders-view.js): the price
 // slot on card detail, a tile's price, the on-demand Value sheet on My
-// Cards, and the statistics bar on a set and a binder. Headless Chromium at 360 x 740
+// Cards, a set, and a binder. Headless Chromium at 360 x 740
 // against tests/pages-server.mjs, signed out.
 //
 // Every outside service is faked: TCGdex answers with the records saved in
@@ -116,7 +116,7 @@ async function noSideways(page, where) {
 }
 
 describe('prices in the app', () => {
-	test('card detail price slot, tile prices, the Value sheet, and the statistics on a set and a binder', async () => {
+	test('card detail price slot, tile prices, and the Value sheet on My Cards, a set, and a binder', async () => {
 		const device = await phone();
 		const {page} = device;
 
@@ -206,14 +206,21 @@ describe('prices in the app', () => {
 		assert.equal(await page.locator('#card-price .price-edit').count(), 1, 'the saved price stays on screen');
 		await page.screenshot({fullPage: true, path: '/tmp/prices-app-card.png'});
 
-		// The set: the statistics of the copies owned from it, at the top.
+		// The set: no big box, a small Value button that opens the sheet
+		// over the copies owned from it.
 		await page.goto(url(`sets/en/${charizard.set.id}`));
-		await page.waitForSelector('#set-stats .price-stats');
-		assert.equal(await page.locator('#set-stats .price-stats').getAttribute('aria-label'), `Value of your cards from ${charizard.set.name}`);
-		assert.equal(plain(await page.locator('#set-stats .price-stats-total').textContent()), 'R$ 4.800,00');
+		await page.waitForSelector('#set-stats #set-value');
+		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics on the set');
+		await page.click('#set-value');
+		await page.waitForSelector('.value-sheet[open] .price-stats');
+		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), `Value of your cards from ${charizard.set.name}`);
+		assert.equal(plain(await page.locator('.value-sheet .vs-coverage').textContent()), 'Priced: 1 of 1 copy');
+		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), 'R$ 4.800,00');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'the set');
 
-		// A binder holding both copies: its statistics bar at the top.
+		// A binder holding both copies: its Value button at the top.
 		const binderId = await page.evaluate(async ([a, b]) => {
 			const binders = await import('/pokemon-card-tracker/js/binders.js');
 			const binder = await binders.createBinder({cols: 3, name: 'Vitrine', page_count: 1, rows: 3});
@@ -225,13 +232,18 @@ describe('prices in the app', () => {
 		}, [first.id, second.id]);
 
 		await page.goto(url(`binders/${binderId}`));
-		await page.waitForSelector('#binder-stats .price-stats');
+		await page.waitForSelector('#binder-stats #binder-value');
 		assert.ok(await page.evaluate(() => document.querySelector('.binder-head').nextElementSibling.id === 'binder-stats'), 'right under the binder\'s name');
-		assert.equal(await page.locator('#binder-stats .price-stats').getAttribute('aria-label'), 'Value of Vitrine');
-		assert.equal(plain(await page.locator('#binder-stats .price-stats-total').textContent()), 'R$ 4.852,30');
-		assert.match(plain(await page.locator('#binder-stats .price-stats-counts').textContent()), /2 copies by Liga.*0 copies by US estimate.*0 copies unknown/);
-		await noSideways(page, 'the binder');
+		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics on the binder');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-binder.png'});
+		await page.click('#binder-value');
+		await page.waitForSelector('.value-sheet[open] .price-stats');
+		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of Vitrine');
+		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), 'R$ 4.852,30');
+		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /2 copies by Liga.*0 copies by US estimate.*0 copies unknown/);
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('.value-sheet', {state: 'detached'});
+		await noSideways(page, 'the binder');
 
 		assert.deepEqual(device.errors.map(String), []);
 		assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');

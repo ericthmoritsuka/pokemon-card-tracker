@@ -242,3 +242,11 @@ button.wl-result {
 		color: var(--error-text);
 	}
 }
+
+/* Spares and Wishlist side by side in a member's Cards heading
+   (js/cards-view.js). */
+.view-head-links {
+	display: flex;
+	flex: none;
+	gap: var(--space-2);
+}

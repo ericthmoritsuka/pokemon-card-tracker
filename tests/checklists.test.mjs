@@ -772,6 +772,29 @@ describe('list screens keep up with changes', () => {
 		await context.close();
 	});
 
+	test('the list\'s value is a small Value button that opens the sheet, not a box', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, [KANTO]));
+		await page.goto(url(`lists/${KANTO.id}`));
+		await waitForSummary(page, '4 owned, 147 missing.');
+		await page.waitForSelector('#checklist-stats #checklist-value');
+		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics');
+
+		// The five live copies of Kanto Pokémon (two of #1, #4, #25, and the
+		// Japanese #7), none priced on this phone.
+		await page.click('#checklist-value');
+		await page.waitForSelector('.value-sheet[open] .price-stats');
+		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of the owned cards on Kanto');
+		assert.equal(await page.locator('.value-sheet .vs-coverage').textContent(), 'Priced: 0 of 5 copies');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('.value-sheet', {state: 'detached'});
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'checklist-value', 'the focus returns to the button');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a list that arrives while the Lists screen is loading still shows', {timeout: TEST_TIMEOUT}, async () => {
 		const {context, errors, page} = await device(null, 'phone');
 

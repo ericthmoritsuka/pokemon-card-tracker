@@ -441,7 +441,9 @@ describe('a family member\'s Sets and cards', () => {
 		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
 		assert.equal(await page.locator('.ph-add').count(), 0, 'no Add photo');
 		assert.equal(await page.locator('.ph-use-main:visible').count(), 0, 'no Main image');
-		assert.equal(await page.locator('#card-wish, #card-wished').count(), 0, 'no Add to wishlist');
+		// Add to wishlist stays: it writes only to yours (its own test below).
+		assert.equal(await page.locator('#card-wish').count(), 1, 'Add to wishlist, for your own wishlist');
+		assert.equal(await page.locator('#copies-spares').count(), 0, 'one copy: no spare');
 		assert.equal(await page.locator('#card-price form').count(), 0, 'no Liga price form');
 		assert.equal(await page.locator('#card-price .price-edit').count(), 0, 'no Update Liga price');
 		assert.match(await page.locator('#card-price .price-liga').textContent(), /R\$\s?70/, 'Member A\'s saved Liga price shows');
@@ -473,6 +475,72 @@ describe('a family member\'s Sets and cards', () => {
 		const reads = fake.log.filter((item) => item.path === '/rest/v1/documents' && item.method === 'GET' && new URLSearchParams(item.search).get('user_id') === `eq.${people.member.id}`);
 
 		assert.ok(reads.length <= 3, `few reads of Member A's document (${reads.length})`);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Member A\'s card offers Add to wishlist in the language of their copies, saved to your wishlist only, and says how many they spare', async () => {
+		const fake = new FakeSupabase();
+		const people = family(fake, {memberCards: [
+			entry('m-1', {card_id: 'tst2-005', language: 'pt'}),
+			entry('m-2', {card_id: 'tst2-005', language: 'pt'}),
+			entry('m-3', {card_id: 'tst2-005', language: 'en'}),
+		]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+
+		// Their Cards page links their wishlist beside their spares.
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#family-strip');
+		await page.waitForSelector('#cards-wishlist');
+		assert.equal(await page.locator('#cards-wishlist').getAttribute('href'), `${BASE}wishlist/${people.member.id}`);
+		assert.equal(await page.locator('#cards-trade').count(), 1, 'Spares stays');
+		await page.screenshot({clip: {height: 220, width: VIEWPORT.width, x: 0, y: 0}, path: '/tmp/family-cards-head.png'});
+
+		// Their set: a small Value button, the sheet over their copies.
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForSelector('.set-tile[href$="/sets/en/tst2"]');
+		await page.click('.set-tile[href$="/sets/en/tst2"]');
+		await page.waitForSelector('#set-value');
+		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics');
+		await page.click('#set-value');
+		await page.waitForSelector('.value-sheet[open] .price-stats');
+		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of Member A\'s cards from Test set tst2');
+		assert.equal(await page.locator('.value-sheet .vs-coverage').textContent(), 'Priced: 0 of 3 copies');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('.value-sheet', {state: 'detached'});
+
+		// Their card: two Portuguese copies and one English, so one spare,
+		// and Add to wishlist asks for Portuguese.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('cards/en/tst2-005'));
+		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Member A\'s copies (3)');
+		await page.waitForSelector('#card-wish');
+		assert.equal(await page.locator('#copies-spares').textContent(), 'Member A has 1 spare');
+		await page.screenshot({fullPage: true, path: '/tmp/family-card-want.png'});
+		await page.click('#card-wish');
+		await page.waitForSelector('#card-wished');
+		assert.ok(await page.locator('#family-strip').count(), 'still in Member A\'s view');
+
+		const mine = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/wishlist.js')).listWishlist());
+
+		assert.deepEqual(mine.map((item) => [item.card_id, item.catalog, item.language]), [['tst2-005', 'international', 'pt']]);
+
+		// Nothing reached Member A's document: no write for their row, and
+		// their wishlist on the server is still empty.
+		await page.waitForTimeout(500);
+		assert.deepEqual(fake.documents.get(people.member.id).doc.wishlist, []);
+		assert.equal(fake.log.filter((item) => item.path === '/rest/v1/documents' && item.method !== 'GET' && `${item.search || ''} ${JSON.stringify(item.body)}`.includes(people.member.id)).length, 0, 'no write names Member A');
+
+		// A second visit shows it as already wanted.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('cards/en/tst2-001'));
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('cards/en/tst2-005'));
+		await page.waitForSelector('#card-wished');
+		assert.equal(await page.locator('#card-wish').count(), 0);
+
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
