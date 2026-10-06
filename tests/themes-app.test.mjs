@@ -4,7 +4,8 @@
 // suggestion. Headless Chromium at 360 x 740 against tests/pages-server.mjs.
 //
 // Supabase is answered by tests/fake-supabase.mjs and never reached. PokeAPI
-// and its sprites are faked; TCGdex is real only for the Sets screen check.
+// and its sprites are faked; the Sets screen check replays real TCGdex
+// answers recorded in tests/tcgdex-fixtures.json (tests/tcgdex-replay.mjs).
 //
 // Run: PLAYWRIGHT=/path/to/node_modules/playwright node --test tests/themes-app.test.mjs
 // Screenshots: /tmp/themes-*.png
@@ -18,6 +19,7 @@ import {palette, themeById} from '../js/themes.js';
 import {fakePokeApi as fakeSpeciesNames} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {replayTcgdex} from './tcgdex-replay.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -91,6 +93,9 @@ async function device(fake, name, {colorScheme = 'light', tcgdex = 'fake'} = {})
 	if (tcgdex === 'fake') {
 		await context.route('https://api.tcgdex.net/**', (route) => route.fulfill({body: '{}', contentType: 'application/json', status: 404}));
 		await context.route('https://assets.tcgdex.net/**', (route) => route.fulfill({status: 404}));
+	}
+	else if (tcgdex === 'recorded') {
+		await replayTcgdex(context);
 	}
 
 	await fakePokeApi(context, pokeapi);
@@ -438,7 +443,7 @@ describe('themes and the favorite signed in', () => {
 	});
 
 	test('My Cards, Sets, and Profile render under a type theme', async () => {
-		const {context, errors, page} = await device(null, 'phone', {tcgdex: 'real'});
+		const {context, errors, page} = await device(null, 'phone', {tcgdex: 'recorded'});
 
 		await page.goto(url('cards'));
 		await page.evaluate(() => localStorage.setItem('card-tracker-theme', 'dragon'));
