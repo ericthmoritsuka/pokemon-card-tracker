@@ -134,6 +134,7 @@ const SHELL = [
 	'js/sheet.js',
 	'js/shell.js',
 	'js/sync.js',
+	'js/tcgdex.js',
 	'js/themes.js',
 	'js/tile.js',
 	'js/trade-view.js',
