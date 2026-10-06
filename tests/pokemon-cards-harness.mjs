@@ -72,8 +72,8 @@ export const INTEGRATION = {
 			name: 'row(n) links the Pokémon to its cards',
 		},
 		{
-			line: '\t\tconst tick = kind === \'owned\' || source.readOnly',
-			name: 'row(n) shows the mark alone for an owned row or read only',
+			line: '\t\tconst tick = h(\'span\', {class: \'dex-tick\'}, mark(kind, entries.length));',
+			name: 'row(n) shows the mark alone, with nothing to tap',
 		},
 		{
 			line: '\t\treturn h(\'li\', {class: `dex-row dex-row-linked ${kind}`, \'data-dex\': n}, entry, tick);',
