@@ -111,7 +111,21 @@ the audit below to confirm or drop:
    pockets and updates only defaults never picked by hand. A generated binder is a view, so a
    card can also sit in another binder. Medium: binders, spreads, the filter bar, checklists,
    and collections already exist.
-5. **Family view (Eric, 2026-10-05):**
+5. **Liga link rules (from Eric's 76-card Liga lookup, 2026-10-05):** fix in js/liga.js and
+   DESIGN.md "Liga's query pattern", with tests:
+   - Generations Radiant Collection uses the main set's total: `Swirlix (RC19/83)`, not
+     `RC19/RC32`, so the GG/TG rule does not extend to RC.
+   - SVP promos use the infinity sign: `Dondozo (012/∞)`. XY promos keep the promo number
+     alone (`Celebi (XY111)`), and SWSH050 still works.
+   - McDonald's 2023 pads both sides: `Cetitan (005/015)`, though TCGdex gives 5 and 15.
+   - When the card number is zero-padded, pad the total to the same width:
+     `Dachsbun (039/091)`, not `/91`.
+   - A name-only search lists every print with its number form, a fallback when the exact
+     query misses.
+   - To weigh: a manual Liga price should say its finish and language (Liga averages are per
+     finish, and PT and EN share one page with different prices); Reverse and Shattered Holo
+     are separate prints; show "no PT listing", never zero.
+6. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
