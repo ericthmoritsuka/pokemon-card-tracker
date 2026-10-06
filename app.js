@@ -45,6 +45,7 @@ import {closeSheets} from './js/sheet.js';
 import {shellRoute, startShell, toast} from './js/shell.js';
 import {onSyncStatus, startSync, statusText, syncNow} from './js/sync.js';
 import {WISHLIST_ACCOUNT_VIEWS, WISHLIST_ROUTES} from './js/wishlist-view.js';
+import {applyUpdate, showWhatsNewOnce, updateApplying} from './js/whats-new.js';
 import {keepFamilyWishlistsCached} from './js/wishlist.js';
 
 const ROUTES = [
@@ -256,12 +257,12 @@ async function registerServiceWorker() {
 	}
 
 	const hadController = Boolean(navigator.serviceWorker.controller);
-	let reloading = false;
+	showWhatsNewOnce({controlled: hadController}).catch(() => {});
 	let offered = false;
 
 	navigator.serviceWorker.addEventListener('controllerchange', () => {
 		// After Reload, the waiting version took over: load its files.
-		if (reloading) {
+		if (updateApplying()) {
 			window.location.reload();
 
 			return;
@@ -286,10 +287,7 @@ async function registerServiceWorker() {
 
 		offered = true;
 		toast('A new version is installed.', {
-			action: () => {
-				reloading = true;
-				worker.postMessage('skip-waiting');
-			},
+			action: () => applyUpdate(worker),
 			actionLabel: 'Reload',
 			timeout: 0,
 		});
