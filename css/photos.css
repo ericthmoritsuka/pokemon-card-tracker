@@ -618,9 +618,12 @@ button.ph-sheet-close {
 	position: absolute;
 }
 
+/* The outline, handles, and loupe are drawn in the theme's tab mark, a
+   mid-tone that shows on dark and light photos alike (yellow by default),
+   and the handles are edged in badge ink, as badges are over card art. */
 .ph-outline polygon {
-	fill: rgba(255, 203, 5, 0.12);
-	stroke: #ffcb05;
+	fill: color-mix(in srgb, var(--tab-mark) 12%, transparent);
+	stroke: var(--tab-mark);
 	stroke-linejoin: round;
 	stroke-width: 2;
 }
@@ -641,10 +644,10 @@ button.ph-handle {
 }
 
 button.ph-handle::after {
-	background: rgba(29, 46, 96, 0.35);
-	border: 3px solid #ffcb05;
+	background: color-mix(in srgb, var(--badge-ink) 35%, transparent);
+	border: 3px solid var(--tab-mark);
 	border-radius: 50%;
-	box-shadow: 0 0 0 1px #1d2e60;
+	box-shadow: 0 0 0 1px var(--badge-ink);
 	content: "";
 	height: 24px;
 	left: 50%;
@@ -656,13 +659,13 @@ button.ph-handle::after {
 
 button.ph-handle.ph-dragging::after,
 button.ph-handle:focus-visible::after {
-	background: rgba(255, 203, 5, 0.35);
+	background: color-mix(in srgb, var(--tab-mark) 35%, transparent);
 	height: 32px;
 	width: 32px;
 }
 
 .ph-loupe {
-	border: 3px solid #ffcb05;
+	border: 3px solid var(--tab-mark);
 	border-radius: 50%;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 	height: 112px;

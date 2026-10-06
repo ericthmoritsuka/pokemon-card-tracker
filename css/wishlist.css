@@ -1,13 +1,14 @@
-/* Wishlist (js/wishlist-view.js). Uses the palette tokens from style.css,
-   so it follows the light and dark schemes. Yellow is a fill only, never
-   text; red is kept for destructive actions. */
+/* Wishlist (js/wishlist-view.js). Colors, spacing, and radii come from the
+   tokens in style.css, so it follows every theme and dark mode. The owned
+   yellow is a fixed role, a fill only, never text; red is kept for
+   destructive actions. */
 
 .wl-add-row {
-	margin: 8px 0 12px;
+	margin: var(--space-2) 0 var(--space-3);
 }
 
 .wl-add {
-	margin-bottom: 12px;
+	margin-bottom: var(--space-3);
 }
 
 .wl-search .search {
@@ -15,15 +16,15 @@
 }
 
 .wl-search-row {
-	margin-bottom: 8px;
+	margin-bottom: var(--space-2);
 }
 
 .wl-search-row button {
-	min-height: 48px;
+	min-height: var(--target);
 }
 
 .wl-results {
-	margin-bottom: 8px;
+	margin-bottom: var(--space-2);
 }
 
 button.wl-result {
@@ -53,14 +54,15 @@ button.wl-result {
 	padding: 0;
 }
 
+/* A row like the list tiles (style.css .list-tile): the theme's panel tint. */
 .wl-item {
-	background: var(--surface);
+	background: var(--panel);
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-control);
 	display: grid;
-	gap: 12px;
+	gap: var(--space-3);
 	grid-template-columns: 84px minmax(0, 1fr);
-	margin-bottom: 8px;
+	margin-bottom: var(--space-2);
 	padding: 10px;
 }
 
@@ -72,7 +74,7 @@ button.wl-result {
 }
 
 .wl-item.wl-has {
-	border-left: 6px solid var(--yellow);
+	border-left: 6px solid var(--owned);
 }
 
 .wl-art {
@@ -82,7 +84,7 @@ button.wl-result {
 .wl-body {
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: var(--space-1);
 	min-width: 0;
 }
 
@@ -101,14 +103,14 @@ button.wl-result {
 .wl-chips {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 4px;
+	gap: var(--space-1);
 	margin-top: 2px;
 }
 
 .wl-chip,
 .wl-priority {
 	border: 1px solid var(--border);
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	font-size: 0.75rem;
 	font-weight: 600;
 	line-height: 1.2;
@@ -119,11 +121,12 @@ button.wl-result {
 	color: var(--muted);
 }
 
-/* Priority does not rely on color: each chip carries its word. */
+/* Priority does not rely on color: each chip carries its word. High is
+   filled like a selected control, in the theme's color. */
 .wl-priority-high {
-	background: var(--navy);
-	border-color: var(--navy);
-	color: #ffffff;
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	color: var(--selected-text);
 }
 
 .wl-priority-low {
@@ -138,19 +141,21 @@ button.wl-result {
 	white-space: pre-wrap;
 }
 
+/* Owned already: the yellow strip of the family lens (style.css
+   .view-only), the same in every theme. */
 .wl-owned {
 	align-items: center;
-	background: var(--yellow);
+	background: var(--owned);
 	border-radius: 8px;
-	color: #1b1b1f;
+	color: var(--warn-ink);
 	display: flex;
 	flex-wrap: wrap;
 	font-size: 0.9rem;
 	font-weight: 700;
-	gap: 6px 8px;
+	gap: 6px var(--space-2);
 	justify-content: space-between;
 	line-height: 1.3;
-	margin-top: 4px;
+	margin-top: var(--space-1);
 	padding: 6px 6px 6px 10px;
 }
 
@@ -159,27 +164,27 @@ button.wl-result {
 }
 
 .wl-owned button {
-	background: #ffffff;
-	border-color: #1b1b1f;
-	color: #1b1b1f;
+	background: var(--badge-paper);
+	border-color: var(--warn-ink);
+	color: var(--warn-ink);
 	flex: none;
 	min-height: 44px;
-	padding: 8px 12px;
+	padding: var(--space-2) var(--space-3);
 	width: auto;
 }
 
 .wl-spare {
-	border-left: 4px solid var(--blue);
+	border-left: 4px solid var(--accent);
 	font-weight: 700;
-	margin: 4px 0 0;
-	padding-left: 8px;
+	margin: var(--space-1) 0 0;
+	padding-left: var(--space-2);
 }
 
 .wl-edit {
 	align-self: flex-start;
-	margin-top: 4px;
+	margin-top: var(--space-1);
 	min-height: 44px;
-	padding: 8px 16px;
+	padding: var(--space-2) var(--space-4);
 	width: auto;
 }
 
@@ -189,18 +194,18 @@ button.wl-result {
 
 .wl-flash {
 	font-weight: 600;
-	margin: 0 0 12px;
+	margin: 0 0 var(--space-3);
 }
 
 /* The editor */
 
 .wl-editor h3 {
-	margin: 0 0 12px;
+	margin: 0 0 var(--space-3);
 	overflow-wrap: anywhere;
 }
 
 .wl-label {
-	margin-top: 12px;
+	margin-top: var(--space-3);
 }
 
 .wl-label-block {
@@ -211,36 +216,32 @@ button.wl-result {
 .wl-textarea {
 	background: var(--surface);
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-control);
 	color: var(--text);
 	font: inherit;
 	min-height: 72px;
-	padding: 8px 12px;
+	padding: var(--space-2) var(--space-3);
 	resize: vertical;
 	width: 100%;
 }
 
 .wl-textarea:focus-visible {
-	outline: 3px solid var(--blue);
+	outline: 3px solid var(--accent-strong);
 	outline-offset: 2px;
 }
 
 .wl-editor-actions {
 	display: grid;
-	gap: 8px;
+	gap: var(--space-2);
 	grid-template-columns: 1fr 1fr;
-	margin-top: 8px;
+	margin-top: var(--space-2);
 }
 
+/* Red in every theme; --danger-text is the shade that reads on the dark
+   surface in dark mode (style.css button.danger). */
 .wl-editor-actions .wl-danger {
-	color: var(--red);
+	color: var(--danger-text);
 	grid-column: 1 / -1;
-}
-
-@media (prefers-color-scheme: dark) {
-	.wl-editor-actions .wl-danger {
-		color: var(--error-text);
-	}
 }
 
 /* Spares and Wishlist side by side in a member's Cards heading
