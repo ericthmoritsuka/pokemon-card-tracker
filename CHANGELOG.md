@@ -17,7 +17,7 @@ are Recife time. Each line ends with its commit.
 - **08:45** Version 30: small fixes from the backlog. `acb42f7`
   - **Want from a family member's cards:** Add to wishlist now shows on a family member's card,
     saves only to your own wishlist, and starts in the language of their copy. The card says
-    when they have spares ("Tadeu has 1 spare"), and their Cards page links to their wishlist.
+    when they have spares ("Ana has 1 spare"), and their Cards page links to their wishlist.
   - **A smaller value:** sets, checklists, and binders show a Value button that opens the sheet,
     as My Cards does, instead of the big Total, Average, Highest, Lowest box.
   - **Binder placeholders at scan:** a scanned card that a binder pocket is waiting for says
