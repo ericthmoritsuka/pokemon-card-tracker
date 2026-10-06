@@ -153,9 +153,6 @@ export function newWish(cardId, options = {}, at = nowIso(), id = newId()) {
 	};
 }
 
-// The stamp every write uses (js/merge.js), kept as an export here too.
-export {nextStamp};
-
 // A changed copy of an entry; the entry passed in is left alone, because the
 // merge compares versions. patch: {language, variantId, priority, note}.
 // Stamped field by field (js/merge.js stampEntry), so a priority changed on
@@ -360,14 +357,6 @@ const sameWish = (item, cardId, catalog, language, variantId) => item.card_id ==
 	&& entryCatalog(item) === catalog
 	&& (item.language || null) === (language || null)
 	&& (item.variant_id || null) === (variantId || null);
-
-// The live item asking for exactly this card, language, and finish, or null.
-export async function wishFor(cardId, options = {}) {
-	const catalog = options.catalog || (options.language ? catalogFor(options.language) : 'international');
-	const variantId = options.variantId || options.variant_id || null;
-
-	return (await listWishlist()).find((item) => sameWish(item, cardId, catalog, options.language || null, variantId)) || null;
-}
 
 // Adds a card to the wishlist: the one-tap "Add to wishlist" for card
 // detail. options: {catalog, language, variantId, priority, note}, all

@@ -5,14 +5,13 @@
 import assert from 'node:assert/strict';
 import test, {describe} from 'node:test';
 
-import {mergeDocuments, sameContent} from '../js/merge.js';
+import {mergeDocuments, nextStamp, sameContent} from '../js/merge.js';
 import {
 	copyFits,
 	deletedWish,
 	editedWish,
 	languagesFor,
 	newWish,
-	nextStamp,
 	ownedCopies,
 	parseQuery,
 	sameNumber,

@@ -219,13 +219,6 @@ export const STATUSES = {
 	wanted: {className: 'badge-wanted', label: 'On a wishlist', make: () => glyph(HEART)},
 };
 
-// The order the one status corner picks in.
-const STATUS_ORDER = ['unsure', 'waiting', 'wanted', 'owned'];
-
-export function pickStatus(flags) {
-	return STATUS_ORDER.find((status) => flags && flags[status]) || null;
-}
-
 function finishBadge(code) {
 	const finish = FINISHES[code];
 

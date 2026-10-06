@@ -17,8 +17,7 @@
 //
 // binderSpread() is the component. js/binders-view.js keeps the pockets: it
 // passes renderPocket(page, position), which returns the pocket element with
-// its own tap handler (the picker sheet), or onPocket(page, position) to have
-// the component call it for a tap on a pocket. The area is
+// its own tap handler (the picker sheet). The area is
 // [data-swipe-own], so js/card-swipe.js leaves its swipes alone.
 //
 // The math at the top is pure, so Node tests it (tests/binder-spread.test.mjs);
@@ -304,9 +303,6 @@ const finished = (animation) => (animation && animation.finished ? animation.fin
 // readOnly      a family member's binder: words change, nothing else
 // renderPocket  (page, position) => Element, the pocket as the caller draws
 //               it (js/binders-view.js pocket tiles)
-// onPocket      (page, position) => void, called for a tap on a pocket in an
-//               editable view; leave it out when renderPocket's element
-//               handles its own taps
 // onChange      ({spread, zoom, pages}) => void after the place changes
 //
 // Returns {element, update, refreshCover, state, pages, turn, goTo, zoom,
@@ -315,7 +311,6 @@ export function binderSpread({
 	base = '',
 	binder: start,
 	onChange = null,
-	onPocket = null,
 	page: routePage = null,
 	path = null,
 	readOnly = false,
@@ -956,16 +951,6 @@ export function binderSpread({
 			event.stopPropagation();
 		}
 	}, true);
-
-	if (onPocket) {
-		element.addEventListener('click', (event) => {
-			const pocket = event.target.closest('.bs-pocket');
-
-			if (pocket && !pocket.closest('[inert]') && !event.defaultPrevented) {
-				onPocket(Number(pocket.dataset.page), Number(pocket.dataset.position));
-			}
-		});
-	}
 
 	// The arrow keys turn pages while nothing else wants them.
 	function onKey(event) {

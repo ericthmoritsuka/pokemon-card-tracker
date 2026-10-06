@@ -193,9 +193,6 @@ export function cleanCoverImage(value) {
 
 export const coverImageOf = (binder) => cleanCoverImage(binder && binder.cover_image);
 
-// The stamp every write uses (js/merge.js), kept as an export here too.
-export {nextStamp};
-
 export const liveBinders = (binders) => (binders || []).filter((binder) => binder && isLive(binder));
 
 // Where every placed copy is: Map entry_id -> {binder, slot}. A copy found in
@@ -283,8 +280,6 @@ export function locate(binders, entryId) {
 
 	return {binder_id: binder.id, binder_name: binder.name, page: slot.page, position: slot.position, ...cellOf(binder, slot.position)};
 }
-
-export const locationText = (where) => (where ? `${where.binder_name}, page ${where.page}, pocket ${where.position}` : 'Not in a binder');
 
 // Filled pockets for the binder list: owned cards placed, and placeholders.
 // A copy that has been deleted since it was placed does not count as filled.
@@ -909,11 +904,6 @@ export async function unplacedCards() {
 	const doc = await loadDocument();
 
 	return unplaced(doc.cards, doc.binders);
-}
-
-// Placeholders waiting for a card, for the scan confirm screen later.
-export async function placeholdersWaiting(catalog, cardId) {
-	return placeholdersFor(await allBinders(), catalog, cardId);
 }
 
 // ------------------------------------------------------------ scanning

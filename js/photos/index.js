@@ -9,7 +9,6 @@
 //   tileSrc, withMainPhoto          the same for js/tile.js cardTile(): the
 //                                   URL to pass, then the photo filled in
 //                                   when it was not in memory yet
-//   mainImageArt(entries, src, art) the main image as an element
 //   startPhotoSync()                the upload queue and photo restore
 //   photoSettingsCard()             Profile's "Keep a detail copy of new
 //                                   photos" switch, for this phone
@@ -265,39 +264,6 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 			return element;
 		},
 	};
-}
-
-// A tile's image as an element: the main image of a group of copies (or
-// one copy). art(src) draws the card shape (cardArt bound to the tile's
-// names); catalogImage is the official image in the tile's size, or null.
-// When the main image is the owner's photo, it is drawn from this phone, or
-// fetched once from the bucket; if neither has it, the official image or
-// the card back shows instead.
-export function mainImageArt(entries, catalogImage, art = plainArt, {twins = []} = {}) {
-	const choice = mainImage(entries, catalogImage, {twins});
-
-	if (choice.kind !== 'photo') {
-		return art(choice.src);
-	}
-
-	startPhotoSync();
-
-	const ready = cachedPhotoUrl(choice.photo.id);
-
-	if (ready) {
-		return art(ready);
-	}
-
-	// display: contents, so the tile's layout and corner badges see the art
-	// itself.
-	const slot = h('div', {class: 'ph-tile-slot', 'data-photo': choice.photo.id}, h('div', {class: 'art loading'}));
-
-	photoUrl(choice.photo).then((url) => {
-		slot.replaceChildren(art(url || catalogImage || null));
-		slot.dataset.src = url ? 'photo' : 'fallback';
-	});
-
-	return slot;
 }
 
 // For js/tile.js cardTile({art: {src}}), which takes a URL now: the main
