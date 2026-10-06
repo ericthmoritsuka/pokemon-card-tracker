@@ -23,6 +23,9 @@ import {
 	lookReason,
 	needsLook,
 	ownedFor,
+	placeholderLine,
+	placeholderPlan,
+	placeOn,
 	quantity,
 	readLine,
 	searchPrefill,
@@ -435,6 +438,28 @@ export function confirmSheet(ctx, itemId) {
 		return lines.length ? h('div', {class: 'scan-frame', id: 'scan-lines'}, ...lines) : null;
 	}
 
+	// A binder placeholder waiting for this card: where it goes, and Place
+	// it there, on unless switched off. Read from the person's own binders
+	// on the phone, so it shows offline too.
+	function placeholderBlock(item) {
+		const plan = placeholderPlan(ctx.session, ctx.placeholders).get(item.id);
+
+		if (!plan) {
+			return null;
+		}
+
+		if (!plan.spot) {
+			return h('div', {class: 'scan-frame scan-place', id: 'scan-place'},
+				h('p', {class: 'scan-muted', id: 'scan-place-line'}, 'An earlier card in this session fills its binder placeholder.'));
+		}
+
+		const box = h('input', {checked: placeOn(item), class: 'scan-place-box', id: 'scan-place-it', onchange: () => ctx.setPlace(itemId, box.checked), type: 'checkbox'});
+
+		return h('div', {class: 'scan-frame scan-place', id: 'scan-place'},
+			h('p', {id: 'scan-place-line'}, placeholderLine(plan)),
+			h('label', {class: 'scan-place-toggle', for: 'scan-place-it'}, box, ' Place it there'));
+	}
+
 	function actions(item) {
 		const total = ctx.session.items.length;
 		const single = total === 1;
@@ -481,6 +506,7 @@ export function confirmSheet(ctx, itemId) {
 			finishBlock(item),
 			conditionBlock(item),
 			ownedLines(item),
+			placeholderBlock(item),
 			actions(item),
 			// With the report switched on, it shows here after every scan.
 			item.report && ctx.reportOn ? reportPanel(ctx, itemId, {inline: true}) : null,
@@ -716,6 +742,15 @@ export function doneSheet(ctx) {
 						skipOwned = true;
 						refresh();
 					}, pressed: skipOwned}))));
+		}
+
+		// The cards this save fills placeholders with.
+		const going = new Set(ctx.session.items.filter((item) => blocker(item) === null && !(skipOwned && ownedFor(item, ctx.owned).inLanguage)).map((item) => item.id));
+		const placing = [...placeholderPlan(ctx.session, ctx.placeholders, {ids: going}).entries()]
+			.filter(([id, plan]) => plan.spot && placeOn(findItem(ctx.session, id))).length;
+
+		if (placing) {
+			rows.push(h('p', {class: 'scan-muted', id: 'scan-done-place'}, `${plural(placing, 'card')} ${placing === 1 ? 'goes' : 'go'} in a binder placeholder.`));
 		}
 
 		rows.push(h('div', {class: 'scan-done-row'},

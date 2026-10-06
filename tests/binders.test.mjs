@@ -24,6 +24,7 @@ import {
 	cleanFields,
 	coverTextColor,
 	fillFromTray,
+	fillPlaceholders,
 	layoutOf,
 	locate,
 	nextStamp,
@@ -31,12 +32,14 @@ import {
 	pageOfPocket,
 	pageSlots,
 	placeFromTray,
+	placeholderList,
 	placeholdersFor,
 	placements,
 	planResize,
 	pocketToTray,
 	positionOf,
 	resizedBinder,
+	restorePlaceholders,
 	setPocket,
 	slotKind,
 	slotsOf,
@@ -215,6 +218,69 @@ describe('the one-pocket rule', () => {
 		binders = apply(binders, setPocket(binders, {at: at(4), binderId: 'a', content: null, page: 1, position: 4}));
 		assert.equal(where(binders, 'c1'), null, 'taking a card out leaves the pocket empty');
 		assert.equal(pageSlots(binders[0], 1, placements(binders)).has(4), false);
+	});
+
+	test('placeholders for the scanner: listed in binder order, filled by saved copies, and put back', () => {
+		const want = (id) => ({card_id: `tst1-${id}`, catalog: 'international', image: null, name: `Card ${id}`, variant_id: null});
+		// Binder b was made first, so it comes first, whatever the order kept.
+		let binders = [binderOf('a', {created_at: at(2)}), binderOf('b', {created_at: at(1)})];
+
+		binders = apply(binders, setPocket(binders, {at: at(3), binderId: 'a', content: {want: want('025')}, page: 1, position: 1}));
+		binders = apply(binders, setPocket(binders, {at: at(4), binderId: 'b', content: {want: want('025')}, page: 2, position: 5}));
+		binders = apply(binders, setPocket(binders, {at: at(5), binderId: 'b', content: {want: {...want('004'), catalog: undefined}}, page: 1, position: 3}));
+
+		assert.deepEqual(placeholderList(binders).map((spot) => [spot.binder_id, spot.page, spot.position, spot.card_id, spot.catalog]), [
+			['b', 1, 3, 'tst1-004', null],
+			['b', 2, 5, 'tst1-025', 'international'],
+			['a', 1, 1, 'tst1-025', 'international'],
+		]);
+
+		const rows = [
+			{binderId: 'b', cardId: 'tst1-025', entryId: 'c1', page: 2, position: 5},
+			{binderId: 'a', cardId: 'tst1-025', entryId: 'c2', page: 1, position: 1},
+			// Filled on another phone since: passed over.
+			{binderId: 'b', cardId: 'tst1-999', entryId: 'c3', page: 1, position: 3},
+		];
+		const filled = fillPlaceholders(binders, rows, {at: at(6)});
+
+		assert.deepEqual(filled.done.map((row) => [row.entryId, row.want.card_id]), [['c1', 'tst1-025'], ['c2', 'tst1-025']]);
+		assert.deepEqual(filled.passed.map((row) => row.entryId), ['c3']);
+		assert.equal(filled.changed.length, 2);
+		binders = apply(binders, filled.changed);
+		assert.equal(where(binders, 'c1'), 'b:2:5');
+		assert.equal(where(binders, 'c2'), 'a:1:1');
+		assert.deepEqual(placeholderList(binders).map((spot) => spot.card_id), ['tst1-004'], 'the placeholders filled are gone');
+
+		// The same placeholder twice: the second finds a card there and is passed over.
+		const twice = fillPlaceholders(binders, [{binderId: 'b', cardId: 'tst1-004', entryId: 'c4', page: 1, position: 3}, {binderId: 'b', cardId: 'tst1-004', entryId: 'c5', page: 1, position: 3}], {at: at(7)});
+
+		assert.deepEqual(twice.done.map((row) => row.entryId), ['c4']);
+		assert.deepEqual(twice.passed.map((row) => row.entryId), ['c5']);
+
+		// Undo: the placeholders come back, except where the copy was moved since.
+		binders = apply(binders, setPocket(binders, {at: at(8), binderId: 'a', content: {entry_id: 'c2'}, page: 3, position: 9}));
+
+		const back = restorePlaceholders(binders, filled.done, {at: at(9)});
+
+		assert.deepEqual(back.done.map((row) => row.entryId), ['c1']);
+		assert.deepEqual(back.passed.map((row) => row.entryId), ['c2']);
+		binders = apply(binders, back.changed);
+		assert.equal(where(binders, 'c1'), null);
+		assert.equal(pageSlots(binders[1], 2, placements(binders)).get(5).want.card_id, 'tst1-025');
+		assert.equal(where(binders, 'c2'), 'a:3:9');
+
+		// Two placeholders in one binder, filled in one go: both stay after the merge.
+		let one = [binderOf('d')];
+
+		one = apply(one, setPocket(one, {at: at(10), binderId: 'd', content: {want: want('007')}, page: 1, position: 1}));
+		one = apply(one, setPocket(one, {at: at(11), binderId: 'd', content: {want: want('007')}, page: 1, position: 2}));
+
+		const both = fillPlaceholders(one, [{binderId: 'd', cardId: 'tst1-007', entryId: 'd1', page: 1, position: 1}, {binderId: 'd', cardId: 'tst1-007', entryId: 'd2', page: 1, position: 2}], {at: at(12)});
+
+		assert.equal(both.changed.length, 1);
+		one = apply(one, both.changed);
+		assert.equal(where(one, 'd1'), 'd:1:1');
+		assert.equal(where(one, 'd2'), 'd:1:2');
 	});
 
 	test('pockets outside the grid are refused', () => {
