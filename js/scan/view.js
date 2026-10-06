@@ -79,19 +79,42 @@ function rememberLanguage(code) {
 	}
 }
 
-// The card last added from the camera (picture.js pictureKey), kept across
-// visits and reloads, so opening Scan again with it still in view does not
-// add it again (picture.js repeatOfLast).
+// The card last added from the camera ({key: picture.js pictureKey, item:
+// its tray id}), kept across visits and reloads, so opening Scan again with
+// it still in view does not add it again (picture.js repeatOfLast). A card
+// removed from the tray or discarded is forgotten: taking it again is meant.
 const LAST_CARD_KEY = 'card-tracker:scan-last-card';
 
-const lastCardKey = () => stored(LAST_CARD_KEY, null, () => true);
-
-function rememberCard(key) {
+function lastCard() {
 	try {
-		localStorage.setItem(LAST_CARD_KEY, key);
+		const last = JSON.parse(localStorage.getItem(LAST_CARD_KEY) || 'null');
+
+		return last && typeof last.key === 'string' ? last : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+function rememberCard(key, item) {
+	try {
+		localStorage.setItem(LAST_CARD_KEY, JSON.stringify({item, key}));
 	}
 	catch {
 		// Not kept; a return with the card in view may add it again.
+	}
+}
+
+function forgetCard(items) {
+	const last = lastCard();
+
+	if (last && items.includes(last.item)) {
+		try {
+			localStorage.removeItem(LAST_CARD_KEY);
+		}
+		catch {
+			// Kept; the next return with it in view skips it.
+		}
 	}
 }
 
@@ -598,6 +621,7 @@ export function scanView(root) {
 	}
 
 	function remove(id) {
+		forgetCard([id]);
 		artworks.delete(id);
 		cardImages.delete(id);
 		progress.delete(id);
@@ -760,6 +784,7 @@ export function scanView(root) {
 		const kept = session;
 
 		discarded = kept.items.length ? kept : null;
+		forgetCard(kept.items.map((item) => item.id));
 		noteText = null;
 		session = S.newSession();
 		session.lastSave = kept.lastSave;
@@ -996,7 +1021,9 @@ export function scanView(root) {
 
 		// The card just added, still in front of the camera when Scan opened
 		// again (Q-20): taken once is enough. The shutter adds it anyway.
-		if (auto && repeatOfLast(result.picture, lastCardKey(), performance.now() - cameraOpenedAt)) {
+		const last = lastCard();
+
+		if (auto && repeatOfLast(result.picture, last && last.key, performance.now() - cameraOpenedAt)) {
 			if (fullSaved) {
 				await fullSaved;
 			}
@@ -1011,7 +1038,7 @@ export function scanView(root) {
 			const key = pictureKey(result.picture);
 
 			if (key) {
-				rememberCard(key);
+				rememberCard(key, id);
 			}
 		}
 
