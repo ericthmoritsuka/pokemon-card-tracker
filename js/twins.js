@@ -29,6 +29,7 @@
 // change can sync them.
 
 import {cardImage, importApi} from './catalog.js';
+import {database} from './idb.js';
 
 export const SERIES = ['swsh', 'sv', 'me'];
 
@@ -573,44 +574,7 @@ const STORES = ['english', 'results', 'decisions'];
 // Japanese set's aligned English sets), results (one per Asian card), and
 // decisions (one per Asian card the person answered).
 export function idbStore() {
-	let dbPromise = null;
-
-	const open = () => {
-		if (!dbPromise) {
-			dbPromise = new Promise((resolve, reject) => {
-				const request = indexedDB.open(DB_NAME, 1);
-
-				request.onupgradeneeded = () => {
-					for (const name of STORES) {
-						if (!request.result.objectStoreNames.contains(name)) {
-							request.result.createObjectStore(name);
-						}
-					}
-				};
-				request.onsuccess = () => resolve(request.result);
-				request.onerror = () => reject(request.error);
-			}).catch((err) => {
-				dbPromise = null;
-
-				throw err;
-			});
-		}
-
-		return dbPromise;
-	};
-
-	const run = async (name, mode, op) => {
-		const db = await open();
-
-		return new Promise((resolve, reject) => {
-			const tx = db.transaction(name, mode);
-			const request = op(tx.objectStore(name));
-
-			tx.oncomplete = () => resolve(request && request.result);
-			tx.onerror = () => reject(tx.error);
-			tx.onabort = () => reject(tx.error);
-		});
-	};
+	const {open, run} = database(DB_NAME, STORES);
 
 	return {
 		async all(name) {

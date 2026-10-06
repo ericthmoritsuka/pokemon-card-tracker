@@ -37,6 +37,7 @@
 
 import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
 import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
+import {database} from '../idb.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -49,50 +50,8 @@ const STORES = ['blobs', 'queue', 'made'];
 const RETRY_FETCH_MS = 30 * 1000;
 const RETRY_QUEUE_MS = 30 * 1000;
 
-let dbPromise = null;
-
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (!('indexedDB' in window)) {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => {
-				for (const name of STORES) {
-					if (!request.result.objectStoreNames.contains(name)) {
-						request.result.createObjectStore(name);
-					}
-				}
-			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(store, mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(store, mode);
-		const request = op(tx.objectStore(store));
-
-		tx.oncomplete = () => resolve(request && request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
+const phoneDb = database(DB_NAME, STORES);
+const idb = phoneDb.run;
 
 const getAll = (store) => idb(store, 'readonly', (s) => s.getAll());
 

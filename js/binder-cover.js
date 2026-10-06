@@ -37,6 +37,7 @@ import {coverAspect} from './binder-spread.js';
 import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, isHex, setCoverImage} from './binders.js';
 import {loadDocument, newId, nowIso} from './collection.js';
 import {h} from './dom.js';
+import {database} from './idb.js';
 import {detectCorners} from './photos/detect.js';
 import {decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './photos/encode.js';
 import {clampPoint, scaleCorners, warp} from './photos/geometry.js';
@@ -64,50 +65,9 @@ export function coverSize(binder) {
 
 // ------------------------------------------------------------- storage
 
-let dbPromise = null;
-
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (!('indexedDB' in window)) {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => {
-				for (const name of STORES) {
-					if (!request.result.objectStoreNames.contains(name)) {
-						request.result.createObjectStore(name);
-					}
-				}
-			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(store, mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(store, mode);
-		const request = op(tx.objectStore(store));
-
-		tx.oncomplete = () => resolve(request && request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
+const phoneDb = database(DB_NAME, STORES);
+const openDb = phoneDb.open;
+const idb = phoneDb.run;
 
 export const localCover = async (imageId) => {
 	const row = await idb('blobs', 'readonly', (s) => s.get(imageId));

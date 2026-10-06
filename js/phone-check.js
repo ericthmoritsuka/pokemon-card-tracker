@@ -2,6 +2,7 @@
 // test), kept so each family phone can still be checked.
 
 import {BASE, errorText, h, namedError, showError} from './dom.js';
+import {openDatabase} from './idb.js';
 import {reportAlwaysOn, setReportAlwaysOn} from './scan/draft.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
@@ -602,21 +603,12 @@ export function cameraView(root) {
 // --------------------------------------------------------- storage view
 
 function openDb() {
-	return new Promise((resolve, reject) => {
-		if (!('indexedDB' in window)) {
-			reject(namedError('NotSupportedError', 'IndexedDB is not available in this browser.'));
+	if (!('indexedDB' in window)) {
+		return Promise.reject(namedError('NotSupportedError', 'IndexedDB is not available in this browser.'));
+	}
 
-			return;
-		}
-
-		const request = indexedDB.open(DB_NAME, 1);
-
-		request.onupgradeneeded = () => {
-			request.result.createObjectStore(DB_STORE, {keyPath: 'id'});
-		};
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () => reject(request.error);
-		request.onblocked = () => reject(namedError('BlockedError', 'The database is open in another tab. Close other tabs of this app and try again.'));
+	return openDatabase(DB_NAME, (db) => db.createObjectStore(DB_STORE, {keyPath: 'id'}), {
+		onBlocked: () => namedError('BlockedError', 'The database is open in another tab. Close other tabs of this app and try again.'),
 	});
 }
 
