@@ -537,6 +537,37 @@ test('a Liga price on one phone and a photo on the other both survive (the E-15 
 	assert.equal(v21.mergeEntries([merged], [phoneB])[0], merged);
 });
 
+test('a Liga price\'s finish and language travel with it, key by key, and never mix with another phone\'s price', () => {
+	const base = made('a', {price_manual: {avg: 10, currency: 'BRL', date: '2026-09-01', low_nm: 8, source: 'Liga Pokémon'}});
+	const holo = {avg: 12, currency: 'BRL', date: '2026-10-01', finish: 'Holo', language: 'pt', low_nm: null, source: 'Liga Pokémon'};
+	const reverse = {avg: 30, currency: 'BRL', date: '2026-10-01', finish: 'Reverse holo', language: 'en', low_nm: 25, source: 'Liga Pokémon'};
+
+	// The price on one phone and a note on the other: both kept, the price
+	// whole with its finish and language.
+	const priced = edit(base, 2, {price_manual: holo});
+	const noted = edit(base, 3, {notes: 'binder 2'});
+	const merged = both(priced, noted);
+
+	assert.deepEqual(merged.price_manual, holo);
+	assert.equal(merged.notes, 'binder 2');
+	assert.equal(validVersion(merged), true);
+
+	// The same price on two phones: the later one wins whole, so one phone's
+	// finish never lands on the other's amounts.
+	const later = both(edit(base, 2, {price_manual: holo}), edit(base, 4, {price_manual: reverse}));
+
+	assert.deepEqual(later.price_manual, reverse);
+
+	// A price saved before v31, with neither field, still merges as it did.
+	const old = both(edit(base, 2, {notes: 'old'}), noted);
+
+	assert.deepEqual(old.price_manual, base.price_manual);
+	assert.equal('finish' in old.price_manual, false);
+
+	// A phone still on v21 takes the merged version whole, fields included.
+	assert.deepEqual(v21.mergeEntries([noted], [merged])[0].price_manual, holo);
+});
+
 test('a note and a condition edited on two phones both survive; the same field goes to the later edit', () => {
 	const base = made('a', {condition: 'Near Mint', notes: 'first'});
 	const phoneA = edit(base, 2, {notes: 'from A'});

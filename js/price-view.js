@@ -29,7 +29,6 @@ import {
 	formatMoney,
 	listStats,
 	manualPrice,
-	newestManual,
 	parseBrl,
 	savedEuroRates,
 	savedRates,
@@ -55,8 +54,46 @@ function dateLine(source, date) {
 	return parts.flatMap((part, i) => (i ? [' · ', part] : [part]));
 }
 
-// "R$ 45,90 lowest NM, R$ 52,30 average (Liga Pokémon, 2026-09-19)": one
-// copy's Liga price as a line for a "Your copies" row, or null.
+// The finish and language a Liga price says it is for: Liga averages each
+// finish apart, and Portuguese and English share one page with different
+// prices. A price saved before v31 has neither, and shows as it always did.
+// price_manual.finish is the finish's name ("Holo", "Reverse holo") and
+// price_manual.language a language code ("pt").
+export function manualFor(entry) {
+	const manual = entry && entry.price_manual;
+	const text = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+	return manual && typeof manual === 'object'
+		? {finish: text(manual.finish), language: text(manual.language)}
+		: {finish: null, language: null};
+}
+
+// " · Holo · PT" after an amount, or '' for a price that says neither.
+export function forText({finish = null, language = null} = {}) {
+	const parts = [finish, language ? language.toUpperCase() : null].filter(Boolean);
+
+	return parts.length ? ` · ${parts.join(' · ')}` : '';
+}
+
+// The newest Liga price among several copies with its finish and language,
+// or null (js/prices.js newestManual, which keeps only the amounts).
+function newestPrice(entries) {
+	let best = null;
+
+	for (const entry of entries || []) {
+		const manual = manualPrice(entry);
+
+		if (manual && (!best || String(manual.date || '') > String(best.date || ''))) {
+			best = {...manual, ...manualFor(entry)};
+		}
+	}
+
+	return best;
+}
+
+// "R$ 45,90 lowest NM, R$ 52,30 average · Holo · PT (Liga Pokémon,
+// 2026-09-19)": one copy's Liga price as a line for a "Your copies" row, or
+// null.
 export function copyPriceText(entry) {
 	const manual = manualPrice(entry);
 
@@ -69,7 +106,7 @@ export function copyPriceText(entry) {
 		manual.avg !== null ? `${formatBrl(manual.avg)} average` : null,
 	].filter(Boolean);
 
-	return `${parts.join(', ')} (${[manual.source, manual.date].filter(Boolean).join(', ')})`;
+	return `${parts.join(', ')}${forText(manualFor(entry))} (${[manual.source, manual.date].filter(Boolean).join(', ')})`;
 }
 
 // The rate line under an estimate, and where its rate came from.
@@ -99,10 +136,18 @@ const TRENDS = {
 	steady: {shape: '→', word: 'steady'},
 };
 
-// The Liga price editor. Two amounts that accept a decimal comma, and one
-// tap to save; the source and date sit behind a disclosure with their
-// defaults filled in.
-function ligaEditor({current, group, id, onCancel, onSave}) {
+// Finishes to offer for a card whose record lists none.
+const PLAIN_FINISHES = ['Normal', 'Holo', 'Reverse holo'];
+
+// The Liga price editor. Two amounts that accept a decimal comma, the
+// finish and language the price is for, and one tap to save; the source and
+// date sit behind a disclosure with their defaults filled in.
+//
+//   finishes   the finish names to choose from
+//   finish     the finish chosen at first (null: Not set)
+//   languages  the language codes to choose from
+//   language   the language chosen at first (null: Not set)
+function ligaEditor({current, finish = null, finishes = [], group, id, language = null, languages = [], onCancel, onSave}) {
 	const field = (key, value) => {
 		const input = h('input', {
 			autocomplete: 'off',
@@ -125,13 +170,26 @@ function ligaEditor({current, group, id, onCancel, onSave}) {
 	};
 	const low = field('low_nm', current && current.low_nm);
 	const avg = field('avg', current && current.avg);
+	const choice = (key, label, values, chosen, text) => {
+		const list = chosen && !values.includes(chosen) ? [chosen, ...values] : values;
+		const select = h('select', {id: `${id}-${key}`, name: key},
+			chosen ? null : h('option', {selected: true, value: ''}, 'Not set'),
+			list.map((value) => h('option', {selected: value === chosen, value}, text(value)))
+		);
+
+		// A whole row each: finish names run long ("Reverse holo, Poké Ball
+		// pattern").
+		return {row: h('label', {class: 'price-field', for: `${id}-${key}`, style: 'grid-column: 1 / -1'}, h('span', null, label), select), select};
+	};
+	const finishPick = choice('finish', 'Finish', finishes, (current && current.finish) || finish, (value) => value);
+	const languagePick = choice('language', 'Language', languages, (current && current.language) || language, (value) => languageLabel(value));
 	const source = h('input', {id: `${id}-source`, list: `${id}-sources`, name: 'source', type: 'text', value: (current && current.source) || LIGA_SOURCE});
 	const date = h('input', {id: `${id}-date`, max: today(), name: 'date', type: 'date', value: today()});
 	const status = h('p', {'aria-live': 'polite', class: 'price-form-status', role: 'status'});
 	const save = h('button', {class: 'primary', type: 'submit'}, group.length > 1 ? `Save to ${plural(group.length, 'copy', 'copies')}` : 'Save');
 
 	const form = h('form', {class: 'price-form', novalidate: true},
-		h('div', {class: 'price-fields'}, low.row, avg.row),
+		h('div', {class: 'price-fields'}, low.row, avg.row, finishPick.row, languagePick.row),
 		h('details', {class: 'price-more'},
 			h('summary', null, 'Source and date'),
 			h('label', {class: 'price-field', for: `${id}-source`}, h('span', null, 'Source'), source),
@@ -187,6 +245,14 @@ function ligaEditor({current, group, id, onCancel, onSave}) {
 			status.textContent = 'Type at least one of the two prices.';
 
 			return;
+		}
+
+		// What the price is for, left out when not set, as a price from
+		// before v31 has neither.
+		for (const [key, pick] of [['finish', finishPick], ['language', languagePick]]) {
+			if (pick.select.value) {
+				manual[key] = pick.select.value;
+			}
 		}
 
 		save.disabled = true;
@@ -260,6 +326,19 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		return language ? mine.filter((entry) => entry.language === language) : mine;
 	};
 
+	// The language a new Liga price is for: the copies', when they share
+	// one, else the record's.
+	function priceLanguage(mine) {
+		const spoken = new Set(mine.map((entry) => entry.language).filter(Boolean));
+
+		return language || (spoken.size === 1 ? [...spoken][0] : null) || recordLanguage || null;
+	}
+
+	// Portuguese and English, which Liga lists, and the copies' own.
+	function priceLanguages(mine) {
+		return [...new Set(['pt', 'en', language, recordLanguage, ...mine.map((entry) => entry.language)].filter(Boolean))];
+	}
+
 	function switcher() {
 		if (finishes.length < 2) {
 			return null;
@@ -321,7 +400,8 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 	function ligaBlock() {
 		const mine = group();
-		const manual = newestManual(mine);
+		const manual = newestPrice(mine);
+		const tag = manual ? forText(manual).slice(3) : '';
 		const block = h('div', {class: 'price-liga'},
 			h('p', {class: 'price-market'}, 'Brazil (Liga Pokémon)')
 		);
@@ -332,6 +412,9 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 					manual.low_nm !== null ? h('div', null, h('dt', null, MANUAL_FIELDS.low_nm), h('dd', {class: 'price-big'}, formatBrl(manual.low_nm))) : null,
 					manual.avg !== null ? h('div', null, h('dt', null, MANUAL_FIELDS.avg), h('dd', {class: 'price-big'}, formatBrl(manual.avg))) : null
 				),
+				// Right under the amounts, the finish and language they are
+				// for, "Holo · PT", when the price says.
+				tag ? h('p', {class: 'price-meta price-for', title: [manual.finish, manual.language && languageLabel(manual.language)].filter(Boolean).join(', ')}, tag) : '',
 				h('p', {class: 'price-meta price-liga-date'}, dateLine(manual.source, manual.date))
 			);
 		}
@@ -359,8 +442,12 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		if (mine.length && (!manual || editing)) {
 			block.append(ligaEditor({
 				current: editing ? manual : null,
+				finish: selected ? selected.label : null,
+				finishes: finishes.length ? finishes.map((item) => item.label) : PLAIN_FINISHES,
 				group: mine,
 				id,
+				language: priceLanguage(mine),
+				languages: priceLanguages(mine),
 				onCancel: editing ? () => {
 					editing = false;
 					draw();
