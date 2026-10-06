@@ -11,6 +11,7 @@ import {currentUser} from './auth.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
+import {formatCount, plural} from './format.js';
 import {goalsSection} from './goals-view.js';
 import {isGoal, listGoals} from './goals.js';
 import {searchKey, speciesSearchTerms} from './names.js';
@@ -45,10 +46,6 @@ const FILTERS = [
 ];
 
 const FILTER_KEY = 'cardTracker.checklistFilter';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 

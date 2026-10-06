@@ -5,6 +5,7 @@
 // hour per key). A set opened once therefore opens again with no signal.
 
 import {flagLanguageName} from './flags.js';
+import {database, timedCache} from './idb.js';
 
 const API = 'https://api.tcgdex.net/v2/';
 
@@ -66,62 +67,8 @@ const DB_NAME = 'card-tracker-catalog';
 const STORE = 'responses';
 const REVALIDATE_AFTER_MS = 60 * 60 * 1000;
 
-let dbPromise = null;
-
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (!('indexedDB' in window)) {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE, mode);
-		const request = op(tx.objectStore(STORE));
-
-		tx.oncomplete = () => resolve(request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
-
-async function cacheGet(key) {
-	try {
-		return await idb('readonly', (store) => store.get(key));
-	}
-	catch {
-		return undefined;
-	}
-}
-
-async function cachePut(key, data) {
-	try {
-		await idb('readwrite', (store) => store.put({at: Date.now(), data}, key));
-	}
-	catch {
-		// Not cached; the next open fetches again.
-	}
-}
+const cacheDb = database(DB_NAME, [STORE]);
+const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
 
 // ------------------------------------------------------------- fetching
 
@@ -366,7 +313,7 @@ export async function savedCardRecords(entries) {
 	let hits;
 
 	try {
-		const db = await openDb();
+		const db = await cacheDb.open();
 
 		hits = await new Promise((resolve, reject) => {
 			const tx = db.transaction(STORE, 'readonly');
@@ -733,7 +680,7 @@ export async function pricesDue(entries, {now = Date.now(), maxAge = PRICE_REFRE
 	let found;
 
 	try {
-		const db = await openDb();
+		const db = await cacheDb.open();
 
 		found = await new Promise((resolve, reject) => {
 			const tx = db.transaction(STORE, 'readonly');

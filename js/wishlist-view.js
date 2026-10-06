@@ -14,6 +14,7 @@ import {LANGUAGES, cardImage, catalogFor, languageLabel, viewingLanguage} from '
 import {languageChip} from './cards-view.js';
 import {listCards, onChange} from './collection.js';
 import {BASE, errorText, h, listsSwitch} from './dom.js';
+import {formatCount, plural} from './format.js';
 import {cardTile, tileArt, variantFinish} from './tile.js';
 import {
 	NOTE_MAX,
@@ -34,10 +35,6 @@ import {
 	updateWish,
 	variantLabel,
 } from './wishlist.js';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 

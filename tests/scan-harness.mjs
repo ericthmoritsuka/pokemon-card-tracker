@@ -72,7 +72,6 @@ export const INTEGRATION = {
 			'\t\'js/vision/index.bin\',',
 			'\t\'lab/js/camera.js\',',
 			'\t\'lab/js/match.js\',',
-			'\t\'lab/js/ocr.js\',',
 			'\t\'lab/js/pipeline.js\',',
 			'\t\'lab/js/rectify.js\',',
 			'\t\'lab/vendor/tesseract/tesseract.esm.min.js\',',

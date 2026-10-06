@@ -171,8 +171,6 @@ export const clampPoint = (p, width, height) => point(
 	Math.min(height, Math.max(0, p.y))
 );
 
-export const clampCorners = (quad, width, height) => quad.map((p) => clampPoint(p, width, height));
-
 // Where to put the handles when no card was found: a card-shaped box, 80
 // percent of the largest that fits, in the middle of the photo.
 export function defaultCorners(width, height) {

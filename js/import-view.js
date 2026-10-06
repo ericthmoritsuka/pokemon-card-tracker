@@ -10,11 +10,8 @@ import {applyImport, applyOwnImport, importKeys, previewOwnImport} from './colle
 import {importApi, languageLabel, saveToCardIndex} from './catalog.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
+import {formatCount, plural} from './format.js';
 import {LARGE_COUNT, finishLabel, importEntries, localPart, matchRows, parseExport} from './monprice.js';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',

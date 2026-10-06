@@ -10,6 +10,7 @@
 // deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
 import {cardIndex} from './catalog.js';
+import {database} from './idb.js';
 import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent, stampEntry} from './merge.js';
 
 export {mergeEntries} from './merge.js';
@@ -18,47 +19,13 @@ const DB_NAME = 'card-tracker-collection';
 const STORE = 'documents';
 const LOCAL_PERSON = 'local';
 
-let dbPromise = null;
 let current = null;
 
 const listeners = new Set();
 
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (!('indexedDB' in window)) {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE, mode);
-		const request = op(tx.objectStore(STORE));
-
-		tx.oncomplete = () => resolve(request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
+const phoneDb = database(DB_NAME, [STORE]);
+const openDb = phoneDb.open;
+const idb = (mode, op) => phoneDb.run(STORE, mode, op);
 
 export const nowIso = () => new Date().toISOString();
 

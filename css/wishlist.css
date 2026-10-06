@@ -39,12 +39,6 @@ button.wl-result {
 	text-align: left;
 }
 
-.wl-badge-on {
-	background: var(--navy);
-	color: #ffffff;
-	right: 6px;
-}
-
 /* The list: one row per item, the art on the left. */
 
 .wl-list {

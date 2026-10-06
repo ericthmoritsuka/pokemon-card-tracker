@@ -12,6 +12,7 @@
 import {languageLabel} from './catalog.js';
 import {updateCards} from './collection.js';
 import {h} from './dom.js';
+import {plural} from './format.js';
 import {ligaUrl} from './liga.js';
 import {
 	LIGA_SOURCE,
@@ -44,8 +45,6 @@ let sectionCount = 0;
 
 // A date that never breaks at its hyphens.
 const day = (date) => h('span', {class: 'price-nowrap'}, date);
-
-const plural = (n, one, many) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 // "Liga Pokémon · 2026-09-19 · 12 days ago".
 function dateLine(source, date) {

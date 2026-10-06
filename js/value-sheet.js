@@ -7,14 +7,13 @@
 
 import {cardIndex, savedCardRecords} from './catalog.js';
 import {h} from './dom.js';
+import {formatCount} from './format.js';
 import {statsBar} from './price-view.js';
 import {copyValue, savedRates} from './prices.js';
 
 const ASIAN = new Set(['ja', 'ko', 'zh-cn', 'zh-tw']);
 
-const count = (n) => Number(n).toLocaleString('en-US');
-
-const copies = (n) => `${count(n)} ${n === 1 ? 'copy' : 'copies'}`;
+const copies = (n) => `${formatCount(n)} ${n === 1 ? 'copy' : 'copies'}`;
 
 // Why a copy has a price or not:
 //   'priced'   a Liga price, or a US estimate
@@ -101,7 +100,7 @@ export function openValueSheet({cardsById, entries, filling = false, label = 'th
 			h('button', {class: 'small', onclick: () => sheet.close(), type: 'button'}, 'Close')
 		),
 		h('div', {class: 'vs-body'},
-			h('p', {class: 'vs-coverage'}, h('strong', null, `Priced: ${count(coverage.priced)} of ${copies(coverage.count)}`)),
+			h('p', {class: 'vs-coverage'}, h('strong', null, `Priced: ${formatCount(coverage.priced)} of ${copies(coverage.count)}`)),
 			lines.length ? h('ul', {class: 'vs-reasons'}, lines) : null,
 			onShowUnpriced && unpriced ? h('button', {class: 'link-button vs-unpriced', onclick: () => {
 				sheet.close();

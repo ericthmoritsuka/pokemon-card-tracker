@@ -30,6 +30,7 @@ import {BASE, errorText, go, h, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {applyFilters, filterBar, sortItems} from './filter-bar.js';
 import {flagBadge} from './flags.js';
+import {formatCount, plural} from './format.js';
 import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
@@ -59,10 +60,6 @@ const FILTERS = [
 ];
 
 const FILTER_KEY = 'cardTracker.goalFilter';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 

@@ -27,7 +27,6 @@ import {
 	fillPlaceholders,
 	layoutOf,
 	locate,
-	nextStamp,
 	openPockets,
 	pageOfPocket,
 	pageSlots,
@@ -50,7 +49,7 @@ import {
 	unplaced,
 	validGrid,
 } from '../js/binders.js';
-import {mergeDocuments} from '../js/merge.js';
+import {mergeDocuments, nextStamp} from '../js/merge.js';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 

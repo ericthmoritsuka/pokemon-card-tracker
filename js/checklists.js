@@ -19,6 +19,7 @@
 
 import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
+import {database, timedCache} from './idb.js';
 import {nextStamp, stampEntry} from './merge.js';
 
 export const MAX_DEX = 1025;
@@ -316,62 +317,8 @@ export const entriesInLanguages = (entries, languages) => {
 const DB_NAME = 'card-tracker-checklists';
 const STORE = 'cache';
 
-let dbPromise = null;
-
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (typeof indexedDB === 'undefined') {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE, mode);
-		const request = op(tx.objectStore(STORE));
-
-		tx.oncomplete = () => resolve(request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
-
-async function cacheGet(key) {
-	try {
-		return await idb('readonly', (store) => store.get(key));
-	}
-	catch {
-		return undefined;
-	}
-}
-
-async function cachePut(key, data) {
-	try {
-		await idb('readwrite', (store) => store.put({at: Date.now(), data}, key));
-	}
-	catch {
-		// Not cached; the next open fetches again.
-	}
-}
+const cacheDb = database(DB_NAME, [STORE]);
+const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
 
 // ----------------------------------------------------------- fetching
 

@@ -38,6 +38,7 @@ import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
 import {customRoute} from './custom-card.js';
 import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
+import {formatCount, plural} from './format.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
@@ -76,10 +77,6 @@ import {
 
 const PICK_PAGE = 60;
 const LIST_PAGE = 120;
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 

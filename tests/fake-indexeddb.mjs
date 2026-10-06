@@ -71,6 +71,7 @@ export function fakeIndexedDb() {
 				if (created) {
 					db = {
 						createObjectStore: (store) => db.stores.set(store, new Map()),
+						objectStoreNames: {contains: (store) => db.stores.has(store)},
 						stores: new Map(),
 						transaction: (stores) => transaction(db, Array.isArray(stores) ? stores : [stores]),
 					};

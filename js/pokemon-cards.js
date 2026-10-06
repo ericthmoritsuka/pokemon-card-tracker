@@ -30,6 +30,7 @@
 import {catalogFor, catalogLanguage, compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap} from './checklists.js';
 import {isLive} from './collection.js';
+import {database, timedCache} from './idb.js';
 
 export const ASIAN_CATALOGS = ['ja', 'ko', 'zh-cn', 'zh-tw'];
 
@@ -392,62 +393,8 @@ export function passesFilter(state, filter, everyFinish) {
 const DB_NAME = 'card-tracker-pokemon-cards';
 const STORE = 'cache';
 
-let dbPromise = null;
-
-function openDb() {
-	if (!dbPromise) {
-		dbPromise = new Promise((resolve, reject) => {
-			if (typeof indexedDB === 'undefined') {
-				reject(new Error('IndexedDB is not available.'));
-
-				return;
-			}
-
-			const request = indexedDB.open(DB_NAME, 1);
-
-			request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
-		}).catch((err) => {
-			dbPromise = null;
-
-			throw err;
-		});
-	}
-
-	return dbPromise;
-}
-
-async function idb(mode, op) {
-	const db = await openDb();
-
-	return new Promise((resolve, reject) => {
-		const tx = db.transaction(STORE, mode);
-		const request = op(tx.objectStore(STORE));
-
-		tx.oncomplete = () => resolve(request.result);
-		tx.onerror = () => reject(tx.error);
-		tx.onabort = () => reject(tx.error);
-	});
-}
-
-async function cacheGet(key) {
-	try {
-		return await idb('readonly', (store) => store.get(key));
-	}
-	catch {
-		return undefined;
-	}
-}
-
-async function cachePut(key, data) {
-	try {
-		await idb('readwrite', (store) => store.put({at: Date.now(), data}, key));
-	}
-	catch {
-		// Not kept; the next visit asks again.
-	}
-}
+const cacheDb = database(DB_NAME, [STORE]);
+const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
 
 // ----------------------------------------------------------- fetching
 
