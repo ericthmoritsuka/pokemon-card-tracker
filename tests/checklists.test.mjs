@@ -356,41 +356,16 @@ describe('checklists', () => {
 		await row(3).locator('.sprite-fallback').waitFor();
 		await page.screenshot({path: '/tmp/checklists-kanto.png'});
 
-		// Hand ticks: a different mark, saved in the document, and two quick
-		// taps both kept.
-		await row(2).locator('button').click();
-		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
-		assert.match(await row(2).getAttribute('class'), /\bhand\b/);
-		assert.equal(await row(2).locator('.dex-mark-text').textContent(), 'marked by hand');
-		assert.equal(await row(2).locator('.tick-hand').count(), 1);
-		assert.equal(await row(1).locator('.tick-owned').count(), 1);
-		assert.equal(await row(2).locator('button').getAttribute('aria-pressed'), 'true');
-
-		await row(5).locator('button').click();
-		await row(6).locator('button').click();
-		await waitForSummary(page, '4 owned, 3 marked by hand, 144 missing.');
-		await page.waitForFunction(async () => {
-			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
-			const goal = doc.goals.find((item) => item.kind === 'region');
-
-			return goal && ['2', '5', '6'].every((n) => goal.hand_ticks[n]);
-		});
-
-		// Untick one.
-		await row(6).locator('button').click();
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		// No hand ticks (retired 2026-10-06): a missing row's mark is not a
+		// button, and the row opens the Pokémon's cards like an owned row.
+		assert.match(await row(2).getAttribute('class'), /\bmissing\b/);
+		assert.equal(await row(2).locator('button').count(), 0, 'no hand tick on a missing row');
+		assert.equal(await row(2).locator('a.dex-link').count(), 1);
 
 		let goal = (await localDoc(page)).goals.find((item) => item.kind === 'region');
 
-		assert.deepEqual(Object.keys(goal.hand_ticks).sort(), ['2', '5']);
-		assert.deepEqual(Object.keys(goal.hand_unticks), ['6'], 'the untick is kept, so the merge knows it was on purpose');
-		assert.ok(goal.hand_unticks['6'] > goal.hand_ticks['5']);
-		assert.equal(goal.field_stamps.at, goal.updated_at, 'stamped by the new app');
 		assert.equal(goal.target, 'kanto');
 		assert.ok(goal.id && goal.updated_at && goal.deleted_at === null);
-
-		// Hand ticks never count as owned anywhere else: the cards are untouched.
-		assert.equal((await localDoc(page)).cards.length, CARDS.length);
 
 		// An owned row carries its mark with nothing to tap, and the entry
 		// opens every card of the Pokémon (js/pokemon-cards-view.js). A list
@@ -419,7 +394,7 @@ describe('checklists', () => {
 		assert.equal(counts.asian, 4, 'one list from each Asian catalog');
 		await page.screenshot({path: '/tmp/checklists-pokemon-cards.png'});
 		await page.click('#pc-back');
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 		assert.equal(new URL(page.url()).pathname, listPath);
 
 		// A Japanese print with no English name shows the English one, with
@@ -433,16 +408,16 @@ describe('checklists', () => {
 		assert.equal(await squirtle.locator('.tile-original').textContent(), 'ゼニガメ (Zenigame)');
 		assert.deepEqual(await flagsIn(page, '.pc-cell[data-card="tstj-007"] .badge-lang'), ['ja']);
 		await page.click('#pc-back');
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 
 		// Missing only, remembered across a reload.
 		await page.click('#checklist-filter label:has-text("Missing")');
-		assert.equal(await page.locator('.dex-row').count(), 145);
+		assert.equal(await page.locator('.dex-row').count(), 147);
 		assert.equal(await page.locator('.dex-row.owned, .dex-row.hand').count(), 0);
 		await page.reload();
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 		assert.ok(await page.locator('#checklist-filter input[value="missing"]').isChecked());
-		assert.equal(await page.locator('.dex-row').count(), 145);
+		assert.equal(await page.locator('.dex-row').count(), 147);
 		await page.screenshot({path: '/tmp/checklists-missing.png'});
 
 		// #8 is near the top of the Missing list, so its sprite loads now and
@@ -454,7 +429,7 @@ describe('checklists', () => {
 		}, null, {timeout: 15000});
 
 		await page.click('#checklist-filter label:has-text("Owned")');
-		assert.equal(await page.locator('.dex-row').count(), 6);
+		assert.equal(await page.locator('.dex-row').count(), 4);
 
 		// Offline: the app opens from the service worker, and the list,
 		// names, ownership, and the Missing filter all come from the phone.
@@ -482,9 +457,9 @@ describe('checklists', () => {
 		net.offline = true;
 		await context.setOffline(true);
 		await page.goto(listUrl);
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 		await page.click('#checklist-filter label:has-text("Missing")');
-		assert.equal(await page.locator('.dex-row').count(), 145);
+		assert.equal(await page.locator('.dex-row').count(), 147);
 		assert.equal(await page.locator('.dex-row[data-dex="3"] .dex-name').textContent(), 'Venusaur');
 		// A sprite seen online comes from the service worker's image cache.
 		// #3 failed online, so it was never kept, and #151 was never in view,
@@ -501,13 +476,9 @@ describe('checklists', () => {
 		assert.deepEqual(await shownErrors(page), []);
 		await page.screenshot({path: '/tmp/checklists-offline.png'});
 
-		// A hand tick offline is saved on the phone.
-		await page.locator('.dex-row[data-dex="9"] button').click();
-		await waitForSummary(page, '4 owned, 3 marked by hand, 144 missing.');
-
 		await page.click('.back');
 		await page.waitForSelector('.list-tile .owned-count');
-		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*7 \/ 151/);
+		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*4 \/ 151/);
 
 		net.offline = false;
 		await context.setOffline(false);
@@ -557,7 +528,7 @@ describe('checklists', () => {
 
 		// Rename Kanto.
 		await page.click('.list-tile');
-		await waitForSummary(page, '4 owned, 3 marked by hand, 144 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 		page.once('dialog', (dialog) => dialog.accept('Gen 1'));
 		await page.click('#rename-list');
 		await page.waitForFunction(() => document.getElementById('checklist-title').textContent === 'Gen 1');
@@ -629,21 +600,18 @@ describe('checklists', () => {
 		await signIn(ownerDevice.page, fake, owner.email);
 		await waitForStatus(ownerDevice.page, 'Synced');
 
-		// The owner makes a Kanto list and ticks #2 by hand; both reach the server.
+		// The owner makes a Kanto list; it reaches the server.
 		await ownerDevice.page.goto(url('lists'));
 		await ownerDevice.page.selectOption('#add-region', 'kanto');
 		await ownerDevice.page.click('#add-region-button');
 		await waitForSummary(ownerDevice.page, '4 owned, 147 missing.');
-		await ownerDevice.page.locator('.dex-row[data-dex="2"] button').click();
-		await waitForSummary(ownerDevice.page, '4 owned, 1 marked by hand, 146 missing.');
 		await waitForStatus(ownerDevice.page, 'Synced');
 
 		const pushed = () => ((fake.documents.get(owner.id) || {}).doc || {}).goals || [];
 
-		await until(() => pushed().length === 1 && pushed()[0].hand_ticks['2']);
+		await until(() => pushed().length === 1);
 		assert.equal(pushed().length, 1, 'the goal is on the server');
 		assert.equal(pushed()[0].target, 'kanto');
-		assert.ok(pushed()[0].hand_ticks['2'], 'the hand tick is on the server');
 
 		// The kid, in the same family, sees the owner's lists read only.
 		fake.members.push({group_id: fake.groups[0].id, role: 'member', user_id: kid.id});
@@ -663,12 +631,12 @@ describe('checklists', () => {
 		assert.match(await page.locator('.view-only').textContent(), /Eric's lists, view only/);
 		assert.equal(await page.locator('#add-list').count(), 0, 'no Add in the view');
 		await page.waitForSelector('.list-tile .owned-count');
-		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*5 \/ 151/);
+		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*4 \/ 151/);
 
 		await page.click('.list-tile');
-		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
+		await waitForSummary(page, '4 owned, 147 missing.');
 		assert.equal(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/lists/`), true);
-		assert.equal(await page.locator('.dex-row button').count(), 0, 'no hand ticks in the view');
+		assert.equal(await page.locator('.dex-row button').count(), 0, 'nothing to tap in the view');
 		assert.equal(await page.locator('#list-languages-edit').count(), 0, 'no languages Edit in the view');
 		assert.equal(await page.locator('.dex-row[data-dex="3"] a.dex-link').getAttribute('href'), `${new URL(page.url()).pathname}/pokemon/3`);
 		assert.equal(await page.locator('.actions').count(), 0, 'no Rename or Delete in the view');
@@ -719,54 +687,23 @@ describe('list screens keep up with changes', () => {
 		await context.close();
 	});
 
-	test('a hand tick redraws only the tapped row, once', {timeout: TEST_TIMEOUT}, async () => {
+	test('an old hand tick from before they were retired counts for nothing', {timeout: TEST_TIMEOUT}, async () => {
 		const {context, errors, page} = await device(null, 'phone');
+		const ticked = {...KANTO, hand_ticks: {2: AT, 3: AT}};
 
-		await seedLocal(page, documentWith(CARDS, [KANTO]));
+		await seedLocal(page, documentWith(CARDS, [ticked]));
 		await page.goto(url(`lists/${KANTO.id}`));
 		await waitForSummary(page, '4 owned, 147 missing.');
-		await page.waitForFunction(() => !document.getElementById('checklist-status').textContent.trim(), null, {timeout: 15000});
-		await page.evaluate(() => {
-			const list = document.getElementById('dex-list');
+		assert.match(await page.locator('.dex-row[data-dex="2"]').getAttribute('class'), /\bmissing\b/);
+		assert.equal(await page.locator('.dex-row[data-dex="2"] .dex-mark-text').textContent(), 'missing');
+		assert.equal(await page.locator('.dex-row button').count(), 0);
 
-			window.listChanges = {rowsAdded: 0, wholeList: 0};
-			new MutationObserver((changes) => {
-				for (const change of changes) {
-					if (change.target === list && change.addedNodes.length > 1) {
-						window.listChanges.wholeList++;
-					}
+		// The old ticks stay in the document, for older phones' merges.
+		assert.deepEqual(Object.keys((await localDoc(page)).goals[0].hand_ticks).sort(), ['2', '3']);
 
-					window.listChanges.rowsAdded += change.addedNodes.length;
-				}
-			}).observe(list, {childList: true});
-		});
-
-		await page.locator('.dex-row[data-dex="2"] button').click();
-		await waitForSummary(page, '4 owned, 1 marked by hand, 146 missing.');
-		// The save lands, and the screen reads the stored list back.
-		for (let tries = 0; !(await localDoc(page)).goals[0].hand_ticks['2']; tries++) {
-			assert.ok(tries < 100, 'the tick is saved');
-			await page.waitForTimeout(100);
-		}
-
-		await page.waitForTimeout(1000);
-		assert.deepEqual(await page.evaluate(() => window.listChanges), {rowsAdded: 1, wholeList: 0});
-		assert.match(await page.locator('.dex-row[data-dex="2"]').getAttribute('class'), /\bhand\b/);
-		assert.equal(await page.locator('.dex-row').count(), 151);
-		// The focus stays on the tick, for a keyboard.
-		assert.equal(await page.evaluate(() => document.activeElement.closest('.dex-row').dataset.dex), '2');
-
-		// Under Missing, a ticked row leaves the list, still without a redraw.
-		await page.click('#checklist-filter label:has-text("Missing")');
-		await page.evaluate(() => {
-			window.listChanges = {rowsAdded: 0, wholeList: 0};
-		});
-		await page.locator('.dex-row[data-dex="3"] button').click();
-		await waitForSummary(page, '4 owned, 2 marked by hand, 145 missing.');
-		await page.waitForTimeout(1000);
-		assert.equal(await page.locator('.dex-row').count(), 145);
-		assert.equal(await page.locator('.dex-row[data-dex="3"]').count(), 0);
-		assert.deepEqual(await page.evaluate(() => window.listChanges), {rowsAdded: 0, wholeList: 0});
+		await page.click('.back');
+		await page.waitForSelector('.list-tile .owned-count');
+		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*4 \/ 151/);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

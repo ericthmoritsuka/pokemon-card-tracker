@@ -1,6 +1,6 @@
 // Pokémon checklists (DESIGN.md section 11, "Pokémon checklists"): a goal
 // over a list of National Dex numbers, ticked automatically from the owned
-// cards and by hand.
+// cards.
 //
 // A checklist is an entry in the person's goals list (DESIGN.md section 4):
 //   {id, kind, target, level, name, dex_list, hand_ticks,
@@ -9,8 +9,11 @@
 // (dex_list holds the numbers); the set and artist kinds are js/goals.js's
 // and share the saving below. hand_ticks maps a dex number to the time it
 // was ticked, and hand_unticks (when present) a dex number to the time a
-// hand tick was taken away. Only the definition is stored; what is owned is
-// computed.
+// hand tick was taken away. Hand ticks are retired (Eric, 2026-10-06: a tick
+// with no card to show for it is a "trust me", and a stray tap made one):
+// nothing makes them now and nothing counts them, but old ones stay in the
+// document so older phones still merge it. Only the definition is stored;
+// what is owned is computed.
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
@@ -67,9 +70,10 @@ export function checklistDex(goal) {
 	return [];
 }
 
-// Hand ticks as a Set of numbers.
-export function handTicks(goal) {
-	return new Set(Object.keys((goal && goal.hand_ticks) || {}).map(Number).filter(validDex));
+// Hand ticks as a Set of numbers: always empty now that they are retired
+// (see the top of this file), so an old tick never counts as owned.
+export function handTicks() {
+	return new Set();
 }
 
 export const dexLabel = (n) => `#${String(n).padStart(3, '0')}`;
@@ -255,33 +259,6 @@ export const setDexList = (id, dexList) => changeChecklist(id, (goal) => {
 // copy cannot bring the list back.
 export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 	goal.deleted_at = nowIso();
-});
-
-// A tick stores when it was made; taking it away stores when in
-// hand_unticks, so the merge knows the tick was removed on purpose rather
-// than never seen (js/merge.js). Each is stamped after the last tick or
-// untick of that dex, whatever the phone's clock says.
-export const setHandTick = (id, dex, on) => changeChecklist(id, (goal) => {
-	const ticks = {...(goal.hand_ticks || {})};
-	const unticks = {...(goal.hand_unticks || {})};
-	const last = [ticks[dex], unticks[dex]].filter(Boolean).sort().pop();
-	const at = nextStamp(last);
-
-	if (on) {
-		ticks[dex] = at;
-		delete unticks[dex];
-	}
-	else {
-		delete ticks[dex];
-		unticks[dex] = at;
-	}
-
-	goal.hand_ticks = ticks;
-	delete goal.hand_unticks;
-
-	if (Object.keys(unticks).length) {
-		goal.hand_unticks = unticks;
-	}
 });
 
 // ------------------------------------------------------ list languages

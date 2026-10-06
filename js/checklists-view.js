@@ -34,7 +34,6 @@ import {
 	renameChecklist,
 	resolveOwned,
 	setDexList,
-	setHandTick,
 	spriteUrl,
 } from './checklists.js';
 
@@ -698,81 +697,8 @@ function checklistScreen(root, source, id) {
 		);
 	}
 
-	async function toggleHand(n) {
-		const on = !handTicks(goal).has(n);
-		const before = goal;
-
-		// Shown at once, on the tapped row only; saved behind.
-		goal = {...goal, hand_ticks: {...(goal.hand_ticks || {})}};
-
-		if (on) {
-			goal.hand_ticks[n] = new Date().toISOString();
-		}
-		else {
-			delete goal.hand_ticks[n];
-		}
-
-		drawHead();
-		patchRow(n);
-		saving++;
-
-		try {
-			await setHandTick(id, n, on);
-		}
-		catch (err) {
-			goal = before;
-			drawHead();
-			patchRow(n);
-			showError('The tick was not saved.', err);
-		}
-		finally {
-			saving--;
-		}
-
-		// Quick taps are saved in turn; once the last one is in, the screen
-		// reads the stored list back, which redraws nothing when it matches.
-		if (!saving && alive) {
-			load();
-		}
-	}
-
-	// Redraws one row after a tick, or takes it out when the filter no
-	// longer shows it. Keeps the focus on the tick for a keyboard.
-	function patchRow(n) {
-		const old = list.querySelector(`.dex-row[data-dex="${n}"]`);
-
-		if (!old) {
-			drawList();
-
-			return;
-		}
-
-		const hand = handTicks(goal);
-		const focused = old.contains(document.activeElement);
-
-		if (shows(state(n, hand).kind)) {
-			const next = row(n, hand);
-
-			old.replaceWith(next);
-
-			if (focused) {
-				const tick = next.querySelector('button.dex-tick');
-
-				if (tick) {
-					tick.focus();
-				}
-			}
-		}
-		else {
-			old.remove();
-		}
-
-		drawEmpty(list.childElementCount);
-		drawn = listKey();
-	}
-
-	// A row opens every card of its Pokémon (js/pokemon-cards-view.js). The
-	// mark on the right ticks a missing Pokémon by hand, or clears the tick.
+	// A row opens every card of its Pokémon (js/pokemon-cards-view.js), where
+	// a missing one can be added; the mark on the right only shows the state.
 	function row(n, hand) {
 		const {entries, kind} = state(n, hand);
 		const name = nameOf(names, n);
@@ -783,15 +709,7 @@ function checklistScreen(root, source, id) {
 				h('span', {class: 'dex-name'}, name)
 			)
 		);
-		const tick = kind === 'owned' || source.readOnly
-			? h('span', {class: 'dex-tick'}, mark(kind, entries.length))
-			: h('button', {
-				'aria-label': `${dexLabel(n)} ${name}, ${kind === 'hand' ? 'marked by hand. Tap to clear the mark' : 'missing. Tap to mark by hand'}`,
-				'aria-pressed': kind === 'hand' ? 'true' : 'false',
-				class: 'dex-tick',
-				onclick: () => toggleHand(n),
-				type: 'button',
-			}, mark(kind, entries.length));
+		const tick = h('span', {class: 'dex-tick'}, mark(kind, entries.length));
 
 		return h('li', {class: `dex-row dex-row-linked ${kind}`, 'data-dex': n}, entry, tick);
 	}
