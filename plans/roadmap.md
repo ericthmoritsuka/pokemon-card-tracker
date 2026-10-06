@@ -129,8 +129,11 @@ the audit below to confirm or drop:
    checklists, goals, collections, and binders (with a keyboard and screen-reader way too, such
    as Move up and Move down). Today a new list always lands at the bottom, so Eric had to delete
    and recreate every region list to fix one. Also Undo on a toast for list changes, as copies
-   already have: a misplaced tap on a checklist (the "missing" mark on a row ticks a Pokémon by
-   hand; confirm with Eric which tap it was) should be one tap to reverse.
+   already have. The tap was the "missing" mark on a checklist row, which ticks a Pokémon by
+   hand. Eric finds the hand tick odd ("trust me, I have it" with no card to show): drop it, or
+   at least make a missing row open the Pokémon's cards like an owned row and move "Mark as
+   owned without a card" behind a labeled action with Undo. Lean: drop it, since Add by hand
+   now covers a card not logged yet; existing hand ticks need a plan (keep showing or convert).
 7. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
