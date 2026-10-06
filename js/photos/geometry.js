@@ -188,7 +188,7 @@ export function defaultCorners(width, height) {
 	return [point(x, y), point(x + w, y), point(x + w, y + h), point(x, y + h)];
 }
 
-// lab/js/rectify.js finds the card by turning the photo back by `angle`
+// js/vision/rectify.js finds the card by turning the photo back by `angle`
 // degrees about its centre and cropping to `rect` in the turned image. This
 // gives the four corners of that crop in the photo as taken. rectify turns
 // the photo with rotate(img, -angle), whose output pixel p reads the source

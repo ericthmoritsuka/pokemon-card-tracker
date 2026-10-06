@@ -42,7 +42,7 @@ export const INTEGRATION = {
 		stylesheet: '\t<link rel="stylesheet" href="/pokemon-card-tracker/css/scan.css">',
 	},
 	sw: {
-		// In SHELL: the scanner's modules, the lab modules it imports, the
+		// In SHELL: the scanner's modules, the js/vision modules it imports, the
 		// Tesseract.js loader those import (63 KB, imported only when a card
 		// needs text), and its stylesheet.
 		shell: [
@@ -70,10 +70,12 @@ export const INTEGRATION = {
 			'\t\'js/vision/matcher.js\',',
 			'\t\'js/vision/pack.js\',',
 			'\t\'js/vision/index.bin\',',
-			'\t\'lab/js/camera.js\',',
-			'\t\'lab/js/match.js\',',
-			'\t\'lab/js/pipeline.js\',',
-			'\t\'lab/js/rectify.js\',',
+			// The camera, read pipeline, number lookup, and edge finder the
+			// scan lab shares (moved out of lab/js, E-33).
+			'\t\'js/vision/camera.js\',',
+			'\t\'js/vision/match.js\',',
+			'\t\'js/vision/pipeline.js\',',
+			'\t\'js/vision/rectify.js\',',
 			'\t\'lab/vendor/tesseract/tesseract.esm.min.js\',',
 			'\t\'css/scan.css\',',
 		],
@@ -431,7 +433,7 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 		ctx.fillStyle = screen ? '#1b1b20' : '#7a6250';
 		ctx.fillRect(0, 0, width, height);
 
-		// lab/js/pipeline.js guideRect with lab/js/camera.js GUIDE_FILL.
+		// js/vision/pipeline.js guideRect with js/vision/camera.js GUIDE_FILL.
 		let gh = height * 0.86;
 		let gw = gh * 63 / 88;
 

@@ -1,6 +1,9 @@
 // The rear camera at the highest resolution it offers, with torch, zoom, and
 // continuous focus where the phone supports them, and a still capture cut to
 // the guide frame.
+//
+// Shared by the app (js/scan/camera.js, js/photos/editor.js) and the scan
+// lab (lab/js/main.js, lab/fingerprints/page.js), which import it from here.
 
 import {guideRect} from './pipeline.js';
 

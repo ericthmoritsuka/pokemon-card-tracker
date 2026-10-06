@@ -1,5 +1,9 @@
 // Finds the card inside a capture and cuts it out straight.
 //
+// The lab's edge finder, used by the app's photos (js/photos/detect.js) and
+// the scan lab (lab/js/main.js). The scanner uses its fork,
+// js/scan/rectify.js.
+//
 // The lab crops a little more than its guide frame, so the whole card is in
 // the image even when it is held a bit large, small, or off centre. This
 // module finds the card's four edges, measures how far the card is turned,

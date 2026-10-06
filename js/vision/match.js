@@ -1,5 +1,7 @@
 // Finds catalog cards for a read: TCGdex sets whose official card count
 // equals the printed total, then the card in each set whose number matches.
+// Used by the scan lab (lab/js/main.js) and, for sameNumber and
+// confusedVariants, by the app's scanner (js/scan/match.js, picture.js).
 // The set code, the side the number was printed on, and the copyright year,
 // when read, rank them.
 

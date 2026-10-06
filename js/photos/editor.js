@@ -7,11 +7,11 @@
 // saved beside it, when the card in the photo is big enough to hold one.
 //
 // Everything runs on the phone. The camera is the scan lab's
-// (lab/js/camera.js), so a capture is the frame the lab's edge finder was
+// (js/vision/camera.js), so a capture is the frame the lab's edge finder was
 // benchmarked on; a phone without camera access in the page uses the
 // system camera through <input capture>.
 
-import {captureRect, grab, startCamera} from '../../lab/js/camera.js';
+import {captureRect, grab, startCamera} from '../vision/camera.js';
 import {h} from '../dom.js';
 import {openSheet} from '../sheet.js';
 

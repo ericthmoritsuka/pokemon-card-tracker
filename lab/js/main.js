@@ -1,11 +1,11 @@
 // The scan lab page: capture, read, match, verdict, score.
 
-import {GUIDE_FILL, grab, startCamera} from './camera.js';
+import {GUIDE_FILL, grab, startCamera} from '../../js/vision/camera.js';
 import {addAttempt, exportCsv, exportJson, isPersistent, loadAttempts, resetAttempts, summarise} from './log.js';
-import {findCandidates, sameNumber} from './match.js';
+import {findCandidates, sameNumber} from '../../js/vision/match.js';
 import {createEngine, TESSERACT_VERSION} from './ocr.js';
-import {CARD_RATIO, guideRect, LANGUAGE_NAMES, readCard} from './pipeline.js';
-import {rectify} from './rectify.js';
+import {CARD_RATIO, guideRect, LANGUAGE_NAMES, readCard} from '../../js/vision/pipeline.js';
+import {rectify} from '../../js/vision/rectify.js';
 
 const $ = (id) => document.getElementById(id);
 

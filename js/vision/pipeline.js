@@ -1,6 +1,7 @@
 // The read pipeline: card geometry, region crops, image preparation, and
 // parsing of the OCR text. Shared by the lab page and the offline
-// benchmark, so the benchmark measures exactly this code.
+// benchmark, so the benchmark measures exactly this code, and by the app's
+// scanner (js/scan/read.js, js/scan/camera.js).
 //
 // Everything here works on ImageData-shaped objects ({data, height, width},
 // RGBA bytes) and plain strings. Nothing touches the DOM or the network;

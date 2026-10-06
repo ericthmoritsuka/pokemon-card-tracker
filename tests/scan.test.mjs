@@ -11,7 +11,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {knownFrom, localPrint, pictureMatch, pictureVerdict} from '../js/scan/picture.js';
+import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
@@ -1839,6 +1839,70 @@ describe('auto-capture with a card held by hand (Eric, 2026-10-03)', () => {
 		}
 
 		assert.equal(fired, 1);
+	});
+
+	test('a card held too far away is not taken, but says to move closer (Q-19)', () => {
+		const detector = createAutoCapture();
+
+		for (const size of [0.3, 0.37, 0.45]) {
+			const seen = presence(heldCard(size), W, H);
+
+			assert.equal(seen.present, false, `${size}: not taken`);
+			assert.equal(seen.small, true, `${size}: Move closer`);
+		}
+
+		for (let i = 0; i < 20; i++) {
+			const frame = heldCard(0.37);
+
+			assert.equal(detector.push(frame, presence(frame, W, H)), false, 'never captured on its own');
+		}
+
+		for (const size of [0.6, 0.8]) {
+			assert.equal(presence(heldCard(size), W, H).small, false, `${size}: near enough`);
+		}
+
+		const table = new Uint8Array(W * H).map((_, i) => 70 + (((i % W) * 5 + Math.floor(i / W) * 3) % 9));
+		const clutter = new Uint8Array(W * H).map((_, i) => ((i * 2654435761) >>> 24));
+
+		assert.equal(presence(table, W, H).small, false, 'an empty table');
+		assert.equal(presence(clutter, W, H).small, false, 'a cluttered scene');
+		assert.equal(presence(heldCard(0.37), W, H, {colour: 0.4}).small, false, 'no colour: not a card');
+	});
+});
+
+describe('a capture with no card, and the same card again (Q-19, Q-20)', () => {
+	const picture = (score, gap = 30, id = 'sv01-001') => ({gap, groups: [{cards: [{catalog: 'en', id, set: 'sv01'}], score}, {cards: [{catalog: 'en', id: 'sv01-002', set: 'sv01'}], score: score + gap}]});
+	const empty = {detail: 0, present: false, reason: null, small: false};
+
+	test('a blank frame, or paper, with no number and no artwork near, held no card', () => {
+		assert.equal(noCard({found: false, picture: picture(108.6, 0), read: null}, empty), true, 'a flat wall');
+		assert.equal(noCard({found: true, picture: picture(71, 4.3), read: {number: null}}, {...empty, detail: 45, reason: 'colourless'}), true, 'printed paper, its outline found');
+	});
+
+	test('anything that may be a card stays', () => {
+		const far = picture(108.6, 0);
+
+		assert.equal(noCard({found: false, picture: far}, {...empty, present: true}), false, 'a card seen in the guide');
+		assert.equal(noCard({found: false, picture: far}, {...empty, small: true}), false, 'a card held too far away');
+		assert.equal(noCard({found: true, picture: far}, empty), false, 'an outline found');
+		assert.equal(noCard({found: false, picture: far, read: {number: {number: '12'}}}, empty), false, 'a number read');
+		assert.equal(noCard({found: false, picture: picture(NOT_CARD_DISTANCE, 0)}, empty), false, 'artwork within NOT_CARD_DISTANCE');
+		assert.equal(noCard({found: false, picture: null}, empty), false, 'no picture index on the phone');
+		assert.equal(noCard({found: false, picture: far}, null), false, 'nothing known of the frame');
+		assert.ok(NOT_CARD_DISTANCE > 60, 'beyond every distance the picture settles a card at');
+	});
+
+	test('the card just added is not added again by auto capture right after Scan opens', () => {
+		const sure = picture(12, 40);
+		const key = pictureKey(sure);
+
+		assert.equal(key, 'en|sv01-001');
+		assert.equal(repeatOfLast(sure, key, 800), true, 'opened 0.8 s ago, the same card');
+		assert.equal(repeatOfLast(sure, key, REPEAT_MS + 1), false, 'long after opening');
+		assert.equal(repeatOfLast(picture(12, 40, 'sv01-050'), key, 800), false, 'another card');
+		assert.equal(repeatOfLast(sure, null, 800), false, 'nothing added before');
+		assert.equal(repeatOfLast(picture(70, 40), 'en|sv01-001', 800), false, 'a picture too far to name it');
+		assert.equal(pictureKey(picture(30, 2)), null, 'a small lead names no card');
 	});
 });
 

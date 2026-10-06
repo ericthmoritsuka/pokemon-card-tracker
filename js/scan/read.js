@@ -1,5 +1,5 @@
 // Reading a straightened card: every clue at once. The lab pipeline
-// (lab/js/pipeline.js, measured on the lab benchmark) read the label row,
+// (js/vision/pipeline.js, measured on the lab benchmark) read the label row,
 // then the left number strip, then the right one, one OCR call after the
 // other, and only the bottom of the card. This reader cuts all its regions
 // first and hands them to the OCR pool together (js/scan/ocr.js, one or two
@@ -37,10 +37,10 @@ import {
 	setCodeRect,
 	SHARPEN,
 	TEXT_PX,
-} from '../../lab/js/pipeline.js';
+} from '../vision/pipeline.js';
 import {misreadNumbers, parseHp, parseName, parsePartialNumber} from './evidence.js';
 
-// Regions as fractions of the straightened card, as in lab/js/pipeline.js.
+// Regions as fractions of the straightened card, as in js/vision/pipeline.js.
 // Measured on TCGdex high.webp scans (600 x 825) of Scarlet & Violet, Sword
 // & Shield, Mega Evolution, WotC-era, and Portuguese cards:
 //
@@ -277,7 +277,7 @@ function invertCrop(crop) {
 	return {data, height: crop.height, width: crop.width};
 }
 
-// prepareCrop (lab/js/pipeline.js), with a crop to be shrunk averaged down
+// prepareCrop (js/vision/pipeline.js), with a crop to be shrunk averaged down
 // first, an optional blur, and an optional flat field. With `luma`, grey is
 // luminance rather than the brightest channel: the brightest channel turns
 // red print (the HP on WotC-era cards) as light as its background.
@@ -325,7 +325,7 @@ export const MISREAD_CONFIDENCE = 0.3;
 
 // The first line of an OCR result that holds a collector number read above
 // NUMBER_FLOOR, with the confidence and box of the words that make up the
-// number. As in lab/js/pipeline.js, which does not export it.
+// number. As in js/vision/pipeline.js, which does not export it.
 function findNumber(side, result) {
 	for (const line of linesOf(result)) {
 		const parsed = parseNumber(line.text);

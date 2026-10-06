@@ -19,7 +19,7 @@
 // MB; the service worker keeps the file).
 
 import {importApi} from '../catalog.js';
-import {confusedVariants, sameNumber} from '../../lab/js/match.js';
+import {confusedVariants, sameNumber} from '../vision/match.js';
 import {queryFingerprints} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
@@ -145,6 +145,63 @@ export function pictureVerdict(picture) {
 // Whether text has to be read for this picture: anything short of one card
 // with a clear lead.
 export const needsText = (picture) => !pictureVerdict(picture).sure;
+
+// Past this distance the closest artwork is no match at all (Q-19). Real
+// cards that the picture or the number settles are at most CLEAR_DISTANCE
+// away; a real card with a wrong crop was 63 to 76 away, but its outline
+// was seen. Measured on frames with no card in them (2026-10-06): a sheet
+// of printed paper 71, a textured table 76.9, a flat table or wall 108.6.
+export const NOT_CARD_DISTANCE = 65;
+
+// Whether a capture held no card, so it should not join the tray, whether
+// auto capture or the shutter took it. Every clue must agree:
+//
+// - seen (steady.js presence on the capture's thumbnail): no card in the
+//   guide, and none held too far away (small);
+// - no card outline was found (rectify), or the frame has no colour or
+//   stripes across it (seen.reason), which an outline does not outweigh;
+// - no collector number was read;
+// - the closest artwork is past NOT_CARD_DISTANCE. With no picture match
+//   (the index not on this phone yet) nothing can be told, and the capture
+//   stays.
+export function noCard({found = false, picture = null, read = null}, seen) {
+	const lead = picture && picture.groups && picture.groups[0];
+
+	if (!seen || seen.present || seen.small || (found && !seen.reason) || (read && read.number) || !lead) {
+		return false;
+	}
+
+	return typeof lead.score === 'number' && lead.score > NOT_CARD_DISTANCE;
+}
+
+// Q-20: opening Scan again with the card just added still in front of the
+// camera took it again (2, then 3, then 4 Weedles). For this long after the
+// camera opens, an automatic capture whose picture clearly names the card
+// last added is that same card, and does not join the tray. The shutter
+// always adds it.
+export const REPEAT_MS = 10 * 1000;
+
+// The card a picture clearly names ("<catalog>|<id>" of its first group's
+// first card), or null when the lead is not clear (pictureVerdict).
+export function pictureKey(picture) {
+	if (!pictureVerdict(picture).clear) {
+		return null;
+	}
+
+	const card = picture.groups[0].cards[0];
+
+	return card ? `${card.catalog}|${card.id}` : null;
+}
+
+// Whether an automatic capture `sinceOpenMs` after the camera opened is the
+// card last added (`lastKey`, a pictureKey) again.
+export function repeatOfLast(picture, lastKey, sinceOpenMs) {
+	if (!lastKey || !(sinceOpenMs >= 0 && sinceOpenMs <= REPEAT_MS)) {
+		return false;
+	}
+
+	return pictureKey(picture) === lastKey;
+}
 
 // ------------------------------------------------------------ candidates
 

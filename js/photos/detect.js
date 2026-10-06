@@ -8,7 +8,7 @@
 //            background, and fits a straight line to each of its four sides,
 //            leaving out the rounded corners. The lines' crossings are the
 //            corners, so a card seen at an angle keeps its true shape.
-//   rectify  The scan lab's benchmarked edge finder (lab/js/rectify.js): it
+//   rectify  The scan lab's benchmarked edge finder (js/vision/rectify.js): it
 //            measures the card's tilt, turns it straight, and crops to its
 //            edges. Its crop is turned back into four corners. It expects the
 //            card to fill most of the frame, as the scanner's guide does.
@@ -17,7 +17,7 @@
 // all four of its sides. Pure functions over ImageData-shaped objects, so
 // Node tests them (tests/photos.test.mjs).
 
-import {rectify} from '../../lab/js/rectify.js';
+import {rectify} from '../vision/rectify.js';
 
 import {
 	CARD_ASPECT,

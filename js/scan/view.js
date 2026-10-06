@@ -17,12 +17,12 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnail, thumbnailFrame} from './camera.js';
+import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
-import {knownFrom, loadFingerprints, localPrint, pictureMatch, pictureVerdict} from './picture.js';
+import {knownFrom, loadFingerprints, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
@@ -76,6 +76,45 @@ function rememberLanguage(code) {
 	}
 	catch {
 		// Not kept; the next card starts in Portuguese, or Korean.
+	}
+}
+
+// The card last added from the camera ({key: picture.js pictureKey, item:
+// its tray id}), kept across visits and reloads, so opening Scan again with
+// it still in view does not add it again (picture.js repeatOfLast). A card
+// removed from the tray or discarded is forgotten: taking it again is meant.
+const LAST_CARD_KEY = 'card-tracker:scan-last-card';
+
+function lastCard() {
+	try {
+		const last = JSON.parse(localStorage.getItem(LAST_CARD_KEY) || 'null');
+
+		return last && typeof last.key === 'string' ? last : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+function rememberCard(key, item) {
+	try {
+		localStorage.setItem(LAST_CARD_KEY, JSON.stringify({item, key}));
+	}
+	catch {
+		// Not kept; a return with the card in view may add it again.
+	}
+}
+
+function forgetCard(items) {
+	const last = lastCard();
+
+	if (last && items.includes(last.item)) {
+		try {
+			localStorage.removeItem(LAST_CARD_KEY);
+		}
+		catch {
+			// Kept; the next return with it in view skips it.
+		}
 	}
 }
 
@@ -135,6 +174,8 @@ export function scanView(root) {
 	// placeholderList), read from the phone, so they work offline.
 	let placeholders = [];
 	let camera = null;
+	// When the camera last opened (performance.now()), for Q-20's window.
+	let cameraOpenedAt = -Infinity;
 	// The camera start in progress (an AbortController), so there is never
 	// a second one, and leaving or hiding the page can cancel it.
 	let cameraStart = null;
@@ -580,6 +621,7 @@ export function scanView(root) {
 	}
 
 	function remove(id) {
+		forgetCard([id]);
 		artworks.delete(id);
 		cardImages.delete(id);
 		progress.delete(id);
@@ -742,6 +784,7 @@ export function scanView(root) {
 		const kept = session;
 
 		discarded = kept.items.length ? kept : null;
+		forgetCard(kept.items.map((item) => item.id));
 		noteText = null;
 		session = S.newSession();
 		session.lastSave = kept.lastSave;
@@ -788,7 +831,11 @@ export function scanView(root) {
 		const grabbed = performance.now();
 		const frame = grabFrame(video, area && area.capture);
 		const captureMs = Math.round(performance.now() - grabbed);
-		const thumb = thumbnail(video, thumbCanvas, area && area.capture);
+		const shot = thumbnailFrame(video, thumbCanvas, area && area.capture);
+		const thumb = shot ? shot.grey : null;
+		// What the guide held as it was taken, for telling a frame with no
+		// card from one with a card too far away (Q-19).
+		const seen = shot ? presence(shot.grey, THUMB_W, THUMB_H, {colour: shot.colour}) : null;
 
 		detector.captured(thumb);
 		scanStats.captures++;
@@ -819,7 +866,7 @@ export function scanView(root) {
 		// it as one more crop.
 		const guideIn = area && area.capture ? {h: area.guide.h, w: area.guide.w, x: area.guide.x - area.capture.x, y: area.guide.y - area.capture.y} : null;
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null, guide: guideIn});
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null, guide: guideIn, seen});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -885,7 +932,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, seen = null, straight = false} = {}) {
 		let result;
 
 		try {
@@ -957,6 +1004,47 @@ export function scanView(root) {
 			setNote('That did not look like a card. Hold one inside the frame.');
 
 			return;
+		}
+
+		// A frame with no card in it (a blank wall, a sheet of paper) does not
+		// join the tray, even from the shutter (Q-19, picture.js noCard).
+		if (!photo && !straight && noCard(result, seen)) {
+			if (fullSaved) {
+				await fullSaved;
+			}
+
+			remove(id);
+			setNote('That did not look like a card. Hold one inside the frame.');
+
+			return;
+		}
+
+		// The card just added, still in front of the camera when Scan opened
+		// again (Q-20): taken once is enough. The shutter adds it anyway.
+		const last = lastCard();
+
+		if (auto && repeatOfLast(result.picture, last && last.key, performance.now() - cameraOpenedAt)) {
+			if (fullSaved) {
+				await fullSaved;
+			}
+
+			remove(id);
+			setNote('That card was just added. Tap the shutter to add it again.');
+
+			return;
+		}
+
+		if (!photo && !straight) {
+			const key = pictureKey(result.picture);
+
+			if (key) {
+				rememberCard(key, id);
+			}
+		}
+
+		// A card held too far away to read well (Q-19).
+		if (seen && seen.small && !(result.picture && pictureVerdict(result.picture).sure)) {
+			setNote('Move closer: the card is small in the frame.');
 		}
 
 		try {
@@ -1509,6 +1597,7 @@ export function scanView(root) {
 		}
 
 		camera = started;
+		cameraOpenedAt = performance.now();
 
 		cameraOff.hidden = true;
 		shutter.disabled = false;
@@ -1631,7 +1720,7 @@ export function scanView(root) {
 			const thumb = shot.grey;
 			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
 
-			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : 'Card inside the frame. Hold still.';
+			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
 
 			if (detector.push(thumb, seen)) {
