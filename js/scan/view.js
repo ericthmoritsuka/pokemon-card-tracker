@@ -10,6 +10,7 @@
 // closing the app keeps it. Done saves one entry per physical card through
 // js/collection.js and offers Undo session; Discard saves nothing.
 
+import {placeScanned, unplaceScanned, waitingPlaceholderList} from '../binders.js';
 import {addCard, deleteCard, listCards, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
@@ -130,6 +131,9 @@ export function scanView(root) {
 	let session = null;
 	let owned = new Map();
 	let family = [];
+	// The placeholders in the person's own binders (js/binders.js
+	// placeholderList), read from the phone, so they work offline.
+	let placeholders = [];
 	let camera = null;
 	// The camera start in progress (an AbortController), so there is never
 	// a second one, and leaving or hiding the page can cancel it.
@@ -240,6 +244,9 @@ export function scanView(root) {
 			return owned;
 		},
 		photoUrl: (id) => photoUrls.get(id) || null,
+		get placeholders() {
+			return placeholders;
+		},
 		remove,
 		get reportOn() {
 			return draft.reportAlwaysOn();
@@ -268,6 +275,7 @@ export function scanView(root) {
 			draw();
 		},
 		setFinish: (id, variantId) => change(() => S.setFinish(session, id, variantId)),
+		setPlace: (id, on) => change(() => S.setPlace(session, id, on)),
 		setLanguage: (id, code) => {
 			const rematch = change(() => S.setLanguage(session, id, code));
 
@@ -331,6 +339,13 @@ export function scanView(root) {
 		}
 		catch {
 			owned = new Map();
+		}
+
+		try {
+			placeholders = await waitingPlaceholderList();
+		}
+		catch {
+			placeholders = [];
 		}
 
 		draw();
@@ -434,7 +449,9 @@ export function scanView(root) {
 				h('button', {class: 'scan-text-button', id: 'scan-undo-discard', onclick: undoDiscard, type: 'button'}, 'Undo'));
 		}
 		else if (session && session.lastSave) {
-			children.push(h('span', {id: 'scan-saved-line'}, `Saved ${plural(session.lastSave.count, 'card')}`),
+			const inBinders = (session.lastSave.placed || []).length;
+
+			children.push(h('span', {id: 'scan-saved-line'}, `Saved ${plural(session.lastSave.count, 'card')}${inBinders ? `, ${inBinders} placed in a binder` : ''}`),
 				h('button', {class: 'scan-text-button', id: 'scan-undo-session', onclick: undoSession, type: 'button'}, 'Undo session'));
 		}
 
@@ -659,10 +676,29 @@ export function scanView(root) {
 		saveToCardIndex(records).catch(() => {});
 
 		const leaving = [...saved.map((row) => row.itemId), ...skipped.map((item) => item.id)];
+		// The saved copies set to Place it there go in their placeholders,
+		// worked out before they leave the tray.
+		const toPlace = S.placementsToSave(session, saved, placeholders);
+		let placed = [];
+		let placeError = null;
+
+		if (toPlace.length) {
+			try {
+				placed = (await placeScanned(toPlace)).done;
+			}
+			catch (err) {
+				placeError = err;
+			}
+		}
 
 		discarded = null;
-		noteText = null;
+		noteText = placeError ? `Saved, but the binder pockets were not filled. ${placeError.message}` : null;
 		S.afterSave(session, saved);
+
+		if (placed.length) {
+			// Undo session puts the placeholders back.
+			session.lastSave.placed = placed;
+		}
 
 		for (const item of skipped) {
 			S.removeItem(session, item.id);
@@ -675,14 +711,19 @@ export function scanView(root) {
 		persist();
 		draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
 		closeSheet();
-		announce(`Saved ${plural(saved.length, 'card')}.`);
+		announce(`Saved ${plural(saved.length, 'card')}.${placed.length ? ` ${plural(placed.length, 'card')} placed in a binder.` : ''}`);
 		await refreshOwned();
 	}
 
 	async function undoSession() {
+		const placed = (session.lastSave && session.lastSave.placed) || [];
 		const ids = S.takeUndo(session);
 
 		persist();
+
+		if (placed.length) {
+			await unplaceScanned(placed).catch(() => null);
+		}
 
 		let removed = 0;
 

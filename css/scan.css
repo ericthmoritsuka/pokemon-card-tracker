@@ -835,6 +835,30 @@ html.scan-open body {
 	color: #ffc2d1;
 }
 
+/* A binder placeholder waiting for the card, and Place it there. */
+
+.scan-place {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.scan-place-toggle {
+	align-items: center;
+	cursor: pointer;
+	display: flex;
+	font-size: 14px;
+	gap: 8px;
+	min-height: 44px;
+}
+
+.scan-place-box {
+	accent-color: var(--scan-primary);
+	height: 22px;
+	margin: 0;
+	width: 22px;
+}
+
 .scan-actions {
 	background: var(--scan-surface);
 	bottom: calc(-16px - env(safe-area-inset-bottom, 0px));

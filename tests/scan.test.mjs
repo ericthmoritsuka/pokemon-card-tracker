@@ -422,6 +422,61 @@ describe('Done and Undo', () => {
 	});
 });
 
+describe('binder placeholders', () => {
+	const spot = (binder, page, position, cardId, catalog = 'international') => ({binder_id: binder, binder_name: `Binder ${binder}`, card_id: cardId, catalog, page, position});
+
+	test('names the first placeholder by binder order, and how many more wait', () => {
+		const session = S.newSession(AT, 's1');
+		const item = scanned(session, 'sv08.5-003');
+		const plan = S.placeholderPlan(session, [spot('2', 7, 4, 'sv08.5-003'), spot('3', 1, 1, 'sv08.5-003'), spot('2', 1, 1, 'other-001')]).get(item.id);
+
+		assert.deepEqual(plan, {more: 1, spot: spot('2', 7, 4, 'sv08.5-003'), taken: false});
+		assert.equal(S.placeholderLine(plan), 'Goes in Binder 2, page 7, pocket 4 +1 more');
+		assert.equal(S.placeholderLine({more: 0, spot: spot('2', 7, 4, 'sv08.5-003'), taken: false}), 'Goes in Binder 2, page 7, pocket 4');
+		assert.equal(S.placeholderPlan(session, [spot('2', 7, 4, 'sv08.5-003', 'ja')]).size, 0, 'a placeholder is for one catalog');
+		assert.equal(S.placeholderPlan(session, [spot('2', 7, 4, 'sv08.5-003', null)]).size, 1, 'one with no catalog fits any');
+		assert.equal(S.placeOn(item), true, 'Place it there starts on');
+	});
+
+	test('two copies and one placeholder: only the first fills it, unless it is switched off', () => {
+		const session = S.newSession(AT, 's1');
+		const first = scanned(session, 'sv08.5-003');
+		const second = scanned(session, 'sv08.5-003');
+		const spots = [spot('2', 7, 4, 'sv08.5-003')];
+		let plan = S.placeholderPlan(session, spots);
+
+		assert.equal(plan.get(first.id).spot.position, 4);
+		assert.deepEqual(plan.get(second.id), {more: 0, spot: null, taken: true});
+
+		const saved = [{entryId: 'e1', itemId: first.id}, {entryId: 'e2', itemId: second.id}];
+
+		assert.deepEqual(S.placementsToSave(session, saved, spots), [{binderId: '2', cardId: 'sv08.5-003', entryId: 'e1', page: 7, position: 4}]);
+
+		S.setPlace(session, first.id, false, AT);
+		plan = S.placeholderPlan(session, spots);
+		assert.equal(plan.get(first.id).spot.position, 4, 'still says where it would go');
+		assert.equal(plan.get(second.id).spot.position, 4, 'the next copy claims it instead');
+		assert.deepEqual(S.placementsToSave(session, saved, spots), [{binderId: '2', cardId: 'sv08.5-003', entryId: 'e2', page: 7, position: 4}]);
+		assert.deepEqual(S.placementsToSave(session, [saved[0]], spots), [], 'switched off, and the other copy is not being saved');
+	});
+
+	test('two placeholders take two copies; a changed card is worked out again, with the switch back on', () => {
+		const session = S.newSession(AT, 's1');
+		const first = scanned(session, 'sv08.5-003');
+		const second = scanned(session, 'sv08.5-003');
+		const spots = [spot('a', 1, 1, 'sv08.5-003'), spot('a', 1, 2, 'sv08.5-003')];
+		const saved = [{entryId: 'e1', itemId: first.id}, {entryId: 'e2', itemId: second.id}];
+
+		assert.deepEqual(S.placementsToSave(session, saved, spots).map((row) => [row.entryId, row.position]), [['e1', 1], ['e2', 2]]);
+
+		S.setPlace(session, second.id, false, AT);
+		S.chooseCard(session, second.id, candidate('swsh3-102'), AT);
+		assert.equal(S.placeOn(S.findItem(session, second.id)), true);
+		assert.equal(S.placeholderPlan(session, spots).has(second.id), false, 'no placeholder waits for the new card');
+		assert.equal(S.placeholderPlan(session, [...spots, spot('b', 3, 9, 'swsh3-102')]).get(second.id).spot.binder_id, 'b');
+	});
+});
+
 describe('the scan report', () => {
 	// What js/scan/identify.js answers for a full-art Portuguese card whose
 	// name sat on busy art: the number (a secret rare, past the set total)

@@ -915,3 +915,115 @@ export async function unplacedCards() {
 export async function placeholdersWaiting(catalog, cardId) {
 	return placeholdersFor(await allBinders(), catalog, cardId);
 }
+
+// ------------------------------------------------------------ scanning
+//
+// The scanner (js/scan/) names the pocket a scanned card goes in when a
+// placeholder waits for it ("Goes in Binder 2, page 7, pocket 4"), and
+// once the copy is saved, puts it there. Only the person's own binders: a
+// family member's are never read or changed here.
+
+const byCreated = (binders) => liveBinders(binders).slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+
+// Every placeholder, in binder order (the binder list's, oldest first), then
+// page and pocket: [{binder_id, binder_name, page, position, card_id,
+// catalog}]. catalog is null for a placeholder that names none.
+export function placeholderList(binders) {
+	const out = [];
+
+	for (const binder of byCreated(binders)) {
+		for (const slot of slotsOf(binder)) {
+			if (slot.want && slot.want.card_id) {
+				out.push({
+					binder_id: binder.id,
+					binder_name: binder.name,
+					card_id: slot.want.card_id,
+					catalog: slot.want.catalog || null,
+					page: slot.page,
+					position: slot.position,
+				});
+			}
+		}
+	}
+
+	return out;
+}
+
+// Changes pockets one after another: each row's pocket gets content(row,
+// slot) when fits(row, slot) says the pocket still holds what the row
+// expects, and is passed over otherwise (moved or filled on another phone
+// since). Returns {changed, done, passed}: the binders to save, and the rows
+// changed and passed over, each done row with the slot it replaced.
+function changePockets(binders, rows, {at, content, fits}) {
+	let current = binders;
+	let changed = [];
+	const done = [];
+	const passed = [];
+
+	for (const row of rows || []) {
+		const binder = liveBinders(current).find((item) => item.id === row.binderId);
+		const slot = binder && inGrid(binder, row) ? pageSlots(binder, row.page, placements(current)).get(row.position) : null;
+
+		if (!slot || !fits(row, slot)) {
+			passed.push(row);
+			continue;
+		}
+
+		const next = setPocket(current, {at, binderId: row.binderId, content: content(row, slot), page: row.page, position: row.position});
+
+		current = withChanges(current, next);
+		changed = gather(changed, next);
+		done.push({...row, was: slot});
+	}
+
+	return {changed, done, passed};
+}
+
+// Puts saved copies in the placeholders waiting for them. rows: [{binderId,
+// page, position, entryId, cardId}]. A pocket that no longer holds a
+// placeholder for cardId is passed over. Each done row carries want, the
+// placeholder it replaced, so restorePlaceholders can put it back.
+export function fillPlaceholders(binders, rows, {at = nowIso()} = {}) {
+	const result = changePockets(binders, rows, {
+		at,
+		content: (row) => ({entry_id: row.entryId}),
+		fits: (row, slot) => Boolean(slot.want) && slot.want.card_id === row.cardId,
+	});
+
+	return {changed: result.changed, done: result.done.map(({was, ...row}) => ({...row, want: was.want})), passed: result.passed};
+}
+
+// Undoes fillPlaceholders: rows are its done rows. A pocket that holds
+// something else by now is passed over.
+export function restorePlaceholders(binders, rows, {at = nowIso()} = {}) {
+	const result = changePockets(binders, (rows || []).filter((row) => row.want), {
+		at,
+		content: (row) => ({want: row.want}),
+		fits: (row, slot) => slot.entry_id === row.entryId,
+	});
+
+	return {changed: result.changed, done: result.done.map(({was, ...row}) => row), passed: result.passed};
+}
+
+// Saved: every placeholder in the person's binders, for the scanner.
+export async function waitingPlaceholderList() {
+	return placeholderList(await allBinders());
+}
+
+// Saved: resolves {done, passed}, as fillPlaceholders.
+export const placeScanned = (rows) => serial(async () => {
+	const result = fillPlaceholders(await allBinders(), rows);
+
+	await saveBinders(result.changed);
+
+	return {done: result.done, passed: result.passed};
+});
+
+// Saved: resolves {done, passed}, as restorePlaceholders.
+export const unplaceScanned = (rows) => serial(async () => {
+	const result = restorePlaceholders(await allBinders(), rows);
+
+	await saveBinders(result.changed);
+
+	return {done: result.done, passed: result.passed};
+});

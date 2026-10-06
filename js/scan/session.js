@@ -9,6 +9,8 @@
 //   {id, captured_at, status, waitingFor, read, candidates, partial, card,
 //    variants, variantId, finishBy, language, languageBy, languageHint,
 //    condition, conditionBy, confirmed, sure, why, timings, labelCheck}
+// and place, false once Place it there is switched off for a binder
+// placeholder the card fits (placeholderPlan below).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -519,6 +521,8 @@ function setCard(item, candidate) {
 	item.variants = null;
 	item.variantId = null;
 	item.finishBy = null;
+	// Place it there starts on again for the new card.
+	delete item.place;
 }
 
 // The chosen card's variants_detailed arrived: the picker starts on the
@@ -987,6 +991,93 @@ export function wishLine(marks) {
 			: `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 
 	return `${list} ${names.length === 1 ? 'wants' : 'want'} this`;
+}
+
+// ------------------------------------------------------------ binder placeholders
+
+// A placeholder (js/binders.js placeholderList) fits a tray card with the
+// same card ID in the same catalog; one that names no catalog fits any.
+const fitsPlaceholder = (item, spot) => Boolean(item.card) && spot.card_id === item.card.id && (!spot.catalog || spot.catalog === item.card.catalog);
+
+const spotKey = (spot) => `${spot.binder_id}|${spot.page}|${spot.position}`;
+
+// Place it there: on unless switched off on this card (item.place false).
+export const placeOn = (item) => item.place !== false;
+
+export function setPlace(session, id, on, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	item.place = Boolean(on);
+	touch(session, now);
+
+	return item;
+}
+
+// Which placeholder each tray card goes in (DESIGN.md section 3, "If a
+// binder placeholder waits"): Map item id -> {spot, more, taken}, for the
+// cards some placeholder fits. Cards claim placeholders in the order they
+// were scanned, each the first by binder order that no earlier card set to
+// Place it there has claimed, so two copies and one placeholder fill it
+// once. spot is null (and taken true) when earlier cards claimed every one
+// that fits; more counts the other free ones that fit. ids: only these
+// cards claim (the ones being saved); every card when left out.
+export function placeholderPlan(session, placeholders, {ids = null} = {}) {
+	const claimed = new Set();
+	const out = new Map();
+
+	for (const item of session.items) {
+		if (ids && !ids.has(item.id)) {
+			continue;
+		}
+
+		const free = (placeholders || []).filter((spot) => fitsPlaceholder(item, spot) && !claimed.has(spotKey(spot)));
+		const fits = free.length || (placeholders || []).some((spot) => fitsPlaceholder(item, spot));
+
+		if (!fits) {
+			continue;
+		}
+
+		const spot = free[0] || null;
+
+		if (spot && placeOn(item)) {
+			claimed.add(spotKey(spot));
+		}
+
+		out.set(item.id, {more: Math.max(0, free.length - 1), spot, taken: !spot});
+	}
+
+	return out;
+}
+
+// "Goes in Binder 2, page 7, pocket 4", "+2 more" after it when more fit.
+export function placeholderLine(plan) {
+	if (!plan || !plan.spot) {
+		return null;
+	}
+
+	const {binder_name: name, page, position} = plan.spot;
+
+	return `Goes in ${name}, page ${page}, pocket ${position}${plan.more ? ` +${plan.more} more` : ''}`;
+}
+
+// The pockets to fill once the cards are saved: saved is [{itemId,
+// entryId}] as the save wrote them. Returns [{binderId, page, position,
+// entryId, cardId}] for the saved cards set to Place it there.
+export function placementsToSave(session, saved, placeholders) {
+	const ids = new Set(saved.map((row) => row.itemId));
+	const plan = placeholderPlan(session, placeholders, {ids});
+	const out = [];
+
+	for (const row of saved) {
+		const item = findItem(session, row.itemId);
+		const found = plan.get(row.itemId);
+
+		if (item && found && found.spot && placeOn(item)) {
+			out.push({binderId: found.spot.binder_id, cardId: item.card.id, entryId: row.entryId, page: found.spot.page, position: found.spot.position});
+		}
+	}
+
+	return out;
 }
 
 // ------------------------------------------------------------ Set for all
