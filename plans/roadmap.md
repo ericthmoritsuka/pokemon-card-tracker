@@ -125,7 +125,13 @@ the audit below to confirm or drop:
    - To weigh: a manual Liga price should say its finish and language (Liga averages are per
      finish, and PT and EN share one page with different prices); Reverse and Shattered Holo
      are separate prints; show "no PT listing", never zero.
-6. **Family view (Eric, 2026-10-05):**
+6. **Reorder and undo on Lists and Binders (Eric, 2026-10-06):** drag and drop to reorder
+   checklists, goals, collections, and binders (with a keyboard and screen-reader way too, such
+   as Move up and Move down). Today a new list always lands at the bottom, so Eric had to delete
+   and recreate every region list to fix one. Also Undo on a toast for list changes, as copies
+   already have: a misplaced tap on a checklist (the "missing" mark on a row ticks a Pokémon by
+   hand; confirm with Eric which tap it was) should be one tap to reverse.
+7. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
