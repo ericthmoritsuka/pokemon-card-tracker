@@ -20,6 +20,7 @@
 import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, stampEntry} from './merge.js';
+import {fetchJson, graphql} from './tcgdex.js';
 
 export const MAX_DEX = 1025;
 
@@ -375,54 +376,20 @@ async function cachePut(key, data) {
 
 // ----------------------------------------------------------- fetching
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const BACKOFF_MS = [1000, 3000, 8000];
+// TCGdex and PokeAPI are read through js/tcgdex.js's fetch, with four
+// attempts: these are one-off downloads a later visit would otherwise wait
+// for (DESIGN.md section 5).
+const ATTEMPTS = 4;
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
 
-// fetch with polite retries: TCGdex answers 503 now and then (DESIGN.md
-// section 5), so a server error or a dropped connection is retried after 1,
-// 3, then 8 seconds.
-async function fetchJson(url, init, attempts = 4) {
-	for (let attempt = 1; ; attempt++) {
-		let response;
-
-		try {
-			response = await fetch(url, init);
-		}
-		catch (err) {
-			if (attempt < attempts && online()) {
-				await wait(BACKOFF_MS[attempt - 1] || 8000);
-
-				continue;
-			}
-
-			throw err;
-		}
-
-		if ((response.status >= 500 || response.status === 429) && attempt < attempts) {
-			await wait(BACKOFF_MS[attempt - 1] || 8000);
-
-			continue;
-		}
-
-		if (!response.ok) {
-			const err = new Error(`${new URL(url).hostname} answered ${response.status}.`);
-
-			err.status = response.status;
-
-			throw err;
-		}
-
-		return response.json();
-	}
-}
-
 const postGraphql = (url, query) => fetchJson(url, {
-	body: JSON.stringify({query}),
-	headers: {'content-type': 'application/json'},
-	method: 'POST',
+	attempts: ATTEMPTS,
+	init: {
+		body: JSON.stringify({query}),
+		headers: {'content-type': 'application/json'},
+		method: 'POST',
+	},
 });
 
 // ------------------------------------------------ which Pokémon is owned
@@ -446,7 +413,6 @@ const postGraphql = (url, query) => fetchJson(url, {
 // SINGLE_CARD_LIMIT a visit, so a large Asian collection fills in over a few
 // visits.
 
-const TCGDEX_GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
 const INTERNATIONAL_KEY = 'dexmap:international';
 const REFETCH_FOR_NEW_AFTER_MS = 12 * 60 * 60 * 1000;
 const REFETCH_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
@@ -473,7 +439,7 @@ export function dexMapFrom(json) {
 	return map;
 }
 
-export const fetchInternationalDexMap = async () => dexMapFrom(await postGraphql(TCGDEX_GRAPHQL, '{ cards { id dexId } }'));
+export const fetchInternationalDexMap = async () => dexMapFrom({data: await graphql('{ cards { id dexId } }', {attempts: ATTEMPTS})});
 
 // The map stays in memory for the visit after its first read: it is large,
 // and every list view needs it.
@@ -744,7 +710,7 @@ async function fetchNames() {
 
 	if (!complete(tables.en)) {
 		try {
-			const json = await fetchJson(POKEAPI_SPECIES);
+			const json = await fetchJson(POKEAPI_SPECIES, {attempts: ATTEMPTS});
 
 			for (const row of (json && json.results) || []) {
 				const n = Number((/\/(\d+)\/?$/.exec(row.url) || [])[1]);

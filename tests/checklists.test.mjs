@@ -121,11 +121,9 @@ async function fakeServices(context, counts, net) {
 			const dex = /cards\(filters: \{dexId: (\d+)\}\)/.exec(query);
 
 			if (/^\{ sets /.test(query)) {
-				// Twins asks for its own set list (with card counts) in the
-				// background, so only the Pokémon screen's query is counted.
-				if (!/cardCount/.test(query)) {
-					counts.sets++;
-				}
+				// One set list for the Pokémon screen and twins alike
+				// (js/tcgdex.js), so every request for it counts.
+				counts.sets++;
 
 				return reply({sets: GRAPHQL_SETS});
 			}

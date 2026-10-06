@@ -29,6 +29,8 @@
 // change can sync them.
 
 import {cardImage, importApi} from './catalog.js';
+import {internationalSets} from './pokemon-cards.js';
+import {BACKOFF_MS, graphql as tcgdexGraphql, loadSetIndex} from './tcgdex.js';
 
 export const SERIES = ['swsh', 'sv', 'me'];
 
@@ -41,8 +43,6 @@ export const LABEL = 'International print';
 
 // A result saved by another version of the rule is computed again.
 export const MATCHER_VERSION = 1;
-
-const GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
 
 // ------------------------------------------------------------ the rule
 
@@ -680,10 +680,9 @@ export const ENGLISH_FIELDS = 'id localId name category effect dexId illustrator
 // English sets per GraphQL request: each is one aliased cards() query.
 const SETS_PER_REQUEST = 6;
 
-// Retries a 503 (and 429, 502, 504) or a dropped connection after 1, 3, 8,
-// then 16 seconds: TCGdex answered 503 now and then on 2026-10-01.
-const BACKOFF_MS = [1000, 3000, 8000, 16000];
-const RETRY = new Set([429, 502, 503, 504]);
+// Every retry js/tcgdex.js allows (1, 3, 8, then 16 seconds): a refresh
+// runs in the background, so it rides out a short outage.
+const ATTEMPTS = BACKOFF_MS.length + 1;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -740,6 +739,10 @@ export function twinKey(item, catalog = null) {
 //   fetch     window.fetch
 //   ja        {setDetail(id), cardDetail(id)}: Japanese TCGdex records
 //             (js/catalog.js importApi, cache first, by default)
+//   sets      ({force, maxAge}) -> {data, error, at}: the shared set index
+//             (js/pokemon-cards.js internationalSets, for the default
+//             instance); without it the list is fetched with `fetch` and
+//             kept in the store
 //   store     idbStore() or memoryStore()
 //   now, wait the clock and the retry delay
 //   online    whether the device has a connection (navigator.onLine)
@@ -749,6 +752,7 @@ export function createTwins({
 	ja = {cardDetail: (id) => importApi.cardDetail('ja', id), setDetail: (id) => importApi.setDetail('ja', id)},
 	now = () => Date.now(),
 	online = () => !globalThis.navigator || globalThis.navigator.onLine !== false,
+	sets = null,
 	store = idbStore(),
 	wait = sleep,
 } = {}) {
@@ -771,66 +775,51 @@ export function createTwins({
 		}
 	};
 
-	async function graphql(query) {
-		return limit(async () => {
-			for (let attempt = 0; ; attempt++) {
-				let response;
+	const fetchOptions = {attempts: ATTEMPTS, fetch: fetchFn, online, wait};
 
-				try {
-					response = await fetchFn(GRAPHQL, {
-						body: JSON.stringify({query}),
-						headers: {'Content-Type': 'application/json'},
-						method: 'POST',
-					});
-				}
-				catch (err) {
-					if (attempt < BACKOFF_MS.length) {
-						await wait(BACKOFF_MS[attempt]);
+	// A failure carries network when trying later may work (js/tcgdex.js):
+	// refreshTwins stops there rather than waiting out the retries again for
+	// every card.
+	const graphql = (query) => limit(() => tcgdexGraphql(query, fetchOptions));
 
-						continue;
-					}
-
-					// No connection: refreshTwins stops there rather than
-					// waiting out the retries again for every card.
-					err.network = true;
-
-					throw err;
-				}
-
-				if (RETRY.has(response.status) && attempt < BACKOFF_MS.length) {
-					await wait(BACKOFF_MS[attempt]);
-
-					continue;
-				}
-
-				if (!response.ok) {
-					const err = new Error(`TCGdex answered ${response.status} for a GraphQL query.`);
-
-					err.status = response.status;
-					err.network = RETRY.has(response.status);
-
-					throw err;
-				}
-
-				const body = await response.json();
-
-				if (body.errors && body.errors.length && !body.data) {
-					throw new Error(`TCGdex GraphQL: ${body.errors[0].message}`);
-				}
-
-				return body.data || {};
-			}
-		});
-	}
+	const inSeries = (index) => Object.values(index || {})
+		.filter((set) => set && SERIES.includes(set.serie))
+		.map(({id, name, official, releaseDate, serie, total}) => ({id, name, official: official || 0, releaseDate, serie, total: total || 0}));
 
 	// Every English set in SERIES with its release date and counts, in the
-	// API's order: one request, kept a week.
+	// API's order, kept a week: from the shared set index when there is one,
+	// otherwise one request of this instance's, kept in the store.
 	async function englishSets({fresh = false} = {}) {
 		if (setList && !fresh && now() - setList.at < RECHECK_MS) {
 			return setList.sets;
 		}
 
 		const saved = await store.get('english', 'sets');
+
+		if (sets) {
+			const shared = await sets({force: fresh, maxAge: RECHECK_MS});
+
+			if (shared.data) {
+				setList = {at: shared.at || now(), sets: inSeries(shared.data)};
+				indexCache = null;
+
+				return setList.sets;
+			}
+
+			// The list an earlier version kept here, until the shared one
+			// is on the phone.
+			if (saved) {
+				setList = saved;
+
+				return saved.sets;
+			}
+
+			const err = shared.error || new Error('The set list is not on this phone yet.');
+
+			err.network = err.network !== false;
+
+			throw err;
+		}
 
 		if (saved && !fresh && now() - saved.at < RECHECK_MS) {
 			setList = saved;
@@ -839,23 +828,13 @@ export function createTwins({
 		}
 
 		try {
-			const data = await graphql('{ sets { id name releaseDate serie { id } cardCount { official total } } }');
-			const sets = (data.sets || [])
-				.filter((set) => set && set.serie && SERIES.includes(set.serie.id))
-				.map((set) => ({
-					id: set.id,
-					name: set.name,
-					official: (set.cardCount && set.cardCount.official) || 0,
-					releaseDate: set.releaseDate || null,
-					serie: set.serie.id,
-					total: (set.cardCount && set.cardCount.total) || 0,
-				}));
+			const list = inSeries(await limit(() => loadSetIndex(fetchOptions)));
 
-			setList = {at: now(), sets};
+			setList = {at: now(), sets: list};
 			await store.put('english', 'sets', setList);
 			indexCache = null;
 
-			return sets;
+			return list;
 		}
 		catch (err) {
 			if (saved) {
@@ -1298,7 +1277,7 @@ let instance = null;
 
 const twins = () => {
 	if (!instance) {
-		instance = createTwins();
+		instance = createTwins({sets: internationalSets});
 	}
 
 	return instance;
