@@ -132,8 +132,9 @@ the audit below to confirm or drop:
    already have. The tap was the "missing" mark on a checklist row, which ticks a Pokémon by
    hand. Eric finds the hand tick odd ("trust me, I have it" with no card to show): drop it, or
    at least make a missing row open the Pokémon's cards like an owned row and move "Mark as
-   owned without a card" behind a labeled action with Undo. Lean: drop it, since Add by hand
-   now covers a card not logged yet; existing hand ticks need a plan (keep showing or convert).
+   owned without a card" behind a labeled action with Undo. Eric chose to drop it
+   (2026-10-06), in v30: a missing row opens the Pokémon's cards, no new hand ticks, and old
+   hand ticks stop counting but stay in the document for older clients' sync.
 7. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
