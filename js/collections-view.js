@@ -41,12 +41,9 @@ import {isLive, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {REGION_OPTIONS, filterOptions} from './filter-bar.js';
+import {formatCount, plural} from './format.js';
 import {formatBrl, listStats, savedRates} from './prices.js';
 import {toast} from './shell.js';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const UNDO_MS = 8000;
 

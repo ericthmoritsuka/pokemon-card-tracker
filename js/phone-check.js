@@ -2,6 +2,7 @@
 // test), kept so each family phone can still be checked.
 
 import {BASE, errorText, h, namedError, showError} from './dom.js';
+import {formatCount} from './format.js';
 import {openDatabase} from './idb.js';
 import {reportAlwaysOn, setReportAlwaysOn} from './scan/draft.js';
 
@@ -13,8 +14,6 @@ const DB_STORE = 'entries';
 const ENTRY_COUNT = 1600;
 
 const yesNo = (value) => (value ? 'Yes' : 'No');
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
 
 function formatBytes(bytes) {
 	if (typeof bytes !== 'number') {

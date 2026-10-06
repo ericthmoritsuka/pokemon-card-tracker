@@ -31,6 +31,7 @@ import {
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
+import {formatCount, plural} from './format.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
 	CATALOG_HEADINGS,
@@ -69,10 +70,6 @@ const CONCURRENCY = 4;
 // The languages a list can hold, Portuguese first, then the order of the
 // catalog's language list.
 const LANGUAGE_CHOICES = ['pt', ...LANGUAGES.map((lang) => lang.code).filter((code) => code !== 'pt')];
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
-
-const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 

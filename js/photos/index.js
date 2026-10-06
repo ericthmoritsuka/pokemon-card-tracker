@@ -19,6 +19,7 @@
 
 import {listCards, loadDocument, newId, nowIso, onChange, updateCards} from '../collection.js';
 import {h} from '../dom.js';
+import {formatCount} from '../format.js';
 
 import {SWIPE_EVENT, gestureConsumed, isCarouselGesture, openViewer, photoCarousel} from './carousel.js';
 import {describeCopy, openAddPhoto} from './editor.js';
@@ -350,8 +351,6 @@ export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {twin
 const KB = 1024;
 const GB_KB = 1024 * 1024;
 
-const thousands = (n) => n.toLocaleString('en-US');
-
 const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 
 // What the help text says, from the sizes the encoder uses: a normal copy
@@ -379,8 +378,8 @@ export function photoSettingsCard() {
 		`Saves a second, sharper copy of each photo you take on this phone from now on, up to ${DETAIL_WIDTH} x ${DETAIL_HEIGHT} pixels, `
 		+ 'for zooming in on print details when checking a card. '
 		+ `Each detail copy is up to ${math.detailKb} KB, about ${WORDS[math.ratio] || math.ratio} normal photos' worth (${math.normalKb} KB each), `
-		+ `so the free 1 GB of storage holds about ${thousands(math.withDetail)} photos with detail copies, `
-		+ `instead of over ${thousands(math.withoutDetail)} without. `
+		+ `so the free 1 GB of storage holds about ${formatCount(math.withDetail)} photos with detail copies, `
+		+ `instead of over ${formatCount(math.withoutDetail)} without. `
 		+ 'Detail copies are downloaded only when you zoom in, then kept on the phone. '
 		+ 'A photo where the card is small in the frame gets none, since it holds no more detail.');
 

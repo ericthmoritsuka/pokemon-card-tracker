@@ -14,12 +14,11 @@
 // sessionStorage, so a reload on a card page keeps it.
 
 import {go, h} from './dom.js';
+import {formatCount} from './format.js';
 
 const KEY = 'card-tracker-card-list';
 const SWIPE_MIN = 60;
 const EDGE = 16;
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
 
 let offered = null;
 let active = readSaved();

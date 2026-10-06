@@ -20,12 +20,11 @@ import {accountLabel, currentUser, onUser} from './auth.js';
 import {spriteUrl} from './checklists.js';
 import {BASE, go, h} from './dom.js';
 import {familyFavorites, familyMembers, knownFavorites} from './family.js';
+import {formatCount} from './format.js';
 import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
 import {openDialogSheet} from './sheet.js';
 import {onSyncStatus, syncStatus} from './sync.js';
-
-const formatCount = (n) => Number(n).toLocaleString('en-US');
 
 // What each kind of screen is called on the view-only strip, and where it
 // is for you and for a member.
