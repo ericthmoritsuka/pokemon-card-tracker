@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v29** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v29 `31e9329` adds collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v30** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v30 `acb42f7` adds Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -94,7 +94,7 @@ the audit below to confirm or drop:
    recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
    purchase details (price paid and storage), Korean and Japanese script detection for the
    scanner (vendor `jpn` and `kor` models).
-   - **Backlog:** the big Liga value box (`statsBar` in js/price-view.js: Total, Average,
+   - **Done in v30:** the big Liga value box (`statsBar` in js/price-view.js: Total, Average,
      Highest, Lowest) still sits inline on a checklist (js/checklists-view.js), a set page
      (js/catalog-views.js), and a binder (js/binders-view.js). Eric dislikes the big box
      (2026-10-06). Swap it for the small Value button and sheet My Cards uses
@@ -111,7 +111,8 @@ the audit below to confirm or drop:
    pockets and updates only defaults never picked by hand. A generated binder is a view, so a
    card can also sit in another binder. Medium: binders, spreads, the filter bar, checklists,
    and collections already exist.
-5. **Liga link rules (from Eric's 76-card Liga lookup, 2026-10-05):** fix in js/liga.js and
+5. **Liga link rules (from Eric's 76-card Liga lookup, 2026-10-05):** done in v30 except the
+   last bullet (manual price finish and language, still to weigh). Fixed in js/liga.js and
    DESIGN.md "Liga's query pattern", with tests:
    - Generations Radiant Collection uses the main set's total: `Swirlix (RC19/83)`, not
      `RC19/RC32`, so the GG/TG rule does not extend to RC.
@@ -140,7 +141,7 @@ the audit below to confirm or drop:
    the collection (copy ids it leaves out, merged like `card_ids`); the rule keeps adding new
    matches. Untick it in the card's Add to collection sheet, and show "N left out" on the
    collection with a way to put them back. Today the sheet lists a rule collection as read only.
-8. **Family view (Eric, 2026-10-05):**
+8. **Family view (Eric, 2026-10-05):** both done in v30.
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
@@ -185,7 +186,7 @@ the audit below to confirm or drop:
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
-  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`;
+  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`;
   `photos-sql` needs Docker. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal

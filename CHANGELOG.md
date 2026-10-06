@@ -12,6 +12,23 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-06
+
+- **08:45** Version 30: small fixes from the backlog. `acb42f7`
+  - **Want from a family member's cards:** Add to wishlist now shows on a family member's card,
+    saves only to your own wishlist, and starts in the language of their copy. The card says
+    when they have spares ("Tadeu has 1 spare"), and their Cards page links to their wishlist.
+  - **A smaller value:** sets, checklists, and binders show a Value button that opens the sheet,
+    as My Cards does, instead of the big Total, Average, Highest, Lowest box.
+  - **Binder placeholders at scan:** a scanned card that a binder pocket is waiting for says
+    "Goes in Binder 2, page 7, pocket 4", and Place it there (on by default) puts the saved copy
+    in that pocket. Undo session puts the placeholder back.
+  - **No more hand ticks on checklists:** a stray tap on a missing Pokémon no longer marks it
+    owned. The row opens the Pokémon's cards instead, where the real card can be added. Old hand
+    ticks no longer count.
+  - **Ver na Liga:** links now find Generations Radiant Collection (`RC19/83`), Scarlet & Violet
+    promos (`012/∞`), and McDonald's 2023 (`005/015`) cards.
+
 ### 2026-10-03
 
 - **20:05** Version 29: collections and goals. `31e9329`
