@@ -886,10 +886,15 @@ copy can carry a manual price with its source and date ("R$45, Liga, 2026-10-01"
 when the text is exactly the English card name followed by the number and official set total as
 printed, in parentheses. `Rattata (019/165)` opens the 151 Rattata (Liga edition code `MEW`), and
 `Charizard (4/102)` opens Base Set Charizard ("Coleção Básica"). Build it from TCGdex: the English
-`name`, the card's `localId` exactly as given (zero-padded on modern sets, not on vintage), and the
-set's `cardCount.official`. When several editions share that text, Liga shows an edition picker
+`name`, the card's `localId` as given (zero-padded on modern sets, not on vintage), and the
+set's `cardCount.official`, padded to the width of a zero-padded number (`Dachsbun (039/091)`,
+not `/91`; checked 2026-10-05). When several editions share that text, Liga shows an edition picker
 on the card page. Korean and Japanese prints have no reliable Liga equivalent and get no button
 until checked.
+
+When the exact query misses, a search for the name alone (`Dachsbun`) lists every print with its
+number written the way Liga wants it, so it is the fallback for finding the right form by hand
+(checked 2026-10-05). The app still only builds the link and never fetches Liga.
 
 **Liga's name rules** (Eric's warning, then checked by hand in a browser, 2026-10-01). Liga
 hyphenates every uppercase mechanic suffix that TCGdex writes after a space, and a query with the
@@ -909,16 +914,25 @@ space finds nothing at all:
 
 So: replace a trailing space before `EX`, `GX`, `V`, `VMAX`, `VSTAR`, or `V-UNION` (uppercase,
 whole word, at the end of the name) with a hyphen, leave lowercase `ex` and every other name
-alone, and keep the number exactly as TCGdex's `localId` (`20`, `019`, `4` all matched). The
-unchecked rows are verified on first real use.
+alone, and keep the number as TCGdex's `localId` (`20`, `019`, `4` all matched; the numbering
+exceptions below are the only places it is padded). The unchecked rows are verified on first real
+use.
 
-**Numbering exceptions** (checked 2026-10-01):
+**Numbering exceptions** (checked 2026-10-01, the last four on 2026-10-05):
 
 - Lettered subsets carry the letters on both sides: Crown Zenith `GG44` with an official count of
   70 is `Mewtwo-VSTAR (GG44/GG70)`; `(GG44/70)` finds nothing. The same applies to `TG`.
 - Promos take the promo number alone: `Charizard-V (SWSH050)` opens the card (Liga itself lists it
-  as `SWSH050/71`, a total TCGdex does not have). A set is a promo set when its TCGdex ID ends in
-  `p` or its name contains "Promo".
+  as `SWSH050/71`, a total TCGdex does not have), and so do XY promos (`Celebi (XY111)`,
+  `Kyogre-EX (XY41)`). A set is a promo set when its TCGdex ID ends in `p` or its name contains
+  "Promo".
+- Scarlet & Violet promos (TCGdex `svp`) are the exception: the number, padded to three digits,
+  over an infinity sign, `Dondozo (012/∞)` (`%E2%88%9E` in the URL).
+- Generations' Radiant Collection (TCGdex `g1`, `RC1` to `RC32`) uses the main set's total with no
+  letters: `Swirlix (RC19/83)`, `Flareon-EX (RC28/83)`, not `RC19/RC32`. The lettered-subset rule
+  does not extend to `RC`.
+- McDonald's Collection 2023 (TCGdex `2023sv`) pads both sides to three digits: `Cetitan (005/015)`,
+  though TCGdex gives `5` and `15`. Other McDonald's years are unchecked and keep the general rule.
 - Liga also has letter-suffixed numbers such as `019a/170` and `048K/069` for prints outside the
   international sets; these are not generated.
 
