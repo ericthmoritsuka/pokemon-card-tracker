@@ -22,9 +22,10 @@ export const RELEASES = [
 	{
 		date: '2026-10-06',
 		items: [
+			'The scanner skips frames with no card, says Move closer when a card is far, and does not add the same card twice when you reopen it.',
 			'A Liga price you type now says which finish and language it is for.',
-			'A note when your phone\'s clock is off, so edits sync in the right order.',
-			'This list, shown once after each update.',
+			'Theme swatches in Profile stay put when you pick a theme.',
+			'A note when your phone\'s clock is off, and this list after each update.',
 		],
 		version: 'v31',
 	},
