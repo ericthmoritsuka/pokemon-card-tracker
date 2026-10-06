@@ -135,7 +135,12 @@ the audit below to confirm or drop:
    owned without a card" behind a labeled action with Undo. Eric chose to drop it
    (2026-10-06), in v30: a missing row opens the Pokémon's cards, no new hand ticks, and old
    hand ticks stop counting but stay in the document for older clients' sync.
-7. **Family view (Eric, 2026-10-05):**
+7. **Remove a card from a rule collection (Eric, 2026-10-06):** an automatic collection (a rule
+   such as the Star preset) should let a card be taken out by hand. Store the exclusions with
+   the collection (copy ids it leaves out, merged like `card_ids`); the rule keeps adding new
+   matches. Untick it in the card's Add to collection sheet, and show "N left out" on the
+   collection with a way to put them back. Today the sheet lists a rule collection as read only.
+8. **Family view (Eric, 2026-10-05):**
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
