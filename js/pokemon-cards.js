@@ -7,9 +7,10 @@
 //   International (Portuguese, English, French, and the other Western
 //   languages share one record): the bulk id and dexId list js/checklists.js
 //   already keeps (internationalDexMap), so the list works offline. Two
-//   small GraphQL requests dress it, each kept on the phone: every set's
-//   name, release date, and series (about 40 KB, which also marks TCG Pocket
-//   sets), and this Pokémon's card names and images (a few KB).
+//   small GraphQL requests dress it, each kept on the phone: the set index
+//   twins shares (js/tcgdex.js: every set's name, release date, series, and
+//   card counts; the series also marks TCG Pocket sets), and this Pokémon's
+//   card names and images (a few KB).
 //   Japanese and Chinese: TCGdex's GraphQL answers in English only, so a list
 //   with one of those languages asks that catalog's REST API for the
 //   Pokémon's cards (one request, ?dexId=eq:<n>, which matches TAG TEAM
@@ -31,6 +32,7 @@ import {catalogFor, catalogLanguage, compareNumbers, importApi} from './catalog.
 import {internationalDexMap} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
+import {fetchJson, graphql, loadSetIndex, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ['ja', 'ko', 'zh-cn', 'zh-tw'];
 
@@ -102,24 +104,9 @@ export const localIdOf = (cardId, setId) => (String(cardId).startsWith(`${setId}
 // image path (assets.tcgdex.net/en/tcgp/...).
 export const isPocket = (set, image = null) => Boolean((set && set.serie === POCKET_SERIES) || /\/tcgp\//.test(String(image || '')));
 
-// GraphQL sets -> Map setId -> {id, name, releaseDate, serie}.
-export function setsIndexFrom(json) {
-	const sets = (json && json.data && json.data.sets) || null;
-
-	if (!Array.isArray(sets)) {
-		throw new Error('TCGdex sent no set list.');
-	}
-
-	const index = {};
-
-	for (const set of sets) {
-		if (set && set.id) {
-			index[set.id] = {id: set.id, name: set.name || set.id, releaseDate: set.releaseDate || null, serie: (set.serie && set.serie.id) || null};
-		}
-	}
-
-	return index;
-}
+// A GraphQL answer ({data: {sets}}) -> the set index, {setId: {id, name,
+// releaseDate, serie, official, total}} (js/tcgdex.js).
+export const setsIndexFrom = (json) => setIndexFrom(json && json.data);
 
 // GraphQL cards of one Pokémon -> {cardId: {name, image, localId}}.
 export function dexCardsFrom(json) {
@@ -398,8 +385,6 @@ const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
 
 // ----------------------------------------------------------- fetching
 
-const TCGDEX = 'https://api.tcgdex.net/v2/';
-const GRAPHQL = `${TCGDEX}graphql`;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REFETCH_FOR_NEW_AFTER_MS = DAY_MS / 2;
 const REFETCH_AFTER_MS = 30 * DAY_MS;
@@ -407,83 +392,53 @@ const CONCURRENCY = 4;
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// TCGdex answers 503 now and then (DESIGN.md section 5): one retry after a
-// second, the way the catalog views retry.
-async function fetchJson(url, init) {
-	for (let attempt = 1; ; attempt++) {
-		let response;
-
-		try {
-			response = await fetch(url, init);
-		}
-		catch (err) {
-			if (attempt < 2 && online()) {
-				await wait(1000);
-
-				continue;
-			}
-
-			throw err;
-		}
-
-		if ((response.status >= 500 || response.status === 429) && attempt < 2) {
-			await wait(1000);
-
-			continue;
-		}
-
-		if (!response.ok) {
-			const err = new Error(`TCGdex answered ${response.status}.`);
-
-			err.status = response.status;
-
-			throw err;
-		}
-
-		return response.json();
-	}
-}
-
-const graphql = (query) => fetchJson(GRAPHQL, {
-	body: JSON.stringify({query}),
-	headers: {'content-type': 'application/json'},
-	method: 'POST',
-});
-
-export const SETS_QUERY = '{ sets { id name releaseDate serie { id } } }';
-
 export const dexCardsQuery = (n) => `{ cards(filters: {dexId: ${Number(n)}}) { id localId name image rarity } }`;
 
 // A cached value: the copy on the phone, fetched again when it is older than
-// maxAge (or older than newAge while `stale` says it lacks something), and
-// online. A failed fetch keeps the copy. {data, error}
-async function kept(key, load, {force = false, maxAge = REFETCH_AFTER_MS, newAge = REFETCH_FOR_NEW_AFTER_MS, stale = () => false} = {}) {
+// maxAge (or older than newAge while `stale` says it lacks something, or at
+// once when `outdated` says an earlier version saved it), and online. A
+// failed fetch keeps the copy. Callers asking for one key at once share one
+// download. {data, error, at}
+const loading = new Map();
+
+async function kept(key, load, {force = false, maxAge = REFETCH_AFTER_MS, newAge = REFETCH_FOR_NEW_AFTER_MS, outdated = () => false, stale = () => false} = {}) {
 	const hit = await cacheGet(key);
 	const age = hit ? Date.now() - hit.at : Infinity;
-	const due = !hit || age > maxAge || (age > newAge && stale(hit.data)) || (force && age > newAge);
+	const due = !hit || age > maxAge || outdated(hit.data) || (age > newAge && stale(hit.data)) || (force && age > newAge);
 
 	if (!due || !online()) {
-		return {data: hit ? hit.data : null, error: null};
+		return {at: hit ? hit.at : null, data: hit ? hit.data : null, error: null};
+	}
+
+	if (!loading.has(key)) {
+		loading.set(key, (async () => {
+			const data = await load();
+
+			await cachePut(key, data);
+
+			return data;
+		})().finally(() => loading.delete(key)));
 	}
 
 	try {
-		const data = await load();
-
-		await cachePut(key, data);
-
-		return {data, error: null};
+		return {at: Date.now(), data: await loading.get(key), error: null};
 	}
 	catch (err) {
-		return {data: hit ? hit.data : null, error: err};
+		return {at: hit ? hit.at : null, data: hit ? hit.data : null, error: err};
 	}
 }
 
-// Every international set's name, release date, and series ({setId:
-// {...}}), the copy this screen keeps: an artist goal (js/goals.js) dates
-// its cards with it. {data, error}
-export const internationalSets = ({force = false} = {}) => kept('sets:international', async () => setsIndexFrom(await graphql(SETS_QUERY)), {force});
+// The international set index (js/tcgdex.js), the one copy on the phone: this
+// screen reads names, dates, and series from it, an artist goal
+// (js/goals.js) dates its cards with it, and twins (js/twins.js) reads its
+// dates and card counts, asking with a week's maxAge. A copy saved before
+// the index carried card counts is fetched again. {data, error, at}
+const SETS_KEY = 'sets:international';
+
+const beforeCounts = (index) => Object.values(index || {}).some((set) => !set || !Object.hasOwn(set, 'total'));
+
+export const internationalSets = ({force = false, maxAge = REFETCH_AFTER_MS, stale = undefined} = {}) =>
+	kept(SETS_KEY, () => loadSetIndex(), {force, maxAge, outdated: beforeCounts, stale});
 
 // The international prints of Pokémon n. {prints, error, missingList}:
 // missingList when the bulk list is not on the phone (offline before the
@@ -493,8 +448,8 @@ export async function loadInternational(n, {force = false, onProgress = () => {}
 	const ids = bulk.map ? cardIdsForDex(bulk.map, n) : [];
 	const lacks = (index) => ids.some((id) => !Object.hasOwn(index || {}, setIdOf(id, new Map(Object.entries(index || {})))));
 	const [sets, cards] = await Promise.all([
-		kept('sets:international', async () => setsIndexFrom(await graphql(SETS_QUERY)), {force, stale: lacks}),
-		kept(`dex:international:${n}`, async () => dexCardsFrom(await graphql(dexCardsQuery(n))), {
+		internationalSets({force, stale: lacks}),
+		kept(`dex:international:${n}`, async () => dexCardsFrom({data: await graphql(dexCardsQuery(n))}), {
 			force,
 			maxAge: 7 * DAY_MS,
 			stale: (data) => ids.some((id) => !Object.hasOwn(data || {}, id)),
@@ -531,7 +486,7 @@ async function pool(items, size, work) {
 export async function loadAsian(catalog, n, {force = false} = {}) {
 	const lang = catalogLanguage(catalog);
 	const briefs = await kept(`dex:${catalog}:${n}`, async () => {
-		const list = await fetchJson(`${TCGDEX}${lang}/cards?dexId=eq:${Number(n)}`);
+		const list = await fetchJson(`${lang}/cards?dexId=eq:${Number(n)}`);
 
 		if (!Array.isArray(list)) {
 			throw new Error('TCGdex sent no card list.');

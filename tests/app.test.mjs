@@ -3,8 +3,9 @@
 // tests/pages-server.mjs, which behaves like GitHub Pages.
 //
 // Supabase is never reached: every request to the project is answered by
-// tests/fake-supabase.mjs. TCGdex is faked too, except in the test of the
-// existing catalog views, which reads the real public API.
+// tests/fake-supabase.mjs. TCGdex is faked too; the test of the existing
+// catalog views replays real answers recorded in tests/tcgdex-fixtures.json
+// (tests/tcgdex-replay.mjs).
 //
 // Run: PLAYWRIGHT=/path/to/node_modules/playwright node --test tests/app.test.mjs
 // (PLAYWRIGHT may be left out when playwright is installed where Node finds
@@ -20,6 +21,7 @@ import {stamps} from '../js/merge.js';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {replayTcgdex} from './tcgdex-replay.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -125,6 +127,9 @@ async function device(fake, name, {serviceWorkers = 'block', tcgdex = 'fake'} = 
 
 	if (tcgdex === 'fake') {
 		await fakeTcgdex(context);
+	}
+	else if (tcgdex === 'recorded') {
+		await replayTcgdex(context);
 	}
 
 	const page = await context.newPage();
@@ -1045,8 +1050,8 @@ describe('profile and family', () => {
 
 describe('the app shell', () => {
 	test('existing views still open: My Cards, Sets, a set, a card, Import, Phone check', async () => {
-		// The real TCGdex API, and no Supabase at all.
-		const {context, errors, page} = await device(null, 'phone', {tcgdex: 'real'});
+		// TCGdex's recorded answers, and no Supabase at all.
+		const {context, errors, page} = await device(null, 'phone', {tcgdex: 'recorded'});
 		const noScriptErrors = async (where) => {
 			const shown = await page.locator('#errors .error').allTextContents();
 

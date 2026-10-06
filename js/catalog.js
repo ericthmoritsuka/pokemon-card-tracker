@@ -6,8 +6,7 @@
 
 import {flagLanguageName} from './flags.js';
 import {database, timedCache} from './idb.js';
-
-const API = 'https://api.tcgdex.net/v2/';
+import {API, fetchJson, graphql} from './tcgdex.js';
 
 export const LANGUAGES = [
 	{code: 'en', label: 'English'},
@@ -80,48 +79,9 @@ export class NotOnPhoneError extends Error {
 	}
 }
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Retries a server error or a dropped connection after 1, then 3, then 8
-// seconds: the API answered 503 now and then on 2026-10-01, and the set list
-// needs up to 22 requests to all succeed. Views use two attempts; the import
-// uses four, so a long run rides out a short outage.
-const BACKOFF_MS = [1000, 3000, 8000];
-
-async function getJson(path, attempts = 2, init = undefined) {
-	for (let attempt = 1; ; attempt++) {
-		let response;
-
-		try {
-			response = await fetch(API + path, init);
-		}
-		catch (err) {
-			if (attempt < attempts && navigator.onLine) {
-				await wait(BACKOFF_MS[attempt - 1] || 8000);
-
-				continue;
-			}
-
-			throw err;
-		}
-
-		if (response.status >= 500 && attempt < attempts) {
-			await wait(BACKOFF_MS[attempt - 1] || 8000);
-
-			continue;
-		}
-
-		if (!response.ok) {
-			const err = new Error(`TCGdex answered ${response.status} for ${path}.`);
-
-			err.status = response.status;
-
-			throw err;
-		}
-
-		return response.json();
-	}
-}
+// A path under the TCGdex API, with js/tcgdex.js's retries: views use two
+// attempts, the import four.
+const getJson = (path, attempts = 2, init = undefined) => fetchJson(API + path, {attempts, init});
 
 // Returns {data, at}. onUpdate(data) is called when a background refresh
 // brings back something different from what was returned.
@@ -453,20 +413,6 @@ export function cardDetailsQuery(catalog, setId) {
 
 	return `{ cards(filters: {id: ${JSON.stringify(`${setId}-`)}}, pagination: {page: 1, itemsPerPage: 1000})${locale} { ${DETAIL_FIELDS} } }`;
 }
-
-const graphql = async (query) => {
-	const body = await getJson('graphql', 2, {
-		body: JSON.stringify({query}),
-		headers: {'content-type': 'application/json'},
-		method: 'POST',
-	});
-
-	if (!body || !body.data) {
-		throw new Error(`TCGdex GraphQL: ${(body && body.errors && body.errors[0] && body.errors[0].message) || 'no data'}`);
-	}
-
-	return body.data;
-};
 
 // {cardId: {dex_ids, types, category, rarity}} from a set's GraphQL answer.
 // The id filter matches a substring, so "base1-" would also find "base10-"
