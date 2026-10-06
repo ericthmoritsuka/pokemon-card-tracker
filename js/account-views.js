@@ -45,6 +45,7 @@ import {photoSettingsCard} from './photos/index.js';
 import {failedUploads, onPhotosChange, removePhotoFromEntry, retryUpload, startPhotoSync} from './photos/store.js';
 import {cardIndex, isLanguage} from './catalog.js';
 import {loadDocument, resolveEntry} from './collection.js';
+import {versionLine} from './whats-new.js';
 
 const RESEND_AFTER_MS = 60 * 1000;
 
@@ -364,6 +365,7 @@ export function profileView(root) {
 		// works on this phone alone.
 		const panel = signInPanel({onIntent: true});
 		const theme = themeCard(false);
+		const version = versionLine();
 
 		root.append(
 			h('h2', null, 'Profile'),
@@ -375,12 +377,14 @@ export function profileView(root) {
 			theme.element,
 			dataCard(),
 			photoSettingsCard(),
-			phoneCard()
+			phoneCard(),
+			version.element
 		);
 
 		return () => {
 			panel.stop();
 			theme.stop();
+			version.stop();
 		};
 	}
 
@@ -621,6 +625,7 @@ export function profileView(root) {
 	drawSession();
 
 	const uploads = uploadsCard();
+	const version = versionLine();
 
 	root.append(
 		h('h2', null, 'Profile'),
@@ -656,7 +661,8 @@ export function profileView(root) {
 			h('p', {class: 'muted'}, 'Signing out keeps your cards on this phone.'),
 			h('button', {class: 'danger', id: 'sign-out', onclick: doSignOut, type: 'button'}, 'Sign out'),
 			signOutStatus
-		)
+		),
+		version.element
 	);
 
 	displayName().then((name) => {
@@ -673,6 +679,7 @@ export function profileView(root) {
 		stopSprite();
 		stopSession();
 		uploads.stop();
+		version.stop();
 
 		if (sessionPanel) {
 			sessionPanel.stop();
