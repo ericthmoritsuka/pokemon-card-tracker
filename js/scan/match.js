@@ -1,7 +1,7 @@
 // Finds catalog cards for a read, by every route the read allows, and ranks
 // them by how many clues agree (js/scan/evidence.js).
 //
-// - The number route (lab/js/match.js, measured on the lab benchmark): the
+// - The number route (js/vision/match.js, measured on the lab benchmark): the
 //   sets whose official card count equals the printed total (or one
 //   confused digit away), then the card in each whose number matches.
 // - The name route: the read name against every species name
@@ -26,7 +26,7 @@
 import {importApi, setList} from '../catalog.js';
 import {speciesNames} from '../checklists.js';
 import {loadInternational} from '../pokemon-cards.js';
-import {confusedVariants, sameNumber} from '../../lab/js/match.js';
+import {confusedVariants, sameNumber} from '../vision/match.js';
 import {artworkSims} from './artwork.js';
 import {cluesOf, matchSpecies, orderByArtwork, rankCards, setNameRead, TIE_POINTS} from './evidence.js';
 import {ASIAN_LANGUAGES, searchOrder} from './session.js';

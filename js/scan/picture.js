@@ -19,7 +19,7 @@
 // MB; the service worker keeps the file).
 
 import {importApi} from '../catalog.js';
-import {confusedVariants, sameNumber} from '../../lab/js/match.js';
+import {confusedVariants, sameNumber} from '../vision/match.js';
 import {queryFingerprints} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 

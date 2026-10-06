@@ -10,7 +10,7 @@
 // code, attack), less any that conflict, and less again when another card
 // is as good.
 
-import {confusedVariants, LEFT_NUMBER_FROM, sameNumber, setCodeMatches, WIZARDS_UNTIL} from '../../lab/js/match.js';
+import {confusedVariants, LEFT_NUMBER_FROM, sameNumber, setCodeMatches, WIZARDS_UNTIL} from '../vision/match.js';
 
 // ------------------------------------------------------------ text
 
@@ -340,7 +340,7 @@ export function misreadNumbers(text, totals = []) {
 // ------------------------------------------------------------ the evidence
 
 // Points per clue. The set code, side, copyright, and catalog carry the
-// weights the lab benchmark tuned (lab/js/match.js), and a number and total
+// weights the lab benchmark tuned (js/vision/match.js), and a number and total
 // read together are worth the number and the total apart, so among cards
 // the number found the order is the lab's; the name, HP, and attack are
 // added on top.

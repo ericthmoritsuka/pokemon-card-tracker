@@ -3,8 +3,8 @@
 // with their TCGdex images, and how long each step took.
 
 import {rectify} from '../../js/scan/rectify.js';
-import {GUIDE_FILL, grab, startCamera} from '../js/camera.js';
-import {guideRect} from '../js/pipeline.js';
+import {GUIDE_FILL, grab, startCamera} from '../../js/vision/camera.js';
+import {guideRect} from '../../js/vision/pipeline.js';
 import {loadIndex, match, verdict} from '../../js/vision/matcher.js';
 
 const $ = (id) => document.getElementById(id);

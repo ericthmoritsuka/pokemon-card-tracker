@@ -1,4 +1,4 @@
-// The rear camera for the scanner. lab/js/camera.js, with three changes:
+// The rear camera for the scanner. js/vision/camera.js, with three changes:
 // after the stream starts it asks for the largest resolution the camera
 // reports (the lab stops at 3840 x 2160), its error names the scanner
 // rather than the lab, and the guide is laid out on the screen first and
@@ -14,8 +14,8 @@
 // straightening worked the top edge out from a wrong bottom: distances of 68
 // to 76 against about 30 for a good capture.
 
-import {cancelled, GUIDE_FILL, playStream, stopStream} from '../../lab/js/camera.js';
-import {CARD_RATIO, guideRect} from '../../lab/js/pipeline.js';
+import {cancelled, GUIDE_FILL, playStream, stopStream} from '../vision/camera.js';
+import {CARD_RATIO, guideRect} from '../vision/pipeline.js';
 import {colourfulness, THUMB_H, THUMB_W, toGrey} from './steady.js';
 
 export {GUIDE_FILL};

@@ -1,4 +1,4 @@
-// Finds the card inside a capture and cuts it out straight: lab/js/rectify.js
+// Finds the card inside a capture and cuts it out straight: js/vision/rectify.js
 // (measured on the lab benchmark), with one change for speed. The lab turns
 // the whole full-resolution capture, then crops it; here the tilt is undone
 // on the small detection copy, and the card is cut from the capture in one
@@ -15,7 +15,7 @@
 //
 // Pure functions over ImageData-shaped objects, like pipeline.js.
 
-import {CARD_RATIO} from '../../lab/js/pipeline.js';
+import {CARD_RATIO} from '../vision/pipeline.js';
 
 // Detection runs on a copy at most this many pixels tall; the crop and the
 // rotation use the full image.

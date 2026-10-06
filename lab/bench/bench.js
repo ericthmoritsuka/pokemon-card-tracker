@@ -11,7 +11,7 @@
 // turned in the plane by a few degrees, or made small, and drawn on a
 // camera frame as Chrome's fake camera would show it.
 
-import {captureRect} from '/pokemon-card-tracker/lab/js/camera.js';
+import {captureRect} from '/pokemon-card-tracker/js/vision/camera.js';
 import {artVector} from '/pokemon-card-tracker/js/scan/artwork.js';
 import {DEFAULT_API, findCandidates} from '/pokemon-card-tracker/js/scan/match.js';
 import {createPool} from '/pokemon-card-tracker/js/scan/ocr.js';
