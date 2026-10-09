@@ -14,6 +14,20 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-09
 
+- **20:50** Version 35: the scanner finds the card anywhere, and holder mode. `1e57220`
+  - **Card anywhere:** the scanner searches the whole camera view, not just the frame, and cuts
+    the card by its own corners, bigger or smaller than the frame, off to one side, or turned. On
+    a pile it takes the card on top, not the strip of the one beneath.
+  - **Holder mode** (a switch on the scanner), for a phone in a stand: each card you drop is taken
+    once it has been still for a moment, never while falling, and "Pile too high: empty the box"
+    shows when the top card runs off the view.
+  - **Review** opens each card that needs a look in turn ("Card 2 of 5 to check"), with Stop, and
+    those cards read only the number in most cases, so they come back much faster.
+  - **Fixed:** the same card taken again moments later could join the tray twice; it now asks
+    first. The shutter waits up to a second for a whole card.
+  - **Scan log:** also records the zoom, holder mode, where the card sat in the view, and how long
+    it was still.
+
 - **18:49** Version 34: binders from a list. `55419b0`
   - **New binder, From a list** (or Make a binder on a checklist, goal, or collection): pick the
     list or a filter, an order (Pokédex, set and number, name, release), and a pocket size, and the

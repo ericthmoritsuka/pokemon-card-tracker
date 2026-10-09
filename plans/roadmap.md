@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v34** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v34 `55419b0` adds binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v35** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v35 `1e57220` adds the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -169,7 +169,9 @@ the audit below to confirm or drop:
      Lists, so a member's wishlist is Lists, then Wishlist. A Wishlist link in the heading of
      their Cards page, like the Spares link on yours, would save the step.
 
-## Scanner Feedback (Eric, 2026-10-09), next scanner round
+## Scanner Feedback (Eric, 2026-10-09): built in v35, to check on the real phone
+
+Both items below are built in v35 and tested only on synthetic scenes. Next: Eric's holder session with the scan log on, then tune settle time, card finding, and crops from it.
 
 - **Review flow for cards that need a look:** today Review opens one card, then Done, then Review
   again. After Done on one, the next card needing a look should open by itself, until none are
@@ -234,7 +236,7 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
-  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`, `binder-rules`;
+  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`, `binder-rules`, `scan-find`, `scan-holder-browser`, `scan-review-browser`;
   `photos-sql` needs Docker. `scan-browser` can fail under load (a tile checked before its set record arrives shows its id, such as `swsh3-102`, instead of its name); it passed three runs alone on 2026-10-09. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal
