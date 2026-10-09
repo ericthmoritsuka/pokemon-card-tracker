@@ -18,6 +18,9 @@
 //                A copy is in at most one tray, and never in a tray and a
 //                pocket at once
 //   order        its place on the Binders screen (js/reorder.js)
+//   rule, snapshot  a binder made from a list (js/binder-rules.js): what
+//                fills it and the layout of its last refresh. Its slots
+//                stay empty, and it never places a copy (placements below)
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -50,6 +53,9 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
+import {checkBinderRule, checkFits, isGenerated, pagesFor, pickEntry, pickId, ruleKey} from './binder-rules.js';
+
+export {isGenerated};
 
 export const MAX_PAGES = 200;
 
@@ -197,10 +203,15 @@ export const coverImageOf = (binder) => cleanCoverImage(binder && binder.cover_i
 
 export const liveBinders = (binders) => (binders || []).filter((binder) => binder && isLive(binder));
 
+// The binders that hold real pockets: every live one but those made from a
+// list, which show copies without placing them (js/binder-rules.js).
+export const handBinders = (binders) => liveBinders(binders).filter((binder) => !isGenerated(binder));
+
 // Where every placed copy is: Map entry_id -> {binder, slot}. A copy found in
 // more than one pocket (two phones disagreeing, see above) goes to the slot
 // placed last; ties go to the binder id, then the page and position, so
-// every phone picks the same one.
+// every phone picks the same one. A binder made from a list places nothing,
+// even when an older app put a card in one of its pockets.
 export function placements(binders) {
 	const out = new Map();
 
@@ -219,7 +230,7 @@ export function placements(binders) {
 		return a.slot.page !== b.slot.page ? a.slot.page < b.slot.page : a.slot.position < b.slot.position;
 	};
 
-	for (const binder of liveBinders(binders)) {
+	for (const binder of handBinders(binders)) {
 		for (const slot of binder.slots || []) {
 			if (!slot.entry_id || !inGrid(binder, slot)) {
 				continue;
@@ -312,7 +323,7 @@ export function unplaced(entries, binders) {
 export function placeholdersFor(binders, catalog, cardId) {
 	const out = [];
 
-	for (const binder of liveBinders(binders)) {
+	for (const binder of handBinders(binders)) {
 		for (const slot of slotsOf(binder)) {
 			if (slot.want && slot.want.card_id === cardId && (!slot.want.catalog || !catalog || slot.want.catalog === catalog)) {
 				out.push({binder_id: binder.id, binder_name: binder.name, page: slot.page, position: slot.position});
@@ -362,6 +373,10 @@ function findLive(binders, id) {
 }
 
 function checkPocket(binder, page, position) {
+	if (isGenerated(binder)) {
+		throw new Error('This binder is made from a list, so its pockets fill themselves.');
+	}
+
 	if (!inGrid(binder, {page, position})) {
 		throw new Error(`Page ${page}, pocket ${position} is not in this binder.`);
 	}
@@ -470,6 +485,10 @@ function gather(...lists) {
 // each out of every pocket and every other tray first.
 export function stageCards(binders, {at = nowIso(), binderId, entryIds, index = null}) {
 	const target = findLive(binders, binderId);
+
+	if (isGenerated(target)) {
+		throw new Error('This binder is made from a list, so it has no tray.');
+	}
 	const ids = [...new Set((entryIds || []).filter((id) => typeof id === 'string' && id))];
 	const changed = new Map();
 	const edit = (binder) => {
@@ -827,6 +846,128 @@ export function createBinder(fields) {
 	});
 }
 
+// ------------------------------------------------- binders from a list
+//
+// js/binder-rules.js has the rule, the layout, and the picks; these save
+// them. The snapshot comes from planRefresh, worked out by the screen with
+// the source's cards (js/binder-sources.js).
+
+// The binder fields for a list's layout: the grid asked for, and the pages
+// its pockets need.
+function generatedFields(fields, snapshot) {
+	const rows = Number(fields.rows);
+	const cols = Number(fields.cols);
+	const count = snapshot && Array.isArray(snapshot.keys) ? snapshot.keys.length : 0;
+
+	if (validGrid(rows, cols)) {
+		checkFits(count, rows, cols);
+	}
+
+	return cleanFields({...fields, page_count: validGrid(rows, cols) ? pagesFor(count, rows, cols) : 1});
+}
+
+// A new binder made from a list: fields as for createBinder (the pages are
+// worked out), rule {source, order}, and the first snapshot.
+export function createGeneratedBinder(fields, rule, snapshot) {
+	const clean = generatedFields(fields, snapshot);
+	const checked = checkBinderRule(rule);
+	const at = nowIso();
+
+	return serial(async () => {
+		const order = orderForNew(liveBinders(await allBinders()));
+		const [binder] = await saveBinders([{
+			...clean,
+			art: [],
+			created_at: at,
+			deleted_at: null,
+			id: newId(),
+			...(order === null ? {} : {order}),
+			rule: checked,
+			slots: [],
+			snapshot: {...snapshot, at},
+			updated_at: at,
+		}]);
+
+		return binder;
+	});
+}
+
+// Changes a list's binder: name, notes, cover, the grid, the rule, and the
+// layout worked out for them. A change of grid raises the layout number, as
+// a resize does.
+export function updateGeneratedBinder(id, fields, rule, snapshot) {
+	const clean = generatedFields(fields, snapshot);
+	const checked = checkBinderRule(rule);
+
+	return serial(async () => {
+		const binder = findLive(await allBinders(), id);
+		const at = nowIso();
+		const next = copyOf(binder, at);
+
+		Object.assign(next, clean);
+		next.rule = checked;
+		next.snapshot = {...snapshot, at: next.updated_at};
+		next.slots = [];
+
+		if (clean.rows !== binder.rows || clean.cols !== binder.cols) {
+			next.layout = layoutOf(binder) + 1;
+		}
+
+		const [saved] = await saveBinders(stamped([next]));
+
+		return saved;
+	});
+}
+
+// Saves a refresh's layout (planRefresh): the snapshot and the pages. A
+// refresh worked out for a rule the binder no longer has (changed on another
+// phone meanwhile) is dropped. Resolves the saved binder, or null.
+export function saveRefresh(id, {page_count: pageCount, snapshot}) {
+	return serial(async () => {
+		const binder = liveBinders(await allBinders()).find((item) => item.id === id);
+
+		if (!binder || !isGenerated(binder) || !snapshot) {
+			return null;
+		}
+
+		if (ruleKey(binder.rule) !== snapshot.rule_key) {
+			return null;
+		}
+
+		const next = copyOf(binder, nowIso());
+
+		next.snapshot = {...snapshot, at: next.updated_at};
+		next.page_count = Math.min(MAX_PAGES, Math.max(1, pageCount));
+
+		const [saved] = await saveBinders(stamped([next]));
+
+		return saved;
+	});
+}
+
+// Picks the copy a pocket of a list's binder shows (entryId), or puts the
+// default back (null). Saved in binder_picks, one entry per pocket, merged
+// entry by entry like any list.
+export function setPocketPick(binderId, key, entryId) {
+	return serial(async () => {
+		const doc = await loadDocument();
+		const binder = findLive(doc.binders || [], binderId);
+
+		if (!isGenerated(binder)) {
+			throw new Error('Only a binder made from a list picks its copies.');
+		}
+
+		const id = pickId(binderId, key);
+		const previous = (Array.isArray(doc.binder_picks) ? doc.binder_picks : []).find((pick) => pick && pick.id === id) || null;
+		const entry = pickEntry({at: nextStamp(previous && previous.updated_at), binderId, entryId, key, previous});
+
+		await mergeIntoLocal({binder_picks: [entry]});
+		schedulePush();
+
+		return entry;
+	});
+}
+
 // Changes name, notes, cover, grid, or pages, by the resize rule above
 // (planResize): mode "auto" for the rule, "tray" to empty every card into
 // the tray. Cards that fall out land in the binder's tray.
@@ -945,7 +1086,7 @@ export async function unplacedCards() {
 export function placeholderList(binders) {
 	const out = [];
 
-	for (const binder of sortBinders(binders)) {
+	for (const binder of sortBinders(binders).filter((item) => !isGenerated(item))) {
 		for (const slot of slotsOf(binder)) {
 			if (slot.want && slot.want.card_id) {
 				out.push({
