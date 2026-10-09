@@ -638,13 +638,11 @@ describe('the scanner', () => {
 		await page.click('#scan-shutter');
 		await page.waitForSelector('#scan-tray [data-item]');
 
-		// The first scan opens its sheet by itself; close it, then open it
-		// again from the tray, as a person checking a card would.
-		await page.waitForSelector('#scan-confirm', {timeout: 60000});
-		await page.waitForFunction(() => /No card found|Check this card/.test(document.querySelector('#scan-confirm').textContent));
-		await page.click('#scan-sheet-close');
-		await page.waitForSelector('#scan-confirm', {state: 'detached'});
-		await page.waitForTimeout(200);
+		// No sheet opens by itself (Eric, 2026-10-09): once the card is
+		// looked up, a tap on its tile opens it, as a person checking a card
+		// would.
+		await page.waitForFunction(() => !['reading', 'matching'].includes(document.querySelector('#scan-tray [data-item]').dataset.status), null, {timeout: 60000});
+		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opened by itself');
 		await page.click('#scan-tray [data-item]');
 		await page.waitForSelector('#scan-confirm');
 		await page.waitForFunction(() => document.querySelector('#scan-confirm .scan-actions'));
