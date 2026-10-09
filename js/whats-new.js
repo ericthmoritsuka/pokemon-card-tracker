@@ -20,7 +20,17 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
-		date: '2026-10-06',
+		date: '2026-10-09',
+		items: [
+			'Scan card after card without touching the phone: a buzz says it knows the card, and a count shows how many need a look.',
+			'Each scanned card has an x to throw away a mistake, and a Copies count for duplicates.',
+			'The same card twice in a row asks: Add a copy, or Mistake.',
+			'Phone check can record every scan and save them all in one file to send.',
+		],
+		version: 'v32',
+	},
+	{
+		date: '2026-10-09',
 		items: [
 			'The scanner skips frames with no card, says Move closer when a card is far, and does not add the same card twice when you reopen it.',
 			'A Liga price you type now says which finish and language it is for.',
