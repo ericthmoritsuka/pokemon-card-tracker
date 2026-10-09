@@ -1038,6 +1038,19 @@ export function cardsScreen(root, {
 			}
 		};
 
+		// A record saved after this screen's load read them, by another
+		// screen's pass still finishing after it was left, is not due but
+		// not on the tiles yet either: shown now, before the reads.
+		const late = await savedCardRecords(entries.filter((entry) => !saved.has(`${entry.catalog || 'international'}|${entry.card_id}`))).catch(() => new Map());
+
+		for (const [key, record] of late) {
+			if (alive) {
+				saved.set(key, record);
+				arrived.add(key);
+				timer = timer || setTimeout(show, FILL_REDRAW_MS);
+			}
+		}
+
 		await pool(due, FILL_CONCURRENCY, async (item) => {
 			if (!alive || failures >= 3) {
 				return;
