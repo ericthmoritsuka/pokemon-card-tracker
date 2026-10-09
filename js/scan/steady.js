@@ -29,6 +29,17 @@ export const STILL = 6;
 // means the card was moved or swapped. Shake of 2 % of the width is 8.5.
 export const CHANGED = 20;
 
+// After a capture, a coarse difference above this between one frame and
+// the next is the view changing at once: a card swapped straight for
+// another, with no empty frame between. Two cards in the same place can
+// differ by less than CHANGED (a Bulbasaur and a Pikachu, 13.9, measured
+// 2026-10-09, when card B swapped in for card A was never taken), while a
+// card held by hand moves by a few pixels between frames (0.6 to 2.5 per
+// frame); moved 3 % of the width at once it differs by 8 to 11. A jump that
+// re-arms for the same card takes it again, and view.js asks "Same card as
+// the last one." rather than adding it.
+export const JUMP = 12;
+
 // Frames in a row that must be still: at about eight a second, under half a
 // second (three differences, so four frames).
 export const STEADY_FRAMES = 3;
@@ -586,7 +597,7 @@ function boxed(grey, width, height, {across: acrossShare = BOX_ACROSS, max = 1, 
 // capture. captured(thumbnail) records a capture (auto or shutter), after
 // which nothing fires until the frame changes. pause() and resume() hold it
 // while a sheet covers the viewfinder.
-export function createAutoCapture({changed = CHANGED, steadyFrames = STEADY_FRAMES, still = STILL} = {}) {
+export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames = STEADY_FRAMES, still = STILL} = {}) {
 	let previous = null;
 	let steady = 0;
 	let last = null;
@@ -605,14 +616,16 @@ export function createAutoCapture({changed = CHANGED, steadyFrames = STEADY_FRAM
 		push(full, {present}) {
 			const thumbnail = coarse(full);
 			const moved = difference(thumbnail, previous);
+			const previousMoved = previous ? moved : null;
 
 			previous = thumbnail;
 			steady = moved <= still ? steady + 1 : 0;
 
 			if (state === 'cooldown') {
 				// Re-armed when the frame no longer shows the captured card: it
-				// moved away, or a different card is held still.
-				if (!present || difference(thumbnail, last) > changed) {
+				// moved away, a different card is held still, or the view
+				// jumped at once (a card swapped straight for another).
+				if (!present || difference(thumbnail, last) > changed || (previousMoved !== null && moved > jump)) {
 					state = 'armed';
 				}
 

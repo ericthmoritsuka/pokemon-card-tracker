@@ -16,7 +16,7 @@ import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -703,6 +703,33 @@ describe('auto-capture', () => {
 		feed(table(), 3);
 		feed(cardFrame(), 10);
 		assert.equal(fired, 2, 'taken away and back: a second capture');
+	});
+
+	test('a card swapped straight for another, with no empty frame between, is captured (Eric, 2026-10-09)', () => {
+		// A second card in the same place: a darker face, about as different
+		// as two real cards in the guide (13.9 measured).
+		const other = () => cardFrame().map((value) => (value === 220 ? 198 : value));
+		const detector = createAutoCapture();
+		let fired = 0;
+
+		const feed = (frame, times) => {
+			for (let i = 0; i < times; i++) {
+				if (detector.push(frame, presence(frame, W, H))) {
+					fired++;
+					detector.captured(frame);
+				}
+			}
+		};
+
+		const gap = difference(coarse(cardFrame()), coarse(other()));
+
+		assert.ok(gap > JUMP && gap < CHANGED, `the two cards differ by ${gap.toFixed(1)}, between JUMP and CHANGED`);
+		feed(cardFrame(), 10);
+		assert.equal(fired, 1);
+		feed(other(), 10);
+		assert.equal(fired, 2, 'the new card is taken');
+		feed(other(), 20);
+		assert.equal(fired, 2, 'and once');
 	});
 
 	test('waits while the hand moves, and while paused', () => {
