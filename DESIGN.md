@@ -1216,6 +1216,70 @@ picked; a card placed on another card swaps with it. Where the spread is directl
 in order** places the remaining cards in the pockets with nothing in them, in reading order. A copy
 deleted from the collection leaves the tray.
 
+**Binders from a list** (Eric, 2026-10-05; built 2026-10-09), `js/binder-rules.js`,
+`js/binder-sources.js`, and `js/binder-rule-view.js`. New binder offers Empty binder or **From a
+list**: the cards (a checklist, a collection, a set or artist goal, or a filter by region, set,
+type, and language), an order (Pokédex number, set and number with the oldest set first, name, or
+release date with the newest set first; a checklist offers Pokédex number and name), and a pocket
+size (the quick picks or any grid). The form counts the pockets and pages as the choice changes,
+and the pages follow the pockets, up to the 200 a binder can have. An unnamed binder takes the
+list's name. `binders/new/<checklist|collection|goal>/<id>` opens the same form with the list
+chosen, for a "Make a binder" button on those screens.
+
+- **A pocket is a Pokémon or a card, not a copy.** A checklist gives one pocket per Pokédex
+  entry, and a copy fits when its card's Pokédex numbers include it, in any language, as the
+  checklist screen ticks it. A collection or a filter gives one pocket per owned card (catalog and
+  card id), and a goal one pocket per card of the set or artist, owned or not; their copies are the
+  ones the collection holds, the filter matches (a language filter keeps only that language's
+  copies), or the goal counts.
+- **The copy shown.** The default is the most valuable copy (a Liga price typed on it, else
+  TCGplayer in reais at the saved rate), else the rarest (TCGdex's rarity words, ranked), else the
+  newest added; a tie goes to the lowest id, so every phone picks the same one. A count shows when
+  more copies fit. Tapping the pocket opens every copy that fits, as pictures, with the default
+  marked; the one tapped is a **hand pick** (a dot on the pocket), which sticks until "Show the
+  default again". A pick follows its Pokémon or card, not its page, so it survives a change of
+  order or size.
+- **Not owned yet:** the faded placeholder look of hand-made binders, with Want. A card offers
+  Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
+- **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for
+  cards that joined the list, in their order, pockets gone for cards that left it, owned cards
+  filled in, and defaults moved to the best copy now; hand picks stay. A line says what changed
+  ("1 pocket added (Charizard); 1 pocket filled with a card you own now (Pikachu)."). The Refresh
+  button does the same and also asks again what a failed download put off. Opening reads only what
+  the list's own screen reads and keeps (the Pokédex numbers of owned cards, a goal's card list),
+  so after the first time it is cheap and works offline. When part of the list cannot be read, a
+  pocket keeps a stored copy that is still owned, and when none of it can be read the pages stay as
+  they were. A list deleted since leaves the pages as they were, with a line saying to choose
+  another in Edit binder.
+- **Edit binder** changes the name, notes, cover, list, order, and pocket size. A change to the
+  list, order, or grid shows the new first page and what changes in a sheet before it is saved,
+  as a resize does; a change of grid raises `layout`.
+- **A view, not a place** (decided 2026-10-09 while building it). A generated binder never places
+  a copy: a copy it shows can also sit in a hand-made binder's pocket, and it stays "Not in a binder
+  yet" in the Binders tab and the My Cards filter. `placements()` passes over generated binders, so
+  the copy sheet's pocket line, card detail's binder line, and the scanner's "Goes in" placeholders
+  are about hand-made binders only; a newly scanned card fills a generated binder's pocket at its
+  next refresh instead. Spreads, page turns, notes, the cover, Edit order, delete with Undo (picks
+  included), and the family read-only view work as for any binder; there is no tray or Michi art.
+  A family member's generated binder shows its last layout and picks, read only.
+- **Data.** The binder entry keeps its `slots` empty and adds `rule` (`{source: {kind, id} or
+  {kind: 'filter', filter}, order}`) and `snapshot` (`{at, rule_key, keys, shown}`: the pockets in
+  order as Pokémon keys `dex:25` or card keys `international|sv01-001`, and each pocket's default
+  copy), so every phone and the family view show the same pages; `rows`, `cols`, `preset`, and
+  `page_count` are the grid and pages as for any binder. Both new fields merge per field like
+  `name`, so a rule changed on one phone and a refresh saved on another both stay (the next
+  refresh lays out the new rule). Hand picks are a top-level list, `binder_picks`, one entry per
+  pocket, `{id: '<binder id>|<key>', binder_id, key, entry_id, created_at, updated_at,
+  deleted_at}`, with `entry_id` null for "back to the default". Every app since the first sync
+  merges an unknown top-level list entry by entry and saves it back, so two phones picking copies
+  for different pockets both keep theirs and the later pick of one pocket wins, with no change to
+  `js/merge.js`.
+- **Older apps** (v33 checked in a browser): a generated binder shows as an ordinary empty binder
+  with its grid and pages, and saving it there (placing a card, rename, resize, cover, delete)
+  keeps `rule` and `snapshot`, because every app edits a clone of the entry; `binder_picks` rides
+  along as an unknown list. A card an older app places in one of its pockets is ignored here, which
+  leaves that copy "Not in a binder".
+
 ### Themes
 
 A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:
