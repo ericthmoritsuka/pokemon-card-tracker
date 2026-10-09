@@ -23,7 +23,8 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, SURE_DISTANCE} from './picture.js';
-import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop} from './rectify.js';
+import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
+import {CARD_RATIO} from '../vision/pipeline.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
 // fingerprinting: three times the fingerprint's thumbnail.
@@ -114,12 +115,38 @@ let queue = Promise.resolve();
 // 2026-10-03: twice the top edge was worked out from a wrong side, and the
 // crop as found lost to a clean image of the same card by a mile).
 //
+// quads: the card as found in the whole frame (js/scan/steady.js findCard,
+// Eric, 2026-10-09), each {corners, upright} in the capture's pixels, the
+// best first: each is cut by its own corners and fingerprinted as one more
+// crop (where two cards of a pile and their borders cross, the picture
+// chooses), and when the edges here find no card, the first is the card. A
+// card lying on its side is cut turned both ways.
+//
 // pictureFirst false reads the card in full, as before the switch (the
 // benchmark's comparison).
-export function identify(image, {guide = null, photo = false, straight = false, readOptions = {}, pictureFirst = true} = {}) {
+export function identify(image, {guide = null, photo = false, quads = [], straight = false, readOptions = {}, pictureFirst = true} = {}) {
 	const run = queue.then(async () => {
 		const started = performance.now();
 		let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
+		const found = straight ? [] : quadCrops(quads);
+
+		if (!straight && !rectified.found && found.length) {
+			const [first] = found;
+
+			rectified = {
+				angle: 0,
+				card: cutQuad(image, first.corners),
+				corners: first.corners,
+				found: true,
+				guessed: null,
+				note: 'Card found in the frame; cut by its corners.',
+				others: [],
+				ratio: first.ratio ?? null,
+				rect: null,
+				variants: [],
+			};
+			found.shift();
+		}
 
 		if (photo && !rectified.found) {
 			const area = cropImage(image, defaultCapture(image.width, image.height));
@@ -145,30 +172,51 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 		if (pictureFirst) {
 			try {
 				const index = await loadFingerprints();
-				const others = [...(rectified.others || [])];
+				const others = [...(rectified.others || []), ...found];
 				const guideCrop = !straight && guide && guide.w > 0 && guide.h > 0 ? {how: 'the guide', rect: guide} : null;
-				const cutOther = (other, height) => (other === guideCrop || !rectified.cut ? warpCrop(image, 0, other.rect, Math.min(1, height / other.rect.h)) : rectified.cut(other.rect, height));
+				const cutOther = (other, height) => (other.corners ? cutQuad(image, other.corners, height) : other === guideCrop || !rectified.cut ? warpCrop(image, 0, other.rect, Math.min(1, height / other.rect.h)) : rectified.cut(other.rect, height));
 
 				if (guideCrop) {
 					others.push(guideCrop);
 					guideRect = guide;
 				}
 
-				const quadOf = (other) => rectQuad(other === guideCrop ? image : source, other.rect, other === guideCrop ? 0 : other.rect.angle ?? (rectified.corners ? 0 : rectified.angle || 0));
+				const quadOf = (other) => other.corners || rectQuad(other === guideCrop ? image : source, other.rect, other === guideCrop ? 0 : other.rect.angle ?? (rectified.corners ? 0 : rectified.angle || 0));
 
 				const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
 				const matched = matchCrops(index, crops);
 				const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
 
+				fingerprintMs = matched.timings.fingerprint;
+				matchMs = matched.timings.match;
+
 				if (how) {
 					const other = others[matched.crop - 1];
 
-					card = cutOther(other, Math.min(CARD_MAX_HEIGHT, other.rect.h));
+					card = cutOther(other, other.corners ? undefined : Math.min(CARD_MAX_HEIGHT, other.rect.h));
 					won = {how, quad: quadOf(other)};
-				}
 
-				fingerprintMs = matched.timings.fingerprint;
-				matchMs = matched.timings.match;
+					// An outline found on the small copy of the frame is a few
+					// pixels off at full resolution, which the picture forgives
+					// and the number strip's read does not: its edges are found
+					// again on the card cut with a margin, and that crop is kept
+					// when it matches as well.
+					if (other.corners) {
+						const refined = refineQuad(image, other.corners);
+
+						if (refined) {
+							const again = matchCrops(index, [warpCrop(refined, 0, {h: refined.height, w: refined.width, x: 0, y: 0}, OTHER_CROP_HEIGHT / refined.height)]);
+
+							fingerprintMs += again.timings.fingerprint;
+							matchMs += again.timings.match;
+
+							if (again.groups[0] && again.groups[0].score <= matched.groups[0].score + 3) {
+								card = refined;
+								won = {how: `${how}, its edges found again`, quad: won.quad};
+							}
+						}
+					}
+				}
 
 				// A weak match: the crop is likely off (an edge worked out from
 				// a wrong side, or a side taken at the border's inner line), so
@@ -226,7 +274,17 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 			}
 
 			if (engine) {
-				read = await readCard(card, engine.ocr, picture ? {...readOptions, numberOnly: true} : readOptions);
+				// The first group holds several prints (reprints, a Japanese print
+				// and its English twin): the set code box and the label row can
+				// choose between them, so they are read beside the number.
+				const several = Boolean(picture && picture.groups[0] && picture.groups[0].cards.length > 1);
+
+				// With a picture match, only what chooses between its cards: the
+				// number, from the strip the candidates' era prints it on (read.js
+				// readNumber); otherwise the label row is read behind the tray.
+				read = picture
+					? await readNumberOnly(card, engine.ocr, {...readOptions, label: several, prefer: numberSide(picture), setCode: several})
+					: await readCard(card, engine.ocr, readOptions);
 				read.script = null;
 				workers = engine.size;
 				ocrMs = read.timings.ocr;
@@ -276,6 +334,49 @@ export function identify(image, {guide = null, photo = false, straight = false, 
 	return run;
 }
 
+// The crops for the cards found in the whole frame (identify's `quads`):
+// each as found, and a card lying on its side turned the other way too.
+function quadCrops(quads) {
+	const out = [];
+
+	(quads || []).forEach((quad, index) => {
+		const name = index ? `another outline found in the frame (${index + 1})` : 'the card found in the frame';
+
+		out.push({corners: quad.corners, how: name, ratio: quad.ratio ?? null});
+
+		if (quad.upright === false) {
+			const [a, b, c, d] = quad.corners;
+
+			out.push({corners: [c, d, a, b], how: `${name}, turned over`, ratio: quad.ratio ?? null});
+		}
+	});
+
+	return out;
+}
+
+// The card in a quad of the capture, its edges found again (rectify.js) on
+// the quad cut with a margin of 8 % round it; null when they are not found
+// or make no card's shape.
+function refineQuad(image, corners) {
+	const cx = corners.reduce((sum, c) => sum + c.x, 0) / 4;
+	const cy = corners.reduce((sum, c) => sum + c.y, 0) / 4;
+	const wide = corners.map((c) => ({x: cx + (c.x - cx) * 1.08, y: cy + (c.y - cy) * 1.08}));
+	const margin = cutQuad(image, wide, Math.min(CARD_MAX_HEIGHT, Math.hypot(wide[3].x - wide[0].x, wide[3].y - wide[0].y)) * 1.08);
+	const again = rectify(margin);
+
+	return again.found && typeof again.ratio === 'number' && Math.abs(again.ratio / CARD_RATIO - 1) < 0.05 ? again.card : null;
+}
+
+// A quad of the capture cut out straight, card-shaped, `height` pixels
+// tall (by default its own height, at most CARD_MAX_HEIGHT).
+function cutQuad(image, corners, height) {
+	const [tl, tr, br, bl] = corners;
+	const own = Math.max(Math.hypot(bl.x - tl.x, bl.y - tl.y), Math.hypot(br.x - tr.x, br.y - tr.y));
+	const tall = Math.max(8, Math.round(height || Math.min(CARD_MAX_HEIGHT, own)));
+
+	return warpQuad(image, corners, Math.round(tall * CARD_RATIO), tall);
+}
+
 // The label row alone (read.js readLabel) of a straightened card, for the
 // language of a card the picture settled with no text read. Starts the
 // engine if it is not running; runs outside the one-card-at-a-time queue
@@ -295,4 +396,25 @@ async function readCard(card, ocr, options) {
 	const {readCard: read} = await import('./read.js');
 
 	return read(card, ocr, options);
+}
+
+async function readNumberOnly(card, ocr, options) {
+	const {readNumber} = await import('./read.js');
+
+	return readNumber(card, ocr, options);
+}
+
+// Sets whose cards print the collector number at the bottom right: XY and
+// everything before it (TCGdex ids: xy, g1, bw, dp, pl, hgss, col, the ex
+// series, e-Card, Neo, Gym, base, and their promos). Sun & Moon and later
+// print it at the bottom left.
+const RIGHT_SIDE_SETS = /^(xy|g1|bw|dp|pl|hgss|col|ex|ecard|neo|gym|base|lc|si|pop|np|ru|wp|basep|bwp|dpp|hgssp|xyp|XY|BW|DP|PCG|ADV|L\d|LL|LP)/;
+
+// Which number strip to read first for a picture match's top cards: 'right'
+// when most of them are from XY or before, else 'left'.
+export function numberSide(picture) {
+	const cards = ((picture && picture.groups) || []).slice(0, 5).flatMap((group) => group.cards.slice(0, 2));
+	const right = cards.filter((card) => RIGHT_SIDE_SETS.test(card.id)).length;
+
+	return right * 2 > cards.length ? 'right' : 'left';
 }

@@ -23,7 +23,7 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame} from './camera.js';
+import {boxAround, CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -32,7 +32,7 @@ import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSigna
 import {knownFrom, loadFingerprints, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
-import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
+import {CHANGED, coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 
 const FRAME_MS = 125;
@@ -167,6 +167,70 @@ const PHOTO_MAX_SIDE = 2400;
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+// Holder mode (Eric, 2026-10-09, steady.js createHolderCapture): the phone
+// held still in a stand over cards dropped under it. Remembered on the
+// phone, off at first.
+const HOLDER_KEY = 'card-tracker:scan-holder';
+
+function holderOn() {
+	try {
+		return localStorage.getItem(HOLDER_KEY) === 'on';
+	}
+	catch {
+		return false;
+	}
+}
+
+function rememberHolder(on) {
+	try {
+		localStorage.setItem(HOLDER_KEY, on ? 'on' : 'off');
+	}
+	catch {
+		// Not kept; the next visit starts as before.
+	}
+}
+
+// A card found anywhere in the frame is taken on its own only when its
+// long side is at least this share of the guide's height; a smaller one
+// says "Move closer" (Q-19) and is taken only by the shutter.
+const MIN_CARD_SHARE = 0.5;
+
+// Two boxes round a found card (frame pixels) closer than this share of
+// their size on every side are the same place: the box is kept, so a card
+// held still is compared with itself frame after frame (steady.js), not
+// with a box a pixel off.
+const SAME_BOX = 0.06;
+
+const sameBox = (a, b, share = SAME_BOX) => Boolean(a && b) && ['x', 'y', 'w', 'h'].every((key) => Math.abs(a[key] - b[key]) <= share * Math.max(a.w, a.h, b.w, b.h));
+
+// How much two boxes overlap: their shared area over their joint area.
+function overlap(a, b) {
+	if (!a || !b) {
+		return 0;
+	}
+
+	const w = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+	const h = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+	return (w * h) / (a.w * a.h + b.w * b.h - w * h);
+}
+
+// Two outlines of one card still in place (its edge and its inner border,
+// found in turn from frame to frame) keep the box: the box only moves
+// when the card does.
+const STEADY_OVERLAP = 0.85;
+const samePlace = (a, b) => sameBox(a, b) || overlap(a, b) >= STEADY_OVERLAP;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The shutter pressed with no whole card in the frame keeps looking for
+// this long, every SHUTTER_STEP_MS, for a frame where a whole card is
+// found and still, then takes the picture anyway (Eric's log, version 32:
+// the shutter was pressed exactly when auto capture could not find the
+// card's edges, and took the bad crop).
+const SHUTTER_WAIT_MS = 1000;
+const SHUTTER_STEP_MS = 60;
+
 // The buzzes (navigator.vibrate, in milliseconds). The capture's tick says
 // the picture was taken, so the next card can go in; once the card is read,
 // one short buzz says it was recognised, and a double one that it needs a
@@ -248,6 +312,29 @@ export function scanView(root) {
 	// trace), for "Save capture image". Memory only.
 	const traces = new Map();
 	const detector = createAutoCapture();
+	// Holder mode's detector; it also measures how long the picture has been
+	// still, for the scan log, in either mode.
+	const holderDetector = createHolderCapture();
+	let holder = holderOn();
+	// The box round the card found in the frame, kept while the card stays
+	// in place (SAME_BOX), and where the last frame's thumbnail came from.
+	let stableBox = null;
+	let thumbFrom = null;
+	// Holder mode's last capture: the box and thumbnail of the card taken,
+	// so a hand passing over the pile does not take the same card again.
+	let lastHolder = null;
+	// Whether the picture settled on a card running off the frame.
+	let pileHigh = false;
+	// The shutter is waiting for a whole card (SHUTTER_WAIT_MS).
+	let shutterBusy = false;
+	// The camera captures' pictures as soon as they are matched, before their
+	// photos are saved, so the next capture can tell whether it repeats one
+	// (askRepeat), and the reads in progress.
+	const pictures = new Map();
+	const readings = new Map();
+	// A Review run through the cards that need a look (openReview), or null.
+	let review = null;
+	const viewCanvas = document.createElement('canvas');
 	// Where the guide is (camera.js layoutGuide): on the screen, and the
 	// guide and capture area in the camera's frame. Laid out again when the
 	// screen or the camera's frame changes size.
@@ -283,6 +370,15 @@ export function scanView(root) {
 	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
+	const holderSwitch = h('button', {
+		'aria-checked': String(holder),
+		'aria-label': 'Holder mode: the phone stays still in a stand over cards dropped under it',
+		class: 'scan-chip scan-holder',
+		id: 'scan-holder',
+		onclick: () => setHolder(!holder),
+		role: 'switch',
+		type: 'button',
+	}, 'Holder');
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
 	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
@@ -294,7 +390,7 @@ export function scanView(root) {
 		}
 	}});
 
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount), repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount), holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -325,6 +421,10 @@ export function scanView(root) {
 		openDone,
 		openItem,
 		openReport,
+		openReview,
+		review: (id) => reviewState(id),
+		reviewNext: () => reviewNext(),
+		reviewStop: () => reviewStop(),
 		openSetAll,
 		get owned() {
 			return owned;
@@ -557,6 +657,11 @@ export function scanView(root) {
 
 		drawNote();
 
+		// A Review run moves on from a card once it no longer needs a look.
+		if (review && sheet && sheet.itemId === review.current && reviewMoved()) {
+			return;
+		}
+
 		if (sheet) {
 			// The sheet is redrawn from the session; focus stays on the same
 			// control, found again by its id.
@@ -631,6 +736,7 @@ export function scanView(root) {
 		sheetLayer.hidden = false;
 		screen.classList.add('has-sheet');
 		detector.pause();
+		holderDetector.pause();
 
 		if (!sheetHandle) {
 			sheetHandle = openSheet(sheetLayer, {
@@ -657,14 +763,16 @@ export function scanView(root) {
 	}
 
 	// After the sheet layer closes, however it closed (focus goes back to
-	// what opened it).
+	// what opened it). Back, Escape, or Close end a Review run.
 	function sheetClosed() {
+		endReview();
 		sheetHandle = null;
 		sheet = null;
 		sheetLayer.replaceChildren();
 		sheetLayer.hidden = true;
 		screen.classList.remove('has-sheet');
 		detector.resume();
+		holderDetector.resume();
 	}
 
 	function openItem(id) {
@@ -672,7 +780,122 @@ export function scanView(root) {
 			return;
 		}
 
+		endReview();
+
 		showSheet(confirmSheet(ctx, id));
+	}
+
+	// ------------------------------------------------------------ Review
+
+	// Review (Eric, 2026-10-09): from the Done sheet, the cards that need a
+	// look open one after the other. Once the card open no longer needs a
+	// look (the right card tapped, its language picked), the next one opens
+	// by itself, a moment later so the change shows; Next card skips to it
+	// at once. After the last, the Done sheet comes back. Stop, Back, or
+	// Close end the run, and the cards left stay marked in the tray.
+	//
+	// review: {current, seen, timer}: the card open, the cards opened in this
+	// run (a card skipped is not opened again), and the pending move.
+	const REVIEW_MOVE_MS = 700;
+
+	const unseenLook = () => session.items.find((item) => S.needsLook(item) && !review.seen.has(item.id)) || null;
+
+	function openReview() {
+		const first = session.items.find((item) => S.needsLook(item));
+
+		if (!first) {
+			return;
+		}
+
+		endReview();
+		review = {current: first.id, seen: new Set([first.id]), timer: 0};
+		showSheet(confirmSheet(ctx, first.id));
+	}
+
+	// The run, as the confirm sheet of card `id` shows it: which card of how
+	// many to check, and whether another follows. Null outside a run.
+	function reviewState(id) {
+		if (!review || review.current !== id) {
+			return null;
+		}
+
+		const left = session.items.filter((item) => S.needsLook(item) && !review.seen.has(item.id)).length;
+
+		return {index: review.seen.size, next: left > 0, total: review.seen.size + left};
+	}
+
+	// Called as the tray is drawn: the card open was taken out (the next one
+	// opens at once) or no longer needs a look (it opens after a moment).
+	// Returns true when the sheet was swapped.
+	function reviewMoved() {
+		const item = S.findItem(session, review.current);
+
+		if (!item) {
+			reviewNext();
+
+			return true;
+		}
+
+		if (!S.needsLook(item) && !review.timer) {
+			const current = review.current;
+
+			review.timer = setTimeout(() => {
+				if (!review || review.current !== current) {
+					return;
+				}
+
+				review.timer = 0;
+
+				const now = S.findItem(session, current);
+
+				if (!now || !S.needsLook(now)) {
+					reviewNext();
+				}
+			}, REVIEW_MOVE_MS);
+		}
+
+		return false;
+	}
+
+	function reviewNext() {
+		if (!review) {
+			return;
+		}
+
+		clearTimeout(review.timer);
+		review.timer = 0;
+
+		const next = unseenLook();
+
+		if (!next) {
+			endReview();
+			announce('No more cards to check.');
+
+			if (session.items.length) {
+				openDone();
+			}
+			else {
+				closeSheet();
+			}
+
+			return;
+		}
+
+		review.current = next.id;
+		review.seen.add(next.id);
+		showSheet(confirmSheet(ctx, next.id));
+	}
+
+	function reviewStop() {
+		endReview();
+		closeSheet();
+	}
+
+	function endReview() {
+		if (review) {
+			clearTimeout(review.timer);
+			review = null;
+		}
 	}
 
 	function openReport(id) {
@@ -1033,22 +1256,183 @@ export function scanView(root) {
 
 	// ------------------------------------------------------------ capture and reading
 
-	async function capture(how) {
-		if (!camera || !video.videoWidth) {
+	// What the camera shows now (Eric, 2026-10-09): the card found anywhere
+	// in the part of the frame on the screen (steady.js findCard), judged as
+	// a card on a thumbnail of the box round it with every check made on the
+	// guide's since version 17 (presence: stripes, a colourless sheet, a card
+	// too far away); with no card found there, the guide's capture area,
+	// judged as before. fine: the finer copy, for the corners at the moment
+	// of capture (its box is then not kept as the steady one).
+	//
+	// Returns {card, seen, shot, view, touching}, or null before the camera
+	// has a picture: card is the card found ({quad, others, box, angle,
+	// ratio, upright, small}, frame pixels; others are other outlines found
+	// close to it, for the picture to choose from), or null; seen presence's
+	// verdict on shot, the thumbnail judged; view the copy searched; touching
+	// whether, with no card found, a card-shaped outline runs off the frame.
+	function look({fine = false} = {}) {
+		const area = currentGeometry();
+
+		if (!area || !video.videoWidth) {
+			return null;
+		}
+
+		const view = viewFrame(video, viewCanvas, area.view, fine ? FIND_SIDE_CAPTURE : FIND_SIDE);
+
+		if (!view) {
+			return null;
+		}
+
+		const found = findCard(view.grey, view.width, view.height);
+		const toFrame = (p) => ({x: view.rect.x + p.x / view.scale, y: view.rect.y + p.y / view.scale});
+
+		if (found.quad) {
+			// The outlines found, in frame pixels, the best first. The one where
+			// the card was found a moment ago is kept while it is still among
+			// them: two outlines a few pixels apart (the card's edge and its
+			// inner border) can trade places from frame to frame.
+			const all = [{angle: found.angle, corners: found.quad, ratio: found.ratio, upright: found.upright}, ...found.others]
+				.map((one) => ({...one, box: boxAround(area.frame, one.corners.map(toFrame)), corners: one.corners.map(toFrame)}));
+			const chosen = (!fine && all.find((one) => samePlace(one.box, stableBox))) || all[0];
+			const quad = chosen.corners;
+			const long = (Math.hypot(quad[3].x - quad[0].x, quad[3].y - quad[0].y) + Math.hypot(quad[2].x - quad[1].x, quad[2].y - quad[1].y)) / 2;
+			const small = long < area.guide.h * MIN_CARD_SHARE;
+			let box = chosen.box;
+
+			if (!fine) {
+				if (samePlace(box, stableBox)) {
+					box = stableBox;
+				}
+				else {
+					stableBox = box;
+				}
+			}
+
+			const shot = thumbnailFrame(video, thumbCanvas, box);
+			// A card standing up, turned no more than presence turns back, is
+			// judged the way a card held to the guide is; one lying on its side,
+			// or turned further, has its colour to show it is no sheet of paper.
+			const upright = chosen.upright && Math.abs(chosen.angle) <= 20;
+			const judged = !shot ? null : upright
+				? presence(shot.grey, THUMB_W, THUMB_H, {colour: shot.colour})
+				: {detail: 99, edges: {left: 0, right: 0}, glare: false, present: shot.colour >= COLOURLESS, reason: shot.colour >= COLOURLESS ? null : 'colourless', small: false, turn: chosen.angle};
+
+			if (judged && judged.present) {
+				const inBox = (c) => c.x >= box.x && c.y >= box.y && c.x <= box.x + box.w && c.y <= box.y + box.h;
+				const others = all.filter((one) => one !== chosen && one.corners.every(inBox)).map(({angle, corners, ratio, upright}) => ({angle, corners, ratio, upright}));
+				const card = {angle: chosen.angle, box, others, quad, ratio: chosen.ratio, small, upright: chosen.upright};
+
+				return {card, seen: small ? {...judged, present: false, small: true} : judged, shot, touching: false, view};
+			}
+		}
+		else if (!fine) {
+			stableBox = null;
+		}
+
+		const shot = thumbnailFrame(video, thumbCanvas, area.capture);
+
+		return shot ? {card: null, seen: presence(shot.grey, THUMB_W, THUMB_H, {colour: shot.colour}), shot, touching: found.touching, view} : null;
+	}
+
+	const whole = (now) => Boolean(now && now.card && !now.card.small && now.seen.present);
+
+	// The shutter: a whole card found in the frame now is taken at once;
+	// otherwise the frames of the next SHUTTER_WAIT_MS are looked at for one
+	// where a whole card is found and still (the same box, its thumbnail
+	// within STILL of the frame before), which is taken; with none, the
+	// picture is taken anyway when the time is up. The shutter always takes
+	// a picture. Returns {now, shutterFound, shutterWaitMs}, or null when the
+	// camera went away meanwhile.
+	async function waitForCard() {
+		const started = performance.now();
+		const first = look({fine: true});
+
+		if (whole(first)) {
+			return {now: first, shutterFound: true, shutterWaitMs: 0};
+		}
+
+		shutterBusy = true;
+		shutter.setAttribute('aria-busy', 'true');
+
+		try {
+			let before = null;
+
+			while (performance.now() - started < SHUTTER_WAIT_MS) {
+				await sleep(SHUTTER_STEP_MS);
+
+				if (!alive || !camera) {
+					return null;
+				}
+
+				const next = look();
+
+				if (whole(next) && whole(before) && sameBox(next.card.box, before.card.box) && difference(coarse(next.shot.grey), coarse(before.shot.grey)) <= STILL) {
+					const fine = look({fine: true});
+
+					return {now: whole(fine) ? fine : next, shutterFound: true, shutterWaitMs: Math.round(performance.now() - started)};
+				}
+
+				before = next;
+			}
+
+			return {now: look({fine: true}), shutterFound: false, shutterWaitMs: Math.round(performance.now() - started)};
+		}
+		finally {
+			shutterBusy = false;
+			shutter.removeAttribute('aria-busy');
+		}
+	}
+
+	// Takes the picture. how: 'auto' or 'shutter'; looked: what the frame
+	// loop saw (look) when auto capture fired; settleMs: how long the
+	// picture had been still by then, for the scan log.
+	//
+	// The part of the frame cut is the box round the card found in it, so a
+	// card larger than the guide, beside it, or turned is whole in the
+	// capture, and the outlines found are handed to identify.js to cut by
+	// their own corners; with no card found, the guide's capture area, as
+	// before.
+	async function capture(how, {looked = null, settleMs = null} = {}) {
+		if (!camera || !video.videoWidth || shutterBusy) {
 			return;
 		}
 
-		const area = currentGeometry();
-		const grabbed = performance.now();
-		const frame = grabFrame(video, area && area.capture);
-		const captureMs = Math.round(performance.now() - grabbed);
-		const shot = thumbnailFrame(video, thumbCanvas, area && area.capture);
-		const thumb = shot ? shot.grey : null;
-		// What the guide held as it was taken, for telling a frame with no
-		// card from one with a card too far away (Q-19).
-		const seen = shot ? presence(shot.grey, THUMB_W, THUMB_H, {colour: shot.colour}) : null;
+		let now = null;
+		let shutterFound = null;
+		let shutterWaitMs = null;
 
-		detector.captured(thumb);
+		if (how === 'shutter') {
+			const waited = await waitForCard();
+
+			if (!waited || !camera || !video.videoWidth) {
+				return;
+			}
+
+			({now, shutterFound, shutterWaitMs} = waited);
+		}
+		else {
+			const fine = look({fine: true});
+
+			now = fine && fine.card ? fine : looked || fine;
+		}
+
+		const area = currentGeometry();
+		const card = now && now.card && (how === 'shutter' || !now.card.small) ? now.card : null;
+		const region = card ? boxAround(area.frame, [...card.quad, ...card.others.flatMap((other) => other.corners)]) : area && area.capture;
+		const grabbed = performance.now();
+		const frame = grabFrame(video, region);
+		const captureMs = Math.round(performance.now() - grabbed);
+		const shot = now ? now.shot : thumbnailFrame(video, thumbCanvas, area && area.capture);
+		// What the frame held as it was taken, for telling a frame with no
+		// card from one with a card too far away (Q-19).
+		const seen = now ? now.seen : shot ? presence(shot.grey, THUMB_W, THUMB_H, {colour: shot.colour}) : null;
+		// The detectors compare what follows with the thumbnail the frame
+		// loop saw (the steady box), not the finer copy's.
+		const steadyShot = looked && looked.shot ? looked.shot : shot;
+
+		detector.captured(steadyShot ? steadyShot.grey : null);
+		holderDetector.captured();
+		lastHolder = card && steadyShot ? {box: (looked && looked.card ? looked.card.box : card.box), thumb: coarse(steadyShot.grey)} : null;
 		scanStats.captures++;
 		flash();
 
@@ -1077,10 +1461,12 @@ export function scanView(root) {
 		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
 
 		// Where the guide sits in the capture, for identify.js to fingerprint
-		// it as one more crop.
-		const guideIn = area && area.capture ? {h: area.guide.h, w: area.guide.w, x: area.guide.x - area.capture.x, y: area.guide.y - area.capture.y} : null;
+		// it as one more crop, when no card was found in the frame; else the
+		// outlines found, in the capture's pixels.
+		const guideIn = !card && area && area.capture ? {h: area.guide.h, w: area.guide.w, x: area.guide.x - area.capture.x, y: area.guide.y - area.capture.y} : null;
+		const quads = card ? [{...card, corners: card.quad}, ...card.others].map((quad) => ({corners: quad.corners.map((c) => ({x: c.x - region.x, y: c.y - region.y})), ratio: quad.ratio, upright: quad.upright})) : [];
 
-		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how) : null, guide: guideIn, seen});
+		await readItem(item.id, frame, {auto: how === 'auto', captureMs, fullSaved, geometry: area ? geometryReport(area, how, {card, region, settleMs, shutterFound, shutterWaitMs}) : null, guide: guideIn, quads, seen});
 	}
 
 	// A photo picked from the gallery joins the tray like a capture and is
@@ -1139,8 +1525,13 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, seen = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
 		let result;
+		let readDone = () => {};
+
+		readings.set(id, new Promise((resolve) => {
+			readDone = resolve;
+		}));
 
 		try {
 			engineState = engineState === 'ready' ? 'ready' : 'loading';
@@ -1157,12 +1548,14 @@ export function scanView(root) {
 					drawn = fraction;
 					draw();
 				}
-			}}, guide: guideIn, photo, straight});
+			}}, guide: guideIn, photo, quads, straight});
 			engineState = 'ready';
 			drawStatus();
 		}
 		catch (err) {
 			progress.delete(id);
+			readings.delete(id);
+			readDone(null);
 
 			if (!alive || !S.findItem(session, id)) {
 				return;
@@ -1174,6 +1567,15 @@ export function scanView(root) {
 
 			return;
 		}
+
+		// The picture, kept the moment it is known: the capture after this one
+		// asks whether it repeats it before this one's photo is saved (Eric's
+		// log, version 32: the same card taken again 2.6 s later joined the
+		// tray as a second tile, because the picture was only kept on the card
+		// after its photos were saved, which on his phone took longer).
+		pictures.set(id, result.picture || null);
+		readings.delete(id);
+		readDone(result.picture || null);
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -1191,9 +1593,10 @@ export function scanView(root) {
 			}
 		}
 
-		// A card the picture settled with no text read: its straightened image
-		// is kept until its label row has been read in the background.
-		if (!result.read && result.picture) {
+		// A card the picture settled with no text read, or with its number
+		// alone (identify.js): its straightened image is kept until its label
+		// row has been read in the background.
+		if (result.picture && (!result.read || !result.read.label)) {
 			cardImages.set(id, result.card);
 		}
 
@@ -1235,8 +1638,13 @@ export function scanView(root) {
 		// moment longer, or a second copy. The repeat bar asks which; the
 		// capture itself never joins the tray.
 		const previous = auto ? previousCapture(id) : null;
+		const previousPicture = previous ? await pictureOf(previous) : null;
 
-		if (previous && repeatOfPrevious(result.picture, previous.picture)) {
+		if (!alive || !S.findItem(session, id)) {
+			return;
+		}
+
+		if (previous && repeatOfPrevious(result.picture, previousPicture)) {
 			await drop(id, 'repeat', {fullSaved, outcome: null, report: report(), result});
 			askRepeat(id, previous.id);
 
@@ -1289,6 +1697,26 @@ export function scanView(root) {
 		draft.deletePhoto(`${id}:full`).catch(() => {});
 
 		await matchItemNow(id);
+	}
+
+	// How long a capture waits for the read of the capture before it, to
+	// tell whether it repeats it.
+	const REPEAT_WAIT_MS = 20000;
+
+	// A tray card's picture match: on the card, kept from its read, or, while
+	// it is still being read, once that read is done (at most REPEAT_WAIT_MS).
+	async function pictureOf(item) {
+		if (item.picture) {
+			return item.picture;
+		}
+
+		if (pictures.has(item.id)) {
+			return pictures.get(item.id);
+		}
+
+		const reading = readings.get(item.id);
+
+		return reading ? within(reading, REPEAT_WAIT_MS, null) : null;
 	}
 
 	// The camera's capture just before card `id` in the tray, or null:
@@ -1828,17 +2256,47 @@ export function scanView(root) {
 		return geometry;
 	}
 
-	// The geometry as the scan report keeps it.
-	function geometryReport(area, how) {
+	// The geometry as the scan report keeps it: where the guide was, the part
+	// of the frame captured, and (Eric, 2026-10-09) the card found in the
+	// frame (its box as shares of the frame's width and height, its shape,
+	// and its turn), the zoom, whether holder mode was on, how long the
+	// picture had been still, and how long the shutter waited for a whole
+	// card and whether one came.
+	function geometryReport(area, how, {card = null, region = null, settleMs = null, shutterFound = null, shutterWaitMs = null} = {}) {
 		const rect = (r) => `${Math.round(r.w)} x ${Math.round(r.h)} at ${Math.round(r.x)}, ${Math.round(r.y)}`;
+		const share = (value, of) => Math.round((value / of) * 1000) / 1000;
+		let found = null;
+
+		if (card) {
+			const xs = card.quad.map((p) => p.x);
+			const ys = card.quad.map((p) => p.y);
+
+			found = {
+				angle: card.angle,
+				h: share(Math.max(...ys) - Math.min(...ys), area.frame.height),
+				others: card.others.length,
+				ratio: card.ratio,
+				small: card.small,
+				upright: card.upright,
+				w: share(Math.max(...xs) - Math.min(...xs), area.frame.width),
+				x: share(Math.min(...xs), area.frame.width),
+				y: share(Math.min(...ys), area.frame.height),
+			};
+		}
 
 		return {
-			capture: rect(area.capture),
+			capture: rect(region || area.capture),
+			card: found,
 			frame: `${area.frame.width} x ${area.frame.height}`,
 			guide: rect(area.guide),
+			holder,
 			how,
 			screen: rect(area.screen),
+			settleMs: settleMs === null ? null : Math.round(settleMs),
+			shutterFound,
+			shutterWaitMs,
 			stage: `${area.stage.width} x ${area.stage.height}`,
+			zoom: camera && typeof camera.zoom === 'number' ? Math.round(camera.zoom * 100) / 100 : null,
 		};
 	}
 
@@ -2023,27 +2481,79 @@ export function scanView(root) {
 	function startLoop() {
 		clearInterval(loop);
 		loop = setInterval(() => {
-			if (!camera || document.hidden || sheet) {
+			if (!camera || document.hidden || sheet || shutterBusy) {
 				return;
 			}
 
-			const area = currentGeometry();
-			const shot = thumbnailFrame(video, thumbCanvas, area && area.capture);
+			const now = look();
 
-			if (!shot) {
+			if (!now) {
 				return;
 			}
 
-			const thumb = shot.grey;
-			const seen = presence(thumb, THUMB_W, THUMB_H, {colour: shot.colour});
+			const {seen} = now;
+			const from = now.card ? now.card.box : 'guide';
 
-			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : 'Card inside the frame. Hold still.';
+			// The thumbnail moved to another part of the frame: the next one is
+			// not compared with this one as a jump.
+			if (from !== thumbFrom) {
+				detector.reframe();
+				thumbFrom = from;
+			}
+
+			const step = holderDetector.push(now.view.grey, now.view.width, now.view.height, {card: whole(now), touching: now.touching}, performance.now());
+			const pile = holder && step.pile;
+
+			if (pile !== pileHigh) {
+				pileHigh = pile;
+
+				if (pile) {
+					announce('Pile too high: empty the box.');
+				}
+			}
+
+			document.getElementById('scan-hint').textContent = pile ? 'Pile too high: empty the box.' : seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : holder && !seen.present ? 'Drop a card in.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
+			guide.classList.toggle('is-pile', pile);
 
-			if (detector.push(thumb, seen)) {
-				capture('auto');
+			// The hand-held detector follows the frames in either mode.
+			const steady = detector.push(now.shot.grey, seen);
+
+			if (holder) {
+				if (!step.capture) {
+					return;
+				}
+
+				// Something moved over the pile but the card on top is the one
+				// taken last: nothing new.
+				if (lastHolder && now.card && sameBox(now.card.box, lastHolder.box, 0.05) && difference(coarse(now.shot.grey), lastHolder.thumb) <= CHANGED) {
+					holderDetector.captured();
+
+					return;
+				}
+
+				capture('auto', {looked: now, settleMs: step.settleMs});
+			}
+			else if (steady) {
+				capture('auto', {looked: now, settleMs: step.settleMs});
 			}
 		}, FRAME_MS);
+	}
+
+	// Holder mode on or off (the switch beside the zoom).
+	function setHolder(on) {
+		holder = on;
+		rememberHolder(on);
+		holderSwitch.setAttribute('aria-checked', String(on));
+		holderDetector.reframe();
+		pileHigh = false;
+
+		// A card already taken by hand stays taken.
+		if (on && detector.state === 'cooldown') {
+			holderDetector.captured();
+		}
+
+		announce(on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.');
 	}
 
 	function onVisibility() {

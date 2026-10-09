@@ -499,9 +499,14 @@ export function confirmSheet(ctx, itemId) {
 		const saveBlocked = reason !== null;
 		const summary = doneSummary(ctx.session, ctx.owned);
 
-		const save = single
-			? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
-			: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
+		// In a Review run (ctx.review), the next card that needs a look comes
+		// next; after the last, Done.
+		const run = ctx.review ? ctx.review(itemId) : null;
+		const save = run && run.next
+			? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-next', onclick: () => ctx.reviewNext(), type: 'button'}, 'Next card')
+			: single
+				? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
+				: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
 
 		const blockedText = single && saveBlocked
 			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
@@ -519,6 +524,20 @@ export function confirmSheet(ctx, itemId) {
 		);
 	}
 
+	// The Review run's bar: which card of how many, and Stop, which ends
+	// the run and leaves the rest marked in the tray.
+	function reviewBar() {
+		const run = ctx.review ? ctx.review(itemId) : null;
+
+		if (!run) {
+			return null;
+		}
+
+		return h('div', {class: 'scan-review-bar', id: 'scan-review-bar', role: 'group', 'aria-label': 'Review'},
+			h('p', {'aria-live': 'polite', class: 'scan-review-count', id: 'scan-review-count'}, `Card ${run.index} of ${run.total} to check`),
+			h('button', {class: 'scan-button', id: 'scan-review-stop', onclick: () => ctx.reviewStop(), type: 'button'}, 'Stop'));
+	}
+
 	function refresh() {
 		const item = findItem(ctx.session, itemId);
 
@@ -533,6 +552,7 @@ export function confirmSheet(ctx, itemId) {
 		// Finish field and the owned lines are left out when there is none
 		// (a card not found yet has neither).
 		body.replaceChildren(...[
+			reviewBar(),
 			...cardBlock(item),
 			languageBlock(item),
 			finishBlock(item),
@@ -748,7 +768,7 @@ export function doneSheet(ctx) {
 		if (summary.look) {
 			rows.push(h('div', {class: 'scan-done-row scan-done-look'},
 				h('span', {id: 'scan-done-look'}, h('span', {'aria-hidden': 'true', class: 'scan-why-mark'}, '!'), ` ${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look`),
-				h('button', {class: 'scan-button', id: 'scan-done-review', onclick: () => ctx.openItem(firstLook.id), type: 'button'}, 'Review')));
+				h('button', {class: 'scan-button', id: 'scan-done-review', onclick: () => (ctx.openReview ? ctx.openReview() : ctx.openItem(firstLook.id)), type: 'button'}, 'Review')));
 		}
 
 		if (summary.busy) {

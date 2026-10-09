@@ -154,6 +154,11 @@ a separate tile. For testing on real cards, Phone check's Record every scan (off
 nobody records by surprise) keeps each scan's report, the scanner's first answer, and what was
 saved, as one file to send. *(Decided by Eric, 2026-10-09.)*
 
+**Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
+cards dropped into a box, auto capture waits for each drop to settle and takes it once; everything
+else (the tray, the repeat bar, Review) is the same flow. Details in section 6. *(Decided by Eric,
+2026-10-09.)*
+
 **A scan session is a tray, and every card in it carries its own language.**
 Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
 scanner, each one can be opened, retagged, or removed, and the session is assigned to
@@ -720,6 +725,60 @@ the extra trimmed from either side. A number that names a set the catalog has no
 Traditional Chinese images TCGdex has (25,767 cards, 1.2 MB gzipped); Simplified Chinese has no
 images there, so those cards match only through a print with the same art. **Still open:** whether TCGdex's terms allow bulk image processing for
 an index, which has to be confirmed before the index rebuild is scheduled.
+
+**The card anywhere in the frame, holder mode, and Review (Eric, 2026-10-09, version 34).** Eric's
+scan log of 53 cards dropped one by one into a white box under his phone in a 3D-printed stand
+(version 32, 1x and 1.5x zoom) showed: every sure answer right; auto capture keeping up early (a
+card every 5 to 6 s) but the shutter used 18 times in the last 20 scans, because as the pile rose
+each new card grew past the guide, or landed offset with the top strip of the card beneath showing,
+and the edge finder, looking only inside the guide plus its 10 % margin, took the outline of two
+cards and cut the new card's bottom (distances 54 to 69, "needs a look"); cards needing a look took
+7 to 14 s, nearly all of it OCR; and one auto capture of the same card 2.6 s after the first joined
+the tray instead of asking. Decided:
+
+- **The card is looked for in the whole visible frame, in every mode** (`js/scan/steady.js`
+  `findCard`): the straight lines of a small copy of the frame (200 px on its longer side, 360 px at
+  the moment of capture) make four-sided boxes, and a box is a card when it has a card's 63:88 shape,
+  all four sides drawn and stopping at its corners, all four corners inside the frame clear of its
+  edge (a box wall or a screen's edge running off the frame is never a card), and print in its
+  middle. A larger box round a smaller one wins when the ring between them is a card's border or busy
+  with print (a card round its art box: a Sword & Shield art box has a lying card's shape), and a box
+  inside another wins on plain ground (a card on a box's floor). The box found is judged on a
+  thumbnail with every check the guide's capture had (stripes, a colourless sheet, a card too far
+  away), the capture is cut round it from the full-resolution frame, and its outlines go to
+  `identify.js` to be cut by their own corners, their edges found again, beside the edge finder's
+  crop, for the picture to choose. With no card found, the guide's capture area is used as before.
+  The guide stays as a hint and lights up when a card is found anywhere; a card smaller than half the
+  guide's height says "Move closer" and is taken only by the shutter.
+- **The top card of a pile:** the outline of two stacked cards is too tall for a card's shape, and the
+  top card is the one whose four sides are whole; where two cards and their borders cross, up to three
+  outlines go to the picture, which picks the top card.
+- **Holder mode** (a switch at the foot of the camera, remembered on the phone, off at first): auto
+  capture waits for the picture to move (a card falling in) and then stay still for 400 ms, needs a
+  whole card found in the frame, and takes it once; the next card landing moves the picture and arms
+  the next capture. Motion is measured on the whole view with its overall brightness change taken out
+  (the camera re-exposing is not motion). Something moving over the pile with the same card left on
+  top takes nothing. A card-shaped outline running off the frame once the picture settles says "Pile
+  too high: empty the box." and takes nothing. Hand-held mode keeps its rules, on the card found
+  anywhere.
+- **The shutter waits up to a second for a whole card:** pressed with no whole card in the frame, it
+  takes the first frame within about a second where one is found and still, or the picture anyway
+  when the time is up. The shutter always takes a picture.
+- **Review runs through the cards that need a look:** Done's Review opens the first; once it is
+  settled the next opens by itself, Next card skips one, and after the last the Done sheet comes back.
+  Stop, Back, or Close end the run, and the cards left stay marked in the tray.
+- **A card the picture narrowed reads only its number:** from the strip its candidates' era prints it
+  on (bottom left from Sun & Moon on, bottom right for XY and older), stopping as soon as a number
+  reads; the other strip and the sparse passes only when it does not. The label row and the set code
+  box are read beside it only when the first group holds several prints (an English card and its
+  Japanese twin share a number and total); otherwise the label is read behind the tray, as for a card
+  the picture settled.
+- **A repeat is told the moment the picture is known:** each capture's picture is kept as soon as it
+  is matched, and a capture whose previous one is still being read waits for that read, so the repeat
+  bar no longer depends on how fast the phone saves photos.
+- **The scan log keeps** the zoom, holder mode on or off, the card found (its box as shares of the
+  frame, its shape and turn), how long the picture had been still, and how long the shutter waited
+  and whether a whole card came.
 
 **Known hard parts:**
 

@@ -688,3 +688,161 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 		wizards: mentionsWizards(raw.numberLeft.text, raw.numberRight.text),
 	};
 }
+
+// ------------------------------------------------------------ the number alone, quickly
+
+// Reading only what chooses between the pictures' top cards (Eric,
+// 2026-10-09): a card the picture could not settle took 7 to 14 s on his
+// phone, nearly all of it OCR (numberOnly still read both number strips,
+// each with a sparse second pass, the label row, and the set code box, about
+// ten calls). Here the strip the candidates' era prints its number on is
+// read first, and the reading stops as soon as it gives a number: the other
+// strip and the sparse passes are read only when it gives none. The label
+// row and the set code box are read only when the picture's first group
+// holds several cards (reprints, a Japanese print and its English twin),
+// where they can choose; otherwise the label is left to the background read
+// a card the picture settled gets (js/scan/view.js checkLabelLater).
+//
+// prefer: 'left' (Sun & Moon and later: the number at the bottom left) or
+// 'right' (XY and older); setCode and label: whether to read the set code
+// box and the label row (beside the number). Returns readCard's shape, with
+// name and hp null, label null when it was not read, and the language from
+// the set code box and the label ({code: null} when neither was read).
+export async function readNumber(card, ocr, {label: withLabel = false, now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
+	const crops = {};
+	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
+	const timings = {};
+	const started = now();
+	let calls = 0;
+
+	const recognise = async (key, crop, settings) => {
+		const at = now();
+		const result = await ocr(crop, settings);
+
+		timings[key] = (timings[key] || 0) + Math.round(now() - at);
+		calls++;
+
+		if (onProgress) {
+			onProgress(Math.min(0.95, calls / 4));
+		}
+
+		return result;
+	};
+
+	const prepare = (key) => {
+		crops[key] = prepareRegion(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], textPx), {sharpen: SHARPEN});
+
+		return crops[key];
+	};
+
+	const sideOf = (key) => (key === 'numberLeft' ? 'left' : 'right');
+
+	// The `count` most text-like lines of a strip, read side by side.
+	const readLines = async (key, count) => {
+		const strip = crops[key] || prepare(key);
+		const found = findTextLines(strip, textPx, count);
+		const results = await Promise.all(found.map((line, index) => {
+			crops[`${key}Line${index + 1}`] = cropRows(strip, line);
+
+			return recognise(key, crops[`${key}Line${index + 1}`], OCR_SETTINGS.numberLine).then((result) => shiftLines(result, line.y0));
+		}));
+		const lines = results.flat();
+
+		raw[key] = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
+
+		return findNumber(sideOf(key), raw[key]);
+	};
+
+	const sparse = async (key) => {
+		const result = await recognise(key, crops[key] || prepare(key), OCR_SETTINGS.sparse);
+
+		raw[key] = {...result, lines: [...raw[key].lines, ...linesOf(result)], text: `${raw[key].text}\n${result.text}`};
+
+		return findNumber(sideOf(key), raw[key]);
+	};
+
+	// The label row, beside the number strip, when asked for.
+	const labelRead = !withLabel ? Promise.resolve(null) : (async () => {
+		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, textPx), {sharpen: SHARPEN});
+		const found = findTextLines(band, textPx, 2);
+		const results = await Promise.all(found.map((line) => recognise('label', cropRows(band, line), OCR_SETTINGS.label)));
+
+		crops.label = band;
+		raw.label = {confidence: 0, lines: results.flatMap((result) => linesOf(result)), text: results.map((result) => result.text || '').join('\n')};
+
+		if (!parseLabel(raw.label.text).code) {
+			const sparse = await recognise('label', band, OCR_SETTINGS.sparse);
+
+			raw.label = {...sparse, text: [raw.label.text, sparse.text].filter(Boolean).join('\n')};
+		}
+
+		return parseLabel(raw.label.text);
+	})();
+
+	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
+	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
+	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
+	let number = await readLines(first, lineCount(first));
+
+	// No number on the likelier strip: its sparse pass and the other strip's
+	// lines side by side, then the other strip's sparse pass.
+	if (!number) {
+		const [again, other] = await Promise.all([sparse(first), readLines(second, lineCount(second))]);
+
+		number = again || other;
+
+		if (!number) {
+			number = await sparse(second);
+		}
+	}
+
+	// No number read: one whose slash read as another character.
+	let misreads = [];
+
+	if (!number) {
+		for (const key of [first, second]) {
+			const list = misreadNumbers(raw[key].text);
+
+			if (list.length) {
+				misreads = list;
+				number = {...list[0], box: null, confidence: MISREAD_CONFIDENCE, langCode: null, regulationMark: null, setCode: null, side: sideOf(key)};
+				break;
+			}
+		}
+	}
+
+	let setCodeBox = {langCode: null, run: '', setCode: null, text: ''};
+
+	if (setCode && number && number.side === 'left' && number.box) {
+		const rect = setCodeRect(card, regionRect(card, REGIONS.numberLeft), number.box, scaleFor(card, REGIONS.numberLeft, textPx));
+
+		crops.setCode = prepareCrop(card, rect, 72 / rect.h, SET_CODE_PREP);
+		raw.setCode = await recognise('setCode', crops.setCode, OCR_SETTINGS.setCode);
+		setCodeBox = parseSetCode(raw.setCode.text);
+		number = {...number, langCode: setCodeBox.langCode, setCode: setCodeBox.setCode, setCodeRun: setCodeBox.run};
+	}
+
+	const label = await labelRead;
+
+	timings.ocr = Math.round(now() - started);
+	timings.calls = calls;
+
+	const partial = number ? {number: null, total: null} : parsePartialNumber(`${raw.numberLeft.text}\n${raw.numberRight.text}`);
+
+	return {
+		attackText: '',
+		copyrightYear: copyrightYear(raw.numberLeft.text, raw.numberRight.text),
+		crops,
+		hp: null,
+		label,
+		language: label ? decideLanguage(number, label) : number && number.langCode ? {code: number.langCode, confidence: Math.max(0.5, number.confidence * 0.8), source: 'set code'} : {code: null, confidence: 0, source: 'not read'},
+		misreads,
+		name: null,
+		number,
+		partial,
+		raw,
+		setCodeBox,
+		timings,
+		wizards: mentionsWizards(raw.numberLeft.text, raw.numberRight.text),
+	};
+}

@@ -130,7 +130,7 @@ function portraitCamera({height, width}) {
 	navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(25);
 }
 
-async function open({record = false, viewport = {height: 780, width: 384}} = {}) {
+async function open({record = false, slowPhotos = 0, viewport = {height: 780, width: 384}} = {}) {
 	const context = await browser.newContext({acceptDownloads: true, deviceScaleFactor: 2.8125, viewport});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
@@ -142,6 +142,17 @@ async function open({record = false, viewport = {height: 780, width: 384}} = {})
 
 	if (record) {
 		await context.addInitScript(() => localStorage.setItem('card-tracker:scan-log', 'on'));
+	}
+
+	// Every photo encoded slowly, as a phone encodes a 4K frame.
+	if (slowPhotos) {
+		await context.addInitScript((ms) => {
+			const toBlob = HTMLCanvasElement.prototype.toBlob;
+
+			HTMLCanvasElement.prototype.toBlob = function (callback, ...rest) {
+				toBlob.call(this, (blob) => setTimeout(() => callback(blob), ms), ...rest);
+			};
+		}, slowPhotos);
 	}
 
 	const page = await context.newPage();
@@ -219,6 +230,15 @@ async function holdAgain(page, card) {
 }
 
 const barOpen = (page) => page.locator('#scan-repeat-add').count();
+
+async function waitUntil(check, what, timeout = 30000) {
+	const end = Date.now() + timeout;
+
+	while (!(await check())) {
+		assert.ok(Date.now() < end, what);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	}
+}
 
 describe('continuous scanning (Eric, 2026-10-09)', () => {
 	test('a card held still is taken once, a card swapped straight for another is taken, and no sheet opens', async () => {
@@ -304,6 +324,35 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		}
 
 		assert.deepEqual(outcomes, [null, 'dropped repeat', 'dropped repeat', 'added-copy']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Eric's log (version 32): the same card taken by auto capture 2.6 s
+	// after the first, both read as sure in 0.3 s, joined the tray as a second
+	// tile instead of asking. The picture was kept on the card only after
+	// its photos were saved, which on his phone (a 4K frame encoded as JPEG
+	// beside it) took longer than that. Here every photo takes 4 s to encode.
+	test('the same card again by auto capture 2.6 s later, while the first one\'s photo is still being saved, asks Add a copy or Mistake', async () => {
+		const {context, errors, page} = await open({record: true, slowPhotos: 4000});
+
+		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
+		await capturesReach(page, 1);
+
+		const first = Date.now();
+
+		// Read in a moment; its photo is still being encoded.
+		await waitUntil(async () => (await page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.reads.length)) >= 1, 'the first read', 30000);
+		await holdAgain(page, 'a');
+		await capturesReach(page, 2, 15000);
+		assert.ok(Date.now() - first < 4000, 'taken again before the first photo was saved');
+		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
+		assert.equal(await page.locator('#scan-repeat-text').textContent(), 'Same card as the last one.');
+		await page.click('#scan-repeat-no');
+
+		const items = await trayIs(page, (list) => list.length === 1 && list[0].status === 'ready', 'one tile');
+
+		assert.equal(items[0].card, CARD);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
