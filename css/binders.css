@@ -751,6 +751,7 @@ button.bt-fill {
 }
 
 .new-binder-kind {
+	grid-template-columns: repeat(2, 1fr);
 	margin: var(--space-2) 0;
 }
 
@@ -765,8 +766,17 @@ button.bt-fill {
 	margin-top: var(--space-2);
 }
 
+/* Four kinds in two rows of two, so "Collection" fits at 360 px. */
 .rule-kinds {
-	flex-wrap: wrap;
+	grid-template-columns: repeat(2, 1fr);
+}
+
+.rule-kinds label:nth-child(3) span {
+	border-left: 0;
+}
+
+.rule-kinds label:nth-child(n + 3) span {
+	border-top: 1px solid var(--border);
 }
 
 .rule-filters {

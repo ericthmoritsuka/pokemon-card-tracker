@@ -1384,7 +1384,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		const info = item.kind === 'pokemon'
-			? {image: item.image, name: item.name, number: item.number, setName: null}
+			? {image: item.image, name: item.name, number: String(item.dex).padStart(3, '0'), setName: null}
 			: wantInfo({card_id: item.cardId, catalog: item.catalog, image: item.image, name: item.name}, index, viewing);
 		const src = item.kind === 'pokemon' ? item.image : info.image;
 
