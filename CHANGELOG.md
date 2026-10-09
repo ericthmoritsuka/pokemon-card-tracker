@@ -5,12 +5,27 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-10-02)
+## In Progress (2026-10-09)
 
-- Audit fixes, next: family view and account (block F), shared modules (H), performance (J),
-  merging edits field by field (C), and the scanner (I). See `plans/audit.md`.
+- Shared modules, wave 2: one language table (on hold). Then the kept items in
+  `plans/roadmap.md`.
 
 ## Live
+
+### 2026-10-09
+
+- **14:17** Version 31: a cleaner scanner and app, and What's new. `dbde67a`
+  - **Scanner:** a frame with no card in it no longer joins the tray ("That did not look like a
+    card"), a card too far away says "Move closer", and reopening Scan with the card you just
+    added still in view does not add it again for 10 seconds (the shutter still does).
+  - **What's new:** after an update, a short list of what changed shows once. Profile ends with
+    the version and opens every release's list.
+  - **Liga prices you type** say which finish and language they are for.
+  - **Smaller fixes:** theme swatches in Profile stay put when you pick one; a note when the
+    phone's clock is off, which would confuse sync.
+  - **Under the hood:** one module for TCGdex and one for the phone's storage instead of several
+    copies each, shared formatting, binders and wishlist on the theme's colors, the camera code
+    moved out of the scan lab, dead code removed, and recorded TCGdex answers for the tests.
 
 ### 2026-10-06
 

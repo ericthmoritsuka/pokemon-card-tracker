@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v30** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v30 `acb42f7` adds Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v31** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -89,10 +89,11 @@ the audit below to confirm or drop:
    own rings and "Your copies"; truncated selects on My Cards; `css/binders.css` and
    `css/wishlist.css` onto the design tokens; the unused `.wl-badge-on`); README still describes
    the old Menu.
-3. **Later, not scheduled:** image-first recognition (DESIGN.md section 6, "Later: image-first
-   recognition": fingerprint first, text to break ties), Michi art in binders, pack openings,
-   purchase details (price paid and storage), Korean and Japanese script detection for the
-   scanner (vendor `jpn` and `kor` models).
+3. **Later, not scheduled:** image-first recognition is done (v24). Kept by Eric on 2026-10-09:
+   where each card is stored (a storage field per copy, from "purchase details"), and Korean and
+   Japanese script detection for the scanner (vendor `jpn` and `kor` models).
+   - **Deprioritized (Eric, 2026-10-09):** Michi art in binders, pack openings, price paid, and
+     graded cards (below).
    - **Done in v30:** the big Liga value box (`statsBar` in js/price-view.js: Total, Average,
      Highest, Lowest) still sits inline on a checklist (js/checklists-view.js), a set page
      (js/catalog-views.js), and a binder (js/binders-view.js). Eric dislikes the big box
@@ -110,8 +111,8 @@ the audit below to confirm or drop:
    pockets and updates only defaults never picked by hand. A generated binder is a view, so a
    card can also sit in another binder. Medium: binders, spreads, the filter bar, checklists,
    and collections already exist.
-5. **Liga link rules (from Eric's 76-card Liga lookup, 2026-10-05):** done in v30 except the
-   last bullet (manual price finish and language, still to weigh). Fixed in js/liga.js and
+5. **Liga link rules (from Eric's 76-card Liga lookup, 2026-10-05):** done in v30, and the
+   manual price's finish and language in v31. Fixed in js/liga.js and
    DESIGN.md "Liga's query pattern", with tests:
    - Generations Radiant Collection uses the main set's total: `Swirlix (RC19/83)`, not
      `RC19/RC32`, so the GG/TG rule does not extend to RC.
@@ -140,7 +141,7 @@ the audit below to confirm or drop:
    the collection (copy ids it leaves out, merged like `card_ids`); the rule keeps adding new
    matches. Untick it in the card's Add to collection sheet, and show "N left out" on the
    collection with a way to put them back. Today the sheet lists a rule collection as read only.
-8. **What's new, with the version (Eric, 2026-10-06):** after Reload brings a new version, a
+8. **What's new, with the version (Eric, 2026-10-06):** done in v31 (js/whats-new.js). After Reload brings a new version, a
    short sheet "What's new in vN" shows once, with three or four plain bullets. Profile ends with
    "Card Tracker vN · What's new", which lists recent versions. The text lives in a small module
    shipped with the app (works offline), written in friendly words at each release, not
@@ -148,6 +149,18 @@ the audit below to confirm or drop:
    (`card-tracker-shell-<VERSION>`); when a newer worker waits, say "vN+1 ready" with Reload.
    Small; ride along with the next release.
 9. **Family view (Eric, 2026-10-05):** both done in v30.
+10. **Block H, shared modules (`plans/audit.md`):** wave 1 is in v31: one TCGdex module
+    (`js/tcgdex.js`, E-29), one IndexedDB helper (`js/idb.js`, E-30), `js/format.js` (part of
+    E-34), design tokens for binders, wishlist, and corner handles (E-35), dead exports and the
+    `lab/js/ocr.js` precache gone (E-36), TCGdex fixtures for the tests (E-38), and the camera,
+    pipeline, match, and rectify code moved to `js/vision/` (E-33). Also in v31: Q-19 (no-card
+    frames dropped, Move closer), Q-20 (no repeat add for 10 s), Q-30, Q-38, and the clock warning.
+    **Wave 2, on hold until Eric says go:** the single language table (E-31, which also fixes E-05
+    and E-12, and unblocks the list-languages decision; a Portuguese UI is not wanted, Eric 2026-10-09). Still left after
+    that: one corner editor (`js/photos/editor.js` and `js/binder-cover.js` each have one); the rest
+    of E-34 (`stamp.js`, readChoice and saveChoice, pool, validDex, plural helpers in `js/scan/`);
+    `js/wishlist.js`, `js/settings.js`, and `lab/js/match.js` still fetch on their own; one test
+    still calls api.frankfurter.dev; the `lab/README.md` paths; purging old tombstones.
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
@@ -155,6 +168,20 @@ the audit below to confirm or drop:
    - **Optional: their wishlist one tap closer.** The lens already follows Cards, Binders, and
      Lists, so a member's wishlist is Lists, then Wishlist. A Wishlist link in the heading of
      their Cards page, like the Spares link on yours, would save the step.
+
+## Kept Open Items (Eric, 2026-10-09)
+
+Eric went through every open item and kept these; Michi art, pack openings, price paid, and
+graded cards are deprioritized, and a Portuguese UI is not wanted.
+
+- **Features:** binder from a list (4), reorder Lists and Binders with Undo (6), remove a card
+  from a rule collection (7), where each card is stored (3).
+- **Clean-up and speed:** the single language table (10, wave 2), the rest of the clean-up (10),
+  block J's speed and data items in `plans/audit.md`, Portuguese and French images offline (E-20).
+- **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
+  Japanese and Korean text, and the strong-slant cut at the bottom.
+- **Small gaps:** Japanese and Korean tile text wrapping at 360 px, a bulk add to a binder's tray,
+  twins' images on set tiles, and Ver na Liga promo rules for Japanese SM1p to SM5p and SV-P / M-P.
 
 ## Open Decisions for Eric
 
@@ -192,8 +219,8 @@ the audit below to confirm or drop:
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
-  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`;
-  `photos-sql` needs Docker. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
+  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`;
+  `photos-sql` needs Docker. `scan-browser` can fail under load (a tile checked before its set record arrives shows its id, such as `swsh3-102`, instead of its name); it passed three runs alone on 2026-10-09. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal
   data (never commit the owner's export `/home/me/Downloads/Todas_*` or his photos; tests use
