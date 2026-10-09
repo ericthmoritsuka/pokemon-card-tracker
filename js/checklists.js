@@ -13,7 +13,8 @@
 // with no card to show for it is a "trust me", and a stray tap made one):
 // nothing makes them now and nothing counts them, but old ones stay in the
 // document so older phones still merge it. Only the definition is stored;
-// what is owned is computed.
+// what is owned is computed. An optional order places a checklist among the
+// checklists, and a set or artist goal among the goals (js/reorder.js).
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
