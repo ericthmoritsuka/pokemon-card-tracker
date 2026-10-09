@@ -236,7 +236,8 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	// What the owner's copy is, for "your copy is Holo": the finish shown
 	// when a copy truly is of it, else the finish of the copies the card does
 	// not list (monprice's word, such as a "Holo" on a card listed only as
-	// Normal), else null when no copy is in question.
+	// Normal), else null when no copy is in question or its finish is not
+	// known.
 	function copyFinish() {
 		const owned = selected ? ownedOf(selected) : [];
 
@@ -252,7 +253,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 		const names = [...new Set(loose.map((entry) => entry.finish_raw).filter(Boolean).map(finishLabel))];
 
-		return names.length ? names.join(' or ') : 'of a finish not set';
+		return names.length ? names.join(' or ') : null;
 	}
 
 	// The prices a market row shows, and the note that says whose they are
