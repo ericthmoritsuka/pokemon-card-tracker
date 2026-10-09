@@ -580,7 +580,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.check('#rule-kind input[value="checklist"]');
 		await page.selectOption('#rule-list', 'list-1');
 		await page.click('.binder-preset[data-preset="4-pocket"]');
-		await page.waitForFunction(() => /4 pockets \(3 with a card you own\): 1 page of 2 × 2\./.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /4 pockets \(3 with a card you own\): 1 page of 2 × 2\./.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.screenshot({fullPage: true, path: `${SHOTS}/form-360.png`});
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
@@ -647,7 +647,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 			});
 		});
 		await page.click(`.binder-cover[data-binder="${made.id}"]`);
-		await page.waitForFunction(() => /1 pocket added \(Charizard\); 1 pocket filled with a card you own now \(Pikachu\)\./.test(document.getElementById('binder-list-note').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /1 pocket added \(Charizard\); 1 pocket filled with a card you own now \(Pikachu\)\./.test((document.getElementById('binder-list-note') || {}).textContent), null, {timeout: 15000});
 		await waitForPocket(page, spreadPocket(1, 3), {item: 'pokemon', kind: 'want', label: '#006 Charizard'});
 		await waitForPocket(page, spreadPocket(1, 1), {picked: 'true'});
 		doc = await localDoc(page);
@@ -660,14 +660,14 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 
 		// Refresh with nothing new says so.
 		await page.click('#binder-refresh');
-		await page.waitForFunction(() => document.getElementById('binder-list-note').textContent === 'Up to date.', null, {timeout: 15000});
+		await page.waitForFunction(() => (document.getElementById('binder-list-note') || {}).textContent === 'Up to date.', null, {timeout: 15000});
 
 		// Edit: name order and 3 x 3, with the first page shown first.
 		await page.click('#edit-binder');
 		await page.waitForSelector('#rule-section');
 		await page.selectOption('#rule-order', 'name');
 		await page.click('.binder-preset[data-preset="9-pocket-zip"]');
-		await page.waitForFunction(() => /5 pockets .*1 page of 3 × 3/.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /5 pockets .*1 page of 3 × 3/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.click('#binder-save');
 		await page.waitForSelector('#relayout-sheet[open]');
 		assert.match(await page.locator('#relayout-lines').textContent(), /5 pockets on 1 page of 3 × 3, was 2 pages of 2 × 2\..*picked by hand stay/);
@@ -675,7 +675,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.match(await page.locator('#relayout-preview .pocket').first().getAttribute('aria-label'), /^Bulbasaur: Test Sprout ex/);
 		await page.screenshot({path: `${SHOTS}/relayout-360.png`});
 		await page.click('#relayout-save');
-		await page.waitForFunction(() => /3 × 3 · 1 page · Test starters \(checklist\), name order/.test(document.getElementById('binder-meta').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /3 × 3 · 1 page · Test starters \(checklist\), name order/.test((document.getElementById('binder-meta') || {}).textContent), null, {timeout: 15000});
 		// Name order: Bulbasaur, Charizard, Pikachu, Squirtle, Testmon 4.
 		await waitForPocket(page, spreadPocket(1, 3), {label: 'Pikachu: Test Spark'});
 		doc = await localDoc(page);
@@ -705,7 +705,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.equal(await page.locator('#rule-kind input:checked').getAttribute('value'), 'goal');
 		await page.selectOption('#rule-order', 'set');
 		await page.click('.binder-preset[data-preset="4-pocket"]');
-		await page.waitForFunction(() => /4 pockets \(3 with a card you own\)/.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /4 pockets \(3 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
 		await waitForPocket(page, spreadPocket(1, 4), {item: 'card', kind: 'want', label: 'Test Spark, not owned yet'});
@@ -713,7 +713,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await openPage(page, 1);
 		await page.click(zoomPocket(4));
 		await page.click('#list-wish');
-		await page.waitForFunction(() => document.getElementById('list-wish').textContent === 'On your wishlist', null, {timeout: 10000});
+		await page.waitForFunction(() => (document.getElementById('list-wish') || {}).textContent === 'On your wishlist', null, {timeout: 10000});
 
 		let doc = await localDoc(page);
 
@@ -723,7 +723,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		// The collection: its two cards.
 		await page.goto(url('binders/new/collection/col-1'));
 		await page.waitForSelector('#rule-section');
-		await page.waitForFunction(() => /2 pockets \(2 with a card you own\)/.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /2 pockets \(2 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
 		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Test Ember'});
@@ -734,7 +734,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.check('#new-binder-list');
 		await page.check('#rule-kind input[value="filter"]');
 		await page.selectOption('#rule-filter-type', 'Fire');
-		await page.waitForFunction(() => /^1 pocket \(1 with a card you own\)/.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => /^1 pocket \(1 with a card you own\)/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await page.fill('#binder-name', 'Fire cards');
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
@@ -778,7 +778,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await ownerPage.goto(url('binders/new/checklist/list-1'));
 		await ownerPage.waitForSelector('#rule-section');
 		await ownerPage.click('.binder-preset[data-preset="4-pocket"]');
-		await ownerPage.waitForFunction(() => /4 pockets/.test(document.getElementById('rule-count').textContent), null, {timeout: 15000});
+		await ownerPage.waitForFunction(() => /4 pockets/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 15000});
 		await ownerPage.click('#binder-save');
 		await ownerPage.waitForSelector('#binder-spread .bs-page');
 		await openPage(ownerPage, 1);
