@@ -39,6 +39,8 @@ import {customRoute} from './custom-card.js';
 import {alikeKey, copyStepper} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {formatCount, plural} from './format.js';
+import {UNDO_MS, orderSection} from './reorder.js';
+import {toast} from './shell.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
@@ -53,6 +55,7 @@ import {
 	binderStats,
 	clearPocket,
 	cleanFields,
+	coverImageOf,
 	coverTextColor,
 	createBinder,
 	deleteBinder,
@@ -68,7 +71,10 @@ import {
 	placeStaged,
 	placements,
 	planResize,
+	reorderBinders,
+	restoreBinder,
 	slotsOf,
+	sortBinders,
 	trayOf,
 	unplaced,
 	updateBinder,
@@ -511,10 +517,30 @@ function cover(binder, stats, base) {
 function bindersScreen(root, source) {
 	let alive = true;
 
-	const heading = h('div', {class: 'view-head'}, h('h2', null, 'Binders'));
 	const body = h('div', {id: 'binders-body'});
 	const editor = h('div', {id: 'binder-editor'});
 	const newButton = source.readOnly ? null : h('button', {class: 'primary', id: 'new-binder', type: 'button'}, 'New binder');
+	// Edit order (js/reorder.js): the binders as rows to drag or move, in
+	// place of the shelf while it is open.
+	const order = source.readOnly ? null : orderSection({
+		describe: (binder) => ({detail: `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`, name: binder.name}),
+		errorText,
+		label: 'Binders',
+		onToggle: (open) => {
+			body.hidden = open;
+			newButton.hidden = open;
+			editor.hidden = open;
+		},
+		save: reorderBinders,
+		toast,
+	});
+
+	if (order) {
+		order.button.id = 'binders-order';
+		order.panel.id = 'binders-order-panel';
+	}
+
+	const heading = h('div', {class: 'view-head'}, h('h2', null, 'Binders'), order ? order.button : null);
 	let name = 'Family member';
 	// The binders shown, by id, for repainting their covers.
 	let shelf = new Map();
@@ -564,8 +590,12 @@ function bindersScreen(root, source) {
 			return;
 		}
 
-		const binders = liveBinders(data.binders).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+		const binders = sortBinders(data.binders);
 		const live = data.cards.filter(isLive);
+
+		if (order) {
+			order.set(binders);
+		}
 
 		shelf = new Map(binders.map((binder) => [binder.id, binder]));
 		sweepOnce(source);
@@ -611,7 +641,7 @@ function bindersScreen(root, source) {
 		}
 	});
 
-	root.append(...[heading, body, newButton, editor].filter(Boolean));
+	root.append(...[heading, body, order ? order.panel : null, newButton, editor].filter(Boolean));
 	load();
 
 	return () => {
@@ -1051,12 +1081,11 @@ function binderScreen(root, source, id, pageParam) {
 		});
 	}
 
+	// Deleted at once, with Undo on a toast that brings the binder back as it
+	// was: its pockets, tray, cover, and place (Eric, 2026-10-06).
 	async function remove() {
-		if (!window.confirm(`Delete ${binder.name}? Its cards stay in your collection and show as not in a binder.`)) {
-			return;
-		}
-
 		const deleting = binder;
+		let undone = false;
 
 		try {
 			await deleteBinder(deleting.id);
@@ -1068,9 +1097,32 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		// Its cover image leaves the bucket too: queued, so offline it goes
-		// when there is signal. Never waited on, and never an error here.
-		dropBinderCover(deleting);
+		// when there is signal, and the bucket file waits out a grace period
+		// that a binder brought back cancels. Never waited on, and never an
+		// error here. A cover not uploaded yet lives only on this phone, so
+		// it waits for Undo to run out first.
+		const cover = coverImageOf(deleting);
+
+		if (cover && !cover.path) {
+			setTimeout(() => {
+				if (!undone) {
+					dropBinderCover(deleting);
+				}
+			}, UNDO_MS + 1000);
+		}
+		else {
+			dropBinderCover(deleting);
+		}
+
 		go('binders');
+		toast(`Deleted ${deleting.name}.`, {
+			action: () => {
+				undone = true;
+				restoreBinder(deleting.id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`));
+			},
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
 	}
 
 	// ------------------------------------------------------- the tray

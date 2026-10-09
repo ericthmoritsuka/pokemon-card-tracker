@@ -1,0 +1,120 @@
+/* Edit order (js/reorder.js): checklists, goals, and collections on the
+   Lists tab, and binders on the Binders tab. Rows with a drag handle and
+   Move up and Move down. Uses the palette tokens from style.css, so it
+   follows the light and dark schemes and the themes. */
+
+.reorder-toggle {
+	flex: none;
+	min-height: var(--target);
+}
+
+.reorder-head {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	justify-content: space-between;
+	margin-bottom: var(--space-2);
+}
+
+.reorder-hint {
+	margin: 0;
+}
+
+.reorder-done {
+	flex: none;
+	min-height: var(--target);
+	min-width: 96px;
+}
+
+.reorder-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.reorder-row {
+	align-items: center;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	color: var(--text);
+	display: grid;
+	gap: var(--space-1);
+	grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+	min-height: 56px;
+	padding: var(--space-1) var(--space-1) var(--space-1) 0;
+	position: relative;
+	transition: transform 160ms ease;
+}
+
+.reorder-dragging .reorder-row.dragging {
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+	transition: none;
+	z-index: 2;
+}
+
+/* The handle takes the gesture alone, so the rest of the row scrolls. */
+.reorder-handle {
+	align-items: center;
+	align-self: stretch;
+	cursor: grab;
+	display: flex;
+	justify-content: center;
+	touch-action: none;
+	user-select: none;
+}
+
+.reorder-dragging .reorder-handle {
+	cursor: grabbing;
+}
+
+/* Six dots: one dot gradient, repeated two across and three down. */
+.reorder-grip {
+	background:
+		radial-gradient(circle, var(--muted) 1.6px, transparent 2px) 0 0 / 8px 8px;
+	display: block;
+	height: 24px;
+	width: 16px;
+}
+
+.reorder-text {
+	display: grid;
+	min-width: 0;
+}
+
+.reorder-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.reorder-detail {
+	color: var(--muted);
+	font: var(--type-small);
+	overflow-wrap: anywhere;
+}
+
+.reorder-up,
+.reorder-down {
+	font-size: 1.125rem;
+	min-height: 44px;
+	min-width: 44px;
+	padding: 0;
+}
+
+.reorder-up:disabled,
+.reorder-down:disabled {
+	opacity: 0.35;
+}
+
+.reorder-status {
+	margin: var(--space-2) 0 0;
+	min-height: 1.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.reorder-row {
+		transition: none;
+	}
+}

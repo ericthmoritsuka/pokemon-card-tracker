@@ -16,6 +16,8 @@ import {goalsSection} from './goals-view.js';
 import {isGoal, listGoals} from './goals.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
+import {UNDO_MS, orderSection} from './reorder.js';
+import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
 import {valueButton} from './value-sheet.js';
 import {
@@ -33,8 +35,11 @@ import {
 	progress,
 	regionById,
 	renameChecklist,
+	reorderGoals,
 	resolveOwned,
+	restoreGoal,
 	setDexList,
+	sortChecklists,
 	spriteUrl,
 } from './checklists.js';
 
@@ -332,6 +337,27 @@ function listsScreen(root, source) {
 	const heading = h('div', {class: 'view-head'}, h('h2', null, 'Lists'));
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'lists-status'});
 	const body = h('div', {id: 'lists-body'});
+	// Edit order (js/reorder.js): the checklists as rows to drag or move,
+	// in place of the tiles while it is open.
+	const order = source.readOnly ? null : orderSection({
+		describe: (goal) => ({detail: describe(goal), name: goal.name}),
+		errorText,
+		label: 'Checklists',
+		onToggle: (open) => {
+			body.hidden = open;
+		},
+		save: reorderGoals,
+		toast,
+	});
+	const listsHead = h('div', {class: 'lists-head', hidden: true, id: 'lists-head'},
+		h('h3', null, 'Checklists'),
+		order ? order.button : null
+	);
+
+	if (order) {
+		order.button.id = 'lists-order';
+		order.panel.id = 'lists-order-panel';
+	}
 	const adder = source.readOnly ? null : addPanel();
 	// Set and artist goals (js/goals-view.js).
 	const goals = goalsSection({base: source.userId ? `family/${encodeURIComponent(source.userId)}/goals` : 'goals', readOnly: source.readOnly});
@@ -354,6 +380,12 @@ function listsScreen(root, source) {
 	}
 
 	function draw(goals, byDex) {
+		listsHead.hidden = !goals.length;
+
+		if (order) {
+			order.set(goals);
+		}
+
 		if (!goals.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state'},
 				h('p', {class: 'big'}, 'No lists yet.'),
@@ -365,9 +397,7 @@ function listsScreen(root, source) {
 			return;
 		}
 
-		const sorted = [...goals].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-
-		body.replaceChildren(h('div', {class: 'list-grid'}, sorted.map((goal) => tile(goal, byDex))));
+		body.replaceChildren(h('div', {class: 'list-grid'}, sortChecklists(goals).map((goal) => tile(goal, byDex))));
 	}
 
 	async function load({force = false} = {}) {
@@ -544,7 +574,7 @@ function listsScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, body, goals.element, adder].filter(Boolean));
+	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, listsHead, body, order ? order.panel : null, goals.element, adder].filter(Boolean));
 	load();
 
 	return () => {
@@ -756,18 +786,23 @@ function checklistScreen(root, source, id) {
 			}
 		});
 
+		// Deleted at once, with Undo on a toast that brings the list back as
+		// it was, in its place (Eric, 2026-10-06).
 		remove.addEventListener('click', async () => {
-			if (!window.confirm(`Delete "${goal.name}"? Your cards stay as they are.`)) {
-				return;
-			}
-
 			// Leaving: the save's change event must not redraw this list as
 			// "not here" on the way out.
 			saving++;
 
 			try {
+				const {name} = goal;
+
 				await deleteChecklist(id);
 				go('lists');
+				toast(`Deleted ${name}.`, {
+					action: () => restoreGoal(id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`)),
+					actionLabel: 'Undo',
+					timeout: UNDO_MS,
+				});
 			}
 			catch (err) {
 				saving--;

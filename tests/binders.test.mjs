@@ -842,6 +842,12 @@ async function device(fake, name, {serviceWorkers = 'block'} = {}) {
 	const net = {offline: false};
 
 	await fakeServices(context, counts, net);
+	// css/reorder.css, until index.html links it (the integration report).
+	await context.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+		if (!document.querySelector('link[href$="css/reorder.css"]')) {
+			document.head.append(Object.assign(document.createElement('link'), {href: '/pokemon-card-tracker/css/reorder.css', rel: 'stylesheet'}));
+		}
+	}));
 
 	if (fake) {
 		await fake.attach(context, name);
@@ -1263,8 +1269,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		net.offline = false;
 		await context.setOffline(false);
 
-		// Delete: a tombstone stays, and every copy is unplaced again.
-		page.once('dialog', (dialog) => dialog.accept());
+		// Delete, at once with no question: a tombstone stays, and every copy
+		// is unplaced again.
+		const kept = (await localDoc(page)).binders[0];
+
 		await page.click('#delete-binder');
 		await page.waitForURL(/\/binders$/);
 		await page.waitForSelector('.empty-state');
@@ -1272,12 +1280,77 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		doc = await localDoc(page);
 		assert.equal(doc.binders.length, 1);
 		assert.ok(doc.binders[0].deleted_at, 'deleted softly');
+		await page.locator('.toast:has-text("Deleted Gens 1 and 2")').waitFor();
+		await page.screenshot({path: '/tmp/binders-deleted-undo.png'});
+
+		// Undo brings it back as it was, every pocket in place.
+		await page.click('.toast button:has-text("Undo")');
+		await page.waitForSelector('.binder-cover');
+		doc = await localDoc(page);
+		assert.equal(doc.binders[0].deleted_at, null);
+		assert.deepEqual(doc.binders[0].slots, kept.slots);
+		assert.equal(doc.binders[0].name, kept.name);
+
+		// And deleted again.
+		await page.click('.binder-cover');
+		await page.waitForSelector('#delete-binder');
+		await page.click('#delete-binder');
+		await page.waitForURL(/\/binders$/);
+		await page.waitForSelector('.empty-state');
+		assert.ok((await localDoc(page)).binders[0].deleted_at, 'deleted again');
 
 		// The other screens still open.
 		await page.click('.tabs a[data-tab="cards"]');
 		await page.waitForSelector('#cards-summary');
 		await page.click('.tabs a[data-tab="lists"]');
 		await page.waitForSelector('h2');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Edit order moves a binder on the shelf; the order is saved and a new binder goes last', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS), RECORDS);
+		await page.evaluate(async () => {
+			const {createBinder} = await import('/pokemon-card-tracker/js/binders.js');
+
+			for (const name of ['Kanto', 'Johto', 'Trades']) {
+				await createBinder({cols: 3, cover_color: '#1d2e60', name, notes: '', page_count: 10, rows: 3});
+			}
+		});
+		await page.click('.tabs a[data-tab="binders"]');
+		await page.waitForFunction(() => document.querySelectorAll('.binder-cover').length === 3);
+		assert.deepEqual(await page.locator('.binder-cover .binder-name').allTextContents(), ['Kanto', 'Johto', 'Trades']);
+
+		await page.click('#binders-order');
+		await page.waitForSelector('#binders-order-panel .reorder-row');
+		assert.equal(await page.locator('#binders-body').isHidden(), true);
+		assert.equal(await page.locator('#new-binder').isHidden(), true);
+		assert.equal(await page.locator('#binders-order-panel .reorder-detail').first().textContent(), '3 × 3 · 10 pages');
+		await page.click('button[aria-label="Move Trades up"]');
+		await page.click('button[aria-label="Move Trades up"]');
+		await page.waitForFunction(() => document.querySelector('.reorder-status').textContent === 'Trades moved to 1 of 3.');
+		await page.waitForSelector('.toast:has-text("Moved Trades.")');
+		await page.waitForTimeout(300);
+		await page.screenshot({path: '/tmp/binders-order.png'});
+		await page.click('#binders-order-panel .reorder-done');
+		await page.waitForSelector('#binders-body:not([hidden])');
+		await page.waitForFunction(() => [...document.querySelectorAll('.binder-cover .binder-name')].map((node) => node.textContent).join() === 'Trades,Kanto,Johto');
+
+		// Saved: the order holds after a reload, and a new binder goes last.
+		await page.reload();
+		await page.waitForFunction(() => document.querySelectorAll('.binder-cover').length === 3);
+		assert.deepEqual(await page.locator('.binder-cover .binder-name').allTextContents(), ['Trades', 'Kanto', 'Johto']);
+		await page.evaluate(async () => {
+			const {createBinder} = await import('/pokemon-card-tracker/js/binders.js');
+
+			await createBinder({cols: 3, cover_color: '#1d2e60', name: 'Another', notes: '', page_count: 10, rows: 3});
+		});
+		await page.waitForFunction(() => document.querySelectorAll('.binder-cover').length === 4);
+		assert.deepEqual(await page.locator('.binder-cover .binder-name').allTextContents(), ['Trades', 'Kanto', 'Johto', 'Another']);
+		await page.screenshot({path: '/tmp/binders-ordered.png'});
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
@@ -1765,7 +1838,6 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.goto(url(`binders/${binder.id}`));
 		await page.waitForFunction(() => document.getElementById('binder-spread')?.dataset.coverImage === 'true');
 		await context.setOffline(true);
-		page.once('dialog', (dialog) => dialog.accept());
 		await page.click('#delete-binder');
 		await page.waitForURL(/\/binders$/);
 		await page.waitForSelector('.empty-state');
@@ -1871,7 +1943,6 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// The phone deletes the binder; the tablet's next sync drops its copy.
 		await phone.page.goto(url(`binders/${binder.id}`));
 		await phone.page.waitForSelector('#delete-binder');
-		phone.page.once('dialog', (dialog) => dialog.accept());
 		await phone.page.click('#delete-binder');
 		await phone.page.waitForURL(/\/binders$/);
 		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/sync.js')).syncNow());

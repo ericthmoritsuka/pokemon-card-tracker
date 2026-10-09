@@ -127,6 +127,13 @@ async function phone() {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: PHONE});
 	const seen = {graphql: [], liga: [], rest: [], supabase: []};
 
+	// css/reorder.css, until index.html links it (the integration report).
+	await context.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+		if (!document.querySelector('link[href$="css/reorder.css"]')) {
+			document.head.append(Object.assign(document.createElement('link'), {href: '/pokemon-card-tracker/css/reorder.css', rel: 'stylesheet'}));
+		}
+	}));
+
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await context.route(/ligapokemon\.com\.br/, (route) => {
 		seen.liga.push(route.request().url());
@@ -349,6 +356,49 @@ describe('set goals', () => {
 		await page.waitForURL(/\/lists$/);
 		await page.waitForSelector('#goals-empty');
 		assert.equal(await page.locator('#goals-list .goal-tile').count(), 0);
+
+		// Undo on the toast brings it back as it was, languages and all.
+		await page.click('.toast:has-text("Deleted Numbered run") button:has-text("Undo")');
+		await page.waitForSelector('#goals-list .goal-tile');
+		assert.equal(await page.locator('#goals-list .list-name').textContent(), 'Numbered run');
+		await page.click('#goals-list .goal-tile');
+		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '1 of 4');
+
+		await done();
+	});
+
+	test('goals keep the order set with Edit order, apart from the checklists', async () => {
+		const {done, page} = await phone();
+
+		await page.goto(url('lists'));
+		await page.waitForSelector('#goals-section');
+		await page.evaluate(async () => {
+			const {createGoal} = await import('/pokemon-card-tracker/js/goals.js');
+
+			await createGoal({kind: 'artist', target: 'Aiko Testa'});
+			await createGoal({kind: 'artist', target: 'Kenji Test'});
+		});
+		await page.waitForFunction(() => document.querySelectorAll('#goals-list .goal-tile').length === 2);
+		assert.deepEqual(await page.locator('#goals-list .list-name').allTextContents(), ['Aiko Testa', 'Kenji Test']);
+		assert.equal(await page.locator('#lists-order').isHidden(), true, 'no checklists: nothing to order there');
+
+		await page.click('#goals-order');
+		await page.waitForSelector('#goals-order-panel .reorder-row');
+		assert.equal(await page.locator('#goals-list').isHidden(), true);
+		assert.equal(await page.locator('#goals-new').isHidden(), true);
+		await page.click('button[aria-label="Move Kenji Test up"]');
+		await page.waitForFunction(() => [...document.querySelectorAll('#goals-order-panel .reorder-name')].map((node) => node.textContent).join() === 'Kenji Test,Aiko Testa');
+		await page.waitForSelector('.toast:has-text("Moved Kenji Test.")');
+		await page.waitForTimeout(300);
+		await page.screenshot({path: `${SHOTS}/goals-order.png`});
+		await page.click('#goals-order-panel .reorder-done');
+		await page.waitForSelector('#goals-list:not([hidden])');
+		assert.deepEqual(await page.locator('#goals-list .list-name').allTextContents(), ['Kenji Test', 'Aiko Testa']);
+
+		// Reloaded, the order holds.
+		await page.reload();
+		await page.waitForFunction(() => document.querySelectorAll('#goals-list .goal-tile').length === 2);
+		assert.deepEqual(await page.locator('#goals-list .list-name').allTextContents(), ['Kenji Test', 'Aiko Testa']);
 
 		await done();
 	});

@@ -13,14 +13,16 @@
 // with no card to show for it is a "trust me", and a stray tap made one):
 // nothing makes them now and nothing counts them, but old ones stay in the
 // document so older phones still merge it. Only the definition is stored;
-// what is owned is computed.
+// what is owned is computed. An optional order places a checklist among the
+// checklists, and a set or artist goal among the goals (js/reorder.js).
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
 import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {nextStamp, stampEntry} from './merge.js';
+import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
 import {fetchJson, graphql} from './tcgdex.js';
 
 export const MAX_DEX = 1025;
@@ -132,10 +134,23 @@ async function saveGoal(entry) {
 	return entry;
 }
 
+async function saveGoals(entries) {
+	if (entries.length) {
+		await mergeIntoLocal({goals: entries});
+		schedulePush();
+	}
+
+	return entries;
+}
+
+// The checklists in the order the person set (js/reorder.js), the ones
+// with no order last, oldest first.
+export const sortChecklists = (goals) => sortByOrder(goals, byCreated);
+
 export async function listChecklists() {
 	const doc = await loadDocument();
 
-	return doc.goals.filter((goal) => isLive(goal) && isChecklist(goal));
+	return sortChecklists(doc.goals.filter((goal) => isLive(goal) && isChecklist(goal)));
 }
 
 export async function getChecklist(id) {
@@ -191,7 +206,32 @@ const changeChecklist = (id, change) => serial(async () => {
 // new goal entry saved in turn with the other changes.
 export const changeGoal = changeChecklist;
 
-export const saveNewGoal = (entry) => serial(() => saveGoal(entry));
+// A new goal entry goes to the end of its section (the checklists, or the
+// set and artist goals: isPart tells them apart): one more than the highest
+// order there, or none while the section has none (js/reorder.js).
+export const saveNewGoal = (entry, isPart = () => true) => serial(async () => {
+	const doc = await loadDocument();
+	const order = orderForNew((doc.goals || []).filter((goal) => goal && isLive(goal) && isPart(goal)));
+
+	return saveGoal(order === null ? entry : {...entry, order});
+});
+
+// Writes new orders, [{id, order}], for checklists and goals alike (one
+// list in the document), and resolves to the saved entries.
+export const reorderGoals = (changes) => serial(async () => saveGoals(withOrders((await loadDocument()).goals, changes)));
+
+// Brings a deleted checklist or goal back on purpose (js/merge.js
+// restoreEntry), for Undo after a delete: every field as it was, its order
+// too, so it returns to its place.
+export const restoreGoal = (id) => serial(async () => {
+	const goal = ((await loadDocument()).goals || []).find((one) => one && one.id === id);
+
+	if (!goal || !goal.deleted_at) {
+		return goal || null;
+	}
+
+	return saveGoal(restoreEntry(goal));
+});
 
 // kind region: {target}; custom_pokemon: {dex_list}; every_pokemon: nothing.
 export async function createChecklist({dex_list = null, kind, name, target = null}) {
@@ -211,7 +251,7 @@ export async function createChecklist({dex_list = null, kind, name, target = nul
 
 	const at = nowIso();
 
-	return serial(() => saveGoal({
+	return saveNewGoal({
 		created_at: at,
 		deleted_at: null,
 		dex_list: list,
@@ -222,7 +262,7 @@ export async function createChecklist({dex_list = null, kind, name, target = nul
 		name: String(name || '').trim() || defaultName(kind, target),
 		target: kind === 'region' ? target : null,
 		updated_at: at,
-	}));
+	}, isChecklist);
 }
 
 export function defaultName(kind, target) {
@@ -258,7 +298,7 @@ export const setDexList = (id, dexList) => changeChecklist(id, (goal) => {
 });
 
 // Soft delete: the entry stays as a tombstone, so a phone holding an older
-// copy cannot bring the list back.
+// copy cannot bring the list back. Undo is restoreGoal.
 export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 	goal.deleted_at = nowIso();
 });

@@ -14,15 +14,19 @@ const {
 	collectionEntries,
 	deletedCollection,
 	editedCollection,
+	isLeftOut,
 	isMember,
 	itemFor,
+	leftOut,
 	memberIds,
 	newCollection,
 	ruleMatches,
 	ruleText,
 	sortCollections,
+	withLeftOut,
 	withMembers,
 	withoutMembers,
+	withPutBack,
 } = await import('../js/collections.js');
 
 const MIN = 60 * 1000;
@@ -222,4 +226,106 @@ test('mergeDocuments merges the collections list like the others', () => {
 	const merged = mergeDocuments(doc([a]), doc([b]));
 
 	assert.deepEqual(merged.collections.map((item) => item.id).sort(), ['col-1', 'col-2']);
+});
+
+// ------------------------------------------------ left out of a rule
+
+const starRule = (minute = 0) => newCollection({kind: 'rule', name: 'Star', rule: {rarity: STAR}}, at(minute), 'col-star');
+
+const heldIds = (collection, cards = CARDS) => collectionEntries(collection, cards, INDEX).map((entry) => entry.id);
+
+test('a copy left out of a rule stays out, and the rule still adds new matches', () => {
+	const out = withLeftOut(starRule(), ['c-2'], T0 + MIN);
+
+	assert.deepEqual(heldIds(out), ['c-3']);
+	assert.ok(isLeftOut(out, 'c-2'));
+	assert.deepEqual([...leftOut(out, CARDS, INDEX)], [['c-2', ['c-2']]]);
+	assert.ok(validVersion(out), 'stamped field by field');
+
+	// A Charizard SIR bought later joins by itself.
+	assert.deepEqual(heldIds(out, [...CARDS, copy('c-9', 'tsa1-006')]), ['c-3', 'c-9']);
+
+	// Leaving it out again changes nothing.
+	assert.equal(withLeftOut(out, ['c-2'], T0 + (2 * MIN)), out);
+});
+
+test('a put back copy is in again, after the leave out whatever the clock says', () => {
+	const out = withLeftOut(starRule(), ['c-2', 'c-3'], T0 + (5 * MIN));
+	const back = withPutBack(out, ['c-2'], T0);
+
+	assert.deepEqual(heldIds(back), ['c-2']);
+	assert.ok(Date.parse(back.entry_ids['c-2']) > Date.parse(out.removed_ids['c-2']));
+	assert.deepEqual(Object.keys(back.removed_ids), ['c-3']);
+	assert.equal(withPutBack(back, ['c-2', 'c-4']), back, 'nothing else was out');
+	assert.deepEqual(Object.keys(withPutBack(back, ['c-3'], T0).removed_ids || {}), []);
+});
+
+test('a copy left out that no longer fits the rule, or was removed, is not counted', () => {
+	const out = withLeftOut(starRule(), ['c-2', 'c-5', 'c-1'], T0 + MIN);
+
+	assert.deepEqual([...leftOut(out, CARDS, INDEX).keys()], ['c-2'], 'c-5 is deleted, c-1 is not a Star card');
+	assert.deepEqual([...leftOut(hand(), CARDS, INDEX).keys()], [], 'a hand-picked collection leaves nothing out');
+});
+
+test('two phones leaving out different cards both keep theirs', () => {
+	const base = starRule();
+	const phoneA = withLeftOut(base, ['c-2'], T0 + MIN);
+	const phoneB = withLeftOut(base, ['c-3'], T0 + (2 * MIN));
+
+	for (const merged of [mergeEntries([phoneA], [phoneB])[0], mergeEntries([phoneB], [phoneA])[0]]) {
+		assert.deepEqual(heldIds(merged), []);
+		assert.deepEqual(Object.keys(merged.removed_ids).sort(), ['c-2', 'c-3']);
+	}
+});
+
+test('a put back on one phone sticks over the older leave out the other phone still holds', () => {
+	const out = withLeftOut(starRule(), ['c-2', 'c-3'], T0 + MIN);
+	const back = withPutBack(out, ['c-2'], T0 + (3 * MIN));
+	const renamed = editedCollection(out, {name: 'Shiny'}, T0 + (4 * MIN));
+
+	for (const merged of [mergeEntries([back], [renamed])[0], mergeEntries([renamed], [back])[0]]) {
+		assert.deepEqual(heldIds(merged), ['c-2'], 'c-2 back in, c-3 still out');
+		assert.equal(merged.name, 'Shiny', 'the rename on the other phone survives');
+	}
+
+	// And a leave out made later than the put back wins in turn.
+	const again = withLeftOut(back, ['c-2'], T0 + (6 * MIN));
+
+	assert.deepEqual(heldIds(mergeEntries([back], [again])[0]), []);
+});
+
+test('a leave out reaches a phone still on an older app, which carries it along', () => {
+	const out = withLeftOut(starRule(), ['c-2'], T0 + MIN);
+	// An older app renames by spreading the entry, with no new field stamps.
+	const {field_stamps: _stamps, ...older} = {...out, name: 'Old phone', updated_at: at(5)};
+	const merged = mergeEntries([older], [withLeftOut(out, ['c-3'], T0 + (2 * MIN))])[0];
+
+	assert.equal(merged.name, 'Old phone');
+	assert.deepEqual(Object.keys(merged.removed_ids).sort(), ['c-2', 'c-3'], 'both leave outs kept');
+	assert.deepEqual(heldIds(merged), []);
+});
+
+test('a copy left out and folded into another by the merge keeps the survivor out, until put back', () => {
+	const cards = [copy('old', 'tsa1-006', {deleted_at: at(3), merged_into: 'new'}), copy('new', 'tsa1-006')];
+	const out = withLeftOut(starRule(), ['old'], T0 + MIN);
+
+	assert.deepEqual(heldIds(out, cards), []);
+	assert.deepEqual([...leftOut(out, cards, INDEX)], [['new', ['old']]]);
+
+	const back = withPutBack(out, leftOut(out, cards, INDEX).get('new'), T0 + (2 * MIN));
+
+	assert.deepEqual(heldIds(back, cards), ['new']);
+});
+
+// ----------------------------------------------------------- order
+
+test('collections follow their order; ones with none go last, by name', () => {
+	const list = [
+		newCollection({name: 'beta'}, at(0), 'b'),
+		{...newCollection({name: 'Zed'}, at(1), 'z'), order: 2},
+		newCollection({name: 'Alpha'}, at(2), 'a'),
+		{...newCollection({name: 'Mid'}, at(3), 'm'), order: 1},
+	];
+
+	assert.deepEqual(sortCollections(list).map((item) => item.id), ['m', 'z', 'a', 'b']);
 });

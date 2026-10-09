@@ -29,6 +29,7 @@
 
 import {artistKey, catalogLanguage, compareNumbers, illustratorCards, savedCardRecords, setCards, setDetail} from './catalog.js';
 import {changeGoal, getGoalEntry, listLanguages, namesLanguages, saveNewGoal} from './checklists.js';
+import {byCreated, sortByOrder} from './reorder.js';
 import {isLive, loadDocument, newId, nowIso} from './collection.js';
 import {catalogsFor, copiesByPrint, internationalSets, isPocket, printKey} from './pokemon-cards.js';
 
@@ -374,10 +375,14 @@ export function artistSuggestions(records) {
 
 // ------------------------------------------------------------- storing
 
+// The goals in the order the person set (js/reorder.js), the ones with no
+// order last, oldest first.
+export const sortGoals = (goals) => sortByOrder(goals, byCreated);
+
 export async function listGoals() {
 	const doc = await loadDocument();
 
-	return doc.goals.filter((goal) => isLive(goal) && isGoal(goal));
+	return sortGoals(doc.goals.filter((goal) => isLive(goal) && isGoal(goal)));
 }
 
 export async function getGoal(id) {
@@ -422,7 +427,7 @@ export async function createGoal({catalog = 'international', kind, level = null,
 		name: String(name || '').trim() || clean,
 		target: clean,
 		updated_at: at,
-	});
+	}, isGoal);
 }
 
 export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {

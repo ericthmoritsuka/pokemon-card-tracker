@@ -14,7 +14,7 @@
 // sheet card detail opens.
 
 import {currentUser} from './auth.js';
-import {cardIndex, savedCardRecords} from './catalog.js';
+import {cardImage, cardIndex, catalogLanguage, indexKey, languageLabel, savedCardRecords} from './catalog.js';
 import {cardsScreen} from './cards-view.js';
 import {
 	NAME_MAX,
@@ -24,28 +24,31 @@ import {
 	cleanRule,
 	collectionEntries,
 	createCollection,
+	byName,
 	fillDetails,
 	isMember,
 	itemFor,
-	listCollections,
+	leaveOut,
+	leftOut,
 	loadCollections,
+	putBack,
 	removeCollection,
 	removeFromCollection,
+	reorderCollections,
 	restoreCollection,
 	ruleMatches,
 	ruleText,
 	sortCollections,
 	updateCollection,
 } from './collections.js';
-import {isLive, onChange} from './collection.js';
+import {isLive, onChange, sourceNames} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {REGION_OPTIONS, filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
 import {formatBrl, listStats, savedRates} from './prices.js';
+import {UNDO_MS, orderSection} from './reorder.js';
 import {toast} from './shell.js';
-
-const UNDO_MS = 8000;
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -417,9 +420,32 @@ function listScreen(root, {emptyText, newButton, read, userId, watch}) {
 	const list = h('ul', {class: 'col-list', id: 'collections-list'});
 	const status = h('p', {class: 'muted', id: 'collections-status', role: 'status'});
 	const empty = h('div', {class: 'card empty-state', hidden: true, id: 'collections-empty'}, emptyText);
-	const body = h('div', null, status, list, empty);
+	// Edit order (js/reorder.js), on your own list: the collections as rows
+	// to drag or move, in place of the list while it is open.
+	const order = userId ? null : orderSection({
+		describe: (collection) => ({detail: kindText(collection), name: collection.name}),
+		errorText,
+		fallback: byName,
+		label: 'Collections',
+		onToggle: (open) => {
+			list.hidden = open;
 
-	root.append(...[heading(userId ? 'Family collections' : 'Collections', userId), newButton ? h('div', {class: 'col-new-row'}, newButton) : null, body].filter(Boolean));
+			if (newButton) {
+				newButton.hidden = open;
+			}
+		},
+		save: reorderCollections,
+		toast,
+	});
+
+	if (order) {
+		order.button.id = 'collections-order';
+		order.panel.id = 'collections-order-panel';
+	}
+
+	const body = h('div', null, status, list, order ? order.panel : null, empty);
+
+	root.append(...[heading(userId ? 'Family collections' : 'Collections', userId), newButton ? h('div', {class: 'col-new-row'}, newButton, order ? order.button : null) : null, body].filter(Boolean));
 
 	async function load() {
 		const run = ++loadRun;
@@ -465,6 +491,10 @@ function listScreen(root, {emptyText, newButton, read, userId, watch}) {
 	}
 
 	function draw(data, saved) {
+		if (order) {
+			order.set(data.collections);
+		}
+
 		list.replaceChildren(...rowsFor(data.collections, {cards: data.cards, index: data.index, saved, userId}));
 	}
 
@@ -531,6 +561,239 @@ export function familyCollectionsView(root, {userId}) {
 	return stop;
 }
 
+// ------------------------------------------- cards left out of a rule
+//
+// A rule collection takes every copy that fits, and any of them can be left
+// out by hand (Eric, 2026-10-06): from the collection's own screen ("Leave
+// cards out", a sheet of the cards it holds) or from card detail's Add to
+// collection sheet. "N left out" opens the ones left out, to put back. Each
+// change is saved at once with Undo on a toast.
+
+// What a row shows of a card: its name, set, number, and image, from the
+// card index (or the names saved on the copy for a card the catalog lacks).
+function cardLabel(entry, index) {
+	const catalog = entry.catalog || 'international';
+	const record = index.get(indexKey(catalog, entry.card_id)) || null;
+	const localizations = (record && record.localizations) || {};
+	const local = localizations[entry.language] || localizations[catalogLanguage(catalog)] || Object.values(localizations)[0] || null;
+	const source = sourceNames(entry, record);
+
+	return {
+		image: local && local.image ? cardImage(local.image, 'low') : null,
+		name: (source && source.name) || (local && local.name) || entry.name_local || entry.card_id,
+		number: (record && record.collector_number) || entry.number_local || null,
+		setName: (source && source.setName) || (local && local.set_name) || entry.set_name_local || null,
+	};
+}
+
+// Copies grouped by card, in name order: [{key, entries, label}].
+function cardGroups(entries, index) {
+	const groups = new Map();
+
+	for (const entry of entries) {
+		const key = `${entry.catalog || 'international'}|${entry.card_id}`;
+
+		if (!groups.has(key)) {
+			groups.set(key, {entries: [], key, label: cardLabel(entry, index)});
+		}
+
+		groups.get(key).entries.push(entry);
+	}
+
+	return [...groups.values()].sort((a, b) => a.label.name.localeCompare(b.label.name) || a.key.localeCompare(b.key));
+}
+
+const groupDetail = (group) => [
+	group.label.setName,
+	group.label.number ? `#${group.label.number}` : null,
+	[...new Set(group.entries.map((entry) => languageLabel(entry.language)))].join(', '),
+	group.entries.length > 1 ? plural(group.entries.length, 'copy', 'copies') : null,
+].filter(Boolean).join(' · ');
+
+// A sheet of cards, each row with one button. read() resolves to the groups
+// to show now; act(group) does the row's change and resolves to the words
+// for the toast and its Undo, {text, undo}. bulk, when given, is a button
+// above the rows for all of them at once: {label, act(groups)}.
+async function openCardsSheet({actionLabel, bulk = null, empty, id, intro, read, act, title}) {
+	const opener = document.activeElement;
+	const note = h('p', {class: 'muted', id: `${id}-note`, role: 'status'});
+	const search = h('input', {'aria-label': 'Find a card', autocomplete: 'off', class: 'search col-find', hidden: true, id: `${id}-find`, placeholder: 'Find a card', type: 'search'});
+	const list = h('ul', {class: 'col-cards', id: `${id}-list`});
+	const all = bulk ? h('button', {class: 'small col-cards-all', hidden: true, id: `${id}-all`, type: 'button'}, bulk.label) : null;
+	const dialog = h('dialog', {'aria-labelledby': `${id}-title`, class: 'sheet collection-sheet', id},
+		h('div', {class: 'sheet-head'},
+			h('h2', {id: `${id}-title`}, title),
+			h('button', {class: 'small', onclick: () => dialog.close(), type: 'button'}, 'Done')
+		),
+		h('p', {class: 'muted'}, intro),
+		all,
+		search,
+		list,
+		note
+	);
+	let groups = [];
+
+	function filter() {
+		const needle = search.value.trim().toLowerCase();
+
+		for (const row of list.children) {
+			row.hidden = Boolean(needle) && !row.dataset.name.toLowerCase().includes(needle);
+		}
+	}
+
+	async function run(work) {
+		for (const button of dialog.querySelectorAll('.col-cards button, .col-cards-all')) {
+			button.disabled = true;
+		}
+
+		try {
+			const {text, undo} = await work();
+
+			note.textContent = text;
+			toast(text, {
+				action: () => undo().catch((err) => toast(`Could not undo it. ${errorText(err)}`)),
+				actionLabel: 'Undo',
+				timeout: UNDO_MS,
+			});
+		}
+		catch (err) {
+			note.textContent = err.message || errorText(err);
+		}
+
+		await draw();
+	}
+
+	async function draw() {
+		groups = await read();
+		search.hidden = groups.length <= 8;
+
+		if (all) {
+			all.hidden = groups.length < 2;
+		}
+
+		list.replaceChildren(...groups.map((group) => {
+			const image = group.label.image
+				? h('img', {alt: '', class: 'col-card-art', decoding: 'async', loading: 'lazy', src: group.label.image})
+				: h('span', {'aria-hidden': 'true', class: 'col-card-art'});
+			const button = h('button', {'aria-label': `${actionLabel}: ${group.label.name}`, class: 'small', 'data-card': group.key, type: 'button'}, actionLabel);
+
+			button.addEventListener('click', () => run(() => act(group)));
+
+			return h('li', {class: 'col-card', 'data-name': group.label.name},
+				image,
+				h('span', {class: 'col-card-text'},
+					h('span', {class: 'col-card-name'}, group.label.name),
+					h('span', {class: 'col-card-meta'}, groupDetail(group))
+				),
+				button
+			);
+		}));
+
+		if (!groups.length) {
+			list.replaceChildren(h('li', {class: 'muted col-cards-empty'}, empty));
+		}
+
+		filter();
+	}
+
+	search.addEventListener('input', filter);
+
+	if (all) {
+		all.addEventListener('click', () => run(() => bulk.act(groups)));
+	}
+
+	dialog.addEventListener('click', (event) => {
+		if (event.target === dialog) {
+			dialog.close();
+		}
+	});
+	dialog.addEventListener('close', () => {
+		dialog.remove();
+
+		if (opener && opener.isConnected && typeof opener.focus === 'function') {
+			opener.focus();
+		}
+	});
+	document.getElementById(id)?.remove();
+	await draw();
+	document.body.append(dialog);
+	dialog.showModal();
+
+	return dialog;
+}
+
+// The collection as saved now, with the cards and the index.
+async function freshCollection(id) {
+	const data = await loadCollections();
+
+	return {...data, collection: data.collections.find((item) => item.id === id) || null};
+}
+
+const groupIds = (groups) => groups.flatMap((group) => group.entries.map((entry) => entry.id));
+
+// "Leave cards out": the cards the rule collection holds, each with Leave out.
+function openLeaveOutSheet(collection) {
+	return openCardsSheet({
+		act: async (group) => {
+			const ids = groupIds([group]);
+
+			await leaveOut(collection.id, ids);
+
+			return {text: `Left ${group.label.name} out of ${collection.name}.`, undo: () => putBack(collection.id, ids)};
+		},
+		actionLabel: 'Leave out',
+		empty: 'No cards in this collection now.',
+		id: 'leave-out-sheet',
+		intro: `The rule keeps adding new cards that fit. A card you leave out stays out until you put it back.`,
+		read: async () => {
+			const {cards, collection: now, index} = await freshCollection(collection.id);
+
+			return now ? cardGroups(collectionEntries(now, cards, index), index) : [];
+		},
+		title: 'Leave cards out',
+	});
+}
+
+// The live copies left out, grouped by card, each knowing the stored ids a
+// put back must answer.
+function leftOutGroups(collection, cards, index) {
+	const out = leftOut(collection, cards, index);
+	const live = new Map(cards.filter((entry) => entry && out.has(entry.id)).map((entry) => [entry.id, entry]));
+	const groups = cardGroups([...live.values()], index);
+
+	for (const group of groups) {
+		group.stored = group.entries.flatMap((entry) => out.get(entry.id) || []);
+	}
+
+	return groups;
+}
+
+// "N left out": the cards left out, each with Put back, and Put all back.
+function openLeftOutSheet(collection) {
+	const back = async (groups, text) => {
+		const stored = groups.flatMap((group) => group.stored);
+
+		await putBack(collection.id, stored);
+
+		return {text, undo: () => leaveOut(collection.id, stored)};
+	};
+
+	return openCardsSheet({
+		act: (group) => back([group], `Put ${group.label.name} back in ${collection.name}.`),
+		actionLabel: 'Put back',
+		bulk: {act: (groups) => back(groups, `Put ${plural(groups.length, 'card', 'cards')} back in ${collection.name}.`), label: 'Put all back'},
+		empty: 'Nothing is left out now.',
+		id: 'left-out-sheet',
+		intro: 'Cards that fit the rule but you took out by hand.',
+		read: async () => {
+			const {cards, collection: now, index} = await freshCollection(collection.id);
+
+			return now ? leftOutGroups(now, cards, index) : [];
+		},
+		title: 'Left out',
+	});
+}
+
 // ------------------------------------------------------ one collection
 
 function collectionScreen(root, {id, userId = null}) {
@@ -550,10 +813,22 @@ function collectionScreen(root, {id, userId = null}) {
 		}
 	}, type: 'button'}, 'Edit');
 	const back = h('a', {class: 'button small', 'data-link': collectionsRoute(userId), href: BASE + collectionsRoute(userId), id: 'collection-back'}, 'Collections');
-	const actions = h('div', {class: 'col-actions'}, back, edit);
+	// A rule collection's cards can be left out by hand, and put back.
+	const leave = readOnly ? null : h('button', {class: 'small', hidden: true, id: 'collection-leave-out', onclick: () => {
+		if (collection) {
+			openLeaveOutSheet(collection).catch((err) => toast(`The cards did not open. ${errorText(err)}`));
+		}
+	}, type: 'button'}, 'Leave cards out');
+	const leftButton = readOnly ? null : h('button', {class: 'small link-button', id: 'collection-left-out', onclick: () => {
+		if (collection) {
+			openLeftOutSheet(collection).catch((err) => toast(`The cards did not open. ${errorText(err)}`));
+		}
+	}, type: 'button'});
+	const leftLine = readOnly ? null : h('p', {class: 'muted col-left', hidden: true, id: 'collection-left'}, leftButton);
+	const actions = h('div', {class: 'col-actions'}, back, edit, leave);
 	const screen = h('div', {class: 'col-screen'});
 
-	root.append(actions, about, screen);
+	root.append(...[actions, about, leftLine, screen].filter(Boolean));
 
 	function describe() {
 		const title = screen.querySelector('.view-head h2');
@@ -572,6 +847,15 @@ function collectionScreen(root, {id, userId = null}) {
 
 		if (edit) {
 			edit.disabled = !collection;
+		}
+
+		if (leave) {
+			const rule = Boolean(collection) && collection.kind === 'rule';
+			const out = rule ? leftOut(collection, allCards, index).size : 0;
+
+			leave.hidden = !rule;
+			leftLine.hidden = !out;
+			leftButton.textContent = `${plural(out, 'card', 'cards')} left out`;
 		}
 	}
 
@@ -676,7 +960,9 @@ export const familyCollectionView = (root, {id, userId}) => collectionScreen(roo
 // The sheet card detail opens: tick the hand-picked collections these copies
 // belong to, or start a new one. entries are your live copies of the card;
 // a tick adds all of them and clears take them all out. Collections that fill
-// themselves are listed as read only when they hold the card.
+// themselves are listed below them when the card fits their rule, ticked
+// while they hold its copies: clearing one leaves the copies out of it, and
+// ticking it again puts them back.
 export async function openCollectionsSheet({entries, name = 'this card'}) {
 	const id = 'collections-sheet';
 	const opener = document.activeElement;
@@ -697,15 +983,56 @@ export async function openCollectionsSheet({entries, name = 'this card'}) {
 		note
 	);
 
+	// A rule collection that fits the card: ticked while it holds the card's
+	// copies, clear when they are all left out. Unticking leaves them out,
+	// ticking puts them back; the rule goes on adding other cards.
+	function ruleRow(collection, cards) {
+		const fits = entries.filter((entry) => ruleMatches(collection.rule, itemFor(entry, index.get(`${entry.catalog || 'international'}|${entry.card_id}`))));
+
+		if (!fits.length) {
+			return null;
+		}
+
+		const out = leftOut(collection, cards, index);
+		const outCount = fits.filter((entry) => out.has(entry.id)).length;
+		const box = h('input', {'data-collection': collection.id, 'data-rule': 'true', id: `col-pick-${collection.id}`, type: 'checkbox'});
+
+		box.checked = outCount === 0;
+		box.indeterminate = outCount > 0 && outCount < fits.length;
+		box.addEventListener('change', async () => {
+			box.disabled = true;
+
+			try {
+				if (box.checked) {
+					await putBack(collection.id, fits.flatMap((entry) => out.get(entry.id) || []));
+				}
+				else {
+					await leaveOut(collection.id, fits.map((entry) => entry.id));
+				}
+
+				note.textContent = box.checked ? `Back in ${collection.name}.` : `Left out of ${collection.name}. The rule still adds other cards.`;
+			}
+			catch (err) {
+				note.textContent = err.message || errorText(err);
+			}
+
+			await draw();
+		});
+
+		return h('div', {class: 'fb-check'}, box, h('label', {for: box.id}, collection.name, h('span', {class: 'col-pick-kind'}, ' · fills itself')));
+	}
+
 	async function draw() {
-		const collections = await listCollections();
+		const {cards, collections} = await loadCollections();
 		const rows = [];
 		const filling = [];
 
 		for (const collection of collections) {
 			if (collection.kind === 'rule') {
-				if (entries.some((entry) => ruleMatches(collection.rule, itemFor(entry, index.get(`${entry.catalog || 'international'}|${entry.card_id}`))))) {
-					filling.push(collection.name);
+				const row = ruleRow(collection, cards);
+
+				if (row) {
+					filling.push(row);
 				}
 
 				continue;
@@ -743,7 +1070,10 @@ export async function openCollectionsSheet({entries, name = 'this card'}) {
 		}
 
 		if (filling.length) {
-			rows.push(h('p', {class: 'muted', id: 'collections-sheet-rules'}, `Also in, by rule: ${filling.join(', ')}.`));
+			rows.push(h('div', {class: 'col-pick-rules', id: 'collections-sheet-rules'},
+				h('p', {class: 'muted'}, 'Filled by a rule. Untick to leave this card out.'),
+				...filling
+			));
 		}
 
 		list.replaceChildren(...rows);
