@@ -7,6 +7,8 @@
 //   but shows "Move closer".
 // - Q-20: opening Scan again with the card just added still in front of
 //   the camera does not add it again, unless the shutter is tapped.
+// - The continuous scanning tests (tests/scan-log-browser.test.mjs) use
+//   the same canvas camera, with a second card.
 //
 // getUserMedia is replaced by a portrait canvas stream, as in
 // tests/scan-guide-browser.test.mjs, whose scene the test sets through
@@ -26,6 +28,7 @@ const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = '/pokemon-card-tracker/';
 const CARD = 'me01-001';
+const CARD_B = 'sv03.5-025';
 const FRAME = {height: 3840, width: 2160};
 
 let harness;
@@ -43,15 +46,23 @@ after(async () => {
 
 // In the page before any script: getUserMedia answers with a portrait
 // canvas stream showing window.scene ({kind: 'table' | 'paper' | 'card',
-// size}), the card or paper placed where the guide outline is.
+// size, card: 'a' | 'b'}), the card or paper placed where the guide
+// outline is. navigator.vibrate records each buzz in window.buzzes.
 function portraitCamera({height, width}) {
 	const canvas = document.createElement('canvas');
 	const ctx = canvas.getContext('2d');
-	const card = new Image();
+	const cards = {a: new Image(), b: new Image()};
 
 	canvas.width = width;
 	canvas.height = height;
-	card.src = '/__test-card.webp';
+	cards.a.src = '/__test-card.webp';
+	cards.b.src = '/__test-card-b.webp';
+	window.buzzes = [];
+	navigator.vibrate = (pattern) => {
+		window.buzzes.push(pattern);
+
+		return true;
+	};
 	// Kept across a reload, as a card on the table would be.
 	window.scene = JSON.parse(sessionStorage.getItem('test-scene') || 'null') || {kind: 'table'};
 
@@ -67,7 +78,11 @@ function portraitCamera({height, width}) {
 			return;
 		}
 
-		const g = guide.getBoundingClientRect();
+		// The guide's layout box, not its drawn one: the capture flash
+		// scales the guide for a moment, and a real camera's picture does
+		// not follow it.
+		const stage = guide.offsetParent.getBoundingClientRect();
+		const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
 		const v = video.getBoundingClientRect();
 		const scale = Math.max(v.width / width, v.height / height);
 		const offsetX = v.left + (v.width - width * scale) / 2;
@@ -92,6 +107,8 @@ function portraitCamera({height, width}) {
 			return;
 		}
 
+		const card = cards[scene.card || 'a'];
+
 		if (card.complete) {
 			const ch = gh * scene.size;
 			const cw = ch * 63 / 88;
@@ -111,14 +128,19 @@ function portraitCamera({height, width}) {
 	navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(25);
 }
 
-async function open() {
-	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 780, width: 384}});
+async function open({record = false, viewport = {height: 780, width: 384}} = {}) {
+	const context = await browser.newContext({acceptDownloads: true, deviceScaleFactor: 2.8125, viewport});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await routeTcgdex(context);
 	await context.route('**/__test-card.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(CARD)}));
+	await context.route('**/__test-card-b.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(CARD_B)}));
 	await context.addInitScript(portraitCamera, FRAME);
+
+	if (record) {
+		await context.addInitScript(() => localStorage.setItem('card-tracker:scan-log', 'on'));
+	}
 
 	const page = await context.newPage();
 	const errors = [];

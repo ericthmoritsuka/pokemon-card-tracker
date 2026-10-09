@@ -11,12 +11,12 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast} from '../js/scan/picture.js';
+import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {colourfulness, COLOURLESS, createAutoCapture, difference, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -420,6 +420,50 @@ describe('Done and Undo', () => {
 		assert.deepEqual(S.takeUndo(session, AT), ['entry-0', 'entry-1']);
 		assert.deepEqual(S.takeUndo(session, AT), [], 'a second undo removes nothing');
 	});
+
+	test('a tray card with copies saves that many alike entries and counts them everywhere (Eric, 2026-10-09)', () => {
+		const session = S.newSession(AT, 's1');
+		const owned = S.ownedIndex([entry('e1', 'sv08.5-003')]);
+
+		scanned(session, 'sv08.5-003');
+		scanned(session, 'swsh3-102', {cand: candidate('swsh3-102', {official: '189'}), variants: SPINARAK});
+		S.setCondition(session, 'item-2', 'Lightly Played', 'hand', AT);
+		assert.equal(S.setCopies(session, 'item-2', 3, AT), 3);
+		assert.equal(S.setCopies(session, 'item-1', 40, AT), S.COPIES_MAX, 'at most COPIES_MAX');
+		assert.equal(S.setCopies(session, 'item-1', 0, AT), 1, 'at least one');
+		assert.equal('copies' in S.findItem(session, 'item-1'), false, 'one copy is not stored');
+
+		const rows = S.entriesToSave(session, owned);
+
+		assert.equal(rows.length, 4, 'one entry for the first card, three for the second');
+		assert.deepEqual(rows.slice(1).map((row) => row.itemId), ['item-2', 'item-2', 'item-2']);
+		assert.ok(rows.slice(1).every((row) => row.fields.condition === 'Lightly Played' && row.fields.variant_id === NORMAL));
+
+		const second = S.findItem(session, 'item-2');
+
+		assert.equal(S.quantity(session, second, owned), 3);
+		assert.equal(S.duplicateKind(session, second, owned), 'twice');
+
+		const summary = S.doneSummary(session, owned);
+
+		assert.equal(summary.total, 2, 'two tray cards');
+		assert.equal(summary.copies, 4);
+		assert.equal(summary.savableCopies, 4);
+		assert.equal(summary.ownedCopies, 1);
+
+		// Set for all leaves the counts alone.
+		S.setForAll(session, 'language', 'pt', {}, AT);
+		assert.equal(S.copiesOf(S.findItem(session, 'item-2')), 3);
+
+		// Kept in the draft as it is stored (JSON).
+		assert.equal(S.copiesOf(JSON.parse(JSON.stringify(S.findItem(session, 'item-2')))), 3);
+
+		const saved = S.entriesToSave(session, new Map()).map((row, i) => ({entryId: `entry-${i}`, itemId: row.itemId}));
+
+		S.afterSave(session, saved, AT);
+		assert.equal(session.lastSave.count, 4);
+		assert.equal(S.takeUndo(session, AT).length, 4, 'Undo session takes back every copy');
+	});
 });
 
 describe('binder placeholders', () => {
@@ -659,6 +703,33 @@ describe('auto-capture', () => {
 		feed(table(), 3);
 		feed(cardFrame(), 10);
 		assert.equal(fired, 2, 'taken away and back: a second capture');
+	});
+
+	test('a card swapped straight for another, with no empty frame between, is captured (Eric, 2026-10-09)', () => {
+		// A second card in the same place: a darker face, about as different
+		// as two real cards in the guide (13.9 measured).
+		const other = () => cardFrame().map((value) => (value === 220 ? 198 : value));
+		const detector = createAutoCapture();
+		let fired = 0;
+
+		const feed = (frame, times) => {
+			for (let i = 0; i < times; i++) {
+				if (detector.push(frame, presence(frame, W, H))) {
+					fired++;
+					detector.captured(frame);
+				}
+			}
+		};
+
+		const gap = difference(coarse(cardFrame()), coarse(other()));
+
+		assert.ok(gap > JUMP && gap < CHANGED, `the two cards differ by ${gap.toFixed(1)}, between JUMP and CHANGED`);
+		feed(cardFrame(), 10);
+		assert.equal(fired, 1);
+		feed(other(), 10);
+		assert.equal(fired, 2, 'the new card is taken');
+		feed(other(), 20);
+		assert.equal(fired, 2, 'and once');
 	});
 
 	test('waits while the hand moves, and while paused', () => {
@@ -1903,6 +1974,16 @@ describe('a capture with no card, and the same card again (Q-19, Q-20)', () => {
 		assert.equal(repeatOfLast(sure, null, 800), false, 'nothing added before');
 		assert.equal(repeatOfLast(picture(70, 40), 'en|sv01-001', 800), false, 'a picture too far to name it');
 		assert.equal(pictureKey(picture(30, 2)), null, 'a small lead names no card');
+	});
+
+	test('the same card twice in a row is not added again by auto capture, at any time (Eric, 2026-10-09)', () => {
+		const sure = picture(12, 40);
+
+		assert.equal(repeatOfPrevious(sure, picture(14, 30)), true, 'the same card just before');
+		assert.equal(repeatOfPrevious(sure, picture(12, 40, 'sv01-050')), false, 'another card just before');
+		assert.equal(repeatOfPrevious(sure, null), false, 'no capture before, or it is still being read');
+		assert.equal(repeatOfPrevious(picture(30, 2), picture(30, 2)), false, 'a picture too unclear to name a card is never a repeat');
+		assert.equal(repeatOfPrevious(sure, picture(30, 2)), false, 'the one before named no card');
 	});
 });
 

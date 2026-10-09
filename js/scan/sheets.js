@@ -17,6 +17,8 @@ import {
 	blocker,
 	canSave,
 	CONDITIONS,
+	COPIES_MAX,
+	copiesOf,
 	doneSummary,
 	findItem,
 	languageChoices,
@@ -308,7 +310,7 @@ export function confirmSheet(ctx, itemId) {
 			// the read; once the card is saved, it leaves the tray.
 			try {
 				openCustomCardSheet({
-					onSaved: () => ctx.remove(itemId),
+					onSaved: () => ctx.remove(itemId, {kind: 'handmade'}),
 					openPage: false,
 					prefill: {language: item.language || item.hand.language, number: numberInput.value, setCode: setInput.value},
 				});
@@ -397,6 +399,33 @@ export function confirmSheet(ctx, itemId) {
 		return h('div', {class: 'scan-field scan-condition'}, h('label', {class: 'scan-label', for: 'scan-condition'}, 'Condition'), select);
 	}
 
+	// "−  N  +", how many alike copies this card stands for (the copy
+	// stepper's look from card pages, css/copies.css; the number can be
+	// typed). Saving adds that many, alike in card, language, finish, and
+	// condition.
+	function copiesBlock(item) {
+		const n = copiesOf(item);
+		const name = item.card ? item.card.name : 'this card';
+		const less = h('button', {'aria-label': `One copy fewer: ${name}`, class: 'step step-less', disabled: n <= 1, id: 'scan-copies-less', onclick: () => ctx.setCopies(itemId, n - 1), type: 'button'}, '−');
+		const more = h('button', {'aria-label': `One copy more: ${name}`, class: 'step step-more', disabled: n >= COPIES_MAX, id: 'scan-copies-more', onclick: () => ctx.setCopies(itemId, n + 1), type: 'button'}, '+');
+		const count = h('input', {'aria-label': `Number of copies: ${name}`, class: 'step-count', enterkeyhint: 'done', id: 'scan-copies', inputmode: 'numeric', max: COPIES_MAX, min: 1, type: 'number', value: String(n)});
+
+		count.addEventListener('change', () => {
+			const typed = Number.parseInt(count.value, 10);
+
+			if (Number.isInteger(typed)) {
+				ctx.setCopies(itemId, typed);
+			}
+			else {
+				count.value = String(n);
+			}
+		});
+
+		return h('div', {class: 'scan-field scan-copies'},
+			h('label', {class: 'scan-label', for: 'scan-copies'}, 'Copies'),
+			h('div', {'aria-label': `Copies: ${name}`, class: 'copy-stepper', role: 'group'}, less, count, more));
+	}
+
 	function ownedLines(item) {
 		const owned = ownedFor(item, ctx.owned);
 		const marks = wishMarks(item, ctx.family);
@@ -418,13 +447,16 @@ export function confirmSheet(ctx, itemId) {
 				return `${n} ${langName(lang)}${finish ? ` ${finish}` : ''}`;
 			});
 			const next = quantity(ctx.session, item, ctx.owned);
+			const copies = copiesOf(item);
+			const adds = copies > 1 ? ` These add ${copies}, making ${next} in ${langName(item.language)}.` : ` This adds a ${ordinal(next)} in ${langName(item.language)}.`;
 
-			lines.push(h('p', {id: 'scan-owned-line'}, `You have ${parts.join(', ')}.${item.language && owned.inLanguage ? ` This adds a ${ordinal(next)} in ${langName(item.language)}.` : ''}`));
+			lines.push(h('p', {id: 'scan-owned-line'}, `You have ${parts.join(', ')}.${item.language && owned.inLanguage ? adds : ''}`));
 		}
 		else if (item.card) {
 			const inTray = quantity(ctx.session, item, ctx.owned);
+			const copies = copiesOf(item);
 
-			lines.push(h('p', {id: 'scan-owned-line'}, inTray > 1 ? `Not in your cards yet. This session has ${inTray}.` : 'Not in your cards yet.'));
+			lines.push(h('p', {id: 'scan-owned-line'}, inTray > copies ? `Not in your cards yet. This session has ${inTray}.` : copies > 1 ? `Not in your cards yet. This adds ${copies}.` : 'Not in your cards yet.'));
 		}
 
 		const wish = wishLine(marks);
@@ -505,11 +537,10 @@ export function confirmSheet(ctx, itemId) {
 			languageBlock(item),
 			finishBlock(item),
 			conditionBlock(item),
+			item.card ? copiesBlock(item) : null,
 			ownedLines(item),
 			placeholderBlock(item),
 			actions(item),
-			// With the report switched on, it shows here after every scan.
-			item.report && ctx.reportOn ? reportPanel(ctx, itemId, {inline: true}) : null,
 		].filter(Boolean));
 	}
 
@@ -541,19 +572,17 @@ async function copyText(text, area) {
 	}
 }
 
-// The report as a text box (selectable by hand too) with Copy and the
-// switch that shows it after every scan. inline: inside the confirm sheet,
-// headed by its own title.
-function reportPanel(ctx, itemId, {inline = false} = {}) {
+// The report as a text box (selectable by hand too) with Copy. A long run
+// of scans is better kept with Record every scan (Phone check, the scan
+// log in js/scan/log.js).
+function reportPanel(ctx, itemId) {
 	const text = ctx.reportText(itemId);
-	const area = h('textarea', {'aria-label': 'Scan report', class: 'scan-report-text', id: inline ? 'scan-report-inline' : 'scan-report-text', readonly: true, rows: inline ? 12 : 20, spellcheck: 'false'});
+	const area = h('textarea', {'aria-label': 'Scan report', class: 'scan-report-text', id: 'scan-report-text', readonly: true, rows: 20, spellcheck: 'false'});
 	const status = h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-report-status'});
-	const always = h('input', {checked: ctx.reportOn, id: 'scan-report-always', onchange: () => ctx.setReportOn(always.checked), type: 'checkbox'});
 
 	area.value = text;
 
-	return h('section', {class: 'scan-report', id: inline ? 'scan-report-panel' : 'scan-report-body'},
-		inline ? h('h3', {class: 'scan-label'}, 'Scan report') : null,
+	return h('section', {class: 'scan-report', id: 'scan-report-body'},
 		area,
 		h('div', {class: 'scan-row'},
 			h('button', {class: 'scan-button scan-primary', id: 'scan-report-copy', onclick: async () => {
@@ -572,7 +601,6 @@ function reportPanel(ctx, itemId, {inline = false} = {}) {
 				}, type: 'button'}, 'Save capture image')
 				: null),
 		status,
-		h('label', {class: 'scan-check', for: 'scan-report-always'}, always, ' Show the report after every scan'),
 		h('p', {class: 'scan-muted'}, 'The report is text only: the phone, each step\'s time, what each read got, and the cards considered. Save capture image downloads the straightened card and the whole capture, with what was found drawn on, for the last few scans.'));
 }
 
@@ -713,8 +741,9 @@ export function doneSheet(ctx) {
 		const summary = doneSummary(ctx.session, ctx.owned);
 		const firstLook = ctx.session.items.find((item) => needsLook(item));
 		const languages = summary.byLanguage.map(([lang, n]) => `${String(lang).toUpperCase()} ${n}`).join(' · ');
-		const saving = summary.savable - (skipOwned ? summary.owned : 0);
-		const rows = [h('p', {class: 'scan-done-count', id: 'scan-done-count'}, `${plural(summary.total, 'card')}${languages ? ` · ${languages}` : ''}`)];
+		// Counted in copies: a card with the Copies stepper at 3 saves 3.
+		const saving = summary.savableCopies - (skipOwned ? summary.ownedCopies : 0);
+		const rows = [h('p', {class: 'scan-done-count', id: 'scan-done-count'}, `${plural(summary.copies, 'card')}${languages ? ` · ${languages}` : ''}`)];
 
 		if (summary.look) {
 			rows.push(h('div', {class: 'scan-done-row scan-done-look'},
@@ -764,7 +793,7 @@ export function doneSheet(ctx) {
 
 		const ready = canSave(summary) && saving > 0;
 		const label = summary.look || summary.busy
-			? `Save ${summary.savable}, ${summary.look ? `${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look` : `${summary.busy} still reading`}`
+			? `Save ${summary.savableCopies}, ${summary.look ? `${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look` : `${summary.busy} still reading`}`
 			: `Save ${plural(saving, 'card')}`;
 
 		rows.push(h('div', {class: 'scan-actions'},

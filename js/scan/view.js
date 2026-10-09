@@ -9,6 +9,12 @@
 // read behind it; the tray is a draft in IndexedDB (js/scan/draft.js), so
 // closing the app keeps it. Done saves one entry per physical card through
 // js/collection.js and offers Undo session; Discard saves nothing.
+//
+// Scanning flows card after card with no tap between them (Eric,
+// 2026-10-09): no sheet opens by itself after a camera scan, a buzz says
+// whether each card was recognised or needs a look, and a count over the
+// camera says how many are in the tray. With Record every scan on (Phone
+// check), each scan is kept in the scan log (js/scan/log.js).
 
 import {placeScanned, unplaceScanned, waitingPlaceholderList} from '../binders.js';
 import {addCard, deleteCard, listCards, onChange} from '../collection.js';
@@ -21,8 +27,9 @@ import {CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame} 
 import * as draft from './draft.js';
 import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
+import * as scanLog from './log.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
-import {knownFrom, loadFingerprints, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast} from './picture.js';
+import {knownFrom, loadFingerprints, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
 import {createAutoCapture, presence, THUMB_H, THUMB_W} from './steady.js';
@@ -160,6 +167,26 @@ const PHOTO_MAX_SIDE = 2400;
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+// The buzzes (navigator.vibrate, in milliseconds). The capture's tick says
+// the picture was taken, so the next card can go in; once the card is read,
+// one short buzz says it was recognised, and a double one that it needs a
+// look. The read takes a few tenths of a second at least, so the tick and
+// the answer never run together.
+const BUZZ_CAPTURE = 30;
+const BUZZ_SURE = 40;
+const BUZZ_LOOK = [60, 80, 60];
+
+function buzz(pattern) {
+	if (navigator.vibrate) {
+		try {
+			navigator.vibrate(pattern);
+		}
+		catch {
+			// No haptics here.
+		}
+	}
+}
+
 const online = () => navigator.onLine !== false;
 
 // What the tests and the phone check can read back: the last few reads'
@@ -174,8 +201,11 @@ export function scanView(root) {
 	// placeholderList), read from the phone, so they work offline.
 	let placeholders = [];
 	let camera = null;
-	// When the camera last opened (performance.now()), for Q-20's window.
+	// When the camera last opened (performance.now()), for Q-20's window,
+	// and the cards captured since then: Q-20 is for a card added before
+	// the camera opened; one added since is the repeat bar's (askRepeat).
 	let cameraOpenedAt = -Infinity;
+	const sinceOpen = new Set();
 	// The camera start in progress (an AbortController), so there is never
 	// a second one, and leaving or hiding the page can cancel it.
 	let cameraStart = null;
@@ -186,6 +216,10 @@ export function scanView(root) {
 	let sheetHandle = null;
 	let loop = null;
 	let discarded = null;
+	// The card last taken out with its tile's x, until Undo, another
+	// removal, Done, or Discard: {item, index}. Its photos stay until then.
+	// Scanning on keeps it, so a run of captures does not lose the Undo.
+	let removed = null;
 	// The card index once read (js/catalog.js cardIndex), kept for the
 	// quick picture answer.
 	let knownIndex = null;
@@ -206,6 +240,10 @@ export function scanView(root) {
 	// Straightened cards waiting for their label row to be read (no text was
 	// read for them), dropped once read.
 	const cardImages = new Map();
+	// Camera captures not yet answered, which buzz once when their first
+	// answer comes. Memory only: a card read again after the app reopens
+	// does not buzz.
+	const toBuzz = new Set();
 	// The last few scans' captures and what was found on them (identify's
 	// trace), for "Save capture image". Memory only.
 	const traces = new Map();
@@ -219,6 +257,13 @@ export function scanView(root) {
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
 	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Card inside the frame. Hold still.'));
 	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
+	// The running count over the camera ("12 cards · 2 to check"), so a
+	// long run needs no look at the tray.
+	const runCount = h('p', {'aria-live': 'polite', class: 'scan-run-count', hidden: true, id: 'scan-run-count'});
+	// The repeat bar (askRepeat), at the foot of the camera, clear of the
+	// shutter. The region is always there, so what appears in it is read
+	// out.
+	const repeatBar = h('div', {'aria-live': 'polite', class: 'scan-repeat', id: 'scan-repeat', role: 'group', 'aria-label': 'Same card again'});
 	const cameraOff = h('div', {class: 'scan-camera-off', hidden: true, id: 'scan-camera-off'});
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
 	const count = h('p', {class: 'scan-count', id: 'scan-count'});
@@ -249,7 +294,7 @@ export function scanView(root) {
 		}
 	}});
 
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, status, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount), repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -289,9 +334,6 @@ export function scanView(root) {
 			return placeholders;
 		},
 		remove,
-		get reportOn() {
-			return draft.reportAlwaysOn();
-		},
 		reportText: (id) => S.reportText(S.findItem(session, id), {device: deviceInfo()}),
 		hasCapture: (id) => traces.has(id),
 		saveCapture: async (id) => {
@@ -311,13 +353,15 @@ export function scanView(root) {
 			return session;
 		},
 		setCondition: (id, value) => change(() => S.setCondition(session, id, value)),
-		setReportOn: (on) => {
-			draft.setReportAlwaysOn(on);
-			draw();
+		setCopies: (id, count) => change(() => S.setCopies(session, id, count)),
+		setFinish: (id, variantId) => {
+			scanLog.lockFirst(id);
+			change(() => S.setFinish(session, id, variantId));
 		},
-		setFinish: (id, variantId) => change(() => S.setFinish(session, id, variantId)),
 		setPlace: (id, on) => change(() => S.setPlace(session, id, on)),
 		setLanguage: (id, code) => {
+			scanLog.lockFirst(id);
+
 			const rematch = change(() => S.setLanguage(session, id, code));
 
 			rememberLanguage(code);
@@ -346,6 +390,56 @@ export function scanView(root) {
 		draw();
 
 		return result;
+	}
+
+	// A change the scanner makes on its own to card `id` (a read, a match,
+	// finishes loaded, the label row): the scan log keeps it as the
+	// scanner's answer until a change by hand, and a camera capture buzzes
+	// once its first answer is in.
+	function scannerChange(id, fn) {
+		const result = change(fn);
+
+		answered(id);
+
+		return result;
+	}
+
+	function answered(id) {
+		const item = S.findItem(session, id);
+
+		if (!item) {
+			return;
+		}
+
+		scanLog.noteFirst(id, answerOf(item), {report: item.report || null, timings: item.timings || null});
+
+		if (item.status === 'reading' || item.status === 'matching' || !toBuzz.has(id)) {
+			return;
+		}
+
+		toBuzz.delete(id);
+
+		// Waiting for signal: it resolves on its own, with no buzz.
+		if (item.status !== 'waiting') {
+			buzz(S.needsLook(item) ? BUZZ_LOOK : BUZZ_SURE);
+		}
+	}
+
+	// What the scanner answered for a card, as the scan log keeps it.
+	function answerOf(item) {
+		const card = item.card;
+
+		return {
+			card: card ? {catalog: card.catalog || null, id: card.id, lang: card.lang || null, name: card.name, number: `${card.localId}${card.official ? `/${card.official}` : ''}`, set: card.setName || card.setId || null} : null,
+			finish: item.variantId || null,
+			labelCheck: item.labelCheck || null,
+			language: item.language || null,
+			languageBy: item.languageBy || null,
+			languageSource: S.languageSource(item),
+			status: S.blocker(item) || 'ready',
+			sure: Boolean(item.sure),
+			why: item.why || null,
+		};
 	}
 
 	async function loadPhotoUrl(id) {
@@ -448,6 +542,14 @@ export function scanView(root) {
 		}
 
 		count.textContent = parts.join(' · ');
+
+		const running = items.length ? `${plural(items.length, 'card')}${summary.look ? ` · ${summary.look} to check` : ''}` : '';
+
+		if (runCount.textContent !== running) {
+			runCount.textContent = running;
+		}
+
+		runCount.hidden = !items.length;
 		setAllButton.hidden = items.length < 2;
 		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
@@ -484,6 +586,10 @@ export function scanView(root) {
 
 		if (noteText) {
 			children.push(h('span', null, noteText));
+		}
+		else if (removed) {
+			children.push(h('span', {id: 'scan-removed-line'}, `Removed ${removed.item.card ? removed.item.card.name : 'the card'}.`),
+				h('button', {class: 'scan-text-button', id: 'scan-undo-remove', onclick: undoRemove, type: 'button'}, 'Undo'));
 		}
 		else if (discarded) {
 			children.push(h('span', null, `Discarded ${plural(discarded.items.length, 'card')}. Nothing saved.`),
@@ -602,6 +708,8 @@ export function scanView(root) {
 	// ------------------------------------------------------------ actions
 
 	function chooseCard(id, candidate) {
+		scanLog.lockFirst(id);
+
 		const item = S.findItem(session, id);
 		const before = item && item.card && item.card.id;
 
@@ -617,10 +725,19 @@ export function scanView(root) {
 
 	// A card whose set the catalog has not got yet, from the add-by-hand form.
 	function addByHand(id, fields) {
+		scanLog.lockFirst(id);
 		change(() => S.addByHand(session, id, fields));
 	}
 
-	function remove(id) {
+	// Takes a card out of the tray. outcome: how the scan log records it
+	// (kept only when the scan has none yet: a card the scanner dropped
+	// already says why), or null to leave it for later (the repeat bar).
+	function remove(id, outcome = {kind: 'removed'}) {
+		if (outcome) {
+			scanLog.setOutcome(id, outcome);
+		}
+
+		toBuzz.delete(id);
 		forgetCard([id]);
 		artworks.delete(id);
 		cardImages.delete(id);
@@ -635,8 +752,69 @@ export function scanView(root) {
 		}
 	}
 
+	// The tile's x: out of the tray at once, with Undo, which puts it back
+	// exactly as it was (its read, answer, and choices). The sheet does not
+	// open.
+	function removeTile(id) {
+		const index = session.items.findIndex((item) => item.id === id);
+
+		if (index < 0) {
+			return;
+		}
+
+		forgetRemoved();
+		removed = {index, item: JSON.parse(JSON.stringify(session.items[index]))};
+		noteText = null;
+		scanLog.setOutcome(id, {kind: 'removed'});
+		toBuzz.delete(id);
+		forgetCard([id]);
+		change(() => S.removeItem(session, id));
+		announce(`Removed ${removed.item.card ? removed.item.card.name : 'the card'}. Undo is below the camera.`);
+	}
+
+	function undoRemove() {
+		if (!removed) {
+			return;
+		}
+
+		const {index, item} = removed;
+
+		removed = null;
+		session.items.splice(Math.min(index, session.items.length), 0, item);
+		scanLog.setOutcome(item.id, null);
+		persist();
+		draw();
+		announce(`${item.card ? item.card.name : 'The card'} is back.`);
+		// A card taken out while it was read is read again.
+		resume().catch(() => {});
+	}
+
+	// The removed card's photos go once Undo can no longer bring it back.
+	function forgetRemoved() {
+		if (!removed) {
+			return;
+		}
+
+		const {id} = removed.item;
+
+		removed = null;
+		artworks.delete(id);
+		cardImages.delete(id);
+		progress.delete(id);
+		draft.deletePhoto(id).catch(() => {});
+		draft.deletePhoto(`${id}:full`).catch(() => {});
+		dropPhoto(id);
+		drawNote();
+	}
+
 	function applySetAll(field, value, options) {
 		const {changed, rematch} = change(() => S.setForAll(session, field, value, options));
+
+		if (field !== 'condition') {
+			for (const id of changed) {
+				scanLog.lockFirst(id);
+			}
+		}
 
 		if (field === 'language') {
 			rememberLanguage(value);
@@ -684,6 +862,8 @@ export function scanView(root) {
 		}
 
 		const rows = S.entriesToSave(session, owned, {skipOwned});
+
+		forgetRemoved();
 		const skipped = skipOwned ? session.items.filter((item) => S.isSavable(item) && S.ownedFor(item, owned).inLanguage) : [];
 		const saved = [];
 
@@ -700,7 +880,8 @@ export function scanView(root) {
 
 		// The catalog record for each saved card, so My Cards can name it
 		// with no signal.
-		const records = rows.filter((row) => saved.some((done) => done.itemId === row.itemId)).map((row) => {
+		const savedIds = [...new Set(saved.map((row) => row.itemId))];
+		const records = savedIds.map((id) => rows.find((row) => row.itemId === id)).map((row) => {
 			const item = S.findItem(session, row.itemId);
 			const card = item.card;
 
@@ -735,7 +916,20 @@ export function scanView(root) {
 
 		discarded = null;
 		noteText = placeError ? `Saved, but the binder pockets were not filled. ${placeError.message}` : null;
+
+		for (const id of savedIds) {
+			const row = rows.find((one) => one.itemId === id);
+
+			scanLog.savedOutcome(id, {card: row.fields.card_id, catalog: row.fields.catalog, copies: saved.filter((done) => done.itemId === id).length, finish: row.fields.variant_id, language: row.fields.language});
+		}
+
+		for (const item of skipped) {
+			scanLog.setOutcome(item.id, {kind: 'skipped', why: 'already owned'});
+		}
+
 		S.afterSave(session, saved);
+		// Which scans Undo session takes back, for the scan log.
+		session.lastSave.items = saved.map((row) => row.itemId);
 
 		if (placed.length) {
 			// Undo session puts the placeholders back.
@@ -759,7 +953,12 @@ export function scanView(root) {
 
 	async function undoSession() {
 		const placed = (session.lastSave && session.lastSave.placed) || [];
+		const undone = (session.lastSave && session.lastSave.items) || [];
 		const ids = S.takeUndo(session);
+
+		for (const id of undone) {
+			scanLog.markUndone(id);
+		}
 
 		persist();
 
@@ -783,8 +982,16 @@ export function scanView(root) {
 	function discard() {
 		const kept = session;
 
+		forgetRemoved();
+
 		discarded = kept.items.length ? kept : null;
 		forgetCard(kept.items.map((item) => item.id));
+
+		for (const item of kept.items) {
+			scanLog.setOutcome(item.id, {kind: 'discarded'});
+			toBuzz.delete(item.id);
+		}
+
 		noteText = null;
 		session = S.newSession();
 		session.lastSave = kept.lastSave;
@@ -804,6 +1011,10 @@ export function scanView(root) {
 		session = discarded;
 		session.lastSave = lastSave;
 		discarded = null;
+
+		for (const item of session.items) {
+			scanLog.setOutcome(item.id, null);
+		}
 
 		for (const item of session.items) {
 			loadPhotoUrl(item.id).then(draw);
@@ -855,6 +1066,9 @@ export function scanView(root) {
 
 		const item = S.addCapture(session);
 
+		toBuzz.add(item.id);
+		sinceOpen.add(item.id);
+		scanLog.startEntry(item.id, {at: item.captured_at, how, phone: deviceInfo(), source: 'camera'});
 		persist();
 		draw();
 
@@ -898,6 +1112,7 @@ export function scanView(root) {
 		const item = S.addCapture(session);
 
 		openWhenMatched.add(item.id);
+		scanLog.startEntry(item.id, {at: item.captured_at, how: null, phone: deviceInfo(), source: 'photo'});
 		persist();
 		draw();
 
@@ -910,15 +1125,7 @@ export function scanView(root) {
 		guide.classList.remove('is-flash');
 		void guide.offsetWidth;
 		guide.classList.add('is-flash');
-
-		if (navigator.vibrate) {
-			try {
-				navigator.vibrate(30);
-			}
-			catch {
-				// No haptics here.
-			}
-		}
+		buzz(BUZZ_CAPTURE);
 	}
 
 	async function readItem(id, frame, options = {}) {
@@ -963,7 +1170,7 @@ export function scanView(root) {
 
 			engineState = err instanceof EngineUnavailable ? 'unavailable' : engineState;
 			drawStatus();
-			change(() => S.markWaiting(session, id, 'ocr'));
+			scannerChange(id, () => S.markWaiting(session, id, 'ocr'));
 
 			return;
 		}
@@ -995,12 +1202,10 @@ export function scanView(root) {
 		// An automatic capture with no card edges and no number read was not a
 		// card (a hand, the table): it leaves the tray. A shutter capture
 		// always stays, because the person meant it.
-		if (auto && !result.found && !(result.read && result.read.number) && !(result.picture && pictureVerdict(result.picture).sure)) {
-			if (fullSaved) {
-				await fullSaved;
-			}
+		const report = () => S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'});
 
-			remove(id);
+		if (auto && !result.found && !(result.read && result.read.number) && !(result.picture && pictureVerdict(result.picture).sure)) {
+			await drop(id, 'not a card', {fullSaved, report: report(), result});
 			setNote('That did not look like a card. Hold one inside the frame.');
 
 			return;
@@ -1009,11 +1214,7 @@ export function scanView(root) {
 		// A frame with no card in it (a blank wall, a sheet of paper) does not
 		// join the tray, even from the shutter (Q-19, picture.js noCard).
 		if (!photo && !straight && noCard(result, seen)) {
-			if (fullSaved) {
-				await fullSaved;
-			}
-
-			remove(id);
+			await drop(id, 'not a card', {fullSaved, report: report(), result});
 			setNote('That did not look like a card. Hold one inside the frame.');
 
 			return;
@@ -1023,16 +1224,27 @@ export function scanView(root) {
 		// again (Q-20): taken once is enough. The shutter adds it anyway.
 		const last = lastCard();
 
-		if (auto && repeatOfLast(result.picture, last && last.key, performance.now() - cameraOpenedAt)) {
-			if (fullSaved) {
-				await fullSaved;
-			}
-
-			remove(id);
+		if (auto && last && !sinceOpen.has(last.item) && repeatOfLast(result.picture, last.key, performance.now() - cameraOpenedAt)) {
+			await drop(id, 'repeat on reopen', {fullSaved, report: report(), result});
 			setNote('That card was just added. Tap the shutter to add it again.');
 
 			return;
 		}
+
+		// The same card as the camera's capture just before it: held a
+		// moment longer, or a second copy. The repeat bar asks which; the
+		// capture itself never joins the tray.
+		const previous = auto ? previousCapture(id) : null;
+
+		if (previous && repeatOfPrevious(result.picture, previous.picture)) {
+			await drop(id, 'repeat', {fullSaved, outcome: null, report: report(), result});
+			askRepeat(id, previous.id);
+
+			return;
+		}
+
+		// Any other card taken: the open question is answered No.
+		answerRepeat(false);
 
 		if (!photo && !straight) {
 			const key = pictureKey(result.picture);
@@ -1050,6 +1262,7 @@ export function scanView(root) {
 		try {
 			const blob = await imageBlob(result.card, {maxHeight: PHOTO_HEIGHT, quality: 0.82});
 
+			scanLog.savePicture(id, blob);
 			await draft.savePhoto(id, blob);
 			dropPhoto(id);
 			await loadPhotoUrl(id);
@@ -1065,9 +1278,9 @@ export function scanView(root) {
 		}
 
 		item.timings = {...result.timings};
-		item.report = S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'});
+		item.report = report();
 		item.picture = result.picture || null;
-		change(() => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
+		scannerChange(id, () => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
 
 		if (fullSaved) {
 			await fullSaved;
@@ -1076,6 +1289,108 @@ export function scanView(root) {
 		draft.deletePhoto(`${id}:full`).catch(() => {});
 
 		await matchItemNow(id);
+	}
+
+	// The camera's capture just before card `id` in the tray, or null:
+	// photos picked from the gallery and cards added from the search are
+	// passed over. One still being read has no picture yet, so it repeats
+	// nothing.
+	function previousCapture(id) {
+		const index = session.items.findIndex((item) => item.id === id);
+
+		for (let i = index - 1; i >= 0; i--) {
+			const item = session.items[i];
+			const fromPhoto = openWhenMatched.has(item.id) || (item.report && item.report.source === 'photo');
+			const fromSearch = !item.report && !item.picture && !item.read && item.status !== 'reading';
+
+			if (!fromPhoto && !fromSearch) {
+				return item;
+			}
+		}
+
+		return null;
+	}
+
+	// A capture the scanner drops from the tray on its own (`why`: not a
+	// card, or the card just added again), kept in the scan log with its
+	// report and picture.
+	async function drop(id, why, {fullSaved, outcome = {kind: 'dropped', why}, report, result}) {
+		if (fullSaved) {
+			await fullSaved;
+		}
+
+		scanLog.updateEntry(id, {report});
+
+		if (result.card && scanLog.recording() && scanLog.picturesOn()) {
+			scanLog.savePicture(id, await imageBlob(result.card, {maxHeight: PHOTO_HEIGHT, quality: 0.82}).catch(() => null));
+		}
+
+		remove(id, outcome);
+	}
+
+	// ------------------------------------------------------------ the repeat bar
+
+	// How long the repeat bar waits for an answer before it counts as No.
+	const REPEAT_ASK_MS = 8000;
+
+	// The open question, {id: the dropped capture, previous: the tray card
+	// it repeats, timer}, or null.
+	let repeat = null;
+
+	// "Same card as the last one." with Add a copy and Mistake, over the
+	// camera; scanning goes on under it. A further repeat of the same card
+	// while it shows is dropped quietly, not asked again.
+	function askRepeat(id, previous) {
+		if (repeat && repeat.previous === previous) {
+			scanLog.setOutcome(id, {kind: 'dropped', why: 'repeat'});
+
+			return;
+		}
+
+		answerRepeat(false);
+		repeat = {id, previous, timer: setTimeout(() => answerRepeat(false), REPEAT_ASK_MS)};
+		drawRepeat();
+	}
+
+	// Add a copy (yes: the card before gets one more copy) or Mistake, no
+	// answer, or another card (no: nothing is added).
+	function answerRepeat(yes) {
+		if (!repeat) {
+			return;
+		}
+
+		const {id, previous, timer} = repeat;
+		const item = S.findItem(session, previous);
+
+		clearTimeout(timer);
+		repeat = null;
+
+		if (yes && item) {
+			change(() => S.setCopies(session, previous, S.copiesOf(item) + 1));
+			scanLog.setOutcome(id, {kind: 'added-copy', to: previous});
+			buzz(BUZZ_SURE);
+			announce(`${item.card ? item.card.name : 'The card'}: ${plural(S.copiesOf(S.findItem(session, previous)), 'copy', 'copies')}.`);
+		}
+		else {
+			scanLog.setOutcome(id, {kind: 'dropped', why: 'repeat'});
+		}
+
+		drawRepeat();
+	}
+
+	function drawRepeat() {
+		if (!repeat) {
+			repeatBar.replaceChildren();
+			repeatBar.classList.remove('is-open');
+
+			return;
+		}
+
+		repeatBar.classList.add('is-open');
+		repeatBar.replaceChildren(
+			h('p', {class: 'scan-repeat-text', id: 'scan-repeat-text'}, 'Same card as the last one.'),
+			h('button', {class: 'scan-button scan-primary', id: 'scan-repeat-add', onclick: () => answerRepeat(true), type: 'button'}, 'Add a copy'),
+			h('button', {class: 'scan-button', id: 'scan-repeat-no', onclick: () => answerRepeat(false), type: 'button'}, 'Mistake'));
 	}
 
 	async function matchItem(id) {
@@ -1100,7 +1415,7 @@ export function scanView(root) {
 			return;
 		}
 
-		change(() => S.markMatching(session, id));
+		scannerChange(id, () => S.markMatching(session, id));
 
 		if (item.picture) {
 			await pictureItemNow(id);
@@ -1119,7 +1434,7 @@ export function scanView(root) {
 		}
 		catch (err) {
 			if (alive && S.findItem(session, id)) {
-				change(() => S.markWaiting(session, id, 'catalog'));
+				scannerChange(id, () => S.markWaiting(session, id, 'catalog'));
 			}
 
 			if (!(err instanceof WaitingForSignal)) {
@@ -1142,7 +1457,7 @@ export function scanView(root) {
 			current.report = {...current.report, match: S.reportOfMatch(found, {language, ms: current.timings.match})};
 		}
 
-		change(() => S.applyMatch(session, id, found));
+		scannerChange(id, () => S.applyMatch(session, id, found));
 
 		const last = scanStats.reads[scanStats.reads.length - 1];
 
@@ -1155,7 +1470,7 @@ export function scanView(root) {
 		}
 
 		await loadVariants(id);
-		maybeOpenFirst(id);
+		openIfPicked(id);
 	}
 
 	// Picture first (js/scan/picture.js): the artwork groups, a number read
@@ -1199,7 +1514,7 @@ export function scanView(root) {
 		if (!(quick.unnamed && !online())) {
 			showPicture(id, quick, {indexMs, language, ms: quickMs});
 			shown = snapshot(S.findItem(session, id));
-			maybeOpenFirst(id);
+			openIfPicked(id);
 			// The finishes load beside the full records, not after them.
 			loadVariants(id);
 		}
@@ -1214,7 +1529,7 @@ export function scanView(root) {
 		const current = S.findItem(session, id);
 
 		if (!shown && full.unnamed && !online()) {
-			change(() => S.markWaiting(session, id, 'catalog'));
+			scannerChange(id, () => S.markWaiting(session, id, 'catalog'));
 
 			return;
 		}
@@ -1225,6 +1540,7 @@ export function scanView(root) {
 		else if (current.report && current.report.match) {
 			current.report = {...current.report, match: {...current.report.match, fullMs}};
 			persist();
+			answered(id);
 		}
 
 		const after = S.findItem(session, id);
@@ -1234,7 +1550,7 @@ export function scanView(root) {
 		}
 
 		if (!shown) {
-			maybeOpenFirst(id);
+			openIfPicked(id);
 		}
 	}
 
@@ -1260,7 +1576,7 @@ export function scanView(root) {
 			current.report = {...current.report, match: S.reportOfMatch({...found, candidates: found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates, routes: ['picture']}, {fullMs, indexMs, language, ms})};
 		}
 
-		change(() => {
+		scannerChange(id, () => {
 			S.applyPicture(session, id, found);
 
 			if (found.card) {
@@ -1293,7 +1609,7 @@ export function scanView(root) {
 			const now = S.findItem(session, id);
 
 			if (alive && now && now.card && now.card.id === cardId && (local || now.card.own)) {
-				change(() => S.localisePrint(session, id, cardId, local));
+				scannerChange(id, () => S.localisePrint(session, id, cardId, local));
 			}
 		}).catch(() => {});
 	}
@@ -1342,7 +1658,7 @@ export function scanView(root) {
 				return;
 			}
 
-			const changed = change(() => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage(), category, western: lastLanguage()}));
+			const changed = scannerChange(id, () => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage(), category, western: lastLanguage()}));
 
 			if (changed) {
 				if (S.needsRematch(S.findItem(session, id))) {
@@ -1396,12 +1712,12 @@ export function scanView(root) {
 			const variants = await cardVariants(card);
 
 			if (alive && S.findItem(session, id)) {
-				change(() => S.applyVariants(session, id, card.id, variants));
+				scannerChange(id, () => S.applyVariants(session, id, card.id, variants));
 			}
 		}
 		catch (err) {
 			if (alive && S.findItem(session, id)) {
-				change(() => S.markWaiting(session, id, 'catalog'));
+				scannerChange(id, () => S.markWaiting(session, id, 'catalog'));
 			}
 
 			if (!(err instanceof WaitingForSignal)) {
@@ -1410,17 +1726,12 @@ export function scanView(root) {
 		}
 	}
 
-	// The first scan of a session opens its sheet; later ones go straight to
-	// the tray (plans/design-review.md: "The first scan opens the confirm
-	// sheet; Scan next sends later cards straight to the tray").
-	// The first scan of a session opens its sheet; with the scan report
-	// switched on, or for a photo picked from the gallery, every one does.
-	function maybeOpenFirst(id) {
-		const wanted = openWhenMatched.delete(id) || draft.reportAlwaysOn();
-
-		if ((!session.sheetShown || wanted) && !sheet && S.findItem(session, id)) {
-			session.sheetShown = true;
-			persist();
+	// A photo picked from the gallery opens its sheet once looked up. A
+	// camera scan never opens one by itself, the first of a session
+	// included, so scanning flows with no tap between cards (Eric,
+	// 2026-10-09, DESIGN.md section 3); a tap on its tile opens it.
+	function openIfPicked(id) {
+		if (openWhenMatched.delete(id) && !sheet && S.findItem(session, id)) {
 			openItem(id);
 		}
 	}
@@ -1446,7 +1757,7 @@ export function scanView(root) {
 					await readItem(item.id, frame);
 				}
 				else {
-					change(() => S.markLost(session, item.id));
+					scannerChange(item.id, () => S.markLost(session, item.id));
 				}
 			}
 			else if (item.status === 'matching' || (item.status === 'waiting' && !item.card) || S.needsRematch(item)) {
@@ -1490,7 +1801,13 @@ export function scanView(root) {
 			return;
 		}
 
+		const before = geometry && geometry.capture;
+
 		geometry = {...layoutGuide(camera.frame, box), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
+
+		if (before && ['x', 'y', 'w', 'h'].some((key) => before[key] !== geometry.capture[key])) {
+			detector.reframe();
+		}
 
 		const {screen: place} = geometry;
 
@@ -1547,7 +1864,6 @@ export function scanView(root) {
 		persist();
 		draw();
 		openItem(item.id);
-		session.sheetShown = true;
 
 		const panel = document.getElementById('scan-search-panel');
 
@@ -1598,6 +1914,7 @@ export function scanView(root) {
 
 		camera = started;
 		cameraOpenedAt = performance.now();
+		sinceOpen.clear();
 
 		cameraOff.hidden = true;
 		shutter.disabled = false;
@@ -1759,6 +2076,14 @@ export function scanView(root) {
 	}
 
 	tray.addEventListener('click', (event) => {
+		const x = event.target.closest('[data-remove]');
+
+		if (x) {
+			removeTile(x.dataset.remove);
+
+			return;
+		}
+
 		const tile = event.target.closest('[data-item]');
 
 		if (tile) {
@@ -1825,6 +2150,13 @@ export function scanView(root) {
 
 	return () => {
 		alive = false;
+
+		if (repeat) {
+			clearTimeout(repeat.timer);
+			scanLog.setOutcome(repeat.id, {kind: 'dropped', why: 'repeat'});
+			repeat = null;
+		}
+
 		stopCamera();
 		closeSheet();
 		persist();

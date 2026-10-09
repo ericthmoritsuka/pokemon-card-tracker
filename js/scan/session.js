@@ -10,7 +10,9 @@
 //    variants, variantId, finishBy, language, languageBy, languageHint,
 //    condition, conditionBy, confirmed, sure, why, timings, labelCheck}
 // and place, false once Place it there is switched off for a binder
-// placeholder the card fits (placeholderPlan below).
+// placeholder the card fits (placeholderPlan below), and copies, how many
+// alike copies the card stands for (the Copies stepper on its sheet; 1
+// when not set, Eric, 2026-10-09).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -803,6 +805,31 @@ export function setCondition(session, id, condition, by = 'hand', now = nowIso()
 	return item;
 }
 
+// The most copies one tray card stands for, as the Add sheet's MAX_ADD
+// (js/copy-sheet.js).
+export const COPIES_MAX = 20;
+
+// How many copies a tray card stands for: 1 to COPIES_MAX.
+export const copiesOf = (item) => (Number.isInteger(item.copies) ? Math.max(1, Math.min(COPIES_MAX, item.copies)) : 1);
+
+// Sets a tray card's copy count, kept within 1 to COPIES_MAX. Returns the
+// count it now has.
+export function setCopies(session, id, count, now = nowIso()) {
+	const item = mustFind(session, id);
+	const next = Math.max(1, Math.min(COPIES_MAX, Math.round(Number(count)) || 1));
+
+	if (next === 1) {
+		delete item.copies;
+	}
+	else {
+		item.copies = next;
+	}
+
+	touch(session, now);
+
+	return next;
+}
+
 export function removeItem(session, id, now = nowIso()) {
 	const index = session.items.findIndex((item) => item.id === id);
 
@@ -927,17 +954,19 @@ export function ownedFor(item, owned) {
 
 const sameCopy = (a, b) => a.card && b.card && a.card.id === b.card.id && a.card.catalog === b.card.catalog && a.language === b.language;
 
+// How many copies of this card the tray holds in this language, each tray
+// card counted with its copies.
+const trayCopies = (session, item) => session.items.filter((other) => sameCopy(other, item)).reduce((sum, other) => sum + copiesOf(other), 0);
+
 // How many copies of this card, in this language, there will be once the
-// session is saved: the ones owned plus the ones in the tray. A tile badges
-// it from 2 up (never ×1).
+// session is saved: the ones owned plus the ones in the tray (with each
+// tray card's copies). A tile badges it from 2 up (never ×1).
 export function quantity(session, item, owned) {
 	if (!item.card) {
-		return 1;
+		return copiesOf(item);
 	}
 
-	const inTray = session.items.filter((other) => sameCopy(other, item)).length;
-
-	return ownedFor(item, owned).inLanguage + inTray;
+	return ownedFor(item, owned).inLanguage + trayCopies(session, item);
 }
 
 // Why the badge is there: "owned" when the person already has one in that
@@ -951,7 +980,7 @@ export function duplicateKind(session, item, owned) {
 		return 'owned';
 	}
 
-	return session.items.filter((other) => sameCopy(other, item)).length > 1 ? 'twice' : null;
+	return trayCopies(session, item) > 1 ? 'twice' : null;
 }
 
 // ------------------------------------------------------------ wishlist marks
@@ -1067,12 +1096,16 @@ export function placementsToSave(session, saved, placeholders) {
 	const ids = new Set(saved.map((row) => row.itemId));
 	const plan = placeholderPlan(session, placeholders, {ids});
 	const out = [];
+	// One copy of a tray card with several fills its pocket; the rest are
+	// spares.
+	const placed = new Set();
 
 	for (const row of saved) {
 		const item = findItem(session, row.itemId);
 		const found = plan.get(row.itemId);
 
-		if (item && found && found.spot && placeOn(item)) {
+		if (item && found && found.spot && placeOn(item) && !placed.has(row.itemId)) {
+			placed.add(row.itemId);
 			out.push({binderId: found.spot.binder_id, cardId: item.card.id, entryId: row.entryId, page: found.spot.page, position: found.spot.position});
 		}
 	}
@@ -1190,24 +1223,33 @@ export function setForAll(session, field, value, {keepHand = false} = {}, now = 
 // ------------------------------------------------------------ Done
 
 // The Done sheet's numbers: {total, savable, look, waiting, busy, owned,
-// byLanguage: [[lang, n]]}. byLanguage counts every card whose language is
-// set; owned counts the savable cards already owned in their language.
+// copies, savableCopies, ownedCopies, byLanguage: [[lang, n]]}. total and
+// the counts beside it count tray cards; copies counts every copy they
+// stand for (the Copies stepper), savableCopies and ownedCopies the copies
+// of the savable and the already owned ones. byLanguage counts the copies
+// of every card whose language is set; owned counts the savable cards
+// already owned in their language.
 export function doneSummary(session, owned) {
-	const out = {busy: 0, byLanguage: [], look: 0, owned: 0, savable: 0, total: session.items.length, waiting: 0};
+	const out = {busy: 0, byLanguage: [], copies: 0, look: 0, owned: 0, ownedCopies: 0, savable: 0, savableCopies: 0, total: session.items.length, waiting: 0};
 	const languages = new Map();
 
 	for (const item of session.items) {
 		const reason = blocker(item);
+		const copies = copiesOf(item);
+
+		out.copies += copies;
 
 		if (item.language) {
-			languages.set(item.language, (languages.get(item.language) || 0) + 1);
+			languages.set(item.language, (languages.get(item.language) || 0) + copies);
 		}
 
 		if (reason === null) {
 			out.savable++;
+			out.savableCopies += copies;
 
 			if (ownedFor(item, owned).inLanguage) {
 				out.owned++;
+				out.ownedCopies += copies;
 			}
 		}
 		else if (reason === 'waiting') {
@@ -1230,8 +1272,9 @@ export function doneSummary(session, owned) {
 export const canSave = (summary) => summary.look === 0 && summary.busy === 0 && summary.savable > 0;
 
 // The card entries to save, one per physical card (DESIGN.md section 3,
-// "One physical card, one entry"): [{itemId, fields}]. skipOwned leaves out
-// the cards already owned in their language ("Skip" on the Done sheet).
+// "One physical card, one entry"): [{itemId, fields}], a tray card with
+// copies giving that many alike rows. skipOwned leaves out the cards
+// already owned in their language ("Skip" on the Done sheet).
 export function entriesToSave(session, owned, {skipOwned = false} = {}) {
 	const out = [];
 
@@ -1260,7 +1303,9 @@ export function entriesToSave(session, owned, {skipOwned = false} = {}) {
 			fields.condition = item.condition;
 		}
 
-		out.push({fields, itemId: item.id});
+		for (let i = 0; i < copiesOf(item); i++) {
+			out.push({fields: {...fields}, itemId: item.id});
+		}
 	}
 
 	return out;

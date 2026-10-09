@@ -53,6 +53,7 @@ export const INTEGRATION = {
 			'\t\'js/scan/finish.js\',',
 			'\t\'js/scan/identify.js\',',
 			'\t\'js/scan/image.js\',',
+			'\t\'js/scan/log.js\',',
 			'\t\'js/scan/match.js\',',
 			'\t\'js/scan/ocr.js\',',
 			'\t\'js/scan/read.js\',',

@@ -142,6 +142,18 @@ tray and keeps scanning, so a session of one and a session of fifty are the same
 can forget is monprice's language bug in another form. "Discard" closes a scan with nothing
 saved, which doubles as the "do I already own this?" check in a shop. *(Decided by Eric, 2026-10-01.)*
 
+**Scanning flows with no tap between cards.** Eric changed the first-scan rule above (and
+`plans/design-review.md`'s "The first scan opens the confirm sheet") on 2026-10-09: no sheet opens
+by itself after a camera scan, the first of a session included; a tap on its tile opens it, and a
+photo picked from the gallery still opens its sheet. Instead, a short buzz says a card was
+recognised and a double one that it needs a look, a count over the camera reads "12 cards · 2 to
+check", and each tile has an x that removes it with Undo. The same card taken again by auto capture
+asks "Same card as the last one." with Add a copy or Mistake (no answer in 8 seconds is Mistake),
+and each tray card has a Copies stepper, so a duplicate needs no second scan; the shutter still adds
+a separate tile. For testing on real cards, Phone check's Record every scan (off by default, so
+nobody records by surprise) keeps each scan's report, the scanner's first answer, and what was
+saved, as one file to send. *(Decided by Eric, 2026-10-09.)*
+
 **A scan session is a tray, and every card in it carries its own language.**
 Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
 scanner, each one can be opened, retagged, or removed, and the session is assigned to

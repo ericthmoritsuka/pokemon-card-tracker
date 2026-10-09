@@ -272,8 +272,14 @@ describe('scanner', () => {
 
 		assert.ok(await page.locator('#scan-torch').isHidden(), 'the fake camera has no torch, so the toggle hides');
 
-		// The still card is captured on its own, and the first scan opens its
-		// sheet: a check-only scan that shows the copy already owned.
+		// The still card is captured on its own and goes straight to the tray:
+		// no sheet opens by itself, the first scan included (Eric,
+		// 2026-10-09). A tap on its tile opens it, a check-only scan that
+		// shows the copy already owned.
+		await waitForTray(page, 1, 'Pikachu taken on its own');
+		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opens by itself');
+		assert.equal(await text(page, '#scan-run-count'), '1 card', 'the running count over the camera');
+		await openTile(page, 0);
 		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});
 		assert.equal(await text(page, '#scan-card-name'), 'Pikachu');
 		assert.equal(await text(page, '#scan-language-source'), 'read from the card');
@@ -292,12 +298,12 @@ describe('scanner', () => {
 		await page.waitForTimeout(2500);
 		assert.equal(await captures(page), 1);
 
-		// The shutter takes it again: a new session, so its sheet opens.
+		// The shutter takes it again, straight to the tray.
 		await page.click('#scan-shutter');
-		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});
-		await page.click('#scan-next');
 
 		let list = await waitForTray(page, 1);
+
+		assert.equal(await page.locator('#scan-confirm').count(), 0);
 
 		assert.equal(list[0].qty, '×2', 'owned once plus this one');
 		assert.equal(list[0].flag, 'English');
@@ -472,12 +478,13 @@ describe('scanner', () => {
 		await app.context.addInitScript(() => localStorage.setItem('card-tracker:scan-text-first', 'on'));
 
 		await page.goto(url('scan'));
-		await page.waitForSelector('#scan-confirm #scan-card-lines, #scan-confirm .scan-card-lines', {timeout: 60000});
 		await until(async () => {
 			const list = await tiles(page);
 
 			return list.length === 1 && SETTLED.has(list[0].status);
 		}, 60000, 'the card read and looked up');
+		await openTile(page, 0);
+		await page.waitForSelector('#scan-confirm .scan-card-lines', {timeout: 60000});
 		await page.waitForTimeout(500);
 		await page.screenshot({path: `${SHOTS}/scan-name-route.png`});
 
@@ -539,16 +546,17 @@ describe('scanner', () => {
 			// textFirst): this card is found by its picture otherwise.
 			await app.context.addInitScript(() => localStorage.setItem('card-tracker:scan-text-first', 'on'));
 
-			// No shutter: the sheet opens only if the still card was taken on
-			// its own.
+			// No shutter: a tile shows only if the still card was taken on its
+			// own.
 			await page.goto(url('scan'));
-			await page.waitForSelector('#scan-confirm .scan-card-lines', {timeout: 60000});
 			await until(async () => {
 				const list = await tiles(page);
 
 				return list.length === 1 && SETTLED.has(list[0].status);
 			}, 60000, `${frame} read and looked up`);
 			assert.equal(await captures(page), 1, `${frame}: one capture, taken on its own`);
+			await openTile(page, 0);
+			await page.waitForSelector('#scan-confirm .scan-card-lines', {timeout: 60000});
 
 			const item = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items[0]);
 
@@ -705,13 +713,12 @@ describe('scanner', () => {
 
 		assert.match(await text(page, '#scan-report-status'), /Saved scan-capture-.* and scan-capture-.*-whole\.png/);
 
-		// Switched on, the report shows in the card's sheet itself, and the
-		// switch is remembered.
-		await page.check('#scan-report-always');
-		await page.click('#scan-report-back');
-		await page.waitForSelector('#scan-confirm #scan-report-inline');
-		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-report')), 'on');
+		// The switch that opened the report after every scan is gone: the
+		// scan log in Phone check keeps a long run instead.
+		assert.equal(await page.locator('#scan-report-always').count(), 0);
 		await page.screenshot({path: `${SHOTS}/scan-report.png`});
+		await page.click('#scan-report-back');
+		await page.waitForSelector('#scan-confirm');
 
 		// Clear, beside Pick a photo, empties the tray in one tap, and Undo
 		// brings the card back (Eric, 2026-10-03).
@@ -748,10 +755,16 @@ describe('scanner', () => {
 		await page.reload();
 		await until(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), 20000, 'the service worker');
 		await page.goto(url('scan'));
-		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});
-		await page.click('#scan-discard');
+		await waitForTray(page, 1, 'Pikachu, online');
+		await page.click('#scan-clear');
+		await page.waitForSelector('#scan-undo-discard');
 
-		const cached = await page.evaluate(async () => (await caches.open('card-tracker-ocr-tesseract-7.0.0').then((cache) => cache.keys())).map((request) => new URL(request.url).pathname.split('/').pop()));
+		const ocrCached = () => page.evaluate(async () => (await caches.open('card-tracker-ocr-tesseract-7.0.0').then((cache) => cache.keys())).map((request) => new URL(request.url).pathname.split('/').pop()));
+
+		// The label row is read behind the tray, which brings the engine.
+		await until(async () => (await ocrCached()).includes('eng.traineddata.gz'), 60000, 'the OCR engine kept');
+
+		const cached = await ocrCached();
 
 		assert.ok(cached.includes('eng.traineddata.gz'), `the English model is kept (${cached.join(', ')})`);
 		assert.ok(cached.some((name) => /^tesseract-core-.*\.wasm\.js$/.test(name)), 'one WebAssembly core is kept');
@@ -766,6 +779,8 @@ describe('scanner', () => {
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-top-status:not([hidden])');
 		assert.match(await text(page, '#scan-top-status'), /^Offline · reads still work$/);
+		await waitForTray(page, 1, 'Pikachu, offline');
+		await openTile(page, 0);
 		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});
 		assert.equal(await text(page, '#scan-card-name'), 'Pikachu');
 		await page.click('#scan-next');
