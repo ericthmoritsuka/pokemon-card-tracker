@@ -1801,7 +1801,13 @@ export function scanView(root) {
 			return;
 		}
 
+		const before = geometry && geometry.capture;
+
 		geometry = {...layoutGuide(camera.frame, box), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
+
+		if (before && ['x', 'y', 'w', 'h'].some((key) => before[key] !== geometry.capture[key])) {
+			detector.reframe();
+		}
 
 		const {screen: place} = geometry;
 

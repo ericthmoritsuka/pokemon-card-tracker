@@ -596,7 +596,9 @@ function boxed(grey, width, height, {across: acrossShare = BOX_ACROSS, max = 1, 
 // The detector. push(thumbnail, {present}) returns true when it is time to
 // capture. captured(thumbnail) records a capture (auto or shutter), after
 // which nothing fires until the frame changes. pause() and resume() hold it
-// while a sheet covers the viewfinder.
+// while a sheet covers the viewfinder. reframe() says the capture area
+// moved (the guide laid out again as the tray or a note changed height), so
+// the next frame is not compared with the last one as a jump.
 export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames = STEADY_FRAMES, still = STILL} = {}) {
 	let previous = null;
 	let steady = 0;
@@ -612,6 +614,10 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 		},
 		pause() {
 			paused = true;
+		},
+		reframe() {
+			previous = null;
+			steady = 0;
 		},
 		push(full, {present}) {
 			const thumbnail = coarse(full);
