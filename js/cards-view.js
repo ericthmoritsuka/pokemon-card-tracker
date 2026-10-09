@@ -1031,8 +1031,9 @@ export function cardsScreen(root, {
 
 			arrived.clear();
 
-			// Filtered to the unpriced copies, a priced one leaves the grid.
-			if (bar.state.filters.price) {
+			// Filtered to the unpriced copies, a priced one leaves the grid;
+			// sorted by price, it moves to its place.
+			if (bar.state.filters.price || bar.state.sort === 'price') {
 				draw();
 			}
 		};

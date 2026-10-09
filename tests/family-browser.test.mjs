@@ -456,7 +456,7 @@ describe('a family member\'s Sets and cards', () => {
 		assert.ok(await page.locator('#family-strip').count(), 'the lens followed the card');
 		assert.equal(await page.locator('#copy-add').count(), 0);
 		assert.equal(await page.locator('#card-price form').count(), 0, 'no Liga price form');
-		assert.match(await page.locator('#card-price .price-liga').textContent(), /No Liga price saved by Member A\./);
+		assert.equal(await page.locator('#card-price .price-liga').count(), 0, 'no Liga line without a kept Liga price');
 
 		// Done: the same card with your copy, Add a copy, and the form.
 		await page.click('#family-done');

@@ -251,8 +251,8 @@ button.step-more {
 }
 
 /* The price section draws a Ver na Liga of its own; on card detail the
-   button above stands for it, so the price panel starts with the Liga
-   price and its form. */
+   button above stands for it, so the price panel starts with the market
+   prices. */
 .card-detail .price-slot .price-liga-link,
 .card-detail .price-slot .price-liga-none {
 	display: none;

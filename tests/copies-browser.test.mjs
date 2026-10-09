@@ -421,8 +421,8 @@ describe('card detail layout', () => {
 			assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 1);
 			assert.equal(await page.locator('#card-liga-link').getAttribute('href'), 'https://www.ligapokemon.com.br/?view=cards/search&card=Exeggcute%20(001%2F131)');
 			assert.ok(await page.locator('#card-price .price-liga-link').isHidden());
-			// The Liga form and the other markets come after.
-			assert.ok(!(await onFirstScreen(page, '#card-price .price-others')), 'the US and EU markets are further down');
+			// The market prices come after.
+			assert.ok(!(await onFirstScreen(page, '#card-price .price-markets')), 'the US and EU markets are further down');
 			assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
 			await page.screenshot({path: `/tmp/copies-first-screen-${viewport.width}.png`});
 			await done();

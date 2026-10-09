@@ -344,18 +344,12 @@ function memberPhotos(cardId, catalog) {
 	};
 }
 
-// A member's price section: what they saved and the market prices, but no
-// way to type a Liga price. Its form and Update button are taken out each
-// time it draws, and the line inviting you to add a copy says whose it is.
-function readOnlyPrice(section, member) {
+// A member's price section: the market prices and any Liga price they
+// kept, with its Remove taken out each time it draws.
+function readOnlyPrice(section) {
 	const strip = () => {
 		for (const control of section.querySelectorAll('form, .price-edit')) {
 			control.remove();
-		}
-
-		for (const line of section.querySelectorAll('.price-liga .price-none:not([data-member])')) {
-			line.dataset.member = 'true';
-			line.textContent = `No Liga price saved by ${memberLabel(member)}.`;
 		}
 	};
 
@@ -1013,7 +1007,7 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	// Redrawn when the card record, the copies, or the link change, but never
-	// under a finger typing a price.
+	// while a field in the panel has focus.
 	function drawPrice() {
 		// Drawn once the copies are read, so it never flashes "Add a copy"
 		// on a card the person owns.
@@ -1051,7 +1045,7 @@ export function cardView(root, {lang, cardId}) {
 			save: readOnly ? () => Promise.reject(new Error('A family member\'s cards are view only.')) : undefined,
 		});
 
-		priceSlot.replaceChildren(readOnly ? readOnlyPrice(section, member) : section);
+		priceSlot.replaceChildren(readOnly ? readOnlyPrice(section) : section);
 	}
 
 	// Ver na Liga: a link to Liga Pokémon's own search, never a fetch from

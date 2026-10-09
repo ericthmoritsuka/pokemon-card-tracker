@@ -158,7 +158,12 @@ describe('Trade', () => {
 		// top of the cards with a price.
 		await page.selectOption('#cards-sort', 'price');
 		await page.locator('.tile:has-text("Pikachu") .tile-price').first().waitFor(TIMEOUT);
-		assert.equal((await tileNames(page))[0], 'Charizard ex', 'a US estimate of 30 dollars beats 90 reais');
+		// Charizard's US estimate is filled in the background, sometimes after
+		// Pikachu's Liga price shows: wait for it to sort to the top.
+		await page.waitForFunction(() => (document.querySelector('.card-grid .tile .tile-name') || {}).textContent === 'Charizard ex', null, {timeout: 60000}).catch(() => {});
+		const shown = await page.locator('.card-grid .tile').evaluateAll((tiles) => tiles.map((tile) => tile.textContent.replace(/\s+/g, ' ').trim()));
+
+		assert.equal((await tileNames(page))[0], 'Charizard ex', `a US estimate of 30 dollars beats 90 reais: ${JSON.stringify(shown)}`);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -168,7 +173,7 @@ describe('Trade', () => {
 
 		await page.locator('.tile').first().waitFor(TIMEOUT);
 		await openTrade(page);
-		await page.locator('.tile:has-text("Charizard") .tile-price').waitFor(TIMEOUT);
+		await page.locator('.tile:has-text("Charizard") .tile-price').waitFor({timeout: 60000});
 		await page.click('#cards-value');
 		await page.locator('dialog.value-sheet[open]').waitFor();
 
