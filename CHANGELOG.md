@@ -14,6 +14,18 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-09
 
+- **16:10** Version 32: scan card after card. `cc8d063`
+  - **Continuous scan:** no sheet opens by itself, even for the first card. A short buzz says the
+    card is recognised, a triple buzz that it needs a look, and a count over the camera says how
+    many cards are in the tray and how many to check.
+  - **Mistakes and copies:** each tray card has an x to throw it away, with Undo, and a Copies
+    count for duplicates. The same card twice in a row asks Add a copy or Mistake; with no answer
+    it is not added.
+  - **Swapping cards:** a card put straight in place of the last one is taken as a new card.
+  - **Scan log:** Phone check can record every scan (with a small picture of the card and what you
+    finally saved) and save them all in one file to download or share. It replaces the switch
+    that opened the report after every scan.
+
 - **14:17** Version 31: a cleaner scanner and app, and What's new. `dbde67a`
   - **Scanner:** a frame with no card in it no longer joins the tray ("That did not look like a
     card"), a card too far away says "Move closer", and reopening Scan with the card you just

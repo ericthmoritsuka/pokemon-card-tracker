@@ -22,6 +22,16 @@ export const RELEASES = [
 	{
 		date: '2026-10-09',
 		items: [
+			'Stored in: note where each card lives (a box, a drawer), pick from your saved places, and filter My Cards by place.',
+			'Edit order on Lists and Binders: drag them, or use the arrows. Deleting a list or binder now has Undo.',
+			'Leave a card out of a collection that fills itself, and put it back later.',
+			'Prices come straight from TCGplayer and Cardmarket in reais, even when your copy\'s finish is not listed. Ver na Liga still opens the Brazilian price.',
+		],
+		version: 'v33',
+	},
+	{
+		date: '2026-10-09',
+		items: [
 			'Scan card after card without touching the phone: a buzz says it knows the card, and a count shows how many need a look.',
 			'Each scanned card has an x to throw away a mistake, and a Copies count for duplicates.',
 			'The same card twice in a row asks: Add a copy, or Mistake.',

@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v31** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v32** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v32 `cc8d063` adds continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -126,7 +126,7 @@ the audit below to confirm or drop:
    - To weigh: a manual Liga price should say its finish and language (Liga averages are per
      finish, and PT and EN share one page with different prices); Reverse and Shattered Holo
      are separate prints; show "no PT listing", never zero.
-6. **Reorder and undo on Lists and Binders (Eric, 2026-10-06):** drag and drop to reorder
+6. **Reorder and undo on Lists and Binders (Eric, 2026-10-06):** reorder and delete Undo done in v33 (`js/reorder.js`, DESIGN.md "Order and Undo on Lists and Binders"). drag and drop to reorder
    checklists, goals, collections, and binders (with a keyboard and screen-reader way too, such
    as Move up and Move down). Today a new list always lands at the bottom, so Eric had to delete
    and recreate every region list to fix one. Also Undo on a toast for list changes, as copies
@@ -136,7 +136,7 @@ the audit below to confirm or drop:
    owned without a card" behind a labeled action with Undo. Eric chose to drop it
    (2026-10-06), in v30: a missing row opens the Pokémon's cards, no new hand ticks, and old
    hand ticks stop counting but stay in the document for older clients' sync.
-7. **Remove a card from a rule collection (Eric, 2026-10-06):** an automatic collection (a rule
+7. **Remove a card from a rule collection (Eric, 2026-10-06):** done in v33. an automatic collection (a rule
    such as the Star preset) should let a card be taken out by hand. Store the exclusions with
    the collection (copy ids it leaves out, merged like `card_ids`); the rule keeps adding new
    matches. Untick it in the card's Add to collection sheet, and show "N left out" on the
@@ -174,8 +174,11 @@ the audit below to confirm or drop:
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
 graded cards are deprioritized, and a Portuguese UI is not wanted.
 
-- **Features:** binder from a list (4), reorder Lists and Binders with Undo (6), remove a card
-  from a rule collection (7), where each card is stored (3).
+- **Features:** binder from a list (4). Done in v33: reorder Lists and Binders with Undo (6),
+  remove a card from a rule collection (7), where each card is stored (3, "Stored in").
+- **Prices (Eric, 2026-10-09):** done in v33: the card page leads with TCGplayer and Cardmarket in
+  reais, borrows another finish's price when the copy's is not listed, and drops the Liga editor;
+  Ver na Liga stays. Eric chose this over a faster Liga form or a list of cards missing a Liga price.
 - **Clean-up and speed:** the single language table (10, wave 2), the rest of the clean-up (10),
   block J's speed and data items in `plans/audit.md`, Portuguese and French images offline (E-20).
 - **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
@@ -219,7 +222,7 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
-  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`;
+  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`;
   `photos-sql` needs Docker. `scan-browser` can fail under load (a tile checked before its set record arrives shows its id, such as `swsh3-102`, instead of its name); it passed three runs alone on 2026-10-09. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal
