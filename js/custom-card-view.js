@@ -31,6 +31,7 @@ import {
 	sheetField,
 	sheetSelect,
 	showSheet,
+	storedLine,
 	UNDO_MS,
 } from './copy-sheet.js';
 import {CUSTOM, customCard, customEntries, customRoute, editPatches, findCatalogCard, findSet, linkLookups, linkPatches, NAME_MAX, newCustomCardId, NUMBER_MAX, SET_MAX} from './custom-card.js';
@@ -412,6 +413,7 @@ export function customCardView(root, {cardId}) {
 			h('span', {class: 'copy-text'}, [readOnly ? languageName(group.language) : null, group.finish, group.condition].filter(Boolean).join(' · ') + (readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : '')),
 			...[...group.prices].map((price) => h('span', {class: 'copy-price'}, price)),
 			...group.entries.filter((entry) => places.has(entry.id)).map((entry) => h('span', {class: 'copy-place'}, placeText(places.get(entry.id)))),
+			storedLine(group.entries),
 			...[...group.notes].map((note) => h('span', {class: 'copy-note'}, note)),
 		];
 		const label = (group) => [languageName(group.language), group.finish, group.condition].filter(Boolean).join(', ');

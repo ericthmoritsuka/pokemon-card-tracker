@@ -1339,6 +1339,26 @@ and value sum over its own copies, once each (section 3: never over memberships)
   selection mode yet, so adding several different cards at once from there waits for one.
 - **Family.** A member's collections open read only. A self-filling one of theirs is worked out
   with the card details this phone has, so it can be short until their cards are in the index.
+- **Leaving cards out of a rule** (Eric, 2026-10-06; built 2026-10-09). A self-filling
+  collection keeps adding new matches, but a copy can be left out by hand: untick the rule
+  collection in the card's Add to collection sheet, or use Leave cards out on the collection.
+  "N cards left out" opens them with Put back. Left-out copies reuse `removed_ids`, and a copy put
+  back reuses `entry_ids`, merged per id as for hand-picked collections; apps older than v29
+  show left-out cards but keep the maps.
+
+### Order and Undo on Lists and Binders
+
+**Edit order** (Eric, 2026-10-06; built 2026-10-09), `js/reorder.js`. Checklists, goals,
+collections, and binders each have an Edit order button: rows with a drag handle (only the handle
+drags, so the page still scrolls) and Move up / Move down for keyboard and screen readers. Each
+move saves at once with Undo. The position is an optional `order` number on the entry; entries
+without one follow, oldest first (collections by name), and a new entry lands last. A move writes
+only the moved entry, halfway between its neighbours, so two phones moving different entries
+keep both moves. Older apps keep their own sort and carry the field.
+
+**Deletes undo instead of asking** (2026-10-09). Deleting a checklist, goal, binder, or
+collection happens at once with "Deleted X." and Undo on a toast, which restores it exactly,
+pockets, tray, and order included.
 
 ### Pack Openings
 

@@ -18,7 +18,7 @@ import {
 } from './catalog.js';
 import {speciesNames} from './checklists.js';
 import {onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
-import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText} from './copy-sheet.js';
+import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
@@ -1423,6 +1423,7 @@ export function cardView(root, {lang, cardId}) {
 			),
 			...[...group.prices].map((price) => h('span', {class: 'copy-price'}, price)),
 			...group.entries.filter((entry) => placed.has(entry.id)).map((entry) => h('span', {class: 'copy-place'}, placeText(placed.get(entry.id)))),
+			storedLine(group.entries),
 			...[...group.notes].map((note) => h('span', {class: 'copy-note'}, note)),
 		];
 

@@ -1421,14 +1421,15 @@ function binderScreen(root, source, id, pageParam) {
 	// language, finish, and condition), with a stepper to fix the count while
 	// paging through the binder (js/copy-sheet.js). The copy in the pocket
 	// stays there: the count never goes below 1, and + adds copies in no
-	// pocket.
+	// pocket. Copies are alike only in the same Stored in place (alikeKey),
+	// so the label names the place when the pocket's copy has one.
 	function pocketCount(entry, label) {
 		const key = alikeKey(entry);
 		const alike = [...entriesById.values()].filter((item) => isLive(item) && alikeKey(item) === key);
 		const places = new Map([...placed].map(([entryId, where]) => [entryId, {binder_id: where.binder.id, binder_name: where.binder.name, page: where.slot.page, position: where.slot.position}]));
 
 		return h('div', {class: 'pocket-count', id: 'pocket-count'},
-			h('p', {class: 'pocket-count-label', id: 'pocket-count-label'}, 'Copies like this'),
+			h('p', {class: 'pocket-count-label', id: 'pocket-count-label'}, entry.storage ? `Copies like this, stored in ${entry.storage}` : 'Copies like this'),
 			copyStepper({entries: alike, keep: entry.id, label, min: 1, places}).element
 		);
 	}
