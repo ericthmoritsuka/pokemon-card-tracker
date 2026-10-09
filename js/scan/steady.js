@@ -1220,7 +1220,8 @@ function gapOf(a, b) {
 // turned a quarter clockwise); sides how much of each side is drawn;
 // touching whether, with no whole card found, a card-shaped outline runs
 // off the frame's edge (a card too close, or a pile too high); lines how
-// many straight lines were looked at.
+// many straight lines were looked at. debug: an object that receives every
+// box considered and every line, for working on the finder.
 export function findCard(grey, width, height, {debug = null} = {}) {
 	const steps = gradients(grey, width, height);
 	const {mag} = steps;
