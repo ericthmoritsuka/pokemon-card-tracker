@@ -21,6 +21,9 @@
 //   language     the copies' language code
 //   rarity       TCGdex's English rarity
 //   unplaced     true when a copy is in no binder yet
+//   stored       Map folded place name -> {name, count}: where the copies
+//                are stored (js/collection.js placeFold)
+//   unstored     how many copies are stored nowhere
 //   favorite     true when a copy is a favorite
 //   priced       false when a copy has no price
 //   price        the tile's value in reais, or null
@@ -33,6 +36,7 @@
 import {h} from './dom.js';
 import {REGIONS} from './checklists.js';
 import {languageLabel} from './catalog.js';
+import {cleanPlace, placeFold} from './collection.js';
 import {searchKey} from './names.js';
 import {ENERGIES} from './themes.js';
 
@@ -66,12 +70,58 @@ export const SORTS = [
 
 // Every filter the bar knows, in the order the sheet shows them. dex is a
 // Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'price', 'unplaced', 'favorite'];
+export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'price', 'storage', 'unplaced', 'favorite'];
 
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
 
-export const emptyFilters = () => ({category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', type: '', unplaced: false});
+export const emptyFilters = () => ({category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
+
+// The Stored in filter's values: "place:<name>" for a place, matched
+// whatever its case, and NOT_STORED for copies stored nowhere.
+export const NOT_STORED = 'none';
+
+export const placeValue = (name) => `place:${cleanPlace(name)}`;
+
+const placeOfValue = (value) => (String(value).startsWith('place:') ? String(value).slice(6) : null);
+
+// The copies of a tile the Stored in filter means: all of them with no
+// filter, else those stored in the place, or stored nowhere.
+export function storedEntries(entries, value) {
+	if (!value) {
+		return entries;
+	}
+
+	if (value === NOT_STORED) {
+		return entries.filter((entry) => !cleanPlace(entry.storage));
+	}
+
+	const fold = placeFold(placeOfValue(value));
+
+	return entries.filter((entry) => cleanPlace(entry.storage) && placeFold(entry.storage) === fold);
+}
+
+// An item's stored and unstored, from its copies.
+export function storageOf(entries) {
+	const stored = new Map();
+	let unstored = 0;
+
+	for (const entry of entries) {
+		const name = cleanPlace(entry.storage);
+
+		if (!name) {
+			unstored++;
+			continue;
+		}
+
+		const fold = placeFold(name);
+		const old = stored.get(fold);
+
+		stored.set(fold, {count: (old ? old.count : 0) + 1, name: old ? old.name : name});
+	}
+
+	return {stored, unstored};
+}
 
 export const MAX_DEX = REGIONS[REGIONS.length - 1].last;
 
@@ -178,6 +228,9 @@ const matchers = {
 	rarity: (item, value) => item.rarity === value,
 	region: (item, value) => regionsOf(item.dexIds).includes(value),
 	set: (item, value) => item.setKey === value,
+	storage: (item, value) => (value === NOT_STORED
+		? item.unstored > 0
+		: Boolean(item.stored) && item.stored.has(placeFold(placeOfValue(value)))),
 	type: (item, value) => (item.types || []).includes(value),
 	unplaced: (item, value) => !value || item.unplaced === true,
 };
@@ -214,8 +267,9 @@ export const sortItems = (items, sort) => [...items].sort(SORTERS[sort] || SORTE
 
 // The options each filter offers for these items, with how many tiles each
 // holds: {region: [{value, label, count}], ...}. Only what the list holds is
-// offered.
-export function filterOptions(items) {
+// offered, but for Stored in: it counts copies, not tiles, and offers every
+// saved place (places, names), with none stored there too, then Not set.
+export function filterOptions(items, {places = []} = {}) {
 	const count = (map, value, label, extra = {}) => {
 		if (value === null || value === undefined || value === '') {
 			return;
@@ -226,6 +280,8 @@ export function filterOptions(items) {
 		map.set(value, {count: (old ? old.count : 0) + 1, label, value, ...extra});
 	};
 	const maps = {category: new Map(), language: new Map(), rarity: new Map(), region: new Map(), set: new Map(), type: new Map()};
+	const stored = new Map(places.map((name) => [placeFold(name), {count: 0, name: cleanPlace(name)}]));
+	let unstored = 0;
 	let unplaced = 0;
 	let favorite = 0;
 	let unpriced = 0;
@@ -244,6 +300,13 @@ export function filterOptions(items) {
 		count(maps.set, item.setKey, item.setName || item.setKey, {releaseDate: item.releaseDate || ''});
 		count(maps.language, item.language, languageLabel(item.language));
 		count(maps.rarity, item.rarity, item.rarity);
+		for (const [fold, place] of item.stored || []) {
+			const old = stored.get(fold);
+
+			stored.set(fold, {count: (old ? old.count : 0) + place.count, name: old ? old.name : place.name});
+		}
+
+		unstored += item.unstored || 0;
 		unplaced += item.unplaced === true ? 1 : 0;
 		favorite += item.favorite === true ? 1 : 0;
 		unpriced += item.priced === false ? 1 : 0;
@@ -259,6 +322,12 @@ export function filterOptions(items) {
 		rarity: [...maps.rarity.values()].sort((a, b) => collator.compare(a.label, b.label)),
 		region: inOrder(maps.region, REGION_OPTIONS.map((region) => ({label: region.label, value: region.id}))),
 		set: [...maps.set.values()].sort((a, b) => b.releaseDate.localeCompare(a.releaseDate) || collator.compare(a.label, b.label)),
+		storage: [
+			...[...stored.values()].filter((place) => place.name)
+				.sort((a, b) => b.count - a.count || collator.compare(a.name, b.name))
+				.map((place) => ({count: place.count, label: place.name, value: placeValue(place.name)})),
+			...(unstored ? [{count: unstored, label: 'Not set', value: NOT_STORED}] : []),
+		],
 		type: inOrder(maps.type, ENERGIES.map((energy) => ({label: energy.name, value: energy.name}))),
 		favorite,
 		unplaced,
@@ -327,8 +396,8 @@ let barCount = 0;
 //   extra       nodes placed after the Filters button (My Cards' Value)
 //   placeholder the search field's hint
 //   onChange(state, reason)  reason is 'query', 'filter', or 'sort'
-// Returns {element, state, setItems(items), setFilter(kind, value),
-// clearFilters(), openSheet(), destroy()}.
+// Returns {element, state, setItems(items), setPlaces(names),
+// setFilter(kind, value), clearFilters(), openSheet(), destroy()}.
 export function filterBar({
 	extra = [],
 	filters: offered = FILTERS,
@@ -348,6 +417,8 @@ export function filterBar({
 		sort: saved.sort && sortValues.includes(saved.sort) ? saved.sort : defaultSort,
 	};
 	let items = [];
+	// The saved storage places, offered even when no copy is stored there.
+	let places = [];
 	let searchTimer = null;
 
 	for (const kind of FILTERS) {
@@ -442,6 +513,10 @@ export function filterBar({
 
 		if (kind === 'language') {
 			return languageLabel(value);
+		}
+
+		if (kind === 'storage') {
+			return value === NOT_STORED ? 'Stored in: not set' : `Stored in ${placeOfValue(value) || value}`;
 		}
 
 		if (kind === 'set') {
@@ -609,6 +684,10 @@ export function filterBar({
 			return select('price', 'Price', 'Priced or not', options.price);
 		}
 
+		if (kind === 'storage') {
+			return select('storage', 'Stored in (copies)', 'Anywhere', options.storage);
+		}
+
 		if (kind === 'favorite') {
 			const star = h('input', {checked: state.filters.favorite, id: `${id}-f-favorite`, onchange: () => setFilter('favorite', star.checked), type: 'checkbox'});
 
@@ -638,7 +717,7 @@ export function filterBar({
 			sheetBody.replaceChildren(...slots.values());
 		}
 
-		const options = filterOptions(items);
+		const options = filterOptions(items, {places});
 		const waiting = items.length && !items.some((item) => item.category);
 		const active = document.activeElement;
 		const focused = active && sheetBody.contains(active)
@@ -720,6 +799,11 @@ export function filterBar({
 		drawSheet();
 	}
 
+	function setPlaces(names) {
+		places = names || [];
+		drawSheet();
+	}
+
 	function destroy() {
 		clearTimeout(searchTimer);
 
@@ -734,5 +818,5 @@ export function filterBar({
 
 	drawChips();
 
-	return {clearFilters, destroy, element, openSheet, setFilter, setItems, state};
+	return {clearFilters, destroy, element, openSheet, setFilter, setItems, setPlaces, state};
 }

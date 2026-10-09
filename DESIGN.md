@@ -415,7 +415,7 @@ by older apps:
     "language", "language_source",        -- scan | manual | import
     "condition",                          -- optional, TCGplayer vocabulary
     "purchase_price", "purchase_currency",
-    "opening_id", "storage",              -- storage: free text, e.g. "Bulk box A"
+    "opening_id", "storage",              -- storage: "Stored in", e.g. "Bulk box A" (below)
     "grader", "grade", "cert_number", "graded_price",   -- optional; TCGdex has no graded data
     "notes", "is_favorite", "photo_path", "created_at"
   }],
@@ -429,6 +429,7 @@ by older apps:
                     "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }] }],
   "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
+  "storage_places": [{ "id", "name" }],   -- the saved "Stored in" places (below)
   "settings":    { "theme", "favorite_pokemon" }   -- follows the person to every device
 }
 ```
@@ -469,6 +470,26 @@ US, or EU price (a Liga price typed on a copy still shows on its row). When the 
 lists a card with the same set (by TCGdex id, printed code, or name) and number, the card page
 offers to link: the same entries move to the catalog card, keeping photos, notes, prices, and
 binder pockets.
+
+**Stored in** (Eric, 2026-10-09). Where each physical copy lives (a box, a deck box, a drawer, a
+toploader case) is the copy's `storage`: free text, one line, trimmed, at most 40 characters,
+edited in the copy sheet and the Add sheet beside condition and notes. The places are saved in a
+list of their own, `storage_places`, added to the first time a place is typed and kept when no
+copy is stored there any more (Eric's change of the same day: places are permanent options, not
+suggestions read from the copies). The sheets offer them as chips, most used first, so typing is
+for a new place; "box a" is the saved "Box A". Manage places renames a place (every copy stored
+there follows) or removes one (its copies show Not set; asked first when copies are stored
+there), both with Undo. Copies stored in two places are two rows of Your copies, each with its
+own stepper, and + adds a copy in the row's place. A copy in a binder pocket shows its pocket and,
+when set, its place; neither is made up from the other. My Cards and Trade filter by place (copies
+counted) or Not set, and a narrowed My Cards stores all its copies at once ("Set storage for these
+N copies", with Undo). The CSV carries a `storage` column, which the own-CSV restore reads back.
+Family view shows a member's places, read only. Sync needs no change to `js/merge.js`: `storage` is
+merged per field like `notes`, and `storage_places` like any list, entry by entry (a place added
+on each phone keeps both; a removed place is a tombstone that stays removed). A place's id comes
+from its folded name, so the same place typed on two phones is one entry. Older apps carry both
+along: `storage` has been an entry field since the first import, and every app merges an unknown
+top-level list entry by entry and saves it back.
 
 ## 5. Catalog: TCGdex Coverage
 
@@ -853,7 +874,8 @@ here and the same, and deleted on this phone.
   `condition`, `notes`, `name_local`, `set_name_local`, `finish_raw`, `fallback`, `import_key`,
   `number_local`, `set_code`. An older export leaves those fields alone. A hand-made card's row
   carries its name, set, number, and set code. Not in the CSV: photos, the pinned image, binder
-  pockets, and fields the app does not edit yet (purchase price, storage, grading); a re-import
+  pockets, and fields the app does not edit yet (purchase price, grading; storage joined the CSV on
+  2026-10-09, section 4); a re-import
   leaves them as they are on the phone, and sync brings them back to a wiped phone that signs in.
 - Tested as a round trip: export, a wiped phone, import, the same copies; the same file again
   adds nothing.

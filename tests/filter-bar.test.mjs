@@ -98,6 +98,43 @@ describe('the filters', () => {
 	});
 });
 
+describe('Stored in', () => {
+	const copies = (...places) => places.map((storage, i) => ({id: `c${i}`, storage}));
+	const stored = () => [
+		item({name: 'Pikachu', ...fb.storageOf(copies('Box A', 'box a', null))}),
+		item({name: 'Charizard', ...fb.storageOf(copies('Drawer'))}),
+		item({name: 'Test Ball', ...fb.storageOf(copies(null))}),
+	];
+
+	test('a place, in any case, or Not set', () => {
+		const only = (value) => names(fb.applyFilters(stored(), {filters: {...fb.emptyFilters(), storage: value}}));
+
+		assert.deepEqual(only(fb.placeValue('BOX A')), ['Pikachu']);
+		assert.deepEqual(only(fb.NOT_STORED), ['Pikachu', 'Test Ball'], 'a tile with any copy stored nowhere');
+		assert.deepEqual(only(fb.placeValue('Shoebox')), []);
+		assert.deepEqual(only(''), ['Pikachu', 'Charizard', 'Test Ball']);
+	});
+
+	test('options count copies, offer saved places with none stored there, and end with Not set', () => {
+		const options = fb.filterOptions(stored(), {places: ['Shoebox', 'drawer']});
+
+		assert.deepEqual(options.storage.map((option) => [option.label, option.count, option.value]), [
+			['Box A', 2, 'place:Box A'],
+			['drawer', 1, 'place:drawer'],
+			['Shoebox', 0, 'place:Shoebox'],
+			['Not set', 2, 'none'],
+		]);
+	});
+
+	test('the copies a place filter means', () => {
+		const list = copies('Box A', 'BOX A', null, 'Drawer');
+
+		assert.deepEqual(fb.storedEntries(list, fb.placeValue('box a')).map((entry) => entry.id), ['c0', 'c1']);
+		assert.deepEqual(fb.storedEntries(list, fb.NOT_STORED).map((entry) => entry.id), ['c2']);
+		assert.equal(fb.storedEntries(list, ''), list);
+	});
+});
+
 describe('the sorts', () => {
 	const sorted = (sort) => names(fb.sortItems(ITEMS(), sort));
 
