@@ -16,11 +16,14 @@ const ASIAN = new Set(['ja', 'ko', 'zh-cn', 'zh-tw']);
 const copies = (n) => `${formatCount(n)} ${n === 1 ? 'copy' : 'copies'}`;
 
 // Why a copy has a price or not:
-//   'priced'   a Liga price, or a US estimate
+//   'priced'   a Liga price kept on the copy, or a US estimate (for a copy
+//              whose finish the card does not list, another finish's; the
+//              statistics bar's note counts those)
 //   'asian'    a Japanese, Korean, or Chinese print: no market price exists
 //   'waiting'  an international card whose full record is not on the phone
 //              yet (the background pass reads it)
-//   'none'     the record is here, and TCGdex has no market price for it
+//   'none'     the record is here, and TCGdex has no US market price for
+//              the copy's finish
 //   'norate'   a US price, but no exchange rate saved yet
 // record is the full TCGdex record when saved (it carries the prices),
 // else null.
