@@ -201,8 +201,11 @@ export function scanView(root) {
 	// placeholderList), read from the phone, so they work offline.
 	let placeholders = [];
 	let camera = null;
-	// When the camera last opened (performance.now()), for Q-20's window.
+	// When the camera last opened (performance.now()), for Q-20's window,
+	// and the cards captured since then: Q-20 is for a card added before
+	// the camera opened; one added since is the repeat bar's (askRepeat).
 	let cameraOpenedAt = -Infinity;
+	const sinceOpen = new Set();
 	// The camera start in progress (an AbortController), so there is never
 	// a second one, and leaving or hiding the page can cancel it.
 	let cameraStart = null;
@@ -1064,6 +1067,7 @@ export function scanView(root) {
 		const item = S.addCapture(session);
 
 		toBuzz.add(item.id);
+		sinceOpen.add(item.id);
 		scanLog.startEntry(item.id, {at: item.captured_at, how, phone: deviceInfo(), source: 'camera'});
 		persist();
 		draw();
@@ -1220,7 +1224,7 @@ export function scanView(root) {
 		// again (Q-20): taken once is enough. The shutter adds it anyway.
 		const last = lastCard();
 
-		if (auto && repeatOfLast(result.picture, last && last.key, performance.now() - cameraOpenedAt)) {
+		if (auto && last && !sinceOpen.has(last.item) && repeatOfLast(result.picture, last.key, performance.now() - cameraOpenedAt)) {
 			await drop(id, 'repeat on reopen', {fullSaved, report: report(), result});
 			setNote('That card was just added. Tap the shutter to add it again.');
 
@@ -1904,6 +1908,7 @@ export function scanView(root) {
 
 		camera = started;
 		cameraOpenedAt = performance.now();
+		sinceOpen.clear();
 
 		cameraOff.hidden = true;
 		shutter.disabled = false;

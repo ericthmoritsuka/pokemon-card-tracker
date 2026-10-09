@@ -82,7 +82,11 @@ function portraitCamera({height, width}) {
 			return;
 		}
 
-		const g = guide.getBoundingClientRect();
+		// The guide's layout box, not its drawn one: the capture flash
+		// scales the guide for a moment, and a real camera's picture does
+		// not follow it.
+		const stage = guide.offsetParent.getBoundingClientRect();
+		const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
 		const v = video.getBoundingClientRect();
 		const scale = Math.max(v.width / width, v.height / height);
 		const offsetX = v.left + (v.width - width * scale) / 2;
