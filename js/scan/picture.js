@@ -203,6 +203,21 @@ export function repeatOfLast(picture, lastKey, sinceOpenMs) {
 	return pictureKey(picture) === lastKey;
 }
 
+// The same card twice in a row (Eric, 2026-10-09): an automatic capture
+// whose picture clearly names the same card as the camera's capture just
+// before it, still in the tray, is that card held a moment longer (a shake
+// moved it past steady.js CHANGED), not a second copy, and does not join
+// the tray, at any time, not only after the camera opens (repeatOfLast). A
+// second copy is the Copies stepper on the card's sheet, or the shutter,
+// which always adds the card. A different card in between (A, B, A) adds
+// A again. previous: that capture's picture match, or null when there is
+// none (or it is still being read).
+export function repeatOfPrevious(picture, previous) {
+	const key = pictureKey(picture);
+
+	return key !== null && key === pictureKey(previous);
+}
+
 // ------------------------------------------------------------ candidates
 
 // The catalog language of an index catalog. Portuguese cards are indexed by

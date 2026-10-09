@@ -4,7 +4,8 @@
 import {BASE, errorText, h, namedError, showError} from './dom.js';
 import {formatCount} from './format.js';
 import {openDatabase} from './idb.js';
-import {reportAlwaysOn, setReportAlwaysOn} from './scan/draft.js';
+import {downloadBlob} from './scan/image.js';
+import {clearLog, logFile, logSize, picturesOn, recording, setPictures, setRecording} from './scan/log.js';
 import {clockGap, clockIsOff, clockOffset, onClockOffset} from './sync.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
@@ -301,13 +302,7 @@ export function phoneCheckView(root) {
 			h('a', {class: 'button', href: BASE + 'camera', 'data-link': 'camera'}, 'Camera test'),
 			h('a', {class: 'button', href: BASE + 'storage', 'data-link': 'storage'}, 'Storage test')
 		),
-		h('section', {class: 'card'},
-			h('h2', null, 'Scanner'),
-			h('label', null,
-				h('input', {checked: reportAlwaysOn(), id: 'scan-report-always', onchange: (event) => setReportAlwaysOn(event.target.checked), type: 'checkbox'}),
-				' Show the scan report after every scan'),
-			h('p', {class: 'muted'}, 'Each scan then opens its card with the report: the phone, each step\'s time, what each read got, and the cards considered. Copy it and send it to Eric.')
-		),
+		scanLogCard(),
 		h('section', {class: 'card'},
 			h('h2', null, 'Device report'),
 			h('p', {class: 'muted'}, 'Results are kept on this phone. The installed app and the browser may keep them separately, so copy the report from each.'),
@@ -331,6 +326,117 @@ export function phoneCheckView(root) {
 		window.removeEventListener('offline', refresh);
 		stopClock();
 	};
+}
+
+// ---------------------------------------------------------- the scan log
+
+const megabytes = (bytes) => `${bytes && bytes < 100000 ? '0.1' : (bytes / 1e6).toFixed(1)} MB`;
+
+// Whether the phone's share sheet takes a file (Chrome on Android does), as
+// the CSV export in js/cards-view.js asks.
+function canShareFile(file) {
+	try {
+		return Boolean(navigator.canShare && navigator.canShare({files: [file]}));
+	}
+	catch {
+		return false;
+	}
+}
+
+// The Scanner section: Record every scan (js/scan/log.js), off until
+// switched on here, so nobody records by surprise; Include card pictures;
+// how much is kept; and the log as one file to download or share.
+function scanLogCard() {
+	const size = h('p', {id: 'scan-log-size'}, 'Counting the recorded scans...');
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'scan-log-status'});
+	const share = h('button', {hidden: true, id: 'scan-log-share', onclick: () => send(true), type: 'button'}, 'Share');
+	const download = h('button', {class: 'primary', id: 'scan-log-download', onclick: () => send(false), type: 'button'}, 'Download scan log');
+	const clear = h('button', {id: 'scan-log-clear', onclick: () => askClear(true), type: 'button'}, 'Clear log');
+	const confirmRow = h('div', {hidden: true, id: 'scan-log-confirm', role: 'group', 'aria-label': 'Clear the scan log', style: 'display: grid; gap: 8px; grid-template-columns: 1fr 1fr'},
+		h('p', {id: 'scan-log-confirm-text', style: 'grid-column: 1 / -1; margin: 0'}),
+		h('button', {class: 'danger', id: 'scan-log-clear-yes', onclick: doClear, type: 'button'}, 'Delete them'),
+		h('button', {id: 'scan-log-clear-no', onclick: () => askClear(false), type: 'button'}, 'Keep them'));
+	let count = 0;
+
+	async function drawSize() {
+		const found = await logSize();
+
+		count = found.count;
+		size.textContent = count ? `${formatCount(count)} ${count === 1 ? 'scan' : 'scans'} recorded · ${megabytes(found.bytes)}` : 'No scans recorded yet.';
+		download.disabled = !count;
+		clear.disabled = !count;
+		share.hidden = !count || !canShareFile(new File(['{}'], 'scan-log.json', {type: 'application/json'}));
+	}
+
+	async function send(viaShare) {
+		status.textContent = 'Making the file...';
+
+		try {
+			const file = await logFile();
+
+			if (viaShare && canShareFile(file)) {
+				try {
+					await navigator.share({files: [file], title: 'Card Tracker scan log'});
+					status.textContent = 'Shared.';
+				}
+				catch (err) {
+					// Closing the share sheet is not an error.
+					status.textContent = err && err.name === 'AbortError' ? '' : `Sharing did not work: ${errorText(err)}`;
+				}
+
+				return;
+			}
+
+			// As the scan report's Save capture image does.
+			downloadBlob(file, file.name);
+			status.textContent = `Saved ${file.name}. Send that file to Eric.`;
+		}
+		catch (err) {
+			status.textContent = `The scan log could not be made: ${errorText(err)}`;
+		}
+	}
+
+	function askClear(open) {
+		confirmRow.hidden = !open;
+		clear.hidden = open;
+
+		if (open) {
+			confirmRow.querySelector('p').textContent = `Delete all ${formatCount(count)} recorded ${count === 1 ? 'scan' : 'scans'} from this phone?`;
+			document.getElementById('scan-log-clear-no').focus();
+		}
+		else {
+			clear.focus();
+		}
+	}
+
+	async function doClear() {
+		try {
+			await clearLog();
+			status.textContent = 'The scan log is empty.';
+		}
+		catch (err) {
+			status.textContent = `The scan log could not be cleared: ${errorText(err)}`;
+		}
+
+		askClear(false);
+		await drawSize();
+	}
+
+	drawSize();
+
+	return h('section', {class: 'card', id: 'scan-log'},
+		h('h2', null, 'Scanner'),
+		h('label', null,
+			h('input', {checked: recording(), id: 'scan-log-record', onchange: (event) => setRecording(event.target.checked), type: 'checkbox'}),
+			' Record every scan'),
+		h('label', null,
+			h('input', {checked: picturesOn(), id: 'scan-log-pictures', onchange: (event) => setPictures(event.target.checked), type: 'checkbox'}),
+			' Include card pictures'),
+		h('p', {class: 'muted'}, 'While this is on, every scan is kept on this phone: the phone, each step\'s time, what was read, the cards considered, and what you saved in the end. Pictures are small copies of each card. Download the scan log and send the file to Eric.'),
+		size,
+		h('div', {style: 'display: grid; gap: 8px'}, download, share, clear, confirmRow),
+		status
+	);
 }
 
 // ---------------------------------------------------------- camera view

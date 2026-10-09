@@ -99,39 +99,6 @@ export const loadPhoto = (key) => run(PHOTOS, 'readonly', (store) => store.get(k
 
 export const deletePhoto = (key) => run(PHOTOS, 'readwrite', (store) => store.delete(key));
 
-// Whether the scan report shows after every scan (js/scan/sheets.js), on
-// this phone only. Kept in localStorage, so the phone check
-// (js/phone-check.js) can offer the same switch by importing these two.
-export const REPORT_KEY = 'card-tracker:scan-report';
-
-// What the switch was last set to here, for a browser with storage off.
-let reportSwitch = false;
-
-export function reportAlwaysOn() {
-	try {
-		return localStorage.getItem(REPORT_KEY) === 'on';
-	}
-	catch {
-		return reportSwitch;
-	}
-}
-
-export function setReportAlwaysOn(on) {
-	reportSwitch = Boolean(on);
-
-	try {
-		if (on) {
-			localStorage.setItem(REPORT_KEY, 'on');
-		}
-		else {
-			localStorage.removeItem(REPORT_KEY);
-		}
-	}
-	catch {
-		// Storage turned off: the switch lasts this visit only.
-	}
-}
-
 // Deletes every photo whose item is not in `keepIds`.
 export async function prunePhotos(keepIds) {
 	const keep = new Set(keepIds);

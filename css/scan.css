@@ -121,19 +121,73 @@ html.scan-open body {
 	white-space: nowrap;
 }
 
-.scan-top-status {
+/* The top of the camera: the reader's status and the running count, one
+   under the other, centred, never taking a tap from the camera. */
+.scan-stage-top {
+	align-items: center;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	left: 16px;
+	pointer-events: none;
+	position: absolute;
+	right: 16px;
+	top: calc(8px + env(safe-area-inset-top, 0px));
+}
+
+.scan-top-status,
+.scan-run-count {
 	background: rgba(0, 0, 0, 0.7);
 	border-radius: 999px;
 	font-size: 14px;
-	left: 50%;
 	line-height: 20px;
 	margin: 0;
-	max-width: calc(100% - 32px);
+	max-width: 100%;
 	padding: 4px 12px;
-	position: absolute;
 	text-align: center;
-	top: calc(8px + env(safe-area-inset-top, 0px));
-	transform: translateX(-50%);
+}
+
+.scan-run-count {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}
+
+.scan-top-status[hidden],
+.scan-run-count[hidden] {
+	display: none;
+}
+
+/* "Same card as the last one." with Add a copy and Mistake, at the foot of
+   the camera, above the tray and the shutter. */
+.scan-repeat {
+	bottom: 8px;
+	left: 16px;
+	position: absolute;
+	right: 16px;
+}
+
+.scan-repeat.is-open {
+	align-items: center;
+	background: rgba(0, 0, 0, 0.82);
+	border: 1px solid var(--scan-border);
+	border-radius: 16px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 8px 12px;
+}
+
+.scan-repeat-text {
+	flex: 1 1 100%;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	margin: 0;
+}
+
+.scan-repeat .scan-button {
+	flex: 1 1 0;
+	min-height: 44px;
 }
 
 .scan-camera-off {
@@ -240,7 +294,41 @@ html.scan-open body {
 
 .scan-tray-item {
 	flex: 0 0 auto;
+	position: relative;
 	scroll-snap-align: start;
+}
+
+/* Remove, on the art's right edge between the corner badges: a 32 px
+   target around a 22 px disc, so it never covers the quantity or status. */
+.scan-tile-remove {
+	align-items: center;
+	background: none;
+	border: 0;
+	color: var(--scan-text);
+	cursor: pointer;
+	display: flex;
+	height: 32px;
+	justify-content: center;
+	padding: 0;
+	position: absolute;
+	right: -4px;
+	top: 34px;
+	width: 32px;
+	z-index: 1;
+}
+
+.scan-tile-remove > span {
+	align-items: center;
+	background: rgba(0, 0, 0, 0.72);
+	border: 1px solid var(--scan-text);
+	border-radius: 50%;
+	display: flex;
+	font-size: 16px;
+	font-weight: 700;
+	height: 22px;
+	justify-content: center;
+	line-height: 1;
+	width: 22px;
 }
 
 .scan-tile {
@@ -290,6 +378,16 @@ html.scan-open body {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* What this tile adds, when it stands for several copies. */
+.scan-tile-copies {
+	background: var(--scan-primary);
+	border-radius: 4px;
+	color: var(--scan-on-primary);
+	font-weight: 700;
+	margin-right: 4px;
+	padding: 0 3px;
 }
 
 /* "Member A wants this" gets two lines rather than an ellipsis. */
@@ -1026,15 +1124,24 @@ html.scan-open body {
 	width: 100%;
 }
 
-.scan-check {
-	align-items: center;
-	color: var(--scan-text);
-	display: flex;
-	gap: 8px;
-	min-height: 48px;
+/* The Copies stepper on a card's sheet: css/copies.css's shape, in the
+   scanner's colours. */
+.scan-copies .copy-stepper {
+	margin-top: 4px;
 }
 
-.scan-check input {
-	height: 22px;
-	width: 22px;
+.scan-copies button.step {
+	background: var(--scan-surface-2);
+	border: 1px solid var(--scan-border);
+	color: var(--scan-text);
+}
+
+.scan-copies .step-count {
+	background: var(--scan-surface-2);
+	border-color: var(--scan-border);
+	color: var(--scan-text);
+}
+
+.scan-copies .step-count:focus-visible {
+	outline-color: var(--scan-focus);
 }
