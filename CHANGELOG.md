@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-09
 
+- **18:49** Version 34: binders from a list. `55419b0`
+  - **New binder, From a list** (or Make a binder on a checklist, goal, or collection): pick the
+    list or a filter, an order (Pokédex, set and number, name, release), and a pocket size, and the
+    app lays out the pages.
+  - Each pocket stands for a Pokémon or card and shows your best copy (most valuable, else rarest,
+    else newest), with a count when you have more. Tap it to pick another; the pick sticks. Cards
+    you do not have show faded, with Add to wishlist.
+  - Opening the binder, or Refresh, fills in cards you got since and says what changed, keeping
+    your picks. These binders are views: a card in one still counts as not in a binder.
+
 - **17:26** Version 33: where cards are stored, list order, and simpler prices. `3a625cc`
   - **Stored in:** note where each copy lives. Places you type are saved and offered as buttons,
     can be renamed or removed with Undo, sync between phones, and filter My Cards, Spares, and
