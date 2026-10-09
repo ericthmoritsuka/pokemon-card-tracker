@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v32** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v32 `cc8d063` adds continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v33** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v33 `3a625cc` adds Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -168,6 +168,18 @@ the audit below to confirm or drop:
    - **Optional: their wishlist one tap closer.** The lens already follows Cards, Binders, and
      Lists, so a member's wishlist is Lists, then Wishlist. A Wishlist link in the heading of
      their Cards page, like the Spares link on yours, would save the step.
+
+## Scanner Feedback (Eric, 2026-10-09), next scanner round
+
+- **Review flow for cards that need a look:** today Review opens one card, then Done, then Review
+  again. After Done on one, the next card needing a look should open by itself, until none are
+  left, with a clear way to stop part way (the rest stay marked in the tray).
+- **Phone holder (a 3D-printed stand from TCG Box; cards are dropped under a fixed phone):** auto
+  capture sometimes waited too long (the shutter was needed) and sometimes fired too early, taking
+  part of a falling card. Ideas: a holder mode that knows the phone is still, waits for the drop's
+  motion to stop for a short settle time, requires the card's four edges inside the frame, and
+  treats a new card landing on the last one as a new capture. Eric is recording a scan log with
+  the holder to measure it.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

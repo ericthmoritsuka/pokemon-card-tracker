@@ -14,6 +14,20 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-09
 
+- **17:26** Version 33: where cards are stored, list order, and simpler prices. `3a625cc`
+  - **Stored in:** note where each copy lives. Places you type are saved and offered as buttons,
+    can be renamed or removed with Undo, sync between phones, and filter My Cards, Spares, and
+    collections. Set the place for many copies at once from a filtered My Cards. The CSV carries
+    it.
+  - **Edit order:** checklists, goals, collections, and binders can be dragged into order, or moved
+    with arrows. Deleting one happens at once with Undo instead of a question.
+  - **Collections that fill themselves** can leave a card out, and put it back later.
+  - **Prices:** the card page shows TCGplayer and Cardmarket in reais, and a copy whose finish is
+    not listed shows the price of one that is, saying so. The Liga form is gone; a Liga price
+    typed before stays as one line with Remove, and Ver na Liga still opens Liga.
+  - **Fixed:** opening Spares while My Cards was still pricing left some spares with no price, and
+    sorting by price did not move cards whose price arrived later.
+
 - **16:10** Version 32: scan card after card. `cc8d063`
   - **Continuous scan:** no sheet opens by itself, even for the first card. A short buzz says the
     card is recognised, a triple buzz that it needs a look, and a count over the camera says how
