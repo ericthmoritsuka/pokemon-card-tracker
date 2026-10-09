@@ -122,7 +122,7 @@ const text = async (locator) => plain(await locator.textContent());
 // Waits until both converted references have their rates.
 const ratesShown = (page) => page.waitForFunction(() => [...document.querySelectorAll('.price-us-value, .price-eu-value')].length >= 2);
 
-// WCAG contrast of an element's text against the panel behind it.
+// WCAG contrast of an element's text against the page behind it.
 const contrast = (locator) => locator.evaluate((el) => {
 	const rgb = (color) => color.match(/[\d.]+/g).slice(0, 3).map(Number);
 	const luminance = (color) => {
@@ -135,7 +135,14 @@ const contrast = (locator) => locator.evaluate((el) => {
 		return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 	};
 	const fore = luminance(getComputedStyle(el).color);
-	const back = luminance(getComputedStyle(el.closest('section.price')).backgroundColor);
+	// The first background behind it that is not transparent.
+	let under = el;
+
+	while (under.parentElement && /rgba\(0, 0, 0, 0\)|transparent/.test(getComputedStyle(under).backgroundColor)) {
+		under = under.parentElement;
+	}
+
+	const back = luminance(getComputedStyle(under).backgroundColor);
 
 	return (Math.max(fore, back) + 0.05) / (Math.min(fore, back) + 0.05);
 });
@@ -143,7 +150,7 @@ const contrast = (locator) => locator.evaluate((el) => {
 const storedCards = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).listCards());
 
 describe('price section', () => {
-	test('English card: the US reference converted, with its date and no language note', async () => {
+	test('English card: TCGplayer and Cardmarket in reais, the originals small, one rate line', async () => {
 		const device = await phone();
 		const {page} = device;
 
@@ -152,35 +159,37 @@ describe('price section', () => {
 		const section = page.locator('section.price');
 
 		await ratesShown(page);
-		assert.equal(await text(section.locator('.price-market').first()), 'Brazil (Liga Pokémon)');
-		assert.equal(await text(section.locator('.price-others-title')), 'Other markets');
-		assert.equal(await text(section.locator('.price-us .price-market')), 'US market (TCGplayer)');
-		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 4.899,94 estimate');
-		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 944,53 market price, updated 2026-09-30');
-		assert.equal(await text(section.locator('.price-rate')), 'At R$ 5,19 per US$ 1, rate of 2026-10-01.');
+		assert.deepEqual((await section.locator('.price-source').allTextContents()).map(plain), ['TCGplayer', 'Cardmarket']);
+		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 4.899,94');
+		assert.equal(await text(section.locator('.price-us .price-original')), 'US$ 944,53, TCGplayer market, 30 Sep');
+		assert.equal(await text(section.locator('.price-eu .price-original')), '€ 596,13, Cardmarket trend, 30 Sep');
+		assert.equal(await text(section.locator('.price-rate')), 'US$ 1 = R$ 5,19 · € 1 = R$ 5,88, rates of 1 Oct.');
 		assert.equal(await section.locator('.price-language').count(), 0);
-		// The Liga block comes first, the other markets after it.
-		assert.ok(await page.evaluate(() => document.querySelector('.price-liga').compareDocumentPosition(document.querySelector('.price-others')) & Node.DOCUMENT_POSITION_FOLLOWING));
+		assert.equal(await section.locator('.price-for').count(), 0, 'the owned finish\'s own price needs no note');
 
-		// Ver na Liga is the main action, with Liga's own search for the card.
+		// No Liga editor: no form, no field, no Save.
+		assert.equal(await section.locator('form, input, .price-liga').count(), 0);
+		assert.doesNotMatch(await text(section), /Lowest NM|Save|Brazil/);
+
+		// No box: the panel has no background or border of its own.
+		assert.deepEqual(await section.evaluate((el) => [getComputedStyle(el).borderTopStyle, getComputedStyle(el).backgroundColor]), ['none', 'rgba(0, 0, 0, 0)']);
+
+		// Ver na Liga, unchanged: Liga's own search for the card, in a new tab.
 		const liga = section.locator('a.price-liga-link');
 
 		assert.equal(await liga.getAttribute('href'), 'https://www.ligapokemon.com.br/?view=cards/search&card=Charizard%20(4%2F102)');
 		assert.equal(await liga.getAttribute('target'), '_blank');
 		assert.match(await liga.getAttribute('class'), /primary/);
 
-		// No Liga price yet, so the two fields are open and ready.
-		assert.equal(await text(section.locator('.price-none').first()), 'No Liga price saved for this finish yet.');
-		assert.equal(await section.locator('input.price-amount').count(), 2);
-		assert.equal(await section.locator('#price-1-low_nm').getAttribute('inputmode'), 'decimal');
-
-		// Four printings, the owned Unlimited chosen; the others have no US price.
+		// Four printings, the owned Unlimited chosen. The 1st Edition has no
+		// US price, so the Unlimited's stands in, and says so.
 		const chips = section.locator('.price-finish');
 
 		assert.equal(await chips.count(), 4);
 		assert.equal(await text(section.locator('.price-finish[aria-pressed="true"]')), 'Holo, Unlimited (1 owned)');
 		await chips.nth(1).click();
-		assert.equal(await text(section.locator('.price-us .price-none')), 'No US market price for this finish.');
+		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 4.899,94');
+		assert.equal(await text(section.locator('.price-us .price-for')), 'for Holo, Unlimited; none listed for Holo, Shadowless, 1st Edition stamp');
 		assert.deepEqual(device.seen.frankfurter.map((url) => url.replace(/^.*\/v2\//, '')).sort(), ['rates?base=EUR&quotes=BRL', 'rates?base=USD&quotes=BRL']);
 
 		await finish(device, 'english');
@@ -194,11 +203,10 @@ describe('price section', () => {
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => /~/.test(document.querySelector('.price-us-value')?.textContent || ''));
+		await ratesShown(page);
 		assert.equal(await text(section.locator('.price-finish[aria-pressed="true"]')), 'Reverse holo (1 owned)');
-		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 1,14 estimate');
-		assert.equal(await text(section.locator('.price-us .price-language')), 'This is the US price for English cards, not for this Portuguese printing.');
-		assert.equal(await text(section.locator('.price-eu .price-language')), 'This is the EU market price, not one for this Portuguese printing.');
+		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 1,14');
+		assert.equal(await text(section.locator('.price-language')), 'Market prices for English cards, not for Portuguese prints.');
 		assert.equal(await section.locator('a.price-liga-link').getAttribute('href'), 'https://www.ligapokemon.com.br/?view=cards/search&card=Exeggcute%20(001%2F131)');
 
 		await finish(device, 'portuguese');
@@ -213,166 +221,83 @@ describe('price section', () => {
 		const section = page.locator('section.price');
 		const chips = section.locator('.price-finish');
 
-		await page.waitForFunction(() => /~/.test(document.querySelector('.price-us-value')?.textContent || ''));
+		await ratesShown(page);
 		assert.deepEqual((await chips.allTextContents()).map(plain), [
 			'Normal (1 owned)',
 			'Reverse holo',
 			'Reverse holo, Poké Ball pattern',
 			'Reverse holo, Master Ball pattern (1 owned)',
 		]);
-		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 0,05 market price, updated 2026-09-30');
+		assert.equal(await text(section.locator('.price-us .price-original')), 'US$ 0,05, TCGplayer market, 30 Sep');
 
 		await chips.nth(3).click();
 		assert.equal(await chips.nth(3).getAttribute('aria-pressed'), 'true');
 		assert.equal(await chips.nth(0).getAttribute('aria-pressed'), 'false');
-		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 6,74 estimate');
-		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 1,30 market price, updated 2026-09-30');
+		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 6,74');
+		assert.equal(await text(section.locator('.price-us .price-original')), 'US$ 1,30, TCGplayer market, 30 Sep');
+		await chips.nth(3).focus();
 
 		await chips.nth(2).click();
-		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 0,30 market price, updated 2026-09-30');
-		// Not owned: no copy to save a Liga price on, but Ver na Liga stays.
-		assert.equal(await text(section.locator('.price-none').first()), 'You have no copy of this finish to save a Liga price on.');
+		assert.equal(await text(section.locator('.price-us .price-original')), 'US$ 0,30, TCGplayer market, 30 Sep');
 		assert.equal(await section.locator('a.price-liga-link').count(), 1);
 
 		await finish(device, 'finishes');
 	});
 
-	test('manual Liga price: typed with a comma, one tap saves both copies, shown first', async () => {
+	test('a Liga price kept from before: one read-only line, Remove, and Undo', async () => {
 		const device = await phone();
 		const {page} = device;
 
-		await open(device, 'manual');
+		await open(device, 'liga');
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => /~/.test(document.querySelector('#harness-tile')?.textContent || ''));
-		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,14US');
+		await ratesShown(page);
+		// Two copies hold the same price: one line.
+		assert.deepEqual((await section.locator('.price-liga-text').allTextContents()).map(plain), ['Liga, 1 Oct 2026: lowest NM R$ 12,00 · average R$ 15,00 (Reverse holo, Portuguese)']);
+		assert.equal(await section.locator('form, input').count(), 0, 'nothing to type into');
+		// The automatic prices still lead; the Liga line comes after them.
+		assert.ok(await page.evaluate(() => document.querySelector('.price-markets').compareDocumentPosition(document.querySelector('.price-liga')) & Node.DOCUMENT_POSITION_FOLLOWING));
 
-		// A bad amount is refused and nothing is saved.
-		await page.fill('#price-1-low_nm', 'abc');
-		await section.locator('button[type="submit"]').click();
-		assert.equal(await text(section.locator('.price-form-status')), 'Lowest NM price must be an amount in reais, such as 45,90.');
-		assert.equal(await section.locator('#price-1-low_nm').getAttribute('aria-invalid'), 'true');
-		assert.ok((await storedCards(page)).every((entry) => !entry.price_manual));
+		// Value totals and tiles keep taking it.
+		assert.equal(await text(page.locator('#harness-tile')), 'Tile: R$ 15,00');
+		assert.equal(await text(page.locator('.price-count-liga')), '2 copies by Liga');
 
-		// A typing slip, a lowest above the average, and a US-style amount are
-		// refused too, each on its own field.
-		const refused = async (lowText, avgText, message, field) => {
-			await page.fill('#price-1-low_nm', lowText);
-			await page.fill('#price-1-avg', avgText);
-			await section.locator('button[type="submit"]').click();
-			assert.equal(await text(section.locator('.price-form-status')), message);
-			assert.equal(await section.locator(`#price-1-${field}`).getAttribute('aria-invalid'), 'true');
-			assert.ok((await storedCards(page)).every((entry) => !entry.price_manual));
-		};
+		const remove = section.locator('button.price-remove');
 
-		await refused('99999999999', '1', 'Lowest NM price must be under R$ 1.000.000,00. Check for an extra zero.', 'low_nm');
-		await refused('45,90', '40', 'The lowest NM price cannot be above the average price.', 'low_nm');
-		await refused('', '1,234.56', 'Average price: use a comma for cents and dots for thousands, such as 1.234,56.', 'avg');
+		assert.equal(plain(await remove.getAttribute('aria-label')), 'Remove Liga, 1 Oct 2026: lowest NM R$ 12,00 · average R$ 15,00 (Reverse holo, Portuguese)');
+		await remove.click();
+		await section.locator('.price-liga').waitFor({state: 'detached'});
+		assert.ok((await storedCards(page)).every((entry) => !entry.price_manual), 'removed from both copies');
+		assert.equal(await text(page.locator('#toasts .toast')), 'Liga price removed from 2 copies.Undo');
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'price-1-title', 'the focus stays in the panel');
+		await page.waitForFunction(() => /~/.test(document.querySelector('#harness-tile').textContent));
+		assert.equal(await page.locator('.price-count-liga').count(), 0, 'no Liga count with no Liga price');
+		assert.equal(await page.locator('.price-basis').count(), 0, 'no Liga basis switch either');
 
-		await page.fill('#price-1-low_nm', '45,90');
-		await page.fill('#price-1-avg', '52,3');
-		assert.equal(await text(section.locator('button[type="submit"]')), 'Save to 2 copies');
-		await section.locator('button[type="submit"]').click();
-		await section.locator('.price-liga-values').waitFor();
+		// Undo puts it back on both, as it was.
+		await page.locator('#toasts button:has-text("Undo")').click();
+		await section.locator('.price-liga').waitFor();
 
-		const today = localToday();
+		const back = (await storedCards(page)).filter((entry) => entry.price_manual);
 
-		assert.deepEqual((await section.locator('.price-liga-values > div').allTextContents()).map(plain), ['Lowest NM priceR$ 45,90', 'Average priceR$ 52,30']);
-		assert.equal(await text(section.locator('.price-liga-date')), `Liga Pokémon · ${today} · today`);
-		assert.equal(await section.locator('form.price-form').count(), 0);
+		assert.equal(back.length, 2);
 
-		const stored = await storedCards(page);
-
-		assert.equal(stored.length, 2);
-
-		// The finish and language it is for, from the finish shown and the
-		// copies' language.
-		for (const entry of stored) {
-			assert.deepEqual(entry.price_manual, {avg: 52.3, currency: 'BRL', date: today, finish: 'Reverse holo', language: 'en', low_nm: 45.9, source: 'Liga Pokémon'});
+		for (const entry of back) {
+			assert.deepEqual(entry.price_manual, {avg: 15, currency: 'BRL', date: '2026-10-01', finish: 'Reverse holo', language: 'pt', low_nm: 12, source: 'Liga Pokémon'});
 		}
 
-		assert.equal(await text(section.locator('.price-for')), 'Reverse holo · EN');
-
-		// The Liga price wins over the US estimate on the tile and in the stats.
-		await page.waitForFunction(() => !/~/.test(document.querySelector('#harness-tile').textContent));
-		assert.equal(await text(page.locator('#harness-tile')), 'Tile: R$ 52,30');
-		assert.equal(await text(page.locator('.price-stats-total')), 'R$ 104,60');
-		assert.equal(await text(page.locator('.price-count-liga')), '2 copies by Liga');
-		assert.equal(await text(page.locator('.price-count-estimate')), '0 copies by US estimate (~)');
-
-		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-manual-saved.png`});
-
-		// Update opens the fields with the saved amounts; source and date are
-		// behind the disclosure with their defaults.
-		await section.locator('button.price-edit').click();
-		assert.equal(await page.inputValue('#price-1-low_nm'), '45,90');
-		assert.equal(await page.inputValue('#price-1-source'), 'Liga Pokémon');
-		assert.equal(await page.inputValue('#price-1-date'), today);
-		assert.equal(await page.inputValue('#price-1-finish'), 'Reverse holo');
-		assert.equal(await page.inputValue('#price-1-language'), 'en');
-		await page.fill('#price-1-avg', '');
-		await section.locator('button[type="submit"]').click();
-		await page.waitForFunction(() => document.querySelectorAll('.price-liga-values > div').length === 1);
-		assert.equal((await storedCards(page))[0].price_manual.avg, null);
-
-		await finish(device, 'manual');
+		await page.waitForFunction(() => document.querySelector('#harness-tile').textContent.includes('15,00'));
+		await finish(device, 'liga');
 	});
 
-	test('manual Liga price on a Portuguese copy: says its finish and language, and either can be changed', async () => {
-		const device = await phone();
-		const {page} = device;
-
-		await open(device, 'portuguese');
-
-		const section = page.locator('section.price');
-
-		await section.locator('form.price-form').waitFor();
-
-		// Defaults from the finish shown and the copy's language; Portuguese
-		// and English, which Liga lists, are offered.
-		assert.equal(await page.inputValue('#price-1-finish'), 'Reverse holo');
-		assert.equal(await page.inputValue('#price-1-language'), 'pt');
-		assert.deepEqual(await page.locator('#price-1-language option').allTextContents(), ['Portuguese', 'English']);
-		assert.ok((await page.locator('#price-1-finish option').allTextContents()).includes('Normal'));
-
-		await page.fill('#price-1-avg', '12');
-		await page.selectOption('#price-1-finish', 'Normal');
-		await section.locator('button[type="submit"]').click();
-		await section.locator('.price-liga-values').waitFor();
-		assert.equal(await text(section.locator('.price-for')), 'Normal · PT');
-
-		const [entry] = await storedCards(page);
-
-		assert.equal(entry.price_manual.finish, 'Normal');
-		assert.equal(entry.price_manual.language, 'pt');
-
-		// "Your copies" rows say it too.
-		const line = await page.evaluate(async () => {
-			const {copyPriceText} = await import('/pokemon-card-tracker/js/price-view.js');
-			const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
-
-			return copyPriceText((await listCards())[0]);
-		});
-
-		assert.match(plain(line), /^R\$ 12,00 average · Normal · PT \(Liga Pokémon, \d{4}-\d{2}-\d{2}\)$/);
-		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-manual-for.png`});
-
-		await finish(device, 'manual-for');
-	});
-
-	test('a Liga price saved before finish and language shows as before', async () => {
+	test('a Liga price saved before finish and language: the line without them', async () => {
 		const device = await phone();
 		const {page} = device;
 
 		await open(device, 'legacy');
-
-		const section = page.locator('section.price');
-
-		await section.locator('.price-liga-values').waitFor();
-		assert.deepEqual((await section.locator('.price-liga-values > div').allTextContents()).map(plain), ['Lowest NM priceR$ 45,90', 'Average priceR$ 52,30']);
-		assert.equal(await section.locator('.price-for').count(), 0);
-		assert.equal(await text(section.locator('.price-liga-date')), 'Liga Pokémon · 2026-09-19 · ' + await page.evaluate(async () => (await import('/pokemon-card-tracker/js/prices.js')).ageText('2026-09-19')));
+		await page.locator('.price-liga').waitFor();
+		assert.equal(await text(page.locator('.price-liga-text')), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30');
 
 		const line = await page.evaluate(async () => {
 			const {copyPriceText} = await import('/pokemon-card-tracker/js/price-view.js');
@@ -381,17 +306,48 @@ describe('price section', () => {
 			return copyPriceText((await listCards())[0]);
 		});
 
-		assert.equal(plain(line), 'R$ 45,90 lowest NM, R$ 52,30 average (Liga Pokémon, 2026-09-19)');
-
-		// Update fills in the finish shown and the copy's language.
-		await section.locator('button.price-edit').click();
-		assert.equal(await page.inputValue('#price-1-finish'), 'Normal');
-		assert.equal(await page.inputValue('#price-1-language'), 'en');
+		assert.equal(plain(line), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30', '"Your copies" rows say it the same way');
 
 		await finish(device, 'legacy');
 	});
 
-	test('a Korean copy on a Japanese record: no Ver na Liga, even with a link handed in (Q-30)', async () => {
+	test('a finish TCGdex does not list: the price of one it does, and whose', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'mismatch');
+		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2);
+
+		const [exeggcute, testmon, nothing] = [0, 1, 2].map((n) => page.locator('section.price').nth(n));
+
+		// A monprice Holo on a card listed as Normal and reverses: Normal's.
+		assert.equal(await text(exeggcute.locator('.price-finish[aria-pressed="true"]')), 'Normal');
+		assert.equal(await text(exeggcute.locator('.price-us .price-value')), '≈ About R$ 0,26');
+		assert.equal(await text(exeggcute.locator('.price-us .price-for')), 'for Normal; your copy is Holo');
+		assert.equal(await text(exeggcute.locator('.price-eu .price-for')), 'for Normal; your copy is Holo');
+
+		// A Holo on a card listed only as Normal whose only US price is holo:
+		// the holo price; Cardmarket's is the Normal's.
+		assert.equal(await text(testmon.locator('.price-us .price-value')), '≈ About R$ 21,37');
+		assert.equal(await text(testmon.locator('.price-us .price-original')), 'US$ 4,12, TCGplayer market, 8 Oct');
+		assert.equal(await text(testmon.locator('.price-eu .price-for')), 'for Normal; your copy is Holo');
+		assert.equal(await text(testmon.locator('.price-eu .price-value')), '≈ About R$ 20,00 →Trend steady, 30-day average about R$ 19,41');
+
+		// No price for any finish: then, and only then, "No price".
+		assert.deepEqual((await nothing.locator('.price-value').allTextContents()).map(plain), ['No price', 'No price']);
+		assert.equal(await nothing.locator('.price-rate').count(), 0);
+
+		// Tiles and the statistics take the same prices, and say so.
+		assert.equal(await text(page.locator('#harness-tile')), 'Tiles: ~R$ 0,26US | ~R$ 21,37US | no price');
+		assert.equal(plain(await page.locator('#harness-tile .price-tile').first().getAttribute('aria-label')), 'About R$ 0,26, US market estimate, price for Normal');
+		assert.match(await text(page.locator('.price-stats-notes')), /2 copies take the price of another finish of the card, as TCGplayer lists none for theirs\./);
+		assert.equal(await text(page.locator('.price-count-estimate')), '2 copies by US estimate (~)');
+		assert.equal(await text(page.locator('.price-count-unknown')), '1 copy unknown');
+
+		await finish(device, 'mismatch');
+	});
+
+	test('a Korean copy on a Japanese record: no Ver na Liga, and no borrowed price (Q-30)', async () => {
 		const device = await phone();
 		const {page} = device;
 
@@ -402,14 +358,12 @@ describe('price section', () => {
 		await section.locator('.price-liga-none').waitFor();
 		assert.equal(await text(section.locator('.price-liga-none')), 'No Liga link for Korean prints.');
 		assert.equal(await section.locator('a.price-liga-link').count(), 0);
-
-		// A Liga price can still be typed for it, and says Korean.
-		assert.equal(await page.inputValue('#price-1-language'), 'ko');
+		assert.equal(await section.locator('.price-for').count(), 0, 'never another finish\'s price');
 
 		await finish(device, 'korean');
 	});
 
-	test('offline: the last saved rate, with its date', async () => {
+	test('offline: the last saved rates, with their dates', async () => {
 		const old = Date.now() - 2 * 24 * 60 * 60 * 1000;
 		const device = await phone({rates: 'offline', saved: {brlPerUsd: 5.21, date: '2026-09-28', fetchedAt: old}, savedEur: {brlPerEur: 5.9, date: '2026-09-27', fetchedAt: old}});
 		const {page} = device;
@@ -418,13 +372,11 @@ describe('price section', () => {
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => /last rate saved/.test(document.querySelector('.price-rate')?.textContent || '') && /last rate saved/.test(document.querySelector('.price-eu-rate')?.textContent || ''));
+		await page.waitForFunction(() => /last saved/.test(document.querySelector('.price-rate')?.textContent || ''));
 		// Each currency keeps its own saved rate and date.
-		assert.equal(await text(section.locator('.price-eu-value')), '~About R$ 1,65 estimate');
-		assert.equal(await text(section.locator('.price-eu-rate')), 'At R$ 5,90 per € 1, rate of 2026-09-27, the last rate saved on this phone.');
-		assert.equal(await text(section.locator('.price-trend')), '→Trend steady, 30-day average ~About R$ 2,07');
-		assert.equal(await text(section.locator('.price-us-value')), '~About R$ 1,56 estimate');
-		assert.equal(await text(section.locator('.price-rate')), 'At R$ 5,21 per US$ 1, rate of 2026-09-28, the last rate saved on this phone.');
+		assert.equal(await text(section.locator('.price-eu .price-value')), '≈ About R$ 1,65 →Trend steady, 30-day average about R$ 2,07');
+		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 1,56');
+		assert.equal(await text(section.locator('.price-rate')), 'US$ 1 = R$ 5,21 (28 Sep) · € 1 = R$ 5,90 (27 Sep), last saved on this phone.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,56US');
 		assert.equal(await text(page.locator('.price-count-estimate')), '1 copy by US estimate (~)');
 		assert.ok(device.seen.frankfurter.length >= 1, 'it tried for a fresh rate');
@@ -432,7 +384,7 @@ describe('price section', () => {
 		await finish(device, 'offline');
 	});
 
-	test('offline with no rate ever saved: US dollars only, nothing invented', async () => {
+	test('offline with no rate ever saved: the original amounts only, nothing invented', async () => {
 		const device = await phone({rates: 'offline'});
 		const {page} = device;
 
@@ -440,8 +392,8 @@ describe('price section', () => {
 
 		const section = page.locator('section.price');
 
-		await page.waitForFunction(() => document.querySelector('.price-rate'));
-		assert.equal(await section.locator('.price-us-value').count(), 0);
+		await page.waitForFunction(() => /No exchange rate/.test(document.querySelector('.price-rate')?.textContent || ''));
+		assert.equal(await section.locator('.price-us-value, .price-eu-value').count(), 0);
 
 		// The owned Poké Ball chip is scrolled into the row's view.
 		const visible = await page.evaluate(() => {
@@ -452,14 +404,10 @@ describe('price section', () => {
 		});
 
 		assert.ok(visible, 'the chosen finish is in view');
-		assert.equal(await text(section.locator('.price-us-usd')), 'US$ 0,30 market price, updated 2026-09-30');
-		assert.equal(await text(section.locator('.price-rate')), 'No exchange rate is saved on this phone yet, so the reais value is not shown.');
-		// Cardmarket in euros only, its trend average too.
-		await page.waitForFunction(() => /No euro exchange rate/.test(document.querySelector('.price-eu-rate')?.textContent || ''));
-		assert.equal(await section.locator('.price-eu-value').count(), 0);
-		assert.equal(await text(section.locator('.price-eu-eur')), '€ 0,28 trend price, updated 2026-09-30');
-		assert.equal(await text(section.locator('.price-trend')), '→Trend steady, 30-day average € 0,35');
-		assert.equal(await text(section.locator('.price-eu-rate')), 'No euro exchange rate is saved on this phone yet, so the reais value is not shown.');
+		assert.equal(await text(section.locator('.price-us .price-value')), 'US$ 0,30');
+		assert.equal(await text(section.locator('.price-us .price-original')), 'TCGplayer market, 30 Sep');
+		assert.equal(await text(section.locator('.price-eu .price-value')), '€ 0,28 →Trend steady, 30-day average € 0,35');
+		assert.equal(await text(section.locator('.price-rate')), 'No exchange rate saved on this phone yet, so no reais.');
 		assert.equal(await text(page.locator('#harness-tile')), 'Tile: no price');
 		assert.equal(await text(page.locator('.price-stats-none')), 'No prices known for this card yet.');
 		assert.equal(await text(page.locator('.price-count-unknown')), '1 copy unknown');
@@ -469,7 +417,7 @@ describe('price section', () => {
 	});
 });
 
-describe('other markets', () => {
+describe('the two markets', () => {
 	test('English card with both markets, then finishes and a card with only Cardmarket', async () => {
 		const device = await phone();
 		const {page} = device;
@@ -478,57 +426,51 @@ describe('other markets', () => {
 
 		const [charizard, bulbasaur] = [page.locator('section.price').nth(0), page.locator('section.price').nth(1)];
 
-		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2 && document.querySelectorAll('.price-us-value').length === 1);
-
-		// Both rows, the US one as before.
-		assert.deepEqual((await charizard.locator('.price-others .price-market').allTextContents()).map(plain), ['US market (TCGplayer)', 'EU market (Cardmarket)']);
-		assert.equal(await text(charizard.locator('.price-us-value')), '~About R$ 4.899,94 estimate');
+		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2 && document.querySelectorAll('.price-us-value').length === 2);
 
 		// Holo Unlimited: the plain trend, 596.13 at 5.8814; 1693.86 over 7 days
 		// against 815 over 30 is rising.
 		const eu = charizard.locator('.price-eu');
 
-		assert.equal(await text(eu.locator('.price-eu-value')), '~About R$ 3.506,08 estimate');
-		assert.equal(await text(eu.locator('.price-eu-eur')), '€ 596,13 trend price, updated 2026-09-30');
-		assert.equal(await text(eu.locator('.price-trend')), '↑Trend rising, 30-day average ~About R$ 4.793,34');
+		assert.equal(await text(eu.locator('.price-value')), '≈ About R$ 3.506,08 ↑Trend rising, 30-day average about R$ 4.793,34');
 		assert.equal(await eu.locator('.price-trend').getAttribute('data-trend'), 'rising');
+		assert.equal(plain(await eu.locator('.price-trend').getAttribute('title')), '30-day average about R$ 4.793,34');
 		assert.equal(await eu.locator('.price-trend-shape').getAttribute('aria-hidden'), 'true');
-		assert.equal(await text(eu.locator('.price-eu-rate')), 'At R$ 5,88 per € 1, rate of 2026-10-01.');
-		assert.equal(await eu.locator('.price-language').count(), 0);
 		assert.equal(await eu.locator('.price-shared').count(), 0);
 
-		// Shadowless: Cardmarket only, shared with the 1st Edition, falling.
+		// Shadowless: Cardmarket's own, shared with the 1st Edition, falling;
+		// no US price of its own, so the Unlimited's, labeled.
 		await charizard.locator('.price-finish').nth(2).click();
-		assert.equal(await text(charizard.locator('.price-us .price-none')), 'No US market price for this finish.');
-		assert.equal(await text(eu.locator('.price-eu-value')), '~About R$ 19.589,24 estimate');
-		assert.equal(await text(eu.locator('.price-trend')), '↓Trend falling, 30-day average ~About R$ 14.578,93');
-		assert.equal(await text(eu.locator('.price-shared')), 'Cardmarket lists this with Holo, Shadowless, 1st Edition stamp as one price, so it may not tell them apart.');
+		assert.equal(await text(charizard.locator('.price-us .price-for')), 'for Holo, Unlimited; none listed for Holo, Shadowless');
+		assert.match(await text(eu.locator('.price-value')), /^≈ About R\$ 19\.589,24 ↓Trend falling/);
+		assert.equal(await eu.locator('.price-for').count(), 0);
+		assert.equal(await text(eu.locator('.price-shared')), 'Cardmarket prices this together with Holo, Shadowless, 1st Edition stamp.');
 
-		// 1999-2000 copyright: neither market, nothing invented.
+		// 1999-2000 copyright: neither market of its own; the Unlimited's
+		// prices stand in, each labeled.
 		await charizard.locator('.price-finish').nth(3).click();
-		assert.equal(await text(eu.locator('.price-none')), 'No EU market price for this finish.');
-		assert.equal(await eu.locator('.price-eu-value, .price-eu-eur, .price-trend, .price-eu-rate').count(), 0);
+		assert.equal(await text(eu.locator('.price-for')), 'for Holo, Unlimited; none listed for Holo, 1999-2000 copyright');
+		assert.equal(await charizard.locator('.price-none').count(), 0);
 
-		// The Portuguese league reverse: Cardmarket's -holo fields only, with
-		// the note that the market price is not for this printing.
-		assert.equal(await text(bulbasaur.locator('.price-us .price-none')), 'No US market price for this finish.');
-		assert.equal(await text(bulbasaur.locator('.price-eu-value')), '~About R$ 47,58 estimate');
-		assert.equal(await text(bulbasaur.locator('.price-eu-eur')), '€ 8,09 trend price, updated 2026-09-30');
-		assert.equal(await text(bulbasaur.locator('.price-trend')), '↓Trend falling, 30-day average ~About R$ 47,76');
-		assert.equal(await text(bulbasaur.locator('.price-eu .price-language')), 'This is the EU market price, not one for this Portuguese printing.');
+		// The Portuguese league reverse: Cardmarket's -holo fields, and the
+		// Normal's US price, labeled, with the note on the language.
+		assert.equal(await text(bulbasaur.locator('.price-eu-value')), '≈ About R$ 47,58');
+		assert.equal(await text(bulbasaur.locator('.price-eu .price-original')), '€ 8,09, Cardmarket trend, 30 Sep');
+		assert.equal(await text(bulbasaur.locator('.price-language')), 'Market prices for English cards, not for Portuguese prints.');
 
-		// Totals never take Cardmarket: neither tile has a price.
+		// Totals never take Cardmarket.
 		const tiles = await page.evaluate(async () => {
 			const {listCards} = await import('/pokemon-card-tracker/js/collection.js');
-			const {tilePrice} = await import('/pokemon-card-tracker/js/price-view.js');
+			const {tileValue} = await import('/pokemon-card-tracker/js/prices.js');
 			const fixture = async (name) => (await fetch(`/pokemon-card-tracker/tests/prices-fixtures/${name}.json`)).json();
 			const entries = await listCards();
 			const bulbasaurPt = await fixture('pt-me01-001');
+			const value = tileValue(entries.filter((entry) => entry.card_id === bulbasaurPt.id), bulbasaurPt, {rates: {brlPerUsd: 5, date: '2026-10-01'}});
 
-			return tilePrice(entries.filter((entry) => entry.card_id === bulbasaurPt.id), bulbasaurPt);
+			return value && value.kind;
 		});
 
-		assert.equal(tiles, null);
+		assert.ok(tiles === null || tiles === 'estimate', `never a Cardmarket value (${tiles})`);
 
 		await charizard.locator('.price-finish').nth(0).click();
 		await finish(device, 'markets');
@@ -541,7 +483,7 @@ describe('other markets', () => {
 		await open(device, 'markets');
 		await page.waitForFunction(() => document.querySelectorAll('.price-eu-value').length === 2);
 
-		for (const selector of ['.price-others-title', '.price-eu .price-market', '.price-eu-value', '.price-trend', '.price-eu-rate', '.price-language']) {
+		for (const selector of ['.price-source', '.price-eu-value', '.price-trend', '.price-original', '.price-rate', '.price-language']) {
 			const ratio = await contrast(page.locator(selector).last());
 
 			assert.ok(ratio >= 4.5, `${selector} contrast ${ratio.toFixed(2)} is at least 4.5`);
@@ -585,8 +527,12 @@ describe('statistics bar', () => {
 	test('dark mode', async () => {
 		const device = await phone({colorScheme: 'dark'});
 
-		await open(device, 'manual');
-		await device.page.waitForFunction(() => /~/.test(document.querySelector('#harness-tile')?.textContent || ''));
-		await finish(device, 'manual-dark');
+		await open(device, 'liga');
+		await device.page.waitForFunction(() => document.querySelectorAll('.price-us-value, .price-eu-value').length >= 2);
+
+		const ratio = await contrast(device.page.locator('.price-liga-text'));
+
+		assert.ok(ratio >= 4.5, `the Liga line's contrast ${ratio.toFixed(2)} is at least 4.5`);
+		await finish(device, 'liga-dark');
 	});
 });

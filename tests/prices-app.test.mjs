@@ -11,7 +11,7 @@
 // the test).
 //
 // Run: PLAYWRIGHT=/path/to/node_modules/playwright node --test tests/prices-app.test.mjs
-// Screenshots: /tmp/prices-app-*.png
+// Screenshots: /tmp/prices-app-*.png, or under SHOTS when set.
 
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -26,6 +26,7 @@ const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = '/pokemon-card-tracker/';
+const SHOTS = process.env.SHOTS || '/tmp';
 const VIEWPORT = {height: 740, width: 360};
 // As frankfurter answered on 2026-10-01.
 const RATE = [{base: 'USD', date: '2026-10-01', quote: 'BRL', rate: 5.1877}];
@@ -56,8 +57,8 @@ const plain = (text) => String(text).replace(/ /g, ' ').replace(/\s+/g, ' ').tri
 
 const variant = (card, label) => extractPrices(card).find((finish) => finish.label === label).variantId;
 
-async function phone() {
-	const context = await browser.newContext({serviceWorkers: 'block', viewport: VIEWPORT});
+async function phone({colorScheme = 'light', viewport = VIEWPORT} = {}) {
+	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport});
 	const seen = {liga: [], supabase: []};
 	const records = {
 		[`en/cards/${charizard.id}`]: charizard,
@@ -109,10 +110,10 @@ async function phone() {
 
 const addCard = (page, fields) => page.evaluate(async (card) => (await import('/pokemon-card-tracker/js/collection.js')).addCard(card), fields);
 
-async function noSideways(page, where) {
+async function noSideways(page, where, limit = VIEWPORT.width) {
 	const width = await page.evaluate(() => document.documentElement.scrollWidth);
 
-	assert.ok(width <= VIEWPORT.width, `no sideways scroll at 360 px on ${where} (${width})`);
+	assert.ok(width <= limit, `no sideways scroll at ${limit} px on ${where} (${width})`);
 }
 
 describe('prices in the app', () => {
@@ -194,18 +195,23 @@ describe('prices in the app', () => {
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'My Cards');
 
-		// Back on card detail, a Liga price typed in shows on the copy's row,
-		// with the finish and language it is for.
-		await page.goto(url(`cards/en/${charizard.id}`));
-		await page.waitForSelector('#card-price input[name="low_nm"]');
-		await page.fill('#card-price input[name="low_nm"]', '4.500,00');
-		await page.fill('#card-price input[name="avg"]', '4.800,00');
-		await page.click('#card-price button[type="submit"]');
-		await page.waitForSelector('#card-price .price-liga-values');
+		// Back on card detail: the Liga price kept on the Exeggcute shows on
+		// its row and as one line in the price panel, with no form to type a
+		// new one. Remove takes it off; the toast's Undo puts it back.
+		await page.goto(url(`cards/en/${exeggcute.id}`));
+		await page.waitForSelector('#card-price .price-liga');
+		assert.equal(plain(await page.locator('.copies .copy-price').textContent()), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30');
+		assert.equal(plain(await page.locator('#card-price .price-liga-text').textContent()), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30');
+		assert.equal(await page.locator('#card-price form, #card-price input').count(), 0, 'no Liga price form');
+		assert.ok(await page.locator('#card-price .price-liga-link').isHidden(), 'Ver na Liga stays the one above');
+		await page.click('#card-price .price-remove');
+		await page.waitForSelector('#card-price .price-liga', {state: 'detached'});
+		await page.waitForSelector('.copies .copy-price', {state: 'detached'});
+		assert.equal(await page.locator('#card-price .price-us-value').count(), 1, 'the automatic price stays');
+		await page.click('#toasts button:has-text("Undo")');
+		await page.waitForSelector('#card-price .price-liga');
 		await page.waitForSelector('.copies .copy-price');
-		assert.match(plain(await page.locator('.copies .copy-price').textContent()), /R\$ 4\.500,00 lowest NM, R\$ 4\.800,00 average · Holo, Unlimited · EN \(Liga Pokémon, \d{4}-\d{2}-\d{2}\)/);
-		assert.equal(await page.locator('#card-price .price-edit').count(), 1, 'the saved price stays on screen');
-		await page.screenshot({fullPage: true, path: '/tmp/prices-app-card.png'});
+		await page.screenshot({fullPage: true, path: `${SHOTS}/prices-app-card.png`});
 
 		// The set: no big box, a small Value button that opens the sheet
 		// over the copies owned from it.
@@ -216,7 +222,7 @@ describe('prices in the app', () => {
 		await page.waitForSelector('.value-sheet[open] .price-stats');
 		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), `Value of your cards from ${charizard.set.name}`);
 		assert.equal(plain(await page.locator('.value-sheet .vs-coverage').textContent()), 'Priced: 1 of 1 copy');
-		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), 'R$ 4.800,00');
+		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), '~R$ 4.899,94');
 		await page.keyboard.press('Escape');
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'the set');
@@ -240,8 +246,8 @@ describe('prices in the app', () => {
 		await page.click('#binder-value');
 		await page.waitForSelector('.value-sheet[open] .price-stats');
 		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of Vitrine');
-		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), 'R$ 4.852,30');
-		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /2 copies by Liga.*0 copies by US estimate.*0 copies unknown/);
+		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), '~R$ 4.952,24');
+		assert.match(plain(await page.locator('.value-sheet .price-stats-counts').textContent()), /1 copy by Liga.*1 copy by US estimate.*0 copies unknown/);
 		await page.keyboard.press('Escape');
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'the binder');
@@ -251,6 +257,49 @@ describe('prices in the app', () => {
 		assert.deepEqual(device.seen.supabase, [], 'Supabase is never contacted');
 		await device.context.close();
 	});
+
+	// A monprice Holo the card does not list, and a Liga price kept on
+	// another copy: the compact panel at both phone widths, in both schemes.
+	for (const width of [360, 390]) {
+		for (const colorScheme of ['light', 'dark']) {
+			test(`card detail price panel at ${width} px, ${colorScheme}`, async () => {
+				const device = await phone({colorScheme, viewport: {height: 800, width}});
+				const {page} = device;
+
+				await page.goto(url('cards'));
+				await page.waitForSelector('#cards-empty');
+				await addCard(page, {card_id: exeggcute.id, catalog: 'international', finish_raw: 'HOLOFOIL', language: 'en', language_source: 'manual'});
+				await addCard(page, {
+					card_id: exeggcute.id,
+					catalog: 'international',
+					language: 'pt',
+					language_source: 'manual',
+					price_manual: {avg: 15, currency: 'BRL', date: '2026-10-01', finish: 'Reverse holo', language: 'pt', low_nm: 12, source: 'Liga Pokémon'},
+					variant_id: variant(exeggcute, 'Reverse holo'),
+				});
+				await page.goto(url(`cards/en/${exeggcute.id}`));
+				await page.waitForSelector('#card-price .price-liga');
+				await page.waitForFunction(() => document.querySelectorAll('#card-price .price-us-value, #card-price .price-eu-value').length === 2);
+
+				const panel = page.locator('#card-price');
+
+				// The owned Reverse holo is shown first: its own prices.
+				assert.match(plain(await panel.locator('.price-finish[aria-pressed="true"]').textContent()), /^Reverse holo/);
+				await panel.locator('.price-finish', {hasText: /^Normal/}).click();
+				assert.equal(plain(await panel.locator('.price-us .price-for').textContent()), 'for Normal; your copy is Holo');
+				assert.equal(plain(await panel.locator('.price-us .price-original').textContent()), 'US$ 0,05, TCGplayer market, 30 Sep');
+				assert.equal(plain(await panel.locator('.price-rate').textContent()), 'US$ 1 = R$ 5,19 · € 1 = R$ 5,88, rates of 1 Oct.');
+				// One line, small, with Remove beside it.
+				assert.equal(plain(await panel.locator('.price-liga-text').textContent()), 'Liga, 1 Oct 2026: lowest NM R$ 12,00 · average R$ 15,00 (Reverse holo, Portuguese)');
+				await noSideways(page, 'card detail', width);
+				await panel.scrollIntoViewIfNeeded();
+				await panel.screenshot({path: `${SHOTS}/prices-panel-${width}-${colorScheme}.png`});
+				assert.deepEqual(device.errors.map(String), []);
+				assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');
+				await device.context.close();
+			});
+		}
+	}
 
 	test('the CSV export writes the names the app shows, a Korean copy\'s own', async () => {
 		const device = await phone();

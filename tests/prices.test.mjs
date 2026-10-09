@@ -11,9 +11,7 @@ import {readFileSync} from 'node:fs';
 import {describe, test} from 'node:test';
 
 import {
-	ageText,
 	cardmarketTrend,
-	cleanManualPrice,
 	copyValue,
 	EURO_RATES_URL,
 	EURO_RATES_URL_V1,
@@ -21,13 +19,13 @@ import {
 	eurToBrl,
 	exchangeRates,
 	extractPrices,
+	fallbackPrice,
+	finishFits,
 	finishOf,
 	formatBrl,
 	formatBrlCompact,
 	listStats,
 	manualPrice,
-	MANUAL_MAX_BRL,
-	parseBrl,
 	parseEuroRates,
 	parseRates,
 	RATES_URL,
@@ -35,11 +33,11 @@ import {
 	roundCents,
 	savedEuroRates,
 	savedRates,
+	shortDate,
 	tileFinish,
 	tileValue,
 	TREND_MIN_BRL,
 	usdToBrl,
-	usStyleAmount,
 	valueOf,
 } from '../js/prices.js';
 
@@ -362,91 +360,19 @@ describe('numbers and money', () => {
 		assert.equal(formatBrlCompact(null), null);
 	});
 
-	test('parses amounts typed with a comma or a dot', () => {
-		assert.equal(parseBrl('45,90'), 45.9);
-		assert.equal(parseBrl('45,9'), 45.9);
-		assert.equal(parseBrl('45.90'), 45.9);
-		assert.equal(parseBrl('R$ 1.234,56'), 1234.56);
-		assert.equal(parseBrl('1.234'), 1234);
-		assert.equal(parseBrl('1234'), 1234);
-		assert.equal(parseBrl(' 0,5 '), 0.5);
-		assert.equal(parseBrl(''), null);
-		assert.equal(parseBrl('   '), null);
-		assert.ok(Number.isNaN(parseBrl('abc')));
-		assert.ok(Number.isNaN(parseBrl('1,2,3')));
-		assert.ok(Number.isNaN(parseBrl('0')));
-		assert.ok(Number.isNaN(parseBrl('-5')));
-	});
+	test('writes a date short, with the year only when it is another', () => {
+		const now = new Date(2026, 9, 9, 15, 0);
 
-	test('refuses a US-style amount instead of reading it a thousand times too small', () => {
-		assert.ok(Number.isNaN(parseBrl('1,234.56')), 'not 1.23');
-		assert.ok(Number.isNaN(parseBrl('R$ 12,345.00')));
-		assert.ok(Number.isNaN(parseBrl('1,234')), 'three digits after the comma are thousands, not cents');
-		assert.ok(usStyleAmount('1,234.56'));
-		assert.ok(usStyleAmount('1,234'));
-		assert.ok(!usStyleAmount('1.234,56'));
-		assert.ok(!usStyleAmount('45,90'));
-		assert.ok(!usStyleAmount('45.90'));
-		assert.equal(parseBrl('1.234,56'), 1234.56, 'the Brazilian way still reads');
-	});
-
-	test('says how old a date is', () => {
-		const now = new Date(2026, 9, 1, 15, 0);
-
-		assert.equal(ageText('2026-10-01', now), 'today');
-		assert.equal(ageText('2026-09-30', now), 'yesterday');
-		assert.equal(ageText('2026-09-19', now), '12 days ago');
-		assert.equal(ageText('2026-06-01', now), '4 months ago');
-		assert.equal(ageText('2024-01-01', now), '2 years ago');
-		assert.equal(ageText('2026-10-05', now), null);
-		assert.equal(ageText('soon', now), null);
+		assert.equal(shortDate('2026-10-08', {now}), '8 Oct');
+		assert.equal(shortDate('2025-12-31', {now}), '31 Dec 2025');
+		assert.equal(shortDate('2026-10-01', {now, year: true}), '1 Oct 2026');
+		assert.equal(shortDate('2026-09-30T22:55:09.938Z', {now}), '30 Sep');
+		assert.equal(shortDate('soon', {now}), null);
+		assert.equal(shortDate(null, {now}), null);
 	});
 });
 
-describe('manual Liga prices', () => {
-	const now = new Date(2026, 9, 1, 12, 0);
-
-	test('cleans what the editor holds', () => {
-		assert.deepEqual(cleanManualPrice({avg: '52,3', low_nm: '45,90'}, now), {
-			avg: 52.3,
-			currency: 'BRL',
-			date: '2026-10-01',
-			low_nm: 45.9,
-			source: 'Liga Pokémon',
-		});
-		assert.deepEqual(cleanManualPrice({date: '2026-09-19', low_nm: 12, source: '  Feira  '}, now), {
-			avg: null,
-			currency: 'BRL',
-			date: '2026-09-19',
-			low_nm: 12,
-			source: 'Feira',
-		});
-		assert.equal(cleanManualPrice({avg: '', low_nm: ''}, now), null);
-		assert.throws(() => cleanManualPrice({low_nm: 'abc'}, now), /Lowest NM price/);
-		assert.throws(() => cleanManualPrice({avg: '5', date: '01/10/2026'}, now), /date/);
-	});
-
-	test('refuses an amount that is a typing slip, and a lowest above the average', () => {
-		const field = (fields) => {
-			try {
-				cleanManualPrice(fields, now);
-			}
-			catch (err) {
-				return [err.field, err.message];
-			}
-
-			return null;
-		};
-
-		assert.equal(MANUAL_MAX_BRL, 1000000);
-		assert.deepEqual(field({avg: '1', low_nm: '99999999999'}), ['low_nm', 'Lowest NM price must be under R$\u00a01.000.000,00. Check for an extra zero.']);
-		assert.equal(field({avg: '1.000.000,00'})[0], 'avg', 'the cap itself is refused');
-		assert.equal(cleanManualPrice({avg: '999.999,99'}, now).avg, 999999.99);
-		assert.deepEqual(field({avg: '40', low_nm: '45,90'}), ['low_nm', 'The lowest NM price cannot be above the average price.']);
-		assert.equal(cleanManualPrice({avg: '45,90', low_nm: '45,90'}, now).low_nm, 45.9, 'equal is fine');
-		assert.deepEqual(field({low_nm: '1,234.56'}), ['low_nm', 'Lowest NM price: use a comma for cents and dots for thousands, such as 1.234,56.']);
-	});
-
+describe('Liga prices kept from before', () => {
 	test('ignores a manual price that is not in reais or holds no amount', () => {
 		assert.equal(manualPrice(entry({price_manual: {amount: 5, currency: 'USD'}})), null);
 		assert.equal(manualPrice(entry({price_manual: {avg: null, currency: 'BRL', low_nm: null}})), null);
@@ -467,6 +393,76 @@ describe('manual Liga prices', () => {
 	});
 });
 
+// Invented records: a card listed only as Normal whose only TCGplayer price
+// is "holofoil", and a card with no price at all.
+const HOLO_ONLY = {
+	id: 'zz-holo-7',
+	name: 'Testmon',
+	variants_detailed: [{type: 'normal', variantId: 'zz-normal', pricing: {
+		cardmarket: {avg30: 3.3, avg7: 3.35, idProduct: 1, trend: 3.4, unit: 'EUR', updated: '2026-10-08T10:00:00.000Z'},
+		tcgplayer: {holofoil: {marketPrice: 4.12, productId: 2}, unit: 'USD', updated: '2026-10-08T10:00:00.000Z'},
+	}}],
+};
+const UNPRICED = {id: 'zz-none-1', name: 'Nopricemon', variants_detailed: [{type: 'normal', variantId: 'zz-none-normal'}]};
+
+describe('another finish\'s price', () => {
+	test('prefers the plain normal, then the finishes as listed, and a reverse last', () => {
+		const us = fallbackPrice(EXEGGCUTE, 'tcgplayer');
+
+		assert.equal(us.label, 'Normal');
+		assert.equal(us.prices.marketPrice, 0.05);
+		assert.equal(fallbackPrice(EXEGGCUTE, 'cardmarket').label, 'Normal');
+		// Base Set Charizard: the Unlimited is the only US price.
+		assert.equal(fallbackPrice(CHARIZARD, 'tcgplayer').label, 'Holo, Unlimited');
+		// Only reverses: the reverse it is.
+		const reverses = extractPrices(EXEGGCUTE).filter((finish) => finish.variant.type === 'reverse');
+
+		assert.equal(fallbackPrice(EXEGGCUTE, 'tcgplayer', reverses).label, 'Reverse holo');
+	});
+
+	test('takes a price block no listed finish took, and gives null when there is none', () => {
+		assert.deepEqual([fallbackPrice(HOLO_ONLY, 'tcgplayer').label, fallbackPrice(HOLO_ONLY, 'tcgplayer').prices.marketPrice], ['Holo', 4.12]);
+		assert.equal(fallbackPrice(HOLO_ONLY, 'cardmarket').label, 'Normal');
+		assert.equal(fallbackPrice(UNPRICED, 'tcgplayer'), null);
+		assert.equal(fallbackPrice(UNPRICED, 'cardmarket'), null);
+		assert.equal(fallbackPrice(null, 'tcgplayer'), null);
+	});
+
+	test('knows a monprice word that does not fit the only listed finish', () => {
+		const [normal] = extractPrices(HOLO_ONLY);
+
+		assert.equal(finishOf(entry({finish_raw: 'HOLOFOIL'}), [normal]), normal, 'finishOf takes the only finish');
+		assert.equal(finishFits(entry({finish_raw: 'HOLOFOIL'}), normal), false);
+		assert.equal(finishFits(entry({finish_raw: 'NORMAL'}), normal), true);
+		assert.equal(finishFits(entry({}), normal), true);
+		assert.equal(finishFits(entry({variant_id: 'zz-normal'}), normal), true);
+	});
+
+	test('values a copy whose finish the card does not list at a listed finish\'s price, and says which', () => {
+		const holo = copyValue(entry({finish_raw: 'HOLOFOIL'}), EXEGGCUTE, {rates: RATES});
+
+		assert.deepEqual([holo.kind, holo.usd, holo.fallback], ['estimate', 0.05, 'Normal']);
+		assert.equal(copyValue(entry({}), EXEGGCUTE, {rates: RATES}).fallback, 'Normal', 'a finish not set');
+		assert.equal(copyValue(entry({variant_id: 'no-such-variant'}), EXEGGCUTE, {rates: RATES}).fallback, 'Normal');
+
+		const testmon = copyValue(entry({card_id: 'zz-holo-7', finish_raw: 'HOLOFOIL'}), HOLO_ONLY, {rates: RATES});
+
+		assert.deepEqual([testmon.kind, testmon.usd, testmon.fallback, testmon.date], ['estimate', 4.12, 'Holo', '2026-10-08']);
+	});
+
+	test('never for a Japanese, Korean, or Chinese print', () => {
+		assert.deepEqual(copyValue(entry({catalog: 'ja', finish_raw: 'HOLOFOIL'}), EXEGGCUTE, {rates: RATES}), {kind: 'unknown', usd: null});
+		assert.deepEqual(copyValue(entry({finish_raw: 'HOLOFOIL', language: 'ko'}), EXEGGCUTE, {rates: RATES}), {kind: 'unknown', usd: null});
+	});
+
+	test('the statistics count the borrowed prices', () => {
+		const stats = listStats([entry({finish_raw: 'HOLOFOIL', id: 'a'}), entry({id: 'b', variant_id: V.masterball})], {'sv08.5-001': EXEGGCUTE}, {rates: RATES});
+
+		assert.deepEqual(stats.estimate.count, 2);
+		assert.deepEqual(stats.estimate.fallback, 1);
+	});
+});
+
 describe('copyValue without a Liga price', () => {
 	test('estimates from the TCGplayer market price of the copy\'s finish', () => {
 		const value = copyValue(entry({variant_id: V.masterball}), EXEGGCUTE, {rates: RATES});
@@ -476,14 +472,17 @@ describe('copyValue without a Liga price', () => {
 		assert.equal(roundCents(value.brl), 6.74);
 		assert.equal(value.date, '2026-09-30');
 		assert.equal(value.rateDate, '2026-10-01');
+		assert.equal(value.fallback, null);
 	});
 
 	test('stays unknown with no price, never zero', () => {
 		const shadowless = extractPrices(CHARIZARD)[1].variantId;
 
+		// A listed finish without a US price of its own never borrows one: the
+		// Unlimited's price is far from the Shadowless's.
 		assert.deepEqual(copyValue(entry({card_id: 'base1-4', variant_id: shadowless}), CHARIZARD, {rates: RATES}), {kind: 'unknown', usd: null});
-		assert.deepEqual(copyValue(entry({}), EXEGGCUTE, {rates: RATES}), {kind: 'unknown', usd: null});
 		assert.deepEqual(copyValue(entry({variant_id: V.normal}), null, {rates: RATES}), {kind: 'unknown', usd: null});
+		assert.deepEqual(copyValue(entry({card_id: 'zz-none-1'}), UNPRICED, {rates: RATES}), {kind: 'unknown', usd: null});
 	});
 
 	test('stays unknown in reais with a US price and no rate', () => {
@@ -678,7 +677,7 @@ describe('listStats', () => {
 		assert.equal(stats.count, 6);
 		assert.equal(stats.priced, 4);
 		assert.deepEqual(stats.liga, {count: 2, total: 60});
-		assert.deepEqual(stats.estimate, {count: 2, total: roundCents(masterball + charizard)});
+		assert.deepEqual(stats.estimate, {count: 2, fallback: 0, total: roundCents(masterball + charizard)});
 		assert.deepEqual(stats.unknown, {count: 2, noRate: 0});
 		assert.equal(stats.total, roundCents(60 + masterball + charizard));
 		// Four priced copies, not six: unknowns are not zeros.
@@ -707,7 +706,7 @@ describe('listStats', () => {
 	});
 
 	test('gives no total or average when nothing is priced', () => {
-		const stats = listStats([entry({id: 'x'})], cards, {rates: RATES});
+		const stats = listStats([entry({card_id: 'base1-4', id: 'x', variant_id: extractPrices(CHARIZARD)[3].variantId})], cards, {rates: RATES});
 
 		assert.equal(stats.total, null);
 		assert.equal(stats.average, null);
@@ -760,7 +759,8 @@ describe('tileValue', () => {
 
 	test('falls back to the US estimate, then to nothing', () => {
 		assert.equal(tileValue([entry({variant_id: V.reverse})], EXEGGCUTE, {rates: RATES}).kind, 'estimate');
-		assert.equal(tileValue([entry({})], EXEGGCUTE, {rates: RATES}), null);
+		assert.equal(tileValue([entry({})], EXEGGCUTE, {rates: RATES}).fallback, 'Normal', 'a finish not set takes the Normal price');
+		assert.equal(tileValue([entry({card_id: 'zz-none-1'})], UNPRICED, {rates: RATES}), null);
 		assert.equal(tileValue([entry({variant_id: V.reverse})], EXEGGCUTE, {rates: null}), null);
 		assert.equal(tileValue([], EXEGGCUTE, {rates: RATES}), null);
 	});

@@ -1,8 +1,8 @@
 /* Prices (js/price-view.js). Uses the palette tokens from style.css, so it
    follows the light and dark schemes and every theme. Nothing is told by
-   color alone: estimates carry "~" and the word "estimate" or "US", the
-   chosen finish is filled and marked with a bar as well as colored, and a
-   trend is an arrow and a word. */
+   color alone: estimates carry "≈" or "~" and the original amount or "US",
+   the chosen finish is filled and marked with a bar as well as colored, and
+   a trend is an arrow and a word. */
 
 .price-sr {
 	clip: rect(0 0 0 0);
@@ -14,50 +14,53 @@
 	width: 1px;
 }
 
+/* The card's price panel: a short list, no box around it. */
+
 .price {
-	background: var(--panel);
-	border: var(--frame-border);
-	border-radius: var(--frame-radius);
 	margin: var(--space-3) 0;
-	padding: var(--space-3) var(--space-4);
 }
 
 .price h3 {
 	margin: 0 0 var(--space-2);
 }
 
-.price p {
-	margin: 0;
+.price h3:focus {
+	outline: none;
 }
 
-.price-market {
-	font-size: 0.85rem;
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	text-transform: uppercase;
+.price h3:focus-visible {
+	outline: 3px solid var(--accent-strong);
+	outline-offset: 2px;
+}
+
+.price p {
+	margin: 0;
 }
 
 .price-nowrap {
 	white-space: nowrap;
 }
 
-.price-meta,
-.price-none {
+.price-meta {
 	color: var(--muted);
-	font-size: 0.875rem;
-	margin-top: var(--space-1);
+	font-size: 0.8125rem;
+	line-height: 1.35;
 }
 
-/* Finish switcher: one row of chips that scrolls sideways inside the
-   panel, so several finishes never push the prices down. */
+.price-none {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+/* Finish switcher: one row of chips that scrolls sideways, so several
+   finishes never push the prices down. */
 
 .price-finishes {
 	display: flex;
 	gap: var(--space-2);
-	margin: 0 calc(-1 * var(--space-4)) var(--space-3);
+	margin: 0 0 var(--space-2);
 	overflow-x: auto;
-	padding: 2px var(--space-4) 6px;
-	scroll-padding: 0 var(--space-4);
+	padding: 2px 2px 6px;
 	scrollbar-width: thin;
 }
 
@@ -74,31 +77,95 @@
 	color: var(--selected-text);
 }
 
-/* Brazil (Liga): first and large. */
+/* TCGplayer and Cardmarket: the market's name and the reais on one line,
+   the original amount and its date small under them. */
 
-.price-liga-values {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--space-2) var(--space-5);
-	margin: var(--space-1) 0 0;
+.price-markets {
+	list-style: none;
+	margin: 0;
+	padding: 0;
 }
 
-.price-liga-values dt {
-	color: var(--muted);
-	font-size: 0.875rem;
+.price-row {
+	padding: var(--space-2) 0;
+}
+
+.price-row + .price-row {
+	border-top: 1px solid var(--border);
+}
+
+.price-line {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-3);
+	justify-content: space-between;
+}
+
+.price-source {
 	font-weight: 600;
 }
 
-.price-liga-values dd {
-	margin: 0;
-}
-
-.price-big {
-	font-size: 1.75rem;
+.price-value {
+	font-size: 1.0625rem;
 	font-variant-numeric: tabular-nums;
 	font-weight: 700;
-	line-height: 1.2;
 	white-space: nowrap;
+}
+
+.price-row-none .price-value {
+	font-size: 0.875rem;
+}
+
+/* The trend: an arrow and a word, never color alone. */
+
+.price-trend {
+	color: var(--muted);
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.price-trend-shape {
+	margin-right: 2px;
+}
+
+.price-rate,
+.price-language {
+	margin-top: var(--space-1) !important;
+}
+
+/* A Liga price kept on a copy from before 2026-10-09: one small line each,
+   with Remove. */
+
+.price-liga {
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+}
+
+.price-liga-line {
+	align-items: center;
+	color: var(--muted);
+	display: flex;
+	font-size: 0.8125rem;
+	gap: var(--space-2);
+	justify-content: space-between;
+}
+
+.price-liga-text {
+	flex: 1 1 auto;
+	font-variant-numeric: tabular-nums;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.price-liga-line button.price-remove {
+	flex: none;
+	width: auto;
+	font-size: 0.8125rem;
+	margin: 0;
+	min-height: 44px;
+	padding: 0 var(--space-1);
 }
 
 .price-actions {
@@ -109,165 +176,6 @@
 
 .price-out {
 	margin-left: var(--space-1);
-}
-
-/* The Liga price form: two amounts side by side, Save under them. */
-
-.price-form {
-	margin-top: var(--space-3);
-}
-
-.price-fields {
-	display: grid;
-	gap: var(--space-2);
-	grid-template-columns: 1fr 1fr;
-}
-
-.price-field {
-	font-size: 0.875rem;
-	margin: 0;
-}
-
-.price-field > span:first-child {
-	display: block;
-	margin-bottom: var(--space-1);
-}
-
-.price-amount-wrap {
-	align-items: center;
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	display: flex;
-	min-height: 48px;
-	padding: 0 var(--space-3);
-}
-
-.price-currency {
-	color: var(--muted);
-	font-weight: 600;
-	margin-right: var(--space-1);
-}
-
-.price-amount {
-	background: none;
-	border: 0;
-	color: var(--text);
-	font: inherit;
-	font-size: 1.1rem;
-	font-variant-numeric: tabular-nums;
-	min-height: 46px;
-	min-width: 0;
-	padding: 0;
-	width: 100%;
-}
-
-.price-amount:focus-visible {
-	outline: none;
-}
-
-.price-amount-wrap:focus-within {
-	outline: 3px solid var(--accent-strong);
-	outline-offset: 2px;
-}
-
-.price-amount[aria-invalid="true"] {
-	text-decoration: underline wavy var(--danger-text);
-}
-
-.price-more {
-	margin-top: var(--space-2);
-}
-
-.price-more summary {
-	cursor: pointer;
-	font-weight: 600;
-	min-height: 44px;
-	padding: var(--space-2) 0;
-}
-
-.price-more input {
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	box-sizing: border-box;
-	color: var(--text);
-	font: inherit;
-	min-height: 48px;
-	padding: var(--space-2) var(--space-3);
-	width: 100%;
-}
-
-.price-more .price-field + .price-field,
-.price-more datalist + .price-field {
-	margin-top: var(--space-2);
-}
-
-.price-form-status:not(:empty) {
-	color: var(--error-text);
-	font-size: 0.875rem;
-	margin-top: var(--space-2);
-}
-
-.price-form-actions {
-	margin-top: var(--space-2);
-}
-
-/* Other markets: the US and EU references, smaller, underneath. */
-
-.price-others {
-	border-top: 1px solid var(--border);
-	margin-top: var(--space-4);
-	padding-top: var(--space-3);
-}
-
-.price-others-title {
-	color: var(--muted);
-	font-size: 0.8125rem;
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	margin: 0;
-	text-transform: uppercase;
-}
-
-.price-others .price-market {
-	font-size: 0.8125rem;
-	letter-spacing: 0;
-	text-transform: none;
-}
-
-.price-us,
-.price-eu {
-	margin-top: var(--space-2);
-}
-
-.price-eu {
-	border-top: 1px dashed var(--border);
-	padding-top: var(--space-2);
-}
-
-.price-us-value,
-.price-eu-value {
-	font-size: 1.05rem;
-	font-variant-numeric: tabular-nums;
-	font-weight: 600;
-	margin-top: 2px;
-}
-
-/* The trend: an arrow and a word, never color alone. */
-
-.price-trend-shape {
-	display: inline-block;
-	font-weight: 700;
-	margin-right: var(--space-1);
-	text-align: center;
-	width: 1em;
-}
-
-.price-estimate {
-	color: var(--muted);
-	font-size: 0.875rem;
-	font-weight: 400;
 }
 
 /* A tile's price, for the caller to place on the tile. */

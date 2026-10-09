@@ -1,22 +1,27 @@
 // Card prices: what a card is worth, and how sure the app is of it.
 //
-// Brazil first (DESIGN.md section 10). The Brazilian price is Liga Pokémon's,
-// typed in by the owner from Liga's own page: the app opens Liga with the Ver
-// na Liga link and never fetches from it. It is kept on each copy as
+// Prices come from the automatic providers (DESIGN.md section 10, decided by
+// Eric on 2026-10-09): the US market price (TCGplayer, in US dollars) and the
+// EU market price (Cardmarket, in euros) that come with each TCGdex card
+// record, converted to reais with a daily rate from frankfurter.dev. Anything
+// worked out from them is approximate and says so. Cardmarket also gives a
+// rising, falling, or steady trend from its 7 and 30 day averages. Totals
+// never use Cardmarket: they take the US estimate, so one number never mixes
+// two markets. The real Brazilian price is on Liga Pokémon, which the app
+// only links to (Ver na Liga) and never fetches from.
 //
-//   price_manual: {low_nm, avg, currency: 'BRL', source, date}
+// A copy may still hold a Liga price typed in before 2026-10-09:
+//
+//   price_manual: {low_nm, avg, currency: 'BRL', source, date, finish?, language?}
 //
 // low_nm is Liga's "Lowest NM price" and avg its "Average price", both in
-// reais; date is the day the owner read them (YYYY-MM-DD).
+// reais; date is the day the owner read them (YYYY-MM-DD). The app no longer
+// takes new ones, but keeps and shows these, and a copy's value still takes
+// its Liga price before the US estimate.
 //
-// The US market price (TCGplayer, in US dollars) comes with each TCGdex card
-// record and is shown only as a reference, converted to reais with a daily
-// rate from frankfurter.dev. Anything worked out from it is an estimate and
-// says so. TCGdex also embeds Cardmarket (EUR), shown beside it as the EU
-// market comparison, converted the same way with its own daily rate, with a
-// rising, falling, or steady trend from its 7 and 30 day averages. Totals
-// never use Cardmarket: they take the Liga price, else the US estimate, so
-// one number never mixes two markets.
+// A copy whose finish TCGdex does not list (a monprice "Holo" on a card
+// listed only as Normal) takes the price of a finish the card does list,
+// and says which (fallbackPrice).
 //
 // Never invent a price: a missing price stays missing, and an unknown value
 // is never counted as zero.
@@ -70,165 +75,32 @@ export function formatBrlCompact(value) {
 	return rounded >= 100 ? COMPACT.format(rounded) : MONEY.BRL.format(rounded);
 }
 
-// An amount written the US way, a comma before a dot ("1,234.56") or a
-// comma followed by three digits ("1,234"): read the Brazilian way it would
-// be a thousand times too small, so it is refused rather than guessed.
-export function usStyleAmount(text) {
-	const value = String(text ?? '').replace(/R\$|\s/gi, '');
-
-	return /,.*\./.test(value) || /,\d{3,}$/.test(value);
-}
-
-// What someone types for an amount in reais: "45,90", "45.90", "R$ 1.234,56",
-// "1234". A comma is the decimal mark and dots group thousands; with no comma,
-// a single dot followed by one or two digits is the decimal mark. Returns the
-// amount to the cent, null for an empty field, or NaN for anything that is
-// not an amount above zero, US-style amounts included (usStyleAmount).
-export function parseBrl(text) {
-	let value = String(text ?? '').replace(/R\$|\s/gi, '');
-
-	if (!value) {
-		return null;
-	}
-
-	if (value.includes(',')) {
-		if ((value.match(/,/g) || []).length > 1 || usStyleAmount(value)) {
-			return NaN;
-		}
-
-		value = value.replace(/\./g, '').replace(',', '.');
-	}
-	else if (!/^\d+\.\d{1,2}$/.test(value)) {
-		value = value.replace(/\./g, '');
-	}
-
-	if (!/^\d+(\.\d+)?$/.test(value)) {
-		return NaN;
-	}
-
-	const amount = roundCents(Number(value));
-
-	return amount > 0 ? amount : NaN;
-}
-
 // ---------------------------------------------------------------- dates
 
-// The phone's own calendar day, YYYY-MM-DD.
-export function today(now = new Date()) {
-	const pad = (n) => String(n).padStart(2, '0');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
+// "8 Oct" for a YYYY-MM-DD in the phone's current year, "8 Oct 2025" for
+// another year, or with year true always "1 Oct 2026". Null for a date that
+// cannot be read.
+export function shortDate(date, {now = new Date(), year = false} = {}) {
+	const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(date || ''));
+	const month = match ? MONTHS[Number(match[2]) - 1] : null;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// Whole days from one YYYY-MM-DD to another, or null.
-function daysBetween(from, to) {
-	const a = Date.parse(`${from}T00:00:00Z`);
-	const b = Date.parse(`${to}T00:00:00Z`);
-
-	return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / DAY_MS);
-}
-
-// "today", "yesterday", "12 days ago", "3 months ago", "2 years ago". Null for
-// a date that cannot be read or lies ahead of today.
-export function ageText(date, now = new Date()) {
-	const days = daysBetween(String(date || '').slice(0, 10), today(now));
-
-	if (days === null || days < 0) {
+	if (!month || Number(match[3]) < 1 || Number(match[3]) > 31) {
 		return null;
 	}
 
-	if (days === 0) {
-		return 'today';
-	}
+	const text = `${Number(match[3])} ${month}`;
 
-	if (days === 1) {
-		return 'yesterday';
-	}
-
-	if (days < 60) {
-		return `${days} days ago`;
-	}
-
-	if (days < 730) {
-		return `${Math.floor(days / 30)} months ago`;
-	}
-
-	return `${Math.floor(days / 365)} years ago`;
+	return year || Number(match[1]) !== now.getFullYear() ? `${text} ${match[1]}` : text;
 }
 
 // The calendar day of a TCGdex timestamp, "2026-09-30T22:55:09.938Z".
 const dayOf = (stamp) => (typeof stamp === 'string' && /^\d{4}-\d{2}-\d{2}/.test(stamp) ? stamp.slice(0, 10) : null);
 
-// ------------------------------------------------------- manual prices
+// ------------------------------------------- Liga prices kept from before
 
 export const LIGA_SOURCE = 'Liga Pokémon';
-
-export const MANUAL_FIELDS = {avg: 'Average price', low_nm: 'Lowest NM price'};
-
-// No single card the family keeps is worth this much, so an amount at or
-// above it is a typing slip (an extra zero or two), not a price.
-export const MANUAL_MAX_BRL = 1000000;
-
-const fieldError = (field, message) => Object.assign(new Error(message), {field});
-
-// A clean price_manual from what the editor holds, or null when neither
-// amount is given. low_nm and avg are numbers in reais or null. Throws on an
-// amount that is not above zero or not under MANUAL_MAX_BRL, a lowest price
-// above the average, or a date that is not YYYY-MM-DD; an amount's error
-// names its field as err.field.
-export function cleanManualPrice({avg = null, date, low_nm: lowNm = null, source} = {}, now = new Date()) {
-	const amount = (value, label, field) => {
-		if (value === null || value === undefined || value === '') {
-			return null;
-		}
-
-		const parsed = typeof value === 'number' ? roundCents(value) : parseBrl(value);
-
-		if (parsed === null) {
-			return null;
-		}
-
-		if (typeof value === 'string' && usStyleAmount(value)) {
-			throw fieldError(field, `${label}: use a comma for cents and dots for thousands, such as 1.234,56.`);
-		}
-
-		if (!(parsed > 0)) {
-			throw fieldError(field, `${label} must be an amount in reais above zero, such as 45,90.`);
-		}
-
-		if (parsed >= MANUAL_MAX_BRL) {
-			throw fieldError(field, `${label} must be under ${formatBrl(MANUAL_MAX_BRL)}. Check for an extra zero.`);
-		}
-
-		return parsed;
-	};
-	const low = amount(lowNm, MANUAL_FIELDS.low_nm, 'low_nm');
-	const average = amount(avg, MANUAL_FIELDS.avg, 'avg');
-
-	if (low === null && average === null) {
-		return null;
-	}
-
-	if (low !== null && average !== null && low > average) {
-		throw fieldError('low_nm', 'The lowest NM price cannot be above the average price.');
-	}
-
-	const day = date ? String(date) : today(now);
-
-	if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`))) {
-		throw new Error('The date must be a day such as 2026-10-01.');
-	}
-
-	return {
-		avg: average,
-		currency: 'BRL',
-		date: day,
-		low_nm: low,
-		source: String(source ?? '').trim() || LIGA_SOURCE,
-	};
-}
 
 // The copy's Liga price when it holds a usable one, else null.
 export function manualPrice(entry) {
@@ -564,6 +436,24 @@ const RAW_FINISHES = {
 	UNLIMITED_HOLOFOIL: (finish) => finishType(finish.variant) === 'holo' && !firstEdition(finish.variant) && !ballOf(finish.variant),
 };
 
+// Whether a copy is truly of a finish: matched by its variant ID, or its
+// monprice word fits it, or it has no word to say otherwise. finishOf takes a
+// card's only finish for any copy, so a monprice "Holo" on a card listed only
+// as Normal is of that finish there and false here.
+export function finishFits(entry, finish) {
+	if (!entry || !finish) {
+		return false;
+	}
+
+	if (entry.variant_id && entry.variant_id === finish.variantId) {
+		return true;
+	}
+
+	const fits = RAW_FINISHES[entry.finish_raw];
+
+	return fits ? fits(finish) : !entry.finish_raw;
+}
+
 // The finish a copy is, among a card's finishes: by its variant ID; else, for
 // a copy with no variant, the card's only finish or the one finish its
 // monprice word fits. Null when that cannot be told.
@@ -592,6 +482,103 @@ export function finishOf(entry, finishes) {
 	const found = fits ? finishes.filter(fits) : [];
 
 	return found.length === 1 ? found[0] : null;
+}
+
+// ------------------------------------------------ another finish's price
+
+// Japanese, Korean, and Chinese prints never take another finish's price:
+// their records' pricing is not known to be for them (DESIGN.md section 10,
+// "The language gap").
+export const ASIAN_LANGUAGES = ['ja', 'ko', 'zh-cn', 'zh-tw'];
+
+export const isAsianPrint = (entry) => Boolean(entry) && (ASIAN_LANGUAGES.includes(entry.catalog) || ASIAN_LANGUAGES.includes(entry.language));
+
+// The order to borrow a price in: a plain normal first, then the other
+// finishes as listed, and a reverse holo only when nothing else has one.
+function finishRank(variant) {
+	const type = finishType(variant);
+
+	if (type === 'reverse') {
+		return 2;
+	}
+
+	return type === 'normal' && !firstEdition(variant) && !ballOf(variant) && !(variant.stamp || []).length ? 0 : 1;
+}
+
+// The same order for TCGplayer's finish words, for prices no listed finish
+// took.
+const keyRank = (key) => (/reverse/.test(key) ? 3 : /1st/.test(key) ? 2 : /holo/.test(key) ? 1 : 0);
+
+const keyLabel = (key) => (KEY_FINISHES[key] ? finishName(KEY_FINISHES[key]) : sentence(key));
+
+// Whether a finish's price is one the app shows: TCGplayer's market price,
+// or Cardmarket's trend.
+const hasMarket = (market, prices) => Boolean(prices) && (market === 'tcgplayer' ? prices.marketPrice !== null : prices.trend !== null);
+
+// Every pricing block the record carries: each variant's, then the card's.
+function pricingBlocks(card) {
+	const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : [];
+
+	return [...variants.map((variant) => variant && variant.pricing), card.pricing].filter((pricing) => pricing && typeof pricing === 'object');
+}
+
+// The price of another finish, for a finish with none of its own or a copy
+// whose finish the card does not list. market is 'tcgplayer' or 'cardmarket'.
+// Returns {label, prices}, prices shaped as extractPrices gives that
+// market's, or null when the card has no such price for any finish. The
+// listed finishes come first, in finishRank order; then any price block no
+// listed finish took (a card listed only as Normal whose TCGplayer block is
+// "holofoil").
+export function fallbackPrice(card, market, finishes = extractPrices(card)) {
+	if (!card || typeof card !== 'object') {
+		return null;
+	}
+
+	const listed = finishes
+		.map((finish, index) => ({finish, index, rank: finishRank(finish.variant || {})}))
+		.sort((a, b) => a.rank - b.rank || a.index - b.index)
+		.find(({finish}) => hasMarket(market, finish[market]));
+
+	if (listed) {
+		return {label: listed.finish.label, prices: listed.finish[market]};
+	}
+
+	const found = [];
+
+	for (const pricing of pricingBlocks(card)) {
+		const block = pricing[market];
+
+		if (!block || typeof block !== 'object') {
+			continue;
+		}
+
+		if (market === 'tcgplayer') {
+			for (const [key, value] of Object.entries(block)) {
+				const prices = value && typeof value === 'object' ? tcgplayerPrice(value, key, block.unit, block.updated) : null;
+
+				if (hasMarket(market, prices)) {
+					found.push({label: keyLabel(key), prices, rank: keyRank(key)});
+				}
+			}
+		}
+		else {
+			const plain = pickCardmarket(block, {type: 'normal'});
+			const reverse = pickCardmarket(block, {type: 'reverse'});
+			const first = finishes.find((finish) => finishRank(finish.variant || {}) < 2);
+
+			if (hasMarket(market, plain)) {
+				found.push({label: first ? first.label : 'Normal', prices: plain, rank: 0});
+			}
+
+			if (hasMarket(market, reverse)) {
+				found.push({label: 'Reverse holo', prices: reverse, rank: 3});
+			}
+		}
+	}
+
+	const best = found.sort((a, b) => a.rank - b.rank)[0];
+
+	return best ? {label: best.label, prices: best.prices} : null;
 }
 
 // --------------------------------------------------------- exchange rate
@@ -752,11 +739,18 @@ export function eurToBrl(eur, rates) {
 // ------------------------------------------------------------ values
 
 // One copy's value in reais:
-//   {kind: 'liga', brl, field, date, source}  the owner's Liga price
-//   {kind: 'estimate', brl, usd, date, rateDate}  TCGplayer market, converted
+//   {kind: 'liga', brl, field, date, source}  a Liga price kept on the copy
+//   {kind: 'estimate', brl, usd, date, rateDate, fallback}  TCGplayer market,
+//       converted; fallback is null, or the finish whose price stands in
+//       for a copy whose finish the card does not list (fallbackPrice; a
+//       monprice "Holo" on a card listed only as Normal counts as not
+//       listed, finishFits)
 //   {kind: 'unknown', usd}  no price, or a US price with no rate to convert
 // basis picks the Liga field: 'avg' (the default) or 'low_nm', falling back
-// to the other when only one was typed.
+// to the other when only one was typed. A copy of a listed finish that has
+// no US price of its own stays unknown: another finish's price could be far
+// off (Base Set Charizard's Shadowless against its Unlimited). Japanese,
+// Korean, and Chinese prints never borrow one.
 export function copyValue(entry, card, {basis = 'avg', rates = null} = {}) {
 	const manual = manualPrice(entry);
 
@@ -766,15 +760,30 @@ export function copyValue(entry, card, {basis = 'avg', rates = null} = {}) {
 		return {brl: amount.brl, date: manual.date, field: amount.field, kind: 'liga', source: manual.source};
 	}
 
-	const finish = finishOf(entry, extractPrices(card));
-	const usd = finish && finish.tcgplayer ? finish.tcgplayer.marketPrice : null;
+	const finishes = extractPrices(card);
+	const matched = finishOf(entry, finishes);
+	// A monprice "Holo" on a card listed only as Normal is not that finish.
+	const finish = matched && finishFits(entry, matched) ? matched : null;
+	let tcg = finish ? finish.tcgplayer : null;
+	let fallback = null;
+
+	if (!finish && !isAsianPrint(entry)) {
+		const other = fallbackPrice(card, 'tcgplayer', finishes);
+
+		if (other) {
+			tcg = other.prices;
+			fallback = other.label;
+		}
+	}
+
+	const usd = tcg ? tcg.marketPrice : null;
 	const brl = usdToBrl(usd, rates);
 
 	if (brl === null) {
 		return {kind: 'unknown', usd};
 	}
 
-	return {brl, date: finish.tcgplayer.date, kind: 'estimate', rateDate: rates.date, usd};
+	return {brl, date: tcg.date, fallback, kind: 'estimate', rateDate: rates.date, usd};
 }
 
 // The card record for a copy, from a Map or an object keyed by
@@ -818,8 +827,9 @@ function cardName(entry, record) {
 //   {count, priced, total, average, highest, lowest, liga, estimate, unknown,
 //    basis, rateDate}
 // where total and average are in reais over priced copies only (null when
-// none is priced), highest and lowest are {brl, kind, name, entry}, liga and
-// estimate are {count, total}, and unknown is {count, noRate} (noRate counts
+// none is priced), highest and lowest are {brl, kind, name, entry}, liga is
+// {count, total}, estimate is {count, total, fallback} (fallback counts the
+// estimates taken from another finish's price), and unknown is {count, noRate} (noRate counts
 // copies with a US price but no exchange rate). An unknown never counts as
 // zero.
 export function listStats(entries, cardsById, {basis = 'avg', rates = null} = {}) {
@@ -827,7 +837,7 @@ export function listStats(entries, cardsById, {basis = 'avg', rates = null} = {}
 		average: null,
 		basis: basis === 'low_nm' ? 'low_nm' : 'avg',
 		count: 0,
-		estimate: {count: 0, total: 0},
+		estimate: {count: 0, fallback: 0, total: 0},
 		highest: null,
 		liga: {count: 0, total: 0},
 		lowest: null,
@@ -867,6 +877,10 @@ export function listStats(entries, cardsById, {basis = 'avg', rates = null} = {}
 
 		if (value.kind === 'estimate') {
 			stats.rateDate = value.rateDate;
+
+			if (value.fallback) {
+				stats.estimate.fallback++;
+			}
 		}
 
 		const item = {brl: value.brl, entry, kind: value.kind, name: cardName(entry, record)};

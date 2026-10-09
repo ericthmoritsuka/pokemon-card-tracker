@@ -11,8 +11,8 @@
 	rate requests (US dollar and euro) go to api.frankfurter.dev, which the
 	test answers itself.
 
-	Scenes: english, portuguese, finishes, manual, legacy, korean, offline,
-	norate, stats, markets.
+	Scenes: english, portuguese, finishes, liga, legacy, korean, offline,
+	norate, stats, markets, mismatch.
 -->
 <html lang="en">
 <head>
@@ -28,12 +28,48 @@
 </head>
 <body>
 	<div id="errors"></div>
+	<div class="toasts" id="toasts"></div>
 	<main id="app"></main>
 	<script type="module">
 		import {addCard, listCards} from '/pokemon-card-tracker/js/collection.js';
 		import {ligaUrl} from '/pokemon-card-tracker/js/liga.js';
 		import {priceSection, statsBar, tilePrice} from '/pokemon-card-tracker/js/price-view.js';
 		import {exchangeRates, extractPrices} from '/pokemon-card-tracker/js/prices.js';
+
+		// The app's toast, for Undo: a line with its action button.
+		const toasts = document.getElementById('toasts');
+		const toast = (message, {action = null, actionLabel = null} = {}) => {
+			const item = document.createElement('div');
+
+			item.className = 'toast';
+			item.textContent = message;
+
+			if (action) {
+				const button = document.createElement('button');
+
+				button.textContent = actionLabel;
+				button.type = 'button';
+				button.onclick = () => {
+					item.remove();
+					action();
+				};
+				item.append(button);
+			}
+
+			toasts.append(item);
+		};
+
+		// An invented card listed only as Normal whose only TCGplayer price is
+		// "holofoil", as some records carry, and one with no price at all.
+		const holoOnly = {
+			id: 'zz-holo-7', localId: '7', name: 'Testmon',
+			set: {cardCount: {official: 99}, id: 'zz-holo', name: 'Test Set'},
+			variants_detailed: [{type: 'normal', variantId: 'zz-normal', pricing: {
+				cardmarket: {avg30: 3.3, avg7: 3.35, idProduct: 1, trend: 3.4, unit: 'EUR', updated: '2026-10-08T10:00:00.000Z'},
+				tcgplayer: {holofoil: {marketPrice: 4.12, productId: 2}, unit: 'USD', updated: '2026-10-08T10:00:00.000Z'},
+			}}],
+		};
+		const unpriced = {id: 'zz-none-1', localId: '1', name: 'Nopricemon', set: {cardCount: {official: 10}, id: 'zz-none', name: 'Test Set'}, variants_detailed: [{type: 'normal', variantId: 'zz-none-normal'}]};
 
 		const fixture = async (name) => (await fetch(`/pokemon-card-tracker/tests/prices-fixtures/${name}.json`)).json();
 		const scene = new URLSearchParams(location.search).get('scene') || 'english';
@@ -88,18 +124,50 @@
 			await copy(exeggcute, {variant_id: variant(exeggcute, 'Reverse holo, Master Ball pattern')});
 			app.append(priceSection({card: exeggcute, entries: await listCards(), language: 'en'}));
 		}
-		else if (scene === 'manual') {
+		else if (scene === 'liga') {
+			// Two copies holding the same Liga price from before 2026-10-09,
+			// and a third without one.
 			const reverse = variant(exeggcute, 'Reverse holo');
 			const view = extras(exeggcute, 'this card');
+			const manual = {avg: 15, currency: 'BRL', date: '2026-10-01', finish: 'Reverse holo', language: 'pt', low_nm: 12, source: 'Liga Pokémon'};
 
-			await copy(exeggcute, {variant_id: reverse});
-			await copy(exeggcute, {variant_id: reverse});
+			await copy(exeggcute, {price_manual: manual, variant_id: reverse});
+			await copy(exeggcute, {price_manual: manual, variant_id: reverse});
+			await copy(exeggcute, {variant_id: variant(exeggcute, 'Normal')});
 			app.append(
-				priceSection({card: exeggcute, entries: await listCards(), language: 'en', onSaved: view.redraw, variantId: reverse}),
+				priceSection({card: exeggcute, entries: await listCards(), language: 'en', onSaved: view.redraw, toast, variantId: reverse}),
 				view.tile,
 				view.stats
 			);
 			await view.redraw();
+		}
+		else if (scene === 'mismatch') {
+			// monprice "Holo" copies: on a card listed as Normal and reverses
+			// (unmatched), on a card listed only as Normal priced only as holo,
+			// and on a card with no price at all.
+			await copy(exeggcute, {finish_raw: 'HOLOFOIL'});
+			await copy(holoOnly, {finish_raw: 'HOLOFOIL'});
+			await copy(unpriced, {finish_raw: 'HOLOFOIL'});
+
+			const entries = await listCards();
+			const of = (card) => entries.filter((entry) => entry.card_id === card.id);
+			const tile = document.createElement('div');
+
+			tile.className = 'harness-tile';
+			tile.id = 'harness-tile';
+			tile.append('Tiles: ', tilePrice(of(exeggcute), exeggcute) || 'no price', ' | ', tilePrice(of(holoOnly), holoOnly) || 'no price', ' | ', tilePrice(of(unpriced), unpriced) || 'no price');
+
+			const stats = document.createElement('div');
+
+			stats.id = 'harness-stats';
+			stats.append(statsBar({cardsById: new Map([[`international|${exeggcute.id}`, exeggcute], [`international|${holoOnly.id}`, holoOnly], [`international|${unpriced.id}`, unpriced]]), entries, label: 'these cards'}));
+			app.append(
+				priceSection({card: exeggcute, entries: of(exeggcute), language: 'en'}),
+				priceSection({card: holoOnly, entries: of(holoOnly), language: 'en', ligaHref: null}),
+				priceSection({card: unpriced, entries: of(unpriced), language: 'en', ligaHref: null}),
+				tile,
+				stats
+			);
 		}
 		else if (scene === 'korean') {
 			// A Korean copy on a Japanese record, as the scanner saves it, with

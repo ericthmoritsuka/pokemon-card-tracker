@@ -911,9 +911,9 @@ prices Eric wants (lowest NM and average) but no public API, and its `robots.txt
 2026-10-01) asks crawlers to wait 360 seconds between requests, disallows its price history pages,
 and blocks one crawler outright; the site sits behind Cloudflare. Collecting its prices
 automatically would go against the site's stated wishes, so the app does not. Instead each card
-gets a **Ver na Liga** button that opens Liga's own search for that card in the browser, and a
-copy can carry a manual price with its source and date ("R$45, Liga, 2026-10-01"). *(Decided
-2026-10-01.)*
+gets a **Ver na Liga** button that opens Liga's own search for that card in the browser.
+*(Decided 2026-10-01.)* Until 2026-10-09 a copy could also carry a Liga price typed in by hand;
+see "Automatic prices lead" below.
 
 **Liga's query pattern** (checked by hand in a browser, 2026-10-01): Liga's search is
 `https://www.ligapokemon.com.br/?view=cards/search&card=<text>`, and it only lands on one card
@@ -981,19 +981,43 @@ English name must come from elsewhere: for Pokémon, the English species name fo
 international twin (section 5). Until then the button covers international cards only. Whether
 Liga lists Korean prints at all is unchecked.
 
-**Brazil first** (Eric, 2026-10-01). US and European prices are secondary references. The Brazilian price comes from Liga Pokémon, entered by hand after the Ver na Liga
-link, mirroring Liga's page: a lowest NM price and an average price in BRL, each with its source
-and date, shown first on card detail with their age. TCGplayer's market price converted to R$
-appears smaller underneath as the "US market reference", next to Cardmarket's trend price in R$
-as the "EU market" comparison, with a rising, falling, or steady trend from its 7 and 30 day
-averages (TCGdex carries no TCGplayer history). *(Cardmarket restored as a comparison by Eric,
-2026-10-01.)* Any list (a binder, a checklist, a set,
-a collection, the Trade spares, or every card) gets statistics: total, average, highest and
-lowest with their cards, and how many values are Liga prices, US estimates, or unknown. Each card
-counts its Liga average when present and the US estimate otherwise, marked as estimated, and an
-unknown never counts as zero. The statistics bar sits on binders, checklists, sets, and the Trade spares; for the
-whole collection it is an on-demand Stats panel the person opens, never a headline total on the
-home screen, which keeps the "no portfolio" decision.
+**Automatic prices lead; Liga is a link** (Eric, 2026-10-09). The owner does not keep Liga prices
+by hand, so the app no longer takes them. Prices come from the automatic providers only:
+TCGplayer's US market price and Cardmarket's EU trend price from TCGdex, each converted to reais
+with the app's saved daily rates. Ver na Liga stays, unchanged, as the way to see the real
+Brazilian price; the app never fetches Liga. This replaces the 2026-10-01 "Brazil first" layout,
+in which a Liga lowest NM and average typed in by hand led card detail.
+
+- **Card detail's Price panel** is a short list, not a form and not a box: TCGplayer and
+  Cardmarket, each in reais marked approximate ("≈ R$ 23,40"), with the original amount, its kind,
+  and its date small under it ("US$ 4,12, TCGplayer market, 8 Oct"), Cardmarket's rising, falling,
+  or steady trend as an arrow and a word beside its price, and one short line for the exchange
+  rates. Original amounts keep the app's Brazilian number format, so every amount on the panel
+  reads the same way.
+- **Liga prices kept from before.** Stored `price_manual` data is never deleted by the app. A copy
+  that holds one shows a single read-only line under the market prices ("Liga, 1 Oct 2026: lowest
+  NM R$ 12,00 · average R$ 15,00 (Holo, Portuguese)"), the same line its "Your copies" row shows,
+  with a small Remove that a toast's Undo reverses. Tiles and totals still take a kept Liga price
+  before the US estimate, as they did; the statistics bar shows its Liga count and the
+  average or lowest NM switch only when some copy holds one.
+- **A finish TCGdex does not list** (a monprice "Holo" on a card listed only as Normal) shows the
+  price of a finish that exists, the plain Normal or the first listed, and a reverse holo only
+  when that is all there is, and says so: "for Normal; your copy is Holo". A listed finish chosen
+  on the panel that has no price of its own does the same ("for Holo, Unlimited; none listed for
+  Holo, Shadowless"). "No price" appears only when the card has none for any finish. Tiles and
+  the Value sheet take the same fallback for a copy whose finish is not listed (the tile's label
+  names the finish, the statistics count such copies in a note), but not for a listed finish
+  without a price of its own, whose value stays unknown: Base Set Charizard's Shadowless is not
+  worth its Unlimited's price. Japanese, Korean, and Chinese prints never borrow a price (see
+  "The language gap").
+
+Any list (a binder, a checklist, a set, a collection, the Trade spares, or every card) gets
+statistics: total, average, highest and lowest with their cards, and how many values are US
+estimates or unknown (and Liga prices, when kept). Each card counts its kept Liga average when
+present and the US estimate otherwise, marked as estimated, and an unknown never counts as zero.
+Totals never use Cardmarket. The statistics bar sits on binders, checklists, sets, and the Trade
+spares; for the whole collection it is on demand, never a headline total on the home screen, which
+keeps the "no portfolio" decision. *(Cardmarket restored as a comparison by Eric, 2026-10-01.)*
 
 **Background prices and the Value sheet** (Eric, 2026-10-02). A tile's US estimate comes from the
 full TCGdex record card detail saves, so tiles used to show a price only for cards whose page had
@@ -1013,7 +1037,8 @@ Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
 2. Prefer Cardmarket where it covers the language.
-3. Manual entry with a source note.
+3. Manual entry with a source note (dropped 2026-10-09: Ver na Liga links to the Brazilian price
+   instead).
 
 Consequence: any total shown must be honest about which parts are estimated. Value appears on a
 card's detail and an opening's summary, not as a headline total.
