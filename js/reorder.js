@@ -54,7 +54,9 @@ const errorText = (err) => (err && err.message) || 'Something went wrong.';
 export const hasOrder = (entry) => Boolean(entry) && typeof entry.order === 'number' && Number.isFinite(entry.order);
 
 // The section in its order. fallback compares two entries without one (the
-// section's old order); ties go by id, so every phone shows the same order.
+// section's old order), and those it calls equal keep the order they came
+// in, as before. Two entries with the same order (two phones moved them to
+// one place) go by fallback, then id, so every phone shows the same order.
 export function sortByOrder(entries, fallback = () => 0) {
 	return [...entries].sort((a, b) => {
 		const ordered = hasOrder(a);
@@ -63,11 +65,11 @@ export function sortByOrder(entries, fallback = () => 0) {
 			return ordered ? -1 : 1;
 		}
 
-		if (ordered && a.order !== b.order) {
-			return a.order - b.order;
+		if (!ordered) {
+			return fallback(a, b);
 		}
 
-		return fallback(a, b) || String(a.id).localeCompare(String(b.id));
+		return (a.order - b.order) || fallback(a, b) || String(a.id).localeCompare(String(b.id));
 	});
 }
 

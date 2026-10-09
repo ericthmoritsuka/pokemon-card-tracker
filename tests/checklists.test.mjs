@@ -196,6 +196,12 @@ async function device(fake, name, {serviceWorkers = 'block'} = {}) {
 	const net = {offline: false};
 
 	await fakeServices(context, counts, net);
+	// css/reorder.css, until index.html links it (the integration report).
+	await context.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
+		if (!document.querySelector('link[href$="css/reorder.css"]')) {
+			document.head.append(Object.assign(document.createElement('link'), {href: '/pokemon-card-tracker/css/reorder.css', rel: 'stylesheet'}));
+		}
+	}));
 
 	if (fake) {
 		await fake.attach(context, name);
@@ -515,14 +521,26 @@ describe('checklists', () => {
 		assert.equal(goal.kind, 'custom_pokemon');
 		assert.deepEqual(goal.dex_list, [4, 25, 133]);
 
-		// Delete it: a tombstone stays in the document.
-		page.once('dialog', (dialog) => dialog.accept());
+		// Delete it, at once with no question: a tombstone stays in the
+		// document, and Undo on the toast brings it back as it was.
 		await page.click('#delete-list');
 		await page.waitForURL(/\/lists$/);
 		await page.waitForSelector('.list-tile');
-		assert.equal(await page.locator('.list-tile').count(), 1);
+		await page.waitForFunction(() => document.querySelectorAll('.list-tile').length === 1);
 		goal = (await localDoc(page)).goals.find((item) => item.id === customId);
 		assert.ok(goal.deleted_at, 'deleted softly');
+		await page.click('.toast:has-text("Deleted Fire and friends") button:has-text("Undo")');
+		await page.waitForFunction(() => document.querySelectorAll('.list-tile').length === 2);
+		goal = (await localDoc(page)).goals.find((item) => item.id === customId);
+		assert.equal(goal.deleted_at, null);
+		assert.deepEqual(goal.dex_list, [4, 25, 133]);
+
+		// Delete it again for good.
+		await page.click(`.list-tile[href$="${customId}"]`);
+		await page.waitForSelector('#delete-list');
+		await page.click('#delete-list');
+		await page.waitForURL(/\/lists$/);
+		await page.waitForFunction(() => document.querySelectorAll('.list-tile').length === 1);
 
 		// Rename Kanto.
 		await page.click('.list-tile');
@@ -764,6 +782,87 @@ describe('list screens keep up with changes', () => {
 		release();
 		await page.waitForFunction(() => document.querySelectorAll('.list-tile .owned-count').length === 2, null, {timeout: 15000});
 		assert.deepEqual(await page.locator('.list-tile .list-name').allTextContents(), ['Kanto', 'Johto']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// A finger drag on a row's handle: pointer events as a touch screen sends
+// them, from the handle's middle, dy pixels down (up when negative).
+const touchDrag = (page, name, dy) => page.evaluate(({dy: by, name: rowName}) => {
+	const row = [...document.querySelectorAll('.reorder-row')].find((item) => item.querySelector('.reorder-name').textContent === rowName);
+	const handle = row.querySelector('.reorder-handle');
+	const box = handle.getBoundingClientRect();
+	const x = box.left + (box.width / 2);
+	const y = box.top + (box.height / 2);
+	const fire = (type, clientY) => handle.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, clientX: x, clientY, isPrimary: true, pointerId: 7, pointerType: 'touch'}));
+
+	fire('pointerdown', y);
+
+	for (let step = 1; step <= 10; step++) {
+		fire('pointermove', y + ((by * step) / 10));
+	}
+
+	fire('pointerup', y + by);
+}, {dy, name});
+
+describe('checklists in your own order (Eric, 2026-10-06)', () => {
+	const list = (id, name, target, minute) => ({created_at: `2026-09-01T00:0${minute}:00.000Z`, deleted_at: null, dex_list: null, hand_ticks: {}, id, kind: 'region', level: null, name, target, updated_at: `2026-09-01T00:0${minute}:00.000Z`});
+	const GOAL = {catalog: 'international', created_at: AT, deleted_at: null, id: 'goal-set', kind: 'set', level: 'numbered', name: 'A set goal', target: 'tst1', updated_at: AT};
+
+	test('Edit order moves a checklist by a finger drag or the arrows, the order is saved, and a new list goes last', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, [list('l-kanto', 'Kanto', 'kanto', 1), list('l-johto', 'Johto', 'johto', 2), list('l-hoenn', 'Hoenn', 'hoenn', 3), GOAL]));
+		await page.goto(url('lists'));
+		await page.waitForFunction(() => document.querySelectorAll('.list-tile:not(.goal-tile)').length === 3);
+		assert.deepEqual(await page.locator('#lists-body .list-name').allTextContents(), ['Kanto', 'Johto', 'Hoenn']);
+		assert.equal(await page.locator('#lists-order').isVisible(), true);
+		assert.equal(await page.locator('#goals-order').isHidden(), true, 'one goal: nothing to order');
+
+		await page.click('#lists-order');
+		await page.waitForSelector('#lists-order-panel .reorder-row');
+		assert.equal(await page.locator('#lists-body').isHidden(), true);
+
+		// Hoenn dragged by a finger from the bottom to the top.
+		const span = await page.locator('#lists-order-panel .reorder-list').evaluate((node) => node.lastElementChild.getBoundingClientRect().top - node.firstElementChild.getBoundingClientRect().top);
+
+		await touchDrag(page, 'Hoenn', -(span + 10));
+		await page.waitForFunction(() => [...document.querySelectorAll('#lists-order-panel .reorder-name')].map((node) => node.textContent).join() === 'Hoenn,Kanto,Johto');
+		await page.waitForSelector('.toast:has-text("Moved Hoenn.")');
+
+		// Kanto down by the keyboard.
+		await page.focus('button[aria-label="Move Kanto down"]');
+		await page.keyboard.press('Enter');
+		await page.waitForFunction(() => [...document.querySelectorAll('#lists-order-panel .reorder-name')].map((node) => node.textContent).join() === 'Hoenn,Johto,Kanto');
+		await page.waitForTimeout(300);
+		await page.screenshot({path: '/tmp/checklists-order.png'});
+
+		await page.waitForFunction(async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+			const goals = (await loadDocument()).goals.filter((goal) => goal.kind === 'region');
+
+			return goals.every((goal) => typeof goal.order === 'number');
+		});
+
+		const doc = await localDoc(page);
+		const orders = Object.fromEntries(doc.goals.map((goal) => [goal.id, goal.order]));
+
+		assert.ok(orders['l-hoenn'] < orders['l-johto'] && orders['l-johto'] < orders['l-kanto']);
+		assert.equal(orders['goal-set'], undefined, 'the goals section is left alone');
+
+		// Done: the tiles follow, and a new list lands at the end.
+		await page.click('#lists-order-panel .reorder-done');
+		await page.waitForSelector('#lists-body:not([hidden])');
+		assert.deepEqual(await page.locator('#lists-body .list-name').allTextContents(), ['Hoenn', 'Johto', 'Kanto']);
+		await page.selectOption('#add-region', 'sinnoh');
+		await page.click('#add-region-button');
+		await page.waitForURL(/\/lists\/[^/]+$/);
+		await page.click('.tabs a[data-tab="lists"]');
+		await page.waitForFunction(() => document.querySelectorAll('#lists-body .list-tile').length === 4);
+		assert.deepEqual(await page.locator('#lists-body .list-name').allTextContents(), ['Hoenn', 'Johto', 'Kanto', 'Sinnoh']);
+		await page.screenshot({fullPage: true, path: '/tmp/checklists-ordered.png'});
+		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

@@ -1115,7 +1115,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		go('binders');
-		toast(`Deleted ${deleting.name}. Its cards show as not in a binder.`, {
+		toast(`Deleted ${deleting.name}.`, {
 			action: () => {
 				undone = true;
 				restoreBinder(deleting.id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`));

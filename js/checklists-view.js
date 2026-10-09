@@ -798,7 +798,7 @@ function checklistScreen(root, source, id) {
 
 				await deleteChecklist(id);
 				go('lists');
-				toast(`Deleted ${name}. Your cards stay as they are.`, {
+				toast(`Deleted ${name}.`, {
 					action: () => restoreGoal(id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`)),
 					actionLabel: 'Undo',
 					timeout: UNDO_MS,

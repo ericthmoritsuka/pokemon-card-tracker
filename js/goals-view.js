@@ -645,7 +645,7 @@ function goalScreen(root, source, id) {
 
 				await deleteChecklist(id);
 				go(source.listsBase);
-				toast(`Deleted ${name}. Your cards stay as they are.`, {
+				toast(`Deleted ${name}.`, {
 					action: () => restoreGoal(id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`)),
 					actionLabel: 'Undo',
 					timeout: UNDO_MS,
