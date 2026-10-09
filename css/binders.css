@@ -737,3 +737,99 @@ button.bt-fill {
 		width: 100%;
 	}
 }
+
+/* ------------------------------------------- binders made from a list */
+
+.binder-from {
+	align-self: flex-start;
+	border: 1px solid currentColor;
+	border-radius: var(--radius-pill);
+	font-size: 0.7rem;
+	font-weight: 700;
+	opacity: 0.9;
+	padding: 1px var(--space-2);
+}
+
+.new-binder-kind {
+	margin: var(--space-2) 0;
+}
+
+.rule-section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.rule-section > label,
+.rule-section > .field-label {
+	margin-top: var(--space-2);
+}
+
+.rule-kinds {
+	flex-wrap: wrap;
+}
+
+.rule-filters {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.rule-filter {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.binder-list-note {
+	background: var(--panel);
+	border-radius: var(--radius-control);
+	margin: var(--space-2) 0;
+	padding: var(--space-2) var(--space-3);
+}
+
+/* A Pokémon's placeholder is its sprite, whole, on the faded card. */
+.pocket[data-item="pokemon"] .art img {
+	object-fit: contain;
+	padding: 10%;
+}
+
+/* A copy picked by hand: a small dot in the top-right corner. */
+.pocket[data-picked="true"]::after {
+	background: var(--accent);
+	border: 1.5px solid var(--surface);
+	border-radius: 50%;
+	content: "";
+	height: 8px;
+	position: absolute;
+	right: 4px;
+	top: 4px;
+	width: 8px;
+	z-index: 2;
+}
+
+.list-copy[aria-pressed="true"] .art-wrap {
+	outline: 3px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 6px;
+}
+
+.list-default-tag {
+	font-weight: 700;
+}
+
+.list-sheet-where {
+	margin-top: 0;
+}
+
+.list-want {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+}
+
+.list-want-art {
+	aspect-ratio: 63 / 88;
+	flex: 0 0 96px;
+	width: 96px;
+}

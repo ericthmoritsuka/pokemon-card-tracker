@@ -46,7 +46,12 @@ import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {valueButton} from './value-sheet.js';
-import {SearchHint, searchCards} from './wishlist.js';
+import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
+import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy} from './binder-rules.js';
+import {filterLabels, ruleSection} from './binder-rule-view.js';
+import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText} from './binder-sources.js';
+import {pokemonNames} from './checklists.js';
+import {nowIso} from './collection.js';
 import {
 	COVER_SWATCHES,
 	DEFAULT_COVER,
@@ -58,8 +63,10 @@ import {
 	coverImageOf,
 	coverTextColor,
 	createBinder,
+	createGeneratedBinder,
 	deleteBinder,
 	fillTray,
+	isGenerated,
 	isHex,
 	leaveEmpty,
 	liveBinders,
@@ -73,11 +80,14 @@ import {
 	planResize,
 	reorderBinders,
 	restoreBinder,
+	saveRefresh,
+	setPocketPick,
 	slotsOf,
 	sortBinders,
 	trayOf,
 	unplaced,
 	updateBinder,
+	updateGeneratedBinder,
 	validGrid,
 } from './binders.js';
 
@@ -109,7 +119,7 @@ const MINE = {
 	load: async () => {
 		const doc = await loadDocument();
 
-		return {binders: doc.binders || [], cards: doc.cards || []};
+		return {binders: doc.binders || [], cards: doc.cards || [], doc, picks: doc.binder_picks || []};
 	},
 	readOnly: false,
 	watch: (reload) => onChange(reload),
@@ -139,7 +149,7 @@ function familySource(userId) {
 
 			const doc = (await docPromise) || {};
 
-			return {binders: doc.binders || [], cards: doc.cards || []};
+			return {binders: doc.binders || [], cards: doc.cards || [], doc, picks: doc.binder_picks || []};
 		},
 		readOnly: true,
 		userId,
@@ -316,7 +326,10 @@ const resizeMatters = (binder, plan) => slotsOf(binder).length > 0
 // onSubmit(fields) saves; it may throw a message to show, or return false
 // to leave the form open with nothing saved. placed is placements() of
 // every binder, for the resize summary.
-function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
+// rule: a binder made from a list (js/binder-rule-view.js ruleSection) puts
+// its section, which chooses the cards, the order, and the pocket size, in
+// place of the grid and pages, and onSubmit gets (fields, section).
+function binderForm({binder = null, onCancel, onSubmit, placed = undefined, rule = null, title = null}) {
 	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3};
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
@@ -387,17 +400,29 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 		return !picked || picked.value === 'custom' ? custom.value : picked.value;
 	};
 
-	const fields = () => ({
-		cols: Number(colsSelect.value),
-		cover_color: coverColor(),
-		name: name.value,
-		notes: notes.value,
-		page_count: Number(pages.value),
-		preset: presetFor({cols: colsSelect.value, page_count: pages.value, rows: rowsSelect.value}),
-		rows: Number(rowsSelect.value),
-	});
+	const fields = () => (rule
+		? {
+			...rule.fields(),
+			cover_color: coverColor(),
+			// A binder left unnamed takes its list's name.
+			name: name.value.trim() || rule.nameHint(),
+			notes: notes.value,
+		}
+		: {
+			cols: Number(colsSelect.value),
+			cover_color: coverColor(),
+			name: name.value,
+			notes: notes.value,
+			page_count: Number(pages.value),
+			preset: presetFor({cols: colsSelect.value, page_count: pages.value, rows: rowsSelect.value}),
+			rows: Number(rowsSelect.value),
+		});
 
 	function check() {
+		if (rule) {
+			return;
+		}
+
 		const {cols, page_count: pageCount, rows} = fields();
 		const ok = validGrid(rows, cols);
 
@@ -429,22 +454,26 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 	pages.addEventListener('input', check);
 
 	const form = h('form', {class: 'card binder-form', id: 'binder-form'},
-		h('h3', null, binder ? 'Edit binder' : 'New binder'),
+		h('h3', null, title || (binder ? 'Edit binder' : 'New binder')),
 		h('label', {for: 'binder-name'}, 'Name'),
 		name,
 		h('label', {for: 'binder-notes'}, 'Notes'),
 		notes,
 		h('span', {class: 'field-label'}, 'Cover color'),
 		swatches,
-		h('span', {class: 'field-label'}, 'Size'),
-		presets.element,
-		h('span', {class: 'field-label'}, 'Grid'),
-		picks,
-		h('div', {class: 'toolbar two grid-steppers'}, h('span', {class: 'select-wrap'}, rowsSelect), h('span', {class: 'select-wrap'}, colsSelect)),
-		gridNote,
-		h('label', {for: 'binder-pages'}, 'Pages'),
-		pages,
-		warning,
+		...(rule
+			? [rule.element]
+			: [
+				h('span', {class: 'field-label'}, 'Size'),
+				presets.element,
+				h('span', {class: 'field-label'}, 'Grid'),
+				picks,
+				h('div', {class: 'toolbar two grid-steppers'}, h('span', {class: 'select-wrap'}, rowsSelect), h('span', {class: 'select-wrap'}, colsSelect)),
+				gridNote,
+				h('label', {for: 'binder-pages'}, 'Pages'),
+				pages,
+				warning,
+			]),
 		message,
 		h('div', {class: 'button-row'},
 			h('button', {id: 'binder-cancel', onclick: onCancel, type: 'button'}, 'Cancel'),
@@ -460,6 +489,10 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 
 		try {
 			clean = cleanFields(fields());
+
+			if (rule) {
+				rule.rule();
+			}
 		}
 		catch (err) {
 			message.textContent = err.message;
@@ -470,7 +503,7 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 		save.disabled = true;
 
 		try {
-			if (await onSubmit(clean) === false) {
+			if (await onSubmit(clean, rule) === false) {
 				save.disabled = false;
 			}
 		}
@@ -485,6 +518,83 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined}) {
 	return form;
 }
 
+// ------------------------------------------------- binders from a list
+//
+// js/binder-rules.js keeps the rule and works out the layout;
+// js/binder-sources.js reads the cards; js/binder-rule-view.js is the form.
+
+const itemCopies = (items) => items.flatMap((item) => item.copies);
+
+// What a refresh of binderLike ({rows, cols, rule, snapshot, page_count})
+// with the loaded items would save, the defaults ranked by value:
+// {plan, rankOf}.
+async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map()} = {}) {
+	const rankOf = await rankerFor(itemCopies(loaded.items));
+
+	return {plan: planRefresh(binderLike, loaded.items, {at: nowIso(), liveIds, partial: loaded.partial, picks, rankOf}), rankOf};
+}
+
+// The form for a new binder made from a list: the binder form with the
+// list section. start: {kind, id} to preselect a list.
+async function listForm({onCancel, start = {}}) {
+	const [doc, index] = await Promise.all([loadDocument(), cardIndex()]);
+
+	return binderForm({
+		onCancel,
+		onSubmit: async (fields, section) => {
+			const loaded = await section.ready();
+
+			if (loaded.gone) {
+				throw new Error('That list was deleted. Choose another.');
+			}
+
+			const rule = section.rule();
+			const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
+			const binder = await createGeneratedBinder(fields, rule, plan.snapshot);
+
+			go(`binders/${encodeURIComponent(binder.id)}`);
+		},
+		rule: ruleSection({doc, index, start}),
+		title: 'New binder from a list',
+	});
+}
+
+// Filled pockets of a list's binder, from its last layout: {filled, total}.
+function listStats(binder, picksList, liveIds) {
+	const snapshot = binder.snapshot || {};
+	const keys = Array.isArray(snapshot.keys) ? snapshot.keys : [];
+	const shown = snapshot.shown || {};
+	const picks = picksOf(picksList, binder.id);
+	const filled = keys.filter((key) => (picks.has(key) && liveIds.has(picks.get(key))) || (shown[key] && liveIds.has(shown[key]))).length;
+
+	return {filled, total: keys.length};
+}
+
+// binders/new/<kind>/<id>: a new binder from a checklist, collection, or
+// goal, the "Make a binder" button on those screens.
+export function newFromListView(root, {id = null, kind = null} = {}) {
+	let alive = true;
+	const holder = h('div', {id: 'binder-editor'});
+
+	root.append(
+		link('binders', {class: 'back'}, '‹ Binders'),
+		h('div', {class: 'view-head'}, h('h2', null, 'New binder')),
+		holder
+	);
+
+	listForm({onCancel: () => go('binders'), start: {id, kind}})
+		.then((form) => {
+			if (alive) {
+				holder.replaceChildren(form);
+			}
+		})
+		.catch((err) => holder.replaceChildren(failure(err, false)));
+
+	return () => {
+		alive = false;
+	};
+}
+
 // ------------------------------------------------------ the binder list
 
 export const bindersListView = (root) => bindersScreen(root, MINE);
@@ -492,6 +602,7 @@ export const bindersListView = (root) => bindersScreen(root, MINE);
 export const familyBindersView = (root, {userId}) => bindersScreen(root, familySource(userId));
 
 function cover(binder, stats, base) {
+	const fromList = isGenerated(binder);
 	// A family member's colour comes from their document: only a hex colour
 	// reaches the style attribute.
 	const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
@@ -502,6 +613,7 @@ function cover(binder, stats, base) {
 	},
 	h('span', {class: 'binder-name'}, binder.name),
 	binder.notes ? h('span', {class: 'binder-notes'}, binder.notes) : null,
+	fromList ? h('span', {class: 'binder-from'}, 'From a list') : null,
 	h('span', {class: 'binder-foot'},
 		h('span', null, `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`),
 		h('span', {'aria-label': `${stats.filled} of ${stats.total} pockets filled`, class: 'binder-fill'}, `${formatCount(stats.filled)} / ${formatCount(stats.total)}`)
@@ -554,20 +666,48 @@ function bindersScreen(root, source) {
 		});
 	}
 
+	// New binder: an empty one to fill by hand, or one made from a list
+	// (js/binder-rules.js).
 	function openForm() {
-		newButton.hidden = true;
-		editor.replaceChildren(binderForm({
-			onCancel: () => {
-				editor.replaceChildren();
-				newButton.hidden = false;
-			},
-			onSubmit: async (fields) => {
-				const binder = await createBinder(fields);
+		const close = () => {
+			editor.replaceChildren();
+			newButton.hidden = false;
+		};
+		const holder = h('div', {id: 'new-binder-form'});
+		const kinds = h('div', {'aria-label': 'Kind of binder', class: 'segmented new-binder-kind', id: 'new-binder-kind', role: 'radiogroup'},
+			h('label', null, h('input', {checked: true, id: 'new-binder-empty', name: 'new-binder-kind', type: 'radio', value: 'empty'}), h('span', null, 'Empty binder')),
+			h('label', null, h('input', {id: 'new-binder-list', name: 'new-binder-kind', type: 'radio', value: 'list'}), h('span', null, 'From a list'))
+		);
+		let asked = 0;
 
-				go(`binders/${encodeURIComponent(binder.id)}`);
-			},
-		}));
-		editor.querySelector('#binder-name').focus();
+		const show = async (kind) => {
+			const ticket = ++asked;
+			const form = kind === 'list'
+				? await listForm({onCancel: close}).catch((err) => failure(err, false))
+				: binderForm({
+					onCancel: close,
+					onSubmit: async (fields) => {
+						const binder = await createBinder(fields);
+
+						go(`binders/${encodeURIComponent(binder.id)}`);
+					},
+				});
+
+			if (ticket === asked && alive) {
+				holder.replaceChildren(form);
+
+				const field = holder.querySelector('#binder-name');
+
+				if (field && kind !== 'list') {
+					field.focus();
+				}
+			}
+		};
+
+		kinds.addEventListener('change', () => show(kinds.querySelector('input:checked').value));
+		newButton.hidden = true;
+		editor.replaceChildren(kinds, holder);
+		show('empty');
 	}
 
 	if (newButton) {
@@ -618,7 +758,7 @@ function bindersScreen(root, source) {
 		}
 
 		body.replaceChildren(
-			h('div', {class: 'binder-shelf'}, binders.map((binder) => cover(binder, binderStats(binder, placed, liveIds), source.base))),
+			h('div', {class: 'binder-shelf'}, binders.map((binder) => cover(binder, isGenerated(binder) ? listStats(binder, data.picks, liveIds) : binderStats(binder, placed, liveIds), source.base))),
 			unplacedLink || ''
 		);
 	}
@@ -670,6 +810,15 @@ function binderScreen(root, source, id, pageParam) {
 	let entriesById = new Map();
 	let spread = null;
 	let slotCache = new Map();
+	// A binder made from a list (js/binder-rules.js): its hand picks, and
+	// what the last read of its list found (items by key, the ranking of
+	// copies), so pockets show their copies and counts; null items until
+	// then, when the pockets show the last layout.
+	let listMode = false;
+	let picks = new Map();
+	const gen = {busy: null, gone: false, items: null, names: null, partial: false, rankOf: undefined, started: false};
+	const refreshButton = source.readOnly ? null : h('button', {hidden: true, id: 'binder-refresh', onclick: () => refreshList({force: true, manual: true}), type: 'button'}, 'Refresh');
+	const listNote = h('p', {'aria-live': 'polite', class: 'binder-list-note', hidden: true, id: 'binder-list-note'});
 	// Closes the resize preview, if it is open (leaving the screen).
 	let closeResize = () => {};
 	// The tray (see "the tray" below): the copy picked to place next, the
@@ -779,6 +928,10 @@ function binderScreen(root, source, id, pageParam) {
 	// One pocket, for js/binder-spread.js: a button that opens the picker
 	// sheet, or read only, a link to an owned card.
 	function pocketElement(pg, position) {
+		if (listMode) {
+			return listPocket(pg, position);
+		}
+
 		const content = pocketContent(slotsOn(pg).get(position) || null);
 		const attrs = {
 			'aria-label': `Page ${pg}, pocket ${position}: ${content.label}`,
@@ -830,6 +983,12 @@ function binderScreen(root, source, id, pageParam) {
 	}
 
 	function drawSummary() {
+		if (listMode) {
+			drawListSummary();
+
+			return;
+		}
+
 		const pages = spread.pages();
 		const per = binder.rows * binder.cols;
 		const live = (slot) => slot.entry_id && entriesById.get(slot.entry_id) && isLive(entriesById.get(slot.entry_id));
@@ -893,9 +1052,11 @@ function binderScreen(root, source, id, pageParam) {
 
 	// The binder's live copies; the button shows only when there are some.
 	function drawStats() {
-		statsEntries = slotsOf(binder, placed)
-			.map((slot) => (slot.entry_id ? entriesById.get(slot.entry_id) : null))
-			.filter((entry) => entry && isLive(entry));
+		statsEntries = listMode
+			? listShown()
+			: slotsOf(binder, placed)
+				.map((slot) => (slot.entry_id ? entriesById.get(slot.entry_id) : null))
+				.filter((entry) => entry && isLive(entry));
 
 		if (!statsEntries.length) {
 			statsSlot.replaceChildren();
@@ -908,7 +1069,7 @@ function binderScreen(root, source, id, pageParam) {
 	function draw() {
 		title.textContent = binder.name;
 		document.title = `${binder.name} | Card Tracker`;
-		meta.textContent = `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}`;
+		meta.textContent = `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}${listMode ? ` · ${listMeta()}` : ''}`;
 		notes.textContent = binder.notes || '';
 		notes.hidden = !binder.notes;
 		body.style.setProperty('--cover', isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER);
@@ -918,6 +1079,8 @@ function binderScreen(root, source, id, pageParam) {
 			const loose = unplaced(data.cards.filter(isLive), data.binders).length;
 
 			unplacedLink.textContent = `${plural(loose, 'owned card', 'owned cards')} not in any binder`;
+			unplacedLink.hidden = listMode;
+			refreshButton.hidden = !listMode;
 		}
 
 		drawPage();
@@ -957,6 +1120,8 @@ function binderScreen(root, source, id, pageParam) {
 
 		placed = placements(data.binders);
 		entriesById = new Map(data.cards.map((entry) => [entry.id, entry]));
+		listMode = isGenerated(binder);
+		picks = listMode ? picksOf(data.picks, binder.id) : new Map();
 		sweepOnce(source);
 
 		if (!body.contains(spreadHolder)) {
@@ -965,6 +1130,7 @@ function binderScreen(root, source, id, pageParam) {
 			body.replaceChildren(...[
 				h('div', {class: 'binder-head'}, title, meta, notes),
 				statsSlot,
+				listNote,
 				spreadHolder,
 				summary,
 				emptyHint,
@@ -972,6 +1138,7 @@ function binderScreen(root, source, id, pageParam) {
 				source.readOnly
 					? null
 					: h('div', {class: 'actions'},
+						refreshButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
@@ -981,9 +1148,19 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		draw();
+
+		if (listMode) {
+			startList();
+		}
 	}
 
 	function openEditor() {
+		if (listMode) {
+			openListEditor().catch((err) => showError('Could not open the editor.', err));
+
+			return;
+		}
+
 		editor.replaceChildren(binderForm({
 			binder,
 			onCancel: () => editor.replaceChildren(),
@@ -1122,6 +1299,541 @@ function binderScreen(root, source, id, pageParam) {
 			},
 			actionLabel: 'Undo',
 			timeout: UNDO_MS,
+		});
+	}
+
+	// ---------------------------------------------- a binder from a list
+	//
+	// The pockets follow the binder's last layout (snapshot keys), one per
+	// Pokémon or card. Each shows the copy picked by hand, else the default
+	// the last refresh chose, else the default now; a count when more copies
+	// fit; a faded placeholder with Add to wishlist when none is owned.
+	// Opening the binder reads its list again and saves what changed
+	// (refreshList), which is also the Refresh button.
+
+	const listKeys = () => (binder && binder.snapshot && Array.isArray(binder.snapshot.keys) ? binder.snapshot.keys : []);
+
+	const liveEntry = (id) => {
+		const entry = id ? entriesById.get(id) : null;
+
+		return entry && isLive(entry) ? entry : null;
+	};
+
+	// The item for a key when the list has not been read: its name and
+	// picture from the Pokémon names or the card index.
+	function fallbackItem(key) {
+		const parsed = parseKey(key);
+
+		if (parsed && parsed.kind === 'pokemon') {
+			return pokemonItem(parsed.dex, gen.names || []);
+		}
+
+		return cardItem(key, index, {});
+	}
+
+	// Pocket i's state: {key, item, shown: {entry, picked} | null, count},
+	// or null past the last pocket.
+	function listState(i) {
+		const key = listKeys()[i];
+
+		if (!key) {
+			return null;
+		}
+
+		const stored = (binder.snapshot.shown || {})[key] || null;
+		const pick = picks.get(key) || null;
+		const item = gen.items && gen.items.get(key);
+
+		if (item) {
+			return {count: item.copies.length, item, key, shown: shownCopy(item, {pick, rankOf: gen.rankOf, stored})};
+		}
+
+		// Not read yet, or a family member's binder: the pick or the stored
+		// default, while that copy is still owned.
+		const entry = liveEntry(pick) || liveEntry(stored);
+
+		return {count: 0, item: fallbackItem(key), key, shown: entry ? {entry, picked: Boolean(liveEntry(pick))} : null};
+	}
+
+	// The copies shown, in pocket order.
+	const listShown = () => listKeys().map((key, i) => listState(i)).filter((state) => state && state.shown).map((state) => state.shown.entry);
+
+	function listMeta() {
+		const orderNames = {dex: 'Pokédex order', name: 'name order', release: 'newest set first', set: 'set order'};
+		const doc = data.doc || {};
+		const what = binder.rule.source.kind === 'filter' ? sourceText(binder.rule, doc, filterLabels(doc, index)) : sourceText(binder.rule, doc);
+
+		return `${what}, ${orderNames[binder.rule.order] || binder.rule.order}`;
+	}
+
+	// One pocket's look, from its state (listState).
+	function listPocketContent(state) {
+		if (!state) {
+			return {kind: 'open', label: 'Empty', node: h('span', {'aria-hidden': 'true', class: 'pocket-plus'}, '')};
+		}
+
+		const {count, item, shown} = state;
+
+		if (shown) {
+			const {entry, picked} = shown;
+			const info = entryInfo(entry, index, viewing);
+			const frame = tileArt({count, finish: entryFinish(entry), info, languages: [entry.language], src: info.image, viewing});
+			const extra = [count > 1 ? `${count} copies fit` : null, picked ? 'picked by hand' : null].filter(Boolean).join(', ');
+
+			return {info, item, kind: 'card', label: `${item.name}: ${info.name}, ${languageLabel(entry.language)}${extra ? `, ${extra}` : ''}`, node: frame};
+		}
+
+		const info = item.kind === 'pokemon'
+			? {image: item.image, name: item.name, number: item.number, setName: null}
+			: wantInfo({card_id: item.cardId, catalog: item.catalog, image: item.image, name: item.name}, index, viewing);
+		const src = item.kind === 'pokemon' ? item.image : info.image;
+
+		return {
+			info,
+			item,
+			kind: 'want',
+			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, not owned yet`,
+			node: h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Want')),
+		};
+	}
+
+	function listPocket(pg, position) {
+		const i = indexAt(pg, position, binder.rows, binder.cols);
+		const state = listState(i);
+		const content = listPocketContent(state);
+		const attrs = {
+			'aria-label': `Page ${pg}, pocket ${position}: ${content.label}`,
+			class: `pocket pocket-${content.kind}`,
+			'data-item': state ? state.item.kind : null,
+			'data-key': state ? state.key : null,
+			'data-kind': content.kind,
+			'data-page': pg,
+			'data-picked': state && state.shown && state.shown.picked ? 'true' : null,
+			'data-position': position,
+		};
+
+		if (!state) {
+			return h('div', attrs, content.node);
+		}
+
+		if (!source.readOnly) {
+			return h('button', {...attrs, onclick: () => openListSheet(pg, position), type: 'button'}, content.node);
+		}
+
+		if (content.kind === 'card' && content.info && content.info.route) {
+			return link(content.info.route, attrs, content.node);
+		}
+
+		return h('div', attrs, content.node);
+	}
+
+	function drawListSummary() {
+		const pages = spread.pages();
+		const per = binder.rows * binder.cols;
+		const keys = listKeys();
+		const where = pages.length > 1 ? `Pages ${pages[0]} and ${pages[1]}` : `Page ${pages[0]}`;
+		let filled = 0;
+		let owned = 0;
+
+		keys.forEach((key, i) => {
+			const state = listState(i);
+
+			if (state && state.shown) {
+				owned++;
+
+				if (pages.includes(Math.floor(i / per) + 1)) {
+					filled++;
+				}
+			}
+		});
+
+		if (emptyHint) {
+			emptyHint.hidden = keys.length > 0;
+			emptyText.textContent = 'No cards fit this list yet. Edit binder to choose another list, or scan new cards.';
+		}
+
+		offerCardList(listShown().map((entry) => entryInfo(entry, index, viewing).route), binder.name);
+		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(owned)} of ${plural(keys.length, 'pocket', 'pockets')} with a card you own.`;
+		fillListRecords(pages).catch(() => {});
+	}
+
+	// Names and pictures for the cards on the pages shown that the phone has
+	// no record for (a family member's, or a goal's cards not owned).
+	async function fillListRecords(pages) {
+		const per = binder.rows * binder.cols;
+		const items = [];
+
+		listKeys().forEach((key, i) => {
+			if (!pages.includes(Math.floor(i / per) + 1)) {
+				return;
+			}
+
+			const state = listState(i);
+			const entry = state && state.shown && state.shown.entry;
+			const parsed = parseKey(key);
+
+			if (entry) {
+				items.push({cardId: entry.card_id, catalog: entry.catalog});
+			}
+			else if (parsed && parsed.kind === 'card' && !(gen.items && gen.items.get(key) && gen.items.get(key).image)) {
+				items.push({cardId: parsed.cardId, catalog: parsed.catalog});
+			}
+		});
+
+		const shown = pages.join(',');
+		const filled = await fillRecords(items, index, () => alive);
+
+		if (filled && alive) {
+			index = filled;
+
+			if (spread && spread.pages().join(',') === shown) {
+				drawPage();
+			}
+		}
+	}
+
+	function showListNote(text) {
+		listNote.textContent = text;
+		listNote.hidden = !text;
+	}
+
+	const nameOfKey = (key) => ((gen.items && gen.items.get(key)) || fallbackItem(key)).name;
+
+	// Once a screen: the Pokémon names for the placeholders, and for your
+	// own binder, a read of its list (refreshList). Again when another phone
+	// changed the rule since.
+	function startList() {
+		if (!gen.started) {
+			gen.started = true;
+
+			if (listKeys().some((key) => key.startsWith('dex:'))) {
+				pokemonNames().then((names) => {
+					gen.names = names;
+
+					if (alive && listMode) {
+						drawPage();
+					}
+				}).catch(() => {});
+			}
+
+			if (!source.readOnly) {
+				gen.busy = refreshList();
+			}
+
+			return;
+		}
+
+		if (!source.readOnly && !gen.busy && binder.snapshot && binder.snapshot.rule_key !== ruleKey(binder.rule)) {
+			gen.busy = refreshList();
+		}
+	}
+
+	// Reads the list again: new pockets for cards added to it, pockets gone
+	// for cards that left, owned cards filled in, and defaults moved to the
+	// best copy, picks kept (planRefresh). Saves only what changed, and says
+	// it. manual: the Refresh button, which also asks again what a failed
+	// download put off (force).
+	async function refreshList({force = false, manual = false} = {}) {
+		if (source.readOnly || !binder || !listMode) {
+			return;
+		}
+
+		const binderId = binder.id;
+
+		if (manual) {
+			refreshButton.disabled = true;
+			showListNote('Reading the list again…');
+		}
+
+		try {
+			const doc = await loadDocument();
+			const loaded = await loadRuleItems(binder.rule, doc, {force, index, isAlive: () => alive});
+
+			if (!alive || !binder || binder.id !== binderId) {
+				return;
+			}
+
+			index = loaded.index || index;
+
+			if (loaded.gone) {
+				gen.gone = true;
+				showListNote('The list this binder was made from was deleted. Its pages stay as they were; Edit binder to choose another list.');
+
+				return;
+			}
+
+			if (loaded.partial && !loaded.items.length) {
+				showListNote(manual ? `The list's cards could not be read${navigator.onLine ? '' : ' offline'}. The pages stay as they were.` : '');
+
+				return;
+			}
+
+			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
+			const {plan, rankOf} = await planLayout(binder, loaded, {liveIds, picks});
+
+			if (!alive || binder.id !== binderId) {
+				return;
+			}
+
+			gen.items = new Map(loaded.items.map((item) => [item.key, item]));
+			gen.rankOf = rankOf;
+			gen.partial = loaded.partial;
+
+			const text = refreshText(plan, nameOfKey);
+			const partly = loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : '';
+
+			showListNote(text ? `${text}${partly}` : manual ? `Up to date.${partly}` : '');
+
+			if (plan.changed) {
+				await saveRefresh(binderId, plan);
+			}
+			else {
+				draw();
+			}
+		}
+		catch (err) {
+			if (manual) {
+				showListNote('');
+				showError('Could not refresh the binder.', err);
+			}
+		}
+		finally {
+			gen.busy = null;
+
+			if (refreshButton) {
+				refreshButton.disabled = false;
+			}
+		}
+	}
+
+	// The sheet for one pocket: every owned copy that fits, as pictures, to
+	// pick the one shown (the pick sticks through refreshes), or for a card
+	// not owned, Add to wishlist.
+	function openListSheet(page, position) {
+		const i = indexAt(page, position, binder.rows, binder.cols);
+		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
+		const body = h('div', {class: 'list-sheet', id: 'list-sheet'});
+
+		function fill() {
+			const state = listState(i);
+
+			if (!state) {
+				closeSheet();
+
+				return;
+			}
+
+			const {item, key, shown} = state;
+			const copies = gen.items && gen.items.get(key) ? [...gen.items.get(key).copies] : [];
+			const parts = [];
+
+			sheet.querySelector('#sheet-title').textContent = item.kind === 'pokemon' ? `${item.number} ${item.name}` : item.name;
+
+			if (!gen.items) {
+				parts.push(h('p', {class: 'muted', id: 'list-sheet-wait'}, 'Reading your cards for this list…'));
+				(gen.busy || Promise.resolve()).then(() => {
+					if (alive && sheet.open && body.isConnected) {
+						fill();
+					}
+				});
+			}
+
+			if (copies.length) {
+				const fallback = shownCopy({copies}, {rankOf: gen.rankOf, stored: (binder.snapshot.shown || {})[key]});
+				const defaultId = fallback ? fallback.entry.id : null;
+
+				copies.sort((a, b) => (Number(b.id === defaultId) - Number(a.id === defaultId)) || String(b.created_at).localeCompare(String(a.created_at)));
+				parts.push(h('p', {class: 'muted', id: 'list-sheet-count'}, copies.length > 1
+					? `${plural(copies.length, 'copy fits', 'copies fit')} this pocket. Tap the one to show here.`
+					: 'Your copy for this pocket.'));
+				parts.push(h('div', {class: 'pick-grid', id: 'list-copies'}, copies.map((entry) => {
+					const info = entryInfo(entry, index, viewing);
+					const current = Boolean(shown) && shown.entry.id === entry.id;
+					const where = locate(data.binders, entry.id);
+
+					return h('button', {
+						'aria-pressed': String(current),
+						class: 'pick list-copy',
+						'data-entry': entry.id,
+						onclick: () => (current && shown.picked ? closeSheet() : act(() => setPocketPick(binder.id, key, entry.id), 'Could not pick the copy.')),
+						type: 'button',
+					},
+					tileArt({finish: entryFinish(entry), info, languages: [entry.language], src: info.image}),
+					h('span', {class: 'tile-name'}, info.name),
+					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
+					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
+					where ? h('span', {class: 'tile-meta pick-where'}, `In ${where.binder_name}, p${where.page}`) : null);
+				})));
+
+				const actions = [];
+
+				if (shown && shown.picked) {
+					actions.push(h('button', {id: 'list-use-default', onclick: () => act(() => setPocketPick(binder.id, key, null), 'Could not save the pocket.'), type: 'button'}, 'Show the default again'));
+				}
+
+				if (shown) {
+					actions.push(link(entryInfo(shown.entry, index, viewing).route, {class: 'button', onclick: closeSheet}, 'Open card'));
+				}
+
+				parts.push(h('div', {class: 'button-row'}, actions));
+			}
+			else if (gen.items) {
+				const content = listPocketContent({count: 0, item, key, shown: null});
+				const actions = [];
+
+				parts.push(h('div', {class: 'list-want'},
+					h('div', {class: 'pocket pocket-want list-want-art', 'data-item': item.kind}, content.node),
+					h('p', {id: 'list-sheet-missing'}, 'You do not own this yet.')));
+
+				if (item.kind === 'card') {
+					actions.push(h('button', {class: 'primary', id: 'list-wish', onclick: async (event) => {
+						const button = event.currentTarget;
+
+						button.disabled = true;
+
+						try {
+							await addToWishlist(item.cardId, {catalog: item.catalog});
+							button.textContent = 'On your wishlist';
+							toast(`${item.name} is on your wishlist.`);
+						}
+						catch (err) {
+							button.disabled = false;
+							message.textContent = `Could not add it to the wishlist. ${err.message || errorText(err)}`;
+						}
+					}, type: 'button'}, 'Add to wishlist'));
+					actions.push(link(content.info.route || cardRoute(null, item.catalog, item.cardId), {class: 'button', onclick: closeSheet}, 'Open card'));
+				}
+				else if (binder.rule.source.kind === 'checklist' && sourceEntry(binder.rule, data.doc || {})) {
+					actions.push(link(`lists/${encodeURIComponent(binder.rule.source.id)}/pokemon/${item.dex}`, {class: 'button primary', id: 'list-wish', onclick: closeSheet}, 'Add to wishlist: choose a card'));
+				}
+
+				parts.push(h('div', {class: 'button-row'}, actions));
+			}
+
+			body.replaceChildren(...parts);
+		}
+
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h3', {id: 'sheet-title'}, `Page ${page}, pocket ${position}`),
+				h('button', {'aria-label': 'Close', class: 'small', id: 'sheet-close', onclick: closeSheet, type: 'button'}, 'Close')),
+			h('p', {class: 'muted list-sheet-where'}, `Page ${page}, pocket ${position}`),
+			body,
+			message
+		);
+		fill();
+
+		if (!sheet.open) {
+			openDialogSheet(sheet);
+		}
+	}
+
+	// Edit for a binder made from a list: name, notes, and cover, and the
+	// list, the order, and the pocket size. A change to the layout shows
+	// its first page in a sheet before it is saved.
+	async function openListEditor() {
+		const doc = await loadDocument();
+		const editing = binder;
+
+		editor.replaceChildren(binderForm({
+			binder: editing,
+			onCancel: () => editor.replaceChildren(),
+			onSubmit: async (fields, section) => {
+				const rule = section.rule();
+				let snapshot = editing.snapshot;
+
+				if (!snapshot || ruleKey(rule) !== ruleKey(editing.rule) || fields.rows !== editing.rows || fields.cols !== editing.cols) {
+					const loaded = await section.ready();
+
+					if (loaded.gone) {
+						throw new Error('That list was deleted. Choose another.');
+					}
+
+					const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
+					const draft = {...editing, cols: fields.cols, rows: fields.rows, rule};
+					const {plan, rankOf} = await planLayout(draft, loaded, {liveIds, picks});
+
+					if (!await askRelayout(draft, loaded.items, plan, rankOf)) {
+						return false;
+					}
+
+					snapshot = plan.snapshot;
+				}
+
+				await updateGeneratedBinder(editing.id, fields, rule, snapshot);
+				editor.replaceChildren();
+
+				return true;
+			},
+			rule: ruleSection({binder: editing, doc, index}),
+			title: 'Edit binder',
+		}));
+		editor.scrollIntoView({block: 'start'});
+	}
+
+	// The preview before a new layout is saved: what changes and the first
+	// page. Resolves true for Save, false for Cancel.
+	function askRelayout(draft, items, plan, rankOf) {
+		const box = h('dialog', {'aria-labelledby': 'relayout-title', class: 'pocket-sheet resize-sheet', id: 'relayout-sheet'});
+		const cancel = h('button', {id: 'relayout-cancel', type: 'button'}, 'Cancel');
+		const save = h('button', {class: 'primary', id: 'relayout-save', type: 'button'}, 'Save');
+		const per = draft.rows * draft.cols;
+		const byKey = new Map(items.map((item) => [item.key, item]));
+		const lines = [`${plural(plan.snapshot.keys.length, 'pocket', 'pockets')} on ${plural(plan.page_count, 'page', 'pages')} of ${draft.rows} × ${draft.cols}, was ${plural(binder.page_count, 'page', 'pages')} of ${binder.rows} × ${binder.cols}.`];
+		const changed = refreshText({...plan, updated: []}, (key) => (byKey.get(key) || fallbackItem(key)).name);
+
+		if (changed) {
+			lines.push(changed);
+		}
+
+		if (picks.size) {
+			lines.push('The copies you picked by hand stay with their Pokémon or card.');
+		}
+
+		const cells = [];
+
+		for (let position = 1; position <= per; position++) {
+			const key = plan.snapshot.keys[position - 1];
+			const item = key ? byKey.get(key) : null;
+			const state = item ? {count: item.copies.length, item, key, shown: shownCopy(item, {pick: picks.get(key), rankOf, stored: plan.snapshot.shown[key]})} : null;
+			const content = listPocketContent(state);
+
+			cells.push(h('div', {'aria-label': content.label, class: `pocket pocket-${content.kind}`, 'data-item': state ? state.item.kind : null, 'data-kind': content.kind, role: 'img'}, content.kind === 'open' ? '' : content.node));
+		}
+
+		return new Promise((resolve) => {
+			const finish = (value) => {
+				if (box.open) {
+					box.close();
+				}
+
+				box.remove();
+				resolve(value);
+			};
+
+			cancel.addEventListener('click', () => finish(false));
+			save.addEventListener('click', () => finish(true));
+			box.addEventListener('cancel', (event) => {
+				event.preventDefault();
+				finish(false);
+			});
+			box.addEventListener('click', (event) => {
+				if (event.target === box) {
+					finish(false);
+				}
+			});
+			closeResize = () => finish(false);
+			box.append(
+				h('div', {class: 'sheet-head'}, h('h3', {id: 'relayout-title'}, `Lay out ${binder.name} again?`)),
+				h('div', {'aria-live': 'polite', class: 'resize-lines', id: 'relayout-lines'}, lines.map((line) => h('p', null, line))),
+				h('div', {class: 'resize-preview', id: 'relayout-preview'},
+					h('p', {class: 'field-label'}, `Page 1 after the change, ${draft.rows} × ${draft.cols}`),
+					h('div', {class: 'resize-page', style: `--rz-cols: ${draft.cols}`}, cells)),
+				h('div', {class: 'button-row'}, cancel, save)
+			);
+			root.append(box);
+			box.showModal();
+			save.focus();
 		});
 	}
 
@@ -1886,10 +2598,13 @@ export function unplacedView(root) {
 // ------------------------------------------------------------- routes
 
 // In app.js's route shape: keys name the pattern's groups, in order. The
-// unplaced route comes before binders/<id>, so it is matched first.
+// unplaced and new routes come before binders/<id>, so they are matched
+// first.
 export const binderRoutes = [
 	{pattern: /^binders$/, render: bindersListView, tab: 'binders', title: 'Binders | Card Tracker'},
 	{pattern: /^binders\/unplaced$/, render: unplacedView, tab: 'binders', title: 'Not in a binder | Card Tracker'},
+	{pattern: /^binders\/new$/, render: newFromListView, tab: 'binders', title: 'New binder | Card Tracker'},
+	{keys: ['kind', 'id'], pattern: /^binders\/new\/(checklist|collection|goal)\/([^/]+)$/, render: newFromListView, tab: 'binders', title: 'New binder | Card Tracker'},
 	{keys: ['id'], pattern: /^binders\/([^/]+)$/, render: binderView, tab: 'binders', title: 'Binder | Card Tracker'},
 	{keys: ['id', 'page'], pattern: /^binders\/([^/]+)\/(\d+)$/, render: binderView, tab: 'binders', title: 'Binder | Card Tracker'},
 	{keys: ['userId'], pattern: /^family\/([^/]+)\/binders$/, render: familyBindersView, tab: 'binders', title: 'Family binders | Card Tracker'},
@@ -1900,4 +2615,4 @@ export const binderRoutes = [
 // Views whose screen depends on who is signed in, for app.js's
 // ACCOUNT_ROUTES: the family switcher, the family views, and the document
 // that changes hands on sign-in.
-export const binderAccountViews = [bindersListView, binderView, unplacedView, familyBindersView, familyBinderView];
+export const binderAccountViews = [bindersListView, binderView, unplacedView, newFromListView, familyBindersView, familyBinderView];
