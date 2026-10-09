@@ -4,7 +4,7 @@
 //
 // - Q-19: a blank frame or a sheet of paper taken with the shutter does not
 //   join the tray, and a card held too far away is never taken on its own
-//   but shows "Move closer".
+//   but shows "Move closer" (the shutter takes it, read from its corners).
 // - Q-20: opening Scan again with the card just added still in front of
 //   the camera does not add it again, unless the shutter is tapped.
 // - The continuous scanning tests (tests/scan-log-browser.test.mjs) use
@@ -229,7 +229,16 @@ describe('frames with no card, and a card held too far away (Q-19)', () => {
 		await settled(page);
 
 		assert.equal(await tiles(page), 1, 'the shutter keeps a card held too far away');
-		assert.match(await noteText(page), /Move closer/);
+
+		// Since version 34 the card is found anywhere in the frame and cut from
+		// the full-resolution frame by its own corners (Eric, 2026-10-09), so a
+		// card at 0.42 of the guide is read as surely as one filling it, and
+		// "Move closer" (said only for a card the picture did not settle)
+		// gives way to the right card.
+		const card = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items[0].card);
+
+		assert.equal(card && card.id, CARD, 'the small card is read from its own corners');
+		assert.doesNotMatch(await noteText(page), /Move closer/);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

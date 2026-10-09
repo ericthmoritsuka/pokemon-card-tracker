@@ -1582,6 +1582,22 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 		const g = report.geometry;
 
 		lines.push(`- Guide: ${g.screen} on a ${g.stage} screen area; in the ${g.frame} frame, guide ${g.guide}, captured ${g.capture}`);
+
+		const pct = (share) => `${Math.round(share * 100)} %`;
+		const card = g.card ? `card found in the frame at ${pct(g.card.x)}, ${pct(g.card.y)}, ${pct(g.card.w)} wide and ${pct(g.card.h)} tall, ${g.card.ratio} wide for its height, turned ${g.card.angle} degrees${g.card.upright === false ? ', lying on its side' : ''}` : 'no card found in the frame (the guide was used)';
+		const parts = [card, `zoom ${g.zoom ?? 'not reported'}`, g.holder ? 'holder mode' : 'held by hand'];
+
+		if (typeof g.settleMs === 'number') {
+			parts.push(`still for ${g.settleMs} ms`);
+		}
+
+		if (typeof g.shutterWaitMs === 'number') {
+			parts.push(`the shutter waited ${g.shutterWaitMs} ms ${g.shutterFound ? 'and found a whole card' : 'and found no whole card'}`);
+		}
+
+		if ('holder' in g) {
+			lines.push(`- Framing: ${parts.join('; ')}`);
+		}
 	}
 
 	if (report.rectify) {

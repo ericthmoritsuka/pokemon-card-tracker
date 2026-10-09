@@ -89,6 +89,12 @@ html.scan-open body {
 	border-color: var(--scan-primary);
 }
 
+/* A card running off the frame in holder mode: the pile is too high. */
+.scan-guide.is-pile {
+	border-color: #ffb74d;
+	border-style: dashed;
+}
+
 .scan-guide.is-flash {
 	animation: scan-flash 300ms ease-out;
 }
@@ -538,6 +544,27 @@ html.scan-open body {
 	gap: 8px;
 	justify-content: center;
 	padding: 4px 0;
+}
+
+/* Holder mode's switch: a chip at the foot of the camera on the right, in
+   reach of the thumb, under the repeat bar when that opens. On, it reads
+   like the pressed chips, with a tick. */
+.scan-chip.scan-holder {
+	background: rgba(0, 0, 0, 0.6);
+	bottom: 8px;
+	position: absolute;
+	right: 8px;
+}
+
+.scan-chip.scan-holder[aria-checked="true"] {
+	background: var(--scan-text);
+	border-color: var(--scan-text);
+	color: #000000;
+	font-weight: 600;
+}
+
+.scan-chip.scan-holder[aria-checked="true"]::before {
+	content: "\2713";
 }
 
 .scan-zoom[hidden] {
@@ -1149,4 +1176,23 @@ html.scan-open body {
 
 .scan-copies .step-count:focus-visible {
 	outline-color: var(--scan-focus);
+}
+
+/* Review: the run through the cards that need a look, at the top of the
+   card's sheet, with Stop. */
+.scan-review-bar {
+	align-items: center;
+	background: var(--scan-surface-2);
+	border: 1px solid var(--scan-border);
+	border-radius: 12px;
+	display: flex;
+	gap: 12px;
+	justify-content: space-between;
+	margin-bottom: 12px;
+	padding: 4px 4px 4px 12px;
+}
+
+.scan-review-count {
+	font-weight: 600;
+	margin: 0;
 }

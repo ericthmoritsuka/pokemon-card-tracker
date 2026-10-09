@@ -723,11 +723,11 @@ const SQUARE_DEG = 12;
 
 const DEG = Math.PI / 180;
 
-// Brightness steps on the copy: Sobel gradients, their strength, and their
-// direction (degrees 0 to 180, the direction across the edge).
+// Brightness steps on the copy: Sobel gradients and their strength.
 function gradients(grey, width, height) {
 	const mag = new Float32Array(width * height);
-	const dir = new Float32Array(width * height);
+	const gxs = new Float32Array(width * height);
+	const gys = new Float32Array(width * height);
 
 	for (let y = 1; y < height - 1; y++) {
 		for (let x = 1; x < width - 1; x++) {
@@ -735,9 +735,23 @@ function gradients(grey, width, height) {
 			const gx = grey[i - width + 1] + 2 * grey[i + 1] + grey[i + width + 1] - grey[i - width - 1] - 2 * grey[i - 1] - grey[i + width - 1];
 			const gy = grey[i + width - 1] + 2 * grey[i + width] + grey[i + width + 1] - grey[i - width - 1] - 2 * grey[i - width] - grey[i - width + 1];
 
-			mag[i] = Math.hypot(gx, gy) / 4;
+			gxs[i] = gx;
+			gys[i] = gy;
+			mag[i] = Math.sqrt(gx * gx + gy * gy) / 4;
+		}
+	}
 
-			let angle = Math.atan2(gy, gx) / DEG;
+	return {gxs, gys, mag};
+}
+
+// The direction across each edge pixel (degrees 0 to 180), for the pixels
+// stepping at least `least`; -1 elsewhere.
+function directions({gxs, gys, mag}, least) {
+	const dir = new Float32Array(mag.length).fill(-1);
+
+	for (let i = 0; i < mag.length; i++) {
+		if (mag[i] >= least) {
+			let angle = Math.atan2(gys[i], gxs[i]) / DEG;
 
 			if (angle < 0) {
 				angle += 180;
@@ -747,7 +761,7 @@ function gradients(grey, width, height) {
 		}
 	}
 
-	return {dir, mag};
+	return dir;
 }
 
 // The step strength that counts as an edge: four times the frame's typical
@@ -1175,8 +1189,10 @@ function gapOf(a, b) {
 // off the frame's edge (a card too close, or a pile too high); lines how
 // many straight lines were looked at.
 export function findCard(grey, width, height, {debug = null} = {}) {
-	const {dir, mag} = gradients(grey, width, height);
+	const steps = gradients(grey, width, height);
+	const {mag} = steps;
 	const floor = edgeFloor(mag);
+	const dir = directions(steps, floor * 0.7);
 	const short = Math.min(width, height);
 	const minSide = short * 0.18;
 	const margin = Math.max(2, short * 0.015);
@@ -1349,7 +1365,7 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 	return {
 		angle: Math.round(best.angle * 10) / 10,
 		lines: lines.length,
-		others: others.map((box) => ({corners: box.corners, ratio: box.ratio, upright: box.upright})),
+		others: others.map((box) => ({angle: Math.round(box.angle * 10) / 10, corners: box.corners, ratio: box.ratio, upright: box.upright})),
 		quad: best.corners,
 		ratio: best.ratio,
 		score: Math.round(best.score * 100) / 100,
@@ -1396,7 +1412,11 @@ function threeSided(grey, lines, width, height, margin, minSide) {
 						const sa = drawn(a, ta, ta + sign * length);
 						const sb = drawn(b, tb, tb + sign * length);
 
-						if (sa.inside < 0.97 && sb.inside < 0.97 && sa.inside > 0.3 && sb.inside > 0.3 && sa.share >= TOUCH_SIDE_MIN && sb.share >= TOUCH_SIDE_MIN) {
+						// Each drawn right up to the frame's edge: the floor's seams of
+						// a box stop at its corners, short of the edge.
+						const tail = (line, t, inside) => drawn(line, t + sign * length * inside * 0.85, t + sign * length * inside).share >= 0.7;
+
+						if (sa.inside < 0.97 && sb.inside < 0.97 && sa.inside > 0.3 && sb.inside > 0.3 && sa.share >= TOUCH_SIDE_MIN && sb.share >= TOUCH_SIDE_MIN && tail(a, ta, sa.inside) && tail(b, tb, sb.inside)) {
 							// The card's far corners, past the frame, for its middle.
 							const far = (line, t) => ({x: line.nx * line.rho - line.ny * t, y: line.ny * line.rho + line.nx * t});
 							const corners = [ca, cb, far(b, tb + sign * length), far(a, ta + sign * length)];
@@ -1412,4 +1432,125 @@ function threeSided(grey, lines, width, height, margin, minSide) {
 	}
 
 	return false;
+}
+
+// ------------------------------------------------------------ holder mode
+
+// Holder mode (Eric, 2026-10-09): the phone is held still in a stand over
+// an open box, and cards are dropped in one by one, so they pile up. With
+// the camera never moving, what moves is the card falling: auto capture
+// waits for that motion to stop and the picture to stay still for
+// HOLDER_SETTLE_MS, needs a whole card found in the frame (findCard, all
+// four corners inside), and then takes it once. The next card landing on
+// the pile moves the picture again, which arms the next capture. A card
+// still sliding is never taken: every frame of the settle must be still.
+//
+// Motion is measured on the coarse copy of the whole view (findCard's
+// copy, averaged over COARSE blocks), with the frames' average brightness
+// taken out first: the camera adjusting its exposure to a card that just
+// landed brightens or darkens the whole picture a little for a moment, which
+// is not motion.
+
+// How long the picture must stay still after the last motion, in
+// milliseconds. On Eric's log (version 32) cards landed every 5 to 6 s,
+// and a capture 2.6 s after the last one could still be the same drop
+// settling; a card stops within a few frames of landing.
+export const HOLDER_SETTLE_MS = 400;
+
+// The mean difference between two coarse views (0 to 255, brightness
+// change taken out) above which the picture moved. A camera's noise on a
+// still scene is under 1; a card falling into a quarter of the view moves
+// it by 10 or more.
+export const HOLDER_MOTION = 2.5;
+
+// The mean difference, brightness change taken out, between two coarse
+// copies of the same size.
+export function motion(a, b) {
+	if (!a || !b || a.length !== b.length) {
+		return 255;
+	}
+
+	let shift = 0;
+
+	for (let i = 0; i < a.length; i++) {
+		shift += a[i] - b[i];
+	}
+
+	shift /= a.length;
+
+	let sum = 0;
+
+	for (let i = 0; i < a.length; i++) {
+		sum += Math.abs(a[i] - b[i] - shift);
+	}
+
+	return sum / a.length;
+}
+
+// The detector. push(view, width, height, {card, touching}, at) takes the
+// grey copy of the whole view, whether a whole card was found in it
+// (card) or only a card-shaped outline running off the frame (touching),
+// and the time in milliseconds; it returns {capture, settleMs, pile}:
+// capture true when it is time to take the picture, settleMs how long the
+// picture had been still by then (from the last motion, or from the start),
+// pile whether the picture has settled on a card running off the frame (a
+// pile too high: "Pile too high: empty the box"). captured() records a
+// capture (auto or shutter): nothing fires again until the picture moves
+// and settles. pause() and resume() hold it while a sheet covers the
+// viewfinder.
+export function createHolderCapture({moving = HOLDER_MOTION, settleMs = HOLDER_SETTLE_MS} = {}) {
+	let previous = null;
+	let still = null;
+	let paused = false;
+	let state = 'armed';
+
+	return {
+		captured() {
+			state = 'cooldown';
+		},
+		pause() {
+			paused = true;
+		},
+		push(view, width, height, {card = false, touching = false} = {}, at = 0) {
+			const thumbnail = coarse(view, width, height);
+			const moved = motion(thumbnail, previous) > moving;
+
+			previous = thumbnail;
+
+			if (moved) {
+				still = null;
+
+				// The picture changed: a card dropped (or the pile taken away).
+				if (state === 'cooldown') {
+					state = 'armed';
+				}
+
+				return {capture: false, pile: false, settleMs: 0};
+			}
+
+			if (still === null) {
+				still = at;
+			}
+
+			const settled = at - still >= settleMs;
+			const result = {capture: false, pile: settled && !card && touching, settleMs: Math.round(at - still)};
+
+			if (!paused && state === 'armed' && settled && card) {
+				result.capture = true;
+			}
+
+			return result;
+		},
+		reframe() {
+			previous = null;
+			still = null;
+		},
+		resume() {
+			paused = false;
+			still = null;
+		},
+		get state() {
+			return paused ? 'paused' : state;
+		},
+	};
 }

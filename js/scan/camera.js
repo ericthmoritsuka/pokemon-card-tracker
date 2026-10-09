@@ -39,11 +39,12 @@ export const CAPTURE_PAD = 0.1;
 // with `margin` around it, never larger than the lab's guide (`fill` of the
 // frame), centred in that part.
 //
-// Returns {screen, guide, capture, scale, visible}: screen is the guide in
-// stage pixels {x, y, w, h}; guide and capture are frame pixels {x, y, w,
-// h}, capture the guide plus `pad` on every side, inside the frame; scale is
-// the frame-to-stage scale, and visible the part of the stage the video
-// shows {x, y, w, h}.
+// Returns {screen, guide, capture, scale, visible, view}: screen is the
+// guide in stage pixels {x, y, w, h}; guide and capture are frame pixels
+// {x, y, w, h}, capture the guide plus `pad` on every side, inside the
+// frame; scale is the frame-to-stage scale, visible the part of the stage
+// the video shows {x, y, w, h}, and view that same part in frame pixels:
+// where the card is looked for (steady.js findCard).
 export function layoutGuide(frame, stage, {fill = GUIDE_FILL, margin = GUIDE_MARGIN_PX, pad = CAPTURE_PAD} = {}) {
 	const scale = Math.max(stage.width / frame.width, stage.height / frame.height);
 	const drawnW = frame.width * scale;
@@ -73,8 +74,16 @@ export function layoutGuide(frame, stage, {fill = GUIDE_FILL, margin = GUIDE_MAR
 		y: Math.round((screen.y - offsetY) / scale),
 	};
 	const capture = padRect(frame, guide, pad);
+	const vx = Math.max(0, Math.round((visible.x - offsetX) / scale));
+	const vy = Math.max(0, Math.round((visible.y - offsetY) / scale));
+	const view = {
+		h: Math.min(frame.height - vy, Math.round(visible.h / scale)),
+		w: Math.min(frame.width - vx, Math.round(visible.w / scale)),
+		x: vx,
+		y: vy,
+	};
 
-	return {capture, guide, scale, screen, visible};
+	return {capture, guide, scale, screen, view, visible};
 }
 
 // `guide` (frame pixels) plus `pad` of its width on the left and right and
@@ -243,6 +252,48 @@ export function thumbnailFrame(video, canvas, rect = null) {
 	const rgba = ctx.getImageData(0, 0, THUMB_W, THUMB_H).data;
 
 	return {colour: colourfulness(rgba, THUMB_W, THUMB_H), grey: toGrey(rgba, THUMB_W, THUMB_H)};
+}
+
+// A grey copy of `rect` (frame pixels: the part of the frame on the
+// screen, layoutGuide's view) at most `side` pixels on its longer side, for
+// finding the card anywhere in it (steady.js findCard). Returns {grey,
+// width, height, scale, rect}: scale is the copy's pixels per frame pixel.
+// Null before the video has a picture.
+export function viewFrame(video, canvas, rect, side) {
+	const width = video.videoWidth;
+	const height = video.videoHeight;
+
+	if (!width || !height) {
+		return null;
+	}
+
+	const area = rect && rect.x + rect.w <= width && rect.y + rect.h <= height ? rect : {h: height, w: width, x: 0, y: 0};
+	const scale = Math.min(1, side / Math.max(area.w, area.h));
+	const w = Math.max(1, Math.round(area.w * scale));
+	const h = Math.max(1, Math.round(area.h * scale));
+
+	canvas.width = w;
+	canvas.height = h;
+
+	const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'medium';
+	ctx.drawImage(video, area.x, area.y, area.w, area.h, 0, 0, w, h);
+
+	return {grey: toGrey(ctx.getImageData(0, 0, w, h).data, w, h), height: h, rect: area, scale: w / area.w, width: w};
+}
+
+// The box round some points (frame pixels), plus `pad` of its width on the
+// left and right and of its height above and below, inside the frame: the
+// part of the frame cut for a card found anywhere in it.
+export function boxAround(frame, points, pad = CAPTURE_PAD) {
+	const xs = points.map((p) => p.x);
+	const ys = points.map((p) => p.y);
+	const x = Math.floor(Math.min(...xs));
+	const y = Math.floor(Math.min(...ys));
+
+	return padRect(frame, {h: Math.ceil(Math.max(...ys)) - y, w: Math.ceil(Math.max(...xs)) - x, x, y}, pad);
 }
 
 // The grey thumbnail alone.
