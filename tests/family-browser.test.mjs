@@ -458,13 +458,13 @@ describe('a family member\'s Sets and cards', () => {
 		assert.equal(await page.locator('#card-price form').count(), 0, 'no Liga price form');
 		assert.equal(await page.locator('#card-price .price-liga').count(), 0, 'no Liga line without a kept Liga price');
 
-		// Done: the same card with your copy, Add a copy, and the form.
+		// Done: the same card with your copy, Add a copy, and its prices.
 		await page.click('#family-done');
 		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Your copies (1)');
 		assert.equal(await page.locator('#family-strip').count(), 0);
 		assert.equal(await page.locator('#copy-add').count(), 1);
 		assert.equal(await page.locator('.ph-add').count(), 1);
-		await page.waitForSelector('#card-price form');
+		await page.waitForSelector('#card-price .price-markets');
 
 		// And Sets shows your rings again.
 		await page.click('.tabs a[data-tab="sets"]');
