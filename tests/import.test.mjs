@@ -237,7 +237,7 @@ const OWN_HEADER = [
 	'variant_id', 'finish', 'finish_matched', 'language_source', 'created_at', 'updated_at',
 	'liga_low_nm', 'liga_avg', 'currency', 'price_source', 'price_date',
 	'condition', 'notes', 'name_local', 'set_name_local', 'finish_raw', 'fallback', 'import_key',
-	'number_local', 'set_code',
+	'number_local', 'set_code', 'storage',
 ].join(';');
 
 const ownId = (n) => `aaaaaaaa-bbbb-4ccc-8ddd-${String(n).padStart(12, '0')}`;
@@ -247,7 +247,7 @@ function ownLine(n, fields = {}) {
 		card_id: `tst1-00${n}`, catalog: 'international', condition: '', created_at: `2026-09-0${n}T10:00:00.000Z`, currency: '', entry_id: ownId(n),
 		fallback: '', finish: '', finish_matched: 'Yes', finish_raw: '', import_key: '', language: 'PT', language_source: 'scan',
 		liga_avg: '', liga_low_nm: '', name: '"Test card"', name_local: '', notes: '', number: `"=""00${n}"""`, number_local: '',
-		price_date: '', price_source: '', set: 'Test set', set_code: '', set_id: 'tst1', set_name_local: '', updated_at: `2026-09-0${n}T10:00:00.000Z`,
+		price_date: '', price_source: '', set: 'Test set', set_code: '', set_id: 'tst1', set_name_local: '', storage: '', updated_at: `2026-09-0${n}T10:00:00.000Z`,
 		variant_id: 'normal', ...fields,
 	};
 
@@ -268,11 +268,11 @@ describe('parseOwnCsv', () => {
 		assert.equal(parseExport(`${HEADER}\r\nBulbasaur;Test Set;001/100;EN;NORMAL;1;tst1_int_1;\r\n`).format, 'CSV');
 	});
 
-	test('a row gives back the entry: id, card, language code, finish, condition, notes, names, and Liga price', () => {
+	test('a row gives back the entry: id, card, language code, finish, condition, notes, names, Liga price, and storage', () => {
 		const {errors, rows} = parseOwnCsv(ownCsv(ownLine(1, {
 			condition: 'Near Mint', currency: 'BRL', fallback: 'Yes', import_key: 'monprice|tst1_int_1|pt|NORMAL|0',
 			language: 'CHS', liga_avg: '12,00', liga_low_nm: '9,5', name_local: '"Nome; com ponto e vírgula"', notes: '"Line one\nline two"',
-			price_date: '2026-10-01', price_source: 'Liga Pokémon', set_name_local: 'Coleção',
+			price_date: '2026-10-01', price_source: 'Liga Pokémon', set_name_local: 'Coleção', storage: 'Bulk box A',
 		})));
 
 		assert.deepEqual(errors, []);
@@ -281,7 +281,7 @@ describe('parseOwnCsv', () => {
 			finish_raw: null, id: ownId(1), import_key: 'monprice|tst1_int_1|pt|NORMAL|0', language: 'zh-cn', language_source: 'scan', line: 2,
 			name_local: 'Nome; com ponto e vírgula', notes: 'Line one\nline two', number_local: null,
 			price_manual: {avg: 12, currency: 'BRL', date: '2026-10-01', low_nm: 9.5, source: 'Liga Pokémon'},
-			set_code: null, set_name_local: 'Coleção', variant_id: 'normal',
+			set_code: null, set_name_local: 'Coleção', storage: 'Bulk box A', variant_id: 'normal',
 		});
 	});
 
@@ -341,15 +341,36 @@ describe('planOwnImport', () => {
 	test('a copy already here changes only the fields that differ, stamped as edited', () => {
 		const {cards} = planOwnImport([], rowsOf(ownLine(1)), {now: OWN_NOW});
 		const here = [{...cards[0], photos: [{id: 'p1'}], storage: 'Box A'}];
-		const next = planOwnImport(here, rowsOf(ownLine(1, {condition: 'Damaged'})), {now: OWN_NOW + 1000});
+		const next = planOwnImport(here, rowsOf(ownLine(1, {condition: 'Damaged', storage: 'Box A'})), {now: OWN_NOW + 1000});
 
 		assert.equal(next.counts.updated, 1);
 		assert.equal(next.cards[0].condition, 'Damaged');
 		assert.deepEqual(next.cards[0].photos, [{id: 'p1'}], 'fields the CSV does not carry stay');
 		assert.equal(next.cards[0].storage, 'Box A');
+		assert.equal(next.cards[0].field_stamps.storage, undefined, 'an unchanged place is not stamped');
 		assert.ok(next.cards[0].updated_at > here[0].updated_at);
 		assert.equal(next.cards[0].field_stamps.condition, next.cards[0].updated_at);
 		assert.equal(here[0].condition, undefined, 'the list passed in is left alone');
+	});
+
+	test('Stored in comes back from the CSV, cleaned; an older export without the column leaves it alone', () => {
+		const {cards} = planOwnImport([], rowsOf(ownLine(1, {storage: '"  Deck   box  "'}), ownLine(2)), {now: OWN_NOW});
+
+		assert.equal(cards[0].storage, 'Deck box');
+		assert.equal('storage' in cards[1], false, 'an empty cell adds nothing to a new copy');
+
+		const moved = planOwnImport(cards, rowsOf(ownLine(1, {storage: 'Drawer'}), ownLine(2, {storage: 'Drawer'})), {now: OWN_NOW + 1000});
+
+		assert.deepEqual(moved.statuses, ['updated', 'updated']);
+		assert.deepEqual(moved.cards.map((card) => card.storage), ['Drawer', 'Drawer']);
+		assert.equal(moved.cards[0].field_stamps.storage, moved.cards[0].updated_at);
+
+		const header = OWN_HEADER.split(';').filter((name) => name !== 'storage');
+		const values = ownLine(1).split(';').slice(0, header.length);
+		const old = parseOwnCsv(`${header.join(';')}\n${values.join(';')}\n`).rows;
+
+		assert.equal(old[0].storage, undefined);
+		assert.equal(planOwnImport(moved.cards, old, {now: OWN_NOW + 2000}).cards[0].storage, 'Drawer');
 	});
 
 	test('a deleted copy stays deleted unless revive is ticked', () => {

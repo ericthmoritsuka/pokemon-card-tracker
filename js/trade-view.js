@@ -23,7 +23,7 @@ import {sparesFor} from './wishlist.js';
 
 const CHOICE_KEY = 'cardTracker.tradeChoice';
 // The filters that mean something over spares.
-const OFFERED = ['set', 'language', 'rarity', 'price', 'favorite'];
+const OFFERED = ['set', 'language', 'rarity', 'price', 'storage', 'favorite'];
 
 const entryCatalog = (entry) => entry.catalog || 'international';
 

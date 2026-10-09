@@ -151,7 +151,7 @@ describe('Trade', () => {
 
 		const offered = await page.locator('#cards-sheet [data-filter]').evaluateAll((nodes) => nodes.map((node) => node.dataset.filter));
 
-		assert.deepEqual(offered, ['set', 'language', 'rarity', 'price', 'favorite']);
+		assert.deepEqual(offered, ['set', 'language', 'rarity', 'price', 'storage', 'favorite']);
 		await page.click('#cards-sheet .fb-show');
 
 		// Price sort, dearest first: the Liga-priced Pikachu (90 reais) is on

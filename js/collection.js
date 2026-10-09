@@ -421,7 +421,7 @@ export async function listCards() {
 export async function addCard(fields) {
 	const doc = await loadDocument();
 	const at = fields.created_at || nowIso();
-	const entry = {...pick(fields), created_at: at, deleted_at: null, id: newId(), updated_at: at};
+	const entry = {...pick(withPlace(doc, fields, Date.now())), created_at: at, deleted_at: null, id: newId(), updated_at: at};
 
 	doc.cards.push(entry);
 	await saveDocument(doc);
@@ -438,7 +438,7 @@ export async function addCards(list) {
 	const added = list.map((fields, i) => {
 		const at = fields.created_at || new Date(now + i).toISOString();
 
-		return {...pick(fields), created_at: at, deleted_at: null, id: newId(), updated_at: at};
+		return {...pick(withPlace(doc, fields, now)), created_at: at, deleted_at: null, id: newId(), updated_at: at};
 	});
 
 	if (added.length) {
@@ -457,7 +457,7 @@ export async function updateCard(id, patch) {
 		throw new Error(`No card entry ${id}.`);
 	}
 
-	editEntry(entry, () => Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at)}));
+	editEntry(entry, () => Object.assign(entry, pick(withPlace(doc, patch, Date.now())), {updated_at: nextStamp(entry.updated_at)}));
 	await saveDocument(doc);
 
 	return entry;
@@ -476,7 +476,7 @@ export async function updateCards(patches) {
 		const entry = doc.cards.find((card) => card.id === id && isLive(card));
 
 		if (entry) {
-			editEntry(entry, () => Object.assign(entry, pick(patch), {updated_at: nextStamp(entry.updated_at, now)}));
+			editEntry(entry, () => Object.assign(entry, pick(withPlace(doc, patch, now)), {updated_at: nextStamp(entry.updated_at, now)}));
 			changed.push(entry);
 		}
 	}
@@ -711,6 +711,7 @@ export async function applyImport(entries) {
 const OWN_COMPARED = [
 	'card_id', 'catalog', 'variant_id', 'finish_raw', 'fallback', 'language', 'import_key',
 	'name_local', 'set_name_local', 'condition', 'notes', 'price_manual', 'number_local', 'set_code',
+	'storage',
 ];
 
 const day = (value) => (value ? String(value).slice(0, 10) : null);
@@ -770,7 +771,9 @@ export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = 
 		out[i] = {...updated, ...stampEntry(base, updated)};
 	};
 
-	rows.forEach((row, n) => {
+	rows.forEach((raw, n) => {
+		// Stored in, cleaned as the copy sheet saves it.
+		const row = raw.storage === undefined ? raw : {...raw, storage: cleanPlace(raw.storage) || null};
 		let i = byId.get(row.id);
 
 		if (i === undefined && row.import_key) {
@@ -853,9 +856,18 @@ export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = 
 // in one save (planOwnImport).
 export async function applyOwnImport(rows, {revive = false} = {}) {
 	const doc = await loadDocument();
-	const {cards, counts} = planOwnImport(doc.cards, rows, {now: Date.now(), revive});
+	const now = Date.now();
+	const {cards, counts} = planOwnImport(doc.cards, rows, {now, revive});
 
 	doc.cards = cards;
+
+	// A place a row names joins the saved places, as if typed in the sheet.
+	for (const row of rows) {
+		if (cleanPlace(row.storage)) {
+			ensurePlace(doc, cleanPlace(row.storage), now);
+		}
+	}
+
 	await saveDocument(doc);
 
 	return counts;
@@ -874,6 +886,339 @@ export async function importKeys() {
 	const doc = await loadDocument();
 
 	return entriesByKey(doc.cards);
+}
+
+// ---------------------------------------------- where copies are stored
+//
+// "Stored in" (DESIGN.md section 4, Eric, 2026-10-09): each copy's storage
+// field names a place in a few words, "Bulk box A". The places themselves
+// are a list of their own in the document, storage_places, so a place stays
+// on offer when no copy is in it any more. A place is added the first time
+// a copy is stored in it, and renamed or removed from the Places sheet
+// (js/copy-sheet.js), which changes every copy stored there.
+//
+// The list syncs with no change to js/merge.js: every top-level array in
+// the document is merged entry by entry, like cards and binders, so a place
+// added on each of two phones keeps both and a removed place is a tombstone
+// that stays removed. A place's id comes from its name, so the same place
+// typed on two phones is one entry, not two.
+
+// The longest place name: a box label, not a note.
+export const STORAGE_MAX = 40;
+
+// A place as it is saved: one line, single spaces, at most STORAGE_MAX
+// characters. "" when nothing is left.
+export const cleanPlace = (text) => String(text ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, STORAGE_MAX).trim();
+
+// What makes two spellings one place: "box a" is "Box A".
+export const placeFold = (text) => cleanPlace(text).toLocaleLowerCase('en');
+
+// FNV-1a over the folded name, twice with two seeds: a stable id per name.
+function placeId(fold) {
+	const hash = (seed) => {
+		let value = seed;
+
+		for (const char of fold) {
+			value ^= char.codePointAt(0);
+			value = Math.imul(value, 16777619) >>> 0;
+		}
+
+		return value.toString(16).padStart(8, '0');
+	};
+
+	return `place_${hash(2166136261)}${hash(84696351)}`;
+}
+
+const livePlace = (place) => Boolean(place && place.id && !place.deleted_at && cleanPlace(place.name));
+
+const placeOrder = (a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id));
+
+// The live saved places with this folded name, oldest first.
+const savedAs = (doc, fold) => (Array.isArray(doc.storage_places) ? doc.storage_places : [])
+	.filter((place) => livePlace(place) && placeFold(place.name) === fold)
+	.sort(placeOrder);
+
+// Remembers how a place was before a change, once, for Undo: null when the
+// change made it.
+function note(touched, place, made = false) {
+	if (touched && !touched.has(place.id)) {
+		touched.set(place.id, made ? null : structuredClone(place));
+	}
+}
+
+function editPlace(doc, place, change, now) {
+	const list = doc.storage_places;
+	const i = list.indexOf(place);
+	const next = {...place, ...change, updated_at: nextStamp(place.updated_at, now)};
+
+	list[i] = stampEntry(place, next);
+
+	return list[i];
+}
+
+// The saved place for name, added (or a removed one brought back) when
+// there is none. Returns the name as the place spells it.
+function ensurePlace(doc, name, now, touched = null) {
+	const fold = placeFold(name);
+	const [found] = savedAs(doc, fold);
+
+	if (found) {
+		return found.name;
+	}
+
+	if (!Array.isArray(doc.storage_places)) {
+		doc.storage_places = [];
+	}
+
+	const list = doc.storage_places;
+	const id = placeId(fold);
+	const old = list.find((place) => place && place.id === id);
+
+	if (old && old.deleted_at) {
+		note(touched, old);
+
+		const back = restoreEntry(old, now);
+
+		list[list.indexOf(old)] = back;
+
+		if (back.name !== name) {
+			editPlace(doc, back, {name}, now);
+		}
+
+		return name;
+	}
+
+	const at = new Date(now).toISOString();
+	// The id a name gives is taken when a place was renamed away from it.
+	const place = {created_at: at, deleted_at: null, id: old ? newId() : id, name, updated_at: at};
+
+	list.push(place);
+	note(touched, place, true);
+
+	return name;
+}
+
+// fields with storage cleaned and spelled as its saved place, which is
+// added to the document's places when new. Fields without storage are
+// returned as they are.
+function withPlace(doc, fields, now) {
+	if (!fields || fields.storage === undefined) {
+		return fields;
+	}
+
+	const name = cleanPlace(fields.storage);
+
+	return {...fields, storage: name ? ensurePlace(doc, name, now) : null};
+}
+
+const collator = new Intl.Collator('en', {numeric: true, sensitivity: 'base'});
+
+// Every place, {name, count, saved}: the saved ones, and any a copy names
+// that the list lacks (saved false: written by a CSV, or a place removed on
+// another phone while this one stored a copy there). count is the live
+// copies stored there. Most used first, then by name.
+export function storedPlaces(doc) {
+	const places = new Map();
+
+	for (const place of (Array.isArray(doc && doc.storage_places) ? doc.storage_places : []).filter(livePlace).sort(placeOrder)) {
+		const fold = placeFold(place.name);
+
+		if (!places.has(fold)) {
+			places.set(fold, {count: 0, name: cleanPlace(place.name), saved: true});
+		}
+	}
+
+	for (const card of (doc && Array.isArray(doc.cards) ? doc.cards : [])) {
+		const name = card && !card.deleted_at ? cleanPlace(card.storage) : '';
+
+		if (!name) {
+			continue;
+		}
+
+		const fold = placeFold(name);
+
+		if (!places.has(fold)) {
+			places.set(fold, {count: 0, name, saved: false});
+		}
+
+		places.get(fold).count++;
+	}
+
+	return [...places.values()].sort((a, b) => b.count - a.count || collator.compare(a.name, b.name));
+}
+
+export async function listPlaces() {
+	return storedPlaces(await loadDocument());
+}
+
+// Before-images of the copies a change touches, for Undo.
+const cardBefore = (entry) => ({had: Object.hasOwn(entry, 'storage'), id: entry.id, storage: entry.storage ?? null});
+
+function storeIn(entry, name, now) {
+	editEntry(entry, () => Object.assign(entry, {storage: name, updated_at: nextStamp(entry.updated_at, now)}));
+}
+
+async function finish(doc, cards, touched, name = null) {
+	if (cards.length || touched.size) {
+		await saveDocument(doc);
+	}
+
+	return {changed: cards.length, name, undo: {cards, places: [...touched]}};
+}
+
+// Stores these copies in one place (text as typed; empty clears it), in one
+// save. Returns {changed, name, undo}: the copies changed, the place as
+// saved, and what undoStorage needs to put it all back.
+export async function setStorage(ids, text) {
+	const doc = await loadDocument();
+	const now = Date.now();
+	const touched = new Map();
+	const clean = cleanPlace(text);
+	const name = clean ? ensurePlace(doc, clean, now, touched) : null;
+	const wanted = new Set(ids);
+	const cards = [];
+
+	for (const entry of doc.cards) {
+		if (wanted.has(entry.id) && isLive(entry) && (entry.storage ?? null) !== name) {
+			cards.push(cardBefore(entry));
+			storeIn(entry, name, now);
+		}
+	}
+
+	return finish(doc, cards, touched, name);
+}
+
+// Renames a place, and every copy stored there with it. Renamed to another
+// saved place's name, the two become one. Returns {changed, name, undo}.
+export async function renamePlace(from, to) {
+	const name = cleanPlace(to);
+
+	if (!name) {
+		throw new Error('A place needs a name.');
+	}
+
+	const doc = await loadDocument();
+	const now = Date.now();
+	const touched = new Map();
+	const fold = placeFold(from);
+	const mine = savedAs(doc, fold);
+	const [other] = placeFold(name) === fold ? [] : savedAs(doc, placeFold(name));
+	let final = name;
+
+	if (other) {
+		final = other.name;
+		mine.forEach((place) => {
+			note(touched, place);
+			editPlace(doc, place, {deleted_at: nextStamp(place.updated_at, now)}, now);
+		});
+	}
+	else if (mine.length) {
+		const [keep, ...extra] = mine;
+
+		note(touched, keep);
+		editPlace(doc, keep, {name}, now);
+		extra.forEach((place) => {
+			note(touched, place);
+			editPlace(doc, place, {deleted_at: nextStamp(place.updated_at, now)}, now);
+		});
+	}
+	else {
+		final = ensurePlace(doc, name, now, touched);
+	}
+
+	const cards = [];
+
+	for (const entry of doc.cards) {
+		if (isLive(entry) && entry.storage && placeFold(entry.storage) === fold && entry.storage !== final) {
+			cards.push(cardBefore(entry));
+			storeIn(entry, final, now);
+		}
+	}
+
+	return finish(doc, cards, touched, final);
+}
+
+// Removes a place: off the list, and every copy stored there shows Not set.
+// Returns {changed, undo}.
+export async function removePlace(name) {
+	const doc = await loadDocument();
+	const now = Date.now();
+	const touched = new Map();
+	const fold = placeFold(name);
+
+	for (const place of savedAs(doc, fold)) {
+		note(touched, place);
+		editPlace(doc, place, {deleted_at: nextStamp(place.updated_at, now)}, now);
+	}
+
+	const cards = [];
+
+	for (const entry of doc.cards) {
+		if (isLive(entry) && entry.storage && placeFold(entry.storage) === fold) {
+			cards.push(cardBefore(entry));
+			storeIn(entry, null, now);
+		}
+	}
+
+	return finish(doc, cards, touched);
+}
+
+// Puts back what setStorage, renamePlace, or removePlace changed: each copy's
+// place as it was, and each place as it was (a place the change made is
+// removed again). Every step is a new stamped edit, so it syncs like any
+// other. Copies removed since are left alone.
+export async function undoStorage(undo) {
+	const doc = await loadDocument();
+	const now = Date.now();
+	const byId = new Map(doc.cards.map((entry) => [entry.id, entry]));
+
+	for (const {had, id, storage} of undo.cards || []) {
+		const entry = byId.get(id);
+
+		if (!entry || !isLive(entry) || (entry.storage ?? null) === storage) {
+			continue;
+		}
+
+		editEntry(entry, () => {
+			if (had) {
+				entry.storage = storage;
+			}
+			else {
+				delete entry.storage;
+			}
+
+			entry.updated_at = nextStamp(entry.updated_at, now);
+		});
+	}
+
+	const list = Array.isArray(doc.storage_places) ? doc.storage_places : [];
+
+	for (const [id, before] of undo.places || []) {
+		let place = list.find((item) => item && item.id === id);
+
+		if (!place) {
+			continue;
+		}
+
+		if (!before || before.deleted_at) {
+			if (!place.deleted_at) {
+				editPlace(doc, place, {deleted_at: nextStamp(place.updated_at, now)}, now);
+			}
+
+			continue;
+		}
+
+		if (place.deleted_at) {
+			place = restoreEntry(place, now);
+			list[list.findIndex((item) => item && item.id === id)] = place;
+		}
+
+		if (place.name !== before.name) {
+			editPlace(doc, place, {name: before.name}, now);
+		}
+	}
+
+	await saveDocument(doc);
 }
 
 // ------------------------------------------------------------ ownership

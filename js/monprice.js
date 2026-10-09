@@ -317,6 +317,8 @@ export function parseOwnCsv(text) {
 				: undefined,
 			set_code: setCode,
 			set_name_local: setNameLocal,
+			// Where the copy is stored; js/collection.js cleans it.
+			storage: optional('storage'),
 			variant_id: variantId,
 		};
 

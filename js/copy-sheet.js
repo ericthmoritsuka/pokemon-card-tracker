@@ -1,6 +1,8 @@
 // Copies by hand (plans/audit-qa.md Q-01, plans/design-review.md "Card
-// Detail"): the sheet that edits one copy's language, finish, condition, and
-// notes, or removes it; the sheet that adds copies of a card; and the count
+// Detail"): the sheet that edits one copy's language, finish, condition,
+// where it is stored, and notes, or removes it; the Places sheet that
+// renames and removes storage places; the sheet that stores many copies in
+// one place (My Cards); the sheet that adds copies of a card; and the count
 // stepper ("-  N  +") on each row of Your copies and in a binder's pocket
 // sheet. Card detail (js/catalog-views.js) and the binder view
 // (js/binders-view.js) place them; none is shown in family view, which is
@@ -15,9 +17,25 @@
 
 import {catalogFor, isLanguage, languageLabel} from './catalog.js';
 import {listBinders, placements} from './binders.js';
-import {addCard, deleteCards, listCards, restoreCard, updateCard, updateCards} from './collection.js';
+import {
+	addCard,
+	cleanPlace,
+	deleteCards,
+	listCards,
+	listPlaces,
+	placeFold,
+	removePlace,
+	renamePlace,
+	restoreCard,
+	setStorage,
+	STORAGE_MAX,
+	undoStorage,
+	updateCard,
+	updateCards,
+} from './collection.js';
 import {errorText, h} from './dom.js';
 import {flagLanguageName} from './flags.js';
+import {plural} from './format.js';
 import {FINISHES} from './monprice.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
@@ -61,8 +79,9 @@ export function copyLanguages(catalog, current = null) {
 // ---------------------------------------------------------- alike copies
 
 // Copies are alike when they are the same card in the same catalog, in the
-// same language, finish, and condition. A row of Your copies holds alike
-// copies, and the stepper counts them.
+// same language, finish, and condition, stored in the same place. A row of
+// Your copies holds alike copies, and the stepper counts them, so copies in
+// two boxes are two rows, each with its own count and its own Stored in.
 export const alikeKey = (entry) => JSON.stringify([
 	entry.catalog || 'international',
 	entry.card_id,
@@ -71,11 +90,12 @@ export const alikeKey = (entry) => JSON.stringify([
 	// An unmatched monprice finish tells copies apart only without a variant.
 	entry.variant_id ? null : entry.finish_raw || null,
 	entry.condition || null,
+	entry.storage ? placeFold(entry.storage) : null,
 ]);
 
 // What a copy added by + carries over from one alike: the card, language,
-// finish, condition, and the source's names; never notes, photos, prices,
-// or a binder pocket.
+// finish, condition, where it is stored, and the source's names; never
+// notes, photos, prices, or a binder pocket.
 export function alikeFields(entry) {
 	const fields = {
 		card_id: entry.card_id,
@@ -86,7 +106,7 @@ export function alikeFields(entry) {
 	};
 
 	// A hand-made card's own facts ride on every copy (js/custom-card.js).
-	for (const key of ['condition', 'fallback', 'name_local', 'set_name_local', 'number_local', 'set_code']) {
+	for (const key of ['condition', 'storage', 'fallback', 'name_local', 'set_name_local', 'number_local', 'set_code']) {
 		if (entry[key]) {
 			fields[key] = entry[key];
 		}
@@ -222,7 +242,7 @@ const sheetElement = () => dialog('copy-sheet', 'Copy');
 
 // Closes the copy sheets if they are open, for card detail's cleanup.
 export function closeCopySheet() {
-	for (const id of ['copy-pick-sheet', 'copy-sheet']) {
+	for (const id of ['places-sheet', 'copy-pick-sheet', 'copy-sheet', 'store-sheet']) {
 		const sheet = document.getElementById(id);
 
 		if (sheet && sheet.open) {
@@ -337,6 +357,8 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const finish = select('copy-finish', finishOptions(finishes, first[finishKey(catalog)]), first[finishKey(catalog)] || NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: NOTES_MAX, name: 'copy-notes', rows: 2}, first.notes || '');
+	// Alike copies are stored in one place (alikeKey).
+	const storage = placePicker({id: 'copy-storage', value: first.storage});
 
 	// A row of alike copies changes one of them, or all of them. One of
 	// them is the copy a minus would take (removalPlan).
@@ -408,6 +430,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		field('Language', 'copy-language', language),
 		field('Finish', 'copy-finish', finish),
 		field('Condition', 'copy-condition', condition),
+		field('Stored in', 'copy-storage', storage.element),
 		field('Notes', 'copy-notes', notes),
 		error,
 		h('button', {class: 'primary', id: 'copy-save', type: 'submit'}, 'Save')
@@ -421,6 +444,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 			condition: condition.value || null,
 			language: language.value,
 			notes: notes.value.trim().slice(0, NOTES_MAX),
+			storage: storage.value(),
 			[finishKey(catalog)]: finish.value || null,
 		})})).filter((item) => Object.keys(item.patch).length);
 
@@ -490,6 +514,10 @@ export function changes(entry, catalog, next) {
 		patch.notes = next.notes || null;
 	}
 
+	if (next.storage !== undefined && (cleanPlace(next.storage) || null) !== (entry.storage || null)) {
+		patch.storage = cleanPlace(next.storage) || null;
+	}
+
 	return patch;
 }
 
@@ -512,6 +540,7 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 	const language = select('copy-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang) ? lang : languages[0].code);
 	const finish = select('copy-finish', finishOptions(finishes, null), plain && finishes.some((option) => option.value === plain) ? plain : NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), NOT_SET);
+	const storage = placePicker({id: 'copy-storage'});
 	const count = h('input', {class: 'search copy-count', id: 'copy-count', inputmode: 'numeric', max: MAX_ADD, min: 1, name: 'copy-count', step: 1, type: 'number', value: 1});
 	const submit = h('button', {class: 'primary', id: 'copy-add-save', type: 'submit'}, 'Add 1 copy');
 
@@ -532,6 +561,7 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 		field('Language', 'copy-language', language),
 		field('Finish', 'copy-finish', finish),
 		field('Condition', 'copy-condition', condition),
+		field('Stored in', 'copy-storage', storage.element),
 		field(`How many (1 to ${MAX_ADD})`, 'copy-count', count),
 		error,
 		submit
@@ -564,6 +594,10 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 			fields.condition = condition.value;
 		}
 
+		if (storage.value()) {
+			fields.storage = storage.value();
+		}
+
 		submit.disabled = true;
 
 		const added = [];
@@ -591,6 +625,385 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 	sheet.replaceChildren(
 		head('Add a copy', close),
 		h('p', {class: 'muted copy-sub'}, [card.name, card.number].filter(Boolean).join(' · ')),
+		form
+	);
+
+	return show(sheet);
+}
+
+// ------------------------------------------------------ where it is stored
+
+// A row's Stored in line on card detail, read only too: "Stored in Bulk box
+// A". Null when the row's copies are stored nowhere. A copy in a binder
+// pocket shows its pocket as well; the place says where the binder or the
+// copy lives, and neither is made up from the other.
+export function storedLine(entries) {
+	const name = cleanPlace(entries && entries[0] && entries[0].storage);
+
+	return name ? h('span', {class: 'copy-stored'}, `Stored in ${name}`) : null;
+}
+
+// How many place chips show before More.
+const QUICK_PLACES = 8;
+
+// The Stored in field: a text field (at most STORAGE_MAX characters) with
+// the saved places as chips under it, most used first, and Not set first
+// of all, so a tap is enough and typing is for a new place. Manage places
+// opens the Places sheet over the sheet it sits in.
+//
+//   id      the text field's id; a label's for points at it
+//   value   the place to start with
+// Returns {element, refresh(), value()}, value() being the place as typed,
+// cleaned ("" for Not set).
+export function placePicker({id = 'copy-storage', value = ''} = {}) {
+	let places = [];
+	let expanded = false;
+
+	const input = h('input', {
+		autocapitalize: 'sentences',
+		autocomplete: 'off',
+		class: 'search place-input',
+		enterkeyhint: 'done',
+		id,
+		list: `${id}-list`,
+		maxlength: STORAGE_MAX,
+		name: id,
+		placeholder: 'Not set: tap a place or type one',
+		type: 'text',
+		value: cleanPlace(value),
+	});
+	const datalist = h('datalist', {id: `${id}-list`});
+	const chips = h('div', {'aria-label': 'Saved places', class: 'place-chips', id: `${id}-chips`, role: 'group'});
+
+	const chip = (label, place, on) => h('button', {
+		'aria-pressed': String(on),
+		class: 'chip place-chip',
+		'data-place': place,
+		onclick: () => {
+			input.value = place;
+			draw();
+			chips.querySelector(`[data-place="${CSS.escape(place)}"]`)?.focus();
+		},
+		type: 'button',
+	}, label);
+
+	function draw() {
+		const current = placeFold(input.value);
+		const shown = expanded ? places : places.slice(0, QUICK_PLACES);
+
+		datalist.replaceChildren(...places.map((place) => h('option', {value: place.name})));
+		chips.replaceChildren(...[
+			chip('Not set', '', !current),
+			...shown.map((place) => chip(place.name, place.name, placeFold(place.name) === current)),
+			places.length > shown.length
+				? h('button', {class: 'chip place-more', onclick: () => {
+					expanded = true;
+					draw();
+				}, type: 'button'}, `More (${places.length - shown.length})`)
+				: null,
+		].filter(Boolean));
+	}
+
+	async function refresh() {
+		try {
+			places = await listPlaces();
+		}
+		catch {
+			// No places this time; typing still works.
+		}
+
+		draw();
+	}
+
+	input.addEventListener('input', draw);
+
+	// What the Places sheet changed follows into the field, so saving the
+	// sheet under it does not bring a renamed or removed place back.
+	const manage = h('button', {class: 'link-button place-manage', id: `${id}-manage`, onclick: () => openPlacesSheet({onClose: ({removed, renamed}) => {
+		const fold = placeFold(input.value);
+
+		if (renamed.has(fold)) {
+			input.value = renamed.get(fold);
+		}
+		else if (removed.has(fold)) {
+			input.value = '';
+		}
+
+		refresh();
+	}}), type: 'button'}, 'Manage places');
+
+	draw();
+	refresh();
+
+	return {
+		element: h('div', {class: 'place-picker'}, input, datalist, chips, manage),
+		refresh,
+		value: () => cleanPlace(input.value),
+	};
+}
+
+// Undo for a change to places: on a toast, and in the Places sheet's own
+// status line while it is open (a toast under an open sheet cannot be
+// tapped). Either one undoes it, once.
+function offerUndo(message, undo, {after = null, status = null} = {}) {
+	let used = false;
+	const run = async () => {
+		if (used) {
+			return;
+		}
+
+		used = true;
+
+		try {
+			await undoStorage(undo);
+
+			if (status && status.isConnected) {
+				status.replaceChildren(h('span', null, 'Undone.'));
+			}
+
+			if (after) {
+				after();
+			}
+		}
+		catch (err) {
+			toast(`Could not undo. ${errorText(err)}`);
+		}
+	};
+
+	if (status) {
+		status.replaceChildren(
+			h('span', null, message),
+			h('button', {class: 'small', id: 'places-undo', onclick: run, type: 'button'}, 'Undo')
+		);
+	}
+
+	toast(message, {action: run, actionLabel: 'Undo', timeout: UNDO_MS});
+}
+
+const copiesText = (n) => (n ? plural(n, 'copy', 'copies') : 'No copies');
+
+// The Places sheet: every saved place with how many copies are stored
+// there, to rename (every copy follows) or remove (its copies show Not set;
+// asked first when copies are stored there). Both with Undo. onClose gets
+// {renamed: Map old folded name -> new name, removed: Set of folded names}.
+export function openPlacesSheet({onClose = null} = {}) {
+	const sheet = dialog('places-sheet', 'Places');
+	const renamed = new Map();
+	const removed = new Set();
+	const close = () => sheet.close();
+	const status = h('div', {'aria-live': 'polite', class: 'places-status', id: 'places-status'});
+	const list = h('ul', {class: 'places-list', id: 'places-list'});
+	// The place being renamed, or asked about before removing, by folded name.
+	let editing = null;
+	let asking = null;
+
+	async function rename(place, text) {
+		const fold = placeFold(place.name);
+
+		try {
+			const done = await renamePlace(place.name, text);
+
+			editing = null;
+			renamed.set(fold, done.name);
+			removed.delete(fold);
+			offerUndo(`Renamed to ${done.name}${done.changed ? `, ${plural(done.changed, 'copy', 'copies')} updated` : ''}.`, done.undo, {
+				after: () => {
+					renamed.delete(fold);
+					draw();
+				},
+				status,
+			});
+		}
+		catch (err) {
+			status.replaceChildren(h('span', {class: 'form-error'}, `Not renamed. ${errorText(err)}`));
+		}
+
+		draw(fold);
+	}
+
+	async function remove(place) {
+		const fold = placeFold(place.name);
+
+		try {
+			const done = await removePlace(place.name);
+
+			asking = null;
+			removed.add(fold);
+			offerUndo(`${place.name} removed${done.changed ? `, ${plural(done.changed, 'copy', 'copies')} now Not set` : ''}.`, done.undo, {
+				after: () => {
+					removed.delete(fold);
+					draw();
+				},
+				status,
+			});
+		}
+		catch (err) {
+			status.replaceChildren(h('span', {class: 'form-error'}, `Not removed. ${errorText(err)}`));
+		}
+
+		draw();
+	}
+
+	function row(place, i) {
+		const fold = placeFold(place.name);
+		const label = h('span', {class: 'place-name'}, place.name);
+		const count = h('span', {class: 'muted place-count'}, copiesText(place.count));
+
+		if (editing === fold) {
+			const field = h('input', {'aria-label': `New name for ${place.name}`, autocomplete: 'off', class: 'search place-input', id: `places-name-${i}`, maxlength: STORAGE_MAX, type: 'text', value: place.name});
+			const form = h('form', {class: 'place-rename'},
+				field,
+				h('div', {class: 'place-actions'},
+					h('button', {class: 'small', onclick: () => {
+						editing = null;
+						draw(fold);
+					}, type: 'button'}, 'Cancel'),
+					h('button', {class: 'small primary', type: 'submit'}, 'Save')
+				)
+			);
+
+			form.addEventListener('submit', (event) => {
+				event.preventDefault();
+
+				if (!cleanPlace(field.value)) {
+					status.replaceChildren(h('span', {class: 'form-error'}, 'A place needs a name.'));
+					field.focus();
+
+					return;
+				}
+
+				rename(place, field.value);
+			});
+
+			return h('li', {class: 'place-row', 'data-place': place.name}, form);
+		}
+
+		if (asking === fold) {
+			return h('li', {class: 'place-row place-asking', 'data-place': place.name},
+				h('p', {class: 'place-ask'}, `${plural(place.count, 'copy is', 'copies are')} stored here; ${place.count === 1 ? 'it' : 'they'} will show Not set.`),
+				h('div', {class: 'place-actions'},
+					h('button', {class: 'small', onclick: () => {
+						asking = null;
+						draw(fold);
+					}, type: 'button'}, 'Cancel'),
+					h('button', {class: 'small danger place-remove-yes', onclick: () => remove(place), type: 'button'}, 'Remove')
+				)
+			);
+		}
+
+		return h('li', {class: 'place-row', 'data-place': place.name},
+			h('span', {class: 'place-text'}, label, count),
+			h('div', {class: 'place-actions'},
+				h('button', {'aria-label': `Rename ${place.name}`, class: 'small place-rename-open', onclick: () => {
+					editing = fold;
+					asking = null;
+					draw(fold);
+				}, type: 'button'}, 'Rename'),
+				h('button', {'aria-label': `Remove ${place.name}`, class: 'small place-remove', onclick: () => {
+					if (place.count) {
+						asking = fold;
+						editing = null;
+						draw(fold);
+					}
+					else {
+						remove(place);
+					}
+				}, type: 'button'}, 'Remove')
+			)
+		);
+	}
+
+	// Redraws the list; focus goes to the row it was about (its first
+	// control), or stays in the sheet.
+	async function draw(focusFold = null) {
+		let places = [];
+
+		try {
+			places = await listPlaces();
+		}
+		catch (err) {
+			status.replaceChildren(h('span', {class: 'form-error'}, `The places could not be read. ${errorText(err)}`));
+		}
+
+		list.replaceChildren(...(places.length
+			? places.map(row)
+			: [h('li', {class: 'muted places-none'}, 'No places yet. Type one in a copy\'s Stored in field.')]));
+
+		if (focusFold !== null && sheet.open) {
+			const target = [...list.querySelectorAll('.place-row')].find((item) => placeFold(item.dataset.place) === focusFold);
+			const control = target && target.querySelector('input, button');
+
+			(control || sheet.querySelector('#places-close')).focus();
+		}
+	}
+
+	sheet.replaceChildren(
+		h('div', {class: 'sheet-head'},
+			h('h2', {id: 'places-sheet-title'}, 'Places'),
+			h('button', {class: 'small', id: 'places-close', onclick: close, type: 'button'}, 'Done')
+		),
+		h('p', {class: 'muted copy-sub'}, 'Where your copies are stored. Renaming a place renames it on every copy stored there.'),
+		list,
+		status
+	);
+	draw();
+
+	return show(sheet, () => {
+		if (onClose) {
+			onClose({removed, renamed});
+		}
+	});
+}
+
+// Stores many copies in one place at once: My Cards' "Set storage for
+// these N copies". entries are the copies; the field starts on their
+// place when they share one. Undo on a toast puts every copy back.
+export function openStoreSheet({entries}) {
+	const sheet = dialog('store-sheet', 'Stored in');
+	const close = () => sheet.close();
+	const n = entries.length;
+	const folds = new Set(entries.map((entry) => placeFold(entry.storage)));
+	const picker = placePicker({id: 'store-place', value: folds.size === 1 ? entries[0].storage : ''});
+	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'store-error'});
+	const submit = h('button', {class: 'primary', id: 'store-save', type: 'submit'}, `Save for ${plural(n, 'copy', 'copies')}`);
+	const form = h('form', {class: 'copy-form', id: 'store-form'},
+		field('Stored in', 'store-place', picker.element),
+		error,
+		submit
+	);
+
+	form.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		error.textContent = '';
+		submit.disabled = true;
+
+		try {
+			const done = await setStorage(entries.map((entry) => entry.id), picker.value());
+
+			close();
+
+			if (!done.changed) {
+				toast(done.name ? `Every copy is already stored in ${done.name}.` : 'No copy had a place to clear.');
+
+				return;
+			}
+
+			offerUndo(done.name
+				? `${plural(done.changed, 'copy', 'copies')} stored in ${done.name}.`
+				: `Stored in cleared on ${plural(done.changed, 'copy', 'copies')}.`, done.undo);
+		}
+		catch (err) {
+			submit.disabled = false;
+			error.textContent = `Not saved. ${errorText(err)}`;
+		}
+	});
+
+	sheet.replaceChildren(
+		h('div', {class: 'sheet-head'},
+			h('h2', {id: 'store-sheet-title'}, 'Stored in'),
+			h('button', {class: 'small', id: 'store-close', onclick: close, type: 'button'}, 'Close')
+		),
+		h('p', {class: 'muted copy-sub', id: 'store-sub'}, `${plural(n, 'copy', 'copies')}: the ones My Cards shows now. Not set clears their place.`),
 		form
 	);
 

@@ -26,10 +26,11 @@ import {currentUser} from './auth.js';
 import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
-import {isLive, listCards, onChange, sourceNames} from './collection.js';
+import {isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
+import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
-import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
+import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
@@ -101,6 +102,8 @@ export function collectionCsv(entries, index) {
 		// section 9, 2026-10-03), after the columns older exports had.
 		'condition', 'notes', 'name_local', 'set_name_local', 'finish_raw', 'fallback', 'import_key',
 		'number_local', 'set_code',
+		// Where the copy is stored (Eric, 2026-10-09).
+		'storage',
 	];
 	const lines = [header.map(csvField).join(';')];
 
@@ -148,6 +151,7 @@ export function collectionCsv(entries, index) {
 			entry.import_key,
 			asText(entry.number_local),
 			entry.set_code,
+			entry.storage,
 		].map((value, i) => (i === NAME_COLUMN ? value : csvField(value))).join(';'));
 	}
 
@@ -453,6 +457,19 @@ export function cardsScreen(root, {
 		draw();
 	}, type: 'button'}, 'Show more');
 	const body = h('div');
+	// The copies shown when a search or filter narrows the list, which the
+	// Stored in button sets a place for at once.
+	let narrowedCopies = [];
+	const storeButton = readOnly ? null : h('button', {'aria-haspopup': 'dialog', class: 'small cards-store', hidden: true, id: 'cards-store', onclick: () => openStoreSheet({entries: narrowedCopies}), type: 'button'});
+	// The saved storage places, by name, for the Stored in filter.
+	let placeNames = [];
+
+	function setPlaces(names) {
+		if (names.join('\n') !== placeNames.join('\n')) {
+			placeNames = names;
+			bar.setPlaces(names);
+		}
+	}
 
 	// The whole collection's value is on demand only, never a headline
 	// total (DESIGN.md section 10): a small button opens the Value sheet.
@@ -561,6 +578,7 @@ export function cardsScreen(root, {
 				twinItem: {card_id: first.card_id, catalog: first.catalog},
 				types: (record && record.types) || [],
 				unplaced: group.entries.some((entry) => !placed.has(entry.id)),
+				...storageOf(group.entries),
 			});
 		});
 
@@ -789,8 +807,16 @@ export function cardsScreen(root, {
 		}
 
 		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
-		const copies = visible.reduce((sum, group) => sum + group.entries.length, 0);
+		// Filtered by place, a tile's copies elsewhere are not counted.
+		const shownCopies = visible.flatMap((group) => storedEntries(group.entries, filters.storage));
+		const copies = shownCopies.length;
 		const narrowed = Boolean(query.trim()) || activeFilters(filters).length > 0;
+
+		if (storeButton) {
+			narrowedCopies = narrowed ? shownCopies : [];
+			storeButton.hidden = !narrowedCopies.length;
+			storeButton.textContent = copies === 1 ? 'Set storage for this copy' : `Set storage for these ${plural(copies, 'copy', 'copies')}`;
+		}
 
 		summary.textContent = narrowed
 			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
@@ -1094,6 +1120,10 @@ export function cardsScreen(root, {
 		placed = placements(liveBinders(next.binders || []));
 		remember();
 
+		if (!readOnly) {
+			listPlaces().then((places) => alive && setPlaces(places.map((place) => place.name))).catch(() => {});
+		}
+
 		if (!entries.length && readOnly) {
 			body.replaceChildren(h('div', {class: 'card empty-state'}, h('p', {class: 'big'}, emptyText())));
 
@@ -1124,7 +1154,7 @@ export function cardsScreen(root, {
 		}
 
 		if (!body.contains(grid)) {
-			body.replaceChildren(bar.element, summary, grid, more);
+			body.replaceChildren(...[bar.element, summary, storeButton, grid, more].filter(Boolean));
 		}
 
 		ready = true;
@@ -1176,6 +1206,11 @@ export function cardsScreen(root, {
 			load();
 
 			return;
+		}
+
+		// A place renamed, added, or removed shows in the Stored in filter.
+		if (!readOnly) {
+			setPlaces(storedPlaces(doc).map((place) => place.name));
 		}
 
 		// Copies new to the screen, or moved to another card or language.
