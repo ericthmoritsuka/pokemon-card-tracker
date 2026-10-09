@@ -22,6 +22,16 @@ export const RELEASES = [
 	{
 		date: '2026-10-09',
 		items: [
+			'The scanner finds the card anywhere in view, bigger or smaller than the frame, and on a pile takes only the card on top.',
+			'Holder mode, for a phone in a stand: each card you drop is taken once it settles, and it says when the pile is too high.',
+			'Review opens each card that needs a look in turn, with Stop, and those cards are read faster.',
+			'The same card taken again moments later asks first, and the shutter waits a moment for a whole card.',
+		],
+		version: 'v35',
+	},
+	{
+		date: '2026-10-09',
+		items: [
 			'Binders from a list: pick a checklist, collection, goal, or filter, an order, and a pocket size, and the app lays out the binder.',
 			'Each pocket shows your best copy of that card or Pokémon; tap it to pick another. Cards you do not have show faded, with Add to wishlist.',
 			'Opening the binder fills in cards you got since, and keeps the copies you picked.',
