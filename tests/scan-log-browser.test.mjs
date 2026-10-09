@@ -478,6 +478,14 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 			return Boolean(entry && entry.first && entry.first.status === 'ready');
 		}, null, {polling: 200, timeout: 30000});
 
+		// A share sheet that takes files, as Chrome on Android has.
+		await page.addInitScript(() => {
+			window.shared = [];
+			navigator.canShare = () => true;
+			navigator.share = async ({files}) => {
+				window.shared.push({name: files[0].name, text: await files[0].text(), type: files[0].type});
+			};
+		});
 		await page.goto(`${harness.origin}${BASE}check`);
 		await page.waitForSelector('#scan-log-record');
 		assert.equal(await page.isChecked('#scan-log-record'), true);
@@ -504,6 +512,25 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		assert.equal('firstLocked' in data.entries[0], false);
 		await writeFile('/tmp/scan-log-sample.json', JSON.stringify({...data, entries: data.entries.map((entry) => ({...entry, picture: `${entry.picture.slice(0, 40)}...`}))}, null, 1));
 		assert.match(await page.locator('#scan-log-status').textContent(), /Send that file to Eric/);
+
+		// Share hands over a file made ahead, so the sheet opens within the
+		// tap's few seconds, as plain text with the same JSON inside.
+		await page.waitForSelector('#scan-log-share:not([hidden])');
+		await page.click('#scan-log-share');
+
+		if ((await page.locator('#scan-log-status').textContent()) !== 'Shared.') {
+			await page.waitForFunction(() => /Tap Share again|Shared\./.test(document.getElementById('scan-log-status').textContent));
+			await page.click('#scan-log-share');
+		}
+
+		await page.waitForFunction(() => window.shared.length === 1);
+
+		const shared = await page.evaluate(() => window.shared[0]);
+
+		assert.match(shared.name, /^scan-log-\d{8}-\d{6}\.txt$/);
+		assert.equal(shared.type, 'text/plain');
+		assert.equal(JSON.parse(shared.text).entries.length, 1);
+		assert.equal(await page.locator('#scan-log-status').textContent(), 'Shared.');
 
 		// Clear log asks on the page first; Keep them keeps them.
 		await page.click('#scan-log-clear');

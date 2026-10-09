@@ -349,8 +349,8 @@ function canShareFile(file) {
 function scanLogCard() {
 	const size = h('p', {id: 'scan-log-size'}, 'Counting the recorded scans...');
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'scan-log-status'});
-	const share = h('button', {hidden: true, id: 'scan-log-share', onclick: () => send(true), type: 'button'}, 'Share');
-	const download = h('button', {class: 'primary', id: 'scan-log-download', onclick: () => send(false), type: 'button'}, 'Download scan log');
+	const share = h('button', {hidden: true, id: 'scan-log-share', onclick: () => shareNow(), type: 'button'}, 'Share');
+	const download = h('button', {class: 'primary', id: 'scan-log-download', onclick: () => send(), type: 'button'}, 'Download scan log');
 	const clear = h('button', {id: 'scan-log-clear', onclick: () => askClear(true), type: 'button'}, 'Clear log');
 	const confirmRow = h('div', {hidden: true, id: 'scan-log-confirm', role: 'group', 'aria-label': 'Clear the scan log', style: 'display: grid; gap: 8px; grid-template-columns: 1fr 1fr'},
 		h('p', {id: 'scan-log-confirm-text', style: 'grid-column: 1 / -1; margin: 0'}),
@@ -365,27 +365,57 @@ function scanLogCard() {
 		size.textContent = count ? `${formatCount(count)} ${count === 1 ? 'scan' : 'scans'} recorded · ${megabytes(found.bytes)}` : 'No scans recorded yet.';
 		download.disabled = !count;
 		clear.disabled = !count;
-		share.hidden = !count || !canShareFile(new File(['{}'], 'scan-log.json', {type: 'application/json'}));
+		share.hidden = !count || !canShareFile(new File(['{}'], 'scan-log.txt', {type: 'text/plain'}));
+		prepare();
 	}
 
-	async function send(viaShare) {
+	// The file for Share, made ahead: Android opens the share sheet only
+	// within a few seconds of the tap, and making a log with pictures takes
+	// longer, so a file made after the tap was refused. It goes as plain
+	// text, a type every share target takes (.json is not on Chrome's list);
+	// its content is the same JSON the download saves.
+	let ready = null;
+	let readyFile = null;
+
+	function prepare() {
+		readyFile = null;
+		ready = count && !share.hidden ? logFile().then((file) => {
+			readyFile = new File([file], file.name.replace(/\.json$/, '.txt'), {type: 'text/plain'});
+
+			return readyFile;
+		}).catch(() => null) : null;
+	}
+
+	async function shareNow() {
+		if (!readyFile) {
+			status.textContent = 'Getting the file ready...';
+
+			if (await (ready || Promise.resolve(null))) {
+				status.textContent = 'Ready. Tap Share again.';
+			}
+			else {
+				status.textContent = 'The scan log could not be made. Use Download scan log.';
+			}
+
+			return;
+		}
+
+		try {
+			await navigator.share({files: [readyFile], title: 'Card Tracker scan log'});
+			status.textContent = 'Shared.';
+		}
+		catch (err) {
+			// Closing the share sheet is not an error; a refusal after a slow
+			// moment is fixed by tapping again.
+			status.textContent = err && err.name === 'AbortError' ? '' : err && err.name === 'NotAllowedError' ? 'The phone did not open sharing. Tap Share again.' : `Sharing did not work: ${errorText(err)}`;
+		}
+	}
+
+	async function send() {
 		status.textContent = 'Making the file...';
 
 		try {
 			const file = await logFile();
-
-			if (viaShare && canShareFile(file)) {
-				try {
-					await navigator.share({files: [file], title: 'Card Tracker scan log'});
-					status.textContent = 'Shared.';
-				}
-				catch (err) {
-					// Closing the share sheet is not an error.
-					status.textContent = err && err.name === 'AbortError' ? '' : `Sharing did not work: ${errorText(err)}`;
-				}
-
-				return;
-			}
 
 			// As the scan report's Save capture image does.
 			downloadBlob(file, file.name);
