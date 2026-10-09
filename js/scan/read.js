@@ -698,16 +698,17 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 // ten calls). Here the strip the candidates' era prints its number on is
 // read first, and the reading stops as soon as it gives a number: the other
 // strip and the sparse passes are read only when it gives none. The label
-// row is left to the background read a card the picture settled gets
-// (js/scan/view.js checkLabelLater), and the set code box is read only when
-// the picture's first group holds several cards (reprints, a Japanese print
-// and its English twin), where it can choose.
+// row and the set code box are read only when the picture's first group
+// holds several cards (reprints, a Japanese print and its English twin),
+// where they can choose; otherwise the label is left to the background read
+// a card the picture settled gets (js/scan/view.js checkLabelLater).
 //
 // prefer: 'left' (Sun & Moon and later: the number at the bottom left) or
-// 'right' (XY and older); setCode: whether to read the set code box.
-// Returns readCard's shape, with name, hp, and label null, and the
-// language from the set code box alone ({code: null} when it was not read).
-export async function readNumber(card, ocr, {now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
+// 'right' (XY and older); setCode and label: whether to read the set code
+// box and the label row (beside the number). Returns readCard's shape, with
+// name and hp null, label null when it was not read, and the language from
+// the set code box and the label ({code: null} when neither was read).
+export async function readNumber(card, ocr, {label: withLabel = false, now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
@@ -760,6 +761,24 @@ export async function readNumber(card, ocr, {now = () => performance.now(), onPr
 		return findNumber(sideOf(key), raw[key]);
 	};
 
+	// The label row, beside the number strip, when asked for.
+	const labelRead = !withLabel ? Promise.resolve(null) : (async () => {
+		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, textPx), {sharpen: SHARPEN});
+		const found = findTextLines(band, textPx, 2);
+		const results = await Promise.all(found.map((line) => recognise('label', cropRows(band, line), OCR_SETTINGS.label)));
+
+		crops.label = band;
+		raw.label = {confidence: 0, lines: results.flatMap((result) => linesOf(result)), text: results.map((result) => result.text || '').join('\n')};
+
+		if (!parseLabel(raw.label.text).code) {
+			const sparse = await recognise('label', band, OCR_SETTINGS.sparse);
+
+			raw.label = {...sparse, text: [raw.label.text, sparse.text].filter(Boolean).join('\n')};
+		}
+
+		return parseLabel(raw.label.text);
+	})();
+
 	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
 	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
 	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
@@ -803,6 +822,8 @@ export async function readNumber(card, ocr, {now = () => performance.now(), onPr
 		number = {...number, langCode: setCodeBox.langCode, setCode: setCodeBox.setCode, setCodeRun: setCodeBox.run};
 	}
 
+	const label = await labelRead;
+
 	timings.ocr = Math.round(now() - started);
 	timings.calls = calls;
 
@@ -813,8 +834,8 @@ export async function readNumber(card, ocr, {now = () => performance.now(), onPr
 		copyrightYear: copyrightYear(raw.numberLeft.text, raw.numberRight.text),
 		crops,
 		hp: null,
-		label: null,
-		language: number && number.langCode ? {code: number.langCode, confidence: Math.max(0.5, number.confidence * 0.8), source: 'set code'} : {code: null, confidence: 0, source: 'not read'},
+		label,
+		language: label ? decideLanguage(number, label) : number && number.langCode ? {code: number.langCode, confidence: Math.max(0.5, number.confidence * 0.8), source: 'set code'} : {code: null, confidence: 0, source: 'not read'},
 		misreads,
 		name: null,
 		number,

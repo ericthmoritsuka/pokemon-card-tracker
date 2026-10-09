@@ -1160,6 +1160,39 @@ function interiorDetail(grey, width, height, corners) {
 // The least variation (interiorDetail) a card's middle shows.
 const CARD_DETAIL = 10;
 
+// How much the grey varies between two nested boxes (the outer one's
+// ring round the inner one): past RING_BUSY it is print (a card's name,
+// text, and attacks round its art box); under it, plain ground (a box's
+// floor round a card lying on it).
+const RING_BUSY = 12;
+
+function ringDetail(grey, width, height, outer, inner) {
+	const [tl, tr, br, bl] = outer.corners;
+	let n = 0;
+	let sum = 0;
+	let squares = 0;
+
+	for (let j = 0; j < 16; j++) {
+		for (let i = 0; i < 12; i++) {
+			const u = 0.04 + (0.92 * i) / 11;
+			const v = 0.04 + (0.92 * j) / 15;
+			const p = {x: (1 - v) * ((1 - u) * tl.x + u * tr.x) + v * ((1 - u) * bl.x + u * br.x), y: (1 - v) * ((1 - u) * tl.y + u * tr.y) + v * ((1 - u) * bl.y + u * br.y)};
+			const x = Math.round(p.x);
+			const y = Math.round(p.y);
+
+			if (x >= 0 && y >= 0 && x < width && y < height && !pointIn(p, inner.corners)) {
+				const value = grey[y * width + x];
+
+				n++;
+				sum += value;
+				squares += value * value;
+			}
+		}
+	}
+
+	return n < 12 ? 0 : Math.sqrt(Math.max(0, squares / n - (sum / n) ** 2));
+}
+
 // The line of `lines` that runs closest through the middle of the side from
 // a to b.
 function lineFor(lines, a, b) {
@@ -1311,29 +1344,36 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 	let best = kept[0] || null;
 	let within = null;
 
-	// A smaller box well inside the best one, drawn as fully: a card lying in
-	// something card-shaped (a box's floor, a screen), which then bounds the
-	// search for the card's own edge.
-	const content = best && kept.find((box) => box !== best && box.quality >= best.quality - 0.15 && box.area >= best.area * 0.08 && contains(best, box) && !borderGaps(best, box) && gapsOf(best, box).every((gap) => gap > 0.015));
+	// The card round a box inside it: a larger box, drawn about as well,
+	// whose ring round the smaller one is a card border's (a few percent of
+	// its width on every side: the card's edge round its inner border) or
+	// busy with print (the card round its art box, which on Sword & Shield
+	// cards has a lying card's shape). The largest such.
+	const grow = () => {
+		for (let round = 0; best && round < 3; round++) {
+			const current = best;
+			const outer = kept.filter((box) => box !== current && box !== within && (!within || contains(within, box)) && box.quality >= current.quality - 0.3 && contains(box, current) && (borderGaps(box, current) || ringDetail(grey, width, height, box, current) >= RING_BUSY))
+				.sort((a, b) => b.area - a.area)[0];
+
+			if (!outer) {
+				break;
+			}
+
+			best = outer;
+		}
+	};
+
+	grow();
+
+	// A card lying in something card-shaped (a box's floor, a screen): a
+	// smaller box well inside, drawn as fully, with plain ground round it.
+	// That something then bounds the search for the card's own edge.
+	const content = best && kept.find((box) => box !== best && box.quality >= best.quality - 0.15 && box.area >= best.area * 0.08 && contains(best, box) && gapsOf(best, box).every((gap) => gap > 0.015) && ringDetail(grey, width, height, best, box) < RING_BUSY);
 
 	if (content) {
 		within = best;
 		best = content;
-	}
-
-	// A larger box round it whose gaps to it are a card border's (each a few
-	// percent of the card's width): the card's own edge round its inner
-	// border, the largest such.
-	for (let round = 0; best && round < 3; round++) {
-		const current = best;
-		const outer = kept.filter((box) => box !== current && box !== within && (!within || contains(within, box)) && box.score >= current.score - 0.4 && contains(box, current) && borderGaps(box, current))
-			.sort((a, b) => b.area - a.area)[0];
-
-		if (!outer) {
-			break;
-		}
-
-		best = outer;
+		grow();
 	}
 
 	if (debug) {

@@ -274,11 +274,16 @@ export function identify(image, {guide = null, photo = false, quads = [], straig
 			}
 
 			if (engine) {
+				// The first group holds several prints (reprints, a Japanese print
+				// and its English twin): the set code box and the label row can
+				// choose between them, so they are read beside the number.
+				const several = Boolean(picture && picture.groups[0] && picture.groups[0].cards.length > 1);
+
 				// With a picture match, only what chooses between its cards: the
 				// number, from the strip the candidates' era prints it on (read.js
-				// readNumber); the label row is read behind the tray.
+				// readNumber); otherwise the label row is read behind the tray.
 				read = picture
-					? await readNumberOnly(card, engine.ocr, {...readOptions, prefer: numberSide(picture), setCode: Boolean(picture.groups[0] && picture.groups[0].cards.length > 1)})
+					? await readNumberOnly(card, engine.ocr, {...readOptions, label: several, prefer: numberSide(picture), setCode: several})
 					: await readCard(card, engine.ocr, readOptions);
 				read.script = null;
 				workers = engine.size;
