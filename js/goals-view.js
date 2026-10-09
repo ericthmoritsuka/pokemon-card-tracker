@@ -657,7 +657,7 @@ function goalScreen(root, source, id) {
 			}
 		});
 
-		actions.replaceChildren(rename, remove);
+		actions.replaceChildren(h('a', {class: 'button', 'data-link': `binders/new/goal/${encodeURIComponent(id)}`, href: `${BASE}binders/new/goal/${encodeURIComponent(id)}`, id: 'make-binder'}, 'Make a binder'), rename, remove);
 	}
 
 	function showNotice(node) {

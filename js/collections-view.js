@@ -825,7 +825,7 @@ function collectionScreen(root, {id, userId = null}) {
 		}
 	}, type: 'button'});
 	const leftLine = readOnly ? null : h('p', {class: 'muted col-left', hidden: true, id: 'collection-left'}, leftButton);
-	const actions = h('div', {class: 'col-actions'}, back, edit, leave);
+	const actions = h('div', {class: 'col-actions'}, back, edit, leave, readOnly ? null : h('a', {class: 'button small', 'data-link': `binders/new/collection/${encodeURIComponent(id)}`, href: `${BASE}binders/new/collection/${encodeURIComponent(id)}`, id: 'make-binder'}, 'Make a binder'));
 	const screen = h('div', {class: 'col-screen'});
 
 	root.append(...[actions, about, leftLine, screen].filter(Boolean));

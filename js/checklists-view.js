@@ -810,7 +810,7 @@ function checklistScreen(root, source, id) {
 			}
 		});
 
-		actions.replaceChildren(rename, remove);
+		actions.replaceChildren(h('a', {class: 'button', 'data-link': `binders/new/checklist/${encodeURIComponent(id)}`, href: `${BASE}binders/new/checklist/${encodeURIComponent(id)}`, id: 'make-binder'}, 'Make a binder'), rename, remove);
 
 		if (goal.kind === 'custom_pokemon') {
 			const edit = h('button', {class: 'wide', id: 'edit-pokemon', type: 'button'}, 'Change the Pokémon');

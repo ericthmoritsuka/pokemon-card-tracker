@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-09',
 		items: [
+			'Binders from a list: pick a checklist, collection, goal, or filter, an order, and a pocket size, and the app lays out the binder.',
+			'Each pocket shows your best copy of that card or Pokémon; tap it to pick another. Cards you do not have show faded, with Add to wishlist.',
+			'Opening the binder fills in cards you got since, and keeps the copies you picked.',
+		],
+		version: 'v34',
+	},
+	{
+		date: '2026-10-09',
+		items: [
 			'Stored in: note where each card lives (a box, a drawer), pick from your saved places, and filter My Cards by place.',
 			'Edit order on Lists and Binders: drag them, or use the arrows. Deleting a list or binder now has Undo.',
 			'Leave a card out of a collection that fills itself, and put it back later.',

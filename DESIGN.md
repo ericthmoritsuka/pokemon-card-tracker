@@ -426,7 +426,10 @@ by older apps:
   "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
                                 "entry_id" | "want": {card_id, variant_id} | "art": {art_id, tile} }],
-                    "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }] }],
+                    "art":   [{ "id", "page", "first_position", "rows", "cols", "image_path" }],
+                    "rule":     { "source", "order" },   -- a binder from a list (Binders)
+                    "snapshot": { "at", "rule_key", "keys", "shown" } }],
+  "binder_picks": [{ "id", "binder_id", "key", "entry_id" }],   -- hand picks in a binder from a list
   "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
   "storage_places": [{ "id", "name" }],   -- the saved "Stored in" places (below)
