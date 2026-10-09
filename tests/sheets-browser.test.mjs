@@ -112,10 +112,57 @@ async function fakeTcgdex(context) {
 // getUserMedia, wrapped: window.T.delay slows a start down (after the
 // camera opened, as a slow phone camera does), window.T.failPlay makes
 // video.play() reject, and window.T.tracks holds every track handed out.
+// window.T.card swaps Chrome's test pattern for a plain card shape in the
+// guide on a table: a card the scanner sees but cannot find. Chrome's
+// pattern alone is "not a card" (Q-19, js/scan/picture.js noCard), which
+// never joins the tray.
 function cameraProbe() {
-	const T = {calls: 0, delay: 0, failPlay: false, tracks: []};
+	const T = {calls: 0, card: false, delay: 0, failPlay: false, tracks: []};
 	const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 	const play = HTMLMediaElement.prototype.play;
+
+	const cardStream = () => {
+		const width = 720;
+		const height = 1280;
+		const canvas = document.createElement('canvas');
+		const ctx = canvas.getContext('2d');
+
+		canvas.width = width;
+		canvas.height = height;
+
+		const draw = () => {
+			ctx.fillStyle = '#7a6250';
+			ctx.fillRect(0, 0, width, height);
+
+			const guide = document.getElementById('scan-guide');
+			const video = document.getElementById('scan-video');
+
+			if (!guide || guide.hidden || !video) {
+				return;
+			}
+
+			const g = guide.getBoundingClientRect();
+			const v = video.getBoundingClientRect();
+			const scale = Math.max(v.width / width, v.height / height);
+			const cx = (g.left + g.width / 2 - (v.left + (v.width - width * scale) / 2)) / scale;
+			const cy = (g.top + g.height / 2 - (v.top + (v.height - height * scale) / 2)) / scale;
+			const ch = g.height / scale * 0.9;
+			const cw = ch * 63 / 88;
+			const art = ctx.createLinearGradient(0, cy - ch / 2, 0, cy + ch / 2);
+
+			art.addColorStop(0, '#3f7fd0');
+			art.addColorStop(1, '#d04f6a');
+			ctx.fillStyle = '#f2c94c';
+			ctx.fillRect(cx - cw / 2, cy - ch / 2, cw, ch);
+			ctx.fillStyle = art;
+			ctx.fillRect(cx - cw * 0.42, cy - ch * 0.44, cw * 0.84, ch * 0.88);
+		};
+
+		draw();
+		setInterval(draw, 40);
+
+		return canvas.captureStream(25);
+	};
 
 	window.T = T;
 	T.states = () => T.tracks.map((track) => track.readyState);
@@ -123,7 +170,7 @@ function cameraProbe() {
 	navigator.mediaDevices.getUserMedia = async (constraints) => {
 		T.calls++;
 
-		const stream = await original(constraints);
+		const stream = T.card ? cardStream() : await original(constraints);
 
 		T.tracks.push(...stream.getTracks());
 
@@ -584,7 +631,9 @@ describe('the scanner', () => {
 	test('a card it cannot find prints no "null"; Back closes its sheet and keeps the scanner and its camera', async () => {
 		const {page} = phone;
 
-		await openScan(page);
+		await openScan(page, () => {
+			window.T.card = true;
+		});
 		await page.waitForSelector('#scan-shutter:not([disabled])');
 		await page.click('#scan-shutter');
 		await page.waitForSelector('#scan-tray [data-item]');

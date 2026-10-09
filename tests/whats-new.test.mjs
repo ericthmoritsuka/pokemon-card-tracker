@@ -56,27 +56,28 @@ async function device({serviceWorkers = 'block'} = {}) {
 	return {context, errors, page};
 }
 
-const replaceOnce = (text, from, to) => {
-	assert.ok(text.includes(from), `found: ${from}`);
-
-	return text.replace(from, to);
-};
-
-// The lines app.js and sw.js take for What's new.
+// app.js and sw.js as shipped, with sw.js set to `version`. The wiring What's
+// new needs is checked here, so a later edit that drops it fails this suite.
 async function integrate(version) {
-	let app = await readFile(new URL('../app.js', import.meta.url), 'utf8');
+	const app = await readFile(new URL('../app.js', import.meta.url), 'utf8');
 	let sw = await readFile(new URL('../sw.js', import.meta.url), 'utf8');
 
-	app = `import {applyUpdate, showWhatsNewOnce, updateApplying} from './js/whats-new.js';\n${app}`;
-	app = replaceOnce(app, '\tlet reloading = false;\n', '');
-	app = replaceOnce(app, '\t\tif (reloading) {', '\t\tif (updateApplying()) {');
-	app = replaceOnce(app, '\t\t\taction: () => {\n\t\t\t\treloading = true;\n\t\t\t\tworker.postMessage(\'skip-waiting\');\n\t\t\t},', '\t\t\taction: () => applyUpdate(worker),');
-	app = replaceOnce(app, '\tconst hadController = Boolean(navigator.serviceWorker.controller);\n', '\tconst hadController = Boolean(navigator.serviceWorker.controller);\n\n\tshowWhatsNewOnce({controlled: hadController}).catch(() => {});\n');
+	for (const line of [
+		'import {applyUpdate, showWhatsNewOnce, updateApplying} from \'./js/whats-new.js\';',
+		'if (updateApplying()) {',
+		'action: () => applyUpdate(worker),',
+		'showWhatsNewOnce({controlled: hadController}).catch(() => {});',
+	]) {
+		assert.ok(app.includes(line), `app.js has: ${line}`);
+	}
+
+	assert.ok(!app.includes('let reloading'), 'app.js no longer keeps its own reloading flag');
+
+	for (const line of ['\t\'js/whats-new.js\',\n', '\t\'css/whats-new.css\',\n', '// The version, for Profile\'s line (js/whats-new.js).']) {
+		assert.ok(sw.includes(line), `sw.js has: ${line}`);
+	}
 
 	sw = sw.replace(/const VERSION = '[^']+';/, `const VERSION = '${version}';`);
-	sw = replaceOnce(sw, '\t\'js/value-sheet.js\',\n', '\t\'js/value-sheet.js\',\n\t\'js/whats-new.js\',\n');
-	sw = replaceOnce(sw, '\t\'css/value-sheet.css\',\n', '\t\'css/value-sheet.css\',\n\t\'css/whats-new.css\',\n');
-	sw = replaceOnce(sw, '\tif (event.data === \'skip-waiting\') {\n\t\tself.skipWaiting();\n\t}\n', '\tif (event.data === \'skip-waiting\') {\n\t\tself.skipWaiting();\n\t}\n\n\t// The version, for Profile\'s line (js/whats-new.js).\n\tif (event.data && event.data.type === \'version\' && event.ports[0]) {\n\t\tevent.ports[0].postMessage({version: VERSION});\n\t}\n');
 
 	return {app, sw};
 }
@@ -199,7 +200,7 @@ describe('with the service worker', () => {
 			await page.click('#profile-version-reload');
 			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
 			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
-			assert.ok((await page.locator('#whats-new-sheet .whats-new-items').textContent()).includes('This list, shown once after each update.'));
+			assert.ok((await page.locator('#whats-new-sheet .whats-new-items').textContent()).includes('and this list after each update.'));
 			assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.whatsNewSeen')), 'v31');
 			await page.screenshot({path: '/tmp/whats-new-after-reload.png'});
 			await page.click('#whats-new-sheet-close');
