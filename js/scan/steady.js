@@ -40,6 +40,12 @@ export const CHANGED = 20;
 // the last one." rather than adding it.
 export const JUMP = 12;
 
+// After a jump, a frame within this of the captured one (coarse
+// difference) still shows the captured card: the same card in the same
+// place differs by 0 to 5 (version 34 tests, the layout settling after a
+// reload), a card swapped straight for another by 13.9 or more.
+export const SAME_AFTER_JUMP = 8;
+
 // Frames in a row that must be still: at about eight a second, under half a
 // second (three differences, so four frames).
 export const STEADY_FRAMES = 3;
@@ -631,7 +637,12 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 				// Re-armed when the frame no longer shows the captured card: it
 				// moved away, a different card is held still, or the view
 				// jumped at once (a card swapped straight for another).
-				if (!present || difference(thumbnail, last) > changed || (previousMoved !== null && moved > jump)) {
+				// A jump counts only when what follows it no longer looks like
+				// the card taken (by more than SAME_AFTER_JUMP): the layout moving
+				// for a moment, or the box round the card found again, jumps too.
+				const fromLast = difference(thumbnail, last);
+
+				if (!present || fromLast > changed || (previousMoved !== null && moved > jump && fromLast > SAME_AFTER_JUMP)) {
 					state = 'armed';
 				}
 

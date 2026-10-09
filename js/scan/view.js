@@ -203,6 +203,24 @@ const SAME_BOX = 0.06;
 
 const sameBox = (a, b, share = SAME_BOX) => Boolean(a && b) && ['x', 'y', 'w', 'h'].every((key) => Math.abs(a[key] - b[key]) <= share * Math.max(a.w, a.h, b.w, b.h));
 
+// How much two boxes overlap: their shared area over their joint area.
+function overlap(a, b) {
+	if (!a || !b) {
+		return 0;
+	}
+
+	const w = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+	const h = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+	return (w * h) / (a.w * a.h + b.w * b.h - w * h);
+}
+
+// Two outlines of one card still in place (its edge and its inner border,
+// found in turn from frame to frame) keep the box: the box only moves
+// when the card does.
+const STEADY_OVERLAP = 0.85;
+const samePlace = (a, b) => sameBox(a, b) || overlap(a, b) >= STEADY_OVERLAP;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The shutter pressed with no whole card in the frame keeps looking for
@@ -1275,14 +1293,14 @@ export function scanView(root) {
 			// inner border) can trade places from frame to frame.
 			const all = [{angle: found.angle, corners: found.quad, ratio: found.ratio, upright: found.upright}, ...found.others]
 				.map((one) => ({...one, box: boxAround(area.frame, one.corners.map(toFrame)), corners: one.corners.map(toFrame)}));
-			const chosen = (!fine && all.find((one) => sameBox(one.box, stableBox))) || all[0];
+			const chosen = (!fine && all.find((one) => samePlace(one.box, stableBox))) || all[0];
 			const quad = chosen.corners;
 			const long = (Math.hypot(quad[3].x - quad[0].x, quad[3].y - quad[0].y) + Math.hypot(quad[2].x - quad[1].x, quad[2].y - quad[1].y)) / 2;
 			const small = long < area.guide.h * MIN_CARD_SHARE;
 			let box = chosen.box;
 
 			if (!fine) {
-				if (sameBox(box, stableBox)) {
+				if (samePlace(box, stableBox)) {
 					box = stableBox;
 				}
 				else {
