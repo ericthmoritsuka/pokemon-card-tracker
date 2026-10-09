@@ -7,11 +7,17 @@
 }
 
 .col-new-row {
+	display: flex;
+	gap: var(--space-2);
 	margin: 0 0 var(--space-3);
 }
 
-.col-new-row button {
-	width: 100%;
+.col-new-row #collections-new {
+	flex: 1;
+}
+
+.col-new-row .reorder-toggle {
+	flex: none;
 }
 
 .col-list {
@@ -160,6 +166,94 @@
 	display: grid;
 	max-height: 40vh;
 	overflow-y: auto;
+}
+
+/* The rule collections that fit the card, under the hand-picked ones. */
+.col-pick-rules {
+	border-top: 1px solid var(--border);
+	margin-top: var(--space-2);
+	padding-top: var(--space-2);
+}
+
+.col-pick-rules > p {
+	margin: 0 0 var(--space-1);
+}
+
+.col-pick-kind {
+	color: var(--muted);
+	font: var(--type-small);
+}
+
+/* A rule collection's screen: "2 cards left out", a link to see them. */
+.col-left {
+	margin: 0 0 var(--space-2);
+}
+
+.col-left .link-button {
+	margin: 0;
+	min-height: var(--target);
+	padding: 0;
+}
+
+.col-actions {
+	flex-wrap: wrap;
+}
+
+/* Leave cards out, and Left out: one row per card with one button. */
+.col-cards-all {
+	align-self: flex-start;
+	margin-bottom: var(--space-2);
+}
+
+.col-cards {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: 0;
+	max-height: 55vh;
+	overflow-y: auto;
+	padding: 0;
+}
+
+.collection-sheet > .col-find {
+	margin-bottom: var(--space-2);
+}
+
+.col-card {
+	align-items: center;
+	display: grid;
+	gap: var(--space-3);
+	grid-template-columns: 40px minmax(0, 1fr) auto;
+	min-height: var(--target);
+}
+
+.col-card-art {
+	aspect-ratio: 63 / 88;
+	background: var(--skeleton);
+	border-radius: 4px;
+	display: block;
+	object-fit: cover;
+	width: 40px;
+}
+
+.col-card-text {
+	display: grid;
+	min-width: 0;
+}
+
+.col-card-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.col-card-meta {
+	color: var(--muted);
+	font: var(--type-small);
+	overflow-wrap: anywhere;
+}
+
+.col-card button {
+	min-height: var(--target);
 }
 
 /* Card detail: Add to collection sits under the copy rows. */

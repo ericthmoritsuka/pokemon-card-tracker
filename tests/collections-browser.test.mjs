@@ -65,7 +65,7 @@ async function wireCollections(context) {
 	await context.route(/\/app\.js(\?.*)?$/, (route) => route.fulfill({body: patched, contentType: 'text/javascript; charset=utf-8'}));
 	await context.addInitScript((base) => {
 		document.addEventListener('DOMContentLoaded', () => {
-			for (const name of ['filter-bar', 'value-sheet', 'copies', 'collections']) {
+			for (const name of ['filter-bar', 'value-sheet', 'copies', 'collections', 'reorder']) {
 				const href = `${base}css/${name}.css`;
 
 				if (!document.querySelector(`link[href="${href}"]`)) {
@@ -269,7 +269,7 @@ describe('Collections', () => {
 		await context.close();
 	});
 
-	test('a rule collection takes no cards by hand: the card sheet lists it as read only', async () => {
+	test('a card is left out of a rule collection from its card sheet, and put back from "left out"', async () => {
 		const {context, errors, page} = await phone();
 
 		await openCollections(page);
@@ -279,11 +279,98 @@ describe('Collections', () => {
 		await page.click('#col-star');
 		await page.click('#col-save');
 		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
+		assert.equal(await page.locator('#collection-leave-out').isVisible(), true);
+		assert.equal(await page.locator('#collection-left').isHidden(), true, 'nothing left out yet');
+
+		// Card detail: the rule collection is a tickbox now, ticked.
 		await page.goto(url('cards/en/tsa1-199'));
 		await page.click('#copies-collect');
 		await page.locator('#collections-sheet-rules').waitFor(TIMEOUT);
-		assert.match(await page.locator('#collections-sheet-rules').textContent(), /Also in, by rule: Star/);
-		assert.equal(await page.locator('#collections-sheet-list input[type=checkbox]').count(), 0);
+		assert.match(await page.locator('#collections-sheet-rules').textContent(), /Untick to leave this card out/);
+
+		const box = page.locator('#collections-sheet-rules input[type=checkbox]');
+
+		assert.equal(await box.count(), 1);
+		assert.equal(await box.isChecked(), true);
+		assert.equal(await page.locator('#collections-sheet-list input[type=checkbox]:not([data-rule])').count(), 0, 'no hand-picked collection yet');
+		await box.uncheck();
+		await page.waitForFunction(() => /Left out of Star/.test(document.getElementById('collections-sheet-note').textContent));
+		assert.equal(await page.locator('#collections-sheet-rules input[type=checkbox]').isChecked(), false);
+		await page.screenshot({path: `${SHOTS}/collections-sheet-rule.png`});
+		await page.click('#collections-sheet .sheet-head button');
+
+		const star = (await savedCollections(page)).find((item) => item.kind === 'rule');
+
+		assert.deepEqual(Object.keys(star.removed_ids), ['c-11'], 'the copy is left out, stored with the collection');
+
+		// The collection shows one card, and says one is left out.
+		await openCollections(page);
+		await page.click('.col-row');
+		await page.locator('#collection-left:not([hidden])').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#collection-left-out').textContent(), '1 card left out');
+		assert.deepEqual(await tileNames(page), ['Pikachu IR']);
+		await page.screenshot({path: `${SHOTS}/collections-left-out.png`});
+
+		// Put it back from the left-out sheet, then Undo, then back again.
+		await page.click('#collection-left-out');
+		await page.locator('#left-out-sheet[open]').waitFor(TIMEOUT);
+		assert.deepEqual(await page.locator('#left-out-sheet-list .col-card-name').allTextContents(), ['Charizard SIR']);
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/collections-left-out-sheet.png`});
+		await page.click('#left-out-sheet-list button');
+		await page.waitForFunction(() => /Nothing is left out/.test(document.getElementById('left-out-sheet-list').textContent));
+		await page.click('#left-out-sheet .sheet-head button');
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 2);
+		assert.equal(await page.locator('#collection-left').isHidden(), true);
+		await page.locator('.toast button:has-text("Undo")').last().click();
+		await page.locator('#collection-left:not([hidden])').waitFor(TIMEOUT);
+		assert.deepEqual(await tileNames(page), ['Pikachu IR']);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a card is left out from the collection screen with Undo, and the rule still adds new matches', async () => {
+		const {context, errors, page} = await phone();
+
+		await openCollections(page);
+		await page.click('#collections-new');
+		await page.fill('#col-name', 'Star');
+		await page.check('#col-kind-rule');
+		await page.click('#col-star');
+		await page.click('#col-save');
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 2, null, TIMEOUT);
+
+		await page.click('#collection-leave-out');
+		await page.locator('#leave-out-sheet[open]').waitFor(TIMEOUT);
+		assert.deepEqual(await page.locator('#leave-out-sheet-list .col-card-name').allTextContents(), ['Charizard SIR', 'Pikachu IR']);
+		// The sheet slides in over 250 ms.
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/collections-leave-sheet.png`});
+		await page.click('#leave-out-sheet-list button[aria-label="Leave out: Pikachu IR"]');
+		await page.waitForFunction(() => document.querySelectorAll('#leave-out-sheet-list .col-card').length === 1);
+		assert.match(await page.locator('#leave-out-sheet-note').textContent(), /Left Pikachu IR out of Star/);
+		await page.click('#leave-out-sheet .sheet-head button');
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 1);
+		assert.deepEqual(await tileNames(page), ['Charizard SIR']);
+		assert.equal(await page.locator('#collection-left-out').textContent(), '1 card left out');
+
+		// Undo on the toast brings it back.
+		await page.locator('.toast button:has-text("Undo")').last().click();
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 2);
+		assert.equal(await page.locator('#collection-left').isHidden(), true);
+
+		// Left out again; a new Pikachu IR copy saved later joins by itself.
+		await page.click('#collection-leave-out');
+		await page.click('#leave-out-sheet-list button[aria-label="Leave out: Pikachu IR"]');
+		await page.waitForFunction(() => document.querySelectorAll('#leave-out-sheet-list .col-card').length === 1);
+		await page.click('#leave-out-sheet .sheet-head button');
+		await page.evaluate(async () => {
+			const {addCard} = await import(`${location.origin}/pokemon-card-tracker/js/collection.js`);
+
+			await addCard({card_id: 'tsb2-120', catalog: 'international', language: 'en', language_source: 'manual', variant_id: null});
+		});
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 2);
+		assert.equal(await page.locator('#collection-left-out').textContent(), '1 card left out', 'the old copy stays out');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -395,6 +482,98 @@ describe('Collections', () => {
 		});
 
 		assert.equal(after, before + 2);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// ----------------------------------------------------------- order
+
+const orderRows = (page) => page.locator('.reorder-row .reorder-name').allTextContents();
+
+const colNames = (page) => page.locator('.col-row .col-name').allTextContents();
+
+// Drags a row's handle by the mouse until its middle sits on another row's.
+async function dragRow(page, from, to) {
+	const handle = await page.locator(`.reorder-row:has(.reorder-name:text-is("${from}")) .reorder-handle`).boundingBox();
+	const target = await page.locator(`.reorder-row:has(.reorder-name:text-is("${to}"))`).boundingBox();
+	const x = handle.x + (handle.width / 2);
+	const y = handle.y + (handle.height / 2);
+
+	await page.mouse.move(x, y);
+	await page.mouse.down();
+	await page.mouse.move(x, target.y + (target.height * 0.75), {steps: 12});
+	await page.mouse.up();
+}
+
+describe('Collections in your own order', () => {
+	test('Edit order moves a collection with the arrows or by dragging, saves the order, and Undo puts it back', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.setViewportSize({height: 740, width: 360});
+		await page.evaluate(async () => {
+			const {createCollection} = await import(`${location.origin}/pokemon-card-tracker/js/collections.js`);
+
+			for (const name of ['Bravo', 'Alpha', 'Charlie']) {
+				await createCollection({kind: 'hand', name});
+			}
+		});
+		await openCollections(page);
+		await page.locator('.col-row').nth(2).waitFor(TIMEOUT);
+		assert.deepEqual(await colNames(page), ['Alpha', 'Bravo', 'Charlie'], 'by name until the first move');
+
+		await page.click('#collections-order');
+		await page.locator('#collections-order-panel .reorder-row').nth(2).waitFor(TIMEOUT);
+		assert.equal(await page.locator('#collections-list').isHidden(), true);
+		assert.equal(await page.locator('#collections-new').isHidden(), true);
+		assert.deepEqual(await orderRows(page), ['Alpha', 'Bravo', 'Charlie']);
+		assert.equal(await page.locator('button[aria-label="Move Alpha up"]').isDisabled(), true);
+
+		// The arrows: the focus stays on the row that moved.
+		await page.click('button[aria-label="Move Charlie up"]');
+		await page.waitForFunction(() => document.querySelector('.reorder-status').textContent === 'Charlie moved to 2 of 3.');
+		assert.deepEqual(await orderRows(page), ['Alpha', 'Charlie', 'Bravo']);
+		assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Move Charlie up');
+		await page.locator('.toast:has-text("Moved Charlie.")').waitFor(TIMEOUT);
+		await page.keyboard.press('Enter');
+		await page.waitForFunction(() => document.querySelector('.reorder-status').textContent === 'Charlie moved to 1 of 3.');
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/collections-order.png`});
+
+		const saved = async () => (await savedCollections(page)).filter((item) => !item.deleted_at).sort((a, b) => a.order - b.order).map((item) => item.name);
+
+		await page.waitForFunction(async () => {
+			const {loadDocument} = await import(`${location.origin}/pokemon-card-tracker/js/collection.js`);
+
+			return (await loadDocument()).collections.find((item) => item.name === 'Charlie').order < 1;
+		});
+		assert.deepEqual(await saved(), ['Charlie', 'Alpha', 'Bravo']);
+
+		// Dragging: Charlie from the top to below Bravo.
+		await dragRow(page, 'Charlie', 'Bravo');
+		await page.waitForFunction(() => document.querySelector('.reorder-status').textContent === 'Charlie moved to 3 of 3.');
+		assert.deepEqual(await orderRows(page), ['Alpha', 'Bravo', 'Charlie']);
+		await page.locator('.toast:has-text("Moved Charlie.")').last().waitFor(TIMEOUT);
+		assert.equal(await page.locator('.toast:has-text("Moved Charlie.")').count(), 1, 'a newer move takes the place of the last toast');
+
+		// Undo on the toast puts Charlie back on top.
+		await page.locator('.toast button:has-text("Undo")').last().click();
+		await page.waitForFunction(() => [...document.querySelectorAll('.reorder-row .reorder-name')].map((node) => node.textContent).join() === 'Charlie,Alpha,Bravo');
+		assert.deepEqual(await saved(), ['Charlie', 'Alpha', 'Bravo']);
+
+		// Done: the list shows the new order, and a new collection goes last.
+		await page.click('.reorder-done');
+		await page.locator('#collections-list').waitFor({state: 'visible', ...TIMEOUT});
+		assert.deepEqual(await colNames(page), ['Charlie', 'Alpha', 'Bravo']);
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'collections-order');
+		await page.evaluate(async () => {
+			const {createCollection} = await import(`${location.origin}/pokemon-card-tracker/js/collections.js`);
+
+			await createCollection({kind: 'hand', name: 'Aardvark'});
+		});
+		await page.waitForFunction(() => document.querySelectorAll('.col-row').length === 4);
+		assert.deepEqual(await colNames(page), ['Charlie', 'Alpha', 'Bravo', 'Aardvark']);
+		await page.screenshot({path: `${SHOTS}/collections-ordered.png`});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

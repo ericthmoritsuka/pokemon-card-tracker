@@ -939,15 +939,13 @@ export async function unplacedCards() {
 // once the copy is saved, puts it there. Only the person's own binders: a
 // family member's are never read or changed here.
 
-const byCreated = (binders) => liveBinders(binders).slice().sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-
-// Every placeholder, in binder order (the binder list's, oldest first), then
+// Every placeholder, in binder order (the binder list's, sortBinders), then
 // page and pocket: [{binder_id, binder_name, page, position, card_id,
 // catalog}]. catalog is null for a placeholder that names none.
 export function placeholderList(binders) {
 	const out = [];
 
-	for (const binder of byCreated(binders)) {
+	for (const binder of sortBinders(binders)) {
 		for (const slot of slotsOf(binder)) {
 			if (slot.want && slot.want.card_id) {
 				out.push({

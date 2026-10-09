@@ -24,7 +24,7 @@ import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
 import {LANGUAGES, cardImage, catalogFor, catalogLanguage, languageLabel, savedCardRecords, setList, viewingLanguage} from './catalog.js';
 import {mainName, namesFor, tileNames} from './catalog-views.js';
-import {deleteChecklist, listLanguages, namesLanguages, renameChecklist} from './checklists.js';
+import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal} from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -34,6 +34,7 @@ import {formatCount, plural} from './format.js';
 import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
+import {UNDO_MS, orderSection} from './reorder.js';
 import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
 import {cardTile} from './tile.js';
@@ -51,6 +52,7 @@ import {
 	listGoals,
 	passesGoalFilter,
 	setGoalLevel,
+	sortGoals,
 } from './goals.js';
 
 const FILTERS = [
@@ -111,10 +113,33 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 	const list = h('div', {class: 'list-grid', id: 'goals-list'});
 	const newGoal = readOnly ? null : link('goals/new', {class: 'button small goal-new', id: 'goals-new'}, 'New goal');
 	const empty = h('p', {class: 'muted', hidden: true, id: 'goals-empty'}, 'Collect a whole set, or every card by an artist you like.');
+	// Edit order (js/reorder.js): the goals as rows to drag or move, in
+	// place of the tiles while it is open.
+	const order = readOnly ? null : orderSection({
+		describe: (goal) => ({detail: describeGoal(goal), name: goal.name}),
+		errorText,
+		label: 'Goals',
+		onToggle: (open) => {
+			list.hidden = open;
+
+			if (newGoal) {
+				newGoal.hidden = open;
+			}
+		},
+		save: reorderGoals,
+		toast,
+	});
+
+	if (order) {
+		order.button.id = 'goals-order';
+		order.panel.id = 'goals-order-panel';
+	}
+
 	const element = h('section', {class: 'goals-section', hidden: readOnly, id: 'goals-section'},
-		h('div', {class: 'goals-head'}, h('h3', null, 'Goals'), newGoal),
+		h('div', {class: 'goals-head'}, h('h3', null, 'Goals'), h('span', {class: 'goals-head-actions'}, order ? order.button : null, newGoal)),
 		empty,
-		list
+		list,
+		order ? order.panel : null
 	);
 
 	function tile(goal) {
@@ -129,8 +154,12 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 
 	async function update(goals, entries) {
 		const mine = ++run;
-		const sorted = [...(goals || [])].filter(isGoal).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+		const sorted = sortGoals((goals || []).filter(isGoal));
 		const tiles = sorted.map((goal) => ({goal, ...tile(goal)}));
+
+		if (order) {
+			order.set(sorted);
+		}
 
 		element.hidden = readOnly && !sorted.length;
 		empty.hidden = sorted.length > 0;
@@ -606,16 +635,21 @@ function goalScreen(root, source, id) {
 			}
 		});
 
+		// Deleted at once, with Undo on a toast that brings the goal back as
+		// it was, in its place (Eric, 2026-10-06).
 		remove.addEventListener('click', async () => {
-			if (!window.confirm(`Delete "${goal.name}"? Your cards stay as they are.`)) {
-				return;
-			}
-
 			leaving = true;
 
 			try {
+				const {name} = goal;
+
 				await deleteChecklist(id);
 				go(source.listsBase);
+				toast(`Deleted ${name}. Your cards stay as they are.`, {
+					action: () => restoreGoal(id).catch((err) => toast(`Could not bring it back. ${errorText(err)}`)),
+					actionLabel: 'Undo',
+					timeout: UNDO_MS,
+				});
 			}
 			catch (err) {
 				leaving = false;
