@@ -880,6 +880,7 @@ export function openPlacesSheet({onClose = null} = {}) {
 
 		if (asking === fold) {
 			return h('li', {class: 'place-row place-asking', 'data-place': place.name},
+				h('span', {class: 'place-text'}, label),
 				h('p', {class: 'place-ask'}, `${plural(place.count, 'copy is', 'copies are')} stored here; ${place.count === 1 ? 'it' : 'they'} will show Not set.`),
 				h('div', {class: 'place-actions'},
 					h('button', {class: 'small', onclick: () => {

@@ -411,7 +411,7 @@ button.step-more {
 
 .place-text {
 	display: grid;
-	flex: 1 1 140px;
+	flex: 1 1 0;
 	min-width: 0;
 	overflow-wrap: anywhere;
 }
