@@ -15,8 +15,20 @@
 //                code, an energy name, a region id.
 //   entry_ids    hand-picked: card entry id -> when it was added
 //   removed_ids  hand-picked: card entry id -> when it was taken out
+//   order        optional, its place on the Collections screen
+//                (js/reorder.js)
 // The two maps merge id by id (js/merge.js mergeMembers), so two phones that
 // add different cards both keep theirs, and a removal sticks.
+//
+// A rule collection uses the same two maps for the copies taken out of it
+// by hand (Eric, 2026-10-06): removed_ids holds a copy left out, and
+// entry_ids a copy put back after that. Of the two stamps for an id the
+// later stands, a removal on a tie, as for a hand-picked one, so the merge
+// needs nothing new: two phones leaving out different cards both keep
+// theirs, and putting one back sticks too. The rule still adds every new
+// match; only the copies left out stay out. An app from before this reads a
+// rule collection by its rule alone, so there the left-out copies show, and
+// it carries both maps along unchanged.
 //
 // Also here: which entries a collection holds, the catalog details a rule
 // needs, and the saves. No DOM, so Node can load the pure parts
@@ -34,6 +46,7 @@ import {isLive, loadDocument, mergeIntoLocal, newId, nowIso, resolveEntry} from 
 import {customRecord} from './custom-card.js';
 import {applyFilters, dexRange, emptyFilters} from './filter-bar.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {orderForNew, sortByOrder, withOrders} from './reorder.js';
 
 export const KINDS = ['hand', 'rule'];
 
@@ -276,15 +289,121 @@ export function isMember(entry, id) {
 
 export const memberIds = (entry) => Object.keys(isObject(entry.entry_ids) ? entry.entry_ids : {}).filter((id) => isMember(entry, id));
 
+// ------------------------------------------------ left out of a rule
+
+// True when this id is left out of a rule collection: taken out, and not
+// put back since.
+export function isLeftOut(entry, id) {
+	const removed = isObject(entry.removed_ids) ? entry.removed_ids[id] : undefined;
+	const added = isObject(entry.entry_ids) ? entry.entry_ids[id] : undefined;
+
+	return removed !== undefined && (added === undefined || time(removed) >= time(added));
+}
+
+// The live copies a rule collection leaves out: live id -> the stored ids
+// that leave it out (its own, and any copy the merge folded into it, which
+// a put back must answer too). Only copies the rule would take count.
+export function leftOut(collection, cards, index = new Map()) {
+	const out = new Map();
+
+	const ids = collection && collection.kind === 'rule' && isObject(collection.removed_ids) ? Object.keys(collection.removed_ids).filter((id) => isLeftOut(collection, id)) : [];
+
+	if (!ids.length) {
+		return out;
+	}
+
+	const byId = new Map((cards || []).filter((card) => card && card.id).map((card) => [card.id, card]));
+
+	for (const id of ids) {
+		let live = byId.get(id);
+
+		// A copy folded into another (merged_into) is the survivor now.
+		for (let hops = 0; live && live.deleted_at && live.merged_into && hops < 32; hops++) {
+			live = byId.get(live.merged_into);
+		}
+
+		if (live && !isLive(live)) {
+			live = null;
+		}
+
+		if (!live || !ruleMatches(collection.rule, itemFor(live, index.get(`${live.catalog || 'international'}|${live.card_id}`)))) {
+			continue;
+		}
+
+		// A survivor put back after the copy folded into it was left out.
+		if (live.id !== id && isObject(collection.entry_ids) && time(collection.entry_ids[live.id]) > time(collection.removed_ids[id])) {
+			continue;
+		}
+
+		out.set(live.id, [...(out.get(live.id) || []), id]);
+	}
+
+	return out;
+}
+
+// The rule collection with these copies left out; the same object when each
+// one is out already.
+export function withLeftOut(entry, ids, now = Date.now()) {
+	const wanted = [...new Set(ids)].filter((id) => id && !isLeftOut(entry, id));
+
+	if (!wanted.length) {
+		return entry;
+	}
+
+	const at = memberStamp(entry, wanted, now);
+	const added = {...(entry.entry_ids || {})};
+	const removed = {...(entry.removed_ids || {})};
+
+	for (const id of wanted) {
+		delete added[id];
+		removed[id] = at;
+	}
+
+	return stampEntry(entry, {...entry, entry_ids: added, removed_ids: removed, updated_at: at});
+}
+
+// The rule collection with these stored ids put back (leftOut's values);
+// the same object when none was out.
+export function withPutBack(entry, ids, now = Date.now()) {
+	const wanted = [...new Set(ids)].filter((id) => id && isLeftOut(entry, id));
+
+	if (!wanted.length) {
+		return entry;
+	}
+
+	const at = memberStamp(entry, wanted, now);
+	const added = {...(entry.entry_ids || {})};
+	const removed = {...(entry.removed_ids || {})};
+
+	for (const id of wanted) {
+		added[id] = at;
+		delete removed[id];
+	}
+
+	const next = {...entry, entry_ids: added, updated_at: at};
+
+	if (Object.keys(removed).length) {
+		next.removed_ids = removed;
+	}
+	else {
+		delete next.removed_ids;
+	}
+
+	return stampEntry(entry, next);
+}
+
 // The live copies a collection holds now. cards is the whole document's
 // cards; index is the card index (Map "<catalog>|<card id>" -> record),
 // which a rule reads rarity, set, types, and the Pokédex number from. A
-// hand-picked id that the merge folded into another copy follows it.
+// hand-picked id that the merge folded into another copy follows it, and so
+// does a copy left out of a rule.
 export function collectionEntries(collection, cards, index = new Map()) {
 	const live = (cards || []).filter((entry) => entry && isLive(entry));
 
 	if (collection.kind === 'rule') {
-		return live.filter((entry) => ruleMatches(collection.rule, itemFor(entry, index.get(`${entry.catalog || 'international'}|${entry.card_id}`))));
+		const out = leftOut(collection, cards, index);
+
+		return live.filter((entry) => !out.has(entry.id) && ruleMatches(collection.rule, itemFor(entry, index.get(`${entry.catalog || 'international'}|${entry.card_id}`))));
 	}
 
 	const byId = new Map(live.map((entry) => [entry.id, entry]));
@@ -305,9 +424,11 @@ export const liveCollections = (collections) => (collections || []).filter((item
 
 const collator = new Intl.Collator('en', {numeric: true, sensitivity: 'base'});
 
-// Live collections by name.
-export const sortCollections = (collections) => liveCollections(collections)
-	.sort((a, b) => collator.compare(a.name, b.name) || String(a.created_at).localeCompare(String(b.created_at)));
+export const byName = (a, b) => collator.compare(a.name, b.name) || String(a.created_at).localeCompare(String(b.created_at));
+
+// Live collections in the order the person set (js/reorder.js); the ones
+// with no order last, by name, which is every one until the first move.
+export const sortCollections = (collections) => sortByOrder(liveCollections(collections), byName);
 
 // ------------------------------------------------------------- details
 
@@ -359,6 +480,15 @@ async function save(entry) {
 	return entry;
 }
 
+async function saveAll(entries) {
+	if (entries.length) {
+		await mergeIntoLocal({collections: entries});
+		schedulePush();
+	}
+
+	return entries;
+}
+
 // Changes run one at a time, each reading what the last one saved.
 let queue = Promise.resolve();
 
@@ -380,7 +510,17 @@ export async function getCollection(id) {
 	return (await listCollections()).find((item) => item.id === id) || null;
 }
 
-export const createCollection = (fields) => serial(() => save(newCollection(fields)));
+// A new collection goes to the end: one more than the highest order, or
+// none while no collection has one (js/reorder.js).
+export const createCollection = (fields) => serial(async () => {
+	const entry = newCollection(fields);
+	const order = orderForNew(liveCollections((await loadDocument()).collections));
+
+	return save(order === null ? entry : {...entry, order});
+});
+
+// Writes new orders, [{id, order}], and resolves to the saved entries.
+export const reorderCollections = (changes) => serial(async () => saveAll(withOrders(liveCollections((await loadDocument()).collections), changes)));
 
 const change = (id, work) => serial(async () => {
 	const item = await getCollection(id);
@@ -423,6 +563,18 @@ export const addToCollection = (id, entryIds) => change(id, (item) => {
 });
 
 export const removeFromCollection = (id, entryIds) => change(id, (item) => withoutMembers(item, entryIds));
+
+// Leaves copies out of a rule collection, or puts them back (stored ids, as
+// leftOut gives them; a live copy's own id works too).
+export const leaveOut = (id, entryIds) => change(id, (item) => {
+	if (item.kind !== 'rule') {
+		throw new Error('Only a collection that fills itself leaves cards out.');
+	}
+
+	return withLeftOut(item, entryIds);
+});
+
+export const putBack = (id, entryIds) => change(id, (item) => withPutBack(item, entryIds));
 
 // The index and the live cards and collections together, as the screens
 // read them.

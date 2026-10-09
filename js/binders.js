@@ -17,6 +17,7 @@
 //                binder but not in a pocket yet, in the order they go in.
 //                A copy is in at most one tray, and never in a tray and a
 //                pocket at once
+//   order        its place on the Binders screen (js/reorder.js)
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -47,7 +48,8 @@
 // (tests/binders.test.mjs). The rest read and save the document on the phone.
 
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
-import {nextStamp, stampEntry} from './merge.js';
+import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
 
 export const MAX_PAGES = 200;
 
@@ -774,9 +776,31 @@ function serial(work) {
 
 const allBinders = async () => (await loadDocument()).binders || [];
 
+// Live binders in the order the person set (js/reorder.js), the ones with no
+// order last, oldest first.
+export const sortBinders = (binders) => sortByOrder(liveBinders(binders), byCreated);
+
 export async function listBinders() {
-	return liveBinders(await allBinders()).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+	return sortBinders(await allBinders());
 }
+
+// Writes new orders, [{id, order}], and resolves to the saved binders.
+export const reorderBinders = (changes) => serial(async () => saveBinders(withOrders(await allBinders(), changes)));
+
+// Brings a deleted binder back on purpose (js/merge.js restoreEntry), for
+// Undo after a delete: its pockets, tray, cover, and order as they were. A
+// copy placed elsewhere meanwhile stays where it went last (placements).
+export const restoreBinder = (id) => serial(async () => {
+	const binder = (await allBinders()).find((one) => one && one.id === id);
+
+	if (!binder || !binder.deleted_at) {
+		return binder || null;
+	}
+
+	const [saved] = await saveBinders([restoreEntry(binder)]);
+
+	return saved;
+});
 
 export async function getBinder(id) {
 	return liveBinders(await allBinders()).find((binder) => binder.id === id) || null;
@@ -787,12 +811,14 @@ export function createBinder(fields) {
 	const at = nowIso();
 
 	return serial(async () => {
+		const order = orderForNew(liveBinders(await allBinders()));
 		const [binder] = await saveBinders([{
 			...clean,
 			art: [],
 			created_at: at,
 			deleted_at: null,
 			id: newId(),
+			...(order === null ? {} : {order}),
 			slots: [],
 			updated_at: at,
 		}]);
