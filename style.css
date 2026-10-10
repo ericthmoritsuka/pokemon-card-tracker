@@ -1214,6 +1214,17 @@ select {
 	font-size: 0.8rem;
 }
 
+/* Two lines at most: a long Japanese or Korean set name ends in an ellipsis
+   instead of a third line (Q-05). The full text is the line's title. */
+.tile > .tile-meta {
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	display: -webkit-box;
+	line-height: 1.3;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+}
+
 .set-tile.skeleton {
 	height: 120px;
 }

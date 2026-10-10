@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-10',
 		items: [
+			'Fill a binder\'s tray in one go: Add cards to the tray picks many cards that are not in a binder yet, with Undo.',
+			'Japanese and Korean card tiles stay tidy on small phones: a long set name ends in an ellipsis.',
+			'Japanese set pages show the international print\'s picture for cards with no image of their own.',
+		],
+		version: 'v37',
+	},
+	{
+		date: '2026-10-10',
+		items: [
 			'Holder mode takes every card you drop, even on the same spot and at your normal speed, and keeps scanning while you check a card.',
 			'Tap any card that needs a look, or the "to check" count, to go through them one after another.',
 			'Fewer cards to check: the scanner finds cards whose picture came out a little off.',
