@@ -20,7 +20,7 @@
 
 import {importApi} from '../catalog.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
-import {queryFingerprints} from '../vision/fingerprint.js';
+import {queryFingerprints, thumbnail, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
 export {AUTO_GAP};
@@ -73,30 +73,64 @@ export const fingerprintsLoaded = () => Boolean(indexPromise);
 // fingerprinted at the matcher's small shifts (QUERY_SHIFTS), and the crop
 // whose best group scores lowest wins. Returns {groups, gap, crop, timings}:
 // crop is the index into `crops` that won.
-export function matchCrops(index, crops) {
+//
+// When no crop is sure that way, the closest WIDE_CROPS crops are matched
+// again with the wider search (fingerprint.js WIDE_SHIFTS: moves of up to
+// 7.5 %, a smaller and larger crop, the card squeezed by a strip of the
+// card underneath or a side cut short), which costs about seven times as
+// much, so a crop that is right as found pays nothing for it. On Eric's
+// holder-log crops (lab/holder/crops.mjs, 2026-10-09) it put the right card
+// first on 92 of 96 against 88, sure on 69 against 55, none wrong but sure,
+// and the right card first on 920 of 1,056 re-crops (moved, zoomed, pile
+// strips, turned) against 472. wide: false skips it.
+export const WIDE_CROPS = 2;
+
+export function matchCrops(index, crops, {wide = true} = {}) {
 	const t0 = performance.now();
 	const bits = {artBits: index.header.fields.art.bytes * 8, cardBits: index.header.fields.card ? index.header.fields.card.bytes * 8 : 64};
-	let best = null;
+	const tried = [];
 	let fingerprintMs = 0;
+	const gapOf = (groups) => (groups.length > 1 ? groups[1].score - groups[0].score : groups.length ? Infinity : 0);
+	const scoreOf = (result) => (result.groups[0] ? result.groups[0].score : Infinity);
 
 	crops.forEach((crop, i) => {
 		const at = performance.now();
-		const queries = queryFingerprints(crop, bits);
+		const thumb = thumbnail(crop);
+		const queries = queryFingerprints(thumb, bits);
 
 		fingerprintMs += performance.now() - at;
 
 		const result = matchFingerprints(index, queries);
-		const score = result.groups[0] ? result.groups[0].score : Infinity;
 
-		if (!best || score < best.score) {
-			best = {crop: i, result, score};
-		}
+		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
 
-	const {groups} = best.result;
-	const gap = groups.length > 1 ? groups[1].score - groups[0].score : groups.length ? Infinity : 0;
+	tried.sort((a, b) => a.score - b.score || a.crop - b.crop);
 
-	return {crop: best.crop, gap, groups, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}};
+	let best = tried[0];
+	let widened = false;
+
+	if (wide && best && !pictureVerdict({gap: gapOf(best.result.groups), groups: best.result.groups}).sure) {
+		widened = true;
+
+		for (const one of tried.slice(0, WIDE_CROPS)) {
+			const at = performance.now();
+			const more = queryFingerprints(one.thumb, bits, WIDE_SHIFTS);
+
+			fingerprintMs += performance.now() - at;
+
+			const result = matchFingerprints(index, [...one.queries, ...more]);
+			const score = scoreOf(result);
+
+			if (score < best.score || (one === best && score <= best.score)) {
+				best = {...one, result, score};
+			}
+		}
+	}
+
+	const {groups} = best.result;
+
+	return {crop: best.crop, gap: gapOf(groups), groups, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, wide: widened};
 }
 
 // How many cards of a group are kept on the tray card.

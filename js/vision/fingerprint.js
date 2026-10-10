@@ -102,9 +102,13 @@ export function thumbnail(img) {
 // the card), with the rect moved by (dx, dy) and scaled by `zoom` around its
 // centre (fractions of the card), read from the thumbnail with 2 x 2
 // bilinear samples per cell. The query side tries a few such crops when the
-// card's edges were found slightly off.
-export function sampleGrid(thumb, rect, gw, gh, {dx = 0, dy = 0, zoom = 1} = {}) {
+// card's edges were found slightly off. win: where the card itself sits in
+// the crop ({x, y, w, h}, fractions of the crop), when the crop holds more
+// or less than the card (a strip of the card underneath, an edge cut
+// short); every region moves and scales with it.
+export function sampleGrid(thumb, inRect, gw, gh, {dx = 0, dy = 0, win = null, zoom = 1} = {}) {
 	const {h, rgb, w} = thumb;
+	const rect = win ? {h: inRect.h * win.h, w: inRect.w * win.w, x: win.x + inRect.x * win.w, y: win.y + inRect.y * win.h} : inRect;
 	const rw = rect.w * zoom;
 	const rh = rect.h * zoom;
 	const x0 = (rect.x + rect.w / 2 + dx - rw / 2) * w - 0.5;
@@ -337,6 +341,25 @@ export const QUERY_SHIFTS = [
 	{dy: 0.02},
 	{zoom: 0.95},
 	{zoom: 1.05},
+];
+
+// The wider search, added to QUERY_SHIFTS when a crop is not sure without
+// it (js/scan/picture.js matchCrops, where it is measured): moves of up to
+// 7.5 % either way in steps of 2.5 %, a smaller and a larger crop, and the
+// card squeezed into part of the crop (a strip of the card underneath taken
+// with it at the bottom or the top, or a side cut short).
+const STEPS = [-0.075, -0.05, -0.025, 0, 0.025, 0.05, 0.075];
+
+export const WIDE_SHIFTS = [
+	...STEPS.flatMap((dx) => STEPS.map((dy) => ({dx, dy}))).filter(({dx, dy}) => Math.abs(dx) + Math.abs(dy) > 0.025),
+	{zoom: 0.92},
+	{zoom: 1.08},
+	{zoom: 0.86},
+	{win: {h: 0.88, w: 1, x: 0, y: 0}},
+	{win: {h: 0.8, w: 1, x: 0, y: 0}},
+	{win: {h: 0.88, w: 1, x: 0, y: 0.12}},
+	{win: {h: 1, w: 0.9, x: 0, y: 0}},
+	{win: {h: 1, w: 0.9, x: 0.1, y: 0}},
 ];
 
 export function queryFingerprints(img, options = {}, shifts = QUERY_SHIFTS) {
