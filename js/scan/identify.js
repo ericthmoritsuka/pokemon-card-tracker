@@ -124,214 +124,262 @@ let queue = Promise.resolve();
 //
 // pictureFirst false reads the card in full, as before the switch (the
 // benchmark's comparison).
-export function identify(image, {guide = null, photo = false, quads = [], straight = false, readOptions = {}, pictureFirst = true} = {}) {
-	const run = queue.then(async () => {
-		const started = performance.now();
-		let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
-		const found = straight ? [] : quadCrops(quads);
-
-		if (!straight && !rectified.found && found.length) {
-			const [first] = found;
-
-			rectified = {
-				angle: 0,
-				card: cutQuad(image, first.corners),
-				corners: first.corners,
-				found: true,
-				guessed: null,
-				note: 'Card found in the frame; cut by its corners.',
-				others: [],
-				ratio: first.ratio ?? null,
-				rect: null,
-				variants: [],
-			};
-			found.shift();
-		}
-
-		if (photo && !rectified.found) {
-			const area = cropImage(image, defaultCapture(image.width, image.height));
-			const middle = rectify(area);
-
-			if (middle.found) {
-				rectified = {...middle, note: `${middle.note} (in the middle of the photo)`, source: area};
-			}
-		}
-
-		const rectifyMs = Math.round(performance.now() - started);
-		let card = rectified.card;
-		let picture = null;
-		let fingerprintMs = null;
-		let matchMs = null;
-		let variantsTried = [];
-		// The box the edges made, on the capture, and the crop that won.
-		const source = rectified.source || image;
-		const mainQuad = straight || !rectified.found ? null : rectified.corners || (rectified.rect ? rectQuad(source, rectified.rect, rectified.angle || 0) : null);
-		let won = {how: mainQuad ? 'the edges found' : 'the frame as it is', quad: mainQuad};
-		let guideRect = null;
-
-		if (pictureFirst) {
-			try {
-				const index = await loadFingerprints();
-				const others = [...(rectified.others || []), ...found];
-				const guideCrop = !straight && guide && guide.w > 0 && guide.h > 0 ? {how: 'the guide', rect: guide} : null;
-				const cutOther = (other, height) => (other.corners ? cutQuad(image, other.corners, height) : other === guideCrop || !rectified.cut ? warpCrop(image, 0, other.rect, Math.min(1, height / other.rect.h)) : rectified.cut(other.rect, height));
-
-				if (guideCrop) {
-					others.push(guideCrop);
-					guideRect = guide;
-				}
-
-				const quadOf = (other) => other.corners || rectQuad(other === guideCrop ? image : source, other.rect, other === guideCrop ? 0 : other.rect.angle ?? (rectified.corners ? 0 : rectified.angle || 0));
-
-				const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
-				const matched = matchCrops(index, crops);
-				const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
-
-				fingerprintMs = matched.timings.fingerprint;
-				matchMs = matched.timings.match;
-
-				if (how) {
-					const other = others[matched.crop - 1];
-
-					card = cutOther(other, other.corners ? undefined : Math.min(CARD_MAX_HEIGHT, other.rect.h));
-					won = {how, quad: quadOf(other)};
-
-					// An outline found on the small copy of the frame is a few
-					// pixels off at full resolution, which the picture forgives
-					// and the number strip's read does not: its edges are found
-					// again on the card cut with a margin, and that crop is kept
-					// when it matches as well.
-					if (other.corners) {
-						const refined = refineQuad(image, other.corners);
-
-						if (refined) {
-							const again = matchCrops(index, [warpCrop(refined, 0, {h: refined.height, w: refined.width, x: 0, y: 0}, OTHER_CROP_HEIGHT / refined.height)]);
-
-							fingerprintMs += again.timings.fingerprint;
-							matchMs += again.timings.match;
-
-							if (again.groups[0] && again.groups[0].score <= matched.groups[0].score + 3) {
-								card = refined;
-								won = {how: `${how}, its edges found again`, quad: won.quad};
-							}
-						}
-					}
-				}
-
-				// A weak match: the crop is likely off (an edge worked out from
-				// a wrong side, or a side taken at the border's inner line), so
-				// the box moved up and down and resized (rectify.js variants) is
-				// fingerprinted too, and the closest kept.
-				const best = matched.groups[0] ? matched.groups[0].score : Infinity;
-				let chosen = matched;
-				let chosenHow = how;
-
-				if ((rectified.variants || []).length && best > SURE_DISTANCE) {
-					const shifted = rectified.variants.map((v) => rectified.variant(v, OTHER_CROP_HEIGHT));
-					const again = matchCrops(index, shifted);
-					const score = again.groups[0] ? again.groups[0].score : Infinity;
-
-					variantsTried = rectified.variants.map((v) => v.how);
-					fingerprintMs += again.timings.fingerprint;
-					matchMs += again.timings.match;
-
-					if (score < best) {
-						chosen = again;
-						chosenHow = rectified.variants[again.crop].how;
-						card = rectified.variant(rectified.variants[again.crop]);
-
-						const variant = rectified.variants[again.crop];
-
-						won = {how: chosenHow, quad: variant.corners || rectQuad(source, variant.rect, rectified.angle || 0)};
-					}
-				}
-
-				picture = compactPicture(chosen, {how: chosenHow, variants: variantsTried, before: chosen === matched ? null : best});
-			}
-			catch {
-				// No index on this phone yet: the card is read in full.
-				picture = null;
-			}
-		}
-
-		let read = null;
-		let workers = null;
-		let ocrMs = null;
-		let artwork = null;
-		let artworkMs = null;
-
-		if (!picture || needsText(picture)) {
-			let engine = null;
-
-			try {
-				engine = await warmEngine();
-			}
-			catch (err) {
-				// Without the reader, a picture match still stands on its own.
-				if (!picture) {
-					throw err;
-				}
-			}
-
-			if (engine) {
-				// The first group holds several prints (reprints, a Japanese print
-				// and its English twin): the set code box and the label row can
-				// choose between them, so they are read beside the number.
-				const several = Boolean(picture && picture.groups[0] && picture.groups[0].cards.length > 1);
-
-				// With a picture match, only what chooses between its cards: the
-				// number, from the strip the candidates' era prints it on (read.js
-				// readNumber); otherwise the label row is read behind the tray.
-				read = picture
-					? await readNumberOnly(card, engine.ocr, {...readOptions, label: several, prefer: numberSide(picture), setCode: several})
-					: await readCard(card, engine.ocr, readOptions);
-				read.script = null;
-				workers = engine.size;
-				ocrMs = read.timings.ocr;
-
-				const artAt = performance.now();
-
-				artwork = artVector(card);
-				artworkMs = Math.round(performance.now() - artAt);
-			}
-		}
-
-		// What the scan report's capture images draw (js/scan/image.js
-		// captureImages): the capture, the box the edges made with the edge
-		// worked out, the crop that won, the guide, and the regions read. Kept
-		// in memory only, for the last few scans (js/scan/view.js).
-		const trace = {
-			capture: straight ? null : source,
-			card,
-			foundTop: rectified.foundTop ?? null,
-			guessed: rectified.guessed || null,
-			guide: guideRect,
-			main: mainQuad,
-			mainRect: rectified.rect || null,
-			picture: picture && picture.groups && picture.groups[0] ? {distance: picture.groups[0].score, gap: picture.gap ?? null} : null,
-			regions: read ? Object.keys(read.raw || {}) : picture ? ['label'] : [],
-			won,
-		};
-
-		return {
-			angle: rectified.angle ?? 0,
-			artwork,
-			card,
-			found: rectified.found,
-			trace,
-			guessed: rectified.guessed || null,
-			note: rectified.note || null,
-			ocr: Boolean(read),
-			picture,
-			ratio: rectified.ratio ?? null,
-			read,
-			timings: {artwork: artworkMs, fingerprint: fingerprintMs, match: matchMs, ocr: ocrMs, rectify: rectifyMs, total: Math.round(performance.now() - started), workers},
-		};
-	});
+export function identify(image, options = {}) {
+	const run = queue.then(async () => readText(await seePicture(image, options), options));
 
 	queue = run.catch(() => {});
 
 	return run;
+}
+
+// The two halves of identify, each in its own queue, so the scanner never
+// holds the next card's picture behind a card whose text is being read
+// (Eric's holder log, 2026-10-09: one card needing its number read held the
+// next card's picture match 3 to 14 s). identifyPicture straightens and
+// matches the picture only, and answers like identify with no text read
+// (read null) and `needsText` saying whether text is wanted; identifyText
+// reads it for such an answer (it answers at once when none is wanted).
+let pictureQueue = Promise.resolve();
+let textQueue = Promise.resolve();
+
+export function identifyPicture(image, options = {}) {
+	const run = pictureQueue.then(() => seePicture(image, options));
+
+	pictureQueue = run.catch(() => {});
+
+	return run;
+}
+
+export function identifyText(seen, options = {}) {
+	const run = textQueue.then(() => readText(seen, options));
+
+	textQueue = run.catch(() => {});
+
+	return run;
+}
+
+async function seePicture(image, {guide = null, photo = false, quads = [], straight = false, pictureFirst = true} = {}) {
+	const started = performance.now();
+	let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
+	const found = straight ? [] : quadCrops(quads);
+
+	if (!straight && !rectified.found && found.length) {
+		const [first] = found;
+
+		rectified = {
+			angle: 0,
+			card: cutQuad(image, first.corners),
+			corners: first.corners,
+			found: true,
+			guessed: null,
+			note: 'Card found in the frame; cut by its corners.',
+			others: [],
+			ratio: first.ratio ?? null,
+			rect: null,
+			variants: [],
+		};
+		found.shift();
+	}
+
+	if (photo && !rectified.found) {
+		const area = cropImage(image, defaultCapture(image.width, image.height));
+		const middle = rectify(area);
+
+		if (middle.found) {
+			rectified = {...middle, note: `${middle.note} (in the middle of the photo)`, source: area};
+		}
+	}
+
+	const rectifyMs = Math.round(performance.now() - started);
+	let card = rectified.card;
+	let picture = null;
+	let fingerprintMs = null;
+	let matchMs = null;
+	let variantsTried = [];
+	// The box the edges made, on the capture, and the crop that won.
+	const source = rectified.source || image;
+	const mainQuad = straight || !rectified.found ? null : rectified.corners || (rectified.rect ? rectQuad(source, rectified.rect, rectified.angle || 0) : null);
+	let won = {how: mainQuad ? 'the edges found' : 'the frame as it is', quad: mainQuad};
+	let guideRect = null;
+
+	if (pictureFirst) {
+		try {
+			const index = await loadFingerprints();
+			const others = [...(rectified.others || []), ...found];
+			const guideCrop = !straight && guide && guide.w > 0 && guide.h > 0 ? {how: 'the guide', rect: guide} : null;
+			const cutOther = (other, height) => (other.corners ? cutQuad(image, other.corners, height) : other === guideCrop || !rectified.cut ? warpCrop(image, 0, other.rect, Math.min(1, height / other.rect.h)) : rectified.cut(other.rect, height));
+
+			if (guideCrop) {
+				others.push(guideCrop);
+				guideRect = guide;
+			}
+
+			const quadOf = (other) => other.corners || rectQuad(other === guideCrop ? image : source, other.rect, other === guideCrop ? 0 : other.rect.angle ?? (rectified.corners ? 0 : rectified.angle || 0));
+
+			const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
+			const matched = matchCrops(index, crops);
+			const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
+
+			fingerprintMs = matched.timings.fingerprint;
+			matchMs = matched.timings.match;
+
+			if (how) {
+				const other = others[matched.crop - 1];
+
+				card = cutOther(other, other.corners ? undefined : Math.min(CARD_MAX_HEIGHT, other.rect.h));
+				won = {how, quad: quadOf(other)};
+
+				// An outline found on the small copy of the frame is a few
+				// pixels off at full resolution, which the picture forgives
+				// and the number strip's read does not: its edges are found
+				// again on the card cut with a margin, and that crop is kept
+				// when it matches as well.
+				if (other.corners) {
+					const refined = refineQuad(image, other.corners);
+
+					if (refined) {
+						const again = matchCrops(index, [warpCrop(refined, 0, {h: refined.height, w: refined.width, x: 0, y: 0}, OTHER_CROP_HEIGHT / refined.height)]);
+
+						fingerprintMs += again.timings.fingerprint;
+						matchMs += again.timings.match;
+
+						if (again.groups[0] && again.groups[0].score <= matched.groups[0].score + 3) {
+							card = refined;
+							won = {how: `${how}, its edges found again`, quad: won.quad};
+						}
+					}
+				}
+			}
+
+			// A weak match: the crop is likely off (an edge worked out from
+			// a wrong side, or a side taken at the border's inner line), so
+			// the box moved up and down and resized (rectify.js variants) is
+			// fingerprinted too, and the closest kept.
+			const best = matched.groups[0] ? matched.groups[0].score : Infinity;
+			let chosen = matched;
+			let chosenHow = how;
+
+			if ((rectified.variants || []).length && best > SURE_DISTANCE) {
+				const shifted = rectified.variants.map((v) => rectified.variant(v, OTHER_CROP_HEIGHT));
+				const again = matchCrops(index, shifted);
+				const score = again.groups[0] ? again.groups[0].score : Infinity;
+
+				variantsTried = rectified.variants.map((v) => v.how);
+				fingerprintMs += again.timings.fingerprint;
+				matchMs += again.timings.match;
+
+				if (score < best) {
+					chosen = again;
+					chosenHow = rectified.variants[again.crop].how;
+					card = rectified.variant(rectified.variants[again.crop]);
+
+					const variant = rectified.variants[again.crop];
+
+					won = {how: chosenHow, quad: variant.corners || rectQuad(source, variant.rect, rectified.angle || 0)};
+				}
+			}
+
+			picture = compactPicture(chosen, {how: chosenHow, variants: variantsTried, before: chosen === matched ? null : best});
+		}
+		catch {
+			// No index on this phone yet: the card is read in full.
+			picture = null;
+		}
+	}
+
+	// What the scan report's capture images draw (js/scan/image.js
+	// captureImages): the capture, the box the edges made with the edge
+	// worked out, the crop that won, the guide, and the regions read. Kept
+	// in memory only, for the last few scans (js/scan/view.js).
+	const trace = {
+		capture: straight ? null : source,
+		card,
+		foundTop: rectified.foundTop ?? null,
+		guessed: rectified.guessed || null,
+		guide: guideRect,
+		main: mainQuad,
+		mainRect: rectified.rect || null,
+		picture: picture && picture.groups && picture.groups[0] ? {distance: picture.groups[0].score, gap: picture.gap ?? null} : null,
+		regions: picture ? ['label'] : [],
+		won,
+	};
+
+	return {
+		angle: rectified.angle ?? 0,
+		artwork: null,
+		card,
+		found: rectified.found,
+		trace,
+		guessed: rectified.guessed || null,
+		needsText: !picture || needsText(picture),
+		note: rectified.note || null,
+		ocr: false,
+		picture,
+		ratio: rectified.ratio ?? null,
+		read: null,
+		timings: {artwork: null, fingerprint: fingerprintMs, match: matchMs, ocr: null, rectify: rectifyMs, total: Math.round(performance.now() - started), workers: null},
+	};
+}
+
+// The text half: the number (and what else chooses inside the picture's
+// group) for an answer whose picture could not settle the card, or the whole
+// card read for one with no picture match. readOptions go to read.js.
+async function readText(seen, {readOptions = {}} = {}) {
+	if (!seen.needsText) {
+		return seen;
+	}
+
+	const started = performance.now();
+	const {card, picture} = seen;
+	let read = null;
+	let workers = null;
+	let ocrMs = null;
+	let artwork = null;
+	let artworkMs = null;
+
+	let engine = null;
+
+	try {
+		engine = await warmEngine();
+	}
+	catch (err) {
+		// Without the reader, a picture match still stands on its own.
+		if (!picture) {
+			throw err;
+		}
+	}
+
+	if (engine) {
+		// The first group holds several prints (reprints, a Japanese print
+		// and its English twin): the set code box and the label row can
+		// choose between them, so they are read beside the number.
+		const several = Boolean(picture && picture.groups[0] && picture.groups[0].cards.length > 1);
+
+		// With a picture match, only what chooses between its cards: the
+		// number, from the strip the candidates' era prints it on (read.js
+		// readNumber); otherwise the label row is read behind the tray.
+		read = picture
+			? await readNumberOnly(card, engine.ocr, {...readOptions, label: several, prefer: numberSide(picture), setCode: several})
+			: await readCard(card, engine.ocr, readOptions);
+		read.script = null;
+		workers = engine.size;
+		ocrMs = read.timings.ocr;
+
+		const artAt = performance.now();
+
+		artwork = artVector(card);
+		artworkMs = Math.round(performance.now() - artAt);
+	}
+
+	return {
+		...seen,
+		artwork,
+		needsText: false,
+		ocr: Boolean(read),
+		read,
+		trace: {...seen.trace, regions: read ? Object.keys(read.raw || {}) : seen.trace.regions},
+		timings: {...seen.timings, artwork: artworkMs, ocr: ocrMs, total: seen.timings.total + Math.round(performance.now() - started), workers},
+	};
 }
 
 // The crops for the cards found in the whole frame (identify's `quads`):
