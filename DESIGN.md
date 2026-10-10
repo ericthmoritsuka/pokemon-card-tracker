@@ -790,6 +790,11 @@ drops in the first video and 6 of 20 in the second: after each capture it took a
 in the same place for the card already taken (same box, a small difference), and it waited for one
 frame with four clean edges. Decided:
 
+- **Measured on the replay**, version 36 against 35: the first video 37 of 37 drops taken exactly
+  once (10), none mid-fall, 35 sure, all right; the torch video 19 of 20 (6), 18 sure, all right
+  (the one missed landed while the camera app was still settling its zoom, an artefact of the
+  recording). With the main thread held four times as long as the work took here, as on a
+  mid-range phone, version 35 took 6 and 3, version 36 still 37 and 19.
 - **A card is what changed** (`js/scan/drop.js`): the view is averaged into 4-pixel cells; once it
   has been still for 300 ms and two frames, it is compared with the last still picture, brightness
   matched (the commonest ratio between the two, so a card covering most of the view does not skew
