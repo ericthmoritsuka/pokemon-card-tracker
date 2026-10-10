@@ -843,3 +843,42 @@ button.bt-fill {
 	flex: 0 0 96px;
 	width: 96px;
 }
+
+/* ------------------------------------- adding many cards to the tray */
+
+.tray-pick-row {
+	align-items: center;
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: minmax(0, 1fr) auto;
+	margin-top: var(--space-2);
+}
+
+.tray-pick-row .select-wrap,
+.tray-pick-row select {
+	min-width: 0;
+	width: 100%;
+}
+
+.tray-pick-row button {
+	width: auto;
+}
+
+/* A selected tile: a ring as well as the check in its corner. */
+.tray-pick[aria-pressed="true"] .art-wrap {
+	border-radius: 6px;
+	outline: 3px solid var(--accent-strong);
+	outline-offset: 2px;
+}
+
+/* The Add button stays in reach while the list scrolls. */
+.tray-pick-foot {
+	background: var(--bg);
+	bottom: calc(-1 * (var(--space-4) + env(safe-area-inset-bottom)));
+	padding: var(--space-2) 0 calc(var(--space-4) + env(safe-area-inset-bottom));
+	position: sticky;
+}
+
+.tray-pick-foot .form-error:empty {
+	display: none;
+}

@@ -64,6 +64,7 @@ import {
 	coverTextColor,
 	createBinder,
 	createGeneratedBinder,
+	addToTray,
 	deleteBinder,
 	fillTray,
 	isGenerated,
@@ -84,6 +85,8 @@ import {
 	setPocketPick,
 	slotsOf,
 	sortBinders,
+	takeFromTray,
+	trayCandidates,
 	trayOf,
 	unplaced,
 	updateBinder,
@@ -848,6 +851,8 @@ function binderScreen(root, source, id, pageParam) {
 	let statsEntries = [];
 	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder')});
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
+	// Many cards into the tray at once; a binder made from a list has none.
+	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1080,6 +1085,7 @@ function binderScreen(root, source, id, pageParam) {
 
 			unplacedLink.textContent = `${plural(loose, 'owned card', 'owned cards')} not in any binder`;
 			unplacedLink.hidden = listMode;
+			addTrayButton.hidden = listMode;
 			refreshButton.hidden = !listMode;
 		}
 
@@ -1139,6 +1145,7 @@ function binderScreen(root, source, id, pageParam) {
 					? null
 					: h('div', {class: 'actions'},
 						refreshButton,
+						addTrayButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
@@ -2102,6 +2109,238 @@ function binderScreen(root, source, id, pageParam) {
 
 		trayStrip.addEventListener('pointercancel', end);
 		trayStrip.addEventListener('dragstart', (event) => event.preventDefault());
+	}
+
+	// ------------------------------------ adding many cards to the tray
+	//
+	// "Add cards to the tray": a picker over the copies in no binder yet
+	// (js/binders.js trayCandidates), with a search and a set filter. Tap
+	// tiles to select them, or Select all for what is shown, then add them
+	// all; Undo on the toast takes them back out. A binder made from a list
+	// has no tray, so the button is hidden there.
+
+	function openTrayPicker() {
+		if (!sheet || listMode) {
+			return;
+		}
+
+		const chosen = new Set();
+		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
+		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'tray-search', placeholder: 'Search your cards', type: 'search'});
+		const setFilter = h('select', {'aria-label': 'Set', id: 'tray-set'});
+		const count = h('p', {'aria-live': 'polite', class: 'muted', id: 'tray-count'});
+		const selectAll = h('button', {class: 'small', id: 'tray-all', type: 'button'}, 'Select all');
+		const results = h('div', {class: 'pick-grid', id: 'tray-results'});
+		const more = h('button', {hidden: true, id: 'tray-more', type: 'button'}, 'Show more');
+		const add = h('button', {class: 'primary', disabled: true, id: 'tray-add', type: 'button'}, 'Add to the tray');
+		let shown = PICK_PAGE;
+
+		const items = trayCandidates(data.cards, data.binders).map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
+		const byName = (a, b) => a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at));
+		const setOf = (item) => item.info.setName || item.entry.set_name_local || '';
+
+		function drawSets() {
+			const counts = new Map();
+
+			for (const item of items) {
+				counts.set(setOf(item), (counts.get(setOf(item)) || 0) + 1);
+			}
+
+			const current = setFilter.value;
+			const names = [...counts.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+			setFilter.replaceChildren(
+				h('option', {value: ''}, `All sets (${formatCount(items.length)})`),
+				...names.map((name) => h('option', {value: name}, `${name} (${formatCount(counts.get(name))})`))
+			);
+			setFilter.value = names.includes(current) ? current : '';
+		}
+
+		function matches(item, query) {
+			if (!query) {
+				return true;
+			}
+
+			return [item.info.name, item.info.setName, item.info.number, item.entry.card_id]
+				.some((value) => value && String(value).toLowerCase().includes(query));
+		}
+
+		const found = () => {
+			const query = search.value.trim().toLowerCase();
+			const set = setFilter.value;
+
+			return items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName);
+		};
+
+		function drawFoot() {
+			add.disabled = !chosen.size;
+			add.textContent = chosen.size ? `Add ${plural(chosen.size, 'card', 'cards')} to the tray` : 'Add to the tray';
+		}
+
+		function tile(item) {
+			const on = chosen.has(item.entry.id);
+			// Picking physical copies: the language always shows, and a
+			// check marks the ones selected, with aria-pressed for screen
+			// readers.
+			const frame = tileArt({
+				finish: entryFinish(item.entry),
+				info: item.info,
+				languages: [item.entry.language],
+				src: item.info.image,
+				status: on ? 'owned' : null,
+				statusLabel: on ? 'Selected' : null,
+			});
+
+			return h('button', {'aria-pressed': String(on), class: 'pick tray-pick', 'data-entry': item.entry.id, type: 'button'},
+				frame,
+				h('span', {class: 'tile-name'}, item.info.name),
+				h('span', {class: 'tile-meta'}, [item.info.number ? `#${item.info.number}` : null, item.info.setName].filter(Boolean).join(' · ') || item.entry.card_id)
+			);
+		}
+
+		function draw() {
+			const list = found();
+
+			if (!items.length) {
+				count.textContent = 'Every card you own is in a binder or a tray already.';
+			}
+			else if (!list.length) {
+				count.textContent = 'No cards match.';
+			}
+			else {
+				count.textContent = `${plural(list.length, 'card', 'cards')} not in a binder yet.`;
+			}
+
+			selectAll.hidden = !list.length;
+			selectAll.textContent = list.length && list.every((item) => chosen.has(item.entry.id))
+				? 'Select none'
+				: `Select all ${formatCount(list.length)}`;
+			results.replaceChildren(...list.slice(0, shown).map(tile));
+			more.hidden = list.length <= shown;
+			more.textContent = `Show more (${formatCount(list.length - shown)} left)`;
+			drawFoot();
+
+			// Names and images for the copies shown that the phone has no
+			// catalog record for yet.
+			fillRecords(list.slice(0, shown).map((item) => ({cardId: item.entry.card_id, catalog: item.entry.catalog})), index, () => alive && sheet.open)
+				.then((filled) => {
+					if (filled && alive && sheet.open) {
+						index = filled;
+
+						for (const item of items) {
+							item.info = entryInfo(item.entry, index, viewing);
+						}
+
+						drawSets();
+						draw();
+					}
+				})
+				.catch(() => {});
+		}
+
+		const restart = () => {
+			shown = PICK_PAGE;
+			message.textContent = '';
+			draw();
+		};
+
+		results.addEventListener('click', (event) => {
+			const button = event.target.closest('.tray-pick');
+
+			if (!button) {
+				return;
+			}
+
+			const id = button.dataset.entry;
+
+			if (chosen.has(id)) {
+				chosen.delete(id);
+			}
+			else {
+				chosen.add(id);
+			}
+
+			// Drawn again for the counts, keeping focus on the tile tapped.
+			draw();
+
+			const again = results.querySelector(`.tray-pick[data-entry="${CSS.escape(id)}"]`);
+
+			if (again) {
+				again.focus();
+			}
+		});
+
+		selectAll.addEventListener('click', () => {
+			const list = found();
+			const all = list.every((item) => chosen.has(item.entry.id));
+
+			for (const item of list) {
+				if (all) {
+					chosen.delete(item.entry.id);
+				}
+				else {
+					chosen.add(item.entry.id);
+				}
+			}
+
+			draw();
+		});
+
+		search.addEventListener('input', restart);
+		setFilter.addEventListener('change', restart);
+		more.addEventListener('click', () => {
+			shown += PICK_PAGE;
+			draw();
+		});
+
+		add.addEventListener('click', async () => {
+			// In the order shown, so the tray fills in the same order.
+			const ids = items.filter((item) => chosen.has(item.entry.id)).sort(byName).map((item) => item.entry.id);
+			const target = binder;
+
+			add.disabled = true;
+
+			try {
+				await addToTray(target.id, ids);
+			}
+			catch (err) {
+				message.textContent = `Could not add the cards to the tray. ${err.message || errorText(err)}`;
+				drawFoot();
+
+				return;
+			}
+
+			closeSheet();
+			toast(`${plural(ids.length, 'card', 'cards')} added to the tray of ${target.name}.`, {
+				action: () => {
+					takeFromTray(target.id, ids).catch((err) => toast(`Could not take them back out. ${errorText(err)}`));
+				},
+				actionLabel: 'Undo',
+				timeout: UNDO_MS,
+			});
+		});
+
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h3', {id: 'sheet-title'}, 'Add cards to the tray'),
+				h('button', {'aria-label': 'Close', class: 'small', id: 'sheet-close', onclick: closeSheet, type: 'button'}, 'Close')
+			),
+			h('p', {class: 'muted', id: 'tray-intro'}, 'Pick the cards you own that are not in a binder yet. They wait in the tray until you place them.'),
+			search,
+			h('div', {class: 'tray-pick-row'}, h('span', {class: 'select-wrap'}, setFilter), selectAll),
+			count,
+			results,
+			more,
+			h('div', {class: 'tray-pick-foot'}, message, add)
+		);
+
+		if (!sheet.open) {
+			openDialogSheet(sheet);
+		}
+
+		// Drawn once the sheet is open, so the names it lacks are read.
+		drawSets();
+		draw();
 	}
 
 	// ------------------------------------------------- the pocket sheet

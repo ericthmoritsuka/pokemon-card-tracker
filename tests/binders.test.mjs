@@ -45,8 +45,10 @@ import {
 	stageCards,
 	stagedOf,
 	totalPockets,
+	trayCandidates,
 	trayOf,
 	unplaced,
+	unstageCards,
 	validGrid,
 } from '../js/binders.js';
 import {mergeDocuments, nextStamp} from '../js/merge.js';
@@ -551,6 +553,29 @@ describe('the tray', () => {
 		binders = apply(binders, setPocket(binders, {at: at(6), binderId: 'b', content: {entry_id: 'c3'}, page: 2, position: 2}));
 		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c4', 'c5', 'c6']);
 		assert.equal(where(binders, 'c3'), 'b:2:2');
+	});
+
+	test('"Add cards to the tray" offers copies in no pocket and no tray, adds many at once, and Undo takes back only those', () => {
+		let binders = trayBinders();
+		const cards = ['c1', 'c2', 'c5', 'c6', 'c7', 'c8', 'c9'].map((id) => card(id));
+
+		cards.push(card('c10', {deleted_at: at(1)}));
+		assert.deepEqual(trayCandidates(cards, binders).map((entry) => entry.id), ['c7', 'c8', 'c9'], 'not c1 or c5 (in pockets), c2 or c6 (in trays), or c10 (deleted)');
+
+		binders = apply(binders, stageCards(binders, {at: at(5), binderId: 'a', entryIds: ['c7', 'c8', 'c9']}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4', 'c7', 'c8', 'c9']);
+		assert.deepEqual(trayCandidates(cards, binders), []);
+
+		// One of them is placed before Undo: it stays in its pocket.
+		binders = apply(binders, placeFromTray(binders, {at: at(6), binderId: 'a', entryId: 'c8', page: 1, position: 4}));
+		binders = apply(binders, unstageCards(binders, {at: at(7), binderId: 'a', entryIds: ['c7', 'c8', 'c9']}));
+		assert.deepEqual(stagedOf(binders[0]), ['c2', 'c3', 'c4']);
+		assert.equal(where(binders, 'c8'), 'a:1:4');
+		assert.deepEqual(unstageCards(binders, {at: at(8), binderId: 'a', entryIds: ['c7']}), [], 'nothing to take back saves nothing');
+
+		// A binder made from a list has no tray.
+		binders.push(binderOf('g', {rule: {order: 'dex', source: {id: 'list-1', kind: 'checklist'}}}));
+		assert.throws(() => stageCards(binders, {binderId: 'g', entryIds: ['c7']}), /made from a list/);
 	});
 
 	test('a card taken out of a pocket can go to the tray', () => {
@@ -1644,6 +1669,75 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('#bt-note').textContent(), '2 cards placed in order.');
 		assert.deepEqual((await saved()).slots.map((slot) => [slot.page, slot.position, slot.entry_id]), [[1, 1, 'c3'], [1, 2, 'c1'], [1, 3, 'c2']]);
 		assert.deepEqual((await saved()).staged, []);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Add cards to the tray: pick many copies not in a binder yet, with a search and a set filter, add them all, and Undo', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const binder = binderOf('b-add', {cols: 2, created_at: AT, name: 'Add binder', page_count: 2, rows: 2, slots: [{entry_id: 'c1', page: 1, placed_at: AT, position: 1}], updated_at: AT});
+		// c5 waits in another binder's tray, so it is not offered.
+		const other = binderOf('b-other', {created_at: AT, name: 'Other binder', staged: ['c5'], updated_at: AT});
+		const cards = [
+			...CARDS,
+			entry('c5', {card_id: 'tst1-004', catalog: 'international'}),
+			entry('c6', {card_id: 'tst2-025', catalog: 'international'}),
+		];
+		const records = [...RECORDS, {...record('tst2-025', '025', 'Test Pikachu'), localizations: {en: {image: null, lang: 'en', name: 'Test Pikachu', set_name: 'Test set two'}}, set_id: 'tst2'}];
+		const tiles = () => page.locator('#tray-results .tray-pick').evaluateAll((items) => items.map((item) => `${item.dataset.entry}${item.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
+		const saved = async () => (await localDoc(page)).binders.find((item) => item.id === 'b-add');
+
+		await seedLocal(page, documentWith(cards, [binder, other]), records);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		// Squirtle's name comes from TCGdex, so the order settles once it is in.
+		await page.waitForFunction(() => document.querySelector('#tray-results .tray-pick[data-entry="c3"] .tile-name')?.textContent === 'Test Squirtle');
+		assert.deepEqual(await tiles(), ['c2', 'c6', 'c3'], 'by name: not c1 (in a pocket), c4 (deleted), or c5 (in another tray)');
+		assert.equal(await page.locator('#tray-count').textContent(), '3 cards not in a binder yet.');
+		assert.equal(await page.locator('#tray-add').isDisabled(), true);
+
+		// The set filter, and Select all for what it shows.
+		await page.selectOption('#tray-set', 'Test set two');
+		assert.deepEqual(await tiles(), ['c6']);
+		await page.click('#tray-all');
+		assert.deepEqual(await tiles(), ['c6*']);
+		assert.equal(await page.locator('#tray-all').textContent(), 'Select none');
+
+		// The search, and a tap on a tile.
+		await page.selectOption('#tray-set', '');
+		await page.fill('#tray-search', 'squirt');
+		assert.deepEqual(await tiles(), ['c3']);
+		await page.click('#tray-results .tray-pick[data-entry="c3"]');
+		assert.deepEqual(await tiles(), ['c3*']);
+		assert.equal(await page.locator('#tray-results .tray-pick[data-entry="c3"] .badge-status').getAttribute('aria-label'), 'Selected');
+		await page.fill('#tray-search', '');
+		assert.deepEqual(await tiles(), ['c2', 'c6*', 'c3*']);
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 2 cards to the tray');
+
+		const fit = await page.evaluate(() => ({add: document.getElementById('tray-add').getBoundingClientRect().bottom, height: innerHeight, width: document.documentElement.scrollWidth}));
+
+		assert.ok(fit.add <= fit.height, 'the Add button is on screen');
+		assert.equal(fit.width, 360, 'nothing scrolls sideways');
+		await page.screenshot({path: '/tmp/binders-add-to-tray.png'});
+
+		// Added in the order shown; the tray shows them.
+		await page.click('#tray-add');
+		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
+		await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+		assert.deepEqual((await saved()).staged, ['c6', 'c3']);
+		assert.equal(await page.locator('.toast .toast-text').textContent(), '2 cards added to the tray of Add binder.');
+		await page.screenshot({path: '/tmp/binders-add-to-tray-done.png'});
+
+		// Undo takes them back out, and they are offered again.
+		await page.click('.toast button:has-text("Undo")');
+		await page.waitForSelector('#binder-tray[hidden]', {state: 'attached'});
+		assert.deepEqual((await saved()).staged, []);
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.equal(await page.locator('#tray-results .tray-pick').count(), 3);
+		await page.click('#sheet-close');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
