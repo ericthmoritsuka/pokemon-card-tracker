@@ -348,6 +348,37 @@ describe('twins in the app', () => {
 		await context.close();
 	});
 
+	test('set detail tiles with no image of their own show the twin\'s, and a Trainer its English name', async () => {
+		const {context, errors, page, seen} = await appContext();
+
+		await seedApp(page);
+		await page.goto(`${server.origin}${APP}sets/ja/tstj1`);
+
+		const tileFor = (number) => page.locator('.card-grid .tile', {has: page.locator('.tile-meta', {hasText: `#${number}`})});
+
+		await page.locator('.card-grid .tile img[src$="/en/tst/tst9/050/low.webp"]').waitFor();
+		assert.equal(await tileFor('001').locator('.tile-name').textContent(), 'Test Gadget');
+		assert.equal(await tileFor('001').locator('.tile-original').textContent(), '試験の道具');
+		assert.match(await tileFor('002').locator('img').getAttribute('src'), /\/en\/tst\/tst9\/007\/low\.webp$/);
+
+		// The unsure one lends nothing until it is answered, then its tile
+		// takes the twin chosen.
+		assert.equal(await tileFor('003').locator('img').count(), 0, 'the card back');
+		await page.screenshot({path: `${SHOTS}/twins-set-detail.png`});
+		await page.evaluate(async () => {
+			const {setDecision, twinState} = await import('/pokemon-card-tracker/js/twins.js');
+			const item = {card_id: 'tstj1-003', catalog: 'ja'};
+
+			await setDecision(item, {choice: 'confirmed', twin: twinState(item).candidates[1]});
+		});
+		await page.locator('.card-grid .tile img[src$="/en/tst/tst9/062/low.webp"]').waitFor();
+		assert.equal(await tileFor('003').locator('.tile-name').textContent(), 'Test Fossil B');
+		assert.equal(seen.graphql, 0);
+		assert.deepEqual(seen.outside, []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('card detail shows the International print slide, the English name, and the picker after the hero', async () => {
 		const {context, errors, page, seen} = await appContext();
 

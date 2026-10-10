@@ -606,8 +606,45 @@ export function setView(root, {lang, setId}) {
 		))
 	);
 
+	// What the tiles drawn last took from international twins (js/twins.js),
+	// so a twin found or answered while the set is open redraws it only
+	// when a tile here would change.
+	let twinsDrawn = '';
+	const twinItem = (card, cardLang) => ({card_id: card.id, catalog: catalogFor(cardLang)});
+	// A card with no image of its own borrows its twin's, as on its page
+	// and in My Cards; a Trainer or Energy with no English name, its name.
+	const twinParts = (card, cardLang) => {
+		const item = twinItem(card, cardLang);
+
+		return {name: twinName(item), src: card.image ? null : (twinSlides(item, {size: 'low'})[0] || {}).src || null};
+	};
+	const twinsOf = (cards, cardLang) => cards.map((card) => {
+		const {name, src} = twinParts(card, cardLang);
+
+		return name || src ? `${card.id}:${name || ''}:${src || ''}` : '';
+	}).filter(Boolean).join('|');
+
+	function twinsChanged(key) {
+		if (!alive || !shown) {
+			return;
+		}
+
+		const [, cards, cardLang] = shown;
+
+		if (key && !cards.some((card) => twinKey(twinItem(card, cardLang)) === key)) {
+			return;
+		}
+
+		if (twinsOf(cards, cardLang) !== twinsDrawn) {
+			draw(...shown);
+		}
+	}
+
+	const stopTwins = onTwinsChange(twinsChanged);
+
 	function draw(set, cards, cardLang) {
 		shown = [set, cards, cardLang];
+		twinsDrawn = twinsOf(cards, cardLang);
 
 		const redraw = () => alive && shown && draw(...shown);
 
@@ -646,11 +683,13 @@ export function setView(root, {lang, setId}) {
 		}
 
 		const tiles = visible.map((card) => {
-			const names = namesFor({lang: cardLang, name: card.name}, redraw);
+			const twin = twinParts(card, cardLang);
+			const plain = namesFor({lang: cardLang, name: card.name}, redraw);
+			const names = plain.english || !twin.name ? plain : {...plain, english: twin.name};
 			const info = {name: mainName(names), number: card.localId, setName: set.name};
 			const mine = owned.get(card.id);
 			const route = routeTo('cards', cardLang, card.id);
-			let art = {info, src: cardImage(card.image, 'low')};
+			let art = {info, src: cardImage(card.image, 'low') || twin.src};
 			let status = null;
 
 			if (mine) {
@@ -746,8 +785,13 @@ export function setView(root, {lang, setId}) {
 	root.append(...[back, title, meta, goal, stats, filter, note, problem, grid].filter(Boolean));
 	load();
 
+	// The twins saved on this phone load once a session; tiles drawn before
+	// they are in are drawn again only when a twin changes one.
+	loadTwins().then(() => twinsChanged(null), () => {});
+
 	return () => {
 		alive = false;
+		stopTwins();
 	};
 }
 
