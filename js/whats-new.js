@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-10',
+		items: [
+			'Holder mode takes every card you drop, even on the same spot and at your normal speed, and keeps scanning while you check a card.',
+			'Tap any card that needs a look, or the "to check" count, to go through them one after another.',
+			'Fewer cards to check: the scanner finds cards whose picture came out a little off.',
+			'Light tip for holder mode: the torch, or a lamp beside the box. Share now sends the scan log.',
+		],
+		version: 'v36',
+	},
+	{
 		date: '2026-10-09',
 		items: [
 			'The scanner finds the card anywhere in view, bigger or smaller than the frame, and on a pile takes only the card on top.',
