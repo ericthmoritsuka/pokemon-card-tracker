@@ -12,6 +12,22 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-10
+
+- **00:27** Version 36: holder scanning rebuilt from your videos. `0f05d47`
+  - **Holder mode** notices each drop by what changed since the last still picture, so cards
+    landing on the same spot and a fast drop rhythm are taken, each once and never mid-fall. The
+    crop comes from what changed, trimming the strip of the card beneath. Scanning keeps going
+    while you check a card, and a slow read no longer holds up the next one.
+  - **Review** starts from any card that needs a look, or from the "to check" count, and walks
+    through them all. A sheet no longer redraws or shrinks under your finger while open.
+  - **Fewer cards to check:** a card whose crop came out a little off is searched again more
+    widely. On your 96 logged crops: 92 right first (was 88), 24% to check (was 43%), none wrong
+    but sure. On your videos: 37 of 37 and 19 of 20 drops taken once (was 10 and 6).
+  - Holder mode holds focus and white balance, and shows a light tip (the torch at 1.4x, or a
+    lamp beside the box). The scan log keeps small before and after views of each drop for replay,
+    and Share sends it as plain text.
+
 ### 2026-10-09
 
 - **20:50** Version 35: the scanner finds the card anywhere, and holder mode. `1e57220`
