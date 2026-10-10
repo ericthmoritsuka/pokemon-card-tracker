@@ -139,7 +139,7 @@ export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
 
 	const {groups} = best.result;
 
-	return {crop: best.crop, gap: gapOf(groups), groups, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, wide: widened};
+	return {crop: best.crop, gap: gapOf(groups), groups, plain: tried[0] ? tried[0].score : null, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, wide: widened};
 }
 
 // How many cards of a group are kept on the tray card.
@@ -153,6 +153,7 @@ const GROUP_CARDS = 8;
 export function compactPicture(matched, {before = null, how = null, variants = []} = {}) {
 	return {
 		before: typeof before === 'number' && Number.isFinite(before) ? Math.round(before * 10) / 10 : null,
+		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
 			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, id, image, score, set}) => ({catalog, id, image, score, set})),
@@ -214,7 +215,12 @@ export function noCard({found = false, picture = null, read = null}, seen) {
 		return false;
 	}
 
-	return typeof lead.score === 'number' && lead.score > NOT_CARD_DISTANCE;
+	// The distance before the wider search (matchCrops `plain`): that search
+	// brings anything a little closer, a sheet of paper included, and the
+	// threshold was measured without it.
+	const distance = typeof picture.plain === 'number' ? Math.max(picture.plain, lead.score) : lead.score;
+
+	return typeof distance === 'number' && distance > NOT_CARD_DISTANCE;
 }
 
 // Q-20: opening Scan again with the card just added still in front of the

@@ -827,8 +827,9 @@ frame with four clean edges. Decided:
 - **Review starts from any card that needs a look**: its tile (the run goes round the tray from it,
   newest first), the "N to check" count over the camera, Done's Review, and Save while cards need
   a look; after the last card the camera comes back. The open sheet is redrawn only when its card
-  changes and never shrinks while open, and a tap on the backdrop just after a redraw does not close
-  it: cards arriving behind the sheet redrew it under Eric's finger ("I select the card, it closes").
+  changes and never shrinks while open: cards arriving behind the sheet redrew it under Eric's
+  finger, and a sheet that shrank put the backdrop where his next tap landed ("I select the card,
+  it closes").
 - **Light**: on the videos the phone's torch overhead (the glare spot in the middle of the card)
   and a flashlight beside the box both gave sure answers; the flashlight high behind the box gave
   the most cards to check. No glare mask was needed: the picture's low frequencies hardly move

@@ -595,13 +595,15 @@ async function copyText(text, area) {
 // The report as a text box (selectable by hand too) with Copy. A long run
 // of scans is better kept with Record every scan (Phone check, the scan
 // log in js/scan/log.js).
-function reportPanel(ctx, itemId) {
+function reportPanel(ctx, itemId, said = {line: ''}) {
 	const text = ctx.reportText(itemId);
 	const area = h('textarea', {'aria-label': 'Scan report', class: 'scan-report-text', id: 'scan-report-text', readonly: true, rows: 20, spellcheck: 'false'});
-	const status = h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-report-status'});
+	const status = h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-report-status'}, said.line);
 	// The sheet may be drawn again while a copy or a save is under way (a
-	// card finishing behind it): the line is found again when it is told.
+	// card finishing behind it): the line is kept for the next drawing
+	// (`said`) and found again when it is told.
 	const tell = (line) => {
+		said.line = line;
 		(document.getElementById('scan-report-status') || status).textContent = line;
 	};
 
@@ -635,6 +637,7 @@ export function reportSheet(ctx, itemId) {
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-report-sheet', id: 'scan-report', role: 'dialog'},
 		sheetHeader('Scan report', () => ctx.closeSheet(), titleId),
 		body);
+	const said = {line: ''};
 
 	function refresh() {
 		if (!findItem(ctx.session, itemId)) {
@@ -644,7 +647,7 @@ export function reportSheet(ctx, itemId) {
 		}
 
 		body.replaceChildren(
-			reportPanel(ctx, itemId),
+			reportPanel(ctx, itemId, said),
 			h('button', {class: 'scan-button scan-wide', id: 'scan-report-back', onclick: () => ctx.openItem(itemId), type: 'button'}, 'Back to the card'));
 	}
 

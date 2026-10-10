@@ -249,10 +249,6 @@ const samePlace = (a, b) => sameBox(a, b) || overlap(a, b) >= STEADY_OVERLAP;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// A tap on the backdrop this soon after the sheet was redrawn does not
-// close it: it was meant for what the redraw moved.
-const BACKDROP_QUIET_MS = 600;
-
 // The shutter pressed with no whole card in the frame keeps looking for
 // this long, every SHUTTER_STEP_MS, for a frame where a whole card is
 // found and still, then takes the picture anyway (Eric's log, version 32:
@@ -418,7 +414,7 @@ export function scanView(root) {
 	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => openDone(), type: 'button'}, 'Done');
 	const live = h('p', {'aria-live': 'polite', class: 'scan-live', id: 'scan-live'});
 	const sheetLayer = h('div', {class: 'scan-sheet-layer', hidden: true, id: 'scan-sheet-layer', onclick: (event) => {
-		if (event.target === sheetLayer && performance.now() - sheetDrawnAt > BACKDROP_QUIET_MS) {
+		if (event.target === sheetLayer) {
 			closeSheet();
 		}
 	}});
@@ -709,9 +705,8 @@ export function scanView(root) {
 			// and a redraw under the finger swapped the button being tapped, or
 			// shrank the sheet so a second tap landed on the backdrop and closed
 			// it (Eric, 2026-10-09: "I select the card, it closes"). It never
-			// shrinks while open, and the backdrop ignores taps for a moment
-			// after a redraw. Focus stays on the same control, found again by
-			// its id.
+			// shrinks while open. Focus stays on the same control, found again
+			// by its id.
 			const mark = sheetMark(summary);
 
 			if (mark !== null && mark === sheet.mark) {
@@ -724,7 +719,6 @@ export function scanView(root) {
 			const before = sheet.el.offsetHeight;
 
 			sheet.refresh();
-			sheetDrawnAt = performance.now();
 
 			if (sheet && sheet.el.offsetHeight < before) {
 				sheet.el.style.minHeight = `${before}px`;
@@ -739,9 +733,6 @@ export function scanView(root) {
 			}
 		}
 	}
-
-	// When the open sheet was last redrawn, and what it showed then.
-	let sheetDrawnAt = -Infinity;
 
 	// What the open sheet shows, to tell whether it needs a redraw: its card
 	// and what the sheet says about the session around it. Null for a sheet

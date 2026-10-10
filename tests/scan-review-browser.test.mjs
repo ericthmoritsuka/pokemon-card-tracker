@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
-import {routeTcgdex, startScanHarness} from './scan-harness.mjs';
+import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 import {sceneCamera} from './scan-scene.mjs';
 
 const require = createRequire(import.meta.url);
@@ -54,6 +54,8 @@ async function open({holder = false} = {}) {
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await routeTcgdex(context);
+	// The card the holder test drops into the box (tests/scan-scene.mjs).
+	await context.route('**/__test-card.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage('me01-001')}));
 	await context.addInitScript(sceneCamera, {height: 3840, width: 2160});
 	await context.addInitScript((on) => localStorage.setItem('card-tracker:scan-holder', on ? 'on' : 'off'), holder);
 
