@@ -20,7 +20,7 @@
 
 import {importApi} from '../catalog.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
-import {queryFingerprints} from '../vision/fingerprint.js';
+import {queryFingerprints, thumbnail, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
 export {AUTO_GAP};
@@ -39,14 +39,18 @@ export {AUTO_GAP};
 // - FIRM_DISTANCE: at or under 55, a lead of FIRM_GAP does too (Eric's
 //   phone, version 25: Skrelp under a flashlight was 46.4 away with a lead
 //   of 25.7, plainly right, and was left "Not sure"). A wrong first place
-//   has never led by more than 5.8, and its distance was past 60.
+//   has never led by more than 5.8, and its distance was past 60. FIRM_GAP
+//   was 20 until version 36 (Eric, 2026-10-09): on his holder-log crops and
+//   1,056 re-crops of them (lab/holder/crops.mjs) the 141 wrong first places
+//   led by 6 at most, all past 61, while 140 right ones within 55 led by 15
+//   to 20 and waited for their number to be read.
 // - Between those and CLEAR_DISTANCE the picture is probably right but not
 //   certain, so the number is read to confirm it.
 // - CLEAR_DISTANCE: above 60 nothing is clear, whatever the lead: that
 //   distance is a wrong crop, and a lead there means nothing.
 export const SURE_DISTANCE = 45;
 export const FIRM_DISTANCE = 55;
-export const FIRM_GAP = 20;
+export const FIRM_GAP = 15;
 export const CLEAR_DISTANCE = 60;
 
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
@@ -73,30 +77,69 @@ export const fingerprintsLoaded = () => Boolean(indexPromise);
 // fingerprinted at the matcher's small shifts (QUERY_SHIFTS), and the crop
 // whose best group scores lowest wins. Returns {groups, gap, crop, timings}:
 // crop is the index into `crops` that won.
-export function matchCrops(index, crops) {
+//
+// When no crop is sure that way, the closest WIDE_CROPS crops are matched
+// again with the wider search (fingerprint.js WIDE_SHIFTS: moves of up to
+// 7.5 %, a smaller and larger crop, the card squeezed by a strip of the
+// card underneath or a side cut short), which costs about seven times as
+// much, so a crop that is right as found pays nothing for it. On Eric's
+// holder-log crops (lab/holder/crops.mjs, 2026-10-09) it put the right card
+// first on 92 of 96 against 88, sure on 69 against 55, none wrong but sure,
+// and the right card first on 920 of 1,056 re-crops (moved, zoomed, pile
+// strips, turned) against 472. wide: false skips it.
+export const WIDE_CROPS = 2;
+
+// How many cards matcher.js scores in full after screening the index on
+// each hash's first word ({base, wide}: the plain search and the wide one;
+// 0 scores every card).
+export const SCREEN = {base: 2000, wide: 2000};
+
+export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
 	const t0 = performance.now();
 	const bits = {artBits: index.header.fields.art.bytes * 8, cardBits: index.header.fields.card ? index.header.fields.card.bytes * 8 : 64};
-	let best = null;
+	const tried = [];
 	let fingerprintMs = 0;
+	const gapOf = (groups) => (groups.length > 1 ? groups[1].score - groups[0].score : groups.length ? Infinity : 0);
+	const scoreOf = (result) => (result.groups[0] ? result.groups[0].score : Infinity);
 
 	crops.forEach((crop, i) => {
 		const at = performance.now();
-		const queries = queryFingerprints(crop, bits);
+		const thumb = thumbnail(crop);
+		const queries = queryFingerprints(thumb, bits);
 
 		fingerprintMs += performance.now() - at;
 
-		const result = matchFingerprints(index, queries);
-		const score = result.groups[0] ? result.groups[0].score : Infinity;
+		const result = matchFingerprints(index, queries, {screen: screen.base});
 
-		if (!best || score < best.score) {
-			best = {crop: i, result, score};
-		}
+		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
 
-	const {groups} = best.result;
-	const gap = groups.length > 1 ? groups[1].score - groups[0].score : groups.length ? Infinity : 0;
+	tried.sort((a, b) => a.score - b.score || a.crop - b.crop);
 
-	return {crop: best.crop, gap, groups, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}};
+	let best = tried[0];
+	let widened = false;
+
+	if (wide && best && !pictureVerdict({gap: gapOf(best.result.groups), groups: best.result.groups}).sure) {
+		widened = true;
+
+		for (const one of tried.slice(0, WIDE_CROPS)) {
+			const at = performance.now();
+			const more = queryFingerprints(one.thumb, bits, WIDE_SHIFTS);
+
+			fingerprintMs += performance.now() - at;
+
+			const result = matchFingerprints(index, [...one.queries, ...more], {screen: screen.wide});
+			const score = scoreOf(result);
+
+			if (score < best.score || (one === best && score <= best.score)) {
+				best = {...one, result, score};
+			}
+		}
+	}
+
+	const {groups} = best.result;
+
+	return {crop: best.crop, gap: gapOf(groups), groups, plain: tried[0] ? tried[0].score : null, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, wide: widened};
 }
 
 // How many cards of a group are kept on the tray card.
@@ -110,6 +153,7 @@ const GROUP_CARDS = 8;
 export function compactPicture(matched, {before = null, how = null, variants = []} = {}) {
 	return {
 		before: typeof before === 'number' && Number.isFinite(before) ? Math.round(before * 10) / 10 : null,
+		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
 			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, id, image, score, set}) => ({catalog, id, image, score, set})),
@@ -171,7 +215,12 @@ export function noCard({found = false, picture = null, read = null}, seen) {
 		return false;
 	}
 
-	return typeof lead.score === 'number' && lead.score > NOT_CARD_DISTANCE;
+	// The distance before the wider search (matchCrops `plain`): that search
+	// brings anything a little closer, a sheet of paper included, and the
+	// threshold was measured without it.
+	const distance = typeof picture.plain === 'number' ? Math.max(picture.plain, lead.score) : lead.score;
+
+	return typeof distance === 'number' && distance > NOT_CARD_DISTANCE;
 }
 
 // Q-20: opening Scan again with the card just added still in front of the

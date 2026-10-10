@@ -780,6 +780,71 @@ the tray instead of asking. Decided:
   frame, its shape and turn), how long the picture had been still, and how long the shutter waited
   and whether a whole card came.
 
+**Holder mode by what changed (Eric, 2026-10-09, version 36).** Version 35 never ran on the phone
+before Eric's next session, so it was measured on what he recorded instead: two videos of the stand
+over the white box (a flashlight at three angles, zoom 1x and 1.4x, slow drops and his own fast
+rhythm, and a second video with the phone's torch on), replayed frame by frame through the
+scanner's code at its loop rate (`lab/holder/replay.mjs`), and the 96 straightened cards of his two
+scan logs with the card he saved for each (`lab/holder/crops.mjs`). Version 35 noticed 10 of 37
+drops in the first video and 6 of 20 in the second: after each capture it took a new card landing
+in the same place for the card already taken (same box, a small difference), and it waited for one
+frame with four clean edges. Decided:
+
+- **Measured on the replay**, version 36 against 35: the first video 37 of 37 drops taken exactly
+  once (10), none mid-fall, 35 sure, all right; the torch video 19 of 20 (6), 18 sure, all right
+  (the one missed landed while the camera app was still settling its zoom, an artefact of the
+  recording). With the main thread held four times as long as the work took here, as on a
+  mid-range phone, version 35 took 6 and 3, version 36 still 37 and 19.
+- **A card is what changed** (`js/scan/drop.js`): the view is averaged into 4-pixel cells; once it
+  has been still for 300 ms and two frames, it is compared with the last still picture, brightness
+  matched (the commonest ratio between the two, so a card covering most of the view does not skew
+  it), and the largest blob of changed cells is the new card when it is a card's size and shape.
+  The still picture then becomes the one to compare with, every still frame, so the next card is
+  compared with the pile as it lies, light drift never adds up, and a card that lands while the
+  loop was held up is still seen. A card landing on the very spot of the last is a change (its
+  picture differs); the same card dropped again on the same spot is not seen, and the shutter
+  takes it. What changed and is no card takes nothing, and the scan log says why: nothing to
+  speak of (a hand passed), too small, the shape of a strip or a shadow, a card taken away (plainer
+  ground where it lay), the light (the same edges lit another way, over most of the view: the lamp
+  moved from one side of the box to the other), the last card nudged, or a card off the frame.
+- **The crop comes from the change**: its rectangle snapped to 63:88, cut again from its top or
+  bottom when a strip of the card beneath moved too, and grown from the picture when only the art
+  changed (two cards of one type share their colours below the picture); the outlines `findCard`
+  finds over it come first. The picture match chooses among them, as it chose among outlines.
+- **Detection never pauses**: it goes on while a sheet is open; the part of the frame watched stays
+  put however the screen is laid out after; the picture is matched in a worker
+  (`js/scan/see-worker.js`), off the frame loop; the number, when the picture wants it, is read in
+  a queue of its own, so a card being read never holds the next card's picture. Every drop adds its
+  tile at once. In holder mode each drop is a card, the same card dropped again included (a second
+  copy), so the repeat bar never asks.
+- **A wider picture search when the plain one is not sure** (`js/vision/fingerprint.js`
+  `WIDE_SHIFTS`, `js/scan/picture.js` `matchCrops`): moves of up to 7.5 %, zoomed in 8 and 14 % and
+  out 8 %, and the card squeezed by a strip of the card beneath or a side cut short, on the two
+  closest crops, with the index screened on each hash's first word so the cost stays low. On the
+  log crops: right card first 92 of 96 (88 before), sure 73 (55), none wrong but sure; on 1,056
+  re-crops of them, right first 919 (472). The index is unchanged (no rebuild was needed). With it,
+  a lead of 15 within distance 55 is sure (it was 20): no wrong first place led by more than 6.
+- **A soft frame waits**: a drop whose card is less than 0.45 as sharp as the last few waits up to
+  400 ms for a sharper frame.
+- **Focus and white balance are held** in holder mode once the camera has found them (where
+  Android Chrome offers it), found again every ten cards and when the zoom changes; exposure stays
+  continuous.
+- **Review starts from any card that needs a look**: its tile (the run goes round the tray from it,
+  newest first), the "N to check" count over the camera, Done's Review, and Save while cards need
+  a look; after the last card the camera comes back. The open sheet is redrawn only when its card
+  changes and never shrinks while open: cards arriving behind the sheet redrew it under Eric's
+  finger, and a sheet that shrank put the backdrop where his next tap landed ("I select the card,
+  it closes").
+- **Light**: on the videos the phone's torch overhead (the glare spot in the middle of the card)
+  and a flashlight beside the box both gave sure answers; the flashlight high behind the box gave
+  the most cards to check. No glare mask was needed: the picture's low frequencies hardly move
+  under a small glare spot. Holder mode shows a one-line tip until dismissed.
+- **The scan log keeps** the scanner's version (36) in every entry, each drop's numbers (the share
+  changed, the blob, how long it was still and moving, the sharpness, how many outlines agreed),
+  the skipped drops as entries of their own with why, how long each card waited in the picture and
+  text queues, and two small views of each drop (before and after, about 320 px) for
+  `lab/holder/replay-log.mjs`, for the last 80 drops.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.

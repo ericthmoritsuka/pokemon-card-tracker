@@ -25,14 +25,15 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {EngineUnavailable, identify, readLanguageLabel, releaseEngineSoon} from './identify.js';
+import {createDropDetector, dropCapture, SHARP_WAIT_MS, sharpEnough, takenCard} from './drop.js';
+import {EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
-import {knownFrom, loadFingerprints, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
+import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
-import {CHANGED, coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
+import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 
 const FRAME_MS = 125;
@@ -190,6 +191,31 @@ function rememberHolder(on) {
 	}
 }
 
+// Holder mode's lighting tip (Eric's videos, 2026-10-09: the phone's torch
+// and a lamp beside the box both gave sure answers; a lamp high behind the
+// box gave the most cards to check, and glare on holo foil is worst under
+// one light from above), shown once holder mode is on until dismissed.
+const HOLDER_TIP = 'Light tip: the torch or a lamp beside the box works best. Cover the phone\'s indicator light.';
+const TIP_KEY = 'card-tracker:scan-holder-tip';
+
+function tipDismissed() {
+	try {
+		return localStorage.getItem(TIP_KEY) === 'off';
+	}
+	catch {
+		return false;
+	}
+}
+
+function rememberTipDismissed() {
+	try {
+		localStorage.setItem(TIP_KEY, 'off');
+	}
+	catch {
+		// Shown again next visit.
+	}
+}
+
 // A card found anywhere in the frame is taken on its own only when its
 // long side is at least this share of the guide's height; a smaller one
 // says "Move closer" (Q-19) and is taken only by the shutter.
@@ -315,14 +341,13 @@ export function scanView(root) {
 	// Holder mode's detector; it also measures how long the picture has been
 	// still, for the scan log, in either mode.
 	const holderDetector = createHolderCapture();
+	// Holder mode's drop detector (drop.js).
+	const dropDetector = createDropDetector();
 	let holder = holderOn();
 	// The box round the card found in the frame, kept while the card stays
 	// in place (SAME_BOX), and where the last frame's thumbnail came from.
 	let stableBox = null;
 	let thumbFrom = null;
-	// Holder mode's last capture: the box and thumbnail of the card taken,
-	// so a hand passing over the pile does not take the same card again.
-	let lastHolder = null;
 	// Whether the picture settled on a card running off the frame.
 	let pileHigh = false;
 	// The shutter is waiting for a whole card (SHUTTER_WAIT_MS).
@@ -332,9 +357,13 @@ export function scanView(root) {
 	// (askRepeat), and the reads in progress.
 	const pictures = new Map();
 	const readings = new Map();
+	// How long each capture waited in the picture queue and the text queue
+	// before its turn (ms), for the scan report.
+	const queueWaits = new Map();
 	// A Review run through the cards that need a look (openReview), or null.
 	let review = null;
 	const viewCanvas = document.createElement('canvas');
+	const fineCanvas = document.createElement('canvas');
 	// Where the guide is (camera.js layoutGuide): on the screen, and the
 	// guide and capture area in the camera's frame. Laid out again when the
 	// screen or the camera's frame changes size.
@@ -390,7 +419,14 @@ export function scanView(root) {
 		}
 	}});
 
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount), holderSwitch, repeatBar, cameraOff);
+	// Holder mode's lighting tip, one line, until dismissed (drawTip).
+	const tip = h('p', {class: 'scan-tip', hidden: true, id: 'scan-tip'},
+		h('span', null, HOLDER_TIP),
+		h('button', {'aria-label': 'Dismiss the lighting tip', class: 'scan-tip-close', id: 'scan-tip-close', onclick: () => {
+			rememberTipDismissed();
+			drawTip();
+		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -645,8 +681,9 @@ export function scanView(root) {
 
 		const running = items.length ? `${plural(items.length, 'card')}${summary.look ? ` · ${summary.look} to check` : ''}` : '';
 
+		// "N to check" is a way into the Review run (openReview).
 		if (runCount.textContent !== running) {
-			runCount.textContent = running;
+			runCount.replaceChildren(items.length ? plural(items.length, 'card') : '', ...(summary.look ? [' · ', h('button', {'aria-label': `${summary.look} to check: check them one after the other`, class: 'scan-look-count', id: 'scan-look-count', onclick: () => openReview(), type: 'button'}, `${summary.look} to check`)] : []));
 		}
 
 		runCount.hidden = !items.length;
@@ -663,11 +700,29 @@ export function scanView(root) {
 		}
 
 		if (sheet) {
-			// The sheet is redrawn from the session; focus stays on the same
-			// control, found again by its id.
+			// The sheet is redrawn from the session, only when what it shows
+			// changed: in holder mode cards keep arriving while one is checked,
+			// and a redraw under the finger swapped the button being tapped, or
+			// shrank the sheet so a second tap landed on the backdrop and closed
+			// it (Eric, 2026-10-09: "I select the card, it closes"). It never
+			// shrinks while open. Focus stays on the same control, found again
+			// by its id.
+			const mark = sheetMark(summary);
+
+			if (mark !== null && mark === sheet.mark) {
+				return;
+			}
+
+			sheet.mark = mark;
+
 			const focused = sheet.el.contains(document.activeElement) ? document.activeElement.id : null;
+			const before = sheet.el.offsetHeight;
 
 			sheet.refresh();
+
+			if (sheet && sheet.el.offsetHeight < before) {
+				sheet.el.style.minHeight = `${before}px`;
+			}
 
 			if (focused && sheet && !sheet.el.contains(document.activeElement)) {
 				const again = document.getElementById(focused);
@@ -677,6 +732,21 @@ export function scanView(root) {
 				}
 			}
 		}
+	}
+
+	// What the open sheet shows, to tell whether it needs a redraw: its card
+	// and what the sheet says about the session around it. Null for a sheet
+	// with no card of its own (Done, Set for all), which is always redrawn.
+	function sheetMark(summary) {
+		const item = sheet && sheet.itemId ? S.findItem(session, sheet.itemId) : null;
+
+		if (!item) {
+			return null;
+		}
+
+		const run = review && review.current === item.id ? reviewState(item.id) : null;
+
+		return JSON.stringify([item, photoUrls.has(item.id), session.items.length, summary.look, summary.waiting, summary.total, run, owned.size, family.length, placeholders.length, Boolean(session.lastSave)]);
 	}
 
 	let noteText = null;
@@ -787,23 +857,40 @@ export function scanView(root) {
 
 	// ------------------------------------------------------------ Review
 
-	// Review (Eric, 2026-10-09): from the Done sheet, the cards that need a
-	// look open one after the other. Once the card open no longer needs a
+	// Review (Eric, 2026-10-09): the cards that need a look open one after
+	// the other, in the tray's order (newest first) from the one tapped,
+	// round to the start. Every way in starts a run: a tile that needs a
+	// look, the "N to check" count over the camera, Done's Review, and Save
+	// when a card still needs a look. Once the card open no longer needs a
 	// look (the right card tapped, its language picked), the next one opens
 	// by itself, a moment later so the change shows; Next card skips to it
-	// at once. After the last, the Done sheet comes back. Stop, Back, or
-	// Close end the run, and the cards left stay marked in the tray.
+	// at once. After the last, the camera comes back (version 36; scanning
+	// goes on). Stop, Back, or Close end the run, and the cards left stay
+	// marked in the tray. A card dropped while the run is open joins it.
 	//
 	// review: {current, seen, timer}: the card open, the cards opened in this
 	// run (a card skipped is not opened again), and the pending move.
 	const REVIEW_MOVE_MS = 700;
 
-	const unseenLook = () => session.items.find((item) => S.needsLook(item) && !review.seen.has(item.id)) || null;
+	// The cards that need a look, in the tray's order from card `startId`
+	// (or from the newest), round to the start.
+	function lookOrder(startId = null) {
+		const shown = [...session.items].reverse();
+		const at = startId ? Math.max(0, shown.findIndex((item) => item.id === startId)) : 0;
 
-	function openReview() {
-		const first = session.items.find((item) => S.needsLook(item));
+		return [...shown.slice(at), ...shown.slice(0, at)].filter((item) => S.needsLook(item));
+	}
+
+	const unseenLook = () => (review ? lookOrder(review.current).find((item) => !review.seen.has(item.id)) || null : null);
+
+	function openReview(startId = null) {
+		const [first] = lookOrder(startId);
 
 		if (!first) {
+			if (startId) {
+				openItem(startId);
+			}
+
 			return;
 		}
 
@@ -819,7 +906,7 @@ export function scanView(root) {
 			return null;
 		}
 
-		const left = session.items.filter((item) => S.needsLook(item) && !review.seen.has(item.id)).length;
+		const left = lookOrder(id).filter((item) => !review.seen.has(item.id)).length;
 
 		return {index: review.seen.size, next: left > 0, total: review.seen.size + left};
 	}
@@ -870,13 +957,7 @@ export function scanView(root) {
 		if (!next) {
 			endReview();
 			announce('No more cards to check.');
-
-			if (session.items.length) {
-				openDone();
-			}
-			else {
-				closeSheet();
-			}
+			closeSheet();
 
 			return;
 		}
@@ -1075,11 +1156,7 @@ export function scanView(root) {
 		const summary = S.doneSummary(session, owned);
 
 		if (!S.canSave(summary)) {
-			const first = session.items.find((item) => S.needsLook(item));
-
-			if (first) {
-				openItem(first.id);
-			}
+			openReview();
 
 			return;
 		}
@@ -1432,7 +1509,13 @@ export function scanView(root) {
 
 		detector.captured(steadyShot ? steadyShot.grey : null);
 		holderDetector.captured();
-		lastHolder = card && steadyShot ? {box: (looked && looked.card ? looked.card.box : card.box), thumb: coarse(steadyShot.grey)} : null;
+
+		// The shutter in holder mode: the card it took is the pile now, not a
+		// drop still to take.
+		if (holder) {
+			dropDetector.reframe();
+			pendingDrop = null;
+		}
 		scanStats.captures++;
 		flash();
 
@@ -1525,7 +1608,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
 		let result;
 		let readDone = () => {};
 
@@ -1540,7 +1623,8 @@ export function scanView(root) {
 
 			progress.set(id, 0.05);
 			draw();
-			result = await identify(frame, {pictureFirst: !textFirst(), readOptions: {onProgress: (fraction) => {
+
+			const readOptions = {onProgress: (fraction) => {
 				progress.set(id, fraction);
 
 				// At most a redraw every tenth of the way.
@@ -1548,7 +1632,33 @@ export function scanView(root) {
 					drawn = fraction;
 					draw();
 				}
-			}}, guide: guideIn, photo, quads, straight});
+			}};
+			const options = {guide: guideIn, photo, quads, readOptions, straight};
+
+			if (textFirst()) {
+				result = await identify(frame, {...options, pictureFirst: false});
+			}
+			else {
+				// The picture in its own queue (in a worker, off the frame loop),
+				// then the text, when the picture wants it, in another: a card
+				// whose number is being read never holds up the next card's
+				// picture (Eric's holder log, 2026-10-09: 3 to 14 s).
+				const asked = performance.now();
+				const seen = await identifyPictureAway(frame, options);
+
+				queueWaits.set(id, {picture: Math.max(0, Math.round(performance.now() - asked - (seen.timings.total || 0))), pictureMs: Math.round(performance.now() - asked)});
+				progress.set(id, 0.3);
+				draw();
+
+				const textAsked = performance.now();
+
+				result = seen.needsText ? await identifyText(seen, {readOptions}) : seen;
+
+				if (seen.needsText) {
+					queueWaits.set(id, {...queueWaits.get(id), text: Math.max(0, Math.round(performance.now() - textAsked - ((result.timings.total || 0) - (seen.timings.total || 0))))});
+				}
+			}
+
 			engineState = 'ready';
 			drawStatus();
 		}
@@ -1605,7 +1715,7 @@ export function scanView(root) {
 		// An automatic capture with no card edges and no number read was not a
 		// card (a hand, the table): it leaves the tray. A shutter capture
 		// always stays, because the person meant it.
-		const report = () => S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'});
+		const report = () => ({...S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'}), queue: queueWaits.get(id) || null});
 
 		if (auto && !result.found && !(result.read && result.read.number) && !(result.picture && pictureVerdict(result.picture).sure)) {
 			await drop(id, 'not a card', {fullSaved, report: report(), result});
@@ -1627,7 +1737,7 @@ export function scanView(root) {
 		// again (Q-20): taken once is enough. The shutter adds it anyway.
 		const last = lastCard();
 
-		if (auto && last && !sinceOpen.has(last.item) && repeatOfLast(result.picture, last.key, performance.now() - cameraOpenedAt)) {
+		if (auto && !dropped && last && !sinceOpen.has(last.item) && repeatOfLast(result.picture, last.key, performance.now() - cameraOpenedAt)) {
 			await drop(id, 'repeat on reopen', {fullSaved, report: report(), result});
 			setNote('That card was just added. Tap the shutter to add it again.');
 
@@ -1637,7 +1747,10 @@ export function scanView(root) {
 		// The same card as the camera's capture just before it: held a
 		// moment longer, or a second copy. The repeat bar asks which; the
 		// capture itself never joins the tray.
-		const previous = auto ? previousCapture(id) : null;
+		// In holder mode a card dropped is a new card, the same card included
+		// (a second copy dropped in): the drop detector never takes one card
+		// twice (drop.js), so nothing is asked.
+		const previous = auto && !dropped ? previousCapture(id) : null;
 		const previousPicture = previous ? await pictureOf(previous) : null;
 
 		if (!alive || !S.findItem(session, id)) {
@@ -2378,6 +2491,13 @@ export function scanView(root) {
 		shutter.disabled = false;
 		placeGuide();
 		drawCameraControls();
+		drawTip();
+
+		if (holder) {
+			document.getElementById('scan-hint').textContent = 'Drop a card in.';
+		}
+
+		reframeHolder();
 		startLoop();
 		requestWakeLock();
 		startEngine();
@@ -2394,7 +2514,7 @@ export function scanView(root) {
 		drawStatus();
 		// The picture index only: the OCR engine loads when a card needs text
 		// (identify.js), so the screen opens without its download.
-		loadFingerprints().then(() => {
+		warmPicture().then(() => {
 			engineState = 'ready';
 			drawStatus();
 		}).catch(() => {
@@ -2422,6 +2542,7 @@ export function scanView(root) {
 			onclick: async () => {
 				try {
 					await camera.setZoom(value);
+					reframeHolder();
 				}
 				catch {
 					// Zoom stays where it was.
@@ -2478,10 +2599,292 @@ export function scanView(root) {
 		}
 	}
 
+	// ------------------------------------------------------------ holder mode
+
+	// Holder mode (Eric, 2026-10-09, version 36): a card is what changed
+	// since the picture was last still (drop.js), so a card is taken when it
+	// lands whatever its edges look like, once, and the next one is taken
+	// even when it lands on the same spot. Detection goes on while a sheet is
+	// open, so cards dropped while one is checked still join the tray.
+	//
+	// pendingDrop: a drop held for a sharper frame (drop.js sharpEnough):
+	// {change, until}. lastDrop: the card taken last (drop.js takenCard),
+	// forgotten when the zoom changes. sharpRecent: the last few cards'
+	// sharpness.
+	let pendingDrop = null;
+	let lastDrop = null;
+	let pileCheckedAt = -Infinity;
+	let holderView = null;
+	const PILE_CHECK_MS = 1000;
+	const sharpRecent = [];
+	// A small copy of the view as it was before the last drop, for the scan
+	// log (the frames a replay needs), redrawn on every still frame.
+	const beforeCanvas = document.createElement('canvas');
+	const LOG_VIEW_SIDE = 320;
+
+	function holderTick() {
+		const laid = currentGeometry();
+
+		if (!laid || !video.videoWidth) {
+			return;
+		}
+
+		// The part of the frame watched stays where it was when holder mode
+		// started (or the zoom changed): the screen laid out again (a tray tile
+		// added, a note) moves the part on the screen, and every card would
+		// seem to move with it.
+		holderView = holderView || laid.view;
+
+		const area = {...laid, view: holderView};
+
+		const view = viewFrame(video, viewCanvas, area.view, FIND_SIDE);
+
+		if (!view) {
+			return;
+		}
+
+		const at = performance.now();
+		const step = dropDetector.push(view, at);
+
+		if (pendingDrop) {
+			const plan = planDrop(pendingDrop.change, view, area);
+
+			if (plan.skip || step.moving || at >= pendingDrop.until || sharpEnough(plan.sharpness, sharpRecent)) {
+				const held = pendingDrop;
+
+				pendingDrop = null;
+
+				if (!plan.skip) {
+					takeDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area);
+				}
+			}
+
+			return;
+		}
+
+		if (!step.change) {
+			return;
+		}
+
+		if (!step.drop) {
+			if (step.change.kind !== 'none') {
+				logSkipped(step.change.kind, step);
+			}
+
+			// A still picture with nothing new: the last drop's frame for the
+			// log is this one, and once a second the pile is checked for a card
+			// running off the frame (a hint only).
+			keepBeforeView(area);
+
+			if (at - pileCheckedAt >= PILE_CHECK_MS) {
+				pileCheckedAt = at;
+
+				const found = findCard(view.grey, view.width, view.height);
+
+				setPile(Boolean(found.touching && !found.quad));
+			}
+
+			return;
+		}
+
+		const plan = planDrop(step.change, view, area);
+
+		if (plan.skip) {
+			if (plan.skip === 'off the frame') {
+				setPile(true);
+			}
+
+			logSkipped(plan.skip, step);
+			keepBeforeView(area);
+
+			return;
+		}
+
+		setPile(false);
+
+		if (!sharpEnough(plan.sharpness, sharpRecent)) {
+			pendingDrop = {at, change: step.change, step, until: at + SHARP_WAIT_MS};
+
+			return;
+		}
+
+		takeDrop(step.change, plan, step, area);
+	}
+
+	// The capture for a drop (drop.js dropCapture), with the card outlines
+	// found on the finer copy of the view.
+	function planDrop(change, view, area) {
+		const fine = viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE);
+		const found = fine ? findCard(fine.grey, fine.width, fine.height) : null;
+
+		return dropCapture(change, view, fine || view, found, {frame: camera.frame, last: lastDrop});
+	}
+
+	function drawTip() {
+		tip.hidden = !holder || tipDismissed();
+	}
+
+	function setPile(on) {
+		if (on !== pileHigh) {
+			pileHigh = on;
+			guide.classList.toggle('is-pile', on);
+			document.getElementById('scan-hint').textContent = on ? 'Pile too high: empty the box.' : 'Drop a card in.';
+
+			if (on) {
+				announce('Pile too high: empty the box.');
+			}
+		}
+	}
+
+	function keepBeforeView(area) {
+		if (!scanLog.recording() || !scanLog.picturesOn()) {
+			return;
+		}
+
+		const scale = Math.min(1, LOG_VIEW_SIDE / Math.max(area.view.w, area.view.h));
+
+		beforeCanvas.width = Math.max(1, Math.round(area.view.w * scale));
+		beforeCanvas.height = Math.max(1, Math.round(area.view.h * scale));
+		beforeCanvas.getContext('2d').drawImage(video, area.view.x, area.view.y, area.view.w, area.view.h, 0, 0, beforeCanvas.width, beforeCanvas.height);
+	}
+
+	// The view now and the view before the drop, as small JPEGs for the scan
+	// log, so lab/holder/replay.mjs can replay the drop from a log.
+	async function logViews(id, area) {
+		if (!scanLog.recording() || !scanLog.picturesOn() || !beforeCanvas.width) {
+			return;
+		}
+
+		const after = document.createElement('canvas');
+
+		after.width = beforeCanvas.width;
+		after.height = beforeCanvas.height;
+		after.getContext('2d').drawImage(video, area.view.x, area.view.y, area.view.w, area.view.h, 0, 0, after.width, after.height);
+
+		const blob = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.7));
+		const [before, now] = await Promise.all([blob(beforeCanvas), blob(after)]);
+
+		scanLog.saveViews(id, {after: now, before});
+	}
+
+	// What the scan log keeps of a drop.
+	const dropReport = (change, plan, step) => ({
+		agree: plan ? plan.agree : null,
+		blob: change ? Math.round((change.blob || 0) * 1000) / 1000 : null,
+		cover: change && change.cover !== undefined ? Math.round(change.cover * 100) / 100 : null,
+		heldMs: step.heldMs ?? null,
+		kind: change ? change.kind : null,
+		motionPeak: step.burst ? Math.round(step.burst.peak * 10) / 10 : null,
+		movingMs: step.burst ? Math.round(performance.now() - step.burst.start - step.still) : null,
+		share: change ? Math.round(change.share * 1000) / 1000 : null,
+		sharpness: plan ? plan.sharpness : null,
+		stillFrames: step.stillFrames ?? null,
+		stillMs: Math.round(step.still),
+	});
+
+	// A drop the detector saw that took nothing: why, in the scan log.
+	function logSkipped(why, step) {
+		scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step), how: 'holder', why});
+	}
+
+	// Takes the card a drop brought: a tile at once, the picture matched off
+	// the frame loop.
+	function takeDrop(change, plan, step, area) {
+		sharpRecent.push(plan.sharpness);
+
+		if (sharpRecent.length > 5) {
+			sharpRecent.shift();
+		}
+
+		lastDrop = takenCard(lastDrop, plan.card);
+		dropsTaken++;
+
+		const grabbed = performance.now();
+		const frame = grabFrame(video, plan.region);
+		const captureMs = Math.round(performance.now() - grabbed);
+
+		scanStats.captures++;
+		flash();
+		noteText = null;
+
+		if (discarded) {
+			discarded = null;
+			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		}
+
+		const item = S.addCapture(session);
+
+		toBuzz.add(item.id);
+		sinceOpen.add(item.id);
+		scanLog.startEntry(item.id, {at: item.captured_at, how: 'auto', phone: deviceInfo(), source: 'camera'});
+		logViews(item.id, area).catch(() => {});
+		persist();
+		draw();
+
+		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+		// The card as the change found it, in the scan log's terms (the
+		// outlines found over it are the others).
+		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};
+		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step)};
+
+		refocusSoon();
+		readItem(item.id, frame, {auto: true, captureMs, dropped: true, fullSaved, geometry, quads: plan.quads});
+	}
+
+	// Focus and white balance are held once the camera has found them, in
+	// holder mode only (camera.js holdFocus: a box under a still phone keeps
+	// its distance and light), and found again every REFOCUS_EVERY cards, as
+	// the pile grows towards the lens, and when the zoom changes.
+	const REFOCUS_EVERY = 10;
+	let dropsTaken = 0;
+	let focusTimer = 0;
+
+	function holdFocusSoon(ms = 1500) {
+		clearTimeout(focusTimer);
+
+		if (!holder || !camera || !camera.holdFocus) {
+			return;
+		}
+
+		focusTimer = setTimeout(() => {
+			if (holder && camera && camera.holdFocus) {
+				camera.holdFocus().catch(() => {});
+			}
+		}, ms);
+	}
+
+	function refocusSoon() {
+		if (dropsTaken % REFOCUS_EVERY === 0 && camera && camera.refocus) {
+			camera.refocus().then(() => holdFocusSoon()).catch(() => {});
+		}
+	}
+
+	// The zoom changed, or the camera restarted: the drop detector starts
+	// again from the next still picture, and the last card's size is
+	// forgotten.
+	function reframeHolder() {
+		dropDetector.reframe();
+		holderView = null;
+		pendingDrop = null;
+		lastDrop = null;
+		sharpRecent.length = 0;
+		holdFocusSoon();
+	}
+
 	function startLoop() {
 		clearInterval(loop);
 		loop = setInterval(() => {
-			if (!camera || document.hidden || sheet || shutterBusy) {
+			if (!camera || document.hidden || shutterBusy) {
+				return;
+			}
+
+			if (holder) {
+				holderTick();
+
+				return;
+			}
+
+			if (sheet) {
 				return;
 			}
 
@@ -2501,40 +2904,13 @@ export function scanView(root) {
 				thumbFrom = from;
 			}
 
+			// How long the picture has been still, for the scan log.
 			const step = holderDetector.push(now.view.grey, now.view.width, now.view.height, {card: whole(now), touching: now.touching}, performance.now());
-			const pile = holder && step.pile;
 
-			if (pile !== pileHigh) {
-				pileHigh = pile;
-
-				if (pile) {
-					announce('Pile too high: empty the box.');
-				}
-			}
-
-			document.getElementById('scan-hint').textContent = pile ? 'Pile too high: empty the box.' : seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : holder && !seen.present ? 'Drop a card in.' : 'Card inside the frame. Hold still.';
+			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
-			guide.classList.toggle('is-pile', pile);
 
-			// The hand-held detector follows the frames in either mode.
-			const steady = detector.push(now.shot.grey, seen);
-
-			if (holder) {
-				if (!step.capture) {
-					return;
-				}
-
-				// Something moved over the pile but the card on top is the one
-				// taken last: nothing new.
-				if (lastHolder && now.card && sameBox(now.card.box, lastHolder.box, 0.05) && difference(coarse(now.shot.grey), lastHolder.thumb) <= CHANGED) {
-					holderDetector.captured();
-
-					return;
-				}
-
-				capture('auto', {looked: now, settleMs: step.settleMs});
-			}
-			else if (steady) {
+			if (detector.push(now.shot.grey, seen)) {
 				capture('auto', {looked: now, settleMs: step.settleMs});
 			}
 		}, FRAME_MS);
@@ -2546,11 +2922,15 @@ export function scanView(root) {
 		rememberHolder(on);
 		holderSwitch.setAttribute('aria-checked', String(on));
 		holderDetector.reframe();
-		pileHigh = false;
+		reframeHolder();
+		setPile(false);
+		guide.classList.remove('is-seen');
+		document.getElementById('scan-hint').textContent = on ? 'Drop a card in.' : 'Card inside the frame. Hold still.';
+		drawTip();
 
-		// A card already taken by hand stays taken.
-		if (on && detector.state === 'cooldown') {
-			holderDetector.captured();
+		if (!on && camera && camera.releaseFocus) {
+			clearTimeout(focusTimer);
+			camera.releaseFocus().catch(() => {});
 		}
 
 		announce(on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.');
@@ -2597,7 +2977,14 @@ export function scanView(root) {
 		const tile = event.target.closest('[data-item]');
 
 		if (tile) {
-			openItem(tile.dataset.item);
+			const item = S.findItem(session, tile.dataset.item);
+
+			if (item && S.needsLook(item)) {
+				openReview(item.id);
+			}
+			else {
+				openItem(tile.dataset.item);
+			}
 		}
 	});
 

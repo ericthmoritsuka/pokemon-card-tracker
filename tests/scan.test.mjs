@@ -1770,16 +1770,20 @@ describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
 		assert.equal(pictureVerdict(picture(45, 10)).sure, true);
 	});
 
-	test('up to 55 a lead of 20 or more is sure too (Skrelp under a flashlight, version 25)', () => {
+	// FIRM_GAP was 20 until version 36; Eric's holder-log crops and their
+	// re-crops (lab/holder/crops.mjs) showed no wrong first place leading by
+	// more than 6, so a lead of 15 within 55 is sure now.
+	test('up to 55 a lead of 15 or more is sure too (Skrelp under a flashlight, version 25; holder crops, version 36)', () => {
 		assert.equal(pictureVerdict(picture(46.4, 25.7)).sure, true);
-		assert.equal(pictureVerdict(picture(55, 20)).sure, true);
-		assert.equal(pictureVerdict(picture(52, 19.9)).sure, false);
-		assert.equal(pictureVerdict(picture(46, 15)).sure, false);
+		assert.equal(pictureVerdict(picture(55, 15)).sure, true);
+		assert.equal(pictureVerdict(picture(52, 15)).sure, true);
+		assert.equal(pictureVerdict(picture(52, 14.9)).sure, false);
+		assert.equal(pictureVerdict(picture(46, 12)).sure, false);
 		assert.equal(pictureVerdict(picture(56, 30)).sure, false);
 	});
 
 	test('between 45 and 60 a smaller lead counts, but only the number makes it sure', () => {
-		const verdict = pictureVerdict(picture(52, 15));
+		const verdict = pictureVerdict(picture(52, 12));
 
 		assert.equal(verdict.clear, true);
 		assert.equal(verdict.sure, false);
@@ -1797,7 +1801,7 @@ describe('when the picture is sure (Eric\'s phone, 2026-10-03)', () => {
 
 	test('a one-card group past SURE_DISTANCE with no number read is shown, not sure', async () => {
 		const api = {setDetail: async () => ({cardCount: {official: 100}, cards: [{id: 'me04-010', localId: '010', name: 'Card'}], name: 'Set'})};
-		const found = await pictureMatch(picture(52, 15), null, 'pt', {api});
+		const found = await pictureMatch(picture(52, 12), null, 'pt', {api});
 
 		assert.equal(found.card.id, 'me04-010');
 		assert.equal(found.sure, false);

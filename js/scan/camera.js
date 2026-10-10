@@ -218,6 +218,57 @@ export async function startCamera(video, {signal = null} = {}) {
 			await track.applyConstraints({advanced: [{zoom: value}]});
 			zoom = value;
 		},
+		// Holder mode (Eric, 2026-10-09): the phone still over a box, so the
+		// focus and white balance the camera has found are held, where the
+		// camera lets them be (Android Chrome; iOS offers neither), and a card
+		// landing cannot set it hunting or turn the picture bluer. Exposure
+		// stays continuous: a manual exposure gave black frames on some
+		// phones. Resolves true when something was held.
+		async holdFocus() {
+			const settings = track.getSettings ? track.getSettings() : {};
+			const hold = {};
+
+			if (supports(caps, 'focusMode', 'manual') && caps.focusDistance && typeof settings.focusDistance === 'number') {
+				hold.focusMode = 'manual';
+				hold.focusDistance = settings.focusDistance;
+			}
+			else if (supports(caps, 'focusMode', 'single-shot')) {
+				hold.focusMode = 'single-shot';
+			}
+
+			if (supports(caps, 'whiteBalanceMode', 'manual') && caps.colorTemperature && typeof settings.colorTemperature === 'number') {
+				hold.whiteBalanceMode = 'manual';
+				hold.colorTemperature = settings.colorTemperature;
+			}
+
+			if (!Object.keys(hold).length) {
+				return false;
+			}
+
+			await track.applyConstraints({advanced: [hold]});
+
+			return true;
+		},
+		// Lets the camera find its focus (and white balance) again; holdFocus
+		// holds them once more after it.
+		async refocus() {
+			const free = {};
+
+			if (supports(caps, 'focusMode', 'continuous')) {
+				free.focusMode = 'continuous';
+			}
+
+			if (supports(caps, 'whiteBalanceMode', 'continuous')) {
+				free.whiteBalanceMode = 'continuous';
+			}
+
+			if (Object.keys(free).length) {
+				await track.applyConstraints({advanced: [free]});
+			}
+		},
+		async releaseFocus() {
+			await this.refocus();
+		},
 	};
 }
 

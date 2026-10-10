@@ -51,7 +51,7 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 		copies > 1 ? `adds ${copies} copies` : null,
 		quantity > copies ? `${quantity} copies in all` : null,
 		chip ? FINISH_WORDS[chip] || option.label : null,
-		reason ? STATUS_TEXT[reason] : null,
+		look ? `${reason === 'unsure' || !STATUS_TEXT[reason] ? 'Needs a look' : STATUS_TEXT[reason]}, opens the review` : reason ? STATUS_TEXT[reason] : null,
 		wished,
 	].filter(Boolean).join(', ');
 

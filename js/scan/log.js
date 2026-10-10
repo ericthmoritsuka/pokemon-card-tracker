@@ -6,7 +6,10 @@
 // Its own database (js/idb.js), apart from the draft tray and the person's
 // cards; nothing here is synced.
 //   entries   one per scan, key "<tray item id>"
-//   pictures  the straightened card as a JPEG Blob, key "<tray item id>"
+//   pictures  the straightened card as a JPEG Blob, key "<tray item id>",
+//             and for a holder drop the view before and after it (about
+//             320 px, keys "<id>:before" and "<id>:after"), for replaying
+//             the drop (lab/holder/replay.mjs --log)
 //
 // An entry, as stored (the export adds `picture` as a data URL):
 //   {id, at, app, source, how, phone, report, first, firstLocked, outcome}
@@ -18,7 +21,11 @@
 // differs from first, and undone when Undo session took it back), removed,
 // discarded, skipped (already owned), handmade (saved as a hand-made card),
 // or dropped by the scanner itself (with why: not a card, repeat, repeat on
-// reopen).
+// reopen). A holder drop that took nothing (logEvent) is an entry of its
+// own, how 'holder', with the drop's numbers and why: none, small, large,
+// shape (judged on the change), moved, light, off the frame (on the card).
+// scanner: SCANNER, the scanner's own version, kept even where the app's
+// version cannot be read.
 //
 // Writes are serialized, so a later change never lands before an earlier
 // one, and none of them throws: a log that cannot be kept must never stop
@@ -35,6 +42,13 @@ const db = database('card-tracker-scan-log', [ENTRIES, PICTURES]);
 
 // The most entries kept: past it, the oldest go first.
 export const LOG_MAX = 500;
+
+// The scanner's version, in every entry.
+export const SCANNER = 36;
+
+// The most entries whose drop views (before and after, about 15 KB each)
+// are kept: past it, the oldest entries' views go first.
+export const VIEWS_MAX = 80;
 
 // The switches, on this phone only, in localStorage.
 const RECORD_KEY = 'card-tracker:scan-log';
@@ -116,7 +130,7 @@ export function startEntry(id, fields) {
 	return quiet(serial(async () => {
 		const app = await appVersion();
 
-		await put(ENTRIES, id, {app, first: null, firstLocked: false, how: null, id, outcome: null, phone: null, report: null, source: null, ...fields});
+		await put(ENTRIES, id, {app, first: null, firstLocked: false, how: null, id, outcome: null, phone: null, report: null, scanner: SCANNER, source: null, ...fields});
 		await trim();
 
 		return id;
@@ -211,6 +225,63 @@ export function savePicture(id, blob) {
 	}));
 }
 
+// A holder drop that took nothing (only while recording is on): {at, how,
+// why, drop}.
+let eventSeq = 0;
+
+export function logEvent(event) {
+	if (!recording()) {
+		return Promise.resolve(null);
+	}
+
+	const id = `event-${Date.now()}-${++eventSeq}`;
+
+	return quiet(serial(async () => {
+		const app = await appVersion();
+
+		await put(ENTRIES, id, {app, first: null, firstLocked: true, id, outcome: {at: event.at, kind: 'skipped', why: event.why}, phone: null, report: null, scanner: SCANNER, source: 'camera', ...event});
+		await trim();
+
+		return id;
+	}));
+}
+
+// The view before and after a holder drop ({before, after}: JPEG Blobs),
+// when the pictures switch is on and the entry exists; past VIEWS_MAX
+// entries with views, the oldest lose theirs.
+export function saveViews(id, {after = null, before = null} = {}) {
+	if (!picturesOn() || (!after && !before)) {
+		return Promise.resolve(null);
+	}
+
+	return quiet(serial(async () => {
+		if (!(await get(ENTRIES, id))) {
+			return;
+		}
+
+		if (before) {
+			await put(PICTURES, `${id}:before`, before);
+		}
+
+		if (after) {
+			await put(PICTURES, `${id}:after`, after);
+		}
+
+		const keys = ((await db.run(PICTURES, 'readonly', (s) => s.getAllKeys())) || []).filter((key) => String(key).endsWith(':after'));
+
+		if (keys.length > VIEWS_MAX) {
+			const entries = (await db.run(ENTRIES, 'readonly', (s) => s.getAll())) || [];
+			const at = new Map(entries.map((entry) => [entry.id, String(entry.at)]));
+			const old = keys.map((key) => String(key).slice(0, -':after'.length)).sort((a, b) => (at.get(a) || '').localeCompare(at.get(b) || '')).slice(0, keys.length - VIEWS_MAX);
+
+			for (const owner of old) {
+				await db.run(PICTURES, 'readwrite', (s) => s.delete(`${owner}:before`));
+				await db.run(PICTURES, 'readwrite', (s) => s.delete(`${owner}:after`));
+			}
+		}
+	}));
+}
+
 // Past LOG_MAX entries, the oldest go, with their pictures.
 async function trim() {
 	if (await db.run(ENTRIES, 'readonly', (s) => s.count()) <= LOG_MAX) {
@@ -223,6 +294,8 @@ async function trim() {
 	for (const entry of old) {
 		await db.run(ENTRIES, 'readwrite', (s) => s.delete(entry.id));
 		await db.run(PICTURES, 'readwrite', (s) => s.delete(entry.id));
+		await db.run(PICTURES, 'readwrite', (s) => s.delete(`${entry.id}:before`));
+		await db.run(PICTURES, 'readwrite', (s) => s.delete(`${entry.id}:after`));
 	}
 }
 
@@ -264,16 +337,20 @@ const dataUrl = (blob) => new Promise((resolve) => {
 });
 
 // The whole log as one file, scan-log-YYYYMMDD-HHMMSS.json, holding {app,
-// exported, entries}, each entry with its picture as a data URL (or null).
+// exported, entries}, each entry with its picture as a data URL (or null),
+// and a holder drop's views as {before, after} data URLs when kept.
 export async function logFile(at = new Date()) {
 	const entries = await listEntries();
 	const out = [];
 
 	for (const entry of entries) {
 		const blob = await get(PICTURES, entry.id).catch(() => null);
+		const before = await get(PICTURES, `${entry.id}:before`).catch(() => null);
+		const after = await get(PICTURES, `${entry.id}:after`).catch(() => null);
 		const {firstLocked, ...rest} = entry;
+		const views = before || after ? {after: after ? await dataUrl(after) : null, before: before ? await dataUrl(before) : null} : undefined;
 
-		out.push({...rest, picture: blob ? await dataUrl(blob) : null});
+		out.push({...rest, picture: blob ? await dataUrl(blob) : null, ...(views ? {views} : {})});
 	}
 
 	const text = JSON.stringify({app: await appVersion(), entries: out, exported: at.toISOString()}, null, 1);
