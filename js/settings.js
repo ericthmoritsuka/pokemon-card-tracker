@@ -20,6 +20,7 @@ import {MAX_DEX, spriteUrl} from './checklists.js';
 import {loadDocument, mergeIntoLocal, onChange} from './collection.js';
 import {BASE} from './dom.js';
 import {nextStamp} from './merge.js';
+import {graphql} from './tcgdex.js';
 import {canonicalTheme, DEFAULT_THEME, isTheme, palette, suggestedTheme, themeById, TYPES} from './themes.js';
 
 export const THEME_KEY = 'card-tracker-theme';
@@ -27,7 +28,6 @@ export const THEME_KEY = 'card-tracker-theme';
 const PUSH_DELAY_MS = 2000;
 const TYPE_KEY = 'card-tracker-primary-type';
 const CARD_TYPES_KEY = 'card-tracker-card-types';
-const TCGDEX_GRAPHQL = 'https://api.tcgdex.net/v2/graphql';
 
 const DEFAULT_ICON = `${BASE}icons/icon-192.png`;
 
@@ -243,13 +243,8 @@ async function cardTypeCounts(n) {
 	}
 
 	try {
-		const response = await fetch(TCGDEX_GRAPHQL, {
-			body: JSON.stringify({query: `{ cards(filters: {dexId: ${n}}, pagination: {page: 1, count: 100}) { types } }`}),
-			headers: {'content-type': 'application/json'},
-			method: 'POST',
-		});
-		const json = response.ok ? await response.json() : null;
-		const cards = json && json.data && json.data.cards;
+		// One try (js/tcgdex.js): the game type decides when it fails.
+		const {cards} = await graphql(`{ cards(filters: {dexId: ${n}}, pagination: {page: 1, count: 100}) { types } }`, {attempts: 1});
 
 		if (!Array.isArray(cards)) {
 			return null;

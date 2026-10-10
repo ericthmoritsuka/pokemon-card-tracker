@@ -12,6 +12,7 @@
 // system camera through <input capture>.
 
 import {captureRect, grab, startCamera} from '../vision/camera.js';
+import {cornerEditor} from '../corners.js';
 import {h} from '../dom.js';
 import {openSheet} from '../sheet.js';
 
@@ -29,7 +30,7 @@ import {
 	putPixels,
 	straighten,
 } from './encode.js';
-import {clampPoint, fitWithin, rotateCorners, scaleCorners, warp} from './geometry.js';
+import {fitWithin, rotateCorners, scaleCorners, warp} from './geometry.js';
 import {SIDES} from './model.js';
 
 // The live preview: a small straightened card, warped from a copy of the
@@ -37,8 +38,6 @@ import {SIDES} from './model.js';
 const PREVIEW_WIDTH = 240;
 const PREVIEW_HEIGHT = 336;
 const PREVIEW_SOURCE = 960;
-
-const CORNER_NAMES = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left'];
 
 const LANGUAGE_CODES = (code) => String(code || '').toUpperCase();
 
@@ -317,29 +316,37 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		const found = detectCorners(previewPixels);
 		const fromPreview = source.width / previewCanvas.width;
 		const detected = scaleCorners(found.corners, fromPreview);
-		let corners = detected.map((p) => ({...p}));
 
-		const photo = h('canvas', {'aria-hidden': 'true', class: 'ph-photo'});
-		const outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		const shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-		const loupe = h('canvas', {'aria-hidden': 'true', class: 'ph-loupe', height: 112, hidden: true, width: 112});
-		const handles = CORNER_NAMES.map((name, i) => h('button', {
-			'aria-label': `${name} corner. Drag, or use the arrow keys.`,
-			class: 'ph-handle',
-			'data-corner': String(i),
-			type: 'button',
-		}));
-		const stage = h('div', {class: 'ph-stage'}, photo, outline, ...handles, loupe);
 		const preview = h('canvas', {'aria-label': 'Straightened card', class: 'ph-preview', height: PREVIEW_HEIGHT, role: 'img', width: PREVIEW_WIDTH});
+		const previewBuffer = new Uint8ClampedArray(PREVIEW_WIDTH * PREVIEW_HEIGHT * 4);
+
+		function drawPreview() {
+			const image = warp(previewPixels, scaleCorners(editor.corners, 1 / fromPreview), PREVIEW_WIDTH, PREVIEW_HEIGHT, previewBuffer);
+
+			putPixels(preview, image);
+			preview.dataset.version = String(Number(preview.dataset.version || 0) + 1);
+		}
+
+		// The photo with its corner handles (js/corners.js), the loupe above
+		// the finger, and each handle's corner on data-x and data-y.
+		const editor = cornerEditor({
+			corners: detected,
+			loupe: true,
+			marks: true,
+			onChange: drawPreview,
+			onDragEnd: () => {
+				stage.dataset.moved = 'true';
+			},
+			smoothing: 'high',
+			source,
+		});
+		const {handles, stage} = editor;
 		const status = message(found.note, found.found ? 'muted' : 'warn');
 		const saveButton = h('button', {class: 'primary ph-save', type: 'button'}, 'Save');
 		const rotate = h('button', {class: 'ph-rotate', type: 'button'}, 'Rotate');
 		const reset = h('button', {class: 'ph-reset', type: 'button'}, 'Reset corners');
 		const retake = h('button', {class: 'ph-retake', type: 'button'}, 'Retake');
 
-		outline.setAttribute('class', 'ph-outline');
-		outline.setAttribute('aria-hidden', 'true');
-		outline.append(shape);
 		stage.dataset.method = found.method;
 		stage.dataset.found = String(found.found);
 
@@ -352,150 +359,8 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			status
 		);
 
-		// The photo is drawn at the size it shows; handles sit on it in CSS
-		// pixels, and their positions convert to source pixels by `scale`.
-		let scale = 1;
-
-		function layout() {
-			const room = Math.min(stage.parentElement.clientWidth || 328, 560);
-			const maxHeight = Math.max(240, Math.round(window.innerHeight * 0.48));
-			const fit = Math.min(room / source.width, maxHeight / source.height);
-			const width = Math.round(source.width * fit);
-			const height = Math.round(source.height * fit);
-
-			scale = fit;
-			photo.width = Math.round(width * Math.min(2, window.devicePixelRatio || 1));
-			photo.height = Math.round(height * Math.min(2, window.devicePixelRatio || 1));
-			photo.style.width = `${width}px`;
-			photo.style.height = `${height}px`;
-			stage.style.width = `${width}px`;
-			stage.style.height = `${height}px`;
-			outline.setAttribute('viewBox', `0 0 ${width} ${height}`);
-			outline.setAttribute('width', String(width));
-			outline.setAttribute('height', String(height));
-
-			const ctx = photo.getContext('2d');
-
-			ctx.imageSmoothingQuality = 'high';
-			ctx.drawImage(source, 0, 0, photo.width, photo.height);
-			drawOverlay();
-		}
-
-		function drawOverlay() {
-			shape.setAttribute('points', corners.map((p) => `${p.x * scale},${p.y * scale}`).join(' '));
-			handles.forEach((handle, i) => {
-				handle.style.transform = `translate(${corners[i].x * scale}px, ${corners[i].y * scale}px)`;
-				handle.dataset.x = corners[i].x.toFixed(1);
-				handle.dataset.y = corners[i].y.toFixed(1);
-			});
-		}
-
-		const previewBuffer = new Uint8ClampedArray(PREVIEW_WIDTH * PREVIEW_HEIGHT * 4);
-		let frame = 0;
-
-		function drawPreview() {
-			frame = 0;
-
-			const image = warp(previewPixels, scaleCorners(corners, 1 / fromPreview), PREVIEW_WIDTH, PREVIEW_HEIGHT, previewBuffer);
-
-			putPixels(preview, image);
-			preview.dataset.version = String(Number(preview.dataset.version || 0) + 1);
-		}
-
-		function schedule() {
-			drawOverlay();
-
-			if (!frame) {
-				frame = requestAnimationFrame(drawPreview);
-			}
-		}
-
-		function drawLoupe(i) {
-			const size = loupe.width;
-			const zoom = 3;
-			const span = size / (zoom * scale);
-			const ctx = loupe.getContext('2d');
-			const p = corners[i];
-
-			ctx.fillStyle = '#000';
-			ctx.fillRect(0, 0, size, size);
-			ctx.drawImage(source, p.x - span / 2, p.y - span / 2, span, span, 0, 0, size, size);
-			ctx.strokeStyle = '#ffcb05';
-			ctx.lineWidth = 2;
-			ctx.beginPath();
-			ctx.moveTo(size / 2, 0);
-			ctx.lineTo(size / 2, size);
-			ctx.moveTo(0, size / 2);
-			ctx.lineTo(size, size / 2);
-			ctx.stroke();
-
-			// Above the finger, or below it near the top edge.
-			const x = Math.min(stage.clientWidth - size, Math.max(0, p.x * scale - size / 2));
-			const above = p.y * scale - size - 40;
-			const y = above >= 0 ? above : p.y * scale + 40;
-
-			loupe.style.transform = `translate(${x}px, ${y}px)`;
-		}
-
-		handles.forEach((handle, i) => {
-			let drag = null;
-
-			handle.addEventListener('pointerdown', (event) => {
-				event.preventDefault();
-				drag = {id: event.pointerId, start: {...corners[i]}, x: event.clientX, y: event.clientY};
-				handle.setPointerCapture(event.pointerId);
-				handle.classList.add('ph-dragging');
-				loupe.hidden = false;
-				drawLoupe(i);
-			});
-			handle.addEventListener('pointermove', (event) => {
-				if (!drag || event.pointerId !== drag.id) {
-					return;
-				}
-
-				// The corner moves by the finger's movement, not to the finger,
-				// so the finger never has to cover the corner it is placing.
-				corners[i] = clampPoint({
-					x: drag.start.x + (event.clientX - drag.x) / scale,
-					y: drag.start.y + (event.clientY - drag.y) / scale,
-				}, source.width, source.height);
-				drawLoupe(i);
-				schedule();
-			});
-
-			const end = (event) => {
-				if (drag && event.pointerId === drag.id) {
-					drag = null;
-					handle.classList.remove('ph-dragging');
-					loupe.hidden = true;
-					stage.dataset.moved = 'true';
-					schedule();
-				}
-			};
-
-			handle.addEventListener('pointerup', end);
-			handle.addEventListener('pointercancel', end);
-			handle.addEventListener('keydown', (event) => {
-				const step = (event.shiftKey ? 10 : 1) / scale;
-				const moves = {ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step]};
-				const move = moves[event.key];
-
-				if (move) {
-					event.preventDefault();
-					corners[i] = clampPoint({x: corners[i].x + move[0], y: corners[i].y + move[1]}, source.width, source.height);
-					schedule();
-				}
-			});
-		});
-
-		rotate.addEventListener('click', () => {
-			corners = rotateCorners(corners, 1);
-			schedule();
-		});
-		reset.addEventListener('click', () => {
-			corners = detected.map((p) => ({...p}));
-			schedule();
-		});
+		rotate.addEventListener('click', () => editor.setCorners(rotateCorners(editor.corners, 1)));
+		reset.addEventListener('click', () => editor.setCorners(detected));
 		retake.addEventListener('click', () => start());
 		saveButton.addEventListener('click', async () => {
 			if (closed) {
@@ -506,6 +371,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			saveButton.textContent = 'Saving…';
 
 			try {
+				const corners = editor.corners;
 				const card = straighten(source, corners);
 				const {blob, type} = await encodePhoto(card);
 				const size = keepDetail ? detailSize(corners) : null;
@@ -535,7 +401,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			}
 		});
 
-		layout();
+		editor.layout();
 		drawPreview();
 		handles[0].focus({preventScroll: true});
 		stage.dataset.previewSize = `${previewSize.width}x${previewSize.height}`;

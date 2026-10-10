@@ -35,12 +35,13 @@
 import {currentUser, getClient, onUser} from './auth.js';
 import {coverAspect} from './binder-spread.js';
 import {coverImageOf, coverTextColor, DEFAULT_COVER, getBinder, isHex, setCoverImage} from './binders.js';
+import {cornerEditor} from './corners.js';
 import {loadDocument, newId, nowIso} from './collection.js';
 import {h} from './dom.js';
 import {database} from './idb.js';
 import {detectCorners} from './photos/detect.js';
 import {decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './photos/encode.js';
-import {clampPoint, scaleCorners, warp} from './photos/geometry.js';
+import {scaleCorners, warp} from './photos/geometry.js';
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, photoExtension} from './photos/model.js';
 import {openSheet} from './sheet.js';
 import {onSyncStatus, serverHolds} from './sync.js';
@@ -510,8 +511,6 @@ async function dropOld(image, binderId) {
 
 // ------------------------------------------------------------- the sheet
 
-const CORNERS = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left'];
-
 // A cover-shaped box, 90 percent of the largest that fits, in the middle.
 function startCorners(width, height, aspect) {
 	let h = height * 0.9;
@@ -666,128 +665,46 @@ export function pickCoverImage({binder, onSaved = null}) {
 		const initial = found.found
 			? scaleCorners(found.corners, 1 / toPreview)
 			: startCorners(source.width, source.height, aspect);
-		let corners = initial.map((p) => ({...p}));
-		let scale = 1;
-		let frame = 0;
-
-		const photo = h('canvas', {'aria-hidden': 'true', class: 'ph-photo'});
-		const outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		const shape = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-		const handles = CORNERS.map((name, i) => h('button', {
-			'aria-label': `${name} corner. Drag, or use the arrow keys.`,
-			class: 'bc-handle',
-			'data-corner': i,
-			type: 'button',
-		}));
-		const stage = h('div', {class: 'ph-stage bc-stage', id: 'bc-stage'}, photo, outline, ...handles);
 		const preview = h('canvas', {'aria-label': 'The cover as it will look', class: 'bc-preview', height: previewHeight, id: 'bc-preview', role: 'img', width: PREVIEW_WIDTH});
+		const buffer = new Uint8ClampedArray(PREVIEW_WIDTH * previewHeight * 4);
+
+		function drawPreview() {
+			putPixels(preview, warp(previewPixels, scaleCorners(editor.corners, toPreview), PREVIEW_WIDTH, previewHeight, buffer));
+			preview.dataset.version = String(Number(preview.dataset.version || 0) + 1);
+		}
+
+		// The picture with its corner handles (js/corners.js).
+		const editor = cornerEditor({
+			corners: initial,
+			draggingClass: 'bc-dragging',
+			handleClass: 'bc-handle',
+			heightShare: 0.46,
+			minHeight: 220,
+			onChange: drawPreview,
+			source,
+			stageClass: 'ph-stage bc-stage',
+			stageId: 'bc-stage',
+		});
+		const {handles, stage} = editor;
 		const save = h('button', {class: 'primary', id: 'bc-save', type: 'button'}, 'Save cover');
 		const reset = h('button', {id: 'bc-reset', type: 'button'}, 'Reset corners');
 		const again = h('button', {id: 'bc-again', type: 'button'}, 'Another picture');
 		const status = message(found.found
 			? 'Found the edges. Drag a corner if it is off, or around the part of the picture you want.'
 			: 'Drag the corners onto the cover\'s corners, or around the part of the picture you want.');
-		const buffer = new Uint8ClampedArray(PREVIEW_WIDTH * previewHeight * 4);
 
-		outline.setAttribute('class', 'ph-outline');
-		outline.setAttribute('aria-hidden', 'true');
-		outline.append(shape);
 		preview.style.aspectRatio = `${size.width} / ${size.height}`;
 
 		body.replaceChildren(stage, h('div', {class: 'ph-review bc-review'}, preview, h('div', {class: 'ph-review-actions'}, save, reset, again)), status);
 
-		function layout() {
-			const room = Math.min(stage.parentElement.clientWidth || 328, 560);
-			const maxHeight = Math.max(220, Math.round(window.innerHeight * 0.46));
-			const fitScale = Math.min(room / source.width, maxHeight / source.height);
-			const width = Math.round(source.width * fitScale);
-			const height = Math.round(source.height * fitScale);
-			const dpr = Math.min(2, window.devicePixelRatio || 1);
-
-			scale = fitScale;
-			photo.width = Math.round(width * dpr);
-			photo.height = Math.round(height * dpr);
-			photo.style.width = `${width}px`;
-			photo.style.height = `${height}px`;
-			stage.style.width = `${width}px`;
-			stage.style.height = `${height}px`;
-			outline.setAttribute('viewBox', `0 0 ${width} ${height}`);
-			outline.setAttribute('width', String(width));
-			outline.setAttribute('height', String(height));
-			photo.getContext('2d').drawImage(source, 0, 0, photo.width, photo.height);
-			overlay();
-		}
-
-		function overlay() {
-			shape.setAttribute('points', corners.map((p) => `${p.x * scale},${p.y * scale}`).join(' '));
-			handles.forEach((handle, i) => {
-				handle.style.transform = `translate(${corners[i].x * scale}px, ${corners[i].y * scale}px)`;
-			});
-		}
-
-		function drawPreview() {
-			frame = 0;
-			putPixels(preview, warp(previewPixels, scaleCorners(corners, toPreview), PREVIEW_WIDTH, previewHeight, buffer));
-			preview.dataset.version = String(Number(preview.dataset.version || 0) + 1);
-		}
-
-		function schedule() {
-			overlay();
-
-			if (!frame) {
-				frame = requestAnimationFrame(drawPreview);
-			}
-		}
-
-		handles.forEach((handle, i) => {
-			let drag = null;
-
-			handle.addEventListener('pointerdown', (event) => {
-				event.preventDefault();
-				drag = {id: event.pointerId, start: {...corners[i]}, x: event.clientX, y: event.clientY};
-				handle.setPointerCapture(event.pointerId);
-				handle.classList.add('bc-dragging');
-			});
-			handle.addEventListener('pointermove', (event) => {
-				if (drag && event.pointerId === drag.id) {
-					corners[i] = clampPoint({x: drag.start.x + ((event.clientX - drag.x) / scale), y: drag.start.y + ((event.clientY - drag.y) / scale)}, source.width, source.height);
-					schedule();
-				}
-			});
-
-			const end = (event) => {
-				if (drag && event.pointerId === drag.id) {
-					drag = null;
-					handle.classList.remove('bc-dragging');
-					schedule();
-				}
-			};
-
-			handle.addEventListener('pointerup', end);
-			handle.addEventListener('pointercancel', end);
-			handle.addEventListener('keydown', (event) => {
-				const step = (event.shiftKey ? 10 : 1) / scale;
-				const move = {ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step]}[event.key];
-
-				if (move) {
-					event.preventDefault();
-					corners[i] = clampPoint({x: corners[i].x + move[0], y: corners[i].y + move[1]}, source.width, source.height);
-					schedule();
-				}
-			});
-		});
-
-		reset.addEventListener('click', () => {
-			corners = initial.map((p) => ({...p}));
-			schedule();
-		});
+		reset.addEventListener('click', () => editor.setCorners(initial));
 		again.addEventListener('click', () => start());
 		save.addEventListener('click', async () => {
 			save.disabled = true;
 			save.textContent = 'Saving…';
 
 			try {
-				const cover = straighten(source, corners, size.width, size.height);
+				const cover = straighten(source, editor.corners, size.width, size.height);
 				const {blob, type} = await encodePhoto(cover, {target: COVER_BYTES});
 				const saved = await saveCoverImage(binder.id, blob, type);
 
@@ -805,7 +722,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 			}
 		});
 
-		layout();
+		editor.layout();
 		drawPreview();
 		handles[0].focus({preventScroll: true});
 	}

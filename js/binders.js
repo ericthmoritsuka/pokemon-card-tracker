@@ -526,6 +526,33 @@ export function stageCards(binders, {at = nowIso(), binderId, entryIds, index = 
 	return stamped([...changed.values()]);
 }
 
+// The copies "Add cards to the tray" offers: live copies in no pocket (My
+// Cards' "Not in a binder yet") that no binder's tray holds either, so
+// adding one never takes it from a tray it was meant for.
+export function trayCandidates(entries, binders) {
+	const held = new Set(handBinders(binders).flatMap((binder) => stagedOf(binder)));
+
+	return unplaced(entries, binders).filter((entry) => !held.has(entry.id));
+}
+
+// Undo for "Add cards to the tray": takes copies out of one binder's tray.
+// A copy placed in a pocket since then stays where it is.
+export function unstageCards(binders, {at = nowIso(), binderId, entryIds}) {
+	const target = findLive(binders, binderId);
+	const ids = new Set(entryIds || []);
+	const staged = stagedOf(target);
+
+	if (!staged.some((id) => ids.has(id))) {
+		return [];
+	}
+
+	const next = copyOf(target, at);
+
+	next.staged = staged.filter((id) => !ids.has(id));
+
+	return stamped([next]);
+}
+
 // Takes the card in a pocket out into the binder's tray, at the end.
 export function pocketToTray(binders, {at = nowIso(), binderId, page, position}) {
 	const target = findLive(binders, binderId);
@@ -1048,6 +1075,11 @@ export const clearPocket = (binderId, page, position) => pocketChange(binderId, 
 const liveCardIds = async () => new Set(((await loadDocument()).cards || []).filter(isLive).map((entry) => entry.id));
 
 export const moveToTray = (binderId, page, position) => serial(async () => saveBinders(pocketToTray(await allBinders(), {binderId, page, position})));
+
+// "Add cards to the tray", and its Undo.
+export const addToTray = (binderId, entryIds) => serial(async () => saveBinders(stageCards(await allBinders(), {binderId, entryIds})));
+
+export const takeFromTray = (binderId, entryIds) => serial(async () => saveBinders(unstageCards(await allBinders(), {binderId, entryIds})));
 
 export const placeStaged = (binderId, page, position, entryId) => serial(async () => saveBinders(placeFromTray(await allBinders(), {binderId, entryId, page, position})));
 

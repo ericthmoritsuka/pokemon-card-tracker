@@ -1341,7 +1341,11 @@ bar. Tap a thumbnail to pick it (it lights up), tap a pocket to place it, and th
 picked; a card placed on another card swaps with it. Where the spread is directly editable
 (sideways, tablets, laptops, a zoomed page) cards can also be dragged onto pockets. **Fill the rest
 in order** places the remaining cards in the pockets with nothing in them, in reading order. A copy
-deleted from the collection leaves the tray.
+deleted from the collection leaves the tray. **Add cards to the tray** (2026-10-10, the audit's
+follow-up) fills it in bulk: a sheet lists the copies in no pocket and in no binder's tray, with a
+search and a set filter; tap tiles or Select all, then add them all, in name order, with Undo on
+the toast. A copy waiting in another binder's tray is not offered, so the picker never takes a
+card from the binder it was meant for. A binder made from a list has no tray and no button.
 
 **Binders from a list** (Eric, 2026-10-05; built 2026-10-09), `js/binder-rules.js`,
 `js/binder-sources.js`, and `js/binder-rule-view.js`. New binder offers Empty binder or **From a

@@ -135,3 +135,34 @@ describe('the set index', () => {
 		assert.deepEqual((await earlier.englishSets()).map((set) => set.id), ['sv01']);
 	});
 });
+
+describe('one network layer', () => {
+	// The wishlist search and the theme suggestion fetched TCGdex with
+	// helpers of their own; both now go through js/tcgdex.js (E-29), with
+	// one try each, as before: the search falls back to its kept answer, and
+	// the theme to the Pokémon's game type (tests/wishlist-browser.test.mjs
+	// and tests/themes-app.test.mjs check what the person sees).
+	test('js/wishlist.js and js/settings.js name no TCGdex address and use the shared helpers, trying once', async () => {
+		const {readFile} = await import('node:fs/promises');
+
+		for (const [path, helper] of [['js/wishlist.js', 'fetchJson'], ['js/settings.js', 'graphql']]) {
+			const source = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+
+			assert.doesNotMatch(source, /api\.tcgdex\.net/, `${path} has no TCGdex address of its own`);
+			assert.match(source, new RegExp(`import \\{${helper}\\} from './tcgdex\\.js';`), `${path} imports ${helper}`);
+			assert.match(source, new RegExp(`${helper}\\([^;]*\\{attempts: 1\\}\\)`), `${path} tries once, as before`);
+		}
+	});
+
+	test('one try: a 503 is not retried, and its error says who answered what', async () => {
+		const {calls, fetch} = fakeFetch([{body: 'down', status: 503}]);
+
+		await assert.rejects(fetchJson('en/cards?name=Pikachu', {attempts: 1, fetch, wait: async () => assert.fail('no wait')}), (err) => {
+			assert.equal(err.status, 503);
+			assert.equal(err.message, 'TCGdex answered 503 for en/cards?name=Pikachu.');
+
+			return true;
+		});
+		assert.deepEqual(calls.map((call) => call.url), [`${API}en/cards?name=Pikachu`]);
+	});
+});
