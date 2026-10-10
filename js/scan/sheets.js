@@ -599,6 +599,11 @@ function reportPanel(ctx, itemId) {
 	const text = ctx.reportText(itemId);
 	const area = h('textarea', {'aria-label': 'Scan report', class: 'scan-report-text', id: 'scan-report-text', readonly: true, rows: 20, spellcheck: 'false'});
 	const status = h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-report-status'});
+	// The sheet may be drawn again while a copy or a save is under way (a
+	// card finishing behind it): the line is found again when it is told.
+	const tell = (line) => {
+		(document.getElementById('scan-report-status') || status).textContent = line;
+	};
 
 	area.value = text;
 
@@ -606,17 +611,17 @@ function reportPanel(ctx, itemId) {
 		area,
 		h('div', {class: 'scan-row'},
 			h('button', {class: 'scan-button scan-primary', id: 'scan-report-copy', onclick: async () => {
-				status.textContent = (await copyText(area.value, area)) ? 'Copied. Paste it into a message.' : 'Copying did not work here; select the text and copy it.';
+				tell((await copyText(area.value, area)) ? 'Copied. Paste it into a message.' : 'Copying did not work here; select the text and copy it.');
 			}, type: 'button'}, 'Copy report'),
 			ctx.hasCapture && ctx.hasCapture(itemId)
 				? h('button', {class: 'scan-button', id: 'scan-report-capture', onclick: async () => {
 					try {
 						const names = await ctx.saveCapture(itemId);
 
-						status.textContent = names.length ? `Saved ${names.join(' and ')}. Send them with the report.` : 'This capture is no longer kept.';
+						tell(names.length ? `Saved ${names.join(' and ')}. Send them with the report.` : 'This capture is no longer kept.');
 					}
 					catch {
-						status.textContent = 'The capture image could not be made here.';
+						tell('The capture image could not be made here.');
 					}
 				}, type: 'button'}, 'Save capture image')
 				: null),
@@ -818,7 +823,9 @@ export function doneSheet(ctx) {
 
 		rows.push(h('div', {class: 'scan-actions'},
 			h('button', {class: 'scan-button', id: 'scan-discard-session', onclick: () => ctx.discard(), type: 'button'}, 'Discard session'),
-			h('button', {class: 'scan-button scan-primary scan-wide', disabled: !ready, id: 'scan-save-session', onclick: () => saveSession(), type: 'button'}, label)));
+			// Blocked by cards that need a look, Save starts the Review run
+			// through them (version 36) rather than doing nothing.
+			h('button', {class: 'scan-button scan-primary scan-wide', disabled: !ready && !(summary.look && ctx.openReview), id: 'scan-save-session', onclick: () => (!ready && summary.look && ctx.openReview ? ctx.openReview() : saveSession()), type: 'button'}, label)));
 
 		body.replaceChildren(...rows);
 	}

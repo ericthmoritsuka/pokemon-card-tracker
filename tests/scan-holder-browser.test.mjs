@@ -178,6 +178,78 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 
 		assert.ok(list[2].geometry.card.h * frameH > guideH, `the third card is larger than the guide (${Math.round(list[2].geometry.card.h * frameH)} px against ${guideH})`);
 		assert.ok((list[3].geometry.card.x + list[3].geometry.card.w / 2) * frameW > frameW * 0.55, 'the fourth card is off to the right');
+
+		// The scan log (version 36): the scanner's version, each drop's
+		// numbers, the queue waits, the box emptied as a skipped drop with
+		// why, and the small views before and after each drop, for a replay.
+		const log = JSON.parse(await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/log.js')).logFile()).text()));
+		const taken = log.entries.filter((entry) => entry.how === 'auto');
+
+		assert.equal(taken.length, 4);
+
+		for (const entry of taken) {
+			assert.equal(entry.scanner, 36);
+			assert.equal(entry.report.geometry.drop.kind, 'drop');
+			assert.ok(entry.report.geometry.drop.share > 0 && entry.report.geometry.drop.stillFrames >= 2);
+			assert.ok(entry.report.geometry.drop.sharpness > 0);
+			assert.ok(entry.report.queue && entry.report.queue.pictureMs >= 0, 'the picture queue');
+			assert.ok(entry.views && /^data:image\/jpeg/.test(entry.views.before) && /^data:image\/jpeg/.test(entry.views.after), 'the views round the drop');
+		}
+
+		assert.ok(log.entries.some((entry) => entry.how === 'holder' && entry.why === 'removed' && entry.outcome.kind === 'skipped'), `the emptied box is logged as skipped: ${JSON.stringify(log.entries.filter((entry) => entry.how === 'holder').map((entry) => entry.why))}`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// What version 35 got wrong on Eric's video (2026-10-09): cards landing on
+	// the very spot of the last were taken for the card already taken. With
+	// them, a hand passing over the pile, the light flickering, and his fast
+	// rhythm (a card about every 1.5 s).
+	test('cards landing on the same spot are each taken once at a fast rhythm; a hand passing and the light flickering take nothing', async () => {
+		const {context, errors, page} = await open({record: false});
+		const spot = {dx: 0.01, dy: 0.02, size: 0.88};
+		const order = ['b', 'c', 'a', 'b'];
+		const pile = [];
+
+		await setScene(page, {background: 'box', cards: []});
+		await page.waitForTimeout(1500);
+
+		for (const [index, name] of order.entries()) {
+			const counts = await drop(page, pile, {...spot, angle: index % 2 ? -1 : 1, card: name});
+
+			assert.ok(counts.every((count) => count === index), `drop ${index + 1}: nothing taken while it fell (${counts.join(', ')})`);
+			await until(async () => (await captures(page)) === index + 1, `drop ${index + 1} on the same spot taken`, 6000);
+			pile.push({...spot, angle: index % 2 ? -1 : 1, card: name});
+			await page.waitForTimeout(700);
+		}
+
+		// A hand passes over the pile and leaves it as it was.
+		for (const dx of [-0.6, -0.3, 0, 0.3, 0.6]) {
+			await setScene(page, {background: 'box', cards: pile, hand: {dx, dy: 0.1, r: 0.3}});
+			await page.waitForTimeout(90);
+		}
+
+		await setScene(page, {background: 'box', cards: pile});
+		await page.waitForTimeout(1200);
+
+		// The light flickers.
+		for (const light of [0.8, 1.12, 0.88, 1.08, 1]) {
+			await setScene(page, {background: 'box', cards: pile, light});
+			await page.waitForTimeout(450);
+		}
+
+		await page.waitForTimeout(800);
+		assert.equal(await captures(page), order.length, 'the hand and the light took nothing');
+
+		await until(async () => {
+			const list = await items(page);
+
+			return list.length === order.length && list.every((item) => item.status !== 'reading' && item.status !== 'matching');
+		}, 'every card read', 60000);
+
+		const list = await items(page);
+
+		assert.deepEqual(list.map((item) => item.card), order.map((name) => CARDS[name]), `each card on the same spot matched: ${JSON.stringify(list.map(({card, picture, status}) => ({card, picture, status})))}`);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

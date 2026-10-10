@@ -685,7 +685,7 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 			base = now;
 			burst = null;
 
-			return {burst: seen, change, drop: change.kind === 'drop', motion: moved, moving: false, still};
+			return {burst: seen, change, drop: change.kind === 'drop', motion: moved, moving: false, still, stillFrames};
 		},
 		reframe() {
 			previous = null;

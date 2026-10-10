@@ -2787,6 +2787,7 @@ export function scanView(root) {
 		movingMs: step.burst ? Math.round(performance.now() - step.burst.start - step.still) : null,
 		share: change ? Math.round(change.share * 1000) / 1000 : null,
 		sharpness: plan ? plan.sharpness : null,
+		stillFrames: step.stillFrames ?? null,
 		stillMs: Math.round(step.still),
 	});
 
