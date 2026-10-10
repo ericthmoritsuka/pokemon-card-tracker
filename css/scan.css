@@ -168,6 +168,50 @@ html.scan-open body {
 	display: none;
 }
 
+/* "N to check" in the running count: a way into the Review run, with a
+   larger tap area than its text. */
+.scan-look-count {
+	background: none;
+	border: 0;
+	color: var(--scan-primary);
+	font: inherit;
+	margin: -8px -6px;
+	padding: 8px 6px;
+	pointer-events: auto;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+/* Holder mode's lighting tip: one line under the count, dismissible. */
+.scan-tip {
+	align-items: center;
+	background: rgba(0, 0, 0, 0.7);
+	border-radius: 12px;
+	display: flex;
+	font-size: 12px;
+	gap: 6px;
+	line-height: 16px;
+	margin: 0;
+	max-width: 100%;
+	padding: 4px 4px 4px 10px;
+	pointer-events: auto;
+}
+
+.scan-tip[hidden] {
+	display: none;
+}
+
+.scan-tip-close {
+	background: none;
+	border: 0;
+	color: var(--scan-text);
+	flex: none;
+	font-size: 18px;
+	height: 32px;
+	line-height: 1;
+	width: 32px;
+}
+
 /* "Same card as the last one." with Add a copy and Mistake, at the foot of
    the camera, above the tray and the shutter. */
 .scan-repeat {

@@ -150,6 +150,144 @@ export function identifyPicture(image, options = {}) {
 	return run;
 }
 
+// identifyPicture in a worker (see-worker.js), so the frame loop is not held
+// up by it; on the main thread when a worker cannot start or fails. Answers
+// as identifyPicture does. A straightened card (options.straight) is matched
+// here: it is small and its image is the answer's card.
+let worker = null;
+let workerFailed = typeof Worker === 'undefined';
+let workerWarm = null;
+// The warm-up waiting on the worker, told to load here instead if the
+// worker fails before it answers.
+let warmFallback = null;
+let jobSeq = 0;
+const jobs = new Map();
+
+function startWorker() {
+	const next = new Worker(new URL('./see-worker.js', import.meta.url), {type: 'module'});
+
+	next.addEventListener('message', ({data}) => {
+		if (data.warm) {
+			return;
+		}
+
+		const job = jobs.get(data.id);
+
+		jobs.delete(data.id);
+
+		if (!job) {
+			return;
+		}
+
+		if (data.error) {
+			job.resolve(identifyPicture(job.image, job.options));
+
+			return;
+		}
+
+		const {result} = data;
+		const trace = result.trace ? {...result.trace, capture: data.sameCapture ? job.image : result.trace.capture, card: result.card} : null;
+
+		job.resolve({...result, trace});
+	});
+	next.addEventListener('error', () => {
+		workerFailed = true;
+		next.terminate();
+		worker = null;
+
+		for (const job of jobs.values()) {
+			job.resolve(identifyPicture(job.image, job.options));
+		}
+
+		jobs.clear();
+
+		if (warmFallback) {
+			warmFallback();
+		}
+	});
+
+	return next;
+}
+
+function pictureWorker() {
+	if (!worker && !workerFailed) {
+		try {
+			worker = startWorker();
+		}
+		catch {
+			workerFailed = true;
+		}
+	}
+
+	return worker;
+}
+
+export function identifyPictureAway(image, options = {}) {
+	const away = options.straight ? null : pictureWorker();
+
+	if (!away) {
+		return identifyPicture(image, options);
+	}
+
+	// Only what the picture half reads goes to the worker (readOptions
+	// carries a callback, which cannot be sent).
+	const {guide = null, photo = false, pictureFirst = true, quads = []} = options;
+
+	return new Promise((resolve) => {
+		const id = ++jobSeq;
+
+		jobs.set(id, {image, options, resolve});
+
+		try {
+			away.postMessage({id, image: {data: image.data, height: image.height, width: image.width}, options: {guide, photo, pictureFirst, quads}});
+		}
+		catch {
+			jobs.delete(id);
+			resolve(identifyPicture(image, options));
+		}
+	});
+}
+
+// Loads the picture index where the pictures are matched (the worker, or
+// this thread). Resolves once it is in; rejects when it cannot load.
+export function warmPicture() {
+	const away = pictureWorker();
+
+	if (!away) {
+		return loadFingerprints();
+	}
+
+	if (!workerWarm) {
+		workerWarm = new Promise((resolve, reject) => {
+			warmFallback = () => {
+				warmFallback = null;
+				workerWarm = null;
+				loadFingerprints().then(resolve, reject);
+			};
+
+			const heard = ({data}) => {
+				if (data && data.warm) {
+					away.removeEventListener('message', heard);
+					warmFallback = null;
+
+					if (data.ok) {
+						resolve();
+					}
+					else {
+						workerWarm = null;
+						reject(new Error('The picture index could not load.'));
+					}
+				}
+			};
+
+			away.addEventListener('message', heard);
+			away.postMessage({warm: true});
+		});
+	}
+
+	return workerWarm;
+}
+
 export function identifyText(seen, options = {}) {
 	const run = textQueue.then(() => readText(seen, options));
 

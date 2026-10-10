@@ -39,14 +39,18 @@ export {AUTO_GAP};
 // - FIRM_DISTANCE: at or under 55, a lead of FIRM_GAP does too (Eric's
 //   phone, version 25: Skrelp under a flashlight was 46.4 away with a lead
 //   of 25.7, plainly right, and was left "Not sure"). A wrong first place
-//   has never led by more than 5.8, and its distance was past 60.
+//   has never led by more than 5.8, and its distance was past 60. FIRM_GAP
+//   was 20 until version 36 (Eric, 2026-10-09): on his holder-log crops and
+//   1,056 re-crops of them (lab/holder/crops.mjs) the 141 wrong first places
+//   led by 6 at most, all past 61, while 140 right ones within 55 led by 15
+//   to 20 and waited for their number to be read.
 // - Between those and CLEAR_DISTANCE the picture is probably right but not
 //   certain, so the number is read to confirm it.
 // - CLEAR_DISTANCE: above 60 nothing is clear, whatever the lead: that
 //   distance is a wrong crop, and a lead there means nothing.
 export const SURE_DISTANCE = 45;
 export const FIRM_DISTANCE = 55;
-export const FIRM_GAP = 20;
+export const FIRM_GAP = 15;
 export const CLEAR_DISTANCE = 60;
 
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
@@ -85,7 +89,12 @@ export const fingerprintsLoaded = () => Boolean(indexPromise);
 // strips, turned) against 472. wide: false skips it.
 export const WIDE_CROPS = 2;
 
-export function matchCrops(index, crops, {wide = true} = {}) {
+// How many cards matcher.js scores in full after screening the index on
+// each hash's first word ({base, wide}: the plain search and the wide one;
+// 0 scores every card).
+export const SCREEN = {base: 2000, wide: 2000};
+
+export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
 	const t0 = performance.now();
 	const bits = {artBits: index.header.fields.art.bytes * 8, cardBits: index.header.fields.card ? index.header.fields.card.bytes * 8 : 64};
 	const tried = [];
@@ -100,7 +109,7 @@ export function matchCrops(index, crops, {wide = true} = {}) {
 
 		fingerprintMs += performance.now() - at;
 
-		const result = matchFingerprints(index, queries);
+		const result = matchFingerprints(index, queries, {screen: screen.base});
 
 		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
@@ -119,7 +128,7 @@ export function matchCrops(index, crops, {wide = true} = {}) {
 
 			fingerprintMs += performance.now() - at;
 
-			const result = matchFingerprints(index, [...one.queries, ...more]);
+			const result = matchFingerprints(index, [...one.queries, ...more], {screen: screen.wide});
 			const score = scoreOf(result);
 
 			if (score < best.score || (one === best && score <= best.score)) {

@@ -358,7 +358,7 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 		}
 
 		if (opts.verbose) {
-			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness}` : ''}`);
+			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness} alike=${capture.change.alike}` : ''}`);
 		}
 	}
 }

@@ -12,7 +12,10 @@
 //
 // where each card is placed from the guide's centre, dx and dy and size
 // being shares of the guide's height (size 1: as tall as the guide), angle
-// in degrees, later cards on top. 'box' is a white box seen from above:
+// in degrees, later cards on top. The guide is measured once, when it first
+// shows, and the picture then stays put in the frame however the screen is
+// laid out after (a tray tile or a note moving the guide), as a real
+// camera's picture does; scene.reanchor measures it again. 'box' is a white box seen from above:
 // a white floor, and grey walls running out to the frame's edges.
 // window.scene can also be {kind: 'table'} (nothing). navigator.vibrate
 // records each buzz in window.buzzes.
@@ -63,6 +66,8 @@ export function sceneCamera({height, width}) {
 		ctx.fillRect(fx, fy, width - fx * 2, height - fy * 2);
 	};
 
+	let anchor = null;
+
 	const draw = () => {
 		const scene = window.scene || {kind: 'table'};
 
@@ -83,15 +88,22 @@ export function sceneCamera({height, width}) {
 
 		// The guide's layout box, not its drawn one: the capture flash scales
 		// the guide for a moment, and a real camera's picture does not follow.
-		const stage = guide.offsetParent.getBoundingClientRect();
-		const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
-		const v = video.getBoundingClientRect();
-		const scale = Math.max(v.width / width, v.height / height);
-		const offsetX = v.left + (v.width - width * scale) / 2;
-		const offsetY = v.top + (v.height - height * scale) / 2;
-		const cx = (g.left + g.width / 2 - offsetX) / scale;
-		const cy = (g.top + g.height / 2 - offsetY) / scale;
-		const gh = g.height / scale;
+		if (!anchor || scene.reanchor) {
+			const stage = guide.offsetParent.getBoundingClientRect();
+			const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
+			const v = video.getBoundingClientRect();
+			const scale = Math.max(v.width / width, v.height / height);
+			const offsetX = v.left + (v.width - width * scale) / 2;
+			const offsetY = v.top + (v.height - height * scale) / 2;
+
+			if (!g.height || !v.height) {
+				return;
+			}
+
+			anchor = {cx: (g.left + g.width / 2 - offsetX) / scale, cy: (g.top + g.height / 2 - offsetY) / scale, gh: g.height / scale};
+		}
+
+		const {cx, cy, gh} = anchor;
 
 		for (const placed of scene.cards) {
 			const image = cards[placed.card || 'a'];

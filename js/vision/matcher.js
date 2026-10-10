@@ -78,6 +78,58 @@ function hammingAll(table, words, queries, out) {
 	return out;
 }
 
+// The full Hamming distances, as hammingAll, for the cards in `ids` only.
+function hammingSome(table, words, queries, ids, out) {
+	for (const i of ids) {
+		let best = 1 << 15;
+
+		for (const q of queries) {
+			let d = 0;
+
+			for (let w = 0; w < words; w++) {
+				d += popcount32(table[i * words + w] ^ q[w]);
+			}
+
+			if (d < best) {
+				best = d;
+			}
+		}
+
+		out[i] = best;
+	}
+}
+
+// A rough score for every card into `out`: the weighted distance of the
+// first word of its art and card hashes, the best over the queries.
+function screenFirstWords(index, queries, out) {
+	const {fields, flags, header} = index;
+	const W = header.weights;
+	const artWords = header.fields.art.bytes / 4;
+	const cardWords = fields.card ? header.fields.card.bytes / 4 : 0;
+	const qa = Uint32Array.from(queries, (f) => f.art[0]);
+	const qc = Uint32Array.from(queries, (f) => (f.card ? f.card[0] : 0));
+	const art = fields.art;
+	const card = fields.card;
+	const q = queries.length;
+
+	for (let i = 0; i < index.count; i++) {
+		const w = flags[i] & 1 ? W.full : W.framed;
+		const a = art[i * artWords];
+		const c = card ? card[i * cardWords] : 0;
+		let best = Infinity;
+
+		for (let s = 0; s < q; s++) {
+			const d = w.art * popcount32(a ^ qa[s]) + (card ? w.card * popcount32(c ^ qc[s]) : 0);
+
+			if (d < best) {
+				best = d;
+			}
+		}
+
+		out[i] = best;
+	}
+}
+
 const scratch = new Map();
 
 function buffers(n) {
@@ -91,30 +143,64 @@ function buffers(n) {
 // Match query fingerprints (from queryFingerprints) against the index.
 // Returns {groups, timings}: up to `top` artwork groups, best first, each
 // {score, cards: [{id, catalog, set, full, score, art, card, color}]}.
-export function matchFingerprints(index, queries, {prefilter = 400, top = 5} = {}) {
+//
+// screen: with many queries (a crop matched with the wider search,
+// fingerprint.js WIDE_SHIFTS), every card is first scored on the first 32
+// bits of each hash only (the lowest frequencies, the ones a camera moves
+// least), and only the best `screen` cards are scored in full: an eighth of
+// the work for the rest of the index. 0 scores every card in full.
+export function matchFingerprints(index, queries, {prefilter = 400, screen = 0, top = 5} = {}) {
 	const t0 = performance.now();
 	const n = index.count;
 	const {fields, flags, header} = index;
 	const W = header.weights;
 	const buf = buffers(n);
 	const hasCard = Boolean(fields.card);
-
-	hammingAll(fields.art, header.fields.art.bytes / 4, queries.map((f) => f.art), buf.art);
-
-	if (hasCard) {
-		hammingAll(fields.card, header.fields.card.bytes / 4, queries.map((f) => f.card), buf.card);
-	}
-
-	// Coarse score from the hashes alone, then the best `prefilter` cards.
+	const artWords = header.fields.art.bytes / 4;
+	const cardWords = hasCard ? header.fields.card.bytes / 4 : 0;
 	const coarse = buf.coarse;
+	let pool;
 
-	for (let i = 0; i < n; i++) {
-		const w = flags[i] & 1 ? W.full : W.framed;
+	if (screen && n > screen * 2) {
+		screenFirstWords(index, queries, coarse);
 
-		coarse[i] = w.art * buf.art[i] + (hasCard ? w.card * buf.card[i] : 0);
+		const near = selectSmallest(coarse, screen);
+
+		hammingSome(fields.art, artWords, queries.map((f) => f.art), near, buf.art);
+
+		if (hasCard) {
+			hammingSome(fields.card, cardWords, queries.map((f) => f.card), near, buf.card);
+		}
+
+		const scores = near.map((i) => {
+			const w = flags[i] & 1 ? W.full : W.framed;
+
+			return {i, s: w.art * buf.art[i] + (hasCard ? w.card * buf.card[i] : 0)};
+		}).sort((a, b) => a.s - b.s).slice(0, prefilter);
+
+		for (const {i, s} of scores) {
+			coarse[i] = s;
+		}
+
+		pool = scores.map(({i}) => i);
+	}
+	else {
+		hammingAll(fields.art, artWords, queries.map((f) => f.art), buf.art);
+
+		if (hasCard) {
+			hammingAll(fields.card, cardWords, queries.map((f) => f.card), buf.card);
+		}
+
+		// Coarse score from the hashes alone, then the best `prefilter` cards.
+		for (let i = 0; i < n; i++) {
+			const w = flags[i] & 1 ? W.full : W.framed;
+
+			coarse[i] = w.art * buf.art[i] + (hasCard ? w.card * buf.card[i] : 0);
+		}
+
+		pool = selectSmallest(coarse, prefilter);
 	}
 
-	const pool = selectSmallest(coarse, prefilter);
 	const scored = [];
 	const color = fields.color;
 

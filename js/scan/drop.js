@@ -42,10 +42,21 @@ export const CELL = 4;
 // most); a card falling in measures 6 to 30.
 export const MOTION = 2.5;
 
+// Or when more than MOVE_SHARE of the cells changed by more than MOVE_CHANGE: a
+// card's corner coming into the view (tests/scan-holder-browser.test.mjs:
+// a card falling in from the top was judged on the frame it first showed).
+export const MOVE_SHARE = 0.01;
+export const MOVE_CHANGE = 40;
+
 // How long the picture must stay still before it is compared with the base.
 // A card dropped into Eric's box falls for 0.3 to 0.5 s and lies still
 // within a frame or two of landing (video, 2026-10-09).
 export const SETTLE_MS = 300;
+
+// And for at least this many frames in a row: a phone too busy to show a
+// new frame between two looks (or a test's canvas camera) repeats a frame
+// of a card still in the air, which is not still.
+export const SETTLE_FRAMES = 2;
 
 // How long the picture must stay still before the first base is kept, when
 // the detector starts or is reframed (the zoom changed): the camera may
@@ -57,11 +68,26 @@ export const BASE_MS = 1000;
 export const CHANGE = 16;
 
 // The blob is a new card when it covers at least this share of the view's
-// cells, and at most DROP_MAX: a card dropped into the box covers 8 to 25 %
-// of the view at 1x and 1.4x zoom; the whole view changing is the light, or
-// the phone moved.
+// cells, and the whole change at most DROP_MAX: a card dropped into the box
+// covers 8 to 25 % of the view at 1x and 1.4x zoom in Eric's videos, and a
+// card larger than the guide on a pile up to 90 % of a test scene's; the
+// whole view changing is the phone moved or covered. A change far larger
+// than the last card is the light (dropCapture, LIGHT_GROWTH).
 export const DROP_MIN = 0.03;
-export const DROP_MAX = 0.85;
+export const DROP_MAX = 0.96;
+
+// A card taken away (the box emptied, the top card lifted off) changes the
+// picture too, but leaves plainer ground where it lay: the changed part is
+// a card only when its detail (the spread of its cells) is at least
+// REMOVED_DETAIL of what was there before, or DETAIL_MIN in itself.
+const REMOVED_DETAIL = 0.6;
+const DETAIL_MIN = 14;
+
+// A change whose fine structure is this alike to what was there (drop.js
+// structureAlike) is the light, not a card: on Eric's video every card
+// dropped measured 0.18 or less, the lamp moved from one side of the box to
+// the other 0.71.
+export const LIGHT_ALIKE = 0.5;
 
 // A card's rectangle (63:88); the blob's rectangle must hold at least FILL
 // of changed cells and be no flatter than FLAT (its short side over its
@@ -120,13 +146,77 @@ export function cellMotion(a, b) {
 	return sum / n;
 }
 
+// The share of cells that changed by more than `change` from one frame to
+// the next, the mean shift taken out: a card coming in at the edge of the
+// view moves few cells a lot, which the mean alone can miss.
+export function movedShare(a, b, change = CHANGE) {
+	if (!a || !b || a.data.length !== b.data.length) {
+		return 1;
+	}
+
+	const n = a.data.length;
+	let shift = 0;
+
+	for (let i = 0; i < n; i++) {
+		shift += a.data[i] - b.data[i];
+	}
+
+	shift /= n;
+
+	let count = 0;
+
+	for (let i = 0; i < n; i++) {
+		if (Math.abs(a.data[i] - b.data[i] - shift) > change) {
+			count++;
+		}
+	}
+
+	return count / n;
+}
+
+// The brightness change from `base` to `now`: the commonest ratio of a
+// cell's value now to its value before (in steps of GAIN_STEP), so the part
+// that changed, a card covering most of the view included, does not skew
+// it: the cells it did not cover all share one ratio.
+const GAIN_STEP = 0.02;
+
+export function gainOf(now, base) {
+	const bins = new Uint32Array(Math.round(1.5 / GAIN_STEP) + 1);
+
+	for (let i = 0; i < now.data.length; i++) {
+		const before = base.data[i];
+
+		if (before < 24) {
+			continue;
+		}
+
+		const ratio = now.data[i] / before;
+
+		if (ratio >= 0.5 && ratio <= 2) {
+			bins[Math.round((ratio - 0.5) / GAIN_STEP)]++;
+		}
+	}
+
+	let best = -1;
+	let at = -1;
+
+	for (let k = 0; k < bins.length; k++) {
+		const count = bins[k] + (bins[k - 1] || 0) + (bins[k + 1] || 0);
+
+		if (count > best) {
+			best = count;
+			at = k;
+		}
+	}
+
+	return best > 0 ? 0.5 + at * GAIN_STEP : 1;
+}
+
 // The cells of `now` that changed from `base`, with the base's brightness
-// scaled to now's (the ratio of their medians, so the changed part does
-// not skew it). Returns {mask (Uint8Array), share, gain}.
+// scaled to now's (gainOf). Returns {mask (Uint8Array), share, gain}.
 export function changeMask(now, base, change = CHANGE) {
 	const n = now.data.length;
-	const median = (data) => Float32Array.from(data).sort()[n >> 1] || 1;
-	const gain = Math.min(2, Math.max(0.5, median(now.data) / median(base.data)));
+	const gain = gainOf(now, base);
 	const mask = new Uint8Array(n);
 	let count = 0;
 
@@ -351,6 +441,24 @@ export function sharpness(grey, width, height, box) {
 	return n ? sq / n - (sum / n) ** 2 : 0;
 }
 
+// A still picture can still be soft (the camera refocusing on a pile grown
+// taller): a drop whose card is less than SHARP_FLOOR as sharp as the
+// median of the last few cards taken waits up to SHARP_WAIT_MS for a
+// sharper frame, and is taken anyway after that. recent: those cards'
+// sharpness; with fewer than three there is nothing to go by.
+export const SHARP_FLOOR = 0.45;
+export const SHARP_WAIT_MS = 400;
+
+export function sharpEnough(value, recent, floor = SHARP_FLOOR) {
+	if (!recent || recent.length < 3) {
+		return true;
+	}
+
+	const sorted = [...recent].sort((a, b) => a - b);
+
+	return value >= sorted[sorted.length >> 1] * floor;
+}
+
 // The box round some points: {x, y, w, h}.
 export function boxOf(points) {
 	const xs = points.map((p) => p.x);
@@ -361,10 +469,78 @@ export function boxOf(points) {
 	return {h: Math.max(...ys) - y, w: Math.max(...xs) - x, x, y};
 }
 
+// How alike the fine structure of two cell grids is over some cells: the
+// correlation of each cell less the mean of its 3 x 3 neighbours. A lamp
+// moved over the box changes how bright everything is but leaves its edges
+// where they were (near 1); a new card brings edges of its own (near 0).
+export function structureAlike(now, base, ids) {
+	const {ch, cw} = now;
+	const detail = (data, i) => {
+		const x = i % cw;
+		const y = (i - x) / cw;
+		let sum = 0;
+		let n = 0;
+
+		for (let dy = -1; dy <= 1; dy++) {
+			for (let dx = -1; dx <= 1; dx++) {
+				const xx = x + dx;
+				const yy = y + dy;
+
+				if (xx >= 0 && yy >= 0 && xx < cw && yy < ch) {
+					sum += data[yy * cw + xx];
+					n++;
+				}
+			}
+		}
+
+		return data[i] - sum / n;
+	};
+	let sa = 0;
+	let sb = 0;
+	let saa = 0;
+	let sbb = 0;
+	let sab = 0;
+
+	for (const i of ids) {
+		const a = detail(now.data, i);
+		const b = detail(base.data, i);
+
+		sa += a;
+		sb += b;
+		saa += a * a;
+		sbb += b * b;
+		sab += a * b;
+	}
+
+	const n = Math.max(1, ids.length);
+	const cov = sab / n - (sa / n) * (sb / n);
+	const va = saa / n - (sa / n) ** 2;
+	const vb = sbb / n - (sb / n) ** 2;
+
+	return va > 0 && vb > 0 ? cov / Math.sqrt(va * vb) : 0;
+}
+
+// The standard deviation of some cells' values.
+function spread(data, ids) {
+	let sum = 0;
+	let sq = 0;
+
+	for (const i of ids) {
+		sum += data[i];
+		sq += data[i] * data[i];
+	}
+
+	const mean = sum / Math.max(1, ids.length);
+
+	return Math.sqrt(Math.max(0, sq / Math.max(1, ids.length) - mean * mean));
+}
+
 // What a still picture's change against the base says: {kind, share, ...}.
 // kind 'drop' (a new card: rect, corners, others in view pixels, the blob's
 // share of the view, its fill), 'none' (nothing changed to speak of: a
 // hand passed and left nothing), 'small' (a change too small for a card),
+// 'removed' (a card taken away: plainer ground where it lay), 'light' (the
+// same edges, lit another way),
 // 'large' (most of the view changed: the light, or the phone), or 'shape'
 // (a change that is no card's shape: a shadow, a strip).
 export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = DROP_MAX, dropMin = DROP_MIN} = {}) {
@@ -396,9 +572,22 @@ export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = 
 		return {blob: blobShare, fill, flat, gain, kind: 'shape', rect, share};
 	}
 
+	const alike = structureAlike(now, base, blob);
+	if (alike > LIGHT_ALIKE) {
+		return {alike, blob: blobShare, gain, kind: 'light', rect, share};
+	}
+
+	const detailNow = spread(now.data, blob);
+	const detailBefore = spread(base.data, blob) * gain;
+
+	if (detailNow < DETAIL_MIN && detailNow < detailBefore * REMOVED_DETAIL) {
+		return {blob: blobShare, detail: Math.round(detailNow), gain, kind: 'removed', rect, share};
+	}
+
 	const rects = cardRects(rect);
 
 	return {
+		alike: Math.round(alike * 100) / 100,
 		blob: blobShare,
 		corners: rectCorners(rects[0]),
 		// The share of the card's rectangle that changed: a card come down on
@@ -422,13 +611,14 @@ export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = 
 // picture becomes the base and takes nothing. pause() and resume() hold
 // it; a card that lands meanwhile is still told on the first still frame
 // after resume, because the base is kept.
-export function createDropDetector({motion = MOTION, settleMs = SETTLE_MS, ...judge} = {}) {
+export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, settleMs = SETTLE_MS, ...judge} = {}) {
 	let previous = null;
 	let base = null;
 	let lastMotion = -Infinity;
 	let paused = false;
 	let burst = null;
 	let startedAt = null;
+	let stillFrames = 0;
 
 	return {
 		get base() {
@@ -439,12 +629,22 @@ export function createDropDetector({motion = MOTION, settleMs = SETTLE_MS, ...ju
 		},
 		push(view, at) {
 			const now = cells(view.grey, view.width, view.height, judge.cell || CELL);
+
+			// The view changed size (the screen laid out again): start over.
+			if (previous && (previous.cw !== now.cw || previous.ch !== now.ch)) {
+				previous = null;
+				base = null;
+				startedAt = null;
+			}
+
 			const moved = previous ? cellMotion(now, previous) : 0;
+			const spread = previous ? movedShare(now, previous, MOVE_CHANGE) : 0;
 
 			previous = now;
 
-			if (moved > motion) {
+			if (moved > motion || spread > moveShare) {
 				lastMotion = at;
+				stillFrames = 0;
 				burst = burst ? {...burst, peak: Math.max(burst.peak, moved)} : {peak: moved, start: at};
 
 				return {drop: false, motion: moved, moving: true, still: 0};
@@ -452,7 +652,9 @@ export function createDropDetector({motion = MOTION, settleMs = SETTLE_MS, ...ju
 
 			const still = at - lastMotion;
 
-			if (still < settleMs || paused) {
+			stillFrames++;
+
+			if (still < settleMs || stillFrames < SETTLE_FRAMES || paused) {
 				return {drop: false, motion: moved, moving: false, still};
 			}
 
@@ -487,6 +689,7 @@ export function createDropDetector({motion = MOTION, settleMs = SETTLE_MS, ...ju
 			burst = null;
 			lastMotion = -Infinity;
 			startedAt = null;
+			stillFrames = 0;
 		},
 		resume() {
 			paused = false;
@@ -527,10 +730,32 @@ export const MOVED_PART = 0.25;
 // zoom last changed is no card (the caller forgets the last card then).
 export const LIGHT_GROWTH = 2.2;
 
+// A drop whose change was this alike to what was there, or this large a
+// share of the view, was partly the light: its box is not the card's.
+const TRUSTED_ALIKE = 0.3;
+const TRUSTED_BLOB = 0.6;
+
 // The card to pass as `last` after a capture: its box, and the largest card
 // area seen since the last was forgotten (a change that was only a card's
 // picture gives a box smaller than the card).
-export const takenCard = (last, card) => ({...card, area: Math.max(last && last.area ? last.area : 0, card.box.w * card.box.h)});
+// A box more than twice the size before, or from a change that was partly
+// the light (dropCapture's card.trusted false: a drop judged while the lamp
+// was moving takes in the floor round the card), is not kept as where the
+// card lies, and does not grow the size.
+export function takenCard(last, card) {
+	const area = card.box.w * card.box.h;
+	const before = last && last.area ? last.area : 0;
+
+	if (!card.trusted || (before && area > before * 2)) {
+		return last ? {...last, box: null} : null;
+	}
+
+	return {...card, area: Math.max(before, area)};
+}
+
+// A card's rectangle reaching this share of the frame's shorter side past
+// its edge, from a change touching the view's edge, runs off the frame.
+const OFF_FRAME = 0.04;
 
 // An outline found on the finer copy (steady.js findCard) is the new card
 // when it lies over the change this much.
@@ -556,18 +781,30 @@ const PAD = 0.1;
 // of the view where it changed, agree how many found outlines agreed.
 export function dropCapture(change, view, fine, found, {frame, last = null} = {}) {
 	const toFrame = (v) => (p) => ({x: v.rect.x + p.x / v.scale, y: v.rect.y + p.y / v.scale});
+	// A card running off the camera's frame (not only the part of it on the
+	// screen, which is smaller): the pile has grown into the lens, or the
+	// card landed half outside the box's floor. Nothing whole to take.
 	const card = change.corners.map(toFrame(view));
 	const cardBox = boxOf(card);
+	const edge = CELL * 1.5;
+	const touches = rectCorners(change.rect).some((p) => p.x < edge || p.y < edge || p.x > view.width - edge || p.y > view.height - edge);
+	const tolerance = OFF_FRAME * Math.min(frame.width, frame.height);
+	const outside = (p) => p.x < -tolerance || p.y < -tolerance || p.x > frame.width + tolerance || p.y > frame.height + tolerance;
+
+	if (touches && [change.corners, ...(change.others || [])].every((corners) => corners.map(toFrame(view)).some(outside))) {
+		return {skip: 'off the frame'};
+	}
+
 	const blobBox = boxOf(rectCorners(change.rect).map(toFrame(view)));
 
-	if (last && inside(blobBox, last.box) >= MOVED_INSIDE && blobBox.w * blobBox.h < last.box.w * last.box.h * MOVED_PART) {
+	if (last && last.box && inside(blobBox, last.box) >= MOVED_INSIDE && blobBox.w * blobBox.h < Math.min(last.area || Infinity, last.box.w * last.box.h) * MOVED_PART) {
 		return {skip: 'moved'};
 	}
 
 	// A change far larger than the last card is the light moved over the
 	// box, not a card (Eric's video: the lamp moved from one side to the
 	// other changed the whole floor round the card on top).
-	if (last && blobBox.w * blobBox.h > (last.area || last.box.w * last.box.h) * LIGHT_GROWTH) {
+	if (last && last.area && blobBox.w * blobBox.h > last.area * LIGHT_GROWTH) {
 		return {skip: 'light'};
 	}
 
@@ -596,7 +833,7 @@ export function dropCapture(change, view, fine, found, {frame, last = null} = {}
 
 	return {
 		agree: agree.length,
-		card: {box: cardBox, corners: card},
+		card: {box: cardBox, corners: card, trusted: (change.alike ?? 0) < TRUSTED_ALIKE && change.blob < TRUSTED_BLOB},
 		quads: quads.map((q) => ({corners: q.corners.map((c) => ({x: c.x - region.x, y: c.y - region.y})), upright: q.upright})),
 		region,
 		sharpness: Math.round(sharpness(view.grey, view.width, view.height, boxOf(change.corners))),
