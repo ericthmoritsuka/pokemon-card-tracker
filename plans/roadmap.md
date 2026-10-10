@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v36** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v36 `0f05d47` rebuilds holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v37** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v37 `c8101df` adds Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -157,7 +157,7 @@ the audit below to confirm or drop:
     frames dropped, Move closer), Q-20 (no repeat add for 10 s), Q-30, Q-38, and the clock warning.
     **Wave 2, on hold until Eric says go:** the single language table (E-31, which also fixes E-05
     and E-12, and unblocks the list-languages decision; a Portuguese UI is not wanted, Eric 2026-10-09). Still left after
-    that: one corner editor (`js/photos/editor.js` and `js/binder-cover.js` each have one); the rest
+    that (the corner editor and the wishlist/settings fetches were done in v37): the rest
     of E-34 (`stamp.js`, readChoice and saveChoice, pool, validDex, plural helpers in `js/scan/`);
     `js/wishlist.js`, `js/settings.js`, and `lab/js/match.js` still fetch on their own; one test
     still calls api.frankfurter.dev; the `lab/README.md` paths; purging old tombstones.
@@ -197,8 +197,9 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   block J's speed and data items in `plans/audit.md`, Portuguese and French images offline (E-20).
 - **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
   Japanese and Korean text, and the strong-slant cut at the bottom.
-- **Small gaps:** Japanese and Korean tile text wrapping at 360 px, a bulk add to a binder's tray,
-  twins' images on set tiles, and Ver na Liga promo rules for Japanese SM1p to SM5p and SV-P / M-P.
+- **Small gaps:** done in v37 (tile meta clamp, Add cards to the tray, twins on set tiles); the
+  Japanese promo Liga rule was already done (edecc19). Left: a long Japanese set name is cut off in
+  My Cards' Filters set select at 360 px (Q-05 selects part).
 
 ## Open Decisions for Eric
 

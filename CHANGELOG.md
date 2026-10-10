@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-10
 
+- **01:18** Version 37: small gaps. `c8101df`
+  - **Add cards to the tray:** a hand-made binder can take many cards that are not in a binder yet
+    in one go, chosen with search and a set filter, with Undo.
+  - **Tidy tiles:** a long Japanese or Korean set name ends in an ellipsis instead of a third line
+    on small phones; the full name is still read out.
+  - **Japanese set pages** show the international print's picture for cards with no image of their
+    own, as card pages already did.
+  - **Under the hood:** one corner editor for card photos and binder covers, and the wishlist search
+    and theme hint fetch TCGdex through the shared module.
+
 - **00:27** Version 36: holder scanning rebuilt from your videos. `0f05d47`
   - **Holder mode** notices each drop by what changed since the last still picture, so cards
     landing on the same spot and a fast drop rhythm are taken, each once and never mid-fall. The
