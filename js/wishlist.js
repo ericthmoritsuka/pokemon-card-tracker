@@ -22,6 +22,7 @@ import {LANGUAGES, catalogFor, catalogLanguage, compareNumbers, importApi, isLan
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
 import {nextStamp, stampEntry} from './merge.js';
+import {fetchJson} from './tcgdex.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
 
@@ -603,7 +604,6 @@ export const displayLanguage = (item, viewing) => item.language
 
 // --------------------------------------------------------- the search
 
-const API = 'https://api.tcgdex.net/v2/';
 const SEARCH_LIMIT = 60;
 const SEARCH_FOR_MS = 24 * 60 * 60 * 1000;
 
@@ -654,17 +654,9 @@ async function fetchSearch(path) {
 	}
 
 	try {
-		const response = await fetch(API + path);
-
-		if (!response.ok) {
-			const err = new Error(`TCGdex answered ${response.status}.`);
-
-			err.status = response.status;
-
-			throw err;
-		}
-
-		const data = await response.json();
+		// One try (js/tcgdex.js): a search box answers at once, and a
+		// failure falls back to the kept answer below.
+		const data = await fetchJson(path, {attempts: 1});
 
 		await cachePut(key, data);
 
