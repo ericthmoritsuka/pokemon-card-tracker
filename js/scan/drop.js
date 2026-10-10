@@ -83,11 +83,15 @@ export const DROP_MAX = 0.96;
 const REMOVED_DETAIL = 0.6;
 const DETAIL_MIN = 14;
 
-// A change whose fine structure is this alike to what was there (drop.js
-// structureAlike) is the light, not a card: on Eric's video every card
-// dropped measured 0.18 or less, the lamp moved from one side of the box to
-// the other 0.71.
+// A change over most of the view (LIGHT_BLOB) whose fine structure is this
+// alike to what was there (drop.js structureAlike) is the light, not a card:
+// on Eric's video every card dropped measured 0.18 or less, the lamp moved
+// from one side of the box to the other 0.71 over 85 % of the view. A card
+// landing on the very spot of one with the same layout (border, text box,
+// attack lines) can measure past 0.5 too, but over a card's part of the
+// view only.
 export const LIGHT_ALIKE = 0.5;
+const LIGHT_BLOB = 0.6;
 
 // A card's rectangle (63:88); the blob's rectangle must hold at least FILL
 // of changed cells and be no flatter than FLAT (its short side over its
@@ -573,7 +577,7 @@ export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = 
 	}
 
 	const alike = structureAlike(now, base, blob);
-	if (alike > LIGHT_ALIKE) {
+	if (alike > LIGHT_ALIKE && blobShare > LIGHT_BLOB) {
 		return {alike, blob: blobShare, gain, kind: 'light', rect, share};
 	}
 
