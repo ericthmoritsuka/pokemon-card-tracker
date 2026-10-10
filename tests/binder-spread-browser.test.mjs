@@ -549,9 +549,35 @@ describe('the cover image', () => {
 		await page.waitForSelector('#bc-stage');
 		await page.waitForFunction(() => Number(document.getElementById('bc-preview').dataset.version) >= 1);
 
+		// The corner editor shared with the card photo editor (js/corners.js):
+		// a drag moves a corner by the finger's movement and re-warps the
+		// preview, Shift+arrow moves it 10 px, and Reset corners puts every
+		// corner back.
+		const spots = () => page.$$eval('.bc-handle', (handles) => handles.map((handle) => new DOMMatrix(getComputedStyle(handle).transform)).map((m) => [Math.round(m.e), Math.round(m.f)]));
+		const version = () => page.$eval('#bc-preview', (el) => Number(el.dataset.version));
+		const start = await spots();
+		const before = await version();
+		const box = await page.locator('.bc-handle[data-corner="2"]').boundingBox();
+
+		await page.mouse.move(box.x + (box.width / 2), box.y + (box.height / 2));
+		await page.mouse.down();
+		await page.mouse.move(box.x + (box.width / 2) - 20, box.y + (box.height / 2) - 12, {steps: 4});
+		assert.equal(await page.locator('.bc-handle.bc-dragging').count(), 1, 'the dragged corner is marked');
+		await page.mouse.up();
+		await page.waitForFunction((last) => Number(document.getElementById('bc-preview').dataset.version) > last, before);
+
+		const dragged = await spots();
+
+		assert.deepEqual(dragged[2], [start[2][0] - 20, start[2][1] - 12], 'moved by the drag');
+		assert.deepEqual(dragged.slice(0, 2), start.slice(0, 2), 'the other corners stay');
+		assert.equal(await page.locator('.bc-handle.bc-dragging').count(), 0);
+		await page.click('#bc-reset');
+		assert.deepEqual(await spots(), start, 'Reset corners');
+
 		// Nudge one corner with the keyboard, as the card photo editor allows.
 		await page.focus('.bc-handle[data-corner="0"]');
 		await page.keyboard.press('Shift+ArrowRight');
+		assert.deepEqual((await spots())[0], [start[0][0] + 10, start[0][1]], 'Shift+arrow moves 10 px');
 		await shot(page, 'cover-fit');
 		await page.click('#bc-save');
 		await page.waitForSelector('#bc-sheet', {state: 'detached'});
