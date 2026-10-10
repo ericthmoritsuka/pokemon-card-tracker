@@ -249,18 +249,56 @@ function createV35() {
 
 // ------------------------------------------------------------ version 36
 
+// view.js holderTick, planDrop, and takeDrop: the same drop.js calls, the
+// sharpness hold included.
 function createV36() {
 	const detector = drop.createDropDetector();
+	const recent = [];
 	let last = null;
+	let pending = null;
+
+	const plan = (frame, area, view, change) => {
+		const fine = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+
+		return drop.dropCapture(change, view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, last});
+	};
+
+	const take = (frame, change, planned, step) => {
+		recent.push(planned.sharpness);
+
+		if (recent.length > 5) {
+			recent.shift();
+		}
+
+		last = drop.takenCard(last, planned.card);
+
+		return {capture: {change, frame: grabFrame(frame, planned.region), identify: (image) => identifyMod.identifyPicture(image, {quads: planned.quads}), plan: planned, region: planned.region, settleMs: step.still, sharpness: planned.sharpness}};
+	};
 
 	return {
 		reframe() {
 			detector.reframe();
 			last = null;
+			pending = null;
+			recent.length = 0;
 		},
 		tick(frame, area, at) {
 			const view = viewFrame(frame, area.view, steady.FIND_SIDE);
 			const step = detector.push(view, at);
+
+			if (pending) {
+				const planned = plan(frame, area, view, pending.change);
+
+				if (planned.skip || step.moving || at >= pending.until || drop.sharpEnough(planned.sharpness, recent)) {
+					const held = pending;
+
+					pending = null;
+
+					return planned.skip ? {note: planned.skip} : take(frame, held.change, planned, held.step);
+				}
+
+				return {note: null};
+			}
 
 			if (!step.change) {
 				return {motion: step.motion, note: null};
@@ -270,16 +308,19 @@ function createV36() {
 				return {change: step.change, motion: step.motion, note: step.change.kind};
 			}
 
-			const fine = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
-			const plan = drop.dropCapture(step.change, view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, last});
+			const planned = plan(frame, area, view, step.change);
 
-			if (plan.skip) {
-				return {change: step.change, note: plan.skip};
+			if (planned.skip) {
+				return {change: step.change, note: planned.skip};
 			}
 
-			last = drop.takenCard(last, plan.card);
+			if (!drop.sharpEnough(planned.sharpness, recent)) {
+				pending = {change: step.change, step, until: at + drop.SHARP_WAIT_MS};
 
-			return {capture: {change: step.change, frame: grabFrame(frame, plan.region), identify: (image) => identifyMod.identifyPicture(image, {quads: plan.quads}), plan, region: plan.region, settleMs: step.still, sharpness: plan.sharpness}};
+				return {note: 'held for a sharper frame'};
+			}
+
+			return take(frame, step.change, planned, step);
 		},
 	};
 }
@@ -313,6 +354,7 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 	const at = t * 1000;
 	const started = performance.now();
 	const step = loop.tick(image, area, at);
+	const tickMs = performance.now() - started;
 
 	if (step.note) {
 		notes.push({note: step.note, t});
@@ -349,8 +391,10 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 
 		captures.push(row);
 
+		// Version 35 matches on the main thread; version 36 in a worker, so
+		// only the frame loop's own work holds it.
 		if (busy) {
-			blockedUntil = t + (syncMs * busy) / 1000;
+			blockedUntil = t + ((mode === 'v35' ? syncMs : tickMs) * busy) / 1000;
 		}
 
 		if (cropsDir && result.card) {
