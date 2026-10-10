@@ -12,8 +12,10 @@ export const RATE = {brlPerUsd: 5, date: '2026-10-01'};
 
 const SET_ONE = {id: 'tsa1', name: 'Test Alpha', official: 160, releaseDate: '2026-03-01'};
 const SET_TWO = {id: 'tsb2', name: 'Test Beta', official: 120, releaseDate: '2025-01-10'};
-const SET_JA = {id: 'TSJ1', name: 'テストセット', official: 100, releaseDate: '2025-11-01'};
-const SET_KO = {id: 'TSK1', name: '테스트 세트', official: 100, releaseDate: '2025-12-01'};
+// The Asian set names are as long as real ones (強化拡張パック
+// ポケモンカード151), so the layout test sees a meta line that would wrap.
+const SET_JA = {id: 'TSJ1', name: 'テスト拡張パック カード151', official: 100, releaseDate: '2025-11-01'};
+const SET_KO = {id: 'TSK1', name: '테스트 확장팩 세트카드 151', official: 100, releaseDate: '2025-12-01'};
 
 // One row per card: names per language, the details GraphQL gives, and the
 // US market price the full record carries (null: TCGdex has none).

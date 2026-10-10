@@ -302,6 +302,18 @@ export function tileArt({
 // nothing rather than this.
 export const noPrice = () => h('span', {class: 'price-tile price-none'}, 'No price');
 
+// The tile's meta line ("#006 · ポケモンカード151"). A long Japanese or
+// Korean set name would wrap it to three lines at 360 px, so style.css
+// stops it at two with an ellipsis (Q-05). The whole text stays in the page
+// for screen readers, and in the title for a long press or a hover.
+function metaLine(meta) {
+	const line = h('span', {class: 'tile-meta'}, meta);
+
+	line.title = line.textContent;
+
+	return line;
+}
+
 // A whole tile: the art, the name lines, the meta line, and the price
 // (js/price-view.js tilePrice, or noPrice()) last when one is known. route makes it a
 // link into the app; tag 'button' makes a picker tile instead (onclick).
@@ -322,7 +334,7 @@ export function cardTile({
 	const children = [
 		tileArt({decorative: true, ...art}),
 		...nameNodes,
-		meta === null || meta === '' ? null : h('span', {class: 'tile-meta'}, meta),
+		meta === null || meta === '' ? null : metaLine(meta),
 		price ? h('span', {class: 'tile-price'}, price) : null,
 	];
 

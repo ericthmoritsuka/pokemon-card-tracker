@@ -148,6 +148,22 @@ async function selectsFit(page, where) {
 	assert.deepEqual(cut, [], `no select is cut off on ${where}`);
 }
 
+// Every tile's meta line takes two lines at most, however long a Japanese
+// or Korean set name is, and the whole text stays in the page for screen
+// readers and in the title for a long press.
+async function metaFits(page, where) {
+	const tall = await page.evaluate(() => [...document.querySelectorAll('.tile .tile-meta')]
+		.filter((meta) => {
+			const style = getComputedStyle(meta);
+			const line = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.25;
+
+			return meta.getBoundingClientRect().height > line * 2 + 1 || meta.title !== meta.textContent;
+		})
+		.map((meta) => `${meta.textContent} (${Math.round(meta.getBoundingClientRect().height)} px, title "${meta.title}")`));
+
+	assert.deepEqual(tall, [], `no meta line runs past two lines on ${where}`);
+}
+
 describe('search', () => {
 	test('finds names in every language the phone has, readings, set names, numbers, Pokédex numbers, and IDs, offline too', async () => {
 		const {context, errors, log, page} = await phone();
@@ -648,6 +664,7 @@ describe('layout', () => {
 				}
 
 				await selectsFit(page, 'the bar');
+				await metaFits(page, 'My Cards');
 
 				const row = await page.evaluate(() => [...document.querySelector('.fb-row').children].map((element) => Math.round(element.getBoundingClientRect().top)));
 
