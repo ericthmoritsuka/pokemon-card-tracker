@@ -14,6 +14,7 @@
 import {captureRect, grab, startCamera} from '../vision/camera.js';
 import {cornerEditor} from '../corners.js';
 import {h} from '../dom.js';
+import {languageLabel} from '../languages.js';
 import {openSheet} from '../sheet.js';
 
 import {detectCorners} from './detect.js';
@@ -39,7 +40,7 @@ const PREVIEW_WIDTH = 240;
 const PREVIEW_HEIGHT = 336;
 const PREVIEW_SOURCE = 960;
 
-const LANGUAGE_CODES = (code) => String(code || '').toUpperCase();
+const LANGUAGE_CODES = (code) => (code ? languageLabel(code) : '');
 
 export function describeCopy(entry, i) {
 	const parts = [LANGUAGE_CODES(entry.language), entry.condition].filter(Boolean);

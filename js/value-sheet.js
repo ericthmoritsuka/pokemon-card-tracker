@@ -8,10 +8,11 @@
 import {cardIndex, savedCardRecords} from './catalog.js';
 import {h} from './dom.js';
 import {formatCount} from './format.js';
+import {ASIAN_LANGUAGES} from './languages.js';
 import {statsBar} from './price-view.js';
 import {copyValue, savedRates} from './prices.js';
 
-const ASIAN = new Set(['ja', 'ko', 'zh-cn', 'zh-tw']);
+const ASIAN = new Set(ASIAN_LANGUAGES);
 
 const copies = (n) => `${formatCount(n)} ${n === 1 ? 'copy' : 'copies'}`;
 

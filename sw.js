@@ -93,6 +93,7 @@ const SHELL = [
 	'js/family.js',
 	'js/flags.js',
 	'js/import-view.js',
+	'js/languages.js',
 	'js/liga.js',
 	'js/merge.js',
 	'js/monprice.js',
