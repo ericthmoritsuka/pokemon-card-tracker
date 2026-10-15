@@ -46,8 +46,15 @@ after(async () => {
 // drop detector, which takes its base after a second of stillness
 // (js/scan/drop.js BASE_MS): on a busy machine the base is the table, and
 // the box's floor reads as a card dropped onto it.
-async function open({holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 900, width: 384}} = {}) {
+//
+// clock: the page runs on Playwright's clock (ticking in real time until a
+// test pauses it), for a test that steps the scanner's waits itself.
+async function open({clock = false, holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 900, width: 384}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport});
+
+	if (clock) {
+		await context.clock.install();
+	}
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -298,9 +305,33 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 	});
 });
 
+// Whether the camera's picture, as the page's video shows it, has a card
+// in it rather than the bare table: more than a tenth of a small copy is far
+// from the table's colour.
+const videoShowsCard = (page) => page.evaluate(() => {
+	const video = document.getElementById('scan-video');
+	const canvas = document.createElement('canvas');
+
+	canvas.width = 18;
+	canvas.height = 32;
+
+	const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+	ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+	const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+	let far = 0;
+
+	for (let i = 0; i < data.length; i += 4) {
+		far += Math.abs(data[i] - 0x7a) + Math.abs(data[i + 1] - 0x62) + Math.abs(data[i + 2] - 0x50) > 60 ? 1 : 0;
+	}
+
+	return far > (data.length / 4) / 10;
+});
+
 describe('the shutter waits a moment for a whole card (Eric\'s log, version 32)', () => {
 	test('a card that appears 400 ms after the press is the one taken; with no card at all, the picture is taken anyway after about a second', async () => {
-		const {context, errors, page} = await open({holder: false});
+		const {context, errors, page} = await open({clock: true, holder: false});
 
 		await setScene(page, {kind: 'table'});
 		await page.waitForTimeout(800);
@@ -310,7 +341,27 @@ describe('the shutter waits a moment for a whole card (Eric\'s log, version 32)'
 				window.scene = {cards: [{card: 'b', size: 0.9}]};
 			}, 400), {once: true});
 		});
+
+		// The page's clock stops, and the test steps it 20 ms at a time, so the
+		// shutter's one-second wait and its looks every 60 ms are counted in
+		// the page's time, however slow the machine. The camera's picture is
+		// real video: once the card is drawn, each step waits until the video
+		// shows it, as a camera would within a frame.
+		await page.clock.pauseAt(await page.evaluate(() => Date.now()) + 100);
 		await page.click('#scan-shutter');
+
+		let shows = false;
+
+		for (let elapsed = 0; elapsed < 3000 && (await page.getAttribute('#scan-shutter', 'aria-busy')) === 'true'; elapsed += 20) {
+			await page.clock.runFor(20);
+
+			if (!shows && await page.evaluate(() => Boolean(window.scene && window.scene.cards) && (window.drawScene(), true))) {
+				await until(async () => videoShowsCard(page), 'the video shows the card drawn', 30000);
+				shows = true;
+			}
+		}
+
+		await page.clock.resume();
 		await until(async () => (await captures(page)) === 1, 'the shutter took a picture', 5000);
 		await until(async () => {
 			const list = await items(page);
