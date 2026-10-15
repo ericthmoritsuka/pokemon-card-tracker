@@ -24,6 +24,7 @@ import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
 import {copyPriceText, priceSection} from './price-view.js';
+import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos} from './photos/index.js';
@@ -195,26 +196,6 @@ const SET_FILTERS = [
 ];
 
 const SET_FILTER_KEY = 'cardTracker.setFilter';
-
-function readChoice(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
-
-function saveChoice(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
-	}
-}
 
 // Newest first: series by their TCGdex releaseDate, and sets within a series
 // by their place in the API's release-date order (releaseRank, 0 newest).

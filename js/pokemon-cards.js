@@ -29,11 +29,11 @@
 // No DOM here, so Node can test the pure parts (tests/pokemon-cards.test.mjs).
 
 import {compareNumbers, importApi} from './catalog.js';
-import {internationalDexMap} from './checklists.js';
+import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
 import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, languageLabel} from './languages.js';
-import {fetchJson, graphql, loadSetIndex, setIndexFrom} from './tcgdex.js';
+import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
 
@@ -43,7 +43,6 @@ export const CATALOG_HEADINGS = Object.fromEntries(CATALOGS.map((catalog) => [ca
 
 export const POCKET_SERIES = 'tcgp';
 
-const validDex = (n) => Number.isInteger(n) && n >= 1 && n <= 1025;
 
 // The catalogs a list's languages need, in screen order: a Portuguese and
 // Japanese list shows the international prints, then the Japanese ones.
@@ -463,16 +462,6 @@ export async function loadInternational(n, {force = false, onProgress = () => {}
 		missingList: false,
 		prints: internationalPrints({cards: cards.data || {}, ids, sets: sets.data || {}}),
 	};
-}
-
-async function pool(items, size, work) {
-	let next = 0;
-
-	await Promise.all(Array.from({length: Math.min(size, items.length)}, async () => {
-		while (next < items.length) {
-			await work(items[next++]);
-		}
-	}));
 }
 
 // The prints of Pokémon n in an Asian catalog. {prints, error, missingList,

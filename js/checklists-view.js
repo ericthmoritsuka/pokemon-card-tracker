@@ -17,6 +17,7 @@ import {isGoal, listGoals} from './goals.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
 import {UNDO_MS, orderSection} from './reorder.js';
+import {readChoice, saveChoice} from './settings.js';
 import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
 import {valueButton} from './value-sheet.js';
@@ -54,26 +55,6 @@ const FILTERS = [
 const FILTER_KEY = 'cardTracker.checklistFilter';
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
-
-function readChoice(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
-
-function saveChoice(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
-	}
-}
 
 // ------------------------------------------------------- whose lists
 

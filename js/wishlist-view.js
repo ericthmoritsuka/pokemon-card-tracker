@@ -15,6 +15,7 @@ import {listCards, onChange} from './collection.js';
 import {BASE, errorText, h, listsSwitch} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
+import {readChoice, saveChoice} from './settings.js';
 import {cardTile, tileArt, variantFinish} from './tile.js';
 import {
 	NOTE_MAX,
@@ -44,26 +45,6 @@ const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join
 const itemRoute = (item, viewing) => routeTo('cards', displayLanguage(item, viewing), item.card_id);
 
 const SEARCH_LANG_KEY = 'cardTracker.wishlistSearchLanguage';
-
-function readChoice(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
-
-function saveChoice(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
-	}
-}
 
 // ------------------------------------------------------- card details
 

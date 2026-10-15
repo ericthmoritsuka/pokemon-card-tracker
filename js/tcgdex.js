@@ -102,6 +102,19 @@ export async function graphql(query, options = {}) {
 	return body.data;
 }
 
+// Runs work(item) for every item, at most `size` at a time, and resolves
+// when all are done: how a screen or the import keeps its TCGdex requests
+// to a few at once. A work that throws rejects the whole run.
+export async function pool(items, size, work) {
+	let next = 0;
+
+	await Promise.all(Array.from({length: Math.min(size, items.length)}, async () => {
+		while (next < items.length) {
+			await work(items[next++]);
+		}
+	}));
+}
+
 // ------------------------------------------------------------ set index
 
 // Every international set, in one request: the

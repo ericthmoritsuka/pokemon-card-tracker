@@ -10,7 +10,7 @@
 // and a card opened in turn while viewing them read it once.
 
 import {currentUser, onUser} from './auth.js';
-import {validDex} from './settings.js';
+import {validDex} from './checklists.js';
 import {familyOverview, memberDocument, memberFavorites} from './sync.js';
 import {cachedFamilyWishlists} from './wishlist.js';
 

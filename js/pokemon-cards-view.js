@@ -52,6 +52,7 @@ import {
 	tally,
 	wishLanguage,
 } from './pokemon-cards.js';
+import {readChoice, saveChoice} from './settings.js';
 import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
 import {cardTile, entryFinish, variantFinish} from './tile.js';
@@ -74,26 +75,6 @@ const LANGUAGE_CHOICES = LIST_LANGUAGE_CODES;
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 
 export const pokemonRoute = (base, listId, n) => `${base}/${encodeURIComponent(listId)}/pokemon/${n}`;
-
-function readChoice(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
-
-function saveChoice(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
-	}
-}
 
 // ------------------------------------------------------- whose list
 

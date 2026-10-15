@@ -21,6 +21,7 @@ import {addCard, deleteCard, listCards, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
+import {plural} from '../format.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
@@ -165,8 +166,6 @@ const TRACES_KEPT = 3;
 // side: a phone camera's 4000 x 3000 photo would hold 48 MB of pixels, and
 // the camera's own captures are smaller than this.
 const PHOTO_MAX_SIDE = 2400;
-
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // Holder mode (Eric, 2026-10-09, steady.js createHolderCapture): the phone
 // held still in a stand over cards dropped under it. Remembered on the
