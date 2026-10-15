@@ -1,6 +1,6 @@
 // The scanner's sheets (plans/design-review.md, "Scan: Confirm Sheet" and
 // "Scan: Done Sheet"): the confirm sheet for one tray card, the Done sheet
-// for the session, and Set for all. Each builder takes the view's context
+// for the session, Set for all, and the default finish setting. Each builder takes the view's context
 // (js/scan/view.js) and returns {el, refresh}; the view calls refresh after
 // every change, so a sheet always shows the session as it is.
 
@@ -11,7 +11,7 @@ import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
 import {cluesOf, rankCards} from './evidence.js';
-import {findVariant, finishOptions} from './finish.js';
+import {DEFAULT_FINISHES, findVariant, finishOptions} from './finish.js';
 import {
 	ASIAN_LANGUAGES,
 	blocker,
@@ -378,8 +378,10 @@ export function confirmSheet(ctx, itemId) {
 			return h('div', {class: 'scan-field', id: 'scan-finish'}, h('p', {class: 'scan-label'}, 'Finish'), h('p', {class: 'scan-muted'}, 'TCGdex lists no printings for this card, so it is saved without a finish.'));
 		}
 
+		const source = item.finishBy === 'default' ? 'your default finish' : item.finishBy === 'ask' && !item.variantId ? 'pick one' : null;
+
 		return h('fieldset', {class: 'scan-field', id: 'scan-finish'},
-			h('legend', null, 'Finish'),
+			h('legend', null, 'Finish', source ? h('span', {class: 'scan-source', id: 'scan-finish-source'}, source) : null),
 			h('div', {class: 'scan-chips'}, ...options.map((option) => chip({
 				id: `scan-finish-${option.variantId}`,
 				label: option.label,
@@ -509,7 +511,7 @@ export function confirmSheet(ctx, itemId) {
 				: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
 
 		const blockedText = single && saveBlocked
-			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
+			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'finish' ? 'Pick the finish before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
 			: null;
 
 		return h('div', {class: 'scan-actions'},
@@ -910,6 +912,41 @@ export function setAllSheet(ctx, field) {
 		}
 
 		body.replaceChildren(...rows);
+	}
+
+	refresh();
+
+	return {el, refresh};
+}
+
+// ------------------------------------------------------------ the default finish
+
+// The scanner's default finish (Eric, 2026-10-15): the finish each scanned
+// card starts on when it lists it. Kept on this phone by the view
+// (ctx.defaultFinish, ctx.setDefaultFinish); the cards already in the tray
+// stay as they are (Set for all changes them).
+export function finishDefaultSheet(ctx) {
+	const titleId = 'scan-finish-default-title';
+	const body = h('div', {class: 'scan-sheet-body'});
+
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-finish-default', id: 'scan-finish-default', role: 'dialog'},
+		sheetHeader('Default finish', () => ctx.closeSheet(), titleId),
+		body
+	);
+
+	function refresh() {
+		const current = ctx.defaultFinish;
+
+		body.replaceChildren(
+			h('p', {class: 'scan-muted', id: 'scan-finish-default-help'}, 'Each card you scan starts on this finish when it has it; a card without it starts on its plain print. Ask leaves a card with more than one finish for you to pick. A card\'s sheet still changes it.'),
+			h('div', {'aria-describedby': 'scan-finish-default-help', 'aria-label': 'Default finish', class: 'scan-chips', id: 'scan-finish-default-values', role: 'group'},
+				...DEFAULT_FINISHES.map((finish) => chip({
+					id: `scan-finish-default-${finish.value}`,
+					label: finish.label,
+					onclick: () => ctx.setDefaultFinish(finish.value),
+					pressed: current === finish.value,
+				})))
+		);
 	}
 
 	refresh();

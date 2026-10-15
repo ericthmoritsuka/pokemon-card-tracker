@@ -611,6 +611,15 @@ html.scan-open body {
 	content: "\2713";
 }
 
+/* The default finish: a chip at the foot of the camera on the left, the
+   holder switch's twin. */
+.scan-chip.scan-finish-default-open {
+	background: rgba(0, 0, 0, 0.6);
+	bottom: 8px;
+	left: 8px;
+	position: absolute;
+}
+
 .scan-zoom[hidden] {
 	display: none;
 }

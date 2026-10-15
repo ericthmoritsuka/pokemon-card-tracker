@@ -26,13 +26,14 @@ import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
 import {createDropDetector, dropCapture, SHARP_WAIT_MS, sharpEnough, takenCard} from './drop.js';
+import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
-import {confirmSheet, doneSheet, reportSheet, setAllSheet} from './sheets.js';
+import {confirmSheet, doneSheet, finishDefaultSheet, reportSheet, setAllSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 
@@ -191,6 +192,33 @@ function rememberHolder(on) {
 	}
 }
 
+// The default finish (Eric, 2026-10-15, finish.js DEFAULT_FINISHES): the
+// finish each scanned card starts on when it lists it. Remembered on the
+// phone; Normal at first, which is what the scanner did before.
+const FINISH_KEY = 'card-tracker:scan-finish';
+
+function storedFinish() {
+	try {
+		const value = localStorage.getItem(FINISH_KEY);
+
+		return isDefaultFinish(value) ? value : DEFAULT_FINISH;
+	}
+	catch {
+		return DEFAULT_FINISH;
+	}
+}
+
+function rememberFinish(value) {
+	try {
+		localStorage.setItem(FINISH_KEY, value);
+	}
+	catch {
+		// Not kept; the next visit starts on Normal.
+	}
+}
+
+const finishLabel = (value) => (DEFAULT_FINISHES.find((finish) => finish.value === value) || DEFAULT_FINISHES[0]).label;
+
 // Holder mode's lighting tip (Eric's videos, 2026-10-09: the phone's torch
 // and a lamp beside the box both gave sure answers; a lamp high behind the
 // box gave the most cards to check, and glare on holo foil is worst under
@@ -344,6 +372,7 @@ export function scanView(root) {
 	// Holder mode's drop detector (drop.js).
 	const dropDetector = createDropDetector();
 	let holder = holderOn();
+	let defaultFinish = storedFinish();
 	// The box round the card found in the frame, kept while the card stays
 	// in place (SAME_BOX), and where the last frame's thumbnail came from.
 	let stableBox = null;
@@ -408,6 +437,16 @@ export function scanView(root) {
 		role: 'switch',
 		type: 'button',
 	}, 'Holder');
+	// The default finish, a chip at the foot of the camera on the left,
+	// opening its sheet (finishDefaultSheet).
+	const finishButton = h('button', {
+		'aria-haspopup': 'dialog',
+		'aria-label': `Default finish: ${finishLabel(defaultFinish)}. Change it`,
+		class: 'scan-chip scan-finish-default-open',
+		id: 'scan-finish-default-open',
+		onclick: () => showSheet(finishDefaultSheet(ctx)),
+		type: 'button',
+	}, `Finish: ${finishLabel(defaultFinish)}`);
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
 	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
@@ -426,7 +465,7 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), holderSwitch, repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -451,6 +490,9 @@ export function scanView(root) {
 		chooseCard,
 		closeSheet,
 		discard,
+		get defaultFinish() {
+			return defaultFinish;
+		},
 		get family() {
 			return family;
 		},
@@ -493,6 +535,14 @@ export function scanView(root) {
 		setFinish: (id, variantId) => {
 			scanLog.lockFirst(id);
 			change(() => S.setFinish(session, id, variantId));
+		},
+		setDefaultFinish: (value) => {
+			defaultFinish = value;
+			rememberFinish(value);
+			finishButton.textContent = `Finish: ${finishLabel(value)}`;
+			finishButton.setAttribute('aria-label', `Default finish: ${finishLabel(value)}. Change it`);
+			draw();
+			announce(`Default finish: ${finishLabel(value)}. It applies to the next cards you scan.`);
 		},
 		setPlace: (id, on) => change(() => S.setPlace(session, id, on)),
 		setLanguage: (id, code) => {
@@ -568,6 +618,7 @@ export function scanView(root) {
 		return {
 			card: card ? {catalog: card.catalog || null, id: card.id, lang: card.lang || null, name: card.name, number: `${card.localId}${card.official ? `/${card.official}` : ''}`, set: card.setName || card.setId || null} : null,
 			finish: item.variantId || null,
+			finishBy: item.finishBy || null,
 			labelCheck: item.labelCheck || null,
 			language: item.language || null,
 			languageBy: item.languageBy || null,
@@ -1220,7 +1271,7 @@ export function scanView(root) {
 		for (const id of savedIds) {
 			const row = rows.find((one) => one.itemId === id);
 
-			scanLog.savedOutcome(id, {card: row.fields.card_id, catalog: row.fields.catalog, copies: saved.filter((done) => done.itemId === id).length, finish: row.fields.variant_id, language: row.fields.language});
+			scanLog.savedOutcome(id, {card: row.fields.card_id, catalog: row.fields.catalog, copies: saved.filter((done) => done.itemId === id).length, finish: row.fields.variant_id, finishBy: (S.findItem(session, id) || {}).finishBy || null, language: row.fields.language});
 		}
 
 		for (const item of skipped) {
@@ -2253,7 +2304,7 @@ export function scanView(root) {
 			const variants = await cardVariants(card);
 
 			if (alive && S.findItem(session, id)) {
-				scannerChange(id, () => S.applyVariants(session, id, card.id, variants));
+				scannerChange(id, () => S.applyVariants(session, id, card.id, variants, undefined, defaultFinish));
 			}
 		}
 		catch (err) {

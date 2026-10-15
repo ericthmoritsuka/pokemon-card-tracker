@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import test, {describe} from 'node:test';
 
 import * as E from '../js/scan/evidence.js';
-import {finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
+import {DEFAULT_FINISH, DEFAULT_FINISHES, defaultVariantId, finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
@@ -316,6 +316,120 @@ describe('the finish picker', () => {
 		const item = scanned(session, 'swsh3-102', {variants: SPINARAK});
 
 		assert.throws(() => S.setFinish(session, item.id, '3739bbtj3i910y5ynn9xc6ryf', 'hand', AT), /no printing/);
+	});
+});
+
+describe('the default finish', () => {
+	// A holo rare with a reverse holo (Celebrations-style): holo, reverse.
+	const HOLO_RARE = [
+		{size: 'standard', type: 'holo', variantId: 'holo-1'},
+		{size: 'standard', type: 'reverse', variantId: 'rev-1'},
+	];
+	// Only a Poké Ball pattern reverse: no plain reverse holo.
+	const BALL_ONLY = [
+		{size: 'standard', type: 'normal', variantId: 'normal-2'},
+		{foil: 'pokeball', size: 'standard', type: 'reverse', variantId: 'ball-2'},
+	];
+
+	function scannedWith(session, id, variants, finish) {
+		const cand = candidate(id);
+		const item = S.addCapture(session, {at: AT, id: `item-${session.items.length + 1}`});
+
+		S.applyRead(session, item.id, read(cand.localId, cand.official), AT);
+		S.applyMatch(session, item.id, {candidates: [cand]}, AT);
+		S.applyVariants(session, item.id, cand.id, variants, AT, finish);
+
+		return item;
+	}
+
+	test('the setting\'s four choices, Normal until one is picked', () => {
+		assert.deepEqual(DEFAULT_FINISHES.map((finish) => finish.label), ['Normal', 'Holo', 'Reverse holo', 'Ask']);
+		assert.equal(DEFAULT_FINISH, 'normal');
+	});
+
+	test('names the plain form of the finish the card lists, or nothing', () => {
+		assert.equal(defaultVariantId(PINSIR, 'reverse'), REVERSE, 'the plain reverse holo, not the Poké Ball or Master Ball one');
+		assert.equal(defaultVariantId(PINSIR, 'normal'), NORMAL);
+		assert.equal(defaultVariantId(PINSIR, 'holo'), null, 'Pinsir has no holo');
+		assert.equal(defaultVariantId(BALL_ONLY, 'reverse'), null, 'a Poké Ball pattern is not a plain reverse holo');
+		assert.equal(defaultVariantId(CHARIZARD, 'holo'), 'unlimited', 'the plainest holo: Unlimited, not Shadowless or 1st Edition');
+		assert.equal(defaultVariantId(DRAGAPULT, 'holo'), 'holo', 'a standard size, not the jumbo');
+		assert.equal(defaultVariantId(PINSIR, 'ask'), null);
+		assert.equal(defaultVariantId(PINSIR, null), null);
+		assert.equal(defaultVariantId(null, 'reverse'), null);
+	});
+
+	test('each card starts on the default when it lists it, else on its plain print', () => {
+		const session = S.newSession(AT, 's1');
+		const pinsir = scannedWith(session, 'sv08.5-003', PINSIR, 'reverse');
+		const holo = scannedWith(session, 'sv08.5-004', HOLO_RARE, 'reverse');
+		const ball = scannedWith(session, 'sv08.5-005', BALL_ONLY, 'reverse');
+		const dragapult = scannedWith(session, 'sv08.5-006', DRAGAPULT, 'reverse');
+
+		assert.deepEqual([pinsir, holo, ball, dragapult].map((item) => item.variantId), [REVERSE, 'rev-1', 'normal-2', 'holo']);
+		assert.deepEqual([pinsir, holo, ball, dragapult].map((item) => item.finishBy), ['default', 'default', 'plain', 'plain']);
+		assert.ok([pinsir, holo, ball, dragapult].every((item) => S.isSavable(item)));
+		assert.equal(S.itemFinishChip(pinsir), 'REV');
+
+		// Holo on a card with no holo keeps the plain print; with no setting
+		// passed, every card starts plain as before.
+		assert.equal(scannedWith(session, 'sv08.5-007', PINSIR, 'holo').variantId, NORMAL);
+		assert.equal(scannedWith(session, 'sv08.5-008', HOLO_RARE, 'holo').variantId, 'holo-1');
+		assert.equal(scannedWith(session, 'sv08.5-009', PINSIR, null).finishBy, 'plain');
+	});
+
+	test('the card sheet still changes it, and Set for all still works', () => {
+		const session = S.newSession(AT, 's1');
+		const first = scannedWith(session, 'sv08.5-003', PINSIR, 'reverse');
+		const second = scannedWith(session, 'sv08.5-004', SPINARAK, 'reverse');
+
+		S.setFinish(session, first.id, NORMAL, 'hand', AT);
+		assert.equal(first.variantId, NORMAL);
+		assert.equal(first.finishBy, 'hand');
+
+		const normal = finishOptions(PINSIR)[0].key;
+
+		assert.deepEqual(S.setForAllPreview(session, 'finish', normal), {changes: 1, hand: 0, skipped: 0, total: 2});
+		S.setForAll(session, 'finish', normal, {}, AT);
+		assert.deepEqual([first, second].map((item) => item.variantId), [NORMAL, NORMAL]);
+		assert.equal(second.finishBy, 'all');
+
+		// A card changed to another candidate starts on the default again
+		// once its finishes load.
+		S.chooseCard(session, first.id, candidate('sv08.5-010'), AT);
+		S.applyVariants(session, first.id, 'sv08.5-010', PINSIR, AT, 'reverse');
+		assert.equal(first.variantId, REVERSE);
+		assert.equal(first.finishBy, 'default');
+	});
+
+	test('Ask leaves a card with several finishes for a tap, and one with a single finish on it', () => {
+		const session = S.newSession(AT, 's1');
+		const pinsir = scannedWith(session, 'sv08.5-003', PINSIR, 'ask');
+		const single = scannedWith(session, 'sv08.5-004', [{size: 'standard', type: 'holo', variantId: 'only'}], 'ask');
+
+		assert.equal(pinsir.variantId, null);
+		assert.equal(pinsir.finishBy, 'ask');
+		assert.equal(S.blocker(pinsir), 'finish');
+		assert.ok(S.needsLook(pinsir), 'it needs a look, and the Review run opens it');
+		assert.ok(!S.isSavable(pinsir));
+		assert.equal(S.lookReason(pinsir), 'Pick the finish of this card.');
+		assert.equal(S.doneSummary(session, new Map()).look, 1);
+
+		assert.equal(single.variantId, 'only');
+		assert.equal(single.finishBy, 'plain');
+		assert.ok(S.isSavable(single));
+
+		S.setFinish(session, pinsir.id, REVERSE, 'hand', AT);
+		assert.equal(S.blocker(pinsir), null);
+
+		// Set for all picks one for every asking card that has it.
+		const other = scannedWith(session, 'sv08.5-005', PINSIR, 'ask');
+		const reverse = finishOptions(PINSIR)[1].key;
+
+		assert.equal(S.setForAllPreview(session, 'finish', reverse).changes, 1);
+		S.setForAll(session, 'finish', reverse, {}, AT);
+		assert.equal(other.variantId, REVERSE);
+		assert.ok(S.isSavable(other));
 	});
 });
 

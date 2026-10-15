@@ -31,8 +31,15 @@
 // starts in the language last picked in Scan (Portuguese before any pick;
 // languageBy 'default', Eric, 2026-10-03), and its label row, read in the
 // background, can correct it. Otherwise language comes from that card's
-// read (or a tap), the finish starts on the card's plain print, and the
-// condition starts unset.
+// read (or a tap), the finish starts on the scanner's default finish when
+// the card lists it (a setting the view passes to applyVariants, never the
+// last pick) or else on the card's plain print, and the condition starts
+// unset.
+//
+// finishBy: 'default' (the default finish setting), 'plain' (the plain
+// print: the card does not list the default finish), 'ask' (the setting is
+// Ask and the card lists more than one finish: none is picked until a tap),
+// 'hand', 'all' (Set for all), or null (finishes not loaded yet).
 //
 // The functions change the session in place and return what the caller
 // needs to know.
@@ -41,7 +48,7 @@ import {catalogFor} from '../catalog.js';
 import {ASIAN_LANGUAGES, LANGUAGE_CODES} from '../languages.js';
 import {newId, nowIso} from '../collection.js';
 import {wishedBy} from '../wishlist.js';
-import {findVariant, finishOptions, plainVariantId} from './finish.js';
+import {defaultVariantId, findVariant, finishOptions, plainVariantId} from './finish.js';
 
 // TCGplayer's condition vocabulary, verbatim (DESIGN.md section 3).
 export const CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
@@ -529,8 +536,11 @@ function setCard(item, candidate) {
 }
 
 // The chosen card's variants_detailed arrived: the picker starts on the
-// plain print, every time.
-export function applyVariants(session, id, cardId, variants, now = nowIso()) {
+// default finish (js/scan/finish.js DEFAULT_FINISHES: normal, holo,
+// reverse, or ask) when the card lists it, else on the plain print. With
+// ask, a card with more than one finish starts with none picked and needs a
+// look (blocker 'finish'); a card with one starts on it.
+export function applyVariants(session, id, cardId, variants, now = nowIso(), finish = null) {
 	const item = mustFind(session, id);
 
 	if (!item.card || item.card.id !== cardId) {
@@ -538,8 +548,22 @@ export function applyVariants(session, id, cardId, variants, now = nowIso()) {
 	}
 
 	item.variants = Array.isArray(variants) ? variants : [];
-	item.variantId = plainVariantId(item.variants);
-	item.finishBy = 'plain';
+
+	const preferred = defaultVariantId(item.variants, finish);
+
+	if (preferred) {
+		item.variantId = preferred;
+		item.finishBy = 'default';
+	}
+	else if (finish === 'ask' && finishOptions(item.variants).length > 1) {
+		item.variantId = null;
+		item.finishBy = 'ask';
+	}
+	else {
+		item.variantId = plainVariantId(item.variants);
+		item.finishBy = 'plain';
+	}
+
 	item.status = 'ready';
 	item.waitingFor = null;
 	touch(session, now);
@@ -848,7 +872,8 @@ export function removeItem(session, id, now = nowIso()) {
 // ------------------------------------------------------------ what each card needs
 
 // Why a card cannot be saved yet, or null when it can: reading, matching,
-// waiting (for signal), unmatched, unsure, language, rematch, finishes.
+// waiting (for signal), unmatched, unsure, language, rematch, finishes,
+// finish (the default finish is Ask and none is picked yet).
 export function blocker(item) {
 	if (item.status === 'reading') {
 		return 'reading';
@@ -884,12 +909,16 @@ export function blocker(item) {
 		return 'finishes';
 	}
 
+	if (item.finishBy === 'ask' && !item.variantId) {
+		return 'finish';
+	}
+
 	return null;
 }
 
 // A card a person has to look at: everything but the ones still being
 // worked on or waiting for signal.
-const LOOK = new Set(['unmatched', 'unsure', 'language']);
+const LOOK = new Set(['unmatched', 'unsure', 'language', 'finish']);
 
 export const needsLook = (item) => LOOK.has(blocker(item));
 
@@ -904,6 +933,8 @@ export function lookReason(item) {
 			return item.why || 'Not sure this is the card. Tap the right one.';
 		case 'language':
 			return 'Not sure of the language. Pick the one printed on the card.';
+		case 'finish':
+			return 'Pick the finish of this card.';
 		default:
 			return null;
 	}

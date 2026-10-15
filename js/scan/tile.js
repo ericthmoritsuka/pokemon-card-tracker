@@ -18,6 +18,7 @@ import {blocker, copiesOf, itemFinishChip, needsLook, wishLine} from './session.
 import {finishOptions} from './finish.js';
 
 const STATUS_TEXT = {
+	finish: 'Pick the finish',
 	finishes: 'Loading finishes',
 	language: 'Pick the language',
 	matching: 'Looking it up…',
