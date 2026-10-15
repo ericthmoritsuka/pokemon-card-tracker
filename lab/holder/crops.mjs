@@ -1,7 +1,7 @@
 // Identification benchmark from scan-log crops (lab/holder/README.md).
 //
 // node lab/holder/crops.mjs <scan-log.json>... [--repo <checkout>] [--variants]
-//   [--out <results.json>] [--only <regexp on the truth id>] [--verbose]
+//   [--turns] [--out <results.json>] [--only <regexp on the truth id>] [--verbose]
 //
 // Each log entry's straightened card (the JPEG the scanner kept, 420 px
 // tall) goes through the app's picture match (js/scan/picture.js matchCrops,
@@ -9,14 +9,15 @@
 // group first, sure, unsure, and wrong but sure (the failure that matters).
 // --variants also re-crops every card the ways a bad crop goes wrong
 // (moved, zoomed, a strip of the card underneath, turned, blurred) and
-// scores each variant the same way. --repo runs another checkout's matcher
+// scores each variant the same way. --turns also scores every card upside
+// down and on its side (recrop.mjs TURNS). --repo runs another checkout's matcher
 // on the same crops, for a before and after.
 
 import {writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
-import {VARIANTS} from './recrop.mjs';
+import {TURNS, VARIANTS} from './recrop.mjs';
 import {args as parseArgs, dataUrlBytes, decodeImage, loadFingerprintIndex, median, outside, pct, readLogs, REPO} from './lib.mjs';
 
 const opts = parseArgs();
@@ -61,7 +62,7 @@ function score(entry, img) {
 	};
 }
 
-const variants = opts.variants ? VARIANTS : VARIANTS.slice(0, 1);
+const variants = [...(opts.variants ? VARIANTS : VARIANTS.slice(0, 1)), ...(opts.turns ? TURNS : [])];
 const decoded = entries.map((entry) => decodeImage(dataUrlBytes(entry.picture)));
 const rows = [];
 

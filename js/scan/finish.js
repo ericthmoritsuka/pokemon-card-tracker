@@ -4,8 +4,10 @@
 // remembers the last pick").
 //
 // Pure: no DOM, no network, so Node can test it (tests/scan.test.mjs). The
-// picker starts on plainVariantId(variants) for every card, every time.
-// Nothing here knows which finish the previous card had.
+// picker starts on the scanner's default finish when the card lists it
+// (defaultVariantId, Eric, 2026-10-15: a setting, never the last pick),
+// else on plainVariantId(variants). Nothing here knows which finish the
+// previous card had.
 
 import {variantLabel} from '../wishlist.js';
 
@@ -148,6 +150,42 @@ export function finishOptions(variants) {
 		plain: variant.variantId === plainId,
 		variantId: variant.variantId,
 	}));
+}
+
+// The scanner's default finish setting (Eric, 2026-10-15, as MonPrice's
+// "scan priority"): the finish each scanned card starts on when it lists
+// it, or ask, which leaves a card with more than one finish for a tap.
+// normal is the setting until one is picked, which is what the scanner did
+// before (a card listing a normal print starts on it).
+export const DEFAULT_FINISHES = [
+	{label: 'Normal', value: 'normal'},
+	{label: 'Holo', value: 'holo'},
+	{label: 'Reverse holo', value: 'reverse'},
+	{label: 'Ask', value: 'ask'},
+];
+
+export const DEFAULT_FINISH = 'normal';
+
+export const isDefaultFinish = (value) => DEFAULT_FINISHES.some((finish) => finish.value === value);
+
+// The variantId of the card's printing that is the default finish, or null
+// when the card does not list it (or the setting is ask). Only the plain
+// form of that finish counts: standard size, no foil pattern, no stamp (a
+// card whose only reverse holo has a Poké Ball pattern does not list a
+// plain reverse holo). Several (Base Set's Unlimited and Shadowless holos):
+// the plainest, as plainVariantId chooses.
+export function defaultVariantId(variants, finish) {
+	if (!finish || finish === 'ask') {
+		return null;
+	}
+
+	const list = (variants || []).filter((variant) => usable(variant)
+		&& String(variant.type || '').toLowerCase() === finish
+		&& isStandard(variant)
+		&& !variant.foil
+		&& !stamps(variant).length);
+
+	return list.length ? plainVariantId(list) : null;
 }
 
 export const findVariant = (variants, variantId) => (variants || []).find((variant) => usable(variant) && variant.variantId === variantId) || null;

@@ -1,6 +1,6 @@
 // The scanner's sheets (plans/design-review.md, "Scan: Confirm Sheet" and
 // "Scan: Done Sheet"): the confirm sheet for one tray card, the Done sheet
-// for the session, and Set for all. Each builder takes the view's context
+// for the session, Set for all, and the scanner's settings. Each builder takes the view's context
 // (js/scan/view.js) and returns {el, refresh}; the view calls refresh after
 // every change, so a sheet always shows the session as it is.
 
@@ -10,9 +10,10 @@ import {openCustomCardSheet} from '../custom-card-view.js';
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {plural} from '../format.js';
+import {formatBrl} from '../prices.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
 import {cluesOf, rankCards} from './evidence.js';
-import {findVariant, finishOptions} from './finish.js';
+import {DEFAULT_FINISHES, findVariant, finishOptions} from './finish.js';
 import {
 	ASIAN_LANGUAGES,
 	blocker,
@@ -37,6 +38,7 @@ import {
 	wishLine,
 	wishMarks,
 } from './session.js';
+import {cleanThreshold, risePercent} from './worth.js';
 
 const ordinal = (n) => {
 	const tens = n % 100;
@@ -377,8 +379,10 @@ export function confirmSheet(ctx, itemId) {
 			return h('div', {class: 'scan-field', id: 'scan-finish'}, h('p', {class: 'scan-label'}, 'Finish'), h('p', {class: 'scan-muted'}, 'TCGdex lists no printings for this card, so it is saved without a finish.'));
 		}
 
+		const source = item.finishBy === 'default' ? 'your default finish' : item.finishBy === 'ask' && !item.variantId ? 'pick one' : null;
+
 		return h('fieldset', {class: 'scan-field', id: 'scan-finish'},
-			h('legend', null, 'Finish'),
+			h('legend', null, 'Finish', source ? h('span', {class: 'scan-source', id: 'scan-finish-source'}, source) : null),
 			h('div', {class: 'scan-chips'}, ...options.map((option) => chip({
 				id: `scan-finish-${option.variantId}`,
 				label: option.label,
@@ -466,6 +470,23 @@ export function confirmSheet(ctx, itemId) {
 			lines.push(h('p', {class: 'scan-wish', id: 'scan-wish-line'}, h('span', {'aria-hidden': 'true'}, '♥ '), `${wish} card.`, unsure ? ' Check the language and finish they asked for.' : ''));
 		}
 
+		// What it is worth (js/scan/worth.js), for its finish and language:
+		// the valuable card highlight and the rising price mark.
+		const worth = item.card ? item.worth : null;
+
+		if (worth && worth.brl !== null) {
+			const min = ctx.worthSettings.min;
+
+			lines.push(h('p', {class: worth.valuable ? 'scan-worth is-valuable' : 'scan-worth', id: 'scan-worth-line'},
+				worth.valuable ? h('span', {'aria-hidden': 'true', class: 'scan-worth-star'}, '★ ') : null,
+				`Worth about ${formatBrl(worth.brl)} (${worth.source === 'cardmarket' ? 'Cardmarket trend' : 'TCGplayer market'}).`,
+				worth.valuable && min !== null ? ` Valuable: at or above your ${formatBrl(min)} mark.` : ''));
+		}
+
+		if (worth && worth.rising) {
+			lines.push(h('p', {class: 'scan-worth-rising', id: 'scan-rising-line'}, h('span', {'aria-hidden': 'true'}, '▲ '), `Up ${risePercent(worth.change)}% in 30 days (Cardmarket).`));
+		}
+
 		return lines.length ? h('div', {class: 'scan-frame', id: 'scan-lines'}, ...lines) : null;
 	}
 
@@ -508,7 +529,7 @@ export function confirmSheet(ctx, itemId) {
 				: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
 
 		const blockedText = single && saveBlocked
-			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
+			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'finish' ? 'Pick the finish before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
 			: null;
 
 		return h('div', {class: 'scan-actions'},
@@ -909,6 +930,86 @@ export function setAllSheet(ctx, field) {
 		}
 
 		body.replaceChildren(...rows);
+	}
+
+	refresh();
+
+	return {el, refresh};
+}
+
+// ------------------------------------------------------------ the scanner's settings
+
+// The scanner's settings, kept on this phone by the view: the default finish
+// (Eric, 2026-10-15: the finish each scanned card starts on when it lists
+// it; the cards already in the tray stay as they are, Set for all changes
+// them), the shutter sound (ctx.shutterSound, ctx.setShutterSound), and the
+// valuable card highlight, the rising price mark, and the chime
+// (js/scan/worth.js; ctx.worthSettings, ctx.setWorthSetting).
+export function settingsSheet(ctx) {
+	const titleId = 'scan-settings-title';
+	const body = h('div', {class: 'scan-sheet-body'});
+
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-settings', id: 'scan-settings', role: 'dialog'},
+		sheetHeader('Scanner settings', () => ctx.closeSheet(), titleId),
+		body
+	);
+
+	const toggle = ({id, label, on, onclick}) => h('button', {'aria-checked': String(Boolean(on)), class: 'scan-chip scan-switch', id, onclick, role: 'switch', type: 'button'}, label);
+
+	// A whole number typed in, kept on change; anything else goes back to
+	// what was kept.
+	function numberField({id, label, max, value, disabled, onchange}) {
+		const input = h('input', {class: 'scan-select scan-number', disabled, enterkeyhint: 'done', id, inputmode: 'numeric', max, min: 1, step: 1, type: 'number', value: value === null ? '' : String(value)});
+
+		input.addEventListener('change', () => {
+			const typed = cleanThreshold(input.value, {max});
+
+			if (typed === null) {
+				input.value = value === null ? '' : String(value);
+			}
+			else {
+				onchange(typed);
+			}
+		});
+
+		return h('div', {class: 'scan-field scan-setting-number'}, h('label', {class: 'scan-label', for: id}, label), input);
+	}
+
+	function refresh() {
+		const current = ctx.defaultFinish;
+		const worth = ctx.worthSettings;
+		const lastMin = ctx.lastWorth.min;
+		const lastRise = ctx.lastWorth.rise;
+
+		body.replaceChildren(
+			h('div', {class: 'scan-field'},
+				h('p', {class: 'scan-label', id: 'scan-finish-default-label'}, 'Default finish'),
+				h('p', {class: 'scan-muted', id: 'scan-finish-default-help'}, 'Each card you scan starts on this finish when it has it; a card without it starts on its plain print. Ask leaves a card with more than one finish for you to pick. A card\'s sheet still changes it.'),
+				h('div', {'aria-describedby': 'scan-finish-default-help', 'aria-labelledby': 'scan-finish-default-label', class: 'scan-chips', id: 'scan-finish-default-values', role: 'group'},
+					...DEFAULT_FINISHES.map((finish) => chip({
+						id: `scan-finish-default-${finish.value}`,
+						label: finish.label,
+						onclick: () => ctx.setDefaultFinish(finish.value),
+						pressed: current === finish.value,
+					})))),
+			h('div', {class: 'scan-field'},
+				h('p', {class: 'scan-label'}, 'Sound'),
+				h('div', {class: 'scan-chips'},
+					toggle({id: 'scan-shutter-sound', label: 'Shutter sound', on: ctx.shutterSound, onclick: () => ctx.setShutterSound(!ctx.shutterSound)}))),
+			h('div', {class: 'scan-field'},
+				h('p', {class: 'scan-label'}, 'Valuable cards'),
+				h('p', {class: 'scan-muted', id: 'scan-worth-help'}, 'A card worth at least this much (the price its card page leads with, for its finish) gets a gold rim and a star in the tray, a gold flash, and three short buzzes. Japanese, Korean, and Chinese prints have no price here.'),
+				h('div', {class: 'scan-chips'},
+					toggle({id: 'scan-worth-on', label: 'Highlight valuable cards', on: worth.min !== null, onclick: () => ctx.setWorthSetting('min', worth.min === null ? lastMin : null)}),
+					toggle({id: 'scan-chime', label: 'Chime for valuable cards', on: worth.chime, onclick: () => ctx.setWorthSetting('chime', !worth.chime)})),
+				numberField({disabled: worth.min === null, id: 'scan-worth-min', label: 'Worth at least (R$)', max: 100000, onchange: (value) => ctx.setWorthSetting('min', value), value: worth.min ?? lastMin})),
+			h('div', {class: 'scan-field'},
+				h('p', {class: 'scan-label'}, 'Rising prices'),
+				h('p', {class: 'scan-muted', id: 'scan-rise-help'}, 'A card whose Cardmarket price over the last 7 days is up on its 30 day average by at least this much gets an up arrow in the tray, and its card page says so.'),
+				h('div', {class: 'scan-chips'},
+					toggle({id: 'scan-rise-on', label: 'Mark rising prices', on: worth.rise !== null, onclick: () => ctx.setWorthSetting('rise', worth.rise === null ? lastRise : null)})),
+				numberField({disabled: worth.rise === null, id: 'scan-worth-rise', label: 'Up at least (%)', max: 1000, onchange: (value) => ctx.setWorthSetting('rise', value), value: worth.rise ?? lastRise}))
+		);
 	}
 
 	refresh();

@@ -1,5 +1,6 @@
 // Re-crops of a straightened card, the ways a bad crop goes wrong: moved,
-// zoomed, a strip of the card underneath taken with it, turned, blurred.
+// zoomed, a strip of the card underneath taken with it, turned, blurred;
+// and the card upside down or on its side (TURNS).
 // Used by crops.mjs to measure how much each costs the picture match.
 // Images are ImageData-shaped ({data, width, height}, RGBA).
 
@@ -123,4 +124,31 @@ export const VARIANTS = [
 	{make: (img, other) => composite(img, other, Math.round(img.height * 0.8), 0.2), name: 'pile strip 20%'},
 	{make: (img) => turned(img, 3), name: 'turned 3 deg'},
 	{make: (img) => smeared(img, 9), name: 'motion blur 9 px'},
+];
+
+// The card lying another way: upside down, and on its side (a crop wider
+// than tall, its top at the right or the left), for crops.mjs --turns.
+export function quarter(img, k) {
+	const W = img.width;
+	const H = img.height;
+	const turn = ((k % 4) + 4) % 4;
+	const w = turn % 2 ? H : W;
+	const h = turn % 2 ? W : H;
+
+	// out(x, y) -> source pixel: the card turned `turn` quarter turns clockwise.
+	const map = [
+		(x, y) => [x, y],
+		(x, y) => [y, H - x],
+		(x, y) => [W - x, H - y],
+		(x, y) => [W - y, x],
+	][turn];
+
+	return resample(img, w, h, map);
+}
+
+export const TURNS = [
+	{make: (img) => quarter(img, 2), name: 'upside down'},
+	{make: (img) => quarter(img, 1), name: 'on its side, top right'},
+	{make: (img) => quarter(img, 3), name: 'on its side, top left'},
+	{make: (img) => moved(quarter(img, 2), 0.04, 0.03), name: 'upside down, moved 4%'},
 ];

@@ -10,14 +10,19 @@
 // copies (the Copies stepper) leads its caption with ×N, what this tile
 // adds. Beside the art's right edge,
 // between the top and bottom corners, an x removes the tile in one tap
-// (view.js offers Undo), for a card taken by accident.
+// (view.js offers Undo), for a card taken by accident. A valuable card
+// (js/scan/worth.js) has a gold rim and a star with its value under the
+// caption, a rising price an up arrow with its rise; the label says both.
 
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {blocker, copiesOf, itemFinishChip, needsLook, wishLine} from './session.js';
 import {finishOptions} from './finish.js';
+import {formatBrl} from '../prices.js';
+import {risePercent} from './worth.js';
 
 const STATUS_TEXT = {
+	finish: 'Pick the finish',
 	finishes: 'Loading finishes',
 	language: 'Pick the language',
 	matching: 'Looking it up…',
@@ -44,6 +49,11 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 	const status = look ? 'look' : waiting ? 'waiting' : marks.length ? 'wanted' : null;
 	const option = finishOptions(item.variants).find((entry) => entry.variantId === item.variantId);
 	const copies = copiesOf(item);
+	// What the card is worth (js/scan/worth.js): a gold rim and a star for a
+	// valuable card, an up arrow for a rising price, and both said in words.
+	const worth = item.card && item.worth ? item.worth : null;
+	const valuable = Boolean(worth && worth.valuable);
+	const rising = Boolean(worth && worth.rising);
 
 	const label = [
 		cardLine(item.card),
@@ -51,6 +61,8 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 		copies > 1 ? `adds ${copies} copies` : null,
 		quantity > copies ? `${quantity} copies in all` : null,
 		chip ? FINISH_WORDS[chip] || option.label : null,
+		valuable ? `valuable, worth about ${formatBrl(worth.brl)}` : null,
+		rising ? `price up ${risePercent(worth.change)}% in 30 days` : null,
 		look ? `${reason === 'unsure' || !STATUS_TEXT[reason] ? 'Needs a look' : STATUS_TEXT[reason]}, opens the review` : reason ? STATUS_TEXT[reason] : null,
 		wished,
 	].filter(Boolean).join(', ');
@@ -76,7 +88,7 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 			h('span', {'aria-hidden': 'true'}, '×')),
 		h('button', {
 			'aria-label': label,
-			class: ['scan-tile', look ? 'is-look' : '', waiting ? 'is-waiting' : ''].filter(Boolean).join(' '),
+			class: ['scan-tile', look ? 'is-look' : '', waiting ? 'is-waiting' : '', valuable ? 'is-valuable' : ''].filter(Boolean).join(' '),
 			'data-item': item.id,
 			'data-status': reason || 'ready',
 			title: label,
@@ -84,6 +96,11 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 		},
 		art,
 		h('span', {class: 'scan-tile-caption'}, copies > 1 ? h('span', {class: 'scan-tile-copies'}, `×${copies}`) : null, caption),
+		valuable || rising
+			? h('span', {'aria-hidden': 'true', class: 'scan-tile-worth'},
+				valuable ? h('span', {class: 'scan-tile-star'}, `★ ${formatBrl(worth.brl)}`) : null,
+				rising ? h('span', {class: 'scan-tile-rising'}, `▲${risePercent(worth.change)}%`) : null)
+			: null,
 		wished ? h('span', {class: 'scan-tile-wish'}, wished) : null)
 	);
 }

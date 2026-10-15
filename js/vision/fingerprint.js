@@ -98,6 +98,66 @@ export function thumbnail(img) {
 	return {h: th, rgb, w: tw};
 }
 
+// A card turned by quarter turns, for a card upside down or on its side
+// (js/scan/picture.js matchCrops): turn is how many quarter turns clockwise
+// the card lies in the image (1: its top at the image's right; 2: upside
+// down; 3: its top at the left), and the answer is the card upright. An
+// ImageData-shaped image ({data, width, height}, RGBA) is turned pixel for
+// pixel; turn 0 returns it as it is.
+export function turnImage(img, turn) {
+	const k = ((turn % 4) + 4) % 4;
+
+	if (!k) {
+		return img;
+	}
+
+	const W = img.width;
+	const H = img.height;
+	const bytes = img.data.byteOffset % 4 ? new Uint8ClampedArray(img.data.subarray(0, W * H * 4)) : img.data;
+	const src = new Uint32Array(bytes.buffer, bytes.byteOffset, W * H);
+	const data = new Uint8ClampedArray(W * H * 4);
+	const out = new Uint32Array(data.buffer);
+
+	if (k === 2) {
+		for (let i = 0, n = W * H; i < n; i++) {
+			out[n - 1 - i] = src[i];
+		}
+
+		return {data, height: H, width: W};
+	}
+
+	// Quarter turns: the card upright is H wide and W tall. Its (x, y) is
+	// the image's (W - 1 - y, x) for turn 1, and (y, H - 1 - x) for turn 3.
+	const w = H;
+	const h = W;
+
+	for (let y = 0; y < h; y++) {
+		for (let x = 0; x < w; x++) {
+			out[y * w + x] = k === 1 ? src[x * W + (W - 1 - y)] : src[(H - 1 - x) * W + y];
+		}
+	}
+
+	return {data, height: h, width: w};
+}
+
+// A thumbnail (thumbnail()) turned half a turn: the card in it upside down
+// made upright, at no cost but a copy.
+export function turnThumb(thumb) {
+	const {h, rgb, w} = thumbnail(thumb);
+	const out = new Float32Array(rgb.length);
+	const n = w * h;
+
+	for (let i = 0; i < n; i++) {
+		const j = (n - 1 - i) * 3;
+
+		out[i * 3] = rgb[j];
+		out[i * 3 + 1] = rgb[j + 1];
+		out[i * 3 + 2] = rgb[j + 2];
+	}
+
+	return {h, rgb: out, w};
+}
+
 // The mean RGB of each cell of a gw x gh grid laid over `rect` (fractions of
 // the card), with the rect moved by (dx, dy) and scaled by `zoom` around its
 // centre (fractions of the card), read from the thumbnail with 2 x 2

@@ -25,7 +25,10 @@
 // own, how 'holder', with the drop's numbers and why: none, small, large,
 // shape (judged on the change), moved, light, off the frame (on the card).
 // scanner: SCANNER, the scanner's own version, kept even where the app's
-// version cannot be read.
+// version cannot be read. first.finishBy and a saved outcome's finishBy say
+// where the finish came from (js/scan/session.js finishBy): 'default' when
+// the default finish setting chose it, 'plain' when the card did not list
+// that finish, 'ask', 'hand', or 'all'.
 //
 // Writes are serialized, so a later change never lands before an earlier
 // one, and none of them throws: a log that cannot be kept must never stop

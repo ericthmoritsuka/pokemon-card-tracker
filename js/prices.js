@@ -313,6 +313,44 @@ export const TREND_THRESHOLD = 0.05;
 export const TREND_MIN_BRL = 0.5;
 export const TREND_MIN_EUR = 0.08;
 
+// The rising price mark (Eric, 2026-10-15): a card whose Cardmarket 7 day
+// average is up on its 30 day average by at least this many percent says so
+// on the card page ("Up 18% in 30 days (Cardmarket)") and, in Scan, on its
+// tray tile. Set in Scan's settings and kept on the phone: a number of
+// percent, or "off"; 15 until set.
+export const RISE_KEY = 'card-tracker:scan-worth-rise';
+export const RISE_DEFAULT = 15;
+
+// The rise threshold in percent, or null when the mark is off.
+export function riseThreshold(storage = defaultStorage()) {
+	try {
+		const value = storage ? storage.getItem(RISE_KEY) : null;
+
+		if (value === 'off') {
+			return null;
+		}
+
+		const n = Number(value);
+
+		return value !== null && Number.isFinite(n) && n >= 1 && n <= 1000 ? n : RISE_DEFAULT;
+	}
+	catch {
+		return RISE_DEFAULT;
+	}
+}
+
+// Whether a trend (cardmarketTrend) is up by the rise threshold, and by how
+// many percent: {rising, percent}.
+export function risingBy(trend, threshold = riseThreshold()) {
+	if (!trend || threshold === null || trend.direction !== 'rising') {
+		return {percent: null, rising: false};
+	}
+
+	const percent = Math.round(trend.change * 100);
+
+	return {percent, rising: trend.change * 100 >= threshold};
+}
+
 // The Cardmarket trend for one finish's prices (extractPrices' cardmarket):
 //   {direction: 'rising' | 'falling' | 'steady', recent, recentField, avg30, change}
 // recent is the 7 day average, or the 1 day average when TCGdex gives no 7
