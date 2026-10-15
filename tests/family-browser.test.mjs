@@ -716,6 +716,8 @@ describe('photos the server refused', () => {
 		const photos = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).find((item) => item.id === 'o-2').photos);
 
 		assert.ok(photos.every((photo) => photo.deleted_at), 'the refused photo is gone from its card');
+		await waitForSynced(page);
+		assert.equal(fake.storageLog('upload').length, 2, 'a refused photo is not sent again by every sync, only by Retry');
 
 		// Retry once the server takes it: it goes up and the list goes.
 		fake.refuse = null;

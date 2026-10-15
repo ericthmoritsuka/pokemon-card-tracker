@@ -34,7 +34,7 @@ import {
 } from './languages.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {fetchJson, graphql} from './tcgdex.js';
+import {fetchJson, graphql, pool} from './tcgdex.js';
 
 export const MAX_DEX = 1025;
 
@@ -56,7 +56,7 @@ export const CHECKLIST_KINDS = ['region', 'every_pokemon', 'custom_pokemon'];
 
 const range = (first, last) => Array.from({length: last - first + 1}, (_, i) => first + i);
 
-const validDex = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_DEX;
+export const validDex = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_DEX;
 
 export const regionById = (id) => REGIONS.find((region) => region.id === id) || null;
 
@@ -544,16 +544,6 @@ export async function internationalDexMap({force = false, onProgress = () => {}}
 	// No card ID is empty, so '' reads as a card the map lacks, which makes
 	// internationalMap download it.
 	return internationalMap([''], onProgress, force);
-}
-
-async function pool(items, size, work) {
-	let next = 0;
-
-	await Promise.all(Array.from({length: Math.min(size, items.length)}, async () => {
-		while (next < items.length) {
-			await work(items[next++]);
-		}
-	}));
 }
 
 const cardKey = (entry) => indexKey(entry.catalog, entry.card_id);

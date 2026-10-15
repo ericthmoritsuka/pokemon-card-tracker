@@ -4,5 +4,5 @@
 // 1234 as "1,234".
 export const formatCount = (n) => Number(n).toLocaleString('en-US');
 
-// "1 card", "1,234 cards".
-export const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
+// "1 card", "1,234 cards". many defaults to one with an s.
+export const plural = (n, one, many = `${one}s`) => `${formatCount(n)} ${n === 1 ? one : many}`;

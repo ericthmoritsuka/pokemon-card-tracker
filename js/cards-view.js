@@ -36,7 +36,9 @@ import {languageChip} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
 import {manualPrice, savedRates, tileValue} from './prices.js';
+import {readChoice} from './settings.js';
 import {memberDocument} from './sync.js';
+import {pool} from './tcgdex.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
 // Its own line: tests/photos-harness.mjs checks the line above as it is.
 import {noPrice} from './tile.js';
@@ -47,17 +49,6 @@ import {customRecord, customRoute, isCustom} from './custom-card.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
-
-function readSetting(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
 
 // The localization a tile shows: the viewing language when the card's
 // catalog has it, then the copy's own language, then the catalog's base
@@ -234,7 +225,7 @@ const legacyChoice = () => {
 		// No language filter then.
 	}
 
-	return {filters: {language}, sort: readSetting(SORT_KEY, OLD_SORTS, 'newest')};
+	return {filters: {language}, sort: readChoice(SORT_KEY, OLD_SORTS, 'newest')};
 };
 
 // The search text this history entry remembered, for Back from a card page.
@@ -273,16 +264,6 @@ function recordFrom(catalog, lang, set, card) {
 		release_date: set.releaseDate || null,
 		set_id: set.id,
 	};
-}
-
-async function pool(items, size, work) {
-	let next = 0;
-
-	await Promise.all(Array.from({length: Math.min(size, items.length)}, async () => {
-		while (next < items.length) {
-			await work(items[next++]);
-		}
-	}));
 }
 
 async function fillMissingRecords(entries, index, isAlive) {

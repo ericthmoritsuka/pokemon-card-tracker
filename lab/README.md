@@ -5,17 +5,18 @@ It is not the scanner. It exists to show, before the scanner is built, which par
 reads reliably on a phone and which it does not.
 
 Live at `https://ericthmoritsuka.github.io/pokemon-card-tracker/lab/`. Plain HTML, CSS, and ES
-modules, no build step, and nothing imported from the main app, so the two can change separately.
+modules, no build step. Since version 31 the camera, straightening, reading, and matching code is
+the app's own, in `js/vision/` at the repository root, so the lab runs what the scanner runs; only
+the page wiring, the OCR engine loader, and the attempt log are the lab's, in `lab/js/`. Paths
+below are from the repository root.
 
 ## Opening It on the Phone
 
-**The installed app hides the lab.** The app's service worker (`sw.js`) answers every navigation
-under `/pokemon-card-tracker/` with the app shell, so on a phone where the app is installed or
-was opened before, the lab URL shows the app instead. Until `sw.js` lets `lab/` through, open the
-lab in a Chrome **Incognito tab**, which has no service worker. Do not clear the site's data to get
-around it: that deletes the collection stored on the phone.
+The app's service worker (`sw.js`) lets navigations under `lab/` through, so the lab URL opens the
+lab even on a phone where the app is installed. Never clear the site's data to reset the lab: that
+deletes the collection stored on the phone too; the lab's **Reset** clears only its own log.
 
-1. Open the lab URL in an Incognito tab and wait for "OCR engine: ready" (about 5 MB downloads the
+1. Open the lab URL and wait for "OCR engine: ready" (about 5 MB downloads the
    first time: the 3.9 MB WebAssembly core, compressed in transit, and the 2.9 MB English model).
 1. Tap **Start camera** and allow camera access. The page asks for 3840 x 2160 and reports what the
    camera gave. **Torch** and a **Zoom** slider appear when the phone supports them.
@@ -36,11 +37,11 @@ script": the English model cannot tell those apart yet.
 
 | Step | File | What it does |
 | --- | --- | --- |
-| Capture | `js/camera.js` | Rear camera at up to 3840 x 2160, continuous focus when offered, torch, zoom. Grabs the full-resolution frame and keeps the guide frame plus 6 % on each side. |
-| Straighten | `js/rectify.js` | Finds the card's edges, measures its tilt from the left and right edges, turns it back, and crops to the card. |
-| Read | `js/pipeline.js` | Cuts three regions, scales each so its text is 32 px tall, sharpens, finds the text lines inside, and reads each line (Tesseract page segmentation mode 7). |
-| Match | `js/match.js` | Looks the number and total up in TCGdex and ranks the candidates. |
-| Score | `js/log.js` | Keeps every attempt and its verdict, summarises, exports. |
+| Capture | `js/vision/camera.js` | Rear camera at up to 3840 x 2160, continuous focus when offered, torch, zoom. Grabs the full-resolution frame and keeps the guide frame plus 6 % on each side. |
+| Straighten | `js/vision/rectify.js` | Finds the card's edges, measures its tilt from the left and right edges, turns it back, and crops to the card. |
+| Read | `js/vision/pipeline.js` | Cuts three regions, scales each so its text is 32 px tall, sharpens, finds the text lines inside, and reads each line (Tesseract page segmentation mode 7). |
+| Match | `js/vision/match.js` | Looks the number and total up in TCGdex (through `js/tcgdex.js`) and ranks the candidates. |
+| Score | `lab/js/log.js` | Keeps every attempt and its verdict, summarises, exports. |
 
 The three regions:
 
@@ -63,8 +64,8 @@ English.
 ## OCR Engine
 
 Tesseract.js **7.0.0** (latest on npm, checked 2026-10-01), its worker, and tesseract.js-core
-7.0.0, all under `vendor/tesseract`, with their licenses and `SOURCES.txt` (origin and SHA-256 of
-each file). `js/ocr.js` gives Tesseract only same-origin paths, so it never falls back to its
+7.0.0, all under `lab/vendor/tesseract`, with their licenses and `SOURCES.txt` (origin and SHA-256 of
+each file). `lab/js/ocr.js` gives Tesseract only same-origin paths, so it never falls back to its
 default CDN; the headless check below confirms no CDN request.
 
 | File | Size |
@@ -194,12 +195,12 @@ Real-camera accuracy is unknown until the phone test runs.
 
 | File | Purpose |
 | --- | --- |
-| `index.html`, `lab.css` | The page |
-| `js/main.js` | Page wiring: capture, read, match, verdict, score |
-| `js/camera.js` | Camera start, torch, zoom, guide-frame capture |
-| `js/rectify.js` | Card edges, tilt, straighten, crop |
-| `js/pipeline.js` | Regions, image preparation, line finding, parsing, language decision |
-| `js/ocr.js` | Tesseract worker from `vendor/tesseract` |
-| `js/match.js` | TCGdex lookup and candidate ranking |
-| `js/log.js` | Attempt log in `localStorage`, summary, JSON and CSV export |
-| `vendor/tesseract/` | Tesseract.js 7.0.0, cores, English model, licenses, `SOURCES.txt` |
+| `lab/index.html`, `lab/lab.css` | The page |
+| `lab/js/main.js` | Page wiring: capture, read, match, verdict, score |
+| `js/vision/camera.js` | Camera start, torch, zoom, guide-frame capture (shared with the app) |
+| `js/vision/rectify.js` | Card edges, tilt, straighten, crop (shared with the app) |
+| `js/vision/pipeline.js` | Regions, image preparation, line finding, parsing, language decision (shared with the app) |
+| `lab/js/ocr.js` | Tesseract worker from `lab/vendor/tesseract` |
+| `js/vision/match.js` | TCGdex lookup and candidate ranking (shared with the app) |
+| `lab/js/log.js` | Attempt log in `localStorage`, summary, JSON and CSV export |
+| `lab/vendor/tesseract/` | Tesseract.js 7.0.0, cores, English model, licenses, `SOURCES.txt` |

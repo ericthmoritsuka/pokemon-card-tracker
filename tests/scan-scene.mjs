@@ -20,7 +20,9 @@
 // window.scene can also be {kind: 'table'} (nothing). scene.hand ({dx, dy,
 // r}, shares of the guide's height) draws a hand over the cards, and
 // scene.light dims (below 1) or brightens (above 1) the whole picture.
-// navigator.vibrate records each buzz in window.buzzes.
+// navigator.vibrate records each buzz in window.buzzes, and
+// window.drawScene() draws the scene at once, for a test that holds the
+// page's clock (and with it the 40 ms timer).
 //
 // The images are served at /__test-card.webp, /__test-card-b.webp, and
 // /__test-card-c.webp (the test routes them).
@@ -170,6 +172,7 @@ export function sceneCamera({height, width}) {
 
 	draw();
 	setInterval(draw, 40);
+	window.drawScene = draw;
 
 	// A new stream each time: leaving Scan stops the tracks of the last one.
 	// A stream only carries what is drawn after it starts: the next tick

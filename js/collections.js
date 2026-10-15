@@ -46,6 +46,7 @@ import {isLive, loadDocument, mergeIntoLocal, newId, nowIso, resolveEntry} from 
 import {customRecord} from './custom-card.js';
 import {applyFilters, dexRange, emptyFilters} from './filter-bar.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {stampMs} from './stamp.js';
 import {orderForNew, sortByOrder, withOrders} from './reorder.js';
 
 export const KINDS = ['hand', 'rule'];
@@ -60,11 +61,7 @@ export const STAR_RARITIES = ['Illustration rare', 'Special illustration rare'];
 
 const VALUES_MAX = 200;
 
-const time = (value) => {
-	const ms = Date.parse(value);
-
-	return Number.isNaN(ms) ? -Infinity : ms;
-};
+const time = (value) => stampMs(value);
 
 const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 

@@ -36,6 +36,7 @@ import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
 import {UNDO_MS, orderSection} from './reorder.js';
+import {readChoice, saveChoice} from './settings.js';
 import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
 import {cardTile} from './tile.js';
@@ -69,26 +70,6 @@ const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route
 export const goalRoute = (base, id) => `${base}/${encodeURIComponent(id)}`;
 
 export const artistRoute = (name) => `goals/artist/${encodeURIComponent(name)}`;
-
-function readChoice(key, allowed, fallback) {
-	try {
-		const saved = localStorage.getItem(key);
-
-		return allowed.includes(saved) ? saved : fallback;
-	}
-	catch {
-		return fallback;
-	}
-}
-
-function saveChoice(key, value) {
-	try {
-		localStorage.setItem(key, value);
-	}
-	catch {
-		// The choice lasts for this visit only.
-	}
-}
 
 // The unit a goal counts: finishes on a master set, cards otherwise.
 const unitOf = (goal) => (goal && goal.kind === 'set' && goal.level === 'master' ? ['finish', 'finishes'] : ['card', 'cards']);

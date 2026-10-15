@@ -3,9 +3,10 @@
 // Used by the scan lab (lab/js/main.js) and, for sameNumber and
 // confusedVariants, by the app's scanner (js/scan/match.js, picture.js).
 // The set code, the side the number was printed on, and the copyright year,
-// when read, rank them.
+// when read, rank them. Requests go through the app's TCGdex module
+// (js/tcgdex.js), with its retry policy.
 
-const API = 'https://api.tcgdex.net/v2/';
+import {fetchJson} from '../tcgdex.js';
 
 // Sun & Moon (February 2017) moved the collector number from the bottom right
 // to the bottom left. Checked on TCGdex scans of xy1 (right) and sm1 (left).
@@ -13,15 +14,11 @@ export const LEFT_NUMBER_FROM = '2017-02-01';
 
 const cache = new Map();
 
+// A TCGdex answer, asked for once per page; a failed one is asked again
+// next time.
 export function getJson(path) {
 	if (!cache.has(path)) {
-		const promise = fetch(API + path).then((response) => {
-			if (!response.ok) {
-				throw new Error(`TCGdex answered ${response.status} for ${path}`);
-			}
-
-			return response.json();
-		});
+		const promise = fetchJson(path);
 
 		promise.catch(() => cache.delete(path));
 		cache.set(path, promise);

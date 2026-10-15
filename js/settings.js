@@ -16,7 +16,7 @@
 // module asks the sync to run a moment later.
 
 import {currentUser, onUser} from './auth.js';
-import {MAX_DEX, spriteUrl} from './checklists.js';
+import {spriteUrl, validDex} from './checklists.js';
 import {loadDocument, mergeIntoLocal, onChange} from './collection.js';
 import {BASE} from './dom.js';
 import {nextStamp} from './merge.js';
@@ -30,8 +30,6 @@ const TYPE_KEY = 'card-tracker-primary-type';
 const CARD_TYPES_KEY = 'card-tracker-card-types';
 
 const DEFAULT_ICON = `${BASE}icons/icon-192.png`;
-
-export const validDex = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_DEX;
 
 const listeners = new Set();
 
@@ -52,6 +50,17 @@ function writeDevice(key, value) {
 		// Private mode or storage off: the theme still applies for this visit.
 	}
 }
+
+// A choice a screen remembers on this phone only (a sort, a filter, a
+// search language): the saved value when it is one of `allowed`, else
+// `fallback`. With storage off, the choice lasts for this visit only.
+export function readChoice(key, allowed, fallback) {
+	const saved = readDevice(key);
+
+	return allowed.includes(saved) ? saved : fallback;
+}
+
+export const saveChoice = (key, value) => writeDevice(key, value);
 
 // ------------------------------------------------------------ the theme
 

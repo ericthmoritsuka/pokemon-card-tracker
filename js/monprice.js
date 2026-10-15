@@ -5,6 +5,7 @@
 // harness. DESIGN.md sections 5 and 7 hold the rules applied here.
 
 import {CATALOGS, MONPRICE_REGIONS, isKnownLanguage, monpriceLanguage} from './languages.js';
+import {pool} from './tcgdex.js';
 
 // ---------------------------------------------------------------- parsing
 
@@ -406,20 +407,6 @@ const printedTotal = (number) => {
 
 	return Number.isInteger(total) ? total : null;
 };
-
-async function pool(items, limit, worker) {
-	let next = 0;
-
-	const run = async () => {
-		while (next < items.length) {
-			const item = items[next++];
-
-			await worker(item);
-		}
-	};
-
-	await Promise.all(Array.from({length: Math.min(limit, items.length)}, run));
-}
 
 const MAX_DATE_GAP_MS = 365 * 24 * 60 * 60 * 1000;
 

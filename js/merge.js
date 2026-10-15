@@ -18,14 +18,13 @@
 // (Decided 2026-10-02, Eric's audit fixes; plans/sync-merge-plan.md.)
 
 import {mergePhotoLists} from './photos/model.js';
+import {nextStamp, stampMs} from './stamp.js';
+
+export {nextStamp};
 
 export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings'];
 
-function time(value) {
-	const ms = Date.parse(value);
-
-	return Number.isNaN(ms) ? -Infinity : ms;
-}
+const time = (value) => stampMs(value);
 
 // JSON with the keys sorted, so equal content gives equal text.
 export function stableJson(value) {
@@ -771,16 +770,6 @@ export function mergeEntries(local, remote) {
 }
 
 const later = (a, b) => (time(a) >= time(b) ? a : b);
-
-// A stamp strictly newer than the entry's last one, so the merge always
-// takes the new version: even when two edits land in one millisecond, and
-// even on a phone whose clock is behind the phone that wrote `previous`.
-// Every write in the app takes its updated_at from here.
-export function nextStamp(previous, now = Date.now()) {
-	const before = Date.parse(previous);
-
-	return new Date(Number.isNaN(before) || now > before ? now : before + 1).toISOString();
-}
 
 // Merges two whole documents. Every list is merged entry by entry; settings
 // go to whichever side changed them last; other fields keep the local value

@@ -9,6 +9,7 @@ import {cardArt} from '../catalog-views.js';
 import {openCustomCardSheet} from '../custom-card-view.js';
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
+import {plural} from '../format.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
 import {cluesOf, rankCards} from './evidence.js';
 import {findVariant, finishOptions} from './finish.js';
@@ -36,8 +37,6 @@ import {
 	wishLine,
 	wishMarks,
 } from './session.js';
-
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 const ordinal = (n) => {
 	const tens = n % 100;

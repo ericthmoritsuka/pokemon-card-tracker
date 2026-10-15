@@ -38,6 +38,7 @@
 import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
 import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
 import {database} from '../idb.js';
+import {stampMs} from '../stamp.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -352,6 +353,8 @@ export async function failedUploads() {
 // and the queue sent.
 export async function retryUpload(photoId) {
 	for (const key of [photoId, detailKey(photoId)]) {
+		refusedHere.delete(key);
+
 		const row = await idb('queue', 'readonly', (s) => s.get(key)).catch(() => null);
 
 		if (row) {
@@ -618,6 +621,11 @@ let flushing = null;
 let flushAgain = false;
 let retryTimer = null;
 
+// Queue keys of uploads the server refused in this page. Each sync flushes
+// the queue, so without this a refused file would go up again after every
+// save; it waits for the next start, a sign-in, or Retry instead.
+const refusedHere = new Set();
+
 // Sends what the queue holds, oldest first. Waits quietly when offline or
 // signed out, and when the phone's document belongs to another account than
 // the one signed in.
@@ -652,6 +660,10 @@ export function flushQueue() {
 					continue;
 				}
 
+				if (row.op !== 'delete' && row.error_kind === 'refused' && refusedHere.has(queueKey(row))) {
+					continue;
+				}
+
 				// A delete waits for the grace period and the server; one
 				// whose photo is live again is dropped.
 				if (row.op === 'delete') {
@@ -683,6 +695,10 @@ export function flushQueue() {
 				catch (err) {
 					const message = (err && err.message) || String(err);
 					const kind = failureKind(err);
+
+					if (kind === 'refused' && row.op !== 'delete') {
+						refusedHere.add(queueKey(row));
+					}
 
 					await idb('queue', 'readwrite', (s) => s.put({...row, error: message, error_kind: kind, error_status: statusOf(err) || null}, queueKey(row))).catch(() => {});
 
@@ -731,11 +747,8 @@ const getAllKeys = (store) => idb(store, 'readonly', (s) => s.getAllKeys());
 
 const SWEPT = 'swept:';
 
-const time = (value) => {
-	const ms = Date.parse(value);
-
-	return Number.isNaN(ms) ? Date.now() : ms;
-};
+// A card deleted with no readable stamp counts from now.
+const time = (value) => stampMs(value, Date.now());
 
 // Housekeeping after a sync (plans/audit-engineering.md E-21). Photos of
 // deleted cards, and removed photos, leave this phone's storage, whichever
@@ -827,6 +840,7 @@ export function startPhotoSync() {
 	window.addEventListener('offline', notify);
 	onUser(() => {
 		failedAt.clear();
+		refusedHere.clear();
 		notify();
 		flushQueue();
 	});
