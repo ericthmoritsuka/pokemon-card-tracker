@@ -997,6 +997,54 @@ tier). Firebase is an equivalent alternative.
   so nothing has to run nightly. The value-over-time chart is dropped; it is a portfolio, which
   Eric does not want.
 
+**Purging old tombstones: designed, not built** (2026-10-15, item 10 of `plans/roadmap.md`). A
+deleted entry stays in the document as a tombstone, with every field it had, so the document only
+grows. Dropping a tombstone is safe only if no device can still hold the entry alive and push it
+back, and the server cannot list the devices: a phone left in a drawer is not known to anyone. What
+makes a purge possible anyway, and what still stands in the way:
+
+- **What already helps.** Every app since v26 stops before merging when the server's document
+  carries a newer `merge_version` ("Update the app to keep syncing", `js/sync.js` checkRules), and
+  `supabase/min-client.sql`, which Eric has run, refuses writes from anything older. So an app that
+  purges and writes `merge_version` 3 stops every older app at once, with no new SQL. Every device
+  also keeps, after each successful sync, the stamps of every entry the server held (`base` in
+  `js/sync.js`, saved in IndexedDB, and left alone when a write fails). An entry this device saw
+  on the server that is now gone from it can only have been purged, since nothing else removes
+  entries; an entry not in `base` is this device's own, never pushed.
+- **The rule, for an app at `merge_version` 3.** When writing, drop top-level tombstones whose
+  `deleted_at` is more than 180 days (N at least 90, with margin) before the server's own clock
+  (the row's `updated_at`, never the phone's, so a phone whose clock runs ahead cannot purge young
+  tombstones). On a full read, drop each local entry that is in `base` but missing from the
+  server, unless its `restored_at` is later than the version `base` recorded (a restore made here
+  after the last sync wins, as the sticky rule says today). A removal cannot be told in a delta
+  (`syncDelta` returns null when the server holds an entry the document lacks), so the write goes
+  whole and the other devices read the whole row.
+- **Never purged.** Card tombstones: they are how a rerun of the monprice import skips a card the
+  owner removed (`planImport`, by `import_key`, whose id an import on another phone makes again),
+  and how re-importing the app's own CSV keeps a removed copy removed unless the owner asks to
+  bring it back (`planOwnImport`, by id). So the purge covers wishlist entries, lists, goals,
+  collections, and binders only, and not those with `merged_into`, which redirect what pointed at
+  the entry (`plans/sync-merge-plan.md`, risks).
+  Tombstones inside an entry (photos, binder pockets, collection removals): they are small, and
+  the photo ones guard the bucket deletes. Each of these could at most be cut to a stub (`id`,
+  `import_key`, `deleted_at`, `updated_at`, `merged_into`): still a tombstone to every app, so it
+  can never bring an entry back, only shrink it.
+- **The 14-day bucket grace** stays far inside N: the phone that deletes a binder queues its
+  cover's bucket delete, which goes once the server holds the delete and 14 days have passed
+  (`bucketDeleteState`), so by 180 days the file is gone. Were a purge first, the queued delete
+  would wait for a version the server no longer holds: a file left behind, never an entry back.
+- **Why it is not built.** Writing `merge_version` 3 is a cut-over: every family phone shows
+  "Update the app to keep syncing" until it is reloaded, as with `min-client.sql`, so the release
+  needs Eric's go-ahead and a moment when he can reload the phones. The proof needs a browser test
+  with two app versions at once (a v38 phone that stays offline past the window, then syncs before
+  and after reloading, against a v39 phone that purged), plus the restore-against-purge race under
+  the compare-and-set retry; neither the fakes nor the suites run two versions today. And the gain
+  is small: card tombstones, the bulk of them, must stay, the rest are a few deleted lists and
+  wishes, and since v38 a save no longer uploads the whole document. Stubbing card tombstones
+  older than N is the larger and safer saving; whether it needs a cut-over depends on how the
+  key-by-key merge treats a field one version lacks, to be checked first. Revisit when the document
+  nears the free tier's limits or a cut-over is planned anyway.
+
 **Hosting: an installable web app (PWA) on GitHub Pages, with Supabase behind it.** *(Decided by
 Eric, 2026-10-01.)* Free, shared by link instead of an app store, and one codebase for every
 family phone. If the web camera proves too weak for batch scanning, wrap the same code as a
