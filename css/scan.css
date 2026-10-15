@@ -16,6 +16,11 @@
 	--scan-warn: #ffb300;
 	--scan-focus: #8db4ec;
 	--scan-shutter: #dc0a2d;
+	/* Valuable cards (js/scan/worth.js): a gold apart from the primary
+	   yellow, always beside a star, so it never rests on colour alone. */
+	--scan-gold: #f5b82e;
+	--scan-gold-glow: rgba(245, 184, 46, 0.55);
+	--scan-rising: #7ee2a8;
 
 	background: var(--scan-bg);
 	color: var(--scan-text);
@@ -97,6 +102,27 @@ html.scan-open body {
 
 .scan-guide.is-flash {
 	animation: scan-flash 300ms ease-out;
+}
+
+/* A valuable card's flash: gold, a little longer. */
+.scan-guide.is-flash-gold {
+	animation: scan-flash-gold 600ms ease-out;
+}
+
+@keyframes scan-flash-gold {
+	0% {
+		border-color: var(--scan-gold);
+		box-shadow: 0 0 0 100vmax var(--scan-gold-glow);
+	}
+
+	50% {
+		border-color: var(--scan-gold);
+		transform: scale(0.96);
+	}
+
+	100% {
+		transform: scale(1);
+	}
 }
 
 @keyframes scan-flash {
@@ -419,6 +445,31 @@ html.scan-open body {
 	border: 2px dashed var(--scan-muted);
 }
 
+/* A valuable card: a gold rim outside whatever border it has (a card that
+   needs a look keeps its dashed one), and a star with its value. */
+.scan-tile.is-valuable .scan-tile-art {
+	box-shadow: 0 0 0 3px var(--scan-gold), 0 0 10px 2px var(--scan-gold-glow);
+}
+
+.scan-tile-worth {
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 12px;
+	font-weight: 600;
+	gap: 0 6px;
+	line-height: 16px;
+}
+
+.scan-tile-star {
+	color: var(--scan-gold);
+	white-space: nowrap;
+}
+
+.scan-tile-rising {
+	color: var(--scan-rising);
+	white-space: nowrap;
+}
+
 .scan-tile-photo,
 .scan-tile-blank {
 	display: block;
@@ -611,9 +662,9 @@ html.scan-open body {
 	content: "\2713";
 }
 
-/* The default finish: a chip at the foot of the camera on the left, the
-   holder switch's twin. */
-.scan-chip.scan-finish-default-open {
+/* The scanner's settings: a chip at the foot of the camera on the left,
+   the holder switch's twin. */
+.scan-chip.scan-settings-open {
 	background: rgba(0, 0, 0, 0.6);
 	bottom: 8px;
 	left: 8px;
@@ -1168,6 +1219,11 @@ html.scan-open body {
 		border-color: #ffffff;
 	}
 
+	.scan-guide.is-flash-gold {
+		animation: none;
+		border-color: var(--scan-gold);
+	}
+
 	.scan-sheet {
 		animation: scan-fade 100ms linear;
 	}
@@ -1248,4 +1304,42 @@ html.scan-open body {
 .scan-review-count {
 	font-weight: 600;
 	margin: 0;
+}
+
+/* ------------------------------------------------------------ settings */
+
+/* A switch in the settings sheet reads like a pressed chip when on. */
+.scan-chip.scan-switch[aria-checked="true"] {
+	background: var(--scan-text);
+	border-color: var(--scan-text);
+	color: #000000;
+	font-weight: 600;
+}
+
+.scan-chip.scan-switch[aria-checked="true"]::before {
+	content: "\2713";
+}
+
+.scan-settings .scan-sheet-body > .scan-field {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.scan-setting-number .scan-number {
+	max-width: 160px;
+}
+
+.scan-number:disabled {
+	opacity: 0.5;
+}
+
+/* The card sheet: what the card is worth, and a rising price. */
+.scan-worth.is-valuable {
+	color: var(--scan-gold);
+	font-weight: 600;
+}
+
+.scan-worth-rising {
+	color: var(--scan-rising);
 }

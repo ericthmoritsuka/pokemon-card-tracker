@@ -32,6 +32,7 @@ import {
 	formatMoney,
 	listStats,
 	manualPrice,
+	risingBy,
 	savedEuroRates,
 	savedRates,
 	shortDate,
@@ -331,6 +332,9 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		const eur = formatMoney(cm.trend, 'EUR');
 		const date = shortDate(cm.date);
 		const trend = cardmarketTrend(cm, {rates: euroRate});
+		// A rise past the threshold set in Scan (prices.js riseThreshold):
+		// said in words under the price.
+		const rise = risingBy(trend);
 		let trendMark = null;
 
 		if (trend) {
@@ -349,7 +353,10 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		return {
 			node: row({
 				className: 'price-eu',
-				extra: cm.shared && cm.shared.length && !found.note ? [h('p', {class: 'price-meta price-shared'}, `Cardmarket prices this together with ${cm.shared.join(' and ')}.`)] : [],
+				extra: [
+					rise.rising ? h('p', {class: 'price-meta price-rising', id: `${id}-rising`}, h('span', {'aria-hidden': 'true', class: 'price-rising-mark'}, '▲ '), `Up ${rise.percent}% in 30 days (Cardmarket)`) : null,
+					cm.shared && cm.shared.length && !found.note ? h('p', {class: 'price-meta price-shared'}, `Cardmarket prices this together with ${cm.shared.join(' and ')}.`) : null,
+				].filter(Boolean),
 				name: 'Cardmarket',
 				note: found.note,
 				original: [brl !== null ? `${eur}, ` : '', 'Cardmarket trend', date ? ', ' : null, date ? day(date) : null],

@@ -458,6 +458,23 @@ export async function cardVariants(card, {api = importApi} = {}) {
 	}
 }
 
+// The card's TCGdex record (with its variants and their prices), for what
+// the card is worth (js/scan/worth.js), or null when it is out of reach.
+// js/catalog.js keeps it once read, so after cardVariants this costs no
+// request.
+export async function cardRecord(card, {api = importApi} = {}) {
+	if (!card || !card.lang || !card.id || card.byHand) {
+		return null;
+	}
+
+	try {
+		return (await api.cardDetail(card.lang, card.id)) || null;
+	}
+	catch {
+		return null;
+	}
+}
+
 // The card's category from its record ("Pokemon", "Trainer", "Energy", as
 // TCGdex writes them), or null when the record is out of reach within ms.
 // The label row read uses it: a Trainer or Energy has no weakness row, so a

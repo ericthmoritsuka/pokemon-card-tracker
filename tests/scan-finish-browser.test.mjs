@@ -1,6 +1,6 @@
 // Browser tests for the scanner's default finish (Eric, 2026-10-15,
-// js/scan/finish.js DEFAULT_FINISHES): the chip at the foot of the camera,
-// its sheet, the choice remembered on the phone, and a picked photo of a
+// js/scan/finish.js DEFAULT_FINISHES): the settings chip at the foot of the
+// camera, its sheet, the choice remembered on the phone, and a picked photo of a
 // card starting on that finish, or asking for one.
 //
 // Headless Chromium at 360 x 740 against tests/scan-harness.mjs, with no
@@ -118,13 +118,13 @@ const tileOf = (page) => page.$eval('#scan-tray li:last-child .scan-tile', (tile
 }));
 
 async function setDefault(page, value, label) {
-	await page.click('#scan-finish-default-open');
-	await page.waitForSelector('#scan-finish-default');
+	await page.click('#scan-settings-open');
+	await page.waitForSelector('#scan-settings');
 	await page.click(`#scan-finish-default-${value}`);
 	assert.equal(await page.getAttribute(`#scan-finish-default-${value}`, 'aria-pressed'), 'true');
-	assert.equal(await text(page, '#scan-finish-default-open'), `Finish: ${label}`);
+	assert.match(await page.getAttribute('#scan-settings-open', 'aria-label'), new RegExp(`default finish ${label},`));
 	await page.click('#scan-sheet-close');
-	await page.waitForSelector('#scan-finish-default', {state: 'detached'});
+	await page.waitForSelector('#scan-settings', {state: 'detached'});
 }
 
 async function pickPhoto(page) {
@@ -156,11 +156,11 @@ describe('the default finish', () => {
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
-		assert.equal(await text(page, '#scan-finish-default-open'), 'Finish: Normal', 'Normal until one is picked');
-		assert.equal(await page.getAttribute('#scan-finish-default-open', 'aria-label'), 'Default finish: Normal. Change it');
+		assert.equal(await text(page, '#scan-settings-open'), 'Settings');
+		assert.match(await page.getAttribute('#scan-settings-open', 'aria-label'), /^Scanner settings: default finish Normal, valuable cards from R\$\s50,00$/, 'Normal until one is picked');
 
-		await page.click('#scan-finish-default-open');
-		await page.waitForSelector('#scan-finish-default');
+		await page.click('#scan-settings-open');
+		await page.waitForSelector('#scan-settings');
 		assert.equal(await page.getAttribute('#scan-finish-default-values', 'role'), 'group');
 		assert.deepEqual(await page.$$eval('#scan-finish-default-values .scan-chip', (chips) => chips.map((chip) => [chip.textContent, chip.getAttribute('aria-pressed')])),
 			[['Normal', 'true'], ['Holo', 'false'], ['Reverse holo', 'false'], ['Ask', 'false']]);
@@ -194,8 +194,8 @@ describe('the default finish', () => {
 
 		// Remembered after a reload.
 		await page.reload();
-		await page.waitForSelector('#scan-finish-default-open');
-		assert.equal(await text(page, '#scan-finish-default-open'), 'Finish: Reverse holo');
+		await page.waitForSelector('#scan-settings-open');
+		assert.match(await page.getAttribute('#scan-settings-open', 'aria-label'), /default finish Reverse holo,/);
 
 		await close(app);
 	});

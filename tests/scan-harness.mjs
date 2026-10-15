@@ -48,6 +48,8 @@ export const INTEGRATION = {
 		shell: [
 			'\t\'js/scan/artwork.js\',',
 			'\t\'js/scan/camera.js\',',
+			// The chime for a valuable card (Web Audio, no sound file).
+			'\t\'js/scan/chime.js\',',
 			'\t\'js/scan/draft.js\',',
 			'\t\'js/scan/drop.js\',',
 			'\t\'js/scan/evidence.js\',',
@@ -71,6 +73,9 @@ export const INTEGRATION = {
 			'\t\'js/scan/steady.js\',',
 			'\t\'js/scan/tile.js\',',
 			'\t\'js/scan/view.js\',',
+			// What a scanned card is worth: the valuable card highlight and the
+			// rising price mark (Eric, 2026-10-15).
+			'\t\'js/scan/worth.js\',',
 			// The picture-first recogniser and its index (about 1.4 MB, 1.1 MB
 			// gzipped), precached so the first scan needs no download.
 			'\t\'js/vision/fingerprint.js\',',

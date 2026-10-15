@@ -12,7 +12,10 @@
 // and place, false once Place it there is switched off for a binder
 // placeholder the card fits (placeholderPlan below), and copies, how many
 // alike copies the card stands for (the Copies stepper on its sheet; 1
-// when not set, Eric, 2026-10-09).
+// when not set, Eric, 2026-10-09), and worth, what the card is worth for
+// the valuable card highlight and the rising price mark (js/scan/worth.js
+// scanWorth: {brl, source, valuable, rising, change}; null or missing
+// until its price and a rate are known; Eric, 2026-10-15).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -472,7 +475,7 @@ export function applyPicture(session, id, found, now = nowIso()) {
 
 	// The same card again (the full records after the quick answer): its
 	// finishes, loaded meanwhile, are kept.
-	const same = item.card && found.card && item.card.id === found.card.id && item.variants !== null ? {finishBy: item.finishBy, variantId: item.variantId, variants: item.variants} : null;
+	const same = item.card && found.card && item.card.id === found.card.id && item.variants !== null ? {finishBy: item.finishBy, variantId: item.variantId, variants: item.variants, worth: item.worth || null} : null;
 
 	setCard(item, found.card || null);
 
@@ -531,8 +534,10 @@ function setCard(item, candidate) {
 	item.variants = null;
 	item.variantId = null;
 	item.finishBy = null;
-	// Place it there starts on again for the new card.
+	// Place it there starts on again for the new card, and its worth waits
+	// for its price.
 	delete item.place;
+	item.worth = null;
 }
 
 // The chosen card's variants_detailed arrived: the picker starts on the
@@ -814,6 +819,18 @@ export function setFinish(session, id, variantId, by = 'hand', now = nowIso()) {
 	touch(session, now);
 
 	return item;
+}
+
+// What the card is worth (js/scan/worth.js scanWorth), or null. Returns
+// true when it has just become valuable (it was not before).
+export function setWorth(session, id, worth, now = nowIso()) {
+	const item = mustFind(session, id);
+	const was = Boolean(item.worth && item.worth.valuable);
+
+	item.worth = worth && (worth.brl !== null || worth.rising) ? {brl: worth.brl, change: worth.change ?? null, rising: Boolean(worth.rising), source: worth.source || null, valuable: Boolean(worth.valuable)} : null;
+	touch(session, now);
+
+	return Boolean(item.worth && item.worth.valuable) && !was;
 }
 
 export function setCondition(session, id, condition, by = 'hand', now = nowIso()) {

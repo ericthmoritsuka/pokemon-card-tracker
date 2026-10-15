@@ -129,6 +129,14 @@
 	margin-right: 2px;
 }
 
+/* A rise past the threshold set in Scan: an arrow and words, in the text
+   colour, so it reads in every theme. */
+
+.price-rising {
+	color: var(--text);
+	font-weight: 600;
+}
+
 .price-rate,
 .price-language {
 	margin-top: var(--space-1) !important;

@@ -21,6 +21,7 @@ import {addCard, deleteCard, listCards, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
+import {euroRates, exchangeRates, formatBrl, savedEuroRates, savedRates} from '../prices.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
@@ -30,12 +31,14 @@ import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
-import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
-import {confirmSheet, doneSheet, finishDefaultSheet, reportSheet, setAllSheet} from './sheets.js';
+import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
+import {playChime, unlockChime} from './chime.js';
+import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
 const FRAME_MS = 125;
 
@@ -293,6 +296,8 @@ const SHUTTER_STEP_MS = 60;
 const BUZZ_CAPTURE = 30;
 const BUZZ_SURE = 40;
 const BUZZ_LOOK = [60, 80, 60];
+// A valuable card (js/scan/worth.js): three short buzzes, unlike the others.
+const BUZZ_VALUABLE = [40, 60, 40, 60, 40];
 
 function buzz(pattern) {
 	if (navigator.vibrate) {
@@ -311,7 +316,7 @@ const online = () => navigator.onLine !== false;
 // timings, in milliseconds.
 // grabs: how each full capture was read (away: a bitmap read in the
 // picture worker; here: its pixels read on the main thread).
-export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, reads: []};
+export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, prized: [], reads: []};
 
 // A developer switch (localStorage card-tracker:scan-grab-here = on): read
 // each full capture's pixels on the main thread, as before version 39, to
@@ -389,6 +394,20 @@ export function scanView(root) {
 	const dropDetector = createDropDetector();
 	let holder = holderOn();
 	let defaultFinish = storedFinish();
+	// The valuable card highlight, the rising price mark, and the chime
+	// (js/scan/worth.js), and the last threshold of each before it was
+	// switched off, which switching it on again brings back.
+	let worth = worthSettings();
+	const lastWorth = {min: worth.min ?? WORTH_DEFAULTS.min, rise: worth.rise ?? WORTH_DEFAULTS.rise};
+	// The rates the values are converted with (js/prices.js), saved on the
+	// phone, asked of frankfurter.dev at most once a day.
+	let rates = savedRates();
+	let eurRates = savedEuroRates();
+	// Each tray card's TCGdex record, for its price, in memory only.
+	const records = new Map();
+	// The cards whose valuable highlight has been told (buzz, flash,
+	// chime): once each.
+	const prized = new Set();
 	// The box round the card found in the frame, kept while the card stays
 	// in place (SAME_BOX), and where the last frame's thumbnail came from.
 	let stableBox = null;
@@ -453,16 +472,18 @@ export function scanView(root) {
 		role: 'switch',
 		type: 'button',
 	}, 'Holder');
-	// The default finish, a chip at the foot of the camera on the left,
-	// opening its sheet (finishDefaultSheet).
+	// The scanner's settings (the default finish, valuable cards, rising
+	// prices, the chime), a chip at the foot of the camera on the left,
+	// opening their sheet (settingsSheet).
+	const settingsLabel = () => `Scanner settings: default finish ${finishLabel(defaultFinish)}, ${worth.min === null ? 'valuable cards not highlighted' : `valuable cards from ${formatBrl(worth.min)}`}`;
 	const finishButton = h('button', {
 		'aria-haspopup': 'dialog',
-		'aria-label': `Default finish: ${finishLabel(defaultFinish)}. Change it`,
-		class: 'scan-chip scan-finish-default-open',
-		id: 'scan-finish-default-open',
-		onclick: () => showSheet(finishDefaultSheet(ctx)),
+		'aria-label': settingsLabel(),
+		class: 'scan-chip scan-settings-open',
+		id: 'scan-settings-open',
+		onclick: () => showSheet(settingsSheet(ctx)),
 		type: 'button',
-	}, `Finish: ${finishLabel(defaultFinish)}`);
+	}, 'Settings');
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
 	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
@@ -509,6 +530,30 @@ export function scanView(root) {
 		get defaultFinish() {
 			return defaultFinish;
 		},
+		get lastWorth() {
+			return lastWorth;
+		},
+		get worthSettings() {
+			return worth;
+		},
+		setWorthSetting: (name, value) => {
+			saveWorthSetting(name, value);
+			worth = worthSettings();
+
+			if (name !== 'chime' && value !== null) {
+				lastWorth[name] = value;
+			}
+
+			if (name === 'chime' && value) {
+				unlockChime();
+			}
+
+			finishButton.setAttribute('aria-label', settingsLabel());
+			// The tray's marks follow the new thresholds, told by no buzz.
+			worthAll();
+			draw();
+			announce(name === 'chime' ? `Chime for valuable cards ${value ? 'on' : 'off'}.` : name === 'min' ? (value === null ? 'Valuable cards not highlighted.' : `Valuable cards: worth at least ${formatBrl(value)}.`) : value === null ? 'Rising prices not marked.' : `Rising prices: up at least ${value}%.`);
+		},
 		get family() {
 			return family;
 		},
@@ -551,12 +596,12 @@ export function scanView(root) {
 		setFinish: (id, variantId) => {
 			scanLog.lockFirst(id);
 			change(() => S.setFinish(session, id, variantId));
+			worthOf(id);
 		},
 		setDefaultFinish: (value) => {
 			defaultFinish = value;
 			rememberFinish(value);
-			finishButton.textContent = `Finish: ${finishLabel(value)}`;
-			finishButton.setAttribute('aria-label', `Default finish: ${finishLabel(value)}. Change it`);
+			finishButton.setAttribute('aria-label', settingsLabel());
 			draw();
 			announce(`Default finish: ${finishLabel(value)}. It applies to the next cards you scan.`);
 		},
@@ -573,6 +618,7 @@ export function scanView(root) {
 			}
 			else {
 				localiseLater(id);
+				worthOf(id);
 			}
 		},
 	};
@@ -621,9 +667,15 @@ export function scanView(root) {
 
 		toBuzz.delete(id);
 
-		// Waiting for signal: it resolves on its own, with no buzz.
+		// Waiting for signal: it resolves on its own, with no buzz. A card
+		// already known to be valuable is told so instead, once.
 		if (item.status !== 'waiting') {
-			buzz(S.needsLook(item) ? BUZZ_LOOK : BUZZ_SURE);
+			if (item.worth && item.worth.valuable && !prized.has(id)) {
+				prize(id);
+			}
+			else {
+				buzz(S.needsLook(item) ? BUZZ_LOOK : BUZZ_SURE);
+			}
 		}
 	}
 
@@ -635,6 +687,7 @@ export function scanView(root) {
 			card: card ? {catalog: card.catalog || null, id: card.id, lang: card.lang || null, name: card.name, number: `${card.localId}${card.official ? `/${card.official}` : ''}`, set: card.setName || card.setId || null} : null,
 			finish: item.variantId || null,
 			finishBy: item.finishBy || null,
+			worth: item.worth ? {brl: item.worth.brl, change: item.worth.change, min: worth.min, rise: worth.rise, rising: item.worth.rising, source: item.worth.source, valuable: item.worth.valuable} : null,
 			labelCheck: item.labelCheck || null,
 			language: item.language || null,
 			languageBy: item.languageBy || null,
@@ -1199,6 +1252,10 @@ export function scanView(root) {
 			rematchItem(id);
 		}
 
+		for (const id of changed.filter((other) => !rematch.includes(other))) {
+			worthOf(id);
+		}
+
 		openDone();
 	}
 
@@ -1694,8 +1751,80 @@ export function scanView(root) {
 		return imageBlob(frame, {quality: 0.92}).then(save).catch(() => {});
 	}
 
+	// What tray card `id` is worth (js/scan/worth.js), from its record and
+	// the rates; its tile and sheet redraw. tell: a card that has just become
+	// valuable, taken this visit and already answered, is told now (its
+	// price came after its first answer); one still being read is told by
+	// its answer (answered).
+	async function worthOf(id, {tell = false} = {}) {
+		const item = S.findItem(session, id);
+
+		if (!item || !item.card) {
+			return;
+		}
+
+		const card = item.card;
+		let record = records.get(id);
+
+		if (!record || record.id !== card.id) {
+			record = await cardRecord(card);
+
+			if (!record) {
+				return;
+			}
+
+			records.set(id, record);
+		}
+
+		const now = S.findItem(session, id);
+
+		if (!alive || !now || !now.card || now.card.id !== card.id) {
+			return;
+		}
+
+		const before = JSON.stringify(now.worth || null);
+		const became = S.setWorth(session, id, scanWorth(now, record, {eurRates, min: worth.min, rates, rise: worth.rise}));
+
+		if (JSON.stringify(now.worth || null) !== before) {
+			persist();
+			draw();
+			scanLog.noteFirst(id, answerOf(now), {report: now.report || null, timings: now.timings || null});
+		}
+
+		if (tell && became && !prized.has(id) && !toBuzz.has(id) && sinceOpen.has(id)) {
+			prize(id);
+		}
+	}
+
+	function worthAll() {
+		for (const item of session ? session.items : []) {
+			worthOf(item.id);
+		}
+	}
+
+	// A valuable card, told once: a gold flash, three short buzzes, and the
+	// chime when it is on.
+	function prize(id) {
+		const item = S.findItem(session, id);
+
+		prized.add(id);
+		guide.classList.remove('is-flash', 'is-flash-gold');
+		void guide.offsetWidth;
+		guide.classList.add('is-flash-gold');
+		buzz(BUZZ_VALUABLE);
+		scanStats.prized.push(id);
+
+		if (worth.chime) {
+			playChime();
+		}
+
+		if (item && item.worth) {
+			announce(`Valuable card: ${item.card ? item.card.name : 'this card'}, worth about ${formatBrl(item.worth.brl)}.`);
+		}
+	}
+
 	function flash() {
-		guide.classList.remove('is-flash');
+		guide.classList.remove('is-flash', 'is-flash-gold');
 		void guide.offsetWidth;
 		guide.classList.add('is-flash');
 		buzz(BUZZ_CAPTURE);
@@ -2358,6 +2487,7 @@ export function scanView(root) {
 
 			if (alive && S.findItem(session, id)) {
 				scannerChange(id, () => S.applyVariants(session, id, card.id, variants, undefined, defaultFinish));
+				worthOf(id, {tell: true});
 			}
 		}
 		catch (err) {
@@ -3129,6 +3259,18 @@ export function scanView(root) {
 		drawStatus();
 		refreshOwned();
 		refreshFamily();
+
+		// The rates for what each card is worth: the saved ones at once, and
+		// fresh ones when the day's are not saved yet (js/prices.js asks
+		// frankfurter.dev at most once a day, and app.js has asked already).
+		worthAll();
+		Promise.all([exchangeRates().catch(() => null), euroRates().catch(() => null)]).then(([usd, eur]) => {
+			if (alive && ((usd && JSON.stringify(usd) !== JSON.stringify(rates)) || (eur && JSON.stringify(eur) !== JSON.stringify(eurRates)))) {
+				rates = usd || rates;
+				eurRates = eur || eurRates;
+				worthAll();
+			}
+		});
 
 		// The reader and the name lists start with the screen, alongside the
 		// camera, so the first capture does not wait for them.
