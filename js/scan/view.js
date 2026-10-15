@@ -2050,9 +2050,13 @@ export function scanView(root) {
 		const quickMs = Math.round(performance.now() - started);
 		let shown = null;
 
-		// Recognised, but none of its sets is on this phone yet, and no
-		// signal: it is named and its finishes loaded once there is signal.
-		if (!(quick.unnamed && !online())) {
+		// Recognised, but its set is not on this phone yet: the quick answer
+		// knows only the card's id (swsh3-102), which the tile would show and
+		// a screen reader announce as its name. It stays Looking it up until
+		// the full answer names it, or, with no signal, until there is signal.
+		const bare = quick.unnamed || Boolean(quick.card && quick.card.named === false);
+
+		if (!bare) {
 			showPicture(id, quick, {indexMs, language, ms: quickMs});
 			shown = snapshot(S.findItem(session, id));
 			openIfPicked(id);

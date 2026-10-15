@@ -120,6 +120,24 @@ async function launch(profile, card, {fake = null, serviceWorkers = 'block', net
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await routeTcgdex(context, net);
+	// Every tray tile label the page ever shows, however briefly, for
+	// waitForTray to check.
+	await context.addInitScript(() => {
+		window.trayLabels = [];
+		new MutationObserver((changes) => {
+			for (const change of changes) {
+				for (const node of [change.target, ...change.addedNodes]) {
+					if (!(node instanceof Element)) {
+						continue;
+					}
+
+					for (const tile of [...(node.matches('.scan-tile') ? [node] : []), ...node.querySelectorAll('.scan-tile')]) {
+						window.trayLabels.push(tile.getAttribute('aria-label'));
+					}
+				}
+			}
+		}).observe(document, {attributeFilter: ['aria-label'], attributes: true, childList: true, subtree: true});
+	});
 
 	if (fake) {
 		await fake.attach(context, profile);
@@ -212,9 +230,16 @@ const tiles = (page) => page.$$eval('#scan-tray .scan-tile', (list) => list.map(
 
 const SETTLED = new Set(['ready', 'unsure', 'unmatched', 'language', 'waiting']);
 
+// A card's id where its name belongs (swsh3-102): what a tile showed
+// while its set record was still on the way.
+const BARE_ID = /^[a-z][a-z0-9.]*-\d+[a-z]?, /i;
+
 async function waitForTray(page, count, what = `${count} settled tray cards`) {
 	await until(async () => {
 		const list = await tiles(page);
+		const bare = (await page.evaluate(() => window.trayLabels.splice(0))).find((label) => BARE_ID.test(label || ''));
+
+		assert.ok(!bare, `a tile is never named by its id (${bare})`);
 
 		return list.length === count && list.every((tile) => SETTLED.has(tile.status));
 	}, 60000, what);
@@ -343,6 +368,12 @@ describe('scanner', () => {
 		// the name read off the top of the card settles it.
 		app = await launch(profile, SPINARAK, {fake});
 		({page} = app);
+		// Its set's record is slow to come, as on a phone with a weak
+		// signal: the tile waits for the name rather than show the card's id.
+		await app.context.route(/\/sets\/swsh3$/, async (route) => {
+			await new Promise((resolve) => setTimeout(resolve, 1500));
+			await route.fallback();
+		});
 		await page.goto(url('scan'));
 		list = await waitForTray(page, 3, 'the auto capture of Spinarak');
 
