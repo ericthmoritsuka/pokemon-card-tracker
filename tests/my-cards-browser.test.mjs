@@ -763,7 +763,8 @@ describe('saves patch the screen', () => {
 
 			await updateCard(pikachu.id, {price_manual: {...pikachu.price_manual, avg: 120, low_nm: 110}});
 		});
-		await quiet(2, 'an edited copy redraws once');
+		// Its tile keeps its place, so only that tile is drawn again.
+		await quiet(1, 'an edited copy redraws only its own tile');
 		assert.match(plain(await page.locator('.tile:has-text("Test Beta"):has-text("Pikachu") .tile-price').textContent()), /R\$ 120/);
 
 		// A removed copy.
@@ -773,8 +774,82 @@ describe('saves patch the screen', () => {
 			await deleteCard('c-10');
 		});
 		await page.waitForFunction(() => /^10 copies in 9 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
-		await quiet(3, 'a removed copy redraws once');
+		await quiet(2, 'a removed copy redraws once');
 		assert.equal(await page.locator('.tile:has-text("이상해씨")').count(), 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('with 1,600 copies on a phone four times slower, a save patches the grid without reading the phone again', async () => {
+		const {context, errors, page} = await phone();
+		const cards = Array.from({length: 1600}, (_, i) => ({
+			catalog: 'international',
+			category: 'Pokemon',
+			dexId: [(i % 1025) + 1],
+			id: `tsz${Math.floor(i / 160) + 1}-${String((i % 160) + 1).padStart(3, '0')}`,
+			market: null,
+			names: {en: `Invented ${i + 1}`},
+			rarity: 'Common',
+			set: {id: `tsz${Math.floor(i / 160) + 1}`, name: `Zeta ${Math.floor(i / 160) + 1}`, official: 160, releaseDate: '2024-01-01'},
+			types: ['Water'],
+		}));
+		const copies = cards.map((card, i) => ({
+			card_id: card.id, catalog: 'international', created_at: new Date(Date.parse('2026-09-01T00:00:00Z') + (i * 1000)).toISOString(),
+			deleted_at: null, id: `z-${i}`, language: 'en', language_source: 'manual', updated_at: '2026-09-01T00:00:00Z', variant_id: null,
+		}));
+		const cdp = await context.newCDPSession(page);
+
+		await seed(page, server.origin, {binders: [], copies, index: indexRecords(cards)});
+		await page.locator('.tile').first().waitFor();
+		await page.waitForTimeout(3000);
+		await cdp.send('Emulation.setCPUThrottlingRate', {rate: 4});
+
+		// Counts reads of the card index from IndexedDB from here on.
+		await page.evaluate(() => {
+			const get = IDBObjectStore.prototype.get;
+
+			window.indexReads = 0;
+			IDBObjectStore.prototype.get = function (key) {
+				if (key === 'index:cards') {
+					window.indexReads++;
+				}
+
+				return get.call(this, key);
+			};
+		});
+
+		// From the save to the tile showing it, measured in the page.
+		const timed = (kind) => page.evaluate(async (what) => {
+			const {addCard, updateCard} = await import('/pokemon-card-tracker/js/collection.js');
+			const start = performance.now();
+
+			if (what === 'edit') {
+				await updateCard('z-5', {notes: 'Sleeved'});
+			}
+			else {
+				await addCard({card_id: 'tsz1-001', catalog: 'international', language: 'en', language_source: 'manual'});
+			}
+
+			await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+
+			return performance.now() - start;
+		}, kind);
+
+		const edit = await timed('edit');
+		const add = await timed('add');
+
+		await page.waitForFunction(() => /^1,601 copies/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await page.waitForTimeout(1000);
+		await cdp.send('Emulation.setCPUThrottlingRate', {rate: 1});
+
+		const reads = await page.evaluate(() => window.indexReads);
+
+		console.log(`    1,600 copies at 4x slowdown: an edit shows in ${Math.round(edit)} ms, an added copy in ${Math.round(add)} ms; card index reads ${reads}`);
+		assert.equal(reads, 0, 'the kept card index serves every save');
+		// About 200 ms for an edit and 400 ms for an added copy here, against
+		// about 700 ms for both before tiles were patched; the bound leaves
+		// room for a busy machine.
+		assert.ok(edit < 1500 && add < 1500, 'each save shows without a reload');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

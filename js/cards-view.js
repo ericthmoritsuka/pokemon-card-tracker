@@ -510,79 +510,113 @@ export function cardsScreen(root, {
 		}
 	}
 
-	function build() {
+	// The copies by tile, "<catalog>|<card id>|<language>", in their order.
+	function entriesByTile() {
 		const map = new Map();
-
-		rates = savedRates();
 
 		for (const entry of entries) {
 			const key = `${entry.catalog}|${entry.card_id}|${entry.language}`;
 
 			if (!map.has(key)) {
-				map.set(key, {entries: [], key});
+				map.set(key, []);
 			}
 
-			map.get(key).entries.push(entry);
+			map.get(key).push(entry);
 		}
 
-		groups = [...map.values()].map((group) => {
-			const first = group.entries[0];
-			// A hand-made card's own fields stand in for a catalog record,
-			// and as its "saved" record, so the Value sheet counts it as
-			// having no market price rather than waiting for one.
-			const custom = customRecord(first);
-			const record = index.get(`${first.catalog}|${first.card_id}`) || custom;
+		return map;
+	}
 
-			if (custom) {
-				saved.set(`${first.catalog}|${first.card_id}`, custom);
+	function build() {
+		rates = savedRates();
+		groups = [...entriesByTile()].map(([key, list]) => makeGroup({entries: list, key}));
+		bar.setItems(groups);
+	}
+
+	// After a save: only the tiles whose copies changed (`keys`) are made
+	// again; every other keeps its group, with its names, price, and search
+	// text already worked out (E-28). False when the whole screen must be
+	// built again instead: the exchange rates moved since the last build.
+	function rebuild(keys) {
+		if (JSON.stringify(savedRates()) !== JSON.stringify(rates)) {
+			return false;
+		}
+
+		const kept = new Map(groups.map((group) => [group.key, group]));
+
+		groups = [...entriesByTile()].map(([key, list]) => {
+			const group = kept.get(key);
+
+			if (group && !keys.has(key)) {
+				// The same copies at the same versions; the objects may be
+				// new after a sync merge.
+				group.entries = list;
+
+				return group;
 			}
 
-			const base = catalogLanguage(first.catalog);
-			const viewingFits = catalogFor(viewing) === first.catalog;
-			const local = display(record, [viewingFits ? viewing : null, first.language, base]);
-			// A copy the catalog has no names for in its language shows the
-			// names the source gave it (DESIGN.md section 5).
-			const source = group.entries.map((entry) => sourceNames(entry, record)).find(Boolean) || null;
-			const times = group.entries.map((entry) => String(entry.created_at)).sort();
-			// Asian prints: an English name first, the original under it.
-			const nameLang = source ? first.language : (local && local.lang) || base;
-			const setId = (record && record.set_id) || setIdOfCard(first.card_id);
-
-			return withTwin({
-				...group,
-				catalog: first.catalog,
-				cardId: first.card_id,
-				category: (record && record.category) || null,
-				dexIds: (record && record.dex_ids) || [],
-				language: first.language,
-				local,
-				nameLang,
-				newest: times[times.length - 1],
-				number: (record && record.collector_number) || null,
-				oldest: times[0],
-				plainNames: namesFor({
-					category: (record && record.category) || null,
-					dexId: (record && record.dex_ids) || null,
-					lang: nameLang,
-					name: (source && source.name) || (local && local.name) || first.card_id,
-				}, redrawNames),
-				priceDone: false,
-				rarity: (record && record.rarity) || null,
-				record,
-				recordKey: `${first.catalog}|${first.card_id}`,
-				releaseDate: (record && record.release_date) || '',
-				setKey: setId ? `${first.catalog}|${setId}` : null,
-				setName: (source && source.setName) || (local && local.set_name) || null,
-				sourceName: source && source.name,
-				favorite: group.entries.some((entry) => entry.is_favorite === true),
-				twinItem: {card_id: first.card_id, catalog: first.catalog},
-				types: (record && record.types) || [],
-				unplaced: group.entries.some((entry) => !placed.has(entry.id)),
-				...storageOf(group.entries),
-			});
+			return makeGroup({entries: list, key});
 		});
-
 		bar.setItems(groups);
+
+		return true;
+	}
+
+	function makeGroup(group) {
+		const first = group.entries[0];
+		// A hand-made card's own fields stand in for a catalog record,
+		// and as its "saved" record, so the Value sheet counts it as
+		// having no market price rather than waiting for one.
+		const custom = customRecord(first);
+		const record = index.get(`${first.catalog}|${first.card_id}`) || custom;
+
+		if (custom) {
+			saved.set(`${first.catalog}|${first.card_id}`, custom);
+		}
+
+		const base = catalogLanguage(first.catalog);
+		const viewingFits = catalogFor(viewing) === first.catalog;
+		const local = display(record, [viewingFits ? viewing : null, first.language, base]);
+		// A copy the catalog has no names for in its language shows the
+		// names the source gave it (DESIGN.md section 5).
+		const source = group.entries.map((entry) => sourceNames(entry, record)).find(Boolean) || null;
+		const times = group.entries.map((entry) => String(entry.created_at)).sort();
+		// Asian prints: an English name first, the original under it.
+		const nameLang = source ? first.language : (local && local.lang) || base;
+		const setId = (record && record.set_id) || setIdOfCard(first.card_id);
+
+		return withTwin({
+			...group,
+			catalog: first.catalog,
+			cardId: first.card_id,
+			category: (record && record.category) || null,
+			dexIds: (record && record.dex_ids) || [],
+			language: first.language,
+			local,
+			nameLang,
+			newest: times[times.length - 1],
+			number: (record && record.collector_number) || null,
+			oldest: times[0],
+			plainNames: namesFor({
+				category: (record && record.category) || null,
+				dexId: (record && record.dex_ids) || null,
+				lang: nameLang,
+				name: (source && source.name) || (local && local.name) || first.card_id,
+			}, redrawNames),
+			priceDone: false,
+			rarity: (record && record.rarity) || null,
+			record,
+			recordKey: `${first.catalog}|${first.card_id}`,
+			releaseDate: (record && record.release_date) || '',
+			setKey: setId ? `${first.catalog}|${setId}` : null,
+			setName: (source && source.setName) || (local && local.set_name) || null,
+			sourceName: source && source.name,
+			favorite: group.entries.some((entry) => entry.is_favorite === true),
+			twinItem: {card_id: first.card_id, catalog: first.catalog},
+			types: (record && record.types) || [],
+			unplaced: group.entries.some((entry) => !placed.has(entry.id)),
+			...storageOf(group.entries),
+		});
 	}
 
 	// Every text a tile can be found by: its names in each language the
@@ -799,7 +833,13 @@ export function cardsScreen(root, {
 
 	const needsPrices = () => bar.state.sort === 'price' || Boolean(bar.state.filters.price);
 
-	function draw() {
+	// The tiles in the grid, in order, by key: what draw() last put there.
+	let drawnKeys = [];
+
+	// After a save: when the grid would show the same tiles in the same
+	// order, only the tiles of `keys` are drawn again, and the counts above;
+	// otherwise the whole grid (E-28).
+	function redraw(keys) {
 		const {filters, query, sort} = bar.state;
 
 		if (needsPrices()) {
@@ -807,6 +847,60 @@ export function cardsScreen(root, {
 		}
 
 		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
+		const next = visible.slice(0, shown).map((group) => group.key);
+
+		if (!visible.length || next.length !== drawnKeys.length || next.some((key, i) => key !== drawnKeys[i])) {
+			draw(visible);
+
+			return;
+		}
+
+		for (const group of visible.slice(0, shown)) {
+			if (keys.has(group.key)) {
+				replaceTile(group);
+			}
+		}
+
+		drawCounts(visible);
+	}
+
+	function draw(sorted = null) {
+		const {filters, query, sort} = bar.state;
+
+		if (!sorted && needsPrices()) {
+			ensurePrices(groups);
+		}
+
+		const visible = sorted || sortItems(applyFilters(groups, {filters, query}), sort);
+
+		drawCounts(visible);
+		tiles.clear();
+		// The search the grid shows, for the tests to wait on.
+		grid.dataset.query = query;
+
+		if (!visible.length) {
+			drawnKeys = [];
+			grid.replaceChildren(h('div', {class: 'card empty-state cards-none', id: 'cards-none'},
+				h('p', {class: 'big'}, query.trim() ? `No cards match "${query.trim()}"` : 'No cards match these filters'),
+				activeFilters(filters).length ? h('button', {class: 'button', onclick: () => bar.clearFilters(), type: 'button'}, 'Clear filters') : null,
+				query.trim() ? h('a', {class: 'button', 'data-link': 'sets', href: `${BASE}sets`}, 'Search the catalog') : null
+			));
+		}
+		else {
+			drawnKeys = visible.slice(0, shown).map((group) => group.key);
+			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
+				const element = tile(group);
+
+				tiles.set(group.key, element);
+
+				return element;
+			}));
+		}
+	}
+
+	// The summary line, the storage button, Show more, and the swipe order.
+	function drawCounts(visible) {
+		const {filters, query} = bar.state;
 		// Filtered by place, a tile's copies elsewhere are not counted.
 		const shownCopies = visible.flatMap((group) => storedEntries(group.entries, filters.storage));
 		const copies = shownCopies.length;
@@ -821,26 +915,6 @@ export function cardsScreen(root, {
 		summary.textContent = narrowed
 			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
 			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
-		tiles.clear();
-		// The search the grid shows, for the tests to wait on.
-		grid.dataset.query = query;
-
-		if (!visible.length) {
-			grid.replaceChildren(h('div', {class: 'card empty-state cards-none', id: 'cards-none'},
-				h('p', {class: 'big'}, query.trim() ? `No cards match "${query.trim()}"` : 'No cards match these filters'),
-				activeFilters(filters).length ? h('button', {class: 'button', onclick: () => bar.clearFilters(), type: 'button'}, 'Clear filters') : null,
-				query.trim() ? h('a', {class: 'button', 'data-link': 'sets', href: `${BASE}sets`}, 'Search the catalog') : null
-			));
-		}
-		else {
-			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
-				const element = tile(group);
-
-				tiles.set(group.key, element);
-
-				return element;
-			}));
-		}
 
 		// Swiping on a card page follows this order, filters included.
 		offerCardList(visible.map(routeOf), heading.querySelector('h2').textContent);
@@ -1227,43 +1301,60 @@ export function cardsScreen(root, {
 			setPlaces(storedPlaces(doc).map((place) => place.name));
 		}
 
-		// Copies new to the screen, or moved to another card or language.
+		// Copies new to the screen, or moved to another card or language, and
+		// the tiles any change touches (a moved copy touches two).
 		const added = [];
-		let known = 0;
-		let edited = false;
+		const touched = new Set();
+		const ids = new Set();
+		const tileOf = (stamp) => stamp.slice(stamp.indexOf('\n') + 1);
 
 		for (const entry of live) {
 			const before = drawnStamps.get(entry.id);
 
+			ids.add(entry.id);
+
 			if (before === undefined) {
 				added.push(entry);
+				touched.add(cardOf(entry));
 
 				continue;
 			}
 
-			known++;
-
 			if (before !== stampOf(entry)) {
-				edited = true;
+				touched.add(cardOf(entry));
+				touched.add(tileOf(before));
 
-				if (!before.endsWith(`\n${cardOf(entry)}`)) {
+				if (tileOf(before) !== cardOf(entry)) {
 					added.push(entry);
 				}
 			}
 		}
 
-		const removed = drawnStamps.size !== known;
-		const nextPlaced = placements(liveBinders(doc.binders || []));
+		for (const [id, before] of drawnStamps) {
+			if (!ids.has(id)) {
+				touched.add(tileOf(before));
+			}
+		}
 
-		if (!added.length && !edited && !removed && samePlaces(placed, nextPlaced)) {
+		const nextPlaced = placements(liveBinders(doc.binders || []));
+		const samePlaced = samePlaces(placed, nextPlaced);
+
+		if (!touched.size && samePlaced) {
 			return;
 		}
 
 		entries = live;
 		placed = nextPlaced;
 		remember();
-		build();
-		draw();
+
+		// A binder place changes the "Not in a binder" filter for any tile.
+		if (samePlaced && rebuild(touched)) {
+			redraw(touched);
+		}
+		else {
+			build();
+			draw();
+		}
 
 		if (!added.length) {
 			return;
