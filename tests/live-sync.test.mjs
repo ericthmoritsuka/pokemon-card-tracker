@@ -533,6 +533,8 @@ describe('saving only the change (supabase/patch-document.sql)', () => {
 
 		const reread = fake.log.length;
 
+		// Focus within 5 seconds of the last server check does nothing.
+		await phone.page.waitForTimeout(5500);
 		await phone.page.evaluate(() => window.dispatchEvent(new Event('focus')));
 		for (let i = 0; i < 50 && !(await localDoc(phone.page)).cards.some((entry) => entry.id === 'old-1'); i++) {
 			await phone.page.waitForTimeout(200);
