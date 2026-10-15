@@ -943,8 +943,9 @@ export function setAllSheet(ctx, field) {
 // The scanner's settings, kept on this phone by the view: the default finish
 // (Eric, 2026-10-15: the finish each scanned card starts on when it lists
 // it; the cards already in the tray stay as they are, Set for all changes
-// them), and the valuable card highlight, the rising price mark, and the
-// chime (js/scan/worth.js; ctx.worthSettings, ctx.setWorthSetting).
+// them), the shutter sound (ctx.shutterSound, ctx.setShutterSound), and the
+// valuable card highlight, the rising price mark, and the chime
+// (js/scan/worth.js; ctx.worthSettings, ctx.setWorthSetting).
 export function settingsSheet(ctx) {
 	const titleId = 'scan-settings-title';
 	const body = h('div', {class: 'scan-sheet-body'});
@@ -992,6 +993,10 @@ export function settingsSheet(ctx) {
 						onclick: () => ctx.setDefaultFinish(finish.value),
 						pressed: current === finish.value,
 					})))),
+			h('div', {class: 'scan-field'},
+				h('p', {class: 'scan-label'}, 'Sound'),
+				h('div', {class: 'scan-chips'},
+					toggle({id: 'scan-shutter-sound', label: 'Shutter sound', on: ctx.shutterSound, onclick: () => ctx.setShutterSound(!ctx.shutterSound)}))),
 			h('div', {class: 'scan-field'},
 				h('p', {class: 'scan-label'}, 'Valuable cards'),
 				h('p', {class: 'scan-muted', id: 'scan-worth-help'}, 'A card worth at least this much (the price its card page leads with, for its finish) gets a gold rim and a star in the tray, a gold flash, and three short buzzes. Japanese, Korean, and Chinese prints have no price here.'),

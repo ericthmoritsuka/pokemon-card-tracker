@@ -37,7 +37,7 @@ import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
-import {playChime, unlockChime} from './chime.js';
+import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
 const FRAME_MS = 125;
@@ -316,7 +316,7 @@ const online = () => navigator.onLine !== false;
 // timings, in milliseconds.
 // grabs: how each full capture was read (away: a bitmap read in the
 // picture worker; here: its pixels read on the main thread).
-export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, prized: [], reads: []};
+export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, prized: [], reads: [], shutterSounds: 0};
 
 // A developer switch (localStorage card-tracker:scan-grab-here = on): read
 // each full capture's pixels on the main thread, as before version 39, to
@@ -398,6 +398,8 @@ export function scanView(root) {
 	// (js/scan/worth.js), and the last threshold of each before it was
 	// switched off, which switching it on again brings back.
 	let worth = worthSettings();
+	// The shutter sound (Eric, 2026-10-15): a click as each capture is taken.
+	let shutterSound = shutterSoundOn();
 	const lastWorth = {min: worth.min ?? WORTH_DEFAULTS.min, rise: worth.rise ?? WORTH_DEFAULTS.rise};
 	// The rates the values are converted with (js/prices.js), saved on the
 	// phone, asked of frankfurter.dev at most once a day.
@@ -529,6 +531,20 @@ export function scanView(root) {
 		discard,
 		get defaultFinish() {
 			return defaultFinish;
+		},
+		get shutterSound() {
+			return shutterSound;
+		},
+		setShutterSound: (on) => {
+			shutterSound = on;
+			saveShutterSound(on);
+
+			if (on) {
+				unlockChime();
+			}
+
+			draw();
+			announce(`Shutter sound ${on ? 'on' : 'off'}.`);
 		},
 		get lastWorth() {
 			return lastWorth;
@@ -1823,11 +1839,19 @@ export function scanView(root) {
 		}
 	}
 
+	// The capture's moment, once per capture (capture, takeDrop): the flash,
+	// the tick, and the shutter sound when it is on. What the read later
+	// says of the frame (not a card, a repeat) takes nothing back.
 	function flash() {
 		guide.classList.remove('is-flash', 'is-flash-gold');
 		void guide.offsetWidth;
 		guide.classList.add('is-flash');
 		buzz(BUZZ_CAPTURE);
+
+		if (shutterSound) {
+			scanStats.shutterSounds++;
+			playShutter();
+		}
 	}
 
 	async function readItem(id, frame, options = {}) {
