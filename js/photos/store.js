@@ -38,6 +38,7 @@
 import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
 import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
 import {database} from '../idb.js';
+import {stampMs} from '../stamp.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -746,11 +747,8 @@ const getAllKeys = (store) => idb(store, 'readonly', (s) => s.getAllKeys());
 
 const SWEPT = 'swept:';
 
-const time = (value) => {
-	const ms = Date.parse(value);
-
-	return Number.isNaN(ms) ? Date.now() : ms;
-};
+// A card deleted with no readable stamp counts from now.
+const time = (value) => stampMs(value, Date.now());
 
 // Housekeeping after a sync (plans/audit-engineering.md E-21). Photos of
 // deleted cards, and removed photos, leave this phone's storage, whichever

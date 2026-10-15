@@ -19,6 +19,8 @@
 // catalog image, then an international print's image (a "twin", when a hook
 // provides one), then the owner's photos, fronts before backs, oldest first.
 
+import {stampMs} from '../stamp.js';
+
 export const SIDES = ['front', 'back'];
 
 export const LABELS = {
@@ -31,11 +33,7 @@ export const PHOTO_BUCKET = 'card-photos';
 
 const isLive = (item) => item && !item.deleted_at;
 
-const time = (value) => {
-	const ms = Date.parse(value);
-
-	return Number.isNaN(ms) ? 0 : ms;
-};
+const time = (value) => stampMs(value, 0);
 
 // The extension a photo's path ends in, from its encoded type.
 export const photoExtension = (type) => (type === 'image/jpeg' ? 'jpg' : 'webp');
