@@ -32,6 +32,7 @@ import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
+import {languageChip} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
 import {manualPrice, savedRates, tileValue} from './prices.js';
@@ -44,8 +45,6 @@ import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './tw
 import {openValueSheet, priceState} from './value-sheet.js';
 import {customRecord, customRoute, isCustom} from './custom-card.js';
 import {openCustomCardSheet} from './custom-card-view.js';
-
-export const languageChip = (code) => (code === 'zh-cn' ? 'CHS' : code === 'zh-tw' ? 'CHT' : String(code).toUpperCase());
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
