@@ -29,6 +29,7 @@ import {
 	dexLabel,
 	handTicks,
 	isChecklist,
+	listByDex,
 	listChecklists,
 	nameOf,
 	speciesNames,
@@ -374,7 +375,7 @@ function listsScreen(root, source) {
 			h('span', {class: 'list-name'}, goal.name),
 			h('span', {class: 'list-foot'},
 				h('span', {class: 'set-meta'}, describe(goal)),
-				byDex ? progressBadge(progress(goal, byDex)) : null
+				byDex ? progressBadge(progress(goal, listByDex(goal, byDex))) : null
 			)
 		);
 	}
@@ -391,7 +392,7 @@ function listsScreen(root, source) {
 				h('p', {class: 'big'}, 'No lists yet.'),
 				source.readOnly
 					? null
-					: h('p', {class: 'muted'}, 'Add a region to tick off its Pokémon as you collect them. A list ticks itself from your cards, in any language.')
+					: h('p', {class: 'muted'}, 'Add a region to tick off its Pokémon as you collect them. A list ticks itself from your cards in its languages, Portuguese to start.')
 			));
 
 			return;
@@ -641,7 +642,7 @@ function checklistScreen(root, source, id) {
 
 	// hand: handTicks(goal), built once per draw rather than once per row.
 	function state(n, hand) {
-		const owned = result && result.byDex.get(n);
+		const owned = result && ownedByDex().get(n);
 
 		if (owned) {
 			return {entries: owned, kind: 'owned'};
@@ -650,11 +651,16 @@ function checklistScreen(root, source, id) {
 		return {entries: [], kind: hand.has(n) ? 'hand' : 'missing'};
 	}
 
+	// The resolved copies by number that count on this list: those in its
+	// languages, or every one on a list that names none (js/checklists.js).
+	const ownedByDex = () => (result ? listByDex(goal, result.byDex) : new Map());
+
 	const shows = (kind) => (show === 'missing' ? kind === 'missing' : show === 'owned' ? kind !== 'missing' : true);
 
 	// Everything a drawn list depends on.
 	const listKey = () => ({
 		dex: checklistDex(goal).join(','),
+		languages: JSON.stringify(goal.languages || null),
 		names,
 		result,
 		show,
@@ -664,7 +670,7 @@ function checklistScreen(root, source, id) {
 	const sameKey = (a, b) => Boolean(a && b) && Object.keys(a).every((key) => a[key] === b[key]);
 
 	function drawHead() {
-		const counts = progress(goal, result ? result.byDex : new Map());
+		const counts = progress(goal, ownedByDex());
 
 		title.textContent = goal.name;
 		document.title = `${goal.name} | Card Tracker`;
@@ -688,7 +694,7 @@ function checklistScreen(root, source, id) {
 		const seen = new Map();
 
 		for (const n of checklistDex(goal)) {
-			for (const entry of (result && result.byDex.get(n)) || []) {
+			for (const entry of ownedByDex().get(n) || []) {
 				seen.set(entry.id, entry);
 			}
 		}

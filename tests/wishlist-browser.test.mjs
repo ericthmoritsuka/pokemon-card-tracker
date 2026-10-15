@@ -346,7 +346,7 @@ describe('wishlist', () => {
 		await page.click('.wl-result[data-card="tst1-001"]');
 		await page.waitForSelector('#wishlist-editor');
 		assert.deepEqual(await page.locator('#wish-finish option').allTextContents(), ['Any finish', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern']);
-		assert.deepEqual(await page.locator('#wish-language option').allTextContents(), ['Any language', 'English', 'Portuguese', 'French']);
+		assert.deepEqual(await page.locator('#wish-language option').allTextContents(), ['Any language', 'Portuguese', 'English', 'French']);
 		await page.screenshot({path: `${SHOTS}/wishlist-editor.png`});
 		await page.click('#wish-cancel');
 		await addFromResults(page, 'tst1-001', {finish: 'Reverse holo', language: 'en', note: 'For the binder', priority: 'High'});

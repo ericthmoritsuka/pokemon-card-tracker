@@ -109,6 +109,18 @@ Japanese, Korean, and Chinese releases have their own sets, set codes, and numbe
 are separate card records. *(Revised 2026-10-01. The first version treated every language as a
 flag on one English record.)*
 
+**One language table.** `js/languages.js` holds every language a copy can be in, one row per
+code: `pt`, `en`, `ja`, `ko`, `zh-cn`, `zh-tw`, `fr`, `de`, `it`, `es`. Each row gives the English
+name, the flag, the short chip (`CHS`, `CHT`), the `lang` attribute, the catalog its prints are
+records in, whether TCGdex has a catalog to browse in it (German, Spanish, and Italian do not),
+the catalog a copy may fall back to (Korean on Japanese), the PokeAPI name table, monprice's codes,
+and the price rules: no Ver na Liga for Korean or Chinese prints, and market prices only for
+English ones. The rows are in the app's order, Portuguese and English first, then Japanese,
+Korean, and Chinese, then French, German, Italian, and Spanish; flags, pickers, and copy sheets
+follow it. Every other
+module reads languages from here. *(Decided 2026-10-15: seven separate lists had drifted, so German,
+Spanish, and Italian copies showed raw codes and dropped out of lists.)*
+
 **Language comes from the scan, never from a setting.**
 This is the fix for monprice's worst problem. The scanner proposes the language it read off the
 card, and the confirm screen shows it with a one-tap change. There is no "current language"
@@ -1188,8 +1200,8 @@ Pokémon, shown as a list to tick off, and lives in the binder area. Presets cov
 National Dex number: Kanto 1 to 151, Johto 152 to 251, Hoenn 252 to 386, Sinnoh 387 to 493, Unova
 494 to 649, Kalos 650 to 721, Alola 722 to 809, Galar 810 to 898, Hisui 899 to 905, and Paldea 906
 to 1025, plus Every Pokémon. A person can also build their own list by picking Pokémon ("every
-Eeveelution"). Each entry is ticked automatically once any owned card's `dex_ids` includes that
-number, in any language. A person can also tick one by hand (a card bought but not logged yet);
+Eeveelution"). Each entry is ticked automatically once an owned card's `dex_ids` includes that
+number, in one of the list's languages (below). A person can also tick one by hand (a card bought but not logged yet);
 hand ticks show a different mark from owned ones and never count as owned anywhere else. A
 **Missing only** filter works offline, so a store visit shows just the gaps ("#107 Hitmonchan").
 A checklist can lay out a binder in Dex order with placeholders for the missing ones, which suits
@@ -1203,8 +1215,13 @@ cards flagged (ribbon and language flags) and missing ones dimmed with one tap t
 the shared All, Owned, and Missing filter, and a "count every finish" switch for a master
 collection. Each list has its own **languages** setting (default Portuguese only; English, Japanese,
 Korean, Chinese, French, and the others can be added). It decides both which prints
-appear and what counts as owned: a card counts only when owned in one of the list's languages, so
-a Portuguese-only list ticks a card only for a Portuguese copy. International prints come from the
+appear and what counts as owned, in the list's ticks and on this screen alike: a card counts only
+when owned in one of the list's languages, so a Portuguese-only list ticks a card only for a
+Portuguese copy. **Any language** removes the setting, and so does ticking every language: such a
+list counts a copy in any language, German, Spanish, Italian, and copies with no language
+recorded included. Lists made before the setting decided ticks have none, so they keep counting
+any language until someone picks languages for them; a new list starts with Portuguese.
+*(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)* International prints come from the
 bulk `id` and `dexId` list the checklists already cache (23,736 cards in one request), so they
 work offline; Japanese and Korean prints load from their own catalogs, one request per set, only
 when the list includes those languages, and are kept for offline use. TCG Pocket is left out. Every
@@ -1213,7 +1230,8 @@ Portuguese copy shows Brazil, both show Brazil and the United States), and none 
 *(Languages per list by Eric, 2026-10-01.)*
 *(Planned 2026-10-01, a block after the shell.)*
 
-Ownership in any language counts, the same rule as the set tile rings. Prismatic Evolutions shows
+A set or artist goal counts ownership in any language unless it names languages, the same rule
+as the set tile rings. Prismatic Evolutions shows
 why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants
 including the ball patterns.
 

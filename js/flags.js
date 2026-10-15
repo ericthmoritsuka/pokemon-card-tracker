@@ -6,61 +6,29 @@
 // the language names as its aria-label and title, so its meaning never
 // depends on the picture alone. flagPlan is pure, so Node can test it.
 
+import {LANGUAGES, compareLanguages, languageChip, languageFlag, languageLabel} from './languages.js';
+
 // The app root, as js/dom.js finds it; read here so Node can load this file
 // without a window.
 const BASE = new URL('../', import.meta.url).pathname;
 
-// Language -> the flag-icons file it is shown with.
-export const FLAGS = {
-	de: 'de',
-	en: 'us',
-	es: 'es',
-	fr: 'fr',
-	it: 'it',
-	ja: 'jp',
-	ko: 'kr',
-	pt: 'br',
-	'zh-cn': 'cn',
-	'zh-tw': 'tw',
-};
-
-// Shown in this order, then any other language by its code.
-const ORDER = ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw'];
+// Language -> the flag-icons file it is shown with (js/languages.js).
+export const FLAGS = Object.fromEntries(LANGUAGES.map((row) => [row.code, row.flag]));
 
 export const MAX_FLAGS = 3;
 
-const NAMES = {
-	de: 'German',
-	en: 'English',
-	es: 'Spanish',
-	fr: 'French',
-	it: 'Italian',
-	ja: 'Japanese',
-	ko: 'Korean',
-	pt: 'Portuguese',
-	'zh-cn': 'Chinese (Simplified)',
-	'zh-tw': 'Chinese (Traditional)',
-};
-
-export const flagLanguageName = (code) => NAMES[code] || String(code);
+export const flagLanguageName = languageLabel;
 
 // The old text chip, for a language with no flag.
-export const flagText = (code) => (code === 'zh-cn' ? 'CHS' : code === 'zh-tw' ? 'CHT' : String(code).toUpperCase());
+export const flagText = languageChip;
 
-export const flagSrc = (code) => (FLAGS[code] ? `${BASE}vendor/flags/${FLAGS[code]}.svg` : null);
-
-function rank(code) {
-	const i = ORDER.indexOf(code);
-
-	return i === -1 ? ORDER.length : i;
-}
+export const flagSrc = (code) => (languageFlag(code) ? `${BASE}vendor/flags/${languageFlag(code)}.svg` : null);
 
 // What a group of languages shows: {items: [{code, src, text}], more, label}.
-// At most MAX_FLAGS items, in the fixed order, then "+N" for the rest; label
+// At most MAX_FLAGS items, in the table's order, then "+N" for the rest; label
 // names every language, the hidden ones too.
 export function flagPlan(codes) {
-	const unique = [...new Set((codes || []).filter(Boolean))]
-		.sort((a, b) => rank(a) - rank(b) || String(a).localeCompare(String(b)));
+	const unique = [...new Set((codes || []).filter(Boolean))].sort(compareLanguages);
 	const shown = unique.slice(0, MAX_FLAGS);
 
 	return {

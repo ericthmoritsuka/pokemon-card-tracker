@@ -4,36 +4,21 @@
 // through an injected `api`, so the same code runs in the app and in a test
 // harness. DESIGN.md sections 5 and 7 hold the rules applied here.
 
-// ---------------------------------------------------------------- parsing
+import {CATALOGS, MONPRICE_REGIONS, isKnownLanguage, monpriceLanguage} from './languages.js';
 
-// monprice language codes to the codes the app stores on a copy.
-const LANGUAGE_CODES = {
-	chs: 'zh-cn',
-	cht: 'zh-tw',
-	de: 'de',
-	en: 'en',
-	es: 'es',
-	fr: 'fr',
-	it: 'it',
-	ja: 'ja',
-	jp: 'ja',
-	ko: 'ko',
-	kr: 'ko',
-	pt: 'pt',
-};
+// ---------------------------------------------------------------- parsing
 
 // The middle part of a monprice ID names the catalog the card belongs to.
 // Western-language prints share one international record (DESIGN.md
-// section 3); Asian prints have their own catalogs.
-const REGIONS = {
-	chs: {catalog: 'zh-cn', lang: 'zh-cn'},
-	cht: {catalog: 'zh-tw', lang: 'zh-tw'},
-	int: {catalog: 'international', lang: 'en'},
-	jp: {catalog: 'ja', lang: 'ja'},
-	// Korean has no Mega-era sets; Korean sets reuse the Japanese set codes,
-	// so a Korean row falls back to the Japanese record (DESIGN.md section 5).
-	kr: {catalog: 'ko', fallback: {catalog: 'ja', lang: 'ja'}, lang: 'ko'},
-};
+// section 3); Asian prints have their own catalogs. Korean has no Mega-era
+// sets; Korean sets reuse the Japanese set codes, so a Korean row falls back
+// to the Japanese record (DESIGN.md section 5). Both, and the Language
+// column's codes, come from js/languages.js.
+const REGIONS = MONPRICE_REGIONS;
+
+// The app's own export writes the language as its chip ("PT", "CHS"); a
+// file edited by hand may give the stored code ("zh-cn") instead.
+const ownLanguage = (raw) => monpriceLanguage(raw) || (isKnownLanguage(String(raw).toLowerCase()) ? String(raw).toLowerCase() : undefined);
 
 export const FINISHES = {
 	FIRST_EDITION: '1st Edition',
@@ -192,7 +177,7 @@ export function isOwnCsv(text) {
 	return ['entry_id', 'card_id', 'catalog'].every((name) => names.includes(name));
 }
 
-export const OWN_CATALOGS = ['international', 'ja', 'ko', 'zh-cn', 'zh-tw', 'custom'];
+export const OWN_CATALOGS = [...CATALOGS, 'custom'];
 
 const ENTRY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -239,7 +224,7 @@ export function parseOwnCsv(text) {
 		const id = cell('entry_id').toLowerCase();
 		const catalog = cell('catalog');
 		const languageRaw = cell('language');
-		const language = LANGUAGE_CODES[languageRaw.toLowerCase()];
+		const language = ownLanguage(languageRaw);
 		const problems = [];
 
 		if (!ENTRY_ID.test(id)) {
@@ -359,7 +344,7 @@ export function parseExport(text, fileName = '') {
 
 	for (const item of raw) {
 		const idMatch = /^(.+)_(int|kr|jp|chs|cht)_(.+)$/i.exec(item.id);
-		const language = LANGUAGE_CODES[item.language.toLowerCase()];
+		const language = monpriceLanguage(item.language);
 		const count = Number.parseInt(item.count, 10);
 		const problems = [];
 

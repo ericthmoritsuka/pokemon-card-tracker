@@ -1,14 +1,11 @@
 // Catalog browser: Sets, set detail, and card detail.
 
 import {
-	LANGUAGES,
 	NotOnPhoneError,
 	cardDetail,
 	cardImage,
 	cardIndex,
-	catalogFor,
 	compareNumbers,
-	languageLabel,
 	logoImage,
 	savedCardRecords,
 	setDetail,
@@ -22,6 +19,7 @@ import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAdd
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
+import {CATALOG_LANGUAGES, catalogFor, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
@@ -45,7 +43,7 @@ export {cardArt};
 
 // International prints share English card records (DESIGN.md section 3), so
 // only these languages fall back to the English list of the same set.
-const FALLS_BACK_TO_ENGLISH = new Set(['pt', 'fr']);
+const FALLS_BACK_TO_ENGLISH = new Set(CATALOG_LANGUAGES.map((row) => row.code).filter((code) => code !== 'en' && catalogFor(code) === 'international'));
 
 const cardsText = (n) => `${n} ${n === 1 ? 'card' : 'cards'}`;
 
@@ -99,8 +97,8 @@ export function loadedSpeciesNames(onLoad) {
 }
 
 // The lang attribute for a name in a catalog language, so the browser picks
-// a Japanese, Korean, or Chinese font for it.
-export const htmlLang = (lang) => ({'zh-cn': 'zh-Hans', 'zh-tw': 'zh-Hant'}[lang] || lang);
+// a Japanese, Korean, or Chinese font for it (js/languages.js).
+export {htmlLang};
 
 // {english, original, reading} for a card name in a language. Western
 // names come back as they are. onLoad as for loadedSpeciesNames.
@@ -369,7 +367,7 @@ export function setsView(root) {
 	const memberNote = h('div', {hidden: true, id: 'sets-member-note'});
 
 	const select = h('select', {id: 'viewing', onchange: () => changeLanguage(select.value)},
-		LANGUAGES.map(({code, label}) => h('option', {selected: code === lang, value: code}, label))
+		CATALOG_LANGUAGES.map(({code, label}) => h('option', {selected: code === lang, value: code}, label))
 	);
 	const sort = h('select', {'aria-label': 'Sort sets', id: 'set-sort', onchange: () => {
 		saveChoice(SET_SORT_KEY, sort.value);
@@ -706,7 +704,7 @@ export function setView(root, {lang, setId}) {
 
 				// "Owned in PT" when no copy is in the language being viewed
 				// (DESIGN.md section 3).
-				status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(chip).join(', ')}`;
+				status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(languageChip).join(', ')}`;
 			}
 
 			return {
@@ -799,7 +797,6 @@ export function setView(root, {lang, setId}) {
 
 const VARIANT_TYPES = {holo: 'Holo', normal: 'Normal', reverse: 'Reverse holo'};
 
-const chip = (code) => (code === 'zh-cn' ? 'CHS' : code === 'zh-tw' ? 'CHT' : String(code).toUpperCase());
 const FOILS = {masterball: 'Master Ball pattern', pokeball: 'Poké Ball pattern'};
 const STAMPS = {'1st-edition': '1st Edition stamp'};
 
@@ -1117,9 +1114,8 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		const language = priceLanguage();
-		const asian = ['ko', 'zh-cn', 'zh-tw'].includes(language);
 
-		return h('p', {class: 'muted liga-none', id: 'card-liga-none'}, asian ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
+		return h('p', {class: 'muted liga-none', id: 'card-liga-none'}, !hasLiga(language) ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
 	}
 
 	// The language a new wish asks for: the catalog's on your own card. On a

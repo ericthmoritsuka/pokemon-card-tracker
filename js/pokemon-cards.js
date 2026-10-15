@@ -28,23 +28,18 @@
 //
 // No DOM here, so Node can test the pure parts (tests/pokemon-cards.test.mjs).
 
-import {catalogFor, catalogLanguage, compareNumbers, importApi} from './catalog.js';
+import {compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
+import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, languageLabel} from './languages.js';
 import {fetchJson, graphql, loadSetIndex, setIndexFrom} from './tcgdex.js';
 
-export const ASIAN_CATALOGS = ['ja', 'ko', 'zh-cn', 'zh-tw'];
+export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
 
-export const CATALOG_ORDER = ['international', ...ASIAN_CATALOGS];
+export const CATALOG_ORDER = CATALOGS;
 
-export const CATALOG_HEADINGS = {
-	international: 'International prints',
-	ja: 'Japanese prints',
-	ko: 'Korean prints',
-	'zh-cn': 'Chinese (Simplified) prints',
-	'zh-tw': 'Chinese (Traditional) prints',
-};
+export const CATALOG_HEADINGS = Object.fromEntries(CATALOGS.map((catalog) => [catalog, catalog === 'international' ? 'International prints' : `${languageLabel(catalog)} prints`]));
 
 export const POCKET_SERIES = 'tcgp';
 

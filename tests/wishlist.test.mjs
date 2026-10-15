@@ -203,7 +203,7 @@ describe('builders', () => {
 	});
 
 	test('languages follow the catalog', () => {
-		assert.deepEqual(languagesFor('international').map((lang) => lang.code), ['en', 'pt', 'fr']);
+		assert.deepEqual(languagesFor('international').map((lang) => lang.code), ['pt', 'en', 'fr']);
 		assert.deepEqual(languagesFor('ja').map((lang) => lang.code), ['ja']);
 	});
 

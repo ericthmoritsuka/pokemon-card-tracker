@@ -989,11 +989,15 @@ export function createTwins({
 	}
 
 	// Whether a saved result should be worked out again: never checked, an
-	// older rule, or none or weak and a week old. A confident or ambiguous
-	// result stays.
-	const due = (saved) => !saved
+	// older rule, or none or weak and a week old. An ambiguous result whose
+	// candidates the person turned down ("None of these") is checked again
+	// a week later too, so a newer English set can offer new ones; the ones
+	// turned down stay hidden. A confident result, or an ambiguous one still
+	// waiting for an answer, stays.
+	const due = (saved, decision = null) => !saved
 		|| saved.version !== MATCHER_VERSION
-		|| ((saved.status === 'none' || saved.status === 'weak') && now() - saved.checked_at >= RECHECK_MS);
+		|| ((saved.status === 'none' || saved.status === 'weak') && now() - saved.checked_at >= RECHECK_MS)
+		|| (saved.status === 'ambiguous' && Boolean(decision) && decision.choice === 'rejected' && now() - saved.checked_at >= RECHECK_MS);
 
 	// The saved result, worked out first when due. A person's "none" decision
 	// stops the checks. A card already being worked out is not started
@@ -1007,7 +1011,7 @@ export function createTwins({
 		const decision = memory.decisions.get(key);
 		const saved = memory.results.get(key);
 
-		const settled = (decision && decision.choice === 'none') || !due(saved);
+		const settled = (decision && decision.choice === 'none') || !due(saved, decision);
 
 		if (settled && !force) {
 			return twinState(key);
@@ -1043,7 +1047,7 @@ export function createTwins({
 		const todo = keys.filter((key) => {
 			const decision = memory.decisions.get(key);
 
-			return !(decision && decision.choice === 'none') && due(memory.results.get(key));
+			return !(decision && decision.choice === 'none') && due(memory.results.get(key), decision);
 		});
 		let checked = 0;
 

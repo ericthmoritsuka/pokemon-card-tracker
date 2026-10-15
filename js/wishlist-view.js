@@ -10,11 +10,11 @@
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
-import {LANGUAGES, cardImage, catalogFor, languageLabel, viewingLanguage} from './catalog.js';
-import {languageChip} from './cards-view.js';
+import {cardImage, viewingLanguage} from './catalog.js';
 import {listCards, onChange} from './collection.js';
 import {BASE, errorText, h, listsSwitch} from './dom.js';
 import {formatCount, plural} from './format.js';
+import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
 import {cardTile, tileArt, variantFinish} from './tile.js';
 import {
 	NOTE_MAX,
@@ -256,9 +256,9 @@ function editor({card, catalog, item = null, onCancel, onRemove = null, onSave, 
 // --------------------------------------------------------- the search
 
 function searchPanel({onPick, wished}) {
-	const lang = readChoice(SEARCH_LANG_KEY, LANGUAGES.map((item) => item.code), viewingLanguage());
+	const lang = readChoice(SEARCH_LANG_KEY, CATALOG_LANGUAGES.map((item) => item.code), viewingLanguage());
 	const language = h('select', {'aria-label': 'Search in', id: 'wishlist-search-lang'},
-		LANGUAGES.map((item) => h('option', {value: item.code}, item.label))
+		CATALOG_LANGUAGES.map((item) => h('option', {value: item.code}, item.label))
 	);
 	const input = h('input', {
 		'aria-label': 'Card name or number',

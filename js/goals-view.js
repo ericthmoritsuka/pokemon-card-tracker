@@ -22,7 +22,7 @@
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
-import {LANGUAGES, cardImage, catalogFor, catalogLanguage, languageLabel, savedCardRecords, setList, viewingLanguage} from './catalog.js';
+import {cardImage, savedCardRecords, setList, viewingLanguage} from './catalog.js';
 import {mainName, namesFor, tileNames} from './catalog-views.js';
 import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal} from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
@@ -31,6 +31,7 @@ import {whenMemberName} from './family.js';
 import {applyFilters, filterBar, sortItems} from './filter-bar.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
+import {CATALOG_LANGUAGES, catalogFor, catalogLanguage, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
@@ -783,8 +784,8 @@ function catalogChoices() {
 	const western = catalogFor(viewing) === 'international' ? viewing : 'en';
 
 	return [
-		{catalog: 'international', label: 'International (Portuguese, English, French...)', lang: western},
-		...LANGUAGES.filter((lang) => catalogFor(lang.code) !== 'international').map((lang) => ({catalog: lang.code, label: lang.label, lang: lang.code})),
+		{catalog: 'international', label: `International (${CATALOG_LANGUAGES.filter((lang) => catalogFor(lang.code) === 'international').map((lang) => lang.label).join(', ')}...)`, lang: western},
+		...CATALOG_LANGUAGES.filter((lang) => catalogFor(lang.code) !== 'international').map((lang) => ({catalog: lang.code, label: lang.label, lang: lang.code})),
 	];
 }
 
