@@ -12,6 +12,23 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-15
+
+- **11:44** Version 38: languages, lighter sync, and better scan reading. `60f28c6`
+  - **Lists count the languages you pick:** a new list starts with Portuguese; lists you already
+    have keep counting every language until you change them, and ticking every language means
+    Any language again (German, Spanish, Italian, and no-language copies count).
+  - **Scanner:** reads the collector number on full-art cards (ringed digits; 134 of 240 test
+    captures against 80), and Portuguese, French, and German names, Paradox Pokémon and Trainers
+    included, when the picture and number do not settle a card.
+  - **Lighter sync:** your other devices read only what a save changed; a small edit with 1,600
+    copies moves about 430 KB instead of 1,280 KB, or about 2 KB with the optional
+    `supabase/patch-document.sql`. Saves are announced by a light broadcast. My Cards redraws only
+    the tiles that changed (about 200 ms after an edit, was 690).
+  - **Smaller:** long Japanese and Korean set names show in full in Filters; more Portuguese and
+    French pictures stay offline; a card whose twins you turned down is checked again a week later;
+    the photo editor names languages instead of codes; scan language chips follow the app's order.
+
 ### 2026-10-10
 
 - **01:18** Version 37: small gaps. `c8101df`
