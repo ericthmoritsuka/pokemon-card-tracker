@@ -1863,8 +1863,37 @@ export function scanView(root) {
 		try {
 			await readItemNow(id, frame, options);
 		}
+		catch (err) {
+			readStopped(id, err);
+		}
 		finally {
 			working.delete(id);
+		}
+	}
+
+	// A read that threw after the picture was matched (Eric's logs, versions
+	// 32 and 38: a card left "Reading…" for minutes with no answer, holding
+	// Save back as "still reading", until he removed it). The error goes in
+	// the scan log, and the card asks for a look instead of waiting forever.
+	function readStopped(id, err) {
+		scanLog.updateEntry(id, {error: String((err && (err.stack || err.message)) || err).slice(0, 600)});
+
+		const item = alive && S.findItem(session, id);
+
+		if (!item || (item.status !== 'reading' && item.status !== 'matching')) {
+			return;
+		}
+
+		progress.delete(id);
+
+		try {
+			scannerChange(id, () => {
+				S.markLost(session, id);
+				item.why = 'The read stopped before an answer. Scan the card again, or search for it.';
+			});
+		}
+		catch {
+			// What threw may throw again; the card is marked either way.
 		}
 	}
 
