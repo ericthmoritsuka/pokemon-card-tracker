@@ -1177,3 +1177,114 @@ export function countChanged(doc, base) {
 
 	return changed;
 }
+
+// ------------------------------------------------------- sync deltas
+//
+// What one write changed, so another device does not download the whole
+// document to learn it (E-18, js/sync.js). Every write from this app on
+// stores sync_delta in the document:
+//   {base, lists: {<list>: [entry, ...]}, top: {<field>: value, ...}}
+//   base   the server's updated_at the write was merged against, the same
+//          value as the document's base_stamp
+//   lists  every list in the document, with each entry whose updated_at
+//          differs from what the server held at base, whole
+//   top    every top-level field that is not a list (settings, version,
+//          merge_version, base_stamp, updated_at)
+// A device that last saw the row at base learns the new version from
+// sync_delta alone. It trusts it only when base equals both the row's
+// base_stamp and the updated_at the device last saw: every app from
+// merge_version 2 on writes base_stamp afresh on each write, while an
+// older app carries an old sync_delta along unchanged, so after any other
+// app's write the two no longer match and the device downloads the row.
+// sync_delta is null when the change is too large to be worth it or cannot
+// be told as entries added or replaced.
+
+export const DELTA_MAX_BYTES = 32 * 1024;
+
+// Fields of the phone's copy that never go to the server, and the delta
+// itself, which describes one write and is never merged.
+const NOT_IN_DELTA = new Set(['person', 'sync_delta', 'user_id']);
+
+// The delta that takes a server holding `server` (stamps() of its document,
+// at updated_at `base`) to `doc`, or null when there is none: a list item
+// without an id, an entry the server holds that doc lacks, or more than
+// DELTA_MAX_BYTES of it.
+export function syncDelta(doc, server, base) {
+	if (!doc || !server || !base) {
+		return null;
+	}
+
+	const lists = {};
+	const top = {};
+	const held = new Set();
+
+	for (const [key, value] of Object.entries(doc)) {
+		if (NOT_IN_DELTA.has(key)) {
+			continue;
+		}
+
+		if (!Array.isArray(value)) {
+			top[key] = value;
+			continue;
+		}
+
+		// Every list is named, empty when nothing in it changed, so a list
+		// the server lacks altogether still comes to exist there.
+		lists[key] = [];
+
+		for (const entry of value) {
+			if (!entry || !entry.id) {
+				return null;
+			}
+
+			const id = `${key}|${entry.id}`;
+
+			held.add(id);
+
+			if (server.get(id) !== String(entry.updated_at)) {
+				lists[key].push(entry);
+			}
+		}
+	}
+
+	for (const id of server.keys()) {
+		if (id !== 'settings' && !held.has(id)) {
+			return null;
+		}
+	}
+
+	const delta = {base, lists, top};
+
+	return JSON.stringify(delta).length <= DELTA_MAX_BYTES ? delta : null;
+}
+
+// True when `delta` is a well-formed delta from the version at `base`.
+export function usableDelta(delta, base) {
+	if (!isObject(delta) || !base || delta.base !== base || !isObject(delta.lists) || !isObject(delta.top)) {
+		return false;
+	}
+
+	return Object.values(delta.lists).every((entries) => Array.isArray(entries) && entries.every((entry) => isObject(entry) && entry.id));
+}
+
+// The part of the server's document a delta carries, shaped as a document:
+// merging it into a phone that held the version at delta.base gives what
+// merging the whole new version would (mergeDocuments).
+export const deltaDocument = (delta) => ({...delta.top, ...delta.lists});
+
+// The stamps of the server's document after the write `delta` describes,
+// from `server`, the stamps it held at delta.base.
+export function applyDeltaStamps(server, delta) {
+	const out = new Map(server);
+	const after = stamps(deltaDocument(delta));
+
+	if (!after.has('settings')) {
+		out.delete('settings');
+	}
+
+	for (const [key, value] of after) {
+		out.set(key, value);
+	}
+
+	return out;
+}

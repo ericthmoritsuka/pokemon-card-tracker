@@ -6,14 +6,19 @@
 //   1. Read the row's updated_at, which the server sets on every write
 //      (supabase/setup.sql). If it is still the value this phone last saw,
 //      the server holds nothing new, so the full row is not downloaded.
-//      Otherwise read the whole row and merge it in, entry by entry
-//      (js/merge.js).
+//      When exactly one write happened since, the row's sync_delta holds
+//      what it changed (js/merge.js syncDelta), so only that is read.
+//      Otherwise read the whole row. Either way, merge it in, entry by
+//      entry (js/merge.js).
 //   2. When the merged document holds anything the server lacks, write it
 //      with a compare-and-set guard: update only where updated_at still
 //      equals the value read in step 1. If another device wrote in between,
 //      the update matches no row, so this phone reads again, merges again,
 //      and retries. Nothing either device added is lost, because each retry
 //      merges the other device's entries in before writing.
+//      The write sends only the changed entries when the project has the
+//      optional patch_document function (supabase/patch-document.sql), and
+//      the whole document otherwise.
 //   3. Merge the result into the phone's document. An edit made while the
 //      sync was on the network is newer, so it wins and is pushed next.
 //
@@ -24,10 +29,12 @@
 //
 // While the app is open and in front, another device's save shows up here
 // without a reload, two ways (the "live" section below):
-//   - Supabase Realtime tells this device within seconds that its own row
-//     changed. That needs the documents table in the supabase_realtime
-//     publication (supabase/realtime.sql); without it the channel stays
-//     silent and the poll below still works.
+//   - After each write, a device announces the row's new updated_at on a
+//     Supabase Realtime broadcast channel, and the account's other devices
+//     with the app open hear it within seconds. Broadcast needs no SQL.
+//     Apps before this one listened for the row itself instead
+//     (supabase/realtime.sql), which sent the whole document to every
+//     device, the writer included, on every save.
 //   - A light poll reads only updated_at once a minute, and a sync runs when
 //     the window gets focus or the tab becomes visible. A hidden tab neither
 //     polls nor keeps the Realtime connection open.
@@ -38,7 +45,7 @@
 
 import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
-import {countChanged, MERGE_VERSION, mergeDocuments, sameContent, stamps} from './merge.js';
+import {applyDeltaStamps, countChanged, deltaDocument, MERGE_VERSION, mergeDocuments, stamps, syncDelta, usableDelta} from './merge.js';
 
 const PUSH_DELAY_MS = 3000;
 const RETRY_DELAY_MS = 30000;
@@ -236,6 +243,75 @@ function outgoing(doc, stamp = null) {
 	return copy;
 }
 
+// The document without sync_delta, which describes one write to the server
+// and is never kept on the phone or merged.
+function withoutDelta(doc) {
+	if (!doc || !Object.hasOwn(doc, 'sync_delta')) {
+		return doc;
+	}
+
+	const copy = {...doc};
+
+	delete copy.sync_delta;
+
+	return copy;
+}
+
+// The row's sync_delta, when it takes the version this phone last saw
+// (`known`) to the one at `stamp`: the row is still at `stamp`, its
+// base_stamp is `known`, and the delta says it was written against `known`
+// too (js/merge.js, "sync deltas"). Null otherwise, and then the whole row
+// is read.
+async function readDelta(table, userId, stamp) {
+	const read = await table().select('updated_at, base_stamp:doc->>base_stamp, sync_delta:doc->sync_delta').eq('user_id', userId).maybeSingle();
+
+	if (read.error) {
+		throw read.error;
+	}
+
+	const row = read.data;
+
+	return row && row.updated_at === stamp && row.base_stamp === known && usableDelta(row.sync_delta, known) ? row.sync_delta : null;
+}
+
+// True once this load found that the project has no patch_document
+// (supabase/patch-document.sql, optional): from then on every save sends
+// the whole document. PGRST202 is PostgREST's "no such function".
+let noPatch = false;
+
+const missingFunction = (error) => error && (error.code === 'PGRST202' || error.code === '42883');
+
+// Writes doc over the row only where its updated_at is still `stamp` (the
+// compare-and-set guard) and returns the new updated_at, or null when
+// another device wrote first. With a delta, what this write changed, and
+// patch_document on the server, only the delta goes up; otherwise the whole
+// document, carrying the delta for the other devices.
+async function write(client, userId, doc, delta, stamp) {
+	if (delta && !noPatch) {
+		const patched = await client.rpc('patch_document', {patch: delta});
+
+		if (!patched.error) {
+			return patched.data || null;
+		}
+
+		if (!missingFunction(patched.error)) {
+			throw patched.error;
+		}
+
+		noPatch = true;
+	}
+
+	doc.sync_delta = delta;
+
+	const update = await client.from('documents').update({doc}).eq('user_id', userId).eq('updated_at', stamp).select('updated_at');
+
+	if (update.error) {
+		throw update.error;
+	}
+
+	return update.data.length ? update.data[0].updated_at : null;
+}
+
 // A document saved by an app with newer merge rules than this one. This app
 // stops pushing rather than merge by rules it does not know; its changes
 // wait on the phone until the app is updated.
@@ -313,28 +389,42 @@ async function syncOnce() {
 
 		lastCheck = Date.now();
 
-		const head = await table().select('updated_at').eq('user_id', user.id).maybeSingle();
+		const head = await table().select('updated_at, base_stamp:doc->>base_stamp').eq('user_id', user.id).maybeSingle();
 
 		if (head.error) {
 			throw head.error;
 		}
 
+		// remote: what the server holds, whole or the part a delta carries.
+		// server: the stamps of the server's whole document at `stamp`.
+		// Without a fresh read, the server still holds what the last sync
+		// left there, whose stamps are `base`.
 		let remote = null;
+		let server = base;
 		let stamp = head.data ? head.data.updated_at : null;
 
 		if (stamp && !(stamp === known && holdsBase(local))) {
-			const full = carriedRow(user.id, stamp) || await table().select('doc, updated_at').eq('user_id', user.id).maybeSingle();
+			const delta = head.data.base_stamp === known && holdsBase(local) ? await readDelta(table, user.id, stamp) : null;
 
-			if (full.error) {
-				throw full.error;
-			}
-
-			if (full.data) {
-				remote = full.data.doc;
-				stamp = full.data.updated_at;
+			if (delta) {
+				remote = deltaDocument(delta);
+				server = applyDeltaStamps(base, delta);
 			}
 			else {
-				stamp = null;
+				const full = await table().select('doc, updated_at').eq('user_id', user.id).maybeSingle();
+
+				if (full.error) {
+					throw full.error;
+				}
+
+				if (full.data) {
+					remote = withoutDelta(full.data.doc);
+					server = stamps(remote);
+					stamp = full.data.updated_at;
+				}
+				else {
+					stamp = null;
+				}
 			}
 		}
 
@@ -344,12 +434,10 @@ async function syncOnce() {
 
 		// Always a merge, even with nothing new from the server: the merge
 		// also repairs the document (js/merge.js folds duplicate copies), and
-		// a repaired document differs from `base`, so it is pushed.
-		const merged = mergeDocuments(local, remote || {});
-
-		// Without a fresh read, the server still holds what the last sync
-		// left there, whose stamps are `base`.
-		const changed = remote ? !sameContent(merged, remote) : countChanged(merged, base) > 0;
+		// a repaired document differs from what the server holds, so it is
+		// pushed.
+		const merged = withoutDelta(mergeDocuments(local, remote || {}));
+		const changed = countChanged(merged, server) > 0;
 
 		if (!stamp) {
 			// No row yet: the first sync uploads the whole document.
@@ -371,26 +459,21 @@ async function syncOnce() {
 			noteClock(sentAt, receivedAt, stamp);
 		}
 		else if (changed) {
+			const doc = outgoing(merged, stamp);
 			const sentAt = Date.now();
-			const update = await table()
-				.update({doc: outgoing(merged, stamp)})
-				.eq('user_id', user.id)
-				.eq('updated_at', stamp)
-				.select('updated_at');
+			const written = await write(client, user.id, doc, syncDelta(doc, server, stamp), stamp);
 			const receivedAt = Date.now();
 
-			if (update.error) {
-				throw update.error;
-			}
-
-			if (!update.data.length) {
-				// Another device wrote since the read. Read again and merge.
-				known = null;
+			if (!written) {
+				// Another device wrote since the read: the row's updated_at has
+				// moved past `known`, so the next round reads again (its delta
+				// when that one write is all that happened) and merges.
 				continue;
 			}
 
-			stamp = update.data[0].updated_at;
+			stamp = written;
 			noteClock(sentAt, receivedAt, stamp);
+			announce(user.id, stamp);
 		}
 
 		if (!currentUser() || currentUser().id !== user.id) {
@@ -630,34 +713,29 @@ let pollTimer = null;
 let channel = null;
 let channelUser = null;
 let channelToken = null;
+let channelReady = false;
 
 const inFront = () => document.visibilityState === 'visible';
 
-// The row a Realtime event carried, when it carried the whole document:
-// {user_id, updated_at, doc}. The server leaves doc out of a row too large
-// for one message (Realtime's max_record_bytes, 1 MB by default) and says so
-// in errors; then nothing is kept and the sync downloads the row (E-18).
-let liveRow = null;
+// The broadcast channel's name and its one event. Each device announces
+// only the row's new updated_at, never data: the channel is public to
+// anyone who knows the account's id, so a device treats what it hears as a
+// hint and reads the row's updated_at from the server before anything else
+// (checkRemote). Supabase does not send a device its own broadcasts.
+const liveTopic = (userId) => `document-saves:${userId}`;
+const SAVED = 'saved';
 
-function keepLiveRow(change) {
-	const row = change && change.new;
+// A stamp as PostgREST prints one; anything else heard is ignored.
+const STAMP_SHAPE = /^\d{4}-\d\d-\d\dT[\d:.]+(Z|[+-]\d\d:\d\d)$/;
 
-	if (!row || change.errors || !row.updated_at || !row.user_id || !row.doc || typeof row.doc !== 'object' || Array.isArray(row.doc)) {
+// After a write: tell the account's other open devices. Best effort; a
+// device that misses it finds the change by the poll or on focus.
+function announce(userId, stamp) {
+	if (!channel || channelUser !== userId || !channelReady) {
 		return;
 	}
 
-	liveRow = {doc: row.doc, updated_at: row.updated_at, user_id: row.user_id};
-}
-
-// A sync whose updated_at read matches the row Realtime carried merges that
-// row instead of downloading it again: the server still holds exactly that
-// version. Answers as the full read would, or null. Used once.
-function carriedRow(userId, stamp) {
-	const row = liveRow;
-
-	liveRow = null;
-
-	return row && row.user_id === userId && row.updated_at === stamp ? {data: {doc: row.doc, updated_at: row.updated_at}, error: null} : null;
+	channel.send({event: SAVED, payload: {updated_at: stamp}, type: 'broadcast'}).catch(() => {});
 }
 
 // What one stamp means: the same as the last one this device saw is nothing
@@ -738,6 +816,9 @@ function disconnectLive() {
 	channel = null;
 	channelUser = null;
 	channelToken = null;
+	channelReady = false;
+	clearTimeout(hintTimer);
+	hintTimer = null;
 
 	if (old) {
 		// Removing the last channel closes the WebSocket.
@@ -745,9 +826,40 @@ function disconnectLive() {
 	}
 }
 
-// One Realtime channel on the signed-in person's own row, open only while the
-// app is in front and online. A channel that fails is dropped until the next
-// time the app comes to the front; the poll covers the gap.
+// Hints closer together than this are folded into one check at the end of
+// the gap, so a burst (or anyone else on the public channel) costs at most
+// one updated_at read a second.
+const HINT_GAP_MS = 1000;
+
+let lastHint = 0;
+let hintTimer = null;
+
+function hear(payload) {
+	const stamp = payload && payload.updated_at;
+
+	if (typeof stamp !== 'string' || !STAMP_SHAPE.test(stamp) || hintTimer) {
+		return;
+	}
+
+	const wait = lastHint + HINT_GAP_MS - Date.now();
+
+	if (wait > 0) {
+		hintTimer = setTimeout(() => {
+			hintTimer = null;
+			lastHint = Date.now();
+			checkRemote().catch(() => {});
+		}, wait);
+
+		return;
+	}
+
+	lastHint = Date.now();
+	checkRemote(stamp).catch(() => {});
+}
+
+// One Realtime broadcast channel for the signed-in person's saves, open only
+// while the app is in front and online. A channel that fails is dropped
+// until the next time the app comes to the front; the poll covers the gap.
 function connectLive() {
 	const user = currentUser();
 
@@ -768,16 +880,16 @@ function connectLive() {
 		}
 
 		channel = client
-			.channel(`own-document:${user.id}`)
-			.on('postgres_changes', {event: '*', filter: `user_id=eq.${user.id}`, schema: 'public', table: 'documents'}, (change) => {
-				const stamp = change && change.new ? change.new.updated_at : undefined;
-
-				keepLiveRow(change);
-
-				checkRemote(stamp || undefined).catch(() => {});
-			})
+			.channel(liveTopic(user.id), {config: {broadcast: {ack: false, self: false}}})
+			.on('broadcast', {event: SAVED}, (message) => hear(message && message.payload))
 			.subscribe((state) => {
-				if ((state === 'CHANNEL_ERROR' || state === 'TIMED_OUT') && channelToken === token) {
+				if (channelToken !== token) {
+					return;
+				}
+
+				channelReady = state === 'SUBSCRIBED';
+
+				if (state === 'CHANNEL_ERROR' || state === 'TIMED_OUT') {
 					disconnectLive();
 				}
 			});
@@ -871,7 +983,7 @@ export async function memberDocument(userId) {
 		throw error;
 	}
 
-	return data ? data.doc : null;
+	return data ? withoutDelta(data.doc) : null;
 }
 
 // Family members' favorite Pokémon, as Map user_id -> the stored value (a

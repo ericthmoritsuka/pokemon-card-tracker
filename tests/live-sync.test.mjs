@@ -7,7 +7,8 @@
 // like a project whose documents table is not in the supabase_realtime
 // publication, so those tests see the poll and the focus pull alone.
 // LiveFake below sends one after every documents write, like a project that
-// ran supabase/realtime.sql.
+// ran supabase/realtime.sql; the app no longer subscribes to them, and hears
+// other devices' saves through a broadcast, which the plain fake relays too.
 //
 // Time: the poll waits a minute, so the poll tests install Playwright's fake
 // clock and jump it forward. Visibility: headless Chromium is always visible,
@@ -382,8 +383,8 @@ describe('live sync without Realtime events', () => {
 	});
 });
 
-describe('live sync with Realtime', () => {
-	test('a card added on the phone shows on the laptop within seconds, and a device ignores its own echo', async () => {
+describe('live sync with Realtime broadcast', () => {
+	test('a card added on the phone shows on the laptop within seconds, from its delta alone; the phone hears nothing back', async () => {
 		const fake = new LiveFake();
 		const owner = fake.addUser('owner@example.test');
 		const phone = await device(fake, 'phone');
@@ -394,14 +395,17 @@ describe('live sync with Realtime', () => {
 		await waitForStatus(phone.page, 'Synced');
 		await openCards(laptop.page, fake, owner.email);
 		await copies(laptop.page, 1);
+		await waitForStatus(laptop.page, 'Synced');
 
-		// The laptop's channel listens to its own row only.
+		// The laptop listens on the account's broadcast topic, and no longer
+		// for the documents row itself, which would bring the whole document.
+		const joins = fake.openSockets('laptop').flatMap((socket) => [...socket.joins.entries()]);
 
-		const joins = fake.openSockets('laptop').flatMap((socket) => [...socket.joins.values()]);
-
-		assert.ok(joins.some((join) => join.changes.some((change) => change.table === 'documents' && change.filter === `user_id=eq.${owner.id}`)), 'subscribed to the own documents row');
+		assert.ok(joins.some(([topic]) => topic === `realtime:document-saves:${owner.id}`), 'joined the saves topic');
+		assert.ok(joins.every(([, join]) => !join.changes.length), 'no postgres_changes subscription');
 
 		const mark = fake.log.length;
+		const heard = fake.broadcasts.length;
 		const started = Date.now();
 
 		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-005', catalog: 'international', language: 'en', language_source: 'manual'}));
@@ -411,24 +415,31 @@ describe('live sync with Realtime', () => {
 
 		assert.ok(seconds < 10, `shown in ${seconds.toFixed(1)} s, well before a poll`);
 		assert.ok(await sameLoad(laptop.page), 'the page was not reloaded');
-		assert.equal(reads(fake, 'laptop', mark).fulls, 1, 'the laptop downloaded the row once');
+		await waitForStatus(laptop.page, 'Synced');
+		await laptop.page.waitForTimeout(1000);
 
-		// The phone hears its own write come back and does not download.
+		// One updated_at read, then the delta: never the row.
+		assert.deepEqual(reads(fake, 'laptop', mark), {fulls: 0, heads: 2}, 'the laptop read the delta, not the row');
+		assert.equal(fake.log.slice(mark).filter((entry) => entry.device === 'laptop' && entry.method === 'PATCH').length, 0, 'nothing pushed back');
+
+		const sent = fake.broadcasts.slice(heard);
+
+		assert.equal(sent.length, 1, 'one announcement');
+		assert.equal(sent[0].device, 'phone');
+		assert.equal(sent[0].payload.payload.updated_at, fake.documents.get(owner.id).updated_at, 'it names the new updated_at');
+		assert.deepEqual(Object.keys(sent[0].payload.payload), ['updated_at'], 'and nothing else');
+
+		// The phone made one updated_at read for its push, and hears no echo.
 		await waitForStatus(phone.page, 'Synced');
 		await phone.page.waitForTimeout(1500);
-		assert.ok(fake.delivered.get('phone') >= 1, 'the phone was sent its own write back');
-		// Its push read updated_at once; the echo adds no read at all.
-		assert.deepEqual(reads(fake, 'phone', mark), {fulls: 0, heads: 1}, 'the phone ignored the echo of its own write');
+		assert.deepEqual(reads(fake, 'phone', mark), {fulls: 0, heads: 1}, 'the phone read nothing after its write');
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
 		await laptop.context.close();
 	});
 
-	test('a change whose Realtime message carries the row is merged without downloading the row again', async () => {
+	test('a write by an older app, which carries the last delta along, is downloaded whole and merged', async () => {
 		const fake = new LiveFake();
-
-		fake.realtimeDocs = true;
-
 		const owner = fake.addUser('owner@example.test');
 		const phone = await device(fake, 'phone');
 		const laptop = await device(fake, 'laptop');
@@ -437,31 +448,107 @@ describe('live sync with Realtime', () => {
 		await signIn(phone.page, fake, owner.email);
 		await waitForStatus(phone.page, 'Synced');
 		await openCards(laptop.page, fake, owner.email);
-		await copies(laptop.page, 1);
 		await waitForStatus(laptop.page, 'Synced');
 
-		const mark = fake.log.length;
-
+		// The phone adds a card; the row now holds its delta.
 		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-005', catalog: 'international', language: 'en', language_source: 'manual'}));
 		await copies(laptop.page, 2, 15000);
 		await waitForStatus(laptop.page, 'Synced');
-		await laptop.page.waitForTimeout(1000);
-		// One updated_at read confirms the server still holds that version;
-		// the row itself came in the message.
-		assert.deepEqual(reads(fake, 'laptop', mark), {fulls: 0, heads: 1}, 'the laptop read updated_at only');
-		assert.deepEqual((await localDoc(laptop.page)).cards.map((entry) => entry.card_id).sort(), ['tst1-001', 'tst1-005']);
-		// Nothing was pushed back: the merged row equals the server's.
-		assert.equal(fake.log.slice(mark).filter((entry) => entry.device === 'laptop' && entry.method === 'PATCH').length, 0);
+		assert.ok(fake.documents.get(owner.id).doc.sync_delta, 'the row holds the delta');
 
-		// A row too large for one message comes without doc: then the row
-		// is downloaded, as before.
-		fake.realtimeDocs = false;
+		// An app from before this release (v26 to v37) writes: it merges
+		// the whole row, keeps sync_delta as it found it, sets base_stamp
+		// afresh, and announces nothing.
+		await laptop.page.waitForTimeout(6000);
 
-		const again = fake.log.length;
+		const mark = fake.log.length;
+		const before = fake.documents.get(owner.id).updated_at;
 
-		await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: 'tst1-006', catalog: 'international', language: 'en', language_source: 'manual'}));
-		await copies(laptop.page, 3, 15000);
-		assert.equal(reads(fake, 'laptop', again).fulls, 1, 'downloaded once');
+		otherDeviceSaves(fake, owner, (doc) => ({
+			...doc,
+			base_stamp: before,
+			cards: [...doc.cards.map((entry) => (entry.id === 'a-1' ? {...entry, notes: 'from the old app', updated_at: '2026-10-01T12:40:00.000Z'} : entry)), card('old-1', '006', '2026-10-01T12:40:00.000Z')],
+		}));
+		await laptop.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+		await copies(laptop.page, 3);
+		assert.equal(reads(fake, 'laptop', mark).fulls, 1, 'the row was downloaded whole');
+
+		const local = await localDoc(laptop.page);
+
+		assert.equal(local.cards.find((entry) => entry.id === 'a-1').notes, 'from the old app');
+		assert.equal(local.sync_delta, undefined, 'the delta is never kept on the phone');
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+});
+
+describe('saving only the change (supabase/patch-document.sql)', () => {
+	test('two devices saving at once both keep their edits, and an older app\'s whole-document save still merges', async () => {
+		const fake = new LiveFake();
+
+		fake.patchDocument = true;
+
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith([card('a-1', '001'), card('a-2', '002')]));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await openCards(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const mark = fake.log.length;
+		const update = (page, id, notes) => page.evaluate(async ([entryId, text]) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(entryId, {notes: text}), [id, notes]);
+
+		// The phone's save is held on the network while the laptop saves.
+		const held = fake.gate((entry) => entry.device === 'phone' && entry.path === '/rest/v1/rpc/patch_document');
+
+		await update(phone.page, 'a-1', 'from the phone');
+		await held.reached;
+		await update(laptop.page, 'a-2', 'from the laptop');
+		await laptop.page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Saving', null, {timeout: 5000}).catch(() => {});
+		await waitForStatus(laptop.page, 'Synced');
+		held.release();
+		await waitForStatus(phone.page, 'Synced');
+
+		const server = () => new Map(fake.documents.get(owner.id).doc.cards.map((entry) => [entry.id, entry]));
+
+		assert.equal(server().get('a-1').notes, 'from the phone');
+		assert.equal(server().get('a-2').notes, 'from the laptop');
+
+		const mine = fake.log.slice(mark).filter((entry) => entry.method !== 'GET' && entry.path.startsWith('/rest/v1/'));
+
+		assert.equal(mine.filter((entry) => entry.device === 'phone').length, 2, 'the phone\'s first patch missed and it patched again');
+		assert.equal(reads(fake, 'phone', mark).fulls, 0, 'after the miss it read only the laptop\'s delta');
+		assert.ok(mine.every((entry) => entry.path === '/rest/v1/rpc/patch_document'), 'every save was a patch');
+		assert.ok(mine.every((entry) => entry.bytes < 4096), 'and each was small');
+		assert.equal(fake.documents.get(owner.id).doc.sync_delta.base, fake.documents.get(owner.id).doc.base_stamp, 'the row holds the last patch as its delta');
+
+		// An app from before this release saves the whole document.
+		const before = fake.documents.get(owner.id).updated_at;
+
+		otherDeviceSaves(fake, owner, (doc) => ({...doc, base_stamp: before, cards: [...doc.cards, card('old-1', '006', '2026-10-01T12:40:00.000Z')]}));
+
+		const reread = fake.log.length;
+
+		// Focus within 5 seconds of the last server check does nothing.
+		await phone.page.waitForTimeout(5500);
+		await phone.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+		for (let i = 0; i < 50 && !(await localDoc(phone.page)).cards.some((entry) => entry.id === 'old-1'); i++) {
+			await phone.page.waitForTimeout(200);
+		}
+
+		assert.ok((await localDoc(phone.page)).cards.some((entry) => entry.id === 'old-1'), 'the older app\'s card arrived');
+		assert.equal(reads(fake, 'phone', reread).fulls, 1, 'the older app\'s save was downloaded whole');
+
+		// The next patch keeps the older app's card.
+		await update(phone.page, 'a-1', 'again from the phone');
+		await waitForStatus(phone.page, 'Synced');
+		assert.ok(server().has('old-1'));
+		assert.equal(server().get('a-1').notes, 'again from the phone');
+		assert.equal(server().get('a-2').notes, 'from the laptop');
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
 		await laptop.context.close();
