@@ -240,7 +240,9 @@ describe('the full capture read off the main thread', () => {
 			// draft (view.js waits for the worker's JPEG before the match), and
 			// the pixels came back for the scan report's capture image.
 			if (throttle === 1) {
-				await page.click('#scan-tray li:last-child .scan-tile');
+				// The newest tile (the tray shows the newest first): its capture is among
+				// the last few kept in memory.
+				await page.click('#scan-tray li:first-child .scan-tile');
 				await page.waitForSelector('#scan-report-open');
 				await page.click('#scan-report-open');
 				await page.waitForSelector('#scan-report-capture');
