@@ -5,8 +5,9 @@
 // and missing in another (plans/audit-engineering.md E-31).
 //
 // One row per code, in the app's order: Portuguese and English first, then
-// Japanese, Korean, and Chinese, then the other Western languages by code.
-// Flags, pickers, and copy sheets all list languages in this order.
+// Japanese, Korean, and Chinese, then French, German, Italian, and Spanish
+// (the copy sheet's order before the table). Flags, pickers, and copy
+// sheets all list languages in this order.
 //
 //   code      what a copy stores in `language`
 //   label     the English UI name ("Chinese (Simplified)")
@@ -40,10 +41,10 @@ export const LANGUAGES = [
 	{asian: true, browse: true, catalog: 'ko', chip: 'KO', code: 'ko', fallback: 'ja', flag: 'kr', html: 'ko', label: 'Korean', monprice: {language: ['ko', 'kr'], region: 'kr'}, names: {id: 3, table: 'ko'}},
 	{asian: true, browse: true, catalog: 'zh-cn', chip: 'CHS', code: 'zh-cn', flag: 'cn', html: 'zh-Hans', label: 'Chinese (Simplified)', monprice: {language: ['chs'], region: 'chs'}, names: {id: 12, table: 'zh-hans'}},
 	{asian: true, browse: true, catalog: 'zh-tw', chip: 'CHT', code: 'zh-tw', flag: 'tw', html: 'zh-Hant', label: 'Chinese (Traditional)', monprice: {language: ['cht'], region: 'cht'}, names: {id: 4, table: 'zh-hant'}},
-	{catalog: 'international', chip: 'DE', code: 'de', flag: 'de', html: 'de', label: 'German', liga: true, monprice: {language: ['de']}},
-	{catalog: 'international', chip: 'ES', code: 'es', flag: 'es', html: 'es', label: 'Spanish', liga: true, monprice: {language: ['es']}},
 	{browse: true, catalog: 'international', chip: 'FR', code: 'fr', flag: 'fr', html: 'fr', label: 'French', liga: true, monprice: {language: ['fr']}},
+	{catalog: 'international', chip: 'DE', code: 'de', flag: 'de', html: 'de', label: 'German', liga: true, monprice: {language: ['de']}},
 	{catalog: 'international', chip: 'IT', code: 'it', flag: 'it', html: 'it', label: 'Italian', liga: true, monprice: {language: ['it']}},
+	{catalog: 'international', chip: 'ES', code: 'es', flag: 'es', html: 'es', label: 'Spanish', liga: true, monprice: {language: ['es']}},
 ];
 
 const BY_CODE = new Map(LANGUAGES.map((row) => [row.code, row]));

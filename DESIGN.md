@@ -110,13 +110,14 @@ are separate card records. *(Revised 2026-10-01. The first version treated every
 flag on one English record.)*
 
 **One language table.** `js/languages.js` holds every language a copy can be in, one row per
-code: `pt`, `en`, `ja`, `ko`, `zh-cn`, `zh-tw`, `de`, `es`, `fr`, `it`. Each row gives the English
+code: `pt`, `en`, `ja`, `ko`, `zh-cn`, `zh-tw`, `fr`, `de`, `it`, `es`. Each row gives the English
 name, the flag, the short chip (`CHS`, `CHT`), the `lang` attribute, the catalog its prints are
 records in, whether TCGdex has a catalog to browse in it (German, Spanish, and Italian do not),
 the catalog a copy may fall back to (Korean on Japanese), the PokeAPI name table, monprice's codes,
 and the price rules: no Ver na Liga for Korean or Chinese prints, and market prices only for
 English ones. The rows are in the app's order, Portuguese and English first, then Japanese,
-Korean, and Chinese, then the rest by code; flags, pickers, and copy sheets follow it. Every other
+Korean, and Chinese, then French, German, Italian, and Spanish; flags, pickers, and copy sheets
+follow it. Every other
 module reads languages from here. *(Decided 2026-10-15: seven separate lists had drifted, so German,
 Spanish, and Italian copies showed raw codes and dropped out of lists.)*
 

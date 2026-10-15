@@ -49,9 +49,9 @@ describe('the table', () => {
 		}
 	});
 
-	test('Portuguese and English first, then the Asian languages, then the rest by code', () => {
-		assert.deepEqual(LANGUAGE_CODES, ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'de', 'es', 'fr', 'it']);
-		assert.deepEqual(sortLanguages(['nl', 'fr', 'ko', 'de', 'en', 'pt']), ['pt', 'en', 'ko', 'de', 'fr', 'nl']);
+	test('Portuguese and English first, then the Asian languages, then French, German, Italian, and Spanish', () => {
+		assert.deepEqual(LANGUAGE_CODES, ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr', 'de', 'it', 'es']);
+		assert.deepEqual(sortLanguages(['nl', 'fr', 'ko', 'de', 'en', 'pt']), ['pt', 'en', 'ko', 'fr', 'de', 'nl']);
 	});
 
 	test('German, Spanish, and Italian are copies\' languages but not catalogs', () => {
@@ -104,7 +104,7 @@ describe('catalogs', () => {
 		assert.deepEqual(catalogsOf('pt'), ['international']);
 		assert.deepEqual(copyLanguageCodes('ja'), ['ja', 'ko']);
 		assert.deepEqual(copyLanguageCodes('ko'), ['ko']);
-		assert.deepEqual(copyLanguageCodes('international'), ['pt', 'en', 'de', 'es', 'fr', 'it']);
+		assert.deepEqual(copyLanguageCodes('international'), ['pt', 'en', 'fr', 'de', 'it', 'es']);
 		assert.deepEqual(copyLanguageCodes('custom'), LANGUAGE_CODES);
 	});
 
