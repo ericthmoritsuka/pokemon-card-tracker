@@ -13,8 +13,10 @@
 // name in that language. Trainers and Energy get none (no guessing), and so
 // does a Pokémon with a prefix this module does not know ("Nの").
 
+import {NAME_TABLES} from './languages.js';
+
 // The PokeAPI language each catalog's names are written in.
-export const NAME_LANGUAGE = {ja: 'ja', ko: 'ko', 'zh-cn': 'zh-hans', 'zh-tw': 'zh-hant'};
+export const NAME_LANGUAGE = NAME_TABLES;
 
 export const hasOwnNames = (lang) => Object.hasOwn(NAME_LANGUAGE, lang);
 

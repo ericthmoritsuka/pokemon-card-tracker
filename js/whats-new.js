@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-15',
+		items: [
+			'Lists count the languages you pick: a new list starts with Portuguese, and lists you already have keep counting every language. Ticking every language means Any language again.',
+			'The scanner reads the number on full-art cards, and Portuguese, French, and German names, Paradox Pokémon and Trainers included.',
+			'Saving sends far less data to your other phones, and My Cards updates faster after an edit.',
+			'A card whose twins you turned down is checked again a week later.',
+		],
+		version: 'v38',
+	},
+	{
 		date: '2026-10-10',
 		items: [
 			'Fill a binder\'s tray in one go: Add cards to the tray picks many cards that are not in a binder yet, with Undo.',

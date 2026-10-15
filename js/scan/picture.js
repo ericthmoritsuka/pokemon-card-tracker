@@ -19,6 +19,7 @@
 // MB; the service worker keeps the file).
 
 import {importApi} from '../catalog.js';
+import {ASIAN_LANGUAGES} from '../languages.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
 import {queryFingerprints, thumbnail, WIDE_SHIFTS} from '../vision/fingerprint.js';
@@ -286,7 +287,7 @@ const describeMs = () => (typeof navigator !== 'undefined' && navigator.onLine =
 
 // The catalog the app saves an index catalog's cards against (js/catalog.js
 // catalogFor): Western prints share the international one.
-const savedCatalog = (catalog) => (['ja', 'ko', 'zh-cn', 'zh-tw'].includes(catalog) ? catalog : 'international');
+const savedCatalog = (catalog) => (ASIAN_LANGUAGES.includes(catalog) ? catalog : 'international');
 
 // What the phone already knows about some index cards, with no request: the
 // card index (js/catalog.js cardIndex, every card the family owns or this
@@ -442,7 +443,7 @@ function namedBy(candidate, names, text) {
 		|| nameSimilarity(base, baseOf(text)) >= NAME_PROMOTE;
 }
 
-const ASIAN = ['ja', 'ko', 'zh-cn', 'zh-tw'];
+const ASIAN = ASIAN_LANGUAGES;
 
 // Whether a candidate's catalog can hold a copy in `language` (Korean
 // copies are saved against the Japanese record, DESIGN.md section 5).

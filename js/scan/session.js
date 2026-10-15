@@ -38,6 +38,7 @@
 // needs to know.
 
 import {catalogFor} from '../catalog.js';
+import {ASIAN_LANGUAGES} from '../languages.js';
 import {newId, nowIso} from '../collection.js';
 import {wishedBy} from '../wishlist.js';
 import {findVariant, finishOptions, plainVariantId} from './finish.js';
@@ -49,7 +50,7 @@ export const CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', '
 // then German, Italian, and Spanish, which share the international records.
 export const SCAN_LANGUAGES = ['pt', 'en', 'ja', 'ko', 'fr', 'zh-cn', 'zh-tw', 'de', 'it', 'es'];
 
-export const ASIAN_LANGUAGES = ['ja', 'ko', 'zh-cn', 'zh-tw'];
+export {ASIAN_LANGUAGES};
 
 const isScanLanguage = (code) => SCAN_LANGUAGES.includes(code);
 
