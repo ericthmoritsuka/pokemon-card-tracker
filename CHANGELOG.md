@@ -14,6 +14,18 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-15
 
+- **19:14** Version 39: scanner settings, upside-down cards, and an instant Save. `18f355f`
+  - **Save** writes the whole scan session at once (about 0.5 s for 48 cards, was about 15 s of a
+    frozen screen) and says "Saving N cards" at once. A card whose read stopped becomes "needs a
+    look" instead of blocking Save, and the scan log records the error.
+  - **Upside down or on its side:** recognised (91 to 92 of 96 logged crops turned, was 0).
+  - **Scanner settings:** a default finish (Normal, Holo, Reverse holo, or Ask), a shutter sound (on
+    by default), a gold rim with a star and value for cards worth at least an amount you choose (R$ 50
+    at first) with an optional chime, and a rising arrow when Cardmarket is up 15% or more.
+  - **Faster:** the full-resolution picture is read in the background worker.
+  - **Fixed:** refused photos were sent again after every save; a scanned card could be named by its
+    code (swsh3-102) for a moment.
+
 - **11:44** Version 38: languages, lighter sync, and better scan reading. `60f28c6`
   - **Lists count the languages you pick:** a new list starts with Portuguese; lists you already
     have keep counting every language until you change them, and ticking every language means

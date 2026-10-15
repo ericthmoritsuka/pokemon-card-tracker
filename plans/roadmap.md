@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v38** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v38 `60f28c6` adds the single language table, lighter sync with an optional `supabase/patch-document.sql`, full-art number reads, translated names, and small fixes; `supabase/min-client.sql` and `supabase/patch-document.sql` were run by Eric on 2026-10-15; v37 `c8101df` added Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v39** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v39 `18f355f` adds scanner settings (default finish, shutter sound, valuable and rising marks), four rotations, capture in the worker, an instant Save; v38 `60f28c6` added the single language table, lighter sync with an optional `supabase/patch-document.sql`, full-art number reads, translated names, and small fixes; `supabase/min-client.sql` and `supabase/patch-document.sql` were run by Eric on 2026-10-15; v37 `c8101df` added Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -183,6 +183,19 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   treats a new card landing on the last one as a new capture. Eric is recording a scan log with
   the holder to measure it.
 
+## Next (from Eric's v38 phone log, 2026-10-15)
+
+- A real drop was skipped as "moved" (js/scan/drop.js MOVED_PART), leaving the scanner idle for
+  75 s; keep before and after views for skipped drops (view.js logSkipped) and tune the rule on them.
+- Log whether each picture ran in the worker, and give worker jobs a timeout that falls back to the
+  main thread (identify.js), so a dead worker cannot hang a read.
+- Cap or delay background label checks while text reads are queued (OCR waits stacked to 17 s).
+- Embedding experiment (lab/embedding/RESULTS.md): not adopted. Widen the hash's shifts and scales
+  first, re-measure; MobileCLIP2-S0 (45.6 MB, Apple licence to check) only as a second lookup when
+  the hash is unsure, if still needed.
+- Tombstone purge: designed in DESIGN.md section 8, not built (card tombstones must stay for
+  re-imports; a cut-over would ask every phone to update).
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
@@ -190,7 +203,7 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
 
 - **Features:** done in v34: binder from a list (4). Done in v33: reorder Lists and Binders with Undo (6),
   remove a card from a rule collection (7), where each card is stored (3, "Stored in").
-  **To build (Eric, 2026-10-15): a default finish setting for the scanner** (Normal, Holo, or
+  **Done in v39 (Eric, 2026-10-15): a default finish setting for the scanner** (Normal, Holo, or
   Reverse holo), applied to each scanned card that has that finish, as MonPrice's "scan priority"
   does, so the finish is not picked card by card; the card sheet still changes it, and a card
   without that finish keeps today's choice. Small. Detecting the finish from the picture (holo
