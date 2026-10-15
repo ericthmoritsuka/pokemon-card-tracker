@@ -38,7 +38,7 @@
 // needs to know.
 
 import {catalogFor} from '../catalog.js';
-import {ASIAN_LANGUAGES} from '../languages.js';
+import {ASIAN_LANGUAGES, LANGUAGE_CODES} from '../languages.js';
 import {newId, nowIso} from '../collection.js';
 import {wishedBy} from '../wishlist.js';
 import {findVariant, finishOptions, plainVariantId} from './finish.js';
@@ -46,9 +46,9 @@ import {findVariant, finishOptions, plainVariantId} from './finish.js';
 // TCGplayer's condition vocabulary, verbatim (DESIGN.md section 3).
 export const CONDITIONS = ['Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged'];
 
-// The languages a card can be printed in here: the app's catalog languages,
-// then German, Italian, and Spanish, which share the international records.
-export const SCAN_LANGUAGES = ['pt', 'en', 'ja', 'ko', 'fr', 'zh-cn', 'zh-tw', 'de', 'it', 'es'];
+// The languages a card can be printed in here, in the language table's order
+// (js/languages.js), which already puts Portuguese and English first.
+export const SCAN_LANGUAGES = LANGUAGE_CODES;
 
 export {ASIAN_LANGUAGES};
 
@@ -1338,7 +1338,7 @@ export function takeUndo(session, now = nowIso()) {
 // The languages a tile's chips offer, in the order to show them: Portuguese
 // and English first (the owner collects in Brazil, so those are most of the
 // cards he holds; Q-21 in plans/audit-qa.md), then the read's guess when it
-// is neither, then the rest in the fixed order. A card whose label row read
+// is neither, then the rest in the language table's order. A card whose label row read
 // no Latin text ('non-latin') leads with the Asian languages instead: the
 // last Asian one picked (item.asianGuess), then Japanese, Korean, and
 // Chinese (Traditional, Simplified). An order, never a preselection.

@@ -14,6 +14,7 @@ import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
 import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
+import {LANGUAGE_CODES} from '../js/languages.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -141,6 +142,9 @@ describe('the tray state machine', () => {
 		assert.deepEqual(order('non-latin', 'zh-tw').slice(0, 4), ['zh-tw', 'ja', 'ko', 'zh-cn']);
 		assert.deepEqual(order('ko').slice(0, 4), ['pt', 'en', 'ko', 'ja']);
 		assert.deepEqual(order('de').slice(0, 3), ['pt', 'en', 'de']);
+		assert.deepEqual(order(null), ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr', 'de', 'it', 'es'], 'no guess: the language table\'s order, French after Chinese');
+		assert.deepEqual(order('fr'), ['pt', 'en', 'fr', 'ja', 'ko', 'zh-cn', 'zh-tw', 'de', 'it', 'es'], 'a French guess still comes third');
+		assert.deepEqual(S.SCAN_LANGUAGES, LANGUAGE_CODES, 'the scan reads its languages from the table');
 
 		for (const hint of [null, 'non-latin', 'fr', 'zh-tw']) {
 			assert.deepEqual([...order(hint)].sort(), [...S.SCAN_LANGUAGES].sort(), `every language once for ${hint}`);
