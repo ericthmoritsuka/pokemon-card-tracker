@@ -128,6 +128,25 @@ async function selectsFit(page, where) {
 				continue;
 			}
 
+			// A sheet select shows its choice in a wrapping text over it: that
+			// text must be the chosen option's, uncut, and inside the select.
+			const shown = select.closest('.fb-select') && select.parentElement.querySelector('.fb-select-text');
+
+			if (shown) {
+				const box = select.getBoundingClientRect();
+				const text = shown.getBoundingClientRect();
+
+				if (shown.textContent !== select.selectedOptions[0].textContent) {
+					out.push(`${select.id}: shows "${shown.textContent}" for "${select.selectedOptions[0].textContent}"`);
+				}
+
+				if (shown.scrollWidth > shown.clientWidth || text.top < box.top || text.bottom > box.bottom + 0.5 || text.right > box.right) {
+					out.push(`${select.id}: "${shown.textContent}" spills out of its select`);
+				}
+
+				continue;
+			}
+
 			const style = getComputedStyle(select);
 			const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 
@@ -671,11 +690,29 @@ describe('layout', () => {
 				assert.equal(new Set(row).size, 1, `sort, Filters, and Value share one line (${row})`);
 
 				await openFilters(page);
-				await page.selectOption('#cards-f-set', 'international|tsa1');
+				await page.selectOption('#cards-f-set', 'ja|TSJ1');
 				await page.click('#cards-sheet [data-filter="type"] [data-value="Fire"]');
+
+				// A Japanese set name longer than the select reads in full,
+				// in Japanese, on two lines; the select stays the labeled
+				// control and grows with it.
+				const set = await page.evaluate(() => {
+					const select = document.getElementById('cards-f-set');
+					const shown = select.parentElement.querySelector('.fb-select-text');
+					const style = getComputedStyle(shown);
+					const lines = Math.round((shown.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight));
+
+					return {hidden: shown.getAttribute('aria-hidden'), label: select.labels[0].textContent, lang: shown.lang, lines, text: shown.textContent, tall: select.getBoundingClientRect().height};
+				});
+
+				assert.equal(set.text, 'テスト強化拡張パック テストカード151 (1)');
+				assert.deepEqual([set.label, set.hidden, set.lang], ['Set', 'true', 'ja']);
+				assert.ok(set.lines <= 2, `the set name takes ${set.lines} lines`);
+				assert.ok(viewport.width > 360 || set.lines === 2, 'at 360 px it wraps rather than being cut');
+				assert.ok(set.tall >= 48, `the select is ${set.tall} px tall`);
+				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await selectsFit(page, 'the filters sheet');
 				await noSideways(page, 'the filters sheet');
-				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await closeFilters(page);
 				await pricesIn(page, log).catch(() => {});
 				await page.screenshot({path: `${SHOTS}/my-cards-${viewport.width}-${colorScheme}.png`});
@@ -952,6 +989,73 @@ describe('card images', () => {
 
 		// A Japanese image has no English stand-in.
 		assert.deepEqual(await art(page, 'https://assets.tcgdex.net/ja/tst/TSJ1/025/low.webp'), {back: true, fallback: null, shown: null});
+		net.offline = false;
+		await context.setOffline(false);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the worker learns the doubled CORS header image by image, keeps the rest at their true size, and trims the least recently used', async () => {
+		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
+		const net = {offline: false};
+		const modes = [];
+
+		await fakeServices(context, {cards: CARDS});
+		await fakePokeApi(context);
+		// As TCGdex does today: in one set folder, 004 sends its header twice
+		// (seen as "*, *", which a browser rejects in cors mode) and 005 once.
+		await context.route('https://assets.tcgdex.net/**', (route) => {
+			const request = route.request();
+
+			if (net.offline) {
+				return route.abort('internetdisconnected');
+			}
+
+			modes.push(`${request.url().split('/').at(-2)} ${request.headers().origin ? 'cors' : 'no-cors'}`);
+
+			return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': request.url().includes('/004/') ? '*, *' : '*'}, status: 200});
+		});
+
+		const page = await context.newPage();
+		const errors = [];
+		const doubled = IMAGE.replace('{lang}', 'pt');
+		const single = doubled.replace('/004/', '/005/');
+		const kept = () => page.evaluate(async () => {
+			const out = {};
+
+			for (const name of ['card-tracker-images', 'card-tracker-images-opaque']) {
+				out[name] = (await (await caches.open(name)).keys()).map((request) => request.url.split('/').at(-2));
+			}
+
+			return out;
+		});
+
+		page.on('pageerror', (err) => errors.push(err.message));
+		await page.goto(`${server.origin}${BASE}check`);
+		await page.evaluate(() => navigator.serviceWorker.ready);
+		await page.reload();
+		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
+
+		assert.equal((await art(page, doubled)).shown, doubled);
+		assert.equal((await art(page, single)).shown, single);
+		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).length === 1, null, TIMEOUT);
+		assert.deepEqual(modes, ['004 cors', '004 no-cors', '005 cors'], 'the doubled image does not send the rest of its folder to no-cors');
+		assert.deepEqual(await kept(), {'card-tracker-images': ['005'], 'card-tracker-images-opaque': ['004']}, 'only the doubled image is kept opaque');
+
+		// A third image, then a second look at 005: 005 moves behind 006,
+		// so a trim would take 006 first.
+		const third = doubled.replace('/004/', '/006/');
+
+		assert.equal((await art(page, third)).shown, third);
+		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).length === 2, null, TIMEOUT);
+		await page.evaluate((url) => fetch(url, {mode: 'no-cors'}), single);
+		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).map((request) => request.url.split('/').at(-2)).join() === '006,005', null, TIMEOUT);
+
+		// Offline, both Portuguese images show from the phone, no English stand-in.
+		await context.setOffline(true);
+		net.offline = true;
+		assert.deepEqual(await art(page, doubled), {back: false, fallback: null, shown: doubled});
+		assert.deepEqual(await art(page, single), {back: false, fallback: null, shown: single});
 		net.offline = false;
 		await context.setOffline(false);
 		assert.deepEqual(errors, []);

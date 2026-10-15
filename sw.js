@@ -14,13 +14,13 @@ const CACHE = PREFIX + VERSION;
 
 const IMAGE_HOST = 'assets.tcgdex.net';
 
-// Two image caches, each trimmed oldest first.
+// Two image caches, each trimmed least recently used first.
 //
-// assets.tcgdex.net sends Access-Control-Allow-Origin: * on English card
-// images, but most Portuguese and French card images, and some logos, send
-// that header twice, and a browser fails a CORS request whose header is
-// doubled. So each image is fetched in cors mode first, and in no-cors mode
-// when that fails.
+// assets.tcgdex.net sends Access-Control-Allow-Origin: * once on most card
+// images, but twice on some Portuguese and French ones (checked 2026-10-15:
+// 6 of 40 sampled, image by image, so pt/me/me01/001 and 003 doubled and 002
+// not), and a browser fails a CORS request whose header is doubled. So each
+// image is fetched in cors mode first, and in no-cors mode when that fails.
 //
 // A cors response counts its true size: a grid image is about 20 KB, a detail
 // image about 90 KB, a logo up to 100 KB, so 3,000 entries is roughly 60 to
@@ -29,15 +29,43 @@ const IMAGE_HOST = 'assets.tcgdex.net';
 // A no-cors response is opaque. Chrome pads each opaque entry by a random
 // amount in quota accounting, so its real size cannot be learned: measured in
 // Chromium on 2026-10-01, 10 grid images took 177 KB of quota as cors
-// entries and 88 MB as opaque ones, about 9 MB each. So the opaque cache
-// holds 100 entries, roughly 0.9 GB of counted quota, which keeps the padding
-// from crowding out the IndexedDB data that shares the origin's quota. An
-// opaque status cannot be read either, so the app deletes an entry whose
-// image fails to decode (js/catalog-views.js).
+// entries and 88 MB as opaque ones, about 9 MB each (2026-10-15: 200 opaque
+// 20 KB images counted 1.4 to 1.5 GB, about 7.5 MB each, while the files on
+// disk took 5.9 MB). So the opaque cache holds a tenth of the origin's quota
+// in padded entries (limitOf), never fewer than 100 nor more than 1,000,
+// which keeps the padding from crowding out the IndexedDB data that shares
+// the quota. An opaque status cannot be read either, so the app deletes an
+// entry whose image fails to decode (js/catalog-views.js).
 const IMAGE_CACHES = [
 	{limit: 3000, name: 'card-tracker-images'},
-	{limit: 100, name: 'card-tracker-images-opaque'},
+	{limit: 100, name: 'card-tracker-images-opaque', sized: true},
 ];
+
+const OPAQUE_PAD = 8 * 1024 * 1024;
+
+let opaqueLimit = null;
+
+// The opaque cache's entry limit from the quota, worked out once per worker.
+function limitOf(target) {
+	if (!target.sized) {
+		return Promise.resolve(target.limit);
+	}
+
+	if (!opaqueLimit) {
+		opaqueLimit = (async () => {
+			try {
+				const {quota} = await navigator.storage.estimate();
+
+				return Math.max(target.limit, Math.min(1000, Math.floor((quota || 0) / 10 / OPAQUE_PAD)));
+			}
+			catch {
+				return target.limit;
+			}
+		})();
+	}
+
+	return opaqueLimit;
+}
 
 // The OCR engine's worker, WebAssembly core, and English model, kept the
 // first time the scanner starts the engine (about 7 MB on a phone: the one
@@ -255,13 +283,18 @@ self.addEventListener('activate', (event) => {
 	);
 });
 
-// Cache Storage lists keys in the order they were added, so trimming from
-// the front removes the oldest images. One trim per cache runs at a time.
+// Cache Storage lists keys in the order they were added, and putting a key
+// again moves it to the end, so trimming from the front removes the images
+// used longest ago (imageResponse puts a hit again). One trim per cache runs
+// at a time.
 const trimming = new Map();
 
-function trimImages({limit, name}) {
+function trimImages(target) {
+	const {name} = target;
+
 	if (!trimming.has(name)) {
 		trimming.set(name, (async () => {
+			const limit = await limitOf(target);
 			const cache = await caches.open(name);
 			const keys = await cache.keys();
 
@@ -285,31 +318,41 @@ function keep(event, target, url, response) {
 	);
 }
 
-// Set folders ("https://assets.tcgdex.net/pt/sv/sv01/") whose images failed
-// in cors mode and then loaded in no-cors mode: the next image there skips
-// the cors attempt, which downloads the whole image only for the browser to
-// refuse it. TCGdex doubles the header by upload batch, so it is learned per
-// folder, not per language. Kept while this worker runs.
+// Images that failed in cors mode and then loaded in no-cors mode: fetched
+// again (after a trim), they skip the cors attempt. TCGdex doubles the header
+// image by image, not by folder or language, so it is learned per image; a
+// folder memory sent a whole set to the small opaque cache after one doubled
+// image. Kept while this worker runs.
 const corsFails = new Set();
 
-const folderOf = (url) => url.slice(0, url.lastIndexOf('/', url.lastIndexOf('/') - 1) + 1);
+// Images put again since this worker started, so a grid scrolled back and
+// forth moves each one to the end once, not at every draw.
+const touched = new Set();
 
 async function imageResponse(event) {
 	const request = event.request;
 	const url = request.url;
 
-	for (const {name} of IMAGE_CACHES) {
-		const cached = await caches.match(url, {cacheName: name});
+	for (const target of IMAGE_CACHES) {
+		const cached = await caches.match(url, {cacheName: target.name});
 
 		if (cached) {
+			// Put again, it moves to the end of the trim order. The count
+			// stays the same, so there is nothing to trim.
+			if (!touched.has(url)) {
+				const copy = cached.clone();
+
+				touched.add(url);
+				event.waitUntil(caches.open(target.name).then((cache) => cache.put(url, copy)).catch(() => {}));
+			}
+
 			return cached;
 		}
 	}
 
 	const [corsCache, opaqueCache] = IMAGE_CACHES;
-	const folder = folderOf(url);
 
-	if (!corsFails.has(folder)) {
+	if (!corsFails.has(url)) {
 		try {
 			const response = await fetch(url, {credentials: 'omit', mode: 'cors'});
 
@@ -330,7 +373,7 @@ async function imageResponse(event) {
 
 		if (response.type === 'opaque') {
 			// The network is up, so the cors attempt failed on the header.
-			corsFails.add(folder);
+			corsFails.add(url);
 		}
 
 		if (response.type === 'opaque' || response.ok) {
