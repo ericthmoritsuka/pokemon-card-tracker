@@ -69,9 +69,24 @@ export function sceneCamera({height, width}) {
 	};
 
 	let anchor = null;
+	// What the canvas last showed: the scene object (tests assign a new one
+	// to change it), whether the guide showed, and which card images had
+	// loaded. An unchanged picture is not drawn again: a real camera pays
+	// nothing per frame, and redrawing 2160 x 3840 with shadowed cards every
+	// 40 ms held the page's main thread long enough, on a busy machine, to
+	// miss the shutter's one-second wait for a card.
+	let shown = null;
 
 	const draw = () => {
 		const scene = window.scene || {kind: 'table'};
+		const guideNow = document.getElementById('scan-guide');
+		const state = [scene, Boolean(guideNow && !guideNow.hidden), cards.a.complete, cards.b.complete, cards.c.complete];
+
+		if (!scene.reanchor && shown && state.every((value, i) => value === shown[i])) {
+			return;
+		}
+
+		shown = state;
 
 		if (scene.background === 'box') {
 			drawBox();
@@ -85,6 +100,10 @@ export function sceneCamera({height, width}) {
 		const video = document.getElementById('scan-video');
 
 		if (!scene.cards || !guide || guide.hidden || !video) {
+			if (scene.cards && !video) {
+				shown = null;
+			}
+
 			return;
 		}
 
@@ -99,6 +118,8 @@ export function sceneCamera({height, width}) {
 			const offsetY = v.top + (v.height - height * scale) / 2;
 
 			if (!g.height || !v.height) {
+				shown = null;
+
 				return;
 			}
 
@@ -151,5 +172,13 @@ export function sceneCamera({height, width}) {
 	setInterval(draw, 40);
 
 	// A new stream each time: leaving Scan stops the tracks of the last one.
-	navigator.mediaDevices.getUserMedia = async () => canvas.captureStream(25);
+	// A stream only carries what is drawn after it starts: the next tick
+	// draws the picture again.
+	navigator.mediaDevices.getUserMedia = async () => {
+		const stream = canvas.captureStream(25);
+
+		shown = null;
+
+		return stream;
+	};
 }

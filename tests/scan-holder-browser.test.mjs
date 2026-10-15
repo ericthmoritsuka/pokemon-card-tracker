@@ -39,7 +39,14 @@ after(async () => {
 
 // A taller screen than the other suites', so the camera shows more than the
 // guide above and below it: room for a card larger than the guide.
-async function open({holder = true, record = true, viewport = {height: 900, width: 384}} = {}) {
+//
+// The camera shows `scene` from its first frame: in holder mode the phone is
+// already over the box when the scanner opens. Swapping the scene in one
+// frame after the page opens, with no camera motion between, would race the
+// drop detector, which takes its base after a second of stillness
+// (js/scan/drop.js BASE_MS): on a busy machine the base is the table, and
+// the box's floor reads as a card dropped onto it.
+async function open({holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 900, width: 384}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
@@ -50,6 +57,11 @@ async function open({holder = true, record = true, viewport = {height: 900, widt
 		await context.route(`**/__test-card${key === 'a' ? '' : `-${key}`}.webp`, async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(id)}));
 	}
 
+	await context.addInitScript((first) => {
+		if (sessionStorage.getItem('test-scene') === null) {
+			sessionStorage.setItem('test-scene', JSON.stringify(first));
+		}
+	}, scene);
 	await context.addInitScript(sceneCamera, FRAME);
 	// Set once: a reload keeps what the switch made it.
 	await context.addInitScript(({holder: on, record: log}) => {
@@ -255,9 +267,8 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 	});
 
 	test('a pile so high the card on top runs off the frame says so and is not taken; the empty box is not taken either', async () => {
-		const {context, errors, page} = await open({record: false});
+		const {context, errors, page} = await open({record: false, scene: {background: 'box', cards: [{card: 'a', dy: 0.25, size: 1.3}]}});
 
-		await setScene(page, {background: 'box', cards: [{card: 'a', dy: 0.25, size: 1.3}]});
 		await page.waitForFunction(() => document.getElementById('scan-hint').textContent === 'Pile too high: empty the box.', null, {polling: 100, timeout: 8000});
 		await page.waitForTimeout(1500);
 		assert.equal(await captures(page), 0, 'not taken');
