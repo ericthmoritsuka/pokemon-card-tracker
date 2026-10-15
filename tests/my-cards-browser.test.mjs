@@ -128,6 +128,25 @@ async function selectsFit(page, where) {
 				continue;
 			}
 
+			// A sheet select shows its choice in a wrapping text over it: that
+			// text must be the chosen option's, uncut, and inside the select.
+			const shown = select.closest('.fb-select') && select.parentElement.querySelector('.fb-select-text');
+
+			if (shown) {
+				const box = select.getBoundingClientRect();
+				const text = shown.getBoundingClientRect();
+
+				if (shown.textContent !== select.selectedOptions[0].textContent) {
+					out.push(`${select.id}: shows "${shown.textContent}" for "${select.selectedOptions[0].textContent}"`);
+				}
+
+				if (shown.scrollWidth > shown.clientWidth || text.top < box.top || text.bottom > box.bottom + 0.5 || text.right > box.right) {
+					out.push(`${select.id}: "${shown.textContent}" spills out of its select`);
+				}
+
+				continue;
+			}
+
 			const style = getComputedStyle(select);
 			const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 
@@ -671,11 +690,29 @@ describe('layout', () => {
 				assert.equal(new Set(row).size, 1, `sort, Filters, and Value share one line (${row})`);
 
 				await openFilters(page);
-				await page.selectOption('#cards-f-set', 'international|tsa1');
+				await page.selectOption('#cards-f-set', 'ja|TSJ1');
 				await page.click('#cards-sheet [data-filter="type"] [data-value="Fire"]');
+
+				// A Japanese set name longer than the select reads in full,
+				// in Japanese, on two lines; the select stays the labeled
+				// control and grows with it.
+				const set = await page.evaluate(() => {
+					const select = document.getElementById('cards-f-set');
+					const shown = select.parentElement.querySelector('.fb-select-text');
+					const style = getComputedStyle(shown);
+					const lines = Math.round((shown.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight));
+
+					return {hidden: shown.getAttribute('aria-hidden'), label: select.labels[0].textContent, lang: shown.lang, lines, text: shown.textContent, tall: select.getBoundingClientRect().height};
+				});
+
+				assert.equal(set.text, 'テスト強化拡張パック テストカード151 (1)');
+				assert.deepEqual([set.label, set.hidden, set.lang], ['Set', 'true', 'ja']);
+				assert.ok(set.lines <= 2, `the set name takes ${set.lines} lines`);
+				assert.ok(viewport.width > 360 || set.lines === 2, 'at 360 px it wraps rather than being cut');
+				assert.ok(set.tall >= 48, `the select is ${set.tall} px tall`);
+				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await selectsFit(page, 'the filters sheet');
 				await noSideways(page, 'the filters sheet');
-				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await closeFilters(page);
 				await pricesIn(page, log).catch(() => {});
 				await page.screenshot({path: `${SHOTS}/my-cards-${viewport.width}-${colorScheme}.png`});

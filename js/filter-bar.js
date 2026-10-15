@@ -36,7 +36,7 @@
 import {h} from './dom.js';
 import {REGIONS} from './checklists.js';
 import {cleanPlace, placeFold} from './collection.js';
-import {languageLabel} from './languages.js';
+import {htmlLang, isAsian, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
 import {ENERGIES} from './themes.js';
 
@@ -565,23 +565,50 @@ export function filterBar({
 		drawSheet();
 	}
 
-	const field = (kind, label, control) => h('div', {class: 'fb-field', 'data-filter': kind}, h('label', {for: control.id}, label), h('span', {class: 'select-wrap'}, control));
+	// A set from an Asian catalog is named in its own script, so its option
+	// and the chosen text carry that lang for the font (the set key starts
+	// with the catalog).
+	const langOf = (kind, value) => {
+		const catalog = kind === 'set' && value ? value.slice(0, value.indexOf('|')) : '';
 
+		return isAsian(catalog) ? htmlLang(catalog) : null;
+	};
+
+	// The sheet's selects show their choice in a text that wraps, laid over
+	// the select itself: a native select cuts its text to one line, which hid
+	// most of a long Japanese or Korean set name at 360 px (Q-05 in
+	// plans/audit-qa.md). The select stays the control under the finger and
+	// for screen readers; the text is only what the closed select shows.
 	const select = (kind, label, anyText, options) => {
-		const control = h('select', {id: `${id}-f-${kind}`, onchange: () => setFilter(kind, control.value)},
+		const shown = h('span', {'aria-hidden': 'true', class: 'fb-select-text'});
+		const showChoice = () => {
+			const option = control.selectedOptions[0];
+
+			shown.textContent = option ? option.textContent : '';
+			shown.toggleAttribute('lang', Boolean(option && option.lang));
+
+			if (option && option.lang) {
+				shown.lang = option.lang;
+			}
+		};
+		const control = h('select', {id: `${id}-f-${kind}`, oninput: showChoice, onchange: () => setFilter(kind, control.value)},
 			h('option', {value: ''}, anyText),
-			options.map((option) => h('option', {value: option.value}, `${option.label} (${option.count.toLocaleString('en-US')})`))
+			options.map((option) => h('option', {lang: langOf(kind, option.value), value: option.value}, `${option.label} (${option.count.toLocaleString('en-US')})`))
 		);
 
 		// A remembered choice the list no longer holds still shows, so it can
 		// be cleared from here as well as from its chip.
 		if (state.filters[kind] && !options.some((option) => option.value === state.filters[kind])) {
-			control.append(h('option', {value: state.filters[kind]}, `${labelOf(kind, state.filters[kind])} (0)`));
+			control.append(h('option', {lang: langOf(kind, state.filters[kind]), value: state.filters[kind]}, `${labelOf(kind, state.filters[kind])} (0)`));
 		}
 
 		control.value = state.filters[kind];
+		showChoice();
 
-		return field(kind, label, control);
+		return h('div', {class: 'fb-field', 'data-filter': kind},
+			h('label', {for: control.id}, label),
+			h('span', {class: 'select-wrap fb-select'}, control, shown)
+		);
 	};
 
 	// A one-of-many choice as buttons, for the short lists: the energy types

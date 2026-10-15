@@ -111,6 +111,49 @@
 	padding: 0;
 }
 
+/* A sheet select shows its choice in a text laid over it that wraps, so a
+   long Japanese or Korean set name reads in full (js/filter-bar.js). The
+   select under it takes the taps and the focus, and grows with the text. */
+.fb-select {
+	display: grid;
+}
+
+.fb-select > select,
+.fb-select-text {
+	grid-area: 1 / 1;
+}
+
+.fb-select > select {
+	align-self: stretch;
+	color: transparent;
+	height: auto;
+}
+
+.fb-select option {
+	color: var(--text);
+}
+
+.fb-select-text {
+	align-self: center;
+	border: 1px solid transparent;
+	font-weight: 600;
+	overflow-wrap: anywhere;
+	padding: var(--space-2) 40px var(--space-2) var(--space-4);
+	pointer-events: none;
+	position: relative;
+}
+
+/* Forced colors repaint the select's text, so it shows its own. */
+@media (forced-colors: active) {
+	.fb-select > select {
+		color: CanvasText;
+	}
+
+	.fb-select-text {
+		display: none;
+	}
+}
+
 /* The Pokédex range: From [ ] to [ ] on one line. */
 .fb-dex-row {
 	align-items: center;
