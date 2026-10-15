@@ -23,11 +23,11 @@ import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
-import {boxAround, CameraUnavailable, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
+import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
 import {createDropDetector, dropCapture, SHARP_WAIT_MS, sharpEnough, takenCard} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {cardCategory, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
@@ -309,7 +309,23 @@ const online = () => navigator.onLine !== false;
 
 // What the tests and the phone check can read back: the last few reads'
 // timings, in milliseconds.
-export const scanStats = {captures: 0, reads: []};
+// grabs: how each full capture was read (away: a bitmap read in the
+// picture worker; here: its pixels read on the main thread).
+export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, reads: []};
+
+// A developer switch (localStorage card-tracker:scan-grab-here = on): read
+// each full capture's pixels on the main thread, as before version 39, to
+// measure what reading them in the worker saves.
+const GRAB_HERE_KEY = 'card-tracker:scan-grab-here';
+
+function grabHere() {
+	try {
+		return localStorage.getItem(GRAB_HERE_KEY) === 'on';
+	}
+	catch {
+		return false;
+	}
+}
 
 export function scanView(root) {
 	let session = null;
@@ -1547,9 +1563,7 @@ export function scanView(root) {
 		const area = currentGeometry();
 		const card = now && now.card && (how === 'shutter' || !now.card.small) ? now.card : null;
 		const region = card ? boxAround(area.frame, [...card.quad, ...card.others.flatMap((other) => other.corners)]) : area && area.capture;
-		const grabbed = performance.now();
-		const frame = grabFrame(video, region);
-		const captureMs = Math.round(performance.now() - grabbed);
+		const {captureMs, frame} = await takeFrame(region);
 		const shot = now ? now.shot : thumbnailFrame(video, thumbCanvas, area && area.capture);
 		// What the frame held as it was taken, for telling a frame with no
 		// card from one with a card too far away (Q-19).
@@ -1592,7 +1606,7 @@ export function scanView(root) {
 
 		// The full capture is kept until it is read, so a read cut short by the
 		// app closing starts again next time.
-		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+		const fullSaved = keepFull(item.id, frame);
 
 		// Where the guide sits in the capture, for identify.js to fingerprint
 		// it as one more crop, when no card was found in the frame; else the
@@ -1641,6 +1655,45 @@ export function scanView(root) {
 		await readItem(item.id, frame, {captureMs, fullSaved, photo: true});
 	}
 
+	// The full-resolution capture of `region` (frame pixels): a bitmap whose
+	// pixels the picture worker reads (camera.js grabBitmap), where it can,
+	// else the pixels read here (grabFrame, 380 to 550 ms of the main thread
+	// on Eric's phone). captureMs: how long the grab held this capture up.
+	async function takeFrame(region) {
+		const started = performance.now();
+
+		if (!textFirst() && !grabHere() && canReadAway()) {
+			const grab = await grabBitmap(video, region);
+
+			if (grab) {
+				scanStats.grabs.away++;
+
+				return {captureMs: Math.round(performance.now() - started), frame: grab};
+			}
+		}
+
+		const frame = grabFrame(video, region);
+
+		scanStats.grabs.here++;
+
+		return {captureMs: Math.round(performance.now() - started), frame};
+	}
+
+	// The full capture kept in the draft until it is read, so a read cut
+	// short by the app closing starts again next time: encoded in the worker
+	// for a bitmap (identify.js onFull), here for pixels.
+	function keepFull(id, frame) {
+		const save = (blob) => (blob ? draft.savePhoto(`${id}:full`, blob).catch(() => {}) : null);
+
+		if (frame.bitmap) {
+			return new Promise((resolve) => {
+				frame.onFull = (blob) => resolve(save(blob));
+			});
+		}
+
+		return imageBlob(frame, {quality: 0.92}).then(save).catch(() => {});
+	}
+
 	function flash() {
 		guide.classList.remove('is-flash');
 		void guide.offsetWidth;
@@ -1684,7 +1737,7 @@ export function scanView(root) {
 					draw();
 				}
 			}};
-			const options = {guide: guideIn, photo, quads, readOptions, straight};
+			const options = {guide: guideIn, onFull: frame.onFull || null, photo, quads, readOptions, straight};
 
 			if (textFirst()) {
 				result = await identify(frame, {...options, pictureFirst: false});
@@ -2840,7 +2893,7 @@ export function scanView(root) {
 
 	// Takes the card a drop brought: a tile at once, the picture matched off
 	// the frame loop.
-	function takeDrop(change, plan, step, area) {
+	async function takeDrop(change, plan, step, area) {
 		sharpRecent.push(plan.sharpness);
 
 		if (sharpRecent.length > 5) {
@@ -2850,9 +2903,7 @@ export function scanView(root) {
 		lastDrop = takenCard(lastDrop, plan.card);
 		dropsTaken++;
 
-		const grabbed = performance.now();
-		const frame = grabFrame(video, plan.region);
-		const captureMs = Math.round(performance.now() - grabbed);
+		const {captureMs, frame} = await takeFrame(plan.region);
 
 		scanStats.captures++;
 		flash();
@@ -2872,7 +2923,7 @@ export function scanView(root) {
 		persist();
 		draw();
 
-		const fullSaved = imageBlob(frame, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+		const fullSaved = keepFull(item.id, frame);
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
 		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};

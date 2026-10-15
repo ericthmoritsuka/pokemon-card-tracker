@@ -368,3 +368,48 @@ export function grabFrame(video, rect = null) {
 
 	return ctx.getImageData(0, 0, area.w, area.h);
 }
+
+// The full-resolution capture area (`rect`, frame pixels) taken without
+// reading its pixels here: {bitmap, crop, width, height}, for the picture
+// worker to draw and read (identify.js identifyPictureAway), where
+// grabFrame's getImageData took 380 to 550 ms of the main thread on Eric's
+// phone. bitmap is the camera's frame as a VideoFrame (WebCodecs: it holds
+// the frame the camera made, with no copy; crop is the area to cut from
+// it), or else an ImageBitmap of the area (crop null). Measured in
+// headless Chromium (tests/scan-grab-browser.test.mjs) on a 1901 x 2688
+// area: a VideoFrame holds the main thread under 1 ms where grabFrame took
+// 74 ms (377 ms with the CPU slowed four times), and createImageBitmap
+// took as long as grabFrame, so it is only the second choice, for a
+// browser without VideoFrame where it may run on the GPU. Null when neither
+// can be had: then grabFrame.
+export async function grabBitmap(video, rect = null) {
+	const area = areaOf(video.videoWidth, video.videoHeight, rect);
+
+	if (typeof VideoFrame === 'function') {
+		try {
+			const frame = new VideoFrame(video, {timestamp: 0});
+
+			// A frame the browser would draw turned or scaled is not the
+			// picture the scanner measured: the bitmap instead.
+			if (frame.displayWidth === video.videoWidth && frame.displayHeight === video.videoHeight && !frame.rotation && !frame.flip) {
+				return {bitmap: frame, crop: area, height: area.h, width: area.w};
+			}
+
+			frame.close();
+		}
+		catch {
+			// The bitmap below.
+		}
+	}
+
+	if (typeof createImageBitmap !== 'function') {
+		return null;
+	}
+
+	try {
+		return {bitmap: await createImageBitmap(video, area.x, area.y, area.w, area.h), crop: null, height: area.h, width: area.w};
+	}
+	catch {
+		return null;
+	}
+}

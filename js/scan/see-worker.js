@@ -7,9 +7,17 @@
 // main thread instead when a worker cannot start.
 //
 // Messages in: {warm: true} loads the index; {id, image, options} matches
-// a capture. Out: {warm: true, ok} once the index is in; {id, result} with
-// identifyPicture's answer, its trace's capture left out when it is the
-// image sent (the page has it); or {id, error}.
+// a capture, image being ImageData-shaped pixels or {bitmap, crop, width,
+// height}, a capture the page took without reading its pixels (camera.js
+// grabBitmap: the camera's VideoFrame and the area to cut from it, or an
+// ImageBitmap of the area; on Eric's phone reading them took 380 to 550 ms
+// of the main thread), drawn here on an OffscreenCanvas. Out: {warm: true, ok} once
+// the index is in; for a bitmap with full set, {id, full} with the capture
+// as a JPEG (quality 0.92, null when it could not be made), for the draft
+// tray; {id, result} with identifyPicture's answer, its trace's capture
+// left out when it is the image sent (the page has it); or {id, error}. A
+// bitmap's pixels go back with the answer or the error as capture,
+// transferred, not copied, as does the straightened card's.
 
 import {identifyPicture} from './identify.js';
 import {loadFingerprints} from './picture.js';
@@ -27,16 +35,50 @@ self.addEventListener('message', async ({data}) => {
 		return;
 	}
 
-	const {id, image, options} = data || {};
+	const {full = false, id, options} = data || {};
+	let image = data ? data.image : null;
+	let decoded = false;
 
 	try {
+		if (image && image.bitmap) {
+			const canvas = new OffscreenCanvas(image.width, image.height);
+			const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+			const {bitmap, crop} = image;
+
+			if (crop) {
+				ctx.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, 0, 0, image.width, image.height);
+			}
+			else {
+				ctx.drawImage(bitmap, 0, 0);
+			}
+
+			bitmap.close();
+			image = ctx.getImageData(0, 0, image.width, image.height);
+			decoded = true;
+
+			if (full) {
+				canvas.convertToBlob({quality: 0.92, type: 'image/jpeg'})
+					.then((blob) => self.postMessage({full: blob, id}), () => self.postMessage({full: null, id}));
+			}
+		}
+
 		const result = await identifyPicture(image, options);
 		const sameCapture = result.trace && result.trace.capture === image;
 		const trace = result.trace ? {...result.trace, capture: sameCapture ? null : result.trace.capture, card: null} : null;
+		const moved = [];
 
-		self.postMessage({id, result: {...result, trace}, sameCapture});
+		if (decoded) {
+			moved.push(image.data.buffer);
+		}
+
+		if (result.card && result.card !== image && result.card.data && result.card.data.buffer !== image.data.buffer && result.card.data.byteOffset === 0) {
+			moved.push(result.card.data.buffer);
+		}
+
+		self.postMessage({capture: decoded ? image : undefined, id, result: {...result, trace}, sameCapture}, moved);
 	}
 	catch (err) {
-		self.postMessage({error: String(err && err.message ? err.message : err), id});
+		self.postMessage({capture: decoded ? image : undefined, error: String(err && err.message ? err.message : err), id}, decoded ? [image.data.buffer] : []);
 	}
 });

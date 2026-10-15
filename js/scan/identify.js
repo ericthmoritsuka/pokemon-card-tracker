@@ -22,6 +22,7 @@
 
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
+import {imageBlob} from './image.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {turnImage} from '../vision/fingerprint.js';
@@ -163,6 +164,8 @@ let workerWarm = null;
 let warmFallback = null;
 let jobSeq = 0;
 const jobs = new Map();
+// The jobs still owed their full capture's JPEG: id -> onFull.
+const fulls = new Map();
 
 function startWorker() {
 	const next = new Worker(new URL('./see-worker.js', import.meta.url), {type: 'module'});
@@ -172,24 +175,43 @@ function startWorker() {
 			return;
 		}
 
-		const job = jobs.get(data.id);
+		// The full capture as a JPEG, encoded in the worker: it may come
+		// before the answer or after it.
+		if (data.full !== undefined) {
+			const onFull = fulls.get(data.id);
 
-		jobs.delete(data.id);
+			fulls.delete(data.id);
+
+			if (onFull) {
+				onFull(data.full);
+			}
+
+			return;
+		}
+
+		const job = jobs.get(data.id);
 
 		if (!job) {
 			return;
 		}
 
+		jobs.delete(data.id);
+
+		// A capture sent as a bitmap comes back as pixels: the page keeps it
+		// for the scan report's capture image, and reads it here if the
+		// worker could not.
+		const image = data.capture || job.image;
+
 		if (data.error) {
-			job.resolve(identifyPicture(job.image, job.options));
+			job.resolve(fallback({...job, image}));
 
 			return;
 		}
 
 		const {result} = data;
-		const trace = result.trace ? {...result.trace, capture: data.sameCapture ? job.image : result.trace.capture, card: result.card} : null;
+		const trace = result.trace ? {...result.trace, capture: data.sameCapture ? image : result.trace.capture, card: result.card} : null;
 
-		job.resolve({...result, trace});
+		job.resolve({...result, capture: data.capture ? image : undefined, trace});
 	});
 	next.addEventListener('error', () => {
 		workerFailed = true;
@@ -197,8 +219,14 @@ function startWorker() {
 		worker = null;
 
 		for (const job of jobs.values()) {
-			job.resolve(identifyPicture(job.image, job.options));
+			job.resolve(fallback(job));
 		}
+
+		for (const onFull of fulls.values()) {
+			onFull(null);
+		}
+
+		fulls.clear();
 
 		jobs.clear();
 
@@ -223,8 +251,49 @@ function pictureWorker() {
 	return worker;
 }
 
-export function identifyPictureAway(image, options = {}) {
+// A job the worker could not do, done here: a capture still a bitmap (the
+// worker died before it turned it into pixels) has gone to the worker and
+// cannot be read again, so it fails, and the card waits as a read cut short
+// does.
+function fallback({image, options}) {
+	if (image && image.bitmap) {
+		if (options.onFull) {
+			options.onFull(null);
+		}
+
+		return Promise.reject(new Error('The capture was lost with the picture worker.'));
+	}
+
+	return identifyPicture(image, options).then((result) => ({...result, capture: options.wantCapture ? image : undefined}));
+}
+
+// Whether a capture can be taken as a bitmap and read in the worker
+// (camera.js grabBitmap): the worker is running or can start, and it can
+// draw a bitmap (OffscreenCanvas). Otherwise the page reads the pixels.
+export function canReadAway() {
+	return typeof createImageBitmap === 'function' && typeof OffscreenCanvas !== 'undefined' && Boolean(pictureWorker());
+}
+
+// image: ImageData, or a capture taken as a bitmap ({bitmap, crop, width,
+// height}, camera.js grabBitmap), which the worker turns into pixels, off
+// the main thread (Eric's phone: 380 to 550 ms for the full grab). For a
+// bitmap, options.onFull(blob) receives the full capture as a JPEG (quality
+// 0.92) encoded in the worker, or null, and the answer's `capture` is the
+// capture's pixels. Without a worker, a bitmap is read here.
+export async function identifyPictureAway(image, options = {}) {
 	const away = options.straight ? null : pictureWorker();
+
+	if (image && image.bitmap && (!away || typeof OffscreenCanvas === 'undefined')) {
+		const pixels = bitmapPixels(image);
+
+		if (options.onFull) {
+			imageBlob(pixels, {quality: 0.92}).then(options.onFull, () => options.onFull(null));
+		}
+
+		const result = await identifyPicture(pixels, options);
+
+		return {...result, capture: pixels};
+	}
 
 	if (!away) {
 		return identifyPicture(image, options);
@@ -234,19 +303,50 @@ export function identifyPictureAway(image, options = {}) {
 	// carries a callback, which cannot be sent).
 	const {guide = null, photo = false, pictureFirst = true, quads = []} = options;
 
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
 		const id = ++jobSeq;
 
-		jobs.set(id, {image, options, resolve});
+		jobs.set(id, {image, options, resolve: (answer) => Promise.resolve(answer).then(resolve, reject)});
+
+		if (image.bitmap && options.onFull) {
+			fulls.set(id, options.onFull);
+		}
 
 		try {
-			away.postMessage({id, image: {data: image.data, height: image.height, width: image.width}, options: {guide, photo, pictureFirst, quads}});
+			if (image.bitmap) {
+				away.postMessage({full: Boolean(options.onFull), id, image: {bitmap: image.bitmap, crop: image.crop || null, height: image.height, width: image.width}, options: {guide, photo, pictureFirst, quads}}, [image.bitmap]);
+			}
+			else {
+				away.postMessage({id, image: {data: image.data, height: image.height, width: image.width}, options: {guide, photo, pictureFirst, quads}});
+			}
 		}
 		catch {
 			jobs.delete(id);
-			resolve(identifyPicture(image, options));
+			fulls.delete(id);
+			fallback({image, options}).then(resolve, reject);
 		}
 	});
+}
+
+// A bitmap's pixels (camera.js grabBitmap), on this thread.
+function bitmapPixels({bitmap, crop = null, height, width}) {
+	const canvas = document.createElement('canvas');
+
+	canvas.width = width;
+	canvas.height = height;
+
+	const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+	if (crop) {
+		ctx.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, 0, 0, width, height);
+	}
+	else {
+		ctx.drawImage(bitmap, 0, 0);
+	}
+
+	bitmap.close();
+
+	return ctx.getImageData(0, 0, width, height);
 }
 
 // Loads the picture index where the pictures are matched (the worker, or
