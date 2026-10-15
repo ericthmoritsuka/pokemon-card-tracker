@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {collapseImportDuplicates, countChanged, mergeDocuments, mergeEntries, mergeEntry, nextStamp, restoreEntry, sameContent, stableJson, stampEntry, stamps, validVersion} from '../js/merge.js';
+import {applyDeltaStamps, collapseImportDuplicates, countChanged, DELTA_MAX_BYTES, deltaDocument, mergeDocuments, mergeEntries, mergeEntry, nextStamp, restoreEntry, sameContent, stableJson, stampEntry, stamps, syncDelta, usableDelta, validVersion} from '../js/merge.js';
 
 import * as v21 from './merge-v21.mjs';
 
@@ -862,4 +862,145 @@ test('three phones, mixed v21 and new, converge', () => {
 
 		phones.forEach((phone, i) => assert.equal(stableJson(phone.doc), want, `seed ${seed}: phone ${i} matches the server`));
 	}
+});
+
+// ------------------------------------------------------- sync deltas
+
+test('a delta carries the entries whose stamps moved and every field that is not a list', () => {
+	const server = doc([card('a', 1), card('b', 1)], {merge_version: 2, settings: {theme: 'dark', updated_at: at(1)}});
+	const next = doc([card('a', 1), card('b', 2, {notes: 'sleeved'}), card('c', 3)], {base_stamp: 'S1', merge_version: 2, person: 'local', settings: {theme: 'dark', updated_at: at(1)}, sync_delta: {base: 'old'}, user_id: 'u1'});
+	const delta = syncDelta(next, stamps(server), 'S1');
+
+	assert.deepEqual(delta.lists, {cards: [next.cards[1], next.cards[2]]});
+	assert.equal(delta.base, 'S1');
+	assert.deepEqual(Object.keys(delta.top).sort(), ['base_stamp', 'merge_version', 'settings', 'updated_at']);
+	assert.ok(usableDelta(delta, 'S1'));
+	assert.ok(!usableDelta(delta, 'S0'), 'only from the version it was written against');
+	assert.ok(!usableDelta({...delta, lists: {cards: [{notes: 'no id'}]}}, 'S1'));
+	assert.ok(!usableDelta(null, 'S1'));
+});
+
+test('there is no delta when an entry is gone, a list item has no id, or it is too large', () => {
+	const server = stamps(doc([card('a', 1), card('b', 1)]));
+
+	assert.equal(syncDelta(doc([card('a', 1)]), server, 'S1'), null, 'an entry the server holds is missing');
+	assert.equal(syncDelta(doc([card('a', 1), card('b', 1), {card_id: 'loose'}]), server, 'S1'), null, 'an item without an id');
+	assert.equal(syncDelta(doc([card('a', 1), card('b', 1)]), null, 'S1'), null, 'nothing known about the server');
+
+	const big = Array.from({length: 400}, (_, i) => card(`n${i}`, 2, {notes: 'x'.repeat(80)}));
+
+	assert.ok(JSON.stringify(big).length > DELTA_MAX_BYTES);
+	assert.equal(syncDelta(doc([card('a', 1), card('b', 1), ...big]), server, 'S1'), null, 'over DELTA_MAX_BYTES');
+});
+
+test('merging a delta gives what merging the whole new version gives', () => {
+	const old = doc([card('a', 1), card('b', 1), card('c', 1, {deleted_at: at(1)})], {settings: {theme: 'dark', updated_at: at(1)}});
+	// The writer edits b, deletes a, adds d, and changes a setting.
+	const written = doc([card('a', 4, {deleted_at: at(4)}), card('b', 3, {notes: 'from the writer'}), card('c', 1, {deleted_at: at(1)}), card('d', 3)], {base_stamp: 'S1', settings: {theme: 'light', updated_at: at(3)}, updated_at: at(4)});
+	const delta = syncDelta(written, stamps(old), 'S1');
+	// The reader held the old version, and added e meanwhile.
+	const reader = {...structuredClone(old), cards: [...structuredClone(old.cards), card('e', 5)]};
+
+	assert.equal(stableJson(mergeDocuments(reader, deltaDocument(delta))), stableJson(mergeDocuments(reader, written)));
+	assert.deepEqual([...applyDeltaStamps(stamps(old), delta)].sort(), [...stamps(written)].sort());
+});
+
+// Drops the two fields that describe one write, to compare documents.
+function plainDoc(value) {
+	const copy = {...value};
+
+	delete copy.base_stamp;
+	delete copy.sync_delta;
+
+	return copy;
+}
+
+test('phones that read deltas converge with phones that read whole rows and with an older app', () => {
+	let deltaReads = 0;
+
+	for (let seed = 1; seed <= 60; seed++) {
+		const rand = random(seed);
+		const start = {
+			binders: [binderOf()],
+			cards: ['a', 'b', 'c'].map((id) => made(id, {photos: []})),
+			goals: [{created_at: at(0), deleted_at: null, hand_ticks: {}, id: 'g', kind: 'every_pokemon', updated_at: at(0)}],
+			updated_at: at(0),
+		};
+		// The server row: its document, and a counter standing for updated_at.
+		const row = {doc: structuredClone(start), version: 1};
+		// Two phones on this app, and one on v26 to v37, which merges the
+		// same way but knows nothing of sync_delta: it carries the one it
+		// holds along, and sets base_stamp afresh.
+		const phones = [0, 1, 2].map((i) => ({base: stamps(start), doc: structuredClone(start), known: 1, old: i === 2}));
+		let clock = Date.parse(at(0));
+
+		const sync = (phone) => {
+			if (phone.old) {
+				const merged = mergeDocuments(phone.doc, row.doc);
+
+				row.doc = {...structuredClone(merged), base_stamp: row.version};
+				row.version++;
+				phone.doc = structuredClone(merged);
+
+				return;
+			}
+
+			let remote = row.doc;
+			let server = stamps(row.doc);
+			const delta = row.doc.sync_delta;
+
+			if (row.version === phone.known) {
+				remote = {};
+				server = phone.base;
+			}
+			else if (row.doc.base_stamp === phone.known && usableDelta(delta, phone.known)) {
+				remote = deltaDocument(delta);
+				server = applyDeltaStamps(phone.base, delta);
+				deltaReads++;
+			}
+
+			const merged = plainDoc(mergeDocuments(phone.doc, plainDoc(remote)));
+
+			if (remote !== row.doc && row.version !== phone.known) {
+				// Every step, not just the end: the delta gave exactly what the
+				// whole row would have, and the server's stamps.
+				assert.equal(stableJson(merged), stableJson(plainDoc(mergeDocuments(phone.doc, plainDoc(row.doc)))), `seed ${seed}: the delta merge matches`);
+				assert.deepEqual([...server].sort(), [...stamps(plainDoc(row.doc))].sort(), `seed ${seed}: the stamps match`);
+			}
+
+			if (countChanged(merged, server) > 0) {
+				const out = {...structuredClone(merged), base_stamp: row.version};
+
+				out.sync_delta = syncDelta(out, server, row.version);
+				row.doc = out;
+				row.version++;
+			}
+
+			phone.base = stamps(merged);
+			phone.known = row.version;
+			phone.doc = structuredClone(merged);
+		};
+
+		for (let step = 0; step < 80; step++) {
+			const phone = phones[Math.floor(rand() * phones.length)];
+
+			if (rand() < 0.35) {
+				sync(phone);
+			}
+			else {
+				clock += 1000 + Math.floor(rand() * 5000);
+				randomChange(phone, rand, clock);
+			}
+		}
+
+		for (let round = 0; round < 4; round++) {
+			phones.forEach(sync);
+		}
+
+		const want = stableJson(plainDoc(row.doc));
+
+		phones.forEach((phone, i) => assert.equal(stableJson(plainDoc(phone.doc)), want, `seed ${seed}: phone ${i} matches the server`));
+	}
+
+	assert.ok(deltaReads > 50, `the delta path ran (${deltaReads} times)`);
 });

@@ -54,6 +54,7 @@ export class FakeSupabase {
 		this.skewMs = 0;
 		this.gates = [];
 		this.sockets = [];
+		this.broadcasts = [];
 		this.changeIds = 0;
 		// true: a change carries the whole row, doc included, as the real
 		// server sends a row under Realtime's max_record_bytes (1 MB).
@@ -362,10 +363,10 @@ export class FakeSupabase {
 
 	// The Phoenix protocol supabase-js speaks over the socket: vsn 2.0.0 sends
 	// [join_ref, ref, topic, event, payload] arrays, 1.0.0 sends objects. It
-	// accepts joins, heartbeats, and token updates, and sends nothing on its
-	// own, like a project whose documents table is not in the
-	// supabase_realtime publication. pushChange() sends what the server would
-	// once it is.
+	// accepts joins, heartbeats, and token updates, relays broadcasts between
+	// the sockets joined to a topic, and sends no row changes on its own,
+	// like a project whose documents table is not in the supabase_realtime
+	// publication. pushChange() sends what the server would once it is.
 	realtime(ws, device) {
 		const socket = {closed: false, device, joins: new Map(), url: ws.url(), ws};
 
@@ -374,6 +375,10 @@ export class FakeSupabase {
 			socket.closed = true;
 		});
 		ws.onMessage((raw) => {
+			if (typeof raw !== 'string') {
+				return this.binaryBroadcast(socket, raw);
+			}
+
 			let message;
 
 			try {
@@ -397,9 +402,17 @@ export class FakeSupabase {
 			if (event === 'phx_join') {
 				const changes = (((payload || {}).config || {}).postgres_changes || []).map((change) => ({...change, id: ++this.changeIds}));
 
-				socket.joins.set(topic, {caller: this.userOfToken((payload || {}).access_token), changes, joinRef});
+				const broadcast = (((payload || {}).config || {}).broadcast) || {};
+
+				socket.joins.set(topic, {caller: this.userOfToken((payload || {}).access_token), changes, joinRef, self: Boolean(broadcast.self)});
 
 				return reply({postgres_changes: changes});
+			}
+
+			if (event === 'broadcast') {
+				this.relay(socket, topic, payload);
+
+				return undefined;
 			}
 
 			if (event === 'access_token') {
@@ -420,6 +433,45 @@ export class FakeSupabase {
 
 			return undefined;
 		});
+	}
+
+	// supabase-js 2.117 sends a broadcast as a binary frame: kind 3, the
+	// lengths of join_ref, ref, topic, event, and metadata, the payload's
+	// encoding (1: JSON), then those strings and the payload.
+	binaryBroadcast(socket, raw) {
+		const bytes = Buffer.from(raw);
+
+		if (bytes[0] !== 3) {
+			return;
+		}
+
+		const lengths = [...bytes.subarray(1, 6)];
+		let at = 7;
+		const [, , topic, event] = lengths.map((length) => {
+			const text = bytes.subarray(at, at + length).toString();
+
+			at += length;
+
+			return text;
+		});
+		const body = bytes.subarray(at).toString();
+
+		this.relay(socket, topic, {event, payload: bytes[6] === 1 ? JSON.parse(body || '{}') : body, type: 'broadcast'});
+	}
+
+	// A broadcast goes to every socket joined to the topic, the sender's own
+	// only when it joined with broadcast.self. Topics are public, as the
+	// project's are by default: no row-level rule decides who hears.
+	relay(sender, topic, payload) {
+		this.broadcasts.push({device: sender.device, payload, topic});
+
+		for (const socket of this.sockets) {
+			const join = socket.joins.get(topic);
+
+			if (join && (socket !== sender || join.self)) {
+				this.wsSend(socket, [null, null, topic, 'broadcast', payload]);
+			}
+		}
 	}
 
 	wsSend(socket, [joinRef, ref, topic, event, payload]) {

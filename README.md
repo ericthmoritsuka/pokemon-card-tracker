@@ -111,7 +111,10 @@ up to ten minutes to appear, because the tab keeps the settings answer that long
   brought back to the front. When the row has not changed since the last sync, only its
   `updated_at` is read, not the whole document.
 - **Size.** The whole document goes up on each save. A collection of 1,600 imported cards is about
-  425 KB.
+  425 KB. Each save also stores what it changed (`sync_delta`), so a device that saw the version
+  just before reads only that, about 1 KB for one edit, instead of the row. After each save the
+  device announces the row's new `updated_at` on a Realtime broadcast channel, so the account's
+  other open devices sync within seconds; no SQL is needed for that.
 - **The first sign-in** on a phone makes the cards already there the account's cards and uploads
   them. If someone else then signs in on the same phone, the first person's cards are set aside on
   the phone (never merged into the second account) and come back when they sign in again. Signing
