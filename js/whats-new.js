@@ -22,6 +22,17 @@ export const RELEASES = [
 	{
 		date: '2026-10-15',
 		items: [
+			'Saving a scan session is instant, with "Saving N cards" right away, and a card stuck reading no longer blocks Save.',
+			'Cards upside down or on their side are recognised, and taking a picture no longer pauses the scanner.',
+			'Scanner settings: a default finish, a shutter sound, and a gold rim with a star for cards worth more than the amount you choose.',
+			'Cards whose price is rising get an up arrow, and the card page says how much.',
+			'Photos the server refused wait for Retry, and a scanned card says Looking it up instead of showing a code.',
+		],
+		version: 'v39',
+	},
+	{
+		date: '2026-10-15',
+		items: [
 			'Lists count the languages you pick: a new list starts with Portuguese, and lists you already have keep counting every language. Ticking every language means Any language again.',
 			'The scanner reads the number on full-art cards, and Portuguese, French, and German names, Paradox Pokémon and Trainers included.',
 			'Saving sends far less data to your other phones, and My Cards updates faster after an edit.',
