@@ -5,6 +5,7 @@
 // node lab/bench/run.mjs [--passes clean,blur] [--only <regexp>] [--limit N]
 //   [--throttle 4] [--workers 2] [--out results.json] [--crops <dir>]
 //   [--photo <file> --box x,y,w,h [--framings name:fit:angle:size,...] [--stills <dir>]]
+//   [--dataset fullart.json] [--numbers [--options '{"fullArt":true}']]
 //
 // REPO=<tree> measures another checkout of the app (default: this repo).
 // BENCH_CACHE=<dir> is where card images, recorded TCGdex answers, and
@@ -167,7 +168,7 @@ if (photo) {
 	}
 }
 else {
-	let dataset = JSON.parse(readFileSync(join(HERE, 'dataset.json'), 'utf8'));
+	let dataset = JSON.parse(readFileSync(resolve(HERE, String(args.dataset || 'dataset.json')), 'utf8'));
 
 	if (args.only) {
 		dataset = dataset.filter((d) => new RegExp(String(args.only)).test(d.id));
@@ -178,10 +179,60 @@ else {
 	}
 
 	for (const item of dataset) {
-		item.file = await cardImage(cache, item);
+		try {
+			item.file = await cardImage(cache, item);
+		}
+		catch (err) {
+			// A card TCGdex has no image for in that language is left out.
+			console.error(err.message);
+		}
 	}
 
-	for (const pass of passes) {
+	dataset = dataset.filter((item) => item.file);
+
+	// --numbers: the collector number alone (bench.js measureNumber), scored
+	// against the dataset's number and total.
+	const numberRight = (r, item) => Boolean(r.new.number) && Number(r.new.number.number) === Number(item.localId) && String(r.new.number.total) === String(Number(item.official));
+
+	for (const pass of args.numbers ? passes : []) {
+		for (const item of dataset) {
+			let r;
+
+			try {
+				r = await page.evaluate(([it, o]) => window.bench.number(it, o), [item, {crops: Boolean(args.crops), options, pass}]);
+			}
+			catch (err) {
+				console.error(item.id, pass, err.message);
+				continue;
+			}
+
+			await saveCrops(r, `${item.lang}-${item.id}-${pass}`);
+			r.truth = item.id;
+			r.lang = item.lang;
+			r.right = numberRight(r, item);
+			rows.push(r);
+
+			const n = r.new.number;
+
+			console.log(`${pass} ${item.lang} ${item.id} ${r.right ? 'right' : n ? 'WRONG' : 'unread'} ${n ? `${n.number}/${n.total} (${n.confidence}${n.ringed ? ', ringed' : ''})` : ''} calls ${r.new.calls} ${r.new.timings.ocr} ms | ${JSON.stringify(r.new.raw.numberLeft || '').slice(0, args.verbose ? 1000 : 80)}`);
+		}
+	}
+
+	if (args.numbers) {
+		const median = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)] || 0;
+
+		console.log('\n| Pass | n | Right | Wrong | Unread | Calls (median) | OCR ms (median, p90) |');
+		console.log('| --- | --- | --- | --- | --- | --- | --- |');
+
+		for (const pass of [...passes, 'all']) {
+			const list = rows.filter((r) => pass === 'all' || r.pass === pass);
+			const ms = list.map((r) => r.new.timings.ocr).sort((a, b) => a - b);
+
+			console.log(`| ${pass} | ${list.length} | ${list.filter((r) => r.right).length} | ${list.filter((r) => !r.right && r.new.number).length} | ${list.filter((r) => !r.new.number).length} | ${median(list.map((r) => r.new.calls))} | ${median(ms)}, ${ms[Math.max(0, Math.ceil(ms.length * 0.9) - 1)] || 0} |`);
+		}
+	}
+
+	for (const pass of args.numbers ? [] : passes) {
 		for (const item of dataset) {
 			let r;
 
@@ -216,10 +267,12 @@ else {
 		return `${Math.round((100 * k) / Math.max(1, list.length))} % (${k})`;
 	};
 
-	console.log('\n| Pass | n | Number only first | +Name first | +Name top 3 | +Name+art first | +Name+art top 3 |');
-	console.log('| --- | --- | --- | --- | --- | --- | --- |');
+	if (!args.numbers) {
+		console.log('\n| Pass | n | Number only first | +Name first | +Name top 3 | +Name+art first | +Name+art top 3 |');
+		console.log('| --- | --- | --- | --- | --- | --- | --- |');
+	}
 
-	for (const pass of [...passes, 'all']) {
+	for (const pass of args.numbers ? [] : [...passes, 'all']) {
 		const list = rows.filter((r) => pass === 'all' || r.pass === pass);
 
 		console.log(`| ${pass} | ${list.length} | ${share(list, at('numberOnly', 1))} | ${share(list, at('noArt', 1))} | ${share(list, at('noArt', 3))} | ${share(list, at('candidates', 1))} | ${share(list, at('candidates', 3))} |`);
@@ -233,7 +286,7 @@ else {
 		return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 	};
 
-	for (const pass of passes) {
+	for (const pass of args.numbers ? [] : passes) {
 		const list = rows.filter((r) => r.pass === pass);
 		const times = list.map((r) => r.new.timings);
 		const totals = times.map((t) => t.total).sort((a, b) => a - b);

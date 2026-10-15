@@ -277,6 +277,248 @@ function invertCrop(crop) {
 	return {data, height: crop.height, width: crop.width};
 }
 
+// ------------------------------------------------------------ full-art number strips
+
+// A full-art card (special illustration rares, gold and full-art ultra
+// rares: the picture index flags them) prints its collector number in dark
+// italic digits inside a thick white ring, over the art. Read as a strip,
+// the ring, the art around it, and the lines above and below drown the
+// digits, and the OCR makes nothing of it (the Portuguese Ampharos,
+// me04-090, version 37). So the digits are cut out by their ring instead
+// (ringedNumbers):
+//
+// 1. The strip's whitest channel (the least of red, green, and blue), so
+//    coloured art, which the brightest channel makes light, stays dark and
+//    only white is white.
+// 2. Its whitest 12 % (RING_SHARE) is the ring's candidates; joined
+//    pixels make shapes, and the shapes about a text line tall, side by
+//    side, make runs at least two text heights long: a number's ring, or
+//    the digits' rings one by one.
+// 3. In each run, what the ring encloses (the dark not reachable from the
+//    run's edge without crossing white) is the digits: dark on white, cut
+//    out with a white margin.
+//
+// Each run is read as one line; the first that gives a number with
+// FULL_ART_SURE confidence settles it. Measured on 49 full-art TCGdex scans
+// through five simulated captures (lab/bench/fullart.json, run.mjs
+// --numbers; DESIGN.md section 6).
+export const RING_SHARE = 0.12;
+
+// At most this many runs are read: the number's ring, the illustrator's
+// name, the copyright line, and the odd bright shape.
+const RING_RUNS = 4;
+
+// The whitest channel of `rect` of a card, scaled and stretched as
+// prepareCrop makes the brightest one: prepareCrop of the colours turned
+// over, turned back.
+function whitestCrop(card, rect, scale) {
+	const region = new Uint8ClampedArray(rect.w * rect.h * 4);
+
+	for (let y = 0; y < rect.h; y++) {
+		for (let x = 0; x < rect.w; x++) {
+			const i = ((rect.y + y) * card.width + rect.x + x) * 4;
+			const o = (y * rect.w + x) * 4;
+
+			region[o] = 255 - card.data[i];
+			region[o + 1] = 255 - card.data[i + 1];
+			region[o + 2] = 255 - card.data[i + 2];
+			region[o + 3] = 255;
+		}
+	}
+
+	return invertCrop(prepareCrop({data: region, height: rect.h, width: rect.w}, {h: rect.h, w: rect.w, x: 0, y: 0}, scale, {sharpen: SHARPEN}));
+}
+
+// Labels the joined (8-way) pixels of `mask` (width x height, 1 for set):
+// returns {labels (Int32Array, -1 for unset), boxes: [{x0, y0, x1, y1}]}.
+function shapesOf(mask, width, height) {
+	const labels = new Int32Array(mask.length).fill(-1);
+	const boxes = [];
+	const stack = [];
+
+	for (let start = 0; start < mask.length; start++) {
+		if (!mask[start] || labels[start] >= 0) {
+			continue;
+		}
+
+		const box = {x0: width, x1: 0, y0: height, y1: 0};
+
+		labels[start] = boxes.length;
+		stack.push(start);
+
+		while (stack.length) {
+			const i = stack.pop();
+			const x = i % width;
+			const y = (i - x) / width;
+
+			box.x0 = Math.min(box.x0, x);
+			box.x1 = Math.max(box.x1, x + 1);
+			box.y0 = Math.min(box.y0, y);
+			box.y1 = Math.max(box.y1, y + 1);
+
+			for (let dy = -1; dy <= 1; dy++) {
+				for (let dx = -1; dx <= 1; dx++) {
+					const xx = x + dx;
+					const yy = y + dy;
+					const j = yy * width + xx;
+
+					if (xx >= 0 && xx < width && yy >= 0 && yy < height && mask[j] && labels[j] < 0) {
+						labels[j] = boxes.length;
+						stack.push(j);
+					}
+				}
+			}
+		}
+
+		boxes.push(box);
+	}
+
+	return {boxes, labels};
+}
+
+// The digits of each ringed run of a prepared whitest-channel strip, as
+// crops (dark on white, with a margin), at most RING_RUNS, left to right
+// within each row of the strip.
+export function ringedNumbers(strip, textPx = TEXT_PX) {
+	const {height, width} = strip;
+	const grey = greyOf(strip);
+	const sorted = Uint8ClampedArray.from(grey).sort();
+	const cut = sorted[Math.floor(sorted.length * (1 - RING_SHARE))];
+	const mask = new Uint8Array(grey.length);
+
+	for (let i = 0; i < grey.length; i++) {
+		mask[i] = grey[i] >= cut && grey[i] > 0 ? 1 : 0;
+	}
+
+	const {boxes, labels} = shapesOf(mask, width, height);
+	const tall = boxes
+		.map((box, id) => ({...box, id}))
+		.filter((box) => box.y1 - box.y0 >= textPx * 0.7 && box.y1 - box.y0 <= textPx * 1.9 && box.x1 - box.x0 >= textPx * 0.25)
+		.sort((a, b) => a.x0 - b.x0);
+	const runs = [];
+	const used = new Set();
+
+	tall.forEach((box, i) => {
+		if (used.has(i)) {
+			return;
+		}
+
+		const run = {ids: new Set([box.id]), x0: box.x0, x1: box.x1, y0: box.y0, y1: box.y1};
+		const middle = (box.y0 + box.y1) / 2;
+
+		for (let j = i + 1; j < tall.length; j++) {
+			const next = tall[j];
+
+			if (!used.has(j) && next.x0 - run.x1 < textPx * 0.5 && Math.abs((next.y0 + next.y1) / 2 - middle) < textPx * 0.4) {
+				used.add(j);
+				run.ids.add(next.id);
+				run.x1 = Math.max(run.x1, next.x1);
+				run.y0 = Math.min(run.y0, next.y0);
+				run.y1 = Math.max(run.y1, next.y1);
+			}
+		}
+
+		if (run.x1 - run.x0 >= textPx * 2) {
+			runs.push(run);
+		}
+	});
+
+	return runs.slice(0, RING_RUNS).map((run) => ringHoles(labels, width, run));
+}
+
+const RING_MARGIN = 12;
+
+// What a run's ring encloses: the pixels of its box that are not the ring
+// and cannot reach the box's edge without crossing it (4-way), black on
+// white, with a white margin of RING_MARGIN.
+function ringHoles(labels, width, {ids, x0, x1, y0, y1}) {
+	const w = x1 - x0;
+	const h = y1 - y0;
+	const ring = new Uint8Array(w * h);
+	const outside = new Uint8Array(w * h);
+	const stack = [];
+
+	for (let y = 0; y < h; y++) {
+		for (let x = 0; x < w; x++) {
+			ring[y * w + x] = ids.has(labels[(y0 + y) * width + x0 + x]) ? 1 : 0;
+		}
+	}
+
+	const seed = (i) => {
+		if (!ring[i] && !outside[i]) {
+			outside[i] = 1;
+			stack.push(i);
+		}
+	};
+
+	for (let x = 0; x < w; x++) {
+		seed(x);
+		seed((h - 1) * w + x);
+	}
+
+	for (let y = 0; y < h; y++) {
+		seed(y * w);
+		seed(y * w + w - 1);
+	}
+
+	while (stack.length) {
+		const i = stack.pop();
+		const x = i % w;
+
+		if (x > 0) {
+			seed(i - 1);
+		}
+
+		if (x < w - 1) {
+			seed(i + 1);
+		}
+
+		if (i >= w) {
+			seed(i - w);
+		}
+
+		if (i < w * (h - 1)) {
+			seed(i + w);
+		}
+	}
+
+	const outWidth = w + RING_MARGIN * 2;
+	const out = new Uint8ClampedArray(outWidth * (h + RING_MARGIN * 2)).fill(255);
+
+	for (let y = 0; y < h; y++) {
+		for (let x = 0; x < w; x++) {
+			if (!ring[y * w + x] && !outside[y * w + x]) {
+				out[(y + RING_MARGIN) * outWidth + x + RING_MARGIN] = 0;
+			}
+		}
+	}
+
+	return cropOfGrey(out, outWidth, h + RING_MARGIN * 2);
+}
+
+const greyOf = (crop) => {
+	const grey = new Uint8ClampedArray(crop.width * crop.height);
+
+	for (let i = 0; i < grey.length; i++) {
+		grey[i] = crop.data[i * 4];
+	}
+
+	return grey;
+};
+
+const cropOfGrey = (grey, width, height) => {
+	const data = new Uint8ClampedArray(width * height * 4);
+
+	for (let i = 0; i < grey.length; i++) {
+		data[i * 4] = grey[i];
+		data[i * 4 + 1] = grey[i];
+		data[i * 4 + 2] = grey[i];
+		data[i * 4 + 3] = 255;
+	}
+
+	return {data, height, width};
+};
+
 // prepareCrop (js/vision/pipeline.js), with a crop to be shrunk averaged down
 // first, an optional blur, and an optional flat field. With `luma`, grey is
 // luminance rather than the brightest channel: the brightest channel turns
@@ -322,6 +564,10 @@ export const NUMBER_FLOOR = 0.15;
 // The confidence of a number whose slash was misread: enough to look the
 // card up by, never enough to make it sure alone.
 export const MISREAD_CONFIDENCE = 0.3;
+
+// A full-art strip is read no further ways once a number reads this well
+// (session.js NUMBER_SURE, the confidence a number needs to settle a card).
+export const FULL_ART_SURE = 0.6;
 
 // The first line of an OCR result that holds a collector number read above
 // NUMBER_FLOOR, with the confidence and box of the words that make up the
@@ -405,6 +651,56 @@ const shiftLines = (result, y0) => linesOf(result).map((read) => ({
 	text: read.text,
 	words: read.words.map((word) => ({...word, bbox: {...word.bbox, y0: word.bbox.y0 + y0, y1: word.bbox.y1 + y0}})),
 }));
+
+// ------------------------------------------------------------ the name strip
+
+// Reads the name strip: its two most text-like lines, each as one line;
+// again inverted when the read is poor (a name bar half light, half dark),
+// keeping the likelier name; then the whole strip sparse when nothing
+// name-like came. recognise(key, crop, settings) runs one OCR call; crops
+// and raw are filled in under `name`. Returns parseName's {text, suffix,
+// confidence}.
+async function readName(card, recognise, {blur = true, crops, flat = false, raw, textPx = TEXT_PX}) {
+	const crop = prepareRegion(card, regionRect(card, REGIONS.name), scaleFor(card, REGIONS.name, textPx), {blur, flat, sharpen: SHARPEN});
+	const readLines = async (image) => {
+		const found = findTextLines(image, textPx, 2);
+		const results = await Promise.all(found.map((line, index) => {
+			crops[`nameLine${index + 1}`] = cropRows(image, line);
+
+			return recognise('name', crops[`nameLine${index + 1}`], OCR_SETTINGS.name).then((result) => shiftLines(result, line.y0));
+		}));
+
+		return results.flat();
+	};
+
+	crops.name = crop;
+
+	const lines = await readLines(crop);
+	let parsed = parseName(inkHeights(crop, lines));
+
+	raw.name = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
+
+	if (!parsed.text || parsed.confidence < 0.45) {
+		const other = invertCrop(crop);
+		const again = await readLines(other);
+		const second = parseName(inkHeights(other, again));
+
+		raw.name = {...raw.name, text: `${raw.name.text}\n${again.map((line) => line.text).join('\n')}`};
+
+		if (second.text && second.confidence > parsed.confidence) {
+			parsed = second;
+		}
+	}
+
+	if (!parsed.text) {
+		const sparse = await recognise('name', crop, OCR_SETTINGS.sparse);
+
+		raw.name = {...sparse, text: raw.name.text + '\n' + sparse.text};
+		parsed = parseName(inkHeights(crop, [...lines, ...linesOf(sparse)]));
+	}
+
+	return parsed;
+}
 
 // ------------------------------------------------------------ the label alone
 
@@ -543,35 +839,7 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 	});
 
 	const left = numberTask('numberLeft', 3);
-	const nameCrop = numberOnly ? null : prepare('name', 'name', {blur: blurName});
-	const name = numberOnly ? Promise.resolve(null) : readLines('name', nameCrop, 2, OCR_SETTINGS.name).then(async (lines) => {
-		let parsed = parseName(inkHeights(nameCrop, lines));
-
-		raw.name = asResult(lines);
-
-		// A poor read may be the wrong polarity (a name bar half light, half
-		// dark): the other one is read too, and the likelier name kept.
-		if (!parsed.text || parsed.confidence < 0.45) {
-			const other = invertCrop(nameCrop);
-			const again = await readLines('name', other, 2, OCR_SETTINGS.name);
-			const second = parseName(inkHeights(other, again));
-
-			raw.name = {...raw.name, text: `${raw.name.text}\n${again.map((line) => line.text).join('\n')}`};
-
-			if (second.text && second.confidence > parsed.confidence) {
-				parsed = second;
-			}
-		}
-
-		if (!parsed.text) {
-			const sparse = await recognise('name', nameCrop, OCR_SETTINGS.sparse);
-
-			raw.name = {...sparse, text: raw.name.text + '\n' + sparse.text};
-			parsed = parseName(inkHeights(nameCrop, [...lines, ...linesOf(sparse)]));
-		}
-
-		return parsed;
-	});
+	const name = numberOnly ? Promise.resolve(null) : readName(card, recognise, {blur: blurName, crops, flat, raw, textPx});
 	const right = numberTask('numberRight', 2);
 	// HP: dark digits on most cards, light ones on the dark name bar of V,
 	// VMAX, and many ex cards, so a miss is read again inverted.
@@ -708,7 +976,13 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 // box and the label row (beside the number). Returns readCard's shape, with
 // name and hp null, label null when it was not read, and the language from
 // the set code box and the label ({code: null} when neither was read).
-export async function readNumber(card, ocr, {label: withLabel = false, now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
+//
+// fullArt: the picture's cards are full art, so the likelier strip's ringed
+// digits are read first (ringedNumbers), and its lines only when they give
+// no sure number. name: read the name strip when no
+// number reads (the picture was not clear either, js/scan/identify.js), for
+// the name route (js/scan/picture.js pictureMatch); otherwise name is null.
+export async function readNumber(card, ocr, {fullArt = false, label: withLabel = false, name: withName = false, now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
@@ -747,10 +1021,39 @@ export async function readNumber(card, ocr, {label: withLabel = false, now = () 
 			return recognise(key, crops[`${key}Line${index + 1}`], OCR_SETTINGS.numberLine).then((result) => shiftLines(result, line.y0));
 		}));
 		const lines = results.flat();
+		const read = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
 
-		raw[key] = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
+		raw[key] = {confidence: 0, lines: [...raw[key].lines, ...lines], text: [raw[key].text, read.text].filter(Boolean).join('\n')};
 
-		return findNumber(sideOf(key), raw[key]);
+		return findNumber(sideOf(key), read);
+	};
+
+	// A full-art strip's ringed digits (ringedNumbers), each run read as one
+	// line, side by side. Returns the surest number read (ringed: true, no
+	// box: the set code box is not looked for from it), or null; what was
+	// read joins the strip's text, for the misread and partial numbers.
+	const ringedRead = async (key) => {
+		const runs = ringedNumbers(whitestCrop(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], textPx)), textPx);
+		const results = await Promise.all(runs.map((run, index) => {
+			crops[`${key}Ring${index + 1}`] = run;
+
+			return recognise(key, run, OCR_SETTINGS.numberLine);
+		}));
+		let best = null;
+
+		for (const result of results) {
+			const found = findNumber(sideOf(key), result);
+
+			if (found && (!best || found.confidence > best.confidence)) {
+				best = {...found, box: null, ringed: true};
+			}
+		}
+
+		const lines = results.flatMap(linesOf);
+
+		raw[key] = {confidence: 0, lines: [...raw[key].lines, ...lines], text: [raw[key].text, ...lines.map((line) => line.text)].filter(Boolean).join('\n')};
+
+		return best;
 	};
 
 	const sparse = async (key) => {
@@ -782,7 +1085,17 @@ export async function readNumber(card, ocr, {label: withLabel = false, now = () 
 	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
 	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
 	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
-	let number = await readLines(first, lineCount(first));
+	// A full-art card: its ringed digits first, and the strip's lines only
+	// when they give no sure number.
+	let number = fullArt ? await ringedRead(first) : null;
+
+	if (!(number && number.confidence >= FULL_ART_SURE)) {
+		const plain = await readLines(first, lineCount(first));
+
+		if (plain && (!number || plain.confidence > number.confidence)) {
+			number = plain;
+		}
+	}
 
 	// No number on the likelier strip: its sparse pass and the other strip's
 	// lines side by side, then the other strip's sparse pass.
@@ -824,6 +1137,10 @@ export async function readNumber(card, ocr, {label: withLabel = false, now = () 
 
 	const label = await labelRead;
 
+	// No number (or only one whose slash was misread): the name, for the name
+	// route, when asked for.
+	const name = withName && (!number || number.misread) ? await readName(card, recognise, {crops, raw, textPx}) : null;
+
 	timings.ocr = Math.round(now() - started);
 	timings.calls = calls;
 
@@ -837,7 +1154,7 @@ export async function readNumber(card, ocr, {label: withLabel = false, now = () 
 		label,
 		language: label ? decideLanguage(number, label) : number && number.langCode ? {code: number.langCode, confidence: Math.max(0.5, number.confidence * 0.8), source: 'set code'} : {code: null, confidence: 0, source: 'not read'},
 		misreads,
-		name: null,
+		name,
 		number,
 		partial,
 		raw,

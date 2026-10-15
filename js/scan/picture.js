@@ -20,6 +20,7 @@
 
 import {importApi} from '../catalog.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
+import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
 import {queryFingerprints, thumbnail, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
@@ -156,7 +157,7 @@ export function compactPicture(matched, {before = null, how = null, variants = [
 		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
-			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, id, image, score, set}) => ({catalog, id, image, score, set})),
+			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, full, id, image, score, set}) => ({catalog, ...(full ? {full: true} : {}), id, image, score, set})),
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
@@ -412,6 +413,35 @@ function numberNear(candidate, number) {
 	return Boolean(digits) && totalFits(candidate, number) && confusedVariants(String(Number(digits))).some((value) => sameNumber(candidate.localId, value));
 }
 
+// A name read with no number puts a card of the picture's five first when it
+// names that card this closely (evidence.js matchNames scores, 0 to 1).
+export const NAME_PROMOTE = 0.8;
+
+const baseOf = (name) => {
+	const words = String(name || '').split(/\s+/);
+
+	while (words.length > 1 && SUFFIXES.includes(fold(words[words.length - 1]).replace(/[^a-z]/g, ''))) {
+		words.pop();
+	}
+
+	return nameKey(words.join(' '));
+};
+
+// Whether a candidate bears the name read: its name, less its mechanic
+// suffix, is one of the names matched (the English name, or the spelling
+// read), or reads closely like the text itself (a Portuguese print's own
+// name).
+function namedBy(candidate, names, text) {
+	const base = baseOf(candidate.name);
+
+	if (base.length < 3) {
+		return false;
+	}
+
+	return names.some((match) => baseOf(match.name) === base || (match.spelling && baseOf(match.spelling) === base))
+		|| nameSimilarity(base, baseOf(text)) >= NAME_PROMOTE;
+}
+
 const ASIAN = ['ja', 'ko', 'zh-cn', 'zh-tw'];
 
 // Whether a candidate's catalog can hold a copy in `language` (Korean
@@ -542,6 +572,42 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 
 	if (named.length === 1) {
 		return done({candidates: [named[0], ...all.filter((c) => c !== named[0])], card: named[0], sure: (number.confidence || 0) >= 0.6});
+	}
+
+	// No number read, but a name (read.js readNumber reads the name strip
+	// when the picture is not clear and the number does not read): the text
+	// route matches it against every name, Portuguese, French, and German
+	// spellings included (js/scan/local-names.js), and a card of the five
+	// that bears it is put first; when none does, the cards the name finds
+	// are offered before them. A name never makes a card sure here.
+	const nameText = !number && read && read.name && read.name.text ? read.name.text : '';
+
+	if (nameText && textRoute) {
+		let found = null;
+
+		try {
+			found = await textRoute(read, language);
+		}
+		catch {
+			found = null;
+		}
+
+		const names = ((found && found.names) || []).filter((match) => match.score >= NAME_PROMOTE);
+		const bearing = all.filter((c) => namedBy(c, names, nameText));
+
+		if (bearing.length) {
+			return done({
+				candidates: [...bearing, ...all.filter((c) => !bearing.includes(c))],
+				card: bearing[0],
+				why: `The picture was not clear and the number did not read; the name reads "${nameText}". Check it.`,
+			});
+		}
+
+		const byName = found ? (found.candidates || []).filter((c) => !all.some((one) => one.id === c.id)) : [];
+
+		if (byName.length) {
+			return done({candidates: [...byName.slice(0, 5), ...all], why: `The picture was not clear and the number did not read; the name "${nameText}" names these. Tap the right one, or search.`});
+		}
 	}
 
 	if (number && !named.length && textRoute) {
