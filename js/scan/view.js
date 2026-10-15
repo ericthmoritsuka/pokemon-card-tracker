@@ -17,7 +17,7 @@
 // check), each scan is kept in the scan log (js/scan/log.js).
 
 import {placeScanned, unplaceScanned, waitingPlaceholderList} from '../binders.js';
-import {addCard, deleteCard, listCards, onChange} from '../collection.js';
+import {addCards, deleteCard, listCards, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
@@ -1306,12 +1306,16 @@ export function scanView(root) {
 		const skipped = skipOwned ? session.items.filter((item) => S.isSavable(item) && S.ownedFor(item, owned).inLanguage) : [];
 		const saved = [];
 
+		// One save for the whole tray (js/collection.js addCards): a save per
+		// card wrote the whole document and woke every listener (sync's diff,
+		// the owned index, a redraw of the tray and this sheet) once per card,
+		// which held a phone's main thread for many seconds with nothing on
+		// the screen changing (Eric, version 38: "Save did nothing", the
+		// screen frozen until he left the scanner).
 		try {
-			for (const row of rows) {
-				const entry = await addCard(row.fields);
+			const entries = await addCards(rows.map((row) => row.fields));
 
-				saved.push({entryId: entry.id, itemId: row.itemId});
-			}
+			entries.forEach((entry, index) => saved.push({entryId: entry.id, itemId: rows[index].itemId}));
 		}
 		catch (err) {
 			setNote(`Saving stopped after ${plural(saved.length, 'card')}. ${err.message}`);

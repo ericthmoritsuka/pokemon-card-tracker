@@ -717,15 +717,29 @@ export function doneSheet(ctx) {
 		refresh();
 	}
 
+	// Set from the tap until the save is done, so Save says at once that it
+	// is working and cannot be tapped twice.
+	let saveRunning = false;
+
 	async function saveSession() {
 		const chosen = collectionId;
 		const since = new Date().toISOString();
-		const before = chosen ? new Set((await (await import('../collection.js')).listCards()).map((entry) => entry.id)) : null;
 
-		await ctx.save({skipOwned});
+		saveRunning = true;
+		refresh();
 
-		if (chosen) {
-			await addSavedToCollection(chosen, before, since).catch(() => {});
+		try {
+			const before = chosen ? new Set((await (await import('../collection.js')).listCards()).map((entry) => entry.id)) : null;
+
+			await ctx.save({skipOwned});
+
+			if (chosen) {
+				await addSavedToCollection(chosen, before, since).catch(() => {});
+			}
+		}
+		finally {
+			saveRunning = false;
+			refresh();
 		}
 	}
 
@@ -845,10 +859,10 @@ export function doneSheet(ctx) {
 			: `Save ${plural(saving, 'card')}`;
 
 		rows.push(h('div', {class: 'scan-actions'},
-			h('button', {class: 'scan-button', id: 'scan-discard-session', onclick: () => ctx.discard(), type: 'button'}, 'Discard session'),
+			h('button', {class: 'scan-button', disabled: saveRunning, id: 'scan-discard-session', onclick: () => ctx.discard(), type: 'button'}, 'Discard session'),
 			// Blocked by cards that need a look, Save starts the Review run
 			// through them (version 36) rather than doing nothing.
-			h('button', {class: 'scan-button scan-primary scan-wide', disabled: !ready && !(summary.look && ctx.openReview), id: 'scan-save-session', onclick: () => (!ready && summary.look && ctx.openReview ? ctx.openReview() : saveSession()), type: 'button'}, label)));
+			h('button', {'aria-busy': saveRunning ? 'true' : null, class: 'scan-button scan-primary scan-wide', disabled: saveRunning || (!ready && !(summary.look && ctx.openReview)), id: 'scan-save-session', onclick: () => (!ready && summary.look && ctx.openReview ? ctx.openReview() : saveSession()), type: 'button'}, saveRunning ? `Saving ${plural(saving, 'card')}…` : label)));
 
 		body.replaceChildren(...rows);
 	}
