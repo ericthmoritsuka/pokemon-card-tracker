@@ -694,10 +694,14 @@ export function profileView(root) {
 
 // Card photos whose upload the server refused, or that wait for a new
 // sign-in (js/photos/store.js), each with Retry and Remove. Hidden while
-// there are none. Returns {element, stop}.
+// there are none. A row that has not changed keeps its element across
+// redraws, so a tap on its button is never lost to a redraw. Returns
+// {element, stop}.
 function uploadsCard() {
 	let alive = true;
 	let run = 0;
+	// photo id -> {key, item}: the row shown now, and what it was drawn from.
+	let shown = new Map();
 
 	const list = h('ul', {class: 'photo-uploads', id: 'photo-uploads-list', style: 'list-style: none; margin: 0; padding: 0'});
 	const element = h('section', {'aria-labelledby': 'photo-uploads-heading', class: 'card', hidden: true, id: 'photo-uploads'},
@@ -732,15 +736,25 @@ function uploadsCard() {
 			return;
 		}
 
-		const items = await Promise.all(rows.map(async (row) => {
+		const drawn = await Promise.all(rows.map(async (row) => {
 			const {label, route} = await cardLabel(doc, index, row.entry_id);
+			const key = JSON.stringify([row.entry_id, row.kind, row.text, label, route]);
+			const kept = shown.get(row.photo_id);
+
+			if (kept && kept.key === key) {
+				return [row.photo_id, kept];
+			}
+
 			const retry = h('button', {class: 'small', type: 'button'}, 'Retry');
 			const remove = h('button', {class: 'small danger', type: 'button'}, 'Remove');
 
 			retry.hidden = row.kind === 'auth';
 			retry.addEventListener('click', () => {
 				retry.disabled = true;
-				retryUpload(row.photo_id).catch(() => {});
+				// Refused again, the row stays with Retry ready once more.
+				retryUpload(row.photo_id).catch(() => {}).then(() => {
+					retry.disabled = false;
+				});
 			});
 			remove.addEventListener('click', async () => {
 				if (!window.confirm('Remove this photo from its card? It never reached the server, so it leaves this phone too.')) {
@@ -753,17 +767,28 @@ function uploadsCard() {
 				});
 			});
 
-			return h('li', {class: 'member', 'data-photo': row.photo_id},
+			return [row.photo_id, {item: h('li', {class: 'member', 'data-photo': row.photo_id},
 				h('span', {class: 'member-text'},
 					route ? h('a', {class: 'member-name', 'data-link': route, href: BASE + route}, label) : h('span', {class: 'member-name'}, label),
 					h('span', {class: 'muted'}, row.text)
 				),
 				// Side by side, wrapping under the words together.
 				h('span', {class: 'photo-upload-actions', style: 'display: flex; gap: var(--space-2)'}, retry, remove)
-			);
+			), key}];
 		}));
 
-		list.replaceChildren(...items);
+		if (!alive || mine !== run) {
+			return;
+		}
+
+		const items = drawn.map(([, {item}]) => item);
+
+		shown = new Map(drawn);
+
+		if (items.length !== list.children.length || items.some((item, i) => list.children[i] !== item)) {
+			list.replaceChildren(...items);
+		}
+
 		element.hidden = !items.length;
 	}
 
