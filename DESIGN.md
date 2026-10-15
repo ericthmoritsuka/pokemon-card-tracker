@@ -543,12 +543,18 @@ Gaps that affect Eric's own collection, and the fallback for each:
 30 MB for every card, roughly 5 MB compressed. So the app caches per set as it is opened rather
 than downloading a whole language up front.
 
-**Doubled CORS header on images.** Many `assets.tcgdex.net` images send
-`access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images, no sampled
-`en` card image), which browsers reject as a CORS failure. Images therefore load without
-`crossorigin`, and the service worker can only keep those as opaque responses, which Chrome
-counts at roughly 9 MB of quota each. The opaque image cache is capped at 100 entries; the
-lasting fix is the server-side copy of owned-card images (section 3), or TCGdex fixing the header.
+**Doubled CORS header on images.** Some `assets.tcgdex.net` images send
+`access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images on 2026-10-01;
+on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image), which
+browsers reject as a CORS failure. It varies image by image within one set folder, and the
+doubled responses also carry a second set of storage-backend CORS headers. Images therefore load
+without `crossorigin`, and the service worker keeps those as opaque responses, which Chrome
+counts at roughly 7.5 to 9 MB of quota each although the file on disk is its real size (200
+opaque 20 KB images: about 1.5 GB counted, 5.9 MB on disk). So the worker learns the failure per
+image, keeps every other image at its true size, sizes the opaque cache at a tenth of the quota
+(100 to 1,000 entries), and trims both caches least recently used first; offline, a Portuguese or
+French image not kept falls back to the English one. The lasting fix is the server-side copy of
+owned-card images (section 3), or TCGdex fixing the header. *(Updated 2026-10-15.)*
 
 **A second free image source.** About 1,750 English and 1,160 Portuguese TCGdex cards have no
 image, mostly promos (`smp`, `swshp`, `mep`, `svp`), trainer kits (`tk`), and subsets such as the
