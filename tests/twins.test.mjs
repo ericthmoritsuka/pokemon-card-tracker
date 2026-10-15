@@ -526,6 +526,52 @@ describe('the data layer', () => {
 		assert.equal(tcgdex.calls.length, calls);
 	});
 
+	test('"None of these" on an ambiguous card is checked again a week later', async () => {
+		const {clock, japanese, store, tcgdex, twins} = instance();
+		const key = {card_id: 'M4-107', catalog: 'ja'};
+
+		await twins.loadTwins();
+		await store.put('results', 'ja|M4-107', {
+			candidates: [
+				{category: 'Trainer', id: 'zz1-001', image: null, name: 'Sample A', setId: 'zz1'},
+				{category: 'Trainer', id: 'zz1-002', image: null, name: 'Sample B', setId: 'zz1'},
+			],
+			category: 'Trainer',
+			checked_at: clock.now,
+			status: 'ambiguous',
+			version: 1,
+		});
+
+		const reloaded = createTwins({fetch: tcgdex.fetch, ja: japanese.ja, now: () => clock.now, online: () => true, store, wait: async () => {}});
+
+		await reloaded.loadTwins();
+		await reloaded.setDecision(key, {choice: 'rejected'});
+		assert.equal(reloaded.twinState(key).ask, false, 'every candidate was turned down');
+
+		// Within the week nothing is asked of TCGdex.
+		clock.now += RECHECK_MS - 1;
+		assert.equal(await reloaded.refreshTwins([key]), 0);
+		assert.deepEqual(japanese.calls, []);
+
+		// A week on, the card is worked out again.
+		clock.now += 1;
+		assert.equal(await reloaded.refreshTwins([key]), 1);
+		assert.equal(japanese.calls[0], 'card M4-107');
+		assert.notEqual(reloaded.twinState(key).status, null);
+	});
+
+	test('an ambiguous card still waiting for an answer is not checked again', async () => {
+		const {clock, japanese, store} = instance();
+
+		await store.put('results', 'ja|M4-107', {candidates: [{id: 'zz1-001'}, {id: 'zz1-002'}], category: 'Trainer', checked_at: clock.now, status: 'ambiguous', version: 1});
+
+		const reloaded = createTwins({fetch: null, ja: japanese.ja, now: () => clock.now, online: () => true, store});
+
+		clock.now += 2 * RECHECK_MS;
+		assert.equal(await reloaded.refreshTwins([{card_id: 'M4-107', catalog: 'ja'}]), 0);
+		assert.deepEqual(japanese.calls, []);
+	});
+
 	test('only Japanese prints are matched', async () => {
 		const {tcgdex, twins} = instance();
 
