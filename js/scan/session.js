@@ -1483,6 +1483,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 				groups: result.picture.groups.slice(0, 5).map((group) => ({cards: group.cards.slice(0, 4).map((c) => c.id), score: group.score})),
 				how: result.picture.how || null,
 				matchMs: result.timings ? result.timings.match ?? null : null,
+				turn: result.picture.turn || 0,
 				variants: result.picture.variants || [],
 			}
 			: null,

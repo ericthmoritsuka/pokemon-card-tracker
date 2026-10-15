@@ -24,6 +24,7 @@ import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
+import {turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
@@ -357,6 +358,9 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 			const crops = [card, ...others.map((other) => cutOther(other, OTHER_CROP_HEIGHT))];
 			const matched = matchCrops(index, crops);
 			const how = matched.crop > 0 ? others[matched.crop - 1].how : null;
+			// The card upside down or on its side (matchCrops turn): every crop
+			// kept from here is turned upright, for the number and the photo.
+			const turn = matched.turn || 0;
 
 			fingerprintMs = matched.timings.fingerprint;
 			matchMs = matched.timings.match;
@@ -376,7 +380,7 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 					const refined = refineQuad(image, other.corners);
 
 					if (refined) {
-						const again = matchCrops(index, [warpCrop(refined, 0, {h: refined.height, w: refined.width, x: 0, y: 0}, OTHER_CROP_HEIGHT / refined.height)]);
+						const again = matchCrops(index, [turnImage(warpCrop(refined, 0, {h: refined.height, w: refined.width, x: 0, y: 0}, OTHER_CROP_HEIGHT / refined.height), turn)], {turns: false});
 
 						fingerprintMs += again.timings.fingerprint;
 						matchMs += again.timings.match;
@@ -398,8 +402,8 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 			let chosenHow = how;
 
 			if ((rectified.variants || []).length && best > SURE_DISTANCE) {
-				const shifted = rectified.variants.map((v) => rectified.variant(v, OTHER_CROP_HEIGHT));
-				const again = matchCrops(index, shifted);
+				const shifted = rectified.variants.map((v) => turnImage(rectified.variant(v, OTHER_CROP_HEIGHT), turn));
+				const again = matchCrops(index, shifted, {turns: false});
 				const score = again.groups[0] ? again.groups[0].score : Infinity;
 
 				variantsTried = rectified.variants.map((v) => v.how);
@@ -417,7 +421,13 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 				}
 			}
 
-			picture = compactPicture(chosen, {how: chosenHow, variants: variantsTried, before: chosen === matched ? null : best});
+			if (turn) {
+				card = turnImage(card, turn);
+				won = {how: `${won.how}, ${TURN_WORDS[turn]}`, quad: won.quad ? won.quad.map((_, i) => won.quad[(i + turn) % 4]) : null};
+				chosenHow = chosenHow ? `${chosenHow}, ${TURN_WORDS[turn]}` : TURN_WORDS[turn];
+			}
+
+			picture = compactPicture(chosen, {how: chosenHow, turn, variants: variantsTried, before: chosen === matched ? null : best});
 		}
 		catch {
 			// No index on this phone yet: the card is read in full.
@@ -523,6 +533,9 @@ async function readText(seen, {readOptions = {}} = {}) {
 		timings: {...seen.timings, artwork: artworkMs, ocr: ocrMs, total: seen.timings.total + Math.round(performance.now() - started), workers},
 	};
 }
+
+// How a card lay when matchCrops turned it upright, for the scan report.
+const TURN_WORDS = {1: 'turned upright from its side (top at the right)', 2: 'turned upright from upside down', 3: 'turned upright from its side (top at the left)'};
 
 // The crops for the cards found in the whole frame (identify's `quads`):
 // each as found, and a card lying on its side turned the other way too.

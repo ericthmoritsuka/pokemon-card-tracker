@@ -25,6 +25,7 @@ merged by entry id, so a later log that holds an earlier one's entries can be pa
 | Option | What it does |
 | --- | --- |
 | `--variants` | Also re-crops every card eleven ways a bad crop goes wrong (`recrop.mjs`: moved 6 and 10 %, 10 % smaller and larger, a strip of another card at the bottom, turned 3 degrees, smeared) and scores each. |
+| `--turns` | Also scores every card upside down and on its side (a crop wider than tall, its top at the right or the left), and upside down moved 4 %. |
 | `--repo <dir>` | Runs another checkout's matcher on the same crops, for a before and after (`git archive <commit> \| tar -x -C /tmp/base`). |
 | `--only <regexp>` | Only the cards whose saved id matches. |
 | `--verbose` | One line per card. |

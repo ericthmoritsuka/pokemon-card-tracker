@@ -11,10 +11,11 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, defaultVariantId, finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
+import {compactPicture, knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {LANGUAGE_CODES} from '../js/languages.js';
+import {thumbnail, turnImage, turnThumb} from '../js/vision/fingerprint.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -2461,5 +2462,59 @@ describe('the capture images for the scan report (Eric, version 26)', () => {
 			'Picture: distance 75, lead 2.1; read: numberLeft, numberRight, label',
 		]);
 		assert.equal(captureCaption({guessed: null, main: null, picture: null, regions: [], won: {how: 'the frame as it is', quad: null}})[1], 'No card edges found');
+	});
+});
+
+describe('a card upside down or on its side (fingerprint.js turnImage)', () => {
+	// A 3 x 2 image whose pixels are numbered 0 to 5 in their red channel.
+	const W = 3;
+	const H = 2;
+	const img = {data: new Uint8ClampedArray(Array.from({length: W * H}, (_, i) => [i, 0, 0, 255]).flat()), height: H, width: W};
+	const reds = (image) => Array.from({length: image.width * image.height}, (_, i) => image.data[i * 4]);
+
+	test('turns a card lying each way upright', () => {
+		// 0 1 2      a card turned a quarter clockwise lies with its top at the
+		// 3 4 5      right: upright, its top row is the image's right column.
+		assert.deepEqual(reds(turnImage(img, 0)), [0, 1, 2, 3, 4, 5]);
+		assert.deepEqual(reds(turnImage(img, 2)), [5, 4, 3, 2, 1, 0]);
+
+		const right = turnImage(img, 1);
+
+		assert.deepEqual([right.width, right.height], [2, 3]);
+		assert.deepEqual(reds(right), [2, 5, 1, 4, 0, 3]);
+
+		const left = turnImage(img, 3);
+
+		assert.deepEqual(reds(left), [3, 0, 4, 1, 5, 2]);
+		assert.deepEqual(reds(turnImage(turnImage(img, 1), 3)), [0, 1, 2, 3, 4, 5], 'a quarter each way is no turn');
+		assert.deepEqual(reds(turnImage(turnImage(img, 2), 2)), [0, 1, 2, 3, 4, 5]);
+	});
+
+	test('a half turn of the thumbnail is the thumbnail of the half turn', () => {
+		const big = {data: new Uint8ClampedArray(192 * 268 * 4), height: 268, width: 192};
+
+		for (let i = 0; i < big.data.length; i += 4) {
+			big.data[i] = (i / 4) % 251;
+			big.data[i + 1] = Math.floor(i / 4 / 192) % 256;
+			big.data[i + 2] = 40;
+			big.data[i + 3] = 255;
+		}
+
+		const a = turnThumb(thumbnail(big));
+		const b = thumbnail(turnImage(big, 2));
+		let worst = 0;
+
+		for (let i = 0; i < a.rgb.length; i++) {
+			worst = Math.max(worst, Math.abs(a.rgb[i] - b.rgb[i]));
+		}
+
+		assert.ok(worst < 1e-3, `differs by ${worst}`);
+	});
+
+	test('the tray card keeps how the card lay', () => {
+		const matched = {gap: 12, groups: [{cards: [{catalog: 'en', id: 'me01-001', image: null, score: 20, set: 'me01'}], score: 20}], plain: 20};
+
+		assert.equal(compactPicture(matched, {turn: 2}).turn, 2);
+		assert.equal(compactPicture(matched).turn, undefined);
 	});
 });

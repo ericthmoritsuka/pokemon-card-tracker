@@ -22,7 +22,7 @@ import {importApi} from '../catalog.js';
 import {ASIAN_LANGUAGES} from '../languages.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
-import {queryFingerprints, thumbnail, WIDE_SHIFTS} from '../vision/fingerprint.js';
+import {queryFingerprints, thumbnail, turnImage, turnThumb, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
 
 export {AUTO_GAP};
@@ -96,7 +96,21 @@ export const WIDE_CROPS = 2;
 // 0 scores every card).
 export const SCREEN = {base: 2000, wide: 2000};
 
-export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
+// A card upside down or on its side: when no crop is sure and the closest
+// is past TURN_FROM (an upright card the picture is unsure of is nearer
+// than that: its trouble is a lookalike, not the way it lies), the closest
+// WIDE_CROPS crops are matched again turned half a turn, and a crop wider
+// than it is tall (a card on its side) a quarter turn either way. A turn
+// wins only when it comes TURN_MARGIN closer than the crop as it lay, and
+// the answer's `turn` says how many quarter turns clockwise the card lay
+// (turnImage turns it upright). Each turn costs what one crop's plain
+// search does, screened as it is. turns: false skips it.
+export const TURN_FROM = SURE_DISTANCE;
+export const TURN_MARGIN = 8;
+
+const turnsOf = (crop) => (crop.width > crop.height ? [1, 3] : [2]);
+
+export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = true} = {}) {
 	const t0 = performance.now();
 	const bits = {artBits: index.header.fields.art.bytes * 8, cardBits: index.header.fields.card ? index.header.fields.card.bytes * 8 : 64};
 	const tried = [];
@@ -118,13 +132,54 @@ export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
 
 	tried.sort((a, b) => a.score - b.score || a.crop - b.crop);
 
+	const sureOf = (one) => pictureVerdict({gap: gapOf(one.result.groups), groups: one.result.groups}).sure;
 	let best = tried[0];
 	let widened = false;
+	let turnedTried = false;
+	let plain = tried[0] ? tried[0].score : null;
+	// The crops the wide search starts from: the closest as they lay, and
+	// turned when turns were tried.
+	let pool = tried;
+	// The closest crop as it lay, for the margin a turn must win by.
+	let upright = tried[0] || {score: Infinity};
 
-	if (wide && best && !pictureVerdict({gap: gapOf(best.result.groups), groups: best.result.groups}).sure) {
-		widened = true;
+	if (turns && best && !sureOf(best) && best.score > TURN_FROM) {
+		turnedTried = true;
+
+		const turned = [];
 
 		for (const one of tried.slice(0, WIDE_CROPS)) {
+			for (const turn of turnsOf(crops[one.crop])) {
+				const at = performance.now();
+				const thumb = turn === 2 ? turnThumb(one.thumb) : thumbnail(turnImage(crops[one.crop], turn));
+				const queries = queryFingerprints(thumb, bits);
+
+				fingerprintMs += performance.now() - at;
+
+				const result = matchFingerprints(index, queries, {screen: screen.base});
+
+				turned.push({crop: one.crop, queries, result, score: scoreOf(result), thumb, turn});
+			}
+		}
+
+		turned.sort((a, b) => a.score - b.score || a.crop - b.crop);
+
+		if (turned[0] && turned[0].score < best.score - TURN_MARGIN) {
+			best = turned[0];
+			plain = Math.min(plain, best.score);
+		}
+
+		// The wide search starts from the closest crops, a turned one first
+		// when it is nearer than any as it lay (a card upside down and a
+		// little off, not yet nearer by TURN_MARGIN); a turn farther away
+		// costs the wide search nothing.
+		pool = [...turned.filter((one) => one.score < tried[0].score), ...tried];
+	}
+
+	if (wide && best && !sureOf(best)) {
+		widened = true;
+
+		for (const one of pool.slice(0, WIDE_CROPS)) {
 			const at = performance.now();
 			const more = queryFingerprints(one.thumb, bits, WIDE_SHIFTS);
 
@@ -136,12 +191,22 @@ export function matchCrops(index, crops, {screen = SCREEN, wide = true} = {}) {
 			if (score < best.score || (one === best && score <= best.score)) {
 				best = {...one, result, score};
 			}
+
+			if (!one.turn && score < upright.score) {
+				upright = {...one, result, score};
+			}
 		}
+	}
+
+	// A turn has to win by TURN_MARGIN at the end too: the wide search
+	// brings any crop a little closer, a wrong way up included.
+	if (best && best.turn && upright.score <= best.score + TURN_MARGIN) {
+		best = upright;
 	}
 
 	const {groups} = best.result;
 
-	return {crop: best.crop, gap: gapOf(groups), groups, plain: tried[0] ? tried[0].score : null, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, wide: widened};
+	return {crop: best.crop, gap: gapOf(groups), groups, plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
 }
 
 // How many cards of a group are kept on the tray card.
@@ -151,8 +216,9 @@ const GROUP_CARDS = 8;
 // draft): {gap, groups: [{score, cards: [{id, catalog, set, image, score}]}]}.
 // how: the crop the fingerprint chose, when not the box as found; variants:
 // the moved crops tried for an edge worked out (identify.js), and before
-// the first crop's distance when one of them won.
-export function compactPicture(matched, {before = null, how = null, variants = []} = {}) {
+// the first crop's distance when one of them won; turn the quarter turns
+// clockwise the card lay (matchCrops), when not upright.
+export function compactPicture(matched, {before = null, how = null, turn = 0, variants = []} = {}) {
 	return {
 		before: typeof before === 'number' && Number.isFinite(before) ? Math.round(before * 10) / 10 : null,
 		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
@@ -162,6 +228,7 @@ export function compactPicture(matched, {before = null, how = null, variants = [
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
+		turn: turn || undefined,
 		variants: variants.length ? variants : undefined,
 	};
 }
