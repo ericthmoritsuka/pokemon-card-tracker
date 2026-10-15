@@ -274,11 +274,33 @@ async function readDelta(table, userId, stamp) {
 	return row && row.updated_at === stamp && row.base_stamp === known && usableDelta(row.sync_delta, known) ? row.sync_delta : null;
 }
 
+// True once this load found that the project has no patch_document
+// (supabase/patch-document.sql, optional): from then on every save sends
+// the whole document. PGRST202 is PostgREST's "no such function".
+let noPatch = false;
+
+const missingFunction = (error) => error && (error.code === 'PGRST202' || error.code === '42883');
+
 // Writes doc over the row only where its updated_at is still `stamp` (the
 // compare-and-set guard) and returns the new updated_at, or null when
-// another device wrote first. The document carries `delta`, what this write
-// changed, for the other devices.
+// another device wrote first. With a delta, what this write changed, and
+// patch_document on the server, only the delta goes up; otherwise the whole
+// document, carrying the delta for the other devices.
 async function write(client, userId, doc, delta, stamp) {
+	if (delta && !noPatch) {
+		const patched = await client.rpc('patch_document', {patch: delta});
+
+		if (!patched.error) {
+			return patched.data || null;
+		}
+
+		if (!missingFunction(patched.error)) {
+			throw patched.error;
+		}
+
+		noPatch = true;
+	}
+
 	doc.sync_delta = delta;
 
 	const update = await client.from('documents').update({doc}).eq('user_id', userId).eq('updated_at', stamp).select('updated_at');
@@ -443,8 +465,9 @@ async function syncOnce() {
 			const receivedAt = Date.now();
 
 			if (!written) {
-				// Another device wrote since the read. Read again and merge.
-				known = null;
+				// Another device wrote since the read: the row's updated_at has
+				// moved past `known`, so the next round reads again (its delta
+				// when that one write is all that happened) and merges.
 				continue;
 			}
 

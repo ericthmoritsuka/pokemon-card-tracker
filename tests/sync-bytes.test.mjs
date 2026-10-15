@@ -200,32 +200,40 @@ async function oneSmallEdit(fake, {pull = null} = {}) {
 	return result;
 }
 
+const total = (side) => side.up + side.down + side.socket;
+
+// v37 moved 1,278 KB for this edit with supabase/realtime.sql run (the
+// whole row up, then back to the phone and to the laptop over Realtime),
+// and 851 KB without it (up, then down to the laptop).
 describe('bytes per small edit, 1,600 copies', () => {
-	test('with Realtime (supabase/realtime.sql run)', async () => {
+	test('without patch_document: the document goes up, and only the delta comes down', async () => {
 		const fake = new CountingFake();
 
+		// A project that also ran supabase/realtime.sql for older apps: its
+		// row events reach nobody running this app.
 		fake.live = true;
 		fake.realtimeDocs = true;
 
 		const {laptop, phone} = await oneSmallEdit(fake);
 
-		report('one note, Realtime on', phone, laptop);
+		report('one note, no patch_document', phone, laptop);
+		assert.ok(phone.up > 400 * 1024, 'the whole document went up');
+		assert.ok(phone.socket < 1024, 'the phone was not sent its own write back');
+		assert.ok(laptop.down + laptop.socket < 4 * 1024, 'the laptop read the delta, not the row');
+		assert.ok(total(phone) + total(laptop) < 440 * 1024);
 	});
 
-	test('without Realtime: the laptop pulls on focus', async () => {
+	test('with patch_document (supabase/patch-document.sql run): only the change goes up', async () => {
 		const fake = new CountingFake();
-		let pulled = false;
 
-		const {laptop, phone} = await oneSmallEdit(fake, {
-			pull: async (page) => {
-				if (!pulled) {
-					pulled = true;
-					await page.waitForTimeout(6000);
-					await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-				}
-			},
-		});
+		fake.live = true;
+		fake.realtimeDocs = true;
+		fake.patchDocument = true;
 
-		report('one note, no Realtime', phone, laptop);
+		const {laptop, phone} = await oneSmallEdit(fake);
+
+		report('one note, patch_document', phone, laptop);
+		assert.ok(phone.up < 4 * 1024, 'only the delta went up');
+		assert.ok(total(phone) + total(laptop) < 12 * 1024);
 	});
 });

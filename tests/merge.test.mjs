@@ -871,7 +871,7 @@ test('a delta carries the entries whose stamps moved and every field that is not
 	const next = doc([card('a', 1), card('b', 2, {notes: 'sleeved'}), card('c', 3)], {base_stamp: 'S1', merge_version: 2, person: 'local', settings: {theme: 'dark', updated_at: at(1)}, sync_delta: {base: 'old'}, user_id: 'u1'});
 	const delta = syncDelta(next, stamps(server), 'S1');
 
-	assert.deepEqual(delta.lists, {cards: [next.cards[1], next.cards[2]]});
+	assert.deepEqual(delta.lists, {binders: [], cards: [next.cards[1], next.cards[2]], collections: [], goals: [], openings: [], wishlist: []});
 	assert.equal(delta.base, 'S1');
 	assert.deepEqual(Object.keys(delta.top).sort(), ['base_stamp', 'merge_version', 'settings', 'updated_at']);
 	assert.ok(usableDelta(delta, 'S1'));
@@ -913,6 +913,21 @@ function plainDoc(value) {
 	delete copy.sync_delta;
 
 	return copy;
+}
+
+// What supabase/patch-document.sql does to the stored document.
+function patched(stored, patch) {
+	const out = structuredClone(stored);
+
+	for (const [list, entries] of Object.entries(patch.lists)) {
+		const old = Array.isArray(out[list]) ? out[list] : [];
+		const byId = new Map(entries.map((entry) => [entry.id, entry]));
+		const held = new Set(old.map((entry) => entry.id));
+
+		out[list] = [...old.map((entry) => byId.get(entry.id) || entry), ...entries.filter((entry) => !held.has(entry.id))];
+	}
+
+	return {...out, ...structuredClone(patch.top), sync_delta: structuredClone(patch)};
 }
 
 test('phones that read deltas converge with phones that read whole rows and with an older app', () => {
@@ -970,9 +985,19 @@ test('phones that read deltas converge with phones that read whole rows and with
 
 			if (countChanged(merged, server) > 0) {
 				const out = {...structuredClone(merged), base_stamp: row.version};
+				const patch = syncDelta(out, server, row.version);
 
-				out.sync_delta = syncDelta(out, server, row.version);
-				row.doc = out;
+				// Half the time the project has patch_document, which puts
+				// only the delta into the stored row.
+				if (patch && rand() < 0.5) {
+					row.doc = patched(row.doc, patch);
+					assert.equal(stableJson(plainDoc(row.doc)), stableJson(plainDoc(out)), `seed ${seed}: the patched row is the merged document`);
+				}
+				else {
+					out.sync_delta = patch;
+					row.doc = out;
+				}
+
 				row.version++;
 			}
 

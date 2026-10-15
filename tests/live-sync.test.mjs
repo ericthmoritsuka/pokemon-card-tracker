@@ -482,3 +482,73 @@ describe('live sync with Realtime broadcast', () => {
 		await laptop.context.close();
 	});
 });
+
+describe('saving only the change (supabase/patch-document.sql)', () => {
+	test('two devices saving at once both keep their edits, and an older app\'s whole-document save still merges', async () => {
+		const fake = new LiveFake();
+
+		fake.patchDocument = true;
+
+		const owner = fake.addUser('owner@example.test');
+		const phone = await device(fake, 'phone');
+		const laptop = await device(fake, 'laptop');
+
+		await seedLocal(phone.page, documentWith([card('a-1', '001'), card('a-2', '002')]));
+		await signIn(phone.page, fake, owner.email);
+		await waitForStatus(phone.page, 'Synced');
+		await openCards(laptop.page, fake, owner.email);
+		await waitForStatus(laptop.page, 'Synced');
+
+		const mark = fake.log.length;
+		const update = (page, id, notes) => page.evaluate(async ([entryId, text]) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(entryId, {notes: text}), [id, notes]);
+
+		// The phone's save is held on the network while the laptop saves.
+		const held = fake.gate((entry) => entry.device === 'phone' && entry.path === '/rest/v1/rpc/patch_document');
+
+		await update(phone.page, 'a-1', 'from the phone');
+		await held.reached;
+		await update(laptop.page, 'a-2', 'from the laptop');
+		await laptop.page.waitForFunction(() => document.getElementById('sync-status').textContent === 'Saving', null, {timeout: 5000}).catch(() => {});
+		await waitForStatus(laptop.page, 'Synced');
+		held.release();
+		await waitForStatus(phone.page, 'Synced');
+
+		const server = () => new Map(fake.documents.get(owner.id).doc.cards.map((entry) => [entry.id, entry]));
+
+		assert.equal(server().get('a-1').notes, 'from the phone');
+		assert.equal(server().get('a-2').notes, 'from the laptop');
+
+		const mine = fake.log.slice(mark).filter((entry) => entry.method !== 'GET' && entry.path.startsWith('/rest/v1/'));
+
+		assert.equal(mine.filter((entry) => entry.device === 'phone').length, 2, 'the phone\'s first patch missed and it patched again');
+		assert.equal(reads(fake, 'phone', mark).fulls, 0, 'after the miss it read only the laptop\'s delta');
+		assert.ok(mine.every((entry) => entry.path === '/rest/v1/rpc/patch_document'), 'every save was a patch');
+		assert.ok(mine.every((entry) => entry.bytes < 4096), 'and each was small');
+		assert.equal(fake.documents.get(owner.id).doc.sync_delta.base, fake.documents.get(owner.id).doc.base_stamp, 'the row holds the last patch as its delta');
+
+		// An app from before this release saves the whole document.
+		const before = fake.documents.get(owner.id).updated_at;
+
+		otherDeviceSaves(fake, owner, (doc) => ({...doc, base_stamp: before, cards: [...doc.cards, card('old-1', '006', '2026-10-01T12:40:00.000Z')]}));
+
+		const reread = fake.log.length;
+
+		await phone.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+		for (let i = 0; i < 50 && !(await localDoc(phone.page)).cards.some((entry) => entry.id === 'old-1'); i++) {
+			await phone.page.waitForTimeout(200);
+		}
+
+		assert.ok((await localDoc(phone.page)).cards.some((entry) => entry.id === 'old-1'), 'the older app\'s card arrived');
+		assert.equal(reads(fake, 'phone', reread).fulls, 1, 'the older app\'s save was downloaded whole');
+
+		// The next patch keeps the older app's card.
+		await update(phone.page, 'a-1', 'again from the phone');
+		await waitForStatus(phone.page, 'Synced');
+		assert.ok(server().has('old-1'));
+		assert.equal(server().get('a-1').notes, 'again from the phone');
+		assert.equal(server().get('a-2').notes, 'from the laptop');
+		assert.deepEqual([...phone.errors, ...laptop.errors], []);
+		await phone.context.close();
+		await laptop.context.close();
+	});
+});

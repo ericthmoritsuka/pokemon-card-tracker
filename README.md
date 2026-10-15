@@ -112,7 +112,9 @@ up to ten minutes to appear, because the tab keeps the settings answer that long
   `updated_at` is read, not the whole document.
 - **Size.** The whole document goes up on each save. A collection of 1,600 imported cards is about
   425 KB. Each save also stores what it changed (`sync_delta`), so a device that saw the version
-  just before reads only that, about 1 KB for one edit, instead of the row. After each save the
+  just before reads only that, about 1 KB for one edit, instead of the row. Running the optional
+  `supabase/patch-document.sql` (SQL Editor, after `setup.sql`) makes the save itself send only
+  that too; without it, the app sends the whole document as before. After each save the
   device announces the row's new `updated_at` on a Realtime broadcast channel, so the account's
   other open devices sync within seconds; no SQL is needed for that.
 - **The first sign-in** on a phone makes the cards already there the account's cards and uploads

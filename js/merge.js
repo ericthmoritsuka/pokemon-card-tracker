@@ -1186,8 +1186,8 @@ export function countChanged(doc, base) {
 //   {base, lists: {<list>: [entry, ...]}, top: {<field>: value, ...}}
 //   base   the server's updated_at the write was merged against, the same
 //          value as the document's base_stamp
-//   lists  every entry whose updated_at differs from what the server held
-//          at base, whole
+//   lists  every list in the document, with each entry whose updated_at
+//          differs from what the server held at base, whole
 //   top    every top-level field that is not a list (settings, version,
 //          merge_version, base_stamp, updated_at)
 // A device that last saw the row at base learns the new version from
@@ -1228,6 +1228,10 @@ export function syncDelta(doc, server, base) {
 			continue;
 		}
 
+		// Every list is named, empty when nothing in it changed, so a list
+		// the server lacks altogether still comes to exist there.
+		lists[key] = [];
+
 		for (const entry of value) {
 			if (!entry || !entry.id) {
 				return null;
@@ -1238,7 +1242,7 @@ export function syncDelta(doc, server, base) {
 			held.add(id);
 
 			if (server.get(id) !== String(entry.updated_at)) {
-				(lists[key] = lists[key] || []).push(entry);
+				lists[key].push(entry);
 			}
 		}
 	}

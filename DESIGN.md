@@ -412,6 +412,10 @@ by older apps:
 - `merge_version` on the document: the highest merge rules any phone saved it with (2 from
   2026-10-03). `base_stamp` on the document as sent: the server `updated_at` the save was merged
   against, which the optional gate in `supabase/min-client.sql` checks.
+- `sync_delta` on the document as sent (from 2026-10-15): what that one save changed,
+  `{base, lists, top}`, with `base` equal to `base_stamp`. A device that last saw the row at
+  `base` reads only this instead of the whole row. Never kept on the phone. With the optional
+  `supabase/patch-document.sql`, the save itself sends only this (`js/merge.js`, "sync deltas").
 
 ```
 {
@@ -916,6 +920,12 @@ tier). Firebase is an equivalent alternative.
 
 - The phone writes to its copy of the document in IndexedDB first, and merges with Supabase when
   online (section 3).
+- **Small saves move little data** (E-18, 2026-10-15). Another device reads only what a save
+  changed (`sync_delta`, section 4) when it saw the version just before, and hears about the save
+  through a Realtime broadcast that carries only the new `updated_at`, never data, since anyone
+  who knows the account's id could listen. The save itself still uploads the whole document
+  unless Eric runs the optional `supabase/patch-document.sql`. One note with 1,600 copies and two
+  devices open: 1,278 KB in v37, 428 KB without the function, 2 KB with it.
 - Auth by magic link or Google. One account per person, invited by Eric (section 3).
 - Passwords exist only for a family member without an email. Eric creates the account in the
   Supabase dashboard under a placeholder `@family.invalid` address (`.invalid` is reserved by

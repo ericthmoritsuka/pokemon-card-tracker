@@ -59,6 +59,9 @@ export class FakeSupabase {
 		// true: a change carries the whole row, doc included, as the real
 		// server sends a row under Realtime's max_record_bytes (1 MB).
 		this.realtimeDocs = false;
+		// true: the project ran supabase/patch-document.sql. Otherwise the
+		// function is missing, as PostgREST answers (PGRST202).
+		this.patchDocument = false;
 	}
 
 	// A password makes it an account that signs in with one, as an account
@@ -683,6 +686,37 @@ export class FakeSupabase {
 		return this.json(route, 404, {code: 'PGRST205', message: `No fake for ${method} ${path}`});
 	}
 
+	// supabase/patch-document.sql: replaces or adds the patch's entries by
+	// id, replaces the top-level fields, keeps the patch as sync_delta, and
+	// answers the new updated_at, or null when the row moved past base.
+	patch(route, caller, patch) {
+		if (!patch || typeof patch.base !== 'string' || !patch.lists || !patch.top) {
+			return this.json(route, 400, {code: '22023', details: null, hint: null, message: 'A patch needs base, lists, and top.'});
+		}
+
+		const row = this.documents.get(caller.id);
+
+		if (!row || row.updated_at !== patch.base) {
+			return this.json(route, 200, null);
+		}
+
+		const doc = structuredClone(row.doc);
+
+		for (const [list, entries] of Object.entries(patch.lists)) {
+			const stored = Array.isArray(doc[list]) ? doc[list] : [];
+			const byId = new Map(entries.map((entry) => [entry.id, entry]));
+			const held = new Set(stored.map((entry) => entry && entry.id));
+
+			doc[list] = [...stored.map((entry) => byId.get(entry && entry.id) || entry), ...entries.filter((entry) => !held.has(entry.id))];
+		}
+
+		Object.assign(doc, structuredClone(patch.top), {sync_delta: structuredClone(patch)});
+		row.doc = doc;
+		row.updated_at = this.now();
+
+		return this.json(route, 200, row.updated_at);
+	}
+
 	rpc(route, caller, name, args) {
 		const ownerGroup = () => {
 			const member = this.members.find((row) => row.user_id === caller.id && row.role === 'owner');
@@ -769,6 +803,10 @@ export class FakeSupabase {
 				.sort((a, b) => (b.role === 'owner') - (a.role === 'owner'));
 
 			return this.json(route, 200, {group, members, role: mine.role});
+		}
+
+		if (name === 'patch_document' && this.patchDocument) {
+			return this.patch(route, caller, args.patch);
 		}
 
 		return this.json(route, 404, {code: 'PGRST202', message: `Could not find the function public.${name}`});

@@ -138,6 +138,73 @@ end $$;
 -- An old app carrying the base_stamp it saw last is refused once the row moved.
 select pg_temp.expect_error($$update public.documents set doc = doc || '{"cards": [5]}' where user_id = auth.uid()$$, 'out of date');
 
+-- The optional patch_document (supabase/patch-document.sql), installed
+-- twice, with the minimum-client gate above still on.
+reset role;
+\ir ../supabase/patch-document.sql
+\ir ../supabase/patch-document.sql
+set role authenticated;
+select pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
+do $$
+declare
+	before timestamptz;
+	after timestamptz;
+	patch jsonb;
+	d jsonb;
+begin
+	select updated_at into before from public.documents where user_id = auth.uid();
+	update public.documents
+	set doc = jsonb_build_object('base_stamp', before, 'cards', '[{"id": "a", "n": 1}, {"id": "b", "n": 1}]'::jsonb, 'version', 1)
+	where user_id = auth.uid() and updated_at = before;
+	select updated_at into before from public.documents where user_id = auth.uid();
+
+	-- b is replaced in place, c is added at the end, a new list appears,
+	-- and the top-level fields are replaced.
+	patch := jsonb_build_object(
+		'base', before,
+		'lists', '{"cards": [{"id": "c", "n": 1}, {"id": "b", "n": 2}], "binders": [{"id": "x"}]}'::jsonb,
+		'top', jsonb_build_object('base_stamp', before, 'settings', '{"theme": "dark"}'::jsonb, 'version', 1)
+	);
+	after := public.patch_document(patch);
+
+	if after is null or after <= before then raise exception 'patch not saved'; end if;
+
+	select doc into d from public.documents where user_id = auth.uid();
+
+	if d -> 'cards' <> '[{"id": "a", "n": 1}, {"id": "b", "n": 2}, {"id": "c", "n": 1}]'::jsonb then raise exception 'patched cards wrong: %', d -> 'cards'; end if;
+	if d -> 'binders' <> '[{"id": "x"}]'::jsonb then raise exception 'new list missing'; end if;
+	if d -> 'settings' <> '{"theme": "dark"}'::jsonb then raise exception 'top not applied'; end if;
+	if d -> 'sync_delta' <> patch then raise exception 'sync_delta not kept'; end if;
+	if (select updated_at from public.documents where user_id = auth.uid()) <> after then raise exception 'wrong stamp returned'; end if;
+
+	-- A patch against an old updated_at changes nothing and answers null.
+	if public.patch_document(patch) is not null then raise exception 'stale patch applied'; end if;
+	if (select updated_at from public.documents where user_id = auth.uid()) <> after then raise exception 'stale patch moved the row'; end if;
+end $$;
+select pg_temp.expect_error($$select public.patch_document('{"lists": {}}')$$, 'needs base');
+select pg_temp.expect_error($$select public.patch_document(jsonb_build_object('base', (select updated_at from public.documents where user_id = auth.uid()), 'lists', '{"cards": [{"n": 1}]}'::jsonb, 'top', '{}'::jsonb))$$, 'needs an id');
+-- With the gate on, a patch whose top does not carry base_stamp is refused.
+select pg_temp.expect_error($$select public.patch_document(jsonb_build_object('base', (select updated_at from public.documents where user_id = auth.uid()), 'lists', '{}'::jsonb, 'top', '{"base_stamp": null}'::jsonb))$$, 'out of date');
+
+-- Nobody patches another person's row: the member's patch finds no row of
+-- theirs at the owner's updated_at, and the owner's row is unchanged.
+do $$
+declare
+	owner_stamp timestamptz := (select updated_at from public.documents where user_id = '00000000-0000-0000-0000-00000000000a');
+begin
+	perform pg_temp.act_as('00000000-0000-0000-0000-00000000000b');
+
+	if public.patch_document(jsonb_build_object('base', owner_stamp, 'lists', '{"cards": [{"id": "z"}]}'::jsonb, 'top', jsonb_build_object('base_stamp', owner_stamp))) is not null then
+		raise exception 'patched another person''s row';
+	end if;
+
+	if (select updated_at from public.documents where user_id = '00000000-0000-0000-0000-00000000000a') <> owner_stamp then
+		raise exception 'the owner''s row moved';
+	end if;
+
+	perform pg_temp.act_as('00000000-0000-0000-0000-00000000000a');
+end $$;
+
 -- Owner removes the member; the member then sees only their own rows.
 select public.remove_member('00000000-0000-0000-0000-00000000000b');
 select pg_temp.act_as('00000000-0000-0000-0000-00000000000b');
@@ -151,6 +218,7 @@ set role anon;
 select pg_temp.expect_error($$select * from public.documents$$, 'permission denied');
 select pg_temp.expect_error($$select public.group_overview()$$, 'permission denied');
 select pg_temp.expect_error($$select private.shares_group(null)$$, 'permission denied');
+select pg_temp.expect_error($$select public.patch_document('{}')$$, 'permission denied');
 reset role;
 
 \echo 'setup.sql: all checks passed'
