@@ -190,6 +190,13 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
 
 - **Features:** done in v34: binder from a list (4). Done in v33: reorder Lists and Binders with Undo (6),
   remove a card from a rule collection (7), where each card is stored (3, "Stored in").
+  **To build (Eric, 2026-10-15): a default finish setting for the scanner** (Normal, Holo, or
+  Reverse holo), applied to each scanned card that has that finish, as MonPrice's "scan priority"
+  does, so the finish is not picked card by card; the card sheet still changes it, and a card
+  without that finish keeps today's choice. Small. Detecting the finish from the picture (holo
+  reflectivity, perhaps with the holder's torch) stays a later experiment: no app does it reliably.
+  Also later, after Eric's v38 scan log: test a small neural-network fingerprint beside the hashes
+  on his 96 logged crops and two videos before adding any download (15 to 45 MB).
 - **Prices (Eric, 2026-10-09):** done in v33: the card page leads with TCGplayer and Cardmarket in
   reais, borrows another finish's price when the copy's is not listed, and drops the Liga editor;
   Ver na Liga stays. Eric chose this over a faster Liga form or a list of cards missing a Liga price.
