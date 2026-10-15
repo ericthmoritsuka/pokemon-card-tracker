@@ -3,7 +3,7 @@
 // cards.
 //
 // A checklist is an entry in the person's goals list (DESIGN.md section 4):
-//   {id, kind, target, level, name, dex_list, hand_ticks,
+//   {id, kind, target, level, name, dex_list, hand_ticks, languages?,
 //    created_at, updated_at, deleted_at}
 // kind is region (target is a region id), every_pokemon, or custom_pokemon
 // (dex_list holds the numbers); the set and artist kinds are js/goals.js's
@@ -18,9 +18,20 @@
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
-import {LANGUAGES, cardIndex, catalogLanguage, importApi, indexKey, isLanguage, savedCardRecords} from './catalog.js';
+import {cardIndex, importApi, indexKey, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
+import {
+	LIST_LANGUAGE_CODES,
+	NEW_LIST_LANGUAGES,
+	POKEAPI_NAME_TABLES,
+	catalogLanguage,
+	cleanListLanguages,
+	countsOnList,
+	isAsian,
+	listLanguagesToSave,
+	namesListLanguages,
+} from './languages.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
 import {fetchJson, graphql} from './tcgdex.js';
@@ -258,6 +269,8 @@ export async function createChecklist({dex_list = null, kind, name, target = nul
 		hand_ticks: {},
 		id: newId(),
 		kind,
+		// A new list counts its languages, Portuguese to start (js/languages.js).
+		languages: [...NEW_LIST_LANGUAGES],
 		level: null,
 		name: String(name || '').trim() || defaultName(kind, target),
 		target: kind === 'region' ? target : null,
@@ -307,22 +320,21 @@ export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 //
 // Each list's languages (DESIGN.md section 11, "Every card of a Pokémon"):
 // the prints a Pokémon's cards screen shows (js/pokemon-cards.js), and the
-// languages a copy must be in to count as owned there. Stored on the goal
-// as languages, a list of language codes. A list with none names no
-// languages and counts a copy in any language, the way its checklist ticks:
-// whether a list's languages decide its ticks is still open
-// (plans/roadmap.md, "Open Decisions for Eric").
+// languages a copy must be in to count as owned, on that screen and in the
+// list's ticks. Stored on the goal as languages, a list of language codes.
+// A list with none names no languages and counts a copy in any language:
+// the lists made before languages decided ticks keep counting as they did
+// (plans/roadmap.md, "Open Decisions for Eric"). A new checklist starts with
+// Portuguese. The rules are js/languages.js's.
 
-export const ALL_LIST_LANGUAGES = LANGUAGES.map((lang) => lang.code);
-
-const cleanLanguages = (languages) => [...new Set((Array.isArray(languages) ? languages : []).filter(isLanguage))];
+export const ALL_LIST_LANGUAGES = LIST_LANGUAGE_CODES;
 
 // Whether the list names its own languages.
-export const namesLanguages = (goal) => cleanLanguages(goal && goal.languages).length > 0;
+export const namesLanguages = namesListLanguages;
 
-// The list's languages; every language for a list that names none.
+// The list's languages; every list language for a list that names none.
 export function listLanguages(goal) {
-	const saved = cleanLanguages(goal && goal.languages);
+	const saved = cleanListLanguages(goal && goal.languages);
 
 	return saved.length ? saved : [...ALL_LIST_LANGUAGES];
 }
@@ -330,28 +342,65 @@ export function listLanguages(goal) {
 // languages null (Any language) removes the field, so the list counts a
 // copy in any language again, German, Spanish, Italian, and copies with no
 // language recorded included, which no set of the codes above can say.
+// Every list language chosen means the same, and is saved the same way.
 export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {
-	if (languages === null) {
+	if (languages !== null && !cleanListLanguages(languages).length) {
+		throw new Error('Pick at least one language.');
+	}
+
+	const list = listLanguagesToSave(languages);
+
+	if (list === null) {
 		delete goal.languages;
 
 		return;
 	}
 
-	const list = cleanLanguages(languages);
-
-	if (!list.length) {
-		throw new Error('Pick at least one language.');
-	}
-
 	goal.languages = list;
 });
 
-// The live copies a list counts: those in one of its languages.
+// The live copies in one of these languages.
 export const entriesInLanguages = (entries, languages) => {
 	const allowed = new Set(languages);
 
 	return (entries || []).filter((entry) => isLive(entry) && allowed.has(entry.language));
 };
+
+// A list's ticks from resolveOwned's byDex (every copy): the same map for a
+// list that names no languages, else one holding only the copies in its
+// languages, with the numbers left with none taken out. Worked out once per
+// byDex and set of languages, since the lists screen asks for every list.
+const byDexMemo = new WeakMap();
+
+export function listByDex(goal, byDex) {
+	if (!byDex || !namesListLanguages(goal)) {
+		return byDex;
+	}
+
+	const key = cleanListLanguages(goal.languages).join(',');
+	let byLanguages = byDexMemo.get(byDex);
+
+	if (!byLanguages) {
+		byLanguages = new Map();
+		byDexMemo.set(byDex, byLanguages);
+	}
+
+	if (!byLanguages.has(key)) {
+		const out = new Map();
+
+		for (const [n, entries] of byDex) {
+			const kept = entries.filter((entry) => countsOnList(goal, entry));
+
+			if (kept.length) {
+				out.set(n, kept);
+			}
+		}
+
+		byLanguages.set(key, out);
+	}
+
+	return byLanguages.get(key);
+}
 
 // ------------------------------------------------------------ the cache
 
@@ -602,7 +651,7 @@ export async function resolveOwned(entries, {force = false, isAlive = () => true
 		// A Western card the English list lacks may exist only in its own
 		// language (a Brazilian promo), so that is tried second.
 		const languages = card.catalog === 'international'
-			? [...new Set(['en', card.language].filter((lang) => lang && !['ja', 'ko', 'zh-cn', 'zh-tw'].includes(lang)))]
+			? [...new Set(['en', card.language].filter((lang) => lang && !isAsian(lang)))]
 			: [catalogLanguage(card.catalog)];
 
 		for (const lang of languages) {
@@ -651,8 +700,9 @@ const NAMES_KEY = 'names:v2';
 // The English-only list an earlier version kept, read while offline.
 const OLD_NAMES_KEY = 'names:en';
 
-// PokeAPI's language IDs (its language table, 2026-10-01).
-const NAME_LANGUAGES = {2: 'ja-roma', 3: 'ko', 4: 'zh-hant', 9: 'en', 11: 'ja', 12: 'zh-hans'};
+// PokeAPI's language IDs (its language table, 2026-10-01): each language's
+// own names (js/languages.js), and the Japanese reading in Latin letters.
+const NAME_LANGUAGES = {...POKEAPI_NAME_TABLES, 2: 'ja-roma'};
 
 const emptyNames = () => Array(MAX_DEX + 1).fill(null);
 

@@ -157,7 +157,7 @@ describe('selecting the prints', () => {
 
 describe('languages and ownership', () => {
 	test('a list reads every language until it names its own', () => {
-		const all = ['en', 'pt', 'fr', 'ja', 'ko', 'zh-cn', 'zh-tw'];
+		const all = ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr'];
 
 		assert.deepEqual(checklists.listLanguages({}), all);
 		assert.deepEqual(checklists.listLanguages(null), all);

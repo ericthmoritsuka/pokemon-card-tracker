@@ -15,7 +15,6 @@
 // No picker wheel for the count: buttons plus typing work better with
 // Android keyboards and screen readers (Eric, 2026-10-02).
 
-import {catalogFor, isLanguage, languageLabel} from './catalog.js';
 import {listBinders, placements} from './binders.js';
 import {
 	addCard,
@@ -34,8 +33,8 @@ import {
 	updateCards,
 } from './collection.js';
 import {errorText, h} from './dom.js';
-import {flagLanguageName} from './flags.js';
 import {plural} from './format.js';
+import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES} from './monprice.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
@@ -53,21 +52,18 @@ export const NOTES_MAX = 500;
 // How long Undo stays on a toast.
 export const UNDO_MS = 8000;
 
-// The app's languages, then German, Italian, and Spanish, which the scanner
-// saves on international records too (js/scan/session.js SCAN_LANGUAGES).
-export const languageName = (code) => (isLanguage(code) ? languageLabel(code) : flagLanguageName(code));
+// A language's English name, from js/languages.js.
+export const languageName = languageLabel;
 
-// The languages a copy of a card in this catalog can be printed in.
-// International records hold every Western print; a Japanese record also
-// holds Korean copies of sets Korea prints under the Japanese codes
-// (DESIGN.md section 5). current is kept when it is something else, so
+// The languages a copy of a card in this catalog can be printed in
+// (js/languages.js copyLanguageCodes). International records hold every
+// Western print; a Japanese record also holds Korean copies of sets Korea
+// prints under the Japanese codes (DESIGN.md section 5); a hand-made card
+// can be in any language. current is kept when it is something else, so
 // opening the sheet never changes a copy by itself.
 export function copyLanguages(catalog, current = null) {
-	const codes = catalog === 'international'
-		? ['pt', 'en', 'fr', 'de', 'it', 'es']
-		: catalog === 'ja' ? ['ja', 'ko']
-			// A hand-made card (js/custom-card.js) can be in any language.
-			: catalog === 'custom' ? ['pt', 'en', 'fr', 'de', 'it', 'es', 'ja', 'ko', 'zh-cn', 'zh-tw'] : [catalog];
+	const known = copyLanguageCodes(catalog);
+	const codes = known.length ? known : [catalog];
 
 	if (current && !codes.includes(current)) {
 		codes.push(current);

@@ -28,6 +28,8 @@
 //
 // No DOM here, so Node can test it directly (tests/prices.test.mjs).
 
+import {ASIAN_LANGUAGES, isAsian} from './languages.js';
+
 // ------------------------------------------------------------ numbers
 
 // To the cent, half away from zero. EPSILON keeps 1.005 from rounding down.
@@ -489,9 +491,9 @@ export function finishOf(entry, finishes) {
 // Japanese, Korean, and Chinese prints never take another finish's price:
 // their records' pricing is not known to be for them (DESIGN.md section 10,
 // "The language gap").
-export const ASIAN_LANGUAGES = ['ja', 'ko', 'zh-cn', 'zh-tw'];
+export {ASIAN_LANGUAGES};
 
-export const isAsianPrint = (entry) => Boolean(entry) && (ASIAN_LANGUAGES.includes(entry.catalog) || ASIAN_LANGUAGES.includes(entry.language));
+export const isAsianPrint = (entry) => Boolean(entry) && (isAsian(entry.catalog) || isAsian(entry.language));
 
 // The order to borrow a price in: a plain normal first, then the other
 // finishes as listed, and a reverse holo only when nothing else has one.

@@ -11,14 +11,13 @@
 // statistics bar take that Liga price when a copy has one, else the US
 // estimate, and never Cardmarket.
 
-import {languageLabel} from './catalog.js';
 import {updateCards} from './collection.js';
 import {h} from './dom.js';
 import {plural} from './format.js';
+import {hasLiga, hasMarketPrices, isAsian, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {
-	ASIAN_LANGUAGES,
 	LIGA_SOURCE,
 	cardmarketTrend,
 	euroRates,
@@ -42,10 +41,6 @@ import {
 } from './prices.js';
 
 let sectionCount = 0;
-
-// The printed languages that never get Ver na Liga (DESIGN.md section 10,
-// "Languages on Liga").
-const ASIAN_NO_LIGA = ['ko', 'zh-cn', 'zh-tw'];
 
 // A date that never breaks at its spaces.
 const day = (date) => h('span', {class: 'price-nowrap'}, date);
@@ -165,7 +160,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 	// Japanese, Korean, and Chinese prints never borrow another finish's
 	// price (DESIGN.md section 10, "The language gap").
-	const asian = ASIAN_LANGUAGES.includes(language) || ASIAN_LANGUAGES.includes(recordLanguage);
+	const asian = isAsian(language) || isAsian(recordLanguage);
 
 	const ownedOf = (finish) => copies.filter((entry) => finishOf(entry, finishes) === finish);
 	const unmatched = () => copies.filter((entry) => !finishOf(entry, finishes));
@@ -189,7 +184,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	// Korean and Chinese prints get no link, whatever the record: whether
 	// Liga lists them is unchecked, so a Korean copy on a Japanese record
 	// never gets the Japanese print's page (Q-30).
-	const href = ASIAN_NO_LIGA.includes(language)
+	const href = !hasLiga(language)
 		? null
 		: ligaHref !== undefined
 			? ligaHref
@@ -230,7 +225,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 		// Japanese prints do get a link once an English name is found, so a
 		// Japanese card without one is just this card.
-		return h('p', {class: 'muted price-liga-none'}, ASIAN_NO_LIGA.includes(language) ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
+		return h('p', {class: 'muted price-liga-none'}, !hasLiga(language) ? `No Liga link for ${languageLabel(language)} prints.` : 'No Liga link for this card.');
 	}
 
 	// What the owner's copy is, for "your copy is Holo": the finish shown
@@ -449,7 +444,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		const rateLine = us.shown || eu.shown
 			? rateText({eur: euroRate, eurShown: eu.shown, usd: rate, usdShown: us.shown})
 			: '';
-		const foreign = language && language !== 'en' && (us.shown || eu.shown);
+		const foreign = language && !hasMarketPrices(language) && (us.shown || eu.shown);
 
 		section.replaceChildren(...[
 			h('h3', {id: `${id}-title`, tabindex: '-1'}, 'Price'),

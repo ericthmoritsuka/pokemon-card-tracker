@@ -14,7 +14,7 @@
 // sheet card detail opens.
 
 import {currentUser} from './auth.js';
-import {cardImage, cardIndex, catalogLanguage, indexKey, languageLabel, savedCardRecords} from './catalog.js';
+import {cardImage, cardIndex, indexKey, savedCardRecords} from './catalog.js';
 import {cardsScreen} from './cards-view.js';
 import {
 	NAME_MAX,
@@ -46,6 +46,7 @@ import {BASE, errorText, go, h, listsSwitch} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {REGION_OPTIONS, filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
+import {catalogLanguage, languageLabel} from './languages.js';
 import {formatBrl, listStats, savedRates} from './prices.js';
 import {UNDO_MS, orderSection} from './reorder.js';
 import {toast} from './shell.js';

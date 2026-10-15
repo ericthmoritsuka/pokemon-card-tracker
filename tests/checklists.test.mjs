@@ -338,12 +338,27 @@ describe('checklists', () => {
 		await page.selectOption('#add-region', 'kanto');
 		await page.click('#add-region-button');
 		await page.waitForURL(/\/lists\/[0-9a-f-]+$/);
-		await waitForSummary(page, '4 owned, 147 missing.');
+		// A new list counts its languages, Portuguese to start: the English
+		// Bulbasaur and the Japanese Squirtle do not tick it.
+		await waitForSummary(page, '3 owned, 148 missing.');
 		assert.equal(await page.locator('#checklist-title').textContent(), 'Kanto');
-		assert.match(await page.locator('#checklist-meta').textContent(), /4 \/ 151/);
+		assert.match(await page.locator('#checklist-meta').textContent(), /3 \/ 151/);
 		assert.equal(await page.locator('.dex-row').count(), 151);
+		assert.deepEqual(await flagsIn(page, '#list-languages'), ['pt']);
+		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Portuguese');
+		assert.match(await page.locator('.dex-row[data-dex="7"]').getAttribute('class'), /\bmissing\b/, 'a Japanese copy does not count on a Portuguese list');
+		assert.equal(await page.locator('.dex-row[data-dex="1"] .dex-mark-text').textContent(), '1 card');
+		assert.deepEqual((await localDoc(page)).goals.find((item) => item.kind === 'region').languages, ['pt']);
 		assert.equal(counts.graphql, 1, 'one request for the international card list');
 		assert.equal(counts.single, 1, 'the Japanese card is read on its own');
+
+		// Any language takes it back to every copy, and drops the field.
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		await page.click('#list-languages-save');
+		await waitForSummary(page, '4 owned, 147 missing.');
+		assert.match(await page.locator('#checklist-meta').textContent(), /4 \/ 151/);
+		assert.equal('languages' in (await localDoc(page)).goals.find((item) => item.kind === 'region'), false);
 
 		// Auto ticks, with the copy count.
 		const row = (n) => page.locator(`.dex-row[data-dex="${n}"]`);
@@ -520,6 +535,7 @@ describe('checklists', () => {
 		goal = (await localDoc(page)).goals.find((item) => item.id === customId);
 		assert.equal(goal.kind, 'custom_pokemon');
 		assert.deepEqual(goal.dex_list, [4, 25, 133]);
+		assert.deepEqual(goal.languages, ['pt'], 'a new list counts Portuguese');
 
 		// Delete it, at once with no question: a tombstone stays in the
 		// document, and Undo on the toast brings it back as it was.
@@ -620,7 +636,7 @@ describe('checklists', () => {
 		await ownerDevice.page.goto(url('lists'));
 		await ownerDevice.page.selectOption('#add-region', 'kanto');
 		await ownerDevice.page.click('#add-region-button');
-		await waitForSummary(ownerDevice.page, '4 owned, 147 missing.');
+		await waitForSummary(ownerDevice.page, '3 owned, 148 missing.');
 		await waitForStatus(ownerDevice.page, 'Synced');
 
 		const pushed = () => ((fake.documents.get(owner.id) || {}).doc || {}).goals || [];
@@ -628,6 +644,7 @@ describe('checklists', () => {
 		await until(() => pushed().length === 1);
 		assert.equal(pushed().length, 1, 'the goal is on the server');
 		assert.equal(pushed()[0].target, 'kanto');
+		assert.deepEqual(pushed()[0].languages, ['pt'], 'the list\'s languages travel with it');
 
 		// The kid, in the same family, sees the owner's lists read only.
 		fake.members.push({group_id: fake.groups[0].id, role: 'member', user_id: kid.id});
@@ -647,10 +664,10 @@ describe('checklists', () => {
 		assert.match(await page.locator('.view-only').textContent(), /Eric's lists, view only/);
 		assert.equal(await page.locator('#add-list').count(), 0, 'no Add in the view');
 		await page.waitForSelector('.list-tile .owned-count');
-		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*4 \/ 151/);
+		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*3 \/ 151/, 'the owner\'s Portuguese copies');
 
 		await page.click('.list-tile');
-		await waitForSummary(page, '4 owned, 147 missing.');
+		await waitForSummary(page, '3 owned, 148 missing.');
 		assert.equal(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/lists/`), true);
 		assert.equal(await page.locator('.dex-row button').count(), 0, 'nothing to tap in the view');
 		assert.equal(await page.locator('#list-languages-edit').count(), 0, 'no languages Edit in the view');

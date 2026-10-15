@@ -18,9 +18,10 @@
 //
 // No DOM here, so Node can load the pure parts (tests/wishlist.test.mjs).
 
-import {LANGUAGES, catalogFor, catalogLanguage, compareNumbers, importApi, isLanguage, setList} from './catalog.js';
+import {compareNumbers, importApi, setList} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
+import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
 import {fetchJson} from './tcgdex.js';
 
@@ -30,7 +31,7 @@ export const PRIORITY_LABELS = {high: 'High', low: 'Low', normal: 'Normal'};
 
 export const NOTE_MAX = 500;
 
-const CATALOGS = new Set(['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
+const CATALOGS = new Set(ALL_CATALOGS);
 
 const priorityRank = (priority) => {
 	const rank = PRIORITIES.indexOf(priority);
@@ -43,7 +44,7 @@ const entryCatalog = (entry) => (entry && entry.catalog) || 'international';
 // The languages a card in this catalog can be wished for in: English,
 // Portuguese, and French share the international records; a Japanese,
 // Korean, or Chinese card has only its own (DESIGN.md section 3).
-export const languagesFor = (catalog) => LANGUAGES.filter((lang) => catalogFor(lang.code) === catalog);
+export const languagesFor = (catalog) => CATALOG_LANGUAGES.filter((lang) => catalogFor(lang.code) === catalog);
 
 // ------------------------------------------------------- finish labels
 //
@@ -98,7 +99,7 @@ function cleanFields(fields, catalog) {
 	if (fields.language !== undefined) {
 		const language = fields.language || null;
 
-		if (language && (!isLanguage(language) || catalogFor(language) !== catalog)) {
+		if (language && (!isCatalogLanguage(language) || catalogFor(language) !== catalog)) {
 			throw new Error(`A card from the ${catalog} catalog cannot be wished for in ${language}.`);
 		}
 

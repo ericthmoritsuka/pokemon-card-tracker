@@ -5,12 +5,12 @@
 // and what was deleted here, before anything is saved (DESIGN.md section 9).
 // An unmatched monprice row can be added by hand from its line.
 
-import {languageChip} from './cards-view.js';
 import {applyImport, applyOwnImport, importKeys, previewOwnImport} from './collection.js';
-import {importApi, languageLabel, saveToCardIndex} from './catalog.js';
+import {importApi, saveToCardIndex} from './catalog.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
+import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, localPart, matchRows, parseExport} from './monprice.js';
 
 const STAGES = {
@@ -247,7 +247,7 @@ export function importView(root) {
 			.map(([code, rows]) => `${languageChip(code)} ${formatCount(rows.length)}`)
 			.join(', ');
 
-		const fallbackLines = [...groupBy(fallback, (result) => (result.catalog === 'ja' ? 'ja' : 'en')).entries()].map(([lang, list]) =>
+		const fallbackLines = [...groupBy(fallback, (result) => catalogLanguage(result.catalog || 'international')).entries()].map(([lang, list]) =>
 			reportLine(
 				`${plural(list.length, 'row uses', 'rows use')} the ${languageLabel(lang)} card record`,
 				list,

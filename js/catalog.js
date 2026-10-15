@@ -4,34 +4,17 @@
 // returned at once, and a fresh copy is fetched behind it (at most once an
 // hour per key). A set opened once therefore opens again with no signal.
 
-import {flagLanguageName} from './flags.js';
 import {database, timedCache} from './idb.js';
+import {ASIAN_LANGUAGES, CATALOG_LANGUAGES, catalogFor, catalogLanguage, isCatalogLanguage, languageLabel} from './languages.js';
 import {API, fetchJson, graphql} from './tcgdex.js';
 
-export const LANGUAGES = [
-	{code: 'en', label: 'English'},
-	{code: 'pt', label: 'Portuguese'},
-	{code: 'fr', label: 'French'},
-	{code: 'ja', label: 'Japanese'},
-	{code: 'ko', label: 'Korean'},
-	{code: 'zh-cn', label: 'Chinese (Simplified)'},
-	{code: 'zh-tw', label: 'Chinese (Traditional)'},
-];
+// The languages come from js/languages.js. These names stay exported here
+// for the modules that still import them from the catalog.
+export const LANGUAGES = CATALOG_LANGUAGES;
 
-export const isLanguage = (code) => LANGUAGES.some((lang) => lang.code === code);
+export const isLanguage = isCatalogLanguage;
 
-// German, Spanish, and Italian copies are not catalogs, but they have names
-// (js/flags.js), so they never show a raw code.
-export const languageLabel = (code) => (LANGUAGES.find((lang) => lang.code === code) || {label: flagLanguageName(code)}).label;
-
-// Western-language prints share one international card record; Japanese,
-// Korean, and Chinese prints have their own catalogs (DESIGN.md section 3).
-const ASIAN = new Set(['ja', 'ko', 'zh-cn', 'zh-tw']);
-
-export const catalogFor = (lang) => (ASIAN.has(lang) ? lang : 'international');
-
-// The catalog language whose records a catalog's cards are listed in.
-export const catalogLanguage = (catalog) => (catalog === 'international' ? 'en' : catalog);
+export {catalogFor, catalogLanguage, languageLabel};
 
 const VIEWING_KEY = 'cardTracker.viewingLanguage';
 
@@ -614,7 +597,7 @@ export async function pricesDue(entries, {now = Date.now(), maxAge = PRICE_REFRE
 			wanted.set(entry.card_id, new Set(['en']));
 		}
 
-		if (entry.language && !ASIAN.has(entry.language)) {
+		if (entry.language && !ASIAN_LANGUAGES.includes(entry.language)) {
 			wanted.get(entry.card_id).add(entry.language);
 		}
 	}

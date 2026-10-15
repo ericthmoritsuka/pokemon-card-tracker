@@ -35,8 +35,8 @@
 
 import {h} from './dom.js';
 import {REGIONS} from './checklists.js';
-import {languageLabel} from './catalog.js';
 import {cleanPlace, placeFold} from './collection.js';
+import {languageLabel} from './languages.js';
 import {searchKey} from './names.js';
 import {ENERGIES} from './themes.js';
 

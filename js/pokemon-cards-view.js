@@ -16,7 +16,7 @@
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
-import {LANGUAGES, cardImage, catalogLanguage, languageLabel} from './catalog.js';
+import {cardImage} from './catalog.js';
 import {mainName, tileNames} from './catalog-views.js';
 import {
 	getChecklist,
@@ -32,6 +32,7 @@ import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
+import {ASIAN_LANGUAGES, LIST_LANGUAGE_CODES, NAME_TABLES, catalogLanguage, htmlLang, languageLabel} from './languages.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
 	CATALOG_HEADINGS,
@@ -67,9 +68,8 @@ const FILTER_KEY = 'cardTracker.pokemonCardsFilter';
 const FINISHES_KEY = 'cardTracker.pokemonCardsEveryFinish';
 const CONCURRENCY = 4;
 
-// The languages a list can hold, Portuguese first, then the order of the
-// catalog's language list.
-const LANGUAGE_CHOICES = ['pt', ...LANGUAGES.map((lang) => lang.code).filter((code) => code !== 'pt')];
+// The languages a list can hold, in the language table's order.
+const LANGUAGE_CHOICES = LIST_LANGUAGE_CODES;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 
@@ -239,10 +239,10 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 			save.disabled = true;
 
 			try {
-				// Every box ticked reads as Any language, so it counts every
-				// copy rather than dropping the languages no box names.
-				const every = LANGUAGE_CHOICES.every((code) => chosen.has(code));
-				const saved = await setListLanguages(listId, any || every ? null : LANGUAGE_CHOICES.filter((code) => chosen.has(code)));
+				// Every box ticked saves as Any language (js/languages.js), so
+				// it counts every copy rather than dropping the languages no box
+				// names.
+				const saved = await setListLanguages(listId, any ? null : [...chosen]);
 
 				goal = saved;
 				editing = false;
@@ -309,29 +309,28 @@ function originalNames(tables, n, languages) {
 	}
 
 	const out = [];
+	const nameIn = (code) => {
+		const table = tables[NAME_TABLES[code]];
 
-	if (languages.includes('ja') && tables.ja && tables.ja[n]) {
-		const reading = tables['ja-roma'] && tables['ja-roma'][n];
+		return (table && table[n]) || null;
+	};
+	// A reading in Latin letters after the name, where one is known.
+	const readings = {ja: () => tables['ja-roma'] && tables['ja-roma'][n], ko: (name) => romanizeKorean(name)};
 
-		out.push({lang: 'ja', text: reading ? `${tables.ja[n]} (${reading})` : tables.ja[n]});
+	for (const code of ASIAN_LANGUAGES.filter((one) => languages.includes(one))) {
+		const name = nameIn(code);
+
+		// Simplified and Traditional that are the same characters (皮卡丘) show once.
+		if (!name || out.some((item) => item.name === name)) {
+			continue;
+		}
+
+		const reading = readings[code] ? readings[code](name) : null;
+
+		out.push({lang: htmlLang(code), name, text: reading ? `${name} (${reading})` : name});
 	}
 
-	if (languages.includes('ko') && tables.ko && tables.ko[n]) {
-		const reading = romanizeKorean(tables.ko[n]);
-
-		out.push({lang: 'ko', text: reading ? `${tables.ko[n]} (${reading})` : tables.ko[n]});
-	}
-
-	if (languages.includes('zh-cn') && tables['zh-hans'] && tables['zh-hans'][n]) {
-		out.push({lang: 'zh-Hans', text: tables['zh-hans'][n]});
-	}
-
-	// Simplified and Traditional that are the same characters (皮卡丘) show once.
-	if (languages.includes('zh-tw') && tables['zh-hant'] && tables['zh-hant'][n] && !(languages.includes('zh-cn') && tables['zh-hans'] && tables['zh-hans'][n] === tables['zh-hant'][n])) {
-		out.push({lang: 'zh-Hant', text: tables['zh-hant'][n]});
-	}
-
-	return out;
+	return out.map(({lang, text}) => ({lang, text}));
 }
 
 function sprite(n) {
