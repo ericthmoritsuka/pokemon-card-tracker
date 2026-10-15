@@ -32,9 +32,9 @@ const IMAGE_HOST = 'assets.tcgdex.net';
 // entries and 88 MB as opaque ones, about 9 MB each (2026-10-15: 200 opaque
 // 20 KB images counted 1.4 to 1.5 GB, about 7.5 MB each, while the files on
 // disk took 5.9 MB). So the opaque cache holds a tenth of the origin's quota
-// in padded entries (limitOf), never fewer than 100 nor more than 1,000,
-// which keeps the padding from crowding out the IndexedDB data that shares
-// the quota. An opaque status cannot be read either, so the app deletes an
+// in padded entries (limitOf), never fewer than 100 nor more than 300 (about
+// 2.3 GB counted, so the storage Chrome shows stays modest), which keeps
+// the padding from crowding out the IndexedDB data that shares the quota. An opaque status cannot be read either, so the app deletes an
 // entry whose image fails to decode (js/catalog-views.js).
 const IMAGE_CACHES = [
 	{limit: 3000, name: 'card-tracker-images'},
@@ -56,7 +56,7 @@ function limitOf(target) {
 			try {
 				const {quota} = await navigator.storage.estimate();
 
-				return Math.max(target.limit, Math.min(1000, Math.floor((quota || 0) / 10 / OPAQUE_PAD)));
+				return Math.max(target.limit, Math.min(300, Math.floor((quota || 0) / 10 / OPAQUE_PAD)));
 			}
 			catch {
 				return target.limit;

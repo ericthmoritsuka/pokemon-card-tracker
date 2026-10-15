@@ -26,6 +26,7 @@ export const RELEASES = [
 			'The scanner reads the number on full-art cards, and Portuguese, French, and German names, Paradox Pokémon and Trainers included.',
 			'Saving sends far less data to your other phones, and My Cards updates faster after an edit.',
 			'A card whose twins you turned down is checked again a week later.',
+			'Long Japanese and Korean set names show in full in Filters, and more Portuguese and French pictures stay on the phone offline.',
 		],
 		version: 'v38',
 	},
