@@ -54,6 +54,10 @@ export const INTEGRATION = {
 			'\t\'js/scan/finish.js\',',
 			'\t\'js/scan/identify.js\',',
 			'\t\'js/scan/image.js\',',
+			'\t\'js/scan/local-names.js\',',
+			// The name table the name route reads (about 80 KB, 36 KB
+			// gzipped), fetched the first time a name is looked up.
+			'\t\'js/scan/local-names.json\',',
 			'\t\'js/scan/log.js\',',
 			'\t\'js/scan/match.js\',',
 			'\t\'js/scan/ocr.js\',',

@@ -51,19 +51,28 @@ function editDistance(a, b) {
 // The edit distance from `needle` to the closest stretch of `hay`, so a
 // name glued to the stage label ("BASICWeedle") or to a suffix still reads.
 function closestStretch(needle, hay) {
-	let row = new Array(hay.length + 1).fill(0);
+	let row = new Int32Array(hay.length + 1);
+	let next = new Int32Array(hay.length + 1);
 
 	for (let i = 1; i <= needle.length; i++) {
-		const next = [i];
+		const ch = needle.charCodeAt(i - 1);
+
+		next[0] = i;
 
 		for (let j = 1; j <= hay.length; j++) {
-			next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (needle[i - 1] === hay[j - 1] ? 0 : 1));
+			next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (ch === hay.charCodeAt(j - 1) ? 0 : 1));
 		}
 
-		row = next;
+		[row, next] = [next, row];
 	}
 
-	return Math.min(...row);
+	let best = row[0];
+
+	for (let j = 1; j <= hay.length; j++) {
+		best = Math.min(best, row[j]);
+	}
+
+	return best;
 }
 
 // How alike two names read, 0 to 1, after folding accents and lookalikes.
@@ -158,11 +167,16 @@ export function parseName(lines) {
 	return {confidence, suffix, text};
 }
 
-// The species names the read name is closest to, best first:
-// [{dex, name, score}]. `species` is an array indexed by National Dex
-// number (js/checklists.js speciesNames().en). A short name must read
-// exactly: "Mew" inside "Mewtwo" is not Mew.
-export function matchSpecies(text, species, {limit = 4, min = 0.7} = {}) {
+// The names the read name is closest to, best first: [{dex, name, score}],
+// with `spelling` and `lang` added when the spelling read is not the
+// English one (a Portuguese "Presa Grande" gives {dex: 984, name: 'Great
+// Tusk', spelling: 'Presa Grande', lang: 'print'}). `entries` is [{dex,
+// name, english, lang, key}] (js/scan/local-names.js localNameEntries): dex
+// is null for a Trainer; english the English name, left out when name is
+// it; key nameKey(name), worked out here when missing. One answer per
+// Pokémon (per English name for a Trainer), from its closest spelling. A
+// short name must read exactly: "Mew" inside "Mewtwo" is not Mew.
+export function matchNames(text, entries, {limit = 4, min = 0.7} = {}) {
 	const read = nameKey(text);
 
 	if (read.length < 3) {
@@ -178,16 +192,37 @@ export function matchSpecies(text, species, {limit = 4, min = 0.7} = {}) {
 		}
 	}
 
-	const out = [];
+	// The table holds thousands of names, so a name is compared in full only
+	// when it could reach `min`: its length near enough, and enough of its
+	// letter pairs in the read. Two strings within d edits share at least
+	// (the longer's length - 1 - 2d) letter pairs, so nothing that could
+	// reach `min` is skipped.
+	const pairsOf = (text) => {
+		const pairs = new Set();
 
-	for (let dex = 1; dex < (species || []).length; dex++) {
-		const name = species[dex];
-
-		if (!name) {
-			continue;
+		for (let i = 0; i < text.length - 1; i++) {
+			pairs.add(text.charCodeAt(i) * 65536 + text.charCodeAt(i + 1));
 		}
 
-		const key = nameKey(name);
+		return pairs;
+	};
+	const shared = (key, pairs) => {
+		let count = 0;
+
+		for (let i = 0; i < key.length - 1; i++) {
+			if (pairs.has(key.charCodeAt(i) * 65536 + key.charCodeAt(i + 1))) {
+				count++;
+			}
+		}
+
+		return count;
+	};
+	const spanPairs = [...spans].map((span) => ({pairs: pairsOf(span), span}));
+	const readPairs = pairsOf(read);
+	const found = new Map();
+
+	for (const entry of entries || []) {
+		const key = entry.key || nameKey(entry.name);
 
 		if (key.length < 3) {
 			continue;
@@ -195,12 +230,17 @@ export function matchSpecies(text, species, {limit = 4, min = 0.7} = {}) {
 
 		let best = 0;
 
-		for (const span of spans) {
-			best = Math.max(best, 1 - editDistance(key, span) / Math.max(key.length, span.length));
+		for (const {pairs, span} of spanPairs) {
+			const longer = Math.max(span.length, key.length);
+			const edits = Math.floor(longer * (1 - min));
+
+			if (Math.abs(span.length - key.length) <= edits && shared(key, pairs) >= longer - 1 - 2 * edits) {
+				best = Math.max(best, 1 - editDistance(key, span) / longer);
+			}
 		}
 
 		// Glued words: the name inside a longer run, at a small discount.
-		if (key.length >= 5 && read.length > key.length) {
+		if (key.length >= 5 && read.length > key.length && shared(key, readPairs) >= key.length - 1 - 2 * Math.floor(key.length * (1 - min / 0.92))) {
 			best = Math.max(best, (1 - closestStretch(key, read) / key.length) * 0.92);
 		}
 
@@ -208,13 +248,42 @@ export function matchSpecies(text, species, {limit = 4, min = 0.7} = {}) {
 			best *= 0.8;
 		}
 
-		if (best >= min) {
-			out.push({dex, name, score: Math.round(best * 100) / 100});
+		if (best < min) {
+			continue;
+		}
+
+		const name = entry.english || entry.name;
+		const id = entry.dex ? `#${entry.dex}` : `=${nameKey(name)}`;
+		const score = Math.round(best * 100) / 100;
+		const previous = found.get(id);
+
+		// The English spelling wins a tie, so a name read as printed in
+		// English says nothing about another language.
+		if (!previous || score > previous.score || (score === previous.score && !entry.english && previous.spelling)) {
+			found.set(id, {dex: entry.dex || null, name, score, ...(entry.english ? {lang: entry.lang, spelling: entry.name} : {})});
 		}
 	}
 
-	return out.sort((a, b) => b.score - a.score || b.name.length - a.name.length).slice(0, limit);
+	return [...found.values()].sort((a, b) => b.score - a.score || b.name.length - a.name.length).slice(0, limit);
 }
+
+// The species list as entries for matchNames. `species` is an array indexed
+// by National Dex number (js/checklists.js speciesNames().en).
+export function speciesEntries(species) {
+	const entries = [];
+
+	for (let dex = 1; dex < (species || []).length; dex++) {
+		if (species[dex]) {
+			entries.push({dex, name: species[dex]});
+		}
+	}
+
+	return entries;
+}
+
+// The species names the read name is closest to, best first: [{dex, name,
+// score}].
+export const matchSpecies = (text, species, options = {}) => matchNames(text, speciesEntries(species), options);
 
 // The set whose name the read name is, when it is exactly one (after
 // folding accents and lookalikes) and is not also exactly a species name:
@@ -478,7 +547,10 @@ export function scoreCard(clues, card) {
 	// The name: the card's species among the species read, or its own name
 	// read closely (a Trainer, or a name the species list lacks).
 	if (clues.name && clues.name.text) {
-		const bySpecies = (clues.names || []).filter((match) => (card.dexIds || []).includes(match.dex));
+		// A name read in another language counts through its English name
+		// (matchNames): a Trainer, or a card found by its number, which
+		// carries no species, is matched by that name.
+		const bySpecies = (clues.names || []).filter((match) => (match.dex && (card.dexIds || []).includes(match.dex)) || (match.spelling && card.name && nameKey(stripSuffixText(card.name)) === nameKey(match.name)));
 		// A card found by its number carries its name, not its species: its
 		// name is matched against the read the way a species name is.
 		const own = card.name ? matchSpecies(clues.name.text, [null, stripSuffixText(card.name)], {limit: 1, min: 0})[0] : null;
