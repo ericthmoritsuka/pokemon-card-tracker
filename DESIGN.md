@@ -861,6 +861,43 @@ frame with four clean edges. Decided:
   text queues, and two small views of each drop (before and after, about 320 px) for
   `lab/holder/replay-log.mjs`, for the last 80 drops.
 
+**Full-art numbers and names in other languages (2026-10-15, from Eric's kept items of
+2026-10-09).** Two gaps in the text the scanner reads when the picture cannot settle a card:
+
+- **Full-art collector numbers are read by their ring** (`js/scan/read.js` `ringedNumbers`).
+  Special illustration rares, illustration rares, gold, and full-art ultra rares print the number
+  as dark italic digits inside a thick white ring, over the art; read as a strip, the art and the
+  lines round it drowned the digits (the Portuguese Ampharos, `me04-090`, never read). For a card
+  the picture index flags as full art, the number strip's whitest channel (the least of red,
+  green, and blue, so coloured art stays dark) is cut at its whitest 12 %, the white shapes about
+  a text line tall and side by side make runs, and what each run's ring encloses is cut out as
+  dark digits on white and read as one line, before the strip's own lines, which are read only
+  when no run gives a sure number. Measured on 48 full-art TCGdex scans through five simulated
+  captures (`lab/bench/fullart.json`, `run.mjs --numbers`), the number reads right on 134 of 240
+  (80 before; clean captures 37 of 48 against 21, turned 35 against 21), wrong on 27 (29), with a
+  median of 4 OCR calls (5). A strong blur (1.6 px) still reads nothing either way. Contrast,
+  threshold, top-hat, and polarity variants of the whole strip were tried first and gained nothing:
+  the OCR cannot pick out the digits while the ring and the lines above and below are in the crop.
+- **The name when the picture and the number both fail**: `readNumber` then reads the name strip
+  too, and `js/scan/picture.js` `pictureMatch` puts the card of the picture's five that bears the
+  name first, or offers the cards the name route finds before them. A name never makes a card sure.
+- **Names as Western cards print them** (`js/scan/local-names.json`, 79 KB, 36 KB gzipped, built by
+  `lab/names/build.mjs`): every species in English, French, and German from PokeAPI (BSD-3-Clause;
+  PokeAPI has no Portuguese, and Portuguese cards print the English names), the other spellings
+  TCGdex prints carry (MIT; the Portuguese Paradox Pokémon such as "Presa Grande" for Great Tusk,
+  Type: Null's "Tipo Nulo", older French and German spellings), and the Trainers from Sun & Moon on
+  under their Portuguese, French, and German names (every era's Trainers would take 34 KB gzipped
+  for the Trainers alone rather than 22 KB). It is fetched the first time a name is looked up and
+  precached by the service worker. `js/scan/evidence.js` `matchNames` scores a read against it as
+  the English list was scored (accents and OCR lookalikes folded, words glued together, short names
+  exact), screened by letter pairs so the 5,700 spellings stay cheap; a name read in another
+  language counts for a card through its English name, and a Trainer's prints are asked of TCGdex
+  by its English name (`js/scan/match.js` `namedPrints`, online only).
+- **The lab benchmark** (`lab/bench`, 240 captures, same machine, before and after): the picture
+  route still puts the right card first on all 240, sure on 202 (198), none wrong but sure; the
+  text route (no picture index) on 194 (190). The holder benchmarks match pictures only, which this
+  leaves alone.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.

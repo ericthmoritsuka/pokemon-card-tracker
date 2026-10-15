@@ -15,7 +15,7 @@ import {captureRect} from '/pokemon-card-tracker/js/vision/camera.js';
 import {artVector} from '/pokemon-card-tracker/js/scan/artwork.js';
 import {DEFAULT_API, findCandidates} from '/pokemon-card-tracker/js/scan/match.js';
 import {createPool} from '/pokemon-card-tracker/js/scan/ocr.js';
-import {readCard} from '/pokemon-card-tracker/js/scan/read.js';
+import {readCard, readNumber} from '/pokemon-card-tracker/js/scan/read.js';
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
 import {identify} from '/pokemon-card-tracker/js/scan/identify.js';
@@ -271,6 +271,32 @@ async function measure(image, {crops = false, options = {}} = {}) {
 	return out;
 }
 
+// The collector number alone (run.mjs --numbers): the capture straightened
+// and read as js/scan/identify.js reads a card the picture narrowed
+// (read.js readNumber), with `options` (fullArt, prefer) passed through.
+async function measureNumber(image, {crops = false, options = {}} = {}) {
+	const t0 = performance.now();
+	const r = rectify(image);
+	const read = await readNumber(r.card, pool.ocr, {prefer: 'left', ...options});
+	const out = {
+		calls: read.timings.calls,
+		found: r.found,
+		number: read.number ? {confidence: read.number.confidence, number: read.number.number, total: read.number.total, ringed: Boolean(read.number.ringed)} : null,
+		raw: Object.fromEntries(Object.entries(read.raw).map(([k, v]) => [k, v.text])),
+		timings: {ocr: read.timings.ocr, total: Math.round(performance.now() - t0)},
+	};
+
+	if (crops) {
+		out.crops = {card: await imageUrl(r.card)};
+
+		for (const [k, v] of Object.entries(read.crops)) {
+			out.crops[k] = await imageUrl(v);
+		}
+	}
+
+	return out;
+}
+
 window.bench = {
 	async init({workers = 2} = {}) {
 		if (pool) {
@@ -293,6 +319,12 @@ window.bench = {
 		const image = await capture(await bitmapOf(item.file), item.id, pass);
 
 		return {id: item.id, new: await measure(image, {crops, options}), pass};
+	},
+	// One card's collector number alone, through one pass.
+	async number(item, {crops = false, options = {}, pass = 'clean'} = {}) {
+		const image = await capture(await bitmapOf(item.file), item.id, pass);
+
+		return {id: item.id, new: await measureNumber(image, {crops, options}), pass};
 	},
 	// One framing of the photo: the capture area of the camera frame.
 	async photo(src, frame, {crops = false, options = {}} = {}) {

@@ -22,7 +22,7 @@
 
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
-import {compactPicture, loadFingerprints, matchCrops, needsText, SURE_DISTANCE} from './picture.js';
+import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
 
@@ -496,8 +496,12 @@ async function readText(seen, {readOptions = {}} = {}) {
 		// With a picture match, only what chooses between its cards: the
 		// number, from the strip the candidates' era prints it on (read.js
 		// readNumber); otherwise the label row is read behind the tray.
+		// A full-art card's number is cut out by the white ring round its
+		// digits and read first (read.js ringedNumbers); a picture that is not
+		// clear has its name strip read too when no number reads, for the
+		// name route.
 		read = picture
-			? await readNumberOnly(card, engine.ocr, {...readOptions, label: several, prefer: numberSide(picture), setCode: several})
+			? await readNumberOnly(card, engine.ocr, {...readOptions, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, prefer: numberSide(picture), setCode: several})
 			: await readCard(card, engine.ocr, readOptions);
 		read.script = null;
 		workers = engine.size;
@@ -595,6 +599,15 @@ async function readNumberOnly(card, ocr, options) {
 // series, e-Card, Neo, Gym, base, and their promos). Sun & Moon and later
 // print it at the bottom left.
 const RIGHT_SIDE_SETS = /^(xy|g1|bw|dp|pl|hgss|col|ex|ecard|neo|gym|base|lc|si|pop|np|ru|wp|basep|bwp|dpp|hgssp|xyp|XY|BW|DP|PCG|ADV|L\d|LL|LP)/;
+
+// Whether a picture match's card is full art (the index flags it,
+// js/vision/pack.js): the first group's first card is, or at least half of
+// the top five groups' first cards are.
+export function fullArtPicture(picture) {
+	const firsts = ((picture && picture.groups) || []).slice(0, 5).map((group) => group.cards[0]).filter(Boolean);
+
+	return Boolean(firsts.length && (firsts[0].full || firsts.filter((card) => card.full).length * 2 >= firsts.length));
+}
 
 // Which number strip to read first for a picture match's top cards: 'right'
 // when most of them are from XY or before, else 'left'.

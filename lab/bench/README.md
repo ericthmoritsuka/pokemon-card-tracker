@@ -30,6 +30,22 @@ A full run takes about ten minutes. Useful options:
 for example `git worktree add --detach /tmp/base <commit>`, then `REPO=/tmp/base node
 lab/bench/run.mjs`.
 
+## Collector Numbers Alone
+
+`--numbers` reads only the collector number of each capture, as the scanner reads a card the
+picture narrowed (`read.js` `readNumber`), and scores it against the dataset's number and total:
+right, wrong, or unread per capture, with the OCR calls and time. `--dataset <file>` takes another
+list in this folder, such as `fullart.json`, 49 full-art cards (special illustration rares,
+illustration rares, gold, full-art ultra rares; English and Portuguese) whose numbers are printed
+in ringed digits over the art. `--options '{"fullArt":true}'` reads them as the scanner reads a
+card the picture index flags as full art; `--verbose` prints everything read. TCGdex has no
+Portuguese image for one of them (`swsh3-187`), so 48 are read.
+
+```sh
+PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --dataset fullart.json \
+  --numbers --passes clean,blur,jpeg,glare,tilt --options '{"fullArt":true}'
+```
+
 ## What It Prints
 
 One line per read (rank of the right card with the number alone, with the name route, and with the

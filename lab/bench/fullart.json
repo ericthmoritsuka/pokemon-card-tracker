@@ -1,0 +1,492 @@
+[
+	{
+		"group": "special-illustration-rare",
+		"id": "me05-114",
+		"lang": "en",
+		"localId": "114",
+		"name": "Mega Zeraora ex",
+		"official": "84",
+		"rarity": "Special illustration rare",
+		"set": "me05"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "me04-120",
+		"lang": "en",
+		"localId": "120",
+		"name": "AZ's Tranquility",
+		"official": "86",
+		"rarity": "Special illustration rare",
+		"set": "me04"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv07-170",
+		"lang": "en",
+		"localId": "170",
+		"name": "Terapagos ex",
+		"official": "142",
+		"rarity": "Special illustration rare",
+		"set": "sv07"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv09-184",
+		"lang": "en",
+		"localId": "184",
+		"name": "Lillie's Clefairy ex",
+		"official": "159",
+		"rarity": "Special illustration rare",
+		"set": "sv09"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv06-210",
+		"lang": "en",
+		"localId": "210",
+		"name": "Sinistcha ex",
+		"official": "167",
+		"rarity": "Special illustration rare",
+		"set": "sv06"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv06-220",
+		"lang": "en",
+		"localId": "220",
+		"name": "Perrin",
+		"official": "167",
+		"rarity": "Special illustration rare",
+		"set": "sv06"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv10-234",
+		"lang": "en",
+		"localId": "234",
+		"name": "Team Rocket's Crobat ex",
+		"official": "182",
+		"rarity": "Special illustration rare",
+		"set": "sv10"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv08-243",
+		"lang": "en",
+		"localId": "243",
+		"name": "Clemont's Quick Wit",
+		"official": "191",
+		"rarity": "Special illustration rare",
+		"set": "sv08"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv04-249",
+		"lang": "en",
+		"localId": "249",
+		"name": "Iron Valiant ex",
+		"official": "182",
+		"rarity": "Special illustration rare",
+		"set": "sv04"
+	},
+	{
+		"group": "special-illustration-rare",
+		"id": "sv04-257",
+		"lang": "en",
+		"localId": "257",
+		"name": "Professor Turo's Scenario",
+		"official": "182",
+		"rarity": "Special illustration rare",
+		"set": "sv04"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "me05-085",
+		"lang": "en",
+		"localId": "085",
+		"name": "Fomantis",
+		"official": "84",
+		"rarity": "Illustration rare",
+		"set": "me05"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "me03-098",
+		"lang": "en",
+		"localId": "098",
+		"name": "Doublade",
+		"official": "88",
+		"rarity": "Illustration rare",
+		"set": "me03"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "me01-150",
+		"lang": "en",
+		"localId": "150",
+		"name": "Steelix",
+		"official": "132",
+		"rarity": "Illustration rare",
+		"set": "me01"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "sv06-172",
+		"lang": "en",
+		"localId": "172",
+		"name": "Torkoal",
+		"official": "167",
+		"rarity": "Illustration rare",
+		"set": "sv06"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "sv10-186",
+		"lang": "en",
+		"localId": "186",
+		"name": "Crustle",
+		"official": "182",
+		"rarity": "Illustration rare",
+		"set": "sv10"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "sv04-198",
+		"lang": "en",
+		"localId": "198",
+		"name": "Gimmighoul",
+		"official": "182",
+		"rarity": "Illustration rare",
+		"set": "sv04"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "sv04-204",
+		"lang": "en",
+		"localId": "204",
+		"name": "Garbodor",
+		"official": "182",
+		"rarity": "Illustration rare",
+		"set": "sv04"
+	},
+	{
+		"group": "illustration-rare",
+		"id": "sv08-210",
+		"lang": "en",
+		"localId": "210",
+		"name": "Flapple",
+		"official": "191",
+		"rarity": "Illustration rare",
+		"set": "sv08"
+	},
+	{
+		"group": "hyper-rare",
+		"id": "sv07-173",
+		"lang": "en",
+		"localId": "173",
+		"name": "Terapagos ex",
+		"official": "142",
+		"rarity": "Hyper rare",
+		"set": "sv07"
+	},
+	{
+		"group": "hyper-rare",
+		"id": "sv05-218",
+		"lang": "en",
+		"localId": "218",
+		"name": "Raging Bolt ex",
+		"official": "162",
+		"rarity": "Hyper rare",
+		"set": "sv05"
+	},
+	{
+		"group": "hyper-rare",
+		"id": "sv10-240",
+		"lang": "en",
+		"localId": "240",
+		"name": "Team Rocket's Mewtwo ex",
+		"official": "182",
+		"rarity": "Hyper rare",
+		"set": "sv10"
+	},
+	{
+		"group": "hyper-rare",
+		"id": "sv01-253",
+		"lang": "en",
+		"localId": "253",
+		"name": "Miraidon ex",
+		"official": "198",
+		"rarity": "Hyper rare",
+		"set": "sv01"
+	},
+	{
+		"group": "hyper-rare",
+		"id": "sv04-265",
+		"lang": "en",
+		"localId": "265",
+		"name": "Luxurious Cape",
+		"official": "182",
+		"rarity": "Hyper rare",
+		"set": "sv04"
+	},
+	{
+		"group": "mega-hyper-rare",
+		"id": "me05-120",
+		"lang": "en",
+		"localId": "120",
+		"name": "Mega Darkrai ex",
+		"official": "84",
+		"rarity": "Mega Hyper Rare",
+		"set": "me05"
+	},
+	{
+		"group": "mega-hyper-rare",
+		"id": "me02-130",
+		"lang": "en",
+		"localId": "130",
+		"name": "Mega Charizard X ex",
+		"official": "94",
+		"rarity": "Mega Hyper Rare",
+		"set": "me02"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "sm9-1",
+		"lang": "en",
+		"localId": "1",
+		"name": "Celebi & Venusaur GX",
+		"official": "181",
+		"rarity": "Ultra Rare",
+		"set": "sm9"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "sm5-100",
+		"lang": "en",
+		"localId": "100",
+		"name": "Dialga GX",
+		"official": "156",
+		"rarity": "Ultra Rare",
+		"set": "sm5"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "sm11-132",
+		"lang": "en",
+		"localId": "132",
+		"name": "Weavile GX",
+		"official": "236",
+		"rarity": "Ultra Rare",
+		"set": "sm11"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "swsh6-160",
+		"lang": "en",
+		"localId": "160",
+		"name": "Celebi V",
+		"official": "198",
+		"rarity": "Ultra Rare",
+		"set": "swsh6"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "swsh12-174",
+		"lang": "en",
+		"localId": "174",
+		"name": "Omastar V",
+		"official": "195",
+		"rarity": "Ultra Rare",
+		"set": "swsh12"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "swsh3-187",
+		"lang": "en",
+		"localId": "187",
+		"name": "Piers",
+		"official": "189",
+		"rarity": "Ultra Rare",
+		"set": "swsh3"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "sm8-202",
+		"lang": "en",
+		"localId": "202",
+		"name": "Sigilyph GX",
+		"official": "214",
+		"rarity": "Ultra Rare",
+		"set": "sm8"
+	},
+	{
+		"group": "ultra-rare",
+		"id": "sv10-225",
+		"lang": "en",
+		"localId": "225",
+		"name": "Team Rocket's Giovanni",
+		"official": "182",
+		"rarity": "Ultra Rare",
+		"set": "sv10"
+	},
+	{
+		"group": "secret-rare",
+		"id": "sm115-69",
+		"lang": "en",
+		"localId": "69",
+		"name": "Moltres & Zapdos & Articuno GX",
+		"official": "68",
+		"rarity": "Secret Rare",
+		"set": "sm115"
+	},
+	{
+		"group": "secret-rare",
+		"id": "swsh4-187",
+		"lang": "en",
+		"localId": "187",
+		"name": "Galarian Darmanitan VMAX",
+		"official": "185",
+		"rarity": "Secret Rare",
+		"set": "swsh4"
+	},
+	{
+		"group": "secret-rare",
+		"id": "swsh12-215",
+		"lang": "en",
+		"localId": "215",
+		"name": "V Guard Energy",
+		"official": "195",
+		"rarity": "Secret Rare",
+		"set": "swsh12"
+	},
+	{
+		"group": "ilustração-rara",
+		"id": "me04-090",
+		"lang": "pt",
+		"localId": "090",
+		"name": "Ampharos",
+		"official": "86",
+		"rarity": "Ilustração Rara",
+		"set": "me04"
+	},
+	{
+		"group": "ilustração-rara-especial",
+		"id": "me05-114",
+		"lang": "pt",
+		"localId": "114",
+		"name": "Mega Zeraora ex",
+		"official": "84",
+		"rarity": "Ilustração Rara Especial",
+		"set": "me05"
+	},
+	{
+		"group": "ilustração-rara-especial",
+		"id": "sv09-184",
+		"lang": "pt",
+		"localId": "184",
+		"name": "Clefairy ex da Lílian",
+		"official": "159",
+		"rarity": "Ilustração Rara Especial",
+		"set": "sv09"
+	},
+	{
+		"group": "ilustração-rara-especial",
+		"id": "sv10-234",
+		"lang": "pt",
+		"localId": "234",
+		"name": "Crobat ex da Equipe Rocket",
+		"official": "182",
+		"rarity": "Ilustração Rara Especial",
+		"set": "sv10"
+	},
+	{
+		"group": "ilustração-rara-especial",
+		"id": "sv04-257",
+		"lang": "pt",
+		"localId": "257",
+		"name": "Hipótese do Professor Turo",
+		"official": "182",
+		"rarity": "Ilustração Rara Especial",
+		"set": "sv04"
+	},
+	{
+		"group": "ilustração-rara",
+		"id": "me01-150",
+		"lang": "pt",
+		"localId": "150",
+		"name": "Steelix",
+		"official": "132",
+		"rarity": "Ilustração Rara",
+		"set": "me01"
+	},
+	{
+		"group": "ilustração-rara",
+		"id": "sv04-198",
+		"lang": "pt",
+		"localId": "198",
+		"name": "Gimmighoul",
+		"official": "182",
+		"rarity": "Ilustração Rara",
+		"set": "sv04"
+	},
+	{
+		"group": "hiper-rara",
+		"id": "sv07-173",
+		"lang": "pt",
+		"localId": "173",
+		"name": "Terapagos ex",
+		"official": "142",
+		"rarity": "Hiper rara",
+		"set": "sv07"
+	},
+	{
+		"group": "hiper-rara",
+		"id": "sv01-253",
+		"lang": "pt",
+		"localId": "253",
+		"name": "Miraidon ex",
+		"official": "198",
+		"rarity": "Hiper rara",
+		"set": "sv01"
+	},
+	{
+		"group": "mega-hiper-raro",
+		"id": "me02-130",
+		"lang": "pt",
+		"localId": "130",
+		"name": "Mega Charizard X ex",
+		"official": "94",
+		"rarity": "Mega Hiper Raro",
+		"set": "me02"
+	},
+	{
+		"group": "ultra-rara",
+		"id": "sm11-132",
+		"lang": "pt",
+		"localId": "132",
+		"name": "Weavile GX",
+		"official": "236",
+		"rarity": "Ultra Rara",
+		"set": "sm11"
+	},
+	{
+		"group": "ultra-rara",
+		"id": "swsh3-187",
+		"lang": "pt",
+		"localId": "187",
+		"name": "Pietro",
+		"official": "189",
+		"rarity": "Ultra Rara",
+		"set": "swsh3"
+	},
+	{
+		"group": "rare-secreta",
+		"id": "swsh4-187",
+		"lang": "pt",
+		"localId": "187",
+		"name": "Darmanitan de Galar VMAX",
+		"official": "185",
+		"rarity": "Rare Secreta",
+		"set": "swsh4"
+	}
+]

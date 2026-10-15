@@ -9,7 +9,10 @@
 //   international prints (js/pokemon-cards.js loadInternational, built on
 //   the bulk card list js/checklists.js keeps), each with its set's card
 //   count from the set list. It needs no number at all, so a card whose
-//   number is hidden, blurred, or cropped is still found.
+//   number is hidden, blurred, or cropped is still found. A name printed in
+//   Portuguese, French, or German (js/scan/local-names.js) counts through
+//   its English one, and a Trainer's prints come by its English name
+//   (namedPrints).
 //
 // The name route runs when the number route found no card with the exact
 // number and total read. Both feed one list, scored by the same rules: number and total,
@@ -25,10 +28,12 @@
 
 import {importApi, setList} from '../catalog.js';
 import {speciesNames} from '../checklists.js';
-import {loadInternational} from '../pokemon-cards.js';
+import {isPocket, loadInternational} from '../pokemon-cards.js';
+import {graphql} from '../tcgdex.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {artworkSims} from './artwork.js';
-import {cluesOf, matchSpecies, orderByArtwork, rankCards, setNameRead, TIE_POINTS} from './evidence.js';
+import {cluesOf, fold, matchNames, orderByArtwork, rankCards, setNameRead, speciesEntries, TIE_POINTS} from './evidence.js';
+import {loadLocalNames} from './local-names.js';
 import {ASIAN_LANGUAGES, searchOrder} from './session.js';
 
 // The catalog could not be reached for something the match needs.
@@ -74,10 +79,46 @@ async function speciesPrints(dex) {
 	return result.prints || [];
 }
 
+// A Trainer's international prints by its English name, from TCGdex's
+// GraphQL API (its name filter matches any part of the name, so only the
+// exact name is kept, less the subtitle TCGdex adds in brackets, as in
+// "Professor's Research (Professor Magnolia)"; TCG Pocket cards are left
+// out). Each name is asked once a visit; with no signal there are none.
+export const namedPrintsQuery = (name) =>
+	`{ cards(filters: {name: ${JSON.stringify(String(name))}}, pagination: {page: 1, itemsPerPage: 250}) { id localId name image set { id name releaseDate } } }`;
+
+const printedName = (name) => fold(String(name || '').replace(/\s*\([^)]*\)\s*$/, '')).replace(/[^a-z0-9]/g, '');
+
+export function namedPrintsFrom(data, name) {
+	const key = printedName(name);
+
+	return ((data && data.cards) || [])
+		.filter((card) => card && card.set && printedName(card.name) === key && !isPocket(null, card.image))
+		.map((card) => ({cardId: card.id, image: card.image || null, localId: card.localId, name: card.name, releaseDate: card.set.releaseDate || '', setId: card.set.id, setName: card.set.name || card.set.id}));
+}
+
+const namedPrintsKept = new Map();
+
+async function namedPrints(name) {
+	if (!namedPrintsKept.has(name)) {
+		namedPrintsKept.set(name, within(graphql(namedPrintsQuery(name), {attempts: 1}).then((data) => namedPrintsFrom(data, name)), 4000, null).catch(() => null));
+	}
+
+	const prints = await namedPrintsKept.get(name);
+
+	if (!prints) {
+		namedPrintsKept.delete(name);
+	}
+
+	return prints || [];
+}
+
 export const DEFAULT_API = {
 	allSets,
 	artworkSims,
 	cardDetail: importApi.cardDetail,
+	localNames: loadLocalNames,
+	namedPrints,
 	setDetail: importApi.setDetail,
 	species: englishSpecies,
 	speciesPrints,
@@ -88,6 +129,7 @@ export const DEFAULT_API = {
 export function warmNameRoute() {
 	speciesNames().catch(() => {});
 	loadInternational(25).catch(() => {});
+	loadLocalNames();
 }
 
 // Species matches below this are not used to look cards up (they still
@@ -185,14 +227,20 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	// The English set list is the one the name route reads anyway.
 	const latin = !ASIAN_LANGUAGES.includes(language);
 	const named = Boolean(clues.name && clues.name.text && latin && api.species);
-	const [species, englishSets] = named ? await Promise.all([api.species().catch(() => []), listFor('en')]) : [[], null];
+	const [species, englishSets, local] = named
+		? await Promise.all([api.species().catch(() => []), listFor('en'), api.localNames ? Promise.resolve().then(() => api.localNames()).catch(() => []) : []])
+		: [[], null, []];
 	const setName = named ? setNameRead(clues.name.text, englishSets, species) : null;
 
 	if (setName) {
 		clues.name = null;
 	}
 
-	const names = species.length && clues.name ? matchSpecies(clues.name.text, species) : [];
+	// The species list, and the names Western cards print (local-names.js:
+	// French and German species names, the Portuguese Paradox Pokémon,
+	// Trainers under their Portuguese, French, and German names).
+	const entries = [...speciesEntries(species), ...(local || [])];
+	const names = entries.length && clues.name ? matchNames(clues.name.text, entries) : [];
 
 	clues.names = names;
 
@@ -275,7 +323,7 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	const nameRoute = async () => {
 		const lookups = names.filter((match) => match.score >= NAME_LOOKUP && match.score >= names[0].score - 0.1).slice(0, 2);
 
-		if (!lookups.length || !api.speciesPrints) {
+		if (!lookups.length || !(api.speciesPrints || api.namedPrints)) {
 			return;
 		}
 
@@ -292,11 +340,13 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 		}
 
 		for (const match of lookups) {
-			const prints = await api.speciesPrints(match.dex).catch(() => []);
+			// A Pokémon by its species; a Trainer (no dex) by its English name.
+			const lookup = match.dex ? api.speciesPrints && api.speciesPrints(match.dex) : api.namedPrints && api.namedPrints(match.name);
+			const prints = await Promise.resolve(lookup || []).catch(() => []);
 
 			for (const print of prints) {
 				add({
-					dexIds: [match.dex],
+					dexIds: match.dex ? [match.dex] : null,
 					first: lang === 'en' && order[0] === 'en',
 					id: print.cardId,
 					image: print.image || null,
