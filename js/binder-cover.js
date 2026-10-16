@@ -725,7 +725,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 
 		preview.style.aspectRatio = `${size.width} / ${size.height}`;
 
-		body.replaceChildren(stage, h('div', {class: 'ph-review bc-review'}, preview, h('div', {class: 'ph-review-actions'}, save, rotate, reset, again)), status);
+		body.replaceChildren(stage, h('div', {class: 'ph-review bc-review'}, preview, h('div', {class: 'ph-review-actions'}, save, rotate, reset, editor.snapToggle, again)), status);
 
 		rotate.addEventListener('click', () => fit(turnPicture(source), {
 			corners: turnCorners(editor.corners, source.height),

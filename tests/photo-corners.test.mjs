@@ -174,4 +174,38 @@ describe('snap points for the corner editor', () => {
 		assert.equal(nearestSnap({x: 13, y: 10}, points, 5), points[1]);
 		assert.equal(nearestSnap({x: 30, y: 10}, points, 5), null);
 	});
+
+	// A grey 360 x 450 picture: a 63:88 card, a square tile, and a 2:1 strip
+	// on a dark table; none of the last two is card-shaped.
+	function decoys() {
+		const width = 360;
+		const height = 450;
+		const grey = new Uint8Array(width * height).fill(40);
+		const fill = (x0, y0, w, hgt, value) => {
+			for (let y = y0; y < y0 + hgt; y++) {
+				grey.fill(value, y * width + x0, y * width + x0 + w);
+			}
+		};
+
+		fill(40, 40, 126, 176, 220);
+		fill(70, 70, 66, 60, 120);
+		fill(220, 60, 100, 100, 200);
+		fill(200, 300, 140, 70, 190);
+
+		return {grey, height, width};
+	}
+
+	test('only card-like corners snap: a square tile and a 2:1 strip give none', () => {
+		const {grey, height, width} = decoys();
+		const points = snapPoints(grey, width, height);
+		const near = (x, y) => Math.min(Infinity, ...points.map((p) => Math.hypot(p.x - x, p.y - y)));
+
+		for (const [x, y] of [[40, 40], [166, 40], [166, 216], [40, 216]]) {
+			assert.ok(near(x, y) <= 4, `card corner (${x}, ${y}): nearest ${near(x, y).toFixed(1)}`);
+		}
+
+		for (const [x, y] of [[220, 60], [320, 60], [320, 160], [220, 160], [200, 300], [340, 300], [340, 370], [200, 370], [70, 70], [136, 130]]) {
+			assert.ok(near(x, y) > 6, `no snap at decoy corner (${x}, ${y}): nearest ${near(x, y).toFixed(1)}`);
+		}
+	});
 });

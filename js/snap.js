@@ -4,10 +4,13 @@
 // tests them (tests/snap.test.mjs).
 //
 // A snap point is a corner of a card-shaped 63:88 box the scanner's finder
-// sees (findCard, js/scan/steady.js), or a strong edge meeting: two straight
-// edges crossing near square, each drawn clearly along a short arm from the
-// crossing (a card's or a cover's corner). The caller adds its own detected
-// corners.
+// sees (findCard, js/scan/steady.js), drawn about as well as the best one,
+// or a strong edge meeting that looks like a real card corner: two straight
+// edges meeting near square, each drawn clearly along a short arm on one
+// side of the meeting and not on the other (an L, not a crossing in the
+// art), with two more points that make it three corners of a 63:88 box.
+// The caller adds its own detected corners. Fewer points, fewer wrong snaps
+// (Eric, 2026-10-16).
 
 import {findCard} from './scan/steady.js';
 
@@ -24,7 +27,24 @@ const MAX_POINTS = 24;
 // An edge meeting's arms: as long as this share of the short side, with a
 // mean brightness step across them of at least ARM_STEP levels.
 const ARM = 0.04;
-const ARM_STEP = 14;
+const ARM_STEP = 18;
+
+// An edge meeting's two edges are this near square, in degrees.
+const SQUARE_DEG = 6;
+
+// Past the meeting, each edge's step is under this share of its arm's: the
+// edge ends there.
+const L_END = 0.5;
+
+// Boxes drawn within this much of the best box's quality give corners; at
+// most BOX_MAX of them.
+const BOX_QUALITY = 0.3;
+const BOX_MAX = 6;
+
+// A card's short side over its long side, and how far a meeting's three
+// corners may be from that shape, as a share of the short side.
+const CARD_RATIO = 63 / 88;
+const SHAPE_NEAR = 0.035;
 
 const DEG = Math.PI / 180;
 
@@ -57,11 +77,27 @@ function armStep(grey, width, height, p, nx, ny, dx, dy, length) {
 }
 
 // Strong edge meetings among findCard's lines ({rho, theta (degrees)}:
-// x cos theta + y sin theta = rho). Returns [{x, y, strength}].
+// x cos theta + y sin theta = rho), each an L: both edges drawn along an arm
+// from the meeting and ending there. Returns [{x, y, strength, arms}], arms
+// the two unit directions the edges run in from the meeting.
 function meetings(grey, width, height, lines) {
 	const short = Math.min(width, height);
 	const length = Math.max(4, Math.round(short * ARM));
 	const found = [];
+
+	// The edge (unit normal nx, ny) at p: the direction its drawn arm runs
+	// in, and how strongly, or null when it is not an edge ending at p.
+	const edge = (p, nx, ny) => {
+		const one = armStep(grey, width, height, p, nx, ny, -ny, nx, length);
+		const two = armStep(grey, width, height, p, nx, ny, ny, -nx, length);
+		const strong = Math.max(one, two);
+
+		if (strong < ARM_STEP || Math.min(one, two) >= strong * L_END) {
+			return null;
+		}
+
+		return one >= two ? {dx: -ny, dy: nx, step: one} : {dx: ny, dy: -nx, step: two};
+	};
 
 	for (let i = 0; i < lines.length; i++) {
 		for (let j = i + 1; j < lines.length; j++) {
@@ -71,7 +107,7 @@ function meetings(grey, width, height, lines) {
 
 			gap = gap > 90 ? 180 - gap : gap;
 
-			if (Math.abs(gap - 90) > 12) {
+			if (Math.abs(gap - 90) > SQUARE_DEG) {
 				continue;
 			}
 
@@ -91,13 +127,11 @@ function meetings(grey, width, height, lines) {
 				continue;
 			}
 
-			// Each line's direction is along it: (-ny, nx). Its stronger arm.
-			const armA = Math.max(armStep(grey, width, height, p, ax, ay, -ay, ax, length), armStep(grey, width, height, p, ax, ay, ay, -ax, length));
-			const armB = Math.max(armStep(grey, width, height, p, bx, by, -by, bx, length), armStep(grey, width, height, p, bx, by, by, -bx, length));
-			const strength = Math.min(armA, armB);
+			const armA = edge(p, ax, ay);
+			const armB = armA && edge(p, bx, by);
 
-			if (strength >= ARM_STEP) {
-				found.push({strength, x: p.x, y: p.y});
+			if (armB) {
+				found.push({arms: [armA, armB], strength: Math.min(armA.step, armB.step), x: p.x, y: p.y});
 			}
 		}
 	}
@@ -105,10 +139,40 @@ function meetings(grey, width, height, lines) {
 	return found.sort((p, q) => q.strength - p.strength);
 }
 
+// Whether meeting m and two of `pool`'s points make three corners of a
+// 63:88 box: one point along an arm at distance d, and one along the other
+// arm at d times 88:63 or 63:88.
+function cardShaped(m, pool, short) {
+	const near = short * SHAPE_NEAR;
+	const has = (x, y) => pool.some((q) => Math.hypot(q.x - x, q.y - y) <= near);
+
+	for (const [along, across] of [[m.arms[0], m.arms[1]], [m.arms[1], m.arms[0]]]) {
+		for (const q of pool) {
+			const dx = q.x - m.x;
+			const dy = q.y - m.y;
+			const d = dx * along.dx + dy * along.dy;
+
+			// Along the arm, a sixth of the short side away or more.
+			if (d < short / 6 || Math.abs(dx * along.dy - dy * along.dx) > near) {
+				continue;
+			}
+
+			for (const k of [1 / CARD_RATIO, CARD_RATIO]) {
+				if (has(m.x + across.dx * d * k, m.y + across.dy * d * k)) {
+					return true;
+				}
+			}
+		}
+	}
+
+	return false;
+}
+
 // The snap points of a grey copy (width x height pixels), in the copy's
-// pixels: the corners of every card-shaped box findCard considered, then
-// strong edge meetings, nearer than 2 percent of the short side to none
-// before them. `extra` points come first.
+// pixels: the corners of the card-shaped boxes findCard drew about as well
+// as its best, then the edge meetings that look like card corners, nearer
+// than 2 percent of the short side to none before them. `extra` points come
+// first.
 export function snapPoints(grey, width, height, {extra = []} = {}) {
 	const debug = {};
 
@@ -120,9 +184,14 @@ export function snapPoints(grey, width, height, {extra = []} = {}) {
 		debug.lines = [];
 	}
 
-	const boxCorners = (debug.boxes || []).flatMap((box) => box.corners);
-	const all = [...extra, ...boxCorners, ...meetings(grey, width, height, debug.lines || [])];
-	const near = Math.min(width, height) * 0.02;
+	const boxes = debug.boxes || [];
+	const top = Math.max(-Infinity, ...boxes.map((box) => box.quality));
+	const boxCorners = boxes.filter((box) => box.quality >= top - BOX_QUALITY).slice(0, BOX_MAX).flatMap((box) => box.corners);
+	const short = Math.min(width, height);
+	const candidates = meetings(grey, width, height, debug.lines || []).slice(0, 60);
+	const pool = [...extra, ...boxCorners, ...candidates];
+	const all = [...extra, ...boxCorners, ...candidates.filter((m) => cardShaped(m, pool, short))];
+	const near = short * 0.02;
 	const kept = [];
 
 	for (const p of all) {

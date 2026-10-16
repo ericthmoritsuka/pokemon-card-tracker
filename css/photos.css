@@ -695,3 +695,10 @@ button.ph-handle:focus-visible::after {
 	display: grid;
 	gap: 8px;
 }
+
+/* The corner editor's Snap button (js/corners.js): filled while on. */
+.ph-snap[aria-pressed="true"] {
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	color: var(--selected-text);
+}

@@ -359,7 +359,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			stage,
 			h('div', {class: 'ph-review'},
 				preview,
-				h('div', {class: 'ph-review-actions'}, saveButton, rotate, reset, retake)
+				h('div', {class: 'ph-review-actions'}, saveButton, rotate, reset, editor.snapToggle, retake)
 			),
 			status,
 			tip,
