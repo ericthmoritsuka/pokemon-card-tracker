@@ -250,6 +250,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   pickers match only the printed name, set, number, and id (`matches`), so "aerodactyl" misses a
   Japanese Aerodactyl; reuse My Cards' search text (English name, original, reading, localizations;
   cards-view.js searchOf / filter-bar.js searchTextOf). Do it with the one-tile change. Tiny.
+- **Filters in the binder pickers (Eric, 2026-10-16):** a Filters button in Add cards to the tray and
+  the pocket chooser opening the same sheet as My Cards (js/filter-bar.js: region, Pokedex range,
+  type, set, language, rarity, price), plus a new Artist filter; combines with From (box or list)
+  and search; active chips with clear. Not nested dropdowns (fiddly on phones). Do with the other
+  picker items. Small to medium.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
