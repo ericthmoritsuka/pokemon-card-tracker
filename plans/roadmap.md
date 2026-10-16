@@ -255,6 +255,9 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   type, set, language, rarity, price), plus a new Artist filter; combines with From (box or list)
   and search; active chips with clear. Not nested dropdowns (fiddly on phones). Do with the other
   picker items. Small to medium.
+  Also "Clear all" (js/filter-bar.js shows it only with 2+ active filters): show it whenever any
+  filter, search, or From is active, and make it clear the search and From too, everywhere filters
+  appear (Eric, 2026-10-16).
 - **Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free
