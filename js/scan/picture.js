@@ -83,12 +83,19 @@ export const fingerprintsLoaded = () => Boolean(indexPromise);
 // When no crop is sure that way, the closest WIDE_CROPS crops are matched
 // again with the wider search (fingerprint.js WIDE_SHIFTS: moves of up to
 // 7.5 %, a smaller and larger crop, the card squeezed by a strip of the
-// card underneath or a side cut short), which costs about seven times as
-// much, so a crop that is right as found pays nothing for it. On Eric's
-// holder-log crops (lab/holder/crops.mjs, 2026-10-09) it put the right card
-// first on 92 of 96 against 88, sure on 69 against 55, none wrong but sure,
-// and the right card first on 920 of 1,056 re-crops (moved, zoomed, pile
-// strips, turned) against 472. wide: false skips it.
+// card underneath or a side cut short, and FAR_PLACES: moved 10 %, 10 %
+// smaller or larger, pile strips of 12 and 20 %, each with the small shifts
+// round it), so a crop that is right as found pays nothing for it. On
+// Eric's holder-log crops (lab/holder/crops.mjs, 2026-10-09) it put the
+// right card first on 92 of 96 against 88, sure on 69 against 55, none
+// wrong but sure, and the right card first on 920 of 1,056 re-crops
+// (moved, zoomed, pile strips, turned) against 472. FAR_PLACES (2026-10-16)
+// took the re-crops to 1,002 right first and 718 sure (from 919 and 552)
+// and the crops as kept to 77 sure (73), still none wrong but sure; the
+// wrong first places led by 7.8 at most, all 58 or more away. It costs
+// 113 fingerprints against 59 before, about 1.5 times the time (a crop
+// widened: about 200 ms against 130 at the median on this laptop, the
+// plain search about 22 ms). wide: false skips it.
 export const WIDE_CROPS = 2;
 
 // How many cards matcher.js scores in full after screening the index on
@@ -142,6 +149,9 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	let pool = tried;
 	// The closest crop as it lay, for the margin a turn must win by.
 	let upright = tried[0] || {score: Infinity};
+	// Whether a turn won by TURN_MARGIN before the wide search, when both
+	// ways had the same few shifts.
+	let turnWon = false;
 
 	if (turns && best && !sureOf(best) && best.score > TURN_FROM) {
 		turnedTried = true;
@@ -167,6 +177,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 		if (turned[0] && turned[0].score < best.score - TURN_MARGIN) {
 			best = turned[0];
 			plain = Math.min(plain, best.score);
+			turnWon = true;
 		}
 
 		// The wide search starts from the closest crops, a turned one first
@@ -198,9 +209,14 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 		}
 	}
 
-	// A turn has to win by TURN_MARGIN at the end too: the wide search
-	// brings any crop a little closer, a wrong way up included.
-	if (best && best.turn && upright.score <= best.score + TURN_MARGIN) {
+	// A turn that only the wide search made the closest has to win by
+	// TURN_MARGIN too: that search brings any crop a little closer, a wrong
+	// way up included. One that had already won by TURN_MARGIN, both ways
+	// searched alike, keeps its place unless the crop as it lay comes closer
+	// still: with FAR_PLACES the wide search brings the wrong way up within
+	// 8 of the right one (an upside-down card, Eric's holder log: 72.0
+	// against 64.4), which took a card the turn had found away again.
+	if (best && best.turn && upright.score <= best.score + (turnWon ? 0 : TURN_MARGIN)) {
 		best = upright;
 	}
 
