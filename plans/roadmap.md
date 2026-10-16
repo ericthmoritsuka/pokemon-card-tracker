@@ -242,6 +242,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   screen"):** first look at it in Chrome at desktop and tablet sizes; then let the spread scale to
   the available width and height on wide screens (keeping its proportions), with zoom buttons (and
   pinch on tablets) remembered locally. Phones unchanged.
+- **One tile per card in the pickers (Eric, 2026-10-16):** the pocket's card chooser, Add cards to
+  the tray, and other pick-a-card lists group identical copies (same card, language, finish) into one
+  tile with a xN badge; a tap places one unplaced copy, again for the next; the tray picker can take
+  a number. Copies differing in language or finish stay separate. Small.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
