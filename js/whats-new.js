@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-16',
+		items: [
+			'Holder mode catches a different card even when it lands exactly on the last one; the same card dropped again asks Add a copy or Mistake.',
+			'Hand-held: scan the top card, take it off, and the card underneath is taken by itself.',
+			'Holder mode switches on by itself when the phone sits still in the stand, and off when you pick it up (Auto, Holder, or Hand-held on the chip).',
+			'Cards that are shifted, the wrong size, or partly covered are recognised more often, and a stuck read can no longer hold a card on Reading.',
+		],
+		version: 'v40',
+	},
+	{
 		date: '2026-10-15',
 		items: [
 			'Saving a scan session is instant, with "Saving N cards" right away, and a card stuck reading no longer blocks Save.',
