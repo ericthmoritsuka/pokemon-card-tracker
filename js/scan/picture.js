@@ -187,6 +187,10 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 		pool = [...turned.filter((one) => one.score < tried[0].score), ...tried];
 	}
 
+	// The closest crop before the wide search, and its lead group after it.
+	const unwidened = best;
+	let unwidenedLead = null;
+
 	if (wide && best && !sureOf(best)) {
 		widened = true;
 
@@ -198,6 +202,10 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 
 			const result = matchFingerprints(index, [...one.queries, ...more], {screen: screen.wide});
 			const score = scoreOf(result);
+
+			if (one === unwidened) {
+				unwidenedLead = result.groups[0] || null;
+			}
 
 			if (score < best.score || (one === best && score <= best.score)) {
 				best = {...one, result, score};
@@ -221,8 +229,18 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	}
 
 	const {groups} = best.result;
+	// The crop kept (identify.js reads the number and the label row from
+	// it): the wide search moves a crop up to 10 % or resizes it, so another
+	// outline of the same card (a card dropped exactly on another, say) can
+	// come a little closer by being moved, and its edges are then off for
+	// the read. When the crop closest as it lay names the same lead artwork
+	// after the wide search too, the same way up, that crop is kept; the
+	// match itself is the closest one's.
+	const leadIds = (group) => new Set(group ? group.cards.map((c) => c.id) : []);
+	const sameLead = unwidenedLead && groups[0] && [...leadIds(groups[0])].some((id) => leadIds(unwidenedLead).has(id));
+	const crop = widened && sameLead && (best.turn || 0) === (unwidened.turn || 0) ? unwidened.crop : best.crop;
 
-	return {crop: best.crop, gap: gapOf(groups), groups, plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+	return {crop, gap: gapOf(groups), groups, plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
 }
 
 // How many cards of a group are kept on the tray card.
