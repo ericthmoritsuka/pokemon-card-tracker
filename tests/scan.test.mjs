@@ -18,7 +18,7 @@ import {LANGUAGE_CODES} from '../js/languages.js';
 import {thumbnail, turnImage, turnThumb} from '../js/vision/fingerprint.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, DISTURB_LOOKS, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -2516,5 +2516,44 @@ describe('a card upside down or on its side (fingerprint.js turnImage)', () => {
 
 		assert.equal(compactPicture(matched, {turn: 2}).turn, 2);
 		assert.equal(compactPicture(matched).turn, undefined);
+	});
+});
+
+describe('hand-held auto capture: a disturbance re-arms it (Eric, 2026-10-16)', () => {
+	test('two jumps in a row after a capture re-arm it, whatever follows; one is a shake', () => {
+		// Two pictures each within SAME_AFTER_JUMP of the card taken but more
+		// than JUMP from each other (their halves trade places): no rule
+		// before version 40 re-armed on them.
+		const half = (left, right) => Uint8Array.from({length: THUMB_W * THUMB_H}, (_, i) => (i % THUMB_W < THUMB_W / 2 ? left : right));
+		const card = half(120, 120);
+		const one = half(120, 136);
+		const two = half(136, 120);
+		const detector = createAutoCapture();
+
+		detector.captured(card);
+		detector.push(card, {present: true});
+		detector.push(one, {present: true});
+		detector.push(two, {present: true});
+		detector.push(two, {present: true});
+		assert.equal(detector.state, 'cooldown', 'one jump, then still: a shake');
+
+		const hand = createAutoCapture();
+
+		hand.captured(card);
+		hand.push(card, {present: true});
+		hand.push(one, {present: true});
+
+		for (let i = 0; i < DISTURB_LOOKS; i++) {
+			hand.push(i % 2 ? one : two, {present: true});
+		}
+
+		assert.equal(hand.state, 'armed');
+		assert.equal(hand.disturbed, true);
+
+		const again = createAutoCapture();
+
+		again.captured(card);
+		again.rearm();
+		assert.equal(again.state, 'armed', 'rearm: the picture is no longer the one taken');
 	});
 });

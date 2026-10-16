@@ -25,7 +25,7 @@ import {defaultCapture} from './camera.js';
 import {blobImage, imageBlob} from './image.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
-import {turnImage} from '../vision/fingerprint.js';
+import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
@@ -728,11 +728,17 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 		won,
 	};
 
+	// The card's print (drop.js printOf, from the crop kept): view.js tells
+	// a card taken again from a new one by it when the picture names
+	// neither clearly.
+	const thumb = card && card.width && card.height ? thumbnail(card) : null;
+
 	return {
 		angle: rectified.angle ?? 0,
 		artwork: null,
 		card,
 		found: rectified.found,
+		print: thumb ? {art: phash(thumb, ART, 64), face: phash(thumb, FACE, 64)} : null,
 		trace,
 		guessed: rectified.guessed || null,
 		needsText: !picture || needsText(picture),

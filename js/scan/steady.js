@@ -599,27 +599,48 @@ function boxed(grey, width, height, {across: acrossShare = BOX_ACROSS, max = 1, 
 	return {lean: (left.lean + right.lean) / 2, left: left.x, right: right.x};
 }
 
+// A disturbance after a capture (Eric, 2026-10-16): this many looks in a
+// row where the view jumped (JUMP) is a hand at the card, taking the top
+// card of a pile off, say, and re-arms auto capture whatever follows; the next card of the pile is
+// often close to the last in the coarse copy. Whether what is then taken is
+// a new card is for its picture to tell (view.js readItemNow: the same card
+// asks "Same card as the last one."). One jump alone is a shake.
+export const DISTURB_LOOKS = 2;
+
 // The detector. push(thumbnail, {present}) returns true when it is time to
 // capture. captured(thumbnail) records a capture (auto or shutter), after
 // which nothing fires until the frame changes. pause() and resume() hold it
 // while a sheet covers the viewfinder. reframe() says the capture area
-// moved (the guide laid out again as the tray or a note changed height), so
-// the next frame is not compared with the last one as a jump.
+// moved (the guide laid out again as the tray or a note changed height, or
+// the card found in another place), so the next frame is not compared with
+// the last one as a jump. rearm() re-arms it after a capture (view.js: the card's picture is no
+// longer the one taken). `disturbed` says whether the last re-arm was a
+// disturbance's.
 export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames = STEADY_FRAMES, still = STILL} = {}) {
 	let previous = null;
 	let steady = 0;
 	let last = null;
 	let paused = false;
 	let state = 'armed';
+	let shaken = 0;
+	let disturbed = false;
 
 	return {
 		captured(thumbnail) {
 			last = thumbnail ? coarse(thumbnail) : null;
 			state = 'cooldown';
 			steady = 0;
+			shaken = 0;
+			disturbed = false;
+		},
+		get disturbed() {
+			return disturbed;
 		},
 		pause() {
 			paused = true;
+		},
+		rearm() {
+			state = 'armed';
 		},
 		reframe() {
 			previous = null;
@@ -629,6 +650,7 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 			const thumbnail = coarse(full);
 			const moved = difference(thumbnail, previous);
 			const previousMoved = previous ? moved : null;
+			const reframed = previous === null;
 
 			previous = thumbnail;
 			steady = moved <= still ? steady + 1 : 0;
@@ -641,9 +663,16 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 				// the card taken (by more than SAME_AFTER_JUMP): the layout moving
 				// for a moment, or the box round the card found again, jumps too.
 				const fromLast = difference(thumbnail, last);
+				const jumped = previousMoved !== null && moved > jump;
 
-				if (!present || fromLast > changed || (previousMoved !== null && moved > jump && fromLast > SAME_AFTER_JUMP)) {
+				shaken = jumped ? shaken + 1 : reframed ? shaken : 0;
+
+				if (!present || fromLast > changed || (jumped && fromLast > SAME_AFTER_JUMP)) {
 					state = 'armed';
+				}
+				else if (shaken >= DISTURB_LOOKS) {
+					state = 'armed';
+					disturbed = true;
 				}
 
 				return false;
