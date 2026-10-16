@@ -209,25 +209,28 @@ describe('a read that throws part way', () => {
 		await page.waitForSelector('#scan-shutter:not([disabled])', {timeout: 30000});
 		await page.click('#scan-shutter');
 		await page.waitForFunction(() => window.breakOnce === false, null, {timeout: 60000});
+		// The card lies still on the table from the first frame, so auto
+		// capture may take it before the shutter does, and the read that
+		// throws is then the auto capture's. The capture that threw is found
+		// by its scan log entry, once every read is over.
 		await page.waitForFunction(() => {
-			// The shutter's capture is the oldest tile: the card lying still
-			// on the table may be taken again on its own after it.
-			const tiles = document.querySelectorAll('#scan-tray [data-item]');
-			const tile = tiles[tiles.length - 1];
+			const tiles = [...document.querySelectorAll('#scan-tray [data-item]')];
 
-			return tile && tile.dataset.status !== 'reading' && tile.dataset.status !== 'matching';
+			return tiles.length > 0 && tiles.every((tile) => tile.dataset.status !== 'reading' && tile.dataset.status !== 'matching');
 		}, null, {timeout: 30000});
 
 		const state = await page.evaluate(async () => {
 			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
 			const log = JSON.parse(await (await (await import('/pokemon-card-tracker/js/scan/log.js')).logFile()).text());
+			const thrown = log.entries.filter((entry) => entry.error);
+			const entry = thrown[0];
+			const item = entry && session.items.find((one) => one.id === entry.id);
+			const tile = entry && document.querySelector(`#scan-tray [data-item="${entry.id}"]`);
 
-			const tiles = document.querySelectorAll('#scan-tray [data-item]');
-			const shutter = log.entries.find((entry) => entry.how === 'shutter');
-
-			return {entry: {error: shutter.error, status: shutter.first && shutter.first.status}, errors: log.entries.filter((entry) => entry.error).length, item: (({status, why}) => ({status, why}))(session.items[0]), tile: tiles[tiles.length - 1].dataset.status};
+			return {entry: entry ? {error: entry.error, how: entry.how, status: entry.first && entry.first.status} : null, errors: thrown.length, item: item ? (({status, why}) => ({status, why}))(item) : null, tile: tile ? tile.dataset.status : null};
 		});
 
+		assert.ok(state.entry && ['auto', 'shutter'].includes(state.entry.how), `the read that threw is a camera capture: ${JSON.stringify(state.entry)}`);
 		assert.deepEqual(state.item, {status: 'ready', why: 'The read stopped before an answer. Scan the card again, or search for it.'});
 		assert.equal(state.tile, 'unmatched');
 		assert.equal(state.errors, 1, 'only the read that threw is marked');
