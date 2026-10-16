@@ -599,27 +599,48 @@ function boxed(grey, width, height, {across: acrossShare = BOX_ACROSS, max = 1, 
 	return {lean: (left.lean + right.lean) / 2, left: left.x, right: right.x};
 }
 
+// A disturbance after a capture (Eric, 2026-10-16): this many looks in a
+// row where the view jumped (JUMP) is a hand at the card, taking the top
+// card of a pile off, say, and re-arms auto capture whatever follows; the next card of the pile is
+// often close to the last in the coarse copy. Whether what is then taken is
+// a new card is for its picture to tell (view.js readItemNow: the same card
+// asks "Same card as the last one."). One jump alone is a shake.
+export const DISTURB_LOOKS = 2;
+
 // The detector. push(thumbnail, {present}) returns true when it is time to
 // capture. captured(thumbnail) records a capture (auto or shutter), after
 // which nothing fires until the frame changes. pause() and resume() hold it
 // while a sheet covers the viewfinder. reframe() says the capture area
-// moved (the guide laid out again as the tray or a note changed height), so
-// the next frame is not compared with the last one as a jump.
+// moved (the guide laid out again as the tray or a note changed height, or
+// the card found in another place), so the next frame is not compared with
+// the last one as a jump. rearm() re-arms it after a capture (view.js: the card's picture is no
+// longer the one taken). `disturbed` says whether the last re-arm was a
+// disturbance's.
 export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames = STEADY_FRAMES, still = STILL} = {}) {
 	let previous = null;
 	let steady = 0;
 	let last = null;
 	let paused = false;
 	let state = 'armed';
+	let shaken = 0;
+	let disturbed = false;
 
 	return {
 		captured(thumbnail) {
 			last = thumbnail ? coarse(thumbnail) : null;
 			state = 'cooldown';
 			steady = 0;
+			shaken = 0;
+			disturbed = false;
+		},
+		get disturbed() {
+			return disturbed;
 		},
 		pause() {
 			paused = true;
+		},
+		rearm() {
+			state = 'armed';
 		},
 		reframe() {
 			previous = null;
@@ -629,6 +650,7 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 			const thumbnail = coarse(full);
 			const moved = difference(thumbnail, previous);
 			const previousMoved = previous ? moved : null;
+			const reframed = previous === null;
 
 			previous = thumbnail;
 			steady = moved <= still ? steady + 1 : 0;
@@ -641,9 +663,16 @@ export function createAutoCapture({changed = CHANGED, jump = JUMP, steadyFrames 
 				// the card taken (by more than SAME_AFTER_JUMP): the layout moving
 				// for a moment, or the box round the card found again, jumps too.
 				const fromLast = difference(thumbnail, last);
+				const jumped = previousMoved !== null && moved > jump;
 
-				if (!present || fromLast > changed || (previousMoved !== null && moved > jump && fromLast > SAME_AFTER_JUMP)) {
+				shaken = jumped ? shaken + 1 : reframed ? shaken : 0;
+
+				if (!present || fromLast > changed || (jumped && fromLast > SAME_AFTER_JUMP)) {
 					state = 'armed';
+				}
+				else if (shaken >= DISTURB_LOOKS) {
+					state = 'armed';
+					disturbed = true;
 				}
 
 				return false;
@@ -1603,6 +1632,150 @@ export function createHolderCapture({moving = HOLDER_MOTION, settleMs = HOLDER_S
 		},
 		get state() {
 			return paused ? 'paused' : state;
+		},
+	};
+}
+
+// ------------------------------------------------------------ holder mode by itself
+
+// Automatic holder mode (Eric, 2026-10-16, the careful one of three
+// options): holder mode comes on by itself once the phone has lain still
+// for STANCE.stillMs (no hand tremor in its motion sensors, the
+// DeviceMotionEvent the browser gives) while the picture is steady too, and
+// goes off when the phone is picked up (a deliberate movement:
+// STANCE.moveMs of turning or shaking well past a hand's tremor). A card
+// falling into the box moves the picture, never the phone, so it is a drop,
+// not a pickup. Nothing switches while a picture is being taken or matched
+// (busy): the switch waits for it. With no motion sensor (a laptop, iOS
+// before its permission, a browser that gives none) nothing switches at
+// all, and hand-held stays.
+//
+// Not measured on Eric's phone yet: a phone lying still reads about 0.1 to
+// 0.3 degrees a second of turning and under 0.05 m/s2 of shake, a phone
+// held in a hand 2 to 10 degrees a second, and picking it up well over 30
+// for a few tenths of a second (typical phone sensors). Each switch keeps
+// its evidence in the scan log, to tune these on.
+export const STANCE = {
+	// Shake and turning are judged over this window of samples.
+	windowMs: 500,
+	minSamples: 5,
+	// Still: turning under stillRotation degrees a second (root mean
+	// square) and shake under stillAccel m/s2 (the spread of the
+	// acceleration's length), for stillMs.
+	stillAccel: 0.12,
+	stillRotation: 1.5,
+	stillMs: 2000,
+	// And the picture still this long (the frame loop's own measure).
+	pictureMs: 1000,
+	// Picked up: turning past moveRotation or shake past moveAccel, for
+	// moveMs.
+	moveAccel: 1.5,
+	moveMs: 200,
+	moveRotation: 30,
+	// No sample for this long: no sensor.
+	silentMs: 1500,
+};
+
+const length3 = (v) => (v && (typeof v.x === 'number' || typeof v.y === 'number' || typeof v.z === 'number') ? Math.hypot(v.x || 0, v.y || 0, v.z || 0) : null);
+
+// The detector. sample({at, accel, gravity, rotation}) takes a motion
+// sample (DeviceMotionEvent: accel its acceleration without gravity or
+// null, gravity its accelerationIncludingGravity or null, rotation its
+// rotationRate {alpha, beta, gamma} in degrees a second or null).
+// decide({at, holder, pictureStillMs, busy}) answers {switchTo: 'holder',
+// 'hand', or null, evidence}: evidence the numbers it went by (stillMs,
+// rotation, accel, movingMs, pictureStillMs, sensor). reset() forgets
+// everything (the scanner closed, the choice changed).
+export function createStance(limits = STANCE) {
+	let samples = [];
+	let stillSince = null;
+	let movingSince = null;
+	let pickedUp = false;
+	let lastSample = -Infinity;
+
+	const judge = (at) => {
+		samples = samples.filter((s) => s.at > at - limits.windowMs);
+
+		if (samples.length < limits.minSamples) {
+			return null;
+		}
+
+		const rotations = samples.map((s) => s.rotation).filter((r) => r !== null);
+		const accels = samples.map((s) => s.accel).filter((a) => a !== null);
+		const rotation = rotations.length ? Math.sqrt(rotations.reduce((sum, r) => sum + r * r, 0) / rotations.length) : null;
+		const mean = accels.length ? accels.reduce((sum, a) => sum + a, 0) / accels.length : 0;
+		const accel = accels.length ? Math.sqrt(accels.reduce((sum, a) => sum + (a - mean) ** 2, 0) / accels.length) : null;
+
+		return rotation === null && accel === null ? null : {accel, rotation};
+	};
+
+	return {
+		decide({at, busy = false, holder, pictureStillMs = 0}) {
+			const sensor = at - lastSample <= limits.silentMs;
+			const now = sensor ? judge(at) : null;
+			const evidence = {accel: null, movingMs: 0, pictureStillMs: Math.round(pictureStillMs), rotation: null, sensor, stillMs: 0};
+
+			if (!now) {
+				stillSince = null;
+				movingSince = null;
+
+				return {evidence, switchTo: null};
+			}
+
+			const still = (now.rotation === null || now.rotation < limits.stillRotation) && (now.accel === null || now.accel < limits.stillAccel);
+			const moving = (now.rotation !== null && now.rotation > limits.moveRotation) || (now.accel !== null && now.accel > limits.moveAccel);
+
+			stillSince = still ? stillSince ?? at : null;
+			movingSince = moving ? movingSince ?? at : null;
+			evidence.accel = now.accel === null ? null : Math.round(now.accel * 1000) / 1000;
+			evidence.rotation = now.rotation === null ? null : Math.round(now.rotation * 100) / 100;
+			evidence.stillMs = stillSince === null ? 0 : Math.round(at - stillSince);
+			evidence.movingMs = movingSince === null ? 0 : Math.round(at - movingSince);
+
+			if (movingSince !== null && at - movingSince >= limits.moveMs) {
+				pickedUp = true;
+			}
+
+			// Put down again before the switch could be made: no pickup.
+			if (stillSince !== null && at - stillSince >= limits.stillMs) {
+				pickedUp = false;
+			}
+
+			if (busy) {
+				return {evidence, switchTo: null};
+			}
+
+			if (holder && pickedUp) {
+				pickedUp = false;
+
+				return {evidence, switchTo: 'hand'};
+			}
+
+			if (!holder && evidence.stillMs >= limits.stillMs && pictureStillMs >= limits.pictureMs) {
+				return {evidence, switchTo: 'holder'};
+			}
+
+			return {evidence, switchTo: null};
+		},
+		reset() {
+			samples = [];
+			stillSince = null;
+			movingSince = null;
+			pickedUp = false;
+		},
+		sample({accel = null, at, gravity = null, rotation = null}) {
+			lastSample = at;
+			samples.push({
+				// Without gravity where the phone gives it; with it, its spread
+				// over the window is the same shake (gravity is constant).
+				accel: length3(accel) ?? length3(gravity),
+				at,
+				rotation: rotation && [rotation.alpha, rotation.beta, rotation.gamma].some((r) => typeof r === 'number') ? Math.hypot(rotation.alpha || 0, rotation.beta || 0, rotation.gamma || 0) : null,
+			});
+
+			if (samples.length > 400) {
+				samples.splice(0, samples.length - 400);
+			}
 		},
 	};
 }

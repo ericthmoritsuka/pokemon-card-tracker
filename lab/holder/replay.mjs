@@ -1,7 +1,7 @@
 // Detection replay: a holder video through the scanner's drop detection,
 // crop, and picture match, at the app's frame-loop rate (lab/holder/README.md).
 //
-// node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36]
+// node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40]
 //   [--repo <checkout>] [--fps 8] [--stage 384x470] [--busy 0]
 //   [--out <results.json>] [--crops <dir>] [--verbose]
 //
@@ -15,8 +15,10 @@
 // --mode v35: the frame loop of version 35 in holder mode (view.js
 // startLoop, look, capture): findCard on every frame, steady.js
 // createHolderCapture, and identify.js identify on each capture.
-// --mode v36 (default): drop.js createDropDetector and the capture it plans
-// (drop.js dropCapture), then identify.js identifyPicture.
+// --mode v36: drop.js createDropDetector and the capture it plans
+// (drop.js dropCapture), then identify.js identifyPicture. --mode v40
+// (default): version 36's loop with version 40's content check (createV40);
+// a drop answered with the repeat bar instead of a capture is "asked".
 //
 // --busy N holds the frame loop for N times the time the capture took here
 // (synchronous work on the phone's main thread blocks the loop; about 4 for
@@ -42,12 +44,12 @@ const opts = parseArgs();
 const videoPath = opts._[0];
 
 if (!videoPath) {
-	console.error('node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36]');
+	console.error('node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40]');
 	process.exit(1);
 }
 
 const repo = resolve(opts.repo || REPO);
-const mode = String(opts.mode || 'v36');
+const mode = String(opts.mode || 'v40');
 const fps = Number(opts.fps || 8);
 const busy = Number(opts.busy || 0);
 const [stageW, stageH] = String(opts.stage || '384x470').split('x').map(Number);
@@ -58,7 +60,7 @@ const steady = await load('js/scan/steady.js');
 const camera = await load('js/scan/camera.js');
 const identifyMod = await load('js/scan/identify.js');
 const picture = await load('js/scan/picture.js');
-const drop = mode === 'v36' ? await load('js/scan/drop.js') : null;
+const drop = mode === 'v35' ? null : await load('js/scan/drop.js');
 
 // The index, read from the checkout rather than fetched.
 await picture.loadFingerprints({fetchImpl: async () => ({arrayBuffer: async () => {
@@ -325,12 +327,124 @@ function createV36() {
 	};
 }
 
+// ------------------------------------------------------------ version 40
+
+// view.js holderTick of version 40: version 36's loop, without the "moved"
+// skip, with the content check (drop.js contentCheck, contentAt): the same
+// picture as the last card is nothing after a nudge, or the repeat bar
+// ("repeat bar" in the notes) after a disturbance like a drop's, and a new
+// picture where the last card lay is taken even when what changed is no
+// card's shape.
+function createV40() {
+	const detector = drop.createDropDetector();
+	const recent = [];
+	let last = null;
+	let pending = null;
+
+	const plan = (frame, area, view, change) => {
+		const fine = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+
+		return {...drop.dropCapture(change, view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, last}), fine};
+	};
+
+	const take = (frame, change, planned, step, content, at) => {
+		recent.push(planned.sharpness);
+
+		if (recent.length > 5) {
+			recent.shift();
+		}
+
+		last = {...drop.takenCard(last, planned.card), at, fresh: false, print: content.print, quad: content.quad};
+
+		return {capture: {change, content, frame: grabFrame(frame, planned.region), identify: (image) => identifyMod.identifyPicture(image, {quads: planned.quads}), plan: planned, region: planned.region, settleMs: step.still, sharpness: planned.sharpness}};
+	};
+
+	return {
+		reframe() {
+			detector.reframe();
+			last = null;
+			pending = null;
+			recent.length = 0;
+		},
+		tick(frame, area, at) {
+			const view = viewFrame(frame, area.view, steady.FIND_SIDE);
+			const step = detector.push(view, at);
+
+			if (pending) {
+				const planned = plan(frame, area, view, pending.change);
+
+				if (planned.skip || step.moving || at >= pending.until || drop.sharpEnough(planned.sharpness, recent)) {
+					const held = pending;
+
+					pending = null;
+
+					return planned.skip ? {note: planned.skip} : take(frame, held.change, planned, held.step, drop.contentCheck(planned, planned.fine, last), at);
+				}
+
+				return {note: null};
+			}
+
+			if (!step.change) {
+				return {motion: step.motion, note: null};
+			}
+
+			const disturbed = drop.asksRepeat(step.burst, last);
+
+			if (!step.drop) {
+				const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE) : null;
+				const content = fine ? drop.contentAt(last, fine) : null;
+
+				if (content && content.verdict === 'new') {
+					const spot = {...drop.planCapture(last.quad, [], view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, sharpBox: drop.boxOf(last.quad.map(drop.toView(view)))}), fine};
+
+					return take(frame, step.change, spot, step, {...drop.contentCheck(spot, fine, null), distance: content.distance, verdict: 'new on the same spot'}, at);
+				}
+
+				if (content && content.verdict === 'same' && disturbed) {
+					return {burst: step.burst, change: step.change, content, motion: step.motion, note: 'repeat bar'};
+				}
+
+				if (step.change.kind === 'none' && !step.burst && last && last.quad && !last.fresh) {
+					const now = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+
+					last.fresh = true;
+					last.print = drop.printOf(now.grey, now.width, now.height, last.quad.map(drop.toView(now)));
+				}
+
+				return {change: step.change, content, motion: step.motion, note: step.change.kind};
+			}
+
+			const planned = plan(frame, area, view, step.change);
+
+			if (planned.skip) {
+				return {change: step.change, note: planned.skip};
+			}
+
+			const content = drop.contentCheck(planned, planned.fine, last);
+
+			if (content.verdict === 'same') {
+				last = {...last, print: content.match.print, quad: content.match.quad};
+
+				return {burst: step.burst, change: step.change, content, note: disturbed ? 'repeat bar' : 'same card'};
+			}
+
+			if (!drop.sharpEnough(planned.sharpness, recent)) {
+				pending = {change: step.change, step, until: at + drop.SHARP_WAIT_MS};
+
+				return {note: 'held for a sharper frame'};
+			}
+
+			return take(frame, step.change, planned, step, content, at);
+		},
+	};
+}
+
 // ------------------------------------------------------------ the replay
 
 const info = videoInfo(videoPath);
 const frameSize = {height: info.height, width: info.width};
 const area = camera.layoutGuide(frameSize, {height: stageH, width: stageW});
-const loop = mode === 'v35' ? createV35() : createV36();
+const loop = mode === 'v35' ? createV35() : mode === 'v36' ? createV36() : createV40();
 const reframes = [...(labels.reframes || [])].sort((a, b) => a - b);
 const captures = [];
 const notes = [];
@@ -362,7 +476,7 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 		if (opts.verbose && step.note !== 'none') {
 			const c = step.change || {};
 
-			console.log(`${t.toFixed(2)}s ${step.note} share=${(c.share || 0).toFixed(3)}${c.rect ? ` rect=${Math.round(c.rect.w)}x${Math.round(c.rect.h)} fill=${(c.fill || 0).toFixed(2)} flat=${(c.flat || 0).toFixed(2)}` : ''}`);
+			console.log(`${t.toFixed(2)}s ${step.note} share=${(c.share || 0).toFixed(3)}${c.rect ? ` rect=${Math.round(c.rect.w)}x${Math.round(c.rect.h)} fill=${(c.fill || 0).toFixed(2)} flat=${(c.flat || 0).toFixed(2)}` : ''}${step.content ? ` print=${step.content.distance ?? '-'} ${step.content.verdict}` : ''}${step.burst ? ` burst=${step.burst.frames}x${step.burst.peak.toFixed(1)}` : ''}`);
 		}
 	}
 
@@ -402,14 +516,23 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 		}
 
 		if (opts.verbose) {
-			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness} alike=${capture.change.alike}` : ''}`);
+			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan && capture.change.rect && capture.change.cover !== undefined ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness} alike=${capture.change.alike}` : ''}${capture.content ? ` print=${capture.content.distance ?? '-'} ${capture.content.verdict}` : ''}`);
 		}
 	}
 }
 
 // ------------------------------------------------------------ scoring
 
-const drops = (labels.drops || []).map((d, i) => ({...d, captures: [], i}));
+const drops = (labels.drops || []).map((d, i) => ({...d, asked: 0, captures: [], i}));
+
+// The repeat bar (version 40) belongs to the last drop that started before it.
+for (const n of notes.filter((one) => one.note === 'repeat bar')) {
+	const owner = [...drops].reverse().find((d) => d.start <= n.t + 0.01);
+
+	if (owner) {
+		owner.asked++;
+	}
+}
 
 for (const c of captures) {
 	const owner = [...drops].reverse().find((d) => d.start <= c.t + 0.01);
@@ -433,11 +556,12 @@ function summary(list, name, extra = {}) {
 	const labelled = firsts.filter((c) => c.right !== null);
 
 	return {
+		asked: ds.filter((d) => !d.captures.length && d.asked).length,
 		captures: cs.length,
 		double: ds.filter((d) => d.captures.length > 1).length,
 		drops: ds.length,
 		midFall: firsts.filter((c) => c.midFall).length,
-		missed: ds.filter((d) => !d.captures.length).length,
+		missed: ds.filter((d) => !d.captures.length && !d.asked).length,
 		name,
 		noticedOnce: ds.filter((d) => d.captures.length === 1).length,
 		pictureMs: median(firsts.map((c) => c.pictureMs)),
@@ -463,11 +587,11 @@ rows.push(summary(drops, 'all'));
 const extra = captures.filter((c) => c.drop === null);
 
 console.log(`\n${videoPath.split('/').pop()}: mode ${mode}, ${fps} fps loop, stage ${stageW}x${stageH}, busy x${busy}`);
-console.log('| Segment | Drops | Noticed once | Missed | Double | Mid-fall | Sure | Unsure | Right / labelled | Wrong but sure | Picture ms (median, p90) |');
-console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+console.log('| Segment | Drops | Noticed once | Asked (repeat bar) | Missed | Double | Mid-fall | Sure | Unsure | Right / labelled | Wrong but sure | Picture ms (median, p90) |');
+console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 
 for (const r of rows) {
-	console.log(`| ${r.name} | ${r.drops} | ${r.noticedOnce} | ${r.missed} | ${r.double} | ${r.midFall} | ${r.sure} | ${r.unsure} (${pct(r.unsure, r.sure + r.unsure)}) | ${r.right} / ${r.labelled} | ${r.wrongSure} | ${r.pictureMs}, ${r.pictureP90} |`);
+	console.log(`| ${r.name} | ${r.drops} | ${r.noticedOnce} | ${r.asked} | ${r.missed} | ${r.double} | ${r.midFall} | ${r.sure} | ${r.unsure} (${pct(r.unsure, r.sure + r.unsure)}) | ${r.right} / ${r.labelled} | ${r.wrongSure} | ${r.pictureMs}, ${r.pictureP90} |`);
 }
 
 if (extra.length) {
@@ -476,7 +600,7 @@ if (extra.length) {
 
 if (opts.verbose) {
 	for (const d of drops) {
-		console.log(`drop ${String(d.i).padStart(2)} ${d.start.toFixed(2)}-${d.settle.toFixed(2)}s ${(d.card || '?').padEnd(12)} ${d.captures.map((c) => `${c.t.toFixed(2)}s ${c.top[0] || '-'} ${c.sure ? 'sure' : 'unsure'} d=${c.distance}${c.midFall ? ' MID-FALL' : ''}${c.right === false ? ' WRONG' : ''}`).join(' | ') || 'MISSED'}`);
+		console.log(`drop ${String(d.i).padStart(2)} ${d.start.toFixed(2)}-${d.settle.toFixed(2)}s ${(d.card || '?').padEnd(12)} ${d.captures.map((c) => `${c.t.toFixed(2)}s ${c.top[0] || '-'} ${c.sure ? 'sure' : 'unsure'} d=${c.distance}${c.midFall ? ' MID-FALL' : ''}${c.right === false ? ' WRONG' : ''}`).join(' | ') || (d.asked ? 'ASKED' : 'MISSED')}`);
 	}
 
 	const counts = {};

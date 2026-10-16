@@ -33,6 +33,8 @@
 // the same place changes nothing and is not seen; in holder mode that is
 // the only blind spot, and the shutter takes it.
 
+import {ART, FACE, hamming, phash} from '../vision/fingerprint.js';
+
 // Pixels of the view per cell.
 export const CELL = 4;
 
@@ -649,7 +651,7 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 			if (moved > motion || spread > moveShare) {
 				lastMotion = at;
 				stillFrames = 0;
-				burst = burst ? {...burst, peak: Math.max(burst.peak, moved)} : {peak: moved, start: at};
+				burst = burst ? {...burst, frames: burst.frames + 1, peak: Math.max(burst.peak, moved)} : {frames: 1, peak: moved, start: at};
 
 				return {drop: false, motion: moved, moving: true, still: 0};
 			}
@@ -723,13 +725,6 @@ export function inside(a, b) {
 	return (w * h) / Math.max(1, a.w * a.h);
 }
 
-// The last card taken, nudged or settling a little further: the change lies
-// inside where it lay (MOVED_INSIDE of its box) and is much smaller than it
-// (MOVED_PART of its area). A new card landing on it changes at least its
-// picture, about a third of a card, and usually all of it.
-export const MOVED_INSIDE = 0.8;
-export const MOVED_PART = 0.25;
-
 // A change whose box is this many times the largest card taken since the
 // zoom last changed is no card (the caller forgets the last card then).
 export const LIGHT_GROWTH = 2.2;
@@ -776,13 +771,21 @@ const PAD = 0.1;
 // frame's {width, height}; last the card taken before ({box} in frame
 // pixels), or null.
 //
-// Returns {skip: 'moved'} for the last card nudged, or {card, quads,
-// region, sharpness, agree}: region the part of the frame to grab, quads
+// Returns {skip: 'off the frame'} for a card running off the frame,
+// {skip: 'light'} for a change far larger than the last card, or {card,
+// quads, region, sharpness, agree}: region the part of the frame to grab, quads
 // the card's candidate outlines in its pixels for identify.js (the
 // outlines findCard found over the change first, then the change's own
 // rectangle snapped to a card, then that rectangle cut the other ways
 // cardRects gives), card the change's card in frame pixels, sharpness that
 // of the view where it changed, agree how many found outlines agreed.
+//
+// Whether it is a new card is not told here (version 40): up to version 39
+// a change inside the last card's box and smaller than a quarter of it was
+// the last card nudged ('moved'), and on Eric's v38 log that skipped a real
+// card that landed on the last one's spot with only its picture changed
+// (20:17:21, a tenth of the view, 29 % of the card), leaving the scanner
+// idle for 75 s. The card's picture tells it instead (contentCheck).
 export function dropCapture(change, view, fine, found, {frame, last = null} = {}) {
 	const toFrame = (v) => (p) => ({x: v.rect.x + p.x / v.scale, y: v.rect.y + p.y / v.scale});
 	// A card running off the camera's frame (not only the part of it on the
@@ -801,10 +804,6 @@ export function dropCapture(change, view, fine, found, {frame, last = null} = {}
 
 	const blobBox = boxOf(rectCorners(change.rect).map(toFrame(view)));
 
-	if (last && last.box && inside(blobBox, last.box) >= MOVED_INSIDE && blobBox.w * blobBox.h < Math.min(last.area || Infinity, last.box.w * last.box.h) * MOVED_PART) {
-		return {skip: 'moved'};
-	}
-
 	// A change far larger than the last card is the light moved over the
 	// box, not a card (Eric's video: the lamp moved from one side to the
 	// other changed the whole floor round the card on top).
@@ -812,6 +811,24 @@ export function dropCapture(change, view, fine, found, {frame, last = null} = {}
 		return {skip: 'light'};
 	}
 
+	return planCapture(card, (change.others || []).map((corners) => corners.map(toFrame(view))), view, fine, found, {
+		blobBox,
+		frame,
+		sharpBox: boxOf(change.corners),
+		trusted: (change.alike ?? 0) < TRUSTED_ALIKE && change.blob < TRUSTED_BLOB,
+	});
+}
+
+// The capture round a card: card its corners in frame pixels, others the
+// other rectangles it may be (frame pixels), view and fine the views (as
+// dropCapture has them), found what steady.js findCard found on fine;
+// blobBox the box of what changed (frame pixels), sharpBox where to measure
+// the sharpness (view pixels), trusted whether the card's box is where the
+// card lies (takenCard). Returns {agree, card, quads, region, sharpness}
+// as dropCapture does, and blob, blobBox.
+export function planCapture(card, others, view, fine, found, {blobBox = boxOf(card), frame, sharpBox, trusted = true}) {
+	const toFrame = (v) => (p) => ({x: v.rect.x + p.x / v.scale, y: v.rect.y + p.y / v.scale});
+	const cardBox = boxOf(card);
 	// An outline agrees when it lies over the change's card, or holds the
 	// whole blob and is not much larger than a card round it (the blob was
 	// only the card's picture).
@@ -820,7 +837,7 @@ export function dropCapture(change, view, fine, found, {frame, last = null} = {}
 	const agree = outlines
 		.map((one) => ({corners: one.corners.map(toFrame(fine)), upright: one.upright !== false}))
 		.filter((one) => overlap(boxOf(one.corners), cardBox) >= AGREE || holds(boxOf(one.corners)));
-	const own = [card, ...(change.others || []).map((corners) => corners.map(toFrame(view)))].map((corners) => {
+	const own = [card, ...others].map((corners) => {
 		const box = boxOf(corners);
 
 		// A rectangle lying on its side starts at the corner that is the top
@@ -837,9 +854,223 @@ export function dropCapture(change, view, fine, found, {frame, last = null} = {}
 
 	return {
 		agree: agree.length,
-		card: {box: cardBox, corners: card, trusted: (change.alike ?? 0) < TRUSTED_ALIKE && change.blob < TRUSTED_BLOB},
+		blob: blobBox,
+		card: {box: cardBox, corners: card, trusted},
 		quads: quads.map((q) => ({corners: q.corners.map((c) => ({x: c.x - region.x, y: c.y - region.y})), upright: q.upright})),
 		region,
-		sharpness: Math.round(sharpness(view.grey, view.width, view.height, boxOf(change.corners))),
+		sharpness: Math.round(sharpness(view.grey, view.width, view.height, sharpBox)),
 	};
 }
+
+// ------------------------------------------------------------ the content check
+
+// A new card means a new picture (Eric, 2026-10-16): what changed in the
+// grey view says where to look, but whether the card there is a new one is
+// told by its picture, as the matcher hashes it (js/vision/fingerprint.js:
+// the art box and the whole face, a DCT hash each, from the card
+// straightened). Two different cards of one set share their layout and
+// often their colours, so the coarse difference of the grey cells misses
+// them (60 of 90 different consecutive cards in Eric's logs differ by 20
+// or less there), and the last card nudged and a new card landing on its
+// very spot can change the same few cells; their pictures never agree.
+
+// The card in a quad of a grey view (corners top left, top right, bottom
+// right, bottom left, in its pixels), straightened into a thumbnail of
+// PRINT_W x PRINT_H cells as fingerprint.js reads them (its rgb grey in all
+// three), each cell one bilinear sample: the card on the view the frame
+// loop watches is 100 to 200 pixels tall, so finer cells would read the
+// same pixels again, and on a phone each print has to cost a few
+// milliseconds of the frame loop. The quad is mapped bilinearly, which for
+// a card seen from above is its perspective within a pixel.
+const PRINT_W = 64;
+const PRINT_H = 89;
+
+export function cardThumb(grey, width, height, corners) {
+	const [tl, tr, br, bl] = corners;
+	const tw = PRINT_W;
+	const th = PRINT_H;
+	const rgb = new Float32Array(tw * th * 3);
+	const S = 1;
+	const at = (x, y) => {
+		const cx = Math.min(width - 1.001, Math.max(0, x));
+		const cy = Math.min(height - 1.001, Math.max(0, y));
+		const x0 = Math.floor(cx);
+		const y0 = Math.floor(cy);
+		const fx = cx - x0;
+		const fy = cy - y0;
+		const i = y0 * width + x0;
+		const top = grey[i] + (grey[i + 1] - grey[i]) * fx;
+		const bottom = grey[i + width] + (grey[i + width + 1] - grey[i + width]) * fx;
+
+		return top + (bottom - top) * fy;
+	};
+
+	for (let v = 0; v < th; v++) {
+		for (let u = 0; u < tw; u++) {
+			let sum = 0;
+
+			for (let j = 0; j < S; j++) {
+				const b = (v + (j + 0.5) / S) / th;
+
+				for (let k = 0; k < S; k++) {
+					const a = (u + (k + 0.5) / S) / tw;
+					const x = (1 - b) * ((1 - a) * tl.x + a * tr.x) + b * ((1 - a) * bl.x + a * br.x);
+					const y = (1 - b) * ((1 - a) * tl.y + a * tr.y) + b * ((1 - a) * bl.y + a * br.y);
+
+					sum += at(x, y);
+				}
+			}
+
+			const o = (v * tw + u) * 3;
+			const value = sum / (S * S);
+
+			rgb[o] = value;
+			rgb[o + 1] = value;
+			rgb[o + 2] = value;
+		}
+	}
+
+	return {h: th, rgb, w: tw};
+}
+
+// A card's print: the 64-bit hashes of its art box and its face, as the
+// index stores them (fingerprint.js ART, FACE), from a grey view.
+export function printOf(grey, width, height, corners) {
+	const thumb = cardThumb(grey, width, height, corners);
+
+	return {art: phash(thumb, ART, 64), face: phash(thumb, FACE, 64)};
+}
+
+// How far apart two prints are: the bits that differ, art and face
+// together (0 to 128; two unrelated pictures differ by about 64).
+export function printDistance(a, b) {
+	return a && b ? hamming(a.art, b.art) + hamming(a.face, b.face) : 128;
+}
+
+// Two prints this close or closer are the same card (the same print, or a
+// second copy of it); this far apart or farther, two different cards.
+// Between them nothing is told. Measured on Eric's v38 holder log and his
+// two videos of 2026-10-09 (lab/holder/replay-log.mjs and replay.mjs, the
+// views the scanner watches, 262 to 360 px): two different cards one on the
+// other 34 to 62 apart in the log and 24 to 62 on the videos (24: a Litleo
+// landing square on a Darmanitan, both orange Fire cards, art and face
+// alike in layout), the same card settling after it was taken 12 to 16,
+// and on the browser tests' canvas a card nudged 12 and dropped again 10.
+// A print costs about 1.3 ms here.
+export const SAME_PRINT = 16;
+export const NEW_PRINT = 24;
+
+// The closest of some candidate quads' prints to `print`: {distance,
+// index, print}.
+export function closestPrint(grey, width, height, quads, print) {
+	let best = {distance: 128, index: -1, print: null};
+
+	quads.forEach((corners, index) => {
+		const mine = printOf(grey, width, height, corners);
+		const distance = printDistance(mine, print);
+
+		if (distance < best.distance || best.index < 0) {
+			best = {distance, index, print: mine};
+		}
+	});
+
+	return best;
+}
+
+// How many of a capture's candidate quads (planCapture quads, the outlines
+// found first) are printed for the check.
+const CONTENT_QUADS = 4;
+
+// The quads of a plan in the fine view's pixels.
+export function planQuads(plan, fine, count = CONTENT_QUADS) {
+	const toFine = (c) => ({x: (c.x + plan.region.x - fine.rect.x) * fine.scale, y: (c.y + plan.region.y - fine.rect.y) * fine.scale});
+
+	return plan.quads.slice(0, count).map((q) => q.corners.map(toFine));
+}
+
+// Frame pixels to a view's, and back.
+export const toView = (v) => (p) => ({x: (p.x - v.rect.x) * v.scale, y: (p.y - v.rect.y) * v.scale});
+export const fromView = (v) => (p) => ({x: v.rect.x + p.x / v.scale, y: v.rect.y + p.y / v.scale});
+
+// Whether the card a capture would take is a new one, by its picture:
+// plan a planCapture answer, fine the finer view it was planned on, last
+// the card taken before ({print, quad}, or null). The plan's candidate
+// quads are printed on fine, and, when what changed lies inside where the
+// last card lay (LAST_INSIDE of it), so is that place: a change that is
+// only part of a card (the same card dropped again changes little but its
+// edges, and no outline may be found round it) gives quads that are no
+// card, whose prints match nothing (that place counts only as close as
+// SAME_THERE). The closest to the last card's print decides: 'same' (SAME_PRINT or closer: the last card, nudged or dropped
+// again), 'new' (NEW_PRINT or farther, or no card before), or 'unsure'.
+// Returns {verdict, distance (null with no card before), print, quad,
+// match, there}: print and quad (frame pixels) are the plan's first quad's,
+// what the next check compares with when the card is new; match the
+// closest candidate's ({print, quad}), where the last card now lies when it
+// is the same; there the distance at the last card's place, or null.
+const LAST_INSIDE = 0.8;
+
+export function contentCheck(plan, fine, last) {
+	const quads = planQuads(plan, fine);
+	const print = printOf(fine.grey, fine.width, fine.height, quads[0]);
+	const quad = plan.quads[0].corners.map((c) => ({x: c.x + plan.region.x, y: c.y + plan.region.y}));
+
+	if (!last || !last.print) {
+		return {distance: null, print, quad, verdict: 'new'};
+	}
+
+	const best = closestPrint(fine.grey, fine.width, fine.height, quads, last.print);
+	const {distance} = best;
+	const there = last.quad && plan.blob && inside(plan.blob, boxOf(last.quad)) >= LAST_INSIDE ? printDistance(printOf(fine.grey, fine.width, fine.height, last.quad.map(toView(fine))), last.print) : null;
+
+	if (distance > SAME_PRINT && there !== null && there <= SAME_THERE) {
+		return {distance: there, match: {print: last.print, quad: last.quad}, print, quad, there, verdict: 'same'};
+	}
+
+	// The candidate closest to the last card: where that card lies now, when
+	// it is the same (nudged), for the next check.
+	const match = {print: best.print, quad: plan.quads[best.index].corners.map((c) => ({x: c.x + plan.region.x, y: c.y + plan.region.y}))};
+
+	return {distance, match, print, quad, there, verdict: distance <= SAME_PRINT ? 'same' : distance >= NEW_PRINT ? 'new' : 'unsure'};
+}
+
+// The last card's place counts as showing it still only this close: a new
+// card covering part of it moves its print part of the way (Eric's first
+// video, 2026-10-09: 24 for a card landing over the top half of the last).
+export const SAME_THERE = 12;
+
+// The same check where the last card lay (last.quad, frame pixels), for a
+// still picture after a disturbance whose change was no card's (judgeChange
+// none, small, or shape): a card landing on the very spot of the last with
+// the same layout and colours changes too few cells to make a card's
+// shape, but never the same picture. Returns {distance, verdict} as
+// contentCheck does; null with no card before.
+export function contentAt(last, fine) {
+	if (!last || !last.print || !last.quad) {
+		return null;
+	}
+
+	const distance = printDistance(printOf(fine.grey, fine.width, fine.height, last.quad.map(toView(fine))), last.print);
+
+	return {distance, verdict: distance <= SAME_PRINT ? 'same' : distance >= NEW_PRINT ? 'new' : 'unsure'};
+}
+
+// A disturbance like a drop's: the picture moved for at least
+// DISTURB_FRAMES looks of the frame loop, as much as DISTURB_PEAK at its
+// most (a card falling into Eric's box moved 5.8 to 29 in his v38 log, for
+// 0.3 to 0.5 s). The same card found after one is asked about (a second
+// copy dropped in, view.js askRepeat); after a smaller one (the last card
+// nudged, the box knocked) nothing is.
+export const DISTURB_FRAMES = 2;
+export const DISTURB_PEAK = 5;
+
+export const disturbedBy = (burst) => Boolean(burst && burst.frames >= DISTURB_FRAMES && burst.peak >= DISTURB_PEAK);
+
+// The repeat bar is for a disturbance that starts REPEAT_GAP_MS or more
+// after the last card was taken (last.at, the same clock as the burst's):
+// a card still settling after it was taken (Eric's first video: a bounce
+// 0.3 s after the capture, the same picture, 4 looks moving at 8.2) asks
+// nothing, and nobody drops a second copy that fast (his fastest rhythm
+// was a card every 1.5 s).
+export const REPEAT_GAP_MS = 800;
+
+export const asksRepeat = (burst, last) => disturbedBy(burst) && !(last && typeof last.at === 'number' && burst.start - last.at < REPEAT_GAP_MS);

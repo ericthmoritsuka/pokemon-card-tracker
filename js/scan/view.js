@@ -27,7 +27,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {createDropDetector, dropCapture, SHARP_WAIT_MS, sharpEnough, takenCard} from './drop.js';
+import {asksRepeat, boxOf, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, NEW_PRINT, planCapture, printDistance, printOf, SAME_PRINT, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -36,7 +36,7 @@ import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, Wai
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
-import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
+import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
@@ -172,27 +172,37 @@ const TRACES_KEPT = 3;
 const PHOTO_MAX_SIDE = 2400;
 
 // Holder mode (Eric, 2026-10-09, steady.js createHolderCapture): the phone
-// held still in a stand over cards dropped under it. Remembered on the
-// phone, off at first.
+// held still in a stand over cards dropped under it. Since version 40
+// (Eric, 2026-10-16) a choice of three, remembered on the phone: Auto (the
+// first), holder mode coming on and off by itself (steady.js
+// createStance); Holder ('on', what the switch kept before); or Hand-held
+// ('off').
 const HOLDER_KEY = 'card-tracker:scan-holder';
+const HOLDER_CHOICES = ['auto', 'holder', 'hand'];
 
-function holderOn() {
+function holderChoice() {
 	try {
-		return localStorage.getItem(HOLDER_KEY) === 'on';
+		const value = localStorage.getItem(HOLDER_KEY);
+
+		return value === 'on' ? 'holder' : value === 'off' ? 'hand' : 'auto';
 	}
 	catch {
-		return false;
+		return 'auto';
 	}
 }
 
-function rememberHolder(on) {
+function rememberHolder(choice) {
 	try {
-		localStorage.setItem(HOLDER_KEY, on ? 'on' : 'off');
+		localStorage.setItem(HOLDER_KEY, choice === 'holder' ? 'on' : choice === 'hand' ? 'off' : 'auto');
 	}
 	catch {
-		// Not kept; the next visit starts as before.
+		// Not kept; the next visit starts on Auto.
 	}
 }
+
+// The chip's words for the mode in use and the choice.
+const holderLabel = (on, choice) => `${on ? 'Holder' : 'Hand-held'}${choice === 'auto' ? ' (auto)' : ''}`;
+const CHOICE_WORDS = {auto: 'Auto', hand: 'Hand-held', holder: 'Holder'};
 
 // The default finish (Eric, 2026-10-15, finish.js DEFAULT_FINISHES): the
 // finish each scanned card starts on when it lists it. Remembered on the
@@ -391,7 +401,14 @@ export function scanView(root) {
 	const holderDetector = createHolderCapture();
 	// Holder mode's drop detector (drop.js).
 	const dropDetector = createDropDetector();
-	let holder = holderOn();
+	let choice = holderChoice();
+	let holder = choice === 'holder';
+	// Automatic holder mode's detector, and the picture's stillness and the
+	// work in progress it goes by (stanceTick).
+	const stance = createStance();
+	let pictureStillMs = 0;
+	let capturing = 0;
+	let picturing = 0;
 	let defaultFinish = storedFinish();
 	// The valuable card highlight, the rising price mark, and the chime
 	// (js/scan/worth.js), and the last threshold of each before it was
@@ -422,6 +439,9 @@ export function scanView(root) {
 	// (askRepeat), and the reads in progress.
 	const pictures = new Map();
 	const readings = new Map();
+	// And their prints (identify.js print), for a picture that names no card
+	// clearly.
+	const prints = new Map();
 	// How long each capture waited in the picture queue and the text queue
 	// before its turn (ms), for the scan report.
 	const queueWaits = new Map();
@@ -464,15 +484,16 @@ export function scanView(root) {
 	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
+	// The scanning mode: a chip that shows the mode in use ("Holder (auto)",
+	// "Hand-held"), and changes the choice in turn: Auto, Holder, Hand-held.
 	const holderSwitch = h('button', {
-		'aria-checked': String(holder),
-		'aria-label': 'Holder mode: the phone stays still in a stand over cards dropped under it',
 		class: 'scan-chip scan-holder',
+		'data-choice': choice,
+		'data-holder': holder ? 'on' : 'off',
 		id: 'scan-holder',
-		onclick: () => setHolder(!holder),
-		role: 'switch',
+		onclick: () => chooseHolder(HOLDER_CHOICES[(HOLDER_CHOICES.indexOf(choice) + 1) % HOLDER_CHOICES.length]),
 		type: 'button',
-	}, 'Holder');
+	}, holderLabel(holder, choice));
 	// The scanner's settings (the default finish, valuable cards, rising
 	// prices, the chime), a chip at the foot of the camera on the left,
 	// opening their sheet (settingsSheet).
@@ -519,6 +540,7 @@ export function scanView(root) {
 
 	root.replaceChildren(screen);
 	document.documentElement.classList.add('scan-open');
+	drawHolderSwitch();
 
 	// ------------------------------------------------------------ context for the sheets
 
@@ -1612,11 +1634,23 @@ export function scanView(root) {
 	// capture, and the outlines found are handed to identify.js to cut by
 	// their own corners; with no card found, the guide's capture area, as
 	// before.
-	async function capture(how, {looked = null, settleMs = null} = {}) {
+	async function capture(how, options = {}) {
 		if (!camera || !video.videoWidth || shutterBusy) {
 			return;
 		}
 
+		// Auto never switches the mode while a picture is taken (stanceTick).
+		capturing++;
+
+		try {
+			await captureNow(how, options);
+		}
+		finally {
+			capturing--;
+		}
+	}
+
+	async function captureNow(how, {looked = null, settleMs = null} = {}) {
 		let now = null;
 		let shutterFound = null;
 		let shutterWaitMs = null;
@@ -1650,6 +1684,11 @@ export function scanView(root) {
 
 		detector.captured(steadyShot ? steadyShot.grey : null);
 		holderDetector.captured();
+		// Printed again on the first steady look after it (checkPrint), from
+		// the frame loop's own copy: a print of the finer copy taken here
+		// would not compare with them.
+		heldPrint = null;
+		newPrints = 0;
 
 		// The shutter in holder mode: the card it took is the pile now, not a
 		// drop still to take.
@@ -1933,7 +1972,16 @@ export function scanView(root) {
 				// whose number is being read never holds up the next card's
 				// picture (Eric's holder log, 2026-10-09: 3 to 14 s).
 				const asked = performance.now();
-				const seen = await identifyPictureAway(frame, options);
+				let seen;
+
+				picturing++;
+
+				try {
+					seen = await identifyPictureAway(frame, options);
+				}
+				finally {
+					picturing--;
+				}
 
 				queueWaits.set(id, {picture: Math.max(0, Math.round(performance.now() - asked - (seen.timings.total || 0))), pictureMs: Math.round(performance.now() - asked)});
 				progress.set(id, 0.3);
@@ -1973,6 +2021,7 @@ export function scanView(root) {
 		// tray as a second tile, because the picture was only kept on the card
 		// after its photos were saved, which on his phone took longer).
 		pictures.set(id, result.picture || null);
+		prints.set(id, result.print || null);
 		readings.delete(id);
 		readDone(result.picture || null);
 
@@ -2036,9 +2085,11 @@ export function scanView(root) {
 		// The same card as the camera's capture just before it: held a
 		// moment longer, or a second copy. The repeat bar asks which; the
 		// capture itself never joins the tray.
-		// In holder mode a card dropped is a new card, the same card included
-		// (a second copy dropped in): the drop detector never takes one card
-		// twice (drop.js), so nothing is asked.
+		// The same: the picture names the same card clearly, or, when it
+		// names either one unclearly, the two prints agree (drop.js
+		// SAME_PRINT). In holder mode a drop's picture was checked against
+		// the last card's before it was taken (view.js holderTick), so nothing
+		// is asked here.
 		const previous = auto && !dropped ? previousCapture(id) : null;
 		const previousPicture = previous ? await pictureOf(previous) : null;
 
@@ -2046,7 +2097,7 @@ export function scanView(root) {
 			return;
 		}
 
-		if (previous && repeatOfPrevious(result.picture, previousPicture)) {
+		if (previous && sameCapture(result, previousPicture, prints.get(previous.id))) {
 			await drop(id, 'repeat', {fullSaved, outcome: null, report: report(), result});
 			askRepeat(id, previous.id);
 
@@ -2104,6 +2155,20 @@ export function scanView(root) {
 	// How long a capture waits for the read of the capture before it, to
 	// tell whether it repeats it.
 	const REPEAT_WAIT_MS = 20000;
+
+	// Whether a read (identify's answer) is the same card as the capture
+	// before it (its picture match and print): the picture names the same
+	// card clearly, or it names one of the two unclearly and their prints
+	// agree.
+	function sameCapture(result, previousPicture, previousPrint) {
+		if (repeatOfPrevious(result.picture, previousPicture)) {
+			return true;
+		}
+
+		const unclear = !pictureKey(result.picture) || !pictureKey(previousPicture);
+
+		return unclear && Boolean(result.print && previousPrint) && printDistance(result.print, previousPrint) <= SAME_PRINT;
+	}
 
 	// A tray card's picture match: on the card, kept from its read, or, while
 	// it is still being read, once that read is done (at most REPEAT_WAIT_MS).
@@ -2172,7 +2237,7 @@ export function scanView(root) {
 	// while it shows is dropped quietly, not asked again.
 	function askRepeat(id, previous) {
 		if (repeat && repeat.previous === previous) {
-			scanLog.setOutcome(id, {kind: 'dropped', why: 'repeat'});
+			outcomeOf(id, {kind: 'dropped', why: 'repeat'});
 
 			return;
 		}
@@ -2197,15 +2262,21 @@ export function scanView(root) {
 
 		if (yes && item) {
 			change(() => S.setCopies(session, previous, S.copiesOf(item) + 1));
-			scanLog.setOutcome(id, {kind: 'added-copy', to: previous});
+			outcomeOf(id, {kind: 'added-copy', to: previous});
 			buzz(BUZZ_SURE);
 			announce(`${item.card ? item.card.name : 'The card'}: ${plural(S.copiesOf(S.findItem(session, previous)), 'copy', 'copies')}.`);
 		}
 		else {
-			scanLog.setOutcome(id, {kind: 'dropped', why: 'repeat'});
+			outcomeOf(id, {kind: 'dropped', why: 'repeat'});
 		}
 
 		drawRepeat();
+	}
+
+	// A scan log entry's outcome, for an entry id or the promise of one (a
+	// holder repeat's entry, log.js logEvent).
+	function outcomeOf(id, outcome) {
+		Promise.resolve(id).then((entry) => (entry ? scanLog.setOutcome(entry, outcome) : null)).catch(() => {});
 	}
 
 	function drawRepeat() {
@@ -2697,6 +2768,9 @@ export function scanView(root) {
 			frame: `${area.frame.width} x ${area.frame.height}`,
 			guide: rect(area.guide),
 			holder,
+			// The scanning mode chosen (Auto, Holder, Hand-held: view.js
+			// holderChoice), from version 40.
+			holderChoice: choice,
 			how,
 			screen: rect(area.screen),
 			settleMs: settleMs === null ? null : Math.round(settleMs),
@@ -2940,6 +3014,8 @@ export function scanView(root) {
 		const at = performance.now();
 		const step = dropDetector.push(view, at);
 
+		pictureStillMs = step.moving ? 0 : step.still;
+
 		if (pendingDrop) {
 			const plan = planDrop(pendingDrop.change, view, area);
 
@@ -2949,7 +3025,7 @@ export function scanView(root) {
 				pendingDrop = null;
 
 				if (!plan.skip) {
-					takeDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area);
+					takeDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area, contentCheck(plan, plan.fine, lastDrop));
 				}
 			}
 
@@ -2960,9 +3036,42 @@ export function scanView(root) {
 			return;
 		}
 
+		// A disturbance like a drop's before this still picture, a moment
+		// after the last card was taken: the same card found after it is a
+		// second copy dropped in, or a hand that passed, and is asked about
+		// (askRepeat); after a smaller one (the last card nudged) or a card
+		// settling, nothing is.
+		const disturbed = asksRepeat(step.burst, lastDrop);
+
 		if (!step.drop) {
-			if (step.change.kind !== 'none') {
-				logSkipped(step.change.kind, step);
+			// What changed is no card's shape, but after a disturbance the card
+			// on top may still be a new one: a card landing on the very spot of
+			// the last, with its layout and colours, changes too few cells
+			// (Eric, 2026-10-16). Its picture tells.
+			const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
+			const content = fine ? contentAt(lastDrop, fine) : null;
+
+			if (content && content.verdict === 'new') {
+				const plan = planSpot(view, fine);
+
+				setPile(false);
+				takeDrop(step.change, plan, step, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
+
+				return;
+			}
+
+			if (content && content.verdict === 'same' && disturbed) {
+				sameCardAgain(step, area, content);
+			}
+			else if (step.change.kind !== 'none') {
+				logSkipped(step.change.kind, step, area, content);
+			}
+			else if (!step.burst && lastDrop && lastDrop.quad && !lastDrop.fresh) {
+				// The first still look after a card is taken prints it again
+				// where it lies: the print taken with it may come from a frame
+				// a moment before it settled.
+				lastDrop.fresh = true;
+				lastDrop.print = freshPrint(lastDrop, area) || lastDrop.print;
 			}
 
 			// A still picture with nothing new: the last drop's frame for the
@@ -2988,7 +3097,7 @@ export function scanView(root) {
 				setPile(true);
 			}
 
-			logSkipped(plan.skip, step);
+			logSkipped(plan.skip, step, area);
 			keepBeforeView(area);
 
 			return;
@@ -2996,22 +3105,80 @@ export function scanView(root) {
 
 		setPile(false);
 
+		// A new card means a new picture (Eric, 2026-10-16): the card where
+		// the change is, printed, against the last card taken. The same
+		// picture is the last card, nudged (nothing) or dropped again after a
+		// disturbance (asked); anything else is a new card, even on the very
+		// same spot.
+		const content = contentCheck(plan, plan.fine, lastDrop);
+
+		if (content.verdict === 'same') {
+			// The last card where it lies now (nudged), for the next check.
+			lastDrop.print = content.match.print;
+			lastDrop.quad = content.match.quad;
+
+			if (disturbed) {
+				sameCardAgain(step, area, content);
+			}
+			else {
+				logSkipped('same card', step, area, content);
+			}
+
+			keepBeforeView(area);
+
+			return;
+		}
+
 		if (!sharpEnough(plan.sharpness, sharpRecent)) {
 			pendingDrop = {at, change: step.change, step, until: at + SHARP_WAIT_MS};
 
 			return;
 		}
 
-		takeDrop(step.change, plan, step, area);
+		takeDrop(step.change, plan, step, area, content);
 	}
 
 	// The capture for a drop (drop.js dropCapture), with the card outlines
-	// found on the finer copy of the view.
+	// found on the finer copy of the view, which the plan keeps (fine) for
+	// the content check.
 	function planDrop(change, view, area) {
 		const fine = viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE);
 		const found = fine ? findCard(fine.grey, fine.width, fine.height) : null;
 
-		return dropCapture(change, view, fine || view, found, {frame: camera.frame, last: lastDrop});
+		return {...dropCapture(change, view, fine || view, found, {frame: camera.frame, last: lastDrop}), fine: fine || view};
+	}
+
+	// The last card's print where it lies now, on the finer copy, or null.
+	function freshPrint(last, area) {
+		const fine = viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE);
+
+		return fine ? printOf(fine.grey, fine.width, fine.height, last.quad.map(toView(fine))) : null;
+	}
+
+	// The capture of a new card lying where the last one lay (lastDrop.quad,
+	// frame pixels), with the outlines found over it.
+	function planSpot(view, fine) {
+		const found = findCard(fine.grey, fine.width, fine.height);
+
+		return {...planCapture(lastDrop.quad, [], view, fine, found, {frame: camera.frame, sharpBox: boxOf(lastDrop.quad.map(toView(view)))}), fine};
+	}
+
+	// The last card's picture again after a disturbance: a second copy
+	// dropped in on it, or a hand that passed over the pile. Nothing is
+	// taken; the repeat bar asks (Add a copy adds one to the last card's
+	// tile), as it does in hand-held scanning, and the scan log keeps it.
+	function sameCardAgain(step, area, content) {
+		const id = scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step, content), how: 'holder', outcome: null, why: 'same card again'});
+
+		logViews(id, area).catch(() => {});
+
+		if (lastDrop && lastDrop.item && S.findItem(session, lastDrop.item)) {
+			buzz(BUZZ_CAPTURE);
+			askRepeat(id, lastDrop.item);
+		}
+		else {
+			outcomeOf(id, {kind: 'skipped', why: 'same card again'});
+		}
 	}
 
 	function drawTip() {
@@ -3043,10 +3210,13 @@ export function scanView(root) {
 	}
 
 	// The view now and the view before the drop, as small JPEGs for the scan
-	// log, so lab/holder/replay.mjs can replay the drop from a log.
-	async function logViews(id, area) {
+	// log, so lab/holder/replay-log.mjs can replay the drop from a log. Both
+	// are taken at once (toBlob copies the canvas as it is called), so a
+	// still frame redrawing the view before meanwhile changes nothing. id:
+	// the entry, or a promise of it (a skipped drop's, log.js logEvent).
+	function logViews(id, area) {
 		if (!scanLog.recording() || !scanLog.picturesOn() || !beforeCanvas.width) {
-			return;
+			return Promise.resolve();
 		}
 
 		const after = document.createElement('canvas');
@@ -3056,44 +3226,69 @@ export function scanView(root) {
 		after.getContext('2d').drawImage(video, area.view.x, area.view.y, area.view.w, area.view.h, 0, 0, after.width, after.height);
 
 		const blob = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.7));
-		const [before, now] = await Promise.all([blob(beforeCanvas), blob(after)]);
 
-		scanLog.saveViews(id, {after: now, before});
+		return Promise.all([id, blob(beforeCanvas), blob(after)]).then(([entry, before, now]) => (entry ? scanLog.saveViews(entry, {after: now, before}) : null));
 	}
 
-	// What the scan log keeps of a drop.
-	const dropReport = (change, plan, step) => ({
+	// What the scan log keeps of a drop. content: the content check
+	// (drop.js contentCheck or contentAt), whose distance from the last
+	// card's print and verdict it keeps; disturbed whether the picture moved
+	// as a drop makes it (drop.js disturbedBy).
+	const dropReport = (change, plan, step, content = null) => ({
 		agree: plan ? plan.agree : null,
 		blob: change ? Math.round((change.blob || 0) * 1000) / 1000 : null,
 		cover: change && change.cover !== undefined ? Math.round(change.cover * 100) / 100 : null,
+		disturbed: disturbedBy(step.burst),
 		heldMs: step.heldMs ?? null,
 		kind: change ? change.kind : null,
+		motionFrames: step.burst ? step.burst.frames : null,
 		motionPeak: step.burst ? Math.round(step.burst.peak * 10) / 10 : null,
 		movingMs: step.burst ? Math.round(performance.now() - step.burst.start - step.still) : null,
+		print: content && typeof content.distance === 'number' ? content.distance : null,
+		printVerdict: content ? content.verdict : null,
 		share: change ? Math.round(change.share * 1000) / 1000 : null,
 		sharpness: plan ? plan.sharpness : null,
 		stillFrames: step.stillFrames ?? null,
 		stillMs: Math.round(step.still),
 	});
 
-	// A drop the detector saw that took nothing: why, in the scan log.
-	function logSkipped(why, step) {
-		scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step), how: 'holder', why});
+	// A drop the detector saw that took nothing: why, in the scan log, with
+	// the views before and after it, as a drop taken keeps them (Eric's v38
+	// log: a real drop skipped as "moved" left nothing to replay it from).
+	function logSkipped(why, step, area, content = null) {
+		const id = scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step, content), how: 'holder', why});
+
+		logViews(id, area).catch(() => {});
 	}
 
 	// Takes the card a drop brought: a tile at once, the picture matched off
-	// the frame loop.
-	async function takeDrop(change, plan, step, area) {
+	// the frame loop. content: its content check, whose print the next
+	// card is checked against.
+	async function takeDrop(change, plan, step, area, content) {
 		sharpRecent.push(plan.sharpness);
 
 		if (sharpRecent.length > 5) {
 			sharpRecent.shift();
 		}
 
-		lastDrop = takenCard(lastDrop, plan.card);
-		dropsTaken++;
+		// The card taken, at once, so the next look checks against it; its
+		// tray card once added.
+		const taken = {...takenCard(lastDrop, plan.card), at: performance.now(), fresh: false, item: null, print: content.print, quad: content.quad};
 
-		const {captureMs, frame} = await takeFrame(plan.region);
+		lastDrop = taken;
+		dropsTaken++;
+		capturing++;
+
+		let grabbed;
+
+		try {
+			grabbed = await takeFrame(plan.region);
+		}
+		finally {
+			capturing--;
+		}
+
+		const {captureMs, frame} = grabbed;
 
 		scanStats.captures++;
 		flash();
@@ -3101,11 +3296,12 @@ export function scanView(root) {
 
 		if (discarded) {
 			discarded = null;
-			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+			draft.prunePhotos(session.items.map((one) => one.id)).catch(() => {});
 		}
 
 		const item = S.addCapture(session);
 
+		taken.item = item.id;
 		toBuzz.add(item.id);
 		sinceOpen.add(item.id);
 		scanLog.startEntry(item.id, {at: item.captured_at, how: 'auto', phone: deviceInfo(), source: 'camera'});
@@ -3117,7 +3313,7 @@ export function scanView(root) {
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
 		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};
-		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step)};
+		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step, content)};
 
 		refocusSoon();
 		readItem(item.id, frame, {auto: true, captureMs, dropped: true, fullSaved, geometry, quads: plan.quads});
@@ -3172,6 +3368,7 @@ export function scanView(root) {
 
 			if (holder) {
 				holderTick();
+				stanceTick();
 
 				return;
 			}
@@ -3196,8 +3393,10 @@ export function scanView(root) {
 				thumbFrom = from;
 			}
 
-			// How long the picture has been still, for the scan log.
+			// How long the picture has been still, for the scan log and Auto.
 			const step = holderDetector.push(now.view.grey, now.view.width, now.view.height, {card: whole(now), touching: now.touching}, performance.now());
+
+			pictureStillMs = step.settleMs;
 
 			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
@@ -3205,14 +3404,144 @@ export function scanView(root) {
 			if (detector.push(now.shot.grey, seen)) {
 				capture('auto', {looked: now, settleMs: step.settleMs});
 			}
+			else {
+				checkPrint(now, step);
+			}
+
+			stanceTick();
 		}, FRAME_MS);
 	}
 
-	// Holder mode on or off (the switch beside the zoom).
-	function setHolder(on) {
+	// Hand-held, a new card means a new picture too (Eric, 2026-10-16): once
+	// a card is taken, the card held still is printed every PRINT_EVERY looks
+	// (drop.js printOf, on the frame loop's small copy) and compared with the
+	// one taken; a picture NEW_PRINT or farther from it twice in a row re-arms
+	// auto capture, however close the two cards are in the coarse copy
+	// (steady.js CHANGED: two cards of one set laid in the same place often
+	// differ by less). heldPrint: the card's print on the first steady look
+	// after the last capture.
+	const PRINT_EVERY = 2;
+	const PRINT_STILL_MS = 250;
+	let heldPrint = null;
+	let printLooks = 0;
+	let newPrints = 0;
+
+	const printLook = (now) => (now && now.card ? printOf(now.view.grey, now.view.width, now.view.height, now.card.quad.map(toView(now.view))) : null);
+
+	function checkPrint(now, step) {
+		if (detector.state !== 'cooldown' || !whole(now) || step.settleMs < PRINT_STILL_MS) {
+			newPrints = 0;
+
+			return;
+		}
+
+		if (!heldPrint) {
+			heldPrint = printLook(now);
+
+			return;
+		}
+
+		printLooks++;
+
+		if (printLooks % PRINT_EVERY) {
+			return;
+		}
+
+		newPrints = printDistance(printLook(now), heldPrint) >= NEW_PRINT ? newPrints + 1 : 0;
+
+		if (newPrints >= 2) {
+			newPrints = 0;
+			detector.rearm();
+		}
+	}
+
+	// The chip's words and state.
+	function drawHolderSwitch() {
+		const next = HOLDER_CHOICES[(HOLDER_CHOICES.indexOf(choice) + 1) % HOLDER_CHOICES.length];
+
+		holderSwitch.textContent = holderLabel(holder, choice);
+		holderSwitch.dataset.choice = choice;
+		holderSwitch.dataset.holder = holder ? 'on' : 'off';
+		holderSwitch.setAttribute('aria-label', `Scanning mode: ${CHOICE_WORDS[choice]}${choice === 'auto' ? `, now ${holder ? 'holder mode' : 'hand-held'}` : ''}. Tap for ${CHOICE_WORDS[next]}.`);
+	}
+
+	// The choice made on the chip: Auto, Holder, or Hand-held. Auto keeps the
+	// mode in use until the phone's motion says otherwise.
+	function chooseHolder(next) {
+		choice = next;
+		rememberHolder(next);
+		stance.reset();
+		askMotionPermission();
+
+		if (next === 'auto') {
+			drawHolderSwitch();
+			announce(`Scanning mode: Auto. Holder mode comes on by itself once the phone lies still in a stand, and goes off when you pick it up. ${holder ? 'Holder mode now.' : 'Hand-held now.'}`);
+		}
+		else {
+			setHolder(next === 'holder');
+		}
+
+		logMode(`${CHOICE_WORDS[next].toLowerCase()} chosen`, null);
+	}
+
+	// Each switch of the mode and why, in the scan log: how 'mode', why
+	// what switched it, evidence the numbers it went by (steady.js
+	// createStance).
+	function logMode(why, evidence) {
+		scanLog.logEvent({at: new Date().toISOString(), evidence, how: 'mode', mode: holder ? 'holder' : 'hand', outcome: {at: new Date().toISOString(), kind: 'mode'}, why});
+	}
+
+	// The phone's motion, for Auto (steady.js createStance).
+	function onMotion(event) {
+		stance.sample({accel: event.acceleration || null, at: performance.now(), gravity: event.accelerationIncludingGravity || null, rotation: event.rotationRate || null});
+	}
+
+	// iOS gives the motion sensors only once asked, from a tap: the first tap
+	// on the scanner asks, when Auto is chosen.
+	let motionAsked = false;
+
+	function askMotionPermission() {
+		const ask = typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' ? DeviceMotionEvent.requestPermission : null;
+
+		if (!ask || motionAsked || choice !== 'auto') {
+			return;
+		}
+
+		motionAsked = true;
+		ask.call(DeviceMotionEvent).catch(() => {});
+	}
+
+	// Auto: each look of the frame loop asks the stance detector whether to
+	// switch, never while a picture is being taken or matched.
+	function stanceTick() {
+		if (choice !== 'auto') {
+			return;
+		}
+
+		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop);
+		const {evidence, switchTo} = stance.decide({at: performance.now(), busy, holder, pictureStillMs});
+
+		if (switchTo && (switchTo === 'holder') !== holder) {
+			setHolder(switchTo === 'holder', {auto: true, evidence});
+		}
+	}
+
+	// Holder mode on or off (the chip at the foot of the camera, or Auto).
+	// auto: switched by Auto, with the evidence, which the scan log keeps;
+	// the choice is not changed.
+	function setHolder(on, {auto = false, evidence = null} = {}) {
 		holder = on;
-		rememberHolder(on);
-		holderSwitch.setAttribute('aria-checked', String(on));
+
+		if (!auto) {
+			choice = on ? 'holder' : 'hand';
+			rememberHolder(choice);
+		}
+		else {
+			logMode(on ? 'holder (auto)' : 'hand-held (auto)', evidence);
+		}
+
+		drawHolderSwitch();
+		pictureStillMs = 0;
 		holderDetector.reframe();
 		reframeHolder();
 		setPile(false);
@@ -3225,7 +3554,9 @@ export function scanView(root) {
 			camera.releaseFocus().catch(() => {});
 		}
 
-		announce(on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.');
+		announce(auto
+			? (on ? 'Holder mode on by itself: the phone is still. Each card dropped under it is taken once it settles.' : 'Hand-held by itself: the phone was picked up.')
+			: (on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.'));
 	}
 
 	function onVisibility() {
@@ -3281,6 +3612,8 @@ export function scanView(root) {
 	});
 
 	document.addEventListener('visibilitychange', onVisibility);
+	window.addEventListener('devicemotion', onMotion);
+	screen.addEventListener('pointerdown', askMotionPermission, {once: true});
 	window.addEventListener('online', onOnline);
 	window.addEventListener('offline', onOffline);
 	window.addEventListener('resize', onResize);
@@ -3354,7 +3687,7 @@ export function scanView(root) {
 
 		if (repeat) {
 			clearTimeout(repeat.timer);
-			scanLog.setOutcome(repeat.id, {kind: 'dropped', why: 'repeat'});
+			outcomeOf(repeat.id, {kind: 'dropped', why: 'repeat'});
 			repeat = null;
 		}
 
@@ -3363,6 +3696,7 @@ export function scanView(root) {
 		persist();
 		stopOwned();
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.removeEventListener('devicemotion', onMotion);
 		window.removeEventListener('online', onOnline);
 		window.removeEventListener('offline', onOffline);
 		window.removeEventListener('resize', onResize);

@@ -22,10 +22,10 @@
 
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
-import {imageBlob} from './image.js';
+import {blobImage, imageBlob} from './image.js';
 import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
-import {turnImage} from '../vision/fingerprint.js';
+import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
@@ -154,8 +154,11 @@ export function identifyPicture(image, options = {}) {
 
 // identifyPicture in a worker (see-worker.js), so the frame loop is not held
 // up by it; on the main thread when a worker cannot start or fails. Answers
-// as identifyPicture does. A straightened card (options.straight) is matched
-// here: it is small and its image is the answer's card.
+// as identifyPicture does, plus `where`, 'worker' or 'main', and `fallback`,
+// why a picture meant for the worker was matched here ('no worker', 'worker
+// error', 'timeout'), for the scan log. A straightened card
+// (options.straight) is matched here: it is small and its image is the
+// answer's card.
 let worker = null;
 let workerFailed = typeof Worker === 'undefined';
 let workerWarm = null;
@@ -167,20 +170,116 @@ const jobs = new Map();
 // The jobs still owed their full capture's JPEG: id -> onFull.
 const fulls = new Map();
 
+// A worker that stops answering would hold its picture, and the card, at
+// "Reading" for good. It is let go once it has said nothing for `job` ms
+// while pictures wait on it, or `load` ms while it is still loading the
+// index (a first visit downloads 1.2 MB); every picture it held is matched
+// here, and so is every picture after it, this visit. The worker answers a
+// picture in 0.1 to 2.4 s on Eric's phone (version 38 log), one at a time,
+// so `job` is several of the slowest. Tests shorten both.
+export const WORKER_LIMITS = {job: 10000, load: 30000};
+
+// When the worker was last heard from, when it was given work with none
+// waiting, and whether its index is in.
+let heardAt = 0;
+let busySince = 0;
+let workerReady = false;
+let watchTimer = null;
+
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+function watchWorker() {
+	clearTimeout(watchTimer);
+	watchTimer = null;
+
+	if (!worker || (!jobs.size && !warmFallback)) {
+		return;
+	}
+
+	const limit = workerReady ? WORKER_LIMITS.job : WORKER_LIMITS.load;
+	const left = Math.max(heardAt, busySince) + limit - clock();
+
+	if (left <= 0) {
+		dropWorker('timeout');
+
+		return;
+	}
+
+	watchTimer = setTimeout(watchWorker, Math.min(left + 5, 1000));
+}
+
+// The worker given up (it errored, or said nothing for too long): every
+// picture it held is matched here, the warm-up loads the index here, and
+// no worker is started again this visit.
+function dropWorker(why) {
+	const gone = worker;
+	const held = [...jobs.values()];
+
+	workerFailed = true;
+	worker = null;
+	clearTimeout(watchTimer);
+	watchTimer = null;
+
+	if (gone) {
+		gone.terminate();
+	}
+
+	jobs.clear();
+	fulls.clear();
+
+	for (const job of held) {
+		job.resolve(fallback(job, why));
+	}
+
+	if (warmFallback) {
+		warmFallback();
+	}
+}
+
 function startWorker() {
 	const next = new Worker(new URL('./see-worker.js', import.meta.url), {type: 'module'});
 
+	heardAt = clock();
+	workerReady = false;
 	next.addEventListener('message', ({data}) => {
+		if (worker !== next) {
+			return;
+		}
+
+		heardAt = clock();
+
 		if (data.warm) {
+			workerReady = workerReady || Boolean(data.ok);
+
+			return;
+		}
+
+		// The worker has read a bitmap's pixels: the spare kept for a
+		// fallback is let go, so the camera's frames are not held.
+		if (data.decoded) {
+			const job = jobs.get(data.id);
+
+			if (job && job.spare) {
+				closeBitmap(job.spare);
+				job.spare = null;
+			}
+
 			return;
 		}
 
 		// The full capture as a JPEG, encoded in the worker: it may come
-		// before the answer or after it.
+		// before the answer or after it. Kept on the job too, for a fallback
+		// once the bitmap is gone.
 		if (data.full !== undefined) {
 			const onFull = fulls.get(data.id);
+			const job = jobs.get(data.id);
 
 			fulls.delete(data.id);
+
+			if (job) {
+				job.full = data.full;
+				job.fullSent = true;
+			}
 
 			if (onFull) {
 				onFull(data.full);
@@ -196,6 +295,13 @@ function startWorker() {
 		}
 
 		jobs.delete(data.id);
+		workerReady = true;
+		watchWorker();
+
+		if (job.spare) {
+			closeBitmap(job.spare);
+			job.spare = null;
+		}
 
 		// A capture sent as a bitmap comes back as pixels: the page keeps it
 		// for the scan report's capture image, and reads it here if the
@@ -203,7 +309,7 @@ function startWorker() {
 		const image = data.capture || job.image;
 
 		if (data.error) {
-			job.resolve(fallback({...job, image}));
+			job.resolve(fallback({...job, image}, 'worker error'));
 
 			return;
 		}
@@ -211,27 +317,11 @@ function startWorker() {
 		const {result} = data;
 		const trace = result.trace ? {...result.trace, capture: data.sameCapture ? image : result.trace.capture, card: result.card} : null;
 
-		job.resolve({...result, capture: data.capture ? image : undefined, trace});
+		job.resolve({...result, capture: data.capture ? image : undefined, fallback: null, trace, where: 'worker'});
 	});
 	next.addEventListener('error', () => {
-		workerFailed = true;
-		next.terminate();
-		worker = null;
-
-		for (const job of jobs.values()) {
-			job.resolve(fallback(job));
-		}
-
-		for (const onFull of fulls.values()) {
-			onFull(null);
-		}
-
-		fulls.clear();
-
-		jobs.clear();
-
-		if (warmFallback) {
-			warmFallback();
+		if (worker === next) {
+			dropWorker('worker error');
 		}
 	});
 
@@ -251,20 +341,66 @@ function pictureWorker() {
 	return worker;
 }
 
-// A job the worker could not do, done here: a capture still a bitmap (the
-// worker died before it turned it into pixels) has gone to the worker and
-// cannot be read again, so it fails, and the card waits as a read cut short
-// does.
-function fallback({image, options}) {
-	if (image && image.bitmap) {
-		if (options.onFull) {
-			options.onFull(null);
+function closeBitmap(bitmap) {
+	try {
+		bitmap.close();
+	}
+	catch {
+		// Already closed.
+	}
+}
+
+// A copy of a capture's bitmap kept until the worker has read it (a
+// VideoFrame's clone shares its picture; an ImageBitmap is copied), so a
+// worker that dies first does not take the capture with it. null when no
+// copy can be made.
+async function spareOf(bitmap) {
+	try {
+		if (typeof bitmap.clone === 'function') {
+			return bitmap.clone();
 		}
 
-		return Promise.reject(new Error('The capture was lost with the picture worker.'));
+		return typeof createImageBitmap === 'function' ? await createImageBitmap(bitmap) : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+// A job the worker could not do, done here: from the image itself when the
+// page still has it (pixels are copied to the worker, not moved), else from
+// the spare copy of a bitmap, else from the full capture's JPEG the worker
+// made. A capture with none of these left (the worker died between reading
+// the bitmap and making the JPEG) fails, and the card waits as a read cut
+// short does. The full capture's JPEG, when the worker had not sent it, is
+// made here.
+async function fallback({full = null, fullSent = false, image, options, spare = null}, why) {
+	let pixels = image && !image.bitmap ? image : null;
+
+	if (!pixels && spare) {
+		pixels = bitmapPixels({...image, bitmap: spare});
 	}
 
-	return identifyPicture(image, options).then((result) => ({...result, capture: options.wantCapture ? image : undefined}));
+	if (!pixels && full && typeof createImageBitmap === 'function') {
+		pixels = await blobImage(full).catch(() => null);
+	}
+
+	if (image && image.bitmap && options.onFull && !fullSent) {
+		if (pixels) {
+			imageBlob(pixels, {quality: 0.92}).then(options.onFull, () => options.onFull(null));
+		}
+		else {
+			options.onFull(null);
+		}
+	}
+
+	if (!pixels) {
+		throw new Error('The capture was lost with the picture worker.');
+	}
+
+	const result = await identifyPicture(pixels, options);
+
+	return {...result, capture: options.wantCapture || (image && image.bitmap) ? pixels : undefined, fallback: why, where: 'main'};
 }
 
 // Whether a capture can be taken as a bitmap and read in the worker
@@ -282,6 +418,7 @@ export function canReadAway() {
 // capture's pixels. Without a worker, a bitmap is read here.
 export async function identifyPictureAway(image, options = {}) {
 	const away = options.straight ? null : pictureWorker();
+	const why = options.straight ? null : 'no worker';
 
 	if (image && image.bitmap && (!away || typeof OffscreenCanvas === 'undefined')) {
 		const pixels = bitmapPixels(image);
@@ -292,11 +429,18 @@ export async function identifyPictureAway(image, options = {}) {
 
 		const result = await identifyPicture(pixels, options);
 
-		return {...result, capture: pixels};
+		return {...result, capture: pixels, fallback: why, where: 'main'};
 	}
 
 	if (!away) {
-		return identifyPicture(image, options);
+		return {...(await identifyPicture(image, options)), fallback: why, where: 'main'};
+	}
+
+	const spare = image.bitmap ? await spareOf(image.bitmap) : null;
+
+	// The worker was given up while the spare was made.
+	if (worker !== away) {
+		return fallback({image, options, spare}, 'worker error');
 	}
 
 	// Only what the picture half reads goes to the worker (readOptions
@@ -306,7 +450,11 @@ export async function identifyPictureAway(image, options = {}) {
 	return new Promise((resolve, reject) => {
 		const id = ++jobSeq;
 
-		jobs.set(id, {image, options, resolve: (answer) => Promise.resolve(answer).then(resolve, reject)});
+		if (!jobs.size) {
+			busySince = clock();
+		}
+
+		jobs.set(id, {id, image, options, resolve: (answer) => Promise.resolve(answer).then(resolve, reject), spare});
 
 		if (image.bitmap && options.onFull) {
 			fulls.set(id, options.onFull);
@@ -321,10 +469,16 @@ export async function identifyPictureAway(image, options = {}) {
 			}
 		}
 		catch {
+			const job = jobs.get(id);
+
 			jobs.delete(id);
 			fulls.delete(id);
-			fallback({image, options}).then(resolve, reject);
+			fallback(job, 'worker error').then(resolve, reject);
+
+			return;
 		}
+
+		watchWorker();
 	});
 }
 
@@ -383,16 +537,38 @@ export function warmPicture() {
 
 			away.addEventListener('message', heard);
 			away.postMessage({warm: true});
+			watchWorker();
 		});
 	}
 
 	return workerWarm;
 }
 
+// How many text reads are queued or running (identifyText), and the label
+// checks waiting for there to be none (readLanguageLabel).
+let textPending = 0;
+const textIdleWaiters = [];
+
+const textIdle = () => (textPending ? new Promise((resolve) => textIdleWaiters.push(resolve)) : Promise.resolve());
+
 export function identifyText(seen, options = {}) {
+	const counted = Boolean(seen && seen.needsText);
+
+	textPending += counted ? 1 : 0;
+
 	const run = textQueue.then(() => readText(seen, options));
 
 	textQueue = run.catch(() => {});
+
+	if (counted) {
+		run.catch(() => {}).then(() => {
+			textPending--;
+
+			while (!textPending && textIdleWaiters.length) {
+				textIdleWaiters.shift()();
+			}
+		});
+	}
 
 	return run;
 }
@@ -552,11 +728,17 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 		won,
 	};
 
+	// The card's print (drop.js printOf, from the crop kept): view.js tells
+	// a card taken again from a new one by it when the picture names
+	// neither clearly.
+	const thumb = card && card.width && card.height ? thumbnail(card) : null;
+
 	return {
 		angle: rectified.angle ?? 0,
 		artwork: null,
 		card,
 		found: rectified.found,
+		print: thumb ? {art: phash(thumb, ART, 64), face: phash(thumb, FACE, 64)} : null,
 		trace,
 		guessed: rectified.guessed || null,
 		needsText: !picture || needsText(picture),
@@ -682,16 +864,43 @@ function cutQuad(image, corners, height) {
 
 // The label row alone (read.js readLabel) of a straightened card, for the
 // language of a card the picture settled with no text read. Starts the
-// engine if it is not running; runs outside the one-card-at-a-time queue
-// (a few small reads that share the pool's workers), so the next capture is
-// never held up by it. Returns {code, confidence, text, ms}.
-export async function readLanguageLabel(card) {
-	const engine = await warmEngine();
-	const started = performance.now();
-	const {readLabel} = await import('./read.js');
-	const label = await readLabel(card, engine.ocr);
+// engine if it is not running; runs outside the one-card-at-a-time queue,
+// so the next capture is never held up by it, but behind every card whose
+// text is being read: label checks run one at a time, each starts only
+// once no text read is queued or running, and its OCR calls are background
+// ones (ocr.js createSlots), so a card read meanwhile takes the workers
+// first. On Eric's phone (version 38 log, holder mode, a card every 4 s)
+// each label check took up to 6.7 s of OCR alongside the number reads, and
+// those waited 3.5 to 17.2 s in the text queue. A card's language stays
+// the last one picked until its label is read. Returns {code, confidence,
+// text, ms, waitedMs}.
+let labelQueue = Promise.resolve();
 
-	return {...label, ms: Math.round(performance.now() - started)};
+export const labelStats = {done: 0, waited: 0};
+
+export function readLanguageLabel(card) {
+	const asked = performance.now();
+	const run = labelQueue.then(async () => {
+		const engine = await warmEngine();
+
+		if (textPending) {
+			labelStats.waited++;
+		}
+
+		await textIdle();
+
+		const started = performance.now();
+		const {readLabel} = await import('./read.js');
+		const label = await readLabel(card, (image, settings) => engine.ocr(image, {...settings, background: true}));
+
+		labelStats.done++;
+
+		return {...label, ms: Math.round(performance.now() - started), waitedMs: Math.round(started - asked)};
+	});
+
+	labelQueue = run.catch(() => {});
+
+	return run;
 }
 
 // read.js, imported with the engine: it is only needed when text is read.

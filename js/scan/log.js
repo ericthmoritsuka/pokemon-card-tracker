@@ -7,9 +7,10 @@
 // cards; nothing here is synced.
 //   entries   one per scan, key "<tray item id>"
 //   pictures  the straightened card as a JPEG Blob, key "<tray item id>",
-//             and for a holder drop the view before and after it (about
-//             320 px, keys "<id>:before" and "<id>:after"), for replaying
-//             the drop (lab/holder/replay.mjs --log)
+//             and for a holder drop, taken or (from version 40) skipped,
+//             the view before and after it (about 320 px, keys
+//             "<id>:before" and "<id>:after"), for replaying the drop
+//             (lab/holder/replay-log.mjs)
 //
 // An entry, as stored (the export adds `picture` as a data URL):
 //   {id, at, app, source, how, phone, report, first, firstLocked, outcome}
@@ -47,11 +48,12 @@ const db = database('card-tracker-scan-log', [ENTRIES, PICTURES]);
 export const LOG_MAX = 500;
 
 // The scanner's version, in every entry.
-export const SCANNER = 36;
+export const SCANNER = 40;
 
 // The most entries whose drop views (before and after, about 15 KB each)
-// are kept: past it, the oldest entries' views go first.
-export const VIEWS_MAX = 80;
+// are kept: past it, the oldest entries' views go first. 120 from version
+// 40, when skipped drops keep theirs too (about 3.6 MB at most).
+export const VIEWS_MAX = 120;
 
 // The switches, on this phone only, in localStorage.
 const RECORD_KEY = 'card-tracker:scan-log';

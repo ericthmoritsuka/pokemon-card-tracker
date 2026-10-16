@@ -11,6 +11,16 @@
 // real session: did it still take the cards taken, and skip what was
 // skipped? --identify also matches the card cut from the small view
 // (much softer than the phone's own capture, so a lower bound).
+//
+// From version 40 each drop is also checked by its picture against the
+// card before it (drop.js contentCheck, contentAt), as view.js holderTick
+// does: the card before is the last drop the replay took, printed on its
+// own view after (where it had settled), when the two views are the same
+// size. A drop whose picture is the last card's replays as 'same card'
+// (no disturbance like a drop's: its motion peak under DISTURB_PEAK) or
+// 'repeat bar'; the scan log's motion peak and frames (version 40; a
+// version 36 to 39 log has the peak only, and two frames are assumed)
+// tell which.
 
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -57,6 +67,9 @@ function view(image, side) {
 let agree = 0;
 let right = 0;
 let labelled = 0;
+// The last drop taken, for the content check: {print, quad, size}.
+let last = null;
+const withContent = typeof drop.contentCheck === 'function';
 
 for (const entry of entries) {
 	const beforeBytes = dataUrlBytes(entry.views.before);
@@ -67,14 +80,39 @@ for (const entry of entries) {
 	const b = view(before, steady.FIND_SIDE);
 	const change = drop.judgeChange(drop.cells(a.grey, a.width, a.height), drop.cells(b.grey, b.width, b.height));
 	const logged = entry.how === 'holder' ? entry.why : 'drop';
+	const size = `${after.width}x${after.height}`;
+	const fine = view(after, steady.FIND_SIDE_CAPTURE);
+	const logDrop = entry.drop || (entry.report && entry.report.geometry && entry.report.geometry.drop) || {};
+	const burst = typeof logDrop.motionPeak === 'number' ? {frames: logDrop.motionFrames ?? 2, peak: logDrop.motionPeak} : null;
+	const previous = last && last.size === size ? last : null;
 	let replayed = change.kind;
 	let top = null;
+	let content = null;
+
+	if (withContent && change.kind !== 'drop' && burst && previous && ['none', 'small', 'shape'].includes(change.kind)) {
+		content = drop.contentAt(previous, fine);
+		replayed = content.verdict === 'new' ? 'drop (same spot)' : content.verdict === 'same' && drop.disturbedBy(burst) ? 'repeat bar' : change.kind;
+
+		if (content.verdict === 'new') {
+			last = {print: drop.printOf(fine.grey, fine.width, fine.height, previous.quad.map(drop.toView(fine))), quad: previous.quad, size};
+		}
+	}
 
 	if (change.kind === 'drop') {
-		const fine = view(after, steady.FIND_SIDE_CAPTURE);
 		const plan = drop.dropCapture(change, a, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame: {height: after.height, width: after.width}});
 
 		replayed = plan.skip || 'drop';
+
+		if (withContent && !plan.skip) {
+			content = drop.contentCheck(plan, fine, previous);
+
+			if (content.verdict === 'same') {
+				replayed = drop.disturbedBy(burst) ? 'repeat bar' : 'same card';
+			}
+			else {
+				last = {print: content.print, quad: content.quad, size};
+			}
+		}
 
 		if (identifyMod && !plan.skip) {
 			const region = plan.region;
@@ -96,10 +134,10 @@ for (const entry of entries) {
 		}
 	}
 
-	agree += replayed === logged ? 1 : 0;
+	agree += replayed === logged || (logged === 'drop' && replayed.startsWith('drop')) ? 1 : 0;
 
 	if (opts.verbose || replayed !== logged) {
-		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}`);
+		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}${content ? ` print=${content.distance ?? '-'} ${content.verdict}` : ''}`);
 	}
 }
 

@@ -325,12 +325,14 @@ describe('holder mode: the capture of a drop', () => {
 		assert.ok(plan.card.trusted);
 	});
 
-	test('a change much smaller than the last card, inside where it lay, is that card nudged', () => {
+	test('a change much smaller than the last card, inside where it lay, is planned like any other (version 40: its picture decides)', () => {
 		const last = D.takenCard(null, {box: {h: 220, w: 158, x: 41, y: 90}, trusted: true});
 		const change = {blob: 0.02, corners: [{x: 40, y: 50}, {x: 52, y: 50}, {x: 52, y: 62}, {x: 40, y: 62}], cover: 1, others: [], rect: {angle: 0, cx: 46, cy: 56, h: 12, w: 12}};
 		const view = viewOf({cards: [card(0)]});
+		const plan = D.dropCapture(change, view, view, null, {frame, last});
 
-		assert.equal(D.dropCapture(change, view, view, null, {frame, last}).skip, 'moved');
+		assert.equal(plan.skip, undefined, 'no "moved" skip any more');
+		assert.ok(plan.quads.length >= 1);
 	});
 
 	test('a blurred drop waits for a sharper frame, by the last cards\' sharpness', () => {
@@ -343,5 +345,157 @@ describe('holder mode: the capture of a drop', () => {
 		const box = {h: 110, w: 79, x: 20, y: 41};
 
 		assert.ok(D.sharpness(smeared.grey, W, H, box) < D.sharpness(sharp.grey, W, H, box) * 0.6, 'a smeared card is less sharp');
+	});
+});
+
+// A card whose art is a low-contrast pattern over the same layout: two of
+// them differ by less than drop.js CHANGE in every cell, as two cards of
+// one set with close colours can, but their pictures do not agree.
+function twin(pattern) {
+	const base = face(1);
+
+	return (u, v) => {
+		if (v > 0.11 && v < 0.52 && u > 0.08 && u < 0.92) {
+			const bx = Math.floor(((u - 0.08) / 0.84) * 4);
+			const by = Math.floor(((v - 0.11) / 0.41) * 3);
+
+			return 128 + 7 * pattern[by * 4 + bx];
+		}
+
+		return base(u, v);
+	};
+}
+
+const TWINS = [twin([1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, -1]), twin([-1, -1, 1, 1, 1, 1, -1, -1, -1, 1, 1, -1])];
+
+// A card's corners in the view (top left, top right, bottom right, bottom
+// left), as render draws it.
+function cornersOf(c) {
+	const ch = c.h * H;
+	const cw = (ch * 63) / 88;
+	const a = ((c.angle || 0) * Math.PI) / 180;
+	const at = (u, v) => ({x: c.cx * W + u * cw * Math.cos(a) - v * ch * Math.sin(a), y: c.cy * H + u * cw * Math.sin(a) + v * ch * Math.cos(a)});
+
+	return [at(-0.5, -0.5), at(0.5, -0.5), at(0.5, 0.5), at(-0.5, 0.5)];
+}
+
+describe('a new card means a new picture (Eric, 2026-10-16): the content check', () => {
+	const frame = {height: H, width: W};
+	const viewOf = (scene) => ({...render(scene), rect: {h: H, w: W, x: 0, y: 0}, scale: 1});
+	const printAt = (scene, c) => {
+		const view = render(scene);
+
+		return D.printOf(view.grey, W, H, cornersOf(c));
+	};
+
+	test('the same card printed in two places and lights is close; two different cards on one spot are far apart', () => {
+		const a = card(0);
+		const moved = card(0, {angle: 2, cx: 0.52, cy: 0.49});
+		const same = D.printDistance(printAt({cards: [a]}, a), printAt({cards: [moved], light: 0.85}, moved));
+
+		assert.ok(same <= D.SAME_PRINT, `the same card nudged and dimmed: ${same}`);
+
+		for (let i = 1; i < FACES.length; i++) {
+			const other = D.printDistance(printAt({cards: [a]}, a), printAt({cards: [card(i)]}, card(i)));
+
+			assert.ok(other >= D.NEW_PRINT, `card ${i} on card 0's spot: ${other}`);
+		}
+
+		const twins = D.printDistance(printAt({cards: [card(0, {face: TWINS[0]})]}, card(0)), printAt({cards: [card(0, {face: TWINS[1]})]}, card(0)));
+
+		assert.ok(twins >= D.NEW_PRINT, `two cards of one layout and close colours: ${twins}`);
+	});
+
+	test('a card dropped on the last one\'s spot is new; the last card nudged is the same; a nudge is no disturbance, a drop is', () => {
+		const first = run([...settle({cards: []}), ...fall([], card(0))]).drops[0];
+		const view0 = viewOf({cards: [card(0)]});
+		const plan0 = D.dropCapture(first.change, view0, view0, null, {frame});
+		const last = D.contentCheck(plan0, view0, null);
+
+		assert.equal(last.verdict, 'new', 'the first card: nothing before it');
+
+		// Card 1 falls onto card 0's very spot.
+		const plain = run([...settle({cards: [card(0)]}), ...fall([card(0)], card(1))]);
+		const dropped = plain.drops[0];
+		const view1 = viewOf({cards: [card(0), card(1)]});
+		const plan1 = D.dropCapture(dropped.change, view1, view1, null, {frame, last});
+		const check1 = D.contentCheck(plan1, view1, last);
+
+		assert.equal(check1.verdict, 'new', `card 1 on card 0's spot: ${check1.distance}`);
+
+		// Card 0 nudged a little in one look: a change, but the same picture,
+		// and no disturbance like a drop's.
+		const nudged = card(0, {angle: 1.5, cx: 0.515, cy: 0.49});
+		const nudge = D.createDropDetector();
+
+		run(settle({cards: [card(0)]}), nudge);
+
+		const outs = [];
+
+		for (const [k, scene] of [{cards: [nudged]}, {cards: [nudged]}, {cards: [nudged]}, {cards: [nudged]}, {cards: [nudged]}].entries()) {
+			outs.push(nudge.push(render(scene), 1500 + k * FRAME_MS + 2000));
+		}
+
+		const judged = outs.find((out) => out.change);
+
+		assert.ok(judged, 'the nudge was judged');
+		assert.equal(D.disturbedBy(judged.burst), false, `a nudge is no disturbance: ${JSON.stringify(judged.burst)}`);
+
+		const viewN = viewOf({cards: [nudged]});
+
+		if (judged.change.kind === 'drop') {
+			const planN = D.dropCapture(judged.change, viewN, viewN, null, {frame, last});
+
+			assert.equal(D.contentCheck(planN, viewN, {...last, print: D.printOf(viewN.grey, W, H, cornersOf(nudged))}).verdict, 'same');
+		}
+
+		assert.notEqual(D.contentAt(last, viewN).verdict, 'new', 'where card 0 lay, card 0 still shows, a little moved: no new card');
+
+		// A drop's disturbance.
+		const fell = run([...settle({cards: [card(0)]}), ...fall([card(0)], card(0))]);
+
+		assert.equal(fell.drops.length, 0, 'the same card dropped on the same spot changes nothing');
+	});
+
+	test('a card of the same layout and close colours landing on the last one\'s spot changes no cell enough, but its picture is new', () => {
+		const a = card(0, {face: TWINS[0]});
+		const b = card(0, {face: TWINS[1]});
+		const detector = D.createDropDetector();
+
+		run(settle({cards: [a]}), detector);
+
+		let at = 1500;
+		let still = null;
+		const push = (scene) => {
+			const out = detector.push(render(scene), at);
+
+			at += FRAME_MS;
+
+			if (out.change && !still) {
+				still = out;
+			}
+		};
+
+		for (const x of [0.2, 0.4, 0.6, 0.8]) {
+			push({cards: [x < 0.5 ? a : b], hand: {r: 0.3, x, y: 0.5}});
+		}
+
+		for (let k = 0; k < 6; k++) {
+			push({cards: [b]});
+		}
+
+		assert.ok(still, 'judged once still');
+		assert.notEqual(still.change.kind, 'drop', `the change is no card's shape: ${still.change.kind}`);
+		assert.ok(D.disturbedBy(still.burst), 'a hand at the box is a disturbance');
+
+		const last = {print: D.printOf(render({cards: [a]}).grey, W, H, cornersOf(a)), quad: cornersOf(a)};
+		const view = viewOf({cards: [b]});
+
+		assert.equal(D.contentAt(last, view).verdict, 'new');
+
+		const plan = D.planCapture(last.quad, [], view, view, null, {frame, sharpBox: D.boxOf(last.quad)});
+
+		assert.ok(plan.quads.length >= 1 && plan.region.w > 0);
+		assert.equal(D.contentCheck(plan, view, null).verdict, 'new');
 	});
 });

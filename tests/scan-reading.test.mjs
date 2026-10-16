@@ -6,6 +6,9 @@
 // OCR is a fake, TCGdex and PokeAPI are never asked, and the OCR strings are
 // invented.
 //
+// Also the OCR pool's order (js/scan/ocr.js createSlots, 2026-10-16): a
+// label check behind the tray never holds a card's read up.
+//
 // Run: node --test tests/scan-reading.test.mjs
 
 import assert from 'node:assert/strict';
@@ -15,6 +18,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {fullArtPicture} from '../js/scan/identify.js';
 import {loadLocalNames, localNameEntries} from '../js/scan/local-names.js';
+import {createSlots} from '../js/scan/ocr.js';
 import {findCandidates, namedPrintsFrom, namedPrintsQuery} from '../js/scan/match.js';
 import {pictureMatch} from '../js/scan/picture.js';
 import {FULL_ART_SURE, readNumber, REGIONS, ringedNumbers} from '../js/scan/read.js';
@@ -394,5 +398,48 @@ describe('the name table shipped with the app', () => {
 		assert.equal(asked, 2);
 		assert.equal(first.length, ENTRIES.length);
 		assert.equal(second, first);
+	});
+});
+
+describe('the OCR pool serves card reads before label checks (Eric\'s phone, version 38: reads waited up to 17 s)', () => {
+	test('a background job waits while a foreground one waits, and holds one worker at most', async () => {
+		const slots = createSlots();
+		const order = [];
+		const run = async (name, background) => {
+			const slot = await slots.take(background);
+
+			order.push(`${name} on ${slot.name}`);
+
+			return () => slots.release(slot);
+		};
+
+		slots.release({name: 'w1'});
+		slots.release({name: 'w2'});
+
+		// Two label checks first: one takes a worker, the other waits, so the
+		// second worker stays free for a card read.
+		const label1 = run('label 1', true);
+		const label2 = run('label 2', true);
+		const done1 = await label1;
+
+		await Promise.resolve();
+		assert.deepEqual(order, ['label 1 on w1']);
+
+		const read1 = await run('read 1', false);
+
+		assert.deepEqual(order, ['label 1 on w1', 'read 1 on w2']);
+
+		// Both busy: a read and a label check wait; the read goes first when
+		// a worker comes free, even the label check's.
+		const read2 = run('read 2', false);
+
+		done1();
+		await read2;
+		assert.deepEqual(order, ['label 1 on w1', 'read 1 on w2', 'read 2 on w1']);
+		assert.deepEqual(slots.waiting, {back: 1, front: 0});
+
+		read1();
+		await label2;
+		assert.equal(order[3], 'label 2 on w2', 'the label check runs once no read waits');
 	});
 });

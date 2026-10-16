@@ -694,7 +694,7 @@ export function asianEvidence(item) {
 export function applyLabel(session, id, label, now = nowIso(), {asian = null, category = null, western = null} = {}) {
 	const item = mustFind(session, id);
 
-	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || ''} : null;
+	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || '', waitedMs: label.waitedMs ?? null} : null;
 
 	if (category && item.card) {
 		item.card.category = category;
@@ -1505,6 +1505,11 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 			}
 			: null,
 		partial: read.partial && (read.partial.number || read.partial.total) ? `${read.partial.number || '?'}/${read.partial.total || '?'}` : null,
+		// Where the picture was matched (identify.js identifyPictureAway):
+		// 'worker' or 'main', and why not in the worker when it was meant to
+		// be ('no worker', 'worker error', 'timeout').
+		pictureIn: result.where || null,
+		pictureWhy: result.fallback || null,
 		rectify: {
 			angle: result.angle ?? null,
 			card: result.card ? `${result.card.width}x${result.card.height}` : null,
@@ -1665,7 +1670,9 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	}
 
 	if (report.picture) {
-		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}`);
+		const where = report.pictureIn === 'worker' ? '; in the picture worker' : report.pictureIn === 'main' ? `; on the main thread${report.pictureWhy ? ` (${report.pictureWhy === 'timeout' ? 'the picture worker stopped answering' : report.pictureWhy === 'worker error' ? 'the picture worker failed' : 'no picture worker'})` : ''}` : '';
+
+		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}${where}`);
 
 		if ((report.picture.variants || []).length) {
 			lines.push(`- Crops tried for a weak match: ${report.picture.variants.join(', ')}; ${report.picture.before !== null ? `${report.picture.how} won (the crop as found was ${report.picture.before} away)` : 'none beat the crop as found'}`);
@@ -1768,7 +1775,7 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 		lines.push(`- Language: ${item.language || 'none'} (${by})${item.card && item.card.print ? `; showing the ${item.card.print} print` : ''}`);
 
 		if (item.labelCheck) {
-			lines.push(`- Label row read in the background: ${item.labelCheck.code ? `${item.labelCheck.code} (${pct(item.labelCheck.confidence)})` : 'no language'}${item.labelCheck.ms !== null ? `, ${ms(item.labelCheck.ms)}` : ''}${item.labelCheck.text ? `: "${oneLine(item.labelCheck.text)}"` : ''}`);
+			lines.push(`- Label row read in the background: ${item.labelCheck.code ? `${item.labelCheck.code} (${pct(item.labelCheck.confidence)})` : 'no language'}${item.labelCheck.ms !== null ? `, ${ms(item.labelCheck.ms)}` : ''}${item.labelCheck.waitedMs ? ` after waiting ${ms(item.labelCheck.waitedMs)} for card reads` : ''}${item.labelCheck.text ? `: "${oneLine(item.labelCheck.text)}"` : ''}`);
 		}
 	}
 
