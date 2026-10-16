@@ -6,7 +6,10 @@
 // - a picture worker that stops answering is let go after its time limit
 //   (js/scan/identify.js WORKER_LIMITS), and the pictures it held are
 //   matched on the main thread, so no card hangs at "Reading"; the scan
-//   report says where each picture ran and why.
+//   report says where each picture ran and why;
+// - label checks behind the tray (identify.js readLanguageLabel) wait for
+//   the cards being read, and their OCR calls never take a worker a card's
+//   read is waiting for (js/scan/ocr.js createSlots).
 //
 // Run: PLAYWRIGHT=/path/to/node_modules/playwright node --test tests/scan-safety-browser.test.mjs
 
@@ -168,6 +171,70 @@ describe('a picture worker that stops answering', () => {
 		assert.equal(item.card, CARDS.c);
 		assert.equal(item.pictureIn, 'worker');
 		assert.equal(item.pictureWhy, null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('label checks behind the tray (Eric\'s phone, version 38: card reads waited up to 17 s behind them)', () => {
+	test('wait for a card being read, and never take a worker it is waiting for', async () => {
+		const {context, errors, page} = await open();
+
+		const run = await page.evaluate(async () => {
+			const identify = await import('/pokemon-card-tracker/js/scan/identify.js');
+			const engine = await identify.warmEngine();
+			const image = new Image();
+
+			image.src = '/__test-card.webp';
+			await image.decode();
+
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 301;
+			canvas.height = 420;
+
+			const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+			ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+			const card = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			const from = engine.trace.length;
+			const labels = [0, 1, 2].map(() => identify.readLanguageLabel(card).then((label) => ({...label, at: performance.now()})));
+
+			// The first label check under way, then a card whose text is read
+			// in full (no picture index answer).
+			await new Promise((resolve) => setTimeout(resolve, 60));
+
+			const textAt = performance.now();
+
+			await identify.identifyText({card, needsText: true, picture: null, timings: {total: 0}, trace: {regions: []}});
+
+			const textEnd = performance.now();
+			const done = await Promise.all(labels);
+
+			return {calls: engine.trace.slice(from).map((call) => ({...call})), done, size: engine.size, textAt, textEnd};
+		});
+
+		const front = run.calls.filter((call) => !call.background);
+		const back = run.calls.filter((call) => call.background);
+
+		assert.ok(front.length >= 5 && back.length >= 3, `the read and the label checks both ran OCR (${front.length} and ${back.length} calls)`);
+
+		// No label check call took a worker while a card's call waited.
+		for (const b of back) {
+			for (const f of front) {
+				assert.ok(!(f.queued <= b.started && b.started < f.started), `a label check call started at ${Math.round(b.started)} while a read's call queued at ${Math.round(f.queued)} waited until ${Math.round(f.started)}`);
+			}
+		}
+
+		// The second and third label checks waited for the read to end.
+		for (const label of run.done.slice(1)) {
+			const startedAt = label.at - label.ms;
+
+			assert.ok(startedAt >= run.textEnd - 5, `a label check started ${Math.round(run.textEnd - startedAt)} ms before the read ended`);
+			assert.ok(label.waitedMs > 0);
+		}
+
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

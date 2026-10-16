@@ -12,8 +12,6 @@
 // PNG on the main thread and decoded again in the worker, which is time a
 // mid-range phone does not have.
 
-import Tesseract from '../../lab/vendor/tesseract/tesseract.esm.min.js';
-
 const VENDOR = new URL('../../lab/vendor/tesseract/', import.meta.url).href;
 
 export const TESSERACT_VERSION = '7.0.0';
@@ -68,7 +66,10 @@ const linesOf = (data) => {
 // estimates for every call.
 const FIXED = {tessedit_do_invert: '0', user_defined_dpi: '300'};
 
+// Tesseract.js is imported with the first worker, so the pool's scheduler
+// (createSlots) loads in Node, where its tests run.
 async function startWorker(logger) {
+	const {default: Tesseract} = await import('../../lab/vendor/tesseract/tesseract.esm.min.js');
 	const worker = await Tesseract.createWorker('eng', Tesseract.OEM.LSTM_ONLY, {
 		cacheMethod: 'none',
 		// A folder, so Tesseract picks the relaxed-SIMD, SIMD, or plain build
@@ -86,15 +87,79 @@ async function startWorker(logger) {
 	return worker;
 }
 
+// The pool's workers handed out in turn (createPool): take(background)
+// resolves with a free slot, release(slot) gives it back. A background job
+// (a label check behind the tray, identify.js readLanguageLabel) waits
+// while any foreground job (a card's number being read) waits, and holds at
+// most BACKGROUND_SLOTS slots at once, so a card being read never queues
+// behind label checks (Eric's phone, version 38: text reads waited up to
+// 17 s behind them). Pure, so Node tests it.
+export const BACKGROUND_SLOTS = 1;
+
+export function createSlots({backgroundSlots = BACKGROUND_SLOTS} = {}) {
+	const idle = [];
+	const front = [];
+	const back = [];
+	let backRunning = 0;
+
+	const give = (slot) => {
+		if (front.length) {
+			front.shift()(slot);
+
+			return true;
+		}
+
+		if (back.length && backRunning < backgroundSlots) {
+			backRunning++;
+			slot.background = true;
+			back.shift()(slot);
+
+			return true;
+		}
+
+		return false;
+	};
+
+	return {
+		get waiting() {
+			return {back: back.length, front: front.length};
+		},
+		release(slot) {
+			if (slot.background) {
+				slot.background = false;
+				backRunning--;
+			}
+
+			if (!give(slot)) {
+				idle.push(slot);
+			}
+		},
+		take(background = false) {
+			return new Promise((resolve) => {
+				(background ? back : front).push(resolve);
+
+				while (idle.length && give(idle[0])) {
+					idle.shift();
+				}
+			});
+		},
+	};
+}
+
 // Starts the pool. The first worker is waited for; the second joins when it
 // is up, so a read never waits for it. Returns {ocr, size, terminate,
-// loadMs}; ocr(image, {psm, whitelist}) resolves to {confidence, lines,
-// text}, like lab/js/ocr.js.
+// loadMs, trace}; ocr(image, {psm, whitelist, background}) resolves to
+// {confidence, lines, text}, like lab/js/ocr.js; background: true for a
+// read nobody is waiting on (createSlots). trace: the last TRACE_KEPT
+// calls, {background, queued, started, ended} (performance.now()), for the
+// tests and the phone check.
+const TRACE_KEPT = 200;
+
 export async function createPool({logger = () => {}, size = workerCount()} = {}) {
 	const started = performance.now();
-	const idle = [];
+	const slots = createSlots();
 	const all = [];
-	const waiting = [];
+	const trace = [];
 	let stopped = false;
 
 	const add = (worker) => {
@@ -107,21 +172,8 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 		const slot = {current: '', worker};
 
 		all.push(slot);
-		release(slot);
+		slots.release(slot);
 	};
-
-	function release(slot) {
-		const next = waiting.shift();
-
-		if (next) {
-			next(slot);
-		}
-		else {
-			idle.push(slot);
-		}
-	}
-
-	const take = () => (idle.length ? Promise.resolve(idle.shift()) : new Promise((resolve) => waiting.push(resolve)));
 
 	add(await startWorker(logger));
 
@@ -132,8 +184,18 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 		startWorker(() => {}).then(add, () => {});
 	}
 
-	async function ocr(image, {psm = '7', whitelist = ''} = {}) {
-		const slot = await take();
+	async function ocr(image, {background = false, psm = '7', whitelist = ''} = {}) {
+		const call = {background, ended: null, queued: performance.now(), started: null};
+
+		trace.push(call);
+
+		if (trace.length > TRACE_KEPT) {
+			trace.shift();
+		}
+
+		const slot = await slots.take(background);
+
+		call.started = performance.now();
 
 		try {
 			const key = `${psm}|${whitelist}`;
@@ -148,7 +210,8 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 			return {confidence: Math.round(data.confidence), lines: linesOf(data), text: data.text.trim()};
 		}
 		finally {
-			release(slot);
+			call.ended = performance.now();
+			slots.release(slot);
 		}
 	}
 
@@ -163,5 +226,6 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 
 			return Promise.all(all.map((slot) => slot.worker.terminate()));
 		},
+		trace,
 	};
 }

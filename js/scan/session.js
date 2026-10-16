@@ -694,7 +694,7 @@ export function asianEvidence(item) {
 export function applyLabel(session, id, label, now = nowIso(), {asian = null, category = null, western = null} = {}) {
 	const item = mustFind(session, id);
 
-	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || ''} : null;
+	item.labelCheck = label ? {code: label.code || null, confidence: label.confidence || 0, ms: label.ms ?? null, text: label.text || '', waitedMs: label.waitedMs ?? null} : null;
 
 	if (category && item.card) {
 		item.card.category = category;
@@ -1775,7 +1775,7 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 		lines.push(`- Language: ${item.language || 'none'} (${by})${item.card && item.card.print ? `; showing the ${item.card.print} print` : ''}`);
 
 		if (item.labelCheck) {
-			lines.push(`- Label row read in the background: ${item.labelCheck.code ? `${item.labelCheck.code} (${pct(item.labelCheck.confidence)})` : 'no language'}${item.labelCheck.ms !== null ? `, ${ms(item.labelCheck.ms)}` : ''}${item.labelCheck.text ? `: "${oneLine(item.labelCheck.text)}"` : ''}`);
+			lines.push(`- Label row read in the background: ${item.labelCheck.code ? `${item.labelCheck.code} (${pct(item.labelCheck.confidence)})` : 'no language'}${item.labelCheck.ms !== null ? `, ${ms(item.labelCheck.ms)}` : ''}${item.labelCheck.waitedMs ? ` after waiting ${ms(item.labelCheck.waitedMs)} for card reads` : ''}${item.labelCheck.text ? `: "${oneLine(item.labelCheck.text)}"` : ''}`);
 		}
 	}
 

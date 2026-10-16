@@ -544,10 +544,31 @@ export function warmPicture() {
 	return workerWarm;
 }
 
+// How many text reads are queued or running (identifyText), and the label
+// checks waiting for there to be none (readLanguageLabel).
+let textPending = 0;
+const textIdleWaiters = [];
+
+const textIdle = () => (textPending ? new Promise((resolve) => textIdleWaiters.push(resolve)) : Promise.resolve());
+
 export function identifyText(seen, options = {}) {
+	const counted = Boolean(seen && seen.needsText);
+
+	textPending += counted ? 1 : 0;
+
 	const run = textQueue.then(() => readText(seen, options));
 
 	textQueue = run.catch(() => {});
+
+	if (counted) {
+		run.catch(() => {}).then(() => {
+			textPending--;
+
+			while (!textPending && textIdleWaiters.length) {
+				textIdleWaiters.shift()();
+			}
+		});
+	}
 
 	return run;
 }
@@ -837,16 +858,43 @@ function cutQuad(image, corners, height) {
 
 // The label row alone (read.js readLabel) of a straightened card, for the
 // language of a card the picture settled with no text read. Starts the
-// engine if it is not running; runs outside the one-card-at-a-time queue
-// (a few small reads that share the pool's workers), so the next capture is
-// never held up by it. Returns {code, confidence, text, ms}.
-export async function readLanguageLabel(card) {
-	const engine = await warmEngine();
-	const started = performance.now();
-	const {readLabel} = await import('./read.js');
-	const label = await readLabel(card, engine.ocr);
+// engine if it is not running; runs outside the one-card-at-a-time queue,
+// so the next capture is never held up by it, but behind every card whose
+// text is being read: label checks run one at a time, each starts only
+// once no text read is queued or running, and its OCR calls are background
+// ones (ocr.js createSlots), so a card read meanwhile takes the workers
+// first. On Eric's phone (version 38 log, holder mode, a card every 4 s)
+// each label check took up to 6.7 s of OCR alongside the number reads, and
+// those waited 3.5 to 17.2 s in the text queue. A card's language stays
+// the last one picked until its label is read. Returns {code, confidence,
+// text, ms, waitedMs}.
+let labelQueue = Promise.resolve();
 
-	return {...label, ms: Math.round(performance.now() - started)};
+export const labelStats = {done: 0, waited: 0};
+
+export function readLanguageLabel(card) {
+	const asked = performance.now();
+	const run = labelQueue.then(async () => {
+		const engine = await warmEngine();
+
+		if (textPending) {
+			labelStats.waited++;
+		}
+
+		await textIdle();
+
+		const started = performance.now();
+		const {readLabel} = await import('./read.js');
+		const label = await readLabel(card, (image, settings) => engine.ocr(image, {...settings, background: true}));
+
+		labelStats.done++;
+
+		return {...label, ms: Math.round(performance.now() - started), waitedMs: Math.round(started - asked)};
+	});
+
+	labelQueue = run.catch(() => {});
+
+	return run;
 }
 
 // read.js, imported with the engine: it is only needed when text is read.
