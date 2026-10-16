@@ -14,6 +14,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-16
 
+- **19:08** Version 41: smarter photo corners, and corners that snap. `46addf1`
+  - **Adding a photo** finds the corners with the scanner's card finder, including a silver card on a
+    silver surface (worst corner error 1.2 px against 152.6 px on the test image); when unsure, a tip
+    suggests a dark or coloured surface.
+  - **Corner handles snap** onto detected corners as you drag them, with a light buzz; dragging further
+    lets go, and arrow keys never snap. Card photos and binder covers both.
+
 - **16:54** Version 40: a new card means a new picture, and automatic holder mode. `8d3edbb`
   - **Holder mode** compares each settled card's picture with the last card's, so a different card
     is caught even when it lands exactly on the last one; the same card after a drop asks Add a
