@@ -246,6 +246,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   the tray, and other pick-a-card lists group identical copies (same card, language, finish) into one
   tile with a xN badge; a tap places one unplaced copy, again for the next; the tray picker can take
   a number. Copies differing in language or finish stay separate. Small.
+- **Binder pickers search like My Cards (Eric, 2026-10-16):** js/binders-view.js tray and owned
+  pickers match only the printed name, set, number, and id (`matches`), so "aerodactyl" misses a
+  Japanese Aerodactyl; reuse My Cards' search text (English name, original, reading, localizations;
+  cards-view.js searchOf / filter-bar.js searchTextOf). Do it with the one-tile change. Tiny.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
