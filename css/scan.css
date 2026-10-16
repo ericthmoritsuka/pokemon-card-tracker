@@ -641,9 +641,9 @@ html.scan-open body {
 	padding: 4px 0;
 }
 
-/* Holder mode's switch: a chip at the foot of the camera on the right, in
-   reach of the thumb, under the repeat bar when that opens. On, it reads
-   like the pressed chips, with a tick. */
+/* The scanning mode's chip ("Holder (auto)", "Hand-held"): at the foot of
+   the camera on the right, in reach of the thumb, under the repeat bar when
+   that opens. In holder mode it reads like the pressed chips, with a tick. */
 .scan-chip.scan-holder {
 	background: rgba(0, 0, 0, 0.6);
 	bottom: 8px;
@@ -651,14 +651,14 @@ html.scan-open body {
 	right: 8px;
 }
 
-.scan-chip.scan-holder[aria-checked="true"] {
+.scan-chip.scan-holder[data-holder="on"] {
 	background: var(--scan-text);
 	border-color: var(--scan-text);
 	color: #000000;
 	font-weight: 600;
 }
 
-.scan-chip.scan-holder[aria-checked="true"]::before {
+.scan-chip.scan-holder[data-holder="on"]::before {
 	content: "\2713";
 }
 

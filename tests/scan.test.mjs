@@ -18,7 +18,7 @@ import {LANGUAGE_CODES} from '../js/languages.js';
 import {thumbnail, turnImage, turnThumb} from '../js/vision/fingerprint.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
-import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, difference, DISTURB_LOOKS, JUMP, presence, THUMB_H, THUMB_W} from '../js/scan/steady.js';
+import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, createStance, difference, DISTURB_LOOKS, JUMP, presence, STANCE, THUMB_H, THUMB_W} from '../js/scan/steady.js';
 import {newWish} from '../js/wishlist.js';
 
 const AT = '2026-10-01T12:00:00.000Z';
@@ -2516,6 +2516,117 @@ describe('a card upside down or on its side (fingerprint.js turnImage)', () => {
 
 		assert.equal(compactPicture(matched, {turn: 2}).turn, 2);
 		assert.equal(compactPicture(matched).turn, undefined);
+	});
+});
+
+describe('automatic holder mode (Eric, 2026-10-16, steady.js createStance)', () => {
+	// Feeds motion samples every 16 ms from `from` to `to` ms: rotation in
+	// degrees a second and shake in m/s2, each wobbling by its own amount.
+	function feed(stance, from, to, {rotation = 0.2, shake = 0.02} = {}) {
+		for (let at = from, k = 0; at < to; at += 16, k++) {
+			const wobble = k % 2 ? 1 : -1;
+
+			stance.sample({accel: {x: shake * wobble, y: 0, z: 0}, at, rotation: {alpha: rotation * (1 + 0.2 * wobble), beta: 0, gamma: 0}});
+		}
+	}
+
+	test('no motion sensor: nothing switches', () => {
+		const stance = createStance();
+
+		assert.deepEqual(stance.decide({at: 5000, holder: false, pictureStillMs: 5000}), {evidence: {accel: null, movingMs: 0, pictureStillMs: 5000, rotation: null, sensor: false, stillMs: 0}, switchTo: null});
+	});
+
+	test('the phone still for 2 s with a steady picture: holder mode; held in a hand, never', () => {
+		const stance = createStance();
+		let switched = null;
+
+		for (let at = 0; at <= 2600 && !switched; at += 125) {
+			feed(stance, at, at + 125);
+			switched = stance.decide({at: at + 125, holder: false, pictureStillMs: 1500});
+
+			if (switched.switchTo) {
+				assert.ok(at + 125 >= STANCE.stillMs, `after ${at + 125} ms`);
+				assert.ok(switched.evidence.stillMs >= STANCE.stillMs && switched.evidence.rotation < STANCE.stillRotation);
+			}
+			else {
+				switched = null;
+			}
+		}
+
+		assert.equal(switched && switched.switchTo, 'holder');
+
+		const hand = createStance();
+
+		for (let at = 0; at <= 6000; at += 125) {
+			feed(hand, at, at + 125, {rotation: 4, shake: 0.2});
+			assert.equal(hand.decide({at: at + 125, holder: false, pictureStillMs: 3000}).switchTo, null, 'hand tremor');
+		}
+
+		const moving = createStance();
+
+		feed(moving, 0, 3000);
+		assert.equal(moving.decide({at: 3000, holder: false, pictureStillMs: 200}).switchTo, null, 'the picture still moving');
+	});
+
+	test('picked up: hand-held; a bump, or a card falling into the box (the phone stays still), is not', () => {
+		const stance = createStance();
+
+		feed(stance, 0, 3000);
+		stance.decide({at: 3000, holder: true, pictureStillMs: 3000});
+		// A bump: a tenth of a second.
+		feed(stance, 3000, 3100, {rotation: 60, shake: 2});
+
+		for (let at = 3016; at <= 3100; at += 16) {
+			assert.equal(stance.decide({at, holder: true, pictureStillMs: 0}).switchTo, null);
+		}
+
+		feed(stance, 3100, 4000);
+		assert.equal(stance.decide({at: 4000, holder: true, pictureStillMs: 0}).switchTo, null, 'the picture moved (a card fell in), the phone did not');
+
+		// Picked up.
+		let answer = null;
+
+		for (let at = 4000; at <= 4600 && !(answer && answer.switchTo); at += 50) {
+			feed(stance, at, at + 50, {rotation: 80, shake: 3});
+			answer = stance.decide({at: at + 50, holder: true, pictureStillMs: 0});
+		}
+
+		assert.equal(answer.switchTo, 'hand');
+		assert.ok(answer.evidence.movingMs >= STANCE.moveMs);
+	});
+
+	test('nothing switches while a picture is taken or matched; the switch waits for it, unless the phone is put down again', () => {
+		const stance = createStance();
+
+		for (let at = 0; at < 3000; at += 125) {
+			feed(stance, at, at + 125);
+			assert.equal(stance.decide({at: at + 125, busy: true, holder: false, pictureStillMs: 3000}).switchTo, null, 'busy');
+		}
+
+		assert.equal(stance.decide({at: 3125, busy: false, holder: false, pictureStillMs: 3000}).switchTo, 'holder');
+
+		const held = createStance();
+
+		feed(held, 0, 3000);
+		held.decide({at: 3000, holder: true});
+		feed(held, 3000, 3400, {rotation: 80, shake: 3});
+		assert.equal(held.decide({at: 3400, busy: true, holder: true}).switchTo, null, 'picked up mid-read');
+		feed(held, 3400, 3600, {rotation: 5, shake: 0.3});
+		assert.equal(held.decide({at: 3600, holder: true}).switchTo, 'hand', 'the read done: hand-held');
+
+		const back = createStance();
+
+		feed(back, 0, 3000);
+		back.decide({at: 3000, holder: true});
+		feed(back, 3000, 3400, {rotation: 80, shake: 3});
+		back.decide({at: 3400, busy: true, holder: true});
+		feed(back, 3400, 6000);
+
+		for (let at = 3500; at <= 6000; at += 100) {
+			back.decide({at, busy: at < 5900, holder: true});
+		}
+
+		assert.equal(back.decide({at: 6000, holder: true}).switchTo, null, 'put back in the stand before the read ended');
 	});
 });
 

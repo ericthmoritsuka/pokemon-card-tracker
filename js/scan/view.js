@@ -36,7 +36,7 @@ import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, Wai
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
-import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
+import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
@@ -172,27 +172,37 @@ const TRACES_KEPT = 3;
 const PHOTO_MAX_SIDE = 2400;
 
 // Holder mode (Eric, 2026-10-09, steady.js createHolderCapture): the phone
-// held still in a stand over cards dropped under it. Remembered on the
-// phone, off at first.
+// held still in a stand over cards dropped under it. Since version 40
+// (Eric, 2026-10-16) a choice of three, remembered on the phone: Auto (the
+// first), holder mode coming on and off by itself (steady.js
+// createStance); Holder ('on', what the switch kept before); or Hand-held
+// ('off').
 const HOLDER_KEY = 'card-tracker:scan-holder';
+const HOLDER_CHOICES = ['auto', 'holder', 'hand'];
 
-function holderOn() {
+function holderChoice() {
 	try {
-		return localStorage.getItem(HOLDER_KEY) === 'on';
+		const value = localStorage.getItem(HOLDER_KEY);
+
+		return value === 'on' ? 'holder' : value === 'off' ? 'hand' : 'auto';
 	}
 	catch {
-		return false;
+		return 'auto';
 	}
 }
 
-function rememberHolder(on) {
+function rememberHolder(choice) {
 	try {
-		localStorage.setItem(HOLDER_KEY, on ? 'on' : 'off');
+		localStorage.setItem(HOLDER_KEY, choice === 'holder' ? 'on' : choice === 'hand' ? 'off' : 'auto');
 	}
 	catch {
-		// Not kept; the next visit starts as before.
+		// Not kept; the next visit starts on Auto.
 	}
 }
+
+// The chip's words for the mode in use and the choice.
+const holderLabel = (on, choice) => `${on ? 'Holder' : 'Hand-held'}${choice === 'auto' ? ' (auto)' : ''}`;
+const CHOICE_WORDS = {auto: 'Auto', hand: 'Hand-held', holder: 'Holder'};
 
 // The default finish (Eric, 2026-10-15, finish.js DEFAULT_FINISHES): the
 // finish each scanned card starts on when it lists it. Remembered on the
@@ -391,7 +401,14 @@ export function scanView(root) {
 	const holderDetector = createHolderCapture();
 	// Holder mode's drop detector (drop.js).
 	const dropDetector = createDropDetector();
-	let holder = holderOn();
+	let choice = holderChoice();
+	let holder = choice === 'holder';
+	// Automatic holder mode's detector, and the picture's stillness and the
+	// work in progress it goes by (stanceTick).
+	const stance = createStance();
+	let pictureStillMs = 0;
+	let capturing = 0;
+	let picturing = 0;
 	let defaultFinish = storedFinish();
 	// The valuable card highlight, the rising price mark, and the chime
 	// (js/scan/worth.js), and the last threshold of each before it was
@@ -467,15 +484,16 @@ export function scanView(root) {
 	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
+	// The scanning mode: a chip that shows the mode in use ("Holder (auto)",
+	// "Hand-held"), and changes the choice in turn: Auto, Holder, Hand-held.
 	const holderSwitch = h('button', {
-		'aria-checked': String(holder),
-		'aria-label': 'Holder mode: the phone stays still in a stand over cards dropped under it',
 		class: 'scan-chip scan-holder',
+		'data-choice': choice,
+		'data-holder': holder ? 'on' : 'off',
 		id: 'scan-holder',
-		onclick: () => setHolder(!holder),
-		role: 'switch',
+		onclick: () => chooseHolder(HOLDER_CHOICES[(HOLDER_CHOICES.indexOf(choice) + 1) % HOLDER_CHOICES.length]),
 		type: 'button',
-	}, 'Holder');
+	}, holderLabel(holder, choice));
 	// The scanner's settings (the default finish, valuable cards, rising
 	// prices, the chime), a chip at the foot of the camera on the left,
 	// opening their sheet (settingsSheet).
@@ -522,6 +540,7 @@ export function scanView(root) {
 
 	root.replaceChildren(screen);
 	document.documentElement.classList.add('scan-open');
+	drawHolderSwitch();
 
 	// ------------------------------------------------------------ context for the sheets
 
@@ -1615,11 +1634,23 @@ export function scanView(root) {
 	// capture, and the outlines found are handed to identify.js to cut by
 	// their own corners; with no card found, the guide's capture area, as
 	// before.
-	async function capture(how, {looked = null, settleMs = null} = {}) {
+	async function capture(how, options = {}) {
 		if (!camera || !video.videoWidth || shutterBusy) {
 			return;
 		}
 
+		// Auto never switches the mode while a picture is taken (stanceTick).
+		capturing++;
+
+		try {
+			await captureNow(how, options);
+		}
+		finally {
+			capturing--;
+		}
+	}
+
+	async function captureNow(how, {looked = null, settleMs = null} = {}) {
 		let now = null;
 		let shutterFound = null;
 		let shutterWaitMs = null;
@@ -1938,7 +1969,16 @@ export function scanView(root) {
 				// whose number is being read never holds up the next card's
 				// picture (Eric's holder log, 2026-10-09: 3 to 14 s).
 				const asked = performance.now();
-				const seen = await identifyPictureAway(frame, options);
+				let seen;
+
+				picturing++;
+
+				try {
+					seen = await identifyPictureAway(frame, options);
+				}
+				finally {
+					picturing--;
+				}
 
 				queueWaits.set(id, {picture: Math.max(0, Math.round(performance.now() - asked - (seen.timings.total || 0))), pictureMs: Math.round(performance.now() - asked)});
 				progress.set(id, 0.3);
@@ -2725,6 +2765,9 @@ export function scanView(root) {
 			frame: `${area.frame.width} x ${area.frame.height}`,
 			guide: rect(area.guide),
 			holder,
+			// The scanning mode chosen (Auto, Holder, Hand-held: view.js
+			// holderChoice), from version 40.
+			holderChoice: choice,
 			how,
 			screen: rect(area.screen),
 			settleMs: settleMs === null ? null : Math.round(settleMs),
@@ -2967,6 +3010,8 @@ export function scanView(root) {
 
 		const at = performance.now();
 		const step = dropDetector.push(view, at);
+
+		pictureStillMs = step.moving ? 0 : step.still;
 
 		if (pendingDrop) {
 			const plan = planDrop(pendingDrop.change, view, area);
@@ -3229,8 +3274,18 @@ export function scanView(root) {
 
 		lastDrop = taken;
 		dropsTaken++;
+		capturing++;
 
-		const {captureMs, frame} = await takeFrame(plan.region);
+		let grabbed;
+
+		try {
+			grabbed = await takeFrame(plan.region);
+		}
+		finally {
+			capturing--;
+		}
+
+		const {captureMs, frame} = grabbed;
 
 		scanStats.captures++;
 		flash();
@@ -3310,6 +3365,7 @@ export function scanView(root) {
 
 			if (holder) {
 				holderTick();
+				stanceTick();
 
 				return;
 			}
@@ -3334,8 +3390,10 @@ export function scanView(root) {
 				thumbFrom = from;
 			}
 
-			// How long the picture has been still, for the scan log.
+			// How long the picture has been still, for the scan log and Auto.
 			const step = holderDetector.push(now.view.grey, now.view.width, now.view.height, {card: whole(now), touching: now.touching}, performance.now());
+
+			pictureStillMs = step.settleMs;
 
 			document.getElementById('scan-hint').textContent = seen.glare && seen.present ? 'Tilt to cut the glare.' : seen.small ? 'Move closer.' : 'Card inside the frame. Hold still.';
 			guide.classList.toggle('is-seen', seen.present);
@@ -3346,6 +3404,8 @@ export function scanView(root) {
 			else {
 				checkPrint(now, step);
 			}
+
+			stanceTick();
 		}, FRAME_MS);
 	}
 
@@ -3385,11 +3445,93 @@ export function scanView(root) {
 		}
 	}
 
-	// Holder mode on or off (the switch beside the zoom).
-	function setHolder(on) {
+	// The chip's words and state.
+	function drawHolderSwitch() {
+		const next = HOLDER_CHOICES[(HOLDER_CHOICES.indexOf(choice) + 1) % HOLDER_CHOICES.length];
+
+		holderSwitch.textContent = holderLabel(holder, choice);
+		holderSwitch.dataset.choice = choice;
+		holderSwitch.dataset.holder = holder ? 'on' : 'off';
+		holderSwitch.setAttribute('aria-label', `Scanning mode: ${CHOICE_WORDS[choice]}${choice === 'auto' ? `, now ${holder ? 'holder mode' : 'hand-held'}` : ''}. Tap for ${CHOICE_WORDS[next]}.`);
+	}
+
+	// The choice made on the chip: Auto, Holder, or Hand-held. Auto keeps the
+	// mode in use until the phone's motion says otherwise.
+	function chooseHolder(next) {
+		choice = next;
+		rememberHolder(next);
+		stance.reset();
+		askMotionPermission();
+
+		if (next === 'auto') {
+			drawHolderSwitch();
+			announce(`Scanning mode: Auto. Holder mode comes on by itself once the phone lies still in a stand, and goes off when you pick it up. ${holder ? 'Holder mode now.' : 'Hand-held now.'}`);
+		}
+		else {
+			setHolder(next === 'holder');
+		}
+
+		logMode(`${CHOICE_WORDS[next].toLowerCase()} chosen`, null);
+	}
+
+	// Each switch of the mode and why, in the scan log: how 'mode', why
+	// what switched it, evidence the numbers it went by (steady.js
+	// createStance).
+	function logMode(why, evidence) {
+		scanLog.logEvent({at: new Date().toISOString(), evidence, how: 'mode', mode: holder ? 'holder' : 'hand', outcome: {at: new Date().toISOString(), kind: 'mode'}, why});
+	}
+
+	// The phone's motion, for Auto (steady.js createStance).
+	function onMotion(event) {
+		stance.sample({accel: event.acceleration || null, at: performance.now(), gravity: event.accelerationIncludingGravity || null, rotation: event.rotationRate || null});
+	}
+
+	// iOS gives the motion sensors only once asked, from a tap: the first tap
+	// on the scanner asks, when Auto is chosen.
+	let motionAsked = false;
+
+	function askMotionPermission() {
+		const ask = typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function' ? DeviceMotionEvent.requestPermission : null;
+
+		if (!ask || motionAsked || choice !== 'auto') {
+			return;
+		}
+
+		motionAsked = true;
+		ask.call(DeviceMotionEvent).catch(() => {});
+	}
+
+	// Auto: each look of the frame loop asks the stance detector whether to
+	// switch, never while a picture is being taken or matched.
+	function stanceTick() {
+		if (choice !== 'auto') {
+			return;
+		}
+
+		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop);
+		const {evidence, switchTo} = stance.decide({at: performance.now(), busy, holder, pictureStillMs});
+
+		if (switchTo && (switchTo === 'holder') !== holder) {
+			setHolder(switchTo === 'holder', {auto: true, evidence});
+		}
+	}
+
+	// Holder mode on or off (the chip at the foot of the camera, or Auto).
+	// auto: switched by Auto, with the evidence, which the scan log keeps;
+	// the choice is not changed.
+	function setHolder(on, {auto = false, evidence = null} = {}) {
 		holder = on;
-		rememberHolder(on);
-		holderSwitch.setAttribute('aria-checked', String(on));
+
+		if (!auto) {
+			choice = on ? 'holder' : 'hand';
+			rememberHolder(choice);
+		}
+		else {
+			logMode(on ? 'holder (auto)' : 'hand-held (auto)', evidence);
+		}
+
+		drawHolderSwitch();
+		pictureStillMs = 0;
 		holderDetector.reframe();
 		reframeHolder();
 		setPile(false);
@@ -3402,7 +3544,9 @@ export function scanView(root) {
 			camera.releaseFocus().catch(() => {});
 		}
 
-		announce(on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.');
+		announce(auto
+			? (on ? 'Holder mode on by itself: the phone is still. Each card dropped under it is taken once it settles.' : 'Hand-held by itself: the phone was picked up.')
+			: (on ? 'Holder mode on: each card dropped under the phone is taken once it settles.' : 'Holder mode off.'));
 	}
 
 	function onVisibility() {
@@ -3458,6 +3602,8 @@ export function scanView(root) {
 	});
 
 	document.addEventListener('visibilitychange', onVisibility);
+	window.addEventListener('devicemotion', onMotion);
+	screen.addEventListener('pointerdown', askMotionPermission, {once: true});
 	window.addEventListener('online', onOnline);
 	window.addEventListener('offline', onOffline);
 	window.addEventListener('resize', onResize);
@@ -3540,6 +3686,7 @@ export function scanView(root) {
 		persist();
 		stopOwned();
 		document.removeEventListener('visibilitychange', onVisibility);
+		window.removeEventListener('devicemotion', onMotion);
 		window.removeEventListener('online', onOnline);
 		window.removeEventListener('offline', onOffline);
 		window.removeEventListener('resize', onResize);

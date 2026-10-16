@@ -137,8 +137,8 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 	test('each card dropped is taken once, after it settles, the top card of the pile is cut, and a card larger than the guide or beside it is found', async () => {
 		const {context, errors, page} = await open();
 
-		assert.equal(await page.getAttribute('#scan-holder', 'aria-checked'), 'true', 'holder mode remembered');
-		assert.equal(await page.getAttribute('#scan-holder', 'role'), 'switch');
+		assert.equal(await page.getAttribute('#scan-holder', 'data-holder'), 'on', 'holder mode remembered');
+		assert.equal(await page.locator('#scan-holder').textContent(), 'Holder');
 
 		// The empty box: its walls run off the frame, and nothing is taken.
 		await setScene(page, {background: 'box', cards: []});
@@ -293,17 +293,24 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 		await context.close();
 	});
 
-	test('the switch turns holder mode off and on, and is remembered', async () => {
+	test('the chip changes the scanning mode in turn (Hand-held, Auto, Holder), and the choice is remembered', async () => {
 		const {context, errors, page} = await open({holder: false, record: false});
+		const chip = page.locator('#scan-holder');
 
-		assert.equal(await page.getAttribute('#scan-holder', 'aria-checked'), 'false');
-		assert.ok((await page.locator('#scan-holder').boundingBox()).height >= 44, 'at least 44 px tall');
+		assert.equal(await chip.textContent(), 'Hand-held');
+		assert.equal(await chip.getAttribute('data-holder'), 'off');
+		assert.ok((await chip.boundingBox()).height >= 44, 'at least 44 px tall');
+		assert.match(await chip.getAttribute('aria-label'), /^Scanning mode: Hand-held\. Tap for Auto\.$/);
 		await page.click('#scan-holder');
-		assert.equal(await page.getAttribute('#scan-holder', 'aria-checked'), 'true');
+		assert.equal(await chip.textContent(), 'Hand-held (auto)', 'Auto keeps the mode in use until the phone says otherwise');
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-holder')), 'auto');
+		await page.click('#scan-holder');
+		assert.equal(await chip.textContent(), 'Holder');
+		assert.equal(await chip.getAttribute('data-holder'), 'on');
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-holder')), 'on');
 		await page.reload();
 		await page.waitForSelector('#scan-holder');
-		assert.equal(await page.getAttribute('#scan-holder', 'aria-checked'), 'true');
+		assert.equal(await page.locator('#scan-holder').getAttribute('data-holder'), 'on');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
