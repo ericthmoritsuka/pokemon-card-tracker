@@ -217,7 +217,9 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   only that list from the family. Small to medium.
 - **Smarter corners when adding a photo:** js/photos/detect.js still uses the older finder; point it
   at the scanner's card finder (findCard, rectify, the pile and tilt handling) and keep the corner
-  editor (Eric: "the corner edit function is marvelous"). Small.
+  editor (Eric: "the corner edit function is marvelous"). Small. Test case: a silver-bordered card
+  on a silver or grey background, where the outer edge barely shows; use the 63:88 shape and the
+  inner edges (art box, border's inner line) to place the corners. Tip to show: a contrasting surface.
 
 ## Kept Open Items (Eric, 2026-10-09)
 
