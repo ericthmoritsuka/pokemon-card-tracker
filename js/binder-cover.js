@@ -681,6 +681,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 			heightShare: 0.46,
 			minHeight: 220,
 			onChange: drawPreview,
+			snapPoints: found.found ? initial : [],
 			source,
 			stageClass: 'ph-stage bc-stage',
 			stageId: 'bc-stage',
