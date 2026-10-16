@@ -1684,7 +1684,10 @@ export function scanView(root) {
 
 		detector.captured(steadyShot ? steadyShot.grey : null);
 		holderDetector.captured();
-		heldPrint = printLook(looked && looked.card ? looked : now);
+		// Printed again on the first steady look after it (checkPrint), from
+		// the frame loop's own copy: a print of the finer copy taken here
+		// would not compare with them.
+		heldPrint = null;
 		newPrints = 0;
 
 		// The shutter in holder mode: the card it took is the pile now, not a
@@ -3415,7 +3418,8 @@ export function scanView(root) {
 	// one taken; a picture NEW_PRINT or farther from it twice in a row re-arms
 	// auto capture, however close the two cards are in the coarse copy
 	// (steady.js CHANGED: two cards of one set laid in the same place often
-	// differ by less). heldPrint: the print at the last capture.
+	// differ by less). heldPrint: the card's print on the first steady look
+	// after the last capture.
 	const PRINT_EVERY = 2;
 	const PRINT_STILL_MS = 250;
 	let heldPrint = null;
@@ -3425,8 +3429,14 @@ export function scanView(root) {
 	const printLook = (now) => (now && now.card ? printOf(now.view.grey, now.view.width, now.view.height, now.card.quad.map(toView(now.view))) : null);
 
 	function checkPrint(now, step) {
-		if (detector.state !== 'cooldown' || !heldPrint || !whole(now) || step.settleMs < PRINT_STILL_MS) {
+		if (detector.state !== 'cooldown' || !whole(now) || step.settleMs < PRINT_STILL_MS) {
 			newPrints = 0;
+
+			return;
+		}
+
+		if (!heldPrint) {
+			heldPrint = printLook(now);
 
 			return;
 		}
