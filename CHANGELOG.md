@@ -14,6 +14,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-16
 
+- **v42** (pushed before its full test run finished, by mistake; the run then passed, with two
+  timeouts that passed alone): Add cards to the tray, from a box or a list. `cd1e464`
+  - **From** in Add cards to the tray: a Stored in place (a box), a checklist, a collection, or a goal
+    shows only its cards.
+  - **Snap** button in the corner editor, remembered; snapping only to real-looking card corners.
+  - **Rotate** for binder cover pictures.
+
 - **19:08** Version 41: smarter photo corners, and corners that snap. `46addf1`
   - **Adding a photo** finds the corners with the scanner's card finder, including a silver card on a
     silver surface (worst corner error 1.2 px against 152.6 px on the test image); when unsure, a tip
