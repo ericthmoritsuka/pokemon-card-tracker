@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Add cards to the tray can take cards from one storage box, checklist, collection, or goal.',
+			'A Snap button in the corner editor turns snapping on or off, and corners snap only to real-looking card corners.',
+			'Turn a binder cover picture with Rotate; the cover saves the way it shows.',
+		],
+		version: 'v42',
+	},
+	{
+		date: '2026-10-16',
+		items: [
 			'Adding a photo finds the card\'s corners in more photos, even a silver card on a silver table.',
 			'Corner handles snap onto the card\'s corners as you drag them, with a light buzz; drag further to let go.',
 			'When the corners are hard to find, a tip suggests a dark or coloured surface under the card.',
