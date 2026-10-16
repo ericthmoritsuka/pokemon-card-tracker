@@ -166,8 +166,12 @@ export function turnThumb(thumb) {
 // the crop ({x, y, w, h}, fractions of the crop), when the crop holds more
 // or less than the card (a strip of the card underneath, an edge cut
 // short); every region moves and scales with it.
-export function sampleGrid(thumb, inRect, gw, gh, {dx = 0, dy = 0, win = null, zoom = 1} = {}) {
-	const {h, rgb, w} = thumb;
+export function sampleGrid(thumb, inRect, gw, gh, shift = {}) {
+	return samplePlane(thumb.rgb, 3, thumb.w, thumb.h, inRect, gw, gh, shift);
+}
+
+// sampleGrid over `values`, a w x h plane of `nc` channels per cell.
+function samplePlane(values, nc, w, h, inRect, gw, gh, {dx = 0, dy = 0, win = null, zoom = 1}) {
 	const rect = win ? {h: inRect.h * win.h, w: inRect.w * win.w, x: win.x + inRect.x * win.w, y: win.y + inRect.y * win.h} : inRect;
 	const rw = rect.w * zoom;
 	const rh = rect.h * zoom;
@@ -175,7 +179,7 @@ export function sampleGrid(thumb, inRect, gw, gh, {dx = 0, dy = 0, win = null, z
 	const y0 = (rect.y + rect.h / 2 + dy - rh / 2) * h - 0.5;
 	const cw = (rw * w) / gw;
 	const ch = (rh * h) / gh;
-	const out = new Float32Array(gw * gh * 3);
+	const out = new Float32Array(gw * gh * nc);
 	const S = 2;
 	const xi = new Int32Array(gw * S);
 	const xf = new Float32Array(gw * S);
@@ -194,20 +198,20 @@ export function sampleGrid(thumb, inRect, gw, gh, {dx = 0, dy = 0, win = null, z
 			const y = Math.min(h - 1.001, Math.max(0, y0 + (v + (j + 0.5) / S) * ch));
 			const y1 = Math.floor(y);
 			const fy = y - y1;
-			const r0 = y1 * w * 3;
-			const r1 = r0 + w * 3;
+			const r0 = y1 * w * nc;
+			const r1 = r0 + w * nc;
 
 			for (let u = 0; u < gw; u++) {
-				const o = (v * gw + u) * 3;
+				const o = (v * gw + u) * nc;
 
 				for (let k = 0; k < S; k++) {
-					const a = r0 + xi[u * S + k] * 3;
-					const b = r1 + xi[u * S + k] * 3;
+					const a = r0 + xi[u * S + k] * nc;
+					const b = r1 + xi[u * S + k] * nc;
 					const fx = xf[u * S + k];
 
-					for (let c = 0; c < 3; c++) {
-						const top = rgb[a + c] + (rgb[a + 3 + c] - rgb[a + c]) * fx;
-						const bottom = rgb[b + c] + (rgb[b + 3 + c] - rgb[b + c]) * fx;
+					for (let c = 0; c < nc; c++) {
+						const top = values[a + c] + (values[a + nc + c] - values[a + c]) * fx;
+						const bottom = values[b + c] + (values[b + nc + c] - values[b + c]) * fx;
 
 						out[o + c] += top + (bottom - top) * fy;
 					}
@@ -303,22 +307,77 @@ function frequencyOrder(bits) {
 	return orders.get(bits);
 }
 
-const grey = (rgb, n) => {
-	const out = new Float32Array(n);
+// The thumbnail in grey, worked out once per thumbnail: the hash samples
+// one channel instead of three (grey is a weighted sum, so the grey of the
+// sampled colours and the sampled grey are the same numbers, short of
+// rounding: 2 bits of 2.6 million differed on Eric's holder-log crops).
+// With dctPicked it took about a third off each fingerprint (52 of them in
+// 43 ms against 63 on this laptop), and the wide search takes 113.
+const greys = new WeakMap();
 
-	for (let i = 0; i < n; i++) {
-		out[i] = rgb[i * 3] * 0.299 + rgb[i * 3 + 1] * 0.587 + rgb[i * 3 + 2] * 0.114;
+function greyOf(thumb) {
+	let grey = greys.get(thumb);
+
+	if (!grey) {
+		const {h, rgb, w} = thumb;
+
+		grey = new Float32Array(w * h);
+
+		for (let i = 0; i < w * h; i++) {
+			grey[i] = rgb[i * 3] * 0.299 + rgb[i * 3 + 1] * 0.587 + rgb[i * 3 + 2] * 0.114;
+		}
+
+		greys.set(thumb, grey);
 	}
 
-	return out;
-};
+	return grey;
+}
+
+// The coefficients of dctLow at `order` (indexes into its m x m block)
+// only, the same numbers: a 128-bit hash keeps 128 of the 289, so the
+// second pass is worked out for those alone, and the first for the columns
+// they use.
+function dctPicked(plane, n, m, order) {
+	const t = cosTable(n, m);
+	let width = 0;
+
+	for (const i of order) {
+		width = Math.max(width, (i % m) + 1);
+	}
+
+	const rows = new Float32Array(n * m);
+
+	for (let y = 0; y < n; y++) {
+		for (let u = 0; u < width; u++) {
+			let s = 0;
+
+			for (let x = 0; x < n; x++) {
+				s += plane[y * n + x] * t[u * n + x];
+			}
+
+			rows[y * m + u] = s;
+		}
+	}
+
+	return Float32Array.from(order, (i) => {
+		const u = i % m;
+		const v = (i - u) / m;
+		let s = 0;
+
+		for (let y = 0; y < n; y++) {
+			s += rows[y * m + u] * t[v * n + y];
+		}
+
+		return s;
+	});
+}
 
 // A `bits`-bit pHash (bits a multiple of 32) of `rect`, as a Uint32Array.
 export function phash(img, rect, bits = 64, shift = {}) {
 	const n = HASH_GRID;
 	const {m, order} = frequencyOrder(bits);
-	const coefs = dctLow(grey(sampleGrid(thumbnail(img), rect, n, n, shift), n * n), n, m);
-	const picked = Float32Array.from(order, (i) => coefs[i]);
+	const thumb = thumbnail(img);
+	const picked = dctPicked(samplePlane(greyOf(thumb), 1, thumb.w, thumb.h, rect, n, n, shift), n, m, order);
 	const sorted = Float32Array.from(picked).sort();
 	const median = (sorted[(bits >> 1) - 1] + sorted[bits >> 1]) / 2;
 	const out = new Uint32Array(bits / 32);
@@ -407,19 +466,51 @@ export const QUERY_SHIFTS = [
 // it (js/scan/picture.js matchCrops, where it is measured): moves of up to
 // 7.5 % either way in steps of 2.5 %, a smaller and a larger crop, and the
 // card squeezed into part of the crop (a strip of the card underneath taken
-// with it at the bottom or the top, or a side cut short).
+// with it at the top, or a side cut short); then FAR_PLACES, each with the
+// small shifts round it.
 const STEPS = [-0.075, -0.05, -0.025, 0, 0.025, 0.05, 0.075];
+
+// Where the card may sit in a crop found badly wrong: moved 10 % each way,
+// 10 % smaller or larger (the card shrunk or grown round the crop's centre,
+// so every region moves with it, which a zoom round each region's own
+// centre does not do), and pressed into the top 88 or 80 % of the crop by
+// a strip of the card beneath (a pile strip: the art box and the face are
+// read where the card is, and the strip is left out). One fingerprint at
+// each place is not enough: on Eric's holder-log crops moved down 10 %
+// (lab/holder/crops.mjs, 2026-10-16) the right card was 62 away at the
+// exact place (the median), as far as a crop as kept with no shift at all,
+// and 44 to 46 away at each place with the small shifts round it (the crops
+// as kept sit about 2.5 % to the side of the catalog image, and the best of
+// each hash over a few shifts is what makes a crop match). So each place
+// takes all of QUERY_SHIFTS, which reaches moves of 12.5 % across and 12 %
+// down. On the 1,056 re-crops of those crops it put the right card first
+// on 1,002 against 919, sure on 718 against 552, none wrong but sure:
+// moved down 10 %, 91 against 55; 10 % smaller, 89 against 63; pile strips
+// of 12 and 20 %, 91 and 91 against 85 and 81. The side places took moved
+// left 6 % from 88 to 92 (sure 57 to 75) over the others alone.
+export const FAR_PLACES = [
+	{dy: -0.1},
+	{dy: 0.1},
+	{dx: -0.1},
+	{dx: 0.1},
+	{win: {h: 0.9, w: 0.9, x: 0.05, y: 0.05}},
+	{win: {h: 1.1, w: 1.1, x: -0.05, y: -0.05}},
+	{win: {h: 0.88, w: 1, x: 0, y: 0}},
+	{win: {h: 0.8, w: 1, x: 0, y: 0}},
+];
+
+// A shift moved to a place: the moves add, the window and zoom are kept.
+export const atPlace = (place, shift) => ({...shift, ...place, dx: (shift.dx || 0) + (place.dx || 0), dy: (shift.dy || 0) + (place.dy || 0)});
 
 export const WIDE_SHIFTS = [
 	...STEPS.flatMap((dx) => STEPS.map((dy) => ({dx, dy}))).filter(({dx, dy}) => Math.abs(dx) + Math.abs(dy) > 0.025),
 	{zoom: 0.92},
 	{zoom: 1.08},
 	{zoom: 0.86},
-	{win: {h: 0.88, w: 1, x: 0, y: 0}},
-	{win: {h: 0.8, w: 1, x: 0, y: 0}},
 	{win: {h: 0.88, w: 1, x: 0, y: 0.12}},
 	{win: {h: 1, w: 0.9, x: 0, y: 0}},
 	{win: {h: 1, w: 0.9, x: 0.1, y: 0}},
+	...FAR_PLACES.flatMap((place) => QUERY_SHIFTS.map((shift) => atPlace(place, shift))),
 ];
 
 export function queryFingerprints(img, options = {}, shifts = QUERY_SHIFTS) {

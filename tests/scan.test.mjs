@@ -11,11 +11,13 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, defaultVariantId, finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {compactPicture, knownFrom, localPrint, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
+import {compactPicture, knownFrom, localPrint, matchCrops, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {LANGUAGE_CODES} from '../js/languages.js';
-import {thumbnail, turnImage, turnThumb} from '../js/vision/fingerprint.js';
+import {ART, atPlace, FAR_PLACES, fingerprint, QUERY_SHIFTS, queryFingerprints, sampleGrid, thumbnail, turnImage, turnThumb, WIDE_SHIFTS} from '../js/vision/fingerprint.js';
+import {matchFingerprints} from '../js/vision/matcher.js';
+import {packIndex, unpackIndex} from '../js/vision/pack.js';
 import {rectify, rectQuad} from '../js/scan/rectify.js';
 import * as S from '../js/scan/session.js';
 import {CHANGED, coarse, colourfulness, COLOURLESS, createAutoCapture, createStance, difference, DISTURB_LOOKS, JUMP, presence, STANCE, THUMB_H, THUMB_W} from '../js/scan/steady.js';
@@ -2667,4 +2669,127 @@ describe('hand-held auto capture: a disturbance re-arms it (Eric, 2026-10-16)', 
 		again.rearm();
 		assert.equal(again.state, 'armed', 'rearm: the picture is no longer the one taken');
 	});
+});
+
+describe('the wider picture search reaches crops found badly wrong (fingerprint.js FAR_PLACES)', () => {
+	// A made-up card: soft blobs of colour over a cream ground, different
+	// for every seed, 240 x 335 like a small catalog image.
+	function madeCard(seed, w = 240, h = 335) {
+		let s = seed * 9301 + 49297;
+		const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+		const blobs = Array.from({length: 9}, () => ({b: rnd() * 255, g: rnd() * 255, r: rnd() * 255, s: 0.05 + rnd() * 0.15, x: rnd(), y: rnd()}));
+		const data = new Uint8ClampedArray(w * h * 4);
+
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				let r = 230;
+				let g = 210;
+				let b = 120;
+				let t = 1;
+
+				for (const k of blobs) {
+					const d = Math.exp(-((x / w - k.x) ** 2 + (y / h - k.y) ** 2) / (k.s * k.s));
+
+					r += k.r * d;
+					g += k.g * d;
+					b += k.b * d;
+					t += d;
+				}
+
+				data.set([r / t, g / t, b / t, 255], (y * w + x) * 4);
+			}
+		}
+
+		return {data, height: h, width: w};
+	}
+
+	// out(x, y) from the card's pixel at map(x, y), the box's floor colour
+	// outside it (lab/holder/recrop.mjs makes the same re-crops, bilinear).
+	function remap(img, map) {
+		const {data, height: H, width: W} = img;
+		const out = new Uint8ClampedArray(W * H * 4);
+
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const [sx, sy] = map(x + 0.5, y + 0.5).map(Math.floor);
+				const inside = sx >= 0 && sy >= 0 && sx < W && sy < H;
+
+				out.set(inside ? data.subarray((sy * W + sx) * 4, (sy * W + sx) * 4 + 4) : [214, 220, 232, 255], (y * W + x) * 4);
+			}
+		}
+
+		return {data: out, height: H, width: W};
+	}
+
+	const moved = (img, dx, dy) => remap(img, (x, y) => [x + dx * img.width, y + dy * img.height]);
+	const zoomed = (img, z) => remap(img, (x, y) => [img.width / 2 + (x - img.width / 2) / z, img.height / 2 + (y - img.height / 2) / z]);
+
+	// The card pressed into the top 80 % of the crop and the top fifth of
+	// another card below it: the outline of a card and the one beneath it
+	// taken as one.
+	function piled(img, other) {
+		const top = Math.round(img.height * 0.8);
+		const upper = remap(img, (x, y) => [x, (y / top) * img.height]);
+		const lower = remap(other, (x, y) => [x, ((y - top) / (img.height - top)) * 0.2 * other.height]);
+		const data = new Uint8ClampedArray(upper.data);
+
+		data.set(lower.data.subarray(top * img.width * 4), top * img.width * 4);
+
+		return {data, height: img.height, width: img.width};
+	}
+
+	const cards = Array.from({length: 30}, (_, i) => madeCard(i + 1));
+	const bits = {artBits: 128, cardBits: 128};
+	const FIELDS = {art: {bytes: 16, type: 'u32'}, card: {bytes: 16, type: 'u32'}, color: {bytes: 16, type: 'i8'}};
+	const index = unpackIndex(packIndex({
+		cards: cards.map((c, i) => ({...fingerprint(c, bits), catalog: 0, flags: 0, group: i, set: 0})),
+		fields: FIELDS,
+		header: {catalogs: ['en'], fields: FIELDS, localIds: cards.map((_, i) => String(i + 1)).join('|'), series: ['test'], sets: ['test'], weights: {framed: {art: 1, card: 0.5, color: 0.1}, full: {art: 0.6, card: 1, color: 0.1}}},
+	}));
+
+	test('every far place is searched with the small shifts round it', () => {
+		for (const place of FAR_PLACES) {
+			for (const shift of QUERY_SHIFTS) {
+				assert.ok(WIDE_SHIFTS.some((s) => JSON.stringify(s) === JSON.stringify(atPlace(place, shift))), `${JSON.stringify(atPlace(place, shift))} is searched`);
+			}
+		}
+
+		assert.deepEqual(atPlace({dy: -0.1}, {dx: 0.025, dy: -0.02}), {dx: 0.025, dy: -0.1 - 0.02});
+		assert.deepEqual(atPlace({win: {h: 0.8, w: 1, x: 0, y: 0}}, {zoom: 0.95}), {dx: 0, dy: 0, win: {h: 0.8, w: 1, x: 0, y: 0}, zoom: 0.95});
+		assert.equal(Math.max(...WIDE_SHIFTS.map((s) => Math.abs(s.dx || 0))), 0.125);
+		assert.ok(Math.abs(Math.max(...WIDE_SHIFTS.map((s) => Math.abs(s.dy || 0))) - 0.12) < 1e-9);
+	});
+
+	test('a window samples the card where it sits: a card 10 % smaller reads as the card', () => {
+		const card = cards[3];
+		const small = FAR_PLACES.find((p) => p.win && p.win.w === 0.9 && p.win.h === 0.9);
+		const want = sampleGrid(thumbnail(card), ART, 8, 8);
+		const got = sampleGrid(thumbnail(zoomed(card, 0.9)), ART, 8, 8, {win: small.win});
+		const plain = sampleGrid(thumbnail(zoomed(card, 0.9)), ART, 8, 8);
+		const off = (a) => a.reduce((sum, v, i) => sum + Math.abs(v - want[i]), 0) / a.length;
+
+		assert.ok(off(got) < 6, `the window is ${off(got).toFixed(1)} off`);
+		assert.ok(off(got) < off(plain) / 2, `the window (${off(got).toFixed(1)}) beats no window (${off(plain).toFixed(1)})`);
+	});
+
+	// Before FAR_PLACES the moved crops came 31 to 35 away and the smaller
+	// and larger 11 and 17 (these made-up cards are far apart, so the right
+	// one came first all the same; on real cards it did not).
+	for (const [name, make] of [
+		['moved down 10 %', (c) => moved(c, 0, 0.1)],
+		['moved up 10 %', (c) => moved(c, 0, -0.1)],
+		['moved right 10 %', (c) => moved(c, -0.1, 0)],
+		['10 % smaller', (c) => zoomed(c, 0.9)],
+		['10 % larger', (c) => zoomed(c, 1.1)],
+		['a pile strip of 20 %', (c) => piled(c, cards[29])],
+	]) {
+		test(`${name}: the right card comes close and first`, () => {
+			const crop = make(cards[5]);
+			const wide = matchFingerprints(index, queryFingerprints(thumbnail(crop), bits, [...QUERY_SHIFTS, ...WIDE_SHIFTS]), {top: 3});
+
+			assert.equal(wide.groups[0].cards[0].id, 'test-6');
+			assert.ok(wide.groups[0].score <= 10, `${name}: ${wide.groups[0].score} away`);
+			assert.equal(matchCrops(index, [crop]).groups[0].cards[0].id, 'test-6');
+		});
+	}
 });
