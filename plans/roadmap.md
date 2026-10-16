@@ -192,6 +192,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   disturbance asks "Same card as the last one: Add a copy / Mistake" instead of being skipped.
   Hand-held: the hand removing the top card of a pile is a disturbance that re-arms auto capture,
   so Eric's pile method (scan the top card, take it off, scan the next) works.
+- **Automatic holder mode, careful (Eric, 2026-10-16, option 2 of 3):** switch to holder mode after
+  about 2 s of the phone still (DeviceMotion: no hand tremor) and a steady picture; back to hand-held
+  on a deliberate movement (picking the phone up). Never switch during a capture or read; a card
+  falling into the box is a drop, not a pickup. A small label shows "Holder (auto)"; the Holder
+  switch overrides it. The scan log records each switch.
 - A real drop was skipped as "moved" (js/scan/drop.js MOVED_PART), leaving the scanner idle for
   75 s; keep before and after views for skipped drops (view.js logSkipped) and tune the rule on them.
 - Log whether each picture ran in the worker, and give worker jobs a timeout that falls back to the
