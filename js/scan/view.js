@@ -2962,7 +2962,7 @@ export function scanView(root) {
 
 		if (!step.drop) {
 			if (step.change.kind !== 'none') {
-				logSkipped(step.change.kind, step);
+				logSkipped(step.change.kind, step, area);
 			}
 
 			// A still picture with nothing new: the last drop's frame for the
@@ -2988,7 +2988,7 @@ export function scanView(root) {
 				setPile(true);
 			}
 
-			logSkipped(plan.skip, step);
+			logSkipped(plan.skip, step, area);
 			keepBeforeView(area);
 
 			return;
@@ -3043,10 +3043,13 @@ export function scanView(root) {
 	}
 
 	// The view now and the view before the drop, as small JPEGs for the scan
-	// log, so lab/holder/replay.mjs can replay the drop from a log.
-	async function logViews(id, area) {
+	// log, so lab/holder/replay-log.mjs can replay the drop from a log. Both
+	// are taken at once (toBlob copies the canvas as it is called), so a
+	// still frame redrawing the view before meanwhile changes nothing. id:
+	// the entry, or a promise of it (a skipped drop's, log.js logEvent).
+	function logViews(id, area) {
 		if (!scanLog.recording() || !scanLog.picturesOn() || !beforeCanvas.width) {
-			return;
+			return Promise.resolve();
 		}
 
 		const after = document.createElement('canvas');
@@ -3056,9 +3059,8 @@ export function scanView(root) {
 		after.getContext('2d').drawImage(video, area.view.x, area.view.y, area.view.w, area.view.h, 0, 0, after.width, after.height);
 
 		const blob = (canvas) => new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.7));
-		const [before, now] = await Promise.all([blob(beforeCanvas), blob(after)]);
 
-		scanLog.saveViews(id, {after: now, before});
+		return Promise.all([id, blob(beforeCanvas), blob(after)]).then(([entry, before, now]) => (entry ? scanLog.saveViews(entry, {after: now, before}) : null));
 	}
 
 	// What the scan log keeps of a drop.
@@ -3076,9 +3078,13 @@ export function scanView(root) {
 		stillMs: Math.round(step.still),
 	});
 
-	// A drop the detector saw that took nothing: why, in the scan log.
-	function logSkipped(why, step) {
-		scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step), how: 'holder', why});
+	// A drop the detector saw that took nothing: why, in the scan log, with
+	// the views before and after it, as a drop taken keeps them (Eric's v38
+	// log: a real drop skipped as "moved" left nothing to replay it from).
+	function logSkipped(why, step, area) {
+		const id = scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(step.change, null, step), how: 'holder', why});
+
+		logViews(id, area).catch(() => {});
 	}
 
 	// Takes the card a drop brought: a tile at once, the picture matched off

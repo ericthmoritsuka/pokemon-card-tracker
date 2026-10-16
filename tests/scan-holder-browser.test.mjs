@@ -207,7 +207,7 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 		assert.equal(taken.length, 4);
 
 		for (const entry of taken) {
-			assert.equal(entry.scanner, 36);
+			assert.equal(entry.scanner, 40);
 			assert.equal(entry.report.geometry.drop.kind, 'drop');
 			assert.ok(entry.report.geometry.drop.share > 0 && entry.report.geometry.drop.stillFrames >= 2);
 			assert.ok(entry.report.geometry.drop.sharpness > 0);
@@ -215,7 +215,11 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 			assert.ok(entry.views && /^data:image\/jpeg/.test(entry.views.before) && /^data:image\/jpeg/.test(entry.views.after), 'the views round the drop');
 		}
 
-		assert.ok(log.entries.some((entry) => entry.how === 'holder' && entry.why === 'removed' && entry.outcome.kind === 'skipped'), `the emptied box is logged as skipped: ${JSON.stringify(log.entries.filter((entry) => entry.how === 'holder').map((entry) => entry.why))}`);
+		const emptied = log.entries.find((entry) => entry.how === 'holder' && entry.why === 'removed' && entry.outcome.kind === 'skipped');
+
+		assert.ok(emptied, `the emptied box is logged as skipped: ${JSON.stringify(log.entries.filter((entry) => entry.how === 'holder').map((entry) => entry.why))}`);
+		// Version 40: a skipped drop keeps its views too, for a replay.
+		assert.ok(emptied.views && /^data:image\/jpeg/.test(emptied.views.before) && /^data:image\/jpeg/.test(emptied.views.after), 'the views round the skipped drop');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
