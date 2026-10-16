@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Adding a photo finds the card\'s corners in more photos, even a silver card on a silver table.',
+			'Corner handles snap onto the card\'s corners as you drag them, with a light buzz; drag further to let go.',
+			'When the corners are hard to find, a tip suggests a dark or coloured surface under the card.',
+		],
+		version: 'v41',
+	},
+	{
+		date: '2026-10-16',
+		items: [
 			'Holder mode catches a different card even when it lands exactly on the last one; the same card dropped again asks Add a copy or Mistake.',
 			'Hand-held: scan the top card, take it off, and the card underneath is taken by itself.',
 			'Holder mode switches on by itself when the phone sits still in the stand, and off when you pick it up (Auto, Holder, or Hand-held on the chip).',
