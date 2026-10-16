@@ -255,6 +255,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   type, set, language, rarity, price), plus a new Artist filter; combines with From (box or list)
   and search; active chips with clear. Not nested dropdowns (fiddly on phones). Do with the other
   picker items. Small to medium.
+- **Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
+  collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
+  hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free
+  pocket and Keep in tray as shortcuts; a placeholder waiting for that card is pointed out. Reuses
+  the tray's pick-then-pocket logic (js/binders-view.js). Small.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
