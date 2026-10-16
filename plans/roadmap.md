@@ -224,6 +224,19 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   it snaps to a detected corner point (strong edge meeting, near the 63:88 shape) within a short
   radius, with a light buzz; dragging further releases it; arrow keys never snap.
 
+## Next small builds (Eric, 2026-10-16)
+
+- **Rotate in the binder cover editor** (js/binder-cover.js), like the photo editor's Rotate button
+  (js/photos/editor.js, geometry.js rotateCorners). Tiny.
+- **Snap on/off:** a "Snap" toggle in the corner editor (js/corners.js), remembered locally; also
+  only snap to points that look like real card corners. Eric: it sometimes snaps to the wrong place.
+- **Fill a binder from a box or a list:** in Add cards to the tray, a "From" choice listing Stored in
+  places (Eric keeps cards in boxes by region or type) and lists (checklists, collections, goals);
+  only that source's cards show, pick them, add to the tray. Small.
+- **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
+  installed app (Android) appears when monprice shares its export; the service worker receives the
+  file and Import opens with it. Own CSV too. Small to medium.
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
