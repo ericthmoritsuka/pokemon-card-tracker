@@ -208,6 +208,17 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 - Tombstone purge: designed in DESIGN.md section 8, not built (card tombstones must stay for
   re-imports; a cut-over would ask every phone to update).
 
+## Photos (Eric, 2026-10-16)
+
+- **Shared family photos:** when a card has no official image, no twin, and no photo of your own,
+  show a family member's photo of the same card (same language first), with "Photo by <name>".
+  Storage already lets the group read each other's photos (supabase/photos.sql "read own and
+  group"); no new SQL. Each document keeps a small list of which cards have photos, so phones fetch
+  only that list from the family. Small to medium.
+- **Smarter corners when adding a photo:** js/photos/detect.js still uses the older finder; point it
+  at the scanner's card finder (findCard, rectify, the pile and tilt handling) and keep the corner
+  editor (Eric: "the corner edit function is marvelous"). Small.
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
