@@ -1505,6 +1505,11 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 			}
 			: null,
 		partial: read.partial && (read.partial.number || read.partial.total) ? `${read.partial.number || '?'}/${read.partial.total || '?'}` : null,
+		// Where the picture was matched (identify.js identifyPictureAway):
+		// 'worker' or 'main', and why not in the worker when it was meant to
+		// be ('no worker', 'worker error', 'timeout').
+		pictureIn: result.where || null,
+		pictureWhy: result.fallback || null,
 		rectify: {
 			angle: result.angle ?? null,
 			card: result.card ? `${result.card.width}x${result.card.height}` : null,
@@ -1665,7 +1670,9 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	}
 
 	if (report.picture) {
-		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}`);
+		const where = report.pictureIn === 'worker' ? '; in the picture worker' : report.pictureIn === 'main' ? `; on the main thread${report.pictureWhy ? ` (${report.pictureWhy === 'timeout' ? 'the picture worker stopped answering' : report.pictureWhy === 'worker error' ? 'the picture worker failed' : 'no picture worker'})` : ''}` : '';
+
+		lines.push(`- Picture match: fingerprint ${ms(report.picture.fingerprintMs)}, match ${ms(report.picture.matchMs)}; lead over the second ${report.picture.gap ?? 'none (one group)'}${where}`);
 
 		if ((report.picture.variants || []).length) {
 			lines.push(`- Crops tried for a weak match: ${report.picture.variants.join(', ')}; ${report.picture.before !== null ? `${report.picture.how} won (the crop as found was ${report.picture.before} away)` : 'none beat the crop as found'}`);

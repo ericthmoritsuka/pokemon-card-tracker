@@ -12,7 +12,8 @@
 // grabBitmap: the camera's VideoFrame and the area to cut from it, or an
 // ImageBitmap of the area; on Eric's phone reading them took 380 to 550 ms
 // of the main thread), drawn here on an OffscreenCanvas. Out: {warm: true, ok} once
-// the index is in; for a bitmap with full set, {id, full} with the capture
+// the index is in; for a bitmap, {id, decoded: true} once its pixels are
+// read (the page then lets go of its spare copy); with full set, {id, full} with the capture
 // as a JPEG (quality 0.92, null when it could not be made), for the draft
 // tray; {id, result} with identifyPicture's answer, its trace's capture
 // left out when it is the image sent (the page has it); or {id, error}. A
@@ -56,6 +57,9 @@ self.addEventListener('message', async ({data}) => {
 			bitmap.close();
 			image = ctx.getImageData(0, 0, image.width, image.height);
 			decoded = true;
+			// The page keeps a spare of the bitmap until this, in case the
+			// worker dies first (identify.js fallback).
+			self.postMessage({decoded: true, id});
 
 			if (full) {
 				canvas.convertToBlob({quality: 0.92, type: 'image/jpeg'})
