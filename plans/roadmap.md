@@ -220,6 +220,9 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   editor (Eric: "the corner edit function is marvelous"). Small. Test case: a silver-bordered card
   on a silver or grey background, where the outer edge barely shows; use the 63:88 shape and the
   inner edges (art box, border's inner line) to place the corners. Tip to show: a contrasting surface.
+  **Snapping (Eric, 2026-10-16):** while a corner handle is dragged in the editor (js/corners.js),
+  it snaps to a detected corner point (strong edge meeting, near the 63:88 shape) within a short
+  radius, with a light buzz; dragging further releases it; arrow keys never snap.
 
 ## Kept Open Items (Eric, 2026-10-09)
 
