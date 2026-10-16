@@ -238,6 +238,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   optionally focusing it when the last pick was made by typing. Tiny.
 - **Drag between pockets** (asked 2026-10-16; optional item in the v42 agent): long press, move to an
   empty pocket or swap, Undo, "Move to pocket..." for keyboards.
+- **Bigger binder on computers and tablets (Eric, 2026-10-16: "looks small compared to the whole
+  screen"):** first look at it in Chrome at desktop and tablet sizes; then let the spread scale to
+  the available width and height on wide screens (keeping its proportions), with zoom buttons (and
+  pinch on tablets) remembered locally. Phones unchanged.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
