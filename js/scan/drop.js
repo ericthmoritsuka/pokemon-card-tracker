@@ -33,7 +33,7 @@
 // the same place changes nothing and is not seen; in holder mode that is
 // the only blind spot, and the shutter takes it.
 
-import {ART, FACE, hamming, phash, THUMB_H, THUMB_W} from '../vision/fingerprint.js';
+import {ART, FACE, hamming, phash} from '../vision/fingerprint.js';
 
 // Pixels of the view per cell.
 export const CELL = 4;
@@ -875,17 +875,22 @@ export function planCapture(card, others, view, fine, found, {blobBox = boxOf(ca
 // very spot can change the same few cells; their pictures never agree.
 
 // The card in a quad of a grey view (corners top left, top right, bottom
-// right, bottom left, in its pixels), straightened into the fingerprint's
-// thumbnail (fingerprint.js THUMB_W x THUMB_H, its rgb grey in all three),
-// each cell the mean of 2 x 2 bilinear samples. The quad is mapped
-// bilinearly, which for a card seen from above is its perspective within
-// a pixel.
+// right, bottom left, in its pixels), straightened into a thumbnail of
+// PRINT_W x PRINT_H cells as fingerprint.js reads them (its rgb grey in all
+// three), each cell one bilinear sample: the card on the view the frame
+// loop watches is 100 to 200 pixels tall, so finer cells would read the
+// same pixels again, and on a phone each print has to cost a few
+// milliseconds of the frame loop. The quad is mapped bilinearly, which for
+// a card seen from above is its perspective within a pixel.
+const PRINT_W = 64;
+const PRINT_H = 89;
+
 export function cardThumb(grey, width, height, corners) {
 	const [tl, tr, br, bl] = corners;
-	const tw = THUMB_W;
-	const th = THUMB_H;
+	const tw = PRINT_W;
+	const th = PRINT_H;
 	const rgb = new Float32Array(tw * th * 3);
-	const S = 2;
+	const S = 1;
 	const at = (x, y) => {
 		const cx = Math.min(width - 1.001, Math.max(0, x));
 		const cy = Math.min(height - 1.001, Math.max(0, y));
@@ -947,10 +952,11 @@ export function printDistance(a, b) {
 // Between them nothing is told. Measured on Eric's v38 holder log and his
 // two videos of 2026-10-09 (lab/holder/replay-log.mjs and replay.mjs, the
 // views the scanner watches, 262 to 360 px): two different cards one on the
-// other 36 to 62 apart in the log and 24 to 62 on the videos (24: a Litleo
-// landing square on a Darmanitan, both orange Fire cards, art 14 and face
-// 10), the same card settling after it was taken 12 (art 6, face 6), and on
-// the browser tests' canvas a card nudged 12 and dropped again 10.
+// other 34 to 62 apart in the log and 24 to 62 on the videos (24: a Litleo
+// landing square on a Darmanitan, both orange Fire cards, art and face
+// alike in layout), the same card settling after it was taken 12 to 16,
+// and on the browser tests' canvas a card nudged 12 and dropped again 10.
+// A print costs about 1.3 ms here.
 export const SAME_PRINT = 16;
 export const NEW_PRINT = 24;
 
