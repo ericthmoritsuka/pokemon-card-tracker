@@ -339,6 +339,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 				stage.dataset.moved = 'true';
 			},
 			smoothing: 'high',
+			snapPoints: found.found ? detected : [],
 			source,
 		});
 		const {handles, stage} = editor;

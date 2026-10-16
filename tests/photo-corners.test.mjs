@@ -13,8 +13,10 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {detectCorners} from '../js/photos/detect.js';
+import {detectCorners, shrink} from '../js/photos/detect.js';
 import {applyHomography, distance, solveHomography} from '../js/photos/geometry.js';
+import {toGrey} from '../js/scan/steady.js';
+import {nearestSnap, snapPoints} from '../js/snap.js';
 
 // A made-up card face: a border of `border` colour, an art box with dark
 // shapes, and a light text box below it.
@@ -144,5 +146,32 @@ describe('automatic corners for a card photo', () => {
 
 		assert.equal(found.found, true);
 		assert.ok(off <= TOLERANCE, `worst corner ${off.toFixed(1)} px from either card`);
+	});
+});
+
+// ----------------------------------------------------------- snap points
+
+describe('snap points for the corner editor', () => {
+	test('the card\'s four corners are among the snap points; a plain picture has none', () => {
+		const {face, options, quad} = CASES.tilted;
+		const half = quad.map((p) => ({x: p.x / 2, y: p.y / 2}));
+		// As the editor reads it: a smoothed copy 360 pixels on its long side.
+		const {image, scale} = shrink(photoOf(face(), half, 390, 480, options), 360);
+		const points = snapPoints(toGrey(image.data, image.width, image.height), image.width, image.height).map((p) => ({x: p.x / scale, y: p.y / scale}));
+
+		half.forEach((corner, i) => {
+			const nearest = Math.min(...points.map((p) => distance(p, corner)));
+
+			assert.ok(nearest <= 5, `corner ${i}: nearest snap point ${nearest.toFixed(1)} px away`);
+		});
+
+		assert.deepEqual(snapPoints(new Uint8Array(390 * 480).fill(90), 390, 480), []);
+	});
+
+	test('the nearest point within the radius wins, and none beyond it', () => {
+		const points = [{x: 10, y: 10}, {x: 14, y: 10}];
+
+		assert.equal(nearestSnap({x: 13, y: 10}, points, 5), points[1]);
+		assert.equal(nearestSnap({x: 30, y: 10}, points, 5), null);
 	});
 });

@@ -7,6 +7,13 @@
 // focused corner by 1 pixel on screen, or 10 with Shift. Corners are in the
 // source picture's pixels and stay inside it.
 //
+// Snapping (Eric, 2026-10-16): the picture's snap points (js/snap.js: the
+// corners of card-shaped boxes, strong edge meetings, and the caller's
+// detected corners) are worked out once when the editor opens. A dragged
+// corner within SNAP_RADIUS of the short side of one jumps onto it, with a
+// light buzz where the phone has one; dragging further releases it. The
+// arrow keys never snap.
+//
 // Each caller keeps what is its own: what it detects first, its preview
 // (onChange runs once a frame after any move), and its buttons. The class
 // names stay the callers' own (handleClass, draggingClass), so each sheet
@@ -18,9 +25,12 @@
 //   editor.corners                 // the corners now, [{x, y}] x 4
 //   editor.setCorners(points)      // Rotate, Reset corners
 //   editor.handles[0].focus()
+//   editor.snapPoints              // the snap points, in source pixels
 
 import {h} from './dom.js';
 import {clampPoint} from './photos/geometry.js';
+import {toGrey} from './scan/steady.js';
+import {nearestSnap, SNAP_RADIUS, SNAP_SIDE, snapPoints as findSnapPoints} from './snap.js';
 
 export const CORNER_NAMES = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left'];
 
@@ -42,6 +52,9 @@ const SVG = 'http://www.w3.org/2000/svg';
 //   marks          true to write each handle's corner, in source pixels, on
 //                  data-x and data-y (tests read them)
 //   onDragEnd      runs when a drag ends
+//   snap           false to never snap
+//   snapPoints     the caller's own snap points (its detected corners), in
+//                  source pixels
 export function cornerEditor({
 	corners: start,
 	draggingClass = 'ph-dragging',
@@ -53,6 +66,8 @@ export function cornerEditor({
 	onChange = () => {},
 	onDragEnd = () => {},
 	smoothing = null,
+	snap = true,
+	snapPoints: ownPoints = [],
 	source,
 	stageClass = 'ph-stage',
 	stageId = null,
@@ -60,6 +75,8 @@ export function cornerEditor({
 	let corners = start.map((p) => ({...p}));
 	let scale = 1;
 	let frame = 0;
+	const points = snap ? pointsOf(source, ownPoints) : [];
+	const radius = Math.min(source.width, source.height) * SNAP_RADIUS;
 
 	const photo = h('canvas', {'aria-hidden': 'true', class: 'ph-photo'});
 	const outline = document.createElementNS(SVG, 'svg');
@@ -165,7 +182,7 @@ export function cornerEditor({
 
 		handle.addEventListener('pointerdown', (event) => {
 			event.preventDefault();
-			drag = {id: event.pointerId, start: {...corners[i]}, x: event.clientX, y: event.clientY};
+			drag = {id: event.pointerId, snapped: null, start: {...corners[i]}, x: event.clientX, y: event.clientY};
 			handle.setPointerCapture(event.pointerId);
 			handle.classList.add(draggingClass);
 
@@ -179,10 +196,38 @@ export function cornerEditor({
 				return;
 			}
 
-			corners[i] = clampPoint({
+			const moved = clampPoint({
 				x: drag.start.x + ((event.clientX - drag.x) / scale),
 				y: drag.start.y + ((event.clientY - drag.y) / scale),
 			}, source.width, source.height);
+			// A snapped corner holds its point until the finger is past the
+			// radius from it. Once let go, the points round the one it left
+			// stay out of reach until the finger is twice the radius away, so
+			// it does not hop from point to point near one corner.
+			const from = (p) => Math.hypot(moved.x - p.x, moved.y - p.y);
+			const held = drag.snapped && from(drag.snapped) <= radius;
+
+			if (drag.snapped && !held) {
+				drag.left = drag.snapped;
+			}
+
+			if (drag.left && from(drag.left) > radius * 2) {
+				drag.left = null;
+			}
+
+			const reach = drag.left ? points.filter((p) => Math.hypot(p.x - drag.left.x, p.y - drag.left.y) > radius) : points;
+			const target = held ? drag.snapped : nearestSnap(moved, reach, radius);
+
+			if (target && target !== drag.snapped && navigator.vibrate) {
+				navigator.vibrate(10);
+			}
+
+			drag.snapped = target;
+			corners[i] = target ? {...target} : moved;
+
+			if (snap) {
+				handle.dataset.snapped = String(Boolean(target));
+			}
 
 			if (loupe) {
 				drawLoupe(i);
@@ -213,6 +258,11 @@ export function cornerEditor({
 
 			if (move) {
 				event.preventDefault();
+
+				if (snap) {
+					handle.dataset.snapped = 'false';
+				}
+
 				corners[i] = clampPoint({x: corners[i].x + move[0], y: corners[i].y + move[1]}, source.width, source.height);
 				schedule();
 			}
@@ -225,10 +275,39 @@ export function cornerEditor({
 		},
 		handles,
 		layout,
+		snapPoints: points,
 		setCorners(points) {
 			corners = points.map((p) => ({...p}));
 			schedule();
 		},
 		stage,
 	};
+}
+
+// The snap points of `source` (a canvas or an image bitmap), in its own
+// pixels: the caller's points first, then those found on a SNAP_SIDE copy.
+// None when the copy cannot be read.
+function pointsOf(source, own) {
+	const fit = Math.min(1, SNAP_SIDE / Math.max(source.width, source.height));
+	const width = Math.max(1, Math.round(source.width * fit));
+	const height = Math.max(1, Math.round(source.height * fit));
+	const extra = own.map((p) => ({x: p.x * fit, y: p.y * fit}));
+
+	try {
+		const canvas = document.createElement('canvas');
+
+		canvas.width = width;
+		canvas.height = height;
+
+		const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+		ctx.drawImage(source, 0, 0, width, height);
+
+		const grey = toGrey(ctx.getImageData(0, 0, width, height).data, width, height);
+
+		return findSnapPoints(grey, width, height, {extra}).map((p) => ({x: p.x / fit, y: p.y / fit}));
+	}
+	catch {
+		return own.map((p) => ({...p}));
+	}
 }
