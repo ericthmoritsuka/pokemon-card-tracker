@@ -348,17 +348,21 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		const reset = h('button', {class: 'ph-reset', type: 'button'}, 'Reset corners');
 		const retake = h('button', {class: 'ph-retake', type: 'button'}, 'Retake');
 
+		// When the card's outline was faint or not found (js/photos/detect.js).
+		const tip = found.unsure ? h('p', {class: 'ph-message muted ph-tip'}, 'Tip: a dark or coloured surface under the card helps find the corners.') : null;
+
 		stage.dataset.method = found.method;
 		stage.dataset.found = String(found.found);
 
-		body.replaceChildren(
+		body.replaceChildren(...[
 			stage,
 			h('div', {class: 'ph-review'},
 				preview,
 				h('div', {class: 'ph-review-actions'}, saveButton, rotate, reset, retake)
 			),
-			status
-		);
+			status,
+			tip,
+		].filter(Boolean));
 
 		rotate.addEventListener('click', () => editor.setCorners(rotateCorners(editor.corners, 1)));
 		reset.addEventListener('click', () => editor.setCorners(detected));

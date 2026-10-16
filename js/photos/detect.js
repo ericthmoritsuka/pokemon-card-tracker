@@ -1,7 +1,16 @@
 // Finds the four corners of a card in a photo, on the phone, with no paid
 // service (DESIGN.md section 5, "Own photos, cropped to the card").
 //
-// Two finders run, and the better-supported answer wins:
+// The scanner's card finder runs first (findCard, js/scan/steady.js): it
+// looks for card-shaped 63:88 boxes of straight lines anywhere in the photo,
+// at any tilt, and chooses the card among them (the card on top of a pile,
+// the card's edge round its inner border, not the art box). When the box it
+// returns is the card's inner border line (a silver card on a silver table,
+// whose outer edge barely shows), the faint outer edge is looked for a
+// border's width outside it, and the corners move out to it.
+//
+// When findCard finds nothing, two older finders run, and the
+// better-supported answer wins:
 //
 //   outline  Separates the card from a plain, contrasting background
 //            (Otsu's threshold), takes the largest blob that is not the
@@ -17,6 +26,7 @@
 // all four of its sides. Pure functions over ImageData-shaped objects, so
 // Node tests them (tests/photos.test.mjs).
 
+import {findCard} from '../scan/steady.js';
 import {rectify} from '../vision/rectify.js';
 
 import {
@@ -462,39 +472,305 @@ function rectifyQuad(img) {
 // start at a card-shaped box in the middle for the person to place.
 const MIN_SCORE = 12;
 
-// Finds the card's corners in `img` (any size; detection reads a copy of at
-// most DETECT_SIDE pixels). Returns {corners, found, method, note, score},
-// with corners in `img`'s own pixels, top-left first, clockwise.
-export function detectCorners(img) {
-	const {image: work, scale} = shrink(img);
-	const grey = greyOf(work);
-	const candidates = [
-		{method: 'outline', quad: outlineQuad(work, grey, true)},
-		{method: 'outline', quad: outlineQuad(work, grey, false)},
-		{method: 'rectify', quad: rectifyQuad(work)},
-	];
-	let best = null;
+// Below this score (the weakest side's contrast) a found card's outline is
+// faint, and the editor suggests a contrasting surface.
+const SURE_SCORE = 16;
 
-	for (const candidate of candidates) {
-		if (!candidate.quad) {
-			continue;
+// findCard reads a copy this many pixels on its long side, as the scanner
+// does at the moment of capture (FIND_SIDE_CAPTURE).
+const FIND_SIDE = 360;
+
+// A card's border, between its edge and its inner line, as a share of its
+// width: looked for between these, and the gaps found on different sides
+// must agree within BORDER_SPREAD.
+const BORDER_MIN = 0.012;
+const BORDER_MAX = 0.1;
+const BORDER_SPREAD = 0.035;
+
+const sample = (grey, width, height, x, y) => {
+	const xi = Math.min(width - 1, Math.max(0, Math.round(x)));
+	const yi = Math.min(height - 1, Math.max(0, Math.round(y)));
+
+	return grey[yi * width + xi];
+};
+
+// For the side a-b of a clockwise quad: the strongest straight brightness
+// step parallel to it, between BORDER_MIN and BORDER_MAX of the card's width
+// outside it. The step's sign must hold along the side (a real edge), so
+// noise averages away. Returns {gap, strength, noise, plain}: plain is how
+// much the band between the side and the step varies (a card's border is
+// one colour).
+function outerStep(grey, width, height, a, b, cardWidth) {
+	const length = distance(a, b) || 1;
+	const ux = (b.x - a.x) / length;
+	const uy = (b.y - a.y) / length;
+	// Outward, for a quad clockwise on the screen.
+	const nx = uy;
+	const ny = -ux;
+	const from = Math.max(2, Math.round(cardWidth * BORDER_MIN));
+	const to = Math.round(cardWidth * BORDER_MAX);
+	const profile = [];
+
+	for (let k = from; k <= to; k++) {
+		let sum = 0;
+		let n = 0;
+
+		for (let t = 0.15; t <= 0.85; t += 0.01) {
+			const x = a.x + (b.x - a.x) * t + nx * k;
+			const y = a.y + (b.y - a.y) * t + ny * k;
+
+			if (x < 1 || y < 1 || x > width - 2 || y > height - 2) {
+				continue;
+			}
+
+			sum += sample(grey, width, height, x + nx, y + ny) - sample(grey, width, height, x - nx, y - ny);
+			n++;
 		}
 
-		const quad = portraitCorners(candidate.quad);
-		const score = scoreQuad(grey, work.width, work.height, quad);
+		profile.push(n > 10 ? Math.abs(sum / n) : 0);
+	}
 
-		if (!best || score > best.score) {
-			best = {...candidate, quad, score};
+	if (!profile.length) {
+		return null;
+	}
+
+	let best = 0;
+
+	profile.forEach((value, i) => {
+		if (value > profile[best]) {
+			best = i;
+		}
+	});
+
+	const sorted = [...profile].sort((p, q) => p - q);
+	const gap = from + best;
+	let sum = 0;
+	let squares = 0;
+	let n = 0;
+
+	for (let t = 0.15; t <= 0.85; t += 0.02) {
+		for (const share of [0.3, 0.5, 0.7]) {
+			const value = sample(grey, width, height, a.x + (b.x - a.x) * t + nx * gap * share, a.y + (b.y - a.y) * t + ny * gap * share);
+
+			sum += value;
+			squares += value * value;
+			n++;
 		}
 	}
 
-	if (!best || best.score < MIN_SCORE) {
+	return {
+		gap,
+		noise: sorted[Math.floor(sorted.length / 2)],
+		plain: Math.sqrt(Math.max(0, squares / n - (sum / n) ** 2)),
+		strength: profile[best],
+	};
+}
+
+// Moves the corners of a card's inner border line out to its faint outer
+// edge, when one shows a border's width outside at least three sides with
+// agreeing gaps (the fourth side takes their mean). Returns {quad, sides}
+// (sides: how many sides showed the edge), or null when the quad already
+// is the card's edge.
+export function outerEdge(grey, width, height, quad) {
+	const cardWidth = quadSize(quad).width;
+	const steps = [0, 1, 2, 3].map((s) => outerStep(grey, width, height, quad[s], quad[(s + 1) % 4], cardWidth));
+	const shown = steps.map((step) => (step && step.strength >= Math.max(1.5, step.noise * 3) && step.plain < 12 ? step.gap : null));
+	const gaps = shown.filter((gap) => gap !== null);
+
+	if (gaps.length < 3 || Math.max(...gaps) - Math.min(...gaps) > cardWidth * BORDER_SPREAD) {
+		return null;
+	}
+
+	const mean = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+	const lines = quad.map((a, s) => {
+		const b = quad[(s + 1) % 4];
+		const length = distance(a, b) || 1;
+		const direction = {x: (b.x - a.x) / length, y: (b.y - a.y) / length};
+		const gap = shown[s] ?? mean;
+
+		return {direction, point: {x: a.x + direction.y * gap, y: a.y - direction.x * gap}};
+	});
+	const corners = [];
+
+	for (let s = 0; s < 4; s++) {
+		const corner = intersect(lines[(s + 3) % 4], lines[s]);
+
+		if (!corner) {
+			return null;
+		}
+
+		corners.push(corner);
+	}
+
+	return isConvexQuad(corners) ? {quad: corners, sides: gaps.length} : null;
+}
+
+// Fits each side of a clockwise quad to the strongest brightness step
+// within `reach` pixels across it, sampled along its middle 76 percent
+// (a card's corners are rounded), and puts the corners where the fitted
+// lines cross. A side with too few clear steps keeps its line; the quad is
+// kept when the result is not convex or moves a corner further than reach
+// twice over.
+export function refineSides(grey, width, height, quad, reach) {
+	const lines = quad.map((a, s) => {
+		const b = quad[(s + 1) % 4];
+		const length = distance(a, b) || 1;
+		const ux = (b.x - a.x) / length;
+		const uy = (b.y - a.y) / length;
+		const points = [];
+
+		for (let t = 0.12; t <= 0.88; t += 0.01) {
+			const cx = a.x + (b.x - a.x) * t;
+			const cy = a.y + (b.y - a.y) * t;
+			let best = 0;
+			let at = null;
+
+			for (let k = -reach; k <= reach; k += 0.5) {
+				const x = cx + uy * k;
+				const y = cy - ux * k;
+				const step = Math.abs(sample(grey, width, height, x + uy, y - ux) - sample(grey, width, height, x - uy, y + ux));
+
+				if (step > best) {
+					best = step;
+					at = {x, y};
+				}
+			}
+
+			if (at && best >= 6) {
+				points.push(at);
+			}
+		}
+
+		const own = {direction: {x: ux, y: uy}, point: a};
+
+		if (points.length < 12) {
+			return own;
+		}
+
+		let line = fitLine(points);
+		const residuals = points.map((p) => residual(line, p)).sort((p, q) => p - q);
+		const limit = Math.max(1, residuals[Math.floor(residuals.length / 2)] * 2.5);
+		const kept = points.filter((p) => residual(line, p) <= limit);
+
+		if (kept.length >= 12) {
+			line = fitLine(kept);
+		}
+
+		return line;
+	});
+	const corners = [];
+
+	for (let s = 0; s < 4; s++) {
+		const corner = intersect(lines[(s + 3) % 4], lines[s]);
+
+		if (!corner || distance(corner, quad[s]) > reach * 2) {
+			return quad;
+		}
+
+		corners.push(corner);
+	}
+
+	return isConvexQuad(corners) ? corners : quad;
+}
+
+// Whether `inner` lies inside the clockwise box `outer` (give or take 1.5
+// percent of its width: findCard's boxes can mix lines), with every side's
+// gap at most a card border's width (BORDER_MAX, with some slack).
+function borderAround(outer, inner) {
+	const width = quadSize(outer).width;
+
+	return outer.every((a, s) => {
+		const b = outer[(s + 1) % 4];
+		const length = distance(a, b) || 1;
+		// Inward distance from the side a-b, for a box clockwise on the screen.
+		const gaps = inner.map((p) => ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / length);
+		const gap = Math.min(...gaps);
+
+		return gap >= -width * 0.015 && gap <= width * BORDER_MAX * 1.3;
+	});
+}
+
+// The scanner's finder on a FIND_SIDE copy, in `work`'s pixels, moved out
+// to the card's outer edge when the box found is its inner border.
+function cardQuad(work, grey) {
+	const {image: small, scale} = shrink(work, FIND_SIDE);
+	const debug = {};
+	let found;
+
+	try {
+		found = findCard(small === work ? grey : greyOf(small), small.width, small.height, {debug});
+	}
+	catch {
+		return null;
+	}
+
+	if (!found.quad) {
+		return null;
+	}
+
+	// The scanner's guide frame keeps a card off a table's own edges, and
+	// findCard takes a box with a plain ring round it for a card lying in a
+	// tray. In a photo that ring is more often the card's own border, so
+	// the largest card-shaped box round the found one, a border's width
+	// out, is the card.
+	const around = (debug.boxes || [])
+		.filter((box) => borderAround(box.corners, found.quad))
+		.sort((a, b) => quadArea(b.corners) - quadArea(a.corners))[0];
+
+	// findCard's lines are whole degrees and pixels on a small copy; each
+	// side is fitted again to the edge on the larger one, nearer each time.
+	let quad = portraitCorners(scaleCorners(around ? around.corners : found.quad, 1 / scale));
+
+	for (const reach of [0.05, 0.02, 0.008]) {
+		quad = refineSides(grey, work.width, work.height, quad, quadSize(quad).width * reach);
+	}
+
+	const outer = outerEdge(grey, work.width, work.height, quad);
+
+	return outer ? {method: 'card-edge', quad: outer.quad} : {method: 'card', quad};
+}
+
+// Finds the card's corners in `img` (any size; detection reads a copy of at
+// most DETECT_SIDE pixels). Returns {corners, found, method, note, score,
+// unsure}, with corners in `img`'s own pixels, top-left first, clockwise;
+// unsure is true when the card's outline was faint or not found.
+export function detectCorners(img) {
+	const {image: work, scale} = shrink(img);
+	const grey = greyOf(work);
+	const card = cardQuad(work, grey);
+	let best = card ? {...card, score: scoreQuad(grey, work.width, work.height, card.quad)} : null;
+
+	if (!card) {
+		const candidates = [
+			{method: 'outline', quad: outlineQuad(work, grey, true)},
+			{method: 'outline', quad: outlineQuad(work, grey, false)},
+			{method: 'rectify', quad: rectifyQuad(work)},
+		];
+
+		for (const candidate of candidates) {
+			if (!candidate.quad) {
+				continue;
+			}
+
+			const quad = portraitCorners(candidate.quad);
+			const score = scoreQuad(grey, work.width, work.height, quad);
+
+			if (!best || score > best.score) {
+				best = {...candidate, quad, score};
+			}
+		}
+	}
+
+	// findCard's box stands on its own: its sides were drawn and its shape
+	// is a card's, even where the outline's contrast is faint.
+	if (!best || (!card && best.score < MIN_SCORE)) {
 		return {
 			corners: defaultCorners(img.width, img.height),
 			found: false,
 			method: 'none',
 			note: 'Could not find the card\'s edges. Drag each corner onto a corner of the card.',
 			score: best ? best.score : 0,
+			unsure: true,
 		};
 	}
 
@@ -504,5 +780,6 @@ export function detectCorners(img) {
 		method: best.method,
 		note: 'Card found. Drag a corner if it is off.',
 		score: Math.round(best.score * 10) / 10,
+		unsure: best.method === 'card-edge' || best.score < SURE_SCORE,
 	};
 }
