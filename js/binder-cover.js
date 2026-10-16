@@ -41,7 +41,7 @@ import {h} from './dom.js';
 import {database} from './idb.js';
 import {detectCorners} from './photos/detect.js';
 import {decodeImageFile, drawScaled, encodePhoto, pixelsOf, putPixels, straighten} from './photos/encode.js';
-import {scaleCorners, warp} from './photos/geometry.js';
+import {rotateCorners, scaleCorners, warp} from './photos/geometry.js';
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, photoExtension} from './photos/model.js';
 import {openSheet} from './sheet.js';
 import {onSyncStatus, serverHolds} from './sync.js';
@@ -527,6 +527,29 @@ function startCorners(width, height, aspect) {
 	return [{x, y}, {x: x + w, y}, {x: x + w, y: y + h}, {x, y: y + h}];
 }
 
+// The picture turned a quarter turn clockwise, on a new canvas.
+function turnPicture(source) {
+	const canvas = document.createElement('canvas');
+
+	canvas.width = source.height;
+	canvas.height = source.width;
+
+	const ctx = canvas.getContext('2d');
+
+	ctx.translate(source.height, 0);
+	ctx.rotate(Math.PI / 2);
+	ctx.drawImage(source, 0, 0);
+
+	return canvas;
+}
+
+// Corners on `source` moved onto turnPicture(source): each point stays on
+// the same spot of the picture, and the one now at the top left becomes
+// the first, so the cover saves as the picture now shows.
+function turnCorners(quad, sourceHeight) {
+	return rotateCorners(quad.map((p) => ({x: sourceHeight - p.y, y: p.x})), 1);
+}
+
 // Opens the Cover image sheet for a binder. onSaved(binder) runs after a
 // new image is saved or the image is taken away. Returns {close, element}.
 // It is a js/sheet.js sheet: Escape, the system Back, and a route change
@@ -651,7 +674,9 @@ export function pickCoverImage({binder, onSaved = null}) {
 
 	// The four corners, as the card photo editor places them: drag a corner,
 	// or move it with the arrow keys; the preview is the cover as it saves.
-	function fit(source) {
+	// Rotate turns the picture a quarter turn with its corners on it (turned
+	// carries them, the reset corners, and whether they were found).
+	function fit(source, turned = null) {
 		title.textContent = 'Fit the cover';
 
 		const previewSource = drawScaled(source, source.width, source.height, PREVIEW_SOURCE);
@@ -661,10 +686,12 @@ export function pickCoverImage({binder, onSaved = null}) {
 		// The card finder looks for a straight-edged shape about a card's
 		// proportions, which a photo of a binder on a table often is; when it
 		// finds none, a cover-shaped box in the middle.
-		const found = detectCorners(previewPixels);
-		const initial = found.found
-			? scaleCorners(found.corners, 1 / toPreview)
-			: startCorners(source.width, source.height, aspect);
+		const found = turned ? {found: turned.found} : detectCorners(previewPixels);
+		const initial = turned
+			? turned.initial
+			: found.found
+				? scaleCorners(found.corners, 1 / toPreview)
+				: startCorners(source.width, source.height, aspect);
 		const preview = h('canvas', {'aria-label': 'The cover as it will look', class: 'bc-preview', height: previewHeight, id: 'bc-preview', role: 'img', width: PREVIEW_WIDTH});
 		const buffer = new Uint8ClampedArray(PREVIEW_WIDTH * previewHeight * 4);
 
@@ -675,10 +702,11 @@ export function pickCoverImage({binder, onSaved = null}) {
 
 		// The picture with its corner handles (js/corners.js).
 		const editor = cornerEditor({
-			corners: initial,
+			corners: turned ? turned.corners : initial,
 			draggingClass: 'bc-dragging',
 			handleClass: 'bc-handle',
 			heightShare: 0.46,
+			marks: true,
 			minHeight: 220,
 			onChange: drawPreview,
 			snapPoints: found.found ? initial : [],
@@ -688,6 +716,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 		});
 		const {handles, stage} = editor;
 		const save = h('button', {class: 'primary', id: 'bc-save', type: 'button'}, 'Save cover');
+		const rotate = h('button', {id: 'bc-rotate', type: 'button'}, 'Rotate');
 		const reset = h('button', {id: 'bc-reset', type: 'button'}, 'Reset corners');
 		const again = h('button', {id: 'bc-again', type: 'button'}, 'Another picture');
 		const status = message(found.found
@@ -696,8 +725,13 @@ export function pickCoverImage({binder, onSaved = null}) {
 
 		preview.style.aspectRatio = `${size.width} / ${size.height}`;
 
-		body.replaceChildren(stage, h('div', {class: 'ph-review bc-review'}, preview, h('div', {class: 'ph-review-actions'}, save, reset, again)), status);
+		body.replaceChildren(stage, h('div', {class: 'ph-review bc-review'}, preview, h('div', {class: 'ph-review-actions'}, save, rotate, reset, again)), status);
 
+		rotate.addEventListener('click', () => fit(turnPicture(source), {
+			corners: turnCorners(editor.corners, source.height),
+			found: found.found,
+			initial: turnCorners(initial, source.height),
+		}));
 		reset.addEventListener('click', () => editor.setCorners(initial));
 		again.addEventListener('click', () => start());
 		save.addEventListener('click', async () => {
@@ -725,7 +759,7 @@ export function pickCoverImage({binder, onSaved = null}) {
 
 		editor.layout();
 		drawPreview();
-		handles[0].focus({preventScroll: true});
+		(turned ? rotate : handles[0]).focus({preventScroll: true});
 	}
 
 	dismiss.addEventListener('click', close);
