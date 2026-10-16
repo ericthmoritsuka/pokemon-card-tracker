@@ -12,6 +12,21 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-16
+
+- **16:54** Version 40: a new card means a new picture, and automatic holder mode. `8d3edbb`
+  - **Holder mode** compares each settled card's picture with the last card's, so a different card
+    is caught even when it lands exactly on the last one; the same card after a drop asks Add a
+    copy or Mistake. The rule that skipped such drops as "moved" is gone.
+  - **Hand-held pile method:** scan the top card, take it off, and the card underneath is taken.
+  - **Automatic holder mode:** on after 2 s of the phone still in its stand, off when it is picked
+    up; the chip cycles Auto, Holder, Hand-held.
+  - **Wider picture search:** crops shifted 10%, the wrong size, or with a strip of the card below
+    are recognised far more often (1,002 of 1,056 test re-crops against 919, none wrong but sure).
+  - **Safety:** a silent picture worker is replaced so a card cannot hang on Reading; background
+    language checks wait for the cards being read; skipped drops keep their views in the scan log.
+  - **Fixed:** a card landing on another could be read as its Japanese twin after the wider search.
+
 ### 2026-10-15
 
 - **19:14** Version 39: scanner settings, upside-down cards, and an instant Save. `18f355f`
