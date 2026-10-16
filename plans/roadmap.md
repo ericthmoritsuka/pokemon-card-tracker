@@ -185,6 +185,13 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Next (from Eric's v38 phone log, 2026-10-15)
 
+- **"New card" means "new picture" (Eric, 2026-10-16), both modes:** after a disturbance (motion
+  burst) settles, compare the card region's fingerprint with the last card's instead of judging by
+  the outline or the coarse grey difference (60 of 90 different consecutive cards differ by 20 or
+  less there). Different art = new card, even on the same spot. An identical print after a real
+  disturbance asks "Same card as the last one: Add a copy / Mistake" instead of being skipped.
+  Hand-held: the hand removing the top card of a pile is a disturbance that re-arms auto capture,
+  so Eric's pile method (scan the top card, take it off, scan the next) works.
 - A real drop was skipped as "moved" (js/scan/drop.js MOVED_PART), leaving the scanner idle for
   75 s; keep before and after views for skipped drops (view.js logSkipped) and tune the rule on them.
 - Log whether each picture ran in the worker, and give worker jobs a timeout that falls back to the
