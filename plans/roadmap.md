@@ -233,6 +233,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 - **Fill a binder from a box or a list:** in Add cards to the tray, a "From" choice listing Stored in
   places (Eric keeps cards in boxes by region or type) and lists (checklists, collections, goals);
   only that source's cards show, pick them, add to the tray. Small.
+- **Search focus in the pocket's card chooser (the + in a binder):** on a computer (pointer: fine)
+  focus "Search your cards" at once; on a phone keep the keyboard closed with the search at the top,
+  optionally focusing it when the last pick was made by typing. Tiny.
+- **Drag between pockets** (asked 2026-10-16; optional item in the v42 agent): long press, move to an
+  empty pocket or swap, Undo, "Move to pocket..." for keyboards.
 - **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
