@@ -657,6 +657,88 @@ describe('the cover image', () => {
 		assert.notEqual(status, 200);
 	});
 
+	test('Rotate turns the picture and its corners a quarter turn, and the cover saves as shown', async () => {
+		const {page} = phone;
+		const photo = await page.evaluate(() => window.H.makeCoverPhoto());
+		const stage = () => page.$eval('#bc-stage', (el) => ({height: el.clientHeight, width: el.clientWidth}));
+		const marks = () => page.$$eval('.bc-handle', (handles) => handles.map((el) => ({x: Number(el.dataset.x), y: Number(el.dataset.y)})));
+
+		await page.click('#h-cover');
+		await page.waitForSelector('#bc-sheet #bc-pick');
+		await page.setInputFiles('#bc-file', {buffer: Buffer.from(photo, 'base64'), mimeType: 'image/jpeg', name: 'binder.jpg'});
+		await page.waitForSelector('#bc-stage');
+
+		const upright = await stage();
+		const first = await marks();
+
+		assert.ok(upright.height > upright.width, 'the picture starts upright');
+		await page.click('#bc-rotate');
+		await page.waitForFunction(() => document.getElementById('bc-stage').clientWidth > document.getElementById('bc-stage').clientHeight);
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'bc-rotate');
+
+		// Each handle stays on its spot of the picture, turned with it, and
+		// the handles move round by one, so the cover is cut as it now shows.
+		const source = await page.evaluate(async (b64) => {
+			const {decodeImageFile} = await import('/pokemon-card-tracker/js/photos/encode.js');
+			const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+			const s = await decodeImageFile(new Blob([bytes], {type: 'image/jpeg'}));
+
+			return {height: s.height, width: s.width};
+		}, photo);
+		const turned = await marks();
+
+		turned.forEach((p, i) => {
+			const from = first[(i + 3) % 4];
+
+			assert.ok(Math.abs(p.x - (source.height - from.y)) < 0.2 && Math.abs(p.y - from.x) < 0.2, `corner ${i} turned with the picture`);
+		});
+
+		// Three more turns bring it back.
+		for (let n = 0; n < 3; n++) {
+			await page.click('#bc-rotate');
+		}
+
+		assert.deepEqual(await stage(), upright);
+		(await marks()).forEach((p, i) => {
+			assert.ok(Math.abs(p.x - first[i].x) < 0.2 && Math.abs(p.y - first[i].y) < 0.2, `corner ${i} back in place`);
+		});
+		await page.click('#bc-rotate');
+		await page.click('#bc-save');
+		await page.waitForSelector('#bc-sheet', {state: 'detached'});
+
+		// The saved cover matches the upright picture cut with its corners
+		// moved round by one, as the card photo editor's Rotate does.
+		const gap = await page.evaluate(async ({b64, corners}) => {
+			const {decodeImageFile, straighten} = await import('/pokemon-card-tracker/js/photos/encode.js');
+			const {rotateCorners} = await import('/pokemon-card-tracker/js/photos/geometry.js');
+			const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+			const s = await decodeImageFile(new Blob([bytes], {type: 'image/jpeg'}));
+			const saved = await createImageBitmap(await window.H.localCover(window.H.binder().cover_image.id));
+			const expected = straighten(s, rotateCorners(corners, 1), saved.width, saved.height);
+			const read = (image) => {
+				const canvas = new OffscreenCanvas(30, 40);
+				const ctx = canvas.getContext('2d');
+
+				ctx.drawImage(image, 0, 0, 30, 40);
+
+				return ctx.getImageData(0, 0, 30, 40).data;
+			};
+			const a = read(saved);
+			const b = read(expected);
+			let sum = 0;
+
+			for (let i = 0; i < a.length; i++) {
+				sum += Math.abs(a[i] - b[i]);
+			}
+
+			return {mean: sum / a.length, width: saved.width};
+		}, {b64: photo, corners: first});
+
+		assert.equal(gap.width, 600);
+		assert.ok(gap.mean < 12, `saved as shown (mean gap ${gap.mean.toFixed(1)})`);
+		assert.deepEqual(phone.errors, []);
+	});
+
 	test('taking the image away shows the color and queues the old file\'s delete', async () => {
 		const {page} = phone;
 		const {id, path} = await page.evaluate(() => window.H.binder().cover_image);

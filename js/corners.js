@@ -14,6 +14,10 @@
 // light buzz where the phone has one; dragging further releases it. The
 // arrow keys never snap.
 //
+// The Snap button (editor.snapToggle, placed by the caller beside its other
+// buttons) turns snapping off and on; the choice is kept on this phone
+// (localStorage SNAP_KEY) for both editors, on until turned off.
+//
 // Each caller keeps what is its own: what it detects first, its preview
 // (onChange runs once a frame after any move), and its buttons. The class
 // names stay the callers' own (handleClass, draggingClass), so each sheet
@@ -26,6 +30,7 @@
 //   editor.setCorners(points)      // Rotate, Reset corners
 //   editor.handles[0].focus()
 //   editor.snapPoints              // the snap points, in source pixels
+//   editor.snapToggle              // the Snap button, or null
 
 import {h} from './dom.js';
 import {clampPoint} from './photos/geometry.js';
@@ -35,6 +40,27 @@ import {nearestSnap, SNAP_RADIUS, SNAP_SIDE, snapPoints as findSnapPoints} from 
 export const CORNER_NAMES = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left'];
 
 const SVG = 'http://www.w3.org/2000/svg';
+
+// 'off' when the person turned snapping off.
+export const SNAP_KEY = 'cardTracker.cornerSnap';
+
+function snapWanted() {
+	try {
+		return localStorage.getItem(SNAP_KEY) !== 'off';
+	}
+	catch {
+		return true;
+	}
+}
+
+function keepSnap(on) {
+	try {
+		localStorage.setItem(SNAP_KEY, on ? 'on' : 'off');
+	}
+	catch {
+		// Kept for this editor only.
+	}
+}
 
 // options:
 //   source         the picture (a canvas or an image bitmap), full size
@@ -52,7 +78,7 @@ const SVG = 'http://www.w3.org/2000/svg';
 //   marks          true to write each handle's corner, in source pixels, on
 //                  data-x and data-y (tests read them)
 //   onDragEnd      runs when a drag ends
-//   snap           false to never snap
+//   snap           false to never snap (and no Snap button)
 //   snapPoints     the caller's own snap points (its detected corners), in
 //                  source pixels
 export function cornerEditor({
@@ -77,6 +103,18 @@ export function cornerEditor({
 	let frame = 0;
 	const points = snap ? pointsOf(source, ownPoints) : [];
 	const radius = Math.min(source.width, source.height) * SNAP_RADIUS;
+	let snapOn = snap && snapWanted();
+	const snapToggle = snap
+		? h('button', {'aria-pressed': String(snapOn), class: 'ph-snap', title: 'Corners jump onto the picture\'s corners', type: 'button'}, 'Snap')
+		: null;
+
+	if (snapToggle) {
+		snapToggle.addEventListener('click', () => {
+			snapOn = !snapOn;
+			snapToggle.setAttribute('aria-pressed', String(snapOn));
+			keepSnap(snapOn);
+		});
+	}
 
 	const photo = h('canvas', {'aria-hidden': 'true', class: 'ph-photo'});
 	const outline = document.createElementNS(SVG, 'svg');
@@ -216,7 +254,7 @@ export function cornerEditor({
 			}
 
 			const reach = drag.left ? points.filter((p) => Math.hypot(p.x - drag.left.x, p.y - drag.left.y) > radius) : points;
-			const target = held ? drag.snapped : nearestSnap(moved, reach, radius);
+			const target = !snapOn ? null : held ? drag.snapped : nearestSnap(moved, reach, radius);
 
 			if (target && target !== drag.snapped && navigator.vibrate) {
 				navigator.vibrate(10);
@@ -276,6 +314,7 @@ export function cornerEditor({
 		handles,
 		layout,
 		snapPoints: points,
+		snapToggle,
 		setCorners(points) {
 			corners = points.map((p) => ({...p}));
 			schedule();

@@ -49,7 +49,7 @@ import {valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
-import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText} from './binder-sources.js';
+import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {pokemonNames} from './checklists.js';
 import {nowIso} from './collection.js';
 import {
@@ -2117,7 +2117,9 @@ function binderScreen(root, source, id, pageParam) {
 	// (js/binders.js trayCandidates), with a search and a set filter. Tap
 	// tiles to select them, or Select all for what is shown, then add them
 	// all; Undo on the toast takes them back out. A binder made from a list
-	// has no tray, so the button is hidden there.
+	// has no tray, so the button is hidden there. "From" narrows the copies
+	// to one place they are stored in or one list (js/binder-sources.js
+	// trayFromChoices), still only those in no pocket and no tray.
 
 	function openTrayPicker() {
 		if (!sheet || listMode) {
@@ -2128,6 +2130,8 @@ function binderScreen(root, source, id, pageParam) {
 		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'tray-search', placeholder: 'Search your cards', type: 'search'});
 		const setFilter = h('select', {'aria-label': 'Set', id: 'tray-set'});
+		const fromFilter = h('select', {id: 'tray-from'}, h('option', {value: ''}, 'All your cards'));
+		const fromRow = h('label', {class: 'tray-from-row', hidden: true}, h('span', {class: 'tray-from-word'}, 'From'), h('span', {class: 'select-wrap'}, fromFilter));
 		const count = h('p', {'aria-live': 'polite', class: 'muted', id: 'tray-count'});
 		const selectAll = h('button', {class: 'small', id: 'tray-all', type: 'button'}, 'Select all');
 		const results = h('div', {class: 'pick-grid', id: 'tray-results'});
@@ -2135,7 +2139,11 @@ function binderScreen(root, source, id, pageParam) {
 		const add = h('button', {class: 'primary', disabled: true, id: 'tray-add', type: 'button'}, 'Add to the tray');
 		let shown = PICK_PAGE;
 
-		const items = trayCandidates(data.cards, data.binders).map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
+		const all = trayCandidates(data.cards, data.binders).map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
+		// The candidates "From" leaves, and what it is doing.
+		let items = all;
+		let fromState = 'all';
+		let fromRead = 0;
 		const byName = (a, b) => a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at));
 		const setOf = (item) => item.info.setName || item.entry.set_name_local || '';
 
@@ -2199,16 +2207,28 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		function draw() {
-			const list = found();
+			const list = fromState === 'reading' ? [] : found();
+			const from = fromFilter.value ? fromFilter.selectedOptions[0].textContent : '';
 
-			if (!items.length) {
+			if (fromState === 'reading') {
+				count.textContent = `Reading ${from}…`;
+			}
+			else if (fromState === 'failed') {
+				count.textContent = `Could not read ${from}. Try again, or choose another.`;
+			}
+			else if (!all.length) {
 				count.textContent = 'Every card you own is in a binder or a tray already.';
+			}
+			else if (!items.length) {
+				count.textContent = `No cards from ${from} are waiting: they are in a binder or a tray already, or there are none.`;
 			}
 			else if (!list.length) {
 				count.textContent = 'No cards match.';
 			}
 			else {
-				count.textContent = `${plural(list.length, 'card', 'cards')} not in a binder yet.`;
+				count.textContent = from
+					? `${plural(list.length, 'card', 'cards')} from ${from} not in a binder yet.`
+					: `${plural(list.length, 'card', 'cards')} not in a binder yet.`;
 			}
 
 			selectAll.hidden = !list.length;
@@ -2227,7 +2247,7 @@ function binderScreen(root, source, id, pageParam) {
 					if (filled && alive && sheet.open) {
 						index = filled;
 
-						for (const item of items) {
+						for (const item of all) {
 							item.info = entryInfo(item.entry, index, viewing);
 						}
 
@@ -2288,6 +2308,56 @@ function binderScreen(root, source, id, pageParam) {
 
 		search.addEventListener('input', restart);
 		setFilter.addEventListener('change', restart);
+		fromFilter.addEventListener('change', async () => {
+			const value = fromFilter.value;
+			const read = ++fromRead;
+
+			if (!value) {
+				items = all;
+				fromState = 'all';
+				drawSets();
+				restart();
+
+				return;
+			}
+
+			fromState = 'reading';
+			restart();
+
+			try {
+				const ids = await trayFromIds(value, await loadDocument(), {index, isAlive: () => alive && sheet.open});
+
+				if (read !== fromRead) {
+					return;
+				}
+
+				items = all.filter((item) => ids.has(item.entry.id));
+				fromState = 'shown';
+			}
+			catch {
+				if (read !== fromRead) {
+					return;
+				}
+
+				items = [];
+				fromState = 'failed';
+			}
+
+			drawSets();
+			restart();
+		});
+
+		// The places and lists, once the document is read.
+		loadDocument().then((doc) => {
+			const groups = trayFromChoices(doc);
+
+			if (!groups.length || !alive) {
+				return;
+			}
+
+			fromFilter.append(...groups.map((group) => h('optgroup', {label: group.label}, ...group.options.map((option) => h('option', {value: option.value}, option.label)))));
+			fromRow.hidden = false;
+		}).catch(() => {});
 		more.addEventListener('click', () => {
 			shown += PICK_PAGE;
 			draw();
@@ -2295,7 +2365,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		add.addEventListener('click', async () => {
 			// In the order shown, so the tray fills in the same order.
-			const ids = items.filter((item) => chosen.has(item.entry.id)).sort(byName).map((item) => item.entry.id);
+			const ids = all.filter((item) => chosen.has(item.entry.id)).sort(byName).map((item) => item.entry.id);
 			const target = binder;
 
 			add.disabled = true;
@@ -2326,6 +2396,7 @@ function binderScreen(root, source, id, pageParam) {
 				h('button', {'aria-label': 'Close', class: 'small', id: 'sheet-close', onclick: closeSheet, type: 'button'}, 'Close')
 			),
 			h('p', {class: 'muted', id: 'tray-intro'}, 'Pick the cards you own that are not in a binder yet. They wait in the tray until you place them.'),
+			fromRow,
 			search,
 			h('div', {class: 'tray-pick-row'}, h('span', {class: 'select-wrap'}, setFilter), selectAll),
 			count,

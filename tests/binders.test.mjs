@@ -1743,6 +1743,84 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
+	test('Add cards to the tray, From a box or a list: only that source\'s copies not in a binder yet, with the search and set filter', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		// c7 is stored in Box Kanto but sits in a pocket; c1 is in the
+		// collection but in a pocket too: neither is offered.
+		const binder = binderOf('b-from', {cols: 2, created_at: AT, name: 'From binder', page_count: 2, rows: 2, slots: [{entry_id: 'c1', page: 1, placed_at: AT, position: 1}, {entry_id: 'c7', page: 1, placed_at: AT, position: 2}], updated_at: AT});
+		const cards = [
+			CARDS[0],
+			{...CARDS[1], storage: 'Box Johto'},
+			CARDS[2],
+			CARDS[3],
+			entry('c5', {card_id: 'tst1-004', catalog: 'international', storage: 'Box Kanto'}),
+			entry('c6', {card_id: 'tst2-025', catalog: 'international', storage: 'box kanto'}),
+			entry('c7', {card_id: 'tst1-007', catalog: 'international', storage: 'Box Kanto'}),
+		];
+		const records = [...RECORDS, {...record('tst2-025', '025', 'Test Pikachu'), localizations: {en: {image: null, lang: 'en', name: 'Test Pikachu', set_name: 'Test set two'}}, set_id: 'tst2'}];
+		const doc = {
+			...documentWith(cards, [binder]),
+			collections: [{created_at: AT, deleted_at: null, entry_ids: {c1: AT, c3: AT, c6: AT}, id: 'col-fav', kind: 'hand', name: 'Test favorites', rule: null, updated_at: AT}],
+			storage_places: [{created_at: AT, id: 'place_kanto', name: 'Box Kanto', updated_at: AT}],
+		};
+		const tiles = async () => (await page.locator('#tray-results .tray-pick').evaluateAll((items) => items.map((item) => `${item.dataset.entry}${item.getAttribute('aria-pressed') === 'true' ? '*' : ''}`))).sort();
+		const saved = async () => (await localDoc(page)).binders.find((item) => item.id === 'b-from');
+
+		await seedLocal(page, doc, records);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		await page.waitForSelector('.tray-from-row:not([hidden]) #tray-from optgroup', {state: 'attached'});
+
+		const groups = await page.$$eval('#tray-from optgroup', (list) => list.map((group) => [group.label, ...[...group.querySelectorAll('option')].map((option) => option.textContent)]));
+
+		assert.deepEqual(groups, [['Stored in', 'Box Kanto', 'Box Johto'], ['Collections', 'Test favorites']]);
+		assert.equal(await page.locator('#tray-from option:checked').textContent(), 'All your cards');
+		assert.deepEqual(await tiles(), ['c2', 'c3', 'c5', 'c6']);
+
+		// A box: its copies, spelled any way, in no pocket.
+		await page.selectOption('#tray-from', 'place:Box Kanto');
+		await page.waitForFunction(() => document.getElementById('tray-count').textContent.startsWith('2 cards'));
+		assert.deepEqual(await tiles(), ['c5', 'c6']);
+		assert.equal(await page.locator('#tray-count').textContent(), '2 cards from Box Kanto not in a binder yet.');
+
+		// The set filter lists that box's sets, and the search still works.
+		assert.deepEqual(await page.$$eval('#tray-set option', (list) => list.map((option) => option.textContent)), ['All sets (2)', 'Test set one (1)', 'Test set two (1)']);
+		await page.selectOption('#tray-set', 'Test set two');
+		assert.deepEqual(await tiles(), ['c6']);
+		await page.selectOption('#tray-set', '');
+		await page.fill('#tray-search', 'charm');
+		assert.deepEqual(await tiles(), ['c5']);
+		await page.fill('#tray-search', '');
+
+		// A list: the copies a binder made from it would hold.
+		await page.selectOption('#tray-from', 'collection:col-fav');
+		await page.waitForFunction(() => document.getElementById('tray-count').textContent.includes('Test favorites'));
+		assert.deepEqual(await tiles(), ['c3', 'c6']);
+		await page.click('#tray-all');
+		assert.deepEqual(await tiles(), ['c3*', 'c6*']);
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 2 cards to the tray');
+		await page.screenshot({path: '/tmp/binders-add-to-tray-from.png'});
+
+		const fit = await page.evaluate(() => document.documentElement.scrollWidth);
+
+		assert.equal(fit, 360, 'nothing scrolls sideways');
+		await page.click('#tray-add');
+		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
+		assert.deepEqual([...(await saved()).staged].sort(), ['c3', 'c6']);
+
+		// Next time, the box offers only what is left.
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('.tray-from-row:not([hidden]) #tray-from optgroup', {state: 'attached'});
+		await page.selectOption('#tray-from', 'place:Box Kanto');
+		await page.waitForFunction(() => document.getElementById('tray-count').textContent.startsWith('1 card'));
+		assert.deepEqual(await tiles(), ['c5']);
+		await page.click('#sheet-close');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('the tray: drag a card onto a pocket where the pages are directly editable, and sideways it is a column beside them', async () => {
 		const binder = binderOf('b-drag', {created_at: AT, name: 'Drag binder', page_count: 4, staged: ['c2', 'c3'], updated_at: AT});
 

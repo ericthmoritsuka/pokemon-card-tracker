@@ -52,7 +52,7 @@ const editor = cornerEditor({
 	snapPoints: [{x: 150, y: 850}],
 	source,
 });
-document.getElementById('host').append(editor.stage);
+document.getElementById('host').append(editor.stage, editor.snapToggle);
 editor.layout();
 window.editor = editor;
 window.ready = true;
@@ -178,5 +178,52 @@ describe('snapping in the corner editor', () => {
 		assert.equal(now.snapped, 'false');
 		assert.ok(Math.abs(now.x - (start.x + steps * step)) < 0.2 && Math.abs(now.y - (start.y + steps * step)) < 0.2, `moved by the keys alone: (${now.x}, ${now.y})`);
 		assert.equal(await page.evaluate(() => window.buzz.length), buzz, 'no buzz from the keys');
+	});
+
+	test('the Snap button turns snapping off: a corner then moves with the finger, and the phone remembers', async () => {
+		const toggle = page.locator('.ph-snap');
+
+		assert.equal(await toggle.textContent(), 'Snap');
+		assert.equal(await toggle.getAttribute('aria-pressed'), 'true', 'on by default');
+		await toggle.click();
+		assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.cornerSnap')), 'off');
+
+		// Corner 2 from (600, 800) to about 10 px from the card's bottom-right
+		// corner (550, 709): it lands where the finger is.
+		const start = await corner(2);
+		const buzz = await page.evaluate(() => window.buzz.length);
+
+		await dragBy(2, [[-20, -40], [-42, -83]]);
+		await page.mouse.up();
+
+		const now = await corner(2);
+
+		assert.equal(now.snapped, 'false');
+		assert.ok(Math.abs(now.x - (start.x - 42)) < 1.5 && Math.abs(now.y - (start.y - 83)) < 1.5, `moved by the drag alone: (${now.x}, ${now.y})`);
+		assert.equal(await page.evaluate(() => window.buzz.length), buzz, 'no buzz');
+
+		// A new editor (another photo, a cover) starts with snapping off.
+		await page.reload();
+		await page.waitForFunction(() => window.ready === true);
+		assert.equal(await toggle.getAttribute('aria-pressed'), 'false', 'remembered');
+		await toggle.click();
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.cornerSnap')), 'on');
+		await dragBy(2, [[-20, -40], [-42, -83]]);
+		await page.mouse.up();
+		assert.equal((await corner(2)).snapped, 'true', 'snaps again once turned back on');
+	});
+
+	test('a page that cannot keep the choice still opens, with snapping on', async () => {
+		await page.addInitScript(() => {
+			Object.defineProperty(window, 'localStorage', {get() {
+				throw new Error('blocked');
+			}});
+		});
+		await page.reload();
+		await page.waitForFunction(() => window.ready === true);
+		assert.equal(await page.locator('.ph-snap').getAttribute('aria-pressed'), 'true');
+		await page.locator('.ph-snap').click();
+		assert.equal(await page.locator('.ph-snap').getAttribute('aria-pressed'), 'false');
 	});
 });
