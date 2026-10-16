@@ -864,6 +864,25 @@ button.bt-fill {
 	width: auto;
 }
 
+/* "From" in Add cards to the tray: a place or a list. */
+.tray-from-row {
+	align-items: center;
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: auto minmax(0, 1fr);
+	margin-bottom: var(--space-2);
+}
+
+.tray-from-row[hidden] {
+	display: none;
+}
+
+.tray-from-row .select-wrap,
+.tray-from-row select {
+	min-width: 0;
+	width: 100%;
+}
+
 /* A selected tile: a ring as well as the check in its corner. */
 .tray-pick[aria-pressed="true"] .art-wrap {
 	border-radius: 6px;

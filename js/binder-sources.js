@@ -22,7 +22,7 @@
 import {cardIndex, catalogLanguage, catalogFor, indexKey, priceRecords, setIdOfCard, viewingLanguage} from './catalog.js';
 import {checklistDex, dexLabel, isChecklist, nameOf, pokemonNames, resolveOwned, sortChecklists, spriteUrl} from './checklists.js';
 import {collectionEntries, fillDetails, itemFor, ruleMatches, sortCollections} from './collections.js';
-import {isLive} from './collection.js';
+import {isLive, placeFold, storedPlaces} from './collection.js';
 import {customRecord} from './custom-card.js';
 import {computeGoal, describeGoal, isGoal, sortGoals} from './goals.js';
 import {copyValue, savedRates} from './prices.js';
@@ -44,6 +44,41 @@ export function sourceChoices(doc) {
 		collection: sortCollections(doc.collections).map((item) => ({id: item.id, name: item.name})),
 		goal: sortGoals(goals.filter(isGoal)).map((goal) => ({id: goal.id, name: `${goal.name} (${describeGoal(goal)})`})),
 	};
+}
+
+// "From" in a binder's Add cards to the tray (js/binders-view.js): the
+// places cards are stored in, then the lists, as option groups
+// [{label, options: [{label, value}]}], empty groups left out. A value is
+// 'place:<name>' or '<kind>:<id>'.
+export function trayFromChoices(doc) {
+	const lists = sourceChoices(doc);
+	const groups = [
+		{label: 'Stored in', options: storedPlaces(doc).map((place) => ({label: place.name, value: `place:${place.name}`}))},
+		{label: 'Checklists', options: lists.checklist.map((item) => ({label: item.name, value: `checklist:${item.id}`}))},
+		{label: 'Collections', options: lists.collection.map((item) => ({label: item.name, value: `collection:${item.id}`}))},
+		{label: 'Goals', options: lists.goal.map((item) => ({label: item.name, value: `goal:${item.id}`}))},
+	];
+
+	return groups.filter((group) => group.options.length);
+}
+
+// The ids of the copies a "From" value holds: those stored in the place,
+// or the copies a list counts, read as a binder made from that list reads
+// them (loadRuleItems). An empty set when the list is gone.
+export async function trayFromIds(value, doc, {index = null, isAlive = () => true} = {}) {
+	const cut = String(value).indexOf(':');
+	const kind = String(value).slice(0, cut);
+	const id = String(value).slice(cut + 1);
+
+	if (kind === 'place') {
+		const fold = placeFold(id);
+
+		return new Set((doc.cards || []).filter((entry) => entry && isLive(entry) && entry.storage && placeFold(entry.storage) === fold).map((entry) => entry.id));
+	}
+
+	const loaded = await loadRuleItems({source: {id, kind}}, doc, {index, isAlive});
+
+	return new Set(loaded.items.flatMap((item) => (item.copies || []).map((entry) => entry.id)));
 }
 
 // The source entry a rule names, or null when it is gone.
