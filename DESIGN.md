@@ -904,6 +904,54 @@ frame with four clean edges. Decided:
   text route (no picture index) on 194 (190). The holder benchmarks match pictures only, which this
   leaves alone.
 
+**A new card means a new picture, automatic holder mode, and read safety (Eric, 2026-10-16,
+version 40).** Eric's v38 phone log (51 entries, holder mode at 1x) showed a real card skipped as
+"moved" at 20:17:21 (its picture changed a tenth of the view, 29 % of the last card's box, under the
+quarter that rule allowed), leaving the scanner idle for 75 s until he pressed the shutter; text reads
+waiting 3.5 to 17.2 s in their queue behind label checks; and nothing to say whether a picture ran in
+the worker. Decided:
+
+- **A card is new when its picture is** (`js/scan/drop.js` `contentCheck`, `contentAt`): what changed
+  says where to look, the card there is printed (the matcher's 64-bit art and face hashes, from a 64 x
+  89 thumbnail of the watched view, about 1.3 ms) and compared with the last card's print. 16 bits or
+  fewer of 128 apart is the same card, 24 or more a new one. On the log's views two different cards
+  one on the other were 34 to 62 apart, on the videos 24 to 62 (24: a Litleo landing square on a
+  Darmanitan, two orange Fire cards), the same card settling 12 to 16. A new picture is taken even on
+  the very spot of the last; a still picture whose change made no card's shape is checked where the
+  last card lay, so a card of the same layout and colours landing square on it is taken too. The
+  "moved" rule is gone.
+- **The same card again**: after a disturbance like a drop's (two looks moving, peaking at 5 or more,
+  starting 0.8 s or more after the last card was taken) the repeat bar asks "Same card as the last
+  one" (Add a copy adds one to the last tile) and nothing is taken; after a smaller one (a nudge) or a
+  card still settling, nothing happens. A hand passing over the pile asks too: Mistake, or no answer
+  for 8 s, dismisses it.
+- **Hand-held**: two jumps in a row after a capture (a hand taking the top card off a pile) re-arm auto
+  capture, and so does a different print held still twice in a row, however close the two cards are
+  in the coarse copy (60 of 90 different consecutive cards in Eric's logs differ by 20 or less there),
+  so his pile method (scan the top card, take it off, scan the next) works. A card taken again is told
+  by its picture, or by its print when the picture names either unclearly.
+- **Measured** (`lab/holder/replay.mjs`, mode v40 against version 39's loop, same machine): the first
+  video 36 of 37 drops taken once, 1 missed (both), none doubled or asked; the torch video 19 of 20
+  (both; the one missed lands while the camera settles its zoom); with the loop held four times as
+  long, the same. The log's 20 drops with views all replay as taken (18 before: two before-views were
+  caught mid-fall).
+- **Automatic holder mode** (Eric's option 2 of 3; `js/scan/steady.js` `createStance`): the Holder
+  switch is a choice of three, remembered on the phone, Auto first. In Auto, holder mode comes on once
+  the motion sensors (DeviceMotionEvent) have been still for 2 s (turning under 1.5 degrees a second,
+  shake under 0.12 m/s2) with the picture still too, and goes off when the phone is picked up (turning
+  past 30 degrees a second or shake past 1.5 m/s2 for 0.2 s); a card falling in moves the picture, not
+  the phone. Nothing switches while a picture is taken or matched. With no sensor Auto stays
+  hand-held; iOS asks permission on the first tap. The chip reads "Holder (auto)" or "Hand-held", and
+  the scan log keeps each switch with its evidence. The limits are typical phone figures, not yet
+  measured on Eric's phone.
+- **Read safety**: a picture worker silent for 10 s while pictures wait (30 s while its index loads) is
+  let go and its pictures are matched on the main thread, from the pixels kept, a spare copy of the
+  bitmap held until the worker has read it, or the full capture's JPEG (`identify.js`
+  `WORKER_LIMITS`); each report says where its picture ran and why. Label checks run one at a time,
+  only once no text read is queued, and their OCR calls give way to a card's (`ocr.js` `createSlots`).
+- **The scan log** (scanner 40) keeps skipped drops' views too (120 entries' views), each drop's print
+  distance, verdict, and motion frames, the repeats, and the mode switches.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.
