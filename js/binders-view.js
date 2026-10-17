@@ -20,7 +20,8 @@
 import {currentUser} from './auth.js';
 import {dropBinderCover, onCoversChange, paintCover, pickCoverImage, sweepCovers} from './binder-cover.js';
 import {presetFor, presetPicker} from './binder-presets.js';
-import {OVERVIEW_QUERY, SIDEWAYS_QUERY, binderSpread} from './binder-spread.js';
+import {OVERVIEW_QUERY, SIDEWAYS_QUERY, binderSpread, spreadOfPage} from './binder-spread.js';
+import {dropHand, handCopy, takeHand} from './binder-hand.js';
 import {offerCardList} from './card-swipe.js';
 import {
 	cardImage,
@@ -68,12 +69,15 @@ import {
 	createBinder,
 	createGeneratedBinder,
 	addToTray,
+	binderLocation,
 	deleteBinder,
 	fillTray,
 	isGenerated,
 	isHex,
 	leaveEmpty,
 	liveBinders,
+	openPockets,
+	placeholdersFor,
 	locate,
 	moveToTray,
 	pageSlots,
@@ -907,6 +911,23 @@ function binderScreen(root, source, id, pageParam) {
 		trayStrip,
 		h('div', {class: 'bt-foot'}, trayStatus, h('span', {'aria-hidden': 'true', class: 'bt-gap'}), trayFill));
 	const trayNote = h('p', {'aria-live': 'polite', class: 'bt-note', hidden: true, id: 'bt-note'});
+	// A card in hand, brought from its page (js/binder-hand.js): the bar at
+	// the bottom, and a tap on an empty pocket places one copy of it (see
+	// "the card in hand" below).
+	let hand = source.readOnly ? null : takeHand(id);
+	const handArt = h('div', {class: 'bh-art', id: 'bh-art'});
+	const handName = h('p', {class: 'bh-name', id: 'bh-name'});
+	const handStatus = h('p', {'aria-live': 'polite', class: 'bh-status', id: 'bh-status'});
+	const handWaitText = h('span', {id: 'bh-wait-text'});
+	const handWaitButton = h('button', {class: 'small', id: 'bh-wait-place', type: 'button'}, 'Place it there');
+	const handWait = h('p', {class: 'bh-wait', hidden: true, id: 'bh-wait'}, handWaitText, ' ', handWaitButton);
+	const handNext = h('button', {class: 'small', id: 'bh-next', type: 'button'}, 'Next free pocket');
+	const handTray = h('button', {class: 'small', id: 'bh-tray', type: 'button'}, 'Keep in tray');
+	const handCancel = h('button', {class: 'small', id: 'bh-cancel', type: 'button'}, 'Cancel');
+	const handBar = source.readOnly ? null : h('section', {'aria-label': 'Card in hand', class: 'bh', hidden: true, id: 'binder-hand'},
+		h('div', {class: 'bh-top'}, handArt, h('div', {class: 'bh-text'}, handName, handStatus)),
+		handWait,
+		h('div', {class: 'bh-actions'}, handNext, handTray, handCancel));
 
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
@@ -1019,7 +1040,8 @@ function binderScreen(root, source, id, pageParam) {
 		if (!source.readOnly) {
 			// With a tray card picked, a tap places it; otherwise it opens
 			// the picker sheet.
-			return h('button', {...attrs, onclick: () => (picked ? placeFromTrayAt(picked, pg, position) : openSheet(pg, position)), type: 'button'}, content.node);
+			// With a card in hand, a tap places it there.
+			return h('button', {...attrs, onclick: () => (hand ? handAt(pg, position) : picked ? placeFromTrayAt(picked, pg, position) : openSheet(pg, position)), type: 'button'}, content.node);
 		}
 
 		if (content.kind === 'card' && content.info && content.info.route) {
@@ -1042,7 +1064,7 @@ function binderScreen(root, source, id, pageParam) {
 				readOnly: source.readOnly,
 				renderPocket: pocketElement,
 			});
-			spreadHolder.replaceChildren(...[spread.element, tray, tray && trayNote].filter(Boolean));
+			spreadHolder.replaceChildren(...[spread.element, tray, tray && trayNote, handBar].filter(Boolean));
 
 			// Held sideways, the binder opens on its pages, whole above the
 			// tab bar, unless Back is bringing back where the person was.
@@ -1161,6 +1183,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		drawPage();
 		drawTray();
+		drawHand();
 		drawStats();
 	}
 
@@ -1914,6 +1937,275 @@ function binderScreen(root, source, id, pageParam) {
 		});
 	}
 
+	// ------------------------------------------------ the card in hand
+	//
+	// A card brought from its page with Add to binder (js/binder-hand.js).
+	// The bar at the bottom shows it; a tap on an empty pocket, or on the
+	// placeholder waiting for it, places one copy there; Next free pocket
+	// uses the first empty pocket in reading order; Keep in tray puts it in
+	// this binder's tray. Each puts the card down, with Undo on a toast, and
+	// so do Cancel and Escape. Back off the binder leaves it behind.
+
+	let handMessage = '';
+	let handMessageTimer = null;
+	let handFocused = false;
+	let handFilling = false;
+
+	const handPick = (options) => (data && binder && hand ? handCopy(data.binders, data.cards, hand, binder.id, options) : null);
+
+	// The placeholder in this binder waiting for the card, with its want, or
+	// null.
+	function handWaiting() {
+		const found = binder && hand ? placeholdersFor([binder], hand.catalog, hand.cardId)[0] : null;
+		const slot = found ? slotsOn(found.page).get(found.position) : null;
+
+		return slot && slot.want ? {page: found.page, position: found.position, want: slot.want} : null;
+	}
+
+	function drawHandStatus() {
+		if (!handBar || !hand) {
+			return;
+		}
+
+		if (handMessage) {
+			handStatus.textContent = handMessage;
+		}
+		else if (!handPick()) {
+			handStatus.textContent = 'Every copy of this card is in a pocket now.';
+		}
+		else {
+			handStatus.textContent = pocketsLive() ? 'Tap an empty pocket' : 'Open a page, then tap an empty pocket';
+		}
+	}
+
+	function drawHand() {
+		if (!handBar) {
+			return;
+		}
+
+		// A binder made from a list places nothing.
+		if (hand && listMode) {
+			putDown();
+
+			return;
+		}
+
+		handBar.hidden = !hand;
+
+		if (!hand || !data) {
+			return;
+		}
+
+		const copies = data.cards.filter((entry) => isLive(entry) && entry.card_id === hand.cardId && (entry.catalog || 'international') === hand.catalog);
+		const pick = handPick();
+		const face = (pick && pick.entry) || copies[0];
+		const info = face ? entryInfo(face, index, viewing) : null;
+		const wait = pick ? handWaiting() : null;
+
+		// Its catalog record, when the phone has none yet: the name and art.
+		if (!handFilling && !index.has(indexKey(hand.catalog, hand.cardId))) {
+			handFilling = true;
+			fillRecords([{cardId: hand.cardId, catalog: hand.catalog}], index, () => alive).then((filled) => {
+				if (filled && alive) {
+					index = filled;
+					drawHand();
+				}
+			}, () => {});
+		}
+
+		handArt.replaceChildren(...(info ? [cardArt(info, info.image)] : []));
+		handName.textContent = info ? info.name : 'This card';
+		handWait.hidden = !wait;
+		handWaitText.textContent = wait ? `Page ${wait.page}, pocket ${wait.position} is waiting for this card` : '';
+		handNext.disabled = !pick;
+		handTray.disabled = !handPick({toTray: true});
+		drawHandStatus();
+
+		if (spread) {
+			spread.element.dataset.placing = 'true';
+		}
+
+		if (!handFocused) {
+			handFocused = true;
+			handBar.setAttribute('tabindex', '-1');
+			requestAnimationFrame(() => alive && hand && handBar.focus({preventScroll: true}));
+		}
+	}
+
+	function handSay(text) {
+		clearTimeout(handMessageTimer);
+		handMessage = text;
+		drawHandStatus();
+		handMessageTimer = setTimeout(() => {
+			handMessage = '';
+			drawHandStatus();
+		}, 5000);
+	}
+
+	function putDown() {
+		if (!hand) {
+			return;
+		}
+
+		const hadFocus = handBar.contains(document.activeElement);
+
+		dropHand(hand.token);
+		hand = null;
+		handMessage = '';
+		clearTimeout(handMessageTimer);
+		handBar.hidden = true;
+		drawTray();
+
+		// Focus stays on the screen, not on a bar that is gone.
+		if (hadFocus) {
+			title.setAttribute('tabindex', '-1');
+			title.focus({preventScroll: true});
+		}
+	}
+
+	// The page placed on, in view when it is not.
+	function showPage(pg) {
+		if (spread && !spread.state().zoom && !spread.pages().includes(pg)) {
+			spread.goTo(spreadOfPage(pg));
+		}
+	}
+
+	// A tap on a pocket with the card in hand.
+	function handAt(pg, position) {
+		const slot = slotsOn(pg).get(position) || null;
+		const waiting = Boolean(slot && slot.want && slot.want.card_id === hand.cardId && (!slot.want.catalog || slot.want.catalog === hand.catalog));
+
+		if (slot && !waiting) {
+			handSay('That pocket is taken. Tap an empty pocket.');
+
+			return;
+		}
+
+		placeHand(pg, position, waiting ? slot.want : null);
+	}
+
+	async function placeHand(pg, position, want) {
+		const pick = handPick();
+
+		if (!pick) {
+			handSay('Every copy of this card is in a pocket now.');
+
+			return;
+		}
+
+		const binderId = binder.id;
+		const entryId = pick.entry.id;
+
+		putDown();
+
+		try {
+			await placeCard(binderId, pg, position, entryId);
+		}
+		catch (err) {
+			showError('Could not place the card.', err);
+
+			return;
+		}
+
+		showPage(pg);
+		toast(`Placed on page ${pg}, pocket ${position}.`, {
+			action: () => undoHandPlace({binderId, entryId, page: pg, position, trayId: pick.trayId, want}),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	// Undo for a placed card: the pocket as it was (empty, or the
+	// placeholder), and the copy back in the tray it came from. A copy moved
+	// again since stays where it is now.
+	async function undoHandPlace({binderId, entryId, page: pg, position, trayId, want}) {
+		try {
+			const now = await binderLocation(entryId);
+
+			if (!now || now.binder_id !== binderId || now.page !== pg || now.position !== position) {
+				toast('That card has moved since, so it stays where it is.');
+
+				return;
+			}
+
+			if (want) {
+				await placePlaceholder(binderId, pg, position, want);
+			}
+
+			if (trayId) {
+				await addToTray(trayId, [entryId]);
+			}
+			else if (!want) {
+				await clearPocket(binderId, pg, position);
+			}
+		}
+		catch (err) {
+			showError('Could not undo.', err);
+		}
+	}
+
+	function handNextFree() {
+		const open = openPockets(binder, placed)[0];
+
+		if (!open) {
+			handSay('No empty pocket is left in this binder. Keep it in the tray, or add pages.');
+
+			return;
+		}
+
+		placeHand(open.page, open.position, null);
+	}
+
+	async function handKeepTray() {
+		const pick = handPick({toTray: true});
+
+		if (!pick) {
+			handSay('Every copy not in a pocket is in this tray already.');
+
+			return;
+		}
+
+		const binderId = binder.id;
+		const entryId = pick.entry.id;
+
+		putDown();
+
+		try {
+			await addToTray(binderId, [entryId]);
+		}
+		catch (err) {
+			showError('Could not put the card in the tray.', err);
+
+			return;
+		}
+
+		toast(`In the tray of ${binder.name}.`, {
+			action: () => (pick.trayId ? addToTray(pick.trayId, [entryId]) : takeFromTray(binderId, [entryId])).catch((err) => showError('Could not undo.', err)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	const onHandKey = (event) => {
+		if (hand && event.key === 'Escape' && !document.querySelector('dialog[open]')) {
+			putDown();
+		}
+	};
+
+	if (handBar) {
+		handNext.addEventListener('click', handNextFree);
+		handTray.addEventListener('click', handKeepTray);
+		handCancel.addEventListener('click', putDown);
+		handWaitButton.addEventListener('click', () => {
+			const wait = handWaiting();
+
+			if (wait) {
+				placeHand(wait.page, wait.position, wait.want);
+			}
+		});
+		document.addEventListener('keydown', onHandKey);
+	}
+
 	// ------------------------------------------------------- the tray
 	//
 	// Copies meant for this binder but in no pocket yet (js/binders.js
@@ -1946,8 +2238,10 @@ function binderScreen(root, source, id, pageParam) {
 			: `${plural(ids.length, 'card', 'cards')} to place`;
 
 		if (spread) {
-			spread.element.dataset.placing = picked ? 'true' : '';
+			spread.element.dataset.placing = picked || hand ? 'true' : '';
 		}
+
+		drawHandStatus();
 	}
 
 	function drawTray() {
@@ -1964,7 +2258,8 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		advanceFrom = null;
-		tray.hidden = !ids.length;
+		// The bar of a card in hand takes the tray's place while it shows.
+		tray.hidden = !ids.length || Boolean(hand);
 		trayStrip.replaceChildren(...ids.map((entryId) => {
 			const entry = entriesById.get(entryId);
 			const info = entryInfo(entry, index, viewing);
@@ -2901,6 +3196,8 @@ function binderScreen(root, source, id, pageParam) {
 		closeSheet();
 		closeResize();
 		clearTimeout(trayNoteTimer);
+		clearTimeout(handMessageTimer);
+		document.removeEventListener('keydown', onHandKey);
 		stop();
 		stopCovers();
 

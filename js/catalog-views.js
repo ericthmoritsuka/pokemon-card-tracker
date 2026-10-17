@@ -37,6 +37,7 @@ import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
+import {addToBinderButton} from './binder-hand.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -1487,7 +1488,12 @@ export function cardView(root, {lang, cardId}) {
 
 		// Under Ver na Liga, so the copies and the Liga button stay on the
 		// first screen.
-		collectSlot.replaceChildren(...(readOnly ? [] : [collectButton(live, shownName)]));
+		// Add to binder beside it: a binder to pick, then a pocket there
+		// (js/binder-hand.js). Never on a family member's card.
+		collectSlot.replaceChildren(...(readOnly ? [] : [
+			collectButton(live, shownName),
+			addToBinderButton({cardId, catalog: catalogFor(lang), name: shownName, toast}),
+		]));
 		collectSlot.hidden = readOnly;
 
 		if (focusRow && focusClass) {

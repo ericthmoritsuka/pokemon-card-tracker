@@ -438,6 +438,7 @@ describe('a family member\'s Sets and cards', () => {
 		assert.match(await page.locator('.copy-rows').textContent(), / · LP/, 'Member A\'s copy');
 		assert.doesNotMatch(await page.locator('.copy-rows').textContent(), / · NM/, 'not your copy');
 		assert.equal(await page.locator('#copy-add').count(), 0, 'no Add a copy');
+		assert.equal(await page.locator('#copies-binder').count(), 0, 'no Add to binder');
 		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
 		assert.equal(await page.locator('.ph-add').count(), 0, 'no Add photo');
 		assert.equal(await page.locator('.ph-use-main:visible').count(), 0, 'no Main image');
@@ -463,6 +464,7 @@ describe('a family member\'s Sets and cards', () => {
 		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Your copies (1)');
 		assert.equal(await page.locator('#family-strip').count(), 0);
 		assert.equal(await page.locator('#copy-add').count(), 1);
+		assert.equal(await page.locator('#copies-binder').count(), 1, 'Add to binder on your own copy');
 		assert.equal(await page.locator('.ph-add').count(), 1);
 		await page.waitForSelector('#card-price .price-markets');
 
