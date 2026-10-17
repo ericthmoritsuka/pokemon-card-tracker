@@ -41,6 +41,53 @@ export const OVERVIEW_QUERY = '(orientation: portrait) and (max-width: 599px)';
 // view whole.
 export const SIDEWAYS_QUERY = '(orientation: landscape) and (max-height: 500px)';
 
+// A computer or tablet: the spread grows past the app's column to fit the
+// screen (css/binder-spread.css), and + / - / Fit buttons size it, the
+// choice kept on the device (SIZE_KEY).
+export const WIDE_QUERY = '(min-width: 600px) and (min-height: 501px)';
+export const SIZE_KEY = 'card-tracker-binder-size';
+
+// The sizes + and - step through, as a share of Fit (1).
+export const SIZES = [0.6, 0.7, 0.8, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+
+// The next size from scale in direction dir (1 bigger, -1 smaller), or the
+// same one at either end; a stray saved value snaps to the nearest size.
+export function stepSize(scale, dir) {
+	const value = Number(scale);
+	let at = SIZES.indexOf(1);
+
+	if (Number.isFinite(value)) {
+		at = SIZES.reduce((best, size, i) => (Math.abs(size - value) < Math.abs(SIZES[best] - value) ? i : best), 0);
+	}
+
+	return SIZES[Math.min(SIZES.length - 1, Math.max(0, at + Math.sign(dir)))];
+}
+
+export function readSize() {
+	try {
+		const value = Number(localStorage.getItem(SIZE_KEY));
+
+		return SIZES.includes(value) ? value : 1;
+	}
+	catch {
+		return 1;
+	}
+}
+
+function writeSize(value) {
+	try {
+		if (value === 1) {
+			localStorage.removeItem(SIZE_KEY);
+		}
+		else {
+			localStorage.setItem(SIZE_KEY, String(value));
+		}
+	}
+	catch {
+		// Private browsing: the spread opens at Fit next time.
+	}
+}
+
 // Back from a zoomed page lands on the spread's own history entry, whose URL
 // still names the spread the zoom started from; after stepping through the
 // pages that is the wrong one. Zooming marks that entry (history.state
@@ -338,7 +385,13 @@ export function binderSpread({
 	const rightSide = el('div', {class: 'bs-side bs-side-right', 'data-side': 'right'});
 	const book = el('div', {class: 'bs-book', id: 'bs-book'}, zipper(), zipPull(), spine(), leftSide, rightSide);
 	const stage = el('div', {'aria-label': 'Binder pages', class: 'bs-stage', id: 'bs-stage', role: 'group'}, book, prevEdge, nextEdge);
-	const spreadBar = el('div', {class: 'bs-bar'}, el('span', {class: 'bs-jump-wrap select-wrap'}, jump));
+	const sizeDown = el('button', {'aria-label': 'Make the binder smaller', class: 'small bs-size-step', id: 'bs-size-down', type: 'button'}, '−');
+	const sizeFit = el('button', {'aria-label': 'Fit the binder to the screen', class: 'small bs-size-fit', id: 'bs-size-fit', type: 'button'}, 'Fit');
+	const sizeUp = el('button', {'aria-label': 'Make the binder bigger', class: 'small bs-size-step', id: 'bs-size-up', type: 'button'}, '+');
+	const sizeBar = el('span', {class: 'bs-size', id: 'bs-size', role: 'group', 'aria-label': 'Binder size'}, sizeDown, sizeFit, sizeUp);
+	const spreadBar = el('div', {class: 'bs-bar'}, el('span', {class: 'bs-jump-wrap select-wrap'}, jump), sizeBar);
+	const wideQuery = window.matchMedia ? window.matchMedia(WIDE_QUERY) : null;
+	let size = readSize();
 
 	const zoomBack = el('button', {class: 'bs-zoom-back', id: 'bs-zoom-back', type: 'button'}, '‹ Both pages');
 	const zoomLabel = el('span', {'aria-live': 'polite', class: 'bs-label', id: 'bs-zoom-label'});
@@ -563,13 +616,16 @@ export function binderSpread({
 
 		drawControls();
 		drawHint();
+		drawSize();
 		placeEdges();
 		fitNotes();
 	}
 
-	// The edge arrows go outside the book when there is room beside it.
+	// The edge arrows go outside the book when there is room beside it: on a
+	// wide screen the book is centered on the screen, not the column.
 	function placeEdges() {
-		const room = (spreadView.clientWidth - stage.offsetWidth) / 2;
+		const across = wideQuery && wideQuery.matches ? document.documentElement.clientWidth : spreadView.clientWidth;
+		const room = (across - stage.offsetWidth) / 2;
 
 		element.dataset.edges = room >= 48 ? 'outside' : 'inside';
 	}
@@ -578,8 +634,34 @@ export function binderSpread({
 		if (alive) {
 			placeEdges();
 			fitNotes();
+			drawSize();
 		}
 	}) : null;
+
+	// + stops once the book reaches the screen's width (the CSS cap), and -
+	// at the smallest size; Fit is pressed while it is at Fit.
+	function drawSize() {
+		element.style.setProperty('--bs-scale', String(size));
+
+		const capped = stage.offsetWidth >= document.documentElement.clientWidth - 33;
+
+		sizeUp.disabled = size >= SIZES[SIZES.length - 1] || capped;
+		sizeDown.disabled = size <= SIZES[0];
+		sizeFit.disabled = size === 1;
+		sizeFit.setAttribute('aria-pressed', String(size === 1));
+	}
+
+	function setSize(next) {
+		size = next;
+		writeSize(size);
+		drawSize();
+		placeEdges();
+		fitNotes();
+	}
+
+	sizeDown.addEventListener('click', () => setSize(stepSize(size, -1)));
+	sizeUp.addEventListener('click', () => setSize(stepSize(size, 1)));
+	sizeFit.addEventListener('click', () => setSize(1));
 
 	function changed() {
 		drawControls();
@@ -1037,11 +1119,31 @@ export function binderSpread({
 	}
 
 	replaceUrl();
+	element.style.setProperty('--bs-scale', String(size));
 	draw();
 
 	if (resizes) {
 		resizes.observe(element);
+		resizes.observe(stage);
 	}
+
+	// On a wide screen Fit sizes the spread to the height under the header,
+	// so once it is on the screen, the binder's name above it scrolls away
+	// when the pages would otherwise run under the tab bar, unless Back is
+	// bringing back where the person was (as js/binders-view.js does
+	// sideways).
+	requestAnimationFrame(() => {
+		if (!alive || !element.isConnected || !wideQuery || !wideQuery.matches || state.zoom || (history.state && history.state.scrollY)) {
+			return;
+		}
+
+		const tabs = document.querySelector('nav.tabs');
+		const floor = (tabs ? tabs.getBoundingClientRect().top : window.innerHeight) - 28;
+
+		if (spreadBar.getBoundingClientRect().bottom > floor && window.scrollY < element.offsetTop) {
+			element.scrollIntoView({block: 'start'});
+		}
+	});
 
 	return {
 		// Forgets the press in progress, so its lift is neither a swipe nor
