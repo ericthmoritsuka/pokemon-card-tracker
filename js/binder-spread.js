@@ -1044,6 +1044,12 @@ export function binderSpread({
 	}
 
 	return {
+		// Forgets the press in progress, so its lift is neither a swipe nor
+		// a tap (a long press that lifted a pocket, js/pocket-drag.js).
+		cancelSwipe() {
+			down = null;
+			suppressUntil = Date.now() + 400;
+		},
 		destroy() {
 			alive = false;
 

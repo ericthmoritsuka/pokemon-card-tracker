@@ -23,6 +23,7 @@ import {presetFor, presetPicker} from './binder-presets.js';
 import {OVERVIEW_QUERY, SIDEWAYS_QUERY, binderSpread, spreadOfPage} from './binder-spread.js';
 import {dropHand, handCopy, takeHand} from './binder-hand.js';
 import {offerCardList} from './card-swipe.js';
+import {pocketDrag} from './pocket-drag.js';
 import {
 	cardImage,
 	cardIndex,
@@ -79,6 +80,8 @@ import {
 	openPockets,
 	placeholdersFor,
 	locate,
+	getBinder,
+	movePocket,
 	moveToTray,
 	pageSlots,
 	placeCard,
@@ -86,6 +89,7 @@ import {
 	placeStaged,
 	placements,
 	planResize,
+	pocketsPerPage,
 	reorderBinders,
 	restoreBinder,
 	saveRefresh,
@@ -1065,6 +1069,21 @@ function binderScreen(root, source, id, pageParam) {
 				renderPocket: pocketElement,
 			});
 			spreadHolder.replaceChildren(...[spread.element, tray, tray && trayNote, handBar].filter(Boolean));
+
+			// Long press a card or placeholder, then drag it to another
+			// pocket. Binders made from a list fill themselves, so not there.
+			if (!source.readOnly) {
+				const shown = spread;
+
+				pocketDrag(shown.element, {
+					canLift: (pocket) => !listMode && pocketsLive() && ['card', 'gone', 'want'].includes(pocket.querySelector('.pocket')?.dataset.kind),
+					onDrop: (from, to) => movePockets(
+						{page: Number(from.dataset.page), position: Number(from.dataset.position)},
+						{page: Number(to.dataset.page), position: Number(to.dataset.position)}
+					),
+					onLift: () => shown.cancelSwipe(),
+				});
+			}
 
 			// Held sideways, the binder opens on its pages, whole above the
 			// tab bar, unless Back is bringing back where the person was.
@@ -2821,6 +2840,120 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}
 
+	// ------------------------------------ moving a pocket to another one
+	//
+	// From a long press and drag, or Move to pocket in the sheet: into an
+	// empty pocket, or swapping with what is there. Undo on the toast moves
+	// both back, unless either pocket has changed since.
+
+	const contentKey = (slot) => (slot ? JSON.stringify([slot.entry_id || null, slot.want ? slot.want.card_id : null, Boolean(slot.art), Boolean(slot.empty)]) : 'none');
+
+	function slotIn(fresh, where) {
+		return slotsOf(fresh).find((slot) => slot.page === where.page && slot.position === where.position) || null;
+	}
+
+	async function movePockets(from, to) {
+		if (!binder || listMode || (from.page === to.page && from.position === to.position)) {
+			return;
+		}
+
+		const binderId = binder.id;
+		const moving = slotIn(binder, from);
+		const there = slotIn(binder, to);
+
+		if (!moving) {
+			return;
+		}
+
+		try {
+			await movePocket(binderId, from, to);
+		}
+		catch (err) {
+			showError('Could not move the card.', err);
+
+			return;
+		}
+
+		const what = moving.want ? 'the placeholder' : 'the card';
+
+		toast(there
+			? `Swapped page ${from.page}, pocket ${from.position} with page ${to.page}, pocket ${to.position}.`
+			: `Moved ${what} to page ${to.page}, pocket ${to.position}.`, {
+			action: () => undoMove({binderId, from, moved: contentKey(moving), swapped: contentKey(there), to}),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	async function undoMove({binderId, from, moved, swapped, to}) {
+		try {
+			const fresh = await getBinder(binderId);
+
+			if (!fresh || contentKey(slotIn(fresh, to)) !== moved || contentKey(slotIn(fresh, from)) !== swapped) {
+				toast('Those pockets have changed since, so they stay as they are.');
+
+				return;
+			}
+
+			await movePocket(binderId, to, from);
+		}
+		catch (err) {
+			showError('Could not undo.', err);
+		}
+	}
+
+	// The sheet's way to move: a page and a pocket, or the next free pocket.
+	function movePanel(page, position) {
+		const per = pocketsPerPage(binder);
+		const pageSelect = h('select', {'aria-label': 'Page', id: 'move-page'},
+			...Array.from({length: binder.page_count}, (_, i) => h('option', {selected: i + 1 === page, value: i + 1}, `Page ${i + 1}`)));
+		const pocketSelect = h('select', {'aria-label': 'Pocket', id: 'move-pocket'});
+		const holds = h('p', {'aria-live': 'polite', class: 'muted', id: 'move-holds'});
+		const moveButton = h('button', {class: 'primary', id: 'move-go', type: 'button'}, 'Move here');
+		const target = () => ({page: Number(pageSelect.value), position: Number(pocketSelect.value)});
+
+		const describe = () => {
+			const where = target();
+			const slot = slotIn(binder, where);
+
+			moveButton.disabled = where.page === page && where.position === position;
+			holds.textContent = moveButton.disabled
+				? 'This is the pocket it is in now.'
+				: slot ? `Holds ${pocketContent(slot).label}. They swap.` : 'Empty.';
+			moveButton.textContent = slot ? 'Swap with this pocket' : 'Move here';
+		};
+
+		const fillPockets = () => {
+			const shownPage = Number(pageSelect.value);
+			const slots = Array.from({length: per}, (_, i) => slotIn(binder, {page: shownPage, position: i + 1}));
+			// The first empty pocket on the page, else the first other one.
+			const empty = slots.findIndex((slot, i) => !slot && !(shownPage === page && i + 1 === position));
+			const other = shownPage === page ? (position === per ? 1 : position + 1) : 1;
+
+			pocketSelect.replaceChildren(...slots.map((slot, i) => h('option', {value: i + 1}, `Pocket ${i + 1}: ${slot ? pocketContent(slot).label : 'Empty'}`)));
+			pocketSelect.value = String(empty >= 0 ? empty + 1 : Math.min(other, per));
+			describe();
+		};
+
+		pageSelect.addEventListener('change', fillPockets);
+		pocketSelect.addEventListener('change', describe);
+		moveButton.addEventListener('click', () => act(() => movePockets({page, position}, target()), 'Could not move the card.'));
+
+		const free = openPockets(binder, placed)[0];
+		const nextFree = free
+			? h('button', {id: 'move-next-free', onclick: () => act(() => movePockets({page, position}, free), 'Could not move the card.'), type: 'button'}, `Move to the next free pocket (page ${free.page}, pocket ${free.position})`)
+			: h('p', {class: 'muted', id: 'move-no-free'}, 'No empty pocket is left in this binder.');
+
+		fillPockets();
+
+		return h('div', {class: 'move-panel', hidden: true, id: 'move-panel'},
+			h('h4', null, 'Move to pocket'),
+			h('div', {class: 'button-row'}, pageSelect, pocketSelect),
+			holds,
+			h('div', {class: 'button-row'}, moveButton, nextFree)
+		);
+	}
+
 	// ------------------------------------------------- the pocket sheet
 
 	function closeSheet() {
@@ -2870,6 +3003,8 @@ function binderScreen(root, source, id, pageParam) {
 		const content = pocketContent(slot);
 		const chooser = h('div', {class: 'chooser', hidden: Boolean(slot)});
 		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
+		const per = pocketsPerPage(binder) * binder.page_count;
+		const mover = slot && ['card', 'gone', 'want'].includes(content.kind) && per > 1 ? movePanel(page, position) : null;
 
 		const header = h('div', {class: 'sheet-head'},
 			h('h3', {id: 'sheet-title'}, `Page ${page}, pocket ${position}`),
@@ -2890,6 +3025,13 @@ function binderScreen(root, source, id, pageParam) {
 							event.currentTarget.closest('.sheet-current').hidden = true;
 							chooser.hidden = false;
 						}, type: 'button'}, 'Change'),
+					['card', 'gone', 'want'].includes(content.kind) && per > 1
+						? h('button', {id: 'pocket-move', onclick: (event) => {
+							event.currentTarget.closest('.sheet-current').hidden = true;
+							mover.hidden = false;
+							mover.querySelector('#move-page').focus();
+						}, type: 'button'}, 'Move to pocket...')
+						: null,
 					content.kind === 'card'
 						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
 						: null,
@@ -2900,7 +3042,7 @@ function binderScreen(root, source, id, pageParam) {
 			: null;
 
 		chooser.append(...pocketChooser(page, position, message));
-		sheet.replaceChildren(header, current || '', chooser, message);
+		sheet.replaceChildren(header, current || '', mover || '', chooser, message);
 		// On a phone focus goes to Close, not the search field: most people
 		// scroll the list, and a focused field raises the keyboard over it.
 		// With a mouse the search takes it. Back closes the sheet instead of

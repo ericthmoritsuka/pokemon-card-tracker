@@ -439,6 +439,43 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	return stamped([...changed.values()]);
 }
 
+// Moves what is in one pocket of a hand-made binder to another pocket of
+// it: into an empty pocket, or swapping with what is there (a card, a
+// placeholder, a pocket left empty on purpose, or art). from and to are
+// {page, position}. Moving the same two pockets again puts both back.
+export function swapPockets(binders, {at = nowIso(), binderId, from, to}) {
+	const target = findLive(binders, binderId);
+
+	checkPocket(target, from.page, from.position);
+	checkPocket(target, to.page, to.position);
+
+	const at1 = (where) => (slot) => slot.page === where.page && slot.position === where.position;
+	const held = (where) => slotsOf(target).find(at1(where));
+	const moving = held(from);
+
+	if (!moving) {
+		throw new Error(`Page ${from.page}, pocket ${from.position} is empty.`);
+	}
+
+	if (from.page === to.page && from.position === to.position) {
+		return [];
+	}
+
+	const there = held(to);
+	const next = copyOf(target, at);
+
+	next.slots = next.slots.filter((slot) => !at1(from)(slot) && !at1(to)(slot));
+	next.slots.push({...moving, page: to.page, placed_at: at, position: to.position});
+
+	if (there) {
+		next.slots.push({...there, page: from.page, placed_at: at, position: from.position});
+	}
+
+	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	return stamped([next]);
+}
+
 // ----------------------------------------------------------- the tray
 //
 // A binder's tray (staged) holds copies meant for it that are not in a
@@ -1070,6 +1107,9 @@ export const placePlaceholder = (binderId, page, position, want) => pocketChange
 export const leaveEmpty = (binderId, page, position) => pocketChange(binderId, page, position, {empty: true});
 
 export const clearPocket = (binderId, page, position) => pocketChange(binderId, page, position, null);
+
+// from and to are {page, position}; see swapPockets.
+export const movePocket = (binderId, from, to) => serial(async () => saveBinders(swapPockets(await allBinders(), {binderId, from, to})));
 
 // The tray, saved. Each reads what the last change saved, like the pockets.
 const liveCardIds = async () => new Set(((await loadDocument()).cards || []).filter(isLive).map((entry) => entry.id));

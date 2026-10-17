@@ -44,6 +44,7 @@ import {
 	slotsOf,
 	stageCards,
 	stagedOf,
+	swapPockets,
 	totalPockets,
 	trayCandidates,
 	trayOf,
@@ -188,6 +189,30 @@ describe('the one-pocket rule', () => {
 		binders = apply(binders, setPocket(binders, {at: at(2), binderId: 'a', content: {entry_id: 'c1'}, page: 3, position: 9}));
 		assert.equal(where(binders, 'c1'), 'a:3:9');
 		assert.equal(count(binders, 'c1'), 1);
+	});
+
+	test('dragging between pockets moves into an empty one, swaps with a filled one, and moving back undoes it', () => {
+		let binders = [binderOf('a')];
+		const want = {card_id: 'tst1-004', catalog: 'international', image: null, name: 'Invented Mon', variant_id: null};
+
+		binders = apply(binders, setPocket(binders, {at: at(1), binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 1}));
+		binders = apply(binders, setPocket(binders, {at: at(2), binderId: 'a', content: {want}, page: 2, position: 3}));
+
+		binders = apply(binders, swapPockets(binders, {at: at(3), binderId: 'a', from: {page: 1, position: 1}, to: {page: 1, position: 5}}));
+		assert.equal(where(binders, 'c1'), 'a:1:5');
+		assert.equal(slotsOf(binders[0]).length, 2, 'the old pocket is empty');
+
+		binders = apply(binders, swapPockets(binders, {at: at(4), binderId: 'a', from: {page: 1, position: 5}, to: {page: 2, position: 3}}));
+		assert.equal(where(binders, 'c1'), 'a:2:3');
+		assert.equal(slotsOf(binders[0]).find((slot) => slot.want).position, 5, 'the placeholder took the card\'s pocket');
+
+		binders = apply(binders, swapPockets(binders, {at: at(5), binderId: 'a', from: {page: 2, position: 3}, to: {page: 1, position: 5}}));
+		assert.equal(where(binders, 'c1'), 'a:1:5');
+		assert.equal(slotsOf(binders[0]).find((slot) => slot.want).page, 2);
+
+		assert.throws(() => swapPockets(binders, {binderId: 'a', from: {page: 1, position: 2}, to: {page: 1, position: 3}}), /is empty/);
+		binders.push(binderOf('g', {rule: {order: 'dex', source: {id: 'list-1', kind: 'checklist'}}, slots: [{entry_id: 'c9', page: 1, position: 1}]}));
+		assert.throws(() => swapPockets(binders, {binderId: 'g', from: {page: 1, position: 1}, to: {page: 1, position: 2}}), /made from a list/);
 	});
 
 	test('a pocket holds one thing: a new card replaces what was there', () => {
