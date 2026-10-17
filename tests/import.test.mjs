@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {importEntryId, planImport, planOwnImport} from '../js/collection.js';
-import {LARGE_COUNT, MAX_COUNT, importEntries, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
+import {LARGE_COUNT, MAX_COUNT, importEntries, isImportableFile, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
 
 const HEADER = 'Name;Set;Number;Language;Finish Type;Count;ID;Release Date';
 
@@ -406,5 +406,25 @@ describe('planOwnImport', () => {
 
 		assert.deepEqual(counts, {added: 0, revived: 0, skippedDeleted: 0, unchanged: 1, updated: 0});
 		assert.equal(cards.length, 2);
+	});
+});
+
+describe('isImportableFile', () => {
+	test('a shared file is read when its name or its type says CSV, JSON, or plain text', () => {
+		assert.ok(isImportableFile('monprice.csv', ''));
+		assert.ok(isImportableFile('monprice.JSON', 'application/octet-stream'));
+		assert.ok(isImportableFile('export.txt', ''));
+		assert.ok(isImportableFile('Shared file', 'text/plain'));
+		assert.ok(isImportableFile('collection', 'text/csv; charset=utf-8'));
+		assert.ok(isImportableFile('collection', 'text/comma-separated-values'));
+		assert.ok(isImportableFile('collection', 'Application/JSON'));
+	});
+
+	test('anything else is refused', () => {
+		assert.ok(!isImportableFile('photo.png', 'image/png'));
+		assert.ok(!isImportableFile('cards.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'));
+		assert.ok(!isImportableFile('notes.csv.pdf', 'application/pdf'));
+		assert.ok(!isImportableFile('Shared file', ''));
+		assert.ok(!isImportableFile());
 	});
 });

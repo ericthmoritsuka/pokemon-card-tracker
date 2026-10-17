@@ -404,7 +404,7 @@ async function shareResponse(event) {
 
 	try {
 		const form = await event.request.formData();
-		const file = form.getAll('file').find((item) => item && typeof item === 'object' && 'size' in item);
+		const file = form.getAll('file').find((item) => item && typeof item === 'object' && item.size > 0);
 
 		if (file) {
 			const cache = await caches.open(SHARE_CACHE);
@@ -419,7 +419,7 @@ async function shareResponse(event) {
 		}
 	}
 	catch {
-		// An unreadable form is reported as no file.
+		// An unreadable form is reported as no file, as is an empty one.
 	}
 
 	return Response.redirect(scopeUrl(`import?shared=${shared}`), 303);
