@@ -11,7 +11,7 @@ import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
-import {LARGE_COUNT, finishLabel, importEntries, localPart, matchRows, parseExport} from './monprice.js';
+import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -87,6 +87,31 @@ function groupBy(results, key) {
 	}
 
 	return groups;
+}
+
+// A file shared from another app (sw.js shareResponse) waits in this cache
+// under the share action's URL. It is read once and deleted.
+const SHARE_CACHE = 'card-tracker-share';
+const SHARE_KEY = `${BASE}share-import`;
+
+async function takeSharedFile() {
+	if (!('caches' in window)) {
+		return null;
+	}
+
+	const cache = await caches.open(SHARE_CACHE);
+	const response = await cache.match(SHARE_KEY);
+
+	if (!response) {
+		return null;
+	}
+
+	await cache.delete(SHARE_KEY);
+
+	const name = decodeURIComponent(response.headers.get('X-File-Name') || '') || 'Shared file';
+	const type = response.headers.get('Content-Type') || '';
+
+	return new File([await response.blob()], name, {type: type === 'application/octet-stream' ? '' : type});
 }
 
 function holdPage(event) {
@@ -465,6 +490,55 @@ export function importView(root) {
 		status,
 		report
 	);
+
+	// Opened from Android's share sheet: sw.js put the file aside and sent
+	// ?shared=1 (or ?shared=none when the share had no file). The flag is
+	// taken off the address, so a reload does not look for the file again.
+	async function pickUpShared() {
+		const params = new URLSearchParams(window.location.search);
+		const flag = params.get('shared');
+
+		if (flag === null) {
+			return;
+		}
+
+		params.delete('shared');
+		history.replaceState(history.state, '', window.location.pathname + (params.toString() ? `?${params}` : ''));
+
+		const shareProblem = (text) => status.replaceChildren(h('div', {class: 'notice', id: 'import-share-problem', role: 'alert'},
+			h('p', null, text),
+			h('p', {class: 'muted'}, 'Share the CSV or JSON export from monprice, or a CSV this app exported, or pick the file below.')
+		));
+
+		let file = null;
+
+		try {
+			file = flag === 'none' ? null : await takeSharedFile();
+		}
+		catch {
+			file = null;
+		}
+
+		if (!alive) {
+			return;
+		}
+
+		if (!file) {
+			shareProblem('No file came with the share, so nothing was read.');
+
+			return;
+		}
+
+		if (!isImportableFile(file.name, file.type)) {
+			shareProblem(`${file.name} is not a CSV or JSON file, so it was not read.`);
+
+			return;
+		}
+
+		run(file);
+	}
+
+	pickUpShared();
 
 	return () => {
 		alive = false;

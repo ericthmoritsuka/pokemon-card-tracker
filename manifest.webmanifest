@@ -28,6 +28,19 @@
 			"purpose": "maskable"
 		}
 	],
+	"share_target": {
+		"action": "/pokemon-card-tracker/share-import",
+		"method": "POST",
+		"enctype": "multipart/form-data",
+		"params": {
+			"files": [
+				{
+					"name": "file",
+					"accept": [".csv", "text/csv", "text/comma-separated-values", "application/json", ".json", "text/plain"]
+				}
+			]
+		}
+	},
 	"shortcuts": [
 		{
 			"name": "Scan cards",
