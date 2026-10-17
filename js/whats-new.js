@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Share a monprice export straight to Card Tracker on Android: pick Card Tracker in the share sheet and Import opens with the file ready to check and save.',
+			'The app\'s own CSV export can be shared to it the same way.',
+		],
+		version: 'v44',
+	},
+	{
+		date: '2026-10-16',
+		items: [
 			'Binder pickers find cards by English name, reading, or any language\'s name, just like My Cards.',
 			'Clear all appears as soon as any filter or search is on, and clears the search too.',
 		],
