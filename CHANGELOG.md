@@ -12,6 +12,21 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-17
+
+- **v46** (includes v44 and v45, which were never released on their own). `a64f549`
+  - **Import from the share sheet** (Android, installed app): share a monprice export or the app's own
+    CSV to Card Tracker and Import opens with it; nothing is saved until you tap Save.
+  - **Add to binder** on a card's page: pick a binder, then tap an empty pocket, use the next free one,
+    or keep it in the tray, with Undo; a waiting placeholder is pointed out.
+  - **Shared family photos:** a card with no picture shows a family member's photo, marked "Photo by",
+    until you add your own (each phone fetches only the members' small photo index).
+  - **Drag between pockets:** press and hold a card, drop it on another pocket to move or swap, with
+    Undo; Move to pocket... in the pocket's sheet.
+  - **Binder pickers:** one tile per card with a copy count, the Filters sheet (plus a new Artist
+    filter, also in My Cards), and the search focused at once only with a mouse.
+  - **Bigger binder** on computers and tablets, with minus, Fit, and plus buttons.
+
 ### 2026-10-16
 
 - **v43:** binder pickers search like My Cards. `b838d12`

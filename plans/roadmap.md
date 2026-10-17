@@ -7,7 +7,7 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## State Right Now
 
-- **Live:** version **v43** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v43 `b838d12` adds English-name search in the binder pickers and an always-there Clear all; v42 `cd1e464` added From a box or list in Add cards to the tray, the Snap toggle, and cover Rotate; v41 `46addf1` added smarter photo corners and snapping; v40 `8d3edbb` added the content check for new cards, automatic holder mode, the wider picture search, and read safety; v39 `18f355f` added scanner settings (default finish, shutter sound, valuable and rising marks), four rotations, capture in the worker, an instant Save; v38 `60f28c6` added the single language table, lighter sync with an optional `supabase/patch-document.sql`, full-art number reads, translated names, and small fixes; `supabase/min-client.sql` and `supabase/patch-document.sql` were run by Eric on 2026-10-15; v37 `c8101df` added Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
+- **Live:** version **v46** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v46 `a64f549` adds share-sheet import, Add to binder, shared family photos, drag between pockets, picker tiles and Filters with Artist, and a bigger binder on wide screens; v43 `b838d12` added English-name search in the binder pickers and an always-there Clear all; v42 `cd1e464` added From a box or list in Add cards to the tray, the Snap toggle, and cover Rotate; v41 `46addf1` added smarter photo corners and snapping; v40 `8d3edbb` added the content check for new cards, automatic holder mode, the wider picture search, and read safety; v39 `18f355f` added scanner settings (default finish, shutter sound, valuable and rising marks), four rotations, capture in the worker, an instant Save; v38 `60f28c6` added the single language table, lighter sync with an optional `supabase/patch-document.sql`, full-art number reads, translated names, and small fixes; `supabase/min-client.sql` and `supabase/patch-document.sql` were run by Eric on 2026-10-15; v37 `c8101df` added Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
   `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
   `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
   the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
@@ -210,7 +210,7 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Photos (Eric, 2026-10-16)
 
-- **Shared family photos:** when a card has no official image, no twin, and no photo of your own,
+- **Done in v46: Shared family photos:** when a card has no official image, no twin, and no photo of your own,
   show a family member's photo of the same card (same language first), with "Photo by <name>".
   Storage already lets the group read each other's photos (supabase/photos.sql "read own and
   group"); no new SQL. Each document keeps a small list of which cards have photos, so phones fetch
@@ -236,13 +236,13 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 - **Search focus in the pocket's card chooser (the + in a binder):** on a computer (pointer: fine)
   focus "Search your cards" at once; on a phone keep the keyboard closed with the search at the top,
   optionally focusing it when the last pick was made by typing. Tiny.
-- **Drag between pockets** (asked 2026-10-16; optional item in the v42 agent): long press, move to an
+- **Done in v46: Drag between pockets** (asked 2026-10-16; optional item in the v42 agent): long press, move to an
   empty pocket or swap, Undo, "Move to pocket..." for keyboards.
-- **Bigger binder on computers and tablets (Eric, 2026-10-16: "looks small compared to the whole
+- **Done in v46: Bigger binder on computers and tablets (Eric, 2026-10-16: "looks small compared to the whole
   screen"):** first look at it in Chrome at desktop and tablet sizes; then let the spread scale to
   the available width and height on wide screens (keeping its proportions), with zoom buttons (and
   pinch on tablets) remembered locally. Phones unchanged.
-- **One tile per card in the pickers (Eric, 2026-10-16):** the pocket's card chooser, Add cards to
+- **Done in v46: One tile per card in the pickers (Eric, 2026-10-16):** the pocket's card chooser, Add cards to
   the tray, and other pick-a-card lists group identical copies (same card, language, finish) into one
   tile with a xN badge; a tap places one unplaced copy, again for the next; the tray picker can take
   a number. Copies differing in language or finish stay separate. Small.
@@ -250,7 +250,7 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   pickers match only the printed name, set, number, and id (`matches`), so "aerodactyl" misses a
   Japanese Aerodactyl; reuse My Cards' search text (English name, original, reading, localizations;
   cards-view.js searchOf / filter-bar.js searchTextOf). Do it with the one-tile change. Tiny.
-- **Filters in the binder pickers (Eric, 2026-10-16):** a Filters button in Add cards to the tray and
+- **Done in v46: Filters in the binder pickers (Eric, 2026-10-16):** a Filters button in Add cards to the tray and
   the pocket chooser opening the same sheet as My Cards (js/filter-bar.js: region, Pokedex range,
   type, set, language, rarity, price), plus a new Artist filter; combines with From (box or list)
   and search; active chips with clear. Not nested dropdowns (fiddly on phones). Do with the other
@@ -258,12 +258,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   Also "Clear all" (js/filter-bar.js shows it only with 2+ active filters): show it whenever any
   filter, search, or From is active, and make it clear the search and From too, everywhere filters
   appear (Eric, 2026-10-16).
-- **Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
+- **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free
   pocket and Keep in tray as shortcuts; a placeholder waiting for that card is pointed out. Reuses
   the tray's pick-then-pocket logic (js/binders-view.js). Small.
-- **Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
+- **Done in v46: Import straight from monprice's share sheet:** a Web Share Target in the manifest so the
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
 
