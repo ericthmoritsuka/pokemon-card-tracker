@@ -179,9 +179,11 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 	let entries = given || [];
 	let official = null;
 	let info = {};
-	let art = plainArt;
+	// Called as art(info, src, opts), like catalog-views.js cardArt.
+	let art = (_info, src) => plainArt(src);
 	let alive = true;
 	let wantSlide = null;
+	let shown = false;
 
 	const withFamily = !readOnly && !given;
 
@@ -219,7 +221,9 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		}
 
 		const fallback = {card_id: cardId, catalog, language: language || ''};
-		const family = withFamily ? sharedPhotosFor(language ? fallback : cardOf(entries, fallback)) : [];
+		// Only once show() has said whether there is an official image, so a
+		// card that has one never flashes a family photo first.
+		const family = withFamily && shown ? sharedPhotosFor(language ? fallback : cardOf(entries, fallback)) : [];
 		const slides = gallerySlides({entries, family, official, twins});
 		const mainId = mainSlideId(slides, pinnedImage(entries));
 
@@ -279,6 +283,8 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		element,
 		refresh: load,
 		show(next = {}) {
+			shown = true;
+
 			if ('official' in next) {
 				official = next.official || null;
 			}
