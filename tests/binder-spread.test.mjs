@@ -21,6 +21,8 @@ import {
 	spreadAspect,
 	spreadOfPocket,
 	spreadPages,
+	SIZES,
+	stepSize,
 	writeSpreadState,
 } from '../js/binder-spread.js';
 import {cleanCoverImage, cleanFields, cleanPreset, coverImageOf} from '../js/binders.js';
@@ -204,5 +206,16 @@ describe('the new binder fields', () => {
 		assert.equal(cleanCoverImage(null), null);
 		assert.equal(coverImageOf({cover_color: '#000000'}), null);
 		assert.equal(coverImageOf({cover_image: {id: 'k'}}).id, 'k');
+	});
+});
+
+describe('the + and - sizes on a wide screen', () => {
+	test('step one size at a time from Fit, stop at either end, and snap a stray value', () => {
+		assert.equal(stepSize(1, 1), 1.15);
+		assert.equal(stepSize(1, -1), 0.9);
+		assert.equal(stepSize(SIZES[0], -1), SIZES[0]);
+		assert.equal(stepSize(SIZES.at(-1), 1), SIZES.at(-1));
+		assert.equal(stepSize(1.02, 1), 1.15);
+		assert.equal(stepSize('nonsense', -1), 0.9);
 	});
 });

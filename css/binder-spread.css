@@ -830,3 +830,57 @@ button.bc-handle:focus-visible::after {
 		margin-bottom: 2px;
 	}
 }
+
+/* ------------------------------------------------- a computer or tablet */
+
+/* A wide screen (js/binder-spread.js WIDE_QUERY): the spread grows past the
+   app's 640 px column (style.css main) to the screen's width less a 16 px
+   gutter each side, or to the height between the sticky header and the tab
+   bar, whichever is smaller, so with the binder's name scrolled away the
+   whole spread and its buttons show: the header, the "Pages N and M" line
+   and its margins (34 px), the page menu and size buttons under the book
+   (54 px), the Scan disc's rise above the tab bar (28 px), the tab bar, and
+   a 10 px gap. --bs-scale is the reader's + and - (1 is Fit); the width cap
+   stays, so the spread never runs off the side of the screen. Centered on
+   the column, which is centered on the screen. */
+.bs-size {
+	display: none;
+}
+
+@media (min-width: 600px) and (min-height: 501px) {
+	.bs {
+		--bs-chrome: calc(var(--header-height, 56px) + env(safe-area-inset-top, 0px) + var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 126px);
+		--bs-max-w: calc(100vw - 32px);
+	}
+
+	.bs[data-mode="direct"] .bs-stage {
+		--bs-w: min(var(--bs-max-w), max(280px, (100svh - var(--bs-chrome)) * var(--bs-spread-aspect, 1.4) * var(--bs-scale, 1)));
+		margin-left: calc(50% - (var(--bs-w) / 2));
+		margin-right: 0;
+		width: var(--bs-w);
+	}
+
+	.bs-bar {
+		align-items: center;
+		gap: 12px;
+	}
+
+	.bs-size {
+		display: flex;
+		flex: 0 0 auto;
+		gap: 6px;
+	}
+
+	button.bs-size-step {
+		font-size: 1.3rem;
+		min-height: 44px;
+		padding: 0;
+		width: 44px;
+	}
+
+	button.bs-size-fit {
+		min-height: 44px;
+		padding: 4px 12px;
+		width: auto;
+	}
+}
