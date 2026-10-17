@@ -1090,3 +1090,19 @@ button.atb-binder {
 		position: static;
 	}
 }
+
+/* A pocket lifted by a long press (js/pocket-drag.js): faded while its card
+   follows the finger. No callout menu or text selection on a held pocket. */
+.bs-pocket .pocket {
+	-webkit-touch-callout: none;
+	user-select: none;
+}
+
+.bs-pocket.pd-lifted {
+	opacity: 0.4;
+}
+
+.move-panel select {
+	flex: 1 1 8rem;
+	min-width: 0;
+}

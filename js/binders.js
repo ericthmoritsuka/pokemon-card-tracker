@@ -450,7 +450,8 @@ export function swapPockets(binders, {at = nowIso(), binderId, from, to}) {
 	checkPocket(target, to.page, to.position);
 
 	const at1 = (where) => (slot) => slot.page === where.page && slot.position === where.position;
-	const moving = (target.slots || []).find(at1(from));
+	const held = (where) => slotsOf(target).find(at1(where));
+	const moving = held(from);
 
 	if (!moving) {
 		throw new Error(`Page ${from.page}, pocket ${from.position} is empty.`);
@@ -460,7 +461,7 @@ export function swapPockets(binders, {at = nowIso(), binderId, from, to}) {
 		return [];
 	}
 
-	const there = (target.slots || []).find(at1(to));
+	const there = held(to);
 	const next = copyOf(target, at);
 
 	next.slots = next.slots.filter((slot) => !at1(from)(slot) && !at1(to)(slot));
