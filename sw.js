@@ -392,8 +392,47 @@ async function imageResponse(event) {
 	}
 }
 
+// A file shared to the installed app (manifest share_target, Android): the
+// share sheet POSTs it here as multipart form data. It is kept in its own
+// cache until the Import screen picks it up and deletes it (js/import-view.js),
+// and the 303 sends the person there. Nothing is imported until they tap Save.
+const SHARE_CACHE = 'card-tracker-share';
+const SHARE_ACTION = 'share-import';
+
+async function shareResponse(event) {
+	let shared = 'none';
+
+	try {
+		const form = await event.request.formData();
+		const file = form.getAll('file').find((item) => item && typeof item === 'object' && item.size > 0);
+
+		if (file) {
+			const cache = await caches.open(SHARE_CACHE);
+
+			await cache.put(scopeUrl(SHARE_ACTION), new Response(file, {
+				headers: {
+					'Content-Type': file.type || 'application/octet-stream',
+					'X-File-Name': encodeURIComponent(file.name || ''),
+				},
+			}));
+			shared = '1';
+		}
+	}
+	catch {
+		// An unreadable form is reported as no file, as is an empty one.
+	}
+
+	return Response.redirect(scopeUrl(`import?shared=${shared}`), 303);
+}
+
 self.addEventListener('fetch', (event) => {
 	const request = event.request;
+
+	if (request.method === 'POST' && request.url.split('?')[0] === scopeUrl(SHARE_ACTION)) {
+		event.respondWith(shareResponse(event));
+
+		return;
+	}
 
 	if (request.method !== 'GET') {
 		return;

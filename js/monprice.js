@@ -327,6 +327,18 @@ export function parseOwnCsv(text) {
 export const LARGE_COUNT = 50;
 export const MAX_COUNT = 999;
 
+// A file shared to the app (Android's share sheet, manifest share_target)
+// is read only when it looks like an export: a .csv, .json, or .txt name, or
+// a CSV, JSON, or plain text type. monprice may share its CSV as text/plain,
+// and a share can arrive with an empty type, so either one is enough.
+export const SHARE_TYPES = ['text/csv', 'text/comma-separated-values', 'application/json', 'text/plain'];
+
+export function isImportableFile(name = '', type = '') {
+	const base = String(type || '').split(';')[0].trim().toLowerCase();
+
+	return /\.(csv|json|txt)$/i.test(String(name || '').trim()) || SHARE_TYPES.includes(base);
+}
+
 // Returns {format, rows, errors}. A row with an error is reported and
 // never imported. A row whose count is above LARGE_COUNT carries large:
 // true. The app's own CSV comes back as parseOwnCsv reads it, with format
