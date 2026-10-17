@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-17',
+		items: [
+			'On a computer or tablet, an open binder fills the screen.',
+			'New minus, Fit, and plus buttons resize the binder, and your choice is remembered.',
+		],
+		version: 'v46',
+	},
+	{
 		date: '2026-10-16',
 		items: [
 			'Cards with no picture show a family member\'s photo of the same card, marked Photo by and their name, until you add your own.',
