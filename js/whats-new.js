@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Binder pickers show one tile per card with a count of your copies, and you choose how many go to the tray.',
+			'With a mouse, the card pickers open ready to type in the search; phones no longer pop up the keyboard.',
+		],
+		version: 'v45',
+	},
+	{
+		date: '2026-10-16',
+		items: [
 			'Share a monprice export straight to Card Tracker on Android: pick Card Tracker in the share sheet and Import opens with the file ready to check and save.',
 			'The app\'s own CSV export can be shared to it the same way.',
 		],
