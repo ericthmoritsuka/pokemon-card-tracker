@@ -41,7 +41,8 @@ export const INTEGRATION = {
 		// In cardView, after const swipe = cardSwipe(root, route); (and the
 		// family member lens, whose card shows that member's photos read
 		// only).
-		create: '\tconst photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang)});',
+		// language: the page's, which a family member's photo is preferred in.
+		create: '\tconst photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});',
 		// In render(), replacing the hero-art line. twins is the
 		// international twin's slide (js/twins.js twinSlides), or none.
 		art: '\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\'), twins})),',
@@ -59,9 +60,10 @@ export const INTEGRATION = {
 		wrap: '\t\treturn withMainPhoto(cardTile({',
 		// art.src becomes (twins: the group's international twin slide,
 		// js/twins.js twinSlides)
-		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {twins: group.twins}),',
+		// js/twins.js twinSlides; family: off on a member's read-only cards)
+		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {family: !readOnly, twins: group.twins}),',
 		// and the call closes with
-		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {twins: group.twins});',
+		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, twins: group.twins});',
 	},
 	app: {
 		// Among the imports, and in startAccount after startSync(); (and the
@@ -98,6 +100,8 @@ export const PENDING = {
 		shell: [
 			'\t\'js/photos/viewer.js\',',
 			'\t\'js/photos/zoom.js\',',
+			// Family members' photos (js/photos/shared.js).
+			'\t\'js/photos/shared.js\',',
 		],
 	},
 	accountViews: {
@@ -132,7 +136,7 @@ export async function checkIntegration() {
 	const {art, create, destroy, import: photosImport} = INTEGRATION.catalogViews;
 
 	assert.ok(lines(catalogViews).has(photosImport), 'js/catalog-views.js imports cardPhotos');
-	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n(?:\t\/\/.*\n|\tconst member = lensMember\(\);\n)*\tconst photos = member \? memberPhotos\(cardId, catalogFor\(lang\)\) : cardPhotos\(\{cardId, catalog: catalogFor\(lang\)\}\);$/m, 'cardView creates the photos after the swipe');
+	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n(?:\t\/\/.*\n|\tconst member = lensMember\(\);\n)*\tconst photos = member \? memberPhotos\(cardId, catalogFor\(lang\)\) : cardPhotos\(\{cardId, catalog: catalogFor\(lang\), language: lang\}\);$/m, 'cardView creates the photos after the swipe');
 	assert.ok(lines(card[0]).has(create));
 	assert.ok(lines(card[0]).has(art), 'the hero art is the photos block');
 	assert.match(card[0], /\treturn \(\) => \{\n\t\talive = false;\n(?:\t\t.*\n)*?\t\tphotos\.destroy\(\);\n\t\};\n\}\n$/, 'the cleanup destroys the photos');

@@ -855,7 +855,7 @@ export function cardView(root, {lang, cardId}) {
 	// (plans/design-review.md, "Family Read-Only Mode"). Add to wishlist
 	// stays, since it writes only to your own wishlist.
 	const member = lensMember();
-	const photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang)});
+	const photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});
 	// A Japanese print's international twin: its image joins the carousel,
 	// its English name leads for a Trainer or Energy, and the picker asks
 	// when the matcher was unsure (js/twins.js, js/twins-view.js).

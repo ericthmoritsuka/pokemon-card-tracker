@@ -9,6 +9,8 @@
 //   tileSrc, withMainPhoto          the same for js/tile.js cardTile(): the
 //                                   URL to pass, then the photo filled in
 //                                   when it was not in memory yet
+//                                   (a family member's photo when the
+//                                   card has no image at all, shared.js)
 //   startPhotoSync()                the upload queue and photo restore
 //   photoSettingsCard()             Profile's "Keep a detail copy of new
 //                                   photos" switch, for this phone
@@ -38,6 +40,7 @@ import {
 	uploadProblems,
 	waitingText,
 } from './store.js';
+import {onSharedPhotosChange, sharedPhotosFor, sharedReady, sharedSettled, startSharedPhotos} from './shared.js';
 
 export {
 	SWIPE_EVENT,
@@ -55,6 +58,25 @@ export {
 // cards their photo (DESIGN.md section 5).
 export {detectCorners} from './detect.js';
 export {encodePhoto, straighten} from './encode.js';
+
+// The card a group of copies is, for the family's photos of it.
+function cardOf(entries, fallback = {}) {
+	const entry = (Array.isArray(entries) ? entries : [entries]).find((item) => item && !item.deleted_at && item.card_id);
+
+	return entry ? {card_id: entry.card_id, catalog: entry.catalog, language: entry.language || ''} : fallback;
+}
+
+// The family's photos of the copies' card, or none when `family` is off
+// (a family member's read-only cards).
+function familyFor(entries, family) {
+	if (!family) {
+		return [];
+	}
+
+	startSharedPhotos();
+
+	return sharedPhotosFor(cardOf(entries));
+}
 
 // A card-shaped image with no names, for callers that pass no art function.
 function plainArt(src) {
@@ -149,15 +171,27 @@ export function addPhotoButton(options) {
 // entries: the copies to show photos of. Leave it out for the signed-in
 // person's own copies of cardId in catalog, kept current as they change.
 // readOnly: no Add photo or Use as main image (someone else's cards).
-export function cardPhotos({cardId, catalog, describe = describeCopy, entries: given = null, readOnly = false, twins = []}) {
+// language: the card page's language, which a family member's photo
+// (shared.js) is preferred in; the person's own copies' language otherwise.
+// Only the person's own card page (no entries given, not readOnly) shows
+// the family's photos.
+export function cardPhotos({cardId, catalog, describe = describeCopy, entries: given = null, language = null, readOnly = false, twins = []}) {
 	let entries = given || [];
 	let official = null;
 	let info = {};
-	let art = plainArt;
+	// Called as art(info, src, opts), like catalog-views.js cardArt.
+	let art = (_info, src) => plainArt(src);
 	let alive = true;
 	let wantSlide = null;
+	let shown = false;
+
+	const withFamily = !readOnly && !given;
 
 	startPhotoSync();
+
+	if (withFamily) {
+		startSharedPhotos();
+	}
 
 	const carousel = photoCarousel({
 		art: (src, opts) => art(info, src, opts),
@@ -186,7 +220,11 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 			return;
 		}
 
-		const slides = gallerySlides({entries, official, twins});
+		const fallback = {card_id: cardId, catalog, language: language || ''};
+		// Only once show() has said whether there is an official image, so a
+		// card that has one never flashes a family photo first.
+		const family = withFamily && shown ? sharedPhotosFor(language ? fallback : cardOf(entries, fallback)) : [];
+		const slides = gallerySlides({entries, family, official, twins});
 		const mainId = mainSlideId(slides, pinnedImage(entries));
 
 		carousel.update({mainId, pending: pendingUploads(), problems: uploadProblems(), slides, waitingText: waitingText()});
@@ -226,6 +264,7 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 
 	const stopChange = onChange(() => load());
 	const stopPhotos = onPhotosChange(() => draw());
+	const stopShared = withFamily ? onSharedPhotosChange(() => draw()) : () => {};
 
 	load();
 
@@ -234,6 +273,7 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 			alive = false;
 			stopChange();
 			stopPhotos();
+			stopShared();
 			carousel.destroy();
 
 			if (addControl) {
@@ -243,6 +283,8 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		element,
 		refresh: load,
 		show(next = {}) {
+			shown = true;
+
 			if ('official' in next) {
 				official = next.official || null;
 			}
@@ -270,10 +312,13 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 // image's URL when it is known at once (the official image, a twin, or a
 // photo already opened this session), otherwise the official image or null.
 // withMainPhoto() then fills in a photo that was not ready.
-export function tileSrc(entries, catalogImage, {twins = []} = {}) {
-	const choice = mainImage(entries, catalogImage, {twins});
+//
+// family: false leaves out family members' photos (a member's read-only
+// cards); otherwise a card with no image at all shows one (shared.js).
+export function tileSrc(entries, catalogImage, {family = true, twins = []} = {}) {
+	const choice = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
 
-	if (choice.kind !== 'photo') {
+	if (choice.kind !== 'photo' && choice.kind !== 'family') {
 		return choice.src;
 	}
 
@@ -283,12 +328,52 @@ export function tileSrc(entries, catalogImage, {twins = []} = {}) {
 // Puts the owner's photo into a finished tile (its .art-wrap's .art) when
 // the photo is the main image and was not ready for tileSrc(), shimmering
 // until it arrives; the corner badges stay. art(src) draws the card shape,
-// as the tile did. Returns the tile.
-export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {twins = []} = {}) {
-	const choice = mainImage(entries, catalogImage, {twins});
+// as the tile did. A family member's photo also gets the line "Photo by
+// <name>" under the tile's meta, and one known only once the family's
+// photo lists have loaded is put in then. Returns the tile.
+export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {family = true, twins = []} = {}) {
+	const choice = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
 
-	if (choice.kind !== 'photo' || cachedPhotoUrl(choice.photo.id)) {
+	if (choice.kind === 'none' && family) {
+		sharedReady().then(() => sharedSettled()).then(() => {
+			const later = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
+
+			if (later.kind === 'family' && !tile.querySelector('.ph-by')) {
+				fillPhoto(tile, later, catalogImage, art);
+			}
+		}).catch(() => {});
+
 		return tile;
+	}
+
+	if (choice.kind !== 'photo' && choice.kind !== 'family') {
+		return tile;
+	}
+
+	if (choice.kind === 'family') {
+		byLine(tile, choice.label);
+	}
+
+	return cachedPhotoUrl(choice.photo.id) ? tile : fillPhoto(tile, choice, catalogImage, art);
+}
+
+// The "Photo by <name>" line, after the tile's meta line.
+function byLine(tile, label) {
+	const line = h('span', {class: 'tile-meta ph-by'}, label);
+	const meta = tile.querySelector('.tile-meta');
+
+	if (meta) {
+		meta.after(line);
+	}
+	else {
+		tile.append(line);
+	}
+}
+
+// Swaps the tile's art for the photo, shimmering until it arrives.
+function fillPhoto(tile, choice, catalogImage, art) {
+	if (choice.kind === 'family' && !tile.querySelector('.ph-by')) {
+		byLine(tile, choice.label);
 	}
 
 	const current = tile.querySelector('.art-wrap > .art') || tile.querySelector('.art');

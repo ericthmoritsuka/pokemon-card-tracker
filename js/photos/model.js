@@ -19,7 +19,7 @@
 // catalog image, then an international print's image (a "twin", when a hook
 // provides one), then the owner's photos, fronts before backs, oldest first.
 
-import {stampMs} from '../stamp.js';
+import {nextStamp, stampMs} from '../stamp.js';
 
 export const SIDES = ['front', 'back'];
 
@@ -28,6 +28,10 @@ export const LABELS = {
 	photo: 'Your photo',
 	twin: 'International print',
 };
+
+// The label of a family member's photo, shown when the card has no image
+// of its own (see "Shared family photos" below).
+export const photoByLabel = (name) => `Photo by ${name || 'Family member'}`;
 
 export const PHOTO_BUCKET = 'card-photos';
 
@@ -121,7 +125,11 @@ export function pinnedImage(entryOrEntries) {
 // is an optional list of {src, label} from the international-twin hook;
 // only the first is shown, labelled "International print" unless it says
 // otherwise.
-export function gallerySlides({entries = [], official = null, twins = []} = {}) {
+//
+// `family` is an optional list of {photo, name} (familyPhotos below): a
+// family member's photos of the same card, shown only when there is no
+// other image at all, labelled "Photo by <name>", kind 'family'.
+export function gallerySlides({entries = [], family = [], official = null, twins = []} = {}) {
 	const slides = [];
 
 	if (official) {
@@ -143,6 +151,14 @@ export function gallerySlides({entries = [], official = null, twins = []} = {}) 
 			photo,
 			src: null,
 		});
+	}
+
+	if (!slides.length) {
+		for (const {name, photo} of family || []) {
+			if (photo && photo.id && !slides.some((slide) => slide.id === photo.id)) {
+				slides.push({by: name, entry: null, id: photo.id, kind: 'family', label: photoByLabel(name), photo, src: null});
+			}
+		}
 	}
 
 	return slides;
@@ -193,10 +209,12 @@ export function comparePair(slides, at = 0) {
 //   {kind: 'twin', src, label}
 //   {kind: 'photo', src: null, photo, entry, label}   src comes from the
 //                                                      photo store
+//   {kind: 'family', src: null, photo, by, label}     a family member's
+//                                                      photo (gallerySlides)
 //   {kind: 'none', src: null, label: null}
-export function mainImage(entry, catalogImage, {twins = []} = {}) {
+export function mainImage(entry, catalogImage, {family = [], twins = []} = {}) {
 	const entries = entriesOf(entry);
-	const slides = gallerySlides({entries, official: catalogImage || null, twins});
+	const slides = gallerySlides({entries, family, official: catalogImage || null, twins});
 	const id = mainSlideId(slides, pinnedImage(entries));
 	const slide = slides.find((item) => item.id === id);
 
@@ -208,7 +226,163 @@ export function mainImage(entry, catalogImage, {twins = []} = {}) {
 		return {entry: slide.entry, kind: 'photo', label: slide.label, photo: slide.photo, src: null};
 	}
 
+	if (slide.kind === 'family') {
+		return {by: slide.by, kind: 'family', label: slide.label, photo: slide.photo, src: null};
+	}
+
 	return {kind: slide.kind, label: slide.label, src: slide.src};
+}
+
+// ------------------------------------------------- shared family photos
+//
+// A card with no official image, no twin, and no photo of the person's own
+// shows a family member's photo of the same card instead (Eric,
+// 2026-10-16). So that phones need not read each other's whole documents,
+// each document keeps a small top-level list, photo_index, saying which
+// cards its owner has photos of. Its entries merge like any other list's
+// (js/merge.js), and an older app keeps them, since it merges every
+// top-level list it does not know entry by entry:
+//
+//   {id, catalog, card_id, language, photos: [{id, path}], updated_at,
+//    deleted_at}
+//
+// One entry per card and language (id from photoIndexKey), holding the
+// fronts that are uploaded (path known), oldest first, at most
+// INDEX_PHOTOS_MAX of them. When the last one goes, the entry becomes a
+// tombstone. refreshPhotoIndex keeps it in step with the cards on every
+// save (js/collection.js), so it never needs editing by hand.
+
+export const PHOTO_INDEX = 'photo_index';
+
+const INDEX_PHOTOS_MAX = 4;
+
+const catalogOf = (item) => (item && item.catalog) || 'international';
+
+// The index id for a card in one language.
+export const photoIndexKey = (item) => `${catalogOf(item)}~${item.card_id}~${item.language || ''}`;
+
+// The index entries the cards call for, as Map id -> entry without stamps.
+export function wantedPhotoIndex(cards) {
+	const byKey = new Map();
+
+	for (const entry of Array.isArray(cards) ? cards : []) {
+		if (!isLive(entry) || !entry.card_id || !Array.isArray(entry.photos)) {
+			continue;
+		}
+
+		for (const photo of entry.photos) {
+			if (!isLive(photo) || !photo.id || !photo.path || photo.side === 'back') {
+				continue;
+			}
+
+			const id = photoIndexKey(entry);
+
+			if (!byKey.has(id)) {
+				byKey.set(id, {card_id: entry.card_id, catalog: catalogOf(entry), id, language: entry.language || '', photos: []});
+			}
+
+			byKey.get(id).photos.push(photo);
+		}
+	}
+
+	for (const item of byKey.values()) {
+		item.photos = item.photos
+			.sort((a, b) => time(a.created_at) - time(b.created_at) || String(a.id).localeCompare(String(b.id)))
+			.slice(0, INDEX_PHOTOS_MAX)
+			.map((photo) => ({id: photo.id, path: photo.path}));
+	}
+
+	return byKey;
+}
+
+const sameIndexEntry = (a, b) => a.card_id === b.card_id && a.catalog === b.catalog && a.language === b.language
+	&& JSON.stringify(a.photos) === JSON.stringify(b.photos);
+
+// Brings doc.photo_index in step with doc.cards, in place: new and changed
+// entries written whole with a fresh stamp, entries no longer called for
+// made tombstones. Leaves a document with no photos and no index as it is.
+// Returns true when anything changed.
+export function refreshPhotoIndex(doc, now = Date.now()) {
+	if (!doc || typeof doc !== 'object') {
+		return false;
+	}
+
+	const wanted = wantedPhotoIndex(doc.cards);
+	const had = Array.isArray(doc[PHOTO_INDEX]) ? doc[PHOTO_INDEX] : null;
+
+	if (!had && !wanted.size) {
+		return false;
+	}
+
+	const list = had ? [...had] : [];
+	const at = new Map(list.map((item, i) => [item && item.id, i]));
+	let changed = !had;
+
+	for (const [id, item] of wanted) {
+		const i = at.has(id) ? at.get(id) : -1;
+		const old = i >= 0 ? list[i] : null;
+
+		if (old && isLive(old) && sameIndexEntry(old, item)) {
+			continue;
+		}
+
+		const next = {...item, deleted_at: null, updated_at: nextStamp(old && old.updated_at, now)};
+
+		if (i >= 0) {
+			list[i] = next;
+		}
+		else {
+			list.push(next);
+		}
+
+		changed = true;
+	}
+
+	list.forEach((item, i) => {
+		if (item && item.id && isLive(item) && !wanted.has(item.id)) {
+			const stamp = nextStamp(item.updated_at, now);
+
+			list[i] = {...item, deleted_at: stamp, photos: [], updated_at: stamp};
+			changed = true;
+		}
+	});
+
+	if (changed) {
+		doc[PHOTO_INDEX] = list;
+	}
+
+	return changed;
+}
+
+// A family member's photos of a card, for gallerySlides and mainImage:
+// [{name, photo: {id, path}, user_id}]. members is [{name, user_id, index}],
+// index being that member's photo_index; card is {catalog, card_id,
+// language}. Entries in the card's language come first, then any other
+// language, each in member order; at most INDEX_PHOTOS_MAX photos. Only
+// paths in the member's own folder count.
+export function familyPhotos(members, card) {
+	if (!card || !card.card_id) {
+		return [];
+	}
+
+	const same = [];
+	const other = [];
+
+	for (const member of Array.isArray(members) ? members : []) {
+		for (const item of Array.isArray(member && member.index) ? member.index : []) {
+			if (!item || !isLive(item) || item.card_id !== card.card_id || catalogOf(item) !== catalogOf(card) || !Array.isArray(item.photos)) {
+				continue;
+			}
+
+			const photos = item.photos
+				.filter((photo) => photo && photo.id && photo.path && pathOwner(photo.path) === member.user_id)
+				.map((photo) => ({name: member.name, photo: {id: photo.id, path: photo.path}, user_id: member.user_id}));
+
+			((item.language || '') === (card.language || '') ? same : other).push(...photos);
+		}
+	}
+
+	return [...same, ...other].slice(0, INDEX_PHOTOS_MAX);
 }
 
 // --------------------------------------------------------------- merging

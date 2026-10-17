@@ -778,13 +778,13 @@ export function cardsScreen(root, {
 				finish: groupFinish(group.entries),
 				info,
 				languages: [group.language],
-				src: tileSrc(group.entries, catalogSrc, {twins: group.twins}),
+				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, twins: group.twins}),
 				viewing,
 			},
 			meta: [info.number ? `#${info.number}` : null, info.setName, metaFor ? metaFor(group) : null].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
 			route: routeOf(group),
-		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {twins: group.twins});
+		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, twins: group.twins});
 	}
 
 	// The price line of a drawn tile, put right after a price arrives.
