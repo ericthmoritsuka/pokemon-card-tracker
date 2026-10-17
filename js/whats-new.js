@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Binder pickers find cards by English name, reading, or any language\'s name, just like My Cards.',
+			'Clear all appears as soon as any filter or search is on, and clears the search too.',
+		],
+		version: 'v43',
+	},
+	{
+		date: '2026-10-16',
+		items: [
 			'Add cards to the tray can take cards from one storage box, checklist, collection, or goal.',
 			'A Snap button in the corner editor turns snapping on or off, and corners snap only to real-looking card corners.',
 			'Turn a binder cover picture with Rotate; the cover saves the way it shows.',
