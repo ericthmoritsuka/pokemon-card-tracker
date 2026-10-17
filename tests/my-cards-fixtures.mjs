@@ -22,11 +22,11 @@ const SET_KO = {id: 'TSK1', name: '테스트 강화 확장팩 테스트 세트�
 // US market price the full record carries (null: TCGdex has none).
 export const CARDS = [
 	{catalog: 'international', category: 'Pokemon', dexId: [1], id: 'tsa1-001', market: 0.5, names: {en: 'Bulbasaur', pt: 'Bulbasaur'}, rarity: 'Common', set: SET_ONE, types: ['Grass']},
-	{catalog: 'international', category: 'Pokemon', dexId: [4], id: 'tsa1-004', market: 1.2, names: {en: 'Charmander', pt: 'Charmander'}, rarity: 'Common', set: SET_ONE, types: ['Fire']},
-	{catalog: 'international', category: 'Pokemon', dexId: [6], id: 'tsa1-006', market: 30, names: {en: 'Charizard ex'}, rarity: 'Double rare', set: SET_ONE, types: ['Fire']},
+	{catalog: 'international', category: 'Pokemon', dexId: [4], id: 'tsa1-004', illustrator: 'Rina Testa', market: 1.2, names: {en: 'Charmander', pt: 'Charmander'}, rarity: 'Common', set: SET_ONE, types: ['Fire']},
+	{catalog: 'international', category: 'Pokemon', dexId: [6], id: 'tsa1-006', illustrator: 'Rina Testa', market: 30, names: {en: 'Charizard ex'}, rarity: 'Double rare', set: SET_ONE, types: ['Fire']},
 	{catalog: 'international', category: 'Trainer', dexId: null, id: 'tsa1-150', market: null, names: {en: 'Test Ball', pt: 'Bola de Teste'}, rarity: 'Uncommon', set: SET_ONE, types: null},
 	{catalog: 'international', category: 'Energy', dexId: null, id: 'tsa1-160', market: 0.1, names: {en: 'Basic Fire Energy'}, rarity: 'Common', set: SET_ONE, types: null},
-	{catalog: 'international', category: 'Pokemon', dexId: [25], id: 'tsb2-025', market: 5, names: {en: 'Pikachu'}, rarity: 'Rare', set: SET_TWO, types: ['Lightning']},
+	{catalog: 'international', category: 'Pokemon', dexId: [25], id: 'tsb2-025', illustrator: 'Kenji Exemplo', market: 5, names: {en: 'Pikachu'}, rarity: 'Rare', set: SET_TWO, types: ['Lightning']},
 	{catalog: 'international', category: 'Pokemon', dexId: [906], id: 'tsb2-090', market: 2, names: {en: 'Sprigatito'}, rarity: 'Rare', set: SET_TWO, types: ['Grass']},
 	{catalog: 'ja', category: 'Pokemon', dexId: [25], id: 'TSJ1-025', market: null, names: {ja: 'ピカチュウ'}, rarity: 'Common', set: SET_JA, types: ['Lightning']},
 	{catalog: 'ko', category: 'Pokemon', dexId: [1], id: 'TSK1-001', market: null, names: {ko: '이상해씨'}, rarity: 'Common', set: SET_KO, types: ['Grass']},
@@ -130,7 +130,7 @@ function detailsAnswer(query, cards) {
 		data: {
 			cards: cards
 				.filter((card) => card.catalog === catalog && card.set.id === id[1])
-				.map((card) => ({category: card.category, dexId: card.dexId, id: card.id, rarity: card.rarity, types: card.types})),
+				.map((card) => ({category: card.category, dexId: card.dexId, id: card.id, illustrator: card.illustrator, rarity: card.rarity, types: card.types})),
 		},
 	};
 }

@@ -567,6 +567,7 @@ export function cardsScreen(root, {
 
 		return withTwin({
 			...group,
+			artist: (record && record.illustrator) || null,
 			catalog: first.catalog,
 			cardId: first.card_id,
 			category: (record && record.category) || null,

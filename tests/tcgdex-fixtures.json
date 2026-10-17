@@ -5771,7 +5771,7 @@
 		},
 		"status": 200
 	},
-	"POST /v2/graphql {\"query\":\"{ cards(filters: {id: \\\"base1-\\\"}, pagination: {page: 1, itemsPerPage: 1000}) { id dexId types category rarity } }\"}": {
+	"POST /v2/graphql {\"query\":\"{ cards(filters: {id: \\\"base1-\\\"}, pagination: {page: 1, itemsPerPage: 1000}) { id dexId types category rarity illustrator } }\"}": {
 		"body": {
 			"data": {
 				"cards": [

@@ -34,6 +34,7 @@ import {
 	isLanguage,
 	languageLabel,
 	saveToCardIndex,
+	setIdOfCard,
 	viewingLanguage,
 } from './catalog.js';
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
@@ -54,7 +55,7 @@ import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {pokemonNames} from './checklists.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
-import {searchTextOf} from './filter-bar.js';
+import {activeFilters, applyFilters, filterBar, searchTextOf} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
 import {
@@ -249,6 +250,41 @@ function groupPicks(items, keyOf = (item) => pickKey(item.entry)) {
 
 	return [...groups.values()];
 }
+
+// A picker's tile as the Filters sheet reads it (js/filter-bar.js), from
+// the card index: what My Cards' tiles carry, but the price.
+function pickFilterItem(group, index) {
+	const {entry, info} = group.items[0];
+	const catalog = entry.catalog || 'international';
+	const record = index.get(indexKey(catalog, entry.card_id)) || null;
+	const setId = (record && record.set_id) || setIdOfCard(entry.card_id);
+
+	return {
+		artist: (record && record.illustrator) || null,
+		category: (record && record.category) || null,
+		dexIds: (record && record.dex_ids) || [],
+		group,
+		key: group.key,
+		language: entry.language || null,
+		rarity: (record && record.rarity) || null,
+		setKey: setId ? `${catalog}|${setId}` : null,
+		setName: info.setName || entry.set_name_local || null,
+		types: (record && record.types) || [],
+	};
+}
+
+// The tiles the sheet's choice leaves, in their order.
+function filterPicks(groups, filters, index) {
+	return activeFilters(filters).length
+		? applyFilters(groups.map((group) => pickFilterItem(group, index)), {filters}).map((item) => item.group)
+		: groups;
+}
+
+// The filters a picker offers: all My Cards has but the price (a picker
+// reads no prices), where the copies are stored (From does that), and the
+// checkboxes. The tray picker keeps its own set list beside Select all.
+const PICK_FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist'];
+const TRAY_FILTERS = PICK_FILTERS.filter((kind) => kind !== 'set');
 
 // A mouse or trackpad: a picker's search can take the focus as it opens
 // without raising a keyboard over the list, as it would on a phone.
@@ -960,6 +996,28 @@ function binderScreen(root, source, id, pageParam) {
 		h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binder-empty-scan'}, 'Scan cards')
 	);
 
+	// A picker's Filters (js/filter-bar.js): one bar at a time, its sheet
+	// removed when the picker closes or gives way to another.
+	let pickerBars = [];
+
+	function dropPickerBars() {
+		for (const bar of pickerBars) {
+			bar.destroy();
+		}
+
+		pickerBars = [];
+	}
+
+	function pickerBar(options) {
+		dropPickerBars();
+
+		const bar = filterBar({placeholder: 'Search your cards', search: false, sorts: [], storageKey: null, ...options});
+
+		pickerBars.push(bar);
+
+		return bar;
+	}
+
 	// A tap on the backdrop closes the sheet, as Escape does.
 	if (sheet) {
 		sheet.addEventListener('click', (event) => {
@@ -967,6 +1025,7 @@ function binderScreen(root, source, id, pageParam) {
 				closeSheet();
 			}
 		});
+		sheet.addEventListener('close', dropPickerBars);
 	}
 
 	// One pocket's content, as a tile.
@@ -2498,7 +2557,8 @@ function binderScreen(root, source, id, pageParam) {
 	// ------------------------------------ adding many cards to the tray
 	//
 	// "Add cards to the tray": a picker over the copies in no binder yet
-	// (js/binders.js trayCandidates), with a search and a set filter. Tap
+	// (js/binders.js trayCandidates), with a search, a set filter, and
+	// Filters (the sheet My Cards has, PICK_FILTERS). Tap
 	// tiles to select them, or Select all for what is shown, then add them
 	// all; Undo on the toast takes them back out. Alike copies share one
 	// tile with a count (pickKey), and a selected tile's "- N +" says how
@@ -2549,6 +2609,7 @@ function binderScreen(root, source, id, pageParam) {
 				...names.map((name) => h('option', {value: name}, `${name} (${formatCount(counts.get(name))})`))
 			);
 			setFilter.value = names.includes(current) ? current : '';
+			bar.setItems(groupPicks(items).map((group) => pickFilterItem(group, index)));
 		}
 
 		function matches(item, query) {
@@ -2563,7 +2624,7 @@ function binderScreen(root, source, id, pageParam) {
 			const query = search.value.trim().toLowerCase();
 			const set = setFilter.value;
 
-			return groupPicks(items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName));
+			return filterPicks(groupPicks(items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName)), bar.state.filters, index);
 		};
 		const chosenOf = (group) => Math.min(chosen.get(group.key) || 0, group.items.length);
 		const total = () => [...chosen.values()].reduce((sum, n) => sum + n, 0);
@@ -2662,8 +2723,28 @@ function binderScreen(root, source, id, pageParam) {
 		const restart = () => {
 			shown = PICK_PAGE;
 			message.textContent = '';
+			bar.refresh();
 			draw();
 		};
+
+		// Clear all clears the search, the set, and From as well.
+		const bar = pickerBar({
+			countShown: () => found().length,
+			filters: TRAY_FILTERS,
+			id: 'tray',
+			narrowed: () => search.value.trim() !== '' || setFilter.value !== '' || fromFilter.value !== '',
+			onChange: () => restart(),
+			onClearAll: () => {
+				search.value = '';
+				setFilter.value = '';
+
+				if (fromFilter.value) {
+					fromFilter.value = '';
+					fromFilter.dispatchEvent(new Event('change'));
+				}
+			},
+		});
+		const filtersButton = bar.element.querySelector('.fb-open');
 
 		// A tap on a tile selects all its copies, or none; - and + under a
 		// selected tile take one copy off or put one back, 1 to all of them.
@@ -2820,7 +2901,8 @@ function binderScreen(root, source, id, pageParam) {
 			h('p', {class: 'muted', id: 'tray-intro'}, 'Pick the cards you own that are not in a binder yet. They wait in the tray until you place them.'),
 			fromRow,
 			search,
-			h('div', {class: 'tray-pick-row'}, h('span', {class: 'select-wrap'}, setFilter), selectAll),
+			h('div', {class: 'tray-pick-row'}, h('span', {class: 'select-wrap'}, setFilter), filtersButton, selectAll),
+			bar.element,
 			count,
 			results,
 			more,
@@ -3147,22 +3229,34 @@ function binderScreen(root, source, id, pageParam) {
 			confirmBox.querySelector('#move-yes').focus();
 		}
 
-		function draw() {
+		const onlyLoose = () => filter.querySelector('input:checked').value === 'unplaced';
+		const tilesOf = (list) => groupPicks(list, (item) => (item.where ? item.entry.id : pickKey(item.entry)));
+		// The tiles the search and Filters leave.
+		const visible = () => {
 			const query = search.value.trim().toLowerCase();
-			const onlyLoose = filter.querySelector('input:checked').value === 'unplaced';
-			const found = live.filter((item) => (!onlyLoose || !item.where) && matches(item, query));
-			const groups = groupPicks(found, (item) => (item.where ? item.entry.id : pickKey(item.entry)));
+
+			return filterPicks(tilesOf(live.filter((item) => (!onlyLoose() || !item.where) && matches(item, query))), bar.state.filters, index);
+		};
+
+		function draw() {
+			const query = search.value.trim();
+			const loose = onlyLoose();
+			const offered = live.filter((item) => !loose || !item.where);
+			const groups = visible();
+			const copies = copiesIn(groups);
+
+			bar.setItems(tilesOf(offered).map((group) => pickFilterItem(group, index)));
 
 			if (!live.length) {
 				count.textContent = 'No cards on this phone yet. Add a placeholder for a card you want instead.';
 			}
-			else if (!found.length) {
-				count.textContent = onlyLoose && !query
+			else if (!copies) {
+				count.textContent = loose && !query && !offered.length
 					? 'Every card you own is in a binder. Pick All my cards to move one.'
 					: 'No cards match.';
 			}
 			else {
-				count.textContent = `${plural(found.length, 'card', 'cards')}${onlyLoose ? ' not in a binder yet' : ''}.`;
+				count.textContent = `${plural(copies, 'card', 'cards')}${loose ? ' not in a binder yet' : ''}.`;
 			}
 
 			results.replaceChildren(...groups.slice(0, shown).map((group) => {
@@ -3202,8 +3296,21 @@ function binderScreen(root, source, id, pageParam) {
 			shown = PICK_PAGE;
 			confirmBox.hidden = true;
 			message.textContent = '';
+			bar.refresh();
 			draw();
 		};
+
+		// Filters, as in My Cards; Clear all clears the search too.
+		const bar = pickerBar({
+			countShown: () => visible().length,
+			filters: PICK_FILTERS,
+			id: 'owned',
+			narrowed: () => search.value.trim() !== '',
+			onChange: () => restart(),
+			onClearAll: () => {
+				search.value = '';
+			},
+		});
 
 		search.addEventListener('input', restart);
 		// The English names load once; a search typed before they are in runs again.
@@ -3216,7 +3323,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		draw();
 
-		return [search, filter, confirmBox, count, results, more];
+		return [search, filter, bar.element, confirmBox, count, results, more];
 	}
 
 	// A placeholder: search the catalog by name or number, in the viewing

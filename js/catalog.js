@@ -373,7 +373,7 @@ export function saveToCardIndex(records) {
 // ------------------------------------------------- background details
 
 // What the filters need and the card index lacks: each card's National Dex
-// numbers, energy types, category, and rarity. One GraphQL request per
+// numbers, energy types, category, rarity, and illustrator. One GraphQL request per
 // owned set reads them for the whole set (DESIGN.md section 11, "Filters
 // and Sorting"); Japanese, Korean, and Chinese sets are read in their own
 // catalog with the @locale directive, and their types and rarities come in
@@ -381,9 +381,10 @@ export function saveToCardIndex(records) {
 // and asked again after a week only when an owned card was missing from it
 // (TCGdex fills a new set in over a few weeks).
 const DETAILS_RECHECK_MS = 7 * 24 * 60 * 60 * 1000;
-const DETAIL_FIELDS = 'id dexId types category rarity';
+const DETAIL_FIELDS = 'id dexId types category rarity illustrator';
 
-export const hasDetails = (record) => Boolean(record) && typeof record.category === 'string';
+// A record read before the artist was asked for (v46) is read once more.
+export const hasDetails = (record) => Boolean(record) && typeof record.category === 'string' && Object.hasOwn(record, 'illustrator');
 
 export const setIdOfCard = (cardId) => {
 	const cut = String(cardId).lastIndexOf('-');
@@ -397,7 +398,7 @@ export function cardDetailsQuery(catalog, setId) {
 	return `{ cards(filters: {id: ${JSON.stringify(`${setId}-`)}}, pagination: {page: 1, itemsPerPage: 1000})${locale} { ${DETAIL_FIELDS} } }`;
 }
 
-// {cardId: {dex_ids, types, category, rarity}} from a set's GraphQL answer.
+// {cardId: {dex_ids, types, category, rarity, illustrator}} from a set's GraphQL answer.
 // The id filter matches a substring, so "base1-" would also find "base10-"
 // were it not for the exact set check.
 export function detailsFrom(cards, setId) {
@@ -411,6 +412,7 @@ export function detailsFrom(cards, setId) {
 		out[card.id] = {
 			category: typeof card.category === 'string' ? card.category : null,
 			dex_ids: Array.isArray(card.dexId) ? card.dexId.filter(Number.isInteger) : [],
+			illustrator: typeof card.illustrator === 'string' && card.illustrator.trim() ? card.illustrator.trim() : null,
 			rarity: typeof card.rarity === 'string' && card.rarity !== 'None' ? card.rarity : null,
 			types: Array.isArray(card.types) ? card.types.filter((type) => typeof type === 'string') : [],
 		};
@@ -453,7 +455,8 @@ export function setsNeedingDetails(entries, index) {
 // or when it is over a week old and lacks one of the owned cards asked for.
 // Null when neither is to be had (offline, or TCGdex failing).
 export async function setDetails({catalog, ids = new Set(), setId}, {now = Date.now()} = {}) {
-	const key = `details:${catalog}:${setId}`;
+	// details2: the answers saved before the artist was asked for are not kept.
+	const key = `details2:${catalog}:${setId}`;
 	const hit = await cacheGet(key);
 	const lacks = hit && [...ids].some((id) => !Object.hasOwn(hit.data || {}, id));
 
