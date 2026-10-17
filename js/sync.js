@@ -1005,6 +1005,25 @@ export async function memberFavorites(userIds) {
 	return new Map((data || []).map((row) => [row.user_id, row.favorite]));
 }
 
+// Family members' photo indexes (js/photos/model.js, "Shared family
+// photos"), as Map user_id -> their photo_index list. Like memberFavorites,
+// a JSON path select of doc->photo_index alone, one request for every
+// member, so the rest of their documents stays on the server.
+export async function memberPhotoIndexes(userIds) {
+	if (!userIds.length) {
+		return new Map();
+	}
+
+	const client = await getClient();
+	const {data, error} = await client.from('documents').select('user_id,photo_index:doc->photo_index').in('user_id', userIds);
+
+	if (error) {
+		throw error;
+	}
+
+	return new Map((data || []).map((row) => [row.user_id, Array.isArray(row.photo_index) ? row.photo_index : []]));
+}
+
 // Only a family member's wishlist, for the family wishlist cache
 // (js/wishlist.js): PostgREST reads the one JSON path, so the rest of their
 // document stays on the server (E-18). Null when they have no document yet.

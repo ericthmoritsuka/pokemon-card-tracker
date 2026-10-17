@@ -278,7 +278,7 @@ export function photoCarousel({
 
 		const isMain = slide && slide.id === state.mainId;
 
-		useMain.hidden = readOnly || !onUseAsMain || list.length < 2 || !slide;
+		useMain.hidden = readOnly || !onUseAsMain || list.length < 2 || !slide || slide.kind === 'family';
 		useMain.disabled = Boolean(isMain);
 		useMain.textContent = isMain ? 'Main image' : 'Use as main image';
 		useMain.setAttribute('aria-pressed', isMain ? 'true' : 'false');

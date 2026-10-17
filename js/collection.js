@@ -12,6 +12,7 @@
 import {cardIndex} from './catalog.js';
 import {database} from './idb.js';
 import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent, stampEntry} from './merge.js';
+import {refreshPhotoIndex} from './photos/model.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -229,6 +230,9 @@ async function saveDocument(doc, source = 'local', {replace = false} = {}) {
 				}
 			}
 
+			// Which cards have photos, for the family (js/photos/model.js,
+			// "Shared family photos"), kept in step with every save.
+			refreshPhotoIndex(doc);
 			doc.updated_at = nowIso();
 			store.put(doc, LOCAL_PERSON);
 			store.put(rev, REV_KEY);
