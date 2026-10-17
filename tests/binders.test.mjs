@@ -861,12 +861,20 @@ async function fakeServices(context, counts, net) {
 	await context.route(/pokeapi|githubusercontent/, (route) => route.abort());
 }
 
-async function device(fake, name, {serviceWorkers = 'block'} = {}) {
+async function device(fake, name, {pointer = 'coarse', serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
 	const counts = {search: 0, single: 0};
 	const net = {offline: false};
 
 	await fakeServices(context, counts, net);
+	// A phone's finger by default, or a mouse: what (pointer: fine) answers.
+	await context.addInitScript((fine) => {
+		const real = window.matchMedia.bind(window);
+
+		window.matchMedia = (query) => (/\(pointer:\s*(fine|coarse)\)/.test(query)
+			? {addEventListener() {}, addListener() {}, matches: query.includes('fine') === fine, media: query, onchange: null, removeEventListener() {}, removeListener() {}}
+			: real(query));
+	}, pointer === 'fine');
 	// css/reorder.css, until index.html links it (the integration report).
 	await context.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
 		if (!document.querySelector('link[href$="css/reorder.css"]')) {
@@ -1761,6 +1769,88 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('#tray-results .tray-pick').count(), 3);
 		await page.click('#sheet-close');
 		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('The pickers show one tile per card: alike copies share it with a count, and the tray picker adds some of them', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const binder = binderOf('b-group', {cols: 2, created_at: AT, name: 'Group binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
+		// g3 waits in another binder's tray; g4 is in English and g5 a
+		// reverse holo, so each has its own tile.
+		const other = binderOf('b-other', {created_at: AT, name: 'Other binder', staged: ['g3'], updated_at: AT});
+		const pika = (id, day, fields = {}) => entry(id, {card_id: 'tst2-025', catalog: 'international', created_at: `2026-01-0${day}T00:00:00.000Z`, ...fields});
+		const cards = [pika('g1', 2), pika('g2', 3), pika('g3', 1), pika('g4', 4, {language: 'en'}), pika('g5', 5, {finish_raw: 'Reverse Holo'})];
+		const records = [{...record('tst2-025', '025', 'Test Pikachu'), localizations: {en: {image: null, lang: 'en', name: 'Test Pikachu', set_name: 'Test set two'}}, set_id: 'tst2'}];
+		const tiles = (grid) => page.locator(`${grid} .pick`).evaluateAll((items) => items.map((item) => `${item.dataset.entry}${item.querySelector('.badge-qty') ? item.querySelector('.badge-qty').textContent : ''}${item.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
+		const saved = async () => (await localDoc(page)).binders.find((item) => item.id === 'b-group');
+
+		await seedLocal(page, documentWith(cards, [binder, other]), records);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'tray-search', 'on a phone the search waits for a tap');
+		assert.deepEqual(await tiles('#tray-results'), ['g1×2', 'g4', 'g5'], 'g3, in another tray, is not counted');
+		assert.equal(await page.locator('#tray-count').textContent(), '4 cards not in a binder yet.');
+		assert.equal(await page.locator('#tray-all').textContent(), 'Select all 4');
+
+		// A tap selects every copy; - and + choose how many, 1 to 2.
+		await page.click('#tray-results .tray-pick[data-entry="g1"]');
+		assert.deepEqual(await tiles('#tray-results'), ['g1×2*', 'g4', 'g5']);
+		assert.equal(await page.locator('#tray-results .pick-n').textContent(), '2 of 2');
+		assert.equal(await page.locator('#tray-results .pick-more').isDisabled(), true);
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 2 cards to the tray');
+		await page.click('#tray-results .pick-less');
+		assert.equal(await page.locator('#tray-results .pick-n').textContent(), '1 of 2');
+		assert.equal(await page.locator('#tray-results .pick-less').isDisabled(), true);
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 1 card to the tray');
+		assert.equal(await page.locator('#tray-results .tray-pick[data-entry="g1"]').evaluate((button) => button === document.activeElement), true, 'focus moves to the tile once - is disabled');
+
+		// Select all takes every copy; then one of the two is taken off.
+		await page.click('#tray-all');
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 4 cards to the tray');
+		assert.equal(await page.locator('#tray-all').textContent(), 'Select none');
+		await page.click('#tray-results .pick-less');
+		assert.equal(await page.locator('#tray-add').textContent(), 'Add 3 cards to the tray');
+
+		const fit = await page.evaluate(() => document.documentElement.scrollWidth);
+
+		assert.equal(fit, 360, 'nothing scrolls sideways');
+		await page.screenshot({path: '/tmp/binders-tray-grouped.png'});
+		await page.click('#tray-add');
+		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
+		assert.deepEqual((await saved()).staged, ['g1', 'g4', 'g5']);
+
+		// The pocket chooser: the three alike copies in no pocket share a
+		// tile, and a tap places the one in no tray.
+		await openPage(page, 1);
+		await pocket(page, 1).click();
+		await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
+		assert.equal(await page.locator('#owned-count').textContent(), '5 cards not in a binder yet.');
+		assert.deepEqual(await tiles('#owned-results'), ['g3×3', 'g4', 'g5']);
+		await page.click('#owned-results .pick[data-entry="g3"]');
+		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
+		assert.equal((await saved()).slots.find((slot) => slot.page === 1 && slot.position === 1).entry_id, 'g2');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('With a mouse, the pocket chooser and the tray picker open with the focus in their search', async () => {
+		const {context, errors, page} = await device(null, 'phone', {pointer: 'fine'});
+		const binder = binderOf('b-mouse', {cols: 2, created_at: AT, name: 'Mouse binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
+		const focused = () => page.evaluate(() => document.activeElement && document.activeElement.id);
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.equal(await focused(), 'tray-search');
+		await page.click('#sheet-close');
+		await openPage(page, 1);
+		await pocket(page, 1).click();
+		await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
+		assert.equal(await focused(), 'owned-search');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

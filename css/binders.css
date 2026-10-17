@@ -423,6 +423,39 @@
 	text-align: left;
 }
 
+/* "Add cards to the tray": a tile, and under it, once selected, "- N +"
+   for how many of its alike copies go. */
+.pick-cell {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-1);
+	min-width: 0;
+}
+
+.pick-cell .pick {
+	width: 100%;
+}
+
+.pick-step {
+	align-items: center;
+	display: flex;
+	gap: var(--space-1);
+	justify-content: space-between;
+}
+
+.pick-step button {
+	flex: none;
+	min-height: 36px;
+	padding: 0;
+	width: 36px;
+}
+
+.pick-n {
+	font-size: 0.85rem;
+	text-align: center;
+	white-space: nowrap;
+}
+
 .pick .tile-name {
 	margin-top: var(--space-1);
 }
