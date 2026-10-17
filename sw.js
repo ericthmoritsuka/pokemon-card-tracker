@@ -108,6 +108,7 @@ const SHELL = [
 	'js/binder-sources.js',
 	'js/binder-spread.js',
 	'js/binders.js',
+	'js/pocket-drag.js',
 	'js/auth.js',
 	'js/card-swipe.js',
 	'js/cards-view.js',

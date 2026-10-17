@@ -23,6 +23,7 @@ export const RELEASES = [
 		date: '2026-10-16',
 		items: [
 			'Cards with no picture show a family member\'s photo of the same card, marked Photo by and their name, until you add your own.',
+			'In your binders, press and hold a card, then drag it to another pocket to move it or swap the two, with Undo.',
 			'Add to binder on a card\'s page: pick a binder, then tap an empty pocket, use the next free one, or keep the card in the tray, with Undo.',
 			'Binder pickers show one tile per card with a count of your copies, and you choose how many go to the tray.',
 			'With a mouse, the card pickers open ready to type in the search; phones no longer pop up the keyboard.',
