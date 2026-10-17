@@ -422,6 +422,16 @@ describe('scanner', () => {
 
 		// Close the app and open it again: the draft tray is back.
 		await collectTimings(page);
+		// With the camera on, the Spinarak still in front of it is captured
+		// again on reopen: its reading tile sits in the tray and the saved
+		// draft until it is read and dropped as the card just added (Q-20,
+		// scan-frames-browser.test.mjs), or, read more than 10 s after the
+		// camera opened on a busy machine, kept as a fifth card. The camera
+		// stays off for the reload (refused, as a phone does when camera
+		// access is turned off), so only the restored draft is counted.
+		await page.addInitScript(() => {
+			navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Camera access is off.', 'NotAllowedError'));
+		});
 		await page.reload();
 		list = await waitForTray(page, 4, 'the restored draft');
 		assert.match(await text(page, '#scan-done-open'), /^Done 4$/);
