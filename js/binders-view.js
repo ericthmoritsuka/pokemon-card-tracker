@@ -242,6 +242,10 @@ function groupPicks(items, keyOf = (item) => pickKey(item.entry)) {
 	return [...groups.values()];
 }
 
+// A mouse or trackpad: a picker's search can take the focus as it opens
+// without raising a keyboard over the list, as it would on a phone.
+const finePointer = () => typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
+
 const copiesIn = (groups) => groups.reduce((sum, group) => sum + group.items.length, 0);
 
 // Every text a picker finds a copy by, as My Cards does (js/cards-view.js):
@@ -2516,6 +2520,10 @@ function binderScreen(root, source, id, pageParam) {
 		// Drawn once the sheet is open, so the names it lacks are read.
 		drawSets();
 		draw();
+
+		if (finePointer()) {
+			search.focus();
+		}
 	}
 
 	// ------------------------------------------------- the pocket sheet
@@ -2598,11 +2606,16 @@ function binderScreen(root, source, id, pageParam) {
 
 		chooser.append(...pocketChooser(page, position, message));
 		sheet.replaceChildren(header, current || '', chooser, message);
-		// Focus goes to Close, not the search field: most people scroll the
-		// list, and on a phone a focused field raises the keyboard over it.
-		// Back closes the sheet instead of leaving the binder.
+		// On a phone focus goes to Close, not the search field: most people
+		// scroll the list, and a focused field raises the keyboard over it.
+		// With a mouse the search takes it. Back closes the sheet instead of
+		// leaving the binder.
 		if (!sheet.open) {
 			openDialogSheet(sheet);
+		}
+
+		if (!slot && finePointer()) {
+			sheet.querySelector('#owned-search').focus();
 		}
 	}
 

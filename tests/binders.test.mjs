@@ -861,12 +861,20 @@ async function fakeServices(context, counts, net) {
 	await context.route(/pokeapi|githubusercontent/, (route) => route.abort());
 }
 
-async function device(fake, name, {serviceWorkers = 'block'} = {}) {
+async function device(fake, name, {pointer = 'coarse', serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
 	const counts = {search: 0, single: 0};
 	const net = {offline: false};
 
 	await fakeServices(context, counts, net);
+	// A phone's finger by default, or a mouse: what (pointer: fine) answers.
+	await context.addInitScript((fine) => {
+		const real = window.matchMedia.bind(window);
+
+		window.matchMedia = (query) => (/\(pointer:\s*(fine|coarse)\)/.test(query)
+			? {addEventListener() {}, addListener() {}, matches: query.includes('fine') === fine, media: query, onchange: null, removeEventListener() {}, removeListener() {}}
+			: real(query));
+	}, pointer === 'fine');
 	// css/reorder.css, until index.html links it (the integration report).
 	await context.addInitScript(() => document.addEventListener('DOMContentLoaded', () => {
 		if (!document.querySelector('link[href$="css/reorder.css"]')) {
@@ -1781,6 +1789,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.goto(url(`binders/${binder.id}`));
 		await page.click('#binder-add-tray');
 		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'tray-search', 'on a phone the search waits for a tap');
 		assert.deepEqual(await tiles('#tray-results'), ['g1×2', 'g4', 'g5'], 'g3, in another tray, is not counted');
 		assert.equal(await page.locator('#tray-count').textContent(), '4 cards not in a binder yet.');
 		assert.equal(await page.locator('#tray-all').textContent(), 'Select all 4');
@@ -1827,7 +1836,26 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
-	test('Add cards to the tray, From a box or a list:only that source\'s copies not in a binder yet, with the search and set filter', async () => {
+	test('With a mouse, the pocket chooser and the tray picker open with the focus in their search', async () => {
+		const {context, errors, page} = await device(null, 'phone', {pointer: 'fine'});
+		const binder = binderOf('b-mouse', {cols: 2, created_at: AT, name: 'Mouse binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
+		const focused = () => page.evaluate(() => document.activeElement && document.activeElement.id);
+
+		await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.equal(await focused(), 'tray-search');
+		await page.click('#sheet-close');
+		await openPage(page, 1);
+		await pocket(page, 1).click();
+		await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
+		assert.equal(await focused(), 'owned-search');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Add cards to the tray, From a box or a list: only that source\'s copies not in a binder yet, with the search and set filter', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 		// c7 is stored in Box Kanto but sits in a pocket; c1 is in the
 		// collection but in a pocket too: neither is offered.
