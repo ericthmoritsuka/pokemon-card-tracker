@@ -22,6 +22,7 @@ export const RELEASES = [
 	{
 		date: '2026-10-16',
 		items: [
+			'Add to binder on a card\'s page: pick a binder, then tap an empty pocket, use the next free one, or keep the card in the tray, with Undo.',
 			'Binder pickers show one tile per card with a count of your copies, and you choose how many go to the tray.',
 			'With a mouse, the card pickers open ready to type in the search; phones no longer pop up the keyboard.',
 		],
