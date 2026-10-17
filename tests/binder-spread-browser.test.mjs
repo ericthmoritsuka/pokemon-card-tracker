@@ -911,3 +911,107 @@ describe('touch targets', () => {
 		await context.close();
 	});
 });
+
+describe('a computer or tablet screen', () => {
+	const measure = (page) => page.evaluate(() => {
+		const book = document.getElementById('bs-book').getBoundingClientRect();
+		const main = document.querySelector('main');
+		const size = document.getElementById('bs-size');
+
+		return {
+			book: {height: book.height, left: book.left, right: book.right, width: book.width},
+			column: main.clientWidth - 32,
+			scrollWidth: document.documentElement.scrollWidth,
+			sizeShown: Boolean(size && size.offsetWidth),
+			width: document.documentElement.clientWidth,
+		};
+	});
+
+	for (const viewport of [{height: 900, width: 1440}, {height: 768, width: 1024}, {height: 1024, width: 768}]) {
+		test(`the spread uses most of a ${viewport.width} x ${viewport.height} screen, and never runs off its side`, async () => {
+			const fake = new FakeStorageSupabase();
+			const {context, errors, page} = await device(fake, {viewport});
+
+			await open(page, '?spread=2');
+
+			const m = await measure(page);
+
+			assert.ok(m.book.width > m.column, `wider than the app's column: ${m.book.width} > ${m.column}`);
+			assert.ok(m.book.width >= 0.6 * viewport.width || m.book.height >= 0.6 * viewport.height, `most of the screen: ${m.book.width} x ${m.book.height}`);
+			assert.ok(m.book.left >= 0 && m.book.right <= m.width, `inside the screen: ${m.book.left} to ${m.book.right}`);
+			assert.equal(m.scrollWidth, m.width, 'no sideways scrolling');
+			assert.ok(m.sizeShown, 'the size buttons show');
+			await page.screenshot({path: `${SHOTS}/spread-wide-${viewport.width}x${viewport.height}.png`});
+			assert.deepEqual(errors, []);
+			await context.close();
+		});
+	}
+
+	test('+ and - size the spread, Fit puts it back, and the size is kept after a reload', async () => {
+		const fake = new FakeStorageSupabase();
+		const {context, errors, page} = await device(fake, {viewport: {height: 900, width: 1440}});
+
+		await open(page, '?spread=2');
+
+		const width = async () => (await measure(page)).book.width;
+		const fit = await width();
+
+		assert.equal(await page.locator('#bs-size-fit').isDisabled(), true, 'Fit is pressed at first');
+
+		await page.locator('#bs-size-down').click();
+		const smaller = await width();
+
+		assert.ok(smaller < fit - 20, `smaller: ${smaller} < ${fit}`);
+		assert.equal(await page.locator('#bs-size-fit').isDisabled(), false);
+
+		await page.locator('#bs-size-fit').click();
+		assert.equal(Math.round(await width()), Math.round(fit), 'Fit');
+
+		await page.locator('#bs-size-up').click();
+		const bigger = await width();
+
+		assert.ok(bigger > fit + 20, `bigger: ${bigger} > ${fit}`);
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker-binder-size')), '1.15');
+
+		await open(page, '?spread=2');
+		assert.equal(Math.round(await width()), Math.round(bigger), 'kept after a reload');
+
+		// + stops at the screen's width.
+		for (let i = 0; i < 8 && !(await page.locator('#bs-size-up').isDisabled()); i++) {
+			await page.locator('#bs-size-up').click();
+		}
+
+		const most = await measure(page);
+
+		assert.equal(await page.locator('#bs-size-up').isDisabled(), true);
+		assert.ok(most.book.right <= most.width && most.book.left >= 0, `still inside the screen: ${most.book.left} to ${most.book.right}`);
+		assert.equal(most.scrollWidth, most.width);
+
+		await page.locator('#bs-size-fit').click();
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker-binder-size')), null, 'Fit forgets the size');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a phone is unchanged: the spread fills the column, with no size buttons, even with a size saved', async () => {
+		for (const viewport of [PORTRAIT, LANDSCAPE]) {
+			const fake = new FakeStorageSupabase();
+			const {context, errors, page} = await device(fake, {viewport});
+
+			await context.addInitScript(() => localStorage.setItem('card-tracker-binder-size', '2'));
+			await open(page, '?spread=2');
+
+			const m = await measure(page);
+
+			assert.equal(m.sizeShown, false, `no size buttons at ${viewport.width} x ${viewport.height}`);
+			assert.ok(m.book.width <= m.column + 0.5, `within the column at ${viewport.width} x ${viewport.height}: ${m.book.width} <= ${m.column}`);
+
+			if (viewport === PORTRAIT) {
+				assert.ok(Math.abs(m.book.width - m.column) < 1, `the column's width: ${m.book.width}`);
+			}
+
+			assert.deepEqual(errors, []);
+			await context.close();
+		}
+	});
+});
