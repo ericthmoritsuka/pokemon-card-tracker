@@ -173,6 +173,7 @@ const SHELL = [
 	'js/scan/worth.js',
 	'js/settings.js',
 	'js/sheet.js',
+	'js/photos/shared.js',
 	'js/shell.js',
 	'js/snap.js',
 	'js/stamp.js',
