@@ -1450,6 +1450,28 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
+	test('the owned picker finds a Japanese card by its English name, as My Cards does', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const {fakePokeApi} = await import('./fake-pokeapi.mjs');
+		const binder = binderOf('b-search', {created_at: AT, name: 'Search binder', page_count: 1, slots: [], updated_at: AT});
+		const japanese = entry('j1', {card_id: 'tstj-142', catalog: 'ja', language: 'ja'});
+		const jaRecord = {catalog: 'ja', category: 'Pokemon', collector_number: '142', dex_ids: [142], id: 'tstj-142', localizations: {ja: {image: null, lang: 'ja', name: 'プテラ', set_name: 'テストセット'}}, set_id: 'tstj'};
+
+		await fakePokeApi(context);
+		await seedLocal(page, documentWith([...CARDS, japanese], [binder]), [...RECORDS, jaRecord]);
+		await page.goto(url(`binders/${binder.id}`));
+		await openPage(page, 1);
+		await pocket(page, 1).click();
+		await page.waitForSelector('#owned-results .pick[data-entry="j1"]');
+		await page.fill('#owned-search', 'Aérodactyl');
+		await page.waitForFunction(() => document.querySelectorAll('#owned-results .pick').length === 1);
+		assert.equal(await page.locator('#owned-results .pick[data-entry="j1"]').count(), 1, 'the English name, accent and case folded');
+		await page.fill('#owned-search', 'ptera');
+		assert.equal(await page.locator('#owned-results .pick[data-entry="j1"]').count(), 1, 'the reading');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('held sideways, the spread opens whole above the tab bar and clear of the Scan button', async () => {
 		for (const viewport of [{height: 390, width: 844}, {height: 412, width: 915}]) {
 			const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
