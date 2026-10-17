@@ -213,6 +213,37 @@ function entryInfo(entry, index, viewing) {
 	return info;
 }
 
+// Copies a picker shows as one tile: the same card in the same catalog,
+// language, and finish. Condition and where a copy is stored do not part
+// them here, as they do in Your copies (js/copy-sheet.js alikeKey).
+const pickKey = (entry) => JSON.stringify([
+	entry.catalog || 'international',
+	entry.card_id,
+	entry.language || null,
+	entry.variant_id || null,
+	entry.variant_id ? null : entry.finish_raw || null,
+]);
+
+// Picker items ({entry, info}) as tiles, {key, items}, in the order of each
+// tile's first copy.
+function groupPicks(items, keyOf = (item) => pickKey(item.entry)) {
+	const groups = new Map();
+
+	for (const item of items) {
+		const key = keyOf(item);
+
+		if (!groups.has(key)) {
+			groups.set(key, {key, items: []});
+		}
+
+		groups.get(key).items.push(item);
+	}
+
+	return [...groups.values()];
+}
+
+const copiesIn = (groups) => groups.reduce((sum, group) => sum + group.items.length, 0);
+
 // Every text a picker finds a copy by, as My Cards does (js/cards-view.js):
 // its English name, original name, reading, names in each language, set,
 // number, and ID.
@@ -2151,7 +2182,9 @@ function binderScreen(root, source, id, pageParam) {
 	// "Add cards to the tray": a picker over the copies in no binder yet
 	// (js/binders.js trayCandidates), with a search and a set filter. Tap
 	// tiles to select them, or Select all for what is shown, then add them
-	// all; Undo on the toast takes them back out. A binder made from a list
+	// all; Undo on the toast takes them back out. Alike copies share one
+	// tile with a count (pickKey), and a selected tile's "- N +" says how
+	// many of them go. A binder made from a list
 	// has no tray, so the button is hidden there. "From" narrows the copies
 	// to one place they are stored in or one list (js/binder-sources.js
 	// trayFromChoices), still only those in no pocket and no tray.
@@ -2161,7 +2194,8 @@ function binderScreen(root, source, id, pageParam) {
 			return;
 		}
 
-		const chosen = new Set();
+		// Tile key -> how many of its copies go.
+		const chosen = new Map();
 		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'tray-search', placeholder: 'Search your cards', type: 'search'});
 		const setFilter = h('select', {'aria-label': 'Set', id: 'tray-set'});
@@ -2211,33 +2245,48 @@ function binderScreen(root, source, id, pageParam) {
 			const query = search.value.trim().toLowerCase();
 			const set = setFilter.value;
 
-			return items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName);
+			return groupPicks(items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName));
 		};
+		const chosenOf = (group) => Math.min(chosen.get(group.key) || 0, group.items.length);
+		const total = () => [...chosen.values()].reduce((sum, n) => sum + n, 0);
 
 		function drawFoot() {
-			add.disabled = !chosen.size;
-			add.textContent = chosen.size ? `Add ${plural(chosen.size, 'card', 'cards')} to the tray` : 'Add to the tray';
+			const n = total();
+
+			add.disabled = !n;
+			add.textContent = n ? `Add ${plural(n, 'card', 'cards')} to the tray` : 'Add to the tray';
 		}
 
-		function tile(item) {
-			const on = chosen.has(item.entry.id);
+		function tile(group) {
+			const {entry, info} = group.items[0];
+			const copies = group.items.length;
+			const n = chosenOf(group);
+			const on = n > 0;
 			// Picking physical copies: the language always shows, and a
 			// check marks the ones selected, with aria-pressed for screen
 			// readers.
 			const frame = tileArt({
-				finish: entryFinish(item.entry),
-				info: item.info,
-				languages: [item.entry.language],
-				src: item.info.image,
+				count: copies,
+				finish: entryFinish(entry),
+				info,
+				languages: [entry.language],
+				src: info.image,
 				status: on ? 'owned' : null,
 				statusLabel: on ? 'Selected' : null,
 			});
-
-			return h('button', {'aria-pressed': String(on), class: 'pick tray-pick', 'data-entry': item.entry.id, type: 'button'},
+			const button = h('button', {'aria-pressed': String(on), class: 'pick tray-pick', 'data-entry': entry.id, type: 'button'},
 				frame,
-				h('span', {class: 'tile-name'}, item.info.name),
-				h('span', {class: 'tile-meta'}, [item.info.number ? `#${item.info.number}` : null, item.info.setName].filter(Boolean).join(' · ') || item.entry.card_id)
+				h('span', {class: 'tile-name'}, info.name),
+				h('span', {class: 'tile-meta'}, [info.number ? `#${info.number}` : null, info.setName].filter(Boolean).join(' · ') || entry.card_id)
 			);
+			const step = on && copies > 1
+				? h('div', {'aria-label': `Copies of ${info.name} to add`, class: 'pick-step', role: 'group'},
+					h('button', {'aria-label': 'One copy fewer', class: 'small pick-less', disabled: n <= 1, type: 'button'}, '−'),
+					h('span', {class: 'pick-n'}, `${n} of ${copies}`),
+					h('button', {'aria-label': 'One copy more', class: 'small pick-more', disabled: n >= copies, type: 'button'}, '+'))
+				: null;
+
+			return h('div', {class: 'pick-cell', 'data-key': group.key}, button, step);
 		}
 
 		function draw() {
@@ -2261,14 +2310,14 @@ function binderScreen(root, source, id, pageParam) {
 			}
 			else {
 				count.textContent = from
-					? `${plural(list.length, 'card', 'cards')} from ${from} not in a binder yet.`
-					: `${plural(list.length, 'card', 'cards')} not in a binder yet.`;
+					? `${plural(copiesIn(list), 'card', 'cards')} from ${from} not in a binder yet.`
+					: `${plural(copiesIn(list), 'card', 'cards')} not in a binder yet.`;
 			}
 
 			selectAll.hidden = !list.length;
-			selectAll.textContent = list.length && list.every((item) => chosen.has(item.entry.id))
+			selectAll.textContent = list.length && list.every((group) => chosenOf(group) >= group.items.length)
 				? 'Select none'
-				: `Select all ${formatCount(list.length)}`;
+				: `Select all ${formatCount(copiesIn(list))}`;
 			results.replaceChildren(...list.slice(0, shown).map(tile));
 			more.hidden = list.length <= shown;
 			more.textContent = `Show more (${formatCount(list.length - shown)} left)`;
@@ -2276,7 +2325,7 @@ function binderScreen(root, source, id, pageParam) {
 
 			// Names and images for the copies shown that the phone has no
 			// catalog record for yet.
-			fillRecords(list.slice(0, shown).map((item) => ({cardId: item.entry.card_id, catalog: item.entry.catalog})), index, () => alive && sheet.open)
+			fillRecords(list.slice(0, shown).map(({items: [item]}) => ({cardId: item.entry.card_id, catalog: item.entry.catalog})), index, () => alive && sheet.open)
 				.then((filled) => {
 					if (filled && alive && sheet.open) {
 						index = filled;
@@ -2298,26 +2347,38 @@ function binderScreen(root, source, id, pageParam) {
 			draw();
 		};
 
+		// A tap on a tile selects all its copies, or none; - and + under a
+		// selected tile take one copy off or put one back, 1 to all of them.
 		results.addEventListener('click', (event) => {
-			const button = event.target.closest('.tray-pick');
+			const control = event.target.closest('.tray-pick, .pick-less, .pick-more');
+			const cell = control && control.closest('.pick-cell');
+			const group = cell && found().find((item) => item.key === cell.dataset.key);
 
-			if (!button) {
+			if (!group) {
 				return;
 			}
 
-			const id = button.dataset.entry;
+			const n = chosenOf(group);
+			const which = ['tray-pick', 'pick-less', 'pick-more'].find((name) => control.classList.contains(name));
 
-			if (chosen.has(id)) {
-				chosen.delete(id);
+			if (which === 'tray-pick') {
+				if (n) {
+					chosen.delete(group.key);
+				}
+				else {
+					chosen.set(group.key, group.items.length);
+				}
 			}
 			else {
-				chosen.add(id);
+				chosen.set(group.key, Math.max(1, Math.min(group.items.length, n + (which === 'pick-more' ? 1 : -1))));
 			}
 
-			// Drawn again for the counts, keeping focus on the tile tapped.
+			// Drawn again for the counts, keeping focus on what was tapped,
+			// or on the tile once that is disabled.
 			draw();
 
-			const again = results.querySelector(`.tray-pick[data-entry="${CSS.escape(id)}"]`);
+			const at = `.pick-cell[data-key="${CSS.escape(group.key)}"]`;
+			const again = results.querySelector(`${at} .${which}:not(:disabled)`) || results.querySelector(`${at} .tray-pick`);
 
 			if (again) {
 				again.focus();
@@ -2326,14 +2387,14 @@ function binderScreen(root, source, id, pageParam) {
 
 		selectAll.addEventListener('click', () => {
 			const list = found();
-			const all = list.every((item) => chosen.has(item.entry.id));
+			const every = list.every((group) => chosenOf(group) >= group.items.length);
 
-			for (const item of list) {
-				if (all) {
-					chosen.delete(item.entry.id);
+			for (const group of list) {
+				if (every) {
+					chosen.delete(group.key);
 				}
 				else {
-					chosen.add(item.entry.id);
+					chosen.set(group.key, group.items.length);
 				}
 			}
 
@@ -2400,8 +2461,15 @@ function binderScreen(root, source, id, pageParam) {
 		});
 
 		add.addEventListener('click', async () => {
-			// In the order shown, so the tray fills in the same order.
-			const ids = all.filter((item) => chosen.has(item.entry.id)).sort(byName).map((item) => item.entry.id);
+			// In the order shown, so the tray fills in the same order. Of a
+			// tile's copies, those "From" shows go first.
+			const shownIds = new Set(items.map((item) => item.entry.id));
+			const ids = groupPicks([...all].sort(byName))
+				.filter((group) => chosen.get(group.key))
+				.flatMap((group) => group.items
+					.map((item) => item.entry.id)
+					.sort((a, b) => shownIds.has(b) - shownIds.has(a))
+					.slice(0, chosen.get(group.key)));
 			const target = binder;
 
 			add.disabled = true;
@@ -2572,7 +2640,10 @@ function binderScreen(root, source, id, pageParam) {
 		];
 	}
 
-	// Your cards, one tile per copy: those not in a binder yet first.
+	// Your cards, those not in a binder yet first. Alike copies not in a
+	// pocket share one tile with a count (pickKey), and a tap places one of
+	// them, one in no tray if it can; a copy in a pocket keeps its own tile,
+	// which says where it is.
 	function ownedPicker(page, position, message) {
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'owned-search', placeholder: 'Search your cards', type: 'search'});
 		const filter = h('div', {class: 'segmented', id: 'owned-filter', role: 'radiogroup'},
@@ -2586,6 +2657,7 @@ function binderScreen(root, source, id, pageParam) {
 		let shown = PICK_PAGE;
 
 		const live = data.cards.filter(isLive).map((entry) => ({entry, info: entryInfo(entry, index, viewing), where: locate(data.binders, entry.id)}));
+		const free = new Set(trayCandidates(data.cards, data.binders).map((entry) => entry.id));
 
 		live.sort((a, b) => (Boolean(a.where) - Boolean(b.where)) || a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at)));
 
@@ -2629,6 +2701,7 @@ function binderScreen(root, source, id, pageParam) {
 			const query = search.value.trim().toLowerCase();
 			const onlyLoose = filter.querySelector('input:checked').value === 'unplaced';
 			const found = live.filter((item) => (!onlyLoose || !item.where) && matches(item, query));
+			const groups = groupPicks(found, (item) => (item.where ? item.entry.id : pickKey(item.entry)));
 
 			if (!live.length) {
 				count.textContent = 'No cards on this phone yet. Add a placeholder for a card you want instead.';
@@ -2642,23 +2715,25 @@ function binderScreen(root, source, id, pageParam) {
 				count.textContent = `${plural(found.length, 'card', 'cards')}${onlyLoose ? ' not in a binder yet' : ''}.`;
 			}
 
-			results.replaceChildren(...found.slice(0, shown).map((item) => {
-				// Picking one physical copy: its language always shows.
-				const frame = tileArt({finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src: item.info.image});
+			results.replaceChildren(...groups.slice(0, shown).map((group) => {
+				const item = group.items[0];
+				const pick = group.items.find((copy) => free.has(copy.entry.id)) || item;
+				// Picking a physical copy: its language always shows.
+				const frame = tileArt({count: group.items.length, finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src: item.info.image});
 
-				return h('button', {class: 'pick', 'data-entry': item.entry.id, onclick: () => choose(item), type: 'button'},
+				return h('button', {class: 'pick', 'data-entry': item.entry.id, onclick: () => choose(pick), type: 'button'},
 					frame,
 					h('span', {class: 'tile-name'}, item.info.name),
 					h('span', {class: 'tile-meta'}, [item.info.number ? `#${item.info.number}` : null, item.info.setName].filter(Boolean).join(' · ') || item.entry.card_id),
 					h('span', {class: item.where ? 'tile-meta pick-where' : 'tile-meta pick-where loose'}, item.where ? `In ${item.where.binder_name}, p${item.where.page}` : 'Not in a binder')
 				);
 			}));
-			more.hidden = found.length <= shown;
-			more.textContent = `Show more (${formatCount(found.length - shown)} left)`;
+			more.hidden = groups.length <= shown;
+			more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
 
 			// Names and images for the copies shown that the phone has no
 			// catalog record for yet.
-			fillRecords(found.slice(0, shown).map((item) => ({cardId: item.entry.card_id, catalog: item.entry.catalog})), index, () => alive && sheet.open)
+			fillRecords(groups.slice(0, shown).map(({items: [item]}) => ({cardId: item.entry.card_id, catalog: item.entry.catalog})), index, () => alive && sheet.open)
 				.then((filled) => {
 					if (filled && alive && sheet.open) {
 						index = filled;
