@@ -332,6 +332,9 @@ const record = (id, number, name, fields = {}) => ({
 	category: 'Pokemon',
 	collector_number: number,
 	id,
+	// The v46 record shape: a record without illustrator is read again
+	// (js/catalog.js hasDetails).
+	illustrator: null,
 	localizations: {en: {image: null, lang: 'en', name, set_name: id.startsWith('tst2') ? 'Test set two' : 'Test set one'}},
 	rarity: 'Common',
 	release_date: id.startsWith('tst2') ? '2025-03-01' : '2024-01-01',
