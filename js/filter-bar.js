@@ -534,7 +534,10 @@ export function filterBar({
 		countBadge.hidden = !active.length;
 		countBadge.textContent = String(active.length);
 		filterButton.setAttribute('aria-label', active.length ? `Filters, ${active.length} active` : 'Filters');
-		chips.hidden = !active.length;
+		// Clear all shows whenever anything narrows the list, the search too.
+		const narrowed = active.length > 0 || state.query.trim() !== '';
+
+		chips.hidden = !narrowed;
 		chips.replaceChildren(...[
 			...active.map((kind) => h('button', {
 				'aria-label': `Remove filter ${labelOf(kind, state.filters[kind])}`,
@@ -543,7 +546,7 @@ export function filterBar({
 				onclick: () => setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : ''),
 				type: 'button',
 			}, h('span', null, labelOf(kind, state.filters[kind])), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
-			active.length > 1 ? h('button', {class: 'chip fb-clear', onclick: clearFilters, type: 'button'}, 'Clear all') : null,
+			narrowed ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
 		].filter(Boolean));
 	}
 
@@ -562,6 +565,18 @@ export function filterBar({
 	function clearFilters() {
 		state.filters = emptyFilters();
 		changed('filter');
+		drawSheet();
+	}
+
+	// The Clear all chip: every filter and the search text. Saved like a
+	// filter change, then told as a search change so the list forgets the query.
+	function clearAll() {
+		clearTimeout(searchTimer);
+		search.value = '';
+		state.query = '';
+		state.filters = emptyFilters();
+		writeChoice(storageKey, state);
+		changed('query');
 		drawSheet();
 	}
 

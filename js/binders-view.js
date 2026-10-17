@@ -51,6 +51,9 @@ import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {pokemonNames} from './checklists.js';
+import {loadedSpeciesNames, namesFor} from './catalog-views.js';
+import {searchTextOf} from './filter-bar.js';
+import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
 import {
 	COVER_SWATCHES,
@@ -194,7 +197,7 @@ function entryInfo(entry, index, viewing) {
 	const local = display(record, [catalogFor(viewing) === entry.catalog ? viewing : null, entry.language, catalogLanguage(entry.catalog)]);
 	const source = sourceNames(entry, record);
 
-	return {
+	const info = {
 		image: local ? cardImage(local.image, 'low') : null,
 		name: (source && source.name) || (local && local.name) || entry.name_local || entry.card_id,
 		// A hand-made card's number is on the copy (js/custom-card.js).
@@ -202,6 +205,38 @@ function entryInfo(entry, index, viewing) {
 		route: entry.catalog === 'custom' ? customRoute(entry.card_id, entry.language) : cardRoute(local, entry.catalog, entry.card_id),
 		setName: (source && source.setName) || (local && local.set_name) || null,
 	};
+	// Folded on the first search, and kept once the English names are in.
+	let search = null;
+
+	Object.defineProperty(info, 'search', {get: () => search || entrySearch(entry, record, local, source, info, (text) => (search = text))});
+
+	return info;
+}
+
+// Every text a picker finds a copy by, as My Cards does (js/cards-view.js):
+// its English name, original name, reading, names in each language, set,
+// number, and ID.
+function entrySearch(entry, record, local, source, info, keep) {
+	const tables = loadedSpeciesNames(null);
+	const names = namesFor({
+		category: (record && record.category) || null,
+		dexId: (record && record.dex_ids) || null,
+		lang: source ? entry.language : (local && local.lang) || catalogLanguage(entry.catalog),
+		name: info.name,
+	}, null);
+	const texts = [names.english, names.original, names.reading, info.name, info.setName, info.number, entry.card_id];
+
+	for (const localization of Object.values((record && record.localizations) || {})) {
+		texts.push(localization.name, localization.set_name);
+	}
+
+	const text = searchTextOf(texts);
+
+	if (tables) {
+		keep(text);
+	}
+
+	return text;
 }
 
 // What a tile needs for a placeholder: the card index when this phone has
@@ -2169,8 +2204,7 @@ function binderScreen(root, source, id, pageParam) {
 				return true;
 			}
 
-			return [item.info.name, item.info.setName, item.info.number, item.entry.card_id]
-				.some((value) => value && String(value).toLowerCase().includes(query));
+			return item.info.search.includes(searchKey(query));
 		}
 
 		const found = () => {
@@ -2307,6 +2341,8 @@ function binderScreen(root, source, id, pageParam) {
 		});
 
 		search.addEventListener('input', restart);
+		// The English names load once; a search typed before they are in runs again.
+		loadedSpeciesNames(() => alive && sheet.open && search.value.trim() && draw());
 		setFilter.addEventListener('change', restart);
 		fromFilter.addEventListener('change', async () => {
 			const value = fromFilter.value;
@@ -2558,8 +2594,7 @@ function binderScreen(root, source, id, pageParam) {
 				return true;
 			}
 
-			return [item.info.name, item.info.setName, item.info.number, item.entry.card_id]
-				.some((value) => value && String(value).toLowerCase().includes(query));
+			return item.info.search.includes(searchKey(query));
 		}
 
 		function choose(item) {
@@ -2646,6 +2681,8 @@ function binderScreen(root, source, id, pageParam) {
 		};
 
 		search.addEventListener('input', restart);
+		// The English names load once; a search typed before they are in runs again.
+		loadedSpeciesNames(() => alive && sheet.open && search.value.trim() && draw());
 		filter.addEventListener('change', restart);
 		more.addEventListener('click', () => {
 			shown += PICK_PAGE;

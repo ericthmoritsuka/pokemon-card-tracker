@@ -402,6 +402,18 @@ describe('filters and sorts', () => {
 		assert.match(await page.locator('#cards-filters').getAttribute('aria-label'), /2 active/);
 		await page.click('.fb-chips .fb-clear');
 		assert.equal(await page.locator('.tile').count(), 10);
+		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 0, 'nothing narrows the list, so no Clear all');
+
+		// Clear all shows for one filter, and for the search alone, and
+		// clears the search text too.
+		await pick('type', 'Fire');
+		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 1, 'one filter is enough');
+		await page.click('.fb-chips .fb-clear');
+		await search(page, 'charm');
+		assert.ok(await page.locator('.fb-chips .fb-clear').isVisible(), 'the search alone shows Clear all');
+		await page.click('.fb-chips .fb-clear');
+		assert.equal(await page.locator('#cards-search').inputValue(), '');
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 10);
 
 		await pick('category', 'Trainer');
 		assert.deepEqual(await names(page), ['Test Ball']);
