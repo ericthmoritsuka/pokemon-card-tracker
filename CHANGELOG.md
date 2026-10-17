@@ -14,6 +14,11 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-16
 
+- **v43:** binder pickers search like My Cards. `b838d12`
+  - Add cards to the tray and the pocket chooser find cards by English name, reading, or any
+    language's name (a Japanese Aerodactyl by "aerodactyl").
+  - Clear all shows as soon as any filter or search is on, and clears the search too.
+
 - **v42** (pushed before its full test run finished, by mistake; the run then passed, with two
   timeouts that passed alone): Add cards to the tray, from a box or a list. `cd1e464`
   - **From** in Add cards to the tray: a Stored in place (a box), a checklist, a collection, or a goal
