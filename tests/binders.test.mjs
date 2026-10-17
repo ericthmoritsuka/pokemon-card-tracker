@@ -1944,6 +1944,9 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.deepEqual(await tiles(), ['c2', 'c3', 'c5', 'c6']);
 		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 360, 'nothing scrolls sideways');
 		await page.click('#sheet-close');
+		// The picker drops its bar on the dialog's close event, which the
+		// browser fires as a task after close(): wait for it, then check.
+		await page.waitForSelector('#tray-sheet', {state: 'detached', timeout: 5000}).catch(() => {});
 		assert.equal(await page.locator('#tray-sheet').count(), 0, 'the Filters sheet goes with the picker');
 
 		// The pocket chooser: by type, then Clear all with the search, then by artist.
