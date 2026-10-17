@@ -934,3 +934,159 @@ button.bt-fill {
 .tray-pick-foot .form-error:empty {
 	display: none;
 }
+
+/* ------------------------------------------- Add to binder (card page) */
+
+/* Card detail's Add to collection and Add to binder, side by side. */
+.copies-collect-row:has(.atb-open) {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+/* The sheet's binders (js/binder-hand.js): a cover thumbnail, the name, and
+   how full it is. */
+.atb-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+}
+
+button.atb-binder {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: flex-start;
+	min-height: var(--target);
+	text-align: left;
+	width: 100%;
+}
+
+.atb-thumb {
+	aspect-ratio: 3 / 4;
+	background: var(--cover) center / cover no-repeat;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	flex: 0 0 32px;
+}
+
+.atb-thumb[data-cover-image="true"] {
+	background-image: var(--cover-image);
+}
+
+.atb-text {
+	display: grid;
+	min-width: 0;
+}
+
+.atb-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.atb-fill {
+	font-size: 0.85rem;
+	font-weight: 400;
+}
+
+.atb-where {
+	margin: var(--space-2) 0 0;
+	padding-left: var(--space-4);
+}
+
+/* The card in hand on the binder screen (js/binders-view.js): docked above
+   the tab bar like the tray, whose place it takes while it shows. */
+.bh {
+	background: var(--surface);
+	border-top: 1px solid var(--border);
+	bottom: calc(var(--tab-height) + env(safe-area-inset-bottom, 0px));
+	box-shadow: var(--elevation-2);
+	display: grid;
+	gap: var(--space-2);
+	margin: var(--space-2) calc(-1 * var(--space-4)) 0;
+	/* Its buttons clear the raised Scan disc (style.css .scan-disc, 28 px
+	   over the tab bar). */
+	padding: var(--space-2) var(--space-4) calc(var(--space-2) + 28px);
+	position: sticky;
+	z-index: 8;
+}
+
+.bh:focus {
+	outline: none;
+}
+
+.bh:focus-visible {
+	outline: 3px solid var(--accent);
+	outline-offset: -3px;
+}
+
+.bh-top {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+}
+
+.bh-art {
+	aspect-ratio: 63 / 88;
+	flex: 0 0 44px;
+}
+
+.bh-art .art {
+	aspect-ratio: auto;
+	border-radius: 4px;
+	height: 100%;
+	width: 100%;
+}
+
+.bh-art .badge,
+.bh-art .card-back-status,
+.bh-art .card-back > :not(.card-back-name) {
+	display: none;
+}
+
+.bh-art .card-back-name {
+	font-size: 0.5rem;
+}
+
+.bh-text {
+	min-width: 0;
+}
+
+.bh-name,
+.bh-status,
+.bh-wait {
+	margin: 0;
+}
+
+.bh-name {
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.bh-status {
+	font-size: 0.9rem;
+}
+
+.bh-wait {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.9rem;
+	gap: var(--space-2);
+}
+
+.bh-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+	.bh {
+		margin: var(--space-2) 0 0;
+		padding-bottom: var(--space-2);
+		position: static;
+	}
+}
