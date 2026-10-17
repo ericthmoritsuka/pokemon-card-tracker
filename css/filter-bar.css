@@ -13,6 +13,11 @@
 	gap: var(--space-2);
 }
 
+/* A binder picker keeps the Filters button in its own row. */
+.fb-row:empty {
+	display: none;
+}
+
 /* The sort takes the room left by the buttons, and wraps to its own line
    before its text would be cut. */
 .fb-sort-wrap {
@@ -234,4 +239,9 @@
 /* No tile matches the search or the filters. */
 .cards-none {
 	grid-column: 1 / -1;
+}
+
+/* Nothing to show in a picker's bar: no room taken. */
+.fb:has(> .fb-row:empty):has(> .fb-chips[hidden]) {
+	display: none;
 }

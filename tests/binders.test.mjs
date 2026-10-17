@@ -1861,6 +1861,117 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await context.close();
 	});
 
+	test('The binder pickers\' Filters: by type and by artist, combined with From and the search, and Clear all resets them all', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const binder = binderOf('b-filters', {cols: 2, created_at: AT, name: 'Filters binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
+		const cards = [
+			CARDS[1],
+			CARDS[2],
+			entry('c5', {card_id: 'tst1-004', catalog: 'international', storage: 'Box Kanto'}),
+			entry('c6', {card_id: 'tst2-025', catalog: 'international', storage: 'Box Kanto'}),
+		];
+		const details = (fields) => ({category: 'Pokemon', rarity: 'Common', ...fields});
+		const records = [
+			{...RECORDS[1], ...details({dex_ids: [4], illustrator: 'Rina Testa', types: ['Fire']})},
+			{...record('tst1-007', '007', 'Test Squirtle'), ...details({dex_ids: [7], illustrator: 'Kenji Exemplo', types: ['Water']})},
+			{...record('tst2-025', '025', 'Test Pikachu'), localizations: {en: {image: null, lang: 'en', name: 'Test Pikachu', set_name: 'Test set two'}}, set_id: 'tst2', ...details({dex_ids: [25], illustrator: 'Kenji Exemplo', types: ['Lightning']})},
+		];
+		const doc = {...documentWith(cards, [binder]), storage_places: [{created_at: AT, id: 'place_kanto', name: 'Box Kanto', updated_at: AT}]};
+		const tiles = async () => (await page.locator('#tray-results .tray-pick').evaluateAll((items) => items.map((item) => item.dataset.entry))).sort();
+		const picks = async () => (await page.locator('#owned-results .pick').evaluateAll((items) => items.map((item) => item.dataset.entry))).sort();
+		const chips = () => page.locator('#pocket-sheet .fb-chip').allTextContents();
+		const clearAll = page.locator('#pocket-sheet .fb-chips .fb-clear');
+
+		await seedLocal(page, doc, records);
+		await page.goto(url(`binders/${binder.id}`));
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		await page.waitForSelector('.tray-from-row:not([hidden]) #tray-from optgroup', {state: 'attached'});
+		assert.deepEqual(await tiles(), ['c2', 'c3', 'c5', 'c6']);
+		assert.equal(await clearAll.count(), 0, 'nothing narrows the list yet');
+
+		// By type: the same sheet as My Cards, over the picker's tiles.
+		await page.click('#tray-filters');
+		await page.waitForSelector('#tray-sheet[open]');
+		assert.equal(await page.locator('#tray-f-set').count(), 0, 'the set stays in its own list beside Select all');
+		assert.equal(await page.locator('#tray-f-price').count(), 0, 'a picker reads no prices');
+		await page.click('#tray-sheet [data-filter="type"] [data-value="Fire"]');
+		assert.equal(await page.locator('#tray-sheet .fb-show').textContent(), 'Show 2 cards');
+		await page.click('#tray-sheet-close');
+		assert.deepEqual(await tiles(), ['c2', 'c5']);
+		assert.deepEqual(await chips(), ['Fire×']);
+		assert.match(await page.locator('#tray-filters').getAttribute('aria-label'), /1 active/);
+
+		// With From: only Box Kanto's Fire card.
+		await page.selectOption('#tray-from', 'place:Box Kanto');
+		await page.waitForFunction(() => document.getElementById('tray-count').textContent.startsWith('1 card'));
+		assert.deepEqual(await tiles(), ['c5']);
+
+		// By artist instead, still From Box Kanto, with a search on top.
+		await page.click('#pocket-sheet .fb-chip');
+		await page.click('#tray-filters');
+		assert.deepEqual(await page.$$eval('#tray-f-artist option', (list) => list.map((option) => option.textContent)), ['Any artist', 'Kenji Exemplo (1)', 'Rina Testa (1)']);
+		await page.selectOption('#tray-f-artist', 'Kenji Exemplo');
+		await page.click('#tray-sheet-close');
+		assert.deepEqual(await tiles(), ['c6']);
+		assert.deepEqual(await chips(), ['Kenji Exemplo×']);
+		await page.fill('#tray-search', 'pika');
+		assert.deepEqual(await tiles(), ['c6']);
+		await page.fill('#tray-search', 'charm');
+		assert.deepEqual(await tiles(), []);
+		assert.equal(await page.locator('#tray-count').textContent(), 'No cards match.');
+		await page.screenshot({path: '/tmp/binders-tray-filters.png'});
+
+		// Clear all: the filter, the search, and From back to All.
+		await clearAll.click();
+		await page.waitForFunction(() => document.querySelectorAll('#tray-results .tray-pick').length === 4);
+		assert.deepEqual(await tiles(), ['c2', 'c3', 'c5', 'c6']);
+		assert.equal(await page.locator('#tray-search').inputValue(), '');
+		assert.equal(await page.locator('#tray-from').inputValue(), '');
+		assert.deepEqual(await chips(), []);
+		assert.equal(await clearAll.count(), 0);
+
+		// From alone shows Clear all, and the set list does too.
+		await page.selectOption('#tray-from', 'place:Box Kanto');
+		await page.waitForFunction(() => document.getElementById('tray-count').textContent.startsWith('2 cards'));
+		assert.ok(await clearAll.isVisible());
+		await clearAll.click();
+		await page.waitForFunction(() => document.querySelectorAll('#tray-results .tray-pick').length === 4);
+		await page.selectOption('#tray-set', 'Test set two');
+		assert.ok(await clearAll.isVisible());
+		await clearAll.click();
+		assert.equal(await page.locator('#tray-set').inputValue(), '');
+		assert.deepEqual(await tiles(), ['c2', 'c3', 'c5', 'c6']);
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 360, 'nothing scrolls sideways');
+		await page.click('#sheet-close');
+		assert.equal(await page.locator('#tray-sheet').count(), 0, 'the Filters sheet goes with the picker');
+
+		// The pocket chooser: by type, then Clear all with the search, then by artist.
+		await openPage(page, 1);
+		await pocket(page, 1).click();
+		await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
+		await page.click('#owned-filters');
+		await page.waitForSelector('#owned-sheet[open]');
+		assert.equal(await page.locator('#owned-f-set').count(), 1, 'the pocket chooser has the set in its sheet');
+		await page.click('#owned-sheet [data-filter="type"] [data-value="Water"]');
+		await page.click('#owned-sheet-close');
+		assert.deepEqual(await picks(), ['c3']);
+		assert.equal(await page.locator('#owned-count').textContent(), '1 card not in a binder yet.');
+		await page.fill('#owned-search', 'squirt');
+		assert.deepEqual(await picks(), ['c3']);
+		await clearAll.click();
+		assert.equal(await page.locator('#owned-search').inputValue(), '');
+		assert.equal(await page.locator('#owned-results .pick').count(), 4);
+		await page.click('#owned-filters');
+		await page.selectOption('#owned-f-artist', 'Rina Testa');
+		await page.click('#owned-sheet-close');
+		assert.deepEqual(await picks(), ['c2', 'c5']);
+		await page.screenshot({path: '/tmp/binders-pocket-filters.png'});
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('With a mouse, the pocket chooser and the tray picker open with the focus in their search', async () => {
 		const {context, errors, page} = await device(null, 'phone', {pointer: 'fine'});
 		const binder = binderOf('b-mouse', {cols: 2, created_at: AT, name: 'Mouse binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
