@@ -20,6 +20,7 @@
 //   number       the collector number
 //   language     the copies' language code
 //   rarity       TCGdex's English rarity
+//   artist       the card's illustrator, as TCGdex writes it
 //   unplaced     true when a copy is in no binder yet
 //   stored       Map folded place name -> {name, count}: where the copies
 //                are stored (js/collection.js placeFold)
@@ -70,12 +71,12 @@ export const SORTS = [
 
 // Every filter the bar knows, in the order the sheet shows them. dex is a
 // Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'price', 'storage', 'unplaced', 'favorite'];
+export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist', 'price', 'storage', 'unplaced', 'favorite'];
 
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
 
-export const emptyFilters = () => ({category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
+export const emptyFilters = () => ({artist: '', category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
 
 // The Stored in filter's values: "place:<name>" for a place, matched
 // whatever its case, and NOT_STORED for copies stored nowhere.
@@ -216,6 +217,7 @@ export const matchesQuery = (item, {dex, words}) => matchesWords(item, words) &&
 // --------------------------------------------------------- filter, sort
 
 const matchers = {
+	artist: (item, value) => item.artist === value,
 	category: (item, value) => item.category === value,
 	favorite: (item, value) => !value || item.favorite === true,
 	dex: (item, value) => {
@@ -279,7 +281,7 @@ export function filterOptions(items, {places = []} = {}) {
 
 		map.set(value, {count: (old ? old.count : 0) + 1, label, value, ...extra});
 	};
-	const maps = {category: new Map(), language: new Map(), rarity: new Map(), region: new Map(), set: new Map(), type: new Map()};
+	const maps = {artist: new Map(), category: new Map(), language: new Map(), rarity: new Map(), region: new Map(), set: new Map(), type: new Map()};
 	const stored = new Map(places.map((name) => [placeFold(name), {count: 0, name: cleanPlace(name)}]));
 	let unstored = 0;
 	let unplaced = 0;
@@ -300,6 +302,7 @@ export function filterOptions(items, {places = []} = {}) {
 		count(maps.set, item.setKey, item.setName || item.setKey, {releaseDate: item.releaseDate || ''});
 		count(maps.language, item.language, languageLabel(item.language));
 		count(maps.rarity, item.rarity, item.rarity);
+		count(maps.artist, item.artist, item.artist);
 		for (const [fold, place] of item.stored || []) {
 			const old = stored.get(fold);
 
@@ -316,6 +319,7 @@ export function filterOptions(items, {places = []} = {}) {
 	const inOrder = (map, order) => order.filter((option) => map.has(option.value)).map((option) => ({...map.get(option.value), label: option.label}));
 
 	return {
+		artist: [...maps.artist.values()].sort((a, b) => collator.compare(a.label, b.label)),
 		category: inOrder(maps.category, CATEGORIES),
 		language: [...maps.language.values()].sort((a, b) => b.count - a.count),
 		price: [{count: priced, label: 'Priced', value: 'priced'}, {count: unpriced, label: 'No price', value: 'unpriced'}].filter((option) => option.count),
@@ -342,7 +346,7 @@ function readChoice(storageKey, legacy) {
 	let saved = null;
 
 	try {
-		saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+		saved = storageKey ? JSON.parse(localStorage.getItem(storageKey) || 'null') : null;
 	}
 	catch {
 		saved = null;
@@ -371,6 +375,10 @@ function readChoice(storageKey, legacy) {
 }
 
 function writeChoice(storageKey, state) {
+	if (!storageKey) {
+		return;
+	}
+
 	try {
 		localStorage.setItem(storageKey, JSON.stringify({filters: state.filters, sort: state.sort}));
 	}
@@ -387,7 +395,15 @@ let barCount = 0;
 
 // The bar. Options:
 //   id          prefix for the controls' ids ("cards" gives #cards-search)
-//   storageKey  where the choice is remembered
+//   storageKey  where the choice is remembered (none: for this bar only)
+//   search      false when the screen keeps its own search field (a binder
+//               picker); the bar then shows no search, and an empty sorts
+//               list shows no sort
+//   narrowed    () => true when the screen's own search or source narrows
+//               the list, so Clear all shows
+//   onClearAll  () => {} run by Clear all, to clear the screen's own too
+//   countShown  (state) => how many cards the screen shows, for the sheet's
+//               Show button (default: the bar's items the choice leaves)
 //   filters     which of FILTERS to offer (default all)
 //   sorts       which SORTS values to offer (default all)
 //   sort        the default sort
@@ -397,15 +413,20 @@ let barCount = 0;
 //   placeholder the search field's hint
 //   onChange(state, reason)  reason is 'query', 'filter', or 'sort'
 // Returns {element, state, setItems(items), setPlaces(names),
-// setFilter(kind, value), clearFilters(), openSheet(), destroy()}.
+// setFilter(kind, value), clearFilters(), clearAll(), openSheet(), refresh(),
+// destroy()}.
 export function filterBar({
+	countShown = null,
 	extra = [],
 	filters: offered = FILTERS,
 	id = `fb${++barCount}`,
 	legacy = null,
+	narrowed: outsideNarrowed = () => false,
 	onChange = () => {},
+	onClearAll = () => {},
 	placeholder = 'Search my cards',
 	query = '',
+	search: ownSearch = true,
 	sort: defaultSort = 'newest',
 	sorts: sortValues = SORTS.map((option) => option.value),
 	storageKey,
@@ -471,9 +492,9 @@ export function filterBar({
 	const filterButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-open', id: `${id}-filters`, onclick: () => openSheet(), type: 'button'}, 'Filters', countBadge);
 	const chips = h('div', {'aria-label': 'Active filters', class: 'fb-chips', hidden: true, role: 'group'});
 	const element = h('div', {class: 'fb'},
-		search,
+		ownSearch ? search : null,
 		h('div', {class: 'fb-row'},
-			h('span', {class: 'select-wrap fb-sort-wrap'}, sortSelect),
+			sortValues.length ? h('span', {class: 'select-wrap fb-sort-wrap'}, sortSelect) : null,
 			filterButton,
 			...extra
 		),
@@ -535,7 +556,7 @@ export function filterBar({
 		countBadge.textContent = String(active.length);
 		filterButton.setAttribute('aria-label', active.length ? `Filters, ${active.length} active` : 'Filters');
 		// Clear all shows whenever anything narrows the list, the search too.
-		const narrowed = active.length > 0 || state.query.trim() !== '';
+		const narrowed = active.length > 0 || state.query.trim() !== '' || Boolean(outsideNarrowed());
 
 		chips.hidden = !narrowed;
 		chips.replaceChildren(...[
@@ -576,6 +597,7 @@ export function filterBar({
 		state.query = '';
 		state.filters = emptyFilters();
 		writeChoice(storageKey, state);
+		onClearAll();
 		changed('query');
 		drawSheet();
 	}
@@ -722,6 +744,10 @@ export function filterBar({
 			return select('rarity', 'Rarity', 'Any rarity', options.rarity);
 		}
 
+		if (kind === 'artist') {
+			return select('artist', 'Artist', 'Any artist', options.artist);
+		}
+
 		if (kind === 'price') {
 			return select('price', 'Price', 'Priced or not', options.price);
 		}
@@ -747,7 +773,7 @@ export function filterBar({
 		);
 	}
 
-	const DETAIL_FILTERS = ['region', 'dex', 'type', 'category', 'rarity'];
+	const DETAIL_FILTERS = ['region', 'dex', 'type', 'category', 'rarity', 'artist'];
 
 	function drawSheet() {
 		if (!sheet || !sheet.open) {
@@ -767,7 +793,7 @@ export function filterBar({
 			: null;
 
 		slots.get('note').replaceChildren(...(waiting && offered.some((kind) => DETAIL_FILTERS.includes(kind))
-			? [h('p', {class: 'muted fb-note'}, 'Regions, Pokédex numbers, types, categories, and rarities fill in as card details download. Cards without them do not match those filters yet.')]
+			? [h('p', {class: 'muted fb-note'}, 'Regions, Pokédex numbers, types, categories, rarities, and artists fill in as card details download. Cards without them do not match those filters yet.')]
 			: []));
 
 		for (const kind of offered) {
@@ -783,7 +809,7 @@ export function filterBar({
 			}
 		}
 
-		const shown = applyFilters(items, {filters: state.filters, query: state.query}).length;
+		const shown = countShown ? countShown(state) : applyFilters(items, {filters: state.filters, query: state.query}).length;
 
 		showButton.textContent = `Show ${shown.toLocaleString('en-US')} ${shown === 1 ? 'card' : 'cards'}`;
 
@@ -811,7 +837,7 @@ export function filterBar({
 				),
 				sheetBody,
 				h('div', {class: 'fb-sheet-foot'},
-					h('button', {class: 'fb-reset', id: `${id}-clear`, onclick: clearFilters, type: 'button'}, 'Clear all'),
+					h('button', {class: 'fb-reset', id: `${id}-clear`, onclick: clearAll, type: 'button'}, 'Clear all'),
 					showButton
 				)
 			);
@@ -858,7 +884,13 @@ export function filterBar({
 		}
 	}
 
+	// The screen's own search or source changed: the chips and the sheet's count.
+	function refresh() {
+		drawChips();
+		drawSheet();
+	}
+
 	drawChips();
 
-	return {clearFilters, destroy, element, openSheet, setFilter, setItems, setPlaces, state};
+	return {clearAll, clearFilters, destroy, element, openSheet, refresh, setFilter, setItems, setPlaces, state};
 }

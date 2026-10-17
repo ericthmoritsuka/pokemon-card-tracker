@@ -430,6 +430,15 @@ describe('filters and sorts', () => {
 		assert.deepEqual(await names(page), ['Charizard ex']);
 		await clear();
 
+		// The artist, from the illustrator the details carry.
+		await openFilters(page);
+		assert.deepEqual(await page.$$eval('#cards-f-artist option', (list) => list.map((option) => option.textContent)), ['Any artist', 'Kenji Exemplo (1)', 'Rina Testa (3)']);
+		await closeFilters(page);
+		await pick('artist', 'Rina Testa');
+		assert.deepEqual(await names(page), ['Charizard ex', 'Charmander', 'Charmander']);
+		assert.equal(plain(await page.locator('.fb-chip').textContent()), 'Rina Testa×');
+		await clear();
+
 		await pick('unplaced', true);
 		assert.equal(await page.locator('.tile').count(), 9, 'all but the Bulbasaur in the binder');
 		assert.equal(await page.locator('.tile:has-text("Bulbasaur") .badge-lang').count(), 1, 'the Korean Bulbasaur stays');
