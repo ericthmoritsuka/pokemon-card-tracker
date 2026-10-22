@@ -282,6 +282,13 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   pocket that held a copy gets a new copy of that card, or becomes that card's placeholder when none
   is left. Preview ("+12 copies, -5 copies, 3 photos kept, 2 pockets became placeholders") and Undo.
   Medium; card-level photos also fix photos being lost when one copy is deleted.
+- **Offer to delete photos once the catalog has an image (Eric, 2026-10-22):** the official image
+  already becomes a card's main picture when TCGdex adds one (gallerySlides order), unless the photo
+  was pinned as the main image. Add a notice when the catalog refresh finds cards that gained an
+  official image and still carry photos: "5 cards now have official images. You can delete your 7
+  photos of them to save space." with Review and Not now; Review lists each card with official image
+  and photo side by side, ticked (pinned photos unticked), Delete N photos with Undo. Includes photos
+  shared with the family (photo_index). Checked with the existing catalog refresh. Small.
 - **Show a Pokemon's generation and region:** on the card page (and where space allows, the tile
   details), add the generation number and region after the Pokemon, e.g. "Bulbasaur (Kanto I)", so
   Eric knows which region binder a card goes in. The region per Pokedex number already exists (the
