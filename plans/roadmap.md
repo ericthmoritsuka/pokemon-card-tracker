@@ -278,6 +278,13 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   the bottom, a slider (scrubber) to drag through the pages; while dragging, a bubble shows the page
   numbers and a small preview of that spread (its pockets' thumbnails), and letting go opens it.
   Accessible as a range input (arrow keys, screen reader values "Pages 7 and 8 of 40"). Small.
+- **Search cards in the Sets tab, not only sets (Eric, 2026-10-22):** the Sets search box also finds
+  cards across the whole catalog: a Pokemon or Trainer by name in English or Portuguese (and the
+  Asian prints through the English name, js/names.js), a number ("025", "025/165"), a set code with a
+  number ("MEW 025"), and kinds such as ex, GX, V, VMAX, VSTAR, promo, SIR, full art. Results as card
+  tiles grouped by print, with language flags and an Owned mark, opening the card page; sets still
+  match as today, shown first. Online it uses TCGdex's card search; offline it searches the sets
+  already saved on the phone. Medium.
 
 ## Kept Open Items (Eric, 2026-10-09)
 
