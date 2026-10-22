@@ -273,12 +273,15 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   into a new monprice list to get exact counts. Today an import adds missing copies by import_key
   (monprice id, language, finish, copy index: js/monprice.js importKey) but never removes extras,
   and copies scanned or added in the app have no import_key, so they would be duplicated; deleting
-  copies deletes their photos (bucket files after 14 days, js/photos/model.js). Build an import mode
-  that makes each card, language and finish count equal the file's: keep copies with photos, binder
-  pockets, Stored in, notes, or favorites first; add the missing ones; remove extras starting with
-  bare copies; match app-added copies by card, language, finish; show a preview ("+12, -5, 3 photos
-  kept") and Undo. Also keep a card's photos when its last copy goes (a per-card photo library,
-  re-attached when the card is added again) so no photo is ever lost to a recount. Medium.
+  copies deletes their photos (bucket files after 14 days, js/photos/model.js). Eric's model (he
+  does not care which copy survives, only that nothing he added is lost): the file is the truth for
+  how many copies of each card, language and finish exist (app-added copies included). Photos move
+  to the card (a per-card photo library shown on every copy, kept at a count of 0 and shown again when
+  the card returns), never deleted by a recount. Per-copy details (notes, condition, Stored in,
+  favorite) carry over onto the new copies of the same card as far as the new count allows. A binder
+  pocket that held a copy gets a new copy of that card, or becomes that card's placeholder when none
+  is left. Preview ("+12 copies, -5 copies, 3 photos kept, 2 pockets became placeholders") and Undo.
+  Medium; card-level photos also fix photos being lost when one copy is deleted.
 - **Show a Pokemon's generation and region:** on the card page (and where space allows, the tile
   details), add the generation number and region after the Pokemon, e.g. "Bulbasaur (Kanto I)", so
   Eric knows which region binder a card goes in. The region per Pokedex number already exists (the
