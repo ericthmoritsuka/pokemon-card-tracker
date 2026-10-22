@@ -226,14 +226,14 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Next small builds (Eric, 2026-10-16)
 
-- **Rotate in the binder cover editor** (js/binder-cover.js), like the photo editor's Rotate button
+- **Done in v42: rotate in the binder cover editor** (js/binder-cover.js), like the photo editor's Rotate button
   (js/photos/editor.js, geometry.js rotateCorners). Tiny.
-- **Snap on/off:** a "Snap" toggle in the corner editor (js/corners.js), remembered locally; also
+- **Done in v42: snap on/off:** a "Snap" toggle in the corner editor (js/corners.js), remembered locally; also
   only snap to points that look like real card corners. Eric: it sometimes snaps to the wrong place.
-- **Fill a binder from a box or a list:** in Add cards to the tray, a "From" choice listing Stored in
+- **Done in v42: fill a binder from a box or a list:** in Add cards to the tray, a "From" choice listing Stored in
   places (Eric keeps cards in boxes by region or type) and lists (checklists, collections, goals);
   only that source's cards show, pick them, add to the tray. Small.
-- **Search focus in the pocket's card chooser (the + in a binder):** on a computer (pointer: fine)
+- **Done in v45 (released in v46): search focus in the pocket's card chooser (the + in a binder):** on a computer (pointer: fine)
   focus "Search your cards" at once; on a phone keep the keyboard closed with the search at the top,
   optionally focusing it when the last pick was made by typing. Tiny.
 - **Done in v46: Drag between pockets** (asked 2026-10-16; optional item in the v42 agent): long press, move to an
