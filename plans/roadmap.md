@@ -274,6 +274,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   Eric knows which region binder a card goes in. The region per Pokedex number already exists (the
   My Cards region filter, checklist regions); Trainers and Energy show none; regional forms (Alolan,
   Galarian, Hisuian, Paldean) could show their form's region. Small.
+- **Page slider in binders (Eric, 2026-10-22):** beside or instead of the "Pages N and M" picker at
+  the bottom, a slider (scrubber) to drag through the pages; while dragging, a bubble shows the page
+  numbers and a small preview of that spread (its pockets' thumbnails), and letting go opens it.
+  Accessible as a range input (arrow keys, screen reader values "Pages 7 and 8 of 40"). Small.
 
 ## Kept Open Items (Eric, 2026-10-09)
 
