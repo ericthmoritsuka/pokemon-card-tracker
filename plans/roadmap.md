@@ -267,6 +267,14 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   installed app (Android) appears when monprice shares its export; the service worker receives the
   file and Import opens with it. Own CSV too. Small to medium.
 
+## Backlog (Eric, 2026-10-22)
+
+- **Show a Pokemon's generation and region:** on the card page (and where space allows, the tile
+  details), add the generation number and region after the Pokemon, e.g. "Bulbasaur (Kanto I)", so
+  Eric knows which region binder a card goes in. The region per Pokedex number already exists (the
+  My Cards region filter, checklist regions); Trainers and Energy show none; regional forms (Alolan,
+  Galarian, Hisuian, Paldean) could show their form's region. Small.
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
