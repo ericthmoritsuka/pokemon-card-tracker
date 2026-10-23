@@ -453,6 +453,7 @@ describe('card detail layout', () => {
 		await page.goto(url('cards/ja/tst1-020'));
 		await page.waitForSelector('#card-liga-none');
 		await page.waitForTimeout(300);
+		assert.equal(await page.locator('.hero-facts h2 .name-region').textContent(), ' (Kanto I)', 'Dex 6 is a Kanto, generation I Pokemon');
 		assert.equal(await page.locator('#card-liga-none').textContent(), 'No Liga link for Korean prints.');
 		assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 0);
 		await page.waitForSelector('#card-price section.price');
@@ -461,6 +462,7 @@ describe('card detail layout', () => {
 		// A Japanese copy of the same record has its Liga page.
 		await page.evaluate(async (id) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(id, {fallback: false, language: 'ja'}), korean.id);
 		await page.waitForSelector('#card-liga-link');
+		assert.equal(await page.locator('.hero-facts h2 .name-region').count(), 1);
 		assert.equal(new URL(await page.locator('#card-liga-link').getAttribute('href')).searchParams.get('card'), 'Charizard-GX (020/147)');
 
 		// The edit sheet offers Japanese and Korean on a Japanese record.
