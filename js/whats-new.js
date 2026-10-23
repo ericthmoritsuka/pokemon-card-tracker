@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-23',
+		items: [
+			'The card page shows which region and generation a Pokémon is from, like Bulbasaur (Kanto I), so you know which binder it goes in.',
+			'Binders have a page slider: drag it to see each spread\'s pages and a small preview, and let go to open it.',
+		],
+		version: 'v47',
+	},
+	{
 		date: '2026-10-17',
 		items: [
 			'On a computer or tablet, an open binder fills the screen.',
