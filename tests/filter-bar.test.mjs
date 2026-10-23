@@ -86,6 +86,19 @@ describe('the filters', () => {
 		assert.equal(fb.regionOf(2000), null);
 	});
 
+	test('a Pokemon\'s region and generation in Roman numerals, a regional form\'s own', async () => {
+		const {regionTag} = await import('../js/checklists.js');
+
+		assert.equal(regionTag([1], ['Bulbasaur']), 'Kanto I');
+		assert.equal(regionTag([905]), 'Hisui VIII');
+		assert.equal(regionTag([1000]), 'Paldea IX');
+		assert.equal(regionTag([37], ['Alolan Vulpix']), 'Alola VII');
+		assert.equal(regionTag([58], ['Hisuian Growlithe ex']), 'Hisui VIII');
+		assert.equal(regionTag([25, 152], ['Pikachu & Chikorita GX']), 'Kanto I, Johto II');
+		assert.equal(regionTag([], ['Test Potion']), '');
+		assert.equal(regionTag(null), '');
+	});
+
 	test('the options offered, with counts, only for what the list holds', () => {
 		const options = fb.filterOptions(ITEMS());
 

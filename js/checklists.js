@@ -40,17 +40,37 @@ export const MAX_DEX = 1025;
 
 // National Dex ranges.
 export const REGIONS = [
-	{first: 1, id: 'kanto', last: 151, name: 'Kanto'},
-	{first: 152, id: 'johto', last: 251, name: 'Johto'},
-	{first: 252, id: 'hoenn', last: 386, name: 'Hoenn'},
-	{first: 387, id: 'sinnoh', last: 493, name: 'Sinnoh'},
-	{first: 494, id: 'unova', last: 649, name: 'Unova'},
-	{first: 650, id: 'kalos', last: 721, name: 'Kalos'},
-	{first: 722, id: 'alola', last: 809, name: 'Alola'},
-	{first: 810, id: 'galar', last: 898, name: 'Galar'},
-	{first: 899, id: 'hisui', last: 905, name: 'Hisui'},
-	{first: 906, id: 'paldea', last: 1025, name: 'Paldea'},
+	{first: 1, generation: 1, id: 'kanto', last: 151, name: 'Kanto'},
+	{first: 152, generation: 2, id: 'johto', last: 251, name: 'Johto'},
+	{first: 252, generation: 3, id: 'hoenn', last: 386, name: 'Hoenn'},
+	{first: 387, generation: 4, id: 'sinnoh', last: 493, name: 'Sinnoh'},
+	{first: 494, generation: 5, id: 'unova', last: 649, name: 'Unova'},
+	{first: 650, generation: 6, id: 'kalos', last: 721, name: 'Kalos'},
+	{first: 722, generation: 7, id: 'alola', last: 809, name: 'Alola'},
+	{first: 810, generation: 8, id: 'galar', last: 898, name: 'Galar'},
+	{first: 899, generation: 8, id: 'hisui', last: 905, name: 'Hisui'},
+	{first: 906, generation: 9, id: 'paldea', last: 1025, name: 'Paldea'},
 ];
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+// A regional form's name prefix to the region it belongs to.
+const FORMS = {alolan: 'alola', galarian: 'galar', hisuian: 'hisui', paldean: 'paldea'};
+
+// The region and generation after a Pokemon's name ("Kanto I"), from its
+// National Dex numbers; a regional form ("Alolan Vulpix") shows its form's
+// region. Trainers and Energy, with no Dex numbers, get "". Hisui is
+// Legends: Arceus, a generation 8 game.
+export function regionTag(dexIds, names = []) {
+	const ids = (Array.isArray(dexIds) ? dexIds : [dexIds]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+	if (!ids.length) {
+		return '';
+	}
+	const words = names.filter(Boolean).map((name) => String(name).toLowerCase());
+	const form = Object.keys(FORMS).find((prefix) => words.some((name) => name.startsWith(`${prefix} `) || name.includes(` ${prefix} `)));
+	const regions = form ? [regionById(FORMS[form])] : ids.map((n) => REGIONS.find((region) => n >= region.first && n <= region.last));
+	return [...new Set(regions.filter(Boolean).map((region) => `${region.name} ${ROMAN[region.generation]}`))].join(', ');
+}
 
 export const CHECKLIST_KINDS = ['region', 'every_pokemon', 'custom_pokemon'];
 

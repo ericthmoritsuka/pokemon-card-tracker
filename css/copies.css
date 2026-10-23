@@ -455,3 +455,11 @@ button.step-more {
 .places-none {
 	padding: var(--space-2) 0;
 }
+
+/* The region and generation after the name on card detail ("Bulbasaur
+   (Kanto I)"), quieter than the name itself. */
+.hero-facts .name-region {
+	color: var(--muted);
+	font-weight: 400;
+	white-space: nowrap;
+}

@@ -13,7 +13,7 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
-import {speciesNames} from './checklists.js';
+import {regionTag, speciesNames} from './checklists.js';
 import {onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
@@ -931,6 +931,7 @@ export function cardView(root, {lang, cardId}) {
 		const names = shownNames(card);
 		const name = mainName(names);
 		const below = originalLine(names);
+		const region = card.category === 'Trainer' || card.category === 'Energy' ? '' : regionTag(card.dexId, [card.name, name, below]);
 		const setName = (source && source.setName) || set.name;
 		const info = {name, number: card.localId, setName};
 		const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : null;
@@ -959,7 +960,8 @@ export function cardView(root, {lang, cardId}) {
 			h('div', {class: 'card-hero'},
 				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high'), twins})),
 				h('div', {class: 'hero-facts'},
-					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name),
+					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name,
+						region ? h('span', {class: 'name-region', lang: 'en'}, ` (${region})`) : null),
 					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
 					h('dl', {class: 'facts'},
 						row('Set', setName),

@@ -43,10 +43,7 @@ import {ENERGIES} from './themes.js';
 
 // ------------------------------------------------------------- choices
 
-// Hisui is Legends: Arceus, a generation 8 game.
-const GENERATIONS = {alola: 7, galar: 8, hisui: 8, hoenn: 3, johto: 2, kalos: 6, kanto: 1, paldea: 9, sinnoh: 4, unova: 5};
-
-export const REGION_OPTIONS = REGIONS.map((region) => ({...region, generation: GENERATIONS[region.id], label: `${region.name} (Gen ${GENERATIONS[region.id]})`}));
+export const REGION_OPTIONS = REGIONS.map((region) => ({...region, label: `${region.name} (Gen ${region.generation})`}));
 
 export const CATEGORIES = [
 	{label: 'Pokémon', value: 'Pokemon'},

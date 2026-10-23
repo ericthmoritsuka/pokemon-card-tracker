@@ -267,6 +267,71 @@ describe('spreads on a phone held upright', () => {
 		await settle(page);
 	});
 
+	test('the page slider previews a spread while dragged and opens it on release; one page open, it steps pages', async () => {
+		const {page} = phone;
+		const slider = page.locator('#bs-spread #bs-slider');
+		const valueText = () => slider.getAttribute('aria-valuetext');
+		// As a drag does it: input while moving, change when let go.
+		const drag = (value, release) => slider.evaluate((node, [to, end]) => {
+			node.value = String(to);
+			node.dispatchEvent(new Event('input', {bubbles: true}));
+
+			if (end) {
+				node.dispatchEvent(new Event('change', {bubbles: true}));
+			}
+		}, [value, release]);
+
+		assert.deepEqual(await slider.evaluate((node) => [node.type, node.min, node.max, node.value]), ['range', '1', '21', '1']);
+		assert.equal(await valueText(), 'Page 1 of 40');
+		assert.equal(await page.locator('#bs-jump').count(), 1, 'the page menu stays');
+
+		await drag(4, false);
+		assert.equal(await page.locator('#bs-bubble').isVisible(), true);
+		assert.equal(await page.locator('#bs-bubble .bs-bubble-label').textContent(), 'Pages 6 and 7');
+		assert.deepEqual(await page.locator('#bs-bubble .bs-mini').evaluateAll((nodes) => nodes.map((node) => [node.dataset.page, node.children.length])), [['6', 9], ['7', 9]]);
+		assert.equal((await state(page)).spread, '1', 'dragging only previews');
+		await shot(page, 'slider-bubble');
+
+		await drag(4, true);
+		await settle(page);
+
+		let s = await state(page);
+
+		assert.deepEqual([s.spread, s.left, s.right, s.urlSpread], ['4', '6', '7', '4']);
+		assert.equal(await page.locator('#bs-bubble').isVisible(), false);
+		assert.equal(await valueText(), 'Pages 6 and 7 of 40');
+
+		// The arrow keys step one spread.
+		await slider.focus();
+		await page.keyboard.press('ArrowRight');
+		await settle(page);
+		assert.equal((await state(page)).spread, '5');
+		assert.equal(await valueText(), 'Pages 8 and 9 of 40');
+
+		// One page open, the slider steps pages.
+		await page.click('.bs-side-left .bs-open');
+		await settle(page);
+
+		const single = page.locator('#bs-zoom #bs-slider');
+
+		assert.deepEqual(await single.evaluate((node) => [node.max, node.value, node.getAttribute('aria-valuetext')]), ['40', '8', 'Page 8 of 40']);
+		await single.evaluate((node) => {
+			node.value = '12';
+			node.dispatchEvent(new Event('input', {bubbles: true}));
+		});
+		assert.equal(await page.locator('#bs-bubble .bs-bubble-label').textContent(), 'Page 12');
+		assert.equal(await page.locator('#bs-bubble .bs-mini').count(), 1);
+		await single.evaluate((node) => node.dispatchEvent(new Event('change', {bubbles: true})));
+		await settle(page);
+		s = await state(page);
+		assert.deepEqual([s.zoom, s.page, s.label], ['12', '12', 'Page 12 of 40']);
+
+		await page.click('#bs-zoom-back');
+		await settle(page);
+		await page.selectOption('#bs-jump', '1');
+		await settle(page);
+	});
+
 	test('quick turns queue up and land one after another', async () => {
 		const {page} = phone;
 

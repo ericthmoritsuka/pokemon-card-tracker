@@ -591,8 +591,98 @@ button.bs-edge:disabled {
 
 .bs-bar {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: center;
 	margin-top: 10px;
+}
+
+/* The page slider (js/binder-spread.js): a 44 px tall touch target, and the
+   bubble above the thumb while it is dragged, with the pages' art small. */
+.bs-scrub {
+	flex: 1 1 100%;
+	margin: 0 auto 6px;
+	max-width: 480px;
+	position: relative;
+}
+
+.bs-zoom > .bs-scrub {
+	margin-top: 10px;
+}
+
+.bs-scrub[hidden] {
+	display: none;
+}
+
+.bs-slider {
+	accent-color: var(--cover, var(--accent, #3b5bdb));
+	display: block;
+	margin: 0;
+	min-height: 44px;
+	width: 100%;
+}
+
+.bs-bubble {
+	--bs-at: 0;
+	align-items: center;
+	background: var(--surface, #ffffff);
+	border-radius: 10px;
+	bottom: calc(100% + 4px);
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+	color: var(--text, #1b1b1f);
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	left: clamp(0px, calc(var(--bs-at) * 100% - 70px), calc(100% - 140px));
+	padding: 6px 8px;
+	pointer-events: none;
+	position: absolute;
+	width: 140px;
+	z-index: 5;
+}
+
+.bs-bubble[hidden] {
+	display: none;
+}
+
+.bs-bubble-label {
+	font-size: 0.85rem;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.bs-bubble-pages {
+	display: flex;
+	gap: 2px;
+	justify-content: center;
+	width: 100%;
+}
+
+.bs-mini {
+	aspect-ratio: var(--bs-page-aspect, 0.7);
+	background: var(--bs-paper, #f4f1ea);
+	border-radius: 2px;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+	display: grid;
+	flex: 0 1 60px;
+	gap: 1px;
+	grid-template-columns: repeat(var(--bs-cols, 3), minmax(0, 1fr));
+	grid-template-rows: repeat(var(--bs-rows, 3), minmax(0, 1fr));
+	padding: 2px;
+}
+
+.bs-mini-cover {
+	background: var(--cover, #3b5bdb);
+}
+
+.bs-mini-art,
+.bs-mini-empty {
+	background: rgba(0, 0, 0, 0.08);
+	border-radius: 1px;
+	height: 100%;
+	min-height: 0;
+	min-width: 0;
+	object-fit: cover;
+	width: 100%;
 }
 
 .bs-jump-wrap {
@@ -869,6 +959,12 @@ button.bc-handle:focus-visible::after {
 		display: flex;
 		flex: 0 0 auto;
 		gap: 6px;
+	}
+
+	/* Beside the page menu, so the slider adds no line under the book. */
+	.bs-bar > .bs-scrub {
+		flex: 0 1 320px;
+		margin: 0;
 	}
 
 	button.bs-size-step {
