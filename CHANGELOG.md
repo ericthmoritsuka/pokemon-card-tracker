@@ -12,6 +12,14 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-23
+
+- **v47:** region and generation, and a page slider. `d8aa100`
+  - The card page shows which region and generation a Pokemon is from, like "Bulbasaur (Kanto I)";
+    regional forms show their form's region, TAG TEAM cards every region, Trainers and Energy none.
+  - Binders have a page slider: drag it to see the page numbers and a small preview of each spread,
+    and let go to open it; arrow keys work too.
+
 ### 2026-10-17
 
 - **v46** (includes v44 and v45, which were never released on their own). `a64f549`
