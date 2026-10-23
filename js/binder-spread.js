@@ -389,7 +389,15 @@ export function binderSpread({
 	const sizeFit = el('button', {'aria-label': 'Fit the binder to the screen', class: 'small bs-size-fit', id: 'bs-size-fit', type: 'button'}, 'Fit');
 	const sizeUp = el('button', {'aria-label': 'Make the binder bigger', class: 'small bs-size-step', id: 'bs-size-up', type: 'button'}, '+');
 	const sizeBar = el('span', {class: 'bs-size', id: 'bs-size', role: 'group', 'aria-label': 'Binder size'}, sizeDown, sizeFit, sizeUp);
-	const spreadBar = el('div', {class: 'bs-bar'}, el('span', {class: 'bs-jump-wrap select-wrap'}, jump), sizeBar);
+	// The page slider under the book: it steps through spreads, or through
+	// pages while one page is open (a phone held upright). Dragging shows a
+	// bubble with the page numbers and the pockets' art; letting go opens it.
+	const slider = el('input', {'aria-label': 'Go to pages', class: 'bs-slider', id: 'bs-slider', min: 1, step: 1, type: 'range'});
+	const bubbleLabel = el('span', {class: 'bs-bubble-label'});
+	const bubblePages = el('span', {'aria-hidden': 'true', class: 'bs-bubble-pages'});
+	const bubble = el('span', {'aria-hidden': 'true', class: 'bs-bubble', hidden: true, id: 'bs-bubble'}, bubbleLabel, bubblePages);
+	const scrub = el('div', {class: 'bs-scrub', id: 'bs-scrub'}, bubble, slider);
+	const spreadBar = el('div', {class: 'bs-bar'}, scrub, el('span', {class: 'bs-jump-wrap select-wrap'}, jump), sizeBar);
 	const wideQuery = window.matchMedia ? window.matchMedia(WIDE_QUERY) : null;
 	let size = readSize();
 
@@ -525,6 +533,7 @@ export function binderSpread({
 		prevEdge.disabled = state.spread <= 1;
 		nextEdge.disabled = state.spread >= count;
 		jump.value = String(state.spread);
+		drawSlider();
 		zoomLabel.textContent = state.zoom ? `Page ${state.zoom} of ${binder.page_count}` : '';
 		zoomPrev.disabled = !state.zoom || state.zoom <= 1;
 		zoomNext.disabled = !state.zoom || state.zoom >= binder.page_count;
@@ -600,6 +609,104 @@ export function binderSpread({
 		zoomSheet.replaceChildren(sheet(state.zoom, side, {live: true}));
 		zoomSheet.dataset.side = side;
 	}
+
+	// ------------------------------------------------------- slider
+
+	const sliderMax = () => (state.zoom ? binder.page_count : spreadCount(binder.page_count));
+	const sliderText = (value) => (state.zoom ? `Page ${value} of ${binder.page_count}` : spreadLabel(binder.page_count, value));
+
+	function drawSlider() {
+		const max = sliderMax();
+		const home = state.zoom ? zoomView : spreadBar;
+
+		if (scrub.parentNode !== home) {
+			home.insertBefore(scrub, state.zoom ? null : home.firstChild);
+		}
+
+		scrub.hidden = max <= 1;
+		slider.max = String(max);
+		slider.value = String(state.zoom || state.spread);
+		slider.setAttribute('aria-valuetext', sliderText(state.zoom || state.spread));
+		bubble.hidden = true;
+	}
+
+	// A small copy of one page for the bubble: each pocket's art, or an
+	// empty pocket, in the binder's grid.
+	function miniPage(page) {
+		const grid = el('span', {class: 'bs-mini', 'data-page': page || ''});
+
+		if (!page) {
+			grid.classList.add('bs-mini-cover');
+
+			return grid;
+		}
+
+		for (let position = 1; position <= binder.rows * binder.cols; position++) {
+			const img = renderPocket(page, position);
+			const art = img && img.querySelector ? img.querySelector('img') : null;
+			const src = art && (art.getAttribute('src') || art.src);
+
+			grid.append(src ? el('img', {alt: '', class: 'bs-mini-art', decoding: 'async', src}) : el('span', {class: 'bs-mini-empty'}));
+		}
+
+		return grid;
+	}
+
+	let shownPreview = null;
+
+	function showBubble() {
+		const value = Number(slider.value);
+		const max = sliderMax();
+
+		slider.setAttribute('aria-valuetext', sliderText(value));
+		bubbleLabel.textContent = sliderText(value).replace(/ of \d+$/, '');
+		bubble.hidden = false;
+		bubble.style.setProperty('--bs-at', max > 1 ? ((value - 1) / (max - 1)).toFixed(4) : '0');
+
+		const key = `${state.zoom ? 'p' : 's'}${value}`;
+
+		if (shownPreview !== key) {
+			shownPreview = key;
+
+			if (state.zoom) {
+				bubblePages.replaceChildren(miniPage(value));
+			}
+			else {
+				const {left, right} = spreadPages(binder.page_count, value);
+
+				bubblePages.replaceChildren(miniPage(left), miniPage(right));
+			}
+		}
+	}
+
+	function hideBubble() {
+		bubble.hidden = true;
+		shownPreview = null;
+	}
+
+	function commitSlider() {
+		const value = Number(slider.value);
+
+		hideBubble();
+
+		if (state.zoom) {
+			if (value !== state.zoom && value >= 1 && value <= binder.page_count) {
+				state = {spread: spreadOfPage(value), zoom: value};
+				replaceUrl();
+				draw();
+				changed();
+			}
+		}
+		else if (value !== state.spread) {
+			goTo(value);
+		}
+
+		slider.focus({preventScroll: true});
+	}
+
+	slider.addEventListener('input', showBubble);
+	slider.addEventListener('change', commitSlider);
+	slider.addEventListener('blur', hideBubble);
 
 	function draw() {
 		element.dataset.mode = overview() ? 'overview' : 'direct';
