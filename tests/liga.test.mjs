@@ -362,7 +362,7 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 
 		await link.waitFor({state: 'visible'});
 		assert.equal(cardParam(await link.getAttribute('href')), 'Charizard-GX (020/147)');
-		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX');
+		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX (Kanto I)');
 		assert.equal(await page.locator('.card-detail .name-original').textContent(), 'リザードンGX (Lizardon GX)');
 		await done();
 	});
