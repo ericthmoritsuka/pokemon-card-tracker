@@ -634,6 +634,21 @@ needs one more setup script for the bucket and its policies. The scanner reuses 
 detection and warp, so scanned cards get their photo for free. Auto-detection is most reliable on
 a plain, contrasting background; the corner handles cover the rest. *(Planned 2026-10-01.)*
 
+**Photos and notes belong to the card, not the copy** (Eric, 2026-10-30). A photo taken for a card
+serves that card, often as its only image, so it must outlive every copy of it: removing all copies
+keeps the card's photos and notes, and adding the card again shows them again. Each person keeps one
+record per card and language (catalog, card id, language) holding its photos, notes, and main-image
+pin, synced and merged like the other lists; a language without its own photo shows another
+language's. Copies keep only what is physical: finish, condition, where it is stored, and binder
+spot. Existing photos and notes move off the copies once, in place, and the files stay where they
+are in the bucket. This replaces the per-copy `photos` and `notes` above, and the sweep in "Bucket
+files outlive their removal by 14 days" no longer deletes a photo because its card was deleted:
+only removing the photo itself does. The monprice import gains **Replace my collection with this
+file**, which makes the copies match the file: copies whose `import_key` is in the file stay (with
+their binder spot), new ones are added even when an earlier copy with that key was deleted, and
+the rest are removed. Motive: Eric rescanned every card in monprice to start the collection over
+without losing his photos and notes. *(Decided 2026-10-30; not built.)*
+
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is
 also the default main image: the official catalog image once TCGdex has it (so it takes over by

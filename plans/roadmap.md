@@ -41,6 +41,12 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## Next Steps, in Order
 
+**First (Eric, 2026-10-30): photos and notes per card, then Replace my collection.** Build
+DESIGN.md "Photos and notes belong to the card, not the copy" before Eric starts the collection
+over from his monprice rescan. Until it ships he must not delete his cards: today deleting a card
+drops its photos and notes and queues the photo files for deletion after 14 days, and the import
+skips any `import_key` whose copy was deleted.
+
 Steps 1 to 4 of the 2026-10-01 list are done: the scanner (v15, fixed in v17), binder spreads
 (v18), every card of a Pokémon (v19), and international twins (v20). Loose ends they left, for
 the audit below to confirm or drop:
