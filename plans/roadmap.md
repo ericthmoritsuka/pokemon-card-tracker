@@ -41,12 +41,6 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
 ## Next Steps, in Order
 
-**First (Eric, 2026-10-30): photos and notes per card, then Replace my collection.** Build
-DESIGN.md "Photos and notes belong to the card, not the copy" before Eric starts the collection
-over from his monprice rescan. Until it ships he must not delete his cards: today deleting a card
-drops its photos and notes and queues the photo files for deletion after 14 days, and the import
-skips any `import_key` whose copy was deleted.
-
 Steps 1 to 4 of the 2026-10-01 list are done: the scanner (v15, fixed in v17), binder spreads
 (v18), every card of a Pokémon (v19), and international twins (v20). Loose ends they left, for
 the audit below to confirm or drop:
@@ -281,13 +275,17 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   and copies scanned or added in the app have no import_key, so they would be duplicated; deleting
   copies deletes their photos (bucket files after 14 days, js/photos/model.js). Eric's model (he
   does not care which copy survives, only that nothing he added is lost): the file is the truth for
-  how many copies of each card, language and finish exist (app-added copies included). Photos move
-  to the card (a per-card photo library shown on every copy, kept at a count of 0 and shown again when
-  the card returns), never deleted by a recount. Per-copy details (notes, condition, Stored in,
-  favorite) carry over onto the new copies of the same card as far as the new count allows. A binder
-  pocket that held a copy gets a new copy of that card, or becomes that card's placeholder when none
-  is left. Preview ("+12 copies, -5 copies, 3 photos kept, 2 pockets became placeholders") and Undo.
-  Medium; card-level photos also fix photos being lost when one copy is deleted.
+  how many copies of each card, language and finish exist (app-added copies included). Photos and
+  notes move to the card (one record per card and language, shown on every copy, kept at a count of
+  0 and shown again when the card returns), never deleted by a recount; notes joined photos on
+  2026-10-30. Per-copy details (condition, Stored in, favorite) carry over onto the new copies of the
+  same card as far as the new count allows. A binder pocket that held a copy gets a new copy of that
+  card, or becomes that card's placeholder when none is left. Preview ("+12 copies, -5 copies, 3
+  photos kept, 2 pockets became placeholders") and Undo. Medium; card-level photos also fix photos
+  being lost when one copy is deleted. Specified in DESIGN.md, "Photos and notes belong to the card,
+  not the copy" and "Import "Match this file"". Until it ships, Eric must not delete cards to start
+  over: deleting drops their photos and notes, queues the photo files for deletion after 14 days, and
+  the import then skips those `import_key`s.
 - **Offer to delete photos once the catalog has an image (Eric, 2026-10-22):** the official image
   already becomes a card's main picture when TCGdex adds one (gallerySlides order), unless the photo
   was pinned as the main image. Add a notice when the catalog refresh finds cards that gained an

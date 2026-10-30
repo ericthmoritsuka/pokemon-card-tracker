@@ -634,20 +634,30 @@ needs one more setup script for the bucket and its policies. The scanner reuses 
 detection and warp, so scanned cards get their photo for free. Auto-detection is most reliable on
 a plain, contrasting background; the corner handles cover the rest. *(Planned 2026-10-01.)*
 
-**Photos and notes belong to the card, not the copy** (Eric, 2026-10-30). A photo taken for a card
-serves that card, often as its only image, so it must outlive every copy of it: removing all copies
-keeps the card's photos and notes, and adding the card again shows them again. Each person keeps one
-record per card and language (catalog, card id, language) holding its photos, notes, and main-image
-pin, synced and merged like the other lists; a language without its own photo shows another
-language's. Copies keep only what is physical: finish, condition, where it is stored, and binder
-spot. Existing photos and notes move off the copies once, in place, and the files stay where they
-are in the bucket. This replaces the per-copy `photos` and `notes` above, and the sweep in "Bucket
-files outlive their removal by 14 days" no longer deletes a photo because its card was deleted:
-only removing the photo itself does. The monprice import gains **Replace my collection with this
-file**, which makes the copies match the file: copies whose `import_key` is in the file stay (with
-their binder spot), new ones are added even when an earlier copy with that key was deleted, and
-the rest are removed. Motive: Eric rescanned every card in monprice to start the collection over
-without losing his photos and notes. *(Decided 2026-10-30; not built.)*
+**Photos and notes belong to the card, not the copy** (Eric, 2026-10-22 for photos, 2026-10-30 for
+notes). A photo taken for a card serves that card, often as its only image, so it must outlive every
+copy of it: a card at zero copies keeps its photos and notes, and they show again when the card
+comes back. Each person keeps one record per card and language (catalog, card id, language) holding
+its photos, notes, and main-image pin, synced and merged like the other lists, and shown on every
+copy of that card; a language without its own photo shows another language's. Copies keep only what
+is physical: finish, condition, Stored in, favorite, and binder spot. Existing photos and notes move
+off the copies once, in place, and the files stay where they are in the bucket. This replaces the
+per-copy `photos` and `notes` above, and the sweep in "Bucket files outlive their removal by 14
+days" no longer deletes a photo because its card was deleted: only removing the photo itself does.
+Motive: Eric rescanned every card into a new monprice list to start his counts over without losing
+a photo or a note. *(Decided 2026-10-22 and 2026-10-30; not built.)*
+
+**Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
+each card, language, and finish, copies scanned or added in the app included. Copies are matched by
+that count, never by `import_key`: app-added copies have none, and a new monprice list need not
+line up with an earlier import's copy indexes. Eric does not care which copy survives, so the
+oldest existing copies are kept up to the file's count, the shortfall is added (an earlier deleted
+copy never blocks an add), and the extras are removed. Condition, Stored in, and favorite carry
+over from removed copies onto the kept or added copies of the same card as far as the new count
+allows. A binder pocket whose copy is removed takes another copy of that card, or becomes that
+card's placeholder when none is left. Nothing is applied before a preview ("+12 copies, -5 copies,
+3 photos kept, 2 pockets became placeholders"), and the result offers Undo. *(Decided 2026-10-22;
+not built.)*
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is
