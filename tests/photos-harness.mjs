@@ -42,7 +42,7 @@ export const INTEGRATION = {
 		// family member lens, whose card shows that member's photos read
 		// only).
 		// language: the page's, which a family member's photo is preferred in.
-		create: '\tconst photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});',
+		create: '\tconst photos = member ? memberPhotos(cardId, catalogFor(lang), lang) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});',
 		// In render(), replacing the hero-art line. twins is the
 		// international twin's slide (js/twins.js twinSlides), or none.
 		art: '\t\t\t\th(\'div\', {class: \'hero-art\'}, photos.show({art: cardArt, info, official: cardImage(card.image, \'high\'), twins})),',
@@ -61,9 +61,9 @@ export const INTEGRATION = {
 		// art.src becomes (twins: the group's international twin slide,
 		// js/twins.js twinSlides)
 		// js/twins.js twinSlides; family: off on a member's read-only cards)
-		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {family: !readOnly, twins: group.twins}),',
+		src: '\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),',
 		// and the call closes with
-		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, twins: group.twins});',
+		close: '\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});',
 	},
 	app: {
 		// Among the imports, and in startAccount after startSync(); (and the
@@ -136,7 +136,7 @@ export async function checkIntegration() {
 	const {art, create, destroy, import: photosImport} = INTEGRATION.catalogViews;
 
 	assert.ok(lines(catalogViews).has(photosImport), 'js/catalog-views.js imports cardPhotos');
-	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n(?:\t\/\/.*\n|\tconst member = lensMember\(\);\n)*\tconst photos = member \? memberPhotos\(cardId, catalogFor\(lang\)\) : cardPhotos\(\{cardId, catalog: catalogFor\(lang\), language: lang\}\);$/m, 'cardView creates the photos after the swipe');
+	assert.match(card[0], /^\tconst swipe = cardSwipe\(root, route\);\n(?:\t\/\/.*\n|\tconst member = lensMember\(\);\n)*\tconst photos = member \? memberPhotos\(cardId, catalogFor\(lang\), lang\) : cardPhotos\(\{cardId, catalog: catalogFor\(lang\), language: lang\}\);$/m, 'cardView creates the photos after the swipe');
 	assert.ok(lines(card[0]).has(create));
 	assert.ok(lines(card[0]).has(art), 'the hero art is the photos block');
 	assert.match(card[0], /\treturn \(\) => \{\n\t\talive = false;\n(?:\t\t.*\n)*?\t\tphotos\.destroy\(\);\n\t\};\n\}\n$/, 'the cleanup destroys the photos');
@@ -209,7 +209,8 @@ export const HARNESS_HTML = `<!doctype html>
 	import {currentUser, restoreSession} from '${BASE}js/auth.js';
 	import {cardArt} from '${BASE}js/catalog-views.js';
 	import {cardTile} from '${BASE}js/tile.js';
-	import {addCard, listCards, loadDocument, useAccount} from '${BASE}js/collection.js';
+	import {recordsForCopies} from '${BASE}js/card-info.js';
+	import {addCard, cardInfoList, listCards, loadDocument, useAccount} from '${BASE}js/collection.js';
 	import {applyHomography, solveHomography} from '${BASE}js/photos/geometry.js';
 	import {SWIPE_EVENT, cardPhotos, isCarouselGesture, mainImage, photoSettingsCard, tileSrc, withMainPhoto} from '${BASE}js/photos/index.js';
 	import * as store from '${BASE}js/photos/store.js';
@@ -289,7 +290,7 @@ export const HARNESS_HTML = `<!doctype html>
 					src: tileSrc([entry], catalogSrc),
 					viewing: 'en',
 				},
-				attrs: {'data-entry': entry.id, 'data-kind': mainImage([entry], catalogSrc).kind},
+				attrs: {'data-entry': entry.id, 'data-kind': mainImage(recordsForCopies(cardInfoList(), [entry]), catalogSrc).kind},
 				meta: '#001',
 				names: info.name,
 			}), [entry], catalogSrc, (src) => cardArt(info, src));
@@ -301,7 +302,8 @@ export const HARNESS_HTML = `<!doctype html>
 			detail.destroy();
 		}
 
-		const cards = await listCards();
+		// Deleted copies too: a card at zero copies still shows its photos.
+		const {cards} = await loadDocument();
 		const entry = cards.find((card) => card.id === ids[key]);
 
 		detail = cardPhotos({cardId: entry.card_id, catalog: entry.catalog});

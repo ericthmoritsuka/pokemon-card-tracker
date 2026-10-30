@@ -14,7 +14,8 @@ import {
 	viewingLanguage,
 } from './catalog.js';
 import {regionTag, speciesNames} from './checklists.js';
-import {onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
+import {recordOf, recordsOfCard} from './card-info.js';
+import {cardInfoList, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
@@ -292,10 +293,19 @@ async function ownedBySetFrom(entries) {
 // Why a member's cards are not shown, for a notice.
 const memberProblem = (member, err) => `${memberLabel(member)}'s cards could not be read. ${err && err.message ? err.message : errorText(err)}`;
 
+// A card's notes at zero copies (js/card-info.js): one line per language
+// that has any, so they show until the card comes back.
+function cardNotes(records) {
+	const noted = records.filter((record) => record.notes);
+
+	return noted.map((record) => h('p', {class: 'copy-note card-note'}, noted.length > 1 ? `${languageName(record.language)}: ${record.notes}` : record.notes));
+}
+
 // A member's photos of a card, read only (no Add photo, no Use as main
-// image): js/photos/index.js cardPhotos over their copies, made again once
-// those are read (setEntries). Shaped like cardPhotos for cardView.
-function memberPhotos(cardId, catalog) {
+// image): js/photos/index.js cardPhotos over their copies and their card
+// records (js/card-info.js), made again once those are read (setEntries).
+// Shaped like cardPhotos for cardView.
+function memberPhotos(cardId, catalog, language) {
 	let block = cardPhotos({cardId, catalog, entries: [], readOnly: true});
 	let shown = {};
 	let key = '';
@@ -303,8 +313,9 @@ function memberPhotos(cardId, catalog) {
 	return {
 		destroy: () => block.destroy(),
 		// True when the copies changed and the block was made again.
-		setEntries(entries) {
-			const next = JSON.stringify(entries.map((entry) => [entry.id, entry.main_image || null, entry.photos || []]));
+		setEntries(entries, records = []) {
+			const mine = recordsOfCard(records, {card_id: cardId, catalog});
+			const next = JSON.stringify([entries.map((entry) => [entry.id, entry.language]), mine.map((record) => [record.id, record.main_image || null, record.photos || []])]);
 
 			if (next === key) {
 				return false;
@@ -312,7 +323,7 @@ function memberPhotos(cardId, catalog) {
 
 			key = next;
 			block.destroy();
-			block = cardPhotos({cardId, catalog, entries, readOnly: true});
+			block = cardPhotos({cardId, catalog, entries, language, readOnly: true, records: mine});
 
 			return true;
 		},
@@ -855,7 +866,7 @@ export function cardView(root, {lang, cardId}) {
 	// (plans/design-review.md, "Family Read-Only Mode"). Add to wishlist
 	// stays, since it writes only to your own wishlist.
 	const member = lensMember();
-	const photos = member ? memberPhotos(cardId, catalogFor(lang)) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});
+	const photos = member ? memberPhotos(cardId, catalogFor(lang), lang) : cardPhotos({cardId, catalog: catalogFor(lang), language: lang});
 	// A Japanese print's international twin: its image joins the carousel,
 	// its English name leads for a Trainer or Energy, and the picker asks
 	// when the matcher was unsure (js/twins.js, js/twins-view.js).
@@ -1324,6 +1335,8 @@ export function cardView(root, {lang, cardId}) {
 
 		// A family member's document: their copies and their binders.
 		let memberDoc = null;
+		// Whose card records (photos and notes, js/card-info.js) show.
+		const cardRecords = () => (member ? (memberDoc && memberDoc.card_info) || [] : cardInfoList());
 
 		try {
 			const catalog = catalogFor(lang);
@@ -1361,7 +1374,7 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		// The member's photos of their copies join the carousel.
-		if (member && photos.setEntries(mine ? mine.entries : [])) {
+		if (member && photos.setEntries(mine ? mine.entries : [], (memberDoc && memberDoc.card_info) || [])) {
 			render(card);
 		}
 
@@ -1397,7 +1410,7 @@ export function cardView(root, {lang, cardId}) {
 			copies.replaceChildren(h('div', {class: 'copies-head'},
 				h('h3', {id: 'copies-title'}, member ? `Not in ${memberLabel(member)}'s cards` : 'Not in your cards'),
 				readOnly ? null : addButton(card, variants)
-			));
+			), ...cardNotes(recordsOfCard(cardRecords(), {card_id: cardId, catalog: catalogFor(lang)})));
 
 			return;
 		}
@@ -1422,8 +1435,11 @@ export function cardView(root, {lang, cardId}) {
 				group.prices.add(copyPriceText(entry));
 			}
 
-			if (entry.notes) {
-				group.notes.add(entry.notes);
+			// The card's notes in the copy's language (js/card-info.js).
+			const info = recordOf(cardRecords(), entry);
+
+			if (info && info.notes) {
+				group.notes.add(info.notes);
 			}
 
 			group.entries.push(entry);

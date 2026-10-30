@@ -12,6 +12,19 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-10-30
+
+- **v48:** photos and notes belong to the card. `TBD`
+  - Your photos, notes, and the image you picked with "Use as main image" are now kept on the card
+    (per language), not on one copy. Every copy of the card shows them, and so does the card's page
+    when you have no copies left, so deleting copies never loses a photo or a note.
+  - The first time the app opens, it moves what your copies had. When several copies of a card had
+    different notes, all of them are kept, newest first.
+  - A language with no photo of its own shows the photo of another language of the same card.
+  - Phones still on the old version keep syncing, but do not show your photos until you tap Reload.
+    Run `supabase/card-photos-keep.sql` once in the Supabase SQL Editor before deleting cards to
+    start over: it stops an old phone from deleting photo files.
+
 ### 2026-10-23
 
 - **v47:** region and generation, and a page slider. `d8aa100`

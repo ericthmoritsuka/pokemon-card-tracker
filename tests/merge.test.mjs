@@ -56,8 +56,12 @@ test('no entry is lost when both sides changed different entries', () => {
 	const merged = byId(mergeDocuments(doc(phone), doc(laptop)).cards);
 
 	assert.deepEqual(Object.keys(merged).sort(), ['a', 'b', 'c', 'l', 'p']);
-	assert.equal(merged.a.notes, 'phone');
-	assert.equal(merged.b.notes, 'laptop');
+	// Both notes reach the card's record (js/card-info.js), newest first.
+	const [record] = mergeDocuments(doc(phone), doc(laptop)).card_info;
+
+	assert.equal(record.notes, 'laptop\n\nphone');
+	assert.equal(merged.a.notes, null);
+	assert.equal(merged.b.notes, null);
 	assert.equal(merged.c.deleted_at, at(3));
 
 	// The other direction holds the same entries at the same versions.
@@ -251,17 +255,28 @@ test('duplicates by import key collapse into the oldest copy, keeping photos, Li
 
 	assert.equal(live(merged.cards).length, 1);
 	assert.equal(kept.id, 'one', 'the oldest copy survives');
-	assert.deepEqual(kept.photos.map((item) => item.id), ['p1', 'p2']);
-	assert.equal(kept.main_image, 'p1');
+	// The photos, pin, and note fold into the survivor, then move to the
+	// card's record (js/card-info.js).
+	const folded = live(collapseImportDuplicates(mergeEntries(phone1.cards, phone2.cards)))[0];
+
+	assert.deepEqual(folded.photos.map((item) => item.id), ['p1', 'p2']);
+	assert.equal(folded.main_image, 'p1');
+	assert.equal(folded.notes, 'from phone 2');
+
+	const [record] = merged.card_info;
+
+	assert.deepEqual(record.photos.filter((item) => !item.deleted_at).map((item) => item.id), ['p1', 'p2']);
+	assert.equal(record.main_image, 'p1');
+	assert.equal(record.notes, 'from phone 2');
+	assert.deepEqual(kept.photos.map((item) => item.moved), [true, true]);
 	assert.deepEqual(kept.price_manual, price);
-	assert.equal(kept.notes, 'from phone 2');
 	assert.equal(kept.created_at, at(1));
-	assert.equal(kept.updated_at, '2026-10-01T10:04:00.001Z', 'stamped after the newest copy');
+	assert.equal(folded.updated_at, '2026-10-01T10:04:00.001Z', 'stamped after the newest copy');
 
 	const gone = merged.cards.find((entry) => entry.id === 'two');
 
 	assert.equal(gone.merged_into, 'one');
-	assert.equal(gone.deleted_at, kept.updated_at);
+	assert.equal(gone.deleted_at, folded.updated_at);
 	assert.equal(merged.binders[0].slots[0].entry_id, 'one');
 });
 
@@ -269,7 +284,7 @@ test('the survivor takes the newest pin that still shows an image, and the newes
 	const first = imported('one', 1, {condition: 'Near Mint', main_image: 'gone', photos: [photo('gone', {deleted_at: at(2)})], updated_at: at(2)});
 	const second = imported('two', 3, {condition: '', is_favorite: true, main_image: 'p2', notes: '', photos: [photo('p2')], updated_at: at(5)});
 	const third = imported('three', 4, {notes: 'older note', updated_at: at(4)});
-	const [kept] = live(mergeDocuments(doc([first, third]), doc([second])).cards);
+	const [kept] = live(collapseImportDuplicates(mergeEntries([first, third], [second])));
 
 	assert.equal(kept.id, 'one');
 	assert.equal(kept.main_image, 'p2', 'the survivor\'s own pin points at a removed photo');

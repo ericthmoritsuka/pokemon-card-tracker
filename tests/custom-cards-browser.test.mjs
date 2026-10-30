@@ -189,7 +189,13 @@ describe('hand-made cards', () => {
 		await page.click('#copy-save');
 		await page.waitForSelector('.copies .copy-note');
 		assert.equal(await page.locator('.copies .copy-note').textContent(), 'From a trade');
-		assert.ok((await liveEntries(page)).every((entry) => entry.notes === 'From a trade' && !entry.fallback));
+		assert.ok((await liveEntries(page)).every((entry) => !entry.notes && !entry.fallback));
+		// One note for the card in Korean, on every copy (js/card-info.js).
+		assert.deepEqual(await page.evaluate(async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return ((await loadDocument()).card_info || []).filter((record) => record.notes).map((record) => [record.catalog, record.language, record.notes]);
+		}), [['custom', 'ko', 'From a trade']]);
 
 		// Edit card renames every copy.
 		await page.click('#custom-edit');

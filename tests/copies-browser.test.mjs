@@ -174,6 +174,13 @@ const onFirstScreen = (page, selector) => page.evaluate((target) => {
 	return rect.height > 0 && rect.top >= 0 && rect.bottom <= floor;
 }, selector);
 
+// [language, notes] of every card record (js/card-info.js) with notes.
+const cardNotes = (page) => page.evaluate(async () => {
+	const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+	return ((await loadDocument()).card_info || []).filter((record) => record.notes).map((record) => [record.language, record.notes]);
+});
+
 describe('copies on card detail', () => {
 	test('a copy\'s language, finish, condition, and notes are edited in its sheet', async () => {
 		const {done, page} = await phone();
@@ -212,7 +219,9 @@ describe('copies on card detail', () => {
 		assert.equal(entry.language_source, 'manual');
 		assert.equal(entry.variant_id, variantOf(pt, 'Reverse', 'Poké Bola'));
 		assert.equal(entry.condition, 'Lightly Played');
-		assert.equal(entry.notes, 'From the league night');
+		// Notes belong to the card in the copy's language (js/card-info.js).
+		assert.equal(entry.notes, undefined);
+		assert.deepEqual(await cardNotes(page), [['en', 'From the league night']]);
 		assert.equal(entry.fallback, undefined, 'an English copy on an international record is no fallback');
 
 		// Opening and saving with nothing changed writes nothing.

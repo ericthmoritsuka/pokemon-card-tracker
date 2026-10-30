@@ -290,7 +290,13 @@ for (const [name, viewport] of [['portrait', {height: 740, width: 360}], ['lands
 			await page.click('.ph-save');
 			await page.waitForSelector('.ph-sheet', {state: 'detached', timeout: 20000});
 
-			const entry = await page.evaluate(async () => (await window.H.listCards()).find((card) => card.id === window.H.ids().e1));
+			// The photo is on the card's record (js/card-info.js), not the copy.
+			const entry = await page.evaluate(async () => {
+				const doc = await window.H.loadDocument();
+				const copy = doc.cards.find((card) => card.id === window.H.ids().e1);
+
+				return doc.card_info.find((record) => record.card_id === copy.card_id && record.language === copy.language);
+			});
 
 			photo = entry.photos[0];
 			assert.ok(photo.detail, 'the photo records its detail copy');
@@ -321,7 +327,7 @@ for (const [name, viewport] of [['portrait', {height: 740, width: 360}], ['lands
 			const detailPath = photo.path.replace(/\.webp$/, '-detail.webp');
 			const object = fake.objects.get(detailPath);
 
-			assert.equal(photo.path, `${owner.id}/${entry.id}/${photo.id}.webp`);
+			assert.equal(photo.path, `${owner.id}/${photo.id}/${photo.id}.webp`);
 			assert.ok(fake.objects.has(photo.path), 'the normal copy went up');
 			assert.ok(object, `the detail copy went up at ${detailPath}`);
 			assert.equal(object.bytes.length, info.bytes);

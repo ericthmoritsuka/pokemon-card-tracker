@@ -9,10 +9,11 @@
 // stays as a tombstone that sticks, so an offline phone cannot bring a
 // deleted card back. Two tabs on one phone merge the same way (see "tabs").
 
+import {CARD_INFO, holdsNote, infoKey, joinNotes, moveToCardInfo, newRecord, recordOf} from './card-info.js';
 import {cardIndex} from './catalog.js';
 import {database} from './idb.js';
 import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent, stampEntry} from './merge.js';
-import {refreshPhotoIndex} from './photos/model.js';
+import {mergePhotoLists, refreshPhotoIndex} from './photos/model.js';
 
 export {mergeEntries} from './merge.js';
 
@@ -62,6 +63,9 @@ function normalize(doc) {
 	}
 
 	doc.user_id = doc.user_id || null;
+	// Photos, notes, and pins an older app left on copies move to the card
+	// (js/card-info.js), here and on every save and merge.
+	moveToCardInfo(doc);
 
 	return doc;
 }
@@ -231,7 +235,9 @@ async function saveDocument(doc, source = 'local', {replace = false} = {}) {
 			}
 
 			// Which cards have photos, for the family (js/photos/model.js,
-			// "Shared family photos"), kept in step with every save.
+			// "Shared family photos"), kept in step with every save, after
+			// anything a copy still carried moved to its card.
+			moveToCardInfo(doc);
 			refreshPhotoIndex(doc);
 			doc.updated_at = nowIso();
 			store.put(doc, LOCAL_PERSON);
@@ -706,6 +712,125 @@ export async function applyImport(entries) {
 	return counts;
 }
 
+// ------------------------------------------------------- card info
+//
+// Photos, notes, and the main-image pin of a card in one language
+// (js/card-info.js), kept whether or not any copy of it is left.
+
+// The person's record for a card in one language ({catalog, card_id,
+// language}), or null. Synchronous: the document is in memory once any
+// view has loaded it; null before that.
+export function cardInfoOf(item) {
+	return current ? recordOf(current[CARD_INFO], item) : null;
+}
+
+// The person's records, for the photo views; [] before the first load.
+export const cardInfoList = () => (current && Array.isArray(current[CARD_INFO]) ? current[CARD_INFO] : []);
+
+// Changes the records of the given cards in one save, making each one that
+// does not exist yet. change(record) returns the fields to set (photos,
+// notes, main_image, ...), or null to leave that record alone. Returns the
+// records changed.
+export async function updateCardInfo(items, change) {
+	const doc = await loadDocument();
+	const list = Array.isArray(doc[CARD_INFO]) ? doc[CARD_INFO] : [];
+	const now = Date.now();
+	const changed = [];
+	const seen = new Set();
+
+	doc[CARD_INFO] = list;
+
+	for (const item of Array.isArray(items) ? items : [items]) {
+		const key = infoKey(item);
+
+		if (!item || !item.card_id || seen.has(key)) {
+			continue;
+		}
+
+		seen.add(key);
+
+		let record = recordOf(list, item);
+		const patch = change(record || newRecord(item, nextStamp(null, now)));
+
+		if (!patch) {
+			continue;
+		}
+
+		if (!record) {
+			record = newRecord(item, nextStamp(null, now));
+			list.push(record);
+			Object.assign(record, patch, {updated_at: record.created_at});
+		}
+		else {
+			editEntry(record, () => Object.assign(record, patch, {updated_at: nextStamp(record.updated_at, now)}));
+		}
+
+		changed.push(record);
+	}
+
+	if (changed.length) {
+		await saveDocument(doc);
+	}
+
+	return changed;
+}
+
+// Sets the notes of a card in one language. A note typed here is the
+// person's own, so it no longer joins with notes moved from copies.
+export async function setCardNotes(item, text) {
+	const notes = String(text ?? '').trim();
+	const [record] = await updateCardInfo([item], (record) => ((record.notes || '') === notes ? null : {notes: notes || null, notes_source: null}));
+
+	return record || null;
+}
+
+// Moves cards' records onto other cards in one save, for a hand-made card
+// linked to the catalog (js/custom-card.js linkPatches): pairs is
+// [{from, to}], each {catalog, card_id, language}. The photos join, the
+// notes join, the pin goes over when the target has none, and the old
+// record becomes a tombstone. Returns the number of records moved.
+export async function moveCardInfo(pairs) {
+	const doc = await loadDocument();
+	const list = Array.isArray(doc[CARD_INFO]) ? doc[CARD_INFO] : [];
+	const now = Date.now();
+	let moved = 0;
+
+	doc[CARD_INFO] = list;
+
+	for (const {from, to} of pairs) {
+		const source = recordOf(list, from);
+
+		if (!source || source.deleted_at || infoKey(from) === infoKey(to)) {
+			continue;
+		}
+
+		let target = recordOf(list, to);
+
+		if (!target) {
+			target = newRecord(to, nextStamp(null, now));
+			list.push(target);
+		}
+
+		const photos = mergePhotoLists(target.photos, source.photos);
+		const notes = joinNotes(target.notes, [source.notes]);
+
+		editEntry(target, () => Object.assign(target, {
+			main_image: target.main_image || source.main_image || null,
+			notes: notes || null,
+			photos,
+			updated_at: nextStamp(target.updated_at, now),
+		}));
+		editEntry(source, () => Object.assign(source, {deleted_at: nextStamp(source.updated_at, now), updated_at: nextStamp(source.updated_at, now)}));
+		moved++;
+	}
+
+	if (moved) {
+		await saveDocument(doc);
+	}
+
+	return moved;
+}
+
 // ------------------------------------------------- the app's own CSV
 
 // The fields a re-import of the app's own CSV restores and compares
@@ -738,10 +863,15 @@ function sameField(key, a, b) {
 }
 
 // The fields of a row that differ from the entry, as a patch.
-function ownPatch(entry, fields) {
+function ownPatch(entry, fields, notesOf = null) {
 	const patch = {};
 
 	for (const key of OWN_COMPARED) {
+		// A note the card already holds (js/card-info.js) is no change.
+		if (key === 'notes' && notesOf && fields.notes && holdsNote(notesOf(entry), fields.notes)) {
+			continue;
+		}
+
 		if (fields[key] !== undefined && !sameField(key, entry[key], fields[key])) {
 			patch[key] = fields[key];
 		}
@@ -760,7 +890,15 @@ function ownPatch(entry, fields) {
 // A row whose id is unknown but whose import_key a live entry holds is that
 // entry, so a monprice import and a re-import never make two of one copy.
 // Returns {cards, counts, statuses}; the list passed in is not changed.
-export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = {}) {
+const notesIn = (doc) => (entry) => {
+	const record = recordOf(doc[CARD_INFO], entry);
+
+	return record ? record.notes || '' : '';
+};
+
+// notesOf(entry), when given, is the card's notes (js/card-info.js): a row's
+// note it already holds is no change.
+export function planOwnImport(cards, rows, {notesOf = null, now = Date.now(), revive = false} = {}) {
 	const out = [...cards];
 	const byId = new Map(out.map((card, i) => [card.id, i]));
 	const byKey = entriesByKey(out);
@@ -827,7 +965,7 @@ export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = 
 
 			out[i] = restored;
 
-			const patch = ownPatch(restored, row);
+			const patch = ownPatch(restored, row, notesOf);
 
 			if (Object.keys(patch).length) {
 				stampChange(i, patch, restored);
@@ -839,7 +977,7 @@ export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = 
 			return;
 		}
 
-		const patch = ownPatch(entry, row);
+		const patch = ownPatch(entry, row, notesOf);
 
 		if (!Object.keys(patch).length) {
 			counts.unchanged++;
@@ -861,7 +999,7 @@ export function planOwnImport(cards, rows, {now = Date.now(), revive = false} = 
 export async function applyOwnImport(rows, {revive = false} = {}) {
 	const doc = await loadDocument();
 	const now = Date.now();
-	const {cards, counts} = planOwnImport(doc.cards, rows, {now, revive});
+	const {cards, counts} = planOwnImport(doc.cards, rows, {notesOf: notesIn(doc), now, revive});
 
 	doc.cards = cards;
 
@@ -881,7 +1019,7 @@ export async function applyOwnImport(rows, {revive = false} = {}) {
 export async function previewOwnImport(rows) {
 	const doc = await loadDocument();
 
-	const {counts, statuses} = planOwnImport(doc.cards, rows);
+	const {counts, statuses} = planOwnImport(doc.cards, rows, {notesOf: notesIn(doc)});
 
 	return {counts, statuses};
 }

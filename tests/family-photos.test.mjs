@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
+import {moveToCardInfo} from '../js/card-info.js';
 import {mergeDocuments, syncDelta, stamps} from '../js/merge.js';
 import {PHOTO_INDEX, familyPhotos, gallerySlides, mainImage, photoIndexKey, refreshPhotoIndex} from '../js/photos/model.js';
 
@@ -35,6 +36,9 @@ describe('photo_index', () => {
 			entry('c3', {card_id: 'tst1-002'}),
 		]};
 
+		// As every save does: the copies' photos move to their cards' records
+		// first (js/card-info.js), and the index is made from those.
+		moveToCardInfo(doc);
 		assert.equal(refreshPhotoIndex(doc, Date.parse(AT)), true);
 
 		const byId = new Map(doc[PHOTO_INDEX].map((item) => [item.id, item]));
@@ -54,13 +58,15 @@ describe('photo_index', () => {
 	test('the last photo going leaves a tombstone; a document with no photos gets no list', () => {
 		const empty = {cards: [entry('c1')]};
 
+		moveToCardInfo(empty);
 		assert.equal(refreshPhotoIndex(empty), false);
 		assert.equal(PHOTO_INDEX in empty, false);
 
 		const doc = {cards: [entry('c1', {photos: [photo('p1', A, 'c1')]})]};
 
+		moveToCardInfo(doc);
 		refreshPhotoIndex(doc, Date.parse(AT));
-		doc.cards[0].photos[0].deleted_at = AT;
+		doc.card_info[0].photos[0].deleted_at = AT;
 		assert.equal(refreshPhotoIndex(doc, Date.parse(AT) + 5000), true);
 		assert.equal(doc[PHOTO_INDEX].length, 1);
 		assert.ok(doc[PHOTO_INDEX][0].deleted_at);
@@ -70,7 +76,9 @@ describe('photo_index', () => {
 	test('merges entry by entry, travels in the sync delta, and an older app keeps it', () => {
 		const mine = {cards: [entry('c1', {photos: [photo('p1', A, 'c1')]})], version: 1};
 
+		moveToCardInfo(mine);
 		refreshPhotoIndex(mine, Date.parse(AT));
+		assert.equal(mine[PHOTO_INDEX].length, 1);
 
 		const server = {cards: [entry('c1')], version: 1};
 		const merged = mergeDocuments(server, mine);

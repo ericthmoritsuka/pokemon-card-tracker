@@ -1,9 +1,10 @@
 // The owner's card photos on this phone and in Supabase Storage (DESIGN.md
 // sections 5 and 8).
 //
+// A photo belongs to its card's record (js/card-info.js), never to a copy.
 // Every photo is kept on the phone in IndexedDB, so it shows with no
 // connection, and in the private card-photos bucket at
-// <user_id>/<entry_id>/<photo_id>.webp, readable by the owner and their
+// <user_id>/<folder>/<photo_id>.webp, readable by the owner and their
 // family group (supabase/photos.sql). A photo taken with no signal, or
 // signed out, waits in an upload queue on the phone and goes up when there
 // is signal and someone is signed in. A family member's photo is fetched
@@ -11,7 +12,9 @@
 //
 // A photo saved with a detail copy (DESIGN.md section 5, "Inspection
 // viewer") has a second, larger file beside it at
-// <user_id>/<entry_id>/<photo_id>-detail.webp. It uploads after the normal
+// <user_id>/<folder>/<photo_id>-detail.webp. The folder is the photo's own
+// id from v48, and the copy's id for a photo taken before; the path is a
+// stored string, so old files stay where they are. It uploads after the normal
 // copy, is deleted with it, and is fetched from the bucket only when the
 // viewer zooms past the normal copy's resolution, then kept on the phone.
 //
@@ -19,16 +22,18 @@
 //   blobs  photo id -> {blob, type, at}         the image itself, and
 //          photo id + "#detail" -> the same     its detail copy
 //   queue  photo id -> {op, photo_id, entry_id, user_id, type, at, error}
-//                                               op is upload or delete; a
+//                                               op is upload or delete;
+//                                               entry_id the record (a copy
+//                                               on rows from before v48); a
 //                                               delete also holds path,
 //                                               paths, list, and not_before
 //          photo id + "#detail" -> the same     op upload-detail
-//   made   photo id -> {entry_id, photo}        photos this phone took, so a
+//   made   photo id -> {card, photo}            photos this phone took, so a
 //                                               sync that drops one from its
-//                                               entry puts it back
-//          "swept:" + photo id -> {swept, at}   photos of deleted cards whose
-//                                               bucket delete this phone has
-//                                               already queued
+//                                               record puts it back; card is
+//                                               {catalog, card_id, language}
+//                                               (entry_id, a copy, before v48)
+//          "swept:" + photo id -> {swept, at}   written before v48, unused
 //
 // A removed photo leaves the phone at once, but its bucket file stays for a
 // grace period (model.js bucketDeleteState): another phone may still show
@@ -36,9 +41,9 @@
 // photo back pointing at a missing file.
 
 import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
-import {loadDocument, onChange, resolveEntry, updateCards} from '../collection.js';
+import {infoKey, recordWithPhoto} from '../card-info.js';
+import {loadDocument, onChange, resolveEntry, updateCardInfo} from '../collection.js';
 import {database} from '../idb.js';
-import {stampMs} from '../stamp.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -254,12 +259,16 @@ export function detailUrl(photo) {
 
 // ------------------------------------------------------------- made
 
-async function rememberMade(entryId, photo) {
-	await idb('made', 'readwrite', (s) => s.put({entry_id: entryId, photo}, photo.id));
+// The card a photo belongs to, as {catalog, card_id, language}.
+const cardOf = (item) => ({card_id: item.card_id, catalog: item.catalog || 'international', language: item.language || ''});
+
+async function rememberMade(card, photo) {
+	await idb('made', 'readwrite', (s) => s.put({card: cardOf(card), photo}, photo.id));
 }
 
-// Puts back photos this phone took that a merged-in version of their entry
-// lacks (model.js, restoredPhotos).
+// Puts back photos this phone took that a merged-in version of their card's
+// record lacks (model.js, restoredPhotos). A row from before v48 names the
+// copy the photo was taken on, deleted or not: its card is the copy's.
 export async function restoreDroppedPhotos() {
 	const made = await getAll('made').catch(() => []);
 
@@ -267,40 +276,40 @@ export async function restoreDroppedPhotos() {
 		return 0;
 	}
 
-	// A photo taken on a copy the merge has since folded into another
-	// (js/merge.js, merged_into) belongs to the copy it was folded into.
 	const {cards} = await loadDocument();
-	const byEntry = new Map();
+	const byCard = new Map();
 
 	for (const row of made) {
-		const entry = row && row.photo ? resolveEntry(cards, row.entry_id) : null;
+		let card = row && row.photo && row.card && row.card.card_id ? row.card : null;
 
-		if (!entry) {
+		if (!card && row && row.photo && row.entry_id) {
+			const copy = resolveEntry(cards, row.entry_id) || (cards || []).find((item) => item && item.id === row.entry_id);
+
+			card = copy && copy.card_id ? cardOf(copy) : null;
+		}
+
+		if (!card) {
 			continue;
 		}
 
-		if (!byEntry.has(entry.id)) {
-			byEntry.set(entry.id, []);
+		const key = infoKey(card);
+
+		if (!byCard.has(key)) {
+			byCard.set(key, {card, photos: []});
 		}
 
-		byEntry.get(entry.id).push(row.photo);
+		byCard.get(key).photos.push(row.photo);
 	}
 
-	const patches = [];
+	const groups = [...byCard.values()];
+	const changed = await updateCardInfo(groups.map((group) => group.card), (record) => {
+		const group = byCard.get(record.id);
+		const photos = group ? restoredPhotos(record, group.photos) : null;
 
-	for (const entry of cards.filter((card) => card && !card.deleted_at)) {
-		const photos = byEntry.has(entry.id) ? restoredPhotos(entry, byEntry.get(entry.id)) : null;
+		return photos ? {photos} : null;
+	});
 
-		if (photos) {
-			patches.push({id: entry.id, patch: {photos}});
-		}
-	}
-
-	if (patches.length) {
-		await updateCards(patches);
-	}
-
-	return patches.length;
+	return changed.length;
 }
 
 // ------------------------------------------------------------- queue
@@ -372,24 +381,16 @@ export async function queuedItems() {
 	return getAll('queue');
 }
 
-// The live entry as the document holds it now, never a copy a view kept.
-// When the merge folded the copy into another (js/merge.js, merged_into),
-// that is the one.
-async function freshEntry(entryOrId) {
-	const id = typeof entryOrId === 'string' ? entryOrId : entryOrId && entryOrId.id;
-
-	return resolveEntry((await loadDocument()).cards, id);
-}
-
-// Saves a new photo on the phone, adds it to its entry, and queues its
-// upload. `photo` is a model.js newPhoto() record; detailBlob is its detail
-// copy when photo.detail says it has one, queued to upload after it.
-export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null) {
+// Saves a new photo on the phone, adds it to its card's record (made when
+// the card has none yet), and queues its upload. card is {catalog, card_id,
+// language}, a record or a copy; `photo` is a model.js newPhoto() record;
+// detailBlob is its detail copy when photo.detail says it has one, queued
+// to upload after it.
+export async function addPhotoToCard(card, photo, blob, detailBlob = null) {
 	const doc = await loadDocument();
-	const entry = await freshEntry(entryOrId);
 
-	if (!entry) {
-		throw new Error('That copy is no longer in your cards.');
+	if (!card || !card.card_id) {
+		throw new Error('That card is not known.');
 	}
 
 	await savePhotoLocally(photo.id, blob);
@@ -401,12 +402,16 @@ export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null)
 		await savePhotoLocally(detailKey(photo.id), detailBlob);
 	}
 
-	await rememberMade(entry.id, photo);
-	await updateCards([{id: entry.id, patch: {photos: [...(Array.isArray(entry.photos) ? entry.photos : []), photo]}}]);
+	await rememberMade(card, photo);
+	await updateCardInfo([cardOf(card)], (record) => ({photos: [...(Array.isArray(record.photos) ? record.photos : []), photo]}));
+
+	const entryId = infoKey(card);
+
 	await idb('queue', 'readwrite', (s) => s.put({
 		at: Date.now(),
-		entry_id: entry.id,
+		entry_id: entryId,
 		error: null,
+		list: 'card_info',
 		op: 'upload',
 		photo_id: photo.id,
 		type: blob.type,
@@ -416,8 +421,9 @@ export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null)
 	if (withDetail) {
 		await idb('queue', 'readwrite', (s) => s.put({
 			at: Date.now() + 1,
-			entry_id: entry.id,
+			entry_id: entryId,
 			error: null,
+			list: 'card_info',
 			op: DETAIL_OP,
 			photo_id: photo.id,
 			type: detailBlob.type,
@@ -430,33 +436,48 @@ export async function addPhotoToEntry(entryOrId, photo, blob, detailBlob = null)
 	flushQueue();
 }
 
-// Removes a photo: a tombstone in its entry (and the pin cleared when it
-// pointed there), the phone's copy dropped, and the bucket's copy queued for
-// deletion once the grace period has passed and the server holds the
-// tombstone.
-export async function removePhotoFromEntry(entryOrId, photoId) {
+// The record holding a live photo, or null: the one given when it holds
+// it, else whichever record does (a queue row from before v48 names a copy).
+async function holderOf(recordOrId, photoId) {
+	const records = (await loadDocument()).card_info || [];
+	const id = typeof recordOrId === 'string' ? recordOrId : recordOrId && recordOrId.id;
+	const given = records.find((record) => record && record.id === id);
+	const record = given && (given.photos || []).some((photo) => photo && photo.id === photoId) ? given : recordWithPhoto(records, photoId);
+
+	return record && !record.deleted_at ? record : null;
+}
+
+// Removes a photo: a tombstone in its card's record (and the pin cleared
+// when it pointed there), the phone's copy dropped, and the bucket's copy
+// queued for deletion once the grace period has passed and the server holds
+// the tombstone. Removing the photo is the only thing that deletes its file:
+// deleting copies of the card never does.
+export async function removePhotoFromEntry(recordOrId, photoId) {
 	const at = new Date().toISOString();
-	const entry = await freshEntry(entryOrId);
-	const photos = entry && patchedPhotos(entry, photoId, {deleted_at: at});
+	const record = await holderOf(recordOrId, photoId);
+	const photos = record && patchedPhotos(record, photoId, {deleted_at: at});
 
 	if (!photos) {
 		return;
 	}
 
 	const photo = photos.find((item) => item.id === photoId);
-	const patch = {photos};
 
-	if (entry.main_image === photoId) {
-		patch.main_image = null;
-	}
+	await updateCardInfo([cardOf(record)], (current) => {
+		const patch = {photos: patchedPhotos(current, photoId, {deleted_at: at}) || current.photos};
 
-	await updateCards([{id: entry.id, patch}]);
-	await rememberMade(entry.id, photo).catch(() => {});
+		if (current.main_image === photoId) {
+			patch.main_image = null;
+		}
+
+		return patch;
+	});
+	await rememberMade(record, photo).catch(() => {});
 
 	const queued = await idb('queue', 'readonly', (s) => s.get(photoId));
 
 	if (photo.path) {
-		await idb('queue', 'readwrite', (s) => s.put(deleteRow(entry.id, photo, Date.now()), photoId));
+		await idb('queue', 'readwrite', (s) => s.put(deleteRow(record.id, photo, Date.now()), photoId));
 	}
 	else if (queued) {
 		await idb('queue', 'readwrite', (s) => s.delete(photoId));
@@ -524,12 +545,12 @@ export function problemText(row) {
 }
 
 async function uploadOne(client, row, userId) {
-	// The copy the photo was taken on, or the one the merge folded it into,
-	// which holds its photos now.
-	const entry = resolveEntry((await loadDocument()).cards, row.entry_id);
+	// The card's record that holds the photo (on a row from before v48,
+	// entry_id names a copy; the photo has moved to its card since).
+	const entry = await holderOf(row.entry_id, row.photo_id);
 	const photo = entry && (entry.photos || []).find((item) => item.id === row.photo_id);
 
-	// The card or the photo was removed before it went up: nothing to send.
+	// The photo was removed before it went up: nothing to send.
 	if (!entry || !photo || photo.deleted_at) {
 		return true;
 	}
@@ -544,7 +565,7 @@ async function uploadOne(client, row, userId) {
 		return true;
 	}
 
-	const path = photo.path || photoPath(userId, entry.id, photo.id, row.type || blob.type);
+	const path = photo.path || photoPath(userId, photo.id, photo.id, row.type || blob.type);
 	const {error} = await client.storage.from(PHOTO_BUCKET).upload(path, await blob.arrayBuffer(), {
 		cacheControl: '31536000',
 		contentType: row.type || blob.type || 'image/webp',
@@ -556,10 +577,12 @@ async function uploadOne(client, row, userId) {
 	}
 
 	if (photo.path !== path) {
-		const photos = patchedPhotos(entry, photo.id, {path});
+		await updateCardInfo([cardOf(entry)], (current) => {
+			const photos = patchedPhotos(current, photo.id, {path});
 
-		await updateCards([{id: entry.id, patch: {photos}}]);
-		await rememberMade(entry.id, {...photo, path}).catch(() => {});
+			return photos ? {photos} : null;
+		});
+		await rememberMade(entry, {...photo, path}).catch(() => {});
 	}
 
 	return true;
@@ -574,7 +597,7 @@ async function uploadDetail(client, row, entry, photo, userId) {
 		return true;
 	}
 
-	const path = detailPath(photo.path || photoPath(userId, entry.id, photo.id, photo.detail.type), photo.detail.type);
+	const path = detailPath(photo.path || photoPath(userId, photo.id, photo.id, photo.detail.type), photo.detail.type);
 	const {error} = await client.storage.from(PHOTO_BUCKET).upload(path, await blob.arrayBuffer(), {
 		cacheControl: '31536000',
 		contentType: row.type || blob.type || 'image/webp',
@@ -597,7 +620,7 @@ function deleteRow(entryId, photo, at) {
 		at,
 		entry_id: entryId,
 		error: null,
-		list: 'cards',
+		list: 'card_info',
 		not_before: at + BUCKET_DELETE_GRACE_MS,
 		op: 'delete',
 		path: photo.path,
@@ -745,34 +768,43 @@ export function flushQueue() {
 
 const getAllKeys = (store) => idb(store, 'readonly', (s) => s.getAllKeys());
 
-const SWEPT = 'swept:';
-
-// A card deleted with no readable stamp counts from now.
-const time = (value) => stampMs(value, Date.now());
-
-// Housekeeping after a sync (plans/audit-engineering.md E-21). Photos of
-// deleted cards, and removed photos, leave this phone's storage, whichever
-// phone removed them. A deleted card's photos (not one the merge folded
-// into another copy: those photos live on) are also queued for deletion
-// from the bucket, once per phone, after the same grace period as a removed
-// photo. Family members' photos kept here are never touched: only photos in
-// this phone's own document are looked at.
+// Housekeeping after a sync (plans/audit-engineering.md E-21). Removed
+// photos leave this phone's storage, whichever phone removed them. A photo
+// lives as long as its card's record holds it (js/card-info.js), so a
+// deleted copy, or a card at zero copies, never takes a photo with it, and
+// nothing here queues a bucket delete: only removing the photo does
+// (removePhotoFromEntry). Family members' photos kept here are never
+// touched: only photos in this phone's own document are looked at.
 export async function sweepPhotos() {
 	const doc = await loadDocument();
 	const live = new Set();
-	const dead = new Map();
+	const dead = new Set();
 
+	const look = (holder, photo) => {
+		if (!photo || !photo.id) {
+			return;
+		}
+
+		if (!holder.deleted_at && !photo.deleted_at) {
+			live.add(photo.id);
+		}
+		else {
+			dead.add(photo.id);
+		}
+	};
+
+	for (const record of doc.card_info || []) {
+		for (const photo of (record && Array.isArray(record.photos) ? record.photos : [])) {
+			look(record, photo);
+		}
+	}
+
+	// A photo still on a copy (waiting for an older phone to upload it) is
+	// also on the record; one marked moved is the record's.
 	for (const card of doc.cards || []) {
 		for (const photo of (card && Array.isArray(card.photos) ? card.photos : [])) {
-			if (!photo || !photo.id) {
-				continue;
-			}
-
-			if (!card.deleted_at && !photo.deleted_at) {
-				live.add(photo.id);
-			}
-			else if (!dead.has(photo.id) || !card.merged_into) {
-				dead.set(photo.id, {card, photo});
+			if (photo && !photo.moved) {
+				look(card, photo);
 			}
 		}
 	}
@@ -793,20 +825,6 @@ export async function sweepPhotos() {
 			await idb('blobs', 'readwrite', (s) => s.delete(key)).catch(() => {});
 			dropped++;
 		}
-	}
-
-	const marked = new Set(await getAllKeys('made').catch(() => []));
-	const queued = new Set(await getAllKeys('queue').catch(() => []));
-
-	for (const [id, {card, photo}] of dead) {
-		const gone = card.deleted_at && !card.merged_into && !photo.deleted_at && photo.path;
-
-		if (!gone || !doc.user_id || pathOwner(photo.path) !== doc.user_id || marked.has(`${SWEPT}${id}`) || queued.has(id)) {
-			continue;
-		}
-
-		await idb('queue', 'readwrite', (s) => s.put(deleteRow(card.id, photo, time(card.deleted_at)), id));
-		await idb('made', 'readwrite', (s) => s.put({at: Date.now(), swept: true}, `${SWEPT}${id}`));
 	}
 
 	return dropped;

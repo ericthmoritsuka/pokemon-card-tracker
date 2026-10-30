@@ -12,7 +12,8 @@
 // same set and number, the page offers to link the copies to it.
 
 import {catalogLanguage, languageLabel, setDetail, setList, viewingLanguage} from './catalog.js';
-import {addCards, deleteCards, listCards, onChange, updateCards} from './collection.js';
+import {recordOf} from './card-info.js';
+import {addCards, cardInfoList, deleteCards, listCards, moveCardInfo, onChange, updateCards} from './collection.js';
 import {
 	alikeKey,
 	closeCopySheet,
@@ -321,9 +322,15 @@ export function customCardView(root, {cardId}) {
 
 	const whose = () => (member ? `${member.name || 'Family member'}'s` : 'Your');
 
+	// A member's card records (photos and notes, js/card-info.js).
+	let memberRecords = [];
+	const records = () => (member ? memberRecords : cardInfoList());
+
 	async function read() {
 		if (member) {
 			const doc = await memberDocumentKept(member.userId);
+
+			memberRecords = (doc && doc.card_info) || [];
 
 			return (doc && doc.cards) || [];
 		}
@@ -400,8 +407,10 @@ export function customCardView(root, {cardId}) {
 				group.prices.add(copyPriceText(entry));
 			}
 
-			if (entry.notes) {
-				group.notes.add(entry.notes);
+			const info = recordOf(records(), entry);
+
+			if (info && info.notes) {
+				group.notes.add(info.notes);
 			}
 
 			group.entries.push(entry);
@@ -468,6 +477,11 @@ export function customCardView(root, {cardId}) {
 
 			try {
 				await updateCards(linkPatches(card.entries, {cardId: found.id, catalog}));
+				// The photos and notes go with them (js/card-info.js).
+				await moveCardInfo([...new Set(card.entries.map((entry) => entry.language || ''))].map((language) => ({
+					from: {card_id: cardId, catalog: CUSTOM, language},
+					to: {card_id: found.id, catalog, language},
+				})));
 				toast('Linked to the catalog card. Photos, notes, and binder places stay.');
 				go(`cards/${encodeURIComponent(lang)}/${encodeURIComponent(found.id)}`, {replace: true});
 			}
@@ -521,7 +535,7 @@ export function customCardView(root, {cardId}) {
 		// from them each time (read only).
 		if (member) {
 			photos.destroy();
-			photos = cardPhotos({cardId, catalog: CUSTOM, entries: card.entries, readOnly: true});
+			photos = cardPhotos({cardId, catalog: CUSTOM, entries: card.entries, readOnly: true, records: memberRecords});
 		}
 
 		drawCopies(places);

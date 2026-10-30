@@ -283,9 +283,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   card, or becomes that card's placeholder when none is left. Preview ("+12 copies, -5 copies, 3
   photos kept, 2 pockets became placeholders") and Undo. Medium; card-level photos also fix photos
   being lost when one copy is deleted. Specified in DESIGN.md, "Photos and notes belong to the card,
-  not the copy" and "Import "Match this file"". Until it ships, Eric must not delete cards to start
-  over: deleting drops their photos and notes, queues the photo files for deletion after 14 days, and
-  the import then skips those `import_key`s.
+  not the copy" and "Import "Match this file"". Photos and notes per card are built in v48 (branch
+  `card-photos-notes`, Part 1): deleting copies no longer drops photos or notes. Before deleting
+  cards to start over, reload every phone onto v48 and run `supabase/card-photos-keep.sql`; the
+  import still skips the deleted copies' `import_key`s until Match this file (Part 2) ships.
 - **Offer to delete photos once the catalog has an image (Eric, 2026-10-22):** the official image
   already becomes a card's main picture when TCGdex adds one (gallerySlides order), unless the photo
   was pinned as the main image. Add a notice when the catalog refresh finds cards that gained an

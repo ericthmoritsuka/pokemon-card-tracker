@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {moveToCardInfo} from '../js/card-info.js';
 import {refreshPhotoIndex} from '../js/photos/model.js';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
@@ -207,7 +208,14 @@ function family(fake) {
 		...Array.from({length: 40}, (_, i) => entry(`m-x${i}`, {card_id: `tst2-${String(i + 1).padStart(3, '0')}`, notes: 'A note that only the whole document carries.'})),
 	], {person: undefined, user_id: undefined});
 
-	refreshPhotoIndex(doc, Date.parse(AT));
+	// Member A's phone is on v47: the photo still on the copy, and the index
+	// that app made from it. The index is worked out here the way v48 does,
+	// from the card's record, on a copy of the document.
+	const moved = structuredClone(doc);
+
+	moveToCardInfo(moved);
+	refreshPhotoIndex(moved, Date.parse(AT));
+	doc.photo_index = moved.photo_index;
 	fake.documents.set(member.id, {doc, updated_at: fake.now(), user_id: member.id});
 	fake.profiles.set(member.id, {display_name: 'Member A', user_id: member.id});
 	fake.profiles.set(owner.id, {display_name: 'Member B', user_id: owner.id});

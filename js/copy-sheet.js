@@ -18,6 +18,7 @@
 import {listBinders, placements} from './binders.js';
 import {
 	addCard,
+	cardInfoOf,
 	cleanPlace,
 	deleteCards,
 	listCards,
@@ -26,6 +27,7 @@ import {
 	removePlace,
 	renamePlace,
 	restoreCard,
+	setCardNotes,
 	setStorage,
 	STORAGE_MAX,
 	undoStorage,
@@ -115,7 +117,9 @@ export function alikeFields(entry) {
 	return fields;
 }
 
-export const hasPhotos = (entry) => Array.isArray(entry.photos) && entry.photos.length > 0;
+// Photos belong to the card, not the copy (js/card-info.js): a copy holds a
+// live one only while an older phone's photo waits to move.
+export const hasPhotos = (entry) => Array.isArray(entry.photos) && entry.photos.some((photo) => photo && !photo.deleted_at);
 
 // Where every placed copy is: Map entry id -> {binder_id, binder_name, page,
 // position}.
@@ -259,7 +263,8 @@ export function askWhich({count, from, places = new Map(), title = null}) {
 		const boxes = from.map((entry) => h('input', {'data-entry': entry.id, name: 'copy-pick', type: count === 1 ? 'radio' : 'checkbox', value: entry.id}));
 		const options = from.map((entry, i) => {
 			const where = places.get(entry.id);
-			const photos = hasPhotos(entry) ? `${entry.photos.length} ${entry.photos.length === 1 ? 'photo' : 'photos'}` : null;
+			const count = hasPhotos(entry) ? entry.photos.filter((photo) => photo && !photo.deleted_at).length : 0;
+			const photos = count ? `${count} ${count === 1 ? 'photo' : 'photos'}` : null;
 
 			return h('label', {class: 'copy-pick-option'}, boxes[i], h('span', null, [where ? placeText(where) : 'Not in a binder', photos].filter(Boolean).join(' · ')));
 		});
@@ -352,7 +357,12 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const language = select('copy-language', copyLanguages(catalog, first.language).map(({code, label}) => ({label, value: code})), first.language);
 	const finish = select('copy-finish', finishOptions(finishes, first[finishKey(catalog)]), first[finishKey(catalog)] || NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
-	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: NOTES_MAX, name: 'copy-notes', rows: 2}, first.notes || '');
+	// Notes belong to the card in the copy's language, shared by every copy
+	// of it (js/card-info.js). Notes joined from several copies may run
+	// past NOTES_MAX; they are never cut unless edited.
+	const cardNotes = (cardInfoOf(first) || {}).notes || '';
+	const notesMax = Math.max(NOTES_MAX, cardNotes.length);
+	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: notesMax, name: 'copy-notes', rows: 2}, cardNotes);
 	// Alike copies are stored in one place (alikeKey).
 	const storage = placePicker({id: 'copy-storage', value: first.storage});
 
@@ -439,12 +449,18 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		const patches = targets().map((entry) => ({id: entry.id, patch: changes(entry, catalog, {
 			condition: condition.value || null,
 			language: language.value,
-			notes: notes.value.trim().slice(0, NOTES_MAX),
 			storage: storage.value(),
 			[finishKey(catalog)]: finish.value || null,
 		})})).filter((item) => Object.keys(item.patch).length);
+		const typed = notes.value.trim().slice(0, notesMax);
+		const noteTarget = {card_id: first.card_id, catalog: first.catalog, language: language.value};
+		const noteChanged = typed !== ((cardInfoOf(noteTarget) || {}).notes || '');
 
 		try {
+			if (noteChanged) {
+				await setCardNotes(noteTarget, typed);
+			}
+
 			if (patches.length === 1) {
 				await updateCard(patches[0].id, patches[0].patch);
 			}
@@ -456,6 +472,9 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 
 			if (patches.length) {
 				toast(patches.length === 1 ? 'Copy saved.' : `${patches.length} copies saved.`);
+			}
+			else if (noteChanged) {
+				toast('Notes saved.');
 			}
 		}
 		catch (err) {
@@ -506,7 +525,7 @@ export function changes(entry, catalog, next) {
 		patch.condition = next.condition || null;
 	}
 
-	if ((next.notes || '') !== (entry.notes || '')) {
+	if (next.notes !== undefined && (next.notes || '') !== (entry.notes || '')) {
 		patch.notes = next.notes || null;
 	}
 

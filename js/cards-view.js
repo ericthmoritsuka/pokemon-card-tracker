@@ -26,7 +26,8 @@ import {currentUser} from './auth.js';
 import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
-import {isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
+import {recordOf} from './card-info.js';
+import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -83,7 +84,15 @@ const reais = (value) => (typeof value === 'number' && Number.isFinite(value) ? 
 
 const importedFinish = (entry) => entry.finish_raw || (entry.import_key ? entry.import_key.split('|')[3] : null);
 
-export function collectionCsv(entries, index) {
+// notesOf(entry): the notes of the copy's card in its language
+// (js/card-info.js); the person's own when left out.
+export function collectionCsv(entries, index, notesOf = null) {
+	const noteFor = notesOf || ((entry) => {
+		const record = recordOf(cardInfoList(), entry);
+
+		return record ? record.notes || '' : entry.notes;
+	});
+
 	const header = [
 		'entry_id', 'card_id', 'catalog', 'set_id', 'set', 'number', 'name', 'language',
 		'variant_id', 'finish', 'finish_matched', 'language_source', 'created_at', 'updated_at',
@@ -133,7 +142,7 @@ export function collectionCsv(entries, index) {
 			manual.source,
 			manual.date,
 			entry.condition,
-			entry.notes,
+			noteFor(entry),
 			entry.name_local,
 			entry.set_name_local,
 			entry.finish_raw,
@@ -351,6 +360,7 @@ export function myCardsView(root) {
 export function familyCardsView(root, {userId}) {
 	let name = 'Family member';
 	let binders = [];
+	let records = [];
 
 	whenMemberName(userId, (memberLabel) => {
 		name = memberLabel;
@@ -378,10 +388,12 @@ export function familyCardsView(root, {userId}) {
 			const doc = await memberDocument(userId);
 
 			binders = (doc && doc.binders) || [];
+			records = (doc && doc.card_info) || [];
 
 			return ((doc && doc.cards) || []).filter(isLive);
 		},
 		loadBinders: () => binders,
+		loadRecords: () => records,
 		readOnly: true,
 		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
@@ -401,6 +413,9 @@ export function cardsScreen(root, {
 	label = 'your collection',
 	load: loadEntries,
 	loadBinders = () => [],
+	// The card records whose photos the tiles show (js/card-info.js): a
+	// family member's; null for the person's own.
+	loadRecords = () => null,
 	metaFor = null,
 	offered = undefined,
 	placeholder = undefined,
@@ -779,13 +794,13 @@ export function cardsScreen(root, {
 				finish: groupFinish(group.entries),
 				info,
 				languages: [group.language],
-				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, twins: group.twins}),
+				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),
 				viewing,
 			},
 			meta: [info.number ? `#${info.number}` : null, info.setName, metaFor ? metaFor(group) : null].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
 			route: routeOf(group),
-		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, twins: group.twins});
+		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});
 	}
 
 	// The price line of a drawn tile, put right after a price arrives.

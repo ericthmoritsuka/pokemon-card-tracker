@@ -2,7 +2,10 @@
 // 5, "Image carousel per card"). Pure functions over card entries, so Node
 // tests them (tests/photos.test.mjs).
 //
-// An entry carries two optional fields for this (DESIGN.md section 4):
+// A card's record in the document's card_info list (js/card-info.js, from
+// v48) carries two optional fields for this; before v48 every copy carried
+// them, and an older app still may, until the move takes them to the card.
+// The functions below take records, or copies, alike:
 //
 //   photos      [{id, path, side, created_at, deleted_at}], one per photo the
 //               owner took of that physical card. path is
@@ -249,8 +252,9 @@ export function mainImage(entry, catalogImage, {family = [], twins = []} = {}) {
 // One entry per card and language (id from photoIndexKey), holding the
 // fronts that are uploaded (path known), oldest first, at most
 // INDEX_PHOTOS_MAX of them. When the last one goes, the entry becomes a
-// tombstone. refreshPhotoIndex keeps it in step with the cards on every
-// save (js/collection.js), so it never needs editing by hand.
+// tombstone. refreshPhotoIndex keeps it in step with the card records
+// (card_info, js/card-info.js) on every save (js/collection.js), so it never
+// needs editing by hand; a card at zero copies keeps its entry.
 
 export const PHOTO_INDEX = 'photo_index';
 
@@ -261,7 +265,8 @@ const catalogOf = (item) => (item && item.catalog) || 'international';
 // The index id for a card in one language.
 export const photoIndexKey = (item) => `${catalogOf(item)}~${item.card_id}~${item.language || ''}`;
 
-// The index entries the cards call for, as Map id -> entry without stamps.
+// The index entries the card records (or copies) call for, as Map id ->
+// entry without stamps.
 export function wantedPhotoIndex(cards) {
 	const byKey = new Map();
 
@@ -298,7 +303,9 @@ export function wantedPhotoIndex(cards) {
 const sameIndexEntry = (a, b) => a.card_id === b.card_id && a.catalog === b.catalog && a.language === b.language
 	&& JSON.stringify(a.photos) === JSON.stringify(b.photos);
 
-// Brings doc.photo_index in step with doc.cards, in place: new and changed
+const later = (a, b) => (time(a) >= time(b) ? a : b);
+
+// Brings doc.photo_index in step with doc.card_info, in place: new and changed
 // entries written whole with a fresh stamp, entries no longer called for
 // made tombstones. Leaves a document with no photos and no index as it is.
 // Returns true when anything changed.
@@ -307,7 +314,7 @@ export function refreshPhotoIndex(doc, now = Date.now()) {
 		return false;
 	}
 
-	const wanted = wantedPhotoIndex(doc.cards);
+	const wanted = wantedPhotoIndex(doc.card_info);
 	const had = Array.isArray(doc[PHOTO_INDEX]) ? doc[PHOTO_INDEX] : null;
 
 	if (!had && !wanted.size) {
@@ -326,7 +333,14 @@ export function refreshPhotoIndex(doc, now = Date.now()) {
 			continue;
 		}
 
-		const next = {...item, deleted_at: null, updated_at: nextStamp(old && old.updated_at, now)};
+		const stamp = nextStamp(old && later(old.updated_at, old.deleted_at), now);
+		const next = {...item, deleted_at: null, updated_at: stamp};
+
+		// Brought back after a tombstone: restored on purpose, or the merge
+		// keeps the tombstone (js/merge.js, a delete sticks).
+		if (old && !isLive(old)) {
+			next.restored_at = stamp;
+		}
 
 		if (i >= 0) {
 			list[i] = next;
@@ -398,6 +412,12 @@ export function mergePhotoLists(local, remote) {
 			return a.deleted_at ? a : b;
 		}
 
+		// A copy's photo marked moved (js/card-info.js) is only hidden from
+		// older apps; a removal on one of them is a real one and wins.
+		if (a.deleted_at && Boolean(a.moved) !== Boolean(b.moved)) {
+			return a.moved ? b : a;
+		}
+
 		if (Boolean(a.path) !== Boolean(b.path)) {
 			return a.path ? a : b;
 		}
@@ -461,8 +481,9 @@ export const BUCKET_DELETE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
 // phone may still show the file, or bring the photo or cover back.
 //
 // row: the queue row, {path, paths?, photo_id? | image_id?, list, entry_id,
-//      not_before, at}. list is 'cards' or 'binders', entry_id the entry
-//      or binder the file belonged to.
+//      not_before, at}. list is 'card_info' (a card's record, from v48),
+//      'cards' (a copy, a row an older app queued), or 'binders', entry_id
+//      the record, copy, or binder the file belonged to.
 // doc: the phone's document now.
 // serverHolds(list, id, updated_at): true when the server holds that
 //      version of the entry (js/sync.js).
@@ -476,8 +497,32 @@ export const BUCKET_DELETE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
 export function bucketDeleteState(row, doc, serverHolds, now = Date.now(), graceMs = BUCKET_DELETE_GRACE_MS) {
 	const paths = new Set([row.path, ...(Array.isArray(row.paths) ? row.paths : [])].filter(Boolean));
 	const cards = (doc && Array.isArray(doc.cards) ? doc.cards : []).filter(Boolean);
+	const records = (doc && Array.isArray(doc.card_info) ? doc.card_info : []).filter(Boolean);
 	const binders = (doc && Array.isArray(doc.binders) ? doc.binders : []).filter(Boolean);
 	let holder = null;
+	let holderList = null;
+
+	// A card's record holding the photo (js/card-info.js), live, keeps the
+	// file whatever became of the copies: a deleted copy never deletes it.
+	for (const record of records) {
+		for (const photo of Array.isArray(record.photos) ? record.photos : []) {
+			const files = photo && photo.path ? [photo.path, photo.detail ? detailPath(photo.path, photo.detail.type) : null] : [];
+			const same = photo && ((row.photo_id && photo.id === row.photo_id) || files.some((file) => file && paths.has(file)));
+
+			if (!same) {
+				continue;
+			}
+
+			if (isLive(record) && isLive(photo)) {
+				return 'cancel';
+			}
+
+			if (photo.id === row.photo_id && !holder) {
+				holder = record;
+				holderList = 'card_info';
+			}
+		}
+	}
 
 	for (const card of cards) {
 		for (const photo of Array.isArray(card.photos) ? card.photos : []) {
@@ -492,8 +537,11 @@ export function bucketDeleteState(row, doc, serverHolds, now = Date.now(), grace
 				return 'cancel';
 			}
 
-			if (photo.id === row.photo_id && (!holder || isLive(card))) {
+			// A copy's photo marked moved went to its card's record, whose
+			// removal is the one that counts.
+			if (photo.id === row.photo_id && !photo.moved && holderList !== 'card_info' && (!holder || isLive(card))) {
 				holder = card;
+				holderList = 'cards';
 			}
 		}
 	}
@@ -512,10 +560,19 @@ export function bucketDeleteState(row, doc, serverHolds, now = Date.now(), grace
 		return 'wait';
 	}
 
-	const list = row.list || (row.image_id ? 'binders' : 'cards');
-	const entry = list === 'cards'
-		? holder || cards.find((card) => card.id === row.entry_id)
-		: binders.find((binder) => binder.id === (row.entry_id || row.binder_id));
+	let list = row.list || (row.image_id ? 'binders' : 'cards');
+	let entry;
+
+	if (list === 'binders') {
+		entry = binders.find((binder) => binder.id === (row.entry_id || row.binder_id));
+	}
+	else if (holder) {
+		entry = holder;
+		list = holderList;
+	}
+	else {
+		entry = (list === 'card_info' ? records : cards).find((item) => item.id === row.entry_id);
+	}
 
 	if (entry && !serverHolds(list, entry.id, entry.updated_at)) {
 		return 'wait';

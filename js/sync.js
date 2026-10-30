@@ -45,6 +45,7 @@
 
 import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.js';
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
+import {cardInfoView} from './card-info.js';
 import {applyDeltaStamps, countChanged, deltaDocument, MERGE_VERSION, mergeDocuments, stamps, syncDelta, usableDelta} from './merge.js';
 
 const PUSH_DELAY_MS = 3000;
@@ -983,7 +984,9 @@ export async function memberDocument(userId) {
 		throw error;
 	}
 
-	return data ? withoutDelta(data.doc) : null;
+	// Photos and notes an older app left on their copies show on the card
+	// (js/card-info.js), without changing what was read.
+	return data ? cardInfoView(withoutDelta(data.doc)) : null;
 }
 
 // Family members' favorite Pokémon, as Map user_id -> the stored value (a

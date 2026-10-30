@@ -281,7 +281,9 @@ the photo back, never points at a missing file. After every sync each phone also
 storage: photos of deleted cards and removed photos, and its owner's covers that no live binder
 shows, leave the phone, and a deleted card's photos are queued for the same delayed bucket delete.
 Family members' files kept on the phone are never swept. *(Decided 2026-10-02, Eric's audit
-fixes.)*
+fixes.)* *(From v48 a photo belongs to its card's record, so a deleted copy or card no longer
+queues or sweeps anything: only removing the photo does. See "Photos and notes belong to the card,
+not the copy".)*
 
 **One physical card, one entry.**
 There is no quantity field. Three Pikachu are three entries, each with its own condition, binder
@@ -645,7 +647,23 @@ off the copies once, in place, and the files stay where they are in the bucket. 
 per-copy `photos` and `notes` above, and the sweep in "Bucket files outlive their removal by 14
 days" no longer deletes a photo because its card was deleted: only removing the photo itself does.
 Motive: Eric rescanned every card into a new monprice list to start his counts over without losing
-a photo or a note. *(Decided 2026-10-22 and 2026-10-30; not built.)*
+a photo or a note. *(Decided 2026-10-22 and 2026-10-30; built in v48.)*
+Built (v48, 2026-10-30): the list is `card_info` (`js/card-info.js`), one record per catalog, card
+id, and language. Notes from several copies of one card are all kept, newest first, each distinct
+text once. New photos go in their own bucket folder (`<user>/<photo id>/<photo id>.webp`); moved
+photos keep their old paths. Phones on v47 sync the same document for a while, so the move is not a
+one-time step: it runs on every load, save, and merge. A v47 phone keeps the `card_info` list (its
+merge keeps every top-level list it does not know), but still reads and writes photos and notes on
+copies, and deletes the bucket files of a deleted copy's live photos 14 days later. So a moved
+photo stays on its copy as a tombstone marked `moved` (a v47 phone no longer shows it, and never
+queues its file), a photo a v47 phone adds or removes on a copy reaches the card on the next merge,
+and a note it types on a copy joins the card's notes and is cleared from the copy. A photo still
+waiting to upload on a v47 phone stays live on its copy until the path is known. Two phones that
+each moved different copies' notes before syncing keep both (`mergeCardInfo`). For the cases this
+cannot reach (a v47 phone that deleted copies offline, or queued deletes before v48),
+`supabase/card-photos-keep.sql` makes the bucket refuse to delete any file a card record still
+shows; Eric runs it once. The per-copy fields can be dropped from the move after a min-client bump
+that stops v47 phones from writing.
 
 **Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
 each card, language, and finish, copies scanned or added in the app included. Copies are matched by

@@ -18,16 +18,18 @@
 // DESIGN.md section 5 ("Own photos, cropped to the card" and "Image
 // carousel per card") is the spec; supabase/photos.sql makes the bucket.
 
-import {listCards, loadDocument, newId, nowIso, onChange, updateCards} from '../collection.js';
+import {recordsForCopies, shownRecords} from '../card-info.js';
+import {cardInfoList, listCards, loadDocument, newId, nowIso, onChange, updateCardInfo} from '../collection.js';
 import {h} from '../dom.js';
 import {formatCount} from '../format.js';
+import {languageLabel} from '../languages.js';
 
 import {SWIPE_EVENT, gestureConsumed, isCarouselGesture, openViewer, photoCarousel} from './carousel.js';
 import {describeCopy, openAddPhoto} from './editor.js';
 import {DETAIL_HEIGHT, DETAIL_MAX_BYTES, DETAIL_WIDTH, TARGET_BYTES} from './encode.js';
 import {gallerySlides, mainImage, mainSlideId, newPhoto, photoPath, pinnedImage} from './model.js';
 import {
-	addPhotoToEntry,
+	addPhotoToCard,
 	cachedPhotoUrl,
 	detailUrl,
 	keepDetailCopies,
@@ -89,9 +91,11 @@ function plainArt(src) {
 	return frame;
 }
 
-// Saves a straightened photo onto one copy: on the phone at once, uploaded
-// when there is signal (store.js). detail, when given, is the detail copy
-// {blob, type, width, height}. Resolves with the new photo record.
+// Saves a straightened photo onto a card in one language (entry: a record,
+// a copy, or {catalog, card_id, language}; js/card-info.js): on the phone at
+// once, uploaded when there is signal (store.js). detail, when given, is the
+// detail copy {blob, type, width, height}. Resolves with the new photo
+// record. Its folder in the bucket is its own id.
 export async function savePhoto({blob, detail = null, entry, side = 'front', type}) {
 	const doc = await loadDocument();
 	const id = newId();
@@ -99,24 +103,42 @@ export async function savePhoto({blob, detail = null, entry, side = 'front', typ
 		created_at: nowIso(),
 		detail: detail && detail.blob ? {height: detail.height, type: detail.type || detail.blob.type, width: detail.width} : null,
 		id,
-		path: doc.user_id ? photoPath(doc.user_id, entry.id, id, type || blob.type) : null,
+		path: doc.user_id ? photoPath(doc.user_id, id, id, type || blob.type) : null,
 		side,
 	});
 
-	await addPhotoToEntry(entry, photo, blob, photo.detail ? detail.blob : null);
+	await addPhotoToCard(entry, photo, blob, photo.detail ? detail.blob : null);
 
 	return photo;
 }
 
+// Where a photo of these copies can go: one target per language among
+// them, {catalog, card_id, language}, since photos belong to the card in a
+// language, not to a copy (js/card-info.js).
+function photoTargets(copies) {
+	const targets = new Map();
+
+	for (const copy of copies || []) {
+		if (copy && !copy.deleted_at && copy.card_id && !targets.has(copy.language || '')) {
+			targets.set(copy.language || '', {card_id: copy.card_id, catalog: copy.catalog || 'international', language: copy.language || ''});
+		}
+	}
+
+	return [...targets.values()];
+}
+
+const describeLanguage = (target) => languageLabel(target.language) || 'This card';
+
 // The Add photo button and the sheet it opens. close() closes that sheet
-// and stops onSaved: the screen it belonged to is going.
-function addPhotoControl({describe = describeCopy, entries, label = 'Add photo', onSaved = null}) {
+// and stops onSaved: the screen it belonged to is going. entries() returns
+// the copies; the sheet asks which of their languages the photo is of.
+function addPhotoControl({describe = describeLanguage, entries, label = 'Add photo', onSaved = null}) {
 	const button = h('button', {class: 'ph-add', type: 'button'}, label);
 	let sheet = null;
 	let alive = true;
 
 	button.addEventListener('click', () => {
-		const list = entries();
+		const list = photoTargets(entries());
 
 		if (!list.length || !alive) {
 			return;
@@ -127,8 +149,9 @@ function addPhotoControl({describe = describeCopy, entries, label = 'Add photo',
 		}
 
 		sheet = openAddPhoto({
-			describe,
+			describe: describe === describeCopy ? describeLanguage : describe,
 			entries: list,
+			pickLabel: 'Language',
 			keepDetail: keepDetailCopies(),
 			async save(fields) {
 				const photo = await savePhoto(fields);
@@ -155,9 +178,9 @@ function addPhotoControl({describe = describeCopy, entries, label = 'Add photo',
 	};
 }
 
-// The Add photo button. entries() returns the live copies the photo can go
-// on; the button hides itself while there are none (photos belong to a
-// physical card). onSaved(photo) runs after a save.
+// The Add photo button. entries() returns the live copies of the card; the
+// photo goes on the card in one of their languages, and the button hides
+// itself while there are none. onSaved(photo) runs after a save.
 export function addPhotoButton(options) {
 	return addPhotoControl(options).button;
 }
@@ -168,14 +191,18 @@ export function addPhotoButton(options) {
 // cardArt); it returns the same element each time, so the carousel keeps its
 // place. destroy() when the view goes.
 //
-// entries: the copies to show photos of. Leave it out for the signed-in
-// person's own copies of cardId in catalog, kept current as they change.
+// entries: the copies whose card's photos show. Leave it out for the
+// signed-in person's own copies of cardId in catalog, kept current as they
+// change. The photos and pin come from the card's records (js/card-info.js)
+// in the copies' languages, or the page's language at zero copies, falling
+// back to another language's photos; records: a family member's records
+// (with their entries), else the person's own.
 // readOnly: no Add photo or Use as main image (someone else's cards).
 // language: the card page's language, which a family member's photo
 // (shared.js) is preferred in; the person's own copies' language otherwise.
 // Only the person's own card page (no entries given, not readOnly) shows
 // the family's photos.
-export function cardPhotos({cardId, catalog, describe = describeCopy, entries: given = null, language = null, readOnly = false, twins = []}) {
+export function cardPhotos({cardId, catalog, describe = describeLanguage, entries: given = null, language = null, readOnly = false, records: givenRecords = null, twins = []}) {
 	let entries = given || [];
 	let official = null;
 	let info = {};
@@ -224,8 +251,13 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		// Only once show() has said whether there is an official image, so a
 		// card that has one never flashes a family photo first.
 		const family = withFamily && shown ? sharedPhotosFor(language ? fallback : cardOf(entries, fallback)) : [];
-		const slides = gallerySlides({entries, family, official, twins});
-		const mainId = mainSlideId(slides, pinnedImage(entries));
+		const live = entries.filter((entry) => entry && !entry.deleted_at);
+		const languages = live.length ? [...new Set(live.map((entry) => entry.language || ''))] : (language ? [language] : []);
+
+		const holders = shownRecords(givenRecords || cardInfoList(), {card_id: cardId, catalog}, languages);
+
+		const slides = gallerySlides({entries: holders, family, official, twins});
+		const mainId = mainSlideId(slides, pinnedImage(holders));
 
 		carousel.update({mainId, pending: pendingUploads(), problems: uploadProblems(), slides, waitingText: waitingText()});
 
@@ -254,12 +286,13 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 		draw();
 	}
 
+	// The pin goes on the card in each language its copies are in (the
+	// page's language at zero copies).
 	async function useAsMain(id) {
-		const own = entries.filter((entry) => !entry.deleted_at);
+		const live = entries.filter((entry) => !entry.deleted_at);
+		const targets = live.length ? photoTargets(live) : [{card_id: cardId, catalog: catalog || 'international', language: language || ''}];
 
-		if (own.length) {
-			await updateCards(own.map((entry) => ({id: entry.id, patch: {main_image: id}})));
-		}
+		await updateCardInfo(targets, (record) => (record.main_image === id ? null : {main_image: id}));
 	}
 
 	const stopChange = onChange(() => load());
@@ -315,8 +348,11 @@ export function cardPhotos({cardId, catalog, describe = describeCopy, entries: g
 //
 // family: false leaves out family members' photos (a member's read-only
 // cards); otherwise a card with no image at all shows one (shared.js).
-export function tileSrc(entries, catalogImage, {family = true, twins = []} = {}) {
-	const choice = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
+//
+// records: the card records the copies' photos come from (js/card-info.js),
+// a family member's for their cards; the person's own when left out.
+export function tileSrc(entries, catalogImage, {family = true, records = null, twins = []} = {}) {
+	const choice = mainImage(recordsForCopies(records || cardInfoList(), entries), catalogImage, {family: familyFor(entries, family), twins});
 
 	if (choice.kind !== 'photo' && choice.kind !== 'family') {
 		return choice.src;
@@ -331,12 +367,13 @@ export function tileSrc(entries, catalogImage, {family = true, twins = []} = {})
 // as the tile did. A family member's photo also gets the line "Photo by
 // <name>" under the tile's meta, and one known only once the family's
 // photo lists have loaded is put in then. Returns the tile.
-export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {family = true, twins = []} = {}) {
-	const choice = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
+export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {family = true, records = null, twins = []} = {}) {
+	const holders = recordsForCopies(records || cardInfoList(), entries);
+	const choice = mainImage(holders, catalogImage, {family: familyFor(entries, family), twins});
 
 	if (choice.kind === 'none' && family) {
 		sharedReady().then(() => sharedSettled()).then(() => {
-			const later = mainImage(entries, catalogImage, {family: familyFor(entries, family), twins});
+			const later = mainImage(recordsForCopies(records || cardInfoList(), entries), catalogImage, {family: familyFor(entries, family), twins});
 
 			if (later.kind === 'family' && !tile.querySelector('.ph-by')) {
 				fillPhoto(tile, later, catalogImage, art);

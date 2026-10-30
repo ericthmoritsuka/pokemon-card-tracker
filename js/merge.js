@@ -17,12 +17,15 @@
 // phone still on the old rules (newer updated_at wins) takes it too.
 // (Decided 2026-10-02, Eric's audit fixes; plans/sync-merge-plan.md.)
 
+import {CARD_INFO, mergeCardInfo, moveToCardInfo} from './card-info.js';
 import {mergePhotoLists} from './photos/model.js';
 import {nextStamp, stampMs} from './stamp.js';
 
 export {nextStamp};
 
-export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings'];
+// card_info: photos, notes, and the main-image pin per card and language
+// (js/card-info.js), from v48.
+export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'openings', 'card_info'];
 
 const time = (value) => stampMs(value);
 
@@ -743,7 +746,9 @@ export function restoreEntry(entry, now = Date.now()) {
 
 // Merges two versions of one list. Entries keep the local order, and entries
 // only the other side has follow in its order. Neither input is changed.
-export function mergeEntries(local, remote) {
+// merge: how two versions of one entry merge (mergeEntry, unless the list
+// has its own rule).
+export function mergeEntries(local, remote, merge = mergeEntry) {
 	const merged = new Map();
 	const loose = [];
 
@@ -763,7 +768,7 @@ export function mergeEntries(local, remote) {
 
 		const mine = merged.get(entry.id);
 
-		merged.set(entry.id, mine ? mergeEntry(mine, entry) : entry);
+		merged.set(entry.id, mine ? merge(mine, entry) : entry);
 	}
 
 	return [...merged.values(), ...loose];
@@ -788,7 +793,7 @@ export function mergeDocuments(local, remote) {
 	}
 
 	for (const key of lists) {
-		out[key] = mergeEntries(Array.isArray(local[key]) ? local[key] : [], Array.isArray(remote[key]) ? remote[key] : []);
+		out[key] = mergeEntries(Array.isArray(local[key]) ? local[key] : [], Array.isArray(remote[key]) ? remote[key] : [], key === CARD_INFO ? mergeCardInfo : mergeEntry);
 	}
 
 	if (local.settings || remote.settings) {
@@ -809,9 +814,13 @@ export function mergeDocuments(local, remote) {
 		out.merge_version = Math.max(Number(local.merge_version) || 0, Number(remote.merge_version) || 0);
 	}
 
-	out.cards =refoldPhotos(collapseImportDuplicates(out.cards));
+	out.cards = refoldPhotos(collapseImportDuplicates(out.cards));
 	out.binders = redirectPockets(out.binders, out.cards);
 	out.wishlist = dedupeWishes(out.wishlist);
+
+	// Photos, notes, and pins a copy still carries (an older app wrote them)
+	// move onto the card's record, on every merge (js/card-info.js).
+	moveToCardInfo(out);
 
 	return out;
 }

@@ -67,15 +67,16 @@ function contain(element) {
 	}
 }
 
-// Opens the Add photo sheet. entries: the person's live copies of this card
-// (the photo goes on one of them). save({entry, blob, type, side, detail})
+// Opens the Add photo sheet. entries: where the photo can go (the card in
+// each language of the person's copies, js/photos/index.js), picked under
+// pickLabel when there are several. save({entry, blob, type, side, detail})
 // stores it and resolves with the new photo; detail is {blob, type, width,
 // height} or null. keepDetail: make a detail copy too. Returns {close}.
 //
 // The sheet is a js/sheet.js sheet: Escape, the system Back, and a route
 // change close it too, and closing it always stops the camera, even one
 // still starting.
-export function openAddPhoto({describe = describeCopy, entries, keepDetail = false, save}) {
+export function openAddPhoto({describe = describeCopy, entries, keepDetail = false, pickLabel = 'Which copy', save}) {
 	let camera = null;
 	// The camera start in progress, so a newer start, a step back, or
 	// closing the sheet can cancel it (startCamera stops its stream).
@@ -149,7 +150,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		title.textContent = 'Add photo';
 
 		const copy = entries.length > 1
-			? h('label', {class: 'ph-field'}, 'Which copy',
+			? h('label', {class: 'ph-field'}, pickLabel,
 				h('select', {class: 'ph-copy', onchange: (event) => {
 					choice.entry = entries[Number(event.target.value)];
 				}}, entries.map((entry, i) => h('option', {selected: entry === choice.entry, value: String(i)}, describe(entry, i)))))

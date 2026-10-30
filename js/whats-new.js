@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-30',
+		items: [
+			'Photos, notes, and the main image now belong to the card, not to one copy: every copy shows them, and so does the card\'s page with no copies left.',
+			'Deleting copies never loses a photo or a note. Notes from several copies of a card are all kept, newest first.',
+			'A language with no photo of its own shows another language\'s photo of the same card.',
+		],
+		version: 'v48',
+	},
+	{
 		date: '2026-10-23',
 		items: [
 			'The card page shows which region and generation a Pokémon is from, like Bulbasaur (Kanto I), so you know which binder it goes in.',
