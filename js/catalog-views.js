@@ -306,7 +306,7 @@ function cardNotes(records) {
 // records (js/card-info.js), made again once those are read (setEntries).
 // Shaped like cardPhotos for cardView.
 function memberPhotos(cardId, catalog, language) {
-	let block = cardPhotos({cardId, catalog, entries: [], readOnly: true});
+	let block = cardPhotos({cardId, catalog, entries: [], readOnly: true, records: []});
 	let shown = {};
 	let key = '';
 

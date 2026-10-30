@@ -715,7 +715,8 @@ describe('photos the server refused', () => {
 		await page.click(`#photo-uploads-list li[data-photo="${second}"] button:has-text("Remove")`);
 		await page.waitForFunction((id) => !document.querySelector(`#photo-uploads-list li[data-photo="${id}"]`), second, {timeout: 10000});
 
-		const photos = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).find((item) => item.id === 'o-2').photos);
+		// The photos are on the card's record (js/card-info.js).
+		const photos = await page.evaluate(async () => ((await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument()).card_info.find((item) => item.card_id === 'tst1-002') || {}).photos);
 
 		assert.ok(photos.every((photo) => photo.deleted_at), 'the refused photo is gone from its card');
 		await waitForSynced(page);

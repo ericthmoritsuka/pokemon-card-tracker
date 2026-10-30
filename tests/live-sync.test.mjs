@@ -348,7 +348,7 @@ describe('live sync without Realtime events', () => {
 
 		// The laptop edits a-1. The push waits three seconds, so the edit is
 		// still waiting when focus pulls.
-		await laptop.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).updateCard('a-1', {notes: 'edited on the laptop'}));
+		await laptop.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).updateCard('a-1', {condition: 'edited on the laptop'}));
 
 		const held = fake.gate((entry) => entry.device === 'laptop' && entry.method === 'GET' && /select=doc/.test(entry.search));
 
@@ -364,7 +364,7 @@ describe('live sync without Realtime events', () => {
 		const local = await localDoc(laptop.page);
 		const byId = new Map(local.cards.map((entry) => [entry.id, entry]));
 
-		assert.equal(byId.get('a-1').notes, 'edited on the laptop', 'the waiting edit was kept');
+		assert.equal(byId.get('a-1').condition, 'edited on the laptop', 'the waiting edit was kept');
 		assert.ok(byId.has('phone-1'), 'the other device\'s card arrived');
 		assert.ok(byId.has(during.id), 'the edit made during the pull was kept');
 
@@ -374,7 +374,7 @@ describe('live sync without Realtime events', () => {
 
 		const serverCards = new Map(fake.documents.get(owner.id).doc.cards.map((entry) => [entry.id, entry]));
 
-		assert.equal(serverCards.get('a-1').notes, 'edited on the laptop');
+		assert.equal(serverCards.get('a-1').condition, 'edited on the laptop');
 		assert.ok(serverCards.has('phone-1'));
 		assert.ok(serverCards.has(during.id));
 		assert.equal(serverCards.size, 4);
@@ -475,7 +475,12 @@ describe('live sync with Realtime broadcast', () => {
 
 		const local = await localDoc(laptop.page);
 
-		assert.equal(local.cards.find((entry) => entry.id === 'a-1').notes, 'from the old app');
+		// A note an older app wrote on the copy moves to the card's record
+		// (js/card-info.js).
+		const copyA1 = local.cards.find((entry) => entry.id === 'a-1');
+
+		assert.equal(copyA1.notes, null);
+		assert.equal(local.card_info.find((record) => record.card_id === copyA1.card_id).notes, 'from the old app');
 		assert.equal(local.sync_delta, undefined, 'the delta is never kept on the phone');
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
@@ -500,7 +505,7 @@ describe('saving only the change (supabase/patch-document.sql)', () => {
 		await waitForStatus(laptop.page, 'Synced');
 
 		const mark = fake.log.length;
-		const update = (page, id, notes) => page.evaluate(async ([entryId, text]) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(entryId, {notes: text}), [id, notes]);
+		const update = (page, id, notes) => page.evaluate(async ([entryId, text]) => (await import('/pokemon-card-tracker/js/collection.js')).updateCard(entryId, {condition: text}), [id, notes]);
 
 		// The phone's save is held on the network while the laptop saves.
 		const held = fake.gate((entry) => entry.device === 'phone' && entry.path === '/rest/v1/rpc/patch_document');
@@ -515,8 +520,8 @@ describe('saving only the change (supabase/patch-document.sql)', () => {
 
 		const server = () => new Map(fake.documents.get(owner.id).doc.cards.map((entry) => [entry.id, entry]));
 
-		assert.equal(server().get('a-1').notes, 'from the phone');
-		assert.equal(server().get('a-2').notes, 'from the laptop');
+		assert.equal(server().get('a-1').condition, 'from the phone');
+		assert.equal(server().get('a-2').condition, 'from the laptop');
 
 		const mine = fake.log.slice(mark).filter((entry) => entry.method !== 'GET' && entry.path.startsWith('/rest/v1/'));
 
@@ -547,8 +552,8 @@ describe('saving only the change (supabase/patch-document.sql)', () => {
 		await update(phone.page, 'a-1', 'again from the phone');
 		await waitForStatus(phone.page, 'Synced');
 		assert.ok(server().has('old-1'));
-		assert.equal(server().get('a-1').notes, 'again from the phone');
-		assert.equal(server().get('a-2').notes, 'from the laptop');
+		assert.equal(server().get('a-1').condition, 'again from the phone');
+		assert.equal(server().get('a-2').condition, 'from the laptop');
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
 		await laptop.context.close();

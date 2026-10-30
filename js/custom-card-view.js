@@ -315,7 +315,7 @@ export function customCardView(root, {cardId}) {
 	let matchAsked = false;
 	const member = lensMember();
 	const readOnly = Boolean(member);
-	let photos = cardPhotos({cardId, catalog: CUSTOM, entries: member ? [] : null, readOnly});
+	let photos = cardPhotos({cardId, catalog: CUSTOM, entries: member ? [] : null, readOnly, records: member ? [] : null});
 	const body = h('div', {class: 'card-detail custom-detail', id: 'custom-detail'});
 	const copies = h('section', {'aria-labelledby': 'copies-title', class: 'copies'});
 	const linkSlot = h('div', {id: 'custom-link-slot'});

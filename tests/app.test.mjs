@@ -254,7 +254,7 @@ describe('signed out', () => {
 
 			assert.ok(byId.has(cardA.id) && byId.has(cardB.id), 'both new cards are held');
 			assert.ok(byId.get('e-00004').deleted_at, 'the delete is held');
-			assert.equal(byId.get('e-00005').notes, 'from tab A');
+			assert.equal(recordFor(doc, byId.get('e-00005')).notes, 'from tab A', 'on the card (js/card-info.js)');
 		}
 
 		await tabA.reload();
@@ -706,6 +706,9 @@ function doubledDocument(count, userId) {
 	return {...documentWith(cards), binders: [binder], user_id: userId};
 }
 
+// The card record (js/card-info.js) of a copy's card and language.
+const recordFor = (doc, card) => (doc.card_info || []).find((record) => record.id === `${card.catalog || 'international'}~${card.card_id}~${card.language || ''}`) || {photos: []};
+
 function checkRepaired(doc, count) {
 	const live = doc.cards.filter((card) => !card.deleted_at);
 
@@ -715,9 +718,11 @@ function checkRepaired(doc, count) {
 	assert.equal(doc.cards.find((card) => card.id === 'b-0002').merged_into, 'a-0002');
 
 	const kept = live.find((card) => card.id === 'a-0001');
+	const record = recordFor(doc, kept);
 
-	assert.deepEqual((kept.photos || []).map((item) => item.id), ['photo-1'], 'the photo moved to the survivor');
-	assert.equal(kept.main_image, 'photo-1');
+	// The photo and pin end on the card's record (js/card-info.js).
+	assert.deepEqual(record.photos.filter((item) => !item.deleted_at).map((item) => item.id), ['photo-1'], 'the photo is kept');
+	assert.equal(record.main_image, 'photo-1');
 	assert.equal(doc.binders[0].slots[0].entry_id, 'a-0002', 'the pocket now holds the survivor');
 }
 
@@ -1230,7 +1235,7 @@ describe('one entry edited on two phones', () => {
 		for (const doc of [docRow(fake, owner).doc, await localDoc(laptop.page), await localDoc(phone.page)]) {
 			const card = doc.cards.find((entry) => entry.id === target);
 
-			assert.equal(card.notes, 'from the phone');
+			assert.equal(recordFor(doc, card).notes, 'from the phone', 'on the card (js/card-info.js)');
 			assert.deepEqual(card.price_manual, price);
 		}
 

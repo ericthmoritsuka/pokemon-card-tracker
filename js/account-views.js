@@ -710,8 +710,10 @@ function uploadsCard() {
 		list
 	);
 
+	// entryId names the card's record (js/card-info.js), or a copy on a row
+	// from before v48. A card with no copies left is still a card.
 	async function cardLabel(doc, index, entryId) {
-		const entry = resolveEntry(doc.cards, entryId);
+		const entry = (doc.card_info || []).find((item) => item && item.id === entryId) || resolveEntry(doc.cards, entryId);
 
 		if (!entry) {
 			return {label: 'A card no longer in your cards', route: null};

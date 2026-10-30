@@ -34,8 +34,8 @@ export const INTEGRATION = {
 		'\t\tconst names = withTwinName(group.plainNames, group.twinItem);',
 		'\t\tconst twins = twinSlides(group.twinItem, {size: \'low\'});',
 		// The family option comes from shared family photos (photos-harness).
-		'\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {family: !readOnly, twins: group.twins}),',
-		'\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, twins: group.twins});',
+		'\t\t\t\tsrc: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),',
+		'\t\t}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});',
 		// After the first build and draw in load(): loadTwins, then
 		// refreshTwins.
 		'\t\tstartTwins();',
