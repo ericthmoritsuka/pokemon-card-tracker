@@ -234,6 +234,44 @@ describe('copies on card detail', () => {
 		await done();
 	});
 
+	test('the notes box follows the language picked, and never writes one language\'s notes over another\'s', async () => {
+		const {done, page} = await phone();
+
+		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
+		await page.evaluate(async (cardId) => {
+			const {setCardNotes} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await setCardNotes({card_id: cardId, catalog: 'international', language: 'pt'}, 'Portuguese note');
+			await setCardNotes({card_id: cardId, catalog: 'international', language: 'en'}, 'English note');
+		}, pt.id);
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('.copies .copy-row');
+
+		// Moving the copy to English with the notes untouched: the box shows
+		// the English notes, and saving leaves both as they were.
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.equal(await page.locator('#copy-notes').inputValue(), 'Portuguese note');
+		await page.selectOption('#copy-language', 'en');
+		assert.equal(await page.locator('#copy-notes').inputValue(), 'English note');
+		await page.click('#copy-save');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		assert.equal((await entries(page))[0].language, 'en');
+		assert.deepEqual((await cardNotes(page)).sort(), [['en', 'English note'], ['pt', 'Portuguese note']]);
+
+		// Notes edited first, then another language picked: the edit goes to
+		// the language the notes came from.
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.fill('#copy-notes', 'English note, edited');
+		await page.selectOption('#copy-language', 'pt');
+		assert.equal(await page.locator('#copy-notes').inputValue(), 'English note, edited');
+		await page.click('#copy-save');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		assert.deepEqual((await cardNotes(page)).sort(), [['en', 'English note, edited'], ['pt', 'Portuguese note']]);
+		await done();
+	});
+
 	test('Remove copy says which binder it leaves, and Undo restores the same copy', async () => {
 		const {done, page} = await phone();
 		const kept = await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});

@@ -359,10 +359,27 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	// Notes belong to the card in the copy's language, shared by every copy
 	// of it (js/card-info.js). Notes joined from several copies may run
-	// past NOTES_MAX; they are never cut unless edited.
-	const cardNotes = (cardInfoOf(first) || {}).notes || '';
-	const notesMax = Math.max(NOTES_MAX, cardNotes.length);
+	// past NOTES_MAX; they are never cut unless edited. The box shows the
+	// notes of noteSource; a language picked before the notes are edited
+	// shows that language's, and edited notes save to the language they
+	// came from, so another language's notes are never overwritten.
+	const notesOf = (language) => ({card_id: first.card_id, catalog: first.catalog, language});
+	let noteSource = notesOf(first.language);
+	let cardNotes = (cardInfoOf(noteSource) || {}).notes || '';
+	let notesMax = Math.max(NOTES_MAX, cardNotes.length);
 	const notes = h('textarea', {class: 'copy-notes', id: 'copy-notes', maxlength: notesMax, name: 'copy-notes', rows: 2}, cardNotes);
+
+	language.addEventListener('change', () => {
+		if (notes.value !== cardNotes) {
+			return;
+		}
+
+		noteSource = notesOf(language.value);
+		cardNotes = (cardInfoOf(noteSource) || {}).notes || '';
+		notesMax = Math.max(NOTES_MAX, cardNotes.length);
+		notes.maxLength = notesMax;
+		notes.value = cardNotes;
+	});
 	// Alike copies are stored in one place (alikeKey).
 	const storage = placePicker({id: 'copy-storage', value: first.storage});
 
@@ -453,12 +470,11 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 			[finishKey(catalog)]: finish.value || null,
 		})})).filter((item) => Object.keys(item.patch).length);
 		const typed = notes.value.trim().slice(0, notesMax);
-		const noteTarget = {card_id: first.card_id, catalog: first.catalog, language: language.value};
-		const noteChanged = typed !== ((cardInfoOf(noteTarget) || {}).notes || '');
+		const noteChanged = notes.value !== cardNotes && typed !== ((cardInfoOf(noteSource) || {}).notes || '');
 
 		try {
 			if (noteChanged) {
-				await setCardNotes(noteTarget, typed);
+				await setCardNotes(noteSource, typed);
 			}
 
 			if (patches.length === 1) {
