@@ -690,18 +690,30 @@ is matched. Per card and language:
   fallback that now matches a Japanese record, or on another card id, is the same card: it is
   kept, takes the file's catalog and card, and when no copy is left on the old card, the old
   card record (photos, notes, pin) moves too, as linking a hand-made card does.
-- The file's copies are matched to the existing ones in four steps: the same `import_key`, then
-  the same monprice row, then the same finish, then any finish. Within a step, copies that hold
-  something he set (the carried fields below, a pocket, a tray, a hand-picked collection) go
-  first, then the oldest.
+- A copy the file does not name (no monprice `import_key`), on a card the file has no copies of,
+  counts with the file's card of the same number and language in another catalog when one of the
+  two is a fallback. A copy he scanned on the Japanese record and the blank copy the old import
+  made on the international card are one card: they are counted together, and the scanned copy
+  stays on its own record.
+- The file decides how many copies of each finish there are; which copies fill them is decided by
+  what he set on them. Copies that hold something (the carried fields below, a pocket, a tray, a
+  hand-picked collection) are kept before blank ones, the most invested first, then the oldest.
+  Each copy takes a slot of its own finish first, and a copy changes finish only when no blank copy
+  can take that slot: with holo 2 to 1 and normal 1 to 2, the graded holo copy stays holo and the
+  blank one becomes normal. The `import_key` only decides which slot of a finish a copy takes, so
+  a count drop never removes the newest copy just for its copy index.
 - A matched copy takes the file's `variant_id` (dropping `finish_raw`), or the raw monprice finish
   when the file found no variant and the copy has none of its own, and the file's `import_key`, so
   the normal import of the same file afterwards adds nothing.
 - Only copies left over are removed, and only the file's copies left over are added. What a
-  removed copy held moves to a kept copy of the same card and language that holds none of it,
-  its own finish first: condition, Stored in, favorite, purchase price and currency, grader,
-  grade, cert number, graded price, Liga price, opening, and its places in hand-picked
-  collections.
+  removed copy held moves detail by detail to a kept copy of the same card and language where
+  that detail is empty, its own finish first: condition, Stored in, favorite, purchase price and
+  currency (together), grading (grader, grade, cert number, graded price, together), Liga price,
+  and opening. A detail a kept copy already has with the same value (Stored in set on every copy)
+  needs nothing. A detail no kept copy has room for is listed in the preview as lost. Every
+  removed copy that held anything gives its places in hand-picked collections to a kept copy.
+- The preview counts copies added, removed, and updated (kept copies that change card, finish,
+  `import_key`, or take a detail), and offers Apply when any of them is not zero.
 
 Copies the file cannot speak for are left alone and reported: hand-made cards; copies of a row
 the import could not match (the same monprice id in the `import_key`, or a leftover with the same
@@ -711,10 +723,11 @@ whose copy is removed takes an unplaced copy of the same card and language (own 
 copy in a tray last for a pocket); a pocket with none left becomes the card's placeholder, and a
 tray drops it. A rule binder's hand pick of a removed copy is left as it is and shows the default
 copy until Undo. Everything is written in one save; if the save fails, the phone's document is put
-back as it was and the error is shown. Undo removes the added copies (clearing any pocket or tray
-they were put in since), restores the removed ones, and puts back each field, pocket, tray, card
-record, and collection place that still holds what Apply wrote, so an edit made since, on this
-phone or another, stays.
+back as it was, the screens are told, and the error is shown. Undo removes the added copies he has
+not touched since (an added copy whose details, pocket, tray, or collections changed since Apply
+is kept, and the Undo result says how many), restores the removed ones, and puts back each field,
+pocket, tray, card record, and collection place that still holds what Apply wrote, latest change
+first, so an edit made since, on this phone or another, stays.
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is

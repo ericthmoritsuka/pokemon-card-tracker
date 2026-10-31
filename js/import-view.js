@@ -116,16 +116,28 @@ async function takeSharedFile() {
 }
 
 // The preview of Match this file in a few words: "+12 copies, -5 copies,
-// 3 photos kept, 2 pockets became placeholders".
+// 4 copies updated, 3 photos kept, 2 pockets became placeholders".
 export function matchSummary(counts) {
 	return [
 		`+${plural(counts.added, 'copy', 'copies')}`,
 		`-${plural(counts.removed, 'copy', 'copies')}`,
+		counts.changed ? `${plural(counts.changed, 'copy', 'copies')} updated` : null,
 		counts.photosKept ? `${plural(counts.photosKept, 'photo', 'photos')} kept` : null,
 		counts.pocketsMoved ? `${plural(counts.pocketsMoved, 'pocket', 'pockets')} took another copy` : null,
 		counts.pocketsToPlaceholder ? `${plural(counts.pocketsToPlaceholder, 'pocket', 'pockets')} became ${counts.pocketsToPlaceholder === 1 ? 'a placeholder' : 'placeholders'}` : null,
 	].filter(Boolean).join(', ');
 }
+
+// The names the preview gives a lost detail (js/match-file.js planMatch lost).
+const LOST_LABELS = {
+	condition: 'condition',
+	grading: 'grading',
+	is_favorite: 'favorite',
+	opening_id: 'opening',
+	price_manual: 'Liga price',
+	purchase_price: 'purchase price',
+	storage: 'Stored in',
+};
 
 function holdPage(event) {
 	event.preventDefault();
@@ -352,7 +364,8 @@ export function importView(root) {
 
 			const cancel = h('button', {id: 'import-match-cancel', type: 'button'}, 'Cancel');
 			const apply = h('button', {class: 'primary', id: 'import-match-apply', type: 'button'}, 'Apply');
-			const changes = counts.added || counts.removed;
+			const changes = counts.added || counts.removed || counts.changed;
+			const lost = counts.lostDetails || [];
 			const leftAlone = counts.leftAlone + counts.hand;
 
 			cancel.addEventListener('click', () => {
@@ -366,6 +379,7 @@ export function importView(root) {
 				h('h3', null, 'Match this file'),
 				h('p', null, 'The file decides how many copies you have of each card and language, cards you added in the app included. The copies you have are kept and take the file\'s finish; only extra copies are removed, and what you set on them (condition, Stored in, prices, grading, favorite) moves to a copy that stays. Photos and notes stay with the card.'),
 				h('p', {class: 'big', id: 'import-match-summary'}, changes ? matchSummary(counts) : 'Your cards already match this file.'),
+				lost.length ? h('p', {id: 'import-match-lost', role: 'note'}, `${lost.length === 1 ? 'This detail is' : 'These details are'} on a copy that is removed, and every copy that stays already has its own, so ${lost.length === 1 ? 'it is' : 'they are'} lost: ${lost.map(({field, value}) => `${LOST_LABELS[field] || field} ${value}`).join('; ')}.`) : null,
 				leftAlone ? h('p', {class: 'muted', id: 'import-match-left'}, `${plural(leftAlone, 'copy', 'copies')} the file could not match (hand-made cards, rows not matched, or rows left out) ${leftAlone === 1 ? 'is' : 'are'} left as ${leftAlone === 1 ? 'it is' : 'they are'}.`) : null
 			));
 			showBar(...(changes ? [apply, cancel] : [cancel]));
@@ -392,8 +406,12 @@ export function importView(root) {
 					undo.disabled = true;
 
 					try {
-						await undoMatch(done.undo);
-						matchPanel.replaceChildren(h('p', {class: 'big card', id: 'import-match-done'}, 'Undone. Your cards and binders are as they were.'));
+						const undone = await undoMatch(done.undo);
+						const keptAdded = (undone && undone.keptAdded) || 0;
+
+						matchPanel.replaceChildren(h('p', {class: 'big card', id: 'import-match-done'}, keptAdded
+							? `Undone. ${plural(keptAdded, 'added copy', 'added copies')} you changed since ${keptAdded === 1 ? 'is' : 'are'} kept; the rest is as it was.`
+							: 'Undone. Your cards and binders are as they were.'));
 						showBar(myCards());
 					}
 					catch (err) {

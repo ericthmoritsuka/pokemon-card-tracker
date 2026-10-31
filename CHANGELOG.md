@@ -19,13 +19,18 @@ are Recife time. Each line ends with its commit.
     decides how many copies you have of each card and language, including copies you scanned or
     added in the app. The copies you have are kept and take the file's finish when it differs (or
     when they had none), missing ones are added (even when an earlier copy was deleted), and only
-    extra ones are removed.
+    extra ones are removed. When a count drops, the copies you set something on (grading, a price,
+    a binder pocket, a collection) are the ones kept, and they keep their finish when they can.
+  - A card you scanned in the app on the Japanese record counts as the same card as the copy an
+    older import put on the international card, so your scanned copy is the one kept.
   - Nothing changes until you tap Apply: first you see what will happen, like "+12 copies, -5
-    copies, 3 photos kept, 2 pockets became placeholders". After Apply, Undo puts your cards and
-    binders back as they were, keeping anything you or another phone changed since.
+    copies, 4 copies updated, 3 photos kept, 2 pockets became placeholders". After Apply, Undo
+    puts your cards and binders back as they were, keeping anything you or another phone changed
+    since, including a new copy you already edited or put in a binder.
   - What you set on a removed copy (condition, Stored in, favorite, purchase price, grading, Liga
     price, and its place in your collections) moves to a copy that stays of the same card and
-    language. A binder pocket or tray whose copy is removed takes another copy of that card; a
+    language, each detail to a copy where it is empty. If a detail has nowhere to go, the preview
+    lists it as lost before you tap Apply. A binder pocket or tray whose copy is removed takes another copy of that card; a
     pocket with none left becomes its placeholder. Photos and notes stay with the card.
   - Cards the file could not match, hand-made cards, and rows you did not tick are left as they
     are.

@@ -10,11 +10,16 @@
 //     monprice id in its import_key), else under its own card. A copy the
 //     old import put on another card (an international fallback that now
 //     matches a Japanese record, say) is the same card;
-//   - the file's copies are matched to existing ones: the same import_key,
-//     then the same monprice row, then the same finish, then any finish.
-//     Within each step, copies that hold something he set (details,
-//     purchase or grading, favorite, a pocket, a tray, a hand-picked
-//     collection) go first, then the oldest (created_at, then id);
+//   - a copy the file does not name, on another record of a card the file
+//     names (same number and language, one of the two a fallback), counts
+//     with that card and stays on its own record;
+//   - the file decides how many copies of each finish there are. Copies
+//     that hold something he set (details, purchase or grading, favorite,
+//     a pocket, a tray, a hand-picked collection) are kept before blank
+//     ones, the most invested first, then the oldest (created_at, then id).
+//     Each takes a slot of its own finish first; a copy changes finish only
+//     when no blank copy can take that slot. The import_key decides only
+//     which slot of a finish a copy takes;
 //   - a matched copy is kept and updated from the file: card and catalog
 //     when they moved, the finish (variant_id, or the raw monprice finish
 //     when no variant was found; a copy's own variant stays when the file
@@ -28,10 +33,11 @@
 // row left out of the import (a large count not ticked: by monprice id,
 // and leftovers of the same card and language).
 //
-// What a removed copy held moves to a kept copy of the same card and
-// language that holds none of it, own finish first: condition, Stored in,
-// favorite, purchase price and currency, grading, Liga price, opening, and
-// its hand-picked collections. A binder pocket or tray holding a removed
+// What a removed copy held moves, detail by detail, to a kept copy of the
+// same card and language where that detail is empty, own finish first:
+// condition, Stored in, favorite, purchase price and currency, grading,
+// Liga price, opening, and its hand-picked collections. A detail no kept
+// copy has room for is listed in the preview as lost. A binder pocket or tray holding a removed
 // copy takes another unplaced copy of that card and language; a pocket
 // with none left becomes that card's placeholder, and a tray drops it. A
 // rule binder's hand pick (binder_picks) of a removed copy is left alone:
@@ -43,10 +49,11 @@
 //
 // planMatch is pure, so Node tests it (tests/match-file.test.mjs). Apply
 // writes everything in one save, and Undo reverts only what still holds
-// the value Apply wrote, so an edit synced from another phone since stays.
+// the value Apply wrote, so an edit synced from another phone since stays;
+// an added copy he changed or placed since is kept.
 
 import {editDocument, importEntryId, isLive, loadDocument, newId} from './collection.js';
-import {nextStamp, restoreEntry, stampEntry} from './merge.js';
+import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
 import {liveBinders, placements, setPocket, slotsOf, stagedOf} from './binders.js';
 import {CARD_INFO, infoKey, joinNotes, newRecord, recordOf} from './card-info.js';
 import {localPart} from './monprice.js';
@@ -73,13 +80,22 @@ const byAge = (a, b) => String(a.created_at || '').localeCompare(String(b.create
 // What a person sets on a copy, which moves from a removed copy to a kept
 // one (js/merge.js USER_FIELDS, but notes, which move to the card record,
 // plus favorite and the Liga price).
-const CARRIED = ['condition', 'storage', 'is_favorite', 'purchase_price', 'purchase_currency', 'grader', 'grade', 'cert_number', 'graded_price', 'price_manual', 'opening_id'];
+// Fields that belong together move together: a price with its currency,
+// a grade with its grader, cert number, and graded price.
+const UNITS = [['condition'], ['storage'], ['is_favorite'], ['purchase_price', 'purchase_currency'], ['grader', 'grade', 'cert_number', 'graded_price'], ['price_manual'], ['opening_id']];
+
+const CARRIED = UNITS.flat();
+
+// What Undo compares on a copy it added: what he sets on a copy.
+const OWN_FIELDS = [...CARRIED, 'notes', 'variant_id'];
 
 const hasDetail = (key, value) => (key === 'is_favorite' ? value === true : value !== undefined && value !== null && value !== '');
 
-const isBlank = (copy) => !CARRIED.some((key) => hasDetail(key, copy[key]));
+// The fields of a unit that hold something, as an object.
+const pick = (copy, fields) => Object.fromEntries(fields.filter((key) => hasDetail(key, copy[key])).map((key) => [key, copy[key]]));
 
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// Key order does not matter: a value that came back through jsonb is the same.
+const same = (a, b) => stableJson(a ?? null) === stableJson(b ?? null);
 
 // "001/165" and "1" alike, "TG02" as "TG2" (js/monprice.js normalizeNumber).
 const normalNumber = (value) => String(value ?? '').trim().toUpperCase().replace(/\d+/g, (digits) => String(Number(digits)));
@@ -318,6 +334,19 @@ function binderChanges(before, after) {
 	return out;
 }
 
+// What Undo compares on a copy Apply added: the details he sets on it, its
+// pocket and trays, and its hand-picked collections.
+function addedState(copy, binders, collections) {
+	const where = placements(binders).get(copy.id);
+
+	return stableJson({
+		fields: pick(copy, OWN_FIELDS),
+		hands: (collections || []).filter((item) => item && !item.deleted_at && item.kind === 'hand' && memberOf(item, copy.id)).map((item) => item.id).sort(),
+		pocket: where ? [where.binder.id, where.slot.page, where.slot.position] : null,
+		trays: liveBinders(binders).filter((binder) => stagedOf(binder).includes(copy.id)).map((binder) => binder.id).sort(),
+	});
+}
+
 // What matching the file does, without saving anything.
 //   doc       the person's document: cards, binders, card_info, collections
 //   entries   js/monprice.js importEntries of the rows to match, one per copy
@@ -327,10 +356,12 @@ function binderChanges(before, after) {
 //             the file could not describe; their copies are left alone
 //   skipped   entries of rows left out of this import (a large count not
 //             ticked); their copies are left alone
-// Returns {cards, binders, card_info, collections, counts, undo}: new lists
-// (card_info and collections only when they changed; changed entries are
-// new objects, the doc is not changed), the numbers for the preview, and
-// what undoPlan needs.
+// Returns {cards, binders, card_info, collections, counts, lost, undo}: new
+// lists (card_info and collections only when they changed; changed entries
+// are new objects, the doc is not changed), the numbers for the preview
+// (changed: kept copies Apply updates; lostDetails, also as lost: the
+// details no kept copy could take, [{id, field, value}]), and what undoPlan
+// needs.
 export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skipped = [], unmatched = []} = {}) {
 	const cards = Array.isArray(doc.cards) ? doc.cards : [];
 	const binders = Array.isArray(doc.binders) ? doc.binders : [];
@@ -351,8 +382,14 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	const placed = placements(binders);
 	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
 	const hands = collections.filter((item) => item && !item.deleted_at && item.kind === 'hand');
-	const holding = new Map(live.map((copy) => [copy.id, !isBlank(copy) || placed.has(copy.id) || staged.has(copy.id) || hands.some((item) => memberOf(item, copy.id))]));
-	const keepFirst = (a, b) => Number(holding.get(b.id)) - Number(holding.get(a.id)) || byAge(a, b);
+	// How much he invested in a copy: each detail he set, a pocket, a tray,
+	// and each hand-picked collection. A copy with none is blank.
+	const weight = new Map(live.map((copy) => [
+		copy.id,
+		UNITS.filter((unit) => Object.keys(pick(copy, unit)).length).length + Number(placed.has(copy.id)) + Number(staged.has(copy.id)) + hands.filter((item) => memberOf(item, copy.id)).length,
+	]));
+	const holds = (copy) => weight.get(copy.id) > 0;
+	const invested = (a, b) => weight.get(b.id) - weight.get(a.id) || byAge(a, b);
 
 	// Each copy's card and language, as the file sees it.
 	const home = new Map();
@@ -399,44 +436,121 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		pools.get(target).push(copy);
 	}
 
+	// The same card on another record: a copy the file does not name (no
+	// monprice key, on a card with no file copies) whose number and language
+	// are those of a card the file names in another catalog, one of the two a
+	// fallback. A copy scanned on the Japanese record and the copy the old
+	// import made on the international card are one card, so they are
+	// counted together, and the scanned copy stays on its own record.
+	const counterparts = new Set();
+
+	for (const [key, copies] of pools) {
+		if (wanted.has(key) || skippedCards.has(key)) {
+			continue;
+		}
+
+		for (const copy of [...copies]) {
+			if (monpriceKey(copy.import_key)) {
+				continue;
+			}
+
+			const twins = [...wanted.entries()].filter(([, list]) => {
+				const entry = list[0];
+
+				return (entry.language || '') === (copy.language || '') && catalogOf(entry) !== catalogOf(copy) && Boolean(entry.fallback) !== Boolean(copy.fallback) && numberOfCard(entry.card_id) === numberOfCard(copy.card_id);
+			});
+
+			if (twins.length !== 1) {
+				continue;
+			}
+
+			const [target] = twins[0];
+
+			copies.splice(copies.indexOf(copy), 1);
+			pools.set(target, [...(pools.get(target) || []), copy]);
+			home.set(copy.id, target);
+			counterparts.add(copy.id);
+		}
+
+		if (!copies.length) {
+			pools.delete(key);
+		}
+	}
+
 	// Match the file's copies to the existing ones, card and language by
-	// card and language.
+	// card and language. The file decides how many copies of each finish
+	// there are; which copies fill them is decided by what he set on them:
+	//   1. copies holding something take a slot of their own finish, the
+	//      most invested first;
+	//   2. blank copies take the slots of their own finish that are left,
+	//      leaving one slot for each holding copy still without one;
+	//   3. those holding copies take any slot left, changing finish;
+	//   4. blank copies take any slot left, changing finish.
+	// Within a step, a copy takes the slot with its own import_key, then its
+	// own monprice row, then one no other copy's import_key names.
 	const matched = [];
 	const removed = [];
 	const shortfall = [];
+	const sameRow = (copy, entry) => {
+		const a = monpriceKey(copy.import_key);
+		const b = monpriceKey(entry.import_key);
+
+		return Boolean(a && b) && a.row === b.row;
+	};
 
 	for (const key of new Set([...wanted.keys(), ...pools.keys()])) {
-		const free = [...(pools.get(key) || [])].sort(keepFirst);
+		const copies = pools.get(key) || [];
 		const open = [...(wanted.get(key) || [])];
-		const take = (fits) => {
-			for (let i = 0; i < open.length;) {
-				const j = free.findIndex((copy) => fits(copy, open[i]));
-
-				if (j < 0) {
-					i++;
-
-					continue;
-				}
-
-				matched.push({copy: free[j], entry: open[i], key});
-				free.splice(j, 1);
-				open.splice(i, 1);
+		const claimed = new Set(copies.map((copy) => copy.import_key).filter(Boolean));
+		const fit = (copy, entry) => {
+			if (entry.import_key && copy.import_key === entry.import_key) {
+				return 3;
 			}
+
+			if (sameRow(copy, entry)) {
+				return 2;
+			}
+
+			return claimed.has(entry.import_key) ? 0 : 1;
 		};
+		const place = (copy, allow) => {
+			let best = -1;
 
-		take((copy, entry) => Boolean(entry.import_key) && copy.import_key === entry.import_key);
-		take((copy, entry) => {
-			const a = monpriceKey(copy.import_key);
-			const b = monpriceKey(entry.import_key);
+			for (let j = 0; j < open.length; j++) {
+				if (allow(copy, open[j]) && (best < 0 || fit(copy, open[j]) > fit(copy, open[best]))) {
+					best = j;
+				}
+			}
 
-			return Boolean(a && b) && a.row === b.row;
-		});
-		take(sameFinish);
-		take(() => true);
+			if (best < 0) {
+				return false;
+			}
+
+			matched.push({copy, entry: open[best], key});
+			open.splice(best, 1);
+
+			return true;
+		};
+		const anyFinish = () => true;
+		const left = [];
+		const waiting = copies.filter(holds).sort(invested).filter((copy) => !place(copy, sameFinish));
+		const blanks = [];
+
+		for (const copy of copies.filter((item) => !holds(item)).sort(byAge)) {
+			if (!(open.length > waiting.length && place(copy, sameFinish))) {
+				blanks.push(copy);
+			}
+		}
+
+		for (const copy of [...waiting, ...blanks]) {
+			if (!place(copy, anyFinish)) {
+				left.push(copy);
+			}
+		}
 
 		shortfall.push(...open.map((entry) => ({entry, key})));
 
-		for (const copy of free) {
+		for (const copy of left) {
 			if (skippedCards.has(key) || spokenFor(copy, unmatched)) {
 				counts.leftAlone++;
 			}
@@ -458,7 +572,10 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 
 	for (const {copy, entry} of matched) {
 		const change = {};
-		const moved = cardKey(copy) !== cardKey(entry);
+		// A copy on its own record that counts with a fallback card stays
+		// on its record: it is the more exact one.
+		const ownRecord = counterparts.has(copy.id) && entry.fallback && !copy.fallback;
+		const moved = !ownRecord && cardKey(copy) !== cardKey(entry);
 
 		if (moved) {
 			moves.push({from: copy, to: entry});
@@ -472,7 +589,7 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 			}
 		}
 
-		if (!same(copy.fallback, entry.fallback)) {
+		if (!ownRecord && !same(copy.fallback, entry.fallback)) {
 			change.fallback = entry.fallback || undefined;
 		}
 
@@ -533,37 +650,48 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		added.push({entry, group: key});
 	}
 
-	// Carry-over: what a removed copy holds goes to a kept copy of the same
-	// card and language that holds none of it, own finish first; oldest
-	// donors and targets first. A removed copy's place in a hand-picked
-	// collection goes with it.
+	// Carry-over, field by field: each detail a removed copy holds goes to a
+	// kept copy of the same card and language where that detail is empty,
+	// own finish first, then the oldest; a copy that can take all of them
+	// first, so they stay together. A detail a kept copy already holds with
+	// the same value needs nothing; one with no empty place is lost and
+	// listed in the preview. Oldest donors first.
 	const after = (copy) => ({...copy, ...(patches.get(copy.id) || {})});
-	const filled = new Set();
+	const keptIn = (key) => matched.filter((item) => item.key === key).map(({copy}) => copy);
 	const joins = [];
+	const lost = [];
 
-	for (const donor of removed.filter((copy) => !isBlank(copy)).sort(byAge)) {
-		const options = matched
-			.filter(({copy, key}) => key === home.get(donor.id) && !filled.has(copy.id) && isBlank(after(copy)))
-			.map(({copy}) => copy)
-			.sort(byAge);
-		const target = options.find((copy) => sameFinish(donor, after(copy)) || groupKey(after(copy)) === groupKey(donor)) || options[0];
+	for (const donor of removed.filter(holds).sort(byAge)) {
+		const ownFinish = (copy) => sameFinish(donor, after(copy)) || groupKey(after(copy)) === groupKey(donor);
+		const targets = keptIn(home.get(donor.id)).sort((a, b) => Number(ownFinish(b)) - Number(ownFinish(a)) || byAge(a, b));
+		const units = UNITS.filter((unit) => Object.keys(pick(donor, unit)).length);
+		const empty = (copy, unit) => !Object.keys(pick(after(copy), unit)).length;
+		const whole = targets.find((copy) => units.every((unit) => empty(copy, unit)));
+		const took = [];
 
-		if (!target) {
-			continue;
-		}
+		for (const unit of units) {
+			const value = pick(donor, unit);
 
-		const change = {};
+			if (targets.some((copy) => same(pick(after(copy), unit), value))) {
+				continue;
+			}
 
-		for (const field of CARRIED) {
-			if (hasDetail(field, donor[field])) {
-				change[field] = donor[field];
+			const target = whole || targets.find((copy) => empty(copy, unit));
+
+			if (target) {
+				patch(target, value);
+				took.push(target);
+			}
+			else if (targets.length) {
+				lost.push({field: unit[0] === 'grader' ? 'grading' : unit[0], id: donor.id, value: unit.length > 1 ? Object.values(value).join(' ') : value[unit[0]]});
 			}
 		}
 
-		filled.add(target.id);
-		patch(target, change);
-		joins.push({donor, target});
-		counts.carried++;
+		if (took.length) {
+			counts.carried++;
+		}
+
+		joins.push({donor, targets: [...new Set([...took, ...targets])]});
 	}
 
 	const out = [...cards];
@@ -587,17 +715,24 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 
 	out.push(...added.map(({entry}) => entry));
 
-	// Hand-picked collections: a kept copy takes a removed copy's place.
+	// Hand-picked collections: a kept copy takes the place of each removed
+	// copy that held anything, the one that took its details first.
 	let collectionsOut = null;
 	const collectionUndo = [];
 
-	for (const {donor, target} of joins) {
+	for (const {donor, targets} of joins) {
 		for (const item of hands) {
 			const list = collectionsOut || collections;
 			const i = list.findIndex((entry) => entry && entry.id === item.id);
 			const current = list[i];
 
-			if (!memberOf(current, donor.id) || memberOf(current, target.id)) {
+			if (!memberOf(current, donor.id)) {
+				continue;
+			}
+
+			const target = targets.find((copy) => !memberOf(current, copy.id));
+
+			if (!target) {
 				continue;
 			}
 
@@ -610,9 +745,10 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	// Pockets: a removed copy's pocket takes another copy of the card, or
 	// its placeholder.
 	const liveAfter = out.filter((card) => card && isLive(card) && card.card_id);
-	const spare = groupBy(liveAfter.filter((card) => !placed.has(card.id)), cardKey);
-	let current = binders;
+	// A copy counted with a card on another record is a spare of that card.
 	const homeOf = (copy) => home.get(copy.id) || cardKey(copy);
+	const spare = groupBy(liveAfter.filter((card) => !placed.has(card.id)), homeOf);
+	let current = binders;
 
 	for (const copy of [...removed].sort(byAge)) {
 		const where = placed.get(copy.id);
@@ -728,6 +864,9 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	counts.added = added.length;
 	counts.removed = removed.length;
 	counts.kept = matched.length;
+	counts.changed = patches.size;
+	counts.lost = lost.length;
+	counts.lostDetails = lost;
 
 	return {
 		binders: current,
@@ -735,8 +874,10 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		cards: out,
 		collections: collectionsOut || undefined,
 		counts,
+		lost,
 		undo: {
 			added: added.map(({entry}) => entry.id),
+			addedState: Object.fromEntries(added.map(({entry}) => [entry.id, addedState(entry, current, collectionsOut || collections)])),
 			binders: binderChanges(binders, current),
 			card_info: infoUndo,
 			cards: cardUndo,
@@ -792,17 +933,31 @@ export function undoPlan(doc, undo, now = Date.now()) {
 	const cards = Array.isArray(doc.cards) ? doc.cards : [];
 	const index = new Map(cards.map((card, i) => [card.id, i]));
 	const gone = new Set();
+	let keptAdded = 0;
 
+	// An added copy goes only when nothing he set on it, and none of its
+	// places, changed since Apply.
 	for (const id of undo.added || []) {
 		const i = index.get(id);
 
-		if (i !== undefined && isLive(cards[i])) {
-			cards[i] = removedVersion(cards[i], now);
-			gone.add(id);
+		if (i === undefined || !isLive(cards[i])) {
+			continue;
 		}
+
+		const was = undo.addedState && undo.addedState[id];
+
+		if (was !== undefined && addedState(cards[i], Array.isArray(doc.binders) ? doc.binders : [], doc.collections) !== was) {
+			keptAdded++;
+
+			continue;
+		}
+
+		cards[i] = removedVersion(cards[i], now);
+		gone.add(id);
 	}
 
-	for (const change of undo.cards || []) {
+	// Last change first, so a record two moves wrote is put back in turn.
+	for (const change of [...(undo.cards || [])].reverse()) {
 		const i = index.get(change.id);
 
 		if (i === undefined) {
@@ -884,7 +1039,7 @@ export function undoPlan(doc, undo, now = Date.now()) {
 	if ((undo.card_info || []).length && Array.isArray(doc[CARD_INFO])) {
 		const records = doc[CARD_INFO];
 
-		for (const change of undo.card_info) {
+		for (const change of [...undo.card_info].reverse()) {
 			const i = records.findIndex((record) => record && record.id === change.id);
 
 			if (i < 0) {
@@ -915,9 +1070,12 @@ export function undoPlan(doc, undo, now = Date.now()) {
 			}
 		}
 	}
+
+	return {keptAdded};
 }
 
-// Saved: undoes applyMatch's change in one save.
+// Saved: undoes applyMatch's change in one save. Returns {keptAdded}: the
+// added copies kept because he changed them since.
 export function undoMatch(undo) {
 	return editDocument((doc) => undoPlan(doc, undo, Date.now()));
 }

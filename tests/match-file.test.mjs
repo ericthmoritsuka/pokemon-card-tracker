@@ -131,7 +131,7 @@ describe('planMatch counts', () => {
 });
 
 describe('planMatch carry-over', () => {
-	test('only the surplus is removed; what a removed copy holds goes to a blank kept copy, own finish first', () => {
+	test('only the surplus is removed; copies holding something are kept before blank ones, and a removed copy\'s details go where they are empty', () => {
 		const reverseOld = copy(0, {variant_id: 'reverse'});
 		const kept = copy(1);
 		const keptDone = copy(2, {condition: 'Near Mint'});
@@ -149,27 +149,27 @@ describe('planMatch carry-over', () => {
 		const byId = new Map(after.map((card) => [card.id, card]));
 
 		// Seven copies, four in the file: three go, none is added.
-		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.carried, plan.counts.kept], [0, 3, 1, 4]);
-		assert.ok(byId.has(reverseDonor.id) && !byId.has(reverseOld.id), 'a copy holding something he set is kept before a blank one of its finish');
-		assert.equal(byId.get(donorA.id).variant_id, 'normal', 'a copy of another finish fills the third plain copy, relabelled from the file');
+		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.carried, plan.counts.kept, plan.counts.lost], [0, 3, 1, 4, 0]);
+		assert.deepEqual([reverseOld, kept, donorC].map((card) => byId.has(card.id)), [false, false, false], 'the blank copies and the least invested go');
+		assert.ok(byId.has(reverseDonor.id) && byId.has(keptDone.id), 'copies holding something in their own finish stay');
+		assert.deepEqual([byId.get(donorA.id).variant_id, byId.get(donorB.id).variant_id], ['normal', 'normal'], 'the most invested copies of another finish fill the plain slots, relabelled from the file');
 		assert.deepEqual([byId.get(donorA.id).condition, byId.get(donorA.id).storage, byId.get(donorA.id).is_favorite], ['Lightly Played', 'Box A', true]);
 		assert.deepEqual(
-			['grade', 'grader', 'purchase_currency', 'purchase_price', 'storage'].map((key) => byId.get(kept.id)[key]),
-			['9', 'PSA', 'BRL', 40, 'Box B'],
-			'every field he set moves from the oldest removed donor to the blank kept copy'
+			['condition', 'grade', 'grader', 'purchase_currency', 'purchase_price', 'storage'].map((key) => byId.get(donorB.id)[key]),
+			['Damaged', '9', 'PSA', 'BRL', 40, 'Box B'],
+			'the removed copy\'s condition goes to the kept copy with none'
 		);
-		assert.equal(byId.get(keptDone.id).storage, undefined, 'a copy with its own details is not a target');
-		assert.equal(after.filter((card) => card.condition === 'Damaged').length, 0, 'no blank copy is left for the last donor');
+		assert.equal(byId.get(keptDone.id).condition, 'Near Mint', 'a detail he set is never overwritten');
 	});
 
 	test('a removed copy\'s place in a hand-picked collection goes to the copy that takes its details', () => {
-		const sameRow = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0'});
+		const sameRow = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0', is_favorite: true, storage: 'Box 1'});
 		const donor = copy(2, {condition: 'Near Mint', variant_id: 'holo'});
 		const collection = {created_at: at(0), deleted_at: null, entry_ids: {[donor.id]: at(5)}, id: 'c1', kind: 'hand', name: 'Invented', rule: null, updated_at: at(5)};
 		const plan = planMatch({binders: [], cards: [sameRow, donor], collections: [collection]}, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
 		const [joined] = plan.collections;
 
-		assert.ok(plan.cards.find((card) => card.id === donor.id).deleted_at, 'the import_key match is kept before the collection member');
+		assert.ok(plan.cards.find((card) => card.id === donor.id).deleted_at, 'as invested, the older copy is kept');
 		assert.equal(plan.cards.find((card) => card.id === sameRow.id).condition, 'Near Mint');
 		assert.ok(joined.entry_ids[sameRow.id], 'the kept copy joins the collection');
 		assert.ok(joined.entry_ids[donor.id], 'the removed copy keeps its own place, for Undo');
@@ -190,8 +190,8 @@ describe('planMatch carry-over', () => {
 
 describe('planMatch pockets', () => {
 	test('a removed copy\'s pocket takes another unplaced copy of the card, or becomes its placeholder', () => {
-		const a = copy(1);
-		const b = copy(2);
+		const a = copy(1, {storage: 'Box A'});
+		const b = copy(2, {storage: 'Box A'});
 		const c = copy(3, {variant_id: 'holo'});
 		const gone = copy(4, {card_id: 'tst1-002', name_local: 'Invented two'});
 		const binder = binderOf('b1', [pocket(1, {entry_id: c.id}), pocket(2, {entry_id: gone.id})]);
@@ -199,7 +199,7 @@ describe('planMatch pockets', () => {
 		const slots = slotsOf(plan.binders[0], placements(plan.binders));
 
 		assert.deepEqual([plan.counts.pocketsMoved, plan.counts.pocketsToPlaceholder], [1, 1]);
-		assert.ok(plan.cards.find((card) => card.id === c.id).deleted_at, 'the plain copies match the file\'s finish first');
+		assert.ok(plan.cards.find((card) => card.id === c.id).deleted_at, 'as invested, the plain copies match the file\'s finish first');
 		assert.equal(slots.find((slot) => slot.position === 1).entry_id, a.id, 'the oldest unplaced copy takes the pocket');
 		assert.deepEqual(slots.find((slot) => slot.position === 2).want, {card_id: 'tst1-002', catalog: 'international', image: null, name: 'Invented two', variant_id: 'normal'});
 		assert.equal(binder.slots.length, 2, 'the binder passed in is not changed');
@@ -218,13 +218,13 @@ describe('planMatch pockets', () => {
 	});
 
 	test('a removed copy in a tray gives its place to an unplaced copy, or leaves the tray; Undo puts it back', () => {
-		const a = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0'});
+		const a = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0', storage: 'Box A'});
 		const staged = copy(2, {variant_id: 'holo'});
 		const b = copy(3, {card_id: 'tst1-002'});
 		const stagedB = copy(4, {card_id: 'tst1-002', variant_id: 'holo'});
 		const binder = {...binderOf('b1'), staged: [staged.id, stagedB.id]};
 		const doc = {binders: [binder], cards: [a, staged, b, stagedB]};
-		// tst1-001: a is kept by its key, the staged holo goes and a takes its
+		// tst1-001: a is kept (as invested, and older), the staged holo goes and a takes its
 		// tray place; tst1-002 is not in the file, so both go.
 		const plan = planMatch(doc, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
 
@@ -414,7 +414,7 @@ describe('rows left out or not matched', () => {
 
 describe('undoPlan after other changes', () => {
 	test('a field, a pocket, or a tray changed since Apply stays', () => {
-		const keep = copy(1, {import_key: 'monprice|M1|pt|NORMAL|0', variant_id: null});
+		const keep = copy(1, {condition: 'Near Mint', import_key: 'monprice|M1|pt|NORMAL|0', is_favorite: true, variant_id: null});
 		const extra = copy(2, {storage: 'Box Z', variant_id: 'holo'});
 		const binder = {...binderOf('b1', [pocket(1, {entry_id: extra.id})])};
 		const doc = {binders: [binder], cards: [keep, extra]};
@@ -441,17 +441,18 @@ describe('undoPlan after other changes', () => {
 		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)).map((slot) => slot.want && slot.want.card_id), ['tst1-009'], 'the pocket changed since stays');
 	});
 
-	test('an added copy placed in a pocket or tray after Apply leaves it on Undo', () => {
+	test('an added copy placed in a pocket or tray after Apply stays on Undo', () => {
 		const doc = {binders: [binderOf('b1')], cards: []};
-		const plan = planMatch(doc, importEntries([row('M1', 'tst1-001', 2)]), {now: NOW});
+		const plan = planMatch(doc, importEntries([row('M1', 'tst1-001', 3)]), {now: NOW});
 		const [first, second] = live(plan.cards);
 		const applied = {binders: plan.binders.map((item) => ({...item, slots: [pocket(3, {entry_id: first.id})], staged: [second.id]})), cards: plan.cards};
 
-		undoPlan(applied, plan.undo, NOW + 1000);
+		const result = undoPlan(applied, plan.undo, NOW + 1000);
 
-		assert.equal(live(applied.cards).length, 0);
-		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)), [], 'no pocket points at a removed copy');
-		assert.deepEqual(applied.binders[0].staged, []);
+		assert.deepEqual(live(applied.cards).map((card) => card.id), [first.id, second.id], 'the copies he placed stay; the untouched one goes');
+		assert.equal(result.keptAdded, 2);
+		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)).map((slot) => slot.entry_id), [first.id]);
+		assert.deepEqual(applied.binders[0].staged, [second.id]);
 	});
 });
 
@@ -459,5 +460,159 @@ describe('groupKey', () => {
 	test('a raw finish stands in for a missing variant', () => {
 		assert.equal(groupKey({card_id: 'x-1', finish_raw: 'HOLOFOIL', language: 'ko', variant_id: null}), 'international|x-1|ko|raw:HOLOFOIL');
 		assert.equal(groupKey({card_id: 'x-1', catalog: 'ja', language: 'ja', variant_id: 'holo'}), 'ja|x-1|ja|holo');
+	});
+});
+
+// The second review of v49 (2026-10-31): a copy he invested in is the one
+// kept, and nothing he set on it is lost or moved to the wrong copy.
+describe('what he set is never lost when a count drops', () => {
+	const c = (id, minute, fields = {}) => ({
+		card_id: 'tst1-001', catalog: 'international', created_at: at(minute), deleted_at: null, id, language: 'pt', updated_at: at(minute), variant_id: 'normal', ...fields,
+	});
+	const e = (key, fields = {}) => ({card_id: 'tst1-001', catalog: 'international', import_key: key, language: 'pt', variant_id: 'normal', ...fields});
+
+	test('a field set on every copy does not stop grading and price from staying', () => {
+		const doc = {binders: [], cards: [
+			c('a', 1, {import_key: 'monprice|M|pt|NORMAL|0', storage: 'Box 1'}),
+			c('b', 2, {grade: '10', grader: 'PSA', import_key: 'monprice|M|pt|NORMAL|1', purchase_currency: 'BRL', purchase_price: 120, storage: 'Box 1'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.equal(live(plan.cards).length, 1);
+		assert.deepEqual([kept.storage, kept.grader, kept.grade, kept.purchase_price, kept.purchase_currency], ['Box 1', 'PSA', '10', 120, 'BRL']);
+		assert.equal(plan.counts.lost, 0);
+	});
+
+	test('details are carried field by field, and what has no place to go is listed as lost', () => {
+		const doc = {binders: [], cards: [
+			c('a', 1, {condition: 'Near Mint', storage: 'Box 1'}),
+			c('b', 2, {condition: 'Damaged', grade: '9', grader: 'PSA', storage: 'Box 1'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.deepEqual([kept.grader, kept.grade, kept.storage], ['PSA', '9', 'Box 1']);
+		assert.equal(plan.counts.lost, 1);
+		assert.deepEqual(plan.lost.map(({field, value}) => [field, value]), [['condition', kept.condition === 'Near Mint' ? 'Damaged' : 'Near Mint']]);
+	});
+
+	test('a count drop keeps the copy he invested in, whatever its import_key copy index', () => {
+		const doc = {binders: [], cards: [
+			c('a', 1, {import_key: 'monprice|M|pt|NORMAL|0'}),
+			c('b', 2, {grade: '9', grader: 'PSA', import_key: 'monprice|M|pt|NORMAL|1'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+
+		assert.deepEqual(live(plan.cards).map((card) => [card.id, card.grade, card.import_key]), [['b', '9', 'monprice|M|pt|NORMAL|0']]);
+	});
+
+	test('with two finishes, the graded copy keeps its finish and a blank copy changes', () => {
+		const doc = {binders: [], cards: [
+			c('x0', 1, {import_key: 'monprice|H|pt|HOLOFOIL|0', variant_id: 'holo'}),
+			c('x1', 2, {grade: '9', grader: 'PSA', import_key: 'monprice|H|pt|HOLOFOIL|1', variant_id: 'holo'}),
+			c('y0', 3, {import_key: 'monprice|N|pt|NORMAL|0'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|H|pt|HOLOFOIL|0', {variant_id: 'holo'}), e('monprice|N|pt|NORMAL|0'), e('monprice|N|pt|NORMAL|1')], {now: NOW});
+		const byId = new Map(live(plan.cards).map((card) => [card.id, card]));
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed], [0, 0]);
+		assert.equal(byId.get('x1').variant_id, 'holo', 'the graded copy stays holo');
+		assert.equal(byId.get('x0').variant_id, 'normal', 'the blank holo copy takes the normal slot');
+	});
+
+	test('a copy whose only hold is a hand-picked collection gives its place to the copy that stays', () => {
+		const doc = {binders: [], cards: [c('a', 1), c('b', 2)], collections: [
+			{created_at: at(0), deleted_at: null, entry_ids: {a: at(3)}, id: 'col1', kind: 'hand', name: 'One', updated_at: at(3)},
+			{created_at: at(0), deleted_at: null, entry_ids: {b: at(3)}, id: 'col2', kind: 'hand', name: 'Two', updated_at: at(3)},
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.equal(live(plan.cards).length, 1);
+		assert.ok(plan.collections.every((item) => item.entry_ids[kept.id]), 'the copy that stays is in both collections');
+	});
+
+	test('a copy he scanned on the Japanese record is kept over the blank fallback copy of the international card', () => {
+		const doc = {
+			binders: [{art: [], cols: 3, created_at: at(0), deleted_at: null, id: 'bd', name: 'B', page_count: 1, rows: 3, slots: [{entry_id: 's', page: 1, placed_at: at(1), position: 1}], updated_at: at(0)}],
+			cards: [
+				c('s', 1, {card_id: 'sv2a-025', catalog: 'japanese', condition: 'NM', language: 'ja', purchase_price: 40}),
+				c('f', 2, {card_id: 'sv3pt5-025', fallback: true, import_key: 'monprice|J|ja|NORMAL|0', language: 'ja'}),
+			],
+		};
+		const plan = planMatch(doc, [{card_id: 'sv3pt5-025', catalog: 'international', fallback: true, import_key: 'monprice|J|ja|NORMAL|0', language: 'ja', variant_id: 'normal'}], {now: NOW});
+		const kept = live(plan.cards);
+
+		assert.deepEqual(kept.map((card) => [card.id, card.catalog, card.card_id, card.condition, card.purchase_price]), [['s', 'japanese', 'sv2a-025', 'NM', 40]]);
+		assert.equal(slotsOf(plan.binders[0], placements(plan.binders))[0].entry_id, 's', 'its pocket stays');
+	});
+});
+
+describe('Undo keeps what changed since Apply', () => {
+	test('an added copy he edited since Apply stays, and Undo says so', () => {
+		const card = {card_id: 'tst1-001', catalog: 'international', created_at: at(1), deleted_at: null, id: 'a', import_key: 'monprice|M|pt|NORMAL|0', language: 'pt', updated_at: at(1), variant_id: 'normal'};
+		const entry = (key) => ({card_id: 'tst1-001', catalog: 'international', import_key: key, language: 'pt', variant_id: 'normal'});
+		const plan = planMatch({binders: [], cards: [card]}, [entry('monprice|M|pt|NORMAL|0'), entry('monprice|M|pt|NORMAL|1')], {ids: new Map([['monprice|M|pt|NORMAL|1', 'new1']]), now: NOW});
+		const doc = {binders: plan.binders, cards: plan.cards.map((item) => (item.id === 'new1' ? {...item, condition: 'NM', purchase_price: 30, updated_at: '2026-10-30T13:00:00.000Z'} : item))};
+		const result = undoPlan(doc, plan.undo, Date.parse('2026-10-30T14:00:00.000Z'));
+		const added = doc.cards.find((item) => item.id === 'new1');
+
+		assert.equal(added.deleted_at, null);
+		assert.deepEqual([added.condition, added.purchase_price], ['NM', 30]);
+		assert.equal(result.keptAdded, 1);
+	});
+
+	test('copies on two old cards that both moved to one card: Undo puts each record back and removes the new one', () => {
+		const rec = (id, cardId, photo) => ({card_id: cardId, catalog: 'international', created_at: at(0), deleted_at: null, id, language: 'ja', photos: [{added_at: at(1), id: photo, path: `p/${photo}.jpg`}], updated_at: at(0)});
+		const doc = {
+			binders: [],
+			card_info: [rec('international~a1-001~ja', 'a1-001', 'p1'), rec('international~a2-001~ja', 'a2-001', 'p2')],
+			cards: [
+				{card_id: 'a1-001', catalog: 'international', created_at: at(1), deleted_at: null, fallback: true, id: 'c1', import_key: 'monprice|M1|ja|NORMAL|0', language: 'ja', updated_at: at(1), variant_id: 'normal'},
+				{card_id: 'a2-001', catalog: 'international', created_at: at(2), deleted_at: null, fallback: true, id: 'c2', import_key: 'monprice|M2|ja|NORMAL|0', language: 'ja', updated_at: at(2), variant_id: 'normal'},
+			],
+		};
+		const e = (m) => ({card_id: 's1-001', catalog: 'japanese', import_key: `monprice|${m}|ja|NORMAL|0`, language: 'ja', variant_id: 'normal'});
+		const plan = planMatch(doc, [e('M1'), e('M2')], {now: NOW});
+		const after = {...doc, binders: plan.binders, card_info: plan.card_info, cards: plan.cards};
+
+		undoPlan(after, plan.undo, NOW + 60000);
+
+		assert.deepEqual(after.card_info.map((record) => [record.id, Boolean(record.deleted_at), (record.photos || []).map((photo) => photo.id).join(',')]), [
+			['international~a1-001~ja', false, 'p1'],
+			['international~a2-001~ja', false, 'p2'],
+			['japanese~s1-001~ja', true, 'p1'],
+		]);
+	});
+
+	test('a placeholder that came back with its keys in another order is still put back', () => {
+		const doc = {
+			binders: [binderOf('bd', [pocket(1, {entry_id: 'x'})])],
+			cards: [{card_id: 't-001', catalog: 'international', created_at: at(1), deleted_at: null, id: 'x', language: 'pt', updated_at: at(1), variant_id: 'normal'}],
+		};
+		const plan = planMatch(doc, [], {now: NOW});
+		const reorder = (want) => ({name: want.name, image: want.image, card_id: want.card_id, catalog: want.catalog, variant_id: want.variant_id});
+		const applied = {...doc, binders: plan.binders.map((item) => ({...item, slots: item.slots.map((slot) => (slot.want ? {...slot, want: reorder(slot.want)} : slot))})), cards: plan.cards};
+
+		undoPlan(applied, plan.undo, NOW + 60000);
+
+		assert.equal(applied.cards[0].deleted_at, null);
+		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)).map((slot) => slot.entry_id), ['x']);
+	});
+});
+
+describe('the preview counts copies that only change', () => {
+	test('a rescan that only moves fallback copies and fixes a finish counts them as changed', () => {
+		const doc = {binders: [], cards: [
+			{card_id: 'a1-001', catalog: 'international', created_at: at(1), deleted_at: null, fallback: true, id: 'c1', import_key: 'monprice|M1|ja|NORMAL|0', language: 'ja', updated_at: at(1), variant_id: 'normal'},
+			{card_id: 't-002', catalog: 'international', created_at: at(2), deleted_at: null, finish_raw: 'HOLOFOIL', id: 'c2', import_key: 'monprice|M2|pt|HOLOFOIL|0', language: 'pt', updated_at: at(2)},
+		]};
+		const plan = planMatch(doc, [
+			{card_id: 's1-001', catalog: 'japanese', import_key: 'monprice|M1|ja|NORMAL|0', language: 'ja', variant_id: 'normal'},
+			{card_id: 't-002', catalog: 'international', import_key: 'monprice|M2|pt|HOLOFOIL|0', language: 'pt', variant_id: 'holo'},
+		], {now: NOW});
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.changed], [0, 0, 2]);
 	});
 });
