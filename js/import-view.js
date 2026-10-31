@@ -12,6 +12,7 @@ import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
+import {applyStartOver, previewStartOver, undoStartOver} from './start-over.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -291,6 +292,95 @@ export function importView(root) {
 
 		save.disabled = !entries.length;
 
+		// Start over with this file (DESIGN.md section 7): a preview first,
+		// then a confirmation, then one save, with Undo after it.
+		const startButton = h('button', {id: 'start-over', type: 'button'}, 'Start over with this file');
+		const startBox = h('div', {'aria-live': 'polite', id: 'start-over-box'});
+		const startOver = h('div', {class: 'card', id: 'start-over-card'},
+			h('h3', null, 'Start over with this file'),
+			h('p', {class: 'muted'}, 'Removes every copy on this phone except hand-made cards, then adds every matched row of this file as a new copy. Photos and notes stay with their cards and show again. Rows not matched are not added; add them by hand from the report.'),
+			startButton,
+			startBox
+		);
+
+		startButton.addEventListener('click', async () => {
+			const planned = entries;
+
+			startButton.disabled = true;
+			startBox.replaceChildren(h('p', {class: 'muted'}, 'Working out what changes...'));
+
+			let counts;
+
+			try {
+				counts = await previewStartOver(planned);
+			}
+			catch (err) {
+				startButton.disabled = false;
+				startBox.replaceChildren(h('p', {role: 'alert'}, `Could not work it out. Nothing was changed. ${errorText(err)}`));
+
+				return;
+			}
+
+			const go = h('button', {class: 'danger', id: 'start-over-go', type: 'button'}, 'Start over');
+			const cancel = h('button', {id: 'start-over-cancel', type: 'button'}, 'Cancel');
+
+			startBox.replaceChildren(
+				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
+				h('div', {class: 'actions'}, go, cancel)
+			);
+
+			cancel.addEventListener('click', () => {
+				startBox.replaceChildren();
+				startButton.disabled = false;
+			});
+
+			go.addEventListener('click', async () => {
+				if (!window.confirm(`Remove ${plural(counts.removed, 'copy', 'copies')} and add ${plural(counts.added, 'copy', 'copies')} from this file? You can undo it right after.`)) {
+					return;
+				}
+
+				go.disabled = true;
+				cancel.disabled = true;
+				save.disabled = true;
+				window.addEventListener('beforeunload', holdPage);
+
+				try {
+					await saveToCardIndex(cards);
+
+					const {counts: done, undo} = await applyStartOver(planned);
+					const undoButton = h('button', {id: 'start-over-undo', type: 'button'}, 'Undo');
+
+					startBox.replaceChildren(
+						h('p', {class: 'big', id: 'start-over-done'}, `Started over. ${formatCount(done.removed)} removed, ${formatCount(done.added)} added.`),
+						h('div', {class: 'actions'}, undoButton, h('a', {class: 'button primary', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'))
+					);
+					save.remove();
+					undoButton.addEventListener('click', async () => {
+						undoButton.disabled = true;
+
+						try {
+							const back = await undoStartOver(undo);
+
+							startBox.replaceChildren(h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`));
+						}
+						catch (err) {
+							undoButton.disabled = false;
+							startBox.append(h('p', {role: 'alert'}, `Could not undo. Nothing was changed. ${errorText(err)}`));
+						}
+					});
+				}
+				catch (err) {
+					go.disabled = false;
+					cancel.disabled = false;
+					save.disabled = !entries.length;
+					startBox.append(h('p', {role: 'alert'}, `Could not start over. Nothing was changed. ${errorText(err)}`));
+				}
+				finally {
+					window.removeEventListener('beforeunload', holdPage);
+				}
+			});
+		});
+
 		const largeCheck = large.length ? h('div', {class: 'notice', id: 'import-large', role: 'group', 'aria-labelledby': 'import-large-title'},
 			h('h3', {id: 'import-large-title'}, 'Check these counts'),
 			h('p', null, large.length === 1
@@ -342,6 +432,7 @@ export function importView(root) {
 			parsed.errors.length ? parseErrors(parsed.errors) : null,
 			largeCheck,
 			h('div', {class: 'actions'}, save, saveStatus),
+			startOver,
 		].filter(Boolean));
 
 		async function doSave() {

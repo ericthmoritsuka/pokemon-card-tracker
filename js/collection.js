@@ -198,8 +198,10 @@ export async function loadDocument() {
 // from the server, and 'account' when the document changes hands. Only
 // 'local' saves are pushed. Other tabs see the change with source 'tab'.
 // replace: write this document as it is, never merged with the stored one
-// (only for a switch of account).
-async function saveDocument(doc, source = 'local', {replace = false} = {}) {
+// (only for a switch of account). into: the in-memory document `doc` is a
+// changed copy of (saveCopy); it takes doc's content only once the write
+// succeeded.
+async function saveDocument(doc, source = 'local', {into = null, replace = false} = {}) {
 	const rev = newId();
 	const db = await openDb();
 	let tookOver = false;
@@ -234,6 +236,12 @@ async function saveDocument(doc, source = 'local', {replace = false} = {}) {
 				}
 			}
 
+			// An edit made in memory while the copy was being changed is
+			// kept: the copy's own changes are newer, so they win.
+			if (into && into !== doc && !tookOver) {
+				absorb(doc, into);
+			}
+
 			// Which cards have photos, for the family (js/photos/model.js,
 			// "Shared family photos"), kept in step with every save, after
 			// anything a copy still carried moved to its card.
@@ -257,12 +265,25 @@ async function saveDocument(doc, source = 'local', {replace = false} = {}) {
 		};
 	});
 
+	if (into && into !== doc && !tookOver) {
+		replaceContent(into, doc);
+		doc = into;
+	}
+
 	current = doc;
 	notify(doc, tookOver ? 'account' : source);
 
 	if (channel) {
 		channel.postMessage({rev});
 	}
+}
+
+// Saves `draft`, a structuredClone of the loaded document with a change
+// made to it (js/start-over.js), so a failed write leaves the document on
+// screen as it was: the in-memory document takes the draft's content only
+// after the write succeeds.
+export async function saveCopy(draft) {
+	await saveDocument(draft, 'local', {into: await loadDocument()});
 }
 
 // listener(doc, {source}) runs after every save. Returns the unsubscribe

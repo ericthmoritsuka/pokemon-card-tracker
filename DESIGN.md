@@ -1066,6 +1066,25 @@ sets, back to Base Set.
 - **The same screen re-imports the app's own CSV** (Eric, 2026-10-03), told apart by its header
   (`entry_id`, `card_id`, `catalog`); section 9 has the rules.
 
+**Start over with this file** (Eric, 2026-10-30). A clean slate from a full rescan into monprice.
+After a monprice file is matched, the report offers "Start over with this file": every live copy
+is removed, except hand-made cards, which a monprice file cannot hold, and every matched row is
+added as a new copy, built the way the import builds it. A key whose earlier copy was deleted is
+added anyway: the copy takes the import's id for its key, or, when an entry already holds that id,
+the id of the key with `|again|<n>` for the first free n, so two phones agree. Rows not matched
+are not added; the report lists them with Add by hand as before. Card records (`card_info`) are
+never touched, so photos, notes, and the main-image pin show again on the added copies. A binder
+pocket that held a removed copy becomes that card's placeholder, trays drop removed copies, a list
+binder's hand pick of a removed copy goes back to the default so the rule picks again, and
+hand-picked collections drop removed copies. Nothing is written before a preview ("Remove N
+copies, add M copies, K photos kept, P pockets become placeholders", K counting the photos on the
+added copies' card records) and a confirmation. Undo, one step, brings the removed copies back and
+removes the added ones, and puts pockets, trays, picks, and collection members back, each only
+while it still holds what Start over wrote, so an edit another phone synced since stays; a pocket
+or tray holding an added copy by then is emptied. The change is planned on a copy of the document
+by one pure function (`js/start-over.js`) for both the preview and the save, and the document on
+screen takes it only once the save succeeds; a failed save changes nothing.
+
 ## 8. Persistence and Auth
 
 Recommended stack: **Supabase** (Postgres, auth, row-level security, file storage on one free

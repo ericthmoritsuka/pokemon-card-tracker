@@ -179,6 +179,7 @@ const SHELL = [
 	'js/shell.js',
 	'js/snap.js',
 	'js/stamp.js',
+	'js/start-over.js',
 	'js/sync.js',
 	'js/tcgdex.js',
 	'js/themes.js',
