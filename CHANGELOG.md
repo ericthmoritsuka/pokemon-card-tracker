@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
-- **v51:** Start over with this file. `TBD`
+- **v51:** Start over with this file. `d92d164`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have
     is removed (hand-made cards stay) and every card in the file is added fresh. A copy whose
     photo is still uploading from another phone stays, and the preview says so.
