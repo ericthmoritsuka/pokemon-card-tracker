@@ -14,6 +14,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-30
 
+- **v49:** delete your photos of cards that now have an official image. `TBD`
+  - When the catalog adds an official image for a card you photographed, a notice offers to delete
+    your photos of it to save space. Review shows each official image beside your photo; photos you
+    chose as the main image start unticked. Delete has Undo, and Not now waits until more cards gain
+    an image.
+
 - **v48:** photos and notes belong to the card. `32c268f`
   - Your photos, notes, and the image you picked with "Use as main image" are now kept on the card
     (per language), not on one copy. Every copy of the card shows them, and so does the card's page

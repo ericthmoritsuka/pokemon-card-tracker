@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-30',
 		items: [
+			'When the catalog adds an official image for a card you photographed, the app offers to delete your photos of it to save space.',
+			'Review shows each official image beside your photo, ticked except a photo you chose as the main image, and Undo brings them back.',
+		],
+		version: 'v49',
+	},
+	{
+		date: '2026-10-30',
+		items: [
 			'Photos, notes, and the main image now belong to the card, not to one copy: every copy shows them, and so does the card\'s page with no copies left.',
 			'Deleting copies never loses a photo or a note. Notes from several copies of a card are all kept, newest first.',
 			'A language with no photo of its own shows another language\'s photo of the same card.',
