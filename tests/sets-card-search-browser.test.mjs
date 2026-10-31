@@ -195,7 +195,22 @@ describe('card search in the Sets tab', () => {
 
 		await context.setOffline(true);
 		await page.fill('.toolbar input.search', 'ball');
-		await page.waitForFunction(() => /saved on this phone/.test((document.getElementById('sets-card-status') || {}).textContent || ''), null, TIMEOUT);
+		// The search runs once more when the Pokémon names load from the
+		// phone's cache, so wait until the final text has held for a second.
+		await page.waitForFunction(() => {
+			const text = (document.getElementById('sets-card-status') || {}).textContent || '';
+			const now = Date.now();
+
+			if (text !== '1 card saved on this phone.') {
+				window.steadySince = null;
+
+				return false;
+			}
+
+			window.steadySince = window.steadySince || now;
+
+			return now - window.steadySince >= 1000;
+		}, null, {...TIMEOUT, polling: 100});
 		assert.equal(await page.locator('#sets-card-status').textContent(), '1 card saved on this phone.');
 		assert.deepEqual(await cardTiles(page), ['Test Ball']);
 		assert.ok(await setsFirst(page));
