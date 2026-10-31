@@ -269,6 +269,35 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Backlog (Eric, 2026-10-22)
 
+- **Own photos and the main image everywhere (Eric, 2026-10-31; NEXT, before the trades log):**
+  only the card page, the hand-made card page, and screens built on `cardsScreen` (My Cards, Trade,
+  a collection) show his own photos and his "Use as main image" pin; every other place draws the
+  catalog image only, so a card with no catalog image (most Korean prints) shows a card back there.
+  Surveyed on master `49f7469`:
+  - Catalog only: binders (pockets via `entryInfo` js/binders-view.js:205 and `wantInfo` :324,
+    rule/list pockets :1580, list-pocket picker :1861, card in hand :2116, tray :2374, Add cards to
+    the tray :2674, owned picker :3296, Not in a binder :3541; the spread's page-turn preview copies
+    pocket images, js/binder-spread.js:646); Sets set detail (js/catalog-views.js:792, catalog plus
+    twin) and the v49 card search results (:568); every card of a Pokemon
+    (js/pokemon-cards-view.js:544); checklist, artist and goal cells (js/goals-view.js:505); the
+    wishlist rows, own and family (js/wishlist-view.js:76, :151); collections' left-out sheet
+    (js/collections-view.js:583, which shows a blank span, not even the card back).
+  - Bugs: a family member's Trade view (js/trade-view.js:106-128) and collection screen
+    (js/collections-view.js:909-916) pass no `loadRecords`, so `tileSrc` (js/photos/index.js:502)
+    falls back to `cardInfoList()` and shows the VIEWER's own photos and pin on the member's cards.
+    The copy sheet still reads legacy `entry.photos` (js/copy-sheet.js:122, used at :145 and :279),
+    so its photo count is about 0 since v48.
+  - Fix: route every card image through the My Cards choice, `tileSrc` and `withMainPhoto`
+    (js/photos/index.js:502, :518; `mainImage` js/photos/model.js:218; `recordsForCopies` and
+    `shownRecords` js/card-info.js:431, :413): official image, then a confident twin
+    (`twinSlides`, js/twins.js:1262), then own photos with the pin winning, then the card back. For
+    cards with no copies (wishlist, placeholders, missing cards) look records up by card and
+    language. Family screens pass the member's `card_info` and `family: false`. Binder tiles use
+    `tileArt`/`cardArt` directly, so either give them the `.art-wrap > .art` that `withMainPhoto`
+    swaps or one card-image helper in js/tile.js that every caller feeds with entries and records.
+    Keep catalog-only where it is by design: scanner candidates and search results, wishlist and
+    placeholder catalog searches, photo cleanup's official image, the twin picker. Medium-small;
+    one review round before publishing.
 - **Trades and sales log (Eric, 2026-10-31; next after his Start over):** record each sale,
   purchase, trade, or gift with its date, who, and one price; cards out leave the collection and
   cards in are added, linked to the move, so each card shows how it came and went, and a History
