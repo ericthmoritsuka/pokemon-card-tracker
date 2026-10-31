@@ -273,29 +273,53 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 		await trayIs(page, (items) => items.length === 1 && items[0].status === 'ready', 'card A ready');
 
-		// Mistake: nothing added.
+		// Mistake: nothing added. The bar is read and answered in one step in
+		// the page: it closes as No by itself 8 s after it opens
+		// (REPEAT_ASK_MS), and on a busy machine a round trip per check plus
+		// a screenshot took longer than that, so Mistake was never clicked.
+		// The button tapped is the one on top at its middle, as a finger
+		// would reach it.
 		await holdAgain(page, 'a');
 		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
-		assert.equal(await page.locator('#scan-repeat-text').textContent(), 'Same card as the last one.');
-		assert.equal(await page.locator('#scan-confirm').count(), 0, 'a bar, not a sheet');
 
-		const shutter = await page.locator('#scan-shutter').boundingBox();
-		const bar = await page.locator('#scan-repeat').boundingBox();
+		const seen = await page.evaluate(() => {
+			const box = (id) => document.querySelector(id).getBoundingClientRect();
+			const no = document.getElementById('scan-repeat-no');
+			const {height, left, top, width} = no.getBoundingClientRect();
+			const tapped = document.elementFromPoint(left + width / 2, top + height / 2);
+			const answer = {
+				bar: box('#scan-repeat'),
+				confirm: document.querySelectorAll('#scan-confirm').length,
+				heights: {'#scan-repeat-add': box('#scan-repeat-add').height, '#scan-repeat-no': height},
+				shutter: box('#scan-shutter'),
+				tapped: Boolean(tapped && no.contains(tapped)),
+				text: document.getElementById('scan-repeat-text').textContent,
+			};
 
-		assert.ok(bar.y + bar.height <= shutter.y, 'the bar is clear of the shutter');
+			if (answer.tapped) {
+				tapped.click();
+			}
 
-		for (const id of ['#scan-repeat-add', '#scan-repeat-no']) {
-			assert.ok((await page.locator(id).boundingBox()).height >= 44, `${id} is at least 44 px tall`);
+			return answer;
+		});
+
+		assert.equal(seen.text, 'Same card as the last one.');
+		assert.equal(seen.confirm, 0, 'a bar, not a sheet');
+		assert.ok(seen.bar.y + seen.bar.height <= seen.shutter.y, 'the bar is clear of the shutter');
+
+		for (const [id, height] of Object.entries(seen.heights)) {
+			assert.ok(height >= 44, `${id} is at least 44 px tall`);
 		}
 
-		await page.screenshot({path: '/tmp/scan-repeat-bar.png'});
-		await page.click('#scan-repeat-no');
+		assert.ok(seen.tapped, 'Mistake is on top where it is tapped');
 		assert.equal(await barOpen(page), 0);
 		await trayIs(page, (items) => items.length === 1 && items[0].copies === 1, 'Mistake adds nothing');
 
-		// No answer: the same as Mistake, after about 8 s.
+		// No answer: the same as Mistake, after about 8 s. The bar's picture
+		// is taken here, where nothing has to be tapped before it closes.
 		await holdAgain(page, 'a');
 		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
+		await page.screenshot({path: '/tmp/scan-repeat-bar.png'});
 		await page.waitForSelector('#scan-repeat-add', {state: 'detached', timeout: 12000});
 		await trayIs(page, (items) => items.length === 1 && items[0].copies === 1, 'no answer adds nothing');
 
@@ -332,23 +356,55 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 	// after the first, both read as sure in 0.3 s, joined the tray as a second
 	// tile instead of asking. The picture was kept on the card only after
 	// its photos were saved, which on his phone (a 4K frame encoded as JPEG
-	// beside it) took longer than that. Here every photo takes 4 s to encode.
+	// beside it) took longer than that. Here every photo takes 8 s to encode.
+	//
+	// Whether the second capture came before the first photo was saved is
+	// checked in the page the moment the scanner counts it, against the
+	// saved photo itself: on a busy machine the test's own clock ran
+	// seconds behind the scanner, and a 4 s window measured from it failed
+	// on v47 and v48 alike.
 	test('the same card again by auto capture 2.6 s later, while the first one\'s photo is still being saved, asks Add a copy or Mistake', async () => {
-		const {context, errors, page} = await open({record: true, slowPhotos: 4000});
+		const {context, errors, page} = await open({record: true, slowPhotos: 8000});
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 		await capturesReach(page, 1);
 
-		const first = Date.now();
+		const [{id: firstId}] = await trayIs(page, (list) => list.length === 1, 'the first tile');
 
 		// Read in a moment; its photo is still being encoded.
 		await waitUntil(async () => (await page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.reads.length)) >= 1, 'the first read', 30000);
 		await holdAgain(page, 'a');
-		await capturesReach(page, 2, 15000);
-		assert.ok(Date.now() - first < 4000, 'taken again before the first photo was saved');
-		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
-		assert.equal(await page.locator('#scan-repeat-text').textContent(), 'Same card as the last one.');
-		await page.click('#scan-repeat-no');
+
+		const firstSaved = await page.evaluate(async (id) => {
+			const {scanStats} = await import('/pokemon-card-tracker/js/scan/view.js');
+			const {loadPhoto} = await import('/pokemon-card-tracker/js/scan/draft.js');
+			const until = Date.now() + 15000;
+
+			while (scanStats.captures < 2) {
+				if (Date.now() > until) {
+					return null;
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+
+			return Boolean(await loadPhoto(id));
+		}, firstId);
+
+		assert.notEqual(firstSaved, null, '2 captures within 15000 ms');
+		assert.equal(firstSaved, false, 'taken again before the first photo was saved');
+
+		// Read and answered in one step, as in the test above: the bar closes
+		// as No by itself 8 s after it opens.
+		await page.waitForSelector('#scan-repeat-add', {timeout: 60000});
+		assert.equal(await page.evaluate(() => {
+			const text = document.getElementById('scan-repeat-text').textContent;
+
+			document.getElementById('scan-repeat-no').click();
+
+			return text;
+		}), 'Same card as the last one.');
+		assert.equal(await barOpen(page), 0);
 
 		const items = await trayIs(page, (list) => list.length === 1 && list[0].status === 'ready', 'one tile');
 
