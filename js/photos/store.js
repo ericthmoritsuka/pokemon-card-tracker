@@ -42,9 +42,8 @@
 
 import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired} from '../auth.js';
 import {infoKey, recordWithPhoto} from '../card-info.js';
-import {loadDocument, onChange, resolveEntry, updateCardInfo} from '../collection.js';
+import {loadDocument, newId, onChange, resolveEntry, updateCardInfo} from '../collection.js';
 import {database} from '../idb.js';
-import {nextStamp} from '../stamp.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -501,6 +500,22 @@ export async function removePhotoFromEntry(recordOrId, photoId) {
 
 // ------------------------------------------------------------- replace
 
+// A file on the phone as {bytes, type}, read now, or null. Undo edit keeps
+// the old photo's files this way: a Blob read back from IndexedDB may no
+// longer read once its row is deleted.
+async function fileBytes(key) {
+	try {
+		const blob = await localPhoto(key);
+
+		return blob ? {bytes: await blob.arrayBuffer(), type: blob.type} : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+const fileBlob = (file) => new Blob([file.bytes], {type: file.type});
+
 // Puts `photo`, a new model.js newPhoto() record (an adjusted copy of the
 // old one, DESIGN.md section 5, "Adjust a photo"), in the place of the live
 // photo oldId on the card's record: saved and queued like any new photo
@@ -511,7 +526,8 @@ export async function removePhotoFromEntry(recordOrId, photoId) {
 // side and created_at, which put it at the same place in the carousel.
 //
 // Resolves with what undoReplacePhoto needs to bring the old photo back:
-// the old record and files on this phone, its queue rows, and the pins.
+// the old photo, its files on this phone (read now), its queue rows, and
+// the id it will come back under.
 export async function replacePhoto(recordOrId, oldId, photo, blob, detailBlob = null) {
 	const record = await holderOf(recordOrId, oldId);
 	const old = record && (record.photos || []).find((item) => item && item.id === oldId && !item.deleted_at);
@@ -525,14 +541,14 @@ export async function replacePhoto(recordOrId, oldId, photo, blob, detailBlob = 
 		.filter((item) => item && !item.deleted_at && item.main_image === oldId)
 		.map(cardOf);
 	const undo = {
-		blobs: {
-			detail: await localPhoto(detailKey(oldId)).catch(() => null),
-			photo: await localPhoto(oldId).catch(() => null),
-		},
+		adjustedId: photo.id,
 		card: cardOf(record),
-		newId: photo.id,
+		files: {
+			detail: await fileBytes(detailKey(oldId)),
+			photo: await fileBytes(oldId),
+		},
 		old: {...old},
-		pins,
+		restoredId: newId(),
 		rows: {
 			detail: await idb('queue', 'readonly', (s) => s.get(detailKey(oldId))).catch(() => null),
 			photo: await idb('queue', 'readonly', (s) => s.get(oldId)).catch(() => null),
@@ -550,64 +566,149 @@ export async function replacePhoto(recordOrId, oldId, photo, blob, detailBlob = 
 	return undo;
 }
 
-// Undo edit: the old photo back exactly as it was (same id, record, place,
-// and pin), with its files on this phone and its queue rows, and the new
-// photo removed the normal way. Its bucket file was never deleted: a
-// removal waits for the grace period, and the live photo again cancels the
-// waiting delete. The old photo carries restored_at, so the merge keeps it
-// live over the tombstone other phones may already hold (model.js
-// mergePhotoLists).
-export async function undoReplacePhoto(undo) {
-	const {old} = undo;
+// Undo edit: the old photo back in the adjusted one's place, and the
+// adjusted one removed the normal way. The old photo comes back as a new
+// photo (undo.restoredId) with its path, detail, side, and created_at, as
+// the photo cleanup's Undo does (js/photo-cleanup.js undoDelete): a
+// tombstone wins every merge, on every version of the app, so the old id
+// cannot come back once a sync has carried its removal. Its bucket file
+// was never deleted: a removal waits for the grace period, and a live photo
+// at the same path cancels the waiting delete (model.js bucketDeleteState
+// on the phone, supabase/card-photos-keep.sql on the server). Its files on
+// this phone are saved under the new id, and an upload that had not gone
+// up yet waits again.
+//
+// The steps run in an order that leaves the adjusted photo in place
+// whatever fails: the files and queue rows, then the old photo on the
+// record, then the pins, then the adjusted photo removed. A failure before
+// the old photo is on the record takes its files and rows away again; one
+// after leaves both photos showing. Each step is safe to run again, so Undo
+// edit can be tried again; once the adjusted photo is gone it is refused.
+// step(name), for tests, runs before each step. Resolves with the photo
+// brought back.
+export function undoReplacePhoto(undo, options = {}) {
+	if (!undo.running) {
+		undo.running = undoReplace(undo, options).finally(() => {
+			undo.running = null;
+		});
+	}
+
+	return undo.running;
+}
+
+async function undoReplace(undo, {step = () => {}}) {
+	const {old, restoredId} = undo;
+	const files = undo.files || {};
 	const doc = await loadDocument();
 	const record = (doc.card_info || []).find((item) => item && item.id === infoKey(undo.card));
-	const now = record && (record.photos || []).find((item) => item && item.id === old.id);
+	const photos = (record && record.photos) || [];
 
-	if (!record || record.deleted_at || !now) {
-		throw new Error('The old photo is no longer on this card.');
+	if (!record || record.deleted_at || !photos.some((item) => item && item.id === undo.adjustedId && !item.deleted_at)) {
+		throw new Error('The adjusted photo is no longer on this card.');
 	}
 
-	const back = {...old, deleted_at: null, path: now.path || old.path};
+	const now = photos.find((item) => item && item.id === old.id);
+	const path = (now && now.path) || old.path || null;
+	// Not up yet when Save removed it: it goes up again, from this phone.
+	const upload = Boolean(undo.rows.photo && undo.rows.photo.op === 'upload') || !path;
+	const uploadDetail = Boolean(undo.rows.detail && undo.rows.detail.op === DETAIL_OP);
+	const back = {...old, deleted_at: null, id: restoredId, path};
 
-	if (now.deleted_at) {
-		back.restored_at = nextStamp(now.deleted_at);
+	if (old.detail && uploadDetail && !files.detail) {
+		delete back.detail;
 	}
 
-	await updateCardInfo([undo.card], (current) => {
-		const photos = patchedPhotos(current, old.id, back);
-
-		return photos ? {photos} : null;
-	});
-
-	if (undo.pins.length) {
-		await updateCardInfo(undo.pins, (current) => (current.main_image === undo.newId ? {main_image: old.id} : null));
+	if (upload && !files.photo) {
+		throw new Error('The old photo is no longer on this phone.');
 	}
 
-	if (undo.blobs.photo) {
-		await savePhotoLocally(old.id, undo.blobs.photo);
-		remember(old.id, undo.blobs.photo);
-	}
+	// The upload rows, each put only where the queue has none.
+	const rowOf = (row, op, at) => ({...row, at, error: null, error_kind: null, error_status: null, op, photo_id: restoredId});
+	const rows = [
+		upload ? [restoredId, rowOf(undo.rows.photo || {entry_id: record.id, list: 'card_info', type: files.photo.type, user_id: doc.user_id || null}, 'upload', Date.now())] : null,
+		uploadDetail && back.detail ? [detailKey(restoredId), rowOf(undo.rows.detail, DETAIL_OP, Date.now() + 1)] : null,
+	].filter(Boolean);
+	const queueRows = async () => {
+		for (const [key, row] of rows) {
+			await idb('queue', 'readwrite', (s) => {
+				const request = s.get(key);
 
-	if (undo.blobs.detail) {
-		await savePhotoLocally(detailKey(old.id), undo.blobs.detail);
-	}
+				request.onsuccess = () => {
+					if (!request.result) {
+						s.put(row, key);
+					}
+				};
 
-	// The queue as it was: the waiting delete gone, and an upload that had
-	// not gone up yet waiting again.
-	await idb('queue', 'readwrite', (s) => s.delete(old.id));
-
-	for (const [key, row] of [[old.id, undo.rows.photo], [detailKey(old.id), undo.rows.detail]]) {
-		if (row) {
-			await idb('queue', 'readwrite', (s) => s.put(row, key));
+				return request;
+			});
 		}
+	};
+	const onRecord = async () => ((await loadDocument()).card_info || [])
+		.some((item) => item && item.id === record.id && (item.photos || []).some((photo) => photo && photo.id === restoredId));
+
+	if (!photos.some((item) => item && item.id === restoredId)) {
+		try {
+			await step('photo file');
+
+			if (files.photo) {
+				await savePhotoLocally(restoredId, fileBlob(files.photo));
+			}
+
+			if (files.detail && back.detail) {
+				await step('detail file');
+				await savePhotoLocally(detailKey(restoredId), fileBlob(files.detail));
+			}
+
+			await step('queue');
+			await queueRows();
+			await step('add');
+			await updateCardInfo([undo.card], (current) => {
+				const list = Array.isArray(current.photos) ? current.photos : [];
+
+				return list.some((item) => item && item.id === restoredId) ? null : {photos: [...list, back]};
+			});
+		}
+		catch (err) {
+			if (!(await onRecord().catch(() => true))) {
+				await forgetLocalPhoto(restoredId).catch(() => {});
+				await idb('queue', 'readwrite', (s) => {
+					s.delete(detailKey(restoredId));
+
+					return s.delete(restoredId);
+				}).catch(() => {});
+			}
+
+			throw err;
+		}
+
+		// Again, in case a flush that ran before the photo was on the record
+		// dropped them (uploadOne: no photo, nothing to send).
+		await queueRows().catch(() => {});
+		await rememberMade(undo.card, back).catch(() => {});
+
+		if (files.photo) {
+			remember(restoredId, fileBlob(files.photo));
+		}
+
+		if (upload) {
+			pending.add(restoredId);
+		}
+
+		notify();
 	}
 
-	if (undo.rows.photo && undo.rows.photo.op === 'upload') {
-		pending.add(old.id);
+	await step('pins');
+
+	const pinned = ((await loadDocument()).card_info || [])
+		.filter((item) => item && !item.deleted_at && item.main_image === undo.adjustedId)
+		.map(cardOf);
+
+	if (pinned.length) {
+		await updateCardInfo(pinned, (current) => (current.main_image === undo.adjustedId ? {main_image: restoredId} : null));
 	}
 
-	await rememberMade(undo.card, back).catch(() => {});
-	await removePhotoFromEntry(undo.card, undo.newId);
+	await step('remove');
+	await removePhotoFromEntry(record.id, undo.adjustedId);
 
 	return back;
 }
@@ -760,6 +861,37 @@ async function deleteOne(client, row) {
 	return true;
 }
 
+// A queue row's key is its photo id, so a row written while another was
+// being sent takes its place: Save or Undo edit removing a photo while it
+// goes up writes the photo's delete there. When the send is done, the row
+// is dropped, or its error written, only while it is still the one sent
+// (the same op and at), so that delete is never lost and the bucket file
+// never left behind.
+const sameRow = (a, b) => Boolean(a && b) && a.op === b.op && a.at === b.at;
+
+function replaceRow(row, next) {
+	const key = queueKey(row);
+
+	return idb('queue', 'readwrite', (s) => {
+		const request = s.get(key);
+
+		request.onsuccess = () => {
+			if (sameRow(request.result, row)) {
+				if (next) {
+					s.put(next, key);
+				}
+				else {
+					s.delete(key);
+				}
+			}
+		};
+
+		return request;
+	});
+}
+
+const dropRow = (row) => replaceRow(row, null);
+
 let flushing = null;
 let flushAgain = false;
 let retryTimer = null;
@@ -813,7 +945,7 @@ export function flushQueue() {
 					const state = bucketDeleteState(row, doc, serverHolds, Date.now());
 
 					if (state === 'cancel') {
-						await idb('queue', 'readwrite', (s) => s.delete(queueKey(row))).catch(() => {});
+						await dropRow(row).catch(() => {});
 					}
 
 					if (state !== 'go') {
@@ -829,7 +961,7 @@ export function flushQueue() {
 						await uploadOne(client, row, user.id);
 					}
 
-					await idb('queue', 'readwrite', (s) => s.delete(queueKey(row)));
+					await dropRow(row);
 
 					if (row.op !== DETAIL_OP) {
 						pending.delete(row.photo_id);
@@ -843,7 +975,7 @@ export function flushQueue() {
 						refusedHere.add(queueKey(row));
 					}
 
-					await idb('queue', 'readwrite', (s) => s.put({...row, error: message, error_kind: kind, error_status: statusOf(err) || null}, queueKey(row))).catch(() => {});
+					await replaceRow(row, {...row, error: message, error_kind: kind, error_status: statusOf(err) || null}).catch(() => {});
 
 					if (!permanent(err)) {
 						// A refused token waits for the session to be refreshed or

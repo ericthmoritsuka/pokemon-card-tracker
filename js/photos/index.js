@@ -372,9 +372,9 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 
 				toast(detailMissing ? 'Photo adjusted. Its detail copy could not be loaded, so the new photo has none.' : 'Photo adjusted.', {
 					action: () => undoReplacePhoto(undo)
-						.then(() => {
+						.then((back) => {
 							if (alive) {
-								wantSlide = old.id;
+								wantSlide = back.id;
 								draw();
 							}
 						})

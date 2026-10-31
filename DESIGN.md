@@ -671,12 +671,22 @@ taken photo, so it works offline, and the old photo is removed the normal way, s
 goes only after 14 days. A detail copy is downloaded and adjusted with the same settings (Auto's
 levels included) to become the new photo's detail copy; when it cannot be loaded, the new photo
 is saved without one and the toast says so. The settings are applied and never stored. **Cancel**
-changes nothing. After Save a toast offers **Undo edit**, which brings the old photo back exactly
-(same id, place, pin, files on the phone, and upload queue) and removes the new one; the old file
-is still in the bucket, since its delete waits 14 days and is cancelled once the photo is live
-again. Because a removal always wins a merge, the restored photo carries `restored_at`, and
-`mergePhotoLists` lets a photo restored after its tombstone win, as a restored entry does; a phone
-still on v51 keeps the tombstone until it updates. Code: `js/photos/adjust.js` (the pixels),
+changes nothing. After Save a toast offers **Undo edit**, which brings the old photo back and
+removes the new one. A tombstone wins every merge, on v51 as on v52, so the old photo comes back
+under a new id, as the photo cleanup's Undo does: the same file (path and detail copy), side, and
+`created_at`, so it shows in the same place, with every pin on the adjusted photo moved to it, its
+files on the phone, and its upload queued again if it had not gone up yet. Its bucket file is still
+there, since its delete waits 14 days, and a live photo at the same path cancels that delete on the
+phone (`bucketDeleteState`) and on the server (`photo_in_use`, `supabase/card-photos-keep.sql`).
+Save keeps the old files as bytes for this, since a file read back from the phone's database may
+not read once its row is gone. Undo edit runs in an order that leaves the adjusted photo in place
+whatever fails: the files and queue rows, then the old photo on the record, then the pins, then
+the adjusted photo removed; a failure before the old photo is on the record takes its files and
+rows away again, and every step is safe to run again. A photo's upload and delete share one queue
+row, so when an upload finishes, the row is dropped only while it is still that upload: a Save or
+Undo edit while the photo goes up writes its delete there, and the file is not left behind. Known
+limit: two phones adjusting the same photo before they sync keep both results, two photos where
+there was one; either can be removed. Code: `js/photos/adjust.js` (the pixels),
 `js/photos/adjust-view.js` (the sheet), `saveAdjustedPhoto` in `js/photos/index.js`, and
 `replacePhoto` and `undoReplacePhoto` in `js/photos/store.js`.
 

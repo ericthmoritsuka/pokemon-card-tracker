@@ -1,10 +1,12 @@
 // Browser tests for Adjust on the owner's photos (DESIGN.md section 5,
 // "Adjust a photo"): open a card with photos, Adjust one, Auto, Save; the
 // card shows the new photo in the same place with the pin and an adjusted
-// detail copy; Undo edit brings the old photo back exactly, and a sync
-// keeps it; an adjusted photo taken offline waits to upload; Cancel changes
-// nothing; a family member's photo and a member's read-only card have no
-// Adjust. Headless Chromium at 360 x 740 against tests/photos-harness.mjs.
+// detail copy; Undo edit brings the old photo back with its file under a
+// new id, and a sync keeps it; an adjusted photo taken offline waits to
+// upload; Cancel changes nothing; a family member's photo and a member's
+// read-only card have no Adjust; an Undo edit that fails part way leaves the
+// adjusted photo in place; Undo edit on a photo that never went up queues it
+// again; Save while the old photo is still going up keeps its file's delete. Headless Chromium at 360 x 740 against tests/photos-harness.mjs.
 //
 // Supabase is tests/photos-fake-storage.mjs, never the real project. The
 // photos are invented: dark gradients drawn in the page.
@@ -200,6 +202,7 @@ describe('Adjust a photo', () => {
 	let first;
 	let second;
 	let adjusted;
+	let restored;
 
 	before(async () => {
 		phone = await device(fake, owner, {offline: () => offline});
@@ -307,35 +310,43 @@ describe('Adjust a photo', () => {
 		await page.screenshot({path: `${SHOTS}/photo-adjust-saved.png`});
 	});
 
-	test('Undo edit brings the old photo back exactly, and a sync keeps it', async () => {
+	test('Undo edit brings the old photo back with its file under a new id, and a sync keeps it', async () => {
 		const {page} = phone;
 
 		await page.evaluate(() => window.H.sync.syncNow());
 		await page.click('#toasts button:has-text("Undo edit")');
-		await until(page, (id) => document.querySelector('.ph-card').dataset.main === id, first.id);
+		await until(page, (id) => {
+			const main = document.querySelector('.ph-card').dataset.main;
+
+			return Boolean(main) && main !== id;
+		}, adjusted.id);
 
 		const back = await record(page);
-		const old = back.photos.find((photo) => photo.id === first.id);
 
-		assert.equal(old.deleted_at, null);
-		assert.equal(old.path, first.path);
-		assert.equal(old.created_at, first.created_at);
-		assert.deepEqual(old.detail, first.detail);
-		assert.equal(back.main_image, first.id);
+		restored = back.photos.find((photo) => !photo.deleted_at && photo.path === first.path);
+		assert.ok(restored, 'the old file is live again');
+		assert.notEqual(restored.id, first.id, 'under a new id: a tombstone wins every merge, on v51 too');
+		assert.deepEqual(Object.keys(restored).sort(), Object.keys(first).sort(), 'nothing new on the photo');
+		assert.equal(restored.side, first.side);
+		assert.equal(restored.created_at, first.created_at);
+		assert.deepEqual(restored.detail, first.detail);
+		assert.ok(back.photos.find((photo) => photo.id === first.id).deleted_at, 'the old id stays removed');
 		assert.ok(back.photos.find((photo) => photo.id === adjusted.id).deleted_at, 'the adjusted photo is removed');
-		assert.deepEqual(await slideIds(page), ['official', first.id, second.id]);
-		assert.ok((await brightness(page, first.id)).mean > 0, 'the old file is on the phone again');
-		assert.ok(await brightness(page, `${first.id}#detail`), 'and its detail copy');
-		assert.equal((await page.evaluate(() => window.H.store.queuedItems())).some((row) => row.photo_id === first.id), false, 'no delete waits for the old file');
+		assert.equal(back.main_image, restored.id, 'the pin moved back');
+		assert.deepEqual(await slideIds(page), ['official', restored.id, second.id], 'in the old photo\'s place');
+		assert.ok((await brightness(page, restored.id)).mean > 0, 'its file is on the phone');
+		assert.ok(await brightness(page, `${restored.id}#detail`), 'and its detail copy');
+		assert.equal(await page.evaluate((id) => window.H.store.pendingUploads().has(id), restored.id), false, 'nothing to upload: the file is in the bucket');
 
-		// The server held the removal; the restore wins the merge.
+		// The server held the removal; the new id is live everywhere, and the
+		// old file's waiting delete is dropped, since a live photo shows it.
 		await page.evaluate(() => window.H.sync.syncNow());
-		await page.waitForTimeout(300);
+		await until(page, (path) => window.H.store.queuedItems().then((rows) => !rows.some((row) => row.op === 'delete' && (row.paths || [row.path]).includes(path))), first.path);
 
 		const synced = await record(page);
 
-		assert.equal(synced.photos.find((photo) => photo.id === first.id).deleted_at, null);
-		assert.equal(synced.main_image, first.id);
+		assert.equal(synced.photos.find((photo) => photo.id === restored.id).deleted_at, null);
+		assert.equal(synced.main_image, restored.id);
 		assert.ok(fake.objects.has(first.path));
 	});
 
@@ -354,12 +365,12 @@ describe('Adjust a photo', () => {
 		await page.waitForSelector('.ph-adjust-sheet', {state: 'detached'});
 
 		const after = await record(page);
-		const made = after.photos.find((photo) => !photo.deleted_at && ![first.id, second.id, adjusted.id].includes(photo.id));
+		const made = after.photos.find((photo) => !photo.deleted_at && ![restored.id, second.id, adjusted.id].includes(photo.id));
 
 		assert.ok(made);
 		assert.equal(await page.evaluate((id) => window.H.store.pendingUploads().has(id), made.id), true);
 		assert.equal(fake.objects.size, objects, 'nothing reached the server');
-		assert.deepEqual(await slideIds(page), ['official', first.id, made.id]);
+		assert.deepEqual(await slideIds(page), ['official', restored.id, made.id]);
 
 		offline = false;
 		fake.offline = false;
@@ -409,5 +420,209 @@ describe('Adjust a photo', () => {
 		assert.equal(shown.readOnlyAdjust, false);
 		assert.equal(shown.familyAdjust, false);
 		assert.deepEqual(errors, []);
+	});
+
+	// Saves the pinned photo adjusted, the way Save does, then Undo edit with
+	// a failure at `failAt`; then Undo edit again with nothing failing.
+	const failedUndo = (page, failAt) => page.evaluate(async (step) => {
+		const {saveAdjustedPhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+		const {neutralSettings} = await import('/pokemon-card-tracker/js/photos/adjust.js');
+		const {store} = window.H;
+		// A copy of the record as it is now: the document is changed in place.
+		const english = async () => {
+			const doc = await window.H.loadDocument();
+			const copy = doc.cards.find((card) => card.id === window.H.ids().e1);
+
+			return structuredClone(doc.card_info.find((item) => item.id === `${copy.catalog || 'international'}~${copy.card_id}~${copy.language || ''}`));
+		};
+		const canvas = document.createElement('canvas');
+
+		canvas.width = 60;
+		canvas.height = 84;
+		canvas.getContext('2d').fillRect(0, 0, 60, 84);
+
+		const before = await english();
+		const old = before.photos.find((photo) => photo.id === before.main_image);
+		const {photo, undo} = await saveAdjustedPhoto({canvas, old, record: before, settings: {...neutralSettings(), brightness: 30}});
+		let error = null;
+
+		try {
+			await store.undoReplacePhoto(undo, {step: (name) => {
+				if (name === step) {
+					throw new Error(`failed at ${name}`);
+				}
+			}});
+		}
+		catch (err) {
+			error = err.message;
+		}
+
+		const failed = await english();
+		const live = failed.photos.filter((item) => !item.deleted_at);
+		const files = await Promise.all(live.map(async (item) => [item.id, Boolean(await store.localPhoto(item.id))]));
+		const rows = await store.queuedItems();
+		const known = new Set(failed.photos.map((item) => item.id));
+		const strayFile = !known.has(undo.restoredId) && Boolean(await store.localPhoto(undo.restoredId));
+
+		await store.undoReplacePhoto(undo);
+
+		const done = await english();
+		let again = null;
+
+		try {
+			await store.undoReplacePhoto(undo);
+		}
+		catch (err) {
+			again = err.message;
+		}
+
+		return {
+			adjustedLive: live.some((item) => item.id === photo.id),
+			again,
+			after: (await english()).photos.filter((item) => !item.deleted_at).map((item) => item.id),
+			done: {
+				adjustedLive: done.photos.some((item) => item.id === photo.id && !item.deleted_at),
+				file: Boolean(await store.localPhoto(undo.restoredId)),
+				live: done.photos.filter((item) => !item.deleted_at && item.path === old.path).map((item) => item.id),
+				main: done.main_image,
+			},
+			error,
+			files,
+			main: failed.main_image,
+			oldPath: live.filter((item) => item.path === old.path).map((item) => item.id),
+			photoId: photo.id,
+			restoredId: undo.restoredId,
+			strayFile,
+			strayRows: rows.filter((row) => !known.has(row.photo_id)).map((row) => row.photo_id),
+		};
+	}, failAt);
+
+	for (const step of ['photo file', 'detail file', 'queue', 'add', 'pins', 'remove']) {
+		test(`an Undo edit that fails at "${step}" leaves the adjusted photo in place, and works when tried again`, async () => {
+			const result = await failedUndo(phone.page, step);
+			const added = ['pins', 'remove'].includes(step);
+
+			assert.equal(result.error, `failed at ${step}`);
+			assert.equal(result.adjustedLive, true, 'the adjusted photo is still there');
+			assert.equal(result.main, step === 'remove' ? result.restoredId : result.photoId, 'the pin moves only once the old photo is back');
+			assert.deepEqual(result.oldPath, added ? [result.restoredId] : [], 'the old photo is back only once its files are');
+			assert.deepEqual(result.files.filter(([, has]) => !has), [], 'every live photo has its file on the phone');
+			assert.equal(result.strayFile, false, 'no file left for a photo that is not there');
+			assert.deepEqual(result.strayRows, [], 'no queue row for a photo that is not there');
+
+			assert.equal(result.done.adjustedLive, false, 'tried again, it removes the adjusted photo');
+			assert.deepEqual(result.done.live, [result.restoredId], 'and the old file is live once');
+			assert.equal(result.done.main, result.restoredId);
+			assert.equal(result.done.file, true);
+			assert.ok(result.again, 'a second Undo edit is refused');
+			assert.equal(result.after.filter((id) => id === result.restoredId).length, 1);
+		});
+	}
+
+	test('offline, Undo edit on a photo that never went up queues it again, and it goes up to its own path', async () => {
+		const {context, page} = phone;
+
+		offline = true;
+		fake.offline = true;
+		await context.setOffline(true);
+
+		const result = await page.evaluate(async () => {
+			const {saveAdjustedPhoto, savePhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+			const {neutralSettings} = await import('/pokemon-card-tracker/js/photos/adjust.js');
+			const {store} = window.H;
+			const doc = await window.H.loadDocument();
+			const copy = doc.cards.find((card) => card.id === window.H.ids().e1);
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 84;
+			canvas.getContext('2d').fillRect(0, 0, 60, 84);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+			const old = await savePhoto({blob, entry: copy, side: 'back', type: 'image/webp'});
+			const holder = (await window.H.loadDocument()).card_info.find((item) => (item.photos || []).some((photo) => photo.id === old.id));
+			const {photo, undo} = await saveAdjustedPhoto({canvas, old, record: holder, settings: {...neutralSettings(), brightness: 30}});
+			const back = await store.undoReplacePhoto(undo);
+			const rows = await store.queuedItems();
+
+			return {
+				adjusted: photo.id,
+				back,
+				old,
+				pending: [...store.pendingUploads()],
+				uploads: rows.filter((row) => row.op === 'upload').map((row) => row.photo_id),
+			};
+		});
+
+		assert.equal(result.back.path, result.old.path, 'the old path');
+		assert.ok(result.pending.includes(result.back.id), 'waiting to upload again');
+		assert.ok(!result.pending.includes(result.old.id) && !result.pending.includes(result.adjusted));
+		assert.ok(result.uploads.includes(result.back.id) && !result.uploads.includes(result.adjusted));
+		assert.equal(fake.objects.has(result.old.path), false);
+
+		offline = false;
+		fake.offline = false;
+		await context.setOffline(false);
+		await page.evaluate(() => window.dispatchEvent(new Event('online')));
+		await until(page, (id) => !window.H.store.pendingUploads().has(id), result.back.id);
+		assert.ok(fake.objects.has(result.old.path), 'it went up to the old path');
+		assert.equal(fake.storageLog('upload').some((entry) => entry.path.includes(`/${result.adjusted}/`)), false, 'the adjusted photo never went up');
+	});
+
+	test('Save while the old photo is still going up keeps its delete, so its file is not left in the bucket', async () => {
+		const {page} = phone;
+		let release;
+
+		fake.hold = new Promise((resolve) => {
+			release = resolve;
+		});
+
+		const uploading = await page.evaluate(async () => {
+			const {savePhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+			const doc = await window.H.loadDocument();
+			const copy = doc.cards.find((card) => card.id === window.H.ids().e1);
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 84;
+			canvas.getContext('2d').fillRect(0, 0, 60, 84);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+
+			return savePhoto({blob, entry: copy, side: 'back', type: 'image/webp'});
+		});
+
+		const end = Date.now() + 10000;
+
+		while (!fake.storageLog('upload').some((entry) => entry.path.endsWith(uploading.path))) {
+			assert.ok(Date.now() < end, 'the upload reached the server');
+			await page.waitForTimeout(50);
+		}
+
+		const adjustedId = await page.evaluate(async (id) => {
+			const {saveAdjustedPhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+			const {neutralSettings} = await import('/pokemon-card-tracker/js/photos/adjust.js');
+			const doc = await window.H.loadDocument();
+			const holder = doc.card_info.find((item) => (item.photos || []).some((photo) => photo.id === id));
+			const old = holder.photos.find((photo) => photo.id === id);
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 84;
+			canvas.getContext('2d').fillRect(0, 0, 60, 84);
+
+			return (await saveAdjustedPhoto({canvas, old, record: holder, settings: {...neutralSettings(), brightness: 30}})).photo.id;
+		}, uploading.id);
+
+		release();
+		fake.hold = null;
+		await until(page, (ids) => window.H.store.queuedItems().then((rows) => !rows.some((row) => row.op !== 'delete' && ids.includes(row.photo_id))), [uploading.id, adjustedId]);
+		await page.evaluate(() => window.H.store.flushQueue());
+
+		const rows = await page.evaluate(() => window.H.store.queuedItems());
+		const waiting = rows.find((row) => row.photo_id === uploading.id);
+
+		assert.ok(fake.objects.has(uploading.path), 'the old photo\'s upload finished');
+		assert.ok(waiting && waiting.op === 'delete' && waiting.paths.includes(uploading.path), 'its delete still waits for the grace period');
 	});
 });

@@ -15,8 +15,6 @@
 //               (deleted_at set), like a removed entry. detail, only on a
 //               photo saved with a detail copy, is {type, width, height}
 //               of that copy, kept beside it at detailPath(path, type).
-//               restored_at, only on a photo brought back by Undo edit,
-//               lets it win over its own tombstone (mergePhotoLists).
 //   main_image  "official", "twin", or a photo id: what tiles show. Absent
 //               means the default order.
 //
@@ -425,20 +423,13 @@ export function familyPhotos(members, card) {
 
 // Merges two versions of one entry's photo list by photo id: a tombstone
 // wins, then the version that knows its path, so neither an upload nor a
-// removal is lost. A photo brought back on purpose after its removal
-// (restored_at later than the tombstone's deleted_at: Undo edit after an
-// adjusted photo replaced it, store.js undoReplacePhoto) wins over that
-// tombstone, as a restored entry does (js/merge.js). Order follows `local`,
-// then photos only `remote` has.
+// removal is lost. Order follows `local`, then photos only `remote` has.
 export function mergePhotoLists(local, remote) {
 	const merged = new Map();
 
 	const pickPhoto = (a, b) => {
 		if (Boolean(a.deleted_at) !== Boolean(b.deleted_at)) {
-			const dead = a.deleted_at ? a : b;
-			const live = dead === a ? b : a;
-
-			return time(live.restored_at) > time(dead.deleted_at) ? live : dead;
+			return a.deleted_at ? a : b;
 		}
 
 		// A copy's photo marked moved (js/card-info.js) is only hidden from

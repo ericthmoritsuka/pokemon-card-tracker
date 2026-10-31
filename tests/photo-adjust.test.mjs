@@ -1,7 +1,8 @@
 // Unit tests for Adjust (DESIGN.md section 5, "Adjust a photo"): the pixel
-// functions in js/photos/adjust.js, and the merge rule that lets a photo
-// brought back by Undo edit win over its own tombstone
-// (js/photos/model.js mergePhotoLists). Invented pixels only.
+// functions in js/photos/adjust.js, and how the photo Undo edit brings back
+// merges with a phone that never saw it (a tombstone always wins,
+// js/photos/model.js mergePhotoLists, so it comes back under a new id).
+// Invented pixels only.
 //
 // Run: node --test tests/photo-adjust.test.mjs
 
@@ -9,6 +10,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {AUTO_CLIP, SLIDERS, applyAdjust, autoLevels, isNeutral, lookupTables, neutralSettings} from '../js/photos/adjust.js';
+import {mergeDocuments} from '../js/merge.js';
 import {mergePhotoLists} from '../js/photos/model.js';
 
 // A width x height image whose pixel i is color(i, x, y) as [r, g, b].
@@ -233,19 +235,44 @@ describe('the sliders', () => {
 });
 
 describe('Undo edit and the merge', () => {
-	const live = {created_at: '2026-10-01T00:00:00.000Z', deleted_at: null, id: 'p1', path: 'u/p1/p1.webp', side: 'front'};
+	const created = '2026-10-01T00:00:00.000Z';
+	const live = {created_at: created, deleted_at: null, id: 'p1', path: 'u/p1/p1.webp', side: 'front'};
 	const removed = {...live, deleted_at: '2026-10-31T10:00:00.000Z'};
-	const restored = {...live, restored_at: '2026-10-31T10:00:05.000Z'};
 
-	test('a photo restored after its removal wins over the tombstone, from either side', () => {
-		assert.equal(mergePhotoLists([restored], [removed])[0].deleted_at, null);
-		assert.equal(mergePhotoLists([removed], [restored])[0].deleted_at, null);
+	// v51 merges photos this way, so v52 must too: a phone on each would
+	// otherwise push the photo back and forth on every sync.
+	test('a tombstone wins over a live photo with the same id, from either side, as on v51', () => {
+		const restored = {...live, restored_at: '2026-10-31T10:00:05.000Z'};
+
+		assert.equal(mergePhotoLists([restored], [removed])[0].deleted_at, removed.deleted_at);
+		assert.equal(mergePhotoLists([removed], [restored])[0].deleted_at, removed.deleted_at);
+		assert.equal(mergePhotoLists([live], [removed])[0].deleted_at, removed.deleted_at);
 	});
 
-	test('a removal after the restore wins again, and a plain live photo still loses', () => {
-		const again = {...restored, deleted_at: '2026-10-31T10:01:00.000Z'};
+	// Phone A adjusts p1 (p1 removed, p2 added), phone B syncs, A taps Undo
+	// edit (p3 added with p1's file, p2 removed), then both keep syncing.
+	test('the photo Undo edit adds, a new id with the old file, settles on both phones', () => {
+		const record = (photos, at) => ({card_id: 'sv1-1', catalog: 'international', created_at: created, field_stamps: {at, since: created}, id: 'international~sv1-1~en', language: 'en', main_image: photos.find((photo) => !photo.deleted_at && photo.side === 'front')?.id || null, photos, updated_at: at});
+		const doc = (item) => ({card_info: [item], merge_version: 2});
+		const adjusted = {...live, id: 'p2', path: 'u/p2/p2.webp'};
+		const saved = doc(record([removed, adjusted], '2026-10-31T10:00:00.000Z'));
+		const undone = doc(record([removed, {...adjusted, deleted_at: '2026-10-31T10:00:05.000Z'}, {...live, id: 'p3'}], '2026-10-31T10:00:05.000Z'));
+		const shown = (d) => d.card_info[0].photos.filter((photo) => !photo.deleted_at).map((photo) => photo.id);
 
-		assert.equal(mergePhotoLists([restored], [again])[0].deleted_at, again.deleted_at);
-		assert.equal(mergePhotoLists([live], [removed])[0].deleted_at, removed.deleted_at);
+		let server = undone;
+		let phoneB = saved;
+		let phoneA = undone;
+
+		for (let round = 0; round < 3; round++) {
+			phoneB = mergeDocuments(phoneB, server);
+			server = phoneB;
+			phoneA = mergeDocuments(phoneA, server);
+			server = phoneA;
+			assert.deepEqual(shown(phoneB), ['p3'], `phone B, round ${round + 1}`);
+			assert.deepEqual(shown(phoneA), ['p3'], `phone A, round ${round + 1}`);
+		}
+
+		assert.equal(phoneA.card_info[0].photos.find((photo) => photo.id === 'p3').path, live.path, 'the old file');
+		assert.equal(JSON.stringify(mergeDocuments(phoneB, phoneA).card_info), JSON.stringify(phoneA.card_info), 'nothing left to push');
 	});
 });

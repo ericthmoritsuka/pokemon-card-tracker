@@ -6,7 +6,8 @@
 //
 // `offline = true` makes every request to the project fail as a phone with
 // no signal would (the request never reaches the server), and counts them in
-// offlineAttempts.
+// offlineAttempts. `hold`, a promise, keeps every upload that arrives waiting
+// until it settles, as a slow connection would.
 
 import {randomUUID} from 'node:crypto';
 
@@ -26,6 +27,7 @@ export class FakeStorageSupabase extends FakeSupabase {
 		this.offline = false;
 		this.offlineAttempts = [];
 		this.refuse = null;
+		this.hold = null;
 	}
 
 	async handle(route, device) {
@@ -92,6 +94,10 @@ export class FakeStorageSupabase extends FakeSupabase {
 			}
 
 			return this.fail(route, status, error, message);
+		}
+
+		if (kind === 'upload' && this.hold) {
+			await this.hold;
 		}
 
 		if (kind === 'upload') {
