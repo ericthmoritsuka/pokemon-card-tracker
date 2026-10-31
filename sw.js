@@ -111,6 +111,7 @@ const SHELL = [
 	'js/pocket-drag.js',
 	'js/auth.js',
 	'js/card-info.js',
+	'js/card-search.js',
 	'js/card-swipe.js',
 	'js/cards-view.js',
 	'js/catalog-views.js',

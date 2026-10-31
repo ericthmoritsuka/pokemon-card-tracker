@@ -385,6 +385,22 @@ list and Ver na Liga, so since 2026-10-02 they sit in the top row and never cove
 **Sets lists physical cards only.** The TCG Pocket series (digital-only cards) is hidden from the
 Sets list. *(Decided by Eric, 2026-10-01.)*
 
+**Card search in the Sets tab.** The Sets search box finds cards across the whole catalog as well as
+sets. It takes a Pokémon or Trainer name in English or Portuguese, and finds the Japanese, Korean,
+and Chinese prints of a Pokémon through its English name (js/names.js); a number ("025", or
+"025/165" to name the set size too); a set code with a number ("MEW 025"); and the kinds ex, GX, V,
+VMAX, VSTAR, promo, SIR, and full art, alone or with a name or number. Sets that match still come
+first, as before; the cards follow, one tile per print, grouped under their set, with the Owned mark,
+the language flags of the copies, and a flag on an Asian print, and each tile opens the card page.
+Online the search asks TCGdex's GraphQL card search (English, Portuguese, and each Asian catalog
+whose name for the Pokémon is known); offline, or when TCGdex fails, it looks through the sets
+already saved on the phone. A search shows at most 60 cards and says when there are more. Three
+limits: SIR and full art are told by rarity, which a saved set does not carry, so offline they find
+only cards whose page was opened once; promo and full art alone are too wide for TCGdex and ask for
+a name or number online; a number alone searches the international catalog, plus the viewing
+language's when it is Asian. The logic is js/card-search.js, with tests/card-search.test.mjs and
+tests/sets-card-search-browser.test.mjs. *(Decided by Eric, 2026-10-22; built 2026-10-30.)*
+
 ## 4. Data Model
 
 Sketch, not final. Three places hold data.
