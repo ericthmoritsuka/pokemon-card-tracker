@@ -14,6 +14,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
+- **v52:** binder placeholders fill themselves. `TBD`
+  - **Fill placeholders**, on each binder and on the Binders list, puts the cards you own into the
+    pockets waiting for them, after a preview, with Undo. After Start over it uses the language
+    each pocket's card had, so Portuguese and English copies go back to their own binders; press it
+    on the phone where you started over, which keeps that record for 7 days.
+  - From now on every card you add (scan, import, Start over, Add cards, by hand) goes into a
+    waiting placeholder by itself. Turn it off in Profile, Binders.
+  - A card on your wishlist moves to Got it with the date when you add it.
+
 - **v51:** Start over with this file. `d92d164`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have
     is removed (hand-made cards stay) and every card in the file is added fresh. A copy whose

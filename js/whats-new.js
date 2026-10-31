@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-31',
 		items: [
+			'Fill placeholders, on each binder and on the Binders list, puts the cards you own into the pockets waiting for them, in the right language, with Undo.',
+			'From now on a card you add by scan, import, or by hand goes into a waiting placeholder by itself (Profile, Binders), and a card on your wishlist moves to Got it.',
+		],
+		version: 'v52',
+	},
+	{
+		date: '2026-10-31',
+		items: [
 			'Import has Start over with this file: it removes your copies and adds every card in the monprice file fresh, for a clean slate.',
 			'Photos and notes stay with their cards. The preview says what will not come back, and Undo stays available for 7 days.',
 			'Undo keeps any new copy you changed since, and after a newer Start over it is no longer offered.',
