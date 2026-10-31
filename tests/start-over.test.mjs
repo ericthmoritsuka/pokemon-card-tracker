@@ -75,7 +75,9 @@ const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
 const {moveToCardInfo} = await import('../js/card-info.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
-const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {FOLDED_UNDO_TEXT, STALE_UNDO_TEXT, UNDO_DAYS, UPLOAD_KEEP_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {fillPlaceholders} = await import('../js/binders.js');
+const v47 = await import('./v47/merge.js');
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const NOW = Date.parse('2026-10-30T12:00:00.000Z');
@@ -244,7 +246,7 @@ describe('planStartOver', () => {
 	});
 
 	test('a copy holding a photo still uploading from another phone stays, and is counted', async () => {
-		const pending = {created_at: at(1), id: 'p9', side: 'front', type: 'image/webp'};
+		const pending = {created_at: new Date(NOW - 86400000).toISOString(), id: 'p9', side: 'front', type: 'image/webp'};
 		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', photos: [pending]}), card('a2', {card_id: 'tst1-002', photos: [{...pending, id: 'p8', path: 'u/p8/p8.webp'}]})], collections: [], goals: [], openings: [], wishlist: []};
 		const rows = importEntries([row('001'), row('002')]);
 		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
@@ -262,7 +264,7 @@ describe('planStartOver', () => {
 	});
 
 	test('a copy left for its uploading photo, imported from the same row, does not block Undo once the merge folds the new copy into it', async () => {
-		const pending = {created_at: at(1), id: 'p9', side: 'front', type: 'image/webp'};
+		const pending = {created_at: new Date(NOW - 86400000).toISOString(), id: 'p9', side: 'front', type: 'image/webp'};
 		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', import_key: KEY('001'), photos: [pending]})], collections: [], goals: [], openings: [], wishlist: []};
 		const rows = importEntries([row('001')]);
 		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
@@ -271,6 +273,18 @@ describe('planStartOver', () => {
 
 		assert.ok(!result.stale);
 		assert.equal(live(result.doc).length, 1);
+	});
+
+	test(`a photo that has not finished uploading in ${UPLOAD_KEEP_DAYS} days no longer keeps its copy`, async () => {
+		const old = {created_at: new Date(NOW - (UPLOAD_KEEP_DAYS + 1) * 86400000).toISOString(), id: 'p7', side: 'front', type: 'image/webp'};
+		const young = {...old, created_at: new Date(NOW - (UPLOAD_KEEP_DAYS - 1) * 86400000).toISOString(), id: 'p6'};
+		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', photos: [old]}), card('a2', {card_id: 'tst1-002', photos: [young]})], collections: [], goals: [], openings: [], wishlist: []};
+		const rows = importEntries([row('001'), row('002')]);
+		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
+
+		assert.ok(plan.doc.cards.find((entry) => entry.id === 'a1').deleted_at, 'its upload queue is likely gone, so the copy goes');
+		assert.equal(plan.doc.cards.find((entry) => entry.id === 'a2').deleted_at, null, 'a younger photo still keeps its copy');
+		assert.deepEqual([plan.counts.removed, plan.counts.uploading], [1, 1]);
 	});
 
 	test('two rows of the same card, language, and finish add a copy each', async () => {
@@ -335,6 +349,37 @@ describe('planUndo', () => {
 		assert.equal(slotAt(undone, 4), null, 'the pocket holding an added copy is emptied');
 		assert.equal(undone.binder_picks[0].entry_id, addedId, 'the pick another phone made stays');
 		assert.ok(byId.get('a002').deleted_at, 'a copy deleted again since is not brought back');
+	});
+
+	test('a placeholder refilled with the added copy gets the old copy back when Undo removes the added one', async () => {
+		const {plan} = await started();
+		const doc = structuredClone(plan.doc);
+		const newOne = live(doc).find((entry) => entry.import_key === KEY('001'));
+
+		assert.equal(slotAt(doc, 1).want.card_id, 'tst1-001', 'Start over made pocket 1 a placeholder');
+
+		const filled = fillPlaceholders(doc.binders, [{binderId: 'b1', cardId: 'tst1-001', entryId: newOne.id, page: 1, position: 1}], {at: '2026-10-30T12:30:00.000Z'});
+
+		doc.binders = doc.binders.map((binder) => filled.changed.find((item) => item.id === binder.id) || binder);
+		assert.equal(slotAt(doc, 1).entry_id, newOne.id, 'the owner put the new copy in it');
+
+		const {counts, doc: undone} = planUndo(doc, plan.undo, {now: NOW + 3600000});
+
+		assert.equal(counts.added, 3, 'the new copy is removed');
+		assert.equal(slotAt(undone, 1) && slotAt(undone, 1).entry_id, 'a001', 'the old copy is back in its pocket, not loose');
+	});
+
+	test('a pocket refilled with the added copy and then changed by hand stays as it is', async () => {
+		const {plan} = await started();
+		const doc = structuredClone(plan.doc);
+		const binder = doc.binders[0];
+
+		binder.slots = binder.slots.filter((slot) => !(slot.page === 1 && slot.position === 1));
+		binder.slots.push({entry_id: 'a003', page: 1, placed_at: '2026-10-30T12:30:00.000Z', position: 1});
+
+		const {doc: undone} = planUndo(doc, plan.undo, {now: NOW + 3600000});
+
+		assert.equal(slotAt(undone, 1).entry_id, 'a003');
 	});
 
 	test('an added copy changed since stays, with its pocket, and is counted as kept', async () => {
@@ -409,7 +454,57 @@ describe('the latest run', () => {
 
 		assert.equal(merged.start_over.id, a.undo.run);
 		assert.equal(result.stale, true);
+		assert.equal(result.reason, 'run', 'folded into another run\'s copies: that is another run');
 		assert.equal(live(mergeDocuments(result.doc, b.doc)).length, 3, 'one copy per row of the file');
+	});
+
+	test('a phone on v47 to v50 pushing its older run mark back does not let an older Undo through', async () => {
+		const old = three();
+		const b = await run(old, NOW);
+		let server = b.doc;
+		let older = v47.mergeDocuments(structuredClone(old), server);
+		const a = await run(server, NOW + 86400000);
+
+		server = a.doc;
+		// The older phone keeps its own top-level start_over over the
+		// server's, then pushes the merged document.
+		older = v47.mergeDocuments(older, server);
+		assert.equal(older.start_over.id, b.undo.run, 'the older app put the older mark back');
+		server = older;
+
+		const onB = mergeDocuments(b.doc, server);
+		const result = planUndo(onB, b.undo, {now: NOW + 2 * 86400000});
+
+		assert.equal(result.stale, true, 'the newer run is still known');
+		assert.equal(stableJson(result.doc), stableJson(onB));
+	});
+
+	test('a newer run marked only by a v51 phone (start_over, not the list) still counts', async () => {
+		const a = await run(three(), NOW);
+		const doc = structuredClone(a.doc);
+
+		doc.start_over = {at: new Date(NOW + 60000).toISOString(), id: 'v51-run'};
+		assert.equal(planUndo(doc, a.undo, {now: NOW + 120000}).stale, true);
+	});
+
+	test('a fold into a copy another phone imported, not another run, is refused with its own reason', async () => {
+		const base = three();
+		const a = await run(base, NOW);
+		const imported = structuredClone(base);
+		const ids = new Map();
+
+		for (const entry of rows) {
+			ids.set(entry.import_key, await collection.importEntryId(entry.import_key));
+		}
+
+		imported.cards = collection.planImport(imported.cards, rows, {ids, now: NOW - 3600000}).cards;
+
+		const merged = mergeDocuments(a.doc, imported);
+		const result = planUndo(merged, a.undo, {now: NOW + 60000});
+
+		assert.ok(a.undo.added.some((id) => merged.cards.find((entry) => entry.id === id).merged_into), 'the merge folded the run\'s copies into the imported ones');
+		assert.equal(result.stale, true);
+		assert.equal(result.reason, 'fold');
 	});
 
 	test('the newest run\'s Undo works after a merge with a phone that did not start over', async () => {
@@ -498,9 +593,10 @@ describe('saving', () => {
 
 	test('the preview, the apply, and Undo go through the document on screen', async () => {
 		const doc = await collection.loadDocument();
-		const preview = await previewStartOver(ENTRIES);
+		const {unsynced, ...preview} = await previewStartOver(ENTRIES, {sync: {syncNow: async () => {}, syncStatus: () => ({phase: 'off', signedIn: false})}});
 		const {counts, undo} = await applyStartOver(ENTRIES);
 
+		assert.equal(unsynced, false);
 		assert.deepEqual(preview, counts);
 		assert.equal(await collection.loadDocument(), doc, 'the same object, with the new content');
 		assert.equal(doc.cards.filter((entry) => !entry.deleted_at).length, 4);
@@ -552,6 +648,40 @@ describe('saving', () => {
 		assert.equal(await savedUndo(), null, 'no longer offered');
 		doc.start_over = {at: new Date().toISOString(), id: undo.run};
 		assert.equal(await savedUndo(), null, 'dropped, not just hidden');
+	});
+
+	test('the preview pulls from the server first, and says so when it could not', async () => {
+		const doc = await collection.loadDocument();
+		const synced = {
+			syncNow: async () => {
+				// Another phone removed a003 and the pull brought it.
+				doc.cards = doc.cards.map((entry) => (entry.id === 'a003' ? {...entry, deleted_at: '2026-10-30T11:00:00.000Z', updated_at: '2026-10-30T11:00:00.000Z'} : entry));
+			},
+			syncStatus: () => ({phase: 'synced', signedIn: true}),
+		};
+		const pulled = await previewStartOver(ENTRIES, {sync: synced});
+
+		assert.equal(pulled.removed, 2, 'the pulled removal is in the preview');
+		assert.equal(pulled.unsynced, false);
+
+		for (const phase of ['offline', 'error', 'signin']) {
+			const counts = await previewStartOver(ENTRIES, {sync: {syncNow: async () => {}, syncStatus: () => ({phase, signedIn: true})}});
+
+			assert.equal(counts.unsynced, true, phase);
+		}
+
+		const thrown = await previewStartOver(ENTRIES, {sync: {syncNow: async () => {
+			throw new Error('down');
+		}, syncStatus: () => ({phase: 'synced', signedIn: true})}});
+
+		assert.equal(thrown.unsynced, true, 'a failed pull');
+		assert.equal((await previewStartOver(ENTRIES, {sync: {syncNow: async () => {}, syncStatus: () => ({phase: 'off', signedIn: false})}})).unsynced, false, 'signed out: no other phones to wait for');
+	});
+
+	test('a refused Undo names the real cause', async () => {
+		assert.match(STALE_UNDO_TEXT, /started over again/);
+		assert.match(FOLDED_UNDO_TEXT, /Another phone imported/);
+		assert.doesNotMatch(FOLDED_UNDO_TEXT, /started over again/);
 	});
 
 	test('a failed save leaves the document on screen unchanged', async () => {

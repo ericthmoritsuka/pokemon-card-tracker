@@ -129,12 +129,47 @@ export function copyHash(entry) {
 // A copy holding a live photo with no path, on the copy or on its card's
 // record: a v47 phone took it and has not uploaded it yet. Removing the copy
 // would give the photo up (js/card-info.js fileGone), so Start over leaves
-// it.
-function uploading(entry, records) {
+// it, but only while the photo is younger than UPLOAD_KEEP_DAYS: an upload
+// that has not finished by then most likely never will (the phone's queue
+// is gone), and the copy would otherwise stay for good. A photo with no
+// readable created_at counts as young, since giving a photo up is worse
+// than keeping a copy.
+export const UPLOAD_KEEP_DAYS = 7;
+
+function uploading(entry, records, now) {
 	const record = records.get(infoKey(entry));
 	const held = new Map((record && Array.isArray(record.photos) ? record.photos : []).filter(Boolean).map((photo) => [photo.id, photo]));
+	const young = (photo) => !(now - Date.parse(photo.created_at) > UPLOAD_KEEP_DAYS * 24 * 60 * 60 * 1000);
 
-	return (Array.isArray(entry.photos) ? entry.photos : []).some((photo) => photo && photo.id && !photo.deleted_at && !photo.path && !(held.get(photo.id) || {}).path);
+	return (Array.isArray(entry.photos) ? entry.photos : []).some((photo) => photo && photo.id && !photo.deleted_at && !photo.path && !(held.get(photo.id) || {}).path && young(photo));
+}
+
+// The runs of Start over the document knows of. Each run adds
+// {id, at, created_at, updated_at, deleted_at: null} to the top-level list
+// start_overs, which every app version since v21 merges entry by entry, so
+// no phone can drop a run another phone wrote. v51 kept only one top-level
+// start_over field, which an app before v51 merges by keeping its own value
+// (js/merge.js mergeDocuments), so an older phone could push an older mark
+// back; it is still read, for documents a v51 phone wrote, and still
+// written, for v51 phones.
+const runsOf = (doc) => [
+	...(Array.isArray(doc && doc.start_overs) ? doc.start_overs : []).filter((item) => item && item.id && !item.deleted_at),
+	...(doc && doc.start_over && doc.start_over.id ? [doc.start_over] : []),
+];
+
+// The newest run, by at, then id, so every phone picks the same; or null.
+export function latestRun(doc) {
+	let newest = null;
+
+	for (const item of runsOf(doc)) {
+		const diff = newest ? (Date.parse(item.at) || 0) - (Date.parse(newest.at) || 0) : 1;
+
+		if (diff > 0 || (diff === 0 && String(item.id) > String(newest.id))) {
+			newest = item;
+		}
+	}
+
+	return newest ? {at: newest.at, id: newest.id} : null;
 }
 
 const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : []).filter((photo) => photo && photo.id && !photo.deleted_at).length;
@@ -149,8 +184,11 @@ const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : [
 // language with no copy after Start over, {card_id, catalog, language,
 // name, copies}; and hiddenPhotos and hiddenNotes, the live photos and the
 // notes on those cards' records, kept but not shown until a copy comes back.
-// The document is marked with the run (start_over: {id, at}), which syncs,
-// so an Undo from an earlier run can tell it is no longer the latest.
+// The document is marked with the run (start_overs, latestRun), which syncs,
+// so an Undo from an earlier run can tell it is no longer the latest. Each
+// added copy carries the run's id in start_over_run, so Undo can tell a
+// fold into another run's copy from a fold into a copy another phone
+// imported (staleUndo).
 export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), run = newId()} = {}) {
 	const next = structuredClone(doc);
 	const removed = new Map();
@@ -158,14 +196,18 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 	const left = [];
 
 	// Newer than any run this phone knows of, even with its clock behind.
-	next.start_over = {at: nextStamp(doc.start_over && doc.start_over.at, now), id: run};
+	const latest = latestRun(doc);
+	const runAt = nextStamp(latest && latest.at, now);
+
+	next.start_over = {at: runAt, id: run};
+	next.start_overs = [...(Array.isArray(doc.start_overs) ? doc.start_overs : []), {at: runAt, created_at: runAt, deleted_at: null, id: run, updated_at: runAt}];
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry || !isLive(entry) || isCustom(entry)) {
 			return entry;
 		}
 
-		if (uploading(entry, infoById)) {
+		if (uploading(entry, infoById, now)) {
 			left.push(entry.id);
 
 			return entry;
@@ -181,7 +223,7 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 
 	// New copies the way the import builds them, from an empty list, so no
 	// earlier copy or tombstone of a key stops one from being added.
-	const added = planImport([], entries, {ids, now}).cards;
+	const added = planImport([], entries, {ids, now}).cards.map((entry) => ({...entry, start_over_run: run}));
 
 	next.cards.push(...added);
 
@@ -323,25 +365,47 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 	};
 }
 
-// True when Undo would put old copies back beside another run's: the
-// document's latest Start over is not the one `undo` undoes (another phone
-// of the account, or this one, started over since), or this run's added
-// copies were folded into another run's (two phones started over offline,
-// then synced).
+// Why Undo would do harm, or false. 'run': the document's latest Start
+// over is not the one `undo` undoes (another phone of the account, or this
+// one, started over since), or this run's added copies were folded into
+// another run's (two phones started over offline, then synced); Undo would
+// put old copies back beside that run's. 'fold': this run's added copies
+// were folded into copies another phone imported from the same rows
+// (js/merge.js collapseImportDuplicates); Undo would remove that phone's
+// copies with them. A copy added by a v51 phone carries no
+// start_over_run, so a fold into it reads as 'fold'.
 export function staleUndo(doc, undo) {
-	if (!doc || !doc.start_over) {
+	const latest = latestRun(doc);
+
+	if (!latest) {
 		return false;
 	}
 
-	if (doc.start_over.id !== (undo && undo.run)) {
-		return true;
+	if (latest.id !== (undo && undo.run)) {
+		return 'run';
 	}
 
 	// Copies this run added, or left for an uploading photo: an added copy
 	// folded into one of those is still this run's.
 	const ours = new Set([...(undo.added || []), ...(undo.left || [])]);
+	const byId = new Map((doc.cards || []).filter(Boolean).map((entry) => [entry.id, entry]));
+	let reason = false;
 
-	return (doc.cards || []).some((entry) => entry && ours.has(entry.id) && entry.merged_into && !ours.has(entry.merged_into));
+	for (const entry of doc.cards || []) {
+		if (!entry || !ours.has(entry.id) || !entry.merged_into || ours.has(entry.merged_into)) {
+			continue;
+		}
+
+		const into = byId.get(entry.merged_into);
+
+		if (into && into.start_over_run && into.start_over_run !== undo.run) {
+			return 'run';
+		}
+
+		reason = 'fold';
+	}
+
+	return reason;
 }
 
 // Undo for planStartOver: removed copies come back (js/merge.js
@@ -353,13 +417,16 @@ export function staleUndo(doc, undo) {
 // an added copy that goes is emptied. An added copy that the merge folded
 // another phone's copy into (merged_into) stays: it stands for that
 // phone's Start over too, so removing it could leave the card with no
-// copy. Returns {doc, counts, stale}; `doc` itself is not changed. When the
-// document's latest run is another one (staleUndo), nothing is undone and
-// stale is true: undoing would bring the old copies back beside that
-// run's.
+// copy. A pocket Start over turned into a placeholder that now holds an
+// added copy that goes (the owner refilled it) gets the restored old copy
+// back, unless that copy is in another pocket by now. Returns {doc,
+// counts, stale, reason}; `doc` itself is not changed. When staleUndo
+// finds harm, nothing is undone, stale is true, and reason is its reason.
 export function planUndo(doc, undo, {now = Date.now()} = {}) {
-	if (staleUndo(doc, undo)) {
-		return {counts: {added: 0, kept: 0, restored: 0}, doc: structuredClone(doc), stale: true};
+	const reason = staleUndo(doc, undo);
+
+	if (reason) {
+		return {counts: {added: 0, kept: 0, restored: 0}, doc: structuredClone(doc), reason, stale: true};
 	}
 
 	const next = structuredClone(doc);
@@ -369,6 +436,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
 	const counts = {added: 0, kept: 0, restored: 0};
 	const gone = new Set();
+	const restored = new Set();
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry) {
@@ -377,6 +445,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 		if (entry.deleted_at && removedAt.get(entry.id) === entry.deleted_at) {
 			counts.restored++;
+			restored.add(entry.id);
 
 			return restoreEntry(entry, now);
 		}
@@ -400,6 +469,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	});
 
 	const byBinder = new Map(undo.binders.map((item) => [item.id, item]));
+	const placedNow = placements(doc.binders || []);
 
 	next.binders = (next.binders || []).map((binder) => {
 		if (!binder || !liveBinders([binder]).length) {
@@ -414,13 +484,15 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 			for (const pocket of (was && was.pockets) || []) {
 				const slot = pocketOf(draft.slots, pocket);
 
-				if (slot && stableJson(slot) === pocket.written) {
+				const refilled = slot && gone.has(slot.entry_id) && restored.has(pocket.entry_id) && !placedNow.has(pocket.entry_id);
+
+				if (slot && (stableJson(slot) === pocket.written || refilled)) {
 					putBack.set(slot, {entry_id: pocket.entry_id, page: pocket.page, placed_at: nextStamp(slot.placed_at, now), position: pocket.position});
 				}
 			}
 
 			draft.slots = draft.slots
-				.filter((slot) => !(slot && gone.has(slot.entry_id)))
+				.filter((slot) => putBack.has(slot) || !(slot && gone.has(slot.entry_id)))
 				.map((slot) => putBack.get(slot) || slot);
 
 			if (was && was.staged && stableJson(stagedOf(draft)) === stableJson(was.staged.after)) {
@@ -464,12 +536,35 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	return {counts, doc: next};
 }
 
-// Saved: the preview, as Start over would do it now.
-export async function previewStartOver(entries) {
+// Start over acts on this phone's copy of the document, so the preview
+// first pulls from the server the way the app's sync does (js/sync.js
+// syncNow), and the counts are what Start over would do after it. True
+// when the pull got through, or nobody is signed in (no other phone to
+// wait for); false when the phone is offline, the session ended, or the
+// sync failed. `sync` is js/sync.js; tests pass a fake.
+export async function pullFirst(sync = null) {
+	try {
+		const api = sync || await import('./sync.js');
+
+		await api.syncNow();
+
+		const {phase, signedIn} = api.syncStatus();
+
+		return !signedIn || phase === 'off' || phase === 'synced';
+	}
+	catch {
+		return false;
+	}
+}
+
+// Saved: the preview, as Start over would do it now, after pullFirst. The
+// counts carry unsynced, true when the pull did not get through.
+export async function previewStartOver(entries, {sync = null} = {}) {
+	const unsynced = !(await pullFirst(sync));
 	const doc = await loadDocument();
 	const ids = await startOverIds(doc.cards, entries);
 
-	return planStartOver(doc, entries, {ids}).counts;
+	return {...planStartOver(doc, entries, {ids}).counts, unsynced};
 }
 
 // The last Start over's undo is kept beside the document (writeMeta), so
@@ -500,6 +595,8 @@ export async function savedUndo({now = Date.now()} = {}) {
 
 export const STALE_UNDO_TEXT = 'You started over again, on this phone or another, so this Undo would put old copies back beside the new ones. Nothing was changed.';
 
+export const FOLDED_UNDO_TEXT = 'Another phone imported some of the same rows, and syncing joined its copies with the ones Start over added, so this Undo would remove that phone\'s copies too. Nothing was changed.';
+
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
 // it rejects and the document on the phone is as it was. A failed write of
 // the kept undo only loses Undo after leaving the screen.
@@ -515,15 +612,15 @@ export async function applyStartOver(entries) {
 }
 
 // Saved: Undo for applyStartOver, in one save. Resolves its counts. Rejects
-// with an error whose stale is true, and drops the kept undo, when the
-// document's latest run is another one.
+// with an error whose stale is true, and drops the kept undo, when Undo
+// would do harm (staleUndo); the message names the cause.
 export async function undoStartOver(undo) {
-	const {counts, doc, stale} = planUndo(await loadDocument(), undo);
+	const {counts, doc, reason, stale} = planUndo(await loadDocument(), undo);
 
 	if (stale) {
 		await writeMeta(UNDO_META, null).catch(() => {});
 
-		throw Object.assign(new Error(STALE_UNDO_TEXT), {stale: true});
+		throw Object.assign(new Error(reason === 'fold' ? FOLDED_UNDO_TEXT : STALE_UNDO_TEXT), {reason, stale: true});
 	}
 
 	await saveCopy(doc);

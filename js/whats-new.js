@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-31',
 		items: [
+			'Start over gets the newest changes from your other phones before the preview, and says so when it cannot.',
+			'Undo puts an old copy back in its binder pocket even after you filled that pocket with the new copy.',
+			'If a file lists the same card on two rows, a normal import now says how many of those copies are new.',
+		],
+		version: 'v52',
+	},
+	{
+		date: '2026-10-31',
+		items: [
 			'Import has Start over with this file: it removes your copies and adds every card in the monprice file fresh, for a clean slate.',
 			'Photos and notes stay with their cards. The preview says what will not come back, and Undo stays available for 7 days.',
 			'Undo keeps any new copy you changed since, and after a newer Start over it is no longer offered.',

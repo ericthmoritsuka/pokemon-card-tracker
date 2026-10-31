@@ -173,6 +173,7 @@ test('preview, Cancel, confirm, Start over, and Undo', async () => {
 	assert.match(await page.locator('#start-over-gone li').textContent(), /tst1-002.*1 copy/, 'card 2 is not in the file');
 	assert.equal(await page.locator('#start-over-hidden').textContent(), 'Their card records keep 0 photos and 1 note, which show again only when the card is added again.');
 	assert.equal(await page.locator('#start-over-left-out').count(), 0);
+	assert.equal(await page.locator('#start-over-unsynced').count(), 0, 'signed out: no other phone to wait for');
 	assert.equal(await page.locator('#start-over-export').count(), 1, 'Export CSV is offered before anything goes');
 	await page.screenshot({fullPage: true, path: `${SHOTS}/start-over-preview.png`});
 

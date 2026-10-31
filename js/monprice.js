@@ -911,3 +911,36 @@ export function importEntries(results) {
 
 	return entries;
 }
+
+// How many copies the import would add that come from a repeated row (a
+// later row of the same monprice ID, language, and finish) of a card this
+// phone already holds an import of. Before v51 a repeated row reused the
+// first row's keys, so its copies collapsed into the first row's; from v51
+// they get keys of their own (importEntries), and the first import of the
+// file after v51 adds them. `keys` maps the import keys the phone holds,
+// live or removed, to their copies (js/collection.js importKeys). Counts
+// only keys `keys` lacks, so the next import of the same file counts none.
+export function newFromRepeats(results, keys) {
+	const copies = new Map();
+	let count = 0;
+
+	for (const result of results) {
+		const same = [result.row.monpriceId, result.row.language, result.row.finish].join('|');
+		const first = copies.get(same) || 0;
+		const rows = Number(result.row.count) || 0;
+
+		copies.set(same, first + rows);
+
+		if (!first || !keys.has(importKey(result.row, 0))) {
+			continue;
+		}
+
+		for (let i = first; i < first + rows; i++) {
+			if (!keys.has(importKey(result.row, i))) {
+				count++;
+			}
+		}
+	}
+
+	return count;
+}

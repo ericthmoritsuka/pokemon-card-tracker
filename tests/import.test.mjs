@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {importEntryId, planImport, planOwnImport} from '../js/collection.js';
-import {LARGE_COUNT, MAX_COUNT, importEntries, isImportableFile, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
+import {LARGE_COUNT, MAX_COUNT, importEntries, isImportableFile, isOwnCsv, newFromRepeats, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
 
 const HEADER = 'Name;Set;Number;Language;Finish Type;Count;ID;Release Date';
 
@@ -139,6 +139,41 @@ describe('parseExport', () => {
 
 		assert.equal(first.counts.added, 3);
 		assert.deepEqual(planImport(first.cards, importEntries(results), {ids, now: Date.parse('2026-10-02T13:00:00.000Z')}).counts, {added: 0, skippedDeleted: 0, unchanged: 3, updated: 0});
+	});
+});
+
+describe('newFromRepeats', () => {
+	const matched = (id, count) => ({cardId: id.replace('_int_', '-'), catalog: 'international', row: {count, finish: 'NORMAL', language: 'pt', monpriceId: id, name: 'X', setName: 'S'}, status: 'matched', variantId: 'normal'});
+	const keysOf = async (entries, now) => {
+		const ids = new Map();
+
+		for (const entry of entries) {
+			ids.set(entry.import_key, await importEntryId(entry.import_key));
+		}
+
+		return planImport([], entries, {ids, now}).cards;
+	};
+	const byKey = (cards) => new Map(cards.map((card) => [card.import_key, card]));
+
+	test('counts the copies of repeated rows an app before v51 collapsed, once', async () => {
+		const file = [matched('a_int_1', 1), matched('b_int_2', 2), matched('a_int_1', 1), matched('b_int_2', 1)];
+		// Before v51 every row started its copies at 0, so the repeats
+		// reused the first row's keys: a|0, b|0, b|1.
+		const before = await keysOf(importEntries(file.map((result) => ({...result, row: {...result.row}}))).filter((entry) => !/\|(a_int_1\|pt\|NORMAL\|1|b_int_2\|pt\|NORMAL\|2)$/.test(entry.import_key)), 1e12);
+
+		assert.equal(before.length, 3);
+		assert.equal(newFromRepeats(file, byKey(before)), 2, 'a|1 and b|2 are new');
+
+		const after = planImport(before, importEntries(file), {now: 1e12 + 1e5}).cards;
+
+		assert.equal(newFromRepeats(file, byKey(after)), 0, 'the next import adds nothing');
+	});
+
+	test('a first import, or a file with no repeated row, says nothing', async () => {
+		const file = [matched('a_int_1', 1), matched('a_int_1', 1)];
+
+		assert.equal(newFromRepeats(file, new Map()), 0, 'nothing of the card was here before');
+		assert.equal(newFromRepeats([matched('a_int_1', 3)], new Map()), 0);
 	});
 });
 

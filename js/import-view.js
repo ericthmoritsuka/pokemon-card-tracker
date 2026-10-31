@@ -11,8 +11,8 @@ import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
-import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
-import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
+import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, newFromRepeats, parseExport} from './monprice.js';
+import {UNDO_DAYS, UPLOAD_KEEP_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -410,8 +410,11 @@ export function importView(root) {
 			startBox.replaceChildren(...[
 				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
 				h('p', null, 'Photos and notes stay with their cards.'),
+				counts.unsynced
+					? h('p', {id: 'start-over-unsynced', role: 'alert'}, 'Open the app on your other phones and let them sync first, or their newest changes will stay.')
+					: null,
 				counts.uploading
-					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone.`)
+					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone. A photo still not uploaded after ${UPLOAD_KEEP_DAYS} days no longer keeps its copy.`)
 					: null,
 				counts.details
 					? h('p', {id: 'start-over-details'}, `${plural(counts.details, 'copy has', 'copies have')} a grade, price, favorite, condition, Stored in, or pack opening; these stay with the old copies and are not copied over.`)
@@ -529,6 +532,7 @@ export function importView(root) {
 
 		async function doSave() {
 			const saving = entries;
+			const results = chosen();
 
 			save.disabled = true;
 			saveStatus.textContent = 'Saving...';
@@ -547,6 +551,9 @@ export function importView(root) {
 			try {
 				await saveToCardIndex(cards);
 
+				// From v51 a repeated row's copies get keys of their own, so the
+				// first import after an older app's adds the copies it collapsed.
+				const repeats = newFromRepeats(results, await importKeys().catch(() => new Map()));
 				const counts = await applyImport(saving);
 
 				if (!alive) {
@@ -560,6 +567,10 @@ export function importView(root) {
 
 				if (counts.skippedDeleted) {
 					saveStatus.append(` ${plural(counts.skippedDeleted, 'copy was', 'copies were')} deleted earlier and stayed deleted.`);
+				}
+
+				if (repeats) {
+					saveStatus.append(` ${plural(repeats, 'copy', 'copies')} from repeated rows ${repeats === 1 ? 'is' : 'are'} new.`);
 				}
 				saveStatus.after(h('a', {class: 'button primary wide', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'));
 			}

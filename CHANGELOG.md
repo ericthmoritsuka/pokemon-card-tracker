@@ -14,6 +14,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
+- **v52:** Start over, made safer across phones. `TBD`
+  - Before the preview, Start over gets the newest changes from the server. When it cannot (no
+    connection, or the sync failed), the preview says to open the app on your other phones and let
+    them sync first.
+  - Undo of an older Start over stays refused even after a phone on an older version syncs, and
+    when Undo is refused because another phone imported the same rows, it says that instead.
+  - Undo puts the old copy back in its binder pocket even after you filled that pocket with the
+    new copy.
+  - A copy kept because its photo is still uploading is kept only for 7 days after the photo was
+    taken, and the preview says so.
+  - A normal import says how many copies from repeated rows are new: the first import of such a
+    file since v51 adds the copies older versions joined into one.
+
 - **v51:** Start over with this file. `TBD`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have
     is removed (hand-made cards stay) and every card in the file is added fresh. A copy whose
