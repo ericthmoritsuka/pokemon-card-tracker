@@ -1036,14 +1036,25 @@ export async function previewOwnImport(rows) {
 // Changes the document in one save: change(doc) edits it in place,
 // synchronously, and its result is returned. For a change that spans lists,
 // such as Match this file (js/match-file.js) changing cards and binders
-// together, so they are written at once or not at all.
+// together, so they are written at once or not at all. When the change or
+// the save fails, the document in memory is put back as it was, so nothing
+// shows as applied that was not saved, and the error is thrown on.
 export async function editDocument(change) {
 	const doc = await loadDocument();
-	const result = change(doc);
+	const before = structuredClone(doc);
 
-	await saveDocument(doc);
+	try {
+		const result = change(doc);
 
-	return result;
+		await saveDocument(doc);
+
+		return result;
+	}
+	catch (err) {
+		replaceContent(doc, before);
+
+		throw err;
+	}
 }
 
 export async function importKeys() {
