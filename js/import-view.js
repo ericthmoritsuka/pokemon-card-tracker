@@ -12,6 +12,7 @@ import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
+import {applyMatch, previewMatch, undoMatch} from './match-file.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -112,6 +113,18 @@ async function takeSharedFile() {
 	const type = response.headers.get('Content-Type') || '';
 
 	return new File([await response.blob()], name, {type: type === 'application/octet-stream' ? '' : type});
+}
+
+// The preview of Match this file in a few words: "+12 copies, -5 copies,
+// 3 photos kept, 2 pockets became placeholders".
+export function matchSummary(counts) {
+	return [
+		`+${plural(counts.added, 'copy', 'copies')}`,
+		`-${plural(counts.removed, 'copy', 'copies')}`,
+		counts.photosKept ? `${plural(counts.photosKept, 'photo', 'photos')} kept` : null,
+		counts.pocketsMoved ? `${plural(counts.pocketsMoved, 'pocket', 'pockets')} took another copy` : null,
+		counts.pocketsToPlaceholder ? `${plural(counts.pocketsToPlaceholder, 'pocket', 'pockets')} became ${counts.pocketsToPlaceholder === 1 ? 'a placeholder' : 'placeholders'}` : null,
+	].filter(Boolean).join(', ');
 }
 
 function holdPage(event) {
@@ -282,14 +295,126 @@ export function importView(root) {
 
 		const save = h('button', {class: 'primary wide', onclick: doSave, type: 'button'}, `Save ${plural(entries.length, 'copy', 'copies')}`);
 		const saveStatus = h('p', {'aria-live': 'polite', class: 'status muted'});
+		const match = h('button', {class: 'wide', id: 'import-match', onclick: showMatch, type: 'button'}, 'Match this file');
+		const matchPanel = h('div', {'aria-live': 'polite', id: 'import-match-panel'});
+		// The buttons above the tab bar: Save and Match this file, then Apply
+		// and Cancel while the preview shows, then Undo once matched.
+		const bar = h('div', {class: 'actions'}, save, match, saveStatus);
+		const showBar = (...children) => bar.replaceChildren(...children);
 
 		function chooseAgain() {
 			entries = importEntries(chosen());
 			save.textContent = `Save ${plural(entries.length, 'copy', 'copies')}`;
 			save.disabled = !entries.length;
+			// With no matched copy, matching would only remove.
+			match.disabled = !entries.length;
 		}
 
 		save.disabled = !entries.length;
+		match.disabled = !entries.length;
+
+		const myCards = (wide = 'wide') => h('a', {class: `button primary ${wide}`.trim(), 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards');
+
+		// Match this file: what the file could not speak for is left alone
+		// (js/match-file.js): rows not matched, rows the file could not
+		// describe, and large rows not ticked.
+		const matchOptions = () => ({
+			skipped: importEntries(large.filter((result) => !confirmed.has(result))),
+			unmatched: [...unmatched, ...parsed.errors.map((row) => ({row}))],
+		});
+
+		function lockChoices(locked) {
+			save.disabled = locked || !entries.length;
+			match.disabled = locked || !entries.length;
+
+			if (largeCheck) {
+				largeCheck.querySelectorAll('input').forEach((box) => {
+					box.disabled = locked;
+				});
+			}
+		}
+
+		async function showMatch() {
+			lockChoices(true);
+			matchPanel.replaceChildren(h('p', {class: 'muted'}, 'Comparing the file with your cards...'));
+
+			let counts;
+
+			try {
+				counts = await previewMatch(entries, matchOptions());
+			}
+			catch (err) {
+				lockChoices(false);
+				matchPanel.replaceChildren(h('p', {role: 'alert'}, `Could not compare. Nothing was changed. ${errorText(err)}`));
+
+				return;
+			}
+
+			const cancel = h('button', {id: 'import-match-cancel', type: 'button'}, 'Cancel');
+			const apply = h('button', {class: 'primary', id: 'import-match-apply', type: 'button'}, 'Apply');
+			const changes = counts.added || counts.removed;
+			const leftAlone = counts.leftAlone + counts.hand;
+
+			cancel.addEventListener('click', () => {
+				matchPanel.replaceChildren();
+				showBar(save, match, saveStatus);
+				lockChoices(false);
+			});
+			apply.addEventListener('click', () => doMatch(apply, cancel));
+
+			matchPanel.replaceChildren(h('div', {class: 'card', id: 'import-match-preview'},
+				h('h3', null, 'Match this file'),
+				h('p', null, 'The file decides how many copies you have of each card, language, and finish, cards you added in the app included. Your oldest copies are kept; condition, Stored in, and favorite move from removed copies to the ones left; photos and notes stay with the card.'),
+				h('p', {class: 'big', id: 'import-match-summary'}, changes ? matchSummary(counts) : 'Your cards already match this file.'),
+				leftAlone ? h('p', {class: 'muted', id: 'import-match-left'}, `${plural(leftAlone, 'copy', 'copies')} the file could not match (hand-made cards, rows not matched, or rows left out) ${leftAlone === 1 ? 'is' : 'are'} left as ${leftAlone === 1 ? 'it is' : 'they are'}.`) : null
+			));
+			showBar(...(changes ? [apply, cancel] : [cancel]));
+			matchPanel.scrollIntoView({block: 'nearest'});
+		}
+
+		async function doMatch(apply, cancel) {
+			apply.disabled = true;
+			cancel.disabled = true;
+			window.addEventListener('beforeunload', holdPage);
+
+			try {
+				await saveToCardIndex(cards);
+
+				const done = await applyMatch(entries, matchOptions());
+
+				if (!alive) {
+					return;
+				}
+
+				const undo = h('button', {id: 'import-match-undo', type: 'button'}, 'Undo');
+
+				undo.addEventListener('click', async () => {
+					undo.disabled = true;
+
+					try {
+						await undoMatch(done.undo);
+						matchPanel.replaceChildren(h('p', {class: 'big card', id: 'import-match-done'}, 'Undone. Your cards and binders are as they were.'));
+						showBar(myCards());
+					}
+					catch (err) {
+						undo.disabled = false;
+						matchPanel.append(h('p', {role: 'alert'}, `Could not undo. ${errorText(err)}`));
+					}
+				});
+
+				matchPanel.replaceChildren(h('p', {class: 'big card', id: 'import-match-done'}, `Matched. ${matchSummary(done.counts)}.`));
+				showBar(undo, myCards(''));
+			}
+			catch (err) {
+				apply.disabled = false;
+				cancel.disabled = false;
+				matchPanel.querySelector('[role="alert"]')?.remove();
+				matchPanel.append(h('p', {role: 'alert'}, `Could not save. Nothing was changed. ${errorText(err)}`));
+			}
+			finally {
+				window.removeEventListener('beforeunload', holdPage);
+			}
+		}
 
 		const largeCheck = large.length ? h('div', {class: 'notice', id: 'import-large', role: 'group', 'aria-labelledby': 'import-large-title'},
 			h('h3', {id: 'import-large-title'}, 'Check these counts'),
@@ -341,13 +466,15 @@ export function importView(root) {
 			reportLine(`Not matched: ${plural(unmatched.length, 'row', 'rows')} (${plural(copiesOf(unmatched), 'copy', 'copies')}). Not saved with the others; add each by hand.`, unmatched, (result) => result.reason, {action: handButton, open: unmatched.length > 0 && unmatched.length <= 30}),
 			parsed.errors.length ? parseErrors(parsed.errors) : null,
 			largeCheck,
-			h('div', {class: 'actions'}, save, saveStatus),
+			matchPanel,
+			bar,
 		].filter(Boolean));
 
 		async function doSave() {
 			const saving = entries;
 
 			save.disabled = true;
+			match.disabled = true;
 			saveStatus.textContent = 'Saving...';
 
 			if (largeCheck) {
@@ -371,6 +498,8 @@ export function importView(root) {
 				}
 
 				save.remove();
+				match.remove();
+				matchPanel.replaceChildren();
 				// replaceChildren prints a null argument as "null", so the
 				// optional sentence is added only when there is one.
 				saveStatus.replaceChildren(h('span', {class: 'big'}, `Saved. ${formatCount(counts.added)} added, ${formatCount(counts.updated)} updated, ${formatCount(counts.unchanged)} already up to date.`));
@@ -382,6 +511,7 @@ export function importView(root) {
 			}
 			catch (err) {
 				save.disabled = false;
+				match.disabled = false;
 
 				if (largeCheck) {
 					largeCheck.querySelectorAll('input').forEach((box) => {

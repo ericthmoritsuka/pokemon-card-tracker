@@ -1033,6 +1033,19 @@ export async function previewOwnImport(rows) {
 	return {counts, statuses};
 }
 
+// Changes the document in one save: change(doc) edits it in place,
+// synchronously, and its result is returned. For a change that spans lists,
+// such as Match this file (js/match-file.js) changing cards and binders
+// together, so they are written at once or not at all.
+export async function editDocument(change) {
+	const doc = await loadDocument();
+	const result = change(doc);
+
+	await saveDocument(doc);
+
+	return result;
+}
+
 export async function importKeys() {
 	const doc = await loadDocument();
 

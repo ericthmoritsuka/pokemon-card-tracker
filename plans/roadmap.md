@@ -269,7 +269,8 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Backlog (Eric, 2026-10-22)
 
-- **Import "Match this file" (Eric, 2026-10-22; first in line):** Eric will scan his whole collection
+- **Done in v49: Import "Match this file" (Eric, 2026-10-22):** built on branch `match-this-file-v49`
+  (js/match-file.js), on top of v48. Eric will scan his whole collection
   into a new monprice list to get exact counts. Today an import adds missing copies by import_key
   (monprice id, language, finish, copy index: js/monprice.js importKey) but never removes extras,
   and copies scanned or added in the app have no import_key, so they would be duplicated; deleting
@@ -286,7 +287,7 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   not the copy" and "Import "Match this file"". Photos and notes per card are built in v48 (branch
   `card-photos-notes`, Part 1): deleting copies no longer drops photos or notes. Before deleting
   cards to start over, reload every phone onto v48 and run `supabase/card-photos-keep.sql`; the
-  import still skips the deleted copies' `import_key`s until Match this file (Part 2) ships.
+  normal import still skips the deleted copies' `import_key`s; Match this file (Part 2, v49) does not.
 - **Offer to delete photos once the catalog has an image (Eric, 2026-10-22):** the official image
   already becomes a card's main picture when TCGdex adds one (gallerySlides order), unless the photo
   was pinned as the main image. Add a notice when the catalog refresh finds cards that gained an
@@ -372,7 +373,7 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
-  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`, `binder-rules`, `scan-find`, `scan-holder-browser`, `scan-review-browser`, `scan-drop`; `scan-holder-browser` runs in real time and failed under the full run's load once while passing alone twice (2026-10-10);
+  `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`, `binder-rules`, `scan-find`, `scan-holder-browser`, `scan-review-browser`, `scan-drop`, `match-file`, `match-file-browser`; `scan-holder-browser` runs in real time and failed under the full run's load once while passing alone twice (2026-10-10);
   `photos-sql` needs Docker. `scan-browser` can fail under load (a tile checked before its set record arrives shows its id, such as `swsh3-102`, instead of its name); it passed three runs alone on 2026-10-09. Tests fake Supabase (`tests/fake-supabase.mjs`); never call the real
   one, never create accounts, never request ligapokemon.com.br.
 - **Rules:** no paid services, ever; no em dashes anywhere; the repo is public, so no personal
