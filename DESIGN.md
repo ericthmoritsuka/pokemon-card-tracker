@@ -712,7 +712,10 @@ is matched. Per card and language:
   that detail is empty, its own finish first: condition, Stored in, favorite, purchase price and
   currency (together), grading (grader, grade, cert number, graded price, together), Liga price,
   and opening. A detail a kept copy already has with the same value (Stored in set on every copy)
-  needs nothing. Every removed copy that held anything gives its places in hand-picked collections
+  needs nothing. One physical card's details never mix with another's: each removed copy gives to
+  kept copies no other removed copy gave to. Only when more removed copies hold something than
+  copies are kept does a kept copy take from two, and then never a second condition, grading, or
+  price, which is listed as lost instead. Every removed copy that held anything gives its places in hand-picked collections
   to a kept copy, the one that took its details first. What cannot move is listed in the preview
   as lost, one line per removed copy, by card name: a detail no kept copy has room for, and
   everything a copy held (details, collections, its tray place) when no copy of its card is kept,
@@ -725,8 +728,9 @@ the import could not match (the same monprice id in the `import_key`, or a lefto
 number and language); and copies of a large row left unticked (the same monprice id, and
 leftovers of the same card and language), which never count against a ticked row. A pocket or tray
 whose copy is removed takes an unplaced copy of the same card and language (the copy that took its
-details first, then its own finish, a copy in a tray last for a pocket), so the pocket holding the
-LP card shows the copy marked LP; a pocket with none left becomes the card's placeholder, and a
+details first, then a copy that took no other removed copy's details, then its own finish, a copy
+in a tray last for a pocket), so the pocket holding the LP card shows the copy marked LP; a copy
+left as it is never takes a place; a pocket with none left becomes the card's placeholder, and a
 tray drops it (listed as lost in the preview). A rule binder's hand pick of a removed copy is left as it is and shows the default
 copy until Undo. Everything is written in one save; if the save fails, the phone's document is put
 back as it was, the screens are told, and the error is shown. Undo removes the added copies he has

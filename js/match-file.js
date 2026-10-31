@@ -661,6 +661,10 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	// first, so they stay together. A detail a kept copy already holds with
 	// the same value needs nothing; one with no empty place is lost and
 	// listed in the preview. Oldest donors first.
+	// One physical card's details never mix with another's: each removed copy
+	// gives to kept copies no other removed copy gave to. Only when more
+	// removed copies hold something than copies are kept does a kept copy
+	// take from two, and then never a second condition, grading, or price.
 	const after = (copy) => ({...copy, ...(patches.get(copy.id) || {})});
 	const keptIn = (key) => matched.filter((item) => item.key === key).map(({copy}) => copy);
 	const joins = [];
@@ -668,31 +672,51 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	// The kept copies that took each removed copy's details: its pocket and
 	// tray go to them first, as its collections do.
 	const tookBy = new Map();
+	// The removed copy each kept copy took details from first, and whether it
+	// took a condition, grading, or price from one.
+	const givenBy = new Map();
+	const tookCard = new Set();
+	const CARD_UNITS = new Set(['condition', 'grader', 'purchase_price', 'price_manual']);
 	// What a removed copy held that no kept copy can take, with its card, so
 	// the preview names the card: its own name, else the file's name for it.
 	const fileName = (copy) => ((wanted.get(home.get(copy.id)) || []).find((entry) => entry.name_local) || {}).name_local || null;
 	const lose = (donor, field, value) => lost.push({card_id: donor.card_id, field, id: donor.id, name: donor.name_local || fileName(donor), value});
+	const donors = removed.filter(holds).filter((copy) => UNITS.some((unit) => Object.keys(pick(copy, unit)).length)).sort(byAge);
+	const donorsIn = groupBy(donors, (copy) => home.get(copy.id));
 
 	for (const donor of removed.filter(holds).sort(byAge)) {
+		const group = home.get(donor.id);
+		const share = (donorsIn.get(group) || []).length > keptIn(group).length;
+		const mine = (copy) => !givenBy.has(copy.id) || givenBy.get(copy.id) === donor.id;
 		const ownFinish = (copy) => sameFinish(donor, after(copy)) || groupKey(after(copy)) === groupKey(donor);
-		const targets = keptIn(home.get(donor.id)).sort((a, b) => Number(ownFinish(b)) - Number(ownFinish(a)) || byAge(a, b));
+		const targets = keptIn(group).sort((a, b) => Number(mine(b)) - Number(mine(a)) || Number(ownFinish(b)) - Number(ownFinish(a)) || byAge(a, b));
 		const units = UNITS.filter((unit) => Object.keys(pick(donor, unit)).length);
 		const empty = (copy, unit) => !Object.keys(pick(after(copy), unit)).length;
-		const whole = targets.find((copy) => units.every((unit) => empty(copy, unit)));
+		const may = (copy, unit) => mine(copy) || (share && !(CARD_UNITS.has(unit[0]) && tookCard.has(copy.id)));
+		const whole = targets.find((copy) => units.every((unit) => empty(copy, unit) && may(copy, unit)));
 		const took = [];
 
 		for (const unit of units) {
 			const value = pick(donor, unit);
 
-			if (targets.some((copy) => same(pick(after(copy), unit), value))) {
+			// Held already: by a copy it may give to, or as that copy's own.
+			if (targets.some((copy) => same(pick(after(copy), unit), value) && (mine(copy) || same(pick(copy, unit), value)))) {
 				continue;
 			}
 
-			const target = whole || targets.find((copy) => empty(copy, unit));
+			const target = whole || targets.find((copy) => empty(copy, unit) && may(copy, unit));
 
 			if (target) {
 				patch(target, value);
 				took.push(target);
+
+				if (!givenBy.has(target.id)) {
+					givenBy.set(target.id, donor.id);
+				}
+
+				if (CARD_UNITS.has(unit[0])) {
+					tookCard.add(target.id);
+				}
 			}
 			else {
 				// No kept copy has room for it, or no copy of the card is
@@ -769,13 +793,19 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	const liveAfter = out.filter((card) => card && isLive(card) && card.card_id);
 	// A copy counted with a card on another record is a spare of that card.
 	const homeOf = (copy) => home.get(copy.id) || cardKey(copy);
-	const spare = groupBy(liveAfter.filter((card) => !placed.has(card.id)), homeOf);
-	// The copy that took a removed copy's details first, then its own
-	// finish, then the oldest: the pocket holding the LP card shows the LP copy.
+	// Only kept and added copies fill a place: a copy left as it is stays
+	// where it is.
+	const addedIds = new Set(added.map(({entry}) => entry.id));
+	const fills = (card) => matchedIds.has(card.id) || addedIds.has(card.id);
+	const spare = groupBy(liveAfter.filter((card) => fills(card) && !placed.has(card.id)), homeOf);
+	// The copy that took a removed copy's details first, then one that took
+	// no removed copy's details, then its own finish, then the oldest: the
+	// pocket holding the LP card shows the LP copy, and never a copy that
+	// took another removed copy's details while another is free.
 	const tookFirst = (copy) => {
 		const took = tookBy.get(copy.id) || new Set();
 
-		return (card) => (took.has(card.id) ? 0 : 2) + (groupKey(card) === groupKey(copy) ? 0 : 1);
+		return (card) => (took.has(card.id) ? 0 : givenBy.has(card.id) ? 4 : 2) + (groupKey(card) === groupKey(copy) ? 0 : 1);
 	};
 	const pocketChanges = [];
 
@@ -789,7 +819,7 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		const pool = spare.get(homeOf(copy)) || [];
 		const fits = tookFirst(copy);
 		// A copy in a tray last: placing it takes it out of the tray.
-		const rank = (card) => fits(card) + (staged.has(card.id) ? 4 : 0);
+		const rank = (card) => fits(card) + (staged.has(card.id) ? 8 : 0);
 		const choice = [...pool].sort((a, b) => rank(a) - rank(b) || byAge(a, b))[0];
 		const content = choice ? {entry_id: choice.id} : {want: wantOf(copy)};
 
@@ -811,6 +841,7 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	// copy of the card that is in no tray, or leaves the tray.
 	const inTrays = new Set(liveBinders(current).flatMap((binder) => stagedOf(binder)));
 	const cardById = new Map(cards.map((card) => [card.id, card]));
+	const afterById = new Map(liveAfter.map((card) => [card.id, card]));
 
 	current = current.map((binder) => {
 		if (!binder || !isLive(binder) || !stagedOf(binder).some((id) => removedIds.has(id))) {
@@ -836,7 +867,7 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 				inTrays.add(choice.id);
 				tray.push(choice.id);
 			}
-			else if (!tray.concat(stagedOf(binder)).some((other) => !removedIds.has(other) && cardById.has(other) && homeOf(cardById.get(other)) === homeOf(copy))) {
+			else if (!tray.concat(stagedOf(binder)).some((other) => afterById.has(other) && fills(afterById.get(other)) && homeOf(afterById.get(other)) === homeOf(copy))) {
 				// No copy of the card is left to hold its place in this tray.
 				lose(copy, 'tray', binder.name || '');
 			}

@@ -763,3 +763,120 @@ describe('what a removed copy held is kept, or the preview says so', () => {
 		assert.ok(undoMs < 1500, `Undo took ${Math.round(undoMs)} ms`);
 	});
 });
+
+// The fourth review of v49 (2026-10-31): one physical card's details never
+// mix with another's, and its pocket and tray follow the copy that took them.
+describe('each removed copy\'s details and places go to one kept copy', () => {
+	const c = (id, minute, fields = {}) => ({
+		card_id: 'tst1-001', catalog: 'international', created_at: at(minute), deleted_at: null, id, language: 'pt', updated_at: at(minute), variant_id: 'normal', ...fields,
+	});
+	const e = (key, fields = {}) => ({card_id: 'tst1-001', catalog: 'international', import_key: key, language: 'pt', variant_id: 'normal', ...fields});
+	const binder = (id, slots = [], staged = []) => ({art: [], cols: 3, created_at: at(0), deleted_at: null, id, name: `Binder ${id}`, page_count: 1, rows: 3, slots, staged, updated_at: at(0)});
+	const inv = {is_favorite: true, purchase_currency: 'BRL', purchase_price: 5, storage: 'Box'};
+	const files = [e('monprice|M|pt|NORMAL|0'), e('monprice|M|pt|NORMAL|1')];
+
+	test('two removed copies give their details to two kept copies, and each pocket follows its own', () => {
+		const doc = {
+			binders: [binder('B', [{entry_id: 'R1', page: 1, placed_at: at(5), position: 1}, {entry_id: 'R2', page: 1, placed_at: at(5), position: 2}])],
+			cards: [
+				c('K1', 1, {import_key: 'monprice|M|pt|NORMAL|0', ...inv, price_manual: 9}),
+				c('K2', 2, {import_key: 'monprice|M|pt|NORMAL|1', ...inv, price_manual: 9}),
+				c('R1', 3, {condition: 'LP', import_key: 'monprice|M|pt|NORMAL|2'}),
+				c('R2', 4, {grade: '10', grader: 'PSA', import_key: 'monprice|M|pt|NORMAL|3'}),
+			],
+		};
+		const plan = planMatch(doc, files, {now: NOW});
+		const byId = new Map(live(plan.cards).map((card) => [card.id, card]));
+		const lp = [...byId.values()].find((card) => card.condition === 'LP');
+		const psa = [...byId.values()].find((card) => card.grader === 'PSA');
+
+		assert.ok(lp && psa && lp.id !== psa.id, 'LP and PSA 10 are on different copies');
+		assert.equal(lp.grader, undefined);
+		assert.equal(psa.condition, undefined);
+
+		const placed = placements(plan.binders);
+
+		assert.equal(placed.get(lp.id).slot.position, 1, 'R1\'s pocket shows the LP copy');
+		assert.equal(placed.get(psa.id).slot.position, 2, 'R2\'s pocket shows the graded copy');
+		assert.deepEqual(plan.lost, []);
+	});
+
+	test('with more removed copies than kept ones, a second copy\'s condition or grading is lost, not mixed in', () => {
+		const doc = {binders: [], cards: [
+			c('K1', 1, {import_key: 'monprice|M|pt|NORMAL|0', ...inv}),
+			c('R1', 3, {condition: 'LP', import_key: 'monprice|M|pt|NORMAL|1'}),
+			c('R2', 4, {grade: '10', grader: 'PSA', import_key: 'monprice|M|pt|NORMAL|2'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.deepEqual([kept.condition, kept.grader], ['LP', undefined]);
+		assert.deepEqual(plan.lost.map(({field, id, value}) => [id, field, value]), [['R2', 'grading', 'PSA 10']]);
+	});
+
+	test('a removed copy\'s pocket does not take the copy that took another removed copy\'s details', () => {
+		const doc = {
+			binders: [binder('T', [], ['R1']), binder('P', [{entry_id: 'R2', page: 1, placed_at: at(5), position: 1}])],
+			cards: [
+				c('K1', 1, {import_key: 'monprice|M|pt|NORMAL|0', ...inv}),
+				c('K2', 2, {import_key: 'monprice|M|pt|NORMAL|1', ...inv}),
+				c('R1', 3, {condition: 'LP', import_key: 'monprice|M|pt|NORMAL|2'}),
+				c('R2', 4, {import_key: 'monprice|M|pt|NORMAL|3'}),
+			],
+		};
+		const plan = planMatch(doc, files, {now: NOW});
+		const lp = live(plan.cards).find((card) => card.condition === 'LP');
+		const other = live(plan.cards).find((card) => card.id !== lp.id);
+
+		assert.deepEqual(stagedOf(plan.binders.find((item) => item.id === 'T')), [lp.id], 'R1\'s tray place shows the LP copy');
+		assert.equal(placements(plan.binders).get(other.id).binder.id, 'P');
+		assert.equal(placements(plan.binders).has(lp.id), false);
+	});
+
+	test('a copy left as it is never fills a removed copy\'s pocket or tray', () => {
+		const doc = {
+			binders: [binder('B', [{entry_id: 'K', page: 1, placed_at: at(5), position: 1}, {entry_id: 'R', page: 1, placed_at: at(5), position: 2}], ['R2'])],
+			cards: [
+				c('K', 1, {condition: 'NM', import_key: 'monprice|M|pt|NORMAL|0'}),
+				c('R', 2, {import_key: 'monprice|M|pt|NORMAL|1'}),
+				c('R2', 3, {import_key: 'monprice|M|pt|NORMAL|2'}),
+				c('U', 4, {import_key: 'monprice|OLD|pt|NORMAL|0'}),
+			],
+		};
+		const unmatched = [{catalog: 'international', row: {language: 'pt', monpriceId: 'OLD', number: '999/100'}}];
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW, unmatched});
+
+		assert.equal(plan.counts.leftAlone, 1);
+		assert.equal(placements(plan.binders).has('U'), false, 'U stays unplaced');
+		assert.deepEqual(stagedOf(plan.binders[0]), []);
+		assert.equal(slotsOf(plan.binders[0], placements(plan.binders))[1].want.card_id, 'tst1-001', 'R\'s pocket becomes the placeholder');
+		assert.deepEqual(plan.lost.map(({field, id}) => [id, field]), [['R2', 'tray']]);
+	});
+
+	for (const change of ['deleted', 'shrunk', 'turned into a rule binder']) {
+		test(`Undo after the binder Apply changed was ${change} on another phone`, () => {
+			const doc = {
+				binders: [{...binder('P', [{entry_id: 'R1', page: 2, placed_at: at(5), position: 1}]), page_count: 2}, binder('Q', [{entry_id: 'R2', page: 1, placed_at: at(5), position: 1}], ['R1x'])],
+				cards: [
+					c('K1', 1, {import_key: 'monprice|M|pt|NORMAL|0', ...inv}),
+					c('R1', 3, {import_key: 'monprice|M|pt|NORMAL|2'}),
+					c('R2', 4, {import_key: 'monprice|M|pt|NORMAL|3'}),
+				],
+			};
+			const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+
+			assert.equal(placements(plan.binders).get('K1').binder.id, 'P');
+
+			const [p, q] = plan.binders;
+			const changed = {
+				'deleted': [{...q, deleted_at: at(59), updated_at: at(59)}, {...p, deleted_at: at(59), updated_at: at(59)}],
+				'shrunk': [q, {...p, page_count: 1}],
+				'turned into a rule binder': [{...q, rule: {order: 'number', source: {kind: 'all'}}}, {...p, rule: {order: 'number', source: {kind: 'all'}}}],
+			}[change];
+			const after = {binders: changed, cards: plan.cards.map((item) => ({...item})), collections: []};
+
+			assert.doesNotThrow(() => undoPlan(after, plan.undo, NOW + 1000));
+			assert.deepEqual(live(after.cards).map((card) => card.id), ['K1', 'R1', 'R2']);
+		});
+	}
+});
