@@ -13,7 +13,8 @@
 
 import {catalogLanguage, languageLabel, setDetail, setList, viewingLanguage} from './catalog.js';
 import {recordOf, recordsOfCard} from './card-info.js';
-import {addCards, cardInfoList, deleteCards, listCards, moveCardInfo, onChange, updateCards} from './collection.js';
+import {cardInfoList, listCards, moveCardInfo, onChange, updateCards} from './collection.js';
+import {addCopies} from './placeholder-fill.js';
 import {
 	alikeKey,
 	closeCopySheet,
@@ -33,7 +34,7 @@ import {
 	sheetSelect,
 	showSheet,
 	storedLine,
-	UNDO_MS,
+	toastAdded,
 } from './copy-sheet.js';
 import {CUSTOM, customCard, customEntries, customRoute, editPatches, findCatalogCard, findSet, linkLookups, linkPatches, NAME_MAX, newCustomCardId, NUMBER_MAX, SET_MAX} from './custom-card.js';
 import {BASE, errorText, go, h} from './dom.js';
@@ -241,7 +242,10 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 			}
 
 			const cardId = newCustomCardId();
-			const added = await addCards(customEntries({
+			// Through addCopies, as every path that adds copies
+			// (js/placeholder-fill.js); a new hand-made card has no placeholder
+			// or wish yet, so this only keeps the paths alike.
+			const result = await addCopies(customEntries({
 				...typed,
 				cardId,
 				condition: condition.value || null,
@@ -260,11 +264,9 @@ export function openCustomCardSheet({card = null, onSaved = null, openPage = tru
 				close();
 			}
 
-			toast(`Added ${added[0].name_local}${n > 1 ? ` (${n} copies)` : ''}.`, {
-				action: () => deleteCards(added.map((entry) => entry.id)).catch(() => {}),
-				actionLabel: 'Undo',
-				timeout: UNDO_MS,
-			});
+			const {added} = result;
+
+			toastAdded(`Added ${added[0].name_local}${n > 1 ? ` (${n} copies)` : ''}.`, result);
 
 			if (onSaved) {
 				onSaved(added);

@@ -851,8 +851,9 @@ const wishKey = (wish) => wish.card_id ? [wish.catalog || 'international', wish.
 
 // The same card wished for on two phones, or an edit that made one wish the
 // twin of another, leaves two live items. They fold into the oldest
-// (earliest created_at, then the lowest id), which takes the priority of the
-// most recently edited one and the newest non-empty note; the others become
+// (earliest created_at, then the lowest id), which takes the priority and
+// the Got it state (got_at, got_entry_id) of the most recently edited one,
+// and the newest non-empty note; the others become
 // tombstones naming it in merged_into, all stamped just after the newest of
 // the group. Removing the survivor then removes the wish everywhere.
 export function dedupeWishes(wishes) {
@@ -875,6 +876,13 @@ export function dedupeWishes(wishes) {
 
 		if (noted) {
 			kept.note = noted.note;
+		}
+
+		// Got it or wanted as the item edited last says, so a wish marked
+		// wanted again on one phone is not got again by an older twin.
+		if (members.some((member) => member.got_at !== undefined || member.got_entry_id !== undefined)) {
+			kept.got_at = newest[0].got_at || null;
+			kept.got_entry_id = (newest[0].got_at && newest[0].got_entry_id) || null;
 		}
 
 		replace.set(kept.id, stampEntry(survivor, kept));

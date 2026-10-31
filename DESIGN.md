@@ -318,6 +318,18 @@ deliberate list: a card, optionally a variant and language, a priority, and a no
 card can be added to the wishlist in one tap. Seeing a family member's wishlist next to your own
 spares is the start of trade matching, which is deferred (section 12).
 
+**A wish is marked got when a copy that fits it is added** (Eric, 2026-10-31; built 2026-10-31).
+When any path adds a copy (section 11, Binders, "Placeholders fill themselves"; the scanner too)
+of a card on the wishlist (the same card and catalog, and the wish's language and finish when it
+names them), the wish moves to a **Got it** section under the list, with the day it was got. From
+there he can clear it (removed, as Remove does) or put it back to wanted with Want again. It is
+stored on the wish entry as `got_at` and `got_entry_id` (the copy), merged field by field like the
+rest, and Undo of the add clears them while the same copy still marks the wish. A got wish is not
+wanted any more: it leaves the family's view of the wishlist and the scanner's "<member> wants
+this card", and Add to wishlist or Want on a family member's card puts the same item back to
+wanted rather than adding a second one. Start over marks only wishes no copy fitted before it ran.
+Older apps carry the two fields along and still show a got wish as wanted.
+
 **Adopt TCGplayer's condition vocabulary verbatim.**
 Near Mint / Lightly Played / Moderately Played / Heavily Played / Damaged is the de facto standard
 for English cards. Using it as-is means the condition field lines up with the price being fetched
@@ -469,10 +481,11 @@ by older apps:
                     "rule":     { "source", "order" },   -- a binder from a list (Binders)
                     "snapshot": { "at", "rule_key", "keys", "shown" } }],
   "binder_picks": [{ "id", "binder_id", "key", "entry_id" }],   -- hand picks in a binder from a list
-  "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note" }],
+  "wishlist":    [{ "id", "card_id", "variant_id", "language", "priority", "note",
+                    "got_at", "got_entry_id" }],   -- got: a copy that fits was added
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
   "storage_places": [{ "id", "name" }],   -- the saved "Stored in" places (below)
-  "settings":    { "theme", "favorite_pokemon" }   -- follows the person to every device
+  "settings":    { "theme", "favorite_pokemon", "fill_placeholders" }   -- follows the person to every device
 }
 ```
 
@@ -1171,7 +1184,11 @@ Liga price, favorite, condition, Stored in, pack opening, binder spots, hand-pic
 membership) are not copied to the new copies: Eric chose to lose them for a clean slate. A binder
 pocket that held a removed copy becomes that card's placeholder, trays drop removed copies, a list
 binder's hand pick of a removed copy goes back to the default so the rule picks again, and
-hand-picked collections drop removed copies.
+hand-picked collections drop removed copies. With "Fill binder placeholders automatically" on, the
+new copies then fill the placeholders waiting for them, the ones just made included (section 11,
+Binders, "Placeholders fill themselves"), and a wishlist item that only the file's copies fit (no
+copy fitted it before) moves to Got it; Undo puts those pockets and wishes back by the same rule
+as the rest (Eric, 2026-10-31; built 2026-10-31).
 
 Nothing is written before a preview and a confirmation. The preview says "Remove N copies, add M
 copies, K photos kept, P pockets become placeholders", K counting the photos on the card records a
@@ -1188,8 +1205,12 @@ Undo, one step, brings the removed copies back and removes the added ones, and p
 trays, picks, and collection members back, each only while it still holds what Start over wrote,
 so an edit another phone synced since stays. An added copy that changed since (graded, priced,
 favorited; Undo compares a hash of the copy kept with the undo, leaving out its stamps) stays, with
-its pockets, and Undo says how many it kept; a pocket or tray holding an added copy that goes is
-emptied, and an added copy that another phone's copy was folded into stays. Each Start over marks
+its pockets, and Undo says how many it kept. A pocket Start over turned into a placeholder gets
+its old copy back while it still holds the placeholder, or holds an added copy that Undo removes:
+filled since by Fill placeholders, the automatic fill, or by hand. Any other pocket holding an
+added copy that goes keeps that card's placeholder, and a tray drops it. A pocket filled since with
+a copy Start over did not add (a later import's) keeps that copy, and the old copy comes back in no
+pocket. An added copy that another phone's copy was folded into stays. Each Start over marks
 the document with its run (`start_over: {id, at}`, synced, the newest run winning the merge). An
 Undo from an older run, kept on a phone where the account started over again since, here or on
 another phone, is refused with a message and dropped, since it would bring the old copies back
@@ -1704,6 +1725,54 @@ follow-up) fills it in bulk: a sheet lists the copies in no pocket and in no bin
 search and a set filter; tap tiles or Select all, then add them all, in name order, with Undo on
 the toast. A copy waiting in another binder's tray is not offered, so the picker never takes a
 card from the binder it was meant for. A binder made from a list has no tray and no button.
+
+**Placeholders fill themselves** (Eric, 2026-10-31; built 2026-10-31), `js/placeholder-fill.js` and
+`js/fill-view.js`. A placeholder is a card he wants in that pocket, so whenever he has or adds a
+copy of that card, the copy goes there. The need came from Start over: every pocket that held a
+removed copy became that card's placeholder, and the new copies sat in no binder, hundreds of
+pockets to refill one by one.
+
+- **Which copy goes where.** A copy fits a placeholder of the same card (card id, and catalog when
+  the placeholder names one). Only live copies in no pocket of a hand-made binder and in no tray
+  are offered; a copy already in a pocket or a tray never moves, and a copy a binder from a list
+  shows still counts as in no pocket, since that binder is a view. Placeholders that name a finish
+  and a language choose first, then those naming a finish, then a language, then the rest, each
+  taking the oldest copy that fits what it names; a placeholder whose finish or language no copy
+  has takes another copy of the card. One copy per pocket, in binder, page, and pocket order.
+  Placeholders made by Start over carry the removed copy's language, so the copy that fills them
+  again is the most alike. Those v51's Start over made carry none, and an import's copies share
+  their created_at, so for a placeholder that names no language the language is the removed
+  copy's (`pocketLanguages`): the copy the kept Start over undo (`meta:start-over-undo`, 7 days)
+  names for that pocket, whose tombstone is still in the document; without it, the copies of that
+  card deleted at the moment the pocket was written (Start over stamps both with the same time),
+  when they share one language. Binders keep no history of what a pocket held, so nothing else
+  tells. When no language is found and copies in several languages fit, the pocket prefers the
+  language most of its binder's cards have (its copies and the placeholders whose language is
+  known; none on a tie), and the preview says how many pockets were filled that way. Binders have no language of their own yet.
+- **Fill placeholders, now.** A button on each hand-made binder with placeholders, and one on the
+  Binders list for every binder. It shows a preview first ("212 cards go into 4 binders; 18
+  placeholders have no copy yet.", and "3 pockets have no language saved, so the language of their
+  copies is a guess" when that applies), then fills, with Undo on the toast. Undo puts a placeholder
+  back only in a pocket that still holds the copy the fill put there, so a card moved or a pocket
+  changed on another phone since stays as it is.
+- **From now on, by itself.** Every path that adds copies calls one helper with the copies it
+  added (`afterAdding`, or `addCopies`, which adds and calls it): the monprice import, a file shared
+  to the app (the same Save), the app's own CSV restore, Add a copy on the card page and the
+  copy steppers, hand-made cards, and the scanner's save, which passes its own Place it there
+  pockets. Start over runs the same step on its draft (`planAfterAdding`), so the pockets it turns
+  into placeholders take the new copies at once, and its preview says how many ("12 placeholders
+  get a new copy right away."). A trades log calls the same helper. The toast says what happened
+  ("3 cards went into binders."); its Undo, or the path's own Undo, takes the pockets back with the
+  same rule as above. **Add cards to the tray** puts a picked card the binder has a placeholder for
+  into that pocket and the rest in the tray.
+- **The setting.** Profile, Binders: "Fill binder placeholders automatically", on by default,
+  saved in the document's `settings` as `fill_placeholders` (false when turned off), so it follows
+  the person. Off, nothing fills by itself; the Fill placeholders button still works.
+- **Fast on big binders.** Pockets are written in one pass per binder (`js/binders.js`
+  `fillPlaceholders`, `restorePlaceholders`): one copy and one stamp of each binder however many
+  pockets change, so thousands of pockets fill at once.
+- **Not counted as placeholders:** a pocket whose copy was deleted (shown as "Gone") holds an
+  entry id, not a placeholder, so it does not fill.
 
 **Binders from a list** (Eric, 2026-10-05; built 2026-10-09), `js/binder-rules.js`,
 `js/binder-sources.js`, and `js/binder-rule-view.js`. New binder offers Empty binder or **From a

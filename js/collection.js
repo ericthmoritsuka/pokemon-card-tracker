@@ -725,7 +725,17 @@ export function planImport(cards, entries, {ids = new Map(), now = Date.now()} =
 	return {cards: out, counts};
 }
 
+// The entries a planned import adds or brings back: live in `cards` and
+// not live in `before`, for js/placeholder-fill.js afterAdding.
+function newlyLive(before, cards) {
+	const was = new Set(before.filter((card) => card && isLive(card)).map((card) => card.id));
+
+	return cards.filter((card) => card && isLive(card) && !was.has(card.id));
+}
+
 // Adds or updates imported entries by import_key in one save (planImport).
+// Resolves the counts, with `added`'s entries in `entries`, for
+// js/placeholder-fill.js afterAdding.
 export async function applyImport(entries) {
 	const doc = await loadDocument();
 	const byKey = entriesByKey(doc.cards);
@@ -738,11 +748,12 @@ export async function applyImport(entries) {
 	}
 
 	const {cards, counts} = planImport(doc.cards, entries, {ids, now: Date.now()});
+	const added = newlyLive(doc.cards, cards);
 
 	doc.cards = cards;
 	await saveDocument(doc);
 
-	return counts;
+	return {...counts, entries: added};
 }
 
 // ------------------------------------------------------- card info
@@ -1031,11 +1042,13 @@ export function planOwnImport(cards, rows, {notesOf = null, now = Date.now(), re
 }
 
 // Adds, updates, and (when revive) restores the rows of the app's own CSV
-// in one save (planOwnImport).
+// in one save (planOwnImport). Resolves the counts, with the entries added
+// or brought back in `entries`, for js/placeholder-fill.js afterAdding.
 export async function applyOwnImport(rows, {revive = false} = {}) {
 	const doc = await loadDocument();
 	const now = Date.now();
 	const {cards, counts} = planOwnImport(doc.cards, rows, {notesOf: notesIn(doc), now, revive});
+	const added = newlyLive(doc.cards, cards);
 
 	doc.cards = cards;
 
@@ -1048,7 +1061,7 @@ export async function applyOwnImport(rows, {revive = false} = {}) {
 
 	await saveDocument(doc);
 
-	return counts;
+	return {...counts, entries: added};
 }
 
 // What a re-import of these rows would do now, for the report.

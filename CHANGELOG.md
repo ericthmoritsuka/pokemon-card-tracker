@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
-- **v52:** adjust a photo that came out too dark. `TBD`
+- **v53:** adjust a photo that came out too dark. `TBD`
   - On a card's page, each photo you took has **Adjust**. **Auto** fixes a dark or flat photo in
     one tap; sliders set Brightness, Contrast, Saturation, and Warmth, and Reset puts them back.
     Hold the photo, or tap Original, to see it as it was.
@@ -23,6 +23,15 @@ are Recife time. Each line ends with its commit.
     the same way; if it cannot be loaded, the new photo is saved without one and the app says so.
   - **Undo edit** on the message after saving brings the old photo back exactly. Family members'
     photos have no Adjust.
+
+- **v52:** binder placeholders fill themselves. `e5edb78`
+  - **Fill placeholders**, on each binder and on the Binders list, puts the cards you own into the
+    pockets waiting for them, after a preview, with Undo. After Start over it uses the language
+    each pocket's card had, so Portuguese and English copies go back to their own binders; press it
+    on the phone where you started over, which keeps that record for 7 days.
+  - From now on every card you add (scan, import, Start over, Add cards, by hand) goes into a
+    waiting placeholder by itself. Turn it off in Profile, Binders.
+  - A card on your wishlist moves to Got it with the date when you add it.
 
 - **v51:** Start over with this file. `d92d164`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have

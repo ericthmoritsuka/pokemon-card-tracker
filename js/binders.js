@@ -27,7 +27,8 @@
 // one of:
 //   {page, position, placed_at, entry_id}      an owned card (one copy)
 //   {page, position, placed_at, want}          a placeholder, with want =
-//       {card_id, catalog, variant_id, name, image} for a card not owned
+//       {card_id, catalog, variant_id, name, image} for a card not owned,
+//       and language when it was made from a copy (Start over)
 //   {page, position, placed_at, empty: true}   left empty on purpose
 //   {page, position, art}                      a tile of Michi art (not
 //       edited here yet; kept as it is)
@@ -1099,6 +1100,9 @@ export const placePlaceholder = (binderId, page, position, want) => pocketChange
 		card_id: want.card_id,
 		catalog: want.catalog || 'international',
 		image: want.image || null,
+		// The language the pocket wants, when the placeholder was made from a
+		// copy (Start over); Fill placeholders prefers a copy in it.
+		...(want.language ? {language: want.language} : {}),
 		name: want.name || null,
 		variant_id: want.variant_id || null,
 	},
@@ -1176,52 +1180,127 @@ export function placeholderList(binders) {
 	return out;
 }
 
-// Changes pockets one after another: each row's pocket gets content(row,
-// slot) when fits(row, slot) says the pocket still holds what the row
+// Changes many pockets in one pass per binder, so thousands of pockets cost
+// one copy and one stamp per binder: each row's pocket gets content(row,
+// slot) when fits(row, slot, seen) says the pocket still holds what the row
 // expects, and is passed over otherwise (moved or filled on another phone
-// since). Returns {changed, done, passed}: the binders to save, and the rows
+// since). seen is {placed, staged}: where every copy sits now
+// (placements) and every copy in some tray, as they were before this
+// change. A row whose binder is gone or made from a list is passed over.
+// Returns {changed, done, passed}: the binders to save, and the rows
 // changed and passed over, each done row with the slot it replaced.
 function changePockets(binders, rows, {at, content, fits}) {
-	let current = binders;
-	let changed = [];
+	const placed = placements(binders);
+	const live = liveBinders(binders);
+	const byId = new Map(live.map((binder) => [binder.id, binder]));
+	const staged = new Set(live.flatMap((binder) => stagedOf(binder)));
+	const seen = {placed, staged};
+	const pockets = new Map();
+	const writes = new Map();
 	const done = [];
 	const passed = [];
+	const keyOf = (where) => `${where.page}|${where.position}`;
+
+	const pocketsOf = (binder) => {
+		if (!pockets.has(binder.id)) {
+			pockets.set(binder.id, new Map(slotsOf(binder, placed).map((slot) => [keyOf(slot), slot])));
+		}
+
+		return pockets.get(binder.id);
+	};
 
 	for (const row of rows || []) {
-		const binder = liveBinders(current).find((item) => item.id === row.binderId);
-		const slot = binder && inGrid(binder, row) ? pageSlots(binder, row.page, placements(current)).get(row.position) : null;
+		const binder = byId.get(row.binderId);
 
-		if (!slot || !fits(row, slot)) {
+		if (!binder || isGenerated(binder) || !inGrid(binder, row)) {
 			passed.push(row);
 			continue;
 		}
 
-		const next = setPocket(current, {at, binderId: row.binderId, content: content(row, slot), page: row.page, position: row.position});
+		const held = pocketsOf(binder);
+		const slot = held.get(keyOf(row));
 
-		current = withChanges(current, next);
-		changed = gather(changed, next);
+		if (!slot || !fits(row, slot, seen)) {
+			passed.push(row);
+			continue;
+		}
+
+		const written = {page: row.page, placed_at: at, position: row.position, ...content(row, slot)};
+
+		held.set(keyOf(row), written);
+
+		if (!writes.has(binder.id)) {
+			writes.set(binder.id, new Map());
+		}
+
+		writes.get(binder.id).set(keyOf(row), written);
 		done.push({...row, was: slot});
 	}
 
-	return {changed, done, passed};
+	const changed = [];
+
+	for (const [binderId, written] of writes) {
+		const binder = byId.get(binderId);
+		const next = copyOf(binder, at);
+		const entering = new Set([...written.values()].map((slot) => slot.entry_id).filter(Boolean));
+		// Slots for copies that are really in another pocket (a merge left
+		// them behind) are dropped while the binder is being saved anyway.
+		const elsewhere = (slot) => {
+			const real = slot.entry_id && placed.get(slot.entry_id);
+
+			return Boolean(real) && (real.binder.id !== binderId || real.slot.page !== slot.page || real.slot.position !== slot.position);
+		};
+
+		next.slots = next.slots.filter((slot) => !written.has(keyOf(slot)) && !elsewhere(slot));
+		next.slots.push(...written.values());
+		next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+		// A copy placed leaves the tray (fills only take copies in no tray,
+		// so this is for safety).
+		if (stagedOf(next).some((id) => entering.has(id))) {
+			next.staged = stagedOf(next).filter((id) => !entering.has(id));
+		}
+
+		changed.push(next);
+	}
+
+	return {changed: stamped(changed), done, passed};
 }
 
-// Puts saved copies in the placeholders waiting for them. rows: [{binderId,
-// page, position, entryId, cardId}]. A pocket that no longer holds a
-// placeholder for cardId is passed over. Each done row carries want, the
-// placeholder it replaced, so restorePlaceholders can put it back.
+// True when a placeholder stands for the card a row brings: the same card
+// id, and the same catalog when both name one.
+const wantFits = (want, cardId, catalog) => Boolean(want) && want.card_id === cardId
+	&& (!catalog || !want.catalog || want.catalog === catalog);
+
+// Puts saved copies in the placeholders waiting for them, one copy per
+// pocket. rows: [{binderId, page, position, entryId, cardId, catalog}]
+// (catalog optional). A pocket that no longer holds a placeholder for the
+// card is passed over, and so is a copy already in a pocket or a tray (it
+// is never moved) or one an earlier row placed. Each done row carries want,
+// the placeholder it replaced, so restorePlaceholders can put it back.
 export function fillPlaceholders(binders, rows, {at = nowIso()} = {}) {
+	const used = new Set();
 	const result = changePockets(binders, rows, {
 		at,
 		content: (row) => ({entry_id: row.entryId}),
-		fits: (row, slot) => Boolean(slot.want) && slot.want.card_id === row.cardId,
+		fits: (row, slot, {placed, staged}) => {
+			if (!wantFits(slot.want, row.cardId, row.catalog) || !row.entryId || used.has(row.entryId) || placed.has(row.entryId) || staged.has(row.entryId)) {
+				return false;
+			}
+
+			used.add(row.entryId);
+
+			return true;
+		},
 	});
 
 	return {changed: result.changed, done: result.done.map(({was, ...row}) => ({...row, want: was.want})), passed: result.passed};
 }
 
-// Undoes fillPlaceholders: rows are its done rows. A pocket that holds
-// something else by now is passed over.
+// Undoes fillPlaceholders: rows are its done rows. Only a pocket that still
+// holds the copy it wrote gets its placeholder back; one that holds
+// something else by now (moved, emptied, or filled on another phone) is
+// passed over.
 export function restorePlaceholders(binders, rows, {at = nowIso()} = {}) {
 	const result = changePockets(binders, (rows || []).filter((row) => row.want), {
 		at,

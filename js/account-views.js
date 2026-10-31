@@ -28,7 +28,7 @@ import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
 import {memberName} from './family.js';
-import {chooseTheme, currentTheme, favoritePokemon, onSettings, setFavoritePokemon, suggestedThemeFor} from './settings.js';
+import {chooseTheme, currentTheme, favoritePokemon, fillPlaceholdersOn, onSettings, setFavoritePokemon, setFillPlaceholders, suggestedThemeFor} from './settings.js';
 import {THEMES, themeById} from './themes.js';
 import {
 	displayName,
@@ -655,6 +655,7 @@ export function profileView(root) {
 			family
 		),
 		dataCard(),
+		bindersCard(),
 		photoSettingsCard(),
 		phoneCard(),
 		h('div', {class: 'card'},
@@ -890,6 +891,40 @@ function dataCard() {
 			h('button', {id: 'profile-export', onclick: () => run(false), type: 'button'}, 'Export CSV'),
 			canShareFiles() ? h('button', {id: 'profile-share', onclick: () => run(true), type: 'button'}, 'Share CSV') : null
 		),
+		status
+	);
+}
+
+// Binders: whether copies added from now on go into the placeholders
+// waiting for them by themselves (js/placeholder-fill.js; Eric,
+// 2026-10-31). On by default; saved to the document, so it syncs.
+function bindersCard() {
+	const box = h('input', {checked: true, id: 'profile-fill-placeholders', type: 'checkbox'});
+	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'profile-fill-status'});
+
+	fillPlaceholdersOn().then((on) => {
+		box.checked = on;
+	}).catch(() => {});
+
+	box.addEventListener('change', async () => {
+		const on = box.checked;
+
+		try {
+			await setFillPlaceholders(on);
+			status.textContent = on
+				? 'Cards you add go into the placeholders waiting for them.'
+				: 'Cards you add stay out of the binders until you place them. Fill placeholders on a binder still works.';
+		}
+		catch (err) {
+			box.checked = !on;
+			status.textContent = `Not saved. ${errorText(err)}`;
+		}
+	});
+
+	return h('section', {'aria-labelledby': 'binders-setting-heading', class: 'card', id: 'binders-setting-card'},
+		h('h3', {id: 'binders-setting-heading'}, 'Binders'),
+		h('label', {for: 'profile-fill-placeholders'}, box, ' Fill binder placeholders automatically'),
+		h('p', {class: 'muted'}, 'When you add or import a card a binder has a placeholder for, the card goes into that pocket.'),
 		status
 	);
 }

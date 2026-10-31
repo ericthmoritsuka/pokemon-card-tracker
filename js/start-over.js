@@ -6,8 +6,11 @@
 // again on the copies added. Binder pockets that held a removed copy become
 // that card's placeholder, trays and hand-picked collections drop removed
 // copies, and a list binder's hand picks of removed copies go back to the
-// default. Undo puts back what this wrote, wherever it still holds what
-// this wrote.
+// default. When "Fill binder placeholders automatically" is on (Profile),
+// the added copies then fill the placeholders waiting for them, those
+// pockets included (js/placeholder-fill.js), and wishlist items that only
+// the file's copies fit move to Got it. Undo puts back what this wrote,
+// wherever it still holds what this wrote.
 //
 // planStartOver and planUndo are pure: each takes the document and returns
 // a changed structuredClone, so the preview and the save run the same step
@@ -19,6 +22,8 @@ import {isLive, loadDocument, newId, planImport, readMeta, saveCopy, writeMeta} 
 import {isCustom} from './custom-card.js';
 import {handBinders, inGrid, liveBinders, placements, stagedOf} from './binders.js';
 import {pickEntry} from './binder-rules.js';
+import {START_OVER_META, autoFillOn, planAfterAdding} from './placeholder-fill.js';
+import {copyFits, planUngot} from './wishlist.js';
 import {isMember, memberIds, withMembers, withoutMembers} from './collections.js';
 import {infoKey} from './card-info.js';
 import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
@@ -73,10 +78,13 @@ function editBinder(binder, now, change) {
 
 const pocketOf = (slots, {page, position}) => (slots || []).find((slot) => slot && slot.page === page && slot.position === position && !slot.cleared) || null;
 
+// The placeholder a removed copy leaves: its card, finish, and language,
+// so the copy that fills it again is the most alike (js/placeholder-fill.js).
 const wantOf = (entry) => ({
 	card_id: entry.card_id,
 	catalog: entry.catalog || 'international',
 	image: null,
+	...(entry.language ? {language: entry.language} : {}),
 	name: entry.name_local || null,
 	variant_id: entry.variant_id || null,
 });
@@ -151,7 +159,12 @@ const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : [
 // notes on those cards' records, kept but not shown until a copy comes back.
 // The document is marked with the run (start_over: {id, at}), which syncs,
 // so an Undo from an earlier run can tell it is no longer the latest.
-export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), run = newId()} = {}) {
+// fill: whether the added copies fill the placeholders waiting for them
+// (the Profile setting; the callers below pass it); counts.filled says how
+// many did, and counts.got how many wishlist items moved to Got it: only
+// items no copy fitted before, since the file's copies are mostly the same
+// cards added again.
+export function planStartOver(doc, entries, {fill = false, ids = new Map(), now = Date.now(), run = newId()} = {}) {
 	const next = structuredClone(doc);
 	const removed = new Map();
 	const infoById = new Map((doc.card_info || []).filter(Boolean).map((record) => [record.id, record]));
@@ -229,12 +242,24 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 		pockets += turned.length;
 		undoBinders.push({
 			id: binder.id,
-			pockets: turned.map((pocket) => ({...pocket, written: stableJson(pocketOf(changed.slots, pocket))})),
+			pockets: turned,
 			staged: stableJson(changed.staged) === stableJson(binder.staged) ? null : {after: stagedOf(changed), before: stagedOf(binder)},
 		});
 
 		return changed;
 	});
+
+	// The added copies go into the placeholders waiting for them, the ones
+	// just made included, and fill wishes that no copy fitted before.
+	const before = (doc.cards || []).filter((entry) => entry && isLive(entry));
+	const after = planAfterAdding(next, added, {at: new Date(now).toISOString(), fill, now, skipWish: (item) => before.some((entry) => copyFits(item, entry))});
+
+	// What each pocket holds now, for Undo to tell whether it still does.
+	const finalOf = new Map(next.binders.filter(Boolean).map((binder) => [binder.id, binder]));
+
+	for (const item of undoBinders) {
+		item.pockets = item.pockets.map((pocket) => ({...pocket, written: stableJson(pocketOf(finalOf.get(item.id).slots, pocket))}));
+	}
 
 	// A list binder's hand pick of a removed copy goes back to the default.
 	const undoPicks = [];
@@ -301,7 +326,9 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 		counts: {
 			added: added.length,
 			details: [...removed.values()].filter(hasDetails).length,
+			filled: after.placed.length,
 			gone: [...gone.values()].sort((a, b) => `${a.card_id}~${a.language}`.localeCompare(`${b.card_id}~${b.language}`)),
+			got: after.got.length,
 			hiddenNotes: hidden.filter(hasNotes).length,
 			hiddenPhotos: hidden.reduce((sum, record) => sum + livePhotos(record), 0),
 			photos,
@@ -317,8 +344,10 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 			run,
 			binders: undoBinders,
 			collections: undoCollections,
+			fills: after.placed.map((row) => ({binder_id: row.binderId, entry_id: row.entryId, page: row.page, position: row.position, want: row.want})),
 			picks: undoPicks,
 			removed: [...removed.values()].map((entry) => ({deleted_at: entry.deleted_at, id: entry.id})),
+			wishes: after.got,
 		},
 	};
 }
@@ -349,11 +378,19 @@ export function staleUndo(doc, undo) {
 // collections go back to what they held, each only while it still holds
 // what Start over wrote, so an edit another phone synced since stays. An
 // added copy changed since (graded, priced, favorited; copyHash) stays,
-// and so do its pockets; counts.kept counts them. A pocket or tray holding
-// an added copy that goes is emptied. An added copy that the merge folded
+// and so do its pockets; counts.kept counts them. A pocket Start over
+// turned into a placeholder gets its old copy back while it holds what
+// Start over wrote or an added copy that goes (filled since by "Fill
+// placeholders", the automatic fill, or by hand); any other pocket holding
+// an added copy that goes keeps that card's placeholder, and a tray drops
+// it. An added copy that the merge folded
 // another phone's copy into (merged_into) stays: it stands for that
 // phone's Start over too, so removing it could leave the card with no
-// copy. Returns {doc, counts, stale}; `doc` itself is not changed. When the
+// copy. A placeholder an added copy filled gets its placeholder back while
+// the pocket still holds that copy and the copy goes; a pocket Start over
+// turned into a placeholder and then filled gets its old copy back. A
+// wishlist item an added copy moved to Got it goes back to wanted when
+// that copy goes. Returns {doc, counts, stale}; `doc` itself is not changed. When the
 // document's latest run is another one (staleUndo), nothing is undone and
 // stale is true: undoing would bring the old copies back beside that
 // run's.
@@ -369,6 +406,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
 	const counts = {added: 0, kept: 0, restored: 0};
 	const gone = new Set();
+	const goneEntries = new Map();
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry) {
@@ -392,6 +430,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 			counts.added++;
 			gone.add(entry.id);
+			goneEntries.set(entry.id, entry);
 
 			return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
 		}
@@ -400,6 +439,12 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	});
 
 	const byBinder = new Map(undo.binders.map((item) => [item.id, item]));
+	const placed = placements(doc.binders || []);
+	const fills = new Map();
+
+	for (const fill of undo.fills || []) {
+		fills.set(fill.binder_id, [...(fills.get(fill.binder_id) || []), fill]);
+	}
 
 	next.binders = (next.binders || []).map((binder) => {
 		if (!binder || !liveBinders([binder]).length) {
@@ -410,17 +455,47 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 		return editBinder(binder, now, (draft) => {
 			const putBack = new Map();
+			// An added copy that stays (changed since, or standing for
+			// another phone's copy) keeps its pocket.
+			const stays = (slot) => Boolean(slot.entry_id) && added.has(slot.entry_id) && !gone.has(slot.entry_id);
 
+			// A pocket Start over turned into a placeholder gets its old copy
+			// back while it still holds what Start over wrote, or an added
+			// copy that goes: filled since by "Fill placeholders" or the
+			// automatic fill, or by hand.
 			for (const pocket of (was && was.pockets) || []) {
 				const slot = pocketOf(draft.slots, pocket);
 
-				if (slot && stableJson(slot) === pocket.written) {
+				if (slot && !stays(slot) && (stableJson(slot) === pocket.written || gone.has(slot.entry_id))) {
 					putBack.set(slot, {entry_id: pocket.entry_id, page: pocket.page, placed_at: nextStamp(slot.placed_at, now), position: pocket.position});
 				}
 			}
 
+			for (const fill of fills.get(binder.id) || []) {
+				const slot = pocketOf(draft.slots, fill);
+
+				if (slot && !putBack.has(slot) && slot.entry_id === fill.entry_id && gone.has(fill.entry_id)) {
+					putBack.set(slot, {page: fill.page, placed_at: nextStamp(slot.placed_at, now), position: fill.position, want: fill.want});
+				}
+			}
+
+			// Any other pocket holding an added copy that goes keeps that
+			// card's placeholder; a stale slot of it (the copy's real pocket
+			// is elsewhere) goes.
+			for (const slot of draft.slots) {
+				if (!slot || putBack.has(slot) || !gone.has(slot.entry_id)) {
+					continue;
+				}
+
+				const real = placed.get(slot.entry_id);
+
+				if (real && real.binder.id === binder.id && real.slot.page === slot.page && real.slot.position === slot.position && inGrid(binder, slot)) {
+					putBack.set(slot, {page: slot.page, placed_at: nextStamp(slot.placed_at, now), position: slot.position, want: wantOf(goneEntries.get(slot.entry_id))});
+				}
+			}
+
 			draft.slots = draft.slots
-				.filter((slot) => !(slot && gone.has(slot.entry_id)))
+				.filter((slot) => putBack.has(slot) || !(slot && gone.has(slot.entry_id)))
 				.map((slot) => putBack.get(slot) || slot);
 
 			if (was && was.staged && stableJson(stagedOf(draft)) === stableJson(was.staged.after)) {
@@ -461,6 +536,15 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 		return withMembers(item, back, now);
 	});
 
+	// Wishes an added copy that goes had moved to Got it are wanted again.
+	const ungot = planUngot(next.wishlist || [], (undo.wishes || []).filter((mark) => gone.has(mark.entry_id)), {now});
+
+	if (ungot.length) {
+		const byWish = new Map(ungot.map((item) => [item.id, item]));
+
+		next.wishlist = next.wishlist.map((item) => (item && byWish.get(item.id)) || item);
+	}
+
 	return {counts, doc: next};
 }
 
@@ -469,14 +553,14 @@ export async function previewStartOver(entries) {
 	const doc = await loadDocument();
 	const ids = await startOverIds(doc.cards, entries);
 
-	return planStartOver(doc, entries, {ids}).counts;
+	return planStartOver(doc, entries, {fill: autoFillOn(doc), ids}).counts;
 }
 
 // The last Start over's undo is kept beside the document (writeMeta), so
 // the import screen offers Undo after the screen was left or the page
 // reloaded: for UNDO_DAYS days, to the account that started over, until it
 // is used or another Start over replaces it.
-const UNDO_META = 'start-over-undo';
+const UNDO_META = START_OVER_META;
 
 export const UNDO_DAYS = 7;
 
@@ -506,7 +590,7 @@ export const STALE_UNDO_TEXT = 'You started over again, on this phone or another
 export async function applyStartOver(entries) {
 	const current = await loadDocument();
 	const ids = await startOverIds(current.cards, entries);
-	const {counts, doc, undo} = planStartOver(current, entries, {ids});
+	const {counts, doc, undo} = planStartOver(current, entries, {fill: autoFillOn(current), ids});
 
 	await saveCopy(doc);
 	await writeMeta(UNDO_META, {at: new Date().toISOString(), counts, undo, user_id: current.user_id || null}).catch(() => {});

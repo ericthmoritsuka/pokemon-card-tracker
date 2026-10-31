@@ -25,6 +25,14 @@ export const RELEASES = [
 			'A photo you took has Adjust on its card page: Auto fixes a dark or flat photo in one tap, and sliders set brightness, contrast, saturation, and warmth.',
 			'Hold the photo or tap Original to compare, and Undo edit after saving brings the old photo back.',
 		],
+		version: 'v53',
+	},
+	{
+		date: '2026-10-31',
+		items: [
+			'Fill placeholders, on each binder and on the Binders list, puts the cards you own into the pockets waiting for them, in the right language, with Undo.',
+			'From now on a card you add by scan, import, or by hand goes into a waiting placeholder by itself (Profile, Binders), and a card on your wishlist moves to Got it.',
+		],
 		version: 'v52',
 	},
 	{

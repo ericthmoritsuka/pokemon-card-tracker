@@ -76,6 +76,8 @@ const {isMember} = await import('../js/collections.js');
 const {moveToCardInfo} = await import('../js/card-info.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {fillPlan, planAfterAdding} = await import('../js/placeholder-fill.js');
+const {fillPlaceholders, placements} = await import('../js/binders.js');
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const NOW = Date.parse('2026-10-30T12:00:00.000Z');
@@ -233,7 +235,7 @@ describe('planStartOver', () => {
 		const {plan} = await started();
 		const {doc} = plan;
 
-		assert.deepEqual(slotAt(doc, 1).want, {card_id: 'tst1-001', catalog: 'international', image: null, name: null, variant_id: null});
+		assert.deepEqual(slotAt(doc, 1).want, {card_id: 'tst1-001', catalog: 'international', image: null, language: 'pt', name: null, variant_id: null});
 		assert.equal(slotAt(doc, 2).want.card_id, 'tst1-002');
 		assert.equal(slotAt(doc, 3).entry_id, HAND, 'the hand-made card stays in its pocket');
 		assert.deepEqual(doc.binders[0].staged, []);
@@ -291,8 +293,8 @@ describe('planStartOver', () => {
 		const added = live(doc).filter((entry) => !before.cards.some((old) => old.id === entry.id)).length;
 		const pockets = doc.binders[0].slots.filter((slot) => slot.want).length;
 
-		assert.deepEqual({...counts, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0}, {added, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets, removed, uploading: 0});
-		assert.deepEqual(counts, {added: 3, details: 1, gone: [{card_id: 'tst1-002', catalog: 'international', copies: 1, language: 'pt', name: null}], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets: 2, removed: 3, uploading: 0});
+		assert.deepEqual({...counts, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0}, {added, details: 0, filled: 0, gone: [], got: 0, hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets, removed, uploading: 0});
+		assert.deepEqual(counts, {added: 3, details: 1, filled: 0, gone: [{card_id: 'tst1-002', catalog: 'international', copies: 1, language: 'pt', name: null}], got: 0, hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets: 2, removed: 3, uploading: 0});
 	});
 });
 
@@ -313,7 +315,7 @@ describe('planUndo', () => {
 		assert.deepEqual(doc.card_info, before.card_info);
 	});
 
-	test('leaves what another phone changed since, and empties a pocket holding an added copy', async () => {
+	test('leaves what another phone changed since, and a pocket holding an added copy keeps its card\'s placeholder', async () => {
 		const {plan} = await started();
 		const doc = structuredClone(plan.doc);
 		const addedId = plan.undo.added[0];
@@ -332,7 +334,7 @@ describe('planUndo', () => {
 
 		assert.equal(slotAt(undone, 1).entry_id, 'a001');
 		assert.ok(slotAt(undone, 2).empty, 'the pocket another phone changed stays as it is');
-		assert.equal(slotAt(undone, 4), null, 'the pocket holding an added copy is emptied');
+		assert.equal(slotAt(undone, 4).want.card_id, plan.doc.cards.find((entry) => entry.id === addedId).card_id, 'the pocket holding an added copy becomes its card\'s placeholder');
 		assert.equal(undone.binder_picks[0].entry_id, addedId, 'the pick another phone made stays');
 		assert.ok(byId.get('a002').deleted_at, 'a copy deleted again since is not brought back');
 	});
@@ -355,7 +357,7 @@ describe('planUndo', () => {
 		assert.equal(byId.get(graded).grade, '10');
 		assert.equal(pocket(1).entry_id, graded, 'and so does its pocket');
 		assert.ok(byId.get(placed).deleted_at, 'a copy only placed in a pocket is not changed, so it goes');
-		assert.equal(pocket(2), null);
+		assert.equal(pocket(2).want.card_id, byId.get(placed).card_id, 'and its pocket keeps the card\'s placeholder');
 		assert.deepEqual(counts, {added: plan.undo.added.length - 1, kept: 1, restored: 3});
 	});
 
@@ -365,6 +367,186 @@ describe('planUndo', () => {
 		const {counts} = planUndo(synced, plan.undo, {now: NOW + 1000});
 
 		assert.deepEqual(counts, {added: plan.undo.added.length, kept: 0, restored: 3});
+	});
+});
+
+// Fill binder placeholders automatically (Eric, 2026-10-31): the added
+// copies go into the placeholders waiting for them, the ones Start over just
+// made included, and Undo takes exactly that back.
+describe('filling placeholders', () => {
+	const want = (number) => ({card_id: `tst1-${number}`, catalog: 'international', image: null, name: null, variant_id: null});
+	const wish = (id, number, fields = {}) => ({card_id: `tst1-${number}`, catalog: 'international', created_at: at(1), deleted_at: null, id, language: null, note: '', priority: 'normal', updated_at: at(1), variant_id: null, ...fields});
+
+	async function filled() {
+		const before = await startDoc();
+
+		// A placeholder made by hand for a card the file brings, and wishes;
+		// the copy in the tray is another card here, so no tst1-003 is owned.
+		before.cards = before.cards.map((entry) => (entry.id === 'a003' ? {...entry, card_id: 'tst1-033'} : entry));
+		before.binders[0].slots.push({page: 1, placed_at: at(2), position: 5, want: want('003')});
+		before.wishlist = [wish('w1', '003'), wish('w2', '001'), wish('w3', '003', {language: 'en'})];
+
+		const ids = await startOverIds(before.cards, ENTRIES);
+
+		return {before, plan: planStartOver(before, ENTRIES, {fill: true, ids, now: NOW})};
+	}
+
+	test('the pocket a removed copy leaves takes the new copy, a placeholder made by hand takes the oldest copy, and a card not in the file stays a placeholder', async () => {
+		const {plan} = await filled();
+		const {doc} = plan;
+		const byKey = new Map(live(doc).map((entry) => [entry.import_key, entry.id]));
+
+		assert.equal(slotAt(doc, 1).entry_id, byKey.get(KEY('001')));
+		assert.equal(slotAt(doc, 5).entry_id, byKey.get(KEY('003', 0)), 'the oldest of the two copies');
+		assert.equal(slotAt(doc, 2).want.card_id, 'tst1-002', 'no copy in the file');
+		assert.equal(slotAt(doc, 3).entry_id, HAND);
+		assert.deepEqual([plan.counts.pockets, plan.counts.filled], [2, 2]);
+		assert.equal(plan.doc.binders.length, 1);
+	});
+
+	test('a wish moves to Got it only when no copy fitted it before', async () => {
+		const {plan} = await filled();
+		const wishes = new Map(plan.doc.wishlist.map((item) => [item.id, item]));
+		const added = live(plan.doc).find((entry) => entry.import_key === KEY('003', 0));
+
+		assert.equal(wishes.get('w1').got_entry_id, added.id);
+		assert.ok(wishes.get('w1').got_at);
+		assert.ok(!wishes.get('w2').got_at, 'tst1-001 was owned before Start over');
+		assert.ok(!wishes.get('w3').got_at, 'the file has no English copy');
+		assert.equal(plan.counts.got, 1);
+	});
+
+	test('the setting off: pockets stay placeholders', async () => {
+		const before = await startDoc();
+		const plan = planStartOver(before, ENTRIES, {fill: false, ids: await startOverIds(before.cards, ENTRIES), now: NOW});
+
+		assert.equal(slotAt(plan.doc, 1).want.card_id, 'tst1-001');
+		assert.equal(plan.counts.filled, 0);
+	});
+
+	test('Undo puts back the old copy, the hand-made placeholder, and the wish', async () => {
+		const {plan} = await filled();
+		const {doc} = planUndo(plan.doc, plan.undo, {now: NOW + 1000});
+
+		assert.deepEqual(doc.binders[0].slots.filter((slot) => !slot.cleared).map((slot) => [slot.position, slot.entry_id || `want:${slot.want.card_id}`]), [[1, 'a001'], [2, 'a002'], [3, HAND], [5, 'want:tst1-003']]);
+		assert.ok(!doc.wishlist.find((item) => item.id === 'w1').got_at, 'wanted again');
+	});
+
+	test('Undo after another phone moved a filled copy leaves that pocket alone, and an added copy changed since keeps its pocket', async () => {
+		const {plan} = await filled();
+		const doc = structuredClone(plan.doc);
+		const later = '2026-10-30T13:00:00.000Z';
+		const binder = doc.binders[0];
+		const moved = slotAt(doc, 5).entry_id;
+		const kept = slotAt(doc, 1).entry_id;
+
+		// Another phone: the copy in pocket 5 went to pocket 7, and the copy
+		// in pocket 1 was graded.
+		binder.slots = binder.slots.filter((slot) => slot.position !== 5);
+		binder.slots.push({cleared: true, page: 1, placed_at: later, position: 5}, {entry_id: moved, page: 1, placed_at: later, position: 7});
+		doc.cards = doc.cards.map((entry) => (entry.id === kept ? {...entry, grade: '9', grader: 'PSA', updated_at: later} : entry));
+
+		const {counts, doc: undone} = planUndo(doc, plan.undo, {now: NOW + 1000});
+
+		assert.equal(counts.kept, 1);
+		assert.equal(slotAt(undone, 1).entry_id, kept, 'the graded copy keeps its pocket');
+		assert.equal(slotAt(undone, 5), null, 'pocket 5 holds something else since, so it is not touched');
+		assert.equal(slotAt(undone, 7).want.card_id, 'tst1-003', 'the moved copy goes, and its pocket keeps the card\'s placeholder');
+	});
+});
+
+// Undo after the placeholders Start over made were filled later, by "Fill
+// placeholders" or by the automatic fill after another import (review of
+// v53): the pocket no longer holds what Start over wrote, but it holds an
+// added copy that Undo removes, so the old copy goes back there, and any
+// other pocket holding an added copy that goes keeps that card's
+// placeholder.
+describe('Undo after a later fill', () => {
+	const later = '2026-10-30T13:00:00.000Z';
+	const pockets = (doc) => doc.binders[0].slots.filter((slot) => !slot.cleared).map((slot) => [slot.position, slot.entry_id || `want:${slot.want.card_id}`]);
+
+	// startDoc plus a placeholder made by hand for row 003, Started over
+	// with the setting off.
+	async function startedOff() {
+		const before = await startDoc();
+
+		before.binders[0].slots.push({page: 1, placed_at: at(2), position: 5, want: {card_id: 'tst1-003', catalog: 'international', image: null, name: null, variant_id: null}});
+
+		return planStartOver(before, ENTRIES, {fill: false, ids: await startOverIds(before.cards, ENTRIES), now: NOW});
+	}
+
+	// What v51 saved: placeholders with no language, and an undo with no
+	// fills and no wishes, its pockets' written taken from those slots.
+	function asV51({doc, undo}) {
+		const old = structuredClone(doc);
+
+		for (const slot of old.binders[0].slots) {
+			if (slot.want) {
+				delete slot.want.language;
+			}
+		}
+
+		const kept = structuredClone(undo);
+
+		delete kept.fills;
+		delete kept.wishes;
+
+		for (const item of kept.binders) {
+			item.pockets = item.pockets.map((pocket) => ({...pocket, written: stableJson(old.binders[0].slots.find((slot) => slot.page === pocket.page && slot.position === pocket.position && !slot.cleared))}));
+		}
+
+		return {doc: old, undo: kept};
+	}
+
+	// "Fill placeholders" on every binder.
+	function fillAll(doc, when) {
+		const plan = fillPlan(doc);
+		const result = fillPlaceholders(doc.binders, plan.rows, {at: when});
+
+		return {...doc, binders: doc.binders.map((binder) => result.changed.find((item) => item.id === binder.id) || binder)};
+	}
+
+	const placedIds = (doc) => [...placements(doc.binders).keys()].sort();
+
+	for (const [label, shape] of [['a v51 Start over', asV51], ['Start over with the setting off', (plan) => plan]]) {
+		test(`${label}, then Fill placeholders, then Undo: the old copies go back in their pockets`, async () => {
+			const {doc, undo} = shape(await startedOff());
+			const byKey = new Map(live(doc).map((entry) => [entry.import_key, entry.id]));
+			const filledDoc = fillAll(doc, later);
+
+			assert.equal(slotAt(filledDoc, 1).entry_id, byKey.get(KEY('001')), 'the fill took the pocket');
+			assert.equal(slotAt(filledDoc, 5).entry_id, byKey.get(KEY('003', 0)));
+
+			const {counts, doc: undone} = planUndo(filledDoc, undo, {now: NOW + 120000});
+
+			assert.deepEqual(pockets(undone), [[1, 'a001'], [2, 'a002'], [3, HAND], [5, 'want:tst1-003']]);
+			assert.deepEqual(placedIds(undone), ['a001', 'a002', HAND].sort());
+			assert.equal(counts.restored, 3);
+			assert.equal(slotAt(undone, 5).want.variant_id, 'normal', 'the hand-made placeholder comes back as the card\'s placeholder');
+		});
+	}
+
+	test('after an automatic fill from a later import: that copy keeps its pocket, the rest go back', async () => {
+		const plan = await startedOff();
+		const doc = structuredClone(plan.doc);
+		// A later import adds a copy of tst1-002, and the automatic fill puts
+		// it in the placeholder Start over made for a002.
+		const copy = card('later2', {card_id: 'tst1-002', created_at: later, updated_at: later});
+
+		doc.cards.push(copy);
+
+		const auto = planAfterAdding(doc, [copy], {at: later, fill: true});
+
+		assert.equal(auto.placed.length, 1);
+		assert.equal(slotAt(doc, 2).entry_id, 'later2');
+
+		const filledDoc = fillAll(doc, later);
+		const {doc: undone} = planUndo(filledDoc, plan.undo, {now: NOW + 120000});
+		const byId = new Map(undone.cards.map((entry) => [entry.id, entry]));
+
+		assert.deepEqual(pockets(undone), [[1, 'a001'], [2, 'later2'], [3, HAND], [5, 'want:tst1-003']]);
+		assert.equal(byId.get('later2').deleted_at, null, 'not Start over\'s copy, so Undo leaves it');
+		assert.equal(byId.get('a002').deleted_at, null, 'back, beside the copy that holds its pocket now');
 	});
 });
 

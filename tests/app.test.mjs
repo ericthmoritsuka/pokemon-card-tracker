@@ -753,7 +753,8 @@ describe('importing on two phones', () => {
 
 		const again = await applyImport(laptop.page, rows);
 
-		assert.deepEqual(again, {added: 0, skippedDeleted: 0, unchanged: 50, updated: 0});
+		// entries: the copies it added, for the placeholder fill (none here).
+		assert.deepEqual(again, {added: 0, entries: [], skippedDeleted: 0, unchanged: 50, updated: 0});
 		assert.deepEqual([...phone.errors, ...laptop.errors], []);
 		await phone.context.close();
 		await laptop.context.close();

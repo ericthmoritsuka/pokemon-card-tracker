@@ -26,6 +26,7 @@ import {
 	cardRecord,
 	displayLanguage,
 	languagesFor,
+	listGotWishes,
 	listWishlist,
 	memberWishlist,
 	ownedCopies,
@@ -35,6 +36,7 @@ import {
 	sparesFor,
 	updateWish,
 	variantLabel,
+	wantAgain,
 } from './wishlist.js';
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
@@ -94,7 +96,12 @@ function finishText(item, info) {
 
 // ------------------------------------------------------ one item row
 
-function itemRow(item, found, {mine = false, onEdit = null, onRemove = null, owned = 0, spares = 0, viewing = null} = {}) {
+// The day an item was got, as "Oct 31".
+const gotDay = (at) => new Date(at).toLocaleDateString('en-US', {day: 'numeric', month: 'short'});
+
+// got: {onClear, onBack} for a row of Got it, which shows when it was got
+// in place of Edit.
+function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove = null, owned = 0, spares = 0, viewing = null} = {}) {
 	const info = cardInfo(item, found);
 	const variant = item.variant_id ? (info.variants || []).find((entry) => entry.variantId === item.variant_id) : null;
 	const finish = finishText(item, info);
@@ -123,7 +130,14 @@ function itemRow(item, found, {mine = false, onEdit = null, onRemove = null, own
 		body.append(h('p', {class: 'wl-spare'}, `You have ${formatCount(spares)} spare`));
 	}
 
-	if (mine) {
+	if (got) {
+		body.append(h('div', {class: 'wl-got', role: 'status'},
+			h('span', null, `Got it ${gotDay(item.got_at)}`),
+			h('button', {'aria-label': `Clear ${info.name} from Got it`, class: 'wl-got-clear', onclick: got.onClear, type: 'button'}, 'Clear'),
+			h('button', {'aria-label': `Put ${info.name} back on the wishlist`, class: 'wl-got-back', onclick: got.onBack, type: 'button'}, 'Want again')
+		));
+	}
+	else if (mine) {
 		body.append(h('button', {'aria-label': `Edit ${info.name}`, class: 'wl-edit', onclick: onEdit, type: 'button'}, 'Edit'));
 	}
 
@@ -333,6 +347,7 @@ function searchPanel({onPick, wished}) {
 export function wishlistView(root) {
 	let alive = true;
 	let items = [];
+	let gotItems = [];
 	let cards = [];
 	let editing = null;
 
@@ -340,6 +355,13 @@ export function wishlistView(root) {
 	const load = cardLoader();
 	const summary = h('p', {class: 'muted', id: 'wishlist-summary'});
 	const list = h('ul', {class: 'wl-list', id: 'wishlist-items'});
+	// Got it: items a copy added since filled (js/wishlist.js got_at), to
+	// clear or put back to wanted.
+	const gotList = h('ul', {class: 'wl-list', id: 'wishlist-got-items'});
+	const gotSection = h('section', {'aria-labelledby': 'wishlist-got-title', hidden: true, id: 'wishlist-got'},
+		h('h3', {id: 'wishlist-got-title'}, 'Got it'),
+		gotList
+	);
 	const flash = h('p', {class: 'wl-flash', id: 'wishlist-flash', role: 'status'});
 	const editorSlot = h('div');
 	const addButton = h('button', {class: 'primary', id: 'wishlist-add', type: 'button'}, 'Add a card');
@@ -441,13 +463,49 @@ export function wishlistView(root) {
 		}
 	}
 
+	async function gotChange(change, text) {
+		try {
+			await change();
+			say(text);
+		}
+		catch (err) {
+			say(`Not changed. ${errorText(err)}`);
+		}
+	}
+
+	function drawGot() {
+		gotSection.hidden = !gotItems.length;
+		gotList.replaceChildren(...gotItems.map((item) => {
+			const row = h('li', {class: 'wl-item wl-loading', 'data-id': item.id});
+
+			load(item, viewing).then((found) => {
+				if (!alive) {
+					return;
+				}
+
+				const info = cardInfo(item, found);
+
+				row.replaceWith(itemRow(item, found, {
+					got: {
+						onBack: () => gotChange(() => wantAgain(item.id), `${info.name} is wanted again.`),
+						onClear: () => gotChange(() => removeWish(item.id), `Cleared ${info.name}.`),
+					},
+					viewing,
+				}));
+			});
+
+			return row;
+		}));
+	}
+
 	function draw() {
 		wishedSet = new Set(items.map((item) => wishedKey(item.card_id, item.catalog || 'international')));
 		panel.redraw();
+		drawGot();
 
 		const haveNow = items.filter((item) => ownedCopies(item, cards).length).length;
 
-		empty.hidden = items.length > 0;
+		empty.hidden = items.length > 0 || gotItems.length > 0;
 		summary.hidden = !items.length;
 		summary.textContent = `${plural(items.length, 'card', 'cards')} wanted.${haveNow ? ` You have ${formatCount(haveNow)} of them now.` : ''}`;
 
@@ -478,7 +536,7 @@ export function wishlistView(root) {
 
 	async function reload() {
 		try {
-			[items, cards] = await Promise.all([listWishlist(), listCards()]);
+			[items, gotItems, cards] = await Promise.all([listWishlist(), listGotWishes(), listCards()]);
 		}
 		catch (err) {
 			list.replaceChildren(h('li', {class: 'notice', role: 'alert'}, `Your wishlist could not be read from this phone. ${errorText(err)}`));
@@ -507,7 +565,8 @@ export function wishlistView(root) {
 		editorSlot,
 		flash,
 		empty,
-		list
+		list,
+		gotSection
 	);
 	reload();
 
