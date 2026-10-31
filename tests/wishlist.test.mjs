@@ -319,6 +319,32 @@ describe('merge survival', () => {
 
 		assert.equal(live(apart.wishlist).length, 3);
 	});
+
+	// A got wish folded with a wanted twin takes its Got it state from the
+	// most recently edited one, as the priority is taken, not from the
+	// oldest.
+	test('the survivor takes got_at and got_entry_id from the most recently edited item', async () => {
+		const {gotWish} = await import('../js/wishlist.js');
+		const gotOld = gotWish(newWish('sv08.5-003', {}, at(1), 'older'), 'c-old', Date.parse(at(2)));
+		const wantedNew = editedWish(newWish('sv08.5-003', {}, at(3), 'newer'), {priority: 'high'}, Date.parse(at(6)));
+
+		for (const merged of [mergeDocuments(doc([gotOld]), doc([wantedNew])), mergeDocuments(doc([wantedNew]), doc([gotOld]))]) {
+			const [kept] = live(merged.wishlist);
+
+			assert.equal(kept.id, 'older');
+			assert.ok(!kept.got_at, 'wanted, as the newer item says');
+			assert.ok(!kept.got_entry_id);
+		}
+
+		const wantedOld = newWish('sv08.5-003', {}, at(1), 'older');
+		const gotNew = gotWish(newWish('sv08.5-003', {}, at(3), 'newer'), 'c-new', Date.parse(at(6)));
+		const [kept] = live(mergeDocuments(doc([wantedOld]), doc([gotNew])).wishlist);
+
+		assert.equal(kept.id, 'older');
+		assert.equal(kept.got_entry_id, 'c-new');
+		assert.equal(kept.got_at, gotNew.got_at);
+		assert.ok(sameContent(mergeDocuments(doc([wantedOld]), doc([gotNew])), mergeDocuments(doc([gotNew]), doc([wantedOld]))));
+	});
 });
 
 describe('search parsing', () => {
