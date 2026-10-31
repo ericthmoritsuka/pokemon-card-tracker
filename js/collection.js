@@ -266,6 +266,12 @@ async function saveDocument(doc, source = 'local', {into = null, replace = false
 	});
 
 	if (into && into !== doc && !tookOver) {
+		// A real database completes the transaction a task after the
+		// write, so an edit can land in memory in between (a tap, a sync
+		// merge, a photo upload): take it in again before the copy's
+		// content replaces the document on screen. That edit's own save
+		// writes it.
+		absorb(doc, into);
 		replaceContent(into, doc);
 		doc = into;
 	}

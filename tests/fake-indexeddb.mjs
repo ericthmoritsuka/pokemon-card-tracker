@@ -5,6 +5,11 @@
 // oncomplete after the last (a callback may add more requests, as
 // js/collection.js saveDocument does). Values are copied in and out with
 // structuredClone, as a real database stores copies.
+//
+// realOrder: oncomplete runs in a later task than the last onsuccess, as in
+// a real browser, where the commit sits between them; code that awaits a
+// save can then see other work land in that gap. onPut(value, key) runs
+// after each put is stored.
 
 function request(tx, work) {
 	const req = {error: null, onerror: null, onsuccess: null, result: undefined};
@@ -20,7 +25,7 @@ function request(tx, work) {
 	return req;
 }
 
-function transaction(db, names) {
+function transaction(db, names, {onPut = null, realOrder = false} = {}) {
 	const tx = {error: null, onabort: null, oncomplete: null, onerror: null, queue: []};
 
 	tx.objectStore = (name) => {
@@ -38,6 +43,10 @@ function transaction(db, names) {
 			put: (value, key) => request(tx, () => {
 				store.set(key, structuredClone(value));
 
+				if (onPut) {
+					onPut(value, key);
+				}
+
 				return key;
 			}),
 		};
@@ -49,7 +58,10 @@ function transaction(db, names) {
 			tx.queue.shift()();
 		}
 
-		if (tx.oncomplete) {
+		if (realOrder) {
+			setTimeout(() => tx.oncomplete && tx.oncomplete(), 0);
+		}
+		else if (tx.oncomplete) {
 			tx.oncomplete();
 		}
 	}, 0);
@@ -57,7 +69,7 @@ function transaction(db, names) {
 	return tx;
 }
 
-export function fakeIndexedDb() {
+export function fakeIndexedDb(options = {}) {
 	const databases = new Map();
 
 	return {
@@ -73,7 +85,7 @@ export function fakeIndexedDb() {
 						createObjectStore: (store) => db.stores.set(store, new Map()),
 						objectStoreNames: {contains: (store) => db.stores.has(store)},
 						stores: new Map(),
-						transaction: (stores) => transaction(db, Array.isArray(stores) ? stores : [stores]),
+						transaction: (stores) => transaction(db, Array.isArray(stores) ? stores : [stores], options),
 					};
 					databases.set(name, db);
 				}
