@@ -28,7 +28,7 @@ are Recife time. Each line ends with its commit.
   - Cards the file could not match, hand-made cards, and rows you did not tick are left as they
     are.
 
-- **v48:** photos and notes belong to the card. `TBD`
+- **v48:** photos and notes belong to the card. `32c268f`
   - Your photos, notes, and the image you picked with "Use as main image" are now kept on the card
     (per language), not on one copy. Every copy of the card shows them, and so does the card's page
     when you have no copies left, so deleting copies never loses a photo or a note.
