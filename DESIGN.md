@@ -1122,6 +1122,11 @@ phones that each start over add different copies of each row, and the merge fold
 by `import_key`. A key-based id would be the same on both phones, so an Undo on one would remove
 the copies the other added and leave none. Rows not matched are not added; the report lists them
 with Add by hand as before, and Start over is off, with a line saying why, when no row matched.
+Two rows of one monprice ID, language, and finish (a blank finish and "Normal" read the same) each
+get their own copies: the copy number in the key runs on across such rows, so the same file still
+gives the same keys, in Start over and in the normal import. A copy holding a photo with no path
+yet (a v47 phone took it and has not uploaded it) is left as it is, because removing it would give
+the photo up; the preview says how many copies stay for that reason.
 Card records (`card_info`) are never touched, so photos, notes, and the main-image pin show again
 on the cards that get a copy. Each copy's own details (grade and grading, purchase price, typed
 Liga price, favorite, condition, Stored in, pack opening, binder spots, hand-picked collection
@@ -1143,13 +1148,25 @@ keeps every copy's details and imports back through the same screen.
 
 Undo, one step, brings the removed copies back and removes the added ones, and puts pockets,
 trays, picks, and collection members back, each only while it still holds what Start over wrote,
-so an edit another phone synced since stays; a pocket or tray holding an added copy by then is
-emptied, and an added copy that another phone's copy was folded into stays. Undo is kept beside
+so an edit another phone synced since stays. An added copy that changed since (graded, priced,
+favorited; Undo compares a hash of the copy kept with the undo, leaving out its stamps) stays, with
+its pockets, and Undo says how many it kept; a pocket or tray holding an added copy that goes is
+emptied, and an added copy that another phone's copy was folded into stays. Each Start over marks
+the document with its run (`start_over: {id, at}`, synced, the newest run winning the merge). An
+Undo from an older run, kept on a phone where the account started over again since, here or on
+another phone, is refused with a message and dropped, since it would bring the old copies back
+beside the new ones. Undo is kept beside
 the document (`meta:start-over-undo`), so the import screen offers "Undo Start over" after the
 screen was left or the page reloaded: for 7 days, to the account that started over, until it is
 used or another Start over replaces it. The change is planned on a copy of the document by one
 pure function (`js/start-over.js`) for both the preview and the save, and the document on screen
-takes it only once the save succeeds; a failed save changes nothing.
+takes it only once the save succeeds; a failed save changes nothing. An edit made in memory while
+the save commits (a tap, a sync merge, a photo upload) is taken in again before the document on
+screen takes the save's content.
+
+Known limits. After Undo, a removed copy that another phone edited offline before the run comes
+back as this phone's version, without that edit. Two phones that start over offline and undo
+before syncing cannot see each other's run, so an Undo there can still leave both runs' copies.
 
 ## 8. Persistence and Auth
 

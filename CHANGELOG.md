@@ -16,12 +16,17 @@ are Recife time. Each line ends with its commit.
 
 - **v51:** Start over with this file. `TBD`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have
-    is removed (hand-made cards stay) and every card in the file is added fresh.
+    is removed (hand-made cards stay) and every card in the file is added fresh. A copy whose
+    photo is still uploading from another phone stays, and the preview says so.
   - Photos, notes, and your main image stay with their cards and show again on the new copies.
     Condition, Stored in, favorites, prices, grades, pack openings, binder spots, and collection
     picks stay with the old copies and are not copied over; the preview says how many, lists the
     cards that will have no copy, and offers Export CSV first.
-  - Undo Start over stays on the Import screen for 7 days.
+  - Undo Start over stays on the Import screen for 7 days. It keeps any new copy you changed since
+    and says how many, and it is no longer offered once you start over again, on this phone or
+    another.
+  - A file that lists the same card, language, and finish on two rows now adds every copy, in
+    Start over and in the normal import.
 
 ### 2026-10-30
 
