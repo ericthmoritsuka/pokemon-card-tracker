@@ -378,8 +378,12 @@ export function staleUndo(doc, undo) {
 // collections go back to what they held, each only while it still holds
 // what Start over wrote, so an edit another phone synced since stays. An
 // added copy changed since (graded, priced, favorited; copyHash) stays,
-// and so do its pockets; counts.kept counts them. A pocket or tray holding
-// an added copy that goes is emptied. An added copy that the merge folded
+// and so do its pockets; counts.kept counts them. A pocket Start over
+// turned into a placeholder gets its old copy back while it holds what
+// Start over wrote or an added copy that goes (filled since by "Fill
+// placeholders", the automatic fill, or by hand); any other pocket holding
+// an added copy that goes keeps that card's placeholder, and a tray drops
+// it. An added copy that the merge folded
 // another phone's copy into (merged_into) stays: it stands for that
 // phone's Start over too, so removing it could leave the card with no
 // copy. A placeholder an added copy filled gets its placeholder back while
@@ -402,6 +406,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
 	const counts = {added: 0, kept: 0, restored: 0};
 	const gone = new Set();
+	const goneEntries = new Map();
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry) {
@@ -425,6 +430,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 			counts.added++;
 			gone.add(entry.id);
+			goneEntries.set(entry.id, entry);
 
 			return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
 		}
@@ -433,6 +439,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	});
 
 	const byBinder = new Map(undo.binders.map((item) => [item.id, item]));
+	const placed = placements(doc.binders || []);
 	const fills = new Map();
 
 	for (const fill of undo.fills || []) {
@@ -452,10 +459,14 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 			// another phone's copy) keeps its pocket.
 			const stays = (slot) => Boolean(slot.entry_id) && added.has(slot.entry_id) && !gone.has(slot.entry_id);
 
+			// A pocket Start over turned into a placeholder gets its old copy
+			// back while it still holds what Start over wrote, or an added
+			// copy that goes: filled since by "Fill placeholders" or the
+			// automatic fill, or by hand.
 			for (const pocket of (was && was.pockets) || []) {
 				const slot = pocketOf(draft.slots, pocket);
 
-				if (slot && stableJson(slot) === pocket.written && !stays(slot)) {
+				if (slot && !stays(slot) && (stableJson(slot) === pocket.written || gone.has(slot.entry_id))) {
 					putBack.set(slot, {entry_id: pocket.entry_id, page: pocket.page, placed_at: nextStamp(slot.placed_at, now), position: pocket.position});
 				}
 			}
@@ -465,6 +476,21 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 				if (slot && !putBack.has(slot) && slot.entry_id === fill.entry_id && gone.has(fill.entry_id)) {
 					putBack.set(slot, {page: fill.page, placed_at: nextStamp(slot.placed_at, now), position: fill.position, want: fill.want});
+				}
+			}
+
+			// Any other pocket holding an added copy that goes keeps that
+			// card's placeholder; a stale slot of it (the copy's real pocket
+			// is elsewhere) goes.
+			for (const slot of draft.slots) {
+				if (!slot || putBack.has(slot) || !gone.has(slot.entry_id)) {
+					continue;
+				}
+
+				const real = placed.get(slot.entry_id);
+
+				if (real && real.binder.id === binder.id && real.slot.page === slot.page && real.slot.position === slot.position && inGrid(binder, slot)) {
+					putBack.set(slot, {page: slot.page, placed_at: nextStamp(slot.placed_at, now), position: slot.position, want: wantOf(goneEntries.get(slot.entry_id))});
 				}
 			}
 

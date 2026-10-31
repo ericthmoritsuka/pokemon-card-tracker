@@ -1167,8 +1167,12 @@ Undo, one step, brings the removed copies back and removes the added ones, and p
 trays, picks, and collection members back, each only while it still holds what Start over wrote,
 so an edit another phone synced since stays. An added copy that changed since (graded, priced,
 favorited; Undo compares a hash of the copy kept with the undo, leaving out its stamps) stays, with
-its pockets, and Undo says how many it kept; a pocket or tray holding an added copy that goes is
-emptied, and an added copy that another phone's copy was folded into stays. Each Start over marks
+its pockets, and Undo says how many it kept. A pocket Start over turned into a placeholder gets
+its old copy back while it still holds the placeholder, or holds an added copy that Undo removes:
+filled since by Fill placeholders, the automatic fill, or by hand. Any other pocket holding an
+added copy that goes keeps that card's placeholder, and a tray drops it. A pocket filled since with
+a copy Start over did not add (a later import's) keeps that copy, and the old copy comes back in no
+pocket. An added copy that another phone's copy was folded into stays. Each Start over marks
 the document with its run (`start_over: {id, at}`, synced, the newest run winning the merge). An
 Undo from an older run, kept on a phone where the account started over again since, here or on
 another phone, is refused with a message and dropped, since it would bring the old copies back
