@@ -12,7 +12,7 @@
 // same set and number, the page offers to link the copies to it.
 
 import {catalogLanguage, languageLabel, setDetail, setList, viewingLanguage} from './catalog.js';
-import {recordOf} from './card-info.js';
+import {recordOf, recordsOfCard} from './card-info.js';
 import {addCards, cardInfoList, deleteCards, listCards, moveCardInfo, onChange, updateCards} from './collection.js';
 import {
 	alikeKey,
@@ -476,12 +476,17 @@ export function customCardView(root, {cardId}) {
 			linkButton.disabled = true;
 
 			try {
-				await updateCards(linkPatches(card.entries, {cardId: found.id, catalog}));
-				// The photos and notes go with them (js/card-info.js).
-				await moveCardInfo([...new Set(card.entries.map((entry) => entry.language || ''))].map((language) => ({
+				// The photos and notes go with them (js/card-info.js), in every
+				// language the card has a record in, in the same save.
+				const languages = new Set([
+					...card.entries.map((entry) => entry.language || ''),
+					...recordsOfCard(cardInfoList(), {card_id: cardId, catalog: CUSTOM}).map((record) => record.language || ''),
+				]);
+
+				await moveCardInfo([...languages].map((language) => ({
 					from: {card_id: cardId, catalog: CUSTOM, language},
 					to: {card_id: found.id, catalog, language},
-				})));
+				})), linkPatches(card.entries, {cardId: found.id, catalog}));
 				toast('Linked to the catalog card. Photos, notes, and binder places stay.');
 				go(`cards/${encodeURIComponent(lang)}/${encodeURIComponent(found.id)}`, {replace: true});
 			}

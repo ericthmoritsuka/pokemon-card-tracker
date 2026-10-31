@@ -245,6 +245,15 @@ describe('hand-made cards', () => {
 
 		const [before] = await liveEntries(page);
 
+		// Notes on the hand-made card in Portuguese, and in Korean, a language
+		// it has no copy in any more: both go with it.
+		await page.evaluate(async (cardId) => {
+			const {setCardNotes} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await setCardNotes({card_id: cardId, catalog: 'custom', language: 'pt'}, 'Feita à mão');
+			await setCardNotes({card_id: cardId, catalog: 'custom', language: 'ko'}, 'Korean copy traded');
+		}, before.card_id);
+
 		await page.click('#custom-link');
 		await page.waitForURL(/\/cards\/pt\/tst1-007$/);
 		await page.waitForSelector('.copies .copy-row');
@@ -253,6 +262,17 @@ describe('hand-made cards', () => {
 
 		assert.equal(linked.id, before.id, 'the same copy');
 		assert.deepEqual([linked.catalog, linked.card_id, linked.fallback, linked.number_local, linked.set_code], ['international', 'tst1-007', false, null, null]);
+
+		const records = await page.evaluate(async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return ((await loadDocument()).card_info || []).map((record) => [record.id, Boolean(record.deleted_at), record.notes || null]);
+		});
+
+		assert.deepEqual(records.filter(([, deleted]) => !deleted).map(([id, , notes]) => [id, notes]).sort(), [
+			['international~tst1-007~ko', 'Korean copy traded'],
+			['international~tst1-007~pt', 'Feita à mão'],
+		]);
 		await done();
 	});
 

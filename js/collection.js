@@ -479,7 +479,17 @@ export async function updateCard(id, patch) {
 // changed.
 export async function updateCards(patches) {
 	const doc = await loadDocument();
-	const now = Date.now();
+	const changed = patchCards(doc, patches, Date.now());
+
+	if (changed.length) {
+		await saveDocument(doc);
+	}
+
+	return changed;
+}
+
+// updateCards on a loaded document, without saving it.
+function patchCards(doc, patches, now) {
 	const changed = [];
 
 	for (const {id, patch} of patches) {
@@ -489,10 +499,6 @@ export async function updateCards(patches) {
 			editEntry(entry, () => Object.assign(entry, pick(withPlace(doc, patch, now)), {updated_at: nextStamp(entry.updated_at, now)}));
 			changed.push(entry);
 		}
-	}
-
-	if (changed.length) {
-		await saveDocument(doc);
 	}
 
 	return changed;
@@ -788,11 +794,14 @@ export async function setCardNotes(item, text) {
 // linked to the catalog (js/custom-card.js linkPatches): pairs is
 // [{from, to}], each {catalog, card_id, language}. The photos join, the
 // notes join, the pin goes over when the target has none, and the old
-// record becomes a tombstone. Returns the number of records moved.
-export async function moveCardInfo(pairs) {
+// record becomes a tombstone. patches, updateCards patches for the copies
+// that go with the records, are made in the same save. Returns the number
+// of records moved.
+export async function moveCardInfo(pairs, patches = []) {
 	const doc = await loadDocument();
 	const list = Array.isArray(doc[CARD_INFO]) ? doc[CARD_INFO] : [];
 	const now = Date.now();
+	const patched = patchCards(doc, patches, now).length;
 	let moved = 0;
 
 	doc[CARD_INFO] = list;
@@ -824,7 +833,7 @@ export async function moveCardInfo(pairs) {
 		moved++;
 	}
 
-	if (moved) {
+	if (moved || patched) {
 		await saveDocument(doc);
 	}
 
