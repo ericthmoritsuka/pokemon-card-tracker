@@ -261,6 +261,18 @@ describe('planStartOver', () => {
 		assert.ok(photos.some((photo) => photo.id === 'p9' && !photo.deleted_at), 'the photo is not given up');
 	});
 
+	test('a copy left for its uploading photo, imported from the same row, does not block Undo once the merge folds the new copy into it', async () => {
+		const pending = {created_at: at(1), id: 'p9', side: 'front', type: 'image/webp'};
+		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', import_key: KEY('001'), photos: [pending]})], collections: [], goals: [], openings: [], wishlist: []};
+		const rows = importEntries([row('001')]);
+		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
+		const synced = mergeDocuments(plan.doc, plan.doc);
+		const result = planUndo(synced, plan.undo, {now: NOW + 1000});
+
+		assert.ok(!result.stale);
+		assert.equal(live(result.doc).length, 1);
+	});
+
 	test('two rows of the same card, language, and finish add a copy each', async () => {
 		const twice = [row('001'), row('001')];
 		const entries = importEntries(twice);
@@ -389,13 +401,27 @@ describe('the latest run', () => {
 		assert.equal(live(mergeDocuments(result.doc, b.doc)).length, 3, 'one copy per row of the file');
 	});
 
-	test('the newest run\'s Undo still works after the merge', async () => {
+	test('two runs offline, then merged: even the newest run\'s Undo is refused, since its copies were folded into the other run\'s', async () => {
 		const b = await run(three(), NOW);
 		const a = await run(three(), NOW + 60000);
-		const result = planUndo(mergeDocuments(a.doc, b.doc), a.undo, {now: NOW + 120000});
+		const merged = mergeDocuments(a.doc, b.doc);
+		const result = planUndo(merged, a.undo, {now: NOW + 120000});
+
+		assert.equal(merged.start_over.id, a.undo.run);
+		assert.equal(result.stale, true);
+		assert.equal(live(mergeDocuments(result.doc, b.doc)).length, 3, 'one copy per row of the file');
+	});
+
+	test('the newest run\'s Undo works after a merge with a phone that did not start over', async () => {
+		const a = await run(three(), NOW);
+		const other = three();
+
+		other.goals.push({created_at: at(5), deleted_at: null, id: 'g1', name: 'Goal', updated_at: at(5)});
+
+		const result = planUndo(mergeDocuments(a.doc, other), a.undo, {now: NOW + 1000});
 
 		assert.ok(!result.stale);
-		assert.ok(result.counts.restored > 0);
+		assert.deepEqual(result.counts, {added: 3, kept: 0, restored: 3});
 	});
 });
 
@@ -521,7 +547,7 @@ describe('saving', () => {
 
 		const before = stableJson(doc);
 
-		await assert.rejects(undoStartOver(undo), /started over again since/);
+		await assert.rejects(undoStartOver(undo), /started over again, on this phone or another/);
 		assert.equal(stableJson(doc), before, 'nothing changed');
 		assert.equal(await savedUndo(), null, 'no longer offered');
 		doc.start_over = {at: new Date().toISOString(), id: undo.run};

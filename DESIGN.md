@@ -1155,7 +1155,8 @@ emptied, and an added copy that another phone's copy was folded into stays. Each
 the document with its run (`start_over: {id, at}`, synced, the newest run winning the merge). An
 Undo from an older run, kept on a phone where the account started over again since, here or on
 another phone, is refused with a message and dropped, since it would bring the old copies back
-beside the new ones. Undo is kept beside
+beside the new ones. So is an Undo whose added copies the merge folded into another run's copies
+(two phones started over offline, then synced). Undo is kept beside
 the document (`meta:start-over-undo`), so the import screen offers "Undo Start over" after the
 screen was left or the page reloaded: for 7 days, to the account that started over, until it is
 used or another Start over replaces it. The change is planned on a copy of the document by one
