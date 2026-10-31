@@ -658,7 +658,14 @@ copies, and deletes the bucket files of a deleted copy's live photos 14 days lat
 photo stays on its copy as a tombstone marked `moved` (a v47 phone no longer shows it, and never
 queues its file), a photo a v47 phone adds or removes on a copy reaches the card on the next merge,
 and a note it types on a copy joins the card's notes and is cleared from the copy. A photo still
-waiting to upload on a v47 phone stays live on its copy until the path is known. Two phones that
+waiting to upload on a v47 phone stays live on its copy until the path is known, and one with a
+detail copy for its first day, so that phone still uploads the detail copy. A photo a v47 phone
+removed joins the card as removed, so the phone that took it never restores it. A copy a v47 phone
+deleted (not merged into another) brings its photos as removed when they have no path, or when the
+delete is 14 days old and the card did not already show them, since v47 deleted those files; its
+pin is ignored. The family's photo list moved from `photo_index` to `photo_index_v2`: a v47 phone
+rebuilds `photo_index` from the copies on every save, so v48 leaves it to v47, and family members
+read `photo_index_v2` plus any `photo_index` entry it lacks. Two phones that
 each moved different copies' notes before syncing keep both (`mergeCardInfo`). For the cases this
 cannot reach (a v47 phone that deleted copies offline, or queued deletes before v48),
 `supabase/card-photos-keep.sql` makes the bucket refuse to delete any file a card record still

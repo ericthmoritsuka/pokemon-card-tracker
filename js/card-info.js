@@ -23,11 +23,21 @@
 //     its bucket file for deletion (v47 only deletes the files of live
 //     photos on deleted copies). A photo still waiting to upload stays live
 //     on its copy until the path is known, so the v47 phone that took it
-//     still uploads it. A photo a v47 phone removed (a tombstone not marked
-//     moved) is removed from the record too.
+//     still uploads it, and so does a photo with a detail copy for its
+//     first day, so the v47 phone that took it still uploads the detail
+//     copy, which it uploads after the photo. A photo a v47 phone removed
+//     (a tombstone not marked moved) joins the record as a tombstone, so
+//     the phone that took it never restores it (js/photos/store.js
+//     restoreDroppedPhotos).
+//   - A copy deleted on a v47 phone, not merged into another: v47 queued
+//     its photos' files for the bucket 14 days after the delete, and never
+//     uploads one still waiting. Its photos join the record, as tombstones
+//     when the photo has no path, or when the delete is 14 days old and the
+//     record did not already show the photo, and its pin is ignored.
 //   - A copy's note joins the record's notes, newest first, unless the
 //     record already holds that text, and the copy's note is cleared.
-//   - A copy's pin becomes the record's pin when it is newer, and is cleared.
+//   - A copy's pin becomes the record's pin when it is newer (stamps read
+//     as js/merge.js fieldStamp reads them), and is cleared.
 // Every stamp is one millisecond after what it replaces, never the clock,
 // so two phones that move the same copies get the same versions.
 //
@@ -36,9 +46,9 @@
 // only from copies (notes_source 'copies'), two different versions join
 // (mergeCardInfo). A note typed on the card clears notes_source.
 
-import {mergePhotoLists, photoIndexKey} from './photos/model.js';
+import {BUCKET_DELETE_GRACE_MS, mergePhotoLists, photoIndexKey} from './photos/model.js';
 import {stampMs} from './stamp.js';
-import {mergeEntry, stampEntry} from './merge.js';
+import {fieldStamp, mergeEntry, stampEntry} from './merge.js';
 
 export const CARD_INFO = 'card_info';
 
@@ -114,30 +124,55 @@ function asRecordPhoto(photo) {
 	return rest;
 }
 
+// How long a photo with a detail copy stays live on its copy after it was
+// taken, so the v47 phone that took it uploads the detail copy too.
+const DETAIL_WAIT_MS = 24 * 60 * 60 * 1000;
+
+// A copy deleted on its own, not merged into another.
+const dropped = (copy) => Boolean(copy.deleted_at) && !copy.merged_into;
+
+// A live photo of a dropped copy whose file a v47 phone has deleted, or
+// never uploads: with no path, or 14 days after the delete unless the
+// record already shows it (then supabase/card-photos-keep.sql keeps the
+// file). held is the record's version, if any.
+function fileGone(copy, photo, held, now) {
+	const path = photo.path || (held && held.path);
+	const shown = Boolean(held && !held.deleted_at && held.path);
+
+	return dropped(copy) && !photo.deleted_at
+		&& (!path || (!shown && now - stampMs(copy.deleted_at, now) >= BUCKET_DELETE_GRACE_MS));
+}
+
+// The record's pin stamp, when it has a pin or cleared one; null otherwise,
+// so any copy's pin is newer.
+function pinStampOf(record) {
+	const stamps = record && record.field_stamps;
+	const own = stamps && typeof stamps === 'object' ? stamps.main_image : null;
+
+	return record && (record.main_image || own) ? fieldStamp(record, 'main_image') : null;
+}
+
 // The move for one card and language: the record (or null) and its copies.
 // Returns {record, copies} with only what changed, or null.
-function moveGroup(record, copies) {
+function moveGroup(record, copies, now) {
 	let photos = record ? (Array.isArray(record.photos) ? record.photos : []) : [];
 	let notes = record ? record.notes || '' : '';
 	let pin = record ? record.main_image : undefined;
-	let pinFrom = record ? fieldStampOf(record, 'main_image') : null;
+	let pinFrom = pinStampOf(record);
 	const texts = [];
 
 	// Photos first, from every copy, so the tombstones below see the paths.
+	// A removed one joins as a tombstone, so it is never restored.
 	for (const copy of copies) {
 		for (const photo of Array.isArray(copy.photos) ? copy.photos : []) {
 			if (!photo || !photo.id || photo.moved) {
 				continue;
 			}
 
+			const kept = asRecordPhoto(photo);
 			const held = photos.find((item) => item && item.id === photo.id);
 
-			// A removed photo the record never held stays out of it.
-			if (photo.deleted_at && !held) {
-				continue;
-			}
-
-			photos = mergePhotoLists(photos, [asRecordPhoto(photo)]);
+			photos = mergePhotoLists(photos, [fileGone(copy, photo, held, now) ? {...kept, deleted_at: copy.deleted_at} : kept]);
 		}
 	}
 
@@ -148,9 +183,9 @@ function moveGroup(record, copies) {
 			texts.push(copy.notes);
 		}
 
-		if (copy.main_image && time(fieldStampOf(copy, 'main_image')) > time(pinFrom)) {
+		if (copy.main_image && !dropped(copy) && time(fieldStamp(copy, 'main_image')) > time(pinFrom)) {
 			pin = copy.main_image;
-			pinFrom = fieldStampOf(copy, 'main_image');
+			pinFrom = fieldStamp(copy, 'main_image');
 		}
 	}
 
@@ -167,7 +202,9 @@ function moveGroup(record, copies) {
 			next.photos = copy.photos.map((photo) => {
 				const held = photo && photo.id && !photo.moved && !photo.deleted_at ? byId.get(photo.id) : null;
 
-				if (held && (held.deleted_at || held.path)) {
+				const waits = photo.detail && now - time(photo.created_at) < DETAIL_WAIT_MS;
+
+				if (held && (held.deleted_at || (held.path && !waits))) {
 					copyChanged = true;
 
 					return {...photo, deleted_at: held.deleted_at || after(copy.updated_at), moved: true};
@@ -204,7 +241,7 @@ function moveGroup(record, copies) {
 		return null;
 	}
 
-	// Nothing to keep yet (only photos removed before the move): no record.
+	// Nothing to keep yet: no record.
 	if (!record && !photos.length && !notes && !pin) {
 		return changedCopies.length ? {copies: changedCopies, record: null} : null;
 	}
@@ -243,7 +280,8 @@ function moveGroup(record, copies) {
 // Moves the per-copy photos, notes, and pins in `doc` onto card_info, in
 // place: doc.cards and doc.card_info become new arrays when anything moved,
 // and no entry object is changed. Returns true when anything changed.
-export function moveToCardInfo(doc) {
+// now: the clock, for a deleted copy's 14 days and a detail copy's day.
+export function moveToCardInfo(doc, now = Date.now()) {
 	if (!doc || typeof doc !== 'object' || !Array.isArray(doc.cards)) {
 		return false;
 	}
@@ -283,7 +321,7 @@ export function moveToCardInfo(doc) {
 
 	for (const [key, copies] of groups) {
 		const i = at.has(key) ? at.get(key) : -1;
-		const moved = moveGroup(i >= 0 ? records[i] : null, copies);
+		const moved = moveGroup(i >= 0 ? records[i] : null, copies, now);
 
 		if (!moved) {
 			continue;

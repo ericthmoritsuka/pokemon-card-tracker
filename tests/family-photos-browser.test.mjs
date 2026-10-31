@@ -209,13 +209,14 @@ function family(fake) {
 	], {person: undefined, user_id: undefined});
 
 	// Member A's phone is on v47: the photo still on the copy, and the index
-	// that app made from it. The index is worked out here the way v48 does,
+	// that app made from it, under its own name (photo_index), which the
+	// family still reads. The index is worked out here the way v48 does,
 	// from the card's record, on a copy of the document.
 	const moved = structuredClone(doc);
 
 	moveToCardInfo(moved);
 	refreshPhotoIndex(moved, Date.parse(AT));
-	doc.photo_index = moved.photo_index;
+	doc.photo_index = moved.photo_index_v2;
 	fake.documents.set(member.id, {doc, updated_at: fake.now(), user_id: member.id});
 	fake.profiles.set(member.id, {display_name: 'Member A', user_id: member.id});
 	fake.profiles.set(owner.id, {display_name: 'Member B', user_id: owner.id});
@@ -266,7 +267,7 @@ describe('shared family photos', () => {
 		for (const item of indexReads) {
 			const params = new URLSearchParams(item.search);
 
-			assert.equal(params.get('select'), 'user_id,photo_index:doc->photo_index');
+			assert.equal(params.get('select'), 'user_id,photo_index_v2:doc->photo_index_v2,photo_index:doc->photo_index');
 			assert.ok(params.get('user_id').startsWith('in.(') && params.get('user_id').includes(people.member.id));
 			assert.ok(item.answered < JSON.stringify(people.doc).length / 4, `the answer (${item.answered} bytes) is the index alone`);
 		}
@@ -309,7 +310,7 @@ describe('shared family photos', () => {
 		await waitForSynced(page);
 		await page.waitForTimeout(500);
 
-		const index = fake.documents.get(people.owner.id).doc.photo_index;
+		const index = fake.documents.get(people.owner.id).doc.photo_index_v2;
 
 		assert.deepEqual(index.filter((item) => !item.deleted_at).map((item) => [item.id, item.photos]), [['international~tst1-001~en', [{id: own.id, path: own.path}]]]);
 

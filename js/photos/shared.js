@@ -1,5 +1,5 @@
 // Family members' photos for cards with no image of their own (js/photos/
-// model.js, "Shared family photos"). Only the members' photo_index lists
+// model.js, "Shared family photos"). Only the members' photo indexes
 // are read from the server (js/sync.js memberPhotoIndexes), never their
 // documents, and kept on the phone for offline, per signed-in account. The
 // photos themselves come through the photo store (store.js photoUrl), which

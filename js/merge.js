@@ -202,7 +202,7 @@ export function validVersion(entry) {
 const sinceOf = (entry) => (isObject(entry.field_stamps) && entry.field_stamps.since) || entry.created_at || null;
 
 // When a field last changed; never before since.
-function fieldStamp(entry, key) {
+export function fieldStamp(entry, key) {
 	const since = sinceOf(entry);
 	const own = isObject(entry.field_stamps) ? entry.field_stamps[key] : null;
 

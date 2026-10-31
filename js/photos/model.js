@@ -241,7 +241,7 @@ export function mainImage(entry, catalogImage, {family = [], twins = []} = {}) {
 // A card with no official image, no twin, and no photo of the person's own
 // shows a family member's photo of the same card instead (Eric,
 // 2026-10-16). So that phones need not read each other's whole documents,
-// each document keeps a small top-level list, photo_index, saying which
+// each document keeps a small top-level list, photo_index_v2, saying which
 // cards its owner has photos of. Its entries merge like any other list's
 // (js/merge.js), and an older app keeps them, since it merges every
 // top-level list it does not know entry by entry:
@@ -255,8 +255,18 @@ export function mainImage(entry, catalogImage, {family = [], twins = []} = {}) {
 // tombstone. refreshPhotoIndex keeps it in step with the card records
 // (card_info, js/card-info.js) on every save (js/collection.js), so it never
 // needs editing by hand; a card at zero copies keeps its entry.
+//
+// Up to v47 the list was photo_index, made from the copies. A v47 phone
+// still makes it from the copies on every save, where photos are now moved
+// tombstones, so it is left to v47: two lists written by two apps on
+// different rules would undo each other on every save. A member's index is
+// photo_index_v2, plus the photo_index entries it has no entry for
+// (memberIndex), for photos a v47 phone took that no v48 phone has moved
+// yet, and for a member who has not opened v48.
 
-export const PHOTO_INDEX = 'photo_index';
+export const PHOTO_INDEX = 'photo_index_v2';
+
+export const LEGACY_PHOTO_INDEX = 'photo_index';
 
 const INDEX_PHOTOS_MAX = 4;
 
@@ -366,6 +376,16 @@ export function refreshPhotoIndex(doc, now = Date.now()) {
 	}
 
 	return changed;
+}
+
+// The index of a member whose document holds `index` (photo_index_v2) and
+// `legacy` (photo_index): every entry of index, and each entry of legacy
+// whose id index does not have.
+export function memberIndex(index, legacy) {
+	const own = Array.isArray(index) ? index.filter(Boolean) : [];
+	const ids = new Set(own.map((item) => item.id));
+
+	return [...own, ...(Array.isArray(legacy) ? legacy : []).filter((item) => item && !ids.has(item.id))];
 }
 
 // A family member's photos of a card, for gallerySlides and mainImage:
