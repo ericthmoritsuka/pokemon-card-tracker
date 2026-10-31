@@ -1037,8 +1037,9 @@ export async function previewOwnImport(rows) {
 // synchronously, and its result is returned. For a change that spans lists,
 // such as Match this file (js/match-file.js) changing cards and binders
 // together, so they are written at once or not at all. When the change or
-// the save fails, the document in memory is put back as it was, so nothing
-// shows as applied that was not saved, and the error is thrown on.
+// the save fails, the document in memory is put back as it was and the
+// views are told, so nothing shows as applied that was not saved, and the
+// error is thrown on.
 export async function editDocument(change) {
 	const doc = await loadDocument();
 	const before = structuredClone(doc);
@@ -1052,6 +1053,9 @@ export async function editDocument(change) {
 	}
 	catch (err) {
 		replaceContent(doc, before);
+		// The views may have drawn the change already: show them the document
+		// as it is again, as a save does.
+		notify(doc, 'local');
 
 		throw err;
 	}
