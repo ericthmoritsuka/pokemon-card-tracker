@@ -698,9 +698,11 @@ is matched. Per card and language:
 - The file decides how many copies of each finish there are; which copies fill them is decided by
   what he set on them. Copies that hold something (the carried fields below, a pocket, a tray, a
   hand-picked collection) are kept before blank ones, the most invested first, then the oldest.
-  Each copy takes a slot of its own finish first, and a copy changes finish only when no blank copy
-  can take that slot: with holo 2 to 1 and normal 1 to 2, the graded holo copy stays holo and the
-  blank one becomes normal. The `import_key` only decides which slot of a finish a copy takes, so
+  Each copy takes a slot of its own finish first, and blank copies leave room for the copies that
+  hold something: a copy that holds something and finds no slot of its own finish takes a slot of
+  another finish and changes finish, and a blank copy is removed instead. With holo 2 to 1 and
+  normal 1 to 2, the graded holo copy stays holo and the blank one becomes normal; with holo 1 to 0
+  and normal 1 to 1, the graded holo copy becomes normal and the blank normal copy is removed. The `import_key` only decides which slot of a finish a copy takes, so
   a count drop never removes the newest copy just for its copy index.
 - A matched copy takes the file's `variant_id` (dropping `finish_raw`), or the raw monprice finish
   when the file found no variant and the copy has none of its own, and the file's `import_key`, so
@@ -710,8 +712,11 @@ is matched. Per card and language:
   that detail is empty, its own finish first: condition, Stored in, favorite, purchase price and
   currency (together), grading (grader, grade, cert number, graded price, together), Liga price,
   and opening. A detail a kept copy already has with the same value (Stored in set on every copy)
-  needs nothing. A detail no kept copy has room for is listed in the preview as lost. Every
-  removed copy that held anything gives its places in hand-picked collections to a kept copy.
+  needs nothing. Every removed copy that held anything gives its places in hand-picked collections
+  to a kept copy, the one that took its details first. What cannot move is listed in the preview
+  as lost, one line per removed copy, by card name: a detail no kept copy has room for, and
+  everything a copy held (details, collections, its tray place) when no copy of its card is kept,
+  as for a card the file does not list.
 - The preview counts copies added, removed, and updated (kept copies that change card, finish,
   `import_key`, or take a detail), and offers Apply when any of them is not zero.
 
@@ -719,15 +724,19 @@ Copies the file cannot speak for are left alone and reported: hand-made cards; c
 the import could not match (the same monprice id in the `import_key`, or a leftover with the same
 number and language); and copies of a large row left unticked (the same monprice id, and
 leftovers of the same card and language), which never count against a ticked row. A pocket or tray
-whose copy is removed takes an unplaced copy of the same card and language (own finish first, a
-copy in a tray last for a pocket); a pocket with none left becomes the card's placeholder, and a
-tray drops it. A rule binder's hand pick of a removed copy is left as it is and shows the default
+whose copy is removed takes an unplaced copy of the same card and language (the copy that took its
+details first, then its own finish, a copy in a tray last for a pocket), so the pocket holding the
+LP card shows the copy marked LP; a pocket with none left becomes the card's placeholder, and a
+tray drops it (listed as lost in the preview). A rule binder's hand pick of a removed copy is left as it is and shows the default
 copy until Undo. Everything is written in one save; if the save fails, the phone's document is put
 back as it was, the screens are told, and the error is shown. Undo removes the added copies he has
 not touched since (an added copy whose details, pocket, tray, or collections changed since Apply
 is kept, and the Undo result says how many), restores the removed ones, and puts back each field,
 pocket, tray, card record, and collection place that still holds what Apply wrote, latest change
-first, so an edit made since, on this phone or another, stays.
+first, so an edit made since, on this phone or another, stays. Every binder's pockets go back
+before any tray, so a copy moved from one binder's tray into another's pocket returns to its tray
+whatever the order of the binders. Pockets are changed with one copy and one stamp per binder, so
+matching 1,600 copies with 1,200 pockets plans and undoes in well under a second.
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is

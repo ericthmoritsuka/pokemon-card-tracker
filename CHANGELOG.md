@@ -29,9 +29,13 @@ are Recife time. Each line ends with its commit.
     since, including a new copy you already edited or put in a binder.
   - What you set on a removed copy (condition, Stored in, favorite, purchase price, grading, Liga
     price, and its place in your collections) moves to a copy that stays of the same card and
-    language, each detail to a copy where it is empty. If a detail has nowhere to go, the preview
-    lists it as lost before you tap Apply. A binder pocket or tray whose copy is removed takes another copy of that card; a
-    pocket with none left becomes its placeholder. Photos and notes stay with the card.
+    language, each detail to a copy where it is empty. A binder pocket or tray whose copy is
+    removed takes the copy that took its details (so the pocket with your LP card shows the LP
+    copy), or another copy of that card; a pocket with none left becomes its placeholder. Photos
+    and notes stay with the card.
+  - If something you set has nowhere to go, the preview lists it as lost before you tap Apply, one
+    line per removed card: a detail every copy that stays already has, or everything on a card the
+    file does not list at all.
   - Cards the file could not match, hand-made cards, and rows you did not tick are left as they
     are.
 
