@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-30',
 		items: [
+			'The Sets search finds cards too: type a Pokémon or Trainer name, a number like 025 or 025/165, or a set code and number like MEW 025.',
+			'Kinds such as ex, V, VMAX, VSTAR, or SIR narrow it down. Matching sets come first, then the cards, with your owned copies marked.',
+		],
+		version: 'v49',
+	},
+	{
+		date: '2026-10-30',
+		items: [
 			'Photos, notes, and the main image now belong to the card, not to one copy: every copy shows them, and so does the card\'s page with no copies left.',
 			'Deleting copies never loses a photo or a note. Notes from several copies of a card are all kept, newest first.',
 			'A language with no photo of its own shows another language\'s photo of the same card.',
