@@ -5,6 +5,9 @@
 // An item is an entry in the person's wishlist list (DESIGN.md section 4):
 //   {id, card_id, catalog, variant_id, language, priority, note,
 //    created_at, updated_at, deleted_at}
+// and, once a copy that fits it is added, got_at (when) and got_entry_id
+// (the copy): the item is "Got it" rather than wanted (Eric, 2026-10-31).
+// Both merge per field like the rest; clearing them puts it back to wanted.
 // catalog is carried as card entries carry it, because the Japanese and
 // Korean catalogs reuse the same card IDs (both have S4a). variant_id is a
 // TCGdex variantId from the card's variants_detailed, or null for any finish;
@@ -173,10 +176,82 @@ export function deletedWish(entry, now = Date.now()) {
 	return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
 }
 
-// Live items, high priority first, then newest added.
+// Still wanted: live, and not got yet.
+export const isWanted = (item) => Boolean(item) && isLive(item) && !item.got_at;
+
+// Got: live, with a copy that fitted it added since it was wished for.
+export const isGot = (item) => Boolean(item) && isLive(item) && Boolean(item.got_at);
+
+// Wanted items, high priority first, then newest added. Got items are left
+// out, so the family, the scanner's "wants this card", and the Want marks
+// see only what is still wanted.
 export function sortWishes(items) {
-	return items.filter(isLive).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority)
+	return items.filter(isWanted).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority)
 		|| String(b.created_at).localeCompare(String(a.created_at)));
+}
+
+// Got items, the latest got first.
+export function sortGot(items) {
+	return items.filter(isGot).sort((a, b) => String(b.got_at).localeCompare(String(a.got_at)) || String(a.id).localeCompare(String(b.id)));
+}
+
+// The item marked got by a copy, stamped field by field.
+export function gotWish(entry, entryId, now = Date.now()) {
+	const at = nextStamp(entry.updated_at, now);
+
+	return stampEntry(entry, {...entry, got_at: at, got_entry_id: entryId, updated_at: at});
+}
+
+// The item back to wanted: got_at and got_entry_id cleared.
+export function wantedAgain(entry, now = Date.now()) {
+	const at = nextStamp(entry.updated_at, now);
+
+	return stampEntry(entry, {...entry, got_at: null, got_entry_id: null, updated_at: at});
+}
+
+// The wanted items that copies just added fill: each takes the first copy
+// that fits it (copyFits). skip(item) leaves an item wanted (Start over
+// passes the items a copy fitted before it ran, since its copies are the
+// same cards added again, not new ones). Returns {changed, marks}: the
+// items to save, and [{id, entry_id, got_at}] for Undo.
+export function planGot(wishlist, entries, {now = Date.now(), skip = null} = {}) {
+	const changed = [];
+	const marks = [];
+
+	for (const item of wishlist || []) {
+		if (!isWanted(item) || (skip && skip(item))) {
+			continue;
+		}
+
+		const copy = (entries || []).find((entry) => entry && copyFits(item, entry));
+
+		if (copy) {
+			const next = gotWish(item, copy.id, now);
+
+			changed.push(next);
+			marks.push({entry_id: copy.id, got_at: next.got_at, id: item.id});
+		}
+	}
+
+	return {changed, marks};
+}
+
+// Undo for planGot: each item marked goes back to wanted, only while it is
+// still got by the same copy at the same time (not got again, put back, or
+// removed since, here or on another phone).
+export function planUngot(wishlist, marks, {now = Date.now()} = {}) {
+	const byId = new Map((wishlist || []).filter(Boolean).map((item) => [item.id, item]));
+	const changed = [];
+
+	for (const mark of marks || []) {
+		const item = byId.get(mark.id);
+
+		if (isGot(item) && item.got_entry_id === mark.entry_id && item.got_at === mark.got_at) {
+			changed.push(wantedAgain(item, now));
+		}
+	}
+
+	return changed;
 }
 
 // ------------------------------------------------------- matching
@@ -262,7 +337,7 @@ export function wishedBy(cardId, scan = {}, familyDocuments = []) {
 		const items = member.wishlist || (member.doc && member.doc.wishlist) || [];
 
 		for (const item of items) {
-			if (!item || !isLive(item) || item.card_id !== cardId) {
+			if (!isWanted(item) || item.card_id !== cardId) {
 				continue;
 			}
 
@@ -334,6 +409,15 @@ async function saveWish(entry) {
 	return entry;
 }
 
+async function saveWishes(entries) {
+	if (entries.length) {
+		await mergeIntoLocal({wishlist: entries});
+		schedulePush();
+	}
+
+	return entries;
+}
+
 // Changes run one at a time, each reading what the last one saved.
 let queue = Promise.resolve();
 
@@ -351,8 +435,18 @@ export async function listWishlist() {
 	return sortWishes(doc.wishlist || []);
 }
 
+// The "Got it" items, the latest got first.
+export async function listGotWishes() {
+	const doc = await loadDocument();
+
+	return sortGot(doc.wishlist || []);
+}
+
+// A live item, wanted or got.
 export async function getWish(id) {
-	return (await listWishlist()).find((item) => item.id === id) || null;
+	const doc = await loadDocument();
+
+	return (doc.wishlist || []).find((item) => item && item.id === id && isLive(item)) || null;
 }
 
 const sameWish = (item, cardId, catalog, language, variantId) => item.card_id === cardId
@@ -364,13 +458,16 @@ const sameWish = (item, cardId, catalog, language, variantId) => item.card_id ==
 // detail. options: {catalog, language, variantId, priority, note}, all
 // optional. When the wishlist already holds this card with the same language
 // and finish, that item is returned and nothing is added, so a second tap
-// does not make a second item. Returns the entry.
+// does not make a second item; an item in "Got it" goes back to wanted
+// instead (a second one would fold into it on the next merge). Returns the
+// entry.
 export const addToWishlist = (cardId, options = {}) => serial(async () => {
 	const entry = newWish(cardId, options);
-	const existing = (await listWishlist()).find((item) => sameWish(item, entry.card_id, entry.catalog, entry.language, entry.variant_id));
+	const doc = await loadDocument();
+	const existing = (doc.wishlist || []).filter((item) => item && isLive(item)).find((item) => sameWish(item, entry.card_id, entry.catalog, entry.language, entry.variant_id));
 
 	if (existing) {
-		return existing;
+		return isGot(existing) ? saveWish(wantedAgain(existing)) : existing;
 	}
 
 	return saveWish(entry);
@@ -390,8 +487,33 @@ const changeWish = (id, change) => serial(async () => {
 export const updateWish = (id, patch) => changeWish(id, (item) => editedWish(item, patch));
 
 // Soft delete: the entry stays as a tombstone, so a phone holding an older
-// copy cannot bring the item back.
+// copy cannot bring the item back. Also "Clear" in Got it.
 export const removeWish = (id) => changeWish(id, (item) => deletedWish(item));
+
+// "Put back" in Got it: wanted again.
+export const wantAgain = (id) => changeWish(id, (item) => wantedAgain(item));
+
+// Saved planGot: the wanted items that the copies just added fill move to
+// Got it. Resolves the marks for ungotWishes. skip as planGot.
+export const gotWishes = (entries, {skip = null} = {}) => serial(async () => {
+	const doc = await loadDocument();
+	const {changed, marks} = planGot(doc.wishlist || [], entries, {skip});
+
+	await saveWishes(changed);
+
+	return marks;
+});
+
+// Saved planUngot. Resolves how many went back to wanted.
+export const ungotWishes = (marks) => serial(async () => {
+	if (!marks || !marks.length) {
+		return 0;
+	}
+
+	const doc = await loadDocument();
+
+	return (await saveWishes(planUngot(doc.wishlist || [], marks))).length;
+});
 
 // ------------------------------------------------------------ the cache
 //

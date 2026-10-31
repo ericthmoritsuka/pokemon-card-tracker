@@ -16,8 +16,8 @@
 // Android keyboards and screen readers (Eric, 2026-10-02).
 
 import {listBinders, placements} from './binders.js';
+import {addCopies, afterText, undoAdding} from './placeholder-fill.js';
 import {
-	addCard,
 	cardInfoOf,
 	cleanPlace,
 	deleteCards,
@@ -188,16 +188,29 @@ export async function removeWithUndo(entries, places = new Map()) {
 	});
 }
 
-// Adds n copies alike to entry.
+// Adds n copies alike to entry, in one save, through
+// js/placeholder-fill.js addCopies: the placeholders waiting for them are
+// filled and the wishes they fit move to Got it. Resolves {added, placed,
+// got, error}.
 export async function addAlike(entry, n) {
 	const fields = alikeFields(entry);
-	const added = [];
 
-	for (let i = 0; i < n; i++) {
-		added.push(await addCard(fields));
-	}
+	return addCopies(Array.from({length: n}, () => ({...fields})));
+}
 
-	return added;
+// The toast after copies were added: `text`, then what went into binders
+// and the wishlist, with Undo that takes all of it back.
+export function toastAdded(text, result) {
+	const more = afterText(result);
+
+	toast(more ? `${text} ${more}` : text, {
+		action: async () => {
+			await undoAdding(result);
+			await deleteCards(result.added.map((entry) => entry.id)).catch(() => {});
+		},
+		actionLabel: 'Undo',
+		timeout: UNDO_MS,
+	});
 }
 
 // The alike copies of entry on this phone now, and where the placed ones are.
@@ -631,26 +644,20 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 
 		submit.disabled = true;
 
-		const added = [];
+		let result;
 
 		try {
-			for (let i = 0; i < n; i++) {
-				added.push(await addCard(fields));
-			}
+			result = await addCopies(Array.from({length: n}, () => ({...fields})));
 		}
 		catch (err) {
 			submit.disabled = false;
-			error.textContent = `${added.length ? `Only ${added.length} added. ` : 'Not added. '}${errorText(err)}`;
+			error.textContent = `Not added. ${errorText(err)}`;
 
 			return;
 		}
 
 		close();
-		toast(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.`, {
-			action: () => deleteCards(added.map((entry) => entry.id)).catch(() => {}),
-			actionLabel: 'Undo',
-			timeout: UNDO_MS,
-		});
+		toastAdded(`Added ${n} ${languageName(language.value)} ${n === 1 ? 'copy' : 'copies'}.`, result);
 	});
 
 	sheet.replaceChildren(
@@ -1100,14 +1107,10 @@ export function copyStepper({entries, keep = null, label, min = 0, onChange = nu
 
 		try {
 			if (wanted > n) {
-				const added = await addAlike(pattern, wanted - n);
+				const result = await addAlike(pattern, wanted - n);
 
-				if (added.length > 1) {
-					toast(`Added ${added.length} copies.`, {
-						action: () => deleteCards(added.map((entry) => entry.id)).catch(() => {}),
-						actionLabel: 'Undo',
-						timeout: UNDO_MS,
-					});
+				if (result.added.length > 1 || afterText(result)) {
+					toastAdded(`Added ${plural(result.added.length, 'copy', 'copies')}.`, result);
 				}
 			}
 			else {

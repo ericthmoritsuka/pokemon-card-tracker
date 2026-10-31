@@ -16,7 +16,8 @@
 // camera says how many are in the tray. With Record every scan on (Phone
 // check), each scan is kept in the scan log (js/scan/log.js).
 
-import {placeScanned, unplaceScanned, waitingPlaceholderList} from '../binders.js';
+import {waitingPlaceholderList} from '../binders.js';
+import {afterAdding, undoAdding} from '../placeholder-fill.js';
 import {addCards, deleteCard, listCards, onChange} from '../collection.js';
 import {cardIndex, saveToCardIndex} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
@@ -1327,6 +1328,7 @@ export function scanView(root) {
 		forgetRemoved();
 		const skipped = skipOwned ? session.items.filter((item) => S.isSavable(item) && S.ownedFor(item, owned).inLanguage) : [];
 		const saved = [];
+		let addedEntries = [];
 
 		// One save for the whole tray (js/collection.js addCards): a save per
 		// card wrote the whole document and woke every listener (sync's diff,
@@ -1337,6 +1339,7 @@ export function scanView(root) {
 		try {
 			const entries = await addCards(rows.map((row) => row.fields));
 
+			addedEntries = entries;
 			entries.forEach((entry, index) => saved.push({entryId: entry.id, itemId: rows[index].itemId}));
 		}
 		catch (err) {
@@ -1365,19 +1368,14 @@ export function scanView(root) {
 
 		const leaving = [...saved.map((row) => row.itemId), ...skipped.map((item) => item.id)];
 		// The saved copies set to Place it there go in their placeholders,
-		// worked out before they leave the tray.
+		// worked out before they leave the tray, and the wishes the copies
+		// fit move to Got it: the same step every path that adds copies takes
+		// (js/placeholder-fill.js afterAdding), with the scanner's own choice
+		// of pockets.
 		const toPlace = S.placementsToSave(session, saved, placeholders);
-		let placed = [];
-		let placeError = null;
-
-		if (toPlace.length) {
-			try {
-				placed = (await placeScanned(toPlace)).done;
-			}
-			catch (err) {
-				placeError = err;
-			}
-		}
+		const after = await afterAdding(addedEntries, {place: toPlace});
+		const placed = after.placed;
+		const placeError = after.error;
 
 		discarded = null;
 		noteText = placeError ? `Saved, but the binder pockets were not filled. ${placeError.message}` : null;
@@ -1401,6 +1399,11 @@ export function scanView(root) {
 			session.lastSave.placed = placed;
 		}
 
+		if (after.got.length) {
+			// And the wishes back to wanted.
+			session.lastSave.got = after.got;
+		}
+
 		for (const item of skipped) {
 			S.removeItem(session, item.id);
 		}
@@ -1418,6 +1421,7 @@ export function scanView(root) {
 
 	async function undoSession() {
 		const placed = (session.lastSave && session.lastSave.placed) || [];
+		const got = (session.lastSave && session.lastSave.got) || [];
 		const undone = (session.lastSave && session.lastSave.items) || [];
 		const ids = S.takeUndo(session);
 
@@ -1427,8 +1431,8 @@ export function scanView(root) {
 
 		persist();
 
-		if (placed.length) {
-			await unplaceScanned(placed).catch(() => null);
+		if (placed.length || got.length) {
+			await undoAdding({got, placed});
 		}
 
 		let removed = 0;

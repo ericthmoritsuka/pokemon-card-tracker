@@ -50,6 +50,8 @@ import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
+import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
+import {fillPanel} from './fill-view.js';
 import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
@@ -770,6 +772,8 @@ function bindersScreen(root, source) {
 	}
 
 	const heading = h('div', {class: 'view-head'}, h('h2', null, 'Binders'), order ? order.button : null);
+	// Fill placeholders in every hand-made binder (js/fill-view.js).
+	const fill = source.readOnly ? null : fillPanel();
 	let name = 'Family member';
 	// The binders shown, by id, for repainting their covers.
 	let shelf = new Map();
@@ -874,10 +878,23 @@ function bindersScreen(root, source) {
 			return;
 		}
 
+		let wanted = 0;
+		const covers = binders.map((binder) => {
+			const stats = isGenerated(binder) ? listStats(binder, data.picks, liveIds) : binderStats(binder, placed, liveIds);
+
+			wanted += isGenerated(binder) ? 0 : stats.wanted;
+
+			return cover(binder, stats, source.base);
+		});
+
 		body.replaceChildren(
-			h('div', {class: 'binder-shelf'}, binders.map((binder) => cover(binder, isGenerated(binder) ? listStats(binder, data.picks, liveIds) : binderStats(binder, placed, liveIds), source.base))),
+			h('div', {class: 'binder-shelf'}, covers),
 			unplacedLink || ''
 		);
+
+		if (fill) {
+			fill.show(wanted);
+		}
 	}
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
@@ -898,7 +915,7 @@ function bindersScreen(root, source) {
 		}
 	});
 
-	root.append(...[heading, body, order ? order.panel : null, newButton, editor].filter(Boolean));
+	root.append(...[heading, body, order ? order.panel : null, fill ? h('div', {class: 'actions fill-row'}, fill.button) : null, fill ? fill.box : null, newButton, editor].filter(Boolean));
 	load();
 
 	return () => {
@@ -984,6 +1001,8 @@ function binderScreen(root, source, id, pageParam) {
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
 	// Many cards into the tray at once; a binder made from a list has none.
 	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
+	// Fill this binder's placeholders with cards you own (js/fill-view.js).
+	const fill = source.readOnly ? null : fillPanel({binderId: id});
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1257,6 +1276,7 @@ function binderScreen(root, source, id, pageParam) {
 			unplacedLink.hidden = listMode;
 			addTrayButton.hidden = listMode;
 			refreshButton.hidden = !listMode;
+			fill.show(listMode ? 0 : binderStats(binder, placed).wanted);
 		}
 
 		drawPage();
@@ -1316,11 +1336,13 @@ function binderScreen(root, source, id, pageParam) {
 					? null
 					: h('div', {class: 'actions'},
 						refreshButton,
+						fill.button,
 						addTrayButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
 					),
+				fill ? fill.box : null,
 				editor,
 			].filter(Boolean));
 		}
@@ -2873,8 +2895,12 @@ function binderScreen(root, source, id, pageParam) {
 
 			add.disabled = true;
 
+			// A card this binder has a placeholder for goes into it, with
+			// "Fill binder placeholders automatically" on (js/placeholder-fill.js).
+			let result;
+
 			try {
-				await addToTray(target.id, ids);
+				result = await addToBinder(target.id, ids);
 			}
 			catch (err) {
 				message.textContent = `Could not add the cards to the tray. ${err.message || errorText(err)}`;
@@ -2884,9 +2910,13 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			closeSheet();
-			toast(`${plural(ids.length, 'card', 'cards')} added to the tray of ${target.name}.`, {
+
+			const into = result.placed.length ? `${plural(result.placed.length, 'card', 'cards')} went into ${target.name}'s placeholders` : '';
+			const trayed = result.staged.length ? `${plural(result.staged.length, 'card', 'cards')} added to the tray of ${target.name}` : '';
+
+			toast(`${[into, trayed].filter(Boolean).join('; ')}.`, {
 				action: () => {
-					takeFromTray(target.id, ids).catch((err) => toast(`Could not take them back out. ${errorText(err)}`));
+					undoAddToBinder(target.id, result).catch((err) => toast(`Could not take them back out. ${errorText(err)}`));
 				},
 				actionLabel: 'Undo',
 				timeout: UNDO_MS,

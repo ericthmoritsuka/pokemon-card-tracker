@@ -13,6 +13,9 @@ import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
 import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
+import {afterAdding, afterText, undoAdding} from './placeholder-fill.js';
+import {UNDO_MS} from './reorder.js';
+import {toast} from './shell.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -118,6 +121,26 @@ async function takeSharedFile() {
 function holdPage(event) {
 	event.preventDefault();
 	event.returnValue = '';
+}
+
+// After an import or a restore saved its copies: the placeholders waiting
+// for them are filled and the wishes they fit move to Got it
+// (js/placeholder-fill.js), said on a toast with Undo for that part (the
+// copies stay). Shared files arrive through the same Save buttons.
+async function placeAdded(entries) {
+	const result = await afterAdding(entries || []);
+	const text = afterText(result);
+
+	if (text) {
+		toast(text, {
+			action: () => undoAdding(result).then(() => toast('The placeholders and wishes are as they were.')).catch((err) => toast(`Could not undo. ${errorText(err)}`)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+	else if (result.error) {
+		toast(`Saved, but the binder placeholders were not filled. ${errorText(result.error)}`);
+	}
 }
 
 // Undo for Start over (js/start-over.js) into `box`: a button that undoes
@@ -410,6 +433,12 @@ export function importView(root) {
 			startBox.replaceChildren(...[
 				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
 				h('p', null, 'Photos and notes stay with their cards.'),
+				counts.filled || counts.got
+					? h('p', {id: 'start-over-fills'}, [
+						counts.filled ? `${plural(counts.filled, 'placeholder gets', 'placeholders get')} a new copy right away.` : null,
+						counts.got ? `${plural(counts.got, 'wish moves', 'wishes move')} to Got it.` : null,
+					].filter(Boolean).join(' '))
+					: null,
 				counts.uploading
 					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone.`)
 					: null,
@@ -454,7 +483,7 @@ export function importView(root) {
 					const {counts: done, undo} = await applyStartOver(planned);
 
 					startBox.replaceChildren(
-						h('p', {class: 'big', id: 'start-over-done'}, `Started over. ${formatCount(done.removed)} removed, ${formatCount(done.added)} added.`),
+						h('p', {class: 'big', id: 'start-over-done'}, `Started over. ${formatCount(done.removed)} removed, ${formatCount(done.added)} added.${done.filled ? ` ${afterText({placed: {length: done.filled}})}` : ''}`),
 						h('p', {class: 'muted'}, `Undo stays on this screen for ${UNDO_DAYS} days, until you start over again.`),
 						h('div', {class: 'actions'}, undoStartOverButton(startBox, undo, 'Undo', 'start-over-undo'), h('a', {class: 'button primary', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'))
 					);
@@ -549,6 +578,9 @@ export function importView(root) {
 
 				const counts = await applyImport(saving);
 
+				// Even when this screen was left meanwhile.
+				placeAdded(counts.entries).catch(() => {});
+
 				if (!alive) {
 					return;
 				}
@@ -639,6 +671,8 @@ export function importView(root) {
 
 			try {
 				const counts = await applyOwnImport(parsed.rows, {revive});
+
+				placeAdded(counts.entries).catch(() => {});
 
 				if (!alive) {
 					return;

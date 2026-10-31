@@ -183,6 +183,8 @@ const SHELL = [
 	'js/snap.js',
 	'js/stamp.js',
 	'js/start-over.js',
+	'js/placeholder-fill.js',
+	'js/fill-view.js',
 	'js/sync.js',
 	'js/tcgdex.js',
 	'js/themes.js',

@@ -163,6 +163,17 @@ export async function saveSettings(patch) {
 
 export const setFavoritePokemon = (n) => saveSettings({favorite_pokemon: validDex(n) ? n : null});
 
+// "Fill binder placeholders automatically" (Profile; js/placeholder-fill.js
+// autoFillOn reads it): on unless turned off, so it is saved only as false
+// or true once someone changes it, and follows the person to every phone.
+export async function fillPlaceholdersOn() {
+	const settings = await accountSettings();
+
+	return !(settings && settings.fill_placeholders === false);
+}
+
+export const setFillPlaceholders = (on) => saveSettings({fill_placeholders: Boolean(on)});
+
 // ------------------------------------------------------------ primary type
 
 const TYPE_IDS = new Set(TYPES.map((type) => type.id));
