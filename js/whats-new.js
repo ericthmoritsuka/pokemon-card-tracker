@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-10-31',
+		items: [
+			'Import has Start over with this file: it removes your copies and adds every card in the monprice file fresh, for a clean slate.',
+			'Photos and notes stay with their cards. The preview says what will not come back, and Undo stays available for 7 days.',
+		],
+		version: 'v51',
+	},
+	{
 		date: '2026-10-30',
 		items: [
 			'When the catalog adds an official image for a card you photographed, the app offers to delete your photos of its front to save space.',
