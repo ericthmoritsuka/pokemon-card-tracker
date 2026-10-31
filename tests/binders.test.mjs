@@ -40,6 +40,7 @@ import {
 	resizedBinder,
 	restorePlaceholders,
 	setPocket,
+	setPockets,
 	slotKind,
 	slotsOf,
 	stageCards,
@@ -52,7 +53,7 @@ import {
 	unstageCards,
 	validGrid,
 } from '../js/binders.js';
-import {mergeDocuments, nextStamp} from '../js/merge.js';
+import {mergeDocuments, mergeEntry, nextStamp} from '../js/merge.js';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -334,6 +335,106 @@ describe('the one-pocket rule', () => {
 		assert.deepEqual(binderStats(binders[0], placements(binders), live), {filled: 1, total: 36, wanted: 1}, 'a deleted copy does not count as filled');
 	});
 
+});
+
+// Match this file changes many pockets at once with setPockets, which must
+// leave the binders as setPocket one change at a time would, before and
+// after a merge with another phone's edit (fourth review of v49).
+describe('setPockets does what setPocket does, one change after another', () => {
+	const shown = (binders) => {
+		const placed = placements(binders);
+
+		return JSON.stringify(binders.map((binder) => [binder.id, slotsOf(binder, placed).map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? 'want' : 'empty')]), stagedOf(binder)]));
+	};
+	const small = (id) => binderOf(id, {cols: 2, page_count: 1, rows: 2, staged: []});
+	const oneByOne = (binders, changes, {at: stamp, keep = null, lenient = false}) => {
+		let out = binders;
+
+		for (const change of changes) {
+			try {
+				if (!keep || keep(out, change)) {
+					out = apply(out, setPocket(out, {at: stamp, ...change}));
+				}
+			}
+			catch (err) {
+				if (!lenient) {
+					throw err;
+				}
+			}
+		}
+
+		return out;
+	};
+
+	test('a pocket changed twice in one batch, and a copy moved between binders', () => {
+		const binders = apply([small('a'), small('b')], setPocket([small('a'), small('b')], {at: at(1), binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 1}));
+		const changes = [
+			{binderId: 'a', content: {entry_id: 'c2'}, page: 1, position: 2},
+			{binderId: 'a', content: {want: want('009')}, page: 1, position: 2},
+			{binderId: 'b', content: {entry_id: 'c1'}, page: 1, position: 4},
+			{binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 3},
+		];
+		const batch = apply(binders, setPockets(binders, changes, {at: at(5)}));
+
+		assert.equal(shown(batch), shown(oneByOne(binders, changes, {at: at(5)})));
+		assert.equal(where(batch, 'c1'), 'a:1:3');
+		assert.equal(where(batch, 'c2'), null);
+	});
+
+	test('keep and lenient leave out the same changes', () => {
+		const binders = [small('a'), {...small('gone'), deleted_at: at(1), updated_at: at(1)}];
+		const changes = [
+			{binderId: 'a', content: {entry_id: 'c1'}, page: 1, position: 1},
+			{binderId: 'gone', content: {entry_id: 'c2'}, page: 1, position: 1},
+			{binderId: 'a', content: {entry_id: 'c3'}, page: 2, position: 1},
+			{binderId: 'a', content: {entry_id: 'c4'}, page: 1, position: 1},
+			{binderId: 'a', content: {entry_id: 'c5'}, page: 1, position: 2},
+		];
+		const keep = (list, change) => change.content.entry_id !== 'c5' && !placements(list).has('c4');
+		const options = {at: at(5), keep, lenient: true};
+		const batch = apply(binders, setPockets(binders, changes, options));
+
+		assert.equal(shown(batch), shown(oneByOne(binders, changes, options)));
+		assert.throws(() => setPockets(binders, changes, {at: at(5)}), /not on this phone|not in this binder/);
+	});
+
+	test('random batches match one change at a time, before and after a merge with another phone', () => {
+		let seed = 7;
+		const rnd = (n) => {
+			seed = (seed * 1103515245 + 12345) % 2147483648;
+
+			return seed % n;
+		};
+		const ids = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'];
+
+		for (let trial = 0; trial < 400; trial++) {
+			let binders = [small('a'), small('b')];
+
+			for (let i = 0; i < 4; i++) {
+				binders = apply(binders, setPocket(binders, {at: at(1 + i), binderId: ['a', 'b'][rnd(2)], content: {entry_id: ids[rnd(6)]}, page: 1, position: 1 + rnd(4)}));
+			}
+
+			binders = binders.map((binder) => ({...binder, staged: ids.filter(() => rnd(3) === 0)}));
+
+			const changes = [];
+
+			for (let i = 0; i < 1 + rnd(5); i++) {
+				const kind = rnd(4);
+
+				changes.push({binderId: ['a', 'b'][rnd(2)], content: kind === 0 ? null : kind === 1 ? {want: want('009')} : {entry_id: ids[rnd(6)]}, page: 1, position: 1 + rnd(4)});
+			}
+
+			const batch = apply(binders, setPockets(binders, changes, {at: at(30)}));
+			const sequence = oneByOne(binders, changes, {at: at(30)});
+
+			assert.equal(shown(batch), shown(sequence), `trial ${trial}: ${JSON.stringify(changes)}`);
+
+			const other = apply(binders, setPocket(binders, {at: at(20), binderId: ['a', 'b'][rnd(2)], content: {entry_id: 'c9'}, page: 1, position: 1 + rnd(4)}));
+			const merged = (mine) => mine.map((binder) => mergeEntry(binder, other.find((item) => item.id === binder.id)));
+
+			assert.equal(shown(merged(batch)), shown(merged(sequence)), `trial ${trial} after a merge`);
+		}
+	});
 });
 
 // A slot as [page, position, what]: an entry id, "want:<card>", "empty", or
