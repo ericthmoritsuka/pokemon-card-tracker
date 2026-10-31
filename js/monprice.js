@@ -879,12 +879,21 @@ const sourceText = (value) => String(value || '').trim() || null;
 // The entries to save for matched and fallback results: one per copy. Each
 // keeps the name and set name the export gave, which the app shows when the
 // catalog record has no localization in the copy's language (DESIGN.md
-// section 5).
+// section 5). The copy index runs on across rows of the same monprice ID,
+// language, and finish (a blank finish and "Normal" both read as NORMAL),
+// so every copy gets its own key, and the same file the same keys.
 export function importEntries(results) {
 	const entries = [];
+	const copies = new Map();
 
 	for (const result of results) {
-		for (let i = 0; i < result.row.count; i++) {
+		const same = [result.row.monpriceId, result.row.language, result.row.finish].join('|');
+		const first = copies.get(same) || 0;
+		const count = Number(result.row.count) || 0;
+
+		copies.set(same, first + count);
+
+		for (let i = first; i < first + count; i++) {
 			entries.push({
 				card_id: result.cardId,
 				catalog: result.catalog,

@@ -242,6 +242,16 @@ describe('planStartOver', () => {
 		assert.ok(isMember(doc.collections[0], HAND));
 	});
 
+	test('two rows of the same card, language, and finish add a copy each', async () => {
+		const twice = [row('001'), row('001')];
+		const entries = importEntries(twice);
+		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001'}), card('a2', {card_id: 'tst1-001'})], collections: [], goals: [], openings: [], wishlist: []};
+		const plan = planStartOver(doc, entries, {ids: await startOverIds(doc.cards, entries), now: NOW});
+
+		assert.deepEqual([plan.counts.removed, plan.counts.added], [2, 2]);
+		assert.deepEqual(live(plan.doc).map((entry) => entry.import_key).sort(), [KEY('001', 0), KEY('001', 1)]);
+	});
+
 	test('the preview counts are what the plan writes', async () => {
 		const {before, plan} = await started();
 		const {counts, doc} = plan;

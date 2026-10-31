@@ -115,6 +115,31 @@ describe('parseExport', () => {
 		]);
 		assert.equal(entries[0].name_local, 'Bulbasaur');
 	});
+
+	test('two rows of the same card, language, and finish give every copy its own key, the same ones each time', async () => {
+		// A blank finish and "Normal" both read as NORMAL: two rows, three copies.
+		const {rows} = parseExport(`${HEADER}\nBulbasaur;Test Set;001/165;PT;;1;tst1_int_1;\nBulbasaur;Test Set;001/165;PT;Normal;2;tst1_int_1;\n`);
+		const results = rows.map((row) => ({cardId: 'tst1-001', catalog: 'international', row, status: 'matched', variantId: 'normal'}));
+		const entries = importEntries(results);
+
+		assert.deepEqual(entries.map((entry) => entry.import_key), [
+			'monprice|tst1_int_1|pt|NORMAL|0',
+			'monprice|tst1_int_1|pt|NORMAL|1',
+			'monprice|tst1_int_1|pt|NORMAL|2',
+		]);
+		assert.deepEqual(importEntries(results).map((entry) => entry.import_key), entries.map((entry) => entry.import_key), 'the same file gives the same keys');
+
+		const ids = new Map();
+
+		for (const entry of entries) {
+			ids.set(entry.import_key, await importEntryId(entry.import_key));
+		}
+
+		const first = planImport([], entries, {ids, now: Date.parse('2026-10-02T12:00:00.000Z')});
+
+		assert.equal(first.counts.added, 3);
+		assert.deepEqual(planImport(first.cards, importEntries(results), {ids, now: Date.parse('2026-10-02T13:00:00.000Z')}).counts, {added: 0, skippedDeleted: 0, unchanged: 3, updated: 0});
+	});
 });
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z');
