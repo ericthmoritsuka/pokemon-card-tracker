@@ -6,13 +6,13 @@
 // An unmatched monprice row can be added by hand from its line.
 
 import {applyImport, applyOwnImport, importKeys, previewOwnImport} from './collection.js';
-import {importApi, saveToCardIndex} from './catalog.js';
+import {cardIndex, importApi, indexKey, saveToCardIndex} from './catalog.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
-import {applyStartOver, previewStartOver, undoStartOver} from './start-over.js';
+import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -120,6 +120,36 @@ function holdPage(event) {
 	event.returnValue = '';
 }
 
+// Undo for Start over (js/start-over.js) into `box`: a button that undoes
+// it and then says what came back.
+function undoStartOverButton(box, undo, label, id) {
+	const button = h('button', {id, type: 'button'}, label);
+
+	button.addEventListener('click', async () => {
+		button.disabled = true;
+
+		try {
+			const back = await undoStartOver(undo);
+
+			box.replaceChildren(h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`));
+		}
+		catch (err) {
+			button.disabled = false;
+			box.append(h('p', {role: 'alert'}, `Could not undo. Nothing was changed. ${errorText(err)}`));
+		}
+	});
+
+	return button;
+}
+
+// A card with no copy after Start over, in the preview's words.
+function goneText(card, index) {
+	const record = index.get(indexKey(card.catalog, card.card_id));
+	const name = card.name || (record && record.name) || card.card_id;
+
+	return [name, name === card.card_id ? null : card.card_id, card.language ? languageChip(card.language) : null, plural(card.copies, 'copy', 'copies')].filter(Boolean).join(' · ');
+}
+
 export function importView(root) {
 	let alive = true;
 
@@ -127,6 +157,7 @@ export function importView(root) {
 	const picker = h('label', {class: 'button primary', for: 'monprice-file'}, 'Pick a file');
 	const status = h('div', {'aria-live': 'polite'});
 	const report = h('div');
+	const keptUndo = h('div', {id: 'start-over-kept'});
 
 	input.addEventListener('change', () => {
 		const file = input.files && input.files[0];
@@ -288,6 +319,7 @@ export function importView(root) {
 			entries = importEntries(chosen());
 			save.textContent = `Save ${plural(entries.length, 'copy', 'copies')}`;
 			save.disabled = !entries.length;
+			startEmpty();
 		}
 
 		save.disabled = !entries.length;
@@ -298,21 +330,33 @@ export function importView(root) {
 		const startBox = h('div', {'aria-live': 'polite', id: 'start-over-box'});
 		const startOver = h('div', {class: 'card', id: 'start-over-card'},
 			h('h3', null, 'Start over with this file'),
-			h('p', {class: 'muted'}, 'Removes every copy on this phone except hand-made cards, then adds every matched row of this file as a new copy. Photos and notes stay with their cards and show again. Rows not matched are not added; add them by hand from the report.'),
+			h('p', {class: 'muted'}, 'Removes every copy on this phone except hand-made cards, then adds every matched row of this file as a new copy. Photos and notes stay with their cards and show again on the cards that get a copy. Each copy\'s own details (grade, price, favorite, condition, Stored in, pack opening) are not copied to the new copies. Rows not matched are not added; add them by hand from the report.'),
 			startButton,
 			startBox
 		);
+		const noRows = h('p', {class: 'muted', id: 'start-over-empty'}, 'No row of this file matched a card, so Start over has nothing to add.');
+
+		// Start over needs at least one matched row to add.
+		function startEmpty() {
+			startButton.disabled = !entries.length;
+			noRows.hidden = Boolean(entries.length);
+		}
+
+		startButton.after(noRows);
+		startEmpty();
 
 		startButton.addEventListener('click', async () => {
 			const planned = entries;
+			const leftOut = large.filter((result) => !confirmed.has(result));
 
 			startButton.disabled = true;
 			startBox.replaceChildren(h('p', {class: 'muted'}, 'Working out what changes...'));
 
 			let counts;
+			let index;
 
 			try {
-				counts = await previewStartOver(planned);
+				[counts, index] = await Promise.all([previewStartOver(planned), cardIndex().catch(() => new Map())]);
 			}
 			catch (err) {
 				startButton.disabled = false;
@@ -323,11 +367,57 @@ export function importView(root) {
 
 			const go = h('button', {class: 'danger', id: 'start-over-go', type: 'button'}, 'Start over');
 			const cancel = h('button', {id: 'start-over-cancel', type: 'button'}, 'Cancel');
+			const exportButton = h('button', {id: 'start-over-export', type: 'button'}, 'Export CSV first');
+			const exportStatus = h('span', {'aria-live': 'polite', class: 'muted'});
 
-			startBox.replaceChildren(
+			// The app's own CSV keeps every copy's details, and the same screen
+			// imports it back (DESIGN.md section 9).
+			exportButton.addEventListener('click', async () => {
+				exportButton.disabled = true;
+				exportStatus.textContent = 'Preparing the export...';
+
+				try {
+					const {exportCollection} = await import('./cards-view.js');
+					const count = await exportCollection();
+
+					exportStatus.textContent = `Exported ${plural(count, 'copy', 'copies')}.`;
+				}
+				catch (err) {
+					exportStatus.textContent = `The export did not work. ${errorText(err)}`;
+				}
+				finally {
+					exportButton.disabled = false;
+				}
+			});
+
+			const leftOutLine = leftOut.length ? reportLine(`${plural(leftOut.length, 'row is', 'rows are')} left out: more than ${LARGE_COUNT} copies and not ticked above`, leftOut, null) : null;
+
+			if (leftOutLine) {
+				leftOutLine.id = 'start-over-left-out';
+			}
+
+			startBox.replaceChildren(...[
 				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
-				h('div', {class: 'actions'}, go, cancel)
-			);
+				h('p', null, 'Photos and notes stay with their cards.'),
+				counts.details
+					? h('p', {id: 'start-over-details'}, `${plural(counts.details, 'copy has', 'copies have')} a grade, price, favorite, condition, Stored in, or pack opening; these stay with the old copies and are not copied over.`)
+					: null,
+				counts.gone.length
+					? h('details', {class: 'report-line', id: 'start-over-gone', open: counts.gone.length <= 30},
+						h('summary', null, h('span', null, `${plural(counts.gone.length, 'card has', 'cards have')} no copy after Start over`)),
+						h('ol', {class: 'report-rows'}, ...counts.gone.map((card) => h('li', null, h('span', null, goneText(card, index)))))
+					)
+					: null,
+				counts.gone.length
+					? h('p', {id: 'start-over-hidden'}, `Their card records keep ${plural(counts.hiddenPhotos, 'photo', 'photos')} and ${plural(counts.hiddenNotes, 'note', 'notes')}, which show again only when the card is added again.`)
+					: null,
+				leftOut.length
+					? leftOutLine
+					: null,
+				h('p', {class: 'muted'}, 'Export CSV first to keep a file of every copy as it is now.'),
+				h('div', {class: 'actions'}, exportButton, exportStatus),
+				h('div', {class: 'actions'}, go, cancel),
+			].filter(Boolean));
 
 			cancel.addEventListener('click', () => {
 				startBox.replaceChildren();
@@ -348,26 +438,14 @@ export function importView(root) {
 					await saveToCardIndex(cards);
 
 					const {counts: done, undo} = await applyStartOver(planned);
-					const undoButton = h('button', {id: 'start-over-undo', type: 'button'}, 'Undo');
 
 					startBox.replaceChildren(
 						h('p', {class: 'big', id: 'start-over-done'}, `Started over. ${formatCount(done.removed)} removed, ${formatCount(done.added)} added.`),
-						h('div', {class: 'actions'}, undoButton, h('a', {class: 'button primary', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'))
+						h('p', {class: 'muted'}, `Undo stays on this screen for ${UNDO_DAYS} days, until you start over again.`),
+						h('div', {class: 'actions'}, undoStartOverButton(startBox, undo, 'Undo', 'start-over-undo'), h('a', {class: 'button primary', 'data-link': 'cards', href: `${BASE}cards`}, 'Open My Cards'))
 					);
 					save.remove();
-					undoButton.addEventListener('click', async () => {
-						undoButton.disabled = true;
-
-						try {
-							const back = await undoStartOver(undo);
-
-							startBox.replaceChildren(h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`));
-						}
-						catch (err) {
-							undoButton.disabled = false;
-							startBox.append(h('p', {role: 'alert'}, `Could not undo. Nothing was changed. ${errorText(err)}`));
-						}
-					});
+					keptUndo.replaceChildren();
 				}
 				catch (err) {
 					go.disabled = false;
@@ -576,11 +654,33 @@ export function importView(root) {
 		h('h2', null, 'Import a collection'),
 		h('p', null, 'Pick a monprice export (CSV or JSON), or a CSV this app exported. A monprice file is matched to the catalog; every file is listed in a report before anything is saved.'),
 		h('p', {class: 'muted'}, 'Importing the same file again does not add the cards twice.'),
+		keptUndo,
 		input,
 		picker,
 		status,
 		report
 	);
+
+	// The last Start over's Undo, kept beside the document (js/start-over.js
+	// savedUndo), so leaving this screen or reloading does not lose it.
+	async function offerKeptUndo() {
+		const kept = await savedUndo().catch(() => null);
+
+		if (!alive || !kept) {
+			return;
+		}
+
+		const box = h('div', {'aria-live': 'polite'});
+		const day = new Date(kept.at).toLocaleDateString('en-US', {day: 'numeric', month: 'long'});
+
+		box.append(
+			h('p', null, `You started over on ${day}: ${formatCount(kept.counts.removed)} removed, ${formatCount(kept.counts.added)} added. Undo brings the removed copies back and removes the added ones, except where they changed since.`),
+			h('div', {class: 'actions'}, undoStartOverButton(box, kept.undo, 'Undo Start over', 'start-over-kept-undo'))
+		);
+		keptUndo.replaceChildren(h('div', {class: 'card'}, h('h3', null, 'Undo Start over'), box));
+	}
+
+	offerKeptUndo();
 
 	// Opened from Android's share sheet: sw.js put the file aside and sent
 	// ?shared=1 (or ?shared=none when the share had no file). The flag is

@@ -1070,20 +1070,39 @@ sets, back to Base Set.
 After a monprice file is matched, the report offers "Start over with this file": every live copy
 is removed, except hand-made cards, which a monprice file cannot hold, and every matched row is
 added as a new copy, built the way the import builds it. A key whose earlier copy was deleted is
-added anyway: the copy takes the import's id for its key, or, when an entry already holds that id,
-the id of the key with `|again|<n>` for the first free n, so two phones agree. Rows not matched
-are not added; the report lists them with Add by hand as before. Card records (`card_info`) are
-never touched, so photos, notes, and the main-image pin show again on the added copies. A binder
+added anyway. Each added copy takes a new random id, never one worked out from its key: two
+phones that each start over add different copies of each row, and the merge folds them into one
+by `import_key`. A key-based id would be the same on both phones, so an Undo on one would remove
+the copies the other added and leave none. Rows not matched are not added; the report lists them
+with Add by hand as before, and Start over is off, with a line saying why, when no row matched.
+Card records (`card_info`) are never touched, so photos, notes, and the main-image pin show again
+on the cards that get a copy. Each copy's own details (grade and grading, purchase price, typed
+Liga price, favorite, condition, Stored in, pack opening, binder spots, hand-picked collection
+membership) are not copied to the new copies: Eric chose to lose them for a clean slate. A binder
 pocket that held a removed copy becomes that card's placeholder, trays drop removed copies, a list
 binder's hand pick of a removed copy goes back to the default so the rule picks again, and
-hand-picked collections drop removed copies. Nothing is written before a preview ("Remove N
-copies, add M copies, K photos kept, P pockets become placeholders", K counting the photos on the
-added copies' card records) and a confirmation. Undo, one step, brings the removed copies back and
-removes the added ones, and puts pockets, trays, picks, and collection members back, each only
-while it still holds what Start over wrote, so an edit another phone synced since stays; a pocket
-or tray holding an added copy by then is emptied. The change is planned on a copy of the document
-by one pure function (`js/start-over.js`) for both the preview and the save, and the document on
-screen takes it only once the save succeeds; a failed save changes nothing.
+hand-picked collections drop removed copies.
+
+Nothing is written before a preview and a confirmation. The preview says "Remove N copies, add M
+copies, K photos kept, P pockets become placeholders", K counting the photos on the card records a
+copy shows afterwards, and "Photos and notes stay with their cards". It also says how many removed
+copies have a grade, price, favorite, condition, Stored in, or pack opening, which stay with the
+old copies and are not copied over; lists each card, by card and language, that has no copy after
+Start over (a card missing from the file, an old fallback copy the file now matches to another
+catalog, a card or language corrected by hand), with how many photos and notes its record keeps
+but does not show until the card is added again; and lists rows left out because they ask for
+more than 50 copies and were not ticked. It offers Export CSV first, the app's own export, which
+keeps every copy's details and imports back through the same screen.
+
+Undo, one step, brings the removed copies back and removes the added ones, and puts pockets,
+trays, picks, and collection members back, each only while it still holds what Start over wrote,
+so an edit another phone synced since stays; a pocket or tray holding an added copy by then is
+emptied, and an added copy that another phone's copy was folded into stays. Undo is kept beside
+the document (`meta:start-over-undo`), so the import screen offers "Undo Start over" after the
+screen was left or the page reloaded: for 7 days, to the account that started over, until it is
+used or another Start over replaces it. The change is planned on a copy of the document by one
+pure function (`js/start-over.js`) for both the preview and the save, and the document on screen
+takes it only once the save succeeds; a failed save changes nothing.
 
 ## 8. Persistence and Auth
 

@@ -2,8 +2,11 @@
 // (js/start-over.js; DESIGN.md section 7, Eric, 2026-10-30): a monprice
 // file is matched, the preview counts what changes, Cancel changes nothing,
 // Start over asks to confirm and saves, a binder pocket becomes a
-// placeholder, the card's note stays, and Undo puts every copy and the
-// pocket back. Headless Chromium against tests/pages-server.mjs, signed
+// placeholder, the card's note stays, and Undo, offered again after a
+// reload, puts every copy and the pocket back. The preview says what the new
+// copies do not get and which cards are left with no copy; Start over is
+// off when no row matched, and lists rows left out above the large-count
+// limit. Headless Chromium against tests/pages-server.mjs, signed
 // out, at 390 x 844.
 //
 // Every outside service is faked: TCGdex answers with an invented set as
@@ -165,6 +168,12 @@ test('preview, Cancel, confirm, Start over, and Undo', async () => {
 	await page.click('#start-over');
 	await page.waitForSelector('#start-over-preview');
 	assert.equal(await page.locator('#start-over-preview').textContent(), 'Remove 2 copies, add 3 copies, 0 photos kept, 1 pocket becomes a placeholder.');
+	assert.equal(await page.locator('#start-over-details').textContent(), '1 copy has a grade, price, favorite, condition, Stored in, or pack opening; these stay with the old copies and are not copied over.');
+	assert.equal(await page.locator('#start-over-gone summary').textContent(), '1 card has no copy after Start over');
+	assert.match(await page.locator('#start-over-gone li').textContent(), /tst1-002.*1 copy/, 'card 2 is not in the file');
+	assert.equal(await page.locator('#start-over-hidden').textContent(), 'Their card records keep 0 photos and 1 note, which show again only when the card is added again.');
+	assert.equal(await page.locator('#start-over-left-out').count(), 0);
+	assert.equal(await page.locator('#start-over-export').count(), 1, 'Export CSV is offered before anything goes');
 	await page.screenshot({fullPage: true, path: `${SHOTS}/start-over-preview.png`});
 
 	await page.click('#start-over-cancel');
@@ -195,9 +204,41 @@ test('preview, Cancel, confirm, Start over, and Undo', async () => {
 	assert.equal(after.pocket, 'want:tst1-002', 'the pocket is the card\'s placeholder now');
 	assert.deepEqual(after.notes, before.notes, 'the card\'s note stays');
 
-	await page.click('#start-over-undo');
+	assert.equal(await page.locator('#start-over-undo').count(), 1, 'Undo right after');
+
+	// Leaving the screen does not lose Undo: the import screen offers it.
+	await page.goto(url('import'));
+	await page.waitForSelector('#start-over-kept-undo');
+	assert.match(await page.locator('#start-over-kept').textContent(), /2 removed, 3 added/);
+	await page.click('#start-over-kept-undo');
 	await page.waitForSelector('#start-over-undone');
 	assert.equal(await page.locator('#start-over-undone').textContent(), 'Undone. 2 copies are back, and 3 added copies were removed.');
 	assert.deepEqual(await state(page, binderId), before, 'Undo puts every copy and the pocket back');
+
+	await page.goto(url('import'));
+	await page.waitForSelector('#monprice-file');
+	assert.equal(await page.locator('#start-over-kept-undo').count(), 0, 'Undo is offered once');
+	await done();
+});
+
+test('off when no row matched; rows above the large-count limit left unticked are listed', async () => {
+	const {done, page} = await phone();
+
+	await page.goto(url('import'));
+	await page.setInputFiles('#monprice-file', {buffer: Buffer.from([CSV.split('\r\n')[0], CSV.split('\r\n')[3]].join('\r\n')), mimeType: 'text/csv', name: 'none.csv'});
+	await page.waitForSelector('#start-over');
+	assert.ok(await page.locator('#start-over').isDisabled());
+	assert.ok(await page.locator('#start-over-empty').isVisible());
+
+	const large = [CSV.split('\r\n')[0], 'Test card 1;Test set;001/009;PT;NORMAL;1;tst1_int_1;2026-01-01', 'Test card 3;Test set;003/009;PT;NORMAL;60;tst1_int_3;2026-01-01'].join('\r\n');
+
+	await page.setInputFiles('#monprice-file', {buffer: Buffer.from(large), mimeType: 'text/csv', name: 'large.csv'});
+	await page.waitForSelector('#import-large');
+	assert.ok(await page.locator('#start-over').isEnabled());
+	assert.ok(!await page.locator('#start-over-empty').isVisible());
+	await page.click('#start-over');
+	await page.waitForSelector('#start-over-preview');
+	assert.equal(await page.locator('#start-over-preview').textContent(), 'Remove 0 copies, add 1 copy, 0 photos kept, 0 pockets become placeholders.');
+	assert.match(await page.locator('#start-over-left-out summary').textContent(), /^1 row is left out: more than 50 copies and not ticked above$/);
 	await done();
 });
