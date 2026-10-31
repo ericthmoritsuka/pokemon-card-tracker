@@ -1906,6 +1906,36 @@ An opening is a batch scan session with a product attached: "10 packs of Celebra
 R$300". Every copy saved in it remembers the opening, so the opening shows what it cost against
 what it pulled at today's prices, and the best pull.
 
+### Trades and Sales
+
+(Eric, 2026-10-31; designed, not built.) A log of how cards came and went, so the collection follows
+what happens to the real cards. Each operation is one entry in a new synced list, `moves`, merged
+entry by entry like the other lists:
+
+```
+"moves": [{ "id", "kind", "date", "who", "price", "currency", "note",
+            "out": [entry_id, ...], "in": [entry_id, ...],
+            "created_at", "updated_at", "deleted_at" }]
+```
+
+- **kind:** sold, bought, traded, or gift (given or received). A trade has both cards out and cards
+  in; a sale has cards out and a price; a purchase has cards in and a price.
+- **out:** copies he owns that leave, picked from his collection; the Trade view's spares come first.
+  Saving soft-deletes them (as Delete does) and stamps each with `left_via: <move id>`.
+- **in:** new copies that arrive, picked from the catalog like the Add cards tray (language and
+  finish asked), added as copies with `came_via: <move id>`.
+- **price:** one amount for the whole move (sold for R$ 30, bought for R$ 20, cash added to a trade),
+  optional. Prices only: no cost per copy and no profit, by Eric's choice (2026-10-31).
+
+A card's page says where each copy came from and where earlier copies went ("Came in: traded with
+a friend, 12 Nov"; "Left: sold for R$ 30, 3 Dec"), using `came_via` and `left_via`; photos and notes
+stay on the card record (see "Photos and notes belong to the card"). A History screen lists every
+move, newest first, with totals of money in and out per month. Undo of a move (and deleting a move)
+brings the outgoing copies back and removes the incoming ones that are unchanged since, the same
+rules as Start over's Undo. A copy that leaves keeps its binder pocket as a placeholder, as Start
+over does. Build it with the same review rounds as Start over (multi-phone, Undo, older versions
+that do not know `moves`, `came_via`, `left_via`).
+
 ## 12. Open Questions
 
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your

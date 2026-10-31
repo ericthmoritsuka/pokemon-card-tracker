@@ -269,6 +269,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Backlog (Eric, 2026-10-22)
 
+- **Trades and sales log (Eric, 2026-10-31; next after his Start over):** record each sale,
+  purchase, trade, or gift with its date, who, and one price; cards out leave the collection and
+  cards in are added, linked to the move, so each card shows how it came and went, and a History
+  screen lists the moves. Prices only, no profit per copy (Eric's choice). Spec: DESIGN.md
+  "Trades and Sales". Medium. Review it like Start over before publishing.
 - **Import "Match this file" (Eric, 2026-10-22; first in line):** Eric will scan his whole collection
   into a new monprice list to get exact counts. Today an import adds missing copies by import_key
   (monprice id, language, finish, copy index: js/monprice.js importKey) but never removes extras,
