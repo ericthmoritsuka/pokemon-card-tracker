@@ -22,7 +22,7 @@ export const RELEASES = [
 	{
 		date: '2026-10-30',
 		items: [
-			'When the catalog adds an official image for a card you photographed, the app offers to delete your photos of it to save space.',
+			'When the catalog adds an official image for a card you photographed, the app offers to delete your photos of its front to save space.',
 			'Review shows each official image beside your photo, ticked except a photo you chose as the main image, and Undo brings them back.',
 		],
 		version: 'v49',

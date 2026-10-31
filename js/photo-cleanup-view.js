@@ -11,12 +11,13 @@
 // removal, with Undo on a toast.
 
 import {currentUser} from './auth.js';
-import {cardImage, cardIndex, savedCardRecords, saveToCardIndex} from './catalog.js';
+import {cardImage, cardIndex, savedOwnRecords, saveToCardIndex} from './catalog.js';
 import {loadDocument, newId, updateCardInfo} from './collection.js';
 import {errorText, h} from './dom.js';
 import {plural} from './format.js';
 import {
 	cleanupCandidates,
+	deletedText,
 	deletePhotos,
 	indexImages,
 	initialTicks,
@@ -48,7 +49,7 @@ const userId = () => (currentUser() || {}).id || null;
 // The cards to offer now, with the index they were read against.
 async function findCandidates() {
 	const records = ((await loadDocument()).card_info || []).filter((record) => record && !record.deleted_at);
-	const [index, saved] = await Promise.all([cardIndex(), savedCardRecords(records)]);
+	const [index, saved] = await Promise.all([cardIndex(), savedOwnRecords(records)]);
 
 	return {candidates: cleanupCandidates(records, index, saved), index};
 }
@@ -140,16 +141,29 @@ function openReview(candidates, index) {
 			draw();
 		});
 
-		const official = h('img', {alt: 'Official image', class: 'pc-official', height: 140, loading: 'lazy', src: cardImage(item.image, 'low'), width: 100});
+		const official = h('img', {alt: 'Official image', class: 'pc-official', height: 140, src: cardImage(item.image, 'low'), width: 100});
 		const mine = photoImage(photo);
+		const note = h('span', {class: 'muted'}, pinned ? ' (your main image)' : '');
+		const row = h('li', {class: 'pc-row', 'data-card': item.key, style: 'margin-bottom: 12px;'},
+			h('label', {style: 'align-items: center; display: flex; gap: 8px; margin-bottom: 6px;'}, box,
+				h('span', null, item.name, note)),
+			h('div', {style: 'display: grid; gap: 8px; grid-template-columns: repeat(2, 96px);'}, official, mine));
 
 		official.setAttribute('style', art);
 		mine.setAttribute('style', art);
 
-		return h('li', {class: 'pc-row', 'data-card': item.key, style: 'margin-bottom: 12px;'},
-			h('label', {style: 'align-items: center; display: flex; gap: 8px; margin-bottom: 6px;'}, box,
-				h('span', null, item.name, pinned ? h('span', {class: 'muted'}, ' (your main image)') : null)),
-			h('div', {style: 'display: grid; gap: 8px; grid-template-columns: repeat(2, 96px);'}, official, mine));
+		// An official image that does not load is no reason to delete the
+		// photo: the row is unticked, cannot be ticked, and says why.
+		official.addEventListener('error', () => {
+			box.checked = false;
+			box.disabled = true;
+			ticks.delete(photo.id);
+			row.classList.add('pc-broken');
+			note.textContent = ' (the official image did not load)';
+			draw();
+		}, {once: true});
+
+		return row;
 	}));
 
 	const dialog = h('dialog', {'aria-labelledby': `${SHEET_ID}-title`, class: 'sheet', id: SHEET_ID, style: 'overflow-y: auto;'},
@@ -161,6 +175,7 @@ function openReview(candidates, index) {
 		deleteButton);
 
 	let deleting = false;
+	let failedKeys = new Set();
 
 	deleteButton.addEventListener('click', async () => {
 		if (deleting || !ticks.size) {
@@ -170,27 +185,37 @@ function openReview(candidates, index) {
 		deleting = true;
 		deleteButton.disabled = true;
 
+		// The card index takes the official images first, so no card is
+		// left with neither a photo nor an image; when that fails nothing
+		// is deleted.
 		try {
-			const removed = await deletePhotos(candidates, ticks, {readBlob: localPhoto, remove: removePhotoFromEntry});
-			const records = indexImages(candidates, index, removed.map((item) => item.card));
+			const records = indexImages(candidates, index, candidates.filter((item) => item.photos.some((entry) => ticks.has(entry.photo.id))).map((item) => item.card));
 
 			if (records.length) {
-				await saveToCardIndex(records).catch(() => {});
+				await saveToCardIndex(records);
 			}
-
-			dialog.close();
-			toast(`Deleted ${plural(removed.length, 'photo')}.`, {
-				action: () => undoDelete(removed, {newId, saveBlob: savePhotoLocally, update: updateCardInfo})
-					.catch((err) => toast(`Could not bring them back. ${errorText(err)}`)),
-				actionLabel: 'Undo',
-				timeout: UNDO_MS,
-			});
 		}
 		catch (err) {
 			deleting = false;
 			draw();
 			toast(`Could not delete the photos. ${errorText(err)}`);
+
+			return;
 		}
+
+		const result = await deletePhotos(candidates, ticks, {readBlob: localPhoto, remove: removePhotoFromEntry});
+		const {error, left, removed} = result;
+		const text = error ? `${deletedText(result)} ${errorText(error)}` : deletedText(result);
+
+		// A card with a photo left over is offered again next time.
+		failedKeys = new Set(left.map((entry) => entry.key));
+		dialog.close();
+		toast(text, removed.length ? {
+			action: () => undoDelete(removed, {newId, saveBlob: savePhotoLocally, update: updateCardInfo})
+				.catch((err) => toast(`Could not bring them back. ${errorText(err)}`)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		} : {});
 	});
 
 	dialog.addEventListener('click', (event) => {
@@ -199,7 +224,7 @@ function openReview(candidates, index) {
 		}
 	});
 	dialog.addEventListener('close', () => {
-		rememberSeen(storage(), userId(), candidates.map((item) => item.key));
+		rememberSeen(storage(), userId(), candidates.map((item) => item.key).filter((key) => !failedKeys.has(key)));
 		dialog.remove();
 	});
 

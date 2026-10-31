@@ -289,6 +289,33 @@ export async function savedCardRecords(entries) {
 	return hits;
 }
 
+// The full TCGdex records saved on this phone in each copy's own language,
+// keyed "card:<lang>:<card id>" (the key importApi.cardDetail saves under),
+// with no request: the photo cleanup (js/photo-cleanup.js) judges a French
+// copy by its French record, never the English one. A copy on another
+// catalog's record (a Korean copy on a Japanese one) has none.
+export async function savedOwnRecords(entries) {
+	const found = new Map();
+
+	for (const entry of entries || []) {
+		const catalog = entry.catalog || 'international';
+		const lang = entry.language || catalogLanguage(catalog);
+		const key = `card:${lang}:${entry.card_id}`;
+
+		if (catalogFor(lang) !== catalog || found.has(key)) {
+			continue;
+		}
+
+		const hit = await cacheGet(key).catch(() => null);
+
+		if (hit && hit.data && hit.data.id) {
+			found.set(key, hit.data);
+		}
+	}
+
+	return found;
+}
+
 // The records the price statistics take for some copies: the saved full
 // records, else the card index records, which carry names but no prices.
 export async function priceRecords(entries) {

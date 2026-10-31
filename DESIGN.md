@@ -676,19 +676,31 @@ that stops v47 phones from writing.
 official image already becomes a card's main picture when TCGdex adds one, unless a photo is pinned
 as the main image, so a photo taken because the catalog had none mostly takes bucket space. After My
 Cards' background pass, which reads each owned card's TCGdex record again once a week, the app looks
-for cards the card index recorded with no image in any language whose saved record now has one, and
-that still carry the person's own photos already in the bucket. It then shows a notice: "5 cards now
-have official images. You can delete your 7 photos of them to save space.", with Review and Not now.
-Review lists each photo with the card's official image beside it, ticked, except a photo pinned as
-the main image, which starts unticked, and a "Delete N photos" button. Delete removes each ticked
-photo the normal way (so its bucket file goes 14 days later, and it leaves the family's photo list
-too), gives the card index the official image so the tile shows it, and offers Undo on a toast. Undo
-puts each photo back on the same file under a new id, since a removal always wins a merge; the live
-photo at the same path cancels the queued bucket delete, and a pin comes back with it. Not now, or
-closing Review, remembers the cards offered on this phone for that person, so the notice shows again
-only when another card gains an image. Limits: a photo still waiting to upload is not offered (it
-takes no bucket space yet), and Japanese, Korean, and Chinese cards are found only once their card
-page has been opened, since the weekly pass reads international records only. Code:
+at each copy's photos in the copy's own language: the card index recorded that language with no
+image, and the TCGdex record saved for that language now has one. A French copy is judged by the
+French record, never the English one, and a Korean copy kept on a Japanese record is never offered,
+since that catalog holds no Korean art for it. The copy must still carry the person's own front
+photos already in the bucket. Back photos are never offered: the official image shows only the
+front, and a back photo records the card's condition (decided for Eric on 2026-10-30 while fixing a
+review; he can reverse it). The app then shows a notice: "5 cards now have official images. You can
+delete your 7 photos of them to save space.", with Review and Not now. The notice counts only the
+photos ticked at the start, so a card whose offered photos are all pinned is listed in Review but not
+counted, and alone shows no notice. Review lists each photo with the card's official image beside
+it, ticked, except a photo pinned as the main image, which starts unticked, and a "Delete N photos"
+button. A row whose official image does not load is unticked, cannot be ticked, says the image did
+not load, and is not counted in the button. Delete first gives the card index the official image in
+that copy's language only, so the tile shows it; if that fails, nothing is deleted and an error
+shows. It then removes each ticked photo the normal way (so its bucket file goes 14 days later, and
+it leaves the family's photo list too) and offers Undo on a toast. A photo another phone removed
+while Review was open is not counted and not brought back by Undo. If a removal fails part way, the
+toast offers Undo for the photos removed and says how many could not be deleted, and those cards
+are offered again. Undo puts each photo back on the same file under a new id, since a removal always
+wins a merge; the live photo at the same path cancels the queued bucket delete, and a pin comes back
+with it. Not now, or closing Review, remembers the cards offered on this phone for that person, so
+the notice shows again only when another card gains an image. Limits: a photo still waiting to
+upload is not offered (it takes no bucket space yet), and a copy in any language but English is
+found only once the record in its own language is saved on the phone, since the weekly pass reads
+the English record first. Code:
 `js/photo-cleanup.js` (the rules) and `js/photo-cleanup-view.js` (the notice and the sheet).
 
 **Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
