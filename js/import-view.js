@@ -410,6 +410,9 @@ export function importView(root) {
 			startBox.replaceChildren(...[
 				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
 				h('p', null, 'Photos and notes stay with their cards.'),
+				counts.uploading
+					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone.`)
+					: null,
 				counts.details
 					? h('p', {id: 'start-over-details'}, `${plural(counts.details, 'copy has', 'copies have')} a grade, price, favorite, condition, Stored in, or pack opening; these stay with the old copies and are not copied over.`)
 					: null,

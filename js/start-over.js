@@ -126,6 +126,17 @@ export function copyHash(entry) {
 	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
+// A copy holding a live photo with no path, on the copy or on its card's
+// record: a v47 phone took it and has not uploaded it yet. Removing the copy
+// would give the photo up (js/card-info.js fileGone), so Start over leaves
+// it.
+function uploading(entry, records) {
+	const record = records.get(infoKey(entry));
+	const held = new Map((record && Array.isArray(record.photos) ? record.photos : []).filter(Boolean).map((photo) => [photo.id, photo]));
+
+	return (Array.isArray(entry.photos) ? entry.photos : []).some((photo) => photo && photo.id && !photo.deleted_at && !photo.path && !(held.get(photo.id) || {}).path);
+}
+
 const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : []).filter((photo) => photo && photo.id && !photo.deleted_at).length;
 
 // What Start over does to `doc`, given the import's entries
@@ -143,12 +154,20 @@ const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : [
 export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), run = newId()} = {}) {
 	const next = structuredClone(doc);
 	const removed = new Map();
+	const infoById = new Map((doc.card_info || []).filter(Boolean).map((record) => [record.id, record]));
+	let waiting = 0;
 
 	// Newer than any run this phone knows of, even with its clock behind.
 	next.start_over = {at: nextStamp(doc.start_over && doc.start_over.at, now), id: run};
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry || !isLive(entry) || isCustom(entry)) {
+			return entry;
+		}
+
+		if (uploading(entry, infoById)) {
+			waiting++;
+
 			return entry;
 		}
 
@@ -288,6 +307,7 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 			photos,
 			pockets,
 			removed: removed.size,
+			uploading: waiting,
 		},
 		doc: next,
 		undo: {

@@ -73,6 +73,7 @@ globalThis.fetch = async (url) => {
 const collection = await import('../js/collection.js');
 const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
+const {moveToCardInfo} = await import('../js/card-info.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
 
@@ -242,6 +243,24 @@ describe('planStartOver', () => {
 		assert.ok(isMember(doc.collections[0], HAND));
 	});
 
+	test('a copy holding a photo still uploading from another phone stays, and is counted', async () => {
+		const pending = {created_at: at(1), id: 'p9', side: 'front', type: 'image/webp'};
+		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', photos: [pending]}), card('a2', {card_id: 'tst1-002', photos: [{...pending, id: 'p8', path: 'u/p8/p8.webp'}]})], collections: [], goals: [], openings: [], wishlist: []};
+		const rows = importEntries([row('001'), row('002')]);
+		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
+		const kept = plan.doc.cards.find((entry) => entry.id === 'a1');
+
+		assert.equal(kept.deleted_at, null, 'its photo has no path yet, so removing the copy would lose it');
+		assert.ok(plan.doc.cards.find((entry) => entry.id === 'a2').deleted_at, 'a copy whose photo is uploaded goes');
+		assert.deepEqual([plan.counts.removed, plan.counts.added, plan.counts.uploading], [1, 2, 1]);
+
+		moveToCardInfo(plan.doc, NOW);
+
+		const photos = [...plan.doc.cards.find((entry) => entry.id === 'a1').photos || [], ...plan.doc.card_info.flatMap((record) => record.photos || [])];
+
+		assert.ok(photos.some((photo) => photo.id === 'p9' && !photo.deleted_at), 'the photo is not given up');
+	});
+
 	test('two rows of the same card, language, and finish add a copy each', async () => {
 		const twice = [row('001'), row('001')];
 		const entries = importEntries(twice);
@@ -260,8 +279,8 @@ describe('planStartOver', () => {
 		const added = live(doc).filter((entry) => !before.cards.some((old) => old.id === entry.id)).length;
 		const pockets = doc.binders[0].slots.filter((slot) => slot.want).length;
 
-		assert.deepEqual({...counts, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0}, {added, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets, removed});
-		assert.deepEqual(counts, {added: 3, details: 1, gone: [{card_id: 'tst1-002', catalog: 'international', copies: 1, language: 'pt', name: null}], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets: 2, removed: 3});
+		assert.deepEqual({...counts, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0}, {added, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets, removed, uploading: 0});
+		assert.deepEqual(counts, {added: 3, details: 1, gone: [{card_id: 'tst1-002', catalog: 'international', copies: 1, language: 'pt', name: null}], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets: 2, removed: 3, uploading: 0});
 	});
 });
 
