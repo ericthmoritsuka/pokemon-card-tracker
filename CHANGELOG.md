@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-30
 
-- **v49:** the Sets search finds cards, not only sets. `TBD`
+- **v49:** the Sets search finds cards, not only sets. `a7505e2`
   - Type a Pokémon or Trainer name (English or Portuguese), a number like 025 or 025/165, or a set
     code and number like MEW 025, optionally with a kind such as ex, V, VMAX, VSTAR, or SIR. Matching
     sets come first, then card tiles grouped by set, with language flags and your owned copies.
