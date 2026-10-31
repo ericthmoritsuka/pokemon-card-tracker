@@ -788,6 +788,39 @@ function newestRun(a, b) {
 	return diff > 0 || (diff === 0 && String(a.id) >= String(b.id)) ? a : b;
 }
 
+// A run of Start over that a v51 phone marked only in start_over, put into
+// the list start_overs (js/start-over.js latestRun) the way a v52 phone
+// writes a run, stamped with the run's time, so every app version merges
+// it entry by entry. An app before v51 keeps its own start_over in a merge
+// and could put an older mark back over the v51 one; once a v52 phone has
+// loaded or merged the document, the run is in the list, which no version
+// drops. Every phone writes the same entry for a mark, so two phones that
+// record it agree. Changes `doc` in place and returns it.
+export function recordStartOvers(doc, marks = [doc && doc.start_over]) {
+	if (!isObject(doc)) {
+		return doc;
+	}
+
+	const list = Array.isArray(doc.start_overs) ? doc.start_overs : [];
+	const known = new Set(list.filter(Boolean).map((item) => item.id));
+	const added = [];
+
+	for (const mark of marks) {
+		if (!isObject(mark) || !mark.id || !mark.at || known.has(mark.id)) {
+			continue;
+		}
+
+		known.add(mark.id);
+		added.push({at: mark.at, created_at: mark.at, deleted_at: null, id: mark.id, updated_at: mark.at});
+	}
+
+	if (added.length) {
+		doc.start_overs = [...list, ...added];
+	}
+
+	return doc;
+}
+
 // Merges two whole documents. Every list is merged entry by entry; settings
 // go to whichever side changed them last; other fields keep the local value
 // and gain any the remote side has that the local one lacks.
@@ -824,6 +857,7 @@ export function mergeDocuments(local, remote) {
 	// run wins, so every phone agrees whose Undo is still allowed.
 	if (local.start_over || remote.start_over) {
 		out.start_over = newestRun(local.start_over, remote.start_over);
+		recordStartOvers(out, [local.start_over, remote.start_over]);
 	}
 
 	// The highest merge rules any phone has used on this document. A phone

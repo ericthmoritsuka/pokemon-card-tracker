@@ -75,7 +75,7 @@ const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
 const {moveToCardInfo} = await import('../js/card-info.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
-const {FOLDED_UNDO_TEXT, STALE_UNDO_TEXT, UNDO_DAYS, UPLOAD_KEEP_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {FOLDED_UNDO_TEXT, PULL_TEXT, PULL_TIMEOUT_MS, STALE_UNDO_TEXT, UNDO_DAYS, applyStartOver, latestRun, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
 const {fillPlaceholders} = await import('../js/binders.js');
 const v47 = await import('./v47/merge.js');
 
@@ -275,16 +275,24 @@ describe('planStartOver', () => {
 		assert.equal(live(result.doc).length, 1);
 	});
 
-	test(`a photo that has not finished uploading in ${UPLOAD_KEEP_DAYS} days no longer keeps its copy`, async () => {
-		const old = {created_at: new Date(NOW - (UPLOAD_KEEP_DAYS + 1) * 86400000).toISOString(), id: 'p7', side: 'front', type: 'image/webp'};
-		const young = {...old, created_at: new Date(NOW - (UPLOAD_KEEP_DAYS - 1) * 86400000).toISOString(), id: 'p6'};
-		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', photos: [old]}), card('a2', {card_id: 'tst1-002', photos: [young]})], collections: [], goals: [], openings: [], wishlist: []};
-		const rows = importEntries([row('001'), row('002')]);
+	test('a photo still not uploaded after many days keeps its copy, so the upload that comes later is kept', async () => {
+		const old = {created_at: new Date(NOW - 30 * 86400000).toISOString(), deleted_at: null, id: 'p7', path: null, side: 'front', type: 'image/webp'};
+		const doc = {binders: [], card_info: [], cards: [card('a1', {card_id: 'tst1-001', photos: [old]})], collections: [], goals: [], openings: [], wishlist: []};
+		const rows = importEntries([row('001')]);
 		const plan = planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now: NOW});
 
-		assert.ok(plan.doc.cards.find((entry) => entry.id === 'a1').deleted_at, 'its upload queue is likely gone, so the copy goes');
-		assert.equal(plan.doc.cards.find((entry) => entry.id === 'a2').deleted_at, null, 'a younger photo still keeps its copy');
-		assert.deepEqual([plan.counts.removed, plan.counts.uploading], [1, 1]);
+		assert.equal(plan.doc.cards.find((entry) => entry.id === 'a1').deleted_at, null, 'removing the copy would tombstone the photo on its record');
+		assert.deepEqual([plan.counts.removed, plan.counts.uploading], [0, 1]);
+
+		// Any save or merge moves the photo onto the record; Undo; then the
+		// v47 phone finally uploads and pushes its copy with a path.
+		const synced = mergeDocuments(plan.doc, plan.doc);
+		const undone = mergeDocuments(planUndo(synced, plan.undo, {now: NOW + 1000}).doc, synced);
+		const uploaded = {...doc.cards[0], photos: [{...old, path: 'u/p7/p7.webp'}], updated_at: new Date(NOW + 5000).toISOString()};
+		const later = mergeDocuments({...doc, cards: [uploaded]}, undone);
+		const photo = later.card_info.flatMap((record) => record.photos || []).find((item) => item.id === 'p7');
+
+		assert.ok(photo && !photo.deleted_at && photo.path, 'the photo is never given up');
 	});
 
 	test('two rows of the same card, language, and finish add a copy each', async () => {
@@ -479,6 +487,55 @@ describe('the latest run', () => {
 		assert.equal(stableJson(result.doc), stableJson(onB));
 	});
 
+	test('a v51 phone\'s run that a v52 phone saw survives an older phone pushing its mark back', async () => {
+		const old = three();
+		const b = await run(old, NOW);
+		let server = b.doc;
+		let older = v47.mergeDocuments(structuredClone(old), server);
+
+		// A v51 phone pulls and starts over: it writes start_over only and
+		// carries start_overs as it found it.
+		const c = await run(server, NOW + 86400000);
+		const v51 = structuredClone(c.doc);
+
+		v51.start_overs = structuredClone(server.start_overs);
+		server = v51;
+
+		// A v52 phone syncs: its merge records the v51 run in the list, and
+		// the sync pushes it.
+		server = mergeDocuments(b.doc, server);
+
+		const recorded = server.start_overs.find((item) => item.id === c.undo.run);
+
+		assert.ok(recorded, 'the v51 run is in start_overs');
+		assert.equal(recorded.deleted_at, null);
+		assert.ok(recorded.created_at && recorded.updated_at, 'stamped, so every version merges it entry by entry');
+
+		// The older phone pushes its own start_over (run B) back.
+		older = v47.mergeDocuments(older, server);
+		assert.equal(older.start_over.id, b.undo.run, 'the older app put the older mark back');
+		server = older;
+
+		const onB = mergeDocuments(b.doc, server);
+
+		assert.equal(latestRun(onB).id, c.undo.run);
+		assert.equal(planUndo(onB, b.undo, {now: NOW + 2 * 86400000}).stale, true);
+	});
+
+	test('a start_over missing from start_overs is recorded once, the same on every phone', async () => {
+		const a = await run(three(), NOW);
+		const doc = structuredClone(a.doc);
+
+		doc.start_over = {at: new Date(NOW + 60000).toISOString(), id: 'v51-run'};
+
+		const once = mergeDocuments(doc, {});
+		const twice = mergeDocuments(once, mergeDocuments({}, doc));
+
+		assert.deepEqual(once.start_overs.filter((item) => item.id === 'v51-run'), [{at: doc.start_over.at, created_at: doc.start_over.at, deleted_at: null, id: 'v51-run', updated_at: doc.start_over.at}]);
+		assert.equal(twice.start_overs.filter((item) => item.id === 'v51-run').length, 1);
+		assert.equal(stableJson(twice.start_overs), stableJson(once.start_overs));
+	});
+
 	test('a newer run marked only by a v51 phone (start_over, not the list) still counts', async () => {
 		const a = await run(three(), NOW);
 		const doc = structuredClone(a.doc);
@@ -664,23 +721,44 @@ describe('saving', () => {
 		assert.equal(pulled.removed, 2, 'the pulled removal is in the preview');
 		assert.equal(pulled.unsynced, false);
 
-		for (const phase of ['offline', 'error', 'signin']) {
+		for (const [phase, state] of [['offline', 'offline'], ['error', 'failed'], ['signin', 'signin']]) {
 			const counts = await previewStartOver(ENTRIES, {sync: {syncNow: async () => {}, syncStatus: () => ({phase, signedIn: true})}});
 
-			assert.equal(counts.unsynced, true, phase);
+			assert.equal(counts.unsynced, state, phase);
 		}
 
 		const thrown = await previewStartOver(ENTRIES, {sync: {syncNow: async () => {
 			throw new Error('down');
 		}, syncStatus: () => ({phase: 'synced', signedIn: true})}});
 
-		assert.equal(thrown.unsynced, true, 'a failed pull');
+		assert.equal(thrown.unsynced, 'failed', 'a failed pull');
 		assert.equal((await previewStartOver(ENTRIES, {sync: {syncNow: async () => {}, syncStatus: () => ({phase: 'off', signedIn: false})}})).unsynced, false, 'signed out: no other phones to wait for');
+	});
+
+	test('a pull that never answers stops waiting after the time limit, and the preview says why by the sync state', async () => {
+		assert.equal(PULL_TIMEOUT_MS, 10000);
+
+		const hung = (phase) => ({syncNow: () => new Promise(() => {}), syncStatus: () => ({phase, signedIn: true})});
+		const started = Date.now();
+
+		assert.equal((await previewStartOver(ENTRIES, {sync: hung('saving'), timeout: 50})).unsynced, 'failed', 'timed out while saving');
+		assert.ok(Date.now() - started < 5000);
+		assert.equal((await previewStartOver(ENTRIES, {sync: hung('offline'), timeout: 50})).unsynced, 'offline');
+		assert.equal((await previewStartOver(ENTRIES, {sync: hung('signin'), timeout: 50})).unsynced, 'signin');
+		assert.equal((await previewStartOver(ENTRIES, {sync: hung('synced'), timeout: 50})).unsynced, 'failed', 'a timeout is never synced');
+	});
+
+	test('each sync state has its own preview line', () => {
+		assert.equal(PULL_TEXT.offline, 'This phone is offline: open the app on your other phones and let them sync before you start over.');
+		assert.match(PULL_TEXT.signin, /^Sign in again/);
+		assert.equal(PULL_TEXT.failed, 'Open the app on your other phones and let them sync first, or their newest changes will stay.');
 	});
 
 	test('a refused Undo names the real cause', async () => {
 		assert.match(STALE_UNDO_TEXT, /started over again/);
-		assert.match(FOLDED_UNDO_TEXT, /Another phone imported/);
+		assert.match(FOLDED_UNDO_TEXT, /^Another phone added copies from some of the same rows/);
+		assert.match(FOLDED_UNDO_TEXT, /import/);
+		assert.match(FOLDED_UNDO_TEXT, /older version/);
 		assert.doesNotMatch(FOLDED_UNDO_TEXT, /started over again/);
 	});
 

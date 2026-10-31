@@ -12,7 +12,7 @@
 import {CARD_INFO, holdsNote, infoKey, joinNotes, moveToCardInfo, newRecord, recordOf} from './card-info.js';
 import {cardIndex} from './catalog.js';
 import {database} from './idb.js';
-import {LISTS, mergeDocuments, nextStamp, restoreEntry, sameContent, stampEntry} from './merge.js';
+import {LISTS, mergeDocuments, nextStamp, recordStartOvers, restoreEntry, sameContent, stampEntry} from './merge.js';
 import {mergePhotoLists, refreshPhotoIndex} from './photos/model.js';
 
 export {mergeEntries} from './merge.js';
@@ -63,6 +63,9 @@ function normalize(doc) {
 	}
 
 	doc.user_id = doc.user_id || null;
+	// A Start over run a v51 phone marked only in start_over joins the list
+	// (js/merge.js recordStartOvers).
+	recordStartOvers(doc);
 	// Photos, notes, and pins an older app left on copies move to the card
 	// (js/card-info.js), here and on every save and merge.
 	moveToCardInfo(doc);

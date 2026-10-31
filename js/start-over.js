@@ -128,20 +128,14 @@ export function copyHash(entry) {
 
 // A copy holding a live photo with no path, on the copy or on its card's
 // record: a v47 phone took it and has not uploaded it yet. Removing the copy
-// would give the photo up (js/card-info.js fileGone), so Start over leaves
-// it, but only while the photo is younger than UPLOAD_KEEP_DAYS: an upload
-// that has not finished by then most likely never will (the phone's queue
-// is gone), and the copy would otherwise stay for good. A photo with no
-// readable created_at counts as young, since giving a photo up is worse
-// than keeping a copy.
-export const UPLOAD_KEEP_DAYS = 7;
-
-function uploading(entry, records, now) {
+// would give the photo up (js/card-info.js fileGone tombstones it on the
+// record, and Undo does not bring it back), so Start over leaves it, however
+// long ago the photo was taken: the upload may still come.
+function uploading(entry, records) {
 	const record = records.get(infoKey(entry));
 	const held = new Map((record && Array.isArray(record.photos) ? record.photos : []).filter(Boolean).map((photo) => [photo.id, photo]));
-	const young = (photo) => !(now - Date.parse(photo.created_at) > UPLOAD_KEEP_DAYS * 24 * 60 * 60 * 1000);
 
-	return (Array.isArray(entry.photos) ? entry.photos : []).some((photo) => photo && photo.id && !photo.deleted_at && !photo.path && !(held.get(photo.id) || {}).path && young(photo));
+	return (Array.isArray(entry.photos) ? entry.photos : []).some((photo) => photo && photo.id && !photo.deleted_at && !photo.path && !(held.get(photo.id) || {}).path);
 }
 
 // The runs of Start over the document knows of. Each run adds
@@ -207,7 +201,7 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), 
 			return entry;
 		}
 
-		if (uploading(entry, infoById, now)) {
+		if (uploading(entry, infoById)) {
 			left.push(entry.id);
 
 			return entry;
@@ -538,29 +532,77 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 
 // Start over acts on this phone's copy of the document, so the preview
 // first pulls from the server the way the app's sync does (js/sync.js
-// syncNow), and the counts are what Start over would do after it. True
-// when the pull got through, or nobody is signed in (no other phone to
-// wait for); false when the phone is offline, the session ended, or the
-// sync failed. `sync` is js/sync.js; tests pass a fake.
-export async function pullFirst(sync = null) {
+// syncNow), and the counts are what Start over would do after it. syncNow
+// has no time limit of its own (a request that never answers, on a dead
+// Wi-Fi, keeps it waiting), so the pull gets PULL_TIMEOUT_MS, and a pull
+// still running then counts as not done. Resolves false when the pull got
+// through, or nobody is signed in (no other phone to wait for); otherwise
+// why not, by the sync's state: 'offline', 'signin' (the session ended), or
+// 'failed' (the sync failed or ran out of time). `sync` is js/sync.js;
+// tests pass a fake.
+export const PULL_TIMEOUT_MS = 10000;
+
+export async function pullFirst(sync = null, {timeout = PULL_TIMEOUT_MS} = {}) {
+	let api = null;
+	let done = false;
+	let timer = null;
+
 	try {
-		const api = sync || await import('./sync.js');
-
-		await api.syncNow();
-
-		const {phase, signedIn} = api.syncStatus();
-
-		return !signedIn || phase === 'off' || phase === 'synced';
+		api = sync || await import('./sync.js');
+		done = await Promise.race([
+			Promise.resolve(api.syncNow()).then(() => true),
+			new Promise((resolve) => {
+				timer = setTimeout(() => resolve(false), timeout);
+			}),
+		]);
 	}
 	catch {
+		done = false;
+	}
+	finally {
+		clearTimeout(timer);
+	}
+
+	let state = {};
+
+	try {
+		state = (api && api.syncStatus()) || {};
+	}
+	catch {
+		state = {};
+	}
+
+	if (api && (!state.signedIn || state.phase === 'off')) {
 		return false;
 	}
+
+	if (done && state.phase === 'synced') {
+		return false;
+	}
+
+	if (state.phase === 'signin') {
+		return 'signin';
+	}
+
+	if (state.phase === 'offline' || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+		return 'offline';
+	}
+
+	return 'failed';
 }
 
+// The preview's line for each pullFirst state.
+export const PULL_TEXT = {
+	failed: 'Open the app on your other phones and let them sync first, or their newest changes will stay.',
+	offline: 'This phone is offline: open the app on your other phones and let them sync before you start over.',
+	signin: 'Sign in again, then let your other phones sync before you start over, or their newest changes will stay.',
+};
+
 // Saved: the preview, as Start over would do it now, after pullFirst. The
-// counts carry unsynced, true when the pull did not get through.
-export async function previewStartOver(entries, {sync = null} = {}) {
-	const unsynced = !(await pullFirst(sync));
+// counts carry unsynced: false when the pull got through, or pullFirst's
+// reason when it did not.
+export async function previewStartOver(entries, {sync = null, timeout = PULL_TIMEOUT_MS} = {}) {
+	const unsynced = await pullFirst(sync, {timeout});
 	const doc = await loadDocument();
 	const ids = await startOverIds(doc.cards, entries);
 
@@ -595,7 +637,7 @@ export async function savedUndo({now = Date.now()} = {}) {
 
 export const STALE_UNDO_TEXT = 'You started over again, on this phone or another, so this Undo would put old copies back beside the new ones. Nothing was changed.';
 
-export const FOLDED_UNDO_TEXT = 'Another phone imported some of the same rows, and syncing joined its copies with the ones Start over added, so this Undo would remove that phone\'s copies too. Nothing was changed.';
+export const FOLDED_UNDO_TEXT = 'Another phone added copies from some of the same rows, by importing them or by starting over on an older version of the app, and syncing joined them with the ones Start over added, so this Undo would remove that phone\'s copies too. Nothing was changed.';
 
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
 // it rejects and the document on the phone is as it was. A failed write of

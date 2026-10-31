@@ -12,7 +12,7 @@ import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, newFromRepeats, parseExport} from './monprice.js';
-import {UNDO_DAYS, UPLOAD_KEEP_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
+import {PULL_TEXT, UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
 
 const STAGES = {
 	finishes: 'Reading each card\'s finishes',
@@ -411,10 +411,10 @@ export function importView(root) {
 				h('p', {class: 'big', id: 'start-over-preview'}, `Remove ${plural(counts.removed, 'copy', 'copies')}, add ${plural(counts.added, 'copy', 'copies')}, ${plural(counts.photos, 'photo', 'photos')} kept, ${plural(counts.pockets, 'pocket becomes a placeholder', 'pockets become placeholders')}.`),
 				h('p', null, 'Photos and notes stay with their cards.'),
 				counts.unsynced
-					? h('p', {id: 'start-over-unsynced', role: 'alert'}, 'Open the app on your other phones and let them sync first, or their newest changes will stay.')
+					? h('p', {id: 'start-over-unsynced', role: 'alert'}, PULL_TEXT[counts.unsynced] || PULL_TEXT.failed)
 					: null,
 				counts.uploading
-					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone. A photo still not uploaded after ${UPLOAD_KEEP_DAYS} days no longer keeps its copy.`)
+					? h('p', {id: 'start-over-uploading'}, `${plural(counts.uploading, 'copy is', 'copies are')} kept because a photo is still uploading on another phone.`)
 					: null,
 				counts.details
 					? h('p', {id: 'start-over-details'}, `${plural(counts.details, 'copy has', 'copies have')} a grade, price, favorite, condition, Stored in, or pack opening; these stay with the old copies and are not copied over.`)

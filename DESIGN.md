@@ -1126,14 +1126,19 @@ Two rows of one monprice ID, language, and finish (a blank finish and "Normal" r
 get their own copies: the copy number in the key runs on across such rows, so the same file still
 gives the same keys, in Start over and in the normal import. A copy holding a photo with no path
 yet (a v47 phone took it and has not uploaded it) is left as it is, because removing it would give
-the photo up, but only while the photo is younger than 7 days: an upload not done by then most
-likely never will be. The preview says how many copies stay for that reason, and for how long. The
-first normal import of a file with repeated rows since v51 adds the copies older versions joined
+the photo up, however long ago it was taken: once its copy is gone, the merge tombstones the
+photo on the card's record, Undo does not bring it back, and the upload that comes later is lost
+for good. The preview says how many copies stay for that reason. The first normal import of a file with repeated rows since v51 adds the copies older versions joined
 into one, and the import report says "N copies from repeated rows are new".
 Start over acts on this phone's copy of the document, so before the preview it pulls from the
-server the way the app's sync does (`syncNow`). When that fails, or the phone is offline or its
-session ended, the preview says "Open the app on your other phones and let them sync first, or
-their newest changes will stay." Signed out, there is no other phone, and it says nothing.
+server the way the app's sync does (`syncNow`), for at most 10 seconds, since `syncNow` has no
+time limit of its own and a request that never answers would leave the preview waiting. A pull
+that did not finish in time counts as not done, and the preview's line goes by the sync's state.
+Offline: "This phone is offline: open the app on your other phones and let them sync before you
+start over." Session ended: "Sign in again, then let your other phones sync before you start over,
+or their newest changes will stay." The sync failed or ran out of time: "Open the app on your
+other phones and let them sync first, or their newest changes will stay." Signed out, there is no
+other phone, and it says nothing.
 Card records (`card_info`) are never touched, so photos, notes, and the main-image pin show again
 on the cards that get a copy. Each copy's own details (grade and grading, purchase price, typed
 Liga price, favorite, condition, Stored in, pack opening, binder spots, hand-picked collection
@@ -1165,14 +1170,18 @@ marks the document with its run: an entry `{id, at}` in the top-level list `star
 every app version merges entry by entry, so no phone can drop a run (the newest by time, then id,
 counts). v51 kept the mark in one field, `start_over`, and an app before v51 keeps its own value of
 an unknown field in a merge, so an older phone could put an older mark back; the field is still
-written for v51 phones and still read. Each added copy names its run in `start_over_run`. An
+written for v51 phones and still read. A v51 phone writes its run only there, so a v52 phone that
+loads or merges a document whose `start_over` is not in `start_overs` adds it to the list, stamped
+with the run's time (the same entry on every phone), and the sync pushes it; from then on an older
+phone putting its own mark back cannot drop that run. Each added copy names its run in
+`start_over_run`. An
 Undo from an older run, kept on a phone where the account started over again since, here or on
 another phone, is refused with a message and dropped, since it would bring the old copies back
 beside the new ones. So is an Undo whose added copies the merge folded into another run's copies
 (two phones started over offline, then synced). An Undo whose added copies the merge folded into
-copies another phone imported from the same rows is refused too, with a message saying so, since
-it would remove that phone's copies; a copy a v51 phone added names no run, so a fold into it reads
-as such an import. Undo is kept beside
+copies another phone added from the same rows is refused too, with a message saying so, since it
+would remove that phone's copies: copies that phone imported, or that its Start over added on v51,
+which names no run, so a fold into them reads the same. Undo is kept beside
 the document (`meta:start-over-undo`), so the import screen offers "Undo Start over" after the
 screen was left or the page reloaded: for 7 days, to the account that started over, until it is
 used or another Start over replaces it. The change is planned on a copy of the document by one
@@ -1184,6 +1193,9 @@ screen takes the save's content.
 Known limits. After Undo, a removed copy that another phone edited offline before the run comes
 back as this phone's version, without that edit. Two phones that start over offline and undo
 before syncing cannot see each other's run, so an Undo there can still leave both runs' copies.
+A run made on a v51 phone that no v52 phone loads or merges before a phone on v47 to v50 pushes
+its own older `start_over` back is lost: the v51 phone wrote it nowhere else, so a v52 phone then
+allows an Undo from the run before it.
 
 ## 8. Persistence and Auth
 
