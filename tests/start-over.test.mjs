@@ -73,8 +73,8 @@ globalThis.fetch = async (url) => {
 const collection = await import('../js/collection.js');
 const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
-const {stableJson} = await import('../js/merge.js');
-const {applyStartOver, planStartOver, planUndo, previewStartOver, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {mergeDocuments, stableJson} = await import('../js/merge.js');
+const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const NOW = Date.parse('2026-10-30T12:00:00.000Z');
@@ -155,8 +155,10 @@ describe('planStartOver', () => {
 
 		const added = live(doc).filter((entry) => entry.import_key);
 
-		assert.equal(added.find((entry) => entry.import_key === KEY('001')).id, await collection.importEntryId(KEY('001')), 'a free import id is used');
-		assert.equal(added.find((entry) => entry.import_key === KEY('003')).id, await collection.importEntryId(`${KEY('003')}|again|1`), 'a fresh id when a tombstone holds the import id');
+		const again = await startOverIds(before.cards, ENTRIES);
+
+		assert.notEqual(added.find((entry) => entry.import_key === KEY('001')).id, await collection.importEntryId(KEY('001')), 'not the import id: another phone must not compute the same one');
+		assert.ok(added.every((entry) => entry.id !== again.get(entry.import_key)), 'each Start over takes new random ids');
 		assert.equal(new Set(doc.cards.map((entry) => entry.id)).size, doc.cards.length, 'no id is used twice');
 		assert.ok(added.every((entry) => entry.language_source === 'import' && entry.variant_id === 'normal' && entry.name_local), 'added the way the import builds entries');
 		assert.equal(stableJson(before), stableJson(await startDoc()), 'the document passed in is not changed');
@@ -177,6 +179,53 @@ describe('planStartOver', () => {
 
 		assert.deepEqual(plan.doc.card_info, before.card_info);
 		assert.equal(plan.counts.photos, 1);
+	});
+
+	test('the preview counts the removed copies whose own details are not copied over', async () => {
+		const doc = await startDoc();
+		const details = {
+			a001: {grader: 'PSA', grade: '10', cert_number: '12345678'},
+			a003: {is_favorite: true, price_manual: {avg: 600, currency: 'BRL', low_nm: 500}, storage: 'Slab box'},
+		};
+
+		doc.cards = doc.cards.map((entry) => ({...entry, ...details[entry.id]}));
+		doc.cards.push(card('a004', {opening_id: 'o1'}), card('a005', {purchase_price: 350}), card('a006', {is_favorite: false, storage: null}));
+
+		const {counts, doc: next} = planStartOver(doc, ENTRIES, {ids: await startOverIds(doc.cards, ENTRIES), now: NOW});
+
+		assert.equal(counts.details, 5, 'a001 grade, a002 condition, a003 favorite, a004 opening, a005 price; a006 has none');
+		assert.ok(live(next).every((entry) => !entry.grade && !entry.condition && !entry.is_favorite && !entry.storage), 'and nothing is carried to the added copies');
+	});
+
+	test('the preview lists the cards left with no copy, and the photos and notes their records keep', async () => {
+		const rec = (catalog, cardId, language, n, notes = 'note') => ({
+			card_id: cardId, catalog, created_at: at(0), deleted_at: null, id: `${catalog}~${cardId}~${language}`, language, main_image: `p${n}`, notes,
+			photos: [{id: `p${n}`, path: `u/p${n}/p${n}.webp`}, {deleted_at: at(2), id: `x${n}`, path: `u/x${n}/x${n}.webp`}], updated_at: at(1),
+		});
+		const doc = {
+			binders: [], card_info: [rec('international', 'tst1-001', 'ja', 1), rec('international', 'tst1-777', 'pt', 2), rec('international', 'tst1-003', 'en', 3, ''), rec('international', 'tst1-004', 'pt', 4), rec('international', 'tst1-002', 'pt', 5)],
+			cards: [
+				card('a1', {card_id: 'tst1-001', fallback: true, language: 'ja', name_local: 'Old fallback'}),
+				card('a2', {card_id: 'tst1-777', language_source: 'manual'}),
+				card('a3', {card_id: 'tst1-003', language: 'en', language_source: 'manual'}),
+				card('a4', {card_id: 'tst1-004'}),
+				card('a5', {card_id: 'tst1-004'}),
+				card('a6', {card_id: 'tst1-002'}),
+			],
+			collections: [], goals: [], openings: [], wishlist: [],
+		};
+		const entries = importEntries([{...row('001'), catalog: 'jp', row: {...row('001').row, language: 'ja'}}, row('002'), row('003')]);
+		const {counts} = planStartOver(doc, entries, {ids: await startOverIds(doc.cards, entries), now: NOW});
+
+		assert.deepEqual(counts.gone, [
+			{card_id: 'tst1-001', catalog: 'international', copies: 1, language: 'ja', name: 'Old fallback'},
+			{card_id: 'tst1-003', catalog: 'international', copies: 1, language: 'en', name: null},
+			{card_id: 'tst1-004', catalog: 'international', copies: 2, language: 'pt', name: null},
+			{card_id: 'tst1-777', catalog: 'international', copies: 1, language: 'pt', name: null},
+		], 'tst1-002 comes back; the fallback, the hand-corrected card and language, and the card not in the file do not');
+		assert.equal(counts.hiddenPhotos, 4, 'live photos only, on the four records no copy shows');
+		assert.equal(counts.hiddenNotes, 3, 'the records with a note');
+		assert.equal(counts.photos, 1, 'photos kept counts only the records a copy shows');
 	});
 
 	test('pockets become placeholders, the tray drops removed copies, picks go back to the default, collections drop them', async () => {
@@ -201,8 +250,8 @@ describe('planStartOver', () => {
 		const added = live(doc).filter((entry) => !before.cards.some((old) => old.id === entry.id)).length;
 		const pockets = doc.binders[0].slots.filter((slot) => slot.want).length;
 
-		assert.deepEqual(counts, {added, photos: 1, pockets, removed});
-		assert.deepEqual(counts, {added: 3, photos: 1, pockets: 2, removed: 3});
+		assert.deepEqual({...counts, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0}, {added, details: 0, gone: [], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets, removed});
+		assert.deepEqual(counts, {added: 3, details: 1, gone: [{card_id: 'tst1-002', catalog: 'international', copies: 1, language: 'pt', name: null}], hiddenNotes: 0, hiddenPhotos: 0, photos: 1, pockets: 2, removed: 3});
 	});
 });
 
@@ -248,6 +297,62 @@ describe('planUndo', () => {
 	});
 });
 
+// Two phones of one person: tests the merge with random ids for the added
+// copies (js/merge.js collapseImportDuplicates folds two runs by import_key).
+describe('two phones', () => {
+	const two = () => ({
+		binders: [], card_info: [],
+		cards: [card('a1', {card_id: 'tst1-001'}), card('a2', {card_id: 'tst1-002'})],
+		collections: [], goals: [], openings: [], wishlist: [],
+	});
+	const rows = importEntries([row('001'), row('002')]);
+	const run = async (doc, now) => planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now});
+	const liveIds = (doc) => live(doc).map((entry) => entry.id).sort();
+	const liveKeys = (doc) => live(doc).map((entry) => entry.import_key).sort();
+
+	test('(a) both start over from the same document: one copy per row after the merge, either way round', async () => {
+		const a = await run(two(), NOW);
+		const b = await run(two(), NOW + 60000);
+
+		for (const merged of [mergeDocuments(a.doc, b.doc), mergeDocuments(b.doc, a.doc)]) {
+			assert.deepEqual(liveKeys(merged), [KEY('001'), KEY('002')]);
+		}
+
+		assert.deepEqual(liveIds(mergeDocuments(a.doc, b.doc)), liveIds(mergeDocuments(b.doc, a.doc)), 'both phones agree');
+	});
+
+	test('(b) A starts over and undoes, B, not synced yet, starts over: B\'s copies stay', async () => {
+		const a = await run(two(), NOW);
+		const undone = planUndo(a.doc, a.undo, {now: NOW + 1000}).doc;
+		const b = await run(two(), NOW + 3600000);
+
+		assert.deepEqual(liveIds(undone), ['a1', 'a2']);
+
+		for (const merged of [mergeDocuments(undone, b.doc), mergeDocuments(b.doc, undone)]) {
+			assert.deepEqual(liveIds(merged), liveIds(b.doc));
+			assert.deepEqual(liveKeys(merged), [KEY('001'), KEY('002')]);
+		}
+	});
+
+	test('(c) A starts over, B still holds the old copy and edits it later: the removal wins', async () => {
+		const a = await run(two(), NOW);
+		const stale = two();
+
+		stale.cards[0] = {...stale.cards[0], condition: 'Played', updated_at: new Date(NOW + 7200000).toISOString()};
+
+		assert.deepEqual(liveIds(mergeDocuments(stale, a.doc)), liveIds(a.doc));
+	});
+
+	test('Undo after both runs merged keeps the copy the other run was folded into', async () => {
+		const a = await run(two(), NOW);
+		const b = await run(two(), NOW + 60000);
+		const merged = mergeDocuments(a.doc, b.doc);
+		const {doc} = planUndo(merged, a.undo, {now: NOW + 120000});
+
+		assert.equal(live(doc).length, 2, 'never zero copies');
+	});
+});
+
 describe('saving', () => {
 	beforeEach(async () => {
 		failWrites = false;
@@ -274,10 +379,34 @@ describe('saving', () => {
 		assert.equal(doc.card_info.length, 1);
 		assert.deepEqual(doc.card_info[0].photos.map((photo) => photo.id), ['p1']);
 
+		const kept = await savedUndo();
+
+		assert.deepEqual(kept.undo, undo, 'the undo is kept beside the document, so leaving the screen does not lose it');
+		assert.deepEqual(kept.counts, counts);
+		assert.equal(await savedUndo({now: Date.parse(kept.at) + (UNDO_DAYS * 24 + 1) * 3600000}), null, `offered for ${UNDO_DAYS} days`);
+
 		const back = await undoStartOver(undo);
 
 		assert.deepEqual(back, {added: 3, restored: 3});
+		assert.equal(await savedUndo(), null, 'used once');
 		assert.deepEqual(live(doc).map((entry) => entry.id).sort(), ['a001', 'a002', 'a003', HAND].sort());
+	});
+
+	test('a kept undo is offered only to the account that started over, and a second Start over replaces it', async () => {
+		const doc = await collection.loadDocument();
+
+		doc.user_id = 'u1';
+
+		const first = await applyStartOver(ENTRIES);
+		const second = await applyStartOver(ENTRIES);
+
+		assert.deepEqual((await savedUndo()).undo, second.undo);
+		assert.notDeepEqual(first.undo.added, second.undo.added);
+		doc.user_id = 'u2';
+		assert.equal(await savedUndo(), null);
+		doc.user_id = 'u1';
+		await undoStartOver(second.undo);
+		delete doc.user_id;
 	});
 
 	test('a failed save leaves the document on screen unchanged', async () => {

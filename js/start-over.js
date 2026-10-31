@@ -15,7 +15,7 @@
 // saveCopy, which replaces the document on screen only once the write
 // succeeded.
 
-import {importEntryId, isLive, loadDocument, planImport, saveCopy} from './collection.js';
+import {isLive, loadDocument, newId, planImport, readMeta, saveCopy, writeMeta} from './collection.js';
 import {isCustom} from './custom-card.js';
 import {handBinders, inGrid, liveBinders, placements, stagedOf} from './binders.js';
 import {pickEntry} from './binder-rules.js';
@@ -23,11 +23,12 @@ import {isMember, memberIds, withMembers, withoutMembers} from './collections.js
 import {infoKey} from './card-info.js';
 import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
 
-// The ids the added copies take: the id the normal import would give a key
-// (importEntryId), or, when an entry already holds it (the copy this
-// removes, or an older tombstone), the id of the key with "|again|<n>" for
-// the first free n, so two phones starting over from the same document
-// still agree. Map import_key -> id.
+// The ids the added copies take: new random ids, never the import's own
+// (importEntryId) or any id worked out from the key. Two phones that each
+// start over then add different copies of each row, and the merge folds
+// them into one by import_key (js/merge.js collapseImportDuplicates). An id
+// worked out from the key would be the same on both phones, so an Undo on
+// one would remove the copies the other added. Map import_key -> id.
 export async function startOverIds(cards, entries) {
 	const taken = new Set((cards || []).map((card) => card && card.id));
 	const ids = new Map();
@@ -37,10 +38,10 @@ export async function startOverIds(cards, entries) {
 			continue;
 		}
 
-		let id = await importEntryId(key);
+		let id = newId();
 
-		for (let n = 1; taken.has(id) && n < 100; n++) {
-			id = await importEntryId(`${key}|again|${n}`);
+		while (taken.has(id)) {
+			id = newId();
 		}
 
 		taken.add(id);
@@ -80,12 +81,27 @@ const wantOf = (entry) => ({
 	variant_id: entry.variant_id || null,
 });
 
+// What a copy holds of its own and Start over does not copy to the new
+// copies (Eric, 2026-10-30): grade, price, favorite, condition, Stored in,
+// and pack opening.
+const DETAIL_FIELDS = ['grader', 'grade', 'cert_number', 'graded_price', 'purchase_price', 'price_manual', 'is_favorite', 'condition', 'storage', 'opening_id'];
+
+const hasDetails = (entry) => DETAIL_FIELDS.some((key) => entry[key] !== undefined && entry[key] !== null && entry[key] !== '' && entry[key] !== false);
+
+const hasNotes = (record) => Boolean(String(Array.isArray(record.notes) ? record.notes.join('') : record.notes || '').trim());
+
 const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : []).filter((photo) => photo && photo.id && !photo.deleted_at).length;
 
 // What Start over does to `doc`, given the import's entries
 // (js/monprice.js importEntries) and their ids (startOverIds). Returns
-// {doc, counts, undo}: the changed copy, {removed, added, photos, pockets},
-// and what planUndo needs. `doc` itself is not changed.
+// {doc, counts, undo}: the changed copy, the counts the preview shows, and
+// what planUndo needs. `doc` itself is not changed. The counts:
+// removed, added, pockets; photos, on the records the copies after Start
+// over show; details, the removed copies with details of their own
+// (DETAIL_FIELDS) that the new copies do not get; gone, each card and
+// language with no copy after Start over, {card_id, catalog, language,
+// name, copies}; and hiddenPhotos and hiddenNotes, the live photos and the
+// notes on those cards' records, kept but not shown until a copy comes back.
 export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} = {}) {
 	const next = structuredClone(doc);
 	const removed = new Map();
@@ -197,12 +213,41 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} 
 		return changed;
 	});
 
-	// Photos on the card records the added copies show.
-	const shown = new Set(added.map((entry) => infoKey(entry)));
-	const photos = (next.card_info || []).filter((record) => record && isLive(record) && shown.has(record.id)).reduce((sum, record) => sum + livePhotos(record), 0);
+	// Card records: the ones a live copy shows after Start over, and the
+	// cards whose every copy goes. Their records are kept, since card_info
+	// is never touched, but nothing shows them until the card is added again.
+	const shown = new Set(next.cards.filter((entry) => entry && isLive(entry)).map((entry) => infoKey(entry)));
+	const gone = new Map();
+
+	for (const entry of removed.values()) {
+		const key = infoKey(entry);
+
+		if (shown.has(key)) {
+			continue;
+		}
+
+		const there = gone.get(key) || {card_id: entry.card_id, catalog: entry.catalog || 'international', copies: 0, language: entry.language || '', name: null};
+
+		there.copies++;
+		there.name = there.name || entry.name_local || null;
+		gone.set(key, there);
+	}
+
+	const records = (next.card_info || []).filter((record) => record && isLive(record));
+	const photos = records.filter((record) => shown.has(record.id)).reduce((sum, record) => sum + livePhotos(record), 0);
+	const hidden = records.filter((record) => gone.has(record.id));
 
 	return {
-		counts: {added: added.length, photos, pockets, removed: removed.size},
+		counts: {
+			added: added.length,
+			details: [...removed.values()].filter(hasDetails).length,
+			gone: [...gone.values()].sort((a, b) => `${a.card_id}~${a.language}`.localeCompare(`${b.card_id}~${b.language}`)),
+			hiddenNotes: hidden.filter(hasNotes).length,
+			hiddenPhotos: hidden.reduce((sum, record) => sum + livePhotos(record), 0),
+			photos,
+			pockets,
+			removed: removed.size,
+		},
 		doc: next,
 		undo: {
 			added: added.map((entry) => entry.id),
@@ -219,11 +264,15 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} 
 // collections go back to what they held, each only while it still holds
 // what Start over wrote, so an edit another phone synced since stays. A
 // pocket or tray holding an added copy by now is emptied, since that copy
-// goes. Returns {doc, counts}; `doc` itself is not changed.
+// goes. An added copy that the merge folded another phone's copy into
+// (merged_into) stays: it stands for that phone's Start over too, so
+// removing it could leave the card with no copy. Returns {doc, counts};
+// `doc` itself is not changed.
 export function planUndo(doc, undo, {now = Date.now()} = {}) {
 	const next = structuredClone(doc);
 	const removedAt = new Map(undo.removed.map((item) => [item.id, item.deleted_at]));
 	const added = new Set(undo.added);
+	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
 	const counts = {added: 0, restored: 0};
 
 	next.cards = (next.cards || []).map((entry) => {
@@ -237,7 +286,7 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 			return restoreEntry(entry, now);
 		}
 
-		if (added.has(entry.id) && isLive(entry)) {
+		if (added.has(entry.id) && isLive(entry) && !folded.has(entry.id)) {
 			const at = nextStamp(entry.updated_at, now);
 
 			counts.added++;
@@ -321,14 +370,35 @@ export async function previewStartOver(entries) {
 	return planStartOver(doc, entries, {ids}).counts;
 }
 
+// The last Start over's undo is kept beside the document (writeMeta), so
+// the import screen offers Undo after the screen was left or the page
+// reloaded: for UNDO_DAYS days, to the account that started over, until it
+// is used or another Start over replaces it.
+const UNDO_META = 'start-over-undo';
+
+export const UNDO_DAYS = 7;
+
+// The kept undo, {at, counts, undo, user_id}, or null.
+export async function savedUndo({now = Date.now()} = {}) {
+	const [kept, doc] = await Promise.all([readMeta(UNDO_META).catch(() => null), loadDocument()]);
+
+	if (!kept || !kept.undo || now - Date.parse(kept.at) > UNDO_DAYS * 24 * 60 * 60 * 1000 || (kept.user_id || null) !== (doc.user_id || null)) {
+		return null;
+	}
+
+	return kept;
+}
+
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
-// it rejects and the document on the phone is as it was.
+// it rejects and the document on the phone is as it was. A failed write of
+// the kept undo only loses Undo after leaving the screen.
 export async function applyStartOver(entries) {
 	const current = await loadDocument();
 	const ids = await startOverIds(current.cards, entries);
 	const {counts, doc, undo} = planStartOver(current, entries, {ids});
 
 	await saveCopy(doc);
+	await writeMeta(UNDO_META, {at: new Date().toISOString(), counts, undo, user_id: current.user_id || null}).catch(() => {});
 
 	return {counts, undo};
 }
@@ -338,6 +408,7 @@ export async function undoStartOver(undo) {
 	const {counts, doc} = planUndo(await loadDocument(), undo);
 
 	await saveCopy(doc);
+	await writeMeta(UNDO_META, null).catch(() => {});
 
 	return counts;
 }
