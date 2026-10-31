@@ -44,6 +44,7 @@ import {currentUser, getClient, isAuthStatus, onSession, onUser, sessionExpired}
 import {infoKey, recordWithPhoto} from '../card-info.js';
 import {loadDocument, onChange, resolveEntry, updateCardInfo} from '../collection.js';
 import {database} from '../idb.js';
+import {nextStamp} from '../stamp.js';
 import {onSyncStatus, serverHolds} from '../sync.js';
 
 import {BUCKET_DELETE_GRACE_MS, PHOTO_BUCKET, bucketDeleteState, detailPath, pathOwner, patchedPhotos, photoPath, restoredPhotos} from './model.js';
@@ -496,6 +497,119 @@ export async function removePhotoFromEntry(recordOrId, photoId) {
 	flushQueue();
 
 	return wasLive;
+}
+
+// ------------------------------------------------------------- replace
+
+// Puts `photo`, a new model.js newPhoto() record (an adjusted copy of the
+// old one, DESIGN.md section 5, "Adjust a photo"), in the place of the live
+// photo oldId on the card's record: saved and queued like any new photo
+// (addPhotoToCard), so it uploads when there is signal; every record of the
+// card pinned to the old photo pinned to the new one; and the old photo
+// removed the normal way (removePhotoFromEntry), so its bucket file goes
+// only after the grace period. The caller gives the new photo the old one's
+// side and created_at, which put it at the same place in the carousel.
+//
+// Resolves with what undoReplacePhoto needs to bring the old photo back:
+// the old record and files on this phone, its queue rows, and the pins.
+export async function replacePhoto(recordOrId, oldId, photo, blob, detailBlob = null) {
+	const record = await holderOf(recordOrId, oldId);
+	const old = record && (record.photos || []).find((item) => item && item.id === oldId && !item.deleted_at);
+
+	if (!old) {
+		throw new Error('That photo is no longer on this card.');
+	}
+
+	const doc = await loadDocument();
+	const pins = (doc.card_info || [])
+		.filter((item) => item && !item.deleted_at && item.main_image === oldId)
+		.map(cardOf);
+	const undo = {
+		blobs: {
+			detail: await localPhoto(detailKey(oldId)).catch(() => null),
+			photo: await localPhoto(oldId).catch(() => null),
+		},
+		card: cardOf(record),
+		newId: photo.id,
+		old: {...old},
+		pins,
+		rows: {
+			detail: await idb('queue', 'readonly', (s) => s.get(detailKey(oldId))).catch(() => null),
+			photo: await idb('queue', 'readonly', (s) => s.get(oldId)).catch(() => null),
+		},
+	};
+
+	await addPhotoToCard(record, photo, blob, detailBlob);
+
+	if (pins.length) {
+		await updateCardInfo(pins, (current) => (current.main_image === oldId ? {main_image: photo.id} : null));
+	}
+
+	await removePhotoFromEntry(record, oldId);
+
+	return undo;
+}
+
+// Undo edit: the old photo back exactly as it was (same id, record, place,
+// and pin), with its files on this phone and its queue rows, and the new
+// photo removed the normal way. Its bucket file was never deleted: a
+// removal waits for the grace period, and the live photo again cancels the
+// waiting delete. The old photo carries restored_at, so the merge keeps it
+// live over the tombstone other phones may already hold (model.js
+// mergePhotoLists).
+export async function undoReplacePhoto(undo) {
+	const {old} = undo;
+	const doc = await loadDocument();
+	const record = (doc.card_info || []).find((item) => item && item.id === infoKey(undo.card));
+	const now = record && (record.photos || []).find((item) => item && item.id === old.id);
+
+	if (!record || record.deleted_at || !now) {
+		throw new Error('The old photo is no longer on this card.');
+	}
+
+	const back = {...old, deleted_at: null, path: now.path || old.path};
+
+	if (now.deleted_at) {
+		back.restored_at = nextStamp(now.deleted_at);
+	}
+
+	await updateCardInfo([undo.card], (current) => {
+		const photos = patchedPhotos(current, old.id, back);
+
+		return photos ? {photos} : null;
+	});
+
+	if (undo.pins.length) {
+		await updateCardInfo(undo.pins, (current) => (current.main_image === undo.newId ? {main_image: old.id} : null));
+	}
+
+	if (undo.blobs.photo) {
+		await savePhotoLocally(old.id, undo.blobs.photo);
+		remember(old.id, undo.blobs.photo);
+	}
+
+	if (undo.blobs.detail) {
+		await savePhotoLocally(detailKey(old.id), undo.blobs.detail);
+	}
+
+	// The queue as it was: the waiting delete gone, and an upload that had
+	// not gone up yet waiting again.
+	await idb('queue', 'readwrite', (s) => s.delete(old.id));
+
+	for (const [key, row] of [[old.id, undo.rows.photo], [detailKey(old.id), undo.rows.detail]]) {
+		if (row) {
+			await idb('queue', 'readwrite', (s) => s.put(row, key));
+		}
+	}
+
+	if (undo.rows.photo && undo.rows.photo.op === 'upload') {
+		pending.add(old.id);
+	}
+
+	await rememberMade(undo.card, back).catch(() => {});
+	await removePhotoFromEntry(undo.card, undo.newId);
+
+	return back;
 }
 
 const statusOf = (err) => Number(err && (err.status || err.statusCode));

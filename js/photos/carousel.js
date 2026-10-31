@@ -164,11 +164,16 @@ export function settleIndex(index, count, dx, velocity, width) {
 //                   on the photo in place of the waiting badge
 //   waitingText     what the waiting badge says ("Waiting to upload", or
 //                   while signed out that it uploads after a sign-in)
-//   readOnly        no "Use as main image" (a family member's card)
+//   readOnly        no "Use as main image" or "Adjust" (a family member's
+//                   card)
 //   onUseAsMain(slide), onRemove(slide), onSwipeConsumed(direction, index)
+//   onAdjust(slide) the Adjust button under one of the owner's own photos
+//                   (never a family member's photo), DESIGN.md section 5,
+//                   "Adjust a photo"
 export function photoCarousel({
 	art = plainArt,
 	mainId = null,
+	onAdjust = null,
 	onRemove = null,
 	onSwipeConsumed = null,
 	onUseAsMain = null,
@@ -192,6 +197,7 @@ export function photoCarousel({
 	}, track);
 	const dots = h('div', {class: 'ph-dots'});
 	const useMain = h('button', {class: 'ph-use-main', type: 'button'}, 'Use as main image');
+	const adjust = h('button', {class: 'ph-adjust-open', hidden: true, type: 'button'}, 'Adjust');
 	const live = h('p', {'aria-live': 'polite', class: 'ph-live'});
 	const element = h('div', {
 		'aria-roledescription': 'carousel',
@@ -199,7 +205,7 @@ export function photoCarousel({
 		'data-swipe-own': true,
 		'data-swipe-owner': OWNER,
 		role: 'region',
-	}, viewport, dots, useMain, live);
+	}, viewport, dots, useMain, adjust, live);
 
 	element.setAttribute('aria-label', 'Card images');
 	contain(element);
@@ -282,6 +288,7 @@ export function photoCarousel({
 		useMain.disabled = Boolean(isMain);
 		useMain.textContent = isMain ? 'Main image' : 'Use as main image';
 		useMain.setAttribute('aria-pressed', isMain ? 'true' : 'false');
+		adjust.hidden = readOnly || !onAdjust || !slide || slide.kind !== 'photo';
 	}
 
 	function render() {
@@ -372,6 +379,14 @@ export function photoCarousel({
 
 		if (slide && onUseAsMain) {
 			onUseAsMain(slide);
+		}
+	});
+
+	adjust.addEventListener('click', () => {
+		const slide = state.slides[index];
+
+		if (slide && slide.kind === 'photo' && onAdjust && !readOnly && !destroyed) {
+			onAdjust(slide);
 		}
 	});
 

@@ -144,7 +144,8 @@ button.ph-dot[aria-current="true"]::after {
    .hero-art), so the two buttons stay compact and wrap rather than
    overflow. */
 .ph-card button.ph-add,
-.ph-carousel button.ph-use-main {
+.ph-carousel button.ph-use-main,
+.ph-carousel button.ph-adjust-open {
 	font-size: 0.875rem;
 	line-height: 1.25;
 	padding: 8px 10px;
@@ -701,4 +702,76 @@ button.ph-handle:focus-visible::after {
 	background: var(--selected-bg);
 	border-color: var(--selected-bg);
 	color: var(--selected-text);
+}
+
+/* ------------------------------------------------------------- adjust */
+
+/* Small enough that the sliders show under the photo on a phone, so the
+   preview stays in view while one moves. */
+.ph-adjust-stage {
+	justify-self: center;
+	max-width: 320px;
+	position: relative;
+	width: min(100%, calc(40vh * 63 / 88));
+}
+
+.ph-adjust-preview {
+	aspect-ratio: 63 / 88;
+	border-radius: 4.75% / 3.4%;
+	display: block;
+	height: auto;
+	touch-action: none;
+	width: 100%;
+}
+
+.ph-adjust-badge {
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	font-size: 0.8125rem;
+	left: 8px;
+	padding: 2px 8px;
+	position: absolute;
+	top: 8px;
+}
+
+.ph-adjust-tools {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: repeat(3, 1fr);
+}
+
+.ph-adjust-tools button[aria-pressed="true"] {
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	color: var(--selected-text);
+}
+
+.ph-adjust-row {
+	align-items: center;
+	column-gap: 8px;
+	display: grid;
+	grid-template-columns: 1fr auto;
+}
+
+.ph-adjust-row label {
+	font-weight: 600;
+}
+
+.ph-adjust-value {
+	font-variant-numeric: tabular-nums;
+	min-width: 3ch;
+	text-align: end;
+}
+
+.ph-adjust-slider {
+	grid-column: 1 / -1;
+	min-height: 40px;
+	width: 100%;
+}
+
+.ph-adjust-actions {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: 1fr 1fr;
 }

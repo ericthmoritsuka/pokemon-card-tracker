@@ -652,6 +652,34 @@ needs one more setup script for the bucket and its policies. The scanner reuses 
 detection and warp, so scanned cards get their photo for free. Auto-detection is most reliable on
 a plain, contrasting background; the corner handles cover the rest. *(Planned 2026-10-01.)*
 
+**Adjust a photo** (Eric, 2026-10-31; built 2026-10-31). Some photos come out too dark, so on a
+card's page each photo the owner took has **Adjust**, never a family member's photo or a member's
+read-only card. The sheet shows the photo with **Auto**, a levels stretch that fixes a dark or flat
+photo in one tap: one stretch for red, green, and blue together, from the darkest to the lightest
+of the three channels once 0.5% of each is set aside at each end, so colours keep their hue, no
+channel clips more than 0.5% at either end, and it never inverts; a photo still dark after the
+stretch gets its midtones lifted (a gamma, never darker), and the gain is capped at four times so
+a flat photo is not stretched into noise. Sliders for **Brightness** (a gamma), **Contrast**,
+**Saturation**, and **Warmth** (red and blue scaled in opposite directions, like a white balance)
+each run from -100 to 100 and change nothing at 0; **Reset** clears them and Auto. Holding the
+photo, or the **Original** toggle, shows it as it was. The pixel work is plain code over the
+canvas's pixels, not `ctx.filter` (missing on some Safari), and the preview redraws at most once
+per animation frame. **Save** makes a new photo that takes the old one's place: the same card
+record, the old one's side and `created_at` (so it sits where the old one did in the carousel), and
+the main-image pin on every record that pinned the old one. It is saved and queued like a newly
+taken photo, so it works offline, and the old photo is removed the normal way, so its bucket file
+goes only after 14 days. A detail copy is downloaded and adjusted with the same settings (Auto's
+levels included) to become the new photo's detail copy; when it cannot be loaded, the new photo
+is saved without one and the toast says so. The settings are applied and never stored. **Cancel**
+changes nothing. After Save a toast offers **Undo edit**, which brings the old photo back exactly
+(same id, place, pin, files on the phone, and upload queue) and removes the new one; the old file
+is still in the bucket, since its delete waits 14 days and is cancelled once the photo is live
+again. Because a removal always wins a merge, the restored photo carries `restored_at`, and
+`mergePhotoLists` lets a photo restored after its tombstone win, as a restored entry does; a phone
+still on v51 keeps the tombstone until it updates. Code: `js/photos/adjust.js` (the pixels),
+`js/photos/adjust-view.js` (the sheet), `saveAdjustedPhoto` in `js/photos/index.js`, and
+`replacePhoto` and `undoReplacePhoto` in `js/photos/store.js`.
+
 **Photos and notes belong to the card, not the copy** (Eric, 2026-10-22 for photos, 2026-10-30 for
 notes). A photo taken for a card serves that card, often as its only image, so it must outlive every
 copy of it: a card at zero copies keeps its photos and notes, and they show again when the card

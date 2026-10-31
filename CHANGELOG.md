@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
+- **v52:** adjust a photo that came out too dark. `TBD`
+  - On a card's page, each photo you took has **Adjust**. **Auto** fixes a dark or flat photo in
+    one tap; sliders set Brightness, Contrast, Saturation, and Warmth, and Reset puts them back.
+    Hold the photo, or tap Original, to see it as it was.
+  - Save puts the adjusted photo in the old one's place, front or back, with the main image pin if
+    it had one, and it uploads like a new photo, so it works offline too. A detail copy is adjusted
+    the same way; if it cannot be loaded, the new photo is saved without one and the app says so.
+  - **Undo edit** on the message after saving brings the old photo back exactly. Family members'
+    photos have no Adjust.
+
 - **v51:** Start over with this file. `d92d164`
   - After you pick a monprice file, Import offers **Start over with this file**: every copy you have
     is removed (hand-made cards stay) and every card in the file is added fresh. A copy whose

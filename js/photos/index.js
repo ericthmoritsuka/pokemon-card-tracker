@@ -15,30 +15,55 @@
 //   photoSettingsCard()             Profile's "Keep a detail copy of new
 //                                   photos" switch, for this phone
 //
+// Each of the owner's photos on card detail also gets Adjust (DESIGN.md
+// section 5, "Adjust a photo"): adjust-view.js is the sheet, adjust.js the
+// pixel work, and saveAdjustedPhoto below puts the result in the photo's
+// place, with Undo edit on a toast.
+//
 // DESIGN.md section 5 ("Own photos, cropped to the card" and "Image
 // carousel per card") is the spec; supabase/photos.sql makes the bucket.
 
 import {recordsForCopies, shownRecords} from '../card-info.js';
 import {cardInfoList, listCards, loadDocument, newId, nowIso, onChange, updateCardInfo} from '../collection.js';
-import {h} from '../dom.js';
+import {errorText, h} from '../dom.js';
 import {formatCount} from '../format.js';
 import {languageLabel} from '../languages.js';
+import {UNDO_MS} from '../reorder.js';
+import {toast} from '../shell.js';
 
+import {applyAdjust} from './adjust.js';
+import {openAdjustPhoto} from './adjust-view.js';
 import {SWIPE_EVENT, gestureConsumed, isCarouselGesture, openViewer, photoCarousel} from './carousel.js';
 import {describeCopy, openAddPhoto} from './editor.js';
-import {DETAIL_HEIGHT, DETAIL_MAX_BYTES, DETAIL_WIDTH, TARGET_BYTES} from './encode.js';
+import {
+	DETAIL_HEIGHT,
+	DETAIL_MAX_BYTES,
+	DETAIL_SOURCE_SIDE,
+	DETAIL_WIDTH,
+	TARGET_BYTES,
+	canvasOf,
+	decodeImageFile,
+	encodeDetail,
+	encodePhoto,
+	pixelsOf,
+	putPixels,
+} from './encode.js';
 import {gallerySlides, mainImage, mainSlideId, newPhoto, photoPath, pinnedImage} from './model.js';
 import {
 	addPhotoToCard,
 	cachedPhotoUrl,
+	detailKey,
 	detailUrl,
 	keepDetailCopies,
+	localPhoto,
 	onPhotosChange,
 	pendingUploads,
 	photoUrl,
 	removePhotoFromEntry,
+	replacePhoto,
 	setKeepDetailCopies,
 	startPhotoSync,
+	undoReplacePhoto,
 	uploadProblems,
 	waitingText,
 } from './store.js';
@@ -97,19 +122,89 @@ function plainArt(src) {
 // detail copy {blob, type, width, height}. Resolves with the new photo
 // record. Its folder in the bucket is its own id.
 export async function savePhoto({blob, detail = null, entry, side = 'front', type}) {
-	const doc = await loadDocument();
-	const id = newId();
-	const photo = newPhoto({
-		created_at: nowIso(),
-		detail: detail && detail.blob ? {height: detail.height, type: detail.type || detail.blob.type, width: detail.width} : null,
-		id,
-		path: doc.user_id ? photoPath(doc.user_id, id, id, type || blob.type) : null,
-		side,
-	});
+	const photo = await photoRecord({detail, side, type: type || blob.type});
 
 	await addPhotoToCard(entry, photo, blob, photo.detail ? detail.blob : null);
 
 	return photo;
+}
+
+// A new photo record with a fresh id, its folder in the bucket its own id.
+async function photoRecord({created_at = nowIso(), detail = null, side = 'front', type}) {
+	const doc = await loadDocument();
+	const id = newId();
+
+	return newPhoto({
+		created_at,
+		detail: detail && detail.blob ? {height: detail.height, type: detail.type || detail.blob.type, width: detail.width} : null,
+		id,
+		path: doc.user_id ? photoPath(doc.user_id, id, id, type) : null,
+		side,
+	});
+}
+
+// ------------------------------------------------------------- adjust
+
+// A photo's file (its detail copy with key detailKey(id)) as a Blob: from
+// the phone, or from the bucket through the url the store resolves. Null
+// when it cannot be had now (offline and never on this phone).
+async function photoBlob(key, urlPromise) {
+	const url = await urlPromise;
+
+	if (!url) {
+		return null;
+	}
+
+	const local = await localPhoto(key).catch(() => null);
+
+	if (local) {
+		return local;
+	}
+
+	const response = await fetch(url);
+
+	return response.ok ? response.blob() : null;
+}
+
+// The old photo's detail copy with the same settings, encoded as a detail
+// copy, or null when it could not be loaded.
+async function adjustedDetail(old, settings) {
+	const blob = await photoBlob(detailKey(old.id), detailUrl(old)).catch(() => null);
+
+	if (!blob) {
+		return null;
+	}
+
+	const source = await decodeImageFile(blob, DETAIL_SOURCE_SIDE);
+	const canvas = canvasOf(source.width, source.height);
+
+	putPixels(canvas, applyAdjust(pixelsOf(source), settings));
+
+	const encoded = await encodeDetail(canvas);
+
+	return {blob: encoded.blob, height: encoded.height, type: encoded.type, width: encoded.width};
+}
+
+// Saves an adjusted photo in the place of `old` on `record` (DESIGN.md
+// section 5, "Adjust a photo"): a new photo with the old one's side and
+// created_at, so it takes the same place in the carousel, and its pin
+// (store.js replacePhoto). When the old photo has a detail copy, the same
+// settings make the new one's; detailMissing is true when that copy could
+// not be loaded, and the new photo then has none. Settings are applied,
+// never stored. Resolves with {detailMissing, photo, undo}; undo goes to
+// store.js undoReplacePhoto.
+export async function saveAdjustedPhoto({canvas, old, record, settings}) {
+	const {blob, type} = await encodePhoto(canvas);
+	let detail = null;
+
+	if (old.detail) {
+		detail = await adjustedDetail(old, settings).catch(() => null);
+	}
+
+	const photo = await photoRecord({created_at: old.created_at || nowIso(), detail, side: old.side, type});
+	const undo = await replacePhoto(record, old.id, photo, blob, photo.detail ? detail.blob : null);
+
+	return {detailMissing: Boolean(old.detail) && !photo.detail, photo, undo};
 }
 
 // Where a photo of these copies can go: one target per language among
@@ -222,6 +317,7 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 
 	const carousel = photoCarousel({
 		art: (src, opts) => art(info, src, opts),
+		onAdjust: readOnly ? null : (slide) => adjust(slide),
 		onRemove: readOnly ? null : (slide) => removePhotoFromEntry(slide.entry, slide.id),
 		onUseAsMain: readOnly ? null : (slide) => useAsMain(slide.id),
 		readOnly,
@@ -241,6 +337,54 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 	});
 	const add = addControl ? addControl.button : null;
 	const element = h('div', {class: 'ph-card'}, carousel.element, add);
+	let adjustSheet = null;
+
+	// Adjust on one of the owner's photos: the sheet, then the adjusted
+	// photo in its place, shown, with Undo edit on a toast.
+	function adjust(slide) {
+		if (!alive || !slide || slide.kind !== 'photo' || !slide.photo) {
+			return;
+		}
+
+		if (adjustSheet) {
+			adjustSheet.close();
+		}
+
+		const old = slide.photo;
+		const record = slide.entry;
+
+		adjustSheet = openAdjustPhoto({
+			async load() {
+				const blob = await photoBlob(old.id, photoUrl(old));
+
+				if (!blob) {
+					throw new Error('This photo is not on this phone. Connect to the internet and try again.');
+				}
+
+				return decodeImageFile(blob);
+			},
+			async save({canvas, settings}) {
+				const {detailMissing, photo, undo} = await saveAdjustedPhoto({canvas, old, record, settings});
+
+				if (alive) {
+					wantSlide = photo.id;
+				}
+
+				toast(detailMissing ? 'Photo adjusted. Its detail copy could not be loaded, so the new photo has none.' : 'Photo adjusted.', {
+					action: () => undoReplacePhoto(undo)
+						.then(() => {
+							if (alive) {
+								wantSlide = old.id;
+								draw();
+							}
+						})
+						.catch((err) => toast(`Could not undo the edit. ${errorText(err)}`)),
+					actionLabel: 'Undo edit',
+					timeout: UNDO_MS,
+				});
+			},
+		});
+	}
 
 	function draw() {
 		if (!alive) {
@@ -311,6 +455,10 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 
 			if (addControl) {
 				addControl.close();
+			}
+
+			if (adjustSheet) {
+				adjustSheet.close();
 			}
 		},
 		element,

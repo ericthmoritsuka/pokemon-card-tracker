@@ -60,8 +60,8 @@ function fileInput({capture}) {
 
 // Stops every touch, pointer, and key event at the sheet, so nothing under
 // it (the card page's swipe and arrow keys, js/card-swipe.js) reacts while
-// the corners are placed.
-function contain(element) {
+// the corners are placed. The Adjust sheet (adjust-view.js) uses it too.
+export function contain(element) {
 	for (const type of ['pointerdown', 'pointermove', 'pointerup', 'touchstart', 'touchmove', 'touchend', 'keydown']) {
 		element.addEventListener(type, (event) => event.stopPropagation(), {passive: true});
 	}

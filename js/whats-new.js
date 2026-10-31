@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-10-31',
 		items: [
+			'A photo you took has Adjust on its card page: Auto fixes a dark or flat photo in one tap, and sliders set brightness, contrast, saturation, and warmth.',
+			'Hold the photo or tap Original to compare, and Undo edit after saving brings the old photo back.',
+		],
+		version: 'v52',
+	},
+	{
+		date: '2026-10-31',
+		items: [
 			'Import has Start over with this file: it removes your copies and adds every card in the monprice file fresh, for a clean slate.',
 			'Photos and notes stay with their cards. The preview says what will not come back, and Undo stays available for 7 days.',
 			'Undo keeps any new copy you changed since, and after a newer Start over it is no longer offered.',
