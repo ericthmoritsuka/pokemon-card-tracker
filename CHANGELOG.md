@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-30
 
-- **v50:** delete your photos of cards that now have an official image. `TBD`
+- **v50:** delete your photos of cards that now have an official image. `29f53ef`
   - When the catalog adds an official image for a card you photographed, a notice offers to delete
     your photos of its front to save space; photos of the back are kept. Review shows each official
     image beside your photo; photos you chose as the main image start unticked. Delete has Undo, and
