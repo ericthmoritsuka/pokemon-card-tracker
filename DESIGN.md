@@ -673,28 +673,48 @@ shows; Eric runs it once. The per-copy fields can be dropped from the move after
 that stops v47 phones from writing.
 
 **Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
-each card, language, and finish, copies scanned or added in the app included. Copies are matched by
-that count, never by `import_key`: app-added copies have none, and a new monprice list need not
-line up with an earlier import's copy indexes. Eric does not care which copy survives, so the
-oldest existing copies are kept up to the file's count, the shortfall is added (an earlier deleted
-copy never blocks an add), and the extras are removed. Condition, Stored in, and favorite carry
-over from removed copies onto the kept or added copies of the same card as far as the new count
-allows. A binder pocket whose copy is removed takes another copy of that card, or becomes that
-card's placeholder when none is left. Nothing is applied before a preview ("+12 copies, -5 copies,
-3 photos kept, 2 pockets became placeholders"), and the result offers Undo. *(Decided 2026-10-22;
-built in v49.)*
+each card and language, copies scanned or added in the app included. Copies are matched by that
+count, not only by `import_key`: app-added copies have none, and a new monprice list need not line
+up with an earlier import's copy indexes. The shortfall is added (an earlier deleted copy never
+blocks an add), and only the extras are removed. Nothing is applied before a preview ("+12 copies,
+-5 copies, 3 photos kept, 2 pockets became placeholders"), and the result offers Undo. *(Decided
+2026-10-22; built in v49.)*
+The governing rule (Eric, 2026-10-30): **a copy he still owns is never removed and replaced by a
+new blank one.** When the file and an existing copy are the same physical card (same card and
+language, whatever finish label either side carries), the existing copy is kept and updated from
+the file, keeping every field he set.
 Built (v49, 2026-10-30): `js/match-file.js`, offered on the import report beside Save once a file
-is matched. A group is catalog, card, language, and variant (the raw monprice finish when no
-variant was found). A group on the phone the file does not name counts as 0 in the file, except
-copies the file cannot speak for, which are left alone and reported: hand-made cards, copies of a
-row the import could not match (same monprice id in the `import_key`, or the same number and
-language), and copies of a large row left unticked. Kept copies take the file's `import_key`s they
-lack and added copies the rest, so the normal import of the same file afterwards adds nothing.
-Details carry over to a kept or added copy of the same card and language that has none of the
-three, the removed copy's own finish first, then oldest first. A pocket takes an unplaced copy of
-the same card and language (own finish first, a copy in a tray last). Cards and binders are written
-in one save, and Undo restores the removed copies, removes the added ones, and puts back the
-changed copies' fields and the changed binders' pockets and trays.
+is matched. Per card and language:
+- A copy counts under the card the file gives its monprice row (the monprice id in its
+  `import_key`), else under its own card. So a copy the old import stored as an `international`
+  fallback that now matches a Japanese record, or on another card id, is the same card: it is
+  kept, takes the file's catalog and card, and when no copy is left on the old card, the old
+  card record (photos, notes, pin) moves too, as linking a hand-made card does.
+- The file's copies are matched to the existing ones in four steps: the same `import_key`, then
+  the same monprice row, then the same finish, then any finish. Within a step, copies that hold
+  something he set (the carried fields below, a pocket, a tray, a hand-picked collection) go
+  first, then the oldest.
+- A matched copy takes the file's `variant_id` (dropping `finish_raw`), or the raw monprice finish
+  when the file found no variant and the copy has none of its own, and the file's `import_key`, so
+  the normal import of the same file afterwards adds nothing.
+- Only copies left over are removed, and only the file's copies left over are added. What a
+  removed copy held moves to a kept copy of the same card and language that holds none of it,
+  its own finish first: condition, Stored in, favorite, purchase price and currency, grader,
+  grade, cert number, graded price, Liga price, opening, and its places in hand-picked
+  collections.
+
+Copies the file cannot speak for are left alone and reported: hand-made cards; copies of a row
+the import could not match (the same monprice id in the `import_key`, or a leftover with the same
+number and language); and copies of a large row left unticked (the same monprice id, and
+leftovers of the same card and language), which never count against a ticked row. A pocket or tray
+whose copy is removed takes an unplaced copy of the same card and language (own finish first, a
+copy in a tray last for a pocket); a pocket with none left becomes the card's placeholder, and a
+tray drops it. A rule binder's hand pick of a removed copy is left as it is and shows the default
+copy until Undo. Everything is written in one save; if the save fails, the phone's document is put
+back as it was and the error is shown. Undo removes the added copies (clearing any pocket or tray
+they were put in since), restores the removed ones, and puts back each field, pocket, tray, card
+record, and collection place that still holds what Apply wrote, so an edit made since, on this
+phone or another, stays.
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is

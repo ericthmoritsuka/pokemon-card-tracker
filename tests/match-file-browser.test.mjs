@@ -185,8 +185,8 @@ describe('Match this file', () => {
 		const ids = applied.cards.map(([id]) => id);
 
 		assert.equal(applied.cards.length, 3);
-		assert.ok(ids.includes(oldest.id) && !ids.includes(extra.id) && !ids.includes(placedCopy.id), 'the oldest copy is kept, the extra and the unnamed card removed');
-		assert.deepEqual(applied.cards.find(([id]) => id === oldest.id).slice(1), ['tst1-001', null, 'Box A'], 'Stored in moved to the copy kept');
+		assert.ok(ids.includes(extra.id) && !ids.includes(oldest.id) && !ids.includes(placedCopy.id), 'the copy holding a place is kept, the blank one and the unnamed card removed');
+		assert.deepEqual(applied.cards.find(([id]) => id === extra.id).slice(1), ['tst1-001', null, 'Box A'], 'Stored in stays on the copy kept');
 		assert.equal(applied.cards.filter(([, cardId]) => cardId === 'tst1-003').length, 2);
 		assert.deepEqual(applied.pockets, [[1, 1, null, 'tst1-002']], 'the pocket became the card\'s placeholder');
 		assert.deepEqual(applied.info, before.info, 'the removed card keeps its notes, untouched');

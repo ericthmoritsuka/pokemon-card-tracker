@@ -16,15 +16,17 @@ are Recife time. Each line ends with its commit.
 
 - **v49:** Import "Match this file". `TBD`
   - After you pick a monprice file, Import offers **Match this file** beside Save. The file then
-    decides how many copies you have of each card, language, and finish, including copies you
-    scanned or added in the app. Your oldest copies are kept, missing ones are added (even when an
-    earlier copy was deleted), and extra ones are removed.
+    decides how many copies you have of each card and language, including copies you scanned or
+    added in the app. The copies you have are kept and take the file's finish when it differs (or
+    when they had none), missing ones are added (even when an earlier copy was deleted), and only
+    extra ones are removed.
   - Nothing changes until you tap Apply: first you see what will happen, like "+12 copies, -5
     copies, 3 photos kept, 2 pockets became placeholders". After Apply, Undo puts your cards and
-    binders back as they were.
-  - Condition, Stored in, and favorite move from removed copies to the copies that stay of the
-    same card and language. A binder pocket whose copy is removed takes another copy of that card,
-    or becomes its placeholder. Photos and notes stay with the card.
+    binders back as they were, keeping anything you or another phone changed since.
+  - What you set on a removed copy (condition, Stored in, favorite, purchase price, grading, Liga
+    price, and its place in your collections) moves to a copy that stays of the same card and
+    language. A binder pocket or tray whose copy is removed takes another copy of that card; a
+    pocket with none left becomes its placeholder. Photos and notes stay with the card.
   - Cards the file could not match, hand-made cards, and rows you did not tick are left as they
     are.
 

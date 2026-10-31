@@ -131,12 +131,12 @@ describe('planMatch counts', () => {
 });
 
 describe('planMatch carry-over', () => {
-	test('condition, Stored in, and favorite go from removed copies to blank kept or added copies, own finish first, as far as the count allows', () => {
+	test('only the surplus is removed; what a removed copy holds goes to a blank kept copy, own finish first', () => {
 		const reverseOld = copy(0, {variant_id: 'reverse'});
 		const kept = copy(1);
 		const keptDone = copy(2, {condition: 'Near Mint'});
 		const donorA = copy(3, {condition: 'Lightly Played', is_favorite: true, storage: 'Box A', variant_id: 'holo'});
-		const donorB = copy(4, {storage: 'Box B', variant_id: 'holo'});
+		const donorB = copy(4, {grade: '9', grader: 'PSA', purchase_currency: 'BRL', purchase_price: 40, storage: 'Box B', variant_id: 'holo'});
 		const donorC = copy(5, {condition: 'Damaged', variant_id: 'holo'});
 		const reverseDonor = copy(6, {storage: 'Box R', variant_id: 'reverse'});
 		const before = [reverseOld, kept, keptDone, donorA, donorB, donorC, reverseDonor];
@@ -147,17 +147,36 @@ describe('planMatch carry-over', () => {
 		const plan = planMatch({cards: before}, entries, {now: NOW});
 		const after = live(plan.cards);
 		const byId = new Map(after.map((card) => [card.id, card]));
-		const details = (card) => [card.condition, card.storage, card.is_favorite];
 
-		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.carried], [1, 4, 3]);
-		assert.deepEqual(details(byId.get(reverseOld.id)), [undefined, 'Box R', undefined], 'a removed copy fills a copy of its own finish first');
-		assert.deepEqual(details(byId.get(kept.id)), ['Lightly Played', 'Box A', true], 'the oldest donor left fills the oldest blank copy');
-		assert.deepEqual(details(byId.get(keptDone.id)), ['Near Mint', undefined, undefined], 'a copy with its own details is not a target');
-
-		const [addedCopy] = after.filter((card) => !before.some((item) => item.id === card.id));
-
-		assert.deepEqual(details(addedCopy), [undefined, 'Box B', undefined], 'then the added copies');
+		// Seven copies, four in the file: three go, none is added.
+		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.carried, plan.counts.kept], [0, 3, 1, 4]);
+		assert.ok(byId.has(reverseDonor.id) && !byId.has(reverseOld.id), 'a copy holding something he set is kept before a blank one of its finish');
+		assert.equal(byId.get(donorA.id).variant_id, 'normal', 'a copy of another finish fills the third plain copy, relabelled from the file');
+		assert.deepEqual([byId.get(donorA.id).condition, byId.get(donorA.id).storage, byId.get(donorA.id).is_favorite], ['Lightly Played', 'Box A', true]);
+		assert.deepEqual(
+			['grade', 'grader', 'purchase_currency', 'purchase_price', 'storage'].map((key) => byId.get(kept.id)[key]),
+			['9', 'PSA', 'BRL', 40, 'Box B'],
+			'every field he set moves from the oldest removed donor to the blank kept copy'
+		);
+		assert.equal(byId.get(keptDone.id).storage, undefined, 'a copy with its own details is not a target');
 		assert.equal(after.filter((card) => card.condition === 'Damaged').length, 0, 'no blank copy is left for the last donor');
+	});
+
+	test('a removed copy\'s place in a hand-picked collection goes to the copy that takes its details', () => {
+		const sameRow = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0'});
+		const donor = copy(2, {condition: 'Near Mint', variant_id: 'holo'});
+		const collection = {created_at: at(0), deleted_at: null, entry_ids: {[donor.id]: at(5)}, id: 'c1', kind: 'hand', name: 'Invented', rule: null, updated_at: at(5)};
+		const plan = planMatch({binders: [], cards: [sameRow, donor], collections: [collection]}, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
+		const [joined] = plan.collections;
+
+		assert.ok(plan.cards.find((card) => card.id === donor.id).deleted_at, 'the import_key match is kept before the collection member');
+		assert.equal(plan.cards.find((card) => card.id === sameRow.id).condition, 'Near Mint');
+		assert.ok(joined.entry_ids[sameRow.id], 'the kept copy joins the collection');
+		assert.ok(joined.entry_ids[donor.id], 'the removed copy keeps its own place, for Undo');
+
+		undoPlan(plan, plan.undo, NOW + 1000);
+		assert.equal(plan.collections[0].entry_ids[sameRow.id], undefined, 'Undo takes the kept copy out again');
+		assert.equal(plan.cards.find((card) => card.id === sameRow.id).condition, undefined);
 	});
 
 	test('a removed English copy never gives its details to a Portuguese one', () => {
@@ -173,27 +192,54 @@ describe('planMatch pockets', () => {
 	test('a removed copy\'s pocket takes another unplaced copy of the card, or becomes its placeholder', () => {
 		const a = copy(1);
 		const b = copy(2);
-		const c = copy(3);
+		const c = copy(3, {variant_id: 'holo'});
 		const gone = copy(4, {card_id: 'tst1-002', name_local: 'Invented two'});
 		const binder = binderOf('b1', [pocket(1, {entry_id: c.id}), pocket(2, {entry_id: gone.id})]);
 		const plan = planMatch({binders: [binder], cards: [a, b, c, gone]}, importEntries([row('tst1_int_1', 'tst1-001', 2)]), {now: NOW});
 		const slots = slotsOf(plan.binders[0], placements(plan.binders));
 
 		assert.deepEqual([plan.counts.pocketsMoved, plan.counts.pocketsToPlaceholder], [1, 1]);
+		assert.ok(plan.cards.find((card) => card.id === c.id).deleted_at, 'the plain copies match the file\'s finish first');
 		assert.equal(slots.find((slot) => slot.position === 1).entry_id, a.id, 'the oldest unplaced copy takes the pocket');
 		assert.deepEqual(slots.find((slot) => slot.position === 2).want, {card_id: 'tst1-002', catalog: 'international', image: null, name: 'Invented two', variant_id: 'normal'});
 		assert.equal(binder.slots.length, 2, 'the binder passed in is not changed');
 	});
 
-	test('an added copy can take the pocket', () => {
+	test('a placed copy of another finish is kept and relabelled; its pocket stays', () => {
 		const wrongFinish = copy(1, {variant_id: 'holo'});
 		const binder = binderOf('b1', [pocket(5, {entry_id: wrongFinish.id})]);
 		const plan = planMatch({binders: [binder], cards: [wrongFinish]}, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
-		const [added] = live(plan.cards);
+		const [kept] = live(plan.cards);
 		const [slot] = slotsOf(plan.binders[0], placements(plan.binders));
 
-		assert.equal(slot.entry_id, added.id);
-		assert.equal(plan.counts.pocketsMoved, 1);
+		assert.deepEqual([kept.id, kept.variant_id, plan.counts.added, plan.counts.removed], [wrongFinish.id, 'normal', 0, 0]);
+		assert.equal(slot.entry_id, wrongFinish.id);
+		assert.equal(plan.binders[0], binder, 'the binder is not touched');
+	});
+
+	test('a removed copy in a tray gives its place to an unplaced copy, or leaves the tray; Undo puts it back', () => {
+		const a = copy(1, {import_key: 'monprice|tst1_int_1|pt|NORMAL|0'});
+		const staged = copy(2, {variant_id: 'holo'});
+		const b = copy(3, {card_id: 'tst1-002'});
+		const stagedB = copy(4, {card_id: 'tst1-002', variant_id: 'holo'});
+		const binder = {...binderOf('b1'), staged: [staged.id, stagedB.id]};
+		const doc = {binders: [binder], cards: [a, staged, b, stagedB]};
+		// tst1-001: a is kept by its key, the staged holo goes and a takes its
+		// tray place; tst1-002 is not in the file, so both go.
+		const plan = planMatch(doc, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
+
+		assert.deepEqual(plan.binders[0].staged, [a.id]);
+		undoPlan(plan, plan.undo, NOW + 1000);
+		assert.deepEqual(plan.binders[0].staged, [staged.id, stagedB.id]);
+	});
+
+	test('a rule binder\'s hand pick of a removed copy is left alone', () => {
+		const a = copy(1);
+		const b = copy(2);
+		const picks = [{binder_id: 'r1', created_at: at(3), deleted_at: null, entry_id: b.id, id: 'r1|x', key: 'x', updated_at: at(3)}];
+		const plan = planMatch({binder_picks: picks, binders: [], cards: [a, b]}, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
+
+		assert.equal(plan.binder_picks, undefined, 'the plan writes no picks: the binder shows its default copy until Undo');
 	});
 });
 
@@ -258,6 +304,154 @@ describe('undoPlan', () => {
 
 		assert.deepEqual(shown(applied.binders), shown(before.binders));
 		assert.ok(applied.cards.find((card) => card.id === gone.id).restored_at, 'restored so the merge lets it win over the tombstone');
+	});
+});
+
+// The rule (Eric, 2026-10-30): a copy he still owns is never removed and
+// replaced by a new blank one, whatever finish label either side carries.
+describe('a copy he still owns is kept', () => {
+	const owned = {cert_number: 'C-1', condition: 'Near Mint', grade: '9', graded_price: 300, grader: 'PSA', is_favorite: true, opening_id: 'o1', price_manual: {avg: 10}, purchase_currency: 'BRL', purchase_price: 50, storage: 'Box A'};
+
+	test('an old copy with the raw finish takes the variant the rescan found', () => {
+		const old = copy(1, {...owned, finish_raw: 'HOLOFOIL', import_key: 'monprice|M1|pt|HOLOFOIL|0', variant_id: null});
+		const plan = planMatch({binders: [], cards: [old]}, importEntries([row('M1', 'tst1-001', 1, {finish: 'HOLOFOIL', variantId: 'holo'})]), {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.kept], [0, 0, 1]);
+		assert.equal(kept.id, old.id);
+		assert.equal(kept.variant_id, 'holo');
+		assert.equal(Object.hasOwn(kept, 'finish_raw'), false);
+		assert.deepEqual(Object.fromEntries(Object.keys(owned).map((key) => [key, kept[key]])), owned, 'every field he set stays');
+	});
+
+	test('a copy with a variant stays as it is when the rescan found none', () => {
+		const old = copy(1, {...owned, import_key: 'monprice|M1|pt|HOLOFOIL|0', variant_id: 'holo'});
+		const plan = planMatch({binders: [], cards: [old]}, importEntries([row('M1', 'tst1-001', 1, {finish: 'HOLOFOIL', variantId: null})]), {now: NOW});
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed], [0, 0]);
+		assert.equal(plan.cards[0], old, 'nothing to change');
+	});
+
+	test('app copies with no finish, or another finish, are kept and take the file\'s', () => {
+		const none = copy(1, {...owned, variant_id: null});
+		const other = copy(2, {condition: 'Damaged', variant_id: 'reverse'});
+		const plan = planMatch({binders: [], cards: [none, other]}, importEntries([row('M1', 'tst1-001', 2, {finish: 'HOLOFOIL', variantId: 'holo'})]), {now: NOW});
+		const after = live(plan.cards);
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed], [0, 0]);
+		assert.deepEqual(after.map((card) => [card.id, card.variant_id]), [[none.id, 'holo'], [other.id, 'holo']]);
+		assert.deepEqual(after.map((card) => card.import_key).sort(), ['monprice|M1|pt|HOLOFOIL|0', 'monprice|M1|pt|HOLOFOIL|1']);
+		assert.equal(after[0].purchase_price, 50);
+	});
+
+	test('a copy the old import put on another card or catalog moves to the file\'s card, with its record', () => {
+		const fallback = copy(1, {...owned, card_id: 'tst1-001', catalog: 'international', fallback: true, import_key: 'monprice|M5|ja|NORMAL|0', language: 'ja'});
+		const binder = binderOf('b1', [pocket(1, {entry_id: fallback.id})]);
+		const record = {
+			card_id: 'tst1-001', catalog: 'international', created_at: at(0), deleted_at: null, id: 'international~tst1-001~ja', language: 'ja',
+			notes: 'Bought at a fair', photos: [{id: 'p1', path: 'u/p1.webp'}], updated_at: at(0),
+		};
+		const entries = importEntries([{cardId: 'J1-001', catalog: 'ja', row: {count: 1, finish: 'NORMAL', language: 'ja', monpriceId: 'M5', name: 'Invented', number: '001', setName: 'Invented set'}, status: 'matched', variantId: 'normal'}]);
+		const doc = {binders: [binder], card_info: [record], cards: [fallback]};
+		const plan = planMatch(doc, entries, {now: NOW});
+		const [kept] = live(plan.cards);
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.kept], [0, 0, 1]);
+		assert.deepEqual([kept.id, kept.catalog, kept.card_id, kept.fallback, kept.purchase_price], [fallback.id, 'ja', 'J1-001', undefined, 50]);
+		assert.equal(slotsOf(plan.binders[0], placements(plan.binders))[0].entry_id, fallback.id, 'the pocket keeps the copy');
+
+		const moved = plan.card_info.find((item) => item.id === 'ja~J1-001~ja');
+
+		assert.ok(plan.card_info.find((item) => item.id === record.id).deleted_at, 'the old record becomes a tombstone');
+		assert.deepEqual([moved.notes, moved.photos.map((photo) => photo.id), moved.deleted_at], ['Bought at a fair', ['p1'], null]);
+
+		undoPlan(plan, plan.undo, NOW + 1000);
+		assert.deepEqual([plan.cards[0].catalog, plan.cards[0].card_id, plan.cards[0].fallback], ['international', 'tst1-001', true]);
+		assert.equal(plan.card_info.find((item) => item.id === record.id).deleted_at, null, 'Undo brings the record back');
+		assert.ok(plan.card_info.find((item) => item.id === 'ja~J1-001~ja').deleted_at, 'and removes the one it made');
+	});
+
+	test('the record stays when other copies of the old card remain', () => {
+		const fallback = copy(1, {import_key: 'monprice|M5|ja|NORMAL|0', language: 'ja'});
+		const stays = copy(2, {language: 'ja'});
+		const record = {card_id: 'tst1-001', catalog: 'international', created_at: at(0), deleted_at: null, id: 'international~tst1-001~ja', language: 'ja', photos: [], updated_at: at(0)};
+		const entries = importEntries([
+			{cardId: 'J1-001', catalog: 'ja', row: {count: 1, finish: 'NORMAL', language: 'ja', monpriceId: 'M5', number: '001'}, status: 'matched', variantId: 'normal'},
+			{cardId: 'tst1-001', catalog: 'international', row: {count: 1, finish: 'NORMAL', language: 'ja', monpriceId: 'M6', number: '001'}, status: 'matched', variantId: 'normal'},
+		]);
+		const plan = planMatch({binders: [], card_info: [record], cards: [fallback, stays]}, entries, {now: NOW});
+
+		assert.deepEqual([plan.counts.added, plan.counts.removed], [0, 0]);
+		assert.equal(plan.card_info, undefined);
+	});
+});
+
+describe('rows left out or not matched', () => {
+	test('a skipped row protects its copies by monprice id, under a drifted finish too', () => {
+		const copies = [0, 1, 2].map((i) => copy(i, {finish_raw: 'HOLOFOIL', import_key: `monprice|M9|pt|HOLOFOIL|${i}`, variant_id: null}));
+		const skipped = importEntries([row('M9', 'tst1-001', 3, {finish: 'HOLOFOIL', variantId: 'holo'})]);
+		const plan = planMatch({binders: [], cards: copies}, importEntries([row('X', 'tst1-002', 1)]), {now: NOW, skipped});
+
+		assert.deepEqual([plan.counts.removed, plan.counts.leftAlone, plan.counts.added], [0, 3, 1]);
+	});
+
+	test('a skipped row sharing a card and finish with a ticked row: its copies are left alone, not counted against the ticked one', () => {
+		const big = Array.from({length: 40}, (_, i) => copy(1, {import_key: `monprice|BIG|pt|HOLOFOIL|${i}`, variant_id: 'holo'}));
+		const skipped = importEntries([row('BIG', 'tst1-001', 40, {finish: 'HOLOFOIL', variantId: 'holo'})]);
+		const plan = planMatch({binders: [], cards: big}, importEntries([row('SMALL', 'tst1-001', 1, {finish: 'HOLOFOIL', variantId: 'holo'})]), {now: NOW, skipped});
+
+		assert.deepEqual([plan.counts.removed, plan.counts.leftAlone, plan.counts.added], [0, 40, 1]);
+	});
+
+	test('app copies of a skipped row\'s card and language that the ticked rows do not need are left alone', () => {
+		const app = [1, 2, 3].map((minute) => copy(minute));
+		const skipped = importEntries([row('BIG', 'tst1-001', 60)]);
+		const plan = planMatch({binders: [], cards: app}, importEntries([row('SMALL', 'tst1-001', 1)]), {now: NOW, skipped});
+
+		assert.deepEqual([plan.counts.removed, plan.counts.leftAlone, plan.counts.added, plan.counts.kept], [0, 2, 0, 1]);
+	});
+});
+
+describe('undoPlan after other changes', () => {
+	test('a field, a pocket, or a tray changed since Apply stays', () => {
+		const keep = copy(1, {import_key: 'monprice|M1|pt|NORMAL|0', variant_id: null});
+		const extra = copy(2, {storage: 'Box Z', variant_id: 'holo'});
+		const binder = {...binderOf('b1', [pocket(1, {entry_id: extra.id})])};
+		const doc = {binders: [binder], cards: [keep, extra]};
+		const plan = planMatch(doc, importEntries([row('M1', 'tst1-001', 1)]), {now: NOW});
+		const applied = {binders: plan.binders, cards: plan.cards};
+		const kept = applied.cards.find((card) => card.id === keep.id);
+
+		assert.deepEqual([kept.variant_id, kept.storage], ['normal', 'Box Z']);
+		assert.equal(slotsOf(applied.binders[0], placements(applied.binders))[0].entry_id, keep.id);
+
+		// Another phone sets the finish and the place, and moves the pocket
+		// to a placeholder; that merges in before Undo.
+		const i = applied.cards.indexOf(kept);
+
+		applied.cards[i] = {...kept, storage: 'Box Q', updated_at: at(59), variant_id: 'reverse'};
+		applied.binders = applied.binders.map((item) => ({...item, slots: [pocket(1, {want: {card_id: 'tst1-009'}})]}));
+
+		undoPlan(applied, plan.undo, NOW + 1000);
+
+		const after = applied.cards.find((card) => card.id === keep.id);
+
+		assert.deepEqual([after.variant_id, after.storage], ['reverse', 'Box Q'], 'the other phone\'s edits stay');
+		assert.equal(applied.cards.find((card) => card.id === extra.id).deleted_at, null, 'the removed copy comes back');
+		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)).map((slot) => slot.want && slot.want.card_id), ['tst1-009'], 'the pocket changed since stays');
+	});
+
+	test('an added copy placed in a pocket or tray after Apply leaves it on Undo', () => {
+		const doc = {binders: [binderOf('b1')], cards: []};
+		const plan = planMatch(doc, importEntries([row('M1', 'tst1-001', 2)]), {now: NOW});
+		const [first, second] = live(plan.cards);
+		const applied = {binders: plan.binders.map((item) => ({...item, slots: [pocket(3, {entry_id: first.id})], staged: [second.id]})), cards: plan.cards};
+
+		undoPlan(applied, plan.undo, NOW + 1000);
+
+		assert.equal(live(applied.cards).length, 0);
+		assert.deepEqual(slotsOf(applied.binders[0], placements(applied.binders)), [], 'no pocket points at a removed copy');
+		assert.deepEqual(applied.binders[0].staged, []);
 	});
 });
 

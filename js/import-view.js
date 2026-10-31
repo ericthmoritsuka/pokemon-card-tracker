@@ -364,7 +364,7 @@ export function importView(root) {
 
 			matchPanel.replaceChildren(h('div', {class: 'card', id: 'import-match-preview'},
 				h('h3', null, 'Match this file'),
-				h('p', null, 'The file decides how many copies you have of each card, language, and finish, cards you added in the app included. Your oldest copies are kept; condition, Stored in, and favorite move from removed copies to the ones left; photos and notes stay with the card.'),
+				h('p', null, 'The file decides how many copies you have of each card and language, cards you added in the app included. The copies you have are kept and take the file\'s finish; only extra copies are removed, and what you set on them (condition, Stored in, prices, grading, favorite) moves to a copy that stays. Photos and notes stay with the card.'),
 				h('p', {class: 'big', id: 'import-match-summary'}, changes ? matchSummary(counts) : 'Your cards already match this file.'),
 				leftAlone ? h('p', {class: 'muted', id: 'import-match-left'}, `${plural(leftAlone, 'copy', 'copies')} the file could not match (hand-made cards, rows not matched, or rows left out) ${leftAlone === 1 ? 'is' : 'are'} left as ${leftAlone === 1 ? 'it is' : 'they are'}.`) : null
 			));
