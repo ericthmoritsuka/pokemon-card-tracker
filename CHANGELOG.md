@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
-- **v52:** binder placeholders fill themselves. `TBD`
+- **v52:** binder placeholders fill themselves. `e5edb78`
   - **Fill placeholders**, on each binder and on the Binders list, puts the cards you own into the
     pockets waiting for them, after a preview, with Undo. After Start over it uses the language
     each pocket's card had, so Portuguese and English copies go back to their own binders; press it
