@@ -165,7 +165,7 @@ describe('Match this file', () => {
 		// Cancel changes nothing and offers both again.
 		await page.click('#import-match');
 		await page.waitForSelector('#import-match-preview');
-		assert.equal(await page.locator('#import-match-summary').textContent(), '+2 copies, -2 copies, 1 pocket became a placeholder');
+		assert.equal(await page.locator('#import-match-summary').textContent(), '+2 copies, -2 copies, 1 copy updated, 1 pocket became a placeholder');
 		assert.equal(await page.locator('button.primary.wide').count(), 0, 'Apply and Cancel take the place of Save while the preview is open');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/match-file-preview.png`});
 		await page.click('#import-match-cancel');
@@ -177,7 +177,7 @@ describe('Match this file', () => {
 		await page.click('#import-match');
 		await page.click('#import-match-apply');
 		await page.waitForSelector('#import-match-undo');
-		assert.equal(await page.locator('#import-match-done').textContent(), 'Matched. +2 copies, -2 copies, 1 pocket became a placeholder.');
+		assert.equal(await page.locator('#import-match-done').textContent(), 'Matched. +2 copies, -2 copies, 1 copy updated, 1 pocket became a placeholder.');
 		assert.equal(await page.locator('button.primary.wide').count(), 0, 'Save is gone once the file is matched');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/match-file-applied.png`});
 
