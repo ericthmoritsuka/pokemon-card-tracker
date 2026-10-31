@@ -25,6 +25,14 @@ export const RELEASES = [
 			'When the catalog adds an official image for a card you photographed, the app offers to delete your photos of its front to save space.',
 			'Review shows each official image beside your photo, ticked except a photo you chose as the main image, and Undo brings them back.',
 		],
+		version: 'v50',
+	},
+	{
+		date: '2026-10-30',
+		items: [
+			'The Sets search finds cards too: type a Pokémon or Trainer name, a number like 025 or 025/165, or a set code and number like MEW 025.',
+			'Kinds such as ex, V, VMAX, VSTAR, or SIR narrow it down. Matching sets come first, then the cards, with your owned copies marked.',
+		],
 		version: 'v49',
 	},
 	{
