@@ -385,11 +385,65 @@ function checkPocket(binder, page, position) {
 // Puts content in one pocket. content is {entry_id}, {want}, {empty: true},
 // or null to take out whatever is there. A copy placed leaves every tray.
 export function setPocket(binders, {at = nowIso(), binderId, content, page, position}) {
-	const target = findLive(binders, binderId);
-
-	checkPocket(target, page, position);
+	checkPocket(findLive(binders, binderId), page, position);
 
 	const changed = new Map();
+
+	putInPocket(binders, changed, at, {binderId, content, page, position});
+
+	return stamped(sortedSlots(changed));
+}
+
+// Puts content in several pockets, one after another, each as setPocket
+// does, but copies and stamps each binder once: matching a large file
+// changes hundreds of pockets of one binder, and a copy and stamp of the
+// whole binder per pocket took seconds. changes: [{binderId, content, page,
+// position}]. keep(binders, change), when given, is asked with the binders
+// as they are by then, and a change it refuses is left out. With lenient, a
+// change to a binder that is gone or a pocket no longer in it is left out
+// instead of throwing.
+export function setPockets(binders, changes, {at = nowIso(), keep = null, lenient = false} = {}) {
+	const changed = new Map();
+
+	for (const change of changes) {
+		const list = changed.size ? binders.map((binder) => changed.get(binder.id) || binder) : binders;
+
+		try {
+			checkPocket(findLive(list, change.binderId), change.page, change.position);
+		}
+		catch (err) {
+			if (lenient) {
+				continue;
+			}
+
+			throw err;
+		}
+
+		if (!keep || keep(list, change)) {
+			putInPocket(list, changed, at, change);
+		}
+	}
+
+	return stamped(sortedSlots(changed));
+}
+
+function sortedSlots(changed) {
+	const out = [...changed.values()];
+
+	for (const next of out) {
+		next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+	}
+
+	return out;
+}
+
+// One pocket change on the binders in list, editing the copies in changed
+// (binder id -> a copy made from the binder before the first change).
+function putInPocket(list, changed, at, {binderId, content, page, position}) {
+	const target = findLive(list, binderId);
+	// Where every copy is before this change: the copies in changed are
+	// edited in place below.
+	const placed = placements(list);
 	const edit = (binder) => {
 		if (!changed.has(binder.id)) {
 			changed.set(binder.id, copyOf(binder, at));
@@ -403,7 +457,7 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	// One pocket per copy: take it out of every other pocket and every tray,
 	// in any binder.
 	if (entryId) {
-		for (const binder of liveBinders(binders)) {
+		for (const binder of liveBinders(list)) {
 			if ((binder.slots || []).some((slot) => slot.entry_id === entryId && !(binder.id === binderId && here(slot)))) {
 				const next = edit(binder);
 
@@ -419,7 +473,6 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	}
 
 	const next = edit(target);
-	const placed = placements(binders);
 	const elsewhere = (slot) => {
 		const real = slot.entry_id && placed.get(slot.entry_id);
 
@@ -433,10 +486,6 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	if (content) {
 		next.slots.push({page, placed_at: at, position, ...content});
 	}
-
-	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
-
-	return stamped([...changed.values()]);
 }
 
 // Moves what is in one pocket of a hand-made binder to another pocket of

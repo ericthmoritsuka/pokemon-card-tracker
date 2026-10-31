@@ -17,9 +17,11 @@
 //     that hold something he set (details, purchase or grading, favorite,
 //     a pocket, a tray, a hand-picked collection) are kept before blank
 //     ones, the most invested first, then the oldest (created_at, then id).
-//     Each takes a slot of its own finish first; a copy changes finish only
-//     when no blank copy can take that slot. The import_key decides only
-//     which slot of a finish a copy takes;
+//     Each takes a slot of its own finish first, and blank copies leave
+//     room for them: a copy holding something whose finish has no slot left
+//     takes a slot of another finish, changing finish, and a blank copy is
+//     removed instead. The import_key decides only which slot of a finish a
+//     copy takes;
 //   - a matched copy is kept and updated from the file: card and catalog
 //     when they moved, the finish (variant_id, or the raw monprice finish
 //     when no variant was found; a copy's own variant stays when the file
@@ -37,9 +39,12 @@
 // same card and language where that detail is empty, own finish first:
 // condition, Stored in, favorite, purchase price and currency, grading,
 // Liga price, opening, and its hand-picked collections. A detail no kept
-// copy has room for is listed in the preview as lost. A binder pocket or tray holding a removed
-// copy takes another unplaced copy of that card and language; a pocket
-// with none left becomes that card's placeholder, and a tray drops it. A
+// copy has room for, or held by a copy whose card keeps no copy at all (a
+// card the file does not list), is listed in the preview as lost, by card.
+// A binder pocket or tray holding a removed copy takes another unplaced
+// copy of that card and language, the one that took its details first; a
+// pocket with none left becomes that card's placeholder, and a tray drops
+// it, listed as lost. A
 // rule binder's hand pick (binder_picks) of a removed copy is left alone:
 // it shows the default copy (js/binder-rules.js shownCopy) until Undo
 // brings the copy back. Photos and notes live on the card (js/card-info.js)
@@ -54,7 +59,7 @@
 
 import {editDocument, importEntryId, isLive, loadDocument, newId} from './collection.js';
 import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
-import {liveBinders, placements, setPocket, slotsOf, stagedOf} from './binders.js';
+import {liveBinders, placements, setPockets, slotsOf, stagedOf} from './binders.js';
 import {CARD_INFO, infoKey, joinNotes, newRecord, recordOf} from './card-info.js';
 import {localPart} from './monprice.js';
 import {mergePhotoLists} from './photos/model.js';
@@ -336,8 +341,8 @@ function binderChanges(before, after) {
 
 // What Undo compares on a copy Apply added: the details he sets on it, its
 // pocket and trays, and its hand-picked collections.
-function addedState(copy, binders, collections) {
-	const where = placements(binders).get(copy.id);
+function addedState(copy, binders, collections, placed = placements(binders)) {
+	const where = placed.get(copy.id);
 
 	return stableJson({
 		fields: pick(copy, OWN_FIELDS),
@@ -660,6 +665,13 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	const keptIn = (key) => matched.filter((item) => item.key === key).map(({copy}) => copy);
 	const joins = [];
 	const lost = [];
+	// The kept copies that took each removed copy's details: its pocket and
+	// tray go to them first, as its collections do.
+	const tookBy = new Map();
+	// What a removed copy held that no kept copy can take, with its card, so
+	// the preview names the card: its own name, else the file's name for it.
+	const fileName = (copy) => ((wanted.get(home.get(copy.id)) || []).find((entry) => entry.name_local) || {}).name_local || null;
+	const lose = (donor, field, value) => lost.push({card_id: donor.card_id, field, id: donor.id, name: donor.name_local || fileName(donor), value});
 
 	for (const donor of removed.filter(holds).sort(byAge)) {
 		const ownFinish = (copy) => sameFinish(donor, after(copy)) || groupKey(after(copy)) === groupKey(donor);
@@ -682,14 +694,18 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 				patch(target, value);
 				took.push(target);
 			}
-			else if (targets.length) {
-				lost.push({field: unit[0] === 'grader' ? 'grading' : unit[0], id: donor.id, value: unit.length > 1 ? Object.values(value).join(' ') : value[unit[0]]});
+			else {
+				// No kept copy has room for it, or no copy of the card is
+				// kept at all (a card the file does not list).
+				lose(donor, unit[0] === 'grader' ? 'grading' : unit[0], unit.length > 1 ? Object.values(value).join(' ') : value[unit[0]]);
 			}
 		}
 
 		if (took.length) {
 			counts.carried++;
 		}
+
+		tookBy.set(donor.id, new Set(took.map((copy) => copy.id)));
 
 		joins.push({donor, targets: [...new Set([...took, ...targets])]});
 	}
@@ -730,6 +746,12 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 				continue;
 			}
 
+			if (!targets.length) {
+				lose(donor, 'collection', item.name || '');
+
+				continue;
+			}
+
 			const target = targets.find((copy) => !memberOf(current, copy.id));
 
 			if (!target) {
@@ -748,7 +770,14 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	// A copy counted with a card on another record is a spare of that card.
 	const homeOf = (copy) => home.get(copy.id) || cardKey(copy);
 	const spare = groupBy(liveAfter.filter((card) => !placed.has(card.id)), homeOf);
-	let current = binders;
+	// The copy that took a removed copy's details first, then its own
+	// finish, then the oldest: the pocket holding the LP card shows the LP copy.
+	const tookFirst = (copy) => {
+		const took = tookBy.get(copy.id) || new Set();
+
+		return (card) => (took.has(card.id) ? 0 : 2) + (groupKey(card) === groupKey(copy) ? 0 : 1);
+	};
+	const pocketChanges = [];
 
 	for (const copy of [...removed].sort(byAge)) {
 		const where = placed.get(copy.id);
@@ -758,7 +787,9 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		}
 
 		const pool = spare.get(homeOf(copy)) || [];
-		const rank = (card) => (groupKey(card) === groupKey(copy) ? 0 : 1) + (staged.has(card.id) ? 2 : 0);
+		const fits = tookFirst(copy);
+		// A copy in a tray last: placing it takes it out of the tray.
+		const rank = (card) => fits(card) + (staged.has(card.id) ? 4 : 0);
 		const choice = [...pool].sort((a, b) => rank(a) - rank(b) || byAge(a, b))[0];
 		const content = choice ? {entry_id: choice.id} : {want: wantOf(copy)};
 
@@ -770,14 +801,16 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 			counts.pocketsToPlaceholder++;
 		}
 
-		const next = setPocket(current, {at, binderId: where.binder.id, content, page: where.slot.page, position: where.slot.position});
-
-		current = current.map((binder) => next.find((item) => item.id === binder.id) || binder);
+		pocketChanges.push({binderId: where.binder.id, content, page: where.slot.page, position: where.slot.position});
 	}
+
+	const pocketed = setPockets(binders, pocketChanges, {at});
+	let current = pocketed.length ? binders.map((binder) => pocketed.find((item) => item.id === binder.id) || binder) : binders;
 
 	// Trays: a removed copy in a tray gives its place to another unplaced
 	// copy of the card that is in no tray, or leaves the tray.
 	const inTrays = new Set(liveBinders(current).flatMap((binder) => stagedOf(binder)));
+	const cardById = new Map(cards.map((card) => [card.id, card]));
 
 	current = current.map((binder) => {
 		if (!binder || !isLive(binder) || !stagedOf(binder).some((id) => removedIds.has(id))) {
@@ -793,14 +826,19 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 				continue;
 			}
 
-			const copy = cards.find((card) => card.id === id);
+			const copy = cardById.get(id);
 			const pool = spare.get(homeOf(copy)) || [];
-			const choice = pool.filter((card) => !inTrays.has(card.id)).sort((a, b) => Number(groupKey(b) === groupKey(copy)) - Number(groupKey(a) === groupKey(copy)) || byAge(a, b))[0];
+			const fits = tookFirst(copy);
+			const choice = pool.filter((card) => !inTrays.has(card.id)).sort((a, b) => fits(a) - fits(b) || byAge(a, b))[0];
 
 			if (choice) {
 				pool.splice(pool.indexOf(choice), 1);
 				inTrays.add(choice.id);
 				tray.push(choice.id);
+			}
+			else if (!tray.concat(stagedOf(binder)).some((other) => !removedIds.has(other) && cardById.has(other) && homeOf(cardById.get(other)) === homeOf(copy))) {
+				// No copy of the card is left to hold its place in this tray.
+				lose(copy, 'tray', binder.name || '');
 			}
 		}
 
@@ -868,6 +906,8 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 	counts.lost = lost.length;
 	counts.lostDetails = lost;
 
+	const placedAfter = placements(current);
+
 	return {
 		binders: current,
 		card_info: infoOut || undefined,
@@ -877,7 +917,7 @@ export function planMatch(doc, entries, {ids = new Map(), now = Date.now(), skip
 		lost,
 		undo: {
 			added: added.map(({entry}) => entry.id),
-			addedState: Object.fromEntries(added.map(({entry}) => [entry.id, addedState(entry, current, collectionsOut || collections)])),
+			addedState: Object.fromEntries(added.map(({entry}) => [entry.id, addedState(entry, current, collectionsOut || collections, placedAfter)])),
 			binders: binderChanges(binders, current),
 			card_info: infoUndo,
 			cards: cardUndo,
@@ -937,6 +977,8 @@ export function undoPlan(doc, undo, now = Date.now()) {
 
 	// An added copy goes only when nothing he set on it, and none of its
 	// places, changed since Apply.
+	const placedAtUndo = placements(Array.isArray(doc.binders) ? doc.binders : []);
+
 	for (const id of undo.added || []) {
 		const i = index.get(id);
 
@@ -946,7 +988,7 @@ export function undoPlan(doc, undo, now = Date.now()) {
 
 		const was = undo.addedState && undo.addedState[id];
 
-		if (was !== undefined && addedState(cards[i], Array.isArray(doc.binders) ? doc.binders : [], doc.collections) !== was) {
+		if (was !== undefined && addedState(cards[i], Array.isArray(doc.binders) ? doc.binders : [], doc.collections, placedAtUndo) !== was) {
 			keptAdded++;
 
 			continue;
@@ -976,31 +1018,27 @@ export function undoPlan(doc, undo, now = Date.now()) {
 
 	let binders = Array.isArray(doc.binders) ? doc.binders : [];
 	const put = (next) => {
-		binders = binders.map((binder) => next.find((item) => item.id === binder.id) || binder);
-	};
-	const pocket = (binderId, page, position, content) => {
-		try {
-			put(setPocket(binders, {at, binderId, content, page, position}));
-		}
-		catch {
-			// The binder was deleted or made smaller since: nothing to put back.
+		if (next.length) {
+			binders = binders.map((binder) => next.find((item) => item.id === binder.id) || binder);
 		}
 	};
+	// Each pocket still holding what Apply put there. Every binder's pockets
+	// go back before any tray, so a copy Apply moved from one binder's tray
+	// into another's pocket is out of the pocket when its tray is put back,
+	// whatever the order of the binders. One copy and stamp per binder.
+	const pocketsBack = (undo.binders || []).flatMap((change) => (change.pockets || []).map(({after, before, page, position}) => ({after, binderId: change.id, content: before, page, position})));
+	const stillAfter = (list, {after, binderId, page, position}) => same(pocketsOf(liveBinders(list).find((binder) => binder.id === binderId), list).get(`${page}|${position}`) || null, after);
+
+	// A binder deleted or made smaller since: nothing to put back there.
+	put(setPockets(binders, pocketsBack, {at, keep: stillAfter, lenient: true}));
 
 	for (const change of undo.binders || []) {
-		if (!liveBinders(binders).some((binder) => binder.id === change.id)) {
+		const there = liveBinders(binders).find((binder) => binder.id === change.id);
+
+		if (!there) {
 			continue;
 		}
 
-		for (const {after, before, page, position} of change.pockets || []) {
-			const there = liveBinders(binders).find((binder) => binder.id === change.id);
-
-			if (same(pocketsOf(there, binders).get(`${page}|${position}`) || null, after)) {
-				pocket(change.id, page, position, before);
-			}
-		}
-
-		const there = liveBinders(binders).find((binder) => binder.id === change.id);
 		const placedNow = placements(binders);
 		const inTrays = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
 		const liveIds = new Set(cards.filter((card) => card && isLive(card)).map((card) => card.id));
@@ -1019,13 +1057,9 @@ export function undoPlan(doc, undo, now = Date.now()) {
 
 	// A copy Undo removed leaves every pocket and tray it is still in.
 	if (gone.size) {
-		for (const binder of liveBinders(binders)) {
-			for (const slot of slotsOf(binder, placements(binders))) {
-				if (gone.has(slot.entry_id)) {
-					pocket(binder.id, slot.page, slot.position, null);
-				}
-			}
-		}
+		const placedNow = placements(binders);
+
+		put(setPockets(binders, liveBinders(binders).flatMap((binder) => slotsOf(binder, placedNow).filter((slot) => gone.has(slot.entry_id)).map((slot) => ({binderId: binder.id, content: null, page: slot.page, position: slot.position}))), {at, lenient: true}));
 
 		for (const binder of liveBinders(binders)) {
 			if (stagedOf(binder).some((id) => gone.has(id))) {

@@ -139,6 +139,42 @@ const LOST_LABELS = {
 	storage: 'Stored in',
 };
 
+const lostLabel = ({field, value}) => {
+	if (field === 'is_favorite') {
+		return 'favorite';
+	}
+
+	if (field === 'tray') {
+		return `its place in the tray of ${value}`;
+	}
+
+	if (field === 'collection') {
+		return `its place in the collection ${value}`;
+	}
+
+	return `${LOST_LABELS[field] || field} ${value}`;
+};
+
+// What the preview lists as lost, one line per removed copy: its card by
+// name, then what he set on it.
+export function lostLines(lost) {
+	const byCopy = new Map();
+
+	for (const item of lost || []) {
+		if (!byCopy.has(item.id)) {
+			byCopy.set(item.id, []);
+		}
+
+		byCopy.get(item.id).push(item);
+	}
+
+	return [...byCopy.values()].map((items) => {
+		const {card_id: cardId, name} = items[0];
+
+		return `${name ? `${name} (${cardId})` : cardId}: ${items.map(lostLabel).join(', ')}`;
+	});
+}
+
 function holdPage(event) {
 	event.preventDefault();
 	event.returnValue = '';
@@ -365,7 +401,7 @@ export function importView(root) {
 			const cancel = h('button', {id: 'import-match-cancel', type: 'button'}, 'Cancel');
 			const apply = h('button', {class: 'primary', id: 'import-match-apply', type: 'button'}, 'Apply');
 			const changes = counts.added || counts.removed || counts.changed;
-			const lost = counts.lostDetails || [];
+			const lost = lostLines(counts.lostDetails);
 			const leftAlone = counts.leftAlone + counts.hand;
 
 			cancel.addEventListener('click', () => {
@@ -377,9 +413,12 @@ export function importView(root) {
 
 			matchPanel.replaceChildren(h('div', {class: 'card', id: 'import-match-preview'},
 				h('h3', null, 'Match this file'),
-				h('p', null, 'The file decides how many copies you have of each card and language, cards you added in the app included. The copies you have are kept and take the file\'s finish; only extra copies are removed, and what you set on them (condition, Stored in, prices, grading, favorite) moves to a copy that stays. Photos and notes stay with the card.'),
+				h('p', null, 'The file decides how many copies you have of each card and language, cards you added in the app included. The copies you have are kept and take the file\'s finish; only extra copies are removed. What you set on a removed copy (condition, Stored in, prices, grading, favorite, its pocket, tray, and collections) moves to a copy of the same card that stays, where that copy has room for it; anything that cannot move is listed below. Photos and notes stay with the card.'),
 				h('p', {class: 'big', id: 'import-match-summary'}, changes ? matchSummary(counts) : 'Your cards already match this file.'),
-				lost.length ? h('p', {id: 'import-match-lost', role: 'note'}, `${lost.length === 1 ? 'This detail is' : 'These details are'} on a copy that is removed, and every copy that stays already has its own, so ${lost.length === 1 ? 'it is' : 'they are'} lost: ${lost.map(({field, value}) => `${LOST_LABELS[field] || field} ${value}`).join('; ')}.`) : null,
+				lost.length ? h('div', {id: 'import-match-lost', role: 'note'},
+					h('p', null, `${lost.length === 1 ? 'This copy is' : 'These copies are'} removed, and no copy of the same card that stays has room for what you set on ${lost.length === 1 ? 'it' : 'them'}, so this is lost:`),
+					h('ul', null, lost.map((line) => h('li', null, line)))
+				) : null,
 				leftAlone ? h('p', {class: 'muted', id: 'import-match-left'}, `${plural(leftAlone, 'copy', 'copies')} the file could not match (hand-made cards, rows not matched, or rows left out) ${leftAlone === 1 ? 'is' : 'are'} left as ${leftAlone === 1 ? 'it is' : 'they are'}.`) : null
 			));
 			showBar(...(changes ? [apply, cancel] : [cancel]));

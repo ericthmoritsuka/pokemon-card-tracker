@@ -144,7 +144,7 @@ describe('Match this file', () => {
 		const base = {catalog: 'international', language: 'pt', language_source: 'scan', variant_id: 'normal'};
 		const oldest = await call(page, 'collection.js', 'addCard', {...base, card_id: 'tst1-001', created_at: '2026-09-01T10:00:00.000Z'});
 		const extra = await call(page, 'collection.js', 'addCard', {...base, card_id: 'tst1-001', created_at: '2026-09-02T10:00:00.000Z', storage: 'Box A'});
-		const placedCopy = await call(page, 'collection.js', 'addCard', {...base, card_id: 'tst1-002', created_at: '2026-09-03T10:00:00.000Z'});
+		const placedCopy = await call(page, 'collection.js', 'addCard', {...base, card_id: 'tst1-002', condition: 'Lightly Played', created_at: '2026-09-03T10:00:00.000Z'});
 		const binder = await call(page, 'binders.js', 'createBinder', {cols: 3, cover_color: '#1d2e60', name: 'Invented binder', page_count: 2, rows: 3});
 
 		await call(page, 'binders.js', 'placeCard', binder.id, 1, 1, placedCopy.id);
@@ -167,6 +167,7 @@ describe('Match this file', () => {
 		await page.waitForSelector('#import-match-preview');
 		assert.equal(await page.locator('#import-match-summary').textContent(), '+2 copies, -2 copies, 1 copy updated, 1 pocket became a placeholder');
 		assert.equal(await page.locator('button.primary.wide').count(), 0, 'Apply and Cancel take the place of Save while the preview is open');
+		assert.deepEqual(await page.locator('#import-match-lost li').allTextContents(), ['tst1-002: condition Lightly Played'], 'a removed card the file does not list: what he set on it is listed as lost');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/match-file-preview.png`});
 		await page.click('#import-match-cancel');
 		assert.equal(await page.locator('#import-match-preview').count(), 0);

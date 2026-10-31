@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {groupKey, planMatch, undoPlan} from '../js/match-file.js';
-import {placements, slotsOf} from '../js/binders.js';
+import {placements, slotsOf, stagedOf} from '../js/binders.js';
 import {importEntries} from '../js/monprice.js';
 import {moveToCardInfo} from '../js/card-info.js';
 
@@ -614,5 +614,152 @@ describe('the preview counts copies that only change', () => {
 		], {now: NOW});
 
 		assert.deepEqual([plan.counts.added, plan.counts.removed, plan.counts.changed], [0, 0, 2]);
+	});
+});
+
+// The third review of v49 (2026-10-31): what a removed copy held is never
+// lost without the preview saying so, its pocket and tray take the copy
+// that took its details, Undo puts trays back whatever the binder order,
+// and a large collection is matched in well under two seconds.
+describe('what a removed copy held is kept, or the preview says so', () => {
+	const c = (id, minute, fields = {}) => ({
+		card_id: 'tst1-001', catalog: 'international', created_at: at(minute), deleted_at: null, id, language: 'pt', updated_at: at(minute), variant_id: 'normal', ...fields,
+	});
+	const e = (key, fields = {}) => ({card_id: 'tst1-001', catalog: 'international', import_key: key, language: 'pt', variant_id: 'normal', ...fields});
+	const binder = (id, slots = [], staged = []) => ({art: [], cols: 3, created_at: at(0), deleted_at: null, id, name: `Binder ${id}`, page_count: 1, rows: 3, slots, staged, updated_at: at(0)});
+
+	test('a removed copy with no copy of its card left: everything he set on it is listed as lost, with its card', () => {
+		const doc = {binders: [], cards: [
+			c('keep', 1, {import_key: 'monprice|M|pt|NORMAL|0'}),
+			c('psa', 2, {card_id: 'tst1-099', grade: '10', grader: 'PSA', is_favorite: true, name_local: 'Invented Mon', purchase_currency: 'BRL', purchase_price: 900}),
+			c('old', 3, {card_id: 'tst1-050', condition: 'NM', import_key: 'monprice|Z|pt|NORMAL|0', storage: 'Box 2'}),
+		]};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+		const of = (id) => plan.lost.filter((item) => item.id === id).map(({field, value}) => [field, value]);
+
+		assert.equal(plan.counts.removed, 2);
+		assert.deepEqual(of('psa'), [['is_favorite', true], ['purchase_price', '900 BRL'], ['grading', 'PSA 10']]);
+		assert.deepEqual(of('old'), [['condition', 'NM'], ['storage', 'Box 2']]);
+		assert.equal(plan.counts.lost, 5);
+		assert.deepEqual(plan.lost.filter((item) => item.id === 'psa').map(({card_id, name}) => [card_id, name])[0], ['tst1-099', 'Invented Mon']);
+		assert.equal(plan.lost.find((item) => item.id === 'old').name, null, 'a copy with no name of its own is shown by its card');
+	});
+
+	test('a removed copy with no copy of its card left: its collections and tray are listed as lost too', () => {
+		const doc = {
+			binders: [binder('T', [], ['gone'])],
+			cards: [c('keep', 1, {import_key: 'monprice|M|pt|NORMAL|0'}), c('gone', 2, {card_id: 'tst1-099'})],
+			collections: [{created_at: at(0), deleted_at: null, entry_ids: {gone: at(3)}, id: 'col1', kind: 'hand', name: 'Shiny', updated_at: at(3)}],
+		};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0')], {now: NOW});
+
+		assert.deepEqual(plan.lost.map(({field, id, value}) => [id, field, value]), [['gone', 'collection', 'Shiny'], ['gone', 'tray', 'Binder T']]);
+		assert.deepEqual(stagedOf(plan.binders[0]), []);
+	});
+
+	test('the pocket of a removed copy takes the copy that took its details', () => {
+		const doc = {
+			binders: [binder('B', [{entry_id: 'D', page: 1, placed_at: at(4), position: 1}])],
+			cards: [
+				c('K1', 1, {condition: 'NM', import_key: 'monprice|M|pt|NORMAL|0', is_favorite: true, purchase_currency: 'BRL', purchase_price: 5}),
+				c('K2', 2, {import_key: 'monprice|M|pt|NORMAL|1', is_favorite: true, purchase_currency: 'BRL', purchase_price: 7, storage: 'Box'}),
+				c('D', 3, {condition: 'LP', import_key: 'monprice|M|pt|NORMAL|2'}),
+			],
+		};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0'), e('monprice|M|pt|NORMAL|1')], {now: NOW});
+		const byId = new Map(live(plan.cards).map((card) => [card.id, card]));
+
+		assert.deepEqual([byId.get('K1').condition, byId.get('K2').condition], ['NM', 'LP']);
+		assert.deepEqual(slotsOf(plan.binders[0], placements(plan.binders)).map((slot) => slot.entry_id), ['K2'], 'the pocket shows the LP copy');
+	});
+
+	test('the tray place of a removed copy takes the copy that took its details', () => {
+		const doc = {
+			binders: [binder('B', [], ['D'])],
+			cards: [
+				c('K1', 1, {condition: 'NM', import_key: 'monprice|M|pt|NORMAL|0', is_favorite: true, purchase_currency: 'BRL', purchase_price: 5}),
+				c('K2', 2, {import_key: 'monprice|M|pt|NORMAL|1', is_favorite: true, purchase_currency: 'BRL', purchase_price: 7, storage: 'Box'}),
+				c('D', 3, {condition: 'LP', import_key: 'monprice|M|pt|NORMAL|2'}),
+			],
+		};
+		const plan = planMatch(doc, [e('monprice|M|pt|NORMAL|0'), e('monprice|M|pt|NORMAL|1')], {now: NOW});
+
+		assert.deepEqual(stagedOf(plan.binders[0]), ['K2']);
+	});
+
+	for (const order of ['tray binder first', 'pocket binder first']) {
+		test(`Undo puts a copy moved from one binder's tray into another's pocket back in the tray (${order})`, () => {
+			const cards = [
+				c('K', 1, {condition: 'NM', import_key: 'monprice|M|pt|NORMAL|0', is_favorite: true, purchase_currency: 'BRL', purchase_price: 5}),
+				c('S', 2, {condition: 'EX', import_key: 'monprice|M|pt|NORMAL|1'}),
+				c('D', 3, {import_key: 'monprice|M|pt|NORMAL|2'}),
+			];
+			const tray = binder('T', [], ['S']);
+			const pockets = binder('P', [{entry_id: 'D', page: 1, placed_at: at(4), position: 1}, {entry_id: 'K', page: 1, placed_at: at(4), position: 2}]);
+			const binders = order === 'tray binder first' ? [tray, pockets] : [pockets, tray];
+			const plan = planMatch({binders, cards}, [e('monprice|M|pt|NORMAL|0'), e('monprice|M|pt|NORMAL|1')], {now: NOW});
+
+			assert.equal(placements(plan.binders).get('S').binder.id, 'P', 'Apply puts S in D\'s pocket');
+
+			const doc = {binders: plan.binders, cards: plan.cards.map((item) => ({...item})), collections: []};
+
+			undoPlan(doc, plan.undo, NOW + 60000);
+
+			const placed = placements(doc.binders);
+
+			assert.equal(placed.get('D').binder.id, 'P');
+			assert.equal(placed.has('S'), false);
+			assert.deepEqual(stagedOf(doc.binders.find((item) => item.id === 'T')), ['S']);
+		});
+	}
+
+	test('1,600 copies with 1,200 pockets: Apply and Undo each take well under two seconds', () => {
+		const cards = [];
+		const entries = [];
+		const slots = [];
+		const staged = [];
+		const id = (i) => `c${String(i).padStart(6, '0')}`;
+
+		for (let i = 0; i < 1600; i++) {
+			const number = String((Math.floor(i / 2) % 400) + 1).padStart(3, '0');
+			const card = `set${i % 40}-${number}`;
+			const mp = `M${Math.floor(i / 2)}`;
+			const k = i % 2;
+			const scanned = i % 5 === 0;
+
+			cards.push({
+				card_id: scanned ? `jp${i % 40}-${number}` : card, catalog: scanned ? 'japanese' : 'international', condition: i % 3 ? 'NM' : undefined,
+				created_at: at(i % 60), deleted_at: null, id: id(i), import_key: scanned ? undefined : `monprice|${mp}|pt|NORMAL|${k}`, language: 'pt',
+				purchase_price: i % 7 ? undefined : 10, updated_at: at(i % 60), variant_id: 'normal',
+			});
+			entries.push({card_id: card, catalog: 'international', language: 'pt', import_key: `monprice|${mp}|pt|NORMAL|${k}`, variant_id: i % 4 === 0 && i % 8 === 0 ? 'holo' : 'normal', ...(i % 4 === 0 ? {fallback: true} : {})});
+
+			if (i % 3 === 0) {
+				entries.push({card_id: card, catalog: 'international', import_key: `monprice|${mp}|pt|NORMAL|${k + 2}`, language: 'pt', variant_id: 'normal'});
+			}
+
+			if (i < 1200 && i % 9 !== 0) {
+				slots.push({entry_id: id(i), page: 1 + Math.floor(slots.length / 9), placed_at: at(1), position: 1 + (slots.length % 9)});
+			}
+			else if (i % 9 === 0) {
+				staged.push(id(i));
+			}
+		}
+
+		const file = entries.filter((_, j) => j % 10 !== 3);
+		const binders = [{...binder('B', slots, staged), page_count: Math.ceil(slots.length / 9)}];
+		const collections = [{created_at: at(0), deleted_at: null, entry_ids: Object.fromEntries(cards.filter((_, i) => i % 11 === 0).map((card) => [card.id, at(2)])), id: 'h', kind: 'hand', name: 'h', updated_at: at(0)}];
+		let start = performance.now();
+		const plan = planMatch({binders, card_info: [], cards, collections}, file, {now: NOW});
+		const planMs = performance.now() - start;
+
+		assert.ok(plan.counts.removed > 250 && plan.counts.pocketsToPlaceholder + plan.counts.pocketsMoved > 250, 'the scenario removes copies from many pockets');
+
+		start = performance.now();
+		undoPlan({binders: plan.binders, card_info: plan.card_info || [], cards: plan.cards.map((item) => ({...item})), collections: plan.collections || collections}, plan.undo, NOW + 1000);
+		const undoMs = performance.now() - start;
+
+		assert.ok(planMs < 1500, `Apply plan took ${Math.round(planMs)} ms`);
+		assert.ok(undoMs < 1500, `Undo took ${Math.round(undoMs)} ms`);
 	});
 });
