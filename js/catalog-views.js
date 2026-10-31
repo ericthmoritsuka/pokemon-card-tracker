@@ -8,12 +8,15 @@ import {
 	compareNumbers,
 	logoImage,
 	savedCardRecords,
+	savedCatalog,
 	setDetail,
 	setList,
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
 import {regionTag, speciesNames} from './checklists.js';
+import {parseCardQuery, searchOnline, searchSaved} from './card-search.js';
+import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
@@ -369,20 +372,27 @@ export function setsView(root) {
 
 	sort.value = readChoice(SET_SORT_KEY, SET_SORTS.map((option) => option.value), 'newest');
 	const search = h('input', {
-		'aria-label': 'Search sets by name or code',
+		'aria-label': 'Search sets and cards',
 		autocomplete: 'off',
 		class: 'search',
-		oninput: draw,
-		placeholder: 'Search sets by name or code',
+		oninput: () => {
+			draw();
+			findCards();
+		},
+		placeholder: 'Search sets and cards: name, number, MEW 025',
 		type: 'search',
 	});
 	const list = h('div', {class: 'set-list'});
+	const cardResults = h('div', {id: 'sets-card-results'});
+	let cardTimer = null;
+	let cardRun = 0;
 
 	function changeLanguage(code) {
 		lang = code;
 		select.value = code;
 		setViewingLanguage(code);
 		load();
+		findCards();
 	}
 
 	function setTile(set) {
@@ -476,6 +486,104 @@ export function setsView(root) {
 		list.replaceChildren(...children);
 	}
 
+	// Card search (js/card-search.js): after a pause in typing, the cards
+	// the box names, shown under the sets. Online it asks TCGdex; offline,
+	// or when TCGdex fails, it looks through the sets saved on this phone.
+	function findCards() {
+		clearTimeout(cardTimer);
+
+		const run = ++cardRun;
+		const sets = (series || []).flatMap((serie) => serie.sets).map((set) => ({catalog: catalogFor(lang), code: set.code, id: set.id}));
+		const query = parseCardQuery(search.value, sets);
+
+		if (!query) {
+			cardResults.replaceChildren();
+
+			return;
+		}
+
+		const say = (text) => h('p', {class: 'muted', id: 'sets-card-status'}, text);
+
+		cardResults.replaceChildren(h('h3', null, 'Cards'), say('Searching cards...'));
+		cardTimer = setTimeout(async () => {
+			const tables = loadedSpeciesNames(() => alive && run === cardRun && query.name && speciesTables && findCards());
+			const offline = async () => searchSaved(query, await savedCatalog(), {tables, viewing: lang});
+			let found;
+			let fromPhone = !navigator.onLine;
+
+			try {
+				found = fromPhone ? await offline() : await searchOnline(query, {graphql, tables, viewing: lang});
+			}
+			catch {
+				fromPhone = true;
+				found = await offline();
+			}
+
+			const catalogs = [...new Set(found.results.map((card) => card.catalog))];
+			const entries = member ? await memberCards(member.userId).catch(() => []) : null;
+			const owned = new Map();
+
+			for (const catalog of catalogs) {
+				owned.set(catalog, entries ? ownedFrom(entries, catalog) : await ownedIn(catalog).catch(() => new Map()));
+			}
+
+			if (!alive || run !== cardRun) {
+				return;
+			}
+
+			const where = fromPhone ? ' saved on this phone' : '';
+			const note = found.narrow
+				? 'Add a name or a number to search promo or full art cards.'
+				: !found.results.length
+				? `No cards${where} match "${search.value.trim()}".`
+				: found.more ? `Showing the first ${found.results.length} cards${where}. Add a name, number, or set code to narrow it.` : `${cardsText(found.results.length)}${where}.`;
+			const groups = new Map();
+
+			for (const card of found.results) {
+				const key = `${card.catalog}|${card.setId}`;
+
+				if (!groups.has(key)) {
+					groups.set(key, {cards: [], name: card.setName || card.setId});
+				}
+
+				groups.get(key).cards.push(card);
+			}
+
+			cardResults.replaceChildren(
+				h('h3', null, 'Cards'),
+				say(note),
+				...[...groups.values()].map((group) => h('section', {class: 'serie'},
+					h('h4', null, group.name),
+					h('div', {class: 'card-grid'}, group.cards.map((card) => resultTile(card, owned.get(card.catalog).get(card.id), run)))
+				))
+			);
+		}, 300);
+	}
+
+	// One print's tile, as the set view draws it: owned copies show their
+	// language flags, count, and the Owned mark; an Asian print its flag.
+	function resultTile(card, mine, run) {
+		const names = namesFor({lang: card.lang, name: card.name}, () => alive && run === cardRun && speciesTables && findCards());
+		const info = {name: mainName(names), number: card.localId, setName: card.setName};
+		let art = {info, languages: card.catalog === 'international' ? [] : [card.lang], src: cardImage(card.image, 'low'), viewing: lang};
+		let status = null;
+
+		if (mine) {
+			const languages = [...mine.byLanguage.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+
+			art = {...art, count: mine.total, finish: groupFinish(mine.entries), languages, status: 'owned'};
+			status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(languageChip).join(', ')}`;
+		}
+
+		return cardTile({
+			art,
+			className: mine ? 'owned' : 'unowned',
+			meta: [`#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : null],
+			names: tileNames(names, card.lang),
+			route: routeTo('cards', card.lang, card.id),
+		});
+	}
+
 	async function load() {
 		const wanted = lang;
 
@@ -513,7 +621,8 @@ export function setsView(root) {
 			search
 		),
 		memberNote,
-		list
+		list,
+		cardResults
 	);
 
 	(member ? memberCards(member.userId).then(ownedBySetFrom) : ownedBySet())

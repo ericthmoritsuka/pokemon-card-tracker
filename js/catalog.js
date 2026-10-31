@@ -154,6 +154,32 @@ export const setDetail = (lang, setId, onUpdate) =>
 export const cardDetail = (lang, cardId, onUpdate) =>
 	cached(`card:${lang}:${cardId}`, () => getJson(`${lang}/cards/${encodeURIComponent(cardId)}`), onUpdate);
 
+// The set records and full card records saved on this phone, as {sets:
+// [{lang, set}], cards: [{lang, card}]}, read with no request: what the Sets
+// tab's card search looks through offline (js/card-search.js). Empty when
+// the store cannot be read.
+export async function savedCatalog() {
+	const read = async (prefix) => {
+		const range = IDBKeyRange.bound(prefix, `${prefix}￿`);
+		const [keys, values] = await Promise.all([
+			cacheDb.run(STORE, 'readonly', (s) => s.getAllKeys(range)),
+			cacheDb.run(STORE, 'readonly', (s) => s.getAll(range)),
+		]);
+
+		// "set:<lang>:<set id>" and "card:<lang>:<card id>".
+		return (keys || []).map((key, i) => ({data: values[i] && values[i].data, lang: String(key).split(':')[1]})).filter((row) => row.data);
+	};
+
+	try {
+		const [sets, cards] = await Promise.all([read('set:'), read('card:')]);
+
+		return {cards: cards.map(({data, lang}) => ({card: data, lang})), sets: sets.map(({data, lang}) => ({lang, set: data}))};
+	}
+	catch {
+		return {cards: [], sets: []};
+	}
+}
+
 // Image URLs. TCGdex gives a base URL; the format and size are appended.
 export const cardImage = (base, size) => (base ? `${base}/${size}.webp` : null);
 
@@ -287,6 +313,33 @@ export async function savedCardRecords(entries) {
 	}
 
 	return hits;
+}
+
+// The full TCGdex records saved on this phone in each copy's own language,
+// keyed "card:<lang>:<card id>" (the key importApi.cardDetail saves under),
+// with no request: the photo cleanup (js/photo-cleanup.js) judges a French
+// copy by its French record, never the English one. A copy on another
+// catalog's record (a Korean copy on a Japanese one) has none.
+export async function savedOwnRecords(entries) {
+	const found = new Map();
+
+	for (const entry of entries || []) {
+		const catalog = entry.catalog || 'international';
+		const lang = entry.language || catalogLanguage(catalog);
+		const key = `card:${lang}:${entry.card_id}`;
+
+		if (catalogFor(lang) !== catalog || found.has(key)) {
+			continue;
+		}
+
+		const hit = await cacheGet(key).catch(() => null);
+
+		if (hit && hit.data && hit.data.id) {
+			found.set(key, hit.data);
+		}
+	}
+
+	return found;
 }
 
 // The records the price statistics take for some copies: the saved full

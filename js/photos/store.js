@@ -451,15 +451,19 @@ async function holderOf(recordOrId, photoId) {
 // when it pointed there), the phone's copy dropped, and the bucket's copy
 // queued for deletion once the grace period has passed and the server holds
 // the tombstone. Removing the photo is the only thing that deletes its file:
-// deleting copies of the card never does.
+// deleting copies of the card never does. Resolves true when the photo was
+// live here, false when no record holds it or it was already removed (on
+// another phone, say), so a caller counts only what it removed.
 export async function removePhotoFromEntry(recordOrId, photoId) {
 	const at = new Date().toISOString();
 	const record = await holderOf(recordOrId, photoId);
 	const photos = record && patchedPhotos(record, photoId, {deleted_at: at});
 
 	if (!photos) {
-		return;
+		return false;
 	}
+
+	const wasLive = (record.photos || []).some((item) => item && item.id === photoId && !item.deleted_at);
 
 	const photo = photos.find((item) => item.id === photoId);
 
@@ -490,6 +494,8 @@ export async function removePhotoFromEntry(recordOrId, photoId) {
 	await forgetLocalPhoto(photoId).catch(() => {});
 	notify();
 	flushQueue();
+
+	return wasLive;
 }
 
 const statusOf = (err) => Number(err && (err.status || err.statusCode));

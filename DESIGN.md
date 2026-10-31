@@ -385,6 +385,22 @@ list and Ver na Liga, so since 2026-10-02 they sit in the top row and never cove
 **Sets lists physical cards only.** The TCG Pocket series (digital-only cards) is hidden from the
 Sets list. *(Decided by Eric, 2026-10-01.)*
 
+**Card search in the Sets tab.** The Sets search box finds cards across the whole catalog as well as
+sets. It takes a Pokémon or Trainer name in English or Portuguese, and finds the Japanese, Korean,
+and Chinese prints of a Pokémon through its English name (js/names.js); a number ("025", or
+"025/165" to name the set size too); a set code with a number ("MEW 025"); and the kinds ex, GX, V,
+VMAX, VSTAR, promo, SIR, and full art, alone or with a name or number. Sets that match still come
+first, as before; the cards follow, one tile per print, grouped under their set, with the Owned mark,
+the language flags of the copies, and a flag on an Asian print, and each tile opens the card page.
+Online the search asks TCGdex's GraphQL card search (English, Portuguese, and each Asian catalog
+whose name for the Pokémon is known); offline, or when TCGdex fails, it looks through the sets
+already saved on the phone. A search shows at most 60 cards and says when there are more. Three
+limits: SIR and full art are told by rarity, which a saved set does not carry, so offline they find
+only cards whose page was opened once; promo and full art alone are too wide for TCGdex and ask for
+a name or number online; a number alone searches the international catalog, plus the viewing
+language's when it is Asian. The logic is js/card-search.js, with tests/card-search.test.mjs and
+tests/sets-card-search-browser.test.mjs. *(Decided by Eric, 2026-10-22; built 2026-10-30.)*
+
 ## 4. Data Model
 
 Sketch, not final. Three places hold data.
@@ -671,6 +687,37 @@ cannot reach (a v47 phone that deleted copies offline, or queued deletes before 
 `supabase/card-photos-keep.sql` makes the bucket refuse to delete any file a card record still
 shows; Eric runs it once. The per-copy fields can be dropped from the move after a min-client bump
 that stops v47 phones from writing.
+
+**Offer to delete photos once the catalog has an image** (Eric, 2026-10-22; built 2026-10-30). The
+official image already becomes a card's main picture when TCGdex adds one, unless a photo is pinned
+as the main image, so a photo taken because the catalog had none mostly takes bucket space. After My
+Cards' background pass, which reads each owned card's TCGdex record again once a week, the app looks
+at each copy's photos in the copy's own language: the card index recorded that language with no
+image, and the TCGdex record saved for that language now has one. A French copy is judged by the
+French record, never the English one, and a Korean copy kept on a Japanese record is never offered,
+since that catalog holds no Korean art for it. The copy must still carry the person's own front
+photos already in the bucket. Back photos are never offered: the official image shows only the
+front, and a back photo records the card's condition (decided for Eric on 2026-10-30 while fixing a
+review; he can reverse it). The app then shows a notice: "5 cards now have official images. You can
+delete your 7 photos of them to save space.", with Review and Not now. The notice counts only the
+photos ticked at the start, so a card whose offered photos are all pinned is listed in Review but not
+counted, and alone shows no notice. Review lists each photo with the card's official image beside
+it, ticked, except a photo pinned as the main image, which starts unticked, and a "Delete N photos"
+button. A row whose official image does not load is unticked, cannot be ticked, says the image did
+not load, and is not counted in the button. Delete first gives the card index the official image in
+that copy's language only, so the tile shows it; if that fails, nothing is deleted and an error
+shows. It then removes each ticked photo the normal way (so its bucket file goes 14 days later, and
+it leaves the family's photo list too) and offers Undo on a toast. A photo another phone removed
+while Review was open is not counted and not brought back by Undo. If a removal fails part way, the
+toast offers Undo for the photos removed and says how many could not be deleted, and those cards
+are offered again. Undo puts each photo back on the same file under a new id, since a removal always
+wins a merge; the live photo at the same path cancels the queued bucket delete, and a pin comes back
+with it. Not now, or closing Review, remembers the cards offered on this phone for that person, so
+the notice shows again only when another card gains an image. Limits: a photo still waiting to
+upload is not offered (it takes no bucket space yet), and a copy in any language but English is
+found only once the record in its own language is saved on the phone, since the weekly pass reads
+the English record first. Code:
+`js/photo-cleanup.js` (the rules) and `js/photo-cleanup-view.js` (the notice and the sheet).
 
 **Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
 each card, language, and finish, copies scanned or added in the app included. Copies are matched by
