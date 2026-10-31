@@ -90,6 +90,42 @@ const hasDetails = (entry) => DETAIL_FIELDS.some((key) => entry[key] !== undefin
 
 const hasNotes = (record) => Boolean(String(Array.isArray(record.notes) ? record.notes.join('') : record.notes || '').trim());
 
+// A short hash of what a copy holds, for Undo to tell whether an added copy
+// changed since: its bookkeeping (stamps, deleted_at, restored_at) left out,
+// and an empty field (undefined, null, '', false, []) the same as a missing
+// one, so a sync round trip, which drops undefined, does not count as a
+// change.
+const BOOKKEEPING = new Set(['deleted_at', 'field_stamps', 'restored_at', 'updated_at']);
+
+const empty = (value) => value === undefined || value === null || value === '' || value === false || (Array.isArray(value) && !value.length);
+
+export function copyHash(entry) {
+	const kept = {};
+
+	for (const key of Object.keys(entry || {}).sort()) {
+		if (!BOOKKEEPING.has(key) && !empty(entry[key])) {
+			kept[key] = entry[key];
+		}
+	}
+
+	// cyrb53: 53 bits, plenty for telling one copy's versions apart.
+	const text = stableJson(kept);
+	let h1 = 0xdeadbeef;
+	let h2 = 0x41c6ce57;
+
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+
+		h1 = Math.imul(h1 ^ code, 2654435761);
+		h2 = Math.imul(h2 ^ code, 1597334677);
+	}
+
+	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+
+	return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
 const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : []).filter((photo) => photo && photo.id && !photo.deleted_at).length;
 
 // What Start over does to `doc`, given the import's entries
@@ -102,9 +138,14 @@ const livePhotos = (record) => (Array.isArray(record.photos) ? record.photos : [
 // language with no copy after Start over, {card_id, catalog, language,
 // name, copies}; and hiddenPhotos and hiddenNotes, the live photos and the
 // notes on those cards' records, kept but not shown until a copy comes back.
-export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} = {}) {
+// The document is marked with the run (start_over: {id, at}), which syncs,
+// so an Undo from an earlier run can tell it is no longer the latest.
+export function planStartOver(doc, entries, {ids = new Map(), now = Date.now(), run = newId()} = {}) {
 	const next = structuredClone(doc);
 	const removed = new Map();
+
+	// Newer than any run this phone knows of, even with its clock behind.
+	next.start_over = {at: nextStamp(doc.start_over && doc.start_over.at, now), id: run};
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry || !isLive(entry) || isCustom(entry)) {
@@ -251,6 +292,8 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} 
 		doc: next,
 		undo: {
 			added: added.map((entry) => entry.id),
+			hashes: Object.fromEntries(added.map((entry) => [entry.id, copyHash(entry)])),
+			run,
 			binders: undoBinders,
 			collections: undoCollections,
 			picks: undoPicks,
@@ -259,21 +302,35 @@ export function planStartOver(doc, entries, {ids = new Map(), now = Date.now()} 
 	};
 }
 
+// True when the document's latest Start over is not the one `undo` undoes:
+// another phone of the account, or this one, started over since.
+export const staleUndo = (doc, undo) => Boolean(doc && doc.start_over) && doc.start_over.id !== (undo && undo.run);
+
 // Undo for planStartOver: removed copies come back (js/merge.js
 // restoreEntry) and added copies are removed, pockets, trays, picks, and
 // collections go back to what they held, each only while it still holds
-// what Start over wrote, so an edit another phone synced since stays. A
-// pocket or tray holding an added copy by now is emptied, since that copy
-// goes. An added copy that the merge folded another phone's copy into
-// (merged_into) stays: it stands for that phone's Start over too, so
-// removing it could leave the card with no copy. Returns {doc, counts};
-// `doc` itself is not changed.
+// what Start over wrote, so an edit another phone synced since stays. An
+// added copy changed since (graded, priced, favorited; copyHash) stays,
+// and so do its pockets; counts.kept counts them. A pocket or tray holding
+// an added copy that goes is emptied. An added copy that the merge folded
+// another phone's copy into (merged_into) stays: it stands for that
+// phone's Start over too, so removing it could leave the card with no
+// copy. Returns {doc, counts, stale}; `doc` itself is not changed. When the
+// document's latest run is another one (staleUndo), nothing is undone and
+// stale is true: undoing would bring the old copies back beside that
+// run's.
 export function planUndo(doc, undo, {now = Date.now()} = {}) {
+	if (staleUndo(doc, undo)) {
+		return {counts: {added: 0, kept: 0, restored: 0}, doc: structuredClone(doc), stale: true};
+	}
+
 	const next = structuredClone(doc);
 	const removedAt = new Map(undo.removed.map((item) => [item.id, item.deleted_at]));
 	const added = new Set(undo.added);
+	const hashes = undo.hashes || null;
 	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
-	const counts = {added: 0, restored: 0};
+	const counts = {added: 0, kept: 0, restored: 0};
+	const gone = new Set();
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry) {
@@ -287,9 +344,16 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 		}
 
 		if (added.has(entry.id) && isLive(entry) && !folded.has(entry.id)) {
+			if (hashes && hashes[entry.id] !== copyHash(entry)) {
+				counts.kept++;
+
+				return entry;
+			}
+
 			const at = nextStamp(entry.updated_at, now);
 
 			counts.added++;
+			gone.add(entry.id);
 
 			return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
 		}
@@ -318,15 +382,15 @@ export function planUndo(doc, undo, {now = Date.now()} = {}) {
 			}
 
 			draft.slots = draft.slots
-				.filter((slot) => !(slot && added.has(slot.entry_id)))
+				.filter((slot) => !(slot && gone.has(slot.entry_id)))
 				.map((slot) => putBack.get(slot) || slot);
 
 			if (was && was.staged && stableJson(stagedOf(draft)) === stableJson(was.staged.after)) {
 				draft.staged = was.staged.before;
 			}
 
-			if (stagedOf(draft).some((id) => added.has(id))) {
-				draft.staged = stagedOf(draft).filter((id) => !added.has(id));
+			if (stagedOf(draft).some((id) => gone.has(id))) {
+				draft.staged = stagedOf(draft).filter((id) => !gone.has(id));
 			}
 		});
 	});
@@ -378,7 +442,8 @@ const UNDO_META = 'start-over-undo';
 
 export const UNDO_DAYS = 7;
 
-// The kept undo, {at, counts, undo, user_id}, or null.
+// The kept undo, {at, counts, undo, user_id}, or null. One from before the
+// document's latest run (staleUndo) is dropped.
 export async function savedUndo({now = Date.now()} = {}) {
 	const [kept, doc] = await Promise.all([readMeta(UNDO_META).catch(() => null), loadDocument()]);
 
@@ -386,8 +451,16 @@ export async function savedUndo({now = Date.now()} = {}) {
 		return null;
 	}
 
+	if (staleUndo(doc, kept.undo)) {
+		await writeMeta(UNDO_META, null).catch(() => {});
+
+		return null;
+	}
+
 	return kept;
 }
+
+export const STALE_UNDO_TEXT = 'You started over again since, on this phone or another, so this Undo would bring back copies beside the new ones. Nothing was changed.';
 
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
 // it rejects and the document on the phone is as it was. A failed write of
@@ -403,9 +476,17 @@ export async function applyStartOver(entries) {
 	return {counts, undo};
 }
 
-// Saved: Undo for applyStartOver, in one save. Resolves its counts.
+// Saved: Undo for applyStartOver, in one save. Resolves its counts. Rejects
+// with an error whose stale is true, and drops the kept undo, when the
+// document's latest run is another one.
 export async function undoStartOver(undo) {
-	const {counts, doc} = planUndo(await loadDocument(), undo);
+	const {counts, doc, stale} = planUndo(await loadDocument(), undo);
+
+	if (stale) {
+		await writeMeta(UNDO_META, null).catch(() => {});
+
+		throw Object.assign(new Error(STALE_UNDO_TEXT), {stale: true});
+	}
 
 	await saveCopy(doc);
 	await writeMeta(UNDO_META, null).catch(() => {});

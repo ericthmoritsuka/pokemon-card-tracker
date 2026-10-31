@@ -131,9 +131,20 @@ function undoStartOverButton(box, undo, label, id) {
 		try {
 			const back = await undoStartOver(undo);
 
-			box.replaceChildren(h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`));
+			box.replaceChildren(...[
+				h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`),
+				back.kept
+					? h('p', {id: 'start-over-undo-kept'}, `${plural(back.kept, 'added copy was', 'added copies were')} kept because you changed ${back.kept === 1 ? 'it' : 'them'} since.`)
+					: null,
+			].filter(Boolean));
 		}
 		catch (err) {
+			if (err && err.stale) {
+				box.replaceChildren(h('p', {id: 'start-over-undo-stale', role: 'alert'}, err.message));
+
+				return;
+			}
+
 			button.disabled = false;
 			box.append(h('p', {role: 'alert'}, `Could not undo. Nothing was changed. ${errorText(err)}`));
 		}

@@ -776,6 +776,18 @@ export function mergeEntries(local, remote, merge = mergeEntry) {
 
 const later = (a, b) => (time(a) >= time(b) ? a : b);
 
+// The newer of two Start over marks ({id, at}), by time, then id, so the
+// merge is the same either way round.
+function newestRun(a, b) {
+	if (!isObject(a) || !isObject(b)) {
+		return isObject(a) ? a : isObject(b) ? b : null;
+	}
+
+	const diff = (time(a.at) - time(b.at)) || 0;
+
+	return diff > 0 || (diff === 0 && String(a.id) >= String(b.id)) ? a : b;
+}
+
 // Merges two whole documents. Every list is merged entry by entry; settings
 // go to whichever side changed them last; other fields keep the local value
 // and gain any the remote side has that the local one lacks.
@@ -806,6 +818,12 @@ export function mergeDocuments(local, remote) {
 
 	if (local.updated_at || remote.updated_at) {
 		out.updated_at = later(local.updated_at, remote.updated_at);
+	}
+
+	// The latest "Start over with this file" (js/start-over.js): the newest
+	// run wins, so every phone agrees whose Undo is still allowed.
+	if (local.start_over || remote.start_over) {
+		out.start_over = newestRun(local.start_over, remote.start_over);
 	}
 
 	// The highest merge rules any phone has used on this document. A phone

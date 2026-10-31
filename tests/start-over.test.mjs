@@ -73,7 +73,7 @@ globalThis.fetch = async (url) => {
 const collection = await import('../js/collection.js');
 const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
-const {mergeDocuments, stableJson} = await import('../js/merge.js');
+const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -305,6 +305,79 @@ describe('planUndo', () => {
 		assert.equal(undone.binder_picks[0].entry_id, addedId, 'the pick another phone made stays');
 		assert.ok(byId.get('a002').deleted_at, 'a copy deleted again since is not brought back');
 	});
+
+	test('an added copy changed since stays, with its pocket, and is counted as kept', async () => {
+		const {plan} = await started();
+		const doc = structuredClone(plan.doc);
+		const [graded, placed] = plan.undo.added;
+		const later = '2026-10-31T12:00:00.000Z';
+		const i = doc.cards.findIndex((entry) => entry.id === graded);
+
+		doc.cards[i] = stampEntry(doc.cards[i], {...doc.cards[i], grade: '10', grader: 'PSA', is_favorite: true, purchase_price: 300, updated_at: later});
+		doc.binders[0].slots.push({entry_id: graded, page: 2, placed_at: later, position: 1}, {entry_id: placed, page: 2, placed_at: later, position: 2});
+
+		const {counts, doc: undone} = planUndo(doc, plan.undo, {now: Date.parse(later) + 1000});
+		const byId = new Map(undone.cards.map((entry) => [entry.id, entry]));
+		const pocket = (position) => undone.binders[0].slots.find((slot) => slot.page === 2 && slot.position === position && !slot.cleared) || null;
+
+		assert.equal(byId.get(graded).deleted_at, null, 'the graded copy stays');
+		assert.equal(byId.get(graded).grade, '10');
+		assert.equal(pocket(1).entry_id, graded, 'and so does its pocket');
+		assert.ok(byId.get(placed).deleted_at, 'a copy only placed in a pocket is not changed, so it goes');
+		assert.equal(pocket(2), null);
+		assert.deepEqual(counts, {added: plan.undo.added.length - 1, kept: 1, restored: 3});
+	});
+
+	test('an added copy that only went through a sync round trip is not counted as changed', async () => {
+		const {plan} = await started();
+		const synced = mergeDocuments(JSON.parse(JSON.stringify(plan.doc)), JSON.parse(JSON.stringify(plan.doc)));
+		const {counts} = planUndo(synced, plan.undo, {now: NOW + 1000});
+
+		assert.deepEqual(counts, {added: plan.undo.added.length, kept: 0, restored: 3});
+	});
+});
+
+// An Undo kept from before a later Start over (another phone of the same
+// account, or a second run on this one) would bring the old collection back
+// beside the new one. Every run marks the document, the newest run wins the
+// merge, and only the newest run's Undo is done.
+describe('the latest run', () => {
+	const three = () => ({
+		binders: [], card_info: [],
+		cards: [card('a1', {card_id: 'tst1-001'}), card('a2', {card_id: 'tst1-002'}), card('a3', {card_id: 'tst1-003'})],
+		collections: [], goals: [], openings: [], wishlist: [],
+	});
+	const rows = importEntries([row('001'), row('002'), row('003')]);
+	const run = async (doc, now) => planStartOver(doc, rows, {ids: await startOverIds(doc.cards, rows), now});
+
+	test('the document names the newest run, whichever way the merge goes', async () => {
+		const a = await run(three(), NOW);
+		const b = await run(three(), NOW + 60000);
+
+		assert.equal(a.doc.start_over.id, a.undo.run);
+		assert.equal(mergeDocuments(a.doc, b.doc).start_over.id, b.undo.run);
+		assert.equal(mergeDocuments(b.doc, a.doc).start_over.id, b.undo.run);
+	});
+
+	test('an Undo from before another phone started over is refused and changes nothing', async () => {
+		const a = await run(three(), NOW);
+		const b = await run(mergeDocuments(three(), a.doc), NOW + 2 * 86400000);
+		const onA = mergeDocuments(a.doc, b.doc);
+		const result = planUndo(onA, a.undo, {now: NOW + 2 * 86400000 + 60000});
+
+		assert.equal(result.stale, true);
+		assert.equal(stableJson(result.doc), stableJson(onA));
+		assert.equal(live(mergeDocuments(result.doc, b.doc)).length, 3, 'one copy per row of the file');
+	});
+
+	test('the newest run\'s Undo still works after the merge', async () => {
+		const b = await run(three(), NOW);
+		const a = await run(three(), NOW + 60000);
+		const result = planUndo(mergeDocuments(a.doc, b.doc), a.undo, {now: NOW + 120000});
+
+		assert.ok(!result.stale);
+		assert.ok(result.counts.restored > 0);
+	});
 });
 
 // Two phones of one person: tests the merge with random ids for the added
@@ -397,7 +470,7 @@ describe('saving', () => {
 
 		const back = await undoStartOver(undo);
 
-		assert.deepEqual(back, {added: 3, restored: 3});
+		assert.deepEqual(back, {added: 3, kept: 0, restored: 3});
 		assert.equal(await savedUndo(), null, 'used once');
 		assert.deepEqual(live(doc).map((entry) => entry.id).sort(), ['a001', 'a002', 'a003', HAND].sort());
 	});
@@ -417,6 +490,23 @@ describe('saving', () => {
 		doc.user_id = 'u1';
 		await undoStartOver(second.undo);
 		delete doc.user_id;
+	});
+
+	test('a kept Undo from before a newer run is dropped, and using it is refused', async () => {
+		const doc = await collection.loadDocument();
+		const {undo} = await applyStartOver(ENTRIES);
+
+		// Another phone of the account started over later, and the sync
+		// brought its mark.
+		doc.start_over = {at: new Date(Date.now() + 60000).toISOString(), id: 'other-run'};
+
+		const before = stableJson(doc);
+
+		await assert.rejects(undoStartOver(undo), /started over again since/);
+		assert.equal(stableJson(doc), before, 'nothing changed');
+		assert.equal(await savedUndo(), null, 'no longer offered');
+		doc.start_over = {at: new Date().toISOString(), id: undo.run};
+		assert.equal(await savedUndo(), null, 'dropped, not just hidden');
 	});
 
 	test('a failed save leaves the document on screen unchanged', async () => {
