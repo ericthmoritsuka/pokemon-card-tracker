@@ -128,10 +128,15 @@ async function signIn(page, fake, email) {
 	}, null, {timeout: 30000});
 }
 
+// A note belongs to the card from v48, so it is read from the copy's card
+// record, not from the copy.
 const noteOf = (page, id) => page.evaluate(async (entryId) => {
 	const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+	const {CARD_INFO, recordOf} = await import('/pokemon-card-tracker/js/card-info.js');
+	const entry = doc.cards.find((card) => card.id === entryId);
+	const record = entry ? recordOf(doc[CARD_INFO], entry) : null;
 
-	return (doc.cards.find((entry) => entry.id === entryId) || {}).notes || null;
+	return (record && record.notes) || null;
 }, id);
 
 // What each device sent and was sent since `from` in the log, in bytes.
@@ -173,7 +178,12 @@ async function oneSmallEdit(fake, {pull = null} = {}) {
 	const mark = fake.log.length;
 	const socketMark = new Map(fake.socketBytes);
 
-	await phone.page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).updateCard('e-00010', {notes: 'Sleeved, from the fair'}));
+	await phone.page.evaluate(async () => {
+		const collection = await import('/pokemon-card-tracker/js/collection.js');
+		const doc = await collection.loadDocument();
+
+		await collection.setCardNotes(doc.cards.find((entry) => entry.id === 'e-00010'), 'Sleeved, from the fair');
+	});
 
 	const deadline = Date.now() + 20000;
 
@@ -188,7 +198,11 @@ async function oneSmallEdit(fake, {pull = null} = {}) {
 	}
 
 	await phone.page.waitForTimeout(2000);
-	assert.equal(fake.documents.get(owner.id).doc.cards.find((entry) => entry.id === 'e-00010').notes, 'Sleeved, from the fair');
+	const {CARD_INFO, recordOf} = await import('../js/card-info.js');
+	const stored = fake.documents.get(owner.id).doc;
+	const record = recordOf(stored[CARD_INFO], stored.cards.find((entry) => entry.id === 'e-00010'));
+
+	assert.equal(record && record.notes, 'Sleeved, from the fair');
 	assert.equal(fake.documents.get(owner.id).doc.cards.length, 1600);
 
 	const result = {laptop: traffic(fake, 'laptop', mark, socketMark), phone: traffic(fake, 'phone', mark, socketMark)};
