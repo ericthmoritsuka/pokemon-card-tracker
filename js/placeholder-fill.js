@@ -26,7 +26,12 @@
 // name a finish and a language choose first, then those naming a finish,
 // then a language, then the rest, each taking the oldest copy that fits
 // what it names; a placeholder whose finish or language no copy has takes
-// another copy of the card. One copy per pocket; a copy already in a pocket
+// another copy of the card. A placeholder that names no language (v51's
+// Start over made hundreds) wants the language of the copy Start over
+// removed from it (pocketLanguages); when none is found and copies in
+// several languages fit, it prefers the language most of its binder's
+// cards have, and the plan counts it as a guess (unknownLanguage), which
+// the preview says. One copy per pocket; a copy already in a pocket
 // or a tray is never moved. A binder made from a list is a view, not a
 // place (js/binder-rules.js): its pockets are never filled here, and a copy
 // it shows still counts as in no pocket.
@@ -36,7 +41,7 @@
 // stamp per binder, and put back by restorePlaceholders, only where a
 // pocket still holds the copy it was given.
 
-import {addCards, isLive, loadDocument} from './collection.js';
+import {addCards, isLive, loadDocument, readMeta} from './collection.js';
 import {addToTray, fillPlaceholders, isGenerated, liveBinders, placeScanned, placements, slotsOf, sortBinders, stagedOf, takeFromTray, unplaceScanned} from './binders.js';
 import {gotWishes, planGot, ungotWishes} from './wishlist.js';
 import {plural} from './format.js';
@@ -47,17 +52,123 @@ const catalogOf = (item) => (item && item.catalog) || 'international';
 // It lives in the document's settings, so it follows the person.
 export const autoFillOn = (doc) => !(doc && doc.settings && doc.settings.fill_placeholders === false);
 
+// The last Start over's undo is kept beside the document under this key
+// (js/start-over.js applyStartOver). Its pockets name the copy each
+// placeholder it made held, which tells the language that pocket wants.
+export const START_OVER_META = 'start-over-undo';
+
+// Saved: the undo kept by the last Start over on this phone, for this
+// account, or null.
+export async function keptStartOver(doc) {
+	const kept = await readMeta(START_OVER_META).catch(() => null);
+
+	return kept && kept.undo && (kept.user_id || null) === ((doc && doc.user_id) || null) ? kept.undo : null;
+}
+
+const pocketKey = (binderId, {page, position}) => `${binderId}|${page}|${position}`;
+
+// Pure: the language each placeholder that names none wants, Map
+// "binderId|page|position" -> language, for the placeholders of hand-made
+// binders. The copy Start over removed from the pocket says it: the one the
+// saved undo (undo, as kept by Start over) names for that pocket, whose
+// tombstone is still in doc.cards; without a record, the copies of that
+// card deleted at the moment the pocket was written (Start over stamps
+// both with the same time), when they share one language. A pocket neither
+// tells is left out, as is a placeholder made by hand.
+export function pocketLanguages(doc, {undo = null} = {}) {
+	const cards = (doc && doc.cards) || [];
+	const binders = (doc && doc.binders) || [];
+	const byId = new Map(cards.filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+	const named = new Map();
+
+	for (const item of (undo && Array.isArray(undo.binders) ? undo.binders : [])) {
+		for (const pocket of (item && Array.isArray(item.pockets) ? item.pockets : [])) {
+			const entry = pocket && byId.get(pocket.entry_id);
+
+			if (entry && entry.language) {
+				named.set(pocketKey(item.id, pocket), entry);
+			}
+		}
+	}
+
+	// Removed copies by card and the time they were removed.
+	const removedAt = new Map();
+
+	for (const entry of cards) {
+		if (entry && entry.deleted_at && !entry.merged_into && entry.card_id && entry.language) {
+			const key = `${entry.card_id}|${entry.deleted_at}`;
+
+			removedAt.set(key, [...(removedAt.get(key) || []), entry]);
+		}
+	}
+
+	const fits = (want, entry) => entry.card_id === want.card_id
+		&& (!want.catalog || catalogOf(entry) === want.catalog)
+		&& (!want.variant_id || !entry.variant_id || entry.variant_id === want.variant_id);
+	const placed = placements(binders);
+	const out = new Map();
+
+	for (const binder of binders) {
+		if (!binder || !isLive(binder) || isGenerated(binder)) {
+			continue;
+		}
+
+		for (const slot of slotsOf(binder, placed)) {
+			const want = slot.want;
+
+			if (!want || !want.card_id || want.language) {
+				continue;
+			}
+
+			const key = pocketKey(binder.id, slot);
+			const entry = named.get(key);
+
+			if (entry && fits(want, entry)) {
+				out.set(key, entry.language);
+				continue;
+			}
+
+			const languages = new Set((removedAt.get(`${want.card_id}|${slot.placed_at}`) || []).filter((item) => fits(want, item)).map((item) => item.language));
+
+			if (languages.size === 1) {
+				out.set(key, [...languages][0]);
+			}
+		}
+	}
+
+	return out;
+}
+
+// The language most of a binder's cards have: its live copies, and its
+// placeholders whose language is known. null on a tie or with none.
+function mainLanguage(languages) {
+	const counts = new Map();
+
+	for (const language of languages) {
+		if (language) {
+			counts.set(language, (counts.get(language) || 0) + 1);
+		}
+	}
+
+	const sorted = [...counts].sort((a, b) => b[1] - a[1]);
+
+	return sorted.length && (sorted.length === 1 || sorted[0][1] > sorted[1][1]) ? sorted[0][0] : null;
+}
+
 const byAge = (a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || String(a.id).localeCompare(String(b.id));
 
 // What filling would do now, without changing anything. doc: {cards,
 // binders}. binderId: only that binder's placeholders (null for every
 // hand-made binder). only: a Set of entry ids, the only copies that may go
 // in (the copies just added); null for every copy in no pocket and no tray.
-// Returns {rows, waiting, binders}: rows [{binderId, binderName, page,
-// position, entryId, cardId, catalog, want}] in binder, page, and pocket
-// order, ready for fillPlaceholders; waiting, the placeholders left with no
-// copy; binders, how many binders the rows fill.
-export function fillPlan(doc, {binderId = null, only = null} = {}) {
+// undo: the kept Start over undo (keptStartOver), for pocketLanguages.
+// Returns {rows, waiting, binders, unknownLanguage}: rows [{binderId,
+// binderName, page, position, entryId, cardId, catalog, want}] in binder,
+// page, and pocket order, ready for fillPlaceholders; waiting, the
+// placeholders left with no copy; binders, how many binders the rows fill;
+// unknownLanguage, how many rows fill a pocket whose language is not known
+// while copies in several languages fitted it.
+export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) {
 	const binders = (doc && doc.binders) || [];
 	const placed = placements(binders);
 	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
@@ -80,26 +191,43 @@ export function fillPlan(doc, {binderId = null, only = null} = {}) {
 	}
 
 	const spots = [];
+	const known = pocketLanguages(doc, {undo});
+	const languageOf = new Map(((doc && doc.cards) || []).filter((entry) => entry && entry.id && isLive(entry)).map((entry) => [entry.id, entry.language]));
 
 	for (const binder of sortBinders(binders)) {
 		if (isGenerated(binder) || (binderId && binder.id !== binderId)) {
 			continue;
 		}
 
+		const own = [];
+		const held = [];
+
 		for (const slot of slotsOf(binder, placed)) {
 			if (slot.want && slot.want.card_id) {
-				spots.push({binder, slot, want: slot.want});
+				own.push({binder, language: slot.want.language || known.get(pocketKey(binder.id, slot)) || null, slot, want: slot.want});
+			}
+			else if (slot.entry_id) {
+				held.push(languageOf.get(slot.entry_id));
 			}
 		}
+
+		// A pocket whose language is not known leans to the binder's.
+		const main = mainLanguage([...held, ...own.map((spot) => spot.language)]);
+
+		spots.push(...own.map((spot) => ({...spot, guess: spot.language ? null : main})));
 	}
 
-	// Each pass lets the placeholders that ask for more choose first.
+	// Each pass lets the placeholders that ask for more choose first; a
+	// pocket's known language before its binder's.
 	const finish = (spot, entry) => Boolean(spot.want.variant_id) && entry.variant_id === spot.want.variant_id;
-	const language = (spot, entry) => Boolean(spot.want.language || spot.binder.language) && entry.language === (spot.want.language || spot.binder.language);
+	const language = (spot, entry) => Boolean(spot.language) && entry.language === spot.language;
+	const guess = (spot, entry) => Boolean(spot.guess) && entry.language === spot.guess;
 	const passes = [
 		(spot, entry) => finish(spot, entry) && language(spot, entry),
+		(spot, entry) => finish(spot, entry) && guess(spot, entry),
 		finish,
 		language,
+		guess,
 		() => true,
 	];
 	const used = new Set();
@@ -123,11 +251,16 @@ export function fillPlan(doc, {binderId = null, only = null} = {}) {
 	}
 
 	const rows = [];
+	let unknownLanguage = 0;
 
 	for (const spot of spots) {
 		const copy = chosen.get(spot);
 
 		if (copy) {
+			if (!spot.language && new Set((pool.get(spot.want.card_id) || []).filter((entry) => !spot.want.catalog || catalogOf(entry) === spot.want.catalog).map((entry) => entry.language || '')).size > 1) {
+				unknownLanguage++;
+			}
+
 			rows.push({
 				binderId: spot.binder.id,
 				binderName: spot.binder.name,
@@ -141,7 +274,7 @@ export function fillPlan(doc, {binderId = null, only = null} = {}) {
 		}
 	}
 
-	return {binders: new Set(rows.map((row) => row.binderId)).size, rows, waiting: spots.length - rows.length};
+	return {binders: new Set(rows.map((row) => row.binderId)).size, rows, unknownLanguage, waiting: spots.length - rows.length};
 }
 
 // The rows a fill or Undo saves, kept small: what restorePlaceholders needs.
@@ -152,13 +285,16 @@ const doneRow = (row) => ({binderId: row.binderId, cardId: row.cardId, catalog: 
 // Saved: the preview of "Fill placeholders" for one binder (binderId) or
 // all. Resolves fillPlan's result.
 export async function previewFill({binderId = null} = {}) {
-	return fillPlan(await loadDocument(), {binderId});
+	const doc = await loadDocument();
+
+	return fillPlan(doc, {binderId, undo: await keptStartOver(doc)});
 }
 
 // Saved: fills them, planned again now so a copy placed since is left
 // alone. Resolves {done, passed, waiting}; done is what undoFill takes.
 export async function fillNow({binderId = null} = {}) {
-	const plan = fillPlan(await loadDocument(), {binderId});
+	const doc = await loadDocument();
+	const plan = fillPlan(doc, {binderId, undo: await keptStartOver(doc)});
 
 	if (!plan.rows.length) {
 		return {done: [], passed: [], waiting: plan.waiting};
@@ -250,7 +386,7 @@ export async function afterAdding(entries, {fill = null, place = null} = {}) {
 		let rows = place;
 
 		if (!rows && (fill === null ? autoFillOn(doc) : fill)) {
-			rows = fillPlan(doc, {only: new Set(added.map((entry) => entry.id))}).rows;
+			rows = fillPlan(doc, {only: new Set(added.map((entry) => entry.id)), undo: await keptStartOver(doc)}).rows;
 		}
 
 		if (rows && rows.length) {
@@ -300,7 +436,7 @@ export async function addToBinder(binderId, entryIds, {fill = null} = {}) {
 	let placed = [];
 
 	if (fill === null ? autoFillOn(doc) : fill) {
-		const plan = fillPlan(doc, {binderId, only: new Set(entryIds)});
+		const plan = fillPlan(doc, {binderId, only: new Set(entryIds), undo: await keptStartOver(doc)});
 
 		if (plan.rows.length) {
 			placed = (await placeScanned(plan.rows)).done.map(doneRow);

@@ -133,14 +133,17 @@ describe('Fill placeholders', () => {
 
 		await page.click('#fill-placeholders-binder');
 		await page.waitForSelector('#fill-preview-binder');
-		assert.equal(await page.locator('#fill-preview-binder').textContent(), '2 cards go into this binder; 2 placeholders have no copy yet.');
+		assert.equal(await page.locator('#fill-preview-binder').textContent(), '2 cards go into this binder; 2 placeholders have no copy yet. 2 pockets have no language saved, so the language of their copies is a guess (the binder\'s most common language, when it has one).');
 		await page.screenshot({fullPage: true, path: '/tmp/placeholder-fill-preview.png'});
 
 		await page.click('#fill-go-binder');
 		await undoOn(page, '2 cards went into this binder.').waitFor();
 		await waitKinds(page, [1, 2, 3, 4, 9], ['card', 'card', 'want', 'want', 'card']);
-		assert.equal((await where(page, ids.first)).position, 1, 'the oldest copy first');
-		assert.equal((await where(page, ids.second)).position, 2);
+		// The placeholders name no language, and the binder's one copy is
+		// English, so the English copy goes first, though the Portuguese one
+		// is older.
+		assert.equal((await where(page, ids.second)).position, 1, 'the binder\'s language first');
+		assert.equal((await where(page, ids.first)).position, 2);
 		assert.equal((await where(page, ids.placed)).position, 9, 'a copy already in a pocket never moves');
 		assert.equal(await where(page, ids.other), null);
 		await page.screenshot({fullPage: true, path: '/tmp/placeholder-fill-filled.png'});
@@ -159,7 +162,7 @@ describe('Fill placeholders', () => {
 		await page.waitForSelector('#fill-placeholders-all:not([hidden])');
 		await page.click('#fill-placeholders-all');
 		await page.waitForSelector('#fill-preview-all');
-		assert.equal(await page.locator('#fill-preview-all').textContent(), '2 cards go into 1 binder; 2 placeholders have no copy yet.');
+		assert.equal(await page.locator('#fill-preview-all').textContent(), '2 cards go into 1 binder; 2 placeholders have no copy yet. 2 pockets have no language saved, so the language of their copies is a guess (the binder\'s most common language, when it has one).');
 		await page.click('#fill-go-all');
 		await undoOn(page, '2 cards went into binders.').waitFor();
 		assert.equal((await where(page, ids.second)).binder_id, ids.album);

@@ -22,7 +22,7 @@ import {isLive, loadDocument, newId, planImport, readMeta, saveCopy, writeMeta} 
 import {isCustom} from './custom-card.js';
 import {handBinders, inGrid, liveBinders, placements, stagedOf} from './binders.js';
 import {pickEntry} from './binder-rules.js';
-import {autoFillOn, planAfterAdding} from './placeholder-fill.js';
+import {START_OVER_META, autoFillOn, planAfterAdding} from './placeholder-fill.js';
 import {copyFits, planUngot} from './wishlist.js';
 import {isMember, memberIds, withMembers, withoutMembers} from './collections.js';
 import {infoKey} from './card-info.js';
@@ -560,7 +560,7 @@ export async function previewStartOver(entries) {
 // the import screen offers Undo after the screen was left or the page
 // reloaded: for UNDO_DAYS days, to the account that started over, until it
 // is used or another Start over replaces it.
-const UNDO_META = 'start-over-undo';
+const UNDO_META = START_OVER_META;
 
 export const UNDO_DAYS = 7;
 

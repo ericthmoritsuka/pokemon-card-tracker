@@ -1702,11 +1702,19 @@ pockets to refill one by one.
   taking the oldest copy that fits what it names; a placeholder whose finish or language no copy
   has takes another copy of the card. One copy per pocket, in binder, page, and pocket order.
   Placeholders made by Start over carry the removed copy's language, so the copy that fills them
-  again is the most alike. Binders have no language of their own yet, so that rule reads only the
-  placeholder's.
+  again is the most alike. Those v51's Start over made carry none, and an import's copies share
+  their created_at, so for a placeholder that names no language the language is the removed
+  copy's (`pocketLanguages`): the copy the kept Start over undo (`meta:start-over-undo`, 7 days)
+  names for that pocket, whose tombstone is still in the document; without it, the copies of that
+  card deleted at the moment the pocket was written (Start over stamps both with the same time),
+  when they share one language. Binders keep no history of what a pocket held, so nothing else
+  tells. When no language is found and copies in several languages fit, the pocket prefers the
+  language most of its binder's cards have (its copies and the placeholders whose language is
+  known; none on a tie), and the preview says how many pockets were filled that way. Binders have no language of their own yet.
 - **Fill placeholders, now.** A button on each hand-made binder with placeholders, and one on the
   Binders list for every binder. It shows a preview first ("212 cards go into 4 binders; 18
-  placeholders have no copy yet."), then fills, with Undo on the toast. Undo puts a placeholder
+  placeholders have no copy yet.", and "3 pockets have no language saved, so the language of their
+  copies is a guess" when that applies), then fills, with Undo on the toast. Undo puts a placeholder
   back only in a pocket that still holds the copy the fill put there, so a card moved or a pocket
   changed on another phone since stays as it is.
 - **From now on, by itself.** Every path that adds copies calls one helper with the copies it

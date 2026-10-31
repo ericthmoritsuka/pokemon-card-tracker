@@ -9,7 +9,9 @@ import {UNDO_MS} from './reorder.js';
 import {toast} from './shell.js';
 import {fillNow, previewFill, undoFill} from './placeholder-fill.js';
 
-// The preview's sentence. binderId set: one binder, "this binder".
+// The preview's sentence. binderId set: one binder, "this binder". When
+// some pockets name no language and copies in several languages fit them
+// (plan.unknownLanguage), a second sentence says how many were a guess.
 export function previewText(plan, {binderId = null} = {}) {
 	const n = plan.rows.length;
 	const waiting = plan.waiting ? `${plural(plan.waiting, 'placeholder has', 'placeholders have')} no copy yet.` : '';
@@ -20,8 +22,10 @@ export function previewText(plan, {binderId = null} = {}) {
 
 	const where = binderId ? 'this binder' : plural(plan.binders, 'binder', 'binders');
 	const goes = `${n === 1 ? '1 card goes' : `${formatCount(n)} cards go`} into ${where}`;
+	const text = waiting ? `${goes}; ${waiting.charAt(0).toLowerCase()}${waiting.slice(1)}` : `${goes}.`;
+	const unknown = plan.unknownLanguage || 0;
 
-	return waiting ? `${goes}; ${waiting.charAt(0).toLowerCase()}${waiting.slice(1)}` : `${goes}.`;
+	return unknown ? `${text} ${unknown === 1 ? '1 pocket has' : `${formatCount(unknown)} pockets have`} no language saved, so the language of ${unknown === 1 ? 'its copy' : 'their copies'} is a guess (the binder's most common language, when it has one).` : text;
 }
 
 // The toast after a fill: "212 cards went into binders."

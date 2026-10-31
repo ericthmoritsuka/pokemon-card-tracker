@@ -128,6 +128,98 @@ describe('fillPlan', () => {
 	});
 });
 
+// Placeholders v51's Start over made carry no language, and an import's
+// copies share created_at, so the language a pocket wants comes from the
+// copy Start over removed from it (review of v53): named by the saved
+// Start over undo, or found by the pocket's stamp, or else the language
+// most of the binder's cards have, and the preview says how many were a
+// guess.
+describe('the language a placeholder with none wants', () => {
+	const T = '2026-10-30T12:00:00.000Z';
+	// v51's wantOf: no language.
+	const v51 = want({card_id: 'sv1-1', name: 'X', variant_id: 'normal'});
+	const pocket = (wanted = v51, placedAt = T) => ({page: 1, placed_at: placedAt, position: 1, want: wanted});
+	const twoBinders = () => [hand('pt', [pocket()], {name: 'PT binder'}), hand('en', [pocket()], {created_at: at(1), name: 'EN binder'})];
+	const offered = [
+		copy('c-en', {card_id: 'sv1-1', created_at: T, language: 'en'}),
+		copy('c-pt', {card_id: 'sv1-1', created_at: T, language: 'pt'}),
+	];
+	const tomb = (id, language, fields = {}) => copy(id, {card_id: 'sv1-1', deleted_at: T, language, updated_at: T, ...fields});
+	const rows = (plan) => plan.rows.map((row) => `${row.binderId}<-${row.entryId}`);
+
+	test('the saved Start over undo names the copy each pocket held, and its tombstone gives the language', () => {
+		const cards = [...offered, tomb('t-pt', 'pt'), tomb('t-en', 'en')];
+		const undo = {binders: [{id: 'pt', pockets: [{entry_id: 't-pt', page: 1, position: 1}]}, {id: 'en', pockets: [{entry_id: 't-en', page: 1, position: 1}]}]};
+		const doc = {binders: twoBinders(), cards};
+
+		assert.deepEqual(fill.pocketLanguages(doc, {undo}), new Map([['pt|1|1', 'pt'], ['en|1|1', 'en']]));
+
+		const plan = fill.fillPlan(doc, {undo});
+
+		assert.deepEqual(rows(plan), ['pt<-c-pt', 'en<-c-en']);
+		assert.equal(plan.unknownLanguage, 0);
+	});
+
+	test('with no saved undo, the copies the same Start over removed (deleted when the pocket was written) give it, when they share one language', () => {
+		const cards = [...offered, tomb('t-pt', 'pt'), tomb('t-old', 'en', {deleted_at: at(1)})];
+		const doc = {binders: [hand('b', [pocket()])], cards};
+
+		assert.deepEqual(fill.pocketLanguages(doc), new Map([['b|1|1', 'pt']]), 'the English copy was deleted long before');
+		assert.deepEqual(rows(fill.fillPlan(doc)), ['b<-c-pt']);
+
+		// Removed in two languages: the stamp does not tell which.
+		const both = {binders: [hand('b', [pocket()])], cards: [...offered, tomb('t-pt', 'pt'), tomb('t-en', 'en')]};
+
+		assert.deepEqual(fill.pocketLanguages(both), new Map());
+	});
+
+	test('a placeholder that names a language keeps it, and one made by hand is not given a language from an old tombstone', () => {
+		const doc = {binders: [hand('b', [pocket(want({card_id: 'sv1-1', language: 'en'})), {...pocket(v51, at(9)), position: 2}])], cards: [...offered, tomb('t-pt', 'pt')]};
+
+		assert.deepEqual(fill.pocketLanguages(doc, {undo: {binders: [{id: 'b', pockets: [{entry_id: 't-pt', page: 1, position: 1}]}]}}), new Map(), 'only pockets whose want names no language');
+	});
+
+	test('no language found: the language most of the binder\'s cards have, and the plan counts the guesses', () => {
+		const cards = [
+			...offered,
+			copy('pt-1', {card_id: 'sv1-2', language: 'pt'}), copy('pt-2', {card_id: 'sv1-3', language: 'pt'}),
+			copy('en-1', {card_id: 'sv1-2', language: 'en'}), copy('en-2', {card_id: 'sv1-3', language: 'en'}),
+		];
+		const placed = (id, position) => ({entry_id: id, page: 1, placed_at: at(1), position});
+		const list = [
+			hand('pt', [pocket(), placed('pt-1', 2), placed('pt-2', 3)], {name: 'PT binder'}),
+			hand('en', [pocket(), placed('en-1', 2), placed('en-2', 3)], {created_at: at(1), name: 'EN binder'}),
+		];
+		const plan = fill.fillPlan({binders: list, cards});
+
+		assert.deepEqual(rows(plan), ['pt<-c-pt', 'en<-c-en']);
+		assert.equal(plan.unknownLanguage, 2);
+
+		// One language offered: nothing to guess.
+		assert.equal(fill.fillPlan({binders: list, cards: cards.filter((entry) => entry.id !== 'c-en')}).unknownLanguage, 0);
+	});
+
+	test('saved: Fill placeholders reads the kept Start over undo', async () => {
+		await reset();
+
+		const doc = structuredClone(await collection.loadDocument());
+
+		doc.binders.push(...twoBinders());
+		doc.cards.push(...offered, tomb('t-pt', 'pt'), tomb('t-en', 'en'));
+		await collection.saveCopy(doc);
+		await collection.writeMeta(fill.START_OVER_META, {at: T, counts: {}, undo: {binders: [{id: 'pt', pockets: [{entry_id: 't-pt', page: 1, position: 1}]}, {id: 'en', pockets: [{entry_id: 't-en', page: 1, position: 1}]}]}, user_id: doc.user_id || null});
+
+		assert.deepEqual(rows(await fill.previewFill()), ['pt<-c-pt', 'en<-c-en']);
+
+		await fill.fillNow();
+
+		const after = (await collection.loadDocument()).binders;
+
+		assert.deepEqual([holds(after, 'pt', 1), holds(after, 'en', 1)], ['c-pt', 'c-en']);
+		await collection.writeMeta(fill.START_OVER_META, null);
+	});
+});
+
 describe('filling and Undo', () => {
 	test('thousands of pockets: one changed binder each, quickly, and every placeholder filled', () => {
 		const pockets = 3000;
