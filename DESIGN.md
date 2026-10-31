@@ -675,7 +675,19 @@ over from removed copies onto the kept or added copies of the same card as far a
 allows. A binder pocket whose copy is removed takes another copy of that card, or becomes that
 card's placeholder when none is left. Nothing is applied before a preview ("+12 copies, -5 copies,
 3 photos kept, 2 pockets became placeholders"), and the result offers Undo. *(Decided 2026-10-22;
-not built.)*
+built in v49.)*
+Built (v49, 2026-10-30): `js/match-file.js`, offered on the import report beside Save once a file
+is matched. A group is catalog, card, language, and variant (the raw monprice finish when no
+variant was found). A group on the phone the file does not name counts as 0 in the file, except
+copies the file cannot speak for, which are left alone and reported: hand-made cards, copies of a
+row the import could not match (same monprice id in the `import_key`, or the same number and
+language), and copies of a large row left unticked. Kept copies take the file's `import_key`s they
+lack and added copies the rest, so the normal import of the same file afterwards adds nothing.
+Details carry over to a kept or added copy of the same card and language that has none of the
+three, the removed copy's own finish first, then oldest first. A pocket takes an unplaced copy of
+the same card and language (own finish first, a copy in a tray last). Cards and binders are written
+in one save, and Undo restores the removed copies, removes the added ones, and puts back the
+changed copies' fields and the changed binders' pockets and trays.
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is

@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-10-30',
 		items: [
+			'Import has a new choice, Match this file: the monprice file decides how many copies you have of each card, cards you added in the app included.',
+			'Before anything changes you see what will happen, such as +12 copies, -5 copies, and you can Undo it afterwards.',
+			'Condition, Stored in, and favorite move to the copies that stay, a binder pocket keeps a copy of its card or becomes its placeholder, and photos and notes stay with the card.',
+		],
+		version: 'v49',
+	},
+	{
+		date: '2026-10-30',
+		items: [
 			'Photos, notes, and the main image now belong to the card, not to one copy: every copy shows them, and so does the card\'s page with no copies left.',
 			'Deleting copies never loses a photo or a note. Notes from several copies of a card are all kept, newest first.',
 			'A language with no photo of its own shows another language\'s photo of the same card.',
