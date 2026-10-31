@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-10-31
 
-- **v53:** adjust a photo that came out too dark. `TBD`
+- **v53:** adjust a photo that came out too dark. `5b69998`
   - On a card's page, each photo you took has **Adjust**. **Auto** fixes a dark or flat photo in
     one tap; sliders set Brightness, Contrast, Saturation, and Warmth, and Reset puts them back.
     Hold the photo, or tap Original, to see it as it was.
