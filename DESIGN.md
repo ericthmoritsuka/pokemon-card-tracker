@@ -672,6 +672,25 @@ cannot reach (a v47 phone that deleted copies offline, or queued deletes before 
 shows; Eric runs it once. The per-copy fields can be dropped from the move after a min-client bump
 that stops v47 phones from writing.
 
+**Offer to delete photos once the catalog has an image** (Eric, 2026-10-22; built 2026-10-30). The
+official image already becomes a card's main picture when TCGdex adds one, unless a photo is pinned
+as the main image, so a photo taken because the catalog had none mostly takes bucket space. After My
+Cards' background pass, which reads each owned card's TCGdex record again once a week, the app looks
+for cards the card index recorded with no image in any language whose saved record now has one, and
+that still carry the person's own photos already in the bucket. It then shows a notice: "5 cards now
+have official images. You can delete your 7 photos of them to save space.", with Review and Not now.
+Review lists each photo with the card's official image beside it, ticked, except a photo pinned as
+the main image, which starts unticked, and a "Delete N photos" button. Delete removes each ticked
+photo the normal way (so its bucket file goes 14 days later, and it leaves the family's photo list
+too), gives the card index the official image so the tile shows it, and offers Undo on a toast. Undo
+puts each photo back on the same file under a new id, since a removal always wins a merge; the live
+photo at the same path cancels the queued bucket delete, and a pin comes back with it. Not now, or
+closing Review, remembers the cards offered on this phone for that person, so the notice shows again
+only when another card gains an image. Limits: a photo still waiting to upload is not offered (it
+takes no bucket space yet), and Japanese, Korean, and Chinese cards are found only once their card
+page has been opened, since the weekly pass reads international records only. Code:
+`js/photo-cleanup.js` (the rules) and `js/photo-cleanup-view.js` (the notice and the sheet).
+
 **Import "Match this file"** (Eric, 2026-10-22). The file is the truth for how many copies exist of
 each card, language, and finish, copies scanned or added in the app included. Copies are matched by
 that count, never by `import_key`: app-added copies have none, and a new monprice list need not

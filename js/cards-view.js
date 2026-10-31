@@ -48,6 +48,7 @@ import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './tw
 import {openValueSheet, priceState} from './value-sheet.js';
 import {customRecord, customRoute, isCustom} from './custom-card.js';
 import {openCustomCardSheet} from './custom-card-view.js';
+import {offerPhotoCleanup} from './photo-cleanup-view.js';
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -1012,6 +1013,12 @@ export function cardsScreen(root, {
 
 		if (alive) {
 			await fillPrices();
+		}
+
+		// The saved records may now carry an official image for a card
+		// that has the person's photos (DESIGN.md section 5).
+		if (alive && !readOnly) {
+			offerPhotoCleanup();
 		}
 	}
 

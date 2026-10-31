@@ -144,6 +144,8 @@ const SHELL = [
 	'js/photos/store.js',
 	'js/photos/viewer.js',
 	'js/photos/zoom.js',
+	'js/photo-cleanup.js',
+	'js/photo-cleanup-view.js',
 	'js/scan/artwork.js',
 	'js/scan/evidence.js',
 	'js/scan/ocr.js',
