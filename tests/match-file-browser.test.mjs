@@ -123,6 +123,10 @@ async function state(page) {
 			cards: doc.cards.filter((card) => !card.deleted_at)
 				.map((card) => [card.id, card.card_id, card.condition || null, card.storage || null])
 				.sort((a, b) => a[0].localeCompare(b[0])),
+			// The card records (js/card-info.js), which matching never touches,
+			// and whether an older app's photo_index was written.
+			info: (doc.card_info || []).map((record) => [record.id, record.notes || null, record.updated_at, Boolean(record.deleted_at)]),
+			legacyIndex: Object.hasOwn(doc, 'photo_index'),
 			pockets: binders.flatMap((binder) => slotsOf(binder, placed).map((slot) => [slot.page, slot.position, slot.entry_id || null, slot.want ? slot.want.card_id : null])),
 		};
 	}, BASE);
@@ -144,11 +148,14 @@ describe('Match this file', () => {
 		const binder = await call(page, 'binders.js', 'createBinder', {cols: 3, cover_color: '#1d2e60', name: 'Invented binder', page_count: 2, rows: 3});
 
 		await call(page, 'binders.js', 'placeCard', binder.id, 1, 1, placedCopy.id);
+		await call(page, 'collection.js', 'setCardNotes', {card_id: 'tst1-002', catalog: 'international', language: 'pt'}, 'Invented note');
 
 		const before = await state(page);
 
 		assert.equal(before.cards.length, 3);
 		assert.deepEqual(before.pockets, [[1, 1, placedCopy.id, null]]);
+		assert.deepEqual(before.info.map(([id, notes]) => [id, notes]), [['international~tst1-002~pt', 'Invented note']]);
+		assert.equal(before.legacyIndex, false);
 
 		await page.goto(url('import'));
 		await page.setInputFiles('#monprice-file', {buffer: Buffer.from(CSV), mimeType: 'text/csv', name: 'invented.csv'});
@@ -182,6 +189,8 @@ describe('Match this file', () => {
 		assert.deepEqual(applied.cards.find(([id]) => id === oldest.id).slice(1), ['tst1-001', null, 'Box A'], 'Stored in moved to the copy kept');
 		assert.equal(applied.cards.filter(([, cardId]) => cardId === 'tst1-003').length, 2);
 		assert.deepEqual(applied.pockets, [[1, 1, null, 'tst1-002']], 'the pocket became the card\'s placeholder');
+		assert.deepEqual(applied.info, before.info, 'the removed card keeps its notes, untouched');
+		assert.equal(applied.legacyIndex, false, 'no photo_index is written');
 
 		await page.click('#import-match-undo');
 		await page.waitForSelector('text=Undone. Your cards and binders are as they were.');

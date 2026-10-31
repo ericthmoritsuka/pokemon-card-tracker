@@ -14,6 +14,7 @@ import {describe, test} from 'node:test';
 import {groupKey, planMatch, undoPlan} from '../js/match-file.js';
 import {placements, slotsOf} from '../js/binders.js';
 import {importEntries} from '../js/monprice.js';
+import {moveToCardInfo} from '../js/card-info.js';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const NOW = Date.parse('2026-10-30T12:00:00.000Z');
@@ -214,6 +215,23 @@ describe('photos and notes', () => {
 		assert.deepEqual(doc.card_info, frozen);
 		assert.equal(plan.card_info, undefined, 'the plan has no card records to write');
 		assert.ok(plan.cards.every((card) => card.photos === undefined && card.notes === undefined));
+	});
+});
+
+describe('photos an older phone left on a copy', () => {
+	test('a removed copy keeps them, so they still move to the card record', () => {
+		const a = copy(1);
+		const b = copy(2, {photos: [{id: 'p9', path: 'u/p9.webp', uploaded_at: at(2)}]});
+		const plan = planMatch({binders: [], cards: [a, b]}, importEntries([row('tst1_int_1', 'tst1-001', 1)]), {now: NOW});
+		const removed = plan.cards.find((card) => card.id === b.id);
+
+		assert.ok(removed.deleted_at);
+		assert.deepEqual(removed.photos.map((photo) => photo.id), ['p9']);
+
+		const doc = {card_info: [], cards: plan.cards};
+
+		moveToCardInfo(doc, NOW);
+		assert.deepEqual(doc.card_info[0].photos.map((photo) => photo.id), ['p9']);
 	});
 });
 
