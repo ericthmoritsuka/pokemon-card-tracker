@@ -180,6 +180,14 @@ export async function memberCards(userId) {
 	return (Array.isArray(doc.cards) ? doc.cards : []).filter((entry) => entry && !entry.deleted_at);
 }
 
+// A family member's card records (js/card-info.js), whose photos and pin
+// their cards show on a screen of theirs; from the same kept document.
+export async function memberRecords(userId) {
+	const doc = await memberDocumentKept(userId);
+
+	return Array.isArray(doc.card_info) ? doc.card_info : [];
+}
+
 onUser(() => {
 	favoritesPromise = null;
 	memberDocs.clear();

@@ -37,7 +37,7 @@ export const HARNESS_PATH = `${BASE}photos-harness.html`;
 export const INTEGRATION = {
 	catalogViews: {
 		// After the last import line.
-		import: 'import {cardPhotos} from \'./photos/index.js\';',
+		import: 'import {cardPhotos, imageCardKey, onImagesChange, tileSrc, withMainPhoto} from \'./photos/index.js\';',
 		// In cardView, after const swipe = cardSwipe(root, route); (and the
 		// family member lens, whose card shows that member's photos read
 		// only).
@@ -51,7 +51,7 @@ export const INTEGRATION = {
 	},
 	cardsView: {
 		// After the last import line.
-		import: 'import {tileSrc, withMainPhoto} from \'./photos/index.js\';',
+		import: 'import {imageCardKey, onImagesChange, tileSrc, withMainPhoto} from \'./photos/index.js\';',
 		// The tile.js import gains cardArt.
 		tileImport: 'import {cardArt, cardTile, groupFinish} from \'./tile.js\';',
 		// In tile(group), after const info = {...};

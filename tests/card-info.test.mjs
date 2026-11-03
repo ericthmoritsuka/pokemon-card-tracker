@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {holdsNote, joinNotes, mergeCardInfo, moveToCardInfo, recordsForCopies, shownRecords} from '../js/card-info.js';
+import {holdsNote, imageRecords, joinNotes, mainImageOf, mergeCardInfo, moveToCardInfo, recordsForCard, recordsForCopies, recordsOfCard, shownRecords} from '../js/card-info.js';
 import {mergeDocuments, stableJson, stampEntry as stampEntryFor} from '../js/merge.js';
 import {LEGACY_PHOTO_INDEX, PHOTO_INDEX, bucketDeleteState, memberIndex, refreshPhotoIndex, restoredPhotos} from '../js/photos/model.js';
 
@@ -345,4 +345,82 @@ test('a photo with a detail copy stays live on its copy for a day, so the v47 ph
 
 	moveToCardInfo(soon, Date.parse(at(1)) + 2 * DAY);
 	assert.equal(soon.cards[0].photos[0].moved, true, 'moved after a day');
+});
+
+// ------------------------------------------- the main image on every screen
+//
+// mainImageOf is what js/photos/index.js tileSrc and withMainPhoto decide
+// with, for every screen that draws a card: binders, Sets, a Pokémon's
+// cards, goal cells, the wishlist, the collection sheets, and My Cards.
+
+const OFFICIAL = 'https://assets.tcgdex.net/en/tst/tst1/001/low.webp';
+const TWIN = [{label: 'International print', src: 'https://assets.tcgdex.net/en/tst/tst1/101/low.webp'}];
+const record = (language, fields = {}) => ({card_id: 'tst1-001', catalog: 'international', created_at: at(0), deleted_at: null, id: `international~tst1-001~${language}`, language, updated_at: at(1), ...fields});
+const viewerRecords = [record('pt', {photos: [photo('viewer-photo')]})];
+const own = () => viewerRecords;
+
+test('the main image: the official image first, then the twin, then the person\'s photo, then the card back', () => {
+	const copies = [copy('c1')];
+
+	assert.deepEqual(mainImageOf(copies, OFFICIAL, {own, twins: TWIN}), {kind: 'official', label: 'Official', src: OFFICIAL});
+	assert.equal(mainImageOf(copies, null, {own, twins: TWIN}).src, TWIN[0].src, 'a print with no catalog image shows its twin');
+
+	const choice = mainImageOf(copies, null, {own});
+
+	assert.equal(choice.kind, 'photo', 'no image and no twin: the person\'s photo');
+	assert.equal(choice.photo.id, 'viewer-photo');
+	assert.deepEqual(mainImageOf(copies, null, {own: () => []}), {kind: 'none', label: null, src: null}, 'nothing at all: the card back');
+});
+
+test('the main image: the pin wins over the order, and a pin to a photo that is gone falls back', () => {
+	const records = [record('pt', {main_image: 'p2', photos: [photo('p1'), photo('p2', {created_at: at(2)})]})];
+
+	assert.equal(mainImageOf([copy('c1')], OFFICIAL, {records}).photo.id, 'p2', 'the pinned photo, over the official image');
+	assert.equal(mainImageOf([copy('c1')], OFFICIAL, {records, twins: TWIN}).photo.id, 'p2', 'and over the twin');
+	assert.equal(mainImageOf([copy('c1')], OFFICIAL, {records: [record('pt', {main_image: 'twin'})], twins: TWIN}).kind, 'twin', 'a pin to the twin');
+	assert.equal(mainImageOf([copy('c1')], OFFICIAL, {records: [record('pt', {main_image: 'gone', photos: [photo('p1')]})]}).kind, 'official', 'a pin to a removed photo: the order again');
+});
+
+test('the main image of a card with no copies: a placeholder, a wish, or a missing card reads the card\'s record', () => {
+	// A Korean print the catalog has no image for, at zero copies: its
+	// record keeps the photo.
+	const korean = {card_id: 'sv5k-010', catalog: 'ja', created_at: at(0), deleted_at: null, id: 'ja~sv5k-010~ko', language: 'ko', photos: [photo('k1')], updated_at: at(1)};
+	const records = [korean];
+
+	assert.equal(mainImageOf({card_id: 'sv5k-010', catalog: 'ja', language: 'ko'}, null, {records}).photo.id, 'k1', 'in its language');
+	assert.equal(mainImageOf({card_id: 'sv5k-010', catalog: 'ja'}, null, {records}).photo.id, 'k1', 'no language: any');
+	assert.equal(mainImageOf({card_id: 'sv5k-010', catalog: 'ja', language: 'ja'}, null, {records}).photo.id, 'k1', 'another language with no photo of its own shows this one');
+	assert.equal(mainImageOf({card_id: 'sv5k-010', catalog: 'international', language: 'ko'}, null, {records}).kind, 'none', 'another catalog is another card');
+	assert.equal(mainImageOf({card_id: 'sv5k-010', catalog: 'ja', deleted_at: at(5), language: 'ko'}, null, {records}).kind, 'none', 'a deleted copy is no target');
+	assert.deepEqual(recordsForCard(records, null), []);
+});
+
+test('the main image on a read-only screen: the member\'s records, never the viewer\'s', () => {
+	const member = [record('pt', {main_image: 'member-photo-2', photos: [photo('member-photo-1'), photo('member-photo-2', {created_at: at(3)})]})];
+	const memberCopy = copy('m1');
+
+	assert.equal(mainImageOf(memberCopy, null, {own, readOnly: true, records: member}).photo.id, 'member-photo-2', 'the member\'s photo and pin');
+	assert.deepEqual(mainImageOf(memberCopy, null, {own, readOnly: true}), {kind: 'none', label: null, src: null}, 'no records passed: none, not the viewer\'s');
+	assert.deepEqual(mainImageOf(memberCopy, null, {own, readOnly: true, records: []}), {kind: 'none', label: null, src: null});
+	assert.equal(mainImageOf(memberCopy, null, {own}).photo.id, 'viewer-photo', 'the person\'s own screen: their own records');
+	assert.deepEqual(imageRecords(null, {own, readOnly: true}), []);
+	assert.equal(imageRecords(null, {own}), viewerRecords);
+	assert.equal(imageRecords(member, {own, readOnly: true}), member);
+});
+
+test('looking a card\'s records up by card stays right as the list grows and records change in place', () => {
+	const list = [record('pt'), record('en', {card_id: 'tst1-002', id: 'international~tst1-002~en'})];
+	const card = {card_id: 'tst1-001', catalog: 'international'};
+
+	assert.deepEqual(recordsOfCard(list, card).map((item) => item.id), ['international~tst1-001~pt']);
+
+	// A record added in place (js/collection.js updateCardInfo pushes).
+	list.push(record('en'));
+	assert.deepEqual(recordsOfCard(list, card).map((item) => item.id), ['international~tst1-001~pt', 'international~tst1-001~en']);
+
+	// A record removed in place is a tombstone.
+	list[0].deleted_at = at(9);
+	assert.deepEqual(recordsOfCard(list, card).map((item) => item.id), ['international~tst1-001~en']);
+	assert.deepEqual(recordsOfCard(list, {card_id: 'tst1-001', catalog: 'ja'}), []);
+	assert.deepEqual(recordsOfCard(null, card), []);
 });

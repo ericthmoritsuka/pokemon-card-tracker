@@ -6,11 +6,15 @@
 //   photoCarousel(...)              the carousel alone (carousel.js)
 //   addPhotoButton(...)             the Add photo button alone
 //   mainImage(entry, catalogImage)  what a tile should draw (model.js)
-//   tileSrc, withMainPhoto          the same for js/tile.js cardTile(): the
-//                                   URL to pass, then the photo filled in
-//                                   when it was not in memory yet
-//                                   (a family member's photo when the
-//                                   card has no image at all, shared.js)
+//   tileSrc, withMainPhoto, mainArt the same for every screen that draws a
+//                                   card (js/tile.js cardTile, tileArt,
+//                                   cardArt): the URL to pass, then the
+//                                   photo filled in when it was not in
+//                                   memory yet (a family member's photo
+//                                   when the card has no image at all,
+//                                   shared.js)
+//   onImagesChange(listener)        tells a screen which cards' images a
+//                                   save or a twin changed
 //   startPhotoSync()                the upload queue and photo restore
 //   photoSettingsCard()             Profile's "Keep a detail copy of new
 //                                   photos" switch, for this phone
@@ -23,7 +27,8 @@
 // DESIGN.md section 5 ("Own photos, cropped to the card" and "Image
 // carousel per card") is the spec; supabase/photos.sql makes the bucket.
 
-import {recordsForCopies, shownRecords} from '../card-info.js';
+import {mainImageOf, shownRecords} from '../card-info.js';
+import {loadTwins, onTwinsChange, twinSlides} from '../twins.js';
 import {cardInfoList, listCards, loadDocument, newId, nowIso, onChange, updateCardInfo} from '../collection.js';
 import {errorText, h} from '../dom.js';
 import {formatCount} from '../format.js';
@@ -86,7 +91,8 @@ export {
 export {detectCorners} from './detect.js';
 export {encodePhoto, straighten} from './encode.js';
 
-// The card a group of copies is, for the family's photos of it.
+// The card a group of copies is (or a card with no copy, as tileSrc takes
+// it), for the family's photos of it and its twin.
 function cardOf(entries, fallback = {}) {
 	const entry = (Array.isArray(entries) ? entries : [entries]).find((item) => item && !item.deleted_at && item.card_id);
 
@@ -100,9 +106,15 @@ function familyFor(entries, family) {
 		return [];
 	}
 
+	const card = cardOf(entries, null);
+
+	if (!card) {
+		return [];
+	}
+
 	startSharedPhotos();
 
-	return sharedPhotosFor(cardOf(entries));
+	return sharedPhotosFor(card);
 }
 
 // A card-shaped image with no names, for callers that pass no art function.
@@ -489,18 +501,64 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 	};
 }
 
-// For js/tile.js cardTile({art: {src}}), which takes a URL now: the main
-// image's URL when it is known at once (the official image, a twin, or a
-// photo already opened this session), otherwise the official image or null.
-// withMainPhoto() then fills in a photo that was not ready.
+// The main image of a card, on every screen that draws one (DESIGN.md
+// section 5, "Image carousel per card"), the way My Cards picks it: the
+// official catalog image, then a confident international twin (js/twins.js),
+// then the person's own photos, the "Use as main image" pin winning over
+// that order, and the card back when there is none. Two calls, the same
+// options for both:
 //
-// family: false leaves out family members' photos (a member's read-only
-// cards); otherwise a card with no image at all shows one (shared.js).
+//   tileSrc(target, catalogImage, options)   the URL to draw the art with
+//   withMainPhoto(tile, target, catalogImage, art, options)
+//                                            the photo filled in when it
+//                                            was not in memory for tileSrc
 //
-// records: the card records the copies' photos come from (js/card-info.js),
-// a family member's for their cards; the person's own when left out.
-export function tileSrc(entries, catalogImage, {family = true, records = null, twins = []} = {}) {
-	const choice = mainImage(recordsForCopies(records || cardInfoList(), entries), catalogImage, {family: familyFor(entries, family), twins});
+// mainArt() below does both for art drawn on its own (a binder pocket, the
+// tray, a picker), and every screen calls one of the three.
+//
+// target: the copies the tile stands for (one entry or an array), or a card
+// with no copy there ({catalog, card_id, language}, no language for any):
+// a placeholder, a wish, a card missing from a set or a list. A card keeps
+// its record at zero copies, so its photos still show (js/card-info.js
+// recordsForCard).
+//
+// catalogImage: the official image's URL in the tile's size, or null when
+// the catalog has none (most Korean prints).
+//
+// records: the card records the photos and pin come from: a family
+// member's card_info on their screens. Left out, the person's own; but on a
+// read-only screen (family: false) none, never the viewer's own
+// (card-info.js imageRecords).
+//
+// family: false on a family member's read-only cards: no family photos,
+// and no records but the ones passed. Otherwise a card with no image at all
+// shows a family member's photo of it (shared.js).
+//
+// twins: the twin slides (js/twins.js twinSlides); left out, the card's
+// own twin in the low size, once the twins saved on this phone are read
+// (onImagesChange below redraws a screen when they are).
+function twinsOf(target, twins) {
+	if (Array.isArray(twins)) {
+		return twins;
+	}
+
+	const card = cardOf(target, null);
+
+	if (!card || card.catalog === 'custom') {
+		return [];
+	}
+
+	readTwins();
+
+	return twinSlides({card_id: card.card_id, catalog: card.catalog || 'international'}, {size: 'low'});
+}
+
+function choose(target, catalogImage, {family = true, records = null, twins = null} = {}) {
+	return mainImageOf(target, catalogImage, {family: familyFor(target, family), own: cardInfoList, readOnly: !family, records, twins: twinsOf(target, twins)});
+}
+
+export function tileSrc(target, catalogImage, options = {}) {
+	const choice = choose(target, catalogImage, options);
 
 	if (choice.kind !== 'photo' && choice.kind !== 'family') {
 		return choice.src;
@@ -509,19 +567,20 @@ export function tileSrc(entries, catalogImage, {family = true, records = null, t
 	return cachedPhotoUrl(choice.photo.id) || catalogImage || null;
 }
 
-// Puts the owner's photo into a finished tile (its .art-wrap's .art) when
-// the photo is the main image and was not ready for tileSrc(), shimmering
-// until it arrives; the corner badges stay. art(src) draws the card shape,
-// as the tile did. A family member's photo also gets the line "Photo by
-// <name>" under the tile's meta, and one known only once the family's
-// photo lists have loaded is put in then. Returns the tile.
-export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {family = true, records = null, twins = []} = {}) {
-	const holders = recordsForCopies(records || cardInfoList(), entries);
-	const choice = mainImage(holders, catalogImage, {family: familyFor(entries, family), twins});
+// Puts the person's photo into a finished tile (its .art-wrap's .art, or
+// the .art inside the element given) when the photo is the main image and
+// was not ready for tileSrc(), shimmering until it arrives; the corner
+// badges stay. art(src) draws the card shape, as the tile did. A family
+// member's photo also gets the line "Photo by <name>" under a tile's meta,
+// and one known only once the family's photo lists have loaded is put in
+// then. Returns the tile.
+export function withMainPhoto(tile, target, catalogImage, art = plainArt, options = {}) {
+	const {family = true} = options;
+	const choice = choose(target, catalogImage, options);
 
 	if (choice.kind === 'none' && family) {
 		sharedReady().then(() => sharedSettled()).then(() => {
-			const later = mainImage(recordsForCopies(records || cardInfoList(), entries), catalogImage, {family: familyFor(entries, family), twins});
+			const later = choose(target, catalogImage, options);
 
 			if (later.kind === 'family' && !tile.querySelector('.ph-by')) {
 				fillPhoto(tile, later, catalogImage, art);
@@ -541,6 +600,88 @@ export function withMainPhoto(tile, entries, catalogImage, art = plainArt, {fami
 
 	return cachedPhotoUrl(choice.photo.id) ? tile : fillPhoto(tile, choice, catalogImage, art);
 }
+
+// Art drawn on its own, with the main image: draw(src) makes the element
+// (js/tile.js tileArt, or a frame holding cardArt), and frame(src) the bare
+// card shape a photo that arrives later is drawn in (cardArt). Returns the
+// element.
+export function mainArt(target, catalogImage, draw, frame, options = {}) {
+	return withMainPhoto(draw(tileSrc(target, catalogImage, options)), target, catalogImage, frame, options);
+}
+
+// The twins saved on this phone, read once a session.
+let twinsRead = false;
+let twinsReading = null;
+
+function readTwins() {
+	if (!twinsReading) {
+		twinsReading = loadTwins().then(() => {
+			twinsRead = true;
+		}, () => {});
+	}
+
+	return twinsReading;
+}
+
+// What a screen that draws card images listens to, so its tiles follow a
+// new photo or pin without the screen being opened again: the person's
+// card records changing (a photo added, removed, or uploaded, the pin
+// moved; on this phone, from a sync, or from another tab), and an
+// international twin found or answered, or the twins saved on the phone
+// read after the screen first drew. listener(cards) gets the cards whose
+// image may have changed, as a Set of "catalog~card_id", or null for any
+// card (the twins read). A save that changes no record calls nothing, so a
+// screen that already redraws on every save need not listen for records.
+// Returns the unsubscribe function.
+//
+// records: false leaves the records out, for a screen that draws again on
+// every save already, or one showing a family member's cards; twins: false
+// leaves the twins out, for a screen that follows them itself.
+export function onImagesChange(listener, {records = true, twins = true} = {}) {
+	let alive = true;
+	let stamps = records ? recordStamps(cardInfoList()) : null;
+	const stopRecords = records
+		? onChange((doc) => {
+			const next = recordStamps(doc && Array.isArray(doc.card_info) ? doc.card_info : cardInfoList());
+			const changed = new Set();
+
+			for (const [id, stamp] of next) {
+				if (stamps.get(id) !== stamp) {
+					changed.add(id.slice(0, id.lastIndexOf('~')));
+				}
+			}
+
+			for (const id of stamps.keys()) {
+				if (!next.has(id)) {
+					changed.add(id.slice(0, id.lastIndexOf('~')));
+				}
+			}
+
+			stamps = next;
+
+			if (changed.size) {
+				listener(changed);
+			}
+		})
+		: () => {};
+	const stopTwins = twins ? onTwinsChange((key) => listener(key ? new Set([String(key).replace('|', '~')]) : null)) : () => {};
+
+	if (twins && !twinsRead) {
+		readTwins().then(() => alive && listener(null));
+	}
+
+	return () => {
+		alive = false;
+		stopRecords();
+		stopTwins();
+	};
+}
+
+// "catalog~card_id" of a card, as onImagesChange names it.
+export const imageCardKey = (item) => `${(item && item.catalog) || 'international'}~${item && item.card_id}`;
+
+// Each record's id and version, for onImagesChange.
+const recordStamps = (records) => new Map((records || []).filter((record) => record && record.id).map((record) => [record.id, `${record.updated_at}|${record.deleted_at || ''}`]));
 
 // The "Photo by <name>" line, after the tile's meta line.
 function byLine(tile, label) {

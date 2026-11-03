@@ -605,6 +605,12 @@ button.bt-card {
 	width: 56px;
 }
 
+/* A photo drawn in after the strip (js/photos/index.js) is not dragged
+   out as an image either. */
+.bt-card img {
+	-webkit-user-drag: none;
+}
+
 .bt-card .art {
 	aspect-ratio: auto;
 	border-radius: 4px;

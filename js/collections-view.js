@@ -47,9 +47,11 @@ import {memberDocumentKept, whenMemberName} from './family.js';
 import {REGION_OPTIONS, filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageLabel} from './languages.js';
+import {mainArt} from './photos/index.js';
 import {formatBrl, listStats, savedRates} from './prices.js';
 import {UNDO_MS, orderSection} from './reorder.js';
 import {toast} from './shell.js';
+import {cardArt} from './tile.js';
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -538,7 +540,13 @@ async function memberData(userId) {
 
 	const [doc, index] = await Promise.all([memberDocumentKept(userId), cardIndex()]);
 
-	return {cards: Array.isArray(doc.cards) ? doc.cards : [], collections: sortCollections(Array.isArray(doc.collections) ? doc.collections : []), index};
+	return {
+		cards: Array.isArray(doc.cards) ? doc.cards : [],
+		collections: sortCollections(Array.isArray(doc.collections) ? doc.collections : []),
+		index,
+		// Their card records, for their photos and pin on the tiles.
+		records: Array.isArray(doc.card_info) ? doc.card_info : [],
+	};
 }
 
 export function familyCollectionsView(root, {userId}) {
@@ -673,9 +681,11 @@ async function openCardsSheet({actionLabel, bulk = null, empty, id, intro, read,
 		}
 
 		list.replaceChildren(...groups.map((group) => {
-			const image = group.label.image
-				? h('img', {alt: '', class: 'col-card-art', decoding: 'async', loading: 'lazy', src: group.label.image})
-				: h('span', {'aria-hidden': 'true', class: 'col-card-art'});
+			// The card's main image, as My Cards picks it (js/photos/index.js),
+			// or the card back with its name when it has none.
+			const info = {name: group.label.name, number: group.label.number, setName: group.label.setName};
+			const frame = (src) => cardArt(info, src, {decorative: true});
+			const image = mainArt(group.entries, group.label.image, (src) => h('span', {'aria-hidden': 'true', class: 'col-card-art'}, frame(src)), frame);
 			const button = h('button', {'aria-label': `${actionLabel}: ${group.label.name}`, class: 'small', 'data-card': group.key, type: 'button'}, actionLabel);
 
 			button.addEventListener('click', () => run(() => act(group)));
@@ -805,6 +815,9 @@ function collectionScreen(root, {id, userId = null}) {
 	let index = new Map();
 	let poke = null;
 	let missing = false;
+	// A family member's card records, whose photos and pin their tiles show;
+	// null for the person's own.
+	let records = null;
 	const about = h('p', {class: 'muted', id: 'collection-about'});
 	const edit = readOnly ? null : h('button', {class: 'small', disabled: true, id: 'collection-edit', onclick: async () => {
 		if (collection) {
@@ -863,6 +876,7 @@ function collectionScreen(root, {id, userId = null}) {
 	function apply(data) {
 		allCards = data.cards;
 		index = data.index;
+		records = readOnly ? data.records || [] : null;
 		collection = data.collections.find((item) => item.id === id) || null;
 		missing = !collection;
 		describe();
@@ -911,6 +925,7 @@ function collectionScreen(root, {id, userId = null}) {
 		emptyText: () => (missing ? 'This collection is not here.' : 'No cards in this collection yet.'),
 		label: 'this collection',
 		load: read,
+		loadRecords: () => records,
 		placeholder: 'Search this collection',
 		readOnly,
 		storageKey: `cardTracker.collectionChoice${readOnly ? '.family' : ''}`,

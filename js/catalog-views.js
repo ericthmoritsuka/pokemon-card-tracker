@@ -31,12 +31,12 @@ import {copyPriceText, priceSection} from './price-view.js';
 import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
-import {cardPhotos} from './photos/index.js';
+import {cardPhotos, imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
 import {twinConfirm} from './twins-view.js';
 import {plainVariantId} from './scan/finish.js';
 import {lensMember, toast} from './shell.js';
-import {memberCards, memberDocumentKept, whenMemberName} from './family.js';
+import {memberCards, memberDocumentKept, memberRecords, whenMemberName} from './family.js';
 import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
@@ -523,6 +523,8 @@ export function setsView(root) {
 			const entries = member ? await memberCards(member.userId).catch(() => []) : null;
 			const owned = new Map();
 
+			resultRecords = member ? await memberRecords(member.userId).catch(() => []) : null;
+
 			for (const catalog of catalogs) {
 				owned.set(catalog, entries ? ownedFrom(entries, catalog) : await ownedIn(catalog).catch(() => new Map()));
 			}
@@ -549,6 +551,7 @@ export function setsView(root) {
 				groups.get(key).cards.push(card);
 			}
 
+			resultTiles = new Map();
 			cardResults.replaceChildren(
 				h('h3', null, 'Cards'),
 				say(note),
@@ -560,12 +563,24 @@ export function setsView(root) {
 		}, 300);
 	}
 
+	// The card search's tiles drawn last, by card ("catalog~card_id"), and
+	// a family member's card records while their lens is on (null for the
+	// person's own), so a new photo or pin redraws only its tiles.
+	let resultTiles = new Map();
+	let resultRecords = null;
+
+	const imageOptions = () => (member ? {family: false, records: resultRecords || []} : {});
+
 	// One print's tile, as the set view draws it: owned copies show their
 	// language flags, count, and the Owned mark; an Asian print its flag.
 	function resultTile(card, mine, run) {
 		const names = namesFor({lang: card.lang, name: card.name}, () => alive && run === cardRun && speciesTables && findCards());
 		const info = {name: mainName(names), number: card.localId, setName: card.setName};
-		let art = {info, languages: card.catalog === 'international' ? [] : [card.lang], src: cardImage(card.image, 'low'), viewing: lang};
+		// The card's main image, as My Cards picks it: the owned copies'
+		// photos and pin, or the card's record at zero copies.
+		const target = mine ? mine.entries : {catalog: card.catalog, card_id: card.id, language: card.lang};
+		const official = cardImage(card.image, 'low');
+		let art = {info, languages: card.catalog === 'international' ? [] : [card.lang], src: tileSrc(target, official, imageOptions()), viewing: lang};
 		let status = null;
 
 		if (mine) {
@@ -575,13 +590,42 @@ export function setsView(root) {
 			status = mine.byLanguage.has(lang) ? 'Owned' : `Owned in ${languages.map(languageChip).join(', ')}`;
 		}
 
-		return cardTile({
+		const node = withMainPhoto(cardTile({
 			art,
 			className: mine ? 'owned' : 'unowned',
 			meta: [`#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : null],
 			names: tileNames(names, card.lang),
 			route: routeTo('cards', card.lang, card.id),
-		});
+		}), target, official, (src) => cardArt(info, src, {decorative: true}), imageOptions());
+		const key = imageCardKey({card_id: card.id, catalog: card.catalog});
+
+		if (run === cardRun) {
+			resultTiles.set(key, [...(resultTiles.get(key) || []).filter((item) => item.node.isConnected), {card, mine, node, run}]);
+		}
+
+		return node;
+	}
+
+	// A photo or pin changed, or a twin: the result tiles of those cards
+	// are drawn again in place.
+	function resultImagesChanged(cards) {
+		if (!alive) {
+			return;
+		}
+
+		for (const [key, tiles] of resultTiles) {
+			if (cards && !cards.has(key)) {
+				continue;
+			}
+
+			resultTiles.set(key, tiles.filter((item) => item.node.isConnected).map((item) => {
+				const next = resultTile(item.card, item.mine, -1);
+
+				item.node.replaceWith(next);
+
+				return {...item, node: next};
+			}));
+		}
 	}
 
 	async function load() {
@@ -644,8 +688,13 @@ export function setsView(root) {
 
 	load();
 
+	// The search's tiles follow a new photo or pin, and a twin; a family
+	// member's records do not change while the screen is open.
+	const stopImages = onImagesChange(resultImagesChanged, {records: !member});
+
 	return () => {
 		alive = false;
+		stopImages();
 	};
 }
 
@@ -669,6 +718,10 @@ export function setView(root, {lang, setId}) {
 	let owned = new Map();
 	let shown = null;
 	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
+	// A family member's card records while their lens is on, whose photos
+	// and pin their tiles show; null for the person's own.
+	let records = null;
+	const imageOptions = () => (member ? {family: false, records: records || []} : {});
 	// The copies owned from the set, for the Value sheet.
 	let statsEntries = [];
 	let statsSet = null;
@@ -789,7 +842,12 @@ export function setView(root, {lang, setId}) {
 			const info = {name: mainName(names), number: card.localId, setName: set.name};
 			const mine = owned.get(card.id);
 			const route = routeTo('cards', cardLang, card.id);
-			let art = {info, src: cardImage(card.image, 'low') || twin.src};
+			// The card's main image, as My Cards picks it: the official image,
+			// the twin, or the photos and pin of the owned copies, or of the
+			// card's record at zero copies.
+			const target = mine ? mine.entries : {catalog: catalogFor(cardLang), card_id: card.id, language: cardLang};
+			const official = cardImage(card.image, 'low');
+			let art = {info, src: tileSrc(target, official, imageOptions())};
 			let status = null;
 
 			if (mine) {
@@ -810,13 +868,13 @@ export function setView(root, {lang, setId}) {
 			}
 
 			return {
-				node: cardTile({
+				node: withMainPhoto(cardTile({
 					art,
 					className: mine ? 'owned' : 'unowned',
 					meta: [`#${card.localId}`, status ? h('span', {class: 'owned-text'}, ` · ${status}`) : ' · Missing'],
 					names: tileNames(names, cardLang),
 					route,
-				}),
+				}), target, official, (src) => cardArt(info, src, {decorative: true}), imageOptions()),
 				route,
 			};
 		});
@@ -832,6 +890,7 @@ export function setView(root, {lang, setId}) {
 
 		try {
 			owned = member ? ownedFrom(await memberCards(member.userId), catalogFor(lang)) : await ownedIn(catalogFor(lang));
+			records = member ? await memberRecords(member.userId).catch(() => []) : null;
 		}
 		catch (err) {
 			owned = new Map();
@@ -889,9 +948,19 @@ export function setView(root, {lang, setId}) {
 	// they are in are drawn again only when a twin changes one.
 	loadTwins().then(() => twinsChanged(null), () => {});
 
+	// A new photo or pin of a card in the set draws the set again (the
+	// twins are followed above); a family member's do not change while it
+	// is open.
+	const stopImages = member ? () => {} : onImagesChange((cards) => {
+		if (alive && shown && (!cards || shown[1].some((card) => cards.has(imageCardKey({card_id: card.id, catalog: catalogFor(shown[2])}))))) {
+			draw(...shown);
+		}
+	}, {twins: false});
+
 	return () => {
 		alive = false;
 		stopTwins();
+		stopImages();
 	};
 }
 

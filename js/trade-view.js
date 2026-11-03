@@ -91,6 +91,8 @@ export function tradeView(root) {
 // server each time, like their My Cards.
 export function familyTradeView(root, {userId}) {
 	let name = 'Family member';
+	// Their card records: the tiles show their photos and pin, not yours.
+	let records = [];
 
 	whenMemberName(userId, (label) => {
 		name = label;
@@ -118,8 +120,11 @@ export function familyTradeView(root, {userId}) {
 
 			const doc = await memberDocument(userId);
 
+			records = (doc && doc.card_info) || [];
+
 			return spareEntries((doc && doc.cards) || []);
 		},
+		loadRecords: () => records,
 		metaFor,
 		offered: OFFERED,
 		placeholder: 'Search their spares',

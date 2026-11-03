@@ -117,9 +117,27 @@ export function alikeFields(entry) {
 	return fields;
 }
 
-// Photos belong to the card, not the copy (js/card-info.js): a copy holds a
-// live one only while an older phone's photo waits to move.
-export const hasPhotos = (entry) => Array.isArray(entry.photos) && entry.photos.some((photo) => photo && !photo.deleted_at);
+// How many photos a copy shows: photos belong to the card in the copy's
+// language (js/card-info.js), so they are read from that record, with any
+// an older phone left on the copy that have not moved to it yet. record:
+// the card's record, the person's own (collection.js cardInfoOf) when left
+// out.
+export function photoCount(entry, record = cardInfoOf(entry)) {
+	const ids = new Set();
+	const lists = [record && !record.deleted_at ? record.photos : null, entry && entry.photos];
+
+	for (const photo of lists.flatMap((list) => (Array.isArray(list) ? list : []))) {
+		if (photo && photo.id && !photo.deleted_at) {
+			ids.add(photo.id);
+		}
+	}
+
+	return ids.size;
+}
+
+// A copy that still holds a live photo itself: one an older phone took,
+// waiting to upload before it moves to the card (js/card-info.js).
+const holdsPhoto = (entry) => Boolean(entry) && Array.isArray(entry.photos) && entry.photos.some((photo) => photo && !photo.deleted_at);
 
 // Where every placed copy is: Map entry id -> {binder_id, binder_name, page,
 // position}.
@@ -140,9 +158,20 @@ const newestFirst = (a, b) => String(b.created_at || '').localeCompare(String(a.
 // go), ask is {count, from} and the person picks; otherwise every one goes
 // and ask is null. keep is a copy that never goes (the one in the pocket a
 // binder's sheet is for).
-export function removalPlan(entries, n, {keep = null, places = new Map()} = {}) {
+//
+// Photos belong to the card in a language, so copies of one card and
+// language all show the same photos, and removing one keeps them: the
+// card's photos only part copies that differ in them (copies in two
+// languages, one with photos). A copy still holding a photo of its own (an
+// older phone's, waiting to upload) keeps it, since that phone never
+// uploads a deleted copy's photo. photos(entry) is photoCount, or a
+// stand-in for tests.
+export function removalPlan(entries, n, {keep = null, photos = photoCount, places = new Map()} = {}) {
 	const pool = entries.filter((entry) => entry.id !== keep);
-	const free = pool.filter((entry) => !places.has(entry.id) && !hasPhotos(entry)).sort(newestFirst);
+	const pictured = new Set(pool.filter((entry) => photos(entry) > 0).map((entry) => entry.id));
+	const parts = pictured.size > 0 && pictured.size < pool.length;
+	const kept = (entry) => holdsPhoto(entry) || (parts && pictured.has(entry.id));
+	const free = pool.filter((entry) => !places.has(entry.id) && !kept(entry)).sort(newestFirst);
 
 	if (n <= free.length) {
 		return {ask: null, chosen: free.slice(0, n)};
@@ -276,7 +305,7 @@ export function askWhich({count, from, places = new Map(), title = null}) {
 		const boxes = from.map((entry) => h('input', {'data-entry': entry.id, name: 'copy-pick', type: count === 1 ? 'radio' : 'checkbox', value: entry.id}));
 		const options = from.map((entry, i) => {
 			const where = places.get(entry.id);
-			const count = hasPhotos(entry) ? entry.photos.filter((photo) => photo && !photo.deleted_at).length : 0;
+			const count = photoCount(entry);
 			const photos = count ? `${count} ${count === 1 ? 'photo' : 'photos'}` : null;
 
 			return h('label', {class: 'copy-pick-option'}, boxes[i], h('span', null, [where ? placeText(where) : 'Not in a binder', photos].filter(Boolean).join(' · ')));

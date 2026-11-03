@@ -12,11 +12,13 @@ import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
 import {cardImage, viewingLanguage} from './catalog.js';
 import {listCards, onChange} from './collection.js';
+import {memberRecords} from './family.js';
 import {BASE, errorText, h, listsSwitch} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
+import {mainArt, onImagesChange} from './photos/index.js';
 import {readChoice, saveChoice} from './settings.js';
-import {cardTile, tileArt, variantFinish} from './tile.js';
+import {cardArt, cardTile, tileArt, variantFinish} from './tile.js';
 import {
 	NOTE_MAX,
 	PRIORITIES,
@@ -100,8 +102,9 @@ function finishText(item, info) {
 const gotDay = (at) => new Date(at).toLocaleDateString('en-US', {day: 'numeric', month: 'short'});
 
 // got: {onClear, onBack} for a row of Got it, which shows when it was got
-// in place of Edit.
-function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove = null, owned = 0, spares = 0, viewing = null} = {}) {
+// in place of Edit. records: a family member's card records on their
+// wishlist, whose photos and pin the art shows; null for the person's own.
+function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove = null, owned = 0, records = null, spares = 0, viewing = null} = {}) {
 	const info = cardInfo(item, found);
 	const variant = item.variant_id ? (info.variants || []).find((entry) => entry.variantId === item.variant_id) : null;
 	const finish = finishText(item, info);
@@ -142,17 +145,21 @@ function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove
 	}
 
 	// The art is the shared tile (js/tile.js), and opens the card page, which
-	// swipes through the list.
+	// swipes through the list. Its image is the card's main image, as My
+	// Cards picks it: the card's record keeps photos at zero copies, in the
+	// wished language, or any when the wish takes any.
+	const target = {catalog: item.catalog || 'international', card_id: item.card_id, language: item.language || null};
+
 	return h('li', {class: owned && mine ? 'wl-item wl-has' : 'wl-item', 'data-id': item.id},
-		link(itemRoute(item, viewing), {'aria-label': `Open ${info.name}`, class: 'wl-art'}, tileArt({
+		mainArt(target, info.image, (src) => link(itemRoute(item, viewing), {'aria-label': `Open ${info.name}`, class: 'wl-art'}, tileArt({
 			finish: variantFinish(variant),
 			info,
 			languages: item.language ? [item.language] : [],
-			src: info.image,
+			src,
 			status: mine && owned ? 'owned' : null,
 			statusLabel: mine && owned ? 'You have this now' : null,
 			viewing,
-		})),
+		})), (src) => cardArt(info, src), records ? {family: false, records} : {}),
 		body
 	);
 }
@@ -556,6 +563,9 @@ export function wishlistView(root) {
 	}
 
 	const stop = onChange(() => alive && reload());
+	// A twin found, or the twins on the phone read after the first draw; a
+	// new photo or pin is a save, which reloads the list.
+	const stopImages = onImagesChange(() => alive && draw(), {records: false});
 
 	root.append(
 		heading('Wishlist', null),
@@ -579,6 +589,7 @@ export function wishlistView(root) {
 	return () => {
 		alive = false;
 		stop();
+		stopImages();
 	};
 }
 
@@ -591,6 +602,10 @@ export function familyWishlistView(root, {userId}) {
 
 	const viewing = viewingLanguage();
 	const load = cardLoader();
+	// Their card records, for their photos and pin on the rows' art: read
+	// with a connection, without holding the rows up, which show the catalog
+	// images until then (and offline).
+	let records = [];
 	const note = h('p', {class: 'muted', hidden: true, id: 'wishlist-saved-note'});
 	const summary = h('p', {class: 'muted', id: 'wishlist-summary'});
 	const list = h('ul', {class: 'wl-list', id: 'wishlist-items'});
@@ -661,7 +676,7 @@ export function familyWishlistView(root, {userId}) {
 
 			load(item, viewing).then((found) => {
 				if (alive) {
-					row.replaceWith(itemRow(item, found, {spares: sparesFor(item, cards), viewing}));
+					row.replaceWith(itemRow(item, found, {records, spares: sparesFor(item, cards), viewing}));
 				}
 			});
 
@@ -673,13 +688,25 @@ export function familyWishlistView(root, {userId}) {
 	// Their list does not change while it is open, but the viewer's own
 	// spares do.
 	const stop = onChange(() => alive && show());
+	const stopImages = onImagesChange(() => alive && show(), {records: false});
 
 	root.append(head, body);
 	show();
 
+	if (currentUser() && navigator.onLine) {
+		memberRecords(userId).then((found) => {
+			records = found;
+
+			if (alive && found.some((record) => record && !record.deleted_at && (record.main_image || (record.photos || []).some((photo) => photo && !photo.deleted_at)))) {
+				show();
+			}
+		}, () => {});
+	}
+
 	return () => {
 		alive = false;
 		stop();
+		stopImages();
 	};
 }
 

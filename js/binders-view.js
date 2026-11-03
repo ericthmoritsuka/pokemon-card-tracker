@@ -47,6 +47,7 @@ import {toast} from './shell.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
+import {mainArt, onImagesChange} from './photos/index.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -334,6 +335,23 @@ function wantInfo(want, index, viewing) {
 		route: cardRoute(local, catalog, want.card_id),
 		setName: (local && local.set_name) || null,
 	};
+}
+
+// The card a placeholder (or a Gone pocket) stands for, with no copy: its
+// photos and pin come from the card's record, kept at zero copies
+// (js/card-info.js recordsForCard).
+const cardTarget = (item) => ({catalog: item.catalog || 'international', card_id: item.card_id, language: item.language || null});
+
+// Card art with its main image, as My Cards picks it (js/photos/index.js):
+// the official image, the international twin, or the person's photo, the
+// pin winning, else the card back. draw(src) makes the element holding the
+// art (tileArt, or an .art-wrap); a photo that arrives later is drawn as
+// cardArt in its place. records: a family member's card records on their
+// binder, whose photos it shows; null for the person's own.
+function artOf(target, info, draw, records = null) {
+	const options = records ? {family: false, records} : {};
+
+	return mainArt(target, info.image, draw, (src) => cardArt(info, src), options);
 }
 
 function recordFrom(catalog, lang, card) {
@@ -1047,6 +1065,10 @@ function binderScreen(root, source, id, pageParam) {
 		sheet.addEventListener('close', dropPickerBars);
 	}
 
+	// A family member's card records on their binder, so its pockets show
+	// their photos and pin; null for the person's own (artOf).
+	const recordsShown = () => (source.readOnly ? (data && data.doc && data.doc.card_info) || [] : null);
+
 	// One pocket's content, as a tile.
 	function pocketContent(slot) {
 		if (!slot) {
@@ -1060,7 +1082,7 @@ function binderScreen(root, source, id, pageParam) {
 				const info = entryInfo(entry, index, viewing);
 				// One physical copy per pocket: its flag and finish, never a
 				// count (js/tile.js).
-				const frame = tileArt({finish: entryFinish(entry), info, languages: [entry.language], src: info.image, viewing});
+				const frame = artOf(entry, info, (src) => tileArt({finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
 
 				return {info, kind: 'card', label: `${info.name}, ${languageLabel(entry.language)}`, node: frame};
 			}
@@ -1073,7 +1095,9 @@ function binderScreen(root, source, id, pageParam) {
 				info,
 				kind: 'gone',
 				label: `${info.name}, no longer owned`,
-				node: h('div', {class: 'art-wrap'}, cardArt(info, info.image), h('span', {class: 'pocket-tag'}, 'Gone')),
+				node: entry
+					? artOf(cardTarget(entry), info, (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Gone')), recordsShown())
+					: h('div', {class: 'art-wrap'}, cardArt(info, info.image), h('span', {class: 'pocket-tag'}, 'Gone')),
 			};
 		}
 
@@ -1084,7 +1108,7 @@ function binderScreen(root, source, id, pageParam) {
 				info,
 				kind: 'want',
 				label: `${info.name}, placeholder for a card not owned`,
-				node: h('div', {class: 'art-wrap'}, cardArt(info, info.image), h('span', {class: 'pocket-tag'}, 'Want')),
+				node: artOf(cardTarget(slot.want), info, (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Want')), recordsShown()),
 			};
 		}
 
@@ -1577,7 +1601,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (shown) {
 			const {entry, picked} = shown;
 			const info = entryInfo(entry, index, viewing);
-			const frame = tileArt({count, finish: entryFinish(entry), info, languages: [entry.language], src: info.image, viewing});
+			const frame = artOf(entry, info, (src) => tileArt({count, finish: entryFinish(entry), info, languages: [entry.language], src, viewing}), recordsShown());
 			const extra = [count > 1 ? `${count} copies fit` : null, picked ? 'picked by hand' : null].filter(Boolean).join(', ');
 
 			return {info, item, kind: 'card', label: `${item.name}: ${info.name}, ${languageLabel(entry.language)}${extra ? `, ${extra}` : ''}`, node: frame};
@@ -1586,14 +1610,15 @@ function binderScreen(root, source, id, pageParam) {
 		const info = item.kind === 'pokemon'
 			? {image: item.image, name: item.name, number: String(item.dex).padStart(3, '0'), setName: null}
 			: wantInfo({card_id: item.cardId, catalog: item.catalog, image: item.image, name: item.name}, index, viewing);
-		const src = item.kind === 'pokemon' ? item.image : info.image;
+		const want = (src) => h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Want'));
 
 		return {
 			info,
 			item,
 			kind: 'want',
 			label: `${item.kind === 'pokemon' ? `${item.number} ${item.name}` : info.name}, not owned yet`,
-			node: h('div', {class: 'art-wrap'}, cardArt(info, src), h('span', {class: 'pocket-tag'}, 'Want')),
+			// A Pokémon's pocket shows its picture; a card's, its main image.
+			node: item.kind === 'pokemon' ? want(item.image) : artOf(cardTarget({card_id: item.cardId, catalog: item.catalog}), info, want, recordsShown()),
 		};
 	}
 
@@ -1858,7 +1883,7 @@ function binderScreen(root, source, id, pageParam) {
 						onclick: () => (current && shown.picked ? closeSheet() : act(() => setPocketPick(binder.id, key, entry.id), 'Could not pick the copy.')),
 						type: 'button',
 					},
-					tileArt({finish: entryFinish(entry), info, languages: [entry.language], src: info.image}),
+					artOf(entry, info, (src) => tileArt({finish: entryFinish(entry), info, languages: [entry.language], src})),
 					h('span', {class: 'tile-name'}, info.name),
 					h('span', {class: 'tile-meta'}, [languageLabel(entry.language), entry.condition, entry.storage].filter(Boolean).join(' · ')),
 					entry.id === defaultId ? h('span', {class: 'tile-meta list-default-tag'}, 'Default') : null,
@@ -2113,7 +2138,16 @@ function binderScreen(root, source, id, pageParam) {
 			}, () => {});
 		}
 
-		handArt.replaceChildren(...(info ? [cardArt(info, info.image)] : []));
+		if (info) {
+			artOf(face, info, (src) => {
+				handArt.replaceChildren(cardArt(info, src));
+
+				return handArt;
+			});
+		}
+		else {
+			handArt.replaceChildren();
+		}
 		handName.textContent = info ? info.name : 'This card';
 		handWait.hidden = !wait;
 		handWaitText.textContent = wait ? `Page ${wait.page}, pocket ${wait.position} is waiting for this card` : '';
@@ -2364,14 +2398,14 @@ function binderScreen(root, source, id, pageParam) {
 			const entry = entriesById.get(entryId);
 			const info = entryInfo(entry, index, viewing);
 
-			return h('button', {
+			return artOf(entry, info, (src) => h('button', {
 				'aria-label': `${info.name}, ${languageLabel(entry.language)}`,
 				'aria-pressed': String(entryId === picked),
 				class: 'bt-card',
 				'data-entry': entryId,
 				role: 'listitem',
 				type: 'button',
-			}, cardArt(info, info.image));
+			}, cardArt(info, src)));
 		}));
 
 		for (const img of trayStrip.querySelectorAll('img')) {
@@ -2666,15 +2700,15 @@ function binderScreen(root, source, id, pageParam) {
 			// Picking physical copies: the language always shows, and a
 			// check marks the ones selected, with aria-pressed for screen
 			// readers.
-			const frame = tileArt({
+			const frame = artOf(group.items.map((item) => item.entry), info, (src) => tileArt({
 				count: copies,
 				finish: entryFinish(entry),
 				info,
 				languages: [entry.language],
-				src: info.image,
+				src,
 				status: on ? 'owned' : null,
 				statusLabel: on ? 'Selected' : null,
-			});
+			}));
 			const button = h('button', {'aria-pressed': String(on), class: 'pick tray-pick', 'data-entry': entry.id, type: 'button'},
 				frame,
 				h('span', {class: 'tile-name'}, info.name),
@@ -3293,7 +3327,7 @@ function binderScreen(root, source, id, pageParam) {
 				const item = group.items[0];
 				const pick = group.items.find((copy) => free.has(copy.entry.id)) || item;
 				// Picking a physical copy: its language always shows.
-				const frame = tileArt({count: group.items.length, finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src: item.info.image});
+				const frame = artOf(group.items.map((copy) => copy.entry), item.info, (src) => tileArt({count: group.items.length, finish: entryFinish(item.entry), info: item.info, languages: [item.entry.language], src}));
 
 				return h('button', {class: 'pick', 'data-entry': item.entry.id, onclick: () => choose(pick), type: 'button'},
 					frame,
@@ -3466,6 +3500,22 @@ function binderScreen(root, source, id, pageParam) {
 			spread.refreshCover();
 		}
 	});
+	// A twin found, or the twins on the phone read after the first draw,
+	// redraws the pages shown, once a frame; a new photo or pin is a save,
+	// which the binder already draws again for (source.watch), and a
+	// family member's records do not change while it is open.
+	let imagesFrame = 0;
+	const stopImages = onImagesChange(() => {
+		if (alive && spread && !imagesFrame) {
+			imagesFrame = requestAnimationFrame(() => {
+				imagesFrame = 0;
+
+				if (alive && spread && binder) {
+					drawPage();
+				}
+			});
+		}
+	}, {records: false});
 
 	root.append(...[back, body, sheet].filter(Boolean));
 	load();
@@ -3479,6 +3529,8 @@ function binderScreen(root, source, id, pageParam) {
 		document.removeEventListener('keydown', onHandKey);
 		stop();
 		stopCovers();
+		stopImages();
+		cancelAnimationFrame(imagesFrame);
 
 		if (spread) {
 			spread.destroy();
@@ -3532,19 +3584,19 @@ export function unplacedView(root) {
 
 		const visible = groups.slice(0, shown);
 
-		grid.replaceChildren(...visible.map((group) => cardTile({
+		grid.replaceChildren(...visible.map((group) => artOf(group.entries, group.info, (src) => cardTile({
 			art: {
 				count: group.entries.length,
 				finish: groupFinish(group.entries),
 				info: group.info,
 				languages: [group.first.language],
-				src: group.info.image,
+				src,
 				viewing,
 			},
 			meta: [group.info.number ? `#${group.info.number}` : null, group.info.setName].filter(Boolean).join(' · '),
 			names: group.info.name,
 			route: group.info.route,
-		})));
+		}))));
 		offerCardList(groups.map((group) => group.info.route), 'Not in a binder');
 		more.hidden = groups.length <= shown;
 		more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
@@ -3592,6 +3644,9 @@ export function unplacedView(root) {
 	}
 
 	const stop = onChange(() => alive && load());
+	// A twin found, or the twins on the phone read after the first draw;
+	// a new photo or pin is a save, which loads the screen again.
+	const stopImages = onImagesChange(() => alive && groups.length && draw(), {records: false});
 
 	root.append(
 		link('binders', {class: 'back'}, '‹ Binders'),
@@ -3603,6 +3658,7 @@ export function unplacedView(root) {
 	return () => {
 		alive = false;
 		stop();
+		stopImages();
 	};
 }
 

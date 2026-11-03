@@ -43,7 +43,7 @@ import {pool} from './tcgdex.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
 // Its own line: tests/photos-harness.mjs checks the line above as it is.
 import {noPrice} from './tile.js';
-import {tileSrc, withMainPhoto} from './photos/index.js';
+import {imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 import {openValueSheet, priceState} from './value-sheet.js';
 import {customRecord, customRoute, isCustom} from './custom-card.js';
@@ -1392,6 +1392,21 @@ export function cardsScreen(root, {
 
 	const stop = watch ? watch((doc, info) => alive && changed(doc, info)) : () => {};
 	const stopTwins = onTwinsChange(twinsChanged);
+	// A photo added, removed, or uploaded, or the pin moved, changes a
+	// card's record and none of its copies: only that card's tiles are drawn
+	// again (the twins are followed above). A family member's records do
+	// not change while their cards are open.
+	const stopImages = readOnly ? () => {} : onImagesChange((cards) => {
+		if (!alive || !ready || !cards || !body.contains(grid)) {
+			return;
+		}
+
+		const keys = new Set(groups.filter((group) => cards.has(imageCardKey({card_id: group.cardId, catalog: group.catalog}))).map((group) => group.key));
+
+		if (keys.size) {
+			redraw(keys);
+		}
+	}, {twins: false});
 	// A card the catalog does not have is added by hand (js/custom-card-view.js).
 	const handButton = readOnly ? null : h('button', {class: 'small', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
 	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
@@ -1406,6 +1421,7 @@ export function cardsScreen(root, {
 		alive = false;
 		stop();
 		stopTwins();
+		stopImages();
 		bar.destroy();
 		clearTimeout(twinTimer);
 	};

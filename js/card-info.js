@@ -46,7 +46,7 @@
 // only from copies (notes_source 'copies'), two different versions join
 // (mergeCardInfo). A note typed on the card clears notes_source.
 
-import {BUCKET_DELETE_GRACE_MS, mergePhotoLists, photoIndexKey} from './photos/model.js';
+import {BUCKET_DELETE_GRACE_MS, mainImage, mergePhotoLists, photoIndexKey} from './photos/model.js';
 import {stampMs} from './stamp.js';
 import {fieldStamp, mergeEntry, stampEntry} from './merge.js';
 
@@ -397,10 +397,48 @@ export function mergeCardInfo(a, b) {
 
 // ------------------------------------------------------------- lookups
 
+// The records of a list by card (catalog~card_id), built once per list and
+// kept while the list holds as many records: a list only grows in place
+// (js/collection.js updateCardInfo pushes), and a merge or the move makes a
+// new one. A binder or a grid looks up every tile's card, so this keeps
+// each lookup to one Map read instead of a pass over every record.
+const byCardOf = new WeakMap();
+
+const cardKey = (item) => `${catalogOf(item)}~${item.card_id}`;
+
+function recordsByCard(records) {
+	const kept = byCardOf.get(records);
+
+	if (kept && kept.length === records.length) {
+		return kept.map;
+	}
+
+	const map = new Map();
+
+	for (const record of records) {
+		if (record && record.card_id) {
+			const key = cardKey(record);
+
+			if (!map.has(key)) {
+				map.set(key, []);
+			}
+
+			map.get(key).push(record);
+		}
+	}
+
+	byCardOf.set(records, {length: records.length, map});
+
+	return map;
+}
+
 // The live records of one card (catalog and card_id), any language.
 export function recordsOfCard(records, card) {
-	return (Array.isArray(records) ? records : []).filter((record) => isLive(record)
-		&& record.card_id === card.card_id && catalogOf(record) === catalogOf(card));
+	if (!Array.isArray(records) || !records.length || !card || !card.card_id) {
+		return [];
+	}
+
+	return (recordsByCard(records).get(cardKey(card)) || []).filter(isLive);
 }
 
 const hasLivePhoto = (record) => Array.isArray(record.photos) && record.photos.some((photo) => isLive(photo) && photo.id);
@@ -436,6 +474,47 @@ export function recordsForCopies(records, copies) {
 	}
 
 	return shownRecords(records, live[0], [...new Set(live.map((copy) => copy.language || ''))]);
+}
+
+// The records whose photos and pin a card's image comes from, on any screen
+// (DESIGN.md section 5, "Image carousel per card"). target is the copies a
+// tile stands for (one or an array), or a card with no copy there, such as
+// a placeholder, a wish, or a card missing from a set: {catalog, card_id,
+// language}, where no language means any (every record of the card), and
+// a language with no photo of its own shows another's (shownRecords).
+export function recordsForCard(records, target) {
+	const items = (Array.isArray(target) ? target : [target]).filter((item) => isLive(item) && item.card_id);
+
+	if (!items.length) {
+		return [];
+	}
+
+	const languages = [...new Set(items.map((item) => item.language).filter((language) => language !== undefined && language !== null && language !== ''))];
+
+	return shownRecords(records, items[0], languages);
+}
+
+// Whose records a screen's images read: the ones it passes, a family
+// member's card_info on their screens; on the person's own screens, own()
+// when it passes none. A read-only screen (a family member's cards) that
+// passes none gets none, never the viewer's own: the viewer's photos and pin
+// on a member's cards would be the wrong person's.
+export function imageRecords(records, {own = () => [], readOnly = false} = {}) {
+	if (Array.isArray(records)) {
+		return records;
+	}
+
+	return readOnly ? [] : own();
+}
+
+// What any screen draws for a card (js/photos/index.js tileSrc, the one
+// helper every screen calls): mainImage over the records recordsForCard
+// picks from imageRecords, so the official image comes first, then the
+// twin, then the photos, the pin winning, and {kind: 'none'} for the card
+// back. family: the family's photos of it (shared.js), [] on a read-only
+// screen.
+export function mainImageOf(target, catalogImage, {family = [], own = () => [], readOnly = false, records = null, twins = []} = {}) {
+	return mainImage(recordsForCard(imageRecords(records, {own, readOnly}), target), catalogImage, {family, twins});
 }
 
 // The record of one card and language in `records`, or null.

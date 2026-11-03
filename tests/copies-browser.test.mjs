@@ -681,12 +681,13 @@ describe('the count stepper', () => {
 		live = (await entries(page)).filter((entry) => !entry.deleted_at);
 		assert.deepEqual(live.map((entry) => entry.id).sort(), [pictured.id, placed.id].sort());
 
-		// Minus with only the copy in a pocket and the one with a photo left:
-		// it asks which.
+		// Minus with only the copy in a pocket and the one with a photo still
+		// waiting to upload left: it asks which. The photo is the card's, so
+		// both copies show it (js/card-info.js).
 		await page.click('.copies .step-less');
 		await page.waitForSelector('#copy-pick-sheet[open]');
 		assert.equal(await page.locator('#copy-pick-sheet-title').textContent(), 'Which copy goes?');
-		assert.deepEqual(await page.locator('#copy-pick-sheet .copy-pick-option').allTextContents(), ['Not in a binder · 1 photo', 'Vitrine, page 1, pocket 1']);
+		assert.deepEqual(await page.locator('#copy-pick-sheet .copy-pick-option').allTextContents(), ['Not in a binder · 1 photo', 'Vitrine, page 1, pocket 1 · 1 photo']);
 		assert.ok(await page.locator('#copy-pick-remove').isDisabled());
 		await page.screenshot({path: '/tmp/copies-which-copy.png'});
 

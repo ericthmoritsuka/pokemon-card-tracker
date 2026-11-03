@@ -233,7 +233,23 @@
 	border-radius: 4px;
 	display: block;
 	object-fit: cover;
+	overflow: hidden;
 	width: 40px;
+}
+
+/* The card's main image (js/photos/index.js mainArt), or its card back. */
+.col-card-art > .art {
+	border-radius: inherit;
+}
+
+/* At 40 px the card back is its color alone. */
+.col-card-art .card-back {
+	border-width: 2px;
+	padding: 0;
+}
+
+.col-card-art .card-back > * {
+	display: none;
 }
 
 .col-card-text {

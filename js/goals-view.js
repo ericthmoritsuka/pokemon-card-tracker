@@ -34,12 +34,13 @@ import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogLanguage, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
+import {mainArt, onImagesChange} from './photos/index.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
 import {UNDO_MS, orderSection} from './reorder.js';
 import {readChoice, saveChoice} from './settings.js';
 import {toast} from './shell.js';
 import {memberDocument} from './sync.js';
-import {cardTile} from './tile.js';
+import {cardArt, cardTile} from './tile.js';
 import {addToWishlist, listWishlist} from './wishlist.js';
 import {
 	SET_LEVELS,
@@ -200,7 +201,7 @@ function familySource(userId) {
 			const doc = (await docPromise) || {};
 			const goal = (doc.goals || []).find((item) => item.id === id && isLive(item) && isGoal(item)) || null;
 
-			return {entries: (doc.cards || []).filter(isLive), goal, wishlist: []};
+			return {entries: (doc.cards || []).filter(isLive), goal, records: doc.card_info || [], wishlist: []};
 		},
 		readOnly: true,
 		userId,
@@ -264,6 +265,9 @@ function goalScreen(root, source, id) {
 	let alive = true;
 	let goal = null;
 	let entries = [];
+	// A family member's card records, whose photos and pin their cells
+	// show; null for the person's own.
+	let records = null;
 	let wished = new Set();
 	let result = null;
 	let loadRun = 0;
@@ -498,11 +502,14 @@ function goalScreen(root, source, id) {
 		const owned = state.owned > 0;
 		const wanted = wished.has(item.key);
 		const finishText = state.finishes ? `${formatCount(state.owned)} of ${plural(state.total, 'finish', 'finishes')}` : null;
-		const node = cardTile({
+		const info = {name: mainName(names) || card.name, number: card.localId, setName: card.setName};
+		// The card's main image, as My Cards picks it: the copies' photos and
+		// pin, or the card's record when none is owned.
+		const node = mainArt(copies.length ? copies : {catalog: card.catalog, card_id: card.cardId}, cardImage(card.image, 'low'), (src) => cardTile({
 			art: {
 				count: copies.length,
-				info: {name: mainName(names) || card.name, number: card.localId, setName: card.setName},
-				src: cardImage(card.image, 'low'),
+				info,
+				src,
 				status: owned ? 'owned' : wanted ? 'wanted' : null,
 			},
 			attrs: {id: `goal-tile-${card.catalog}-${card.cardId}`},
@@ -510,7 +517,7 @@ function goalScreen(root, source, id) {
 			meta: [card.localId ? `#${card.localId}` : null, goal.kind === 'artist' ? card.setName : null, finishText].filter(Boolean).join(' · '),
 			names: tileNames(names, lang),
 			route,
-		});
+		}), (src) => cardArt(info, src, {decorative: true}), source.readOnly ? {family: false, records: records || []} : {});
 		const ownedIn = [...new Set(copies.map((entry) => entry.language).filter(Boolean))];
 
 		if (ownedIn.length) {
@@ -683,6 +690,7 @@ function goalScreen(root, source, id) {
 
 		goal = data.goal;
 		entries = data.entries;
+		records = data.records || null;
 		wished = new Set((data.wishlist || []).filter(isLive).map((item) => printKey(item.catalog || 'international', item.card_id)));
 
 		if (languages) {
@@ -737,6 +745,9 @@ function goalScreen(root, source, id) {
 	}
 
 	const stop = source.watch ? source.watch(() => alive && !leaving && load()) : () => {};
+	// A twin found, or the twins on the phone read after the first draw; a
+	// new photo or pin is a save, which loads the screen again.
+	const stopImages = onImagesChange(() => alive && draw(), {records: false});
 
 	// Not kept yet: "Keep as a goal" comes first, above a long list of cards.
 	content.append(...(source.draft
@@ -748,6 +759,7 @@ function goalScreen(root, source, id) {
 	return () => {
 		alive = false;
 		stop();
+		stopImages();
 
 		if (bar) {
 			bar.destroy();
