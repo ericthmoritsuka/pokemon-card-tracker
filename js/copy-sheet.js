@@ -153,25 +153,20 @@ export const placeText = (where) => `${where.binder_name}, page ${where.page}, p
 const newestFirst = (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''));
 
 // Which copies go when a count drops by n. First the copies in no binder
-// pocket and with no photos, newest first; the rest only when those run
+// pocket and holding no photo, newest first; the rest only when those run
 // out. When the rest must be chosen among (more of them than are still to
 // go), ask is {count, from} and the person picks; otherwise every one goes
 // and ask is null. keep is a copy that never goes (the one in the pocket a
 // binder's sheet is for).
 //
-// Photos belong to the card in a language, so copies of one card and
-// language all show the same photos, and removing one keeps them: the
-// card's photos only part copies that differ in them (copies in two
-// languages, one with photos). A copy still holding a photo of its own (an
-// older phone's, waiting to upload) keeps it, since that phone never
-// uploads a deleted copy's photo. photos(entry) is photoCount, or a
-// stand-in for tests.
-export function removalPlan(entries, n, {keep = null, photos = photoCount, places = new Map()} = {}) {
+// The card's photos are on its record (js/card-info.js), which every copy's
+// removal keeps, so they never decide which copy goes; askWhich only names
+// them (photoCount). A copy still holding a photo of its own (an older
+// phone's, waiting to upload) goes last, since that phone never uploads a
+// deleted copy's photo.
+export function removalPlan(entries, n, {keep = null, places = new Map()} = {}) {
 	const pool = entries.filter((entry) => entry.id !== keep);
-	const pictured = new Set(pool.filter((entry) => photos(entry) > 0).map((entry) => entry.id));
-	const parts = pictured.size > 0 && pictured.size < pool.length;
-	const kept = (entry) => holdsPhoto(entry) || (parts && pictured.has(entry.id));
-	const free = pool.filter((entry) => !places.has(entry.id) && !kept(entry)).sort(newestFirst);
+	const free = pool.filter((entry) => !places.has(entry.id) && !holdsPhoto(entry)).sort(newestFirst);
 
 	if (n <= free.length) {
 		return {ask: null, chosen: free.slice(0, n)};
