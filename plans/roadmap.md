@@ -303,6 +303,20 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
     (js/card-info.js); both family bugs are fixed, and a read-only screen never falls back to the
     viewer's records; the copy sheet counts photos from the card's record. DESIGN.md "Image
     carousel per card" has the rule.
+- **Tests that may check nothing (Eric, 2026-11-03; NEXT, before the trades log):** Playwright's
+  `page.waitForFunction` treats an async check's returned promise as truthy, so a check written as
+  `waitForFunction(async () => ...)` passes at once and never waits for or checks its condition.
+  The v54 fix round found and fixed it in `tests/main-image-browser.test.mjs` (`waitPhoto`); 15 more
+  remain on master `a9c40ac`: tests/binders.test.mjs:1284, tests/checklists.test.mjs:456 and :858,
+  tests/collections-browser.test.mjs:545, tests/my-cards-browser.test.mjs:1062, :1071 and :1073,
+  tests/pokemon-cards-browser.test.mjs:490, tests/scan-log-browser.test.mjs:514 and :531,
+  tests/shell.test.mjs:793 and :803, tests/whats-new.test.mjs:194 and :257,
+  tests/wishlist-browser.test.mjs:494. Fix each to poll a synchronous check in the page (or poll
+  from Node with a deadline when the check must await, for example IndexedDB reads), and prove each
+  one now fails when its condition is false (break the condition once and watch it fail). A test
+  that then fails for real points at an app bug: report it rather than loosening the test. Add a
+  check (a unit test or a grep in an existing suite) that fails when `waitForFunction(async`
+  appears in tests/ again. Small.
 - **Trades and sales log (Eric, 2026-10-31; next after his Start over):** record each sale,
   purchase, trade, or gift with its date, who, and one price; cards out leave the collection and
   cards in are added, linked to the move, so each card shows how it came and went, and a History
