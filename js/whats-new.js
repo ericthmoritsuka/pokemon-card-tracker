@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-03',
+		items: [
+			'Your own photos and the main image you chose now show everywhere a card does: binders, placeholders, Sets, a Pokémon\'s cards, goals, and the wishlist.',
+			'A card with no official image, like most Korean and Japanese prints, shows your photo there instead of a card back.',
+		],
+		version: 'v54',
+	},
+	{
 		date: '2026-10-31',
 		items: [
 			'A photo you took has Adjust on its card page: Auto fixes a dark or flat photo in one tap, and sliders set brightness, contrast, saturation, and warmth.',

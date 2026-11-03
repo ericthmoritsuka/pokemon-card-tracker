@@ -790,6 +790,19 @@ print"), then the owner's own photos (several allowed, front and back). Each ima
 source label. "Use as main image" pins any one of them as what tiles show; without a pin, the
 first available image in that order is used. Tapping opens the image full screen.
 
+The main image rule applies on every screen that draws a card, not only My Cards (Eric,
+2026-10-31; v54): binder pockets, placeholders, Gone pockets, list pockets and their copy picker,
+the card in hand, the tray and its Add cards picker, the owned-card picker, Not in a binder, Sets
+(a set's cards and the card search), a Pokémon's cards, goal cells, the wishlist (the person's and
+a family member's), and the rows of a collection's left-out sheets, which show the card back when
+there is no image. They all go through one helper (`js/photos/index.js` `tileSrc`,
+`withMainPhoto`, and `mainArt`, deciding with `js/card-info.js` `mainImageOf`). A card with no copy
+there (a placeholder, a wish, a card missing from a set or a goal) reads its card's record, which
+keeps its photos and pin at zero copies. A family member's screens read the member's card records,
+never the viewer's: a read-only screen that passes none shows no photos rather than the viewer's.
+Catalog-only by design: the scanner's candidates and search results, the wishlist and placeholder
+catalog searches, photo cleanup's official image, and the twin picker.
+
 **Inspection viewer** (Eric, 2026-10-01: "find some details in the card or compare to another card
 to figure out if the card is original"). Tapping the card image on its page opens it full screen
 with pinch and double-tap zoom and panning. **Compare** shows two images side by side (by default

@@ -269,7 +269,7 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 ## Backlog (Eric, 2026-10-22)
 
-- **Own photos and the main image everywhere (Eric, 2026-10-31; NEXT, before the trades log):**
+- **Done in v54: own photos and the main image everywhere (Eric, 2026-10-31):**
   only the card page, the hand-made card page, and screens built on `cardsScreen` (My Cards, Trade,
   a collection) show his own photos and his "Use as main image" pin; every other place draws the
   catalog image only, so a card with no catalog image (most Korean prints) shows a card back there.
@@ -298,6 +298,11 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
     Keep catalog-only where it is by design: scanner candidates and search results, wishlist and
     placeholder catalog searches, photo cleanup's official image, the twin picker. Medium-small;
     one review round before publishing.
+  - Done in v54 (branch `own-photos-everywhere`): every site above goes through `tileSrc`,
+    `withMainPhoto`, or `mainArt` (js/photos/index.js), deciding with `mainImageOf`
+    (js/card-info.js); both family bugs are fixed, and a read-only screen never falls back to the
+    viewer's records; the copy sheet counts photos from the card's record. DESIGN.md "Image
+    carousel per card" has the rule.
 - **Trades and sales log (Eric, 2026-10-31; next after his Start over):** record each sale,
   purchase, trade, or gift with its date, who, and one price; cards out leave the collection and
   cards in are added, linked to the move, so each card shows how it came and went, and a History

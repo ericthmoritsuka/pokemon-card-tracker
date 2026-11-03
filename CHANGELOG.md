@@ -12,6 +12,22 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-03
+
+- **v54:** your photos show on every screen, not only in My Cards. `TBD`
+  - Every place that draws a card now picks its picture the way My Cards does: the official
+    image, else the international print's, else your own photos, with the one you chose with
+    **Use as main image** winning. That covers binder pockets, placeholders, the tray and the card
+    pickers, Not in a binder, Sets (a set's cards and the card search), a Pokémon's cards, goals,
+    the wishlist, and the cards left out of a collection, which now show a card back instead of a
+    blank square. A Korean or Japanese print with no official image shows your photo instead of a
+    card back.
+  - A card you have no copy of any more still shows its photos, in a placeholder, on the wishlist,
+    or on a set's page.
+  - A family member's spares and collections showed **your** photos on their cards; they now show
+    theirs, and their binders, Sets, goals, and wishlist do too.
+  - When copies of a card ask which one to remove, the count of photos is right again.
+
 ### 2026-10-31
 
 - **v53:** adjust a photo that came out too dark. `5b69998`
