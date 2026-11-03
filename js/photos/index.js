@@ -638,9 +638,33 @@ function readTwins() {
 //
 // records: false leaves the records out, for a screen that draws again on
 // every save already, or one showing a family member's cards; twins: false
-// leaves the twins out, for a screen that follows them itself.
-export function onImagesChange(listener, {records = true, twins = true} = {}) {
+// leaves the twins out, for a screen that follows them itself. frame: true
+// calls listener at most once an animation frame, with every card changed
+// since (null when any was null), for a screen that would otherwise draw
+// again for each of a burst of twin answers (My Cards' lookups give one per
+// card, and keep running after it is left).
+export function onImagesChange(given, {frame = false, records = true, twins = true} = {}) {
 	let alive = true;
+	let waiting = null;
+	let frameId = 0;
+	const listener = frame
+		? (cards) => {
+			waiting = cards === null || waiting === ANY_CARD ? ANY_CARD : new Set([...(waiting || []), ...cards]);
+
+			if (!frameId) {
+				frameId = requestAnimationFrame(() => {
+					const changed = waiting;
+
+					frameId = 0;
+					waiting = null;
+
+					if (alive) {
+						given(changed === ANY_CARD ? null : changed);
+					}
+				});
+			}
+		}
+		: given;
 	let stamps = records ? recordStamps(cardInfoList()) : null;
 	const stopRecords = records
 		? onChange((doc) => {
@@ -676,8 +700,15 @@ export function onImagesChange(listener, {records = true, twins = true} = {}) {
 		alive = false;
 		stopRecords();
 		stopTwins();
+
+		if (frameId) {
+			cancelAnimationFrame(frameId);
+		}
 	};
 }
+
+// onImagesChange's "any card" while a frame gathers the cards changed.
+const ANY_CARD = Symbol('any card');
 
 // A family member's photos of a card as one card record, for tileSrc's
 // records on a screen of theirs that does not read their whole document

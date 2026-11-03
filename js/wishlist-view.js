@@ -15,7 +15,7 @@ import {listCards, onChange} from './collection.js';
 import {BASE, errorText, h, listsSwitch} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
-import {mainArt, onFamilyPhotosChange, onImagesChange, sharedRecordsFor} from './photos/index.js';
+import {imageCardKey, mainArt, onFamilyPhotosChange, onImagesChange, sharedRecordsFor} from './photos/index.js';
 import {readChoice, saveChoice} from './settings.js';
 import {cardArt, cardTile, tileArt, variantFinish} from './tile.js';
 import {
@@ -100,6 +100,24 @@ function finishText(item, info) {
 // The day an item was got, as "Oct 31".
 const gotDay = (at) => new Date(at).toLocaleDateString('en-US', {day: 'numeric', month: 'short'});
 
+// Each drawn row's art, so a new image draws the art again from what the
+// row was drawn with, never the whole list (redrawArt).
+const rowArt = new WeakMap();
+
+// Draws again the art of the rows in `lists` whose card is in `cards` (a
+// Set of "catalog~card_id", onImagesChange), or of every row for null.
+function redrawArt(lists, cards) {
+	for (const list of lists) {
+		for (const row of list.children) {
+			const art = rowArt.get(row);
+
+			if (art && (!cards || cards.has(art.key))) {
+				art.draw();
+			}
+		}
+	}
+}
+
 // got: {onClear, onBack} for a row of Got it, which shows when it was got
 // in place of Edit. records(target): a family member's card records on
 // their wishlist, whose photos the art shows; null for the person's own.
@@ -148,19 +166,29 @@ function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove
 	// Cards picks it: the card's record keeps photos at zero copies, in the
 	// wished language, or any when the wish takes any.
 	const target = {catalog: item.catalog || 'international', card_id: item.card_id, language: item.language || null};
+	const art = () => mainArt(target, info.image, (src) => link(itemRoute(item, viewing), {'aria-label': `Open ${info.name}`, class: 'wl-art'}, tileArt({
+		finish: variantFinish(variant),
+		info,
+		languages: item.language ? [item.language] : [],
+		src,
+		status: mine && owned ? 'owned' : null,
+		statusLabel: mine && owned ? 'You have this now' : null,
+		viewing,
+	})), (src) => cardArt(info, src), records ? {family: false, records: records(target)} : {});
+	let shown = art();
+	const row = h('li', {class: owned && mine ? 'wl-item wl-has' : 'wl-item', 'data-id': item.id}, shown, body);
 
-	return h('li', {class: owned && mine ? 'wl-item wl-has' : 'wl-item', 'data-id': item.id},
-		mainArt(target, info.image, (src) => link(itemRoute(item, viewing), {'aria-label': `Open ${info.name}`, class: 'wl-art'}, tileArt({
-			finish: variantFinish(variant),
-			info,
-			languages: item.language ? [item.language] : [],
-			src,
-			status: mine && owned ? 'owned' : null,
-			statusLabel: mine && owned ? 'You have this now' : null,
-			viewing,
-		})), (src) => cardArt(info, src), records ? {family: false, records: records(target)} : {}),
-		body
-	);
+	rowArt.set(row, {
+		draw: () => {
+			const next = art();
+
+			shown.replaceWith(next);
+			shown = next;
+		},
+		key: imageCardKey(target),
+	});
+
+	return row;
 }
 
 // --------------------------------------------------- whose wishlist
@@ -356,6 +384,8 @@ export function wishlistView(root) {
 	let gotItems = [];
 	let cards = [];
 	let editing = null;
+	// The list has been read once (reload).
+	let loaded = false;
 
 	const viewing = viewingLanguage();
 	const load = cardLoader();
@@ -543,6 +573,7 @@ export function wishlistView(root) {
 	async function reload() {
 		try {
 			[items, gotItems, cards] = await Promise.all([listWishlist(), listGotWishes(), listCards()]);
+			loaded = true;
 		}
 		catch (err) {
 			list.replaceChildren(h('li', {class: 'notice', role: 'alert'}, `Your wishlist could not be read from this phone. ${errorText(err)}`));
@@ -562,9 +593,12 @@ export function wishlistView(root) {
 	}
 
 	const stop = onChange(() => alive && reload());
-	// A twin found, or the twins on the phone read after the first draw; a
-	// new photo or pin is a save, which reloads the list.
-	const stopImages = onImagesChange(() => alive && draw(), {records: false});
+	// A twin found, or the twins on the phone read after the first draw:
+	// the art of the rows of those cards, once a frame, from what they were
+	// drawn with, and only once the list is read (an empty list before then
+	// would say "Your wishlist is empty."). A new photo or pin is a save,
+	// which reloads the list.
+	const stopImages = onImagesChange((changed) => alive && loaded && redrawArt([list, gotList], changed), {frame: true, records: false});
 
 	root.append(
 		heading('Wishlist', null),
@@ -685,10 +719,13 @@ export function familyWishlistView(root, {userId}) {
 	}
 
 	// Their list does not change while it is open, but the viewer's own
-	// spares do.
+	// spares do. A twin answer, or the family's photo lists read again,
+	// draws the art of the rows it concerns again, once a frame, from what
+	// was read: never their wishlist again.
 	const stop = onChange(() => alive && show());
-	const stopImages = onImagesChange(() => alive && show(), {records: false});
-	const stopShared = onFamilyPhotosChange(() => alive && show());
+	const redraw = (changed) => alive && redrawArt([list], changed);
+	const stopImages = onImagesChange(redraw, {frame: true, records: false});
+	const stopShared = onFamilyPhotosChange(() => redraw(null));
 
 	root.append(head, body);
 	show();

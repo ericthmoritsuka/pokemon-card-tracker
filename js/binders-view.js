@@ -47,7 +47,7 @@ import {toast} from './shell.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
-import {mainArt, onImagesChange} from './photos/index.js';
+import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -3545,6 +3545,8 @@ export function unplacedView(root) {
 	let shown = Math.max(LIST_PAGE, fromHistory('shown', LIST_PAGE));
 	let index = new Map();
 	let groups = [];
+	// The tiles on screen, by group.
+	let tiles = new Map();
 
 	const viewing = viewingLanguage();
 	const summary = h('p', {class: 'muted', id: 'unplaced-summary'});
@@ -3575,6 +3577,34 @@ export function unplacedView(root) {
 			.sort((a, b) => a.info.name.localeCompare(b.info.name) || a.first.language.localeCompare(b.first.language));
 	}
 
+	const tileOf = (group) => artOf(group.entries, group.info, (src) => cardTile({
+		art: {
+			count: group.entries.length,
+			finish: groupFinish(group.entries),
+			info: group.info,
+			languages: [group.first.language],
+			src,
+			viewing,
+		},
+		meta: [group.info.number ? `#${group.info.number}` : null, group.info.setName].filter(Boolean).join(' · '),
+		names: group.info.name,
+		route: group.info.route,
+	}));
+
+	// Draws again the tiles of the cards in `changed` (a Set of
+	// "catalog~card_id", or null for every tile) from the groups as last
+	// read: a new image, never the whole grid.
+	function drawImages(changed) {
+		for (const [group, tile] of tiles) {
+			if (!changed || changed.has(imageCardKey(group.first))) {
+				const next = tileOf(group);
+
+				tile.replaceWith(next);
+				tiles.set(group, next);
+			}
+		}
+	}
+
 	function draw() {
 		const copies = groups.reduce((sum, group) => sum + group.entries.length, 0);
 
@@ -3584,19 +3614,8 @@ export function unplacedView(root) {
 
 		const visible = groups.slice(0, shown);
 
-		grid.replaceChildren(...visible.map((group) => artOf(group.entries, group.info, (src) => cardTile({
-			art: {
-				count: group.entries.length,
-				finish: groupFinish(group.entries),
-				info: group.info,
-				languages: [group.first.language],
-				src,
-				viewing,
-			},
-			meta: [group.info.number ? `#${group.info.number}` : null, group.info.setName].filter(Boolean).join(' · '),
-			names: group.info.name,
-			route: group.info.route,
-		}))));
+		tiles = new Map(visible.map((group) => [group, tileOf(group)]));
+		grid.replaceChildren(...tiles.values());
 		offerCardList(groups.map((group) => group.info.route), 'Not in a binder');
 		more.hidden = groups.length <= shown;
 		more.textContent = `Show more (${formatCount(groups.length - shown)} left)`;
@@ -3644,9 +3663,10 @@ export function unplacedView(root) {
 	}
 
 	const stop = onChange(() => alive && load());
-	// A twin found, or the twins on the phone read after the first draw;
-	// a new photo or pin is a save, which loads the screen again.
-	const stopImages = onImagesChange(() => alive && groups.length && draw(), {records: false});
+	// A twin found, or the twins on the phone read after the first draw:
+	// the tiles of those cards, once a frame. A new photo or pin is a save,
+	// which loads the screen again.
+	const stopImages = onImagesChange((changed) => alive && drawImages(changed), {frame: true, records: false});
 
 	root.append(
 		link('binders', {class: 'back'}, '‹ Binders'),

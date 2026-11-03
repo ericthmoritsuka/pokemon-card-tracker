@@ -34,7 +34,7 @@ import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogLanguage, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
 import {languagesControl} from './pokemon-cards-view.js';
-import {mainArt, onImagesChange} from './photos/index.js';
+import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
 import {UNDO_MS, orderSection} from './reorder.js';
 import {readChoice, saveChoice} from './settings.js';
@@ -271,6 +271,8 @@ function goalScreen(root, source, id) {
 	let wished = new Set();
 	let result = null;
 	let loadRun = 0;
+	// The cells on screen by card ("catalog~card_id"): [{item, node}].
+	let drawn = new Map();
 	let show = readChoice(FILTER_KEY, FILTERS.map((option) => option.value), 'all');
 	let leaving = false;
 	const adding = new Set();
@@ -551,6 +553,7 @@ function goalScreen(root, source, id) {
 
 		if (!result || result.missingList) {
 			segmentCounts(filter, null);
+			drawn = new Map();
 			grid.replaceChildren();
 			empty.hidden = true;
 			offerCardList([], goal.name);
@@ -571,12 +574,39 @@ function goalScreen(root, source, id) {
 
 		const cells = visible.map(cell);
 
+		drawn = new Map();
+		visible.forEach((item, i) => {
+			const key = imageCardKey({catalog: item.state.card.catalog, card_id: item.state.card.cardId});
+
+			drawn.set(key, [...(drawn.get(key) || []), {item, node: cells[i].node}]);
+		});
 		grid.replaceChildren(...cells.map((item) => item.node));
 		empty.hidden = cells.length > 0;
 		empty.textContent = !result.cards.length
 			? 'The catalog lists no cards here yet.'
 			: show === 'missing' && searched.length === items.length ? 'Nothing missing. This goal is complete.' : 'No cards match.';
 		offerCardList(cells.map((item) => item.route), goal.name);
+	}
+
+	// Draws again the cells of the cards in `changed` (a Set of
+	// "catalog~card_id", or null for every cell), from the goal as last
+	// computed: a new image, never the whole grid.
+	function drawImages(changed) {
+		for (const [key, shown] of drawn) {
+			if (changed && !changed.has(key)) {
+				continue;
+			}
+
+			for (const one of shown) {
+				const next = cell(one.item).node;
+
+				if (one.node.parentNode) {
+					one.node.replaceWith(next);
+				}
+
+				one.node = next;
+			}
+		}
 	}
 
 	function drawActions() {
@@ -745,9 +775,10 @@ function goalScreen(root, source, id) {
 	}
 
 	const stop = source.watch ? source.watch(() => alive && !leaving && load()) : () => {};
-	// A twin found, or the twins on the phone read after the first draw; a
-	// new photo or pin is a save, which loads the screen again.
-	const stopImages = onImagesChange(() => alive && draw(), {records: false});
+	// A twin found, or the twins on the phone read after the first draw:
+	// the cells of those cards, once a frame. A new photo or pin is a save,
+	// which loads the screen again.
+	const stopImages = onImagesChange((changed) => alive && drawImages(changed), {frame: true, records: false});
 
 	// Not kept yet: "Keep as a goal" comes first, above a long list of cards.
 	content.append(...(source.draft

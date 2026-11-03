@@ -630,6 +630,51 @@ export function binderSpread({
 		bubble.hidden = true;
 	}
 
+	// A pocket's art drawn for the bubble, whose final image may come later
+	// (js/photos/index.js withMainPhoto: a photo still being read shimmers,
+	// and a family member's photo replaces the card back once their lists
+	// are read): watched until it shows one, then copied. Stopped when the
+	// preview changes or the bubble hides.
+	let miniWatches = [];
+
+	// The card's image, not a language flag's.
+	const artSrc = (node) => {
+		const art = node && node.querySelector ? node.querySelector('img:not(.flag)') : null;
+
+		return art ? art.getAttribute('src') || art.src || null : null;
+	};
+
+	function stopMiniWatches() {
+		miniWatches.forEach((watch) => watch.disconnect());
+		miniWatches = [];
+	}
+
+	function miniArt(node) {
+		const src = artSrc(node);
+
+		if (src) {
+			return el('img', {alt: '', class: 'bs-mini-art', decoding: 'async', src});
+		}
+
+		const slot = el('span', {class: 'bs-mini-empty'});
+
+		if (node && node.querySelector && node.querySelector('.art') && typeof MutationObserver === 'function') {
+			const watch = new MutationObserver(() => {
+				const later = artSrc(node);
+
+				if (later) {
+					watch.disconnect();
+					slot.replaceWith(el('img', {alt: '', class: 'bs-mini-art', decoding: 'async', src: later}));
+				}
+			});
+
+			watch.observe(node, {attributeFilter: ['src'], attributes: true, childList: true, subtree: true});
+			miniWatches.push(watch);
+		}
+
+		return slot;
+	}
+
 	// A small copy of one page for the bubble: each pocket's art, or an
 	// empty pocket, in the binder's grid.
 	function miniPage(page) {
@@ -642,11 +687,7 @@ export function binderSpread({
 		}
 
 		for (let position = 1; position <= binder.rows * binder.cols; position++) {
-			const img = renderPocket(page, position);
-			const art = img && img.querySelector ? img.querySelector('img') : null;
-			const src = art && (art.getAttribute('src') || art.src);
-
-			grid.append(src ? el('img', {alt: '', class: 'bs-mini-art', decoding: 'async', src}) : el('span', {class: 'bs-mini-empty'}));
+			grid.append(miniArt(renderPocket(page, position)));
 		}
 
 		return grid;
@@ -667,6 +708,7 @@ export function binderSpread({
 
 		if (shownPreview !== key) {
 			shownPreview = key;
+			stopMiniWatches();
 
 			if (state.zoom) {
 				bubblePages.replaceChildren(miniPage(value));
@@ -682,6 +724,7 @@ export function binderSpread({
 	function hideBubble() {
 		bubble.hidden = true;
 		shownPreview = null;
+		stopMiniWatches();
 	}
 
 	function commitSlider() {
@@ -1261,6 +1304,7 @@ export function binderSpread({
 		},
 		destroy() {
 			alive = false;
+			stopMiniWatches();
 
 			if (resizes) {
 				resizes.disconnect();
