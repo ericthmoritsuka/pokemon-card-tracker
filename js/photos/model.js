@@ -131,7 +131,9 @@ export function pinnedImage(entryOrEntries) {
 //
 // `family` is an optional list of {photo, name} (familyPhotos below): a
 // family member's photos of the same card, shown only when there is no
-// other image at all, labelled "Photo by <name>", kind 'family'.
+// other image at all, labelled "Photo by <name>", kind 'family'. It may be
+// a function returning that list, called only then, so a card with an image
+// of its own never looks the family's photos up.
 export function gallerySlides({entries = [], family = [], official = null, twins = []} = {}) {
 	const slides = [];
 
@@ -157,7 +159,7 @@ export function gallerySlides({entries = [], family = [], official = null, twins
 	}
 
 	if (!slides.length) {
-		for (const {name, photo} of family || []) {
+		for (const {name, photo} of (typeof family === 'function' ? family() : family) || []) {
 			if (photo && photo.id && !slides.some((slide) => slide.id === photo.id)) {
 				slides.push({by: name, entry: null, id: photo.id, kind: 'family', label: photoByLabel(name), photo, src: null});
 			}
@@ -388,32 +390,62 @@ export function memberIndex(index, legacy) {
 	return [...own, ...(Array.isArray(legacy) ? legacy : []).filter((item) => item && !ids.has(item.id))];
 }
 
+// The members' index entries by card ("catalog~card_id"), each as
+// {item, member} in member order: built once each time the family's lists
+// are read (shared.js), so familyPhotos finds a card's entries with one Map
+// read instead of a pass over every member's whole index for every tile.
+export function familyPhotoIndex(members) {
+	const byCard = new Map();
+
+	for (const member of Array.isArray(members) ? members : []) {
+		for (const item of Array.isArray(member && member.index) ? member.index : []) {
+			if (!item || !isLive(item) || !item.card_id || !Array.isArray(item.photos)) {
+				continue;
+			}
+
+			const key = `${catalogOf(item)}~${item.card_id}`;
+
+			if (!byCard.has(key)) {
+				byCard.set(key, []);
+			}
+
+			byCard.get(key).push({item, member});
+		}
+	}
+
+	return byCard;
+}
+
 // A family member's photos of a card, for gallerySlides and mainImage:
 // [{name, photo: {id, path}, user_id}]. members is [{name, user_id, index}],
 // index being that member's photo_index; card is {catalog, card_id,
 // language}. Entries in the card's language come first, then any other
 // language, each in member order; at most INDEX_PHOTOS_MAX photos. Only
 // paths in the member's own folder count.
-export function familyPhotos(members, card) {
+//
+// byCard: familyPhotoIndex(members), when the caller keeps one. userId: one
+// member's photos alone, picked before the cap, so other members' photos
+// never crowd theirs out (a member's wishlist, js/photos/index.js
+// sharedRecordsFor).
+export function familyPhotos(members, card, {byCard = null, userId = null} = {}) {
 	if (!card || !card.card_id) {
 		return [];
 	}
 
 	const same = [];
 	const other = [];
+	const found = (byCard || familyPhotoIndex(members)).get(`${catalogOf(card)}~${card.card_id}`) || [];
 
-	for (const member of Array.isArray(members) ? members : []) {
-		for (const item of Array.isArray(member && member.index) ? member.index : []) {
-			if (!item || !isLive(item) || item.card_id !== card.card_id || catalogOf(item) !== catalogOf(card) || !Array.isArray(item.photos)) {
-				continue;
-			}
-
-			const photos = item.photos
-				.filter((photo) => photo && photo.id && photo.path && pathOwner(photo.path) === member.user_id)
-				.map((photo) => ({name: member.name, photo: {id: photo.id, path: photo.path}, user_id: member.user_id}));
-
-			((item.language || '') === (card.language || '') ? same : other).push(...photos);
+	for (const {item, member} of found) {
+		if (userId && member.user_id !== userId) {
+			continue;
 		}
+
+		const photos = item.photos
+			.filter((photo) => photo && photo.id && photo.path && pathOwner(photo.path) === member.user_id)
+			.map((photo) => ({name: member.name, photo: {id: photo.id, path: photo.path}, user_id: member.user_id}));
+
+		((item.language || '') === (card.language || '') ? same : other).push(...photos);
 	}
 
 	return [...same, ...other].slice(0, INDEX_PHOTOS_MAX);

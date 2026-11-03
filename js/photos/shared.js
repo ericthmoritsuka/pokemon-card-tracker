@@ -8,7 +8,8 @@
 //
 //   startSharedPhotos()        loads the saved indexes, refreshes them now
 //                              and every so often; safe to call often
-//   sharedPhotosFor(card)      [{name, photo, user_id}] for a card, at once
+//   sharedPhotosFor(card)      [{name, photo, user_id}] for a card, at once;
+//                              {userId} for one member's alone
 //   sharedReady()              resolves once the saved indexes are loaded
 //   sharedSettled()            resolves once a refresh on its way is done
 //   onSharedPhotosChange(fn)   fn() after the indexes change
@@ -18,7 +19,7 @@ import {familyMembers} from '../family.js';
 import {database, timedCache} from '../idb.js';
 import {memberPhotoIndexes} from '../sync.js';
 
-import {familyPhotos} from './model.js';
+import {familyPhotoIndex, familyPhotos} from './model.js';
 
 const REFRESH_AFTER_MS = 10 * 60 * 1000;
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -29,6 +30,9 @@ const cacheKey = (userId) => `family:${userId}`;
 const listeners = new Set();
 
 let members = [];
+// members' entries by card (model.js familyPhotoIndex), made again each
+// time members changes, so a tile's lookup is one Map read.
+let byCard = new Map();
 let savedAt = 0;
 let ready = null;
 let readyFor = null;
@@ -51,6 +55,11 @@ const slim = (index) => (Array.isArray(index) ? index : [])
 	.filter((item) => item && !item.deleted_at && item.card_id && Array.isArray(item.photos) && item.photos.length)
 	.map(({card_id, catalog, id, language, photos}) => ({card_id, catalog, id, language, photos}));
 
+function setMembers(list) {
+	members = list;
+	byCard = familyPhotoIndex(list);
+}
+
 // Loads what this phone saved for the signed-in account.
 function load() {
 	const user = currentUser();
@@ -58,7 +67,7 @@ function load() {
 
 	if (!ready || readyFor !== id) {
 		readyFor = id;
-		members = [];
+		setMembers([]);
 		savedAt = 0;
 		ready = (async () => {
 			if (!id) {
@@ -68,7 +77,7 @@ function load() {
 			const hit = await cache.get(cacheKey(id));
 
 			if (hit && readyFor === id && Array.isArray(hit.data)) {
-				members = hit.data;
+				setMembers(hit.data);
 				savedAt = hit.at || 0;
 				notify();
 			}
@@ -98,7 +107,7 @@ export function refreshSharedPhotos() {
 				return;
 			}
 
-			members = others.map((member) => ({index: slim(found.get(member.user_id)), name: member.name, user_id: member.user_id}));
+			setMembers(others.map((member) => ({index: slim(found.get(member.user_id)), name: member.name, user_id: member.user_id})));
 			savedAt = Date.now();
 			await cache.put(cacheKey(user.id), members);
 			notify();
@@ -140,8 +149,9 @@ export const sharedReady = () => load();
 export const sharedSettled = () => refreshing || Promise.resolve();
 
 // A family member's photos of the card ({catalog, card_id, language}), the
-// same language first, from what is loaded now.
-export const sharedPhotosFor = (card) => (currentUser() ? familyPhotos(members, card) : []);
+// same language first, from what is loaded now. userId: that member's
+// alone, picked before familyPhotos' cap.
+export const sharedPhotosFor = (card, {userId = null} = {}) => (currentUser() ? familyPhotos(members, card, {byCard, userId}) : []);
 
 export function onSharedPhotosChange(listener) {
 	listeners.add(listener);

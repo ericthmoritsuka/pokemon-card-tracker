@@ -100,7 +100,9 @@ function cardOf(entries, fallback = {}) {
 }
 
 // The family's photos of the copies' card, or none when `family` is off
-// (a family member's read-only cards).
+// (a family member's read-only cards). A function for mainImage, which
+// calls it only when the card has no official image, twin, or own photo,
+// so most tiles never look the family's photos up.
 function familyFor(entries, family) {
 	if (!family) {
 		return [];
@@ -114,7 +116,7 @@ function familyFor(entries, family) {
 
 	startSharedPhotos();
 
-	return sharedPhotosFor(card);
+	return () => sharedPhotosFor(card);
 }
 
 // A card-shaped image with no names, for callers that pass no art function.
@@ -689,8 +691,9 @@ export function sharedRecordsFor(userId, card) {
 
 	startSharedPhotos();
 
-	const photos = sharedPhotosFor({catalog: card.catalog || 'international', card_id: card.card_id, language: card.language || ''})
-		.filter((item) => item.user_id === userId)
+	// Their photos picked before the family's cap of four, so another
+	// member's photos of the card never crowd theirs out.
+	const photos = sharedPhotosFor({catalog: card.catalog || 'international', card_id: card.card_id, language: card.language || ''}, {userId})
 		.map((item) => ({created_at: null, deleted_at: null, id: item.photo.id, path: item.photo.path, side: 'front'}));
 
 	return photos.length ? [{card_id: card.card_id, catalog: card.catalog || 'international', deleted_at: null, id: `${card.catalog || 'international'}~${card.card_id}~${card.language || ''}`, language: card.language || '', photos}] : [];

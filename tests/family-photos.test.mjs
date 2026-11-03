@@ -10,7 +10,7 @@ import {describe, test} from 'node:test';
 
 import {moveToCardInfo} from '../js/card-info.js';
 import {mergeDocuments, syncDelta, stamps} from '../js/merge.js';
-import {PHOTO_INDEX, familyPhotos, gallerySlides, mainImage, photoIndexKey, refreshPhotoIndex} from '../js/photos/model.js';
+import {PHOTO_INDEX, familyPhotoIndex, familyPhotos, gallerySlides, mainImage, photoIndexKey, refreshPhotoIndex} from '../js/photos/model.js';
 
 import * as v21 from './merge-v21.mjs';
 
@@ -124,5 +124,48 @@ describe('choosing a family photo', () => {
 		assert.equal(mainImage([entry('c1')], null, {family, twins: [{src: 'https://example.test/twin.webp'}]}).kind, 'twin');
 		assert.equal(mainImage([own], null, {family}).kind, 'photo');
 		assert.deepEqual(gallerySlides({entries: [own], family}).map((slide) => slide.kind), ['photo']);
+	});
+
+	test('one member\'s photos are picked before the cap of four, not after', () => {
+		// B, listed first, has four photos of the card; A has two. Cutting the
+		// family's list to four first would leave A none (sharedRecordsFor,
+		// a member's wishlist).
+		const crowded = [
+			{index: index(B, 'en', ['b1', 'b2', 'b3', 'b4']), name: 'Member B', user_id: B},
+			{index: index(A, 'en', ['a1', 'a2']), name: 'Member A', user_id: A},
+		];
+
+		assert.deepEqual(familyPhotos(crowded, card).map((item) => item.photo.id), ['b1', 'b2', 'b3', 'b4']);
+		assert.deepEqual(familyPhotos(crowded, card, {userId: A}).map((item) => item.photo.id), ['a1', 'a2']);
+		assert.deepEqual(familyPhotos(crowded, card, {byCard: familyPhotoIndex(crowded), userId: A}).map((item) => item.photo.id), ['a1', 'a2']);
+		assert.deepEqual(familyPhotos(crowded, card, {userId: 'nobody'}), []);
+	});
+
+	test('the index by card answers as a pass over every member\'s list does', () => {
+		const byCard = familyPhotoIndex(members);
+		const cards = [card, {...card, language: 'pt'}, {...card, language: ''}, {...card, card_id: 'tst1-002'}, {...card, catalog: 'ja'}];
+
+		for (const item of cards) {
+			assert.deepEqual(familyPhotos(members, item, {byCard}), familyPhotos(members, item));
+		}
+
+		assert.equal(byCard.size, 1);
+	});
+
+	test('the family\'s photos are looked up only when the card has no official image, twin, or own photo', () => {
+		let asked = 0;
+		const family = () => {
+			asked++;
+
+			return familyPhotos(members, card);
+		};
+		const own = entry('c1', {photos: [photo('mine', A, 'c1')]});
+
+		assert.equal(mainImage([entry('c1')], 'https://example.test/official.webp', {family}).kind, 'official');
+		assert.equal(mainImage([entry('c1')], null, {family, twins: [{src: 'https://example.test/twin.webp'}]}).kind, 'twin');
+		assert.equal(mainImage([own], null, {family}).kind, 'photo');
+		assert.equal(asked, 0);
+		assert.equal(mainImage([entry('c1')], null, {family}).by, 'Member B');
+		assert.equal(asked, 1);
 	});
 });
