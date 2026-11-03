@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-03
 
-- **v54:** your photos show on every screen, not only in My Cards. `TBD`
+- **v54:** your photos show on every screen, not only in My Cards. `574476c`
   - Every place that draws a card now picks its picture the way My Cards does: the official
     image, else the international print's, else your own photos, with the one you chose with
     **Use as main image** winning. That covers binder pockets, placeholders, the tray and the card
