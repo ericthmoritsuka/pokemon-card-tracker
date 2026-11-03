@@ -25,7 +25,8 @@ are Recife time. Each line ends with its commit.
   - A card you have no copy of any more still shows its photos, in a placeholder, on the wishlist,
     or on a set's page.
   - A family member's spares and collections showed **your** photos on their cards; they now show
-    theirs, and their binders, Sets, goals, and wishlist do too.
+    theirs, and their binders, Sets, and goals do too. Their wishlist shows the photos they have
+    uploaded.
   - When copies of a card ask which one to remove, the count of photos is right again.
 
 ### 2026-10-31

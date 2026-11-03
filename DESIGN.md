@@ -800,6 +800,8 @@ there is no image. They all go through one helper (`js/photos/index.js` `tileSrc
 there (a placeholder, a wish, a card missing from a set or a goal) reads its card's record, which
 keeps its photos and pin at zero copies. A family member's screens read the member's card records,
 never the viewer's: a read-only screen that passes none shows no photos rather than the viewer's.
+Their wishlist, which reads the wishlist alone and never their whole document, takes their
+uploaded photos from the photo index the family shares, without their pin.
 Catalog-only by design: the scanner's candidates and search results, the wishlist and placeholder
 catalog searches, photo cleanup's official image, and the twin picker.
 

@@ -677,6 +677,29 @@ export function onImagesChange(listener, {records = true, twins = true} = {}) {
 	};
 }
 
+// A family member's photos of a card as one card record, for tileSrc's
+// records on a screen of theirs that does not read their whole document
+// (their wishlist reads the wishlist alone): from the photo index the
+// family shares (shared.js), so only photos already uploaded, and no pin.
+// card is {catalog, card_id, language}. [] when they have none.
+export function sharedRecordsFor(userId, card) {
+	if (!card || !card.card_id) {
+		return [];
+	}
+
+	startSharedPhotos();
+
+	const photos = sharedPhotosFor({catalog: card.catalog || 'international', card_id: card.card_id, language: card.language || ''})
+		.filter((item) => item.user_id === userId)
+		.map((item) => ({created_at: null, deleted_at: null, id: item.photo.id, path: item.photo.path, side: 'front'}));
+
+	return photos.length ? [{card_id: card.card_id, catalog: card.catalog || 'international', deleted_at: null, id: `${card.catalog || 'international'}~${card.card_id}~${card.language || ''}`, language: card.language || '', photos}] : [];
+}
+
+// Runs listener() when the family's shared photo lists change; returns the
+// unsubscribe function.
+export const onFamilyPhotosChange = (listener) => onSharedPhotosChange(listener);
+
 // "catalog~card_id" of a card, as onImagesChange names it.
 export const imageCardKey = (item) => `${(item && item.catalog) || 'international'}~${item && item.card_id}`;
 
