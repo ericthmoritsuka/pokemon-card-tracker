@@ -68,7 +68,7 @@ const FIXED = {tessedit_do_invert: '0', user_defined_dpi: '300'};
 
 // Tesseract.js is imported with the first worker, so the pool's scheduler
 // (createSlots) loads in Node, where its tests run. `lang` is the model:
-// 'eng', or 'jpn' or 'kor' for the Asian worker (createAsianReader).
+// 'eng', or 'jpn' or 'kor' for the Asian workers (createAsianReader).
 async function startWorker(logger, lang = 'eng') {
 	const {default: Tesseract} = await import('../../lab/vendor/tesseract/tesseract.esm.min.js');
 	const worker = await Tesseract.createWorker(lang, Tesseract.OEM.LSTM_ONLY, {
@@ -151,128 +151,310 @@ export function createSlots({backgroundSlots = BACKGROUND_SLOTS} = {}) {
 // for the name strip of a Japanese or Korean card (js/scan/cjk.js wantsCjk).
 // tessdata_fast models from tesseract-ocr/tessdata_fast (Apache-2.0),
 // gzipped beside the English one: jpn 1.5 MB, kor 1.1 MB. They load only
-// when a card asks for one, in a worker of their own, never in place of an
+// when a card asks for one, in workers of their own, never in place of an
 // English worker, so a Latin card's reads never wait for them; the service
 // worker keeps them on first use (sw.js ocrResponse), never in its install
-// precache. One worker holds one model at a time and switches
-// (reinitialize) when the other is asked for.
+// precache.
 export const ASIAN_MODELS = ['jpn', 'kor'];
 
-// A first load that takes longer than this (a slow connection) is not waited
-// for: the card is read without it, and the model goes on loading for the
-// next one.
+// A load that takes longer than this (a slow connection) is not waited for:
+// the card is read without it, and the model goes on loading for the next
+// one. The time runs from the load's start, once for every read waiting on
+// it, so the reads of one card never add their waits up.
 export const ASIAN_WAIT_MS = 20000;
 
-// One worker for the Asian models, started on first use: {ocr(image,
-// {lang, psm, whitelist}), prepare(lang), terminate(), loads}. Jobs run one
-// at a time. Pure apart from `start` (startWorker), which tests replace.
-export function createAsianReader({logger = () => {}, start = startWorker, wait = ASIAN_WAIT_MS} = {}) {
-	let worker = null;
-	let current = '';
-	let model = null;
-	let chain = Promise.resolve();
-	let stopped = false;
-	const loads = [];
+// A model is fetched here first, before Tesseract fetches it in its worker,
+// so a model that cannot be fetched (offline before the service worker kept
+// it) fails before any worker is made: Tesseract's own failed fetch would
+// leave its worker alive, and its start never settling. The fetch fills the
+// service worker's and the browser's caches, which the worker's fetch then
+// reads. (Tesseract.js 7.0.0 cannot take the bytes instead: its initialize
+// names a model given as {code, data} by its data.)
+const fetched = new Map();
 
-	// Resolves with the worker holding `lang`, starting it or switching its
-	// model first.
-	const ready = (lang) => {
-		if (!worker) {
-			const started = performance.now();
-
-			model = lang;
-			worker = start(logger, lang).then((made) => {
-				loads.push({lang, ms: Math.round(performance.now() - started)});
-
-				if (stopped) {
-					made.terminate();
-				}
-
-				return made;
-			});
-			worker.catch(() => {
-				worker = null;
-				model = null;
-			});
-
-			return worker;
-		}
-
-		return worker.then(async (made) => {
-			if (model !== lang) {
-				const started = performance.now();
-
-				await made.reinitialize(lang, 1);
-				await made.setParameters(FIXED);
-				model = lang;
-				current = '';
-				loads.push({lang, ms: Math.round(performance.now() - started), switched: true});
+function fetchModel(lang) {
+	if (!fetched.has(lang)) {
+		const loading = fetch(`${VENDOR}lang/${lang}.traineddata.gz`).then(async (response) => {
+			if (!response.ok) {
+				throw new Error(`The ${lang} model answered ${response.status}.`);
 			}
 
-			return made;
+			await response.arrayBuffer();
 		});
+
+		fetched.set(lang, loading);
+		loading.catch(() => fetched.delete(lang));
+	}
+
+	return fetched.get(lang);
+}
+
+// A Tesseract worker holding `lang`, whose reinitialize(lang) switches it to
+// another model, each fetched first (fetchModel).
+async function startAsianWorker(logger, lang) {
+	await fetchModel(lang);
+
+	const worker = await startWorker(logger, lang);
+
+	return {
+		recognize: (...args) => worker.recognize(...args),
+		async reinitialize(next, oem) {
+			await fetchModel(next);
+			await worker.reinitialize(next, oem);
+		},
+		setParameters: (...args) => worker.setParameters(...args),
+		terminate: () => worker.terminate(),
+	};
+}
+
+// The Japanese and Korean readers: {ocr(image, {lang, psm, whitelist,
+// noWait}), prepare(lang), state(lang), terminate(), loads, started}.
+//
+// - perModel: one worker per model, so the two never switch (measured in
+//   headless Chromium, 2026-11-04: an English worker about 80 MB, a
+//   Japanese or Korean one about 35 MB more each). createPool asks for it
+//   when the phone has the memory for two English workers (workerCount);
+//   otherwise one worker holds one model at a time and switches
+//   (reinitialize, about 40 ms for a model loaded before).
+// - A model loads outside the reads: a start or a switch holds its worker,
+//   so no read runs while it changes models, and every read waiting on it
+//   races the same time limit (`wait`) from the load's start. Past it, the
+//   waiting reads give up together, and later reads for that worker give
+//   up at once until the load settles.
+// - noWait: true for a card whose language is not known, which never waits
+//   for a model that is not loaded: such a read gives up at once (the
+//   caller prepares the model for the next card; read.js readName).
+// - A start that fails (offline before the model was kept) makes no
+//   worker, and nothing is tried again this session until the browser says
+//   it is back online (`onOnline`).
+// - state(lang): 'held' when a worker holds the model and is not loading
+//   another, 'ready' when it loaded once (a switch back reads it from the
+//   caches), null otherwise.
+//
+// Pure apart from `start` (startAsianWorker) and `onOnline`, which tests
+// replace.
+const defaultOnOnline = (listener) => {
+	if (typeof globalThis.addEventListener === 'function') {
+		globalThis.addEventListener('online', listener);
+	}
+};
+
+export function createAsianReader({logger = () => {}, onOnline = defaultOnOnline, perModel = false, start = startAsianWorker, wait = ASIAN_WAIT_MS} = {}) {
+	const loads = [];
+	const ready = new Set();
+	const slots = new Map();
+	let failed = null;
+	let stopped = false;
+
+	onOnline(() => {
+		failed = null;
+	});
+
+	const slotFor = (lang) => {
+		const key = perModel ? lang : 'one';
+
+		if (!slots.has(key)) {
+			slots.set(key, {current: '', loading: null, lock: Promise.resolve(), model: null, worker: null});
+		}
+
+		return slots.get(key);
 	};
 
-	const run = (job) => {
-		const next = chain.then(job, job);
+	// Runs `job` on the slot's worker once nothing else is.
+	const exclusive = (slot, job) => {
+		const next = slot.lock.then(job, job);
 
-		chain = next.catch(() => {});
+		slot.lock = next.catch(() => {});
 
 		return next;
 	};
 
+	// Puts `lang` on the slot's worker, starting it or switching its model.
+	const put = async (slot, lang) => {
+		const started = performance.now();
+
+		if (!slot.worker) {
+			const made = await start(logger, lang);
+
+			if (stopped) {
+				made.terminate();
+
+				throw new Error('The reader stopped.');
+			}
+
+			slot.worker = made;
+			loads.push({lang, ms: Math.round(performance.now() - started)});
+		}
+		else {
+			try {
+				await slot.worker.reinitialize(lang, 1);
+				await slot.worker.setParameters(FIXED);
+			}
+			catch (err) {
+				// A worker that failed half way through a switch holds no
+				// model it can be trusted with.
+				const broken = slot.worker;
+
+				slot.worker = null;
+				slot.model = null;
+				Promise.resolve().then(() => broken.terminate()).catch(() => {});
+
+				throw err;
+			}
+
+			loads.push({lang, ms: Math.round(performance.now() - started), switched: true});
+		}
+
+		slot.model = lang;
+		slot.current = '';
+		ready.add(lang);
+	};
+
+	// The slot's load of `lang`, begun now or joined: {lang, done, expired,
+	// timeout}. done settles when the model is on the worker; timeout
+	// resolves `wait` after the load began.
+	const begin = (slot, lang) => {
+		if (slot.loading && slot.loading.lang === lang) {
+			return slot.loading;
+		}
+
+		const load = {expired: false, lang};
+		let timer = null;
+
+		load.timeout = new Promise((resolve) => {
+			timer = setTimeout(() => {
+				load.expired = true;
+				resolve();
+			}, wait);
+		});
+		load.done = exclusive(slot, () => (slot.model === lang && slot.worker ? null : put(slot, lang)));
+		slot.loading = load;
+		load.done.then(() => {}, (err) => {
+			if (!ready.has(lang) || !slot.worker) {
+				failed = err || new Error(`The ${lang} model could not load.`);
+			}
+		}).finally(() => {
+			clearTimeout(timer);
+
+			if (slot.loading === load) {
+				slot.loading = null;
+			}
+		});
+
+		return load;
+	};
+
+	const state = (lang) => {
+		if (!ready.has(lang) || failed) {
+			return null;
+		}
+
+		const slot = slotFor(lang);
+
+		return slot.model === lang && !slot.loading ? 'held' : 'ready';
+	};
+
 	return {
 		loads,
-		// Starts loading `lang` behind whatever runs, for a card known to
-		// be Japanese or Korean before its name is read.
-		prepare(lang) {
-			if (ASIAN_MODELS.includes(lang) && !worker) {
-				run(() => ready(lang)).catch(() => {});
-			}
-		},
-		ocr(image, {lang, psm = '7', whitelist = ''} = {}) {
+		ocr(image, {lang, noWait = false, psm = '7', whitelist = ''} = {}) {
 			if (!ASIAN_MODELS.includes(lang)) {
 				return Promise.reject(new Error(`No ${lang} model.`));
 			}
 
-			return run(async () => {
-				const loading = ready(lang);
-				const made = await Promise.race([loading, new Promise((resolve) => setTimeout(() => resolve(null), wait))]);
+			if (failed) {
+				return Promise.reject(new Error(`The ${lang} model could not load; it is tried again when the phone is back online.`));
+			}
 
-				if (!made) {
+			const slot = slotFor(lang);
+
+			// A load that is downloading a model holds the worker: a read
+			// that may not wait gives up now.
+			const downloading = slot.loading && !ready.has(slot.loading.lang);
+
+			if (noWait && (!ready.has(lang) || downloading)) {
+				return Promise.reject(new Error(`The ${lang} model is still loading.`));
+			}
+
+			return (async () => {
+				// A load past its time holds the worker: every read gives up,
+				// once what is left of this turn of the event loop has not
+				// seen it finish, and none begins another load behind it.
+				const stuck = slot.loading && slot.loading.expired ? slot.loading : null;
+
+				if (stuck && await Promise.race([stuck.done.then(() => false, () => false), new Promise((resolve) => setTimeout(() => resolve(true), 0))])) {
 					throw new Error(`The ${lang} model is still loading.`);
 				}
 
-				const key = `${psm}|${whitelist}`;
+				const load = ready.has(lang) ? slot.loading : begin(slot, lang);
 
-				if (key !== current) {
-					await made.setParameters({tessedit_char_whitelist: whitelist, tessedit_pageseg_mode: psm});
-					current = key;
+				if (load) {
+					const settled = await Promise.race([load.done.then(() => 'done', () => 'failed'), load.timeout.then(() => 'late')]);
+
+					if (settled === 'late') {
+						throw new Error(`The ${lang} model is still loading.`);
+					}
+
+					if (settled === 'failed' && load.lang === lang) {
+						throw new Error(`The ${lang} model could not load.`);
+					}
 				}
 
-				const {data} = await made.recognize(toPgm(image), {}, {blocks: true, text: true});
+				return exclusive(slot, async () => {
+					if (slot.model !== lang) {
+						// A model loaded before, put back after the other
+						// one was read with.
+						if (!ready.has(lang)) {
+							throw new Error(`The ${lang} model is not loaded.`);
+						}
 
-				return {confidence: Math.round(data.confidence), lines: linesOf(data), text: data.text.trim()};
-			});
+						await put(slot, lang);
+					}
+
+					const key = `${psm}|${whitelist}`;
+
+					if (key !== slot.current) {
+						await slot.worker.setParameters({tessedit_char_whitelist: whitelist, tessedit_pageseg_mode: psm});
+						slot.current = key;
+					}
+
+					const {data} = await slot.worker.recognize(toPgm(image), {}, {blocks: true, text: true});
+
+					return {confidence: Math.round(data.confidence), lines: linesOf(data), text: data.text.trim()};
+				});
+			})();
+		},
+		// Starts loading `lang` behind whatever runs: for a card known to be
+		// Japanese or Korean before its name is read, or for the next card
+		// when this one could not wait.
+		prepare(lang) {
+			if (!ASIAN_MODELS.includes(lang) || failed || stopped || ready.has(lang)) {
+				return;
+			}
+
+			begin(slotFor(lang), lang).done.catch(() => {});
 		},
 		get started() {
-			return Boolean(worker);
+			return [...slots.values()].some((slot) => slot.worker || slot.loading);
 		},
+		state,
 		terminate() {
 			stopped = true;
 
-			return worker ? worker.then((made) => made.terminate(), () => {}) : Promise.resolve();
+			return Promise.all([...slots.values()].map((slot) => exclusive(slot, () => (slot.worker ? slot.worker.terminate() : null)).catch(() => {})));
 		},
 	};
 }
 
 // Starts the pool. The first worker is waited for; the second joins when it
 // is up, so a read never waits for it. Returns {ocr, size, terminate,
-// loadMs, trace, prepare, asianLoads}; ocr(image, {psm, whitelist,
-// background, lang}) resolves to {confidence, lines, text}, like
-// lab/js/ocr.js; background: true for a read nobody is waiting on
-// (createSlots); lang 'jpn' or 'kor' for the Asian worker
-// (createAsianReader), started on first use. trace: the last TRACE_KEPT
+// loadMs, trace, prepare, asianLoads, asianState}; ocr(image, {psm,
+// whitelist, background, lang, noWait}) resolves to {confidence, lines,
+// text}, like lab/js/ocr.js; background: true for a read nobody is waiting
+// on (createSlots); lang 'jpn' or 'kor' for the Asian workers
+// (createAsianReader), started on first use, one per model on a phone with
+// the memory for two English workers; noWait for an Asian read that must
+// not wait for its model to load; asianState(lang) whether that model is
+// loaded (createAsianReader state). trace: the last TRACE_KEPT
 // calls, {background, queued, started, ended, lang} (performance.now()),
 // for the tests and the phone check.
 const TRACE_KEPT = 200;
@@ -306,9 +488,9 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 		startWorker(() => {}).then(add, () => {});
 	}
 
-	const asian = createAsianReader({logger});
+	const asian = createAsianReader({logger, perModel: size >= 2});
 
-	async function ocr(image, {background = false, lang = 'eng', psm = '7', whitelist = ''} = {}) {
+	async function ocr(image, {background = false, lang = 'eng', noWait = false, psm = '7', whitelist = ''} = {}) {
 		const call = {background, ended: null, queued: performance.now(), started: null, ...(lang === 'eng' ? {} : {lang})};
 
 		trace.push(call);
@@ -321,7 +503,7 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 			call.started = performance.now();
 
 			try {
-				return await asian.ocr(image, {lang, psm, whitelist});
+				return await asian.ocr(image, {lang, noWait, psm, whitelist});
 			}
 			finally {
 				call.ended = performance.now();
@@ -352,6 +534,7 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 
 	return {
 		asianLoads: asian.loads,
+		asianState: (lang) => asian.state(lang),
 		loadMs,
 		ocr,
 		prepare: (lang) => asian.prepare(lang),

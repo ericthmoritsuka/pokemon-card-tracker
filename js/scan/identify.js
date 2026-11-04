@@ -795,8 +795,10 @@ async function readText(seen, {readOptions = {}} = {}) {
 		// clear has its name strip read too when no number reads, for the
 		// name route.
 		// The Japanese or Korean model, when the name strip asks for one
-		// (readOptions.cjk, from the view), starts in its own worker.
-		const options = {...readOptions, prepareModel: engine.prepare || null};
+		// (readOptions.cjk, from the view), starts in its own worker; a card
+		// whose language is not known reads only with a model already
+		// loaded (modelState) and prepares the other for the next card.
+		const options = {...readOptions, modelState: engine.asianState || null, prepareModel: engine.prepare || null};
 
 		read = picture
 			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, prefer: numberSide(picture), setCode: several})

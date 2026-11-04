@@ -85,9 +85,10 @@ A phone downloads one of the three cores (Tesseract picks it by SIMD support), s
 about 5 MB over the wire with compression.
 
 **Japanese and Korean: `jpn` and `kor` tessdata_fast** (Eric, 2026-11-04), used by the scanner
-only, to read the name strip of a Japanese or Korean card (DESIGN.md section 6). They load in a
-worker of their own the first time a card asks for one, never with the English model, so the lab
-and a Latin card never download them. Chosen over the best_int models (2.0 and 1.6 MB) on the scan
+only, to read the name strip of a Japanese or Korean card (DESIGN.md section 6). They load in
+workers of their own (one per model on a phone with the memory for two English workers, else one
+that switches) the first time a card asks for one, never with the English model, so the lab and a
+Latin card never download them. Chosen over the best_int models (2.0 and 1.6 MB) on the scan
 benchmark (`lab/bench`, `asian.json`): Japanese names right on 29 of 48 reads against 26, Korean 16
 of 32 against 16, and faster.
 

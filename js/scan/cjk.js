@@ -76,32 +76,65 @@ const KEEP = /[ᄀ-ᇿꥠ-꥿ힰ-퟿ァ-ヺー㐀-䶿一-鿿]/u;
 // which Pokémon), Hangul is spelled out in jamo (so one misread stroke is
 // one letter of about seven in a three-syllable name, not a whole
 // syllable), and kana are folded as above.
-export function cjkKey(text) {
+//
+// strict: true keeps what the folding drops between kana (voicing marks,
+// small kana, and シ, ツ, ソ, ン apart), for names too short to fold
+// (keySimilarity).
+const KANA_PAIRS = new Set(['シ', 'ン']);
+
+export function cjkKey(text, {strict = false} = {}) {
 	const wide = String(text || '').normalize('NFKC');
 	let out = '';
 
 	for (const ch of wide.replace(/[ぁ-ゖ]/gu, (kana) => String.fromCharCode(kana.charCodeAt(0) + 0x60))) {
-		const one = LOOKALIKE[ch] || ch;
+		const one = strict && KANA_PAIRS.has(ch) ? ch : LOOKALIKE[ch] || ch;
 
 		for (const part of one.normalize('NFD')) {
-			const plain = SMALL[part] || part;
+			const plain = strict ? part : SMALL[part] || part;
+
+			if (strict && (plain === '゙' || plain === '゚')) {
+				out += plain;
+
+				continue;
+			}
 
 			if (plain === '゙' || plain === '゚' || !KEEP.test(plain)) {
 				continue;
 			}
 
-			out += LOOKALIKE[plain] || plain;
+			out += strict && KANA_PAIRS.has(plain) ? plain : LOOKALIKE[plain] || plain;
 		}
 	}
 
-	return out;
+	return strict ? out.normalize('NFC') : out;
 }
 
-// A key of Hangul jamo is about two and a half letters a syllable, a key of
-// kana one: the shortest a name may be to be found inside a longer read,
-// and the length under which it must read exactly.
+// The names that must read exactly: a Korean one of one or two syllables
+// (a key in jamo, counted by its leading consonants), a Japanese one under
+// three kana. One misread stroke left a two-syllable Korean name at 0.8 or
+// more against 1.9 % of random two-syllable reads (review of version 56's
+// first draft, 2026-11-04). A kana key under three must read exactly before
+// the folding as well (strict cjkKey): "パウ" is not the Trainer "ハウ".
+// Kana keys of three and four lose a little more for each misread
+// (SHORT_KANA): a four-kana name one kana off scored 0.75 against 1.7 % of
+// random four-kana reads.
 const isJamo = (key) => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(key);
-const shortest = (key) => (isJamo(key) ? 5 : 3);
+const syllables = (key) => (key.match(/[ᄀ-ᅟꥠ-꥿]/gu) || []).length;
+const exactOnly = (key) => (isJamo(key) ? syllables(key) < 3 : key.length < 3);
+const SHORT_KANA = 5;
+
+// The shortest key that may be found inside a longer read: 7 jamo for a
+// Korean name, 4 kana for a Japanese one. A shorter Korean one is found
+// inside random reads too often: with five-jamo names allowed, 4 to 7 % of
+// random Hangul reads of two to five syllables named a Pokémon at 0.7 or
+// more (review of version 56's first draft, 2026-11-04), "헬가" (Houndour)
+// inside "젤갑돌" among them. Japanese names need it from four kana: the
+// model reads the stage label glued to the name ("デスナヘビ" for スナヘビ,
+// "閉ヤドラン" for ヤドラン), and on the lab benchmark 14 of the 119 names
+// read right were lost at 7; random katakana still names a Pokémon under
+// 1 % of the time.
+export const SUBSTRING_SHORTEST = 7;
+const SUBSTRING_SHORTEST_KANA = 4;
 
 // ------------------------------------------------------------ comparing
 
@@ -142,22 +175,33 @@ function closestStretch(needle, hay) {
 	return Math.min(...row);
 }
 
-// How alike a read is to a name's key, 0 to 1: the whole read, or the name
-// inside a longer read (the stage label "たね" or a prefix such as "メガ"
-// glued to it) at a small discount. A short name must read exactly.
-function keySimilarity(key, read) {
+// How alike a read is to a name's key, 0 to 1: the whole read, or a long
+// name inside a longer read (the stage label "たね" or a prefix such as
+// "メガ" glued to it) at a small discount. A short name must read exactly;
+// a very short kana one must read exactly unfolded too (`strict`, the two
+// texts' strict keys, compared only then).
+function keySimilarity(key, read, strict = null) {
 	if (!key || !read) {
 		return 0;
 	}
 
 	let best = 1 - editDistance(key, read) / Math.max(key.length, read.length);
 
-	if (key.length >= shortest(key) && read.length > key.length) {
+	if (key.length >= (isJamo(key) ? SUBSTRING_SHORTEST : SUBSTRING_SHORTEST_KANA) && read.length > key.length) {
 		best = Math.max(best, (1 - closestStretch(key, read) / key.length) * 0.92);
 	}
 
-	if (key.length < shortest(key) && best < 1) {
+	if (best === 1 && !isJamo(key) && exactOnly(key) && strict) {
+		const [name, text] = strict();
+
+		best = name === text ? 1 : 1 - Math.min(1, editDistance(name, text) / Math.max(1, name.length));
+	}
+
+	if (best < 1 && exactOnly(key)) {
 		best *= 0.8;
+	}
+	else if (best < 1 && !isJamo(key) && key.length < SHORT_KANA) {
+		best *= 0.92;
 	}
 
 	return best;
@@ -165,7 +209,7 @@ function keySimilarity(key, read) {
 
 // How alike two names in Japanese or Korean read, 0 to 1 (0 when either has
 // no CJK letters).
-export const cjkSimilarity = (a, b) => keySimilarity(cjkKey(a), cjkKey(b));
+export const cjkSimilarity = (a, b) => keySimilarity(cjkKey(a), cjkKey(b), () => [cjkKey(a, {strict: true}), cjkKey(b, {strict: true})]);
 
 // ------------------------------------------------------------ the table
 
@@ -206,7 +250,10 @@ export function asianNameEntries(table, english = []) {
 // name when the table knows it (else the spelling), spelling the name as
 // printed, lang 'ja' or 'ko'; a Trainer adds trainer: true. Only names in
 // the read's script are compared. One answer per Pokémon (per name for a
-// Trainer).
+// Trainer). Names the folding cannot tell apart (カラカラ and ガラガラ,
+// ポリゴン, ポリゴン２, and ポリゴンＺ, ニドラン♀ and ニドラン♂) are ties:
+// every name tied for the best score is returned, past `limit` if need be,
+// never one of them alone.
 export function matchCjkNames(text, entries, {limit = 4, min = 0.7} = {}) {
 	const read = cjkKey(text);
 	const script = scriptOf(text);
@@ -228,7 +275,7 @@ export function matchCjkNames(text, entries, {limit = 4, min = 0.7} = {}) {
 			continue;
 		}
 
-		const score = Math.round(keySimilarity(key, read) * 100) / 100;
+		const score = Math.round(keySimilarity(key, read, () => [cjkKey(entry.name, {strict: true}), cjkKey(text, {strict: true})]) * 100) / 100;
 
 		if (score < min) {
 			continue;
@@ -249,23 +296,33 @@ export function matchCjkNames(text, entries, {limit = 4, min = 0.7} = {}) {
 		}
 	}
 
-	return [...found.values()].sort((a, b) => b.score - a.score || b.spelling.length - a.spelling.length).slice(0, limit);
+	const sorted = [...found.values()].sort((a, b) => b.score - a.score || b.spelling.length - a.spelling.length);
+	const tied = sorted.filter((match) => match.score === sorted[0].score).length;
+
+	return sorted.slice(0, Math.max(limit, tied));
 }
 
 // The species a printed Japanese or Korean card name is (a record the
-// number route found carries its name, not its species): its folded name
-// is a species', or holds one that makes up most of it ("メガグソクムシャex",
-// Mega Golisopod ex, is Golisopod). Returns the National Dex number or
-// null. A Trainer named after a Pokémon ("カビゴンドール", a Snorlax Doll)
-// holds the species in too little of its name to count.
-export function dexOfCjkName(name, entries) {
+// number route found carries its name, not its species): the species whose
+// name it is as printed, else those whose folded name it is, else the one
+// it holds that makes up most of it ("メガグソクムシャex", Mega Golisopod
+// ex, is Golisopod). Returns the National Dex numbers, [] for none. A record
+// name is printed text, not a read, so "カラカラ" is Cubone alone; a name the
+// folding cannot tell apart from another's that is not printed as either
+// gives both. A Trainer named after a Pokémon ("カビゴンドール", a Snorlax
+// Doll) holds the species in too little of its name to count.
+const printed = (text) => String(text || '').normalize('NFKC').replace(/\s+/gu, '');
+
+export function dexesOfCjkName(name, entries) {
 	const key = cjkKey(name);
 	const script = scriptOf(name);
 
 	if (!script || key.length < 2) {
-		return null;
+		return [];
 	}
 
+	const exact = new Set();
+	const folded = new Set();
 	let best = null;
 
 	for (const entry of entries || []) {
@@ -275,8 +332,12 @@ export function dexOfCjkName(name, entries) {
 
 		const own = entry.key || cjkKey(entry.name);
 
+		if (printed(entry.name) === printed(name)) {
+			exact.add(entry.dex);
+		}
+
 		if (own === key) {
-			return entry.dex;
+			folded.add(entry.dex);
 		}
 
 		if (own.length >= 2 && key.includes(own) && own.length >= key.length * 0.6 && (!best || own.length > best.length)) {
@@ -284,7 +345,19 @@ export function dexOfCjkName(name, entries) {
 		}
 	}
 
-	return best ? best.dex : null;
+	if (exact.size || folded.size) {
+		return [...(exact.size ? exact : folded)];
+	}
+
+	return best ? [best.dex] : [];
+}
+
+// The one species a printed name is (dexesOfCjkName), or null when it is
+// none or the folding leaves several.
+export function dexOfCjkName(name, entries) {
+	const dexes = dexesOfCjkName(name, entries);
+
+	return dexes.length === 1 ? dexes[0] : null;
 }
 
 // ------------------------------------------------------------ the name strip
@@ -548,33 +621,67 @@ export function medianGrey(crop) {
 // try first otherwise (the last Asian language picked in Scan, Korean
 // before any), lean true when the last language picked of all was Japanese
 // or Korean, so a strip the English model reads no name off is read with
-// that model without its shapes being asked; noLatinLabel the same when the
-// card's label row read no Latin label (read.js readCard sets it). `latin` is the English read of
+// that model without its shapes being asked. `latin` is the English read of
 // the strip (evidence.js parseName), null when it was not read; `shapes`
 // looksCjk's answer for the strip's tallest line, null when not measured.
 //
+// A label row with no Latin label is not a reason on its own: Energy and
+// Trainer cards have no weakness row at all, so every one of them would
+// load a model (review of version 56's first draft: a perfect "Fire
+// Energy" read was read again in Korean and Japanese). A Latin label does
+// still veto the models (read.js readName).
+//
+// `models`, when given, says which models the reader holds ({ja, ko}, each
+// 'held', 'ready', or null; js/scan/ocr.js createAsianReader state): with
+// no language known, a model that is not loaded is never waited for. It is
+// left out of the plan and returned as `prepare`, to load behind the scan
+// for the next card. When the shapes do not say which script it is, the
+// model already held is tried first, then one loaded before, then the last
+// Asian pick, so an unclear card does not switch the model twice.
+//
 // Returns {read: false} or {read: true, first, then, skipLatin}: first the
 // model's language to read with, then the other one to try when the first
-// reads no name (null when the language is known), skipLatin when the
-// English read is not worth making at all.
+// reads no name (null when the language is known, or the other is not
+// loaded), skipLatin when the English read is not worth making at all;
+// and, with `models`, prepare: the language to load behind, when there is
+// one.
 //
 // A Latin read is plausible when it names a known Pokémon or Trainer this
 // well (`latinScore`, the best evidence.js matchNames score against the
 // Western names, js/scan/local-names.js latinNameScore), or, with no table
 // to ask, when it has three Latin letters in a row read with
-// LATIN_PLAUSIBLE confidence.
+// LATIN_PLAUSIBLE confidence; and always when it is an Energy's name. The
+// Western table holds no Energy (lab/names/build.mjs keeps Pokémon and
+// Trainers), so "Fire Energy" scored 0.66 there and "Darkness Energy" 0.74,
+// under LATIN_NAMED: a word one letter or less from "Energy" (Energia,
+// Énergie, Energie, Energía) in the read makes it plausible, a basic or a
+// special Energy alike.
 export const LATIN_NAMED = 0.75;
 export const LATIN_PLAUSIBLE = 0.55;
+
+const ENERGY_WORDS = ['energy', 'energia', 'energie'];
+
+export function energyName(text) {
+	const words = String(text || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/[^a-z]+/u);
+
+	return words.some((word) => word.length >= 5 && ENERGY_WORDS.some((energy) => editDistance(word, energy) <= 1));
+}
 
 export function plausibleLatin(latin, latinScore = null) {
 	if (!(latin && latin.text && /\p{Script=Latin}{3,}/u.test(latin.text))) {
 		return false;
 	}
 
+	if (energyName(latin.text)) {
+		return true;
+	}
+
 	return typeof latinScore === 'number' ? latinScore >= LATIN_NAMED : latin.confidence >= LATIN_PLAUSIBLE;
 }
 
-export function wantsCjk(cjk, latin = null, shapes = null, latinScore = null) {
+const otherOf = (lang) => (lang === 'ja' ? 'ko' : 'ja');
+
+export function wantsCjk(cjk, latin = null, shapes = null, latinScore = null, models = null) {
 	const known = cjk && ASIAN_NAME_LANGUAGES.includes(cjk.language) ? cjk.language : null;
 
 	if (known) {
@@ -585,14 +692,28 @@ export function wantsCjk(cjk, latin = null, shapes = null, latinScore = null) {
 		return {read: false};
 	}
 
-	if (plausibleLatin(latin, latinScore) || !((shapes && shapes.cjk) || cjk.lean || cjk.noLatinLabel)) {
+	if (plausibleLatin(latin, latinScore) || !((shapes && shapes.cjk) || cjk.lean)) {
 		return {read: false};
 	}
 
 	// The first model: the strip's loops when they say (Hangul is full of
-	// them, katakana nearly bare), else the last Asian language picked.
+	// them, katakana nearly bare), else the model held, else the last Asian
+	// language picked.
 	const byShape = shapes && shapes.glyphs >= 2 ? (shapes.holes >= HANGUL_HOLES ? 'ko' : shapes.holes <= 0.1 ? 'ja' : null) : null;
-	const first = byShape || (ASIAN_NAME_LANGUAGES.includes(cjk.guess) ? cjk.guess : 'ko');
+	const guess = ASIAN_NAME_LANGUAGES.includes(cjk.guess) ? cjk.guess : 'ko';
+	const rank = (lang) => (models ? {held: 2, ready: 1}[models[lang]] || 0 : 0);
+	const first = byShape || (rank(otherOf(guess)) > rank(guess) ? otherOf(guess) : guess);
 
-	return {first, read: true, skipLatin: false, then: first === 'ja' ? 'ko' : 'ja'};
+	if (!models) {
+		return {first, read: true, skipLatin: false, then: otherOf(first)};
+	}
+
+	const order = [first, otherOf(first)].filter((lang) => models[lang]);
+	const prepare = models[first] ? null : first;
+
+	if (!order.length) {
+		return {prepare, read: false};
+	}
+
+	return {first: order[0], read: true, skipLatin: false, then: order[1] || null, ...(prepare ? {prepare} : {})};
 }

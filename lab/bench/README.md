@@ -56,7 +56,9 @@ the Japanese scan's name is painted over and the Korean name (PokeAPI's `ko` spe
 the print's suffix) drawn in its place in Noto Sans CJK KR Bold (`bench.js` `koreanCard`), which
 must be installed where Chromium finds it. The right card for a Korean copy is the Japanese
 record. The reader gets the options the app gives a card with no language picked
-(`js/scan/view.js` `cjkOptions`: Korean tried first); `--options '{"cjk":{"language":"ja"}}'`
+(`js/scan/view.js` `cjkOptions`: Korean tried first) and the pool's model state
+(`js/scan/identify.js`): a card whose language is not known reads only with a model already
+loaded, so the first card that asks for one starts its load and is read without it; `--options '{"cjk":{"language":"ja"}}'`
 reads every name as a card picked as Japanese. A tree from before the Japanese and Korean reading
 (`REPO=`) is measured the same way, without them.
 

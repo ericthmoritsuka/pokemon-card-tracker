@@ -37,7 +37,7 @@ import {isPocket, loadAsian, loadInternational, localIdOf, setIdOf} from '../pok
 import {fetchJson, graphql} from '../tcgdex.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {artworkSims} from './artwork.js';
-import {dexOfCjkName, hasCjk, matchCjkNames, scriptOf} from './cjk.js';
+import {dexesOfCjkName, hasCjk, matchCjkNames, scriptOf} from './cjk.js';
 import {cluesOf, fold, matchNames, orderByArtwork, rankCards, setNameRead, speciesEntries, TIE_POINTS} from './evidence.js';
 import {loadAsianNames, loadLocalNames} from './local-names.js';
 import {ASIAN_LANGUAGES, searchOrder} from './session.js';
@@ -185,6 +185,10 @@ export function warmNameRoute() {
 // Species matches below this are not used to look cards up (they still
 // score a card the number found).
 const NAME_LOOKUP = 0.75;
+
+// The Japanese and Korean name route's set lists and print lookups, asked
+// together, are waited for this long in all (asianRoute).
+export const ASIAN_ROUTE_MS = 4000;
 
 // The full record is read for at most this many leading cards (more when
 // no number read, since a name alone leaves many prints level), within this
@@ -359,12 +363,12 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 
 				// A Japanese or Korean record carries its name, not its
 				// species: with a Japanese or Korean name read, the species
-				// its name is (cjk.js dexOfCjkName) lets a Korean read agree
+				// its name is (cjk.js dexesOfCjkName) lets a Korean read agree
 				// with the Japanese record a Korean copy sits on.
-				const dex = script && hasCjk(card.name) ? dexOfCjkName(card.name, asianEntries) : null;
+				const dexes = script && hasCjk(card.name) ? dexesOfCjkName(card.name, asianEntries) : [];
 
 				add({
-					...(dex ? {dexIds: [dex]} : {}),
+					...(dexes.length ? {dexIds: dexes} : {}),
 					first: index === 0,
 					id: card.id,
 					image: card.image || null,
@@ -387,7 +391,10 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	// A Japanese or Korean name: the species' prints in the Japanese catalog,
 	// after the Korean one for a Korean name (session.js searchOrder), each
 	// with its set's card count and name from that catalog's set list; a
-	// Japanese Trainer's prints by its Japanese name.
+	// Japanese Trainer's prints by its Japanese name. The set lists and the
+	// lookups are asked all at once, within ASIAN_ROUTE_MS together (one
+	// after another they took up to four times as long on a slow link); what
+	// has not come by then is left out.
 	const asianRoute = async (lookups) => {
 		if (!api.asianPrints) {
 			return;
@@ -395,17 +402,31 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 
 		routes.push('name');
 
-		for (const catalog of script === 'ko' ? ['ko', 'ja'] : ['ja']) {
-			const list = await listFor(catalog);
+		const catalogs = script === 'ko' ? ['ko', 'ja'] : ['ja'];
+		const late = Symbol('late');
+		let timer = null;
+		const deadline = new Promise((resolve) => {
+			timer = setTimeout(() => resolve(late), ASIAN_ROUTE_MS);
+		});
+		const inTime = (promise) => Promise.race([Promise.resolve(promise).catch(() => null), deadline]);
+		const lists = catalogs.map((catalog) => inTime(listFor(catalog)));
+		const found = catalogs.map((catalog) => lookups.map((match) => inTime(Promise.resolve().then(() => (match.dex
+			? api.asianPrints(catalog, match.dex)
+			: match.trainer && catalog === match.lang && api.asianNamedPrints ? api.asianNamedPrints(catalog, match.spelling) : [])))));
+		const [listsIn, foundIn] = await Promise.all([Promise.all(lists), Promise.all(found.map((row) => Promise.all(row)))]);
+
+		clearTimeout(timer);
+
+		for (const [index, catalog] of catalogs.entries()) {
+			const list = listsIn[index] === late ? null : listsIn[index];
 			const sets = new Map((list || []).map((set) => [set.id, set]));
 
 			if (!searched.includes(catalog)) {
 				searched.push(catalog);
 			}
 
-			for (const match of lookups) {
-				const lookup = match.dex ? api.asianPrints(catalog, match.dex) : match.trainer && catalog === match.lang && api.asianNamedPrints ? api.asianNamedPrints(catalog, match.spelling) : [];
-				const prints = await Promise.resolve(lookup).catch(() => []);
+			for (const [at, match] of lookups.entries()) {
+				const prints = foundIn[index][at] === late ? [] : foundIn[index][at];
 
 				for (const print of prints || []) {
 					const set = sets.get(print.setId) || null;
@@ -430,7 +451,11 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	};
 
 	const nameRoute = async () => {
-		const lookups = names.filter((match) => match.score >= NAME_LOOKUP && match.score >= names[0].score - 0.1).slice(0, 2);
+		// The two best names; for a Japanese or Korean read, every name
+		// tied for the best too (names the folding cannot tell apart, cjk.js
+		// matchCjkNames: ポリゴン, ポリゴン２, ポリゴンＺ).
+		const near = names.filter((match) => match.score >= NAME_LOOKUP && match.score >= names[0].score - 0.1);
+		const lookups = near.slice(0, script ? Math.max(2, near.filter((match) => match.score === names[0].score).length) : 2);
 
 		if (lookups.length && script) {
 			await asianRoute(lookups);

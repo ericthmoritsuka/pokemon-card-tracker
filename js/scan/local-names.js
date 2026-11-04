@@ -150,9 +150,18 @@ export async function asianNameScore(text, {load = loadAsianNames} = {}) {
 // The best score (0 to 1) of a Latin name read against the Western names
 // (every species in English, French, and German, and the Trainers), for
 // read.js: an English read of the name strip that names nothing may be a
-// Japanese or Korean name the English model cannot read.
+// Japanese or Korean name the English model cannot read. null when the
+// table could not be loaded (offline before the service worker kept it):
+// with no names to ask, a score of 0 would call every Latin card's name
+// unknown, and read.js takes null as "do not load a model".
 export async function latinNameScore(text, {load = loadLocalNames} = {}) {
-	const [best] = matchNames(text, await load(), {limit: 1, min: 0.5});
+	const entries = await load();
+
+	if (!entries || !entries.length) {
+		return null;
+	}
+
+	const [best] = matchNames(text, entries, {limit: 1, min: 0.5});
 
 	return best ? best.score : 0;
 }

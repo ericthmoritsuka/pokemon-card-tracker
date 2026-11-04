@@ -30,6 +30,11 @@ let pool = null;
 const names = await import('/pokemon-card-tracker/js/scan/local-names.js').catch(() => ({}));
 const APP_OPTIONS = names.asianNameScore ? {cjk: {guess: 'ko', language: null, lean: false}, scoreLatin: (text) => names.latinNameScore(text), scoreName: (text) => names.asianNameScore(text)} : {};
 
+// The reader's model state and background loading, as js/scan/identify.js
+// passes them, when the pool has them (a card whose language is not known
+// reads only with a model already loaded, and prepares one for the next).
+const poolOptions = () => (pool && pool.asianState ? {modelState: pool.asianState, prepareModel: pool.prepare} : {});
+
 // Every OCR call of one card, counted here so an older tree's reads are
 // counted the same way.
 let calls = 0;
@@ -319,7 +324,7 @@ async function measure(image, {crops = false, options = {}} = {}) {
 
 	calls = 0;
 
-	const read = await readCard(r.card, counted, {...APP_OPTIONS, ...options});
+	const read = await readCard(r.card, counted, {...APP_OPTIONS, ...poolOptions(), ...options});
 	const t2 = performance.now();
 	const artwork = artVector(r.card);
 	const lang = langOf(read);
