@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-04
 
-- **v55:** a log of the cards you sell, buy, trade, and give. `TBD`
+- **v55:** a log of the cards you sell, buy, trade, and give. `a6ba8e2`
   - **Trades**, beside Spares on My Cards (and **Trades and sales** in Profile), opens History.
     **Log a move** records a sale, a purchase, a trade, or a gift: the date, who with, one price for
     the whole move if there was one, and a note. A trade asks whether you paid the cash or got it.
