@@ -1164,7 +1164,6 @@ export function cardView(root, {lang, cardId}) {
 			),
 			twin.element,
 			copies,
-			movesSlot,
 			ligaRow,
 			collectSlot,
 			priceSlot,
@@ -1191,8 +1190,9 @@ export function cardView(root, {lang, cardId}) {
 	const copies = h('section', {'aria-labelledby': 'copies-title', class: 'copies', hidden: true});
 
 	// How your copies of this card came and went (js/moves.js cardHistory):
-	// "Left: sold for R$ 30,50 to Ana, 3 Nov", each line opening History.
-	// Yours only: a family member's moves are not shown.
+	// "Left: sold for R$ 30,50 to Ana, 3 Nov", each line opening History,
+	// at the end of Your copies. Yours only: a family member's moves are not
+	// shown.
 	const movesSlot = h('div', {class: 'card-moves', hidden: true, id: 'card-moves'});
 	let movesRun = 0;
 
@@ -1632,7 +1632,7 @@ export function cardView(root, {lang, cardId}) {
 			copies.replaceChildren(h('div', {class: 'copies-head'},
 				h('h3', {id: 'copies-title'}, member ? `Not in ${memberLabel(member)}'s cards` : 'Not in your cards'),
 				readOnly ? null : addButton(card, variants)
-			), ...cardNotes(recordsOfCard(cardRecords(), {card_id: cardId, catalog: catalogFor(lang)})));
+			), ...cardNotes(recordsOfCard(cardRecords(), {card_id: cardId, catalog: catalogFor(lang)})), movesSlot);
 
 			return;
 		}
@@ -1718,6 +1718,8 @@ export function cardView(root, {lang, cardId}) {
 					)
 			)),
 		);
+
+		copies.append(movesSlot);
 
 		// Under a member's copies, how many they could spare.
 		const spare = spareLine(live);
