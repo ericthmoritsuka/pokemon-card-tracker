@@ -463,3 +463,10 @@ button.step-more {
 	font-weight: 400;
 	white-space: nowrap;
 }
+
+/* Sell or trade beside Remove (js/copy-sheet.js). */
+.copy-danger-row {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 1fr 1fr;
+}

@@ -1410,8 +1410,12 @@ export function cardsScreen(root, {
 	// A card the catalog does not have is added by hand (js/custom-card-view.js).
 	const handButton = readOnly ? null : h('button', {class: 'small', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
 	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
+	// The trades and sales log (js/moves-view.js), beside Spares on your own
+	// My Cards.
+	const movesLink = tradeRoute && !readOnly ? h('a', {class: 'button small view-head-link', 'data-link': 'trades', href: `${BASE}trades`, id: 'cards-moves'}, 'Trades') : null;
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
-	const links = tradeLink && wishLink ? h('div', {class: 'view-head-links'}, tradeLink, wishLink) : tradeLink || wishLink;
+	const headLinks = [tradeLink, movesLink, wishLink].filter(Boolean);
+	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
 	const heading = h('div', {class: 'view-head'}, h('h2', null, title), links, handButton);
 
 	root.append(heading, body);

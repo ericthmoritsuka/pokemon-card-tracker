@@ -1,0 +1,712 @@
+// The trades and sales log's screens (js/moves.js; DESIGN.md section 11,
+// "Trades and Sales"):
+//
+//   trades       History: every move, newest first, by month, with the
+//                money in and out each month. A move opens a sheet with its
+//                cards and Undo this move.
+//   trades/new   Log a move: the kind, date, who, price, note, the cards out
+//                (picked from your copies, spares first, or from the copies
+//                you removed in the last 30 days: Log a past sale) and the
+//                cards in (picked from the catalog with language, finish,
+//                and condition, as Add a copy asks). Saving shows Undo on a
+//                toast.
+//
+// Reached from the Trades button beside Spares on My Cards, "Trades and
+// sales" in Profile, and Sell or trade on a copy sheet and a card's page,
+// which hand their copies over (js/moves.js setPendingMove). Never on a
+// family member's screens.
+
+import {cardImage, cardIndex, catalogFor, saveToCardIndex, viewingLanguage} from './catalog.js';
+import {artOf, entryInfo, fillRecords, recordFrom} from './binders-view.js';
+import {finishChoices} from './catalog-views.js';
+import {isLive, loadDocument, onChange} from './collection.js';
+import {MAX_ADD, conditionOptions, copyLanguages, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
+import {BASE, errorText, go, h} from './dom.js';
+import {formatCount, plural} from './format.js';
+import {formatMoney, shortDate} from './prices.js';
+import {CURRENCIES, applyMove, liveMoves, monthTotals, moveTitle, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
+import {searchKey} from './names.js';
+import {afterText} from './placeholder-fill.js';
+import {plainVariantId} from './scan/finish.js';
+import {toast} from './shell.js';
+import {cardArt, entryFinish, tileArt} from './tile.js';
+import {spareEntries} from './trade-view.js';
+import {SearchHint, cardRecord, searchCards} from './wishlist.js';
+
+const UNDO_MS = 8000;
+const PAGE = 60;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+const monthName = (month) => (/^\d{4}-\d{2}$/.test(month) ? `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}` : 'No date');
+
+const moneyLine = (sums) => Object.entries(sums).map(([currency, amount]) => formatMoney(amount, currency)).join(' + ');
+
+// The phone's own day, YYYY-MM-DD.
+function today() {
+	const now = new Date();
+
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// "Undone. 1 copy is back, and 1 card in was removed."
+export function undoneText(counts) {
+	const parts = [`Undone. ${plural(counts.restored, 'copy is', 'copies are')} back, and ${plural(counts.added, 'card in was', 'cards in were')} removed.`];
+
+	if (counts.kept) {
+		parts.push(`${plural(counts.kept, 'card in was', 'cards in were')} kept because you changed ${counts.kept === 1 ? 'it' : 'them'} since.`);
+	}
+
+	if (counts.unlinked) {
+		parts.push(`${plural(counts.unlinked, 'removed copy is', 'removed copies are')} no longer linked to it.`);
+	}
+
+	return parts.join(' ');
+}
+
+async function runUndo(moveId) {
+	try {
+		toast(undoneText(await undoMove(moveId)), {timeout: UNDO_MS});
+	}
+	catch (err) {
+		toast(err.stale ? err.message : `Not undone. ${errorText(err)}`);
+	}
+}
+
+// The names, languages, and art of copies: {entry, info}.
+const described = (entries, index, viewing) => entries.map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
+
+const copyMeta = (entry, extra = null) => [languageName(entry.language), entry.condition, extra].filter(Boolean).join(' · ');
+
+function copyTile({entry, info}, {extra = null, selected = null} = {}) {
+	const frame = artOf({catalog: entry.catalog || 'international', card_id: entry.card_id, language: entry.language || null}, info, (src) => tileArt({
+		finish: entryFinish(entry),
+		info,
+		languages: [entry.language],
+		src,
+		status: selected ? 'owned' : null,
+		statusLabel: selected ? 'Selected' : null,
+	}));
+
+	return [frame, h('span', {class: 'tile-name'}, info.name), h('span', {class: 'tile-meta'}, copyMeta(entry, extra))];
+}
+
+// ------------------------------------------------------------- History
+
+export function historyView(root) {
+	let alive = true;
+	const body = h('div', {class: 'moves-body', id: 'moves-body'}, h('p', {class: 'muted'}, 'Loading…'));
+	const sheet = sheetDialog('move-sheet', 'Move');
+
+	async function draw() {
+		const doc = await loadDocument();
+		const index = await cardIndex().catch(() => new Map());
+
+		if (!alive) {
+			return;
+		}
+
+		const months = monthTotals(liveMoves(doc));
+		const byId = new Map((doc.cards || []).filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+		const viewing = viewingLanguage();
+		const names = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean).map((entry) => entryInfo(entry, index, viewing).name);
+
+		if (!months.length) {
+			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
+				h('p', {class: 'big'}, 'No trades or sales yet'),
+				h('p', {class: 'muted'}, 'Log a move records a sale, a purchase, a trade, or a gift: the cards out leave your collection, keeping their binder pockets as placeholders, and the cards in are added.'),
+				h('p', {class: 'muted'}, 'Sold something before? Log a move offers the copies you removed in the last 30 days too.'),
+				h('a', {class: 'button primary', 'data-link': 'trades/new', href: `${BASE}trades/new`}, 'Log a move')
+			));
+
+			return;
+		}
+
+		body.replaceChildren(...months.map((month) => h('section', {'aria-label': monthName(month.month), class: 'moves-month', 'data-month': month.month},
+			h('div', {class: 'moves-month-head'},
+				h('h3', null, monthName(month.month)),
+				h('p', {class: 'moves-money'}, [
+					Object.keys(month.in).length ? `In ${moneyLine(month.in)}` : null,
+					Object.keys(month.out).length ? `Out ${moneyLine(month.out)}` : null,
+				].filter(Boolean).join(' · ') || 'No money in or out')
+			),
+			h('ul', {class: 'moves-list'}, month.moves.map((move) => {
+				const out = names(move.out);
+				const came = names(move.in);
+
+				return h('li', null, h('button', {'aria-haspopup': 'dialog', class: 'moves-row', 'data-move': move.id, onclick: () => openMove(move, out, came), type: 'button'},
+					h('span', {class: 'moves-title'}, moveTitle(move)),
+					h('span', {class: 'moves-meta'}, [shortDate(move.date) || move.date, out.length ? `${formatCount(out.length)} out` : null, came.length ? `${formatCount(came.length)} in` : null].filter(Boolean).join(' · ')),
+					h('span', {class: 'moves-cards'}, [out.length ? `Out: ${out.join(', ')}` : null, came.length ? `In: ${came.join(', ')}` : null].filter(Boolean).join('. '))
+				));
+			}))
+		)));
+	}
+
+	function openMove(move, out, came) {
+		const close = () => sheet.close();
+		const confirm = h('div', {class: 'move-confirm', hidden: true, id: 'move-confirm'},
+			h('p', null, `Put ${plural(out.length, 'card', 'cards')} out back and remove ${plural(came.length, 'card', 'cards')} in? A card in that you changed since stays.`),
+			h('div', {class: 'copy-danger-row'},
+				h('button', {class: 'danger', id: 'move-undo-go', onclick: async () => {
+					close();
+					await runUndo(move.id);
+				}, type: 'button'}, 'Undo it'),
+				h('button', {id: 'move-undo-cancel', onclick: () => {
+					confirm.hidden = true;
+					undo.hidden = false;
+				}, type: 'button'}, 'Cancel'))
+		);
+		const undo = h('button', {class: 'danger', id: 'move-undo', onclick: () => {
+			undo.hidden = true;
+			confirm.hidden = false;
+		}, type: 'button'}, 'Undo this move');
+
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'move-sheet-title'}, moveTitle(move)),
+				h('button', {class: 'small', id: 'move-sheet-close', onclick: close, type: 'button'}, 'Close')
+			),
+			h('dl', {class: 'facts move-facts'},
+				h('dt', null, 'Date'), h('dd', null, shortDate(move.date, {year: true}) || move.date),
+				...(priceText(move) ? [h('dt', null, 'Money'), h('dd', null, `${priceText(move)} ${move.money === 'in' ? 'in' : 'out'}`)] : []),
+				...(out.length ? [h('dt', null, 'Cards out'), h('dd', {id: 'move-sheet-out'}, out.join(', '))] : []),
+				...(came.length ? [h('dt', null, 'Cards in'), h('dd', {id: 'move-sheet-in'}, came.join(', '))] : []),
+				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
+			),
+			h('div', {class: 'copy-danger'}, undo, confirm)
+		);
+		showSheet(sheet);
+	}
+
+	const stop = onChange(() => {
+		if (alive) {
+			draw().catch(() => {});
+		}
+	});
+
+	root.append(
+		h('div', {class: 'view-head'},
+			h('h2', null, 'Trades and sales'),
+			h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move')
+		),
+		body
+	);
+	draw().catch((err) => body.replaceChildren(h('p', {class: 'form-error'}, `History did not load. ${errorText(err)}`)));
+
+	return () => {
+		alive = false;
+		stop();
+
+		if (sheet.open) {
+			sheet.close();
+		}
+	};
+}
+
+// ------------------------------------------------------------ Log a move
+
+// In the order a person reaches for them.
+const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'], ['gift', 'Gift']];
+
+export function newMoveView(root) {
+	let alive = true;
+	const handed = takePendingMove() || {};
+	const outIds = new Set(handed.out || []);
+	const pastIds = new Set();
+	// The cards in: {fields, info, n}.
+	const ins = [];
+	let kind = 'sold';
+	let doc = null;
+	let index = new Map();
+	const viewing = viewingLanguage();
+	const outSheet = sheetDialog('move-out-sheet', 'Cards out');
+	const inSheet = sheetDialog('move-in-sheet', 'Card in');
+
+	const date = h('input', {class: 'search', id: 'move-date', name: 'move-date', type: 'date', value: today()});
+	const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-who', maxlength: 80, name: 'move-who', type: 'text'});
+	const whoLabel = h('label', {for: 'move-who'}, 'Sold to');
+	const price = h('input', {class: 'search', id: 'move-price', inputmode: 'decimal', name: 'move-price', placeholder: '0,00', type: 'text'});
+	const priceLabel = h('label', {for: 'move-price'}, 'Sold for (optional)');
+	const currency = sheetSelect('move-currency', CURRENCIES.map((code) => ({label: code, value: code})), 'BRL');
+	const money = sheetSelect('move-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], 'out');
+	const moneyRow = h('div', {class: 'copy-field', hidden: true}, h('label', {for: 'move-money'}, 'The cash'), h('span', {class: 'select-wrap'}, money));
+	const priceRow = h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)));
+	const note = h('textarea', {class: 'copy-notes', id: 'move-note', maxlength: 500, name: 'move-note', rows: 2});
+	const outList = h('div', {class: 'pick-grid move-chosen', id: 'move-out-list'});
+	const inList = h('div', {class: 'pick-grid move-chosen', id: 'move-in-list'});
+	const outTitle = h('h3', null, 'Cards out');
+	const inTitle = h('h3', null, 'Cards in');
+	const outSection = h('section', {class: 'card move-side', id: 'move-out-section'}, outTitle, outList,
+		h('button', {'aria-haspopup': 'dialog', id: 'move-add-out', onclick: () => openOut(), type: 'button'}, 'Choose cards out'));
+	const inSection = h('section', {class: 'card move-side', id: 'move-in-section'}, inTitle, inList,
+		h('button', {'aria-haspopup': 'dialog', id: 'move-add-in', onclick: () => openIn(), type: 'button'}, 'Add a card in'));
+	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-error'});
+	const save = h('button', {class: 'primary', id: 'move-save', type: 'submit'}, 'Save');
+	const kinds = h('div', {'aria-label': 'What happened', class: 'segmented move-kinds', role: 'radiogroup'},
+		KIND_LABELS.map(([value, label]) => h('label', null,
+			h('input', {checked: value === kind, id: `move-kind-${value}`, name: 'move-kind', onchange: () => {
+				kind = value;
+				drawKind();
+			}, type: 'radio', value}),
+			h('span', null, label))));
+
+	const shows = () => ({in: kind !== 'sold', out: kind !== 'bought'});
+
+	function drawKind() {
+		const side = shows();
+		const words = {
+			bought: ['Bought from', 'Paid (optional)'],
+			gift: ['Who', null],
+			sold: ['Sold to', 'Sold for (optional)'],
+			traded: ['Traded with', 'Cash added (optional)'],
+		}[kind];
+
+		whoLabel.textContent = words[0];
+		priceRow.hidden = !words[1];
+		priceLabel.textContent = words[1] || '';
+		moneyRow.hidden = kind !== 'traded';
+		outSection.hidden = !side.out;
+		inSection.hidden = !side.in;
+		outTitle.textContent = kind === 'gift' ? 'Cards given' : 'Cards out';
+		inTitle.textContent = kind === 'gift' ? 'Cards received' : 'Cards in';
+	}
+
+	function drawChosen() {
+		if (!doc) {
+			return;
+		}
+
+		const byId = new Map(doc.cards.filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+		const out = [...outIds, ...pastIds].map((id) => byId.get(id)).filter(Boolean);
+
+		outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => h('div', {class: 'pick-cell', 'data-entry': item.entry.id},
+			h('div', {class: 'pick'}, ...copyTile(item, {extra: pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null})),
+			h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => {
+				outIds.delete(item.entry.id);
+				pastIds.delete(item.entry.id);
+				drawChosen();
+			}, type: 'button'}, 'Remove'))) : [h('p', {class: 'muted'}, 'None yet.')]));
+		inList.replaceChildren(...(ins.length ? ins.map((item, i) => h('div', {class: 'pick-cell', 'data-card': item.fields.card_id},
+			h('div', {class: 'pick'},
+				h('div', {class: 'art-wrap'}, cardArt(item.info, item.info.image)),
+				h('span', {class: 'tile-name'}, item.info.name),
+				h('span', {class: 'tile-meta'}, [item.n > 1 ? `${item.n} copies` : null, languageName(item.fields.language), item.fields.condition].filter(Boolean).join(' · '))),
+			h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => {
+				ins.splice(i, 1);
+				drawChosen();
+			}, type: 'button'}, 'Remove'))) : [h('p', {class: 'muted'}, 'None yet.')]));
+
+		fillRecords(out.map((entry) => ({cardId: entry.card_id, catalog: entry.catalog})), index, () => alive)
+			.then((filled) => {
+				if (filled && alive) {
+					index = filled;
+					drawChosen();
+				}
+			})
+			.catch(() => {});
+	}
+
+	// ---------------------------------------------------- the cards out
+
+	function openOut({card = null} = {}) {
+		if (!doc) {
+			return;
+		}
+
+		let tab = 'mine';
+		let only = card;
+		let shown = PAGE;
+		const live = doc.cards.filter((entry) => entry && entry.id && isLive(entry));
+		const spares = new Set(spareEntries(live).map((entry) => entry.id));
+		const mine = described(live, index, viewing).sort((a, b) => Number(spares.has(b.entry.id)) - Number(spares.has(a.entry.id)) || a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at)));
+		const past = described(pastCandidates(doc), index, viewing);
+		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'move-out-search', placeholder: 'Search your cards', type: 'search'});
+		const tabs = h('div', {'aria-label': 'Which cards', class: 'segmented move-tabs', role: 'radiogroup'},
+			[['mine', 'Your cards'], ['past', 'Removed lately']].map(([value, label]) => h('label', null,
+				h('input', {checked: value === tab, id: `move-tab-${value}`, name: 'move-tab', onchange: () => {
+					tab = value;
+					shown = PAGE;
+					draw();
+				}, type: 'radio', value}),
+				h('span', null, label))));
+		const onlyLine = h('p', {class: 'muted move-only', hidden: true, id: 'move-out-only'});
+		const count = h('p', {'aria-live': 'polite', class: 'muted', id: 'move-out-count'});
+		const results = h('div', {class: 'pick-grid', id: 'move-out-results'});
+		const more = h('button', {hidden: true, id: 'move-out-more', type: 'button'}, 'Show more');
+		const done = h('button', {class: 'primary', id: 'move-out-done', type: 'button'}, 'Done');
+		const close = () => outSheet.close();
+
+		const picked = (id) => outIds.has(id) || pastIds.has(id);
+
+		function found() {
+			const query = search.value.trim();
+			const list = (tab === 'mine' ? mine : past).filter((item) => !only || (item.entry.card_id === only.card_id && (item.entry.catalog || 'international') === only.catalog));
+
+			return query ? list.filter((item) => item.info.search.includes(searchKey(query))) : list;
+		}
+
+		function draw() {
+			const list = found();
+			const n = outIds.size + pastIds.size;
+
+			onlyLine.hidden = !only;
+
+			if (only) {
+				onlyLine.replaceChildren(`Only ${(list[0] || mine.find((item) => item.entry.card_id === only.card_id) || {info: {name: 'this card'}}).info.name}. `,
+					h('button', {class: 'small', id: 'move-out-all', onclick: () => {
+						only = null;
+						draw();
+					}, type: 'button'}, 'Show all cards'));
+			}
+
+			if (tab === 'past' && !past.length) {
+				count.textContent = 'No copy was removed in the last 30 days, or every one is in a move already.';
+			}
+			else if (!list.length) {
+				count.textContent = 'No cards match.';
+			}
+			else {
+				count.textContent = tab === 'past'
+					? `${plural(list.length, 'copy', 'copies')} you removed in the last 30 days, newest first. Picking one links it to this move; it stays removed.`
+					: `${plural(list.length, 'copy', 'copies')}, spares first.`;
+			}
+
+			results.replaceChildren(...list.slice(0, shown).map((item) => {
+				const on = picked(item.entry.id);
+				const extra = tab === 'past' ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : spares.has(item.entry.id) ? 'Spare' : null;
+
+				return h('button', {'aria-pressed': String(on), class: 'pick move-copy', 'data-entry': item.entry.id, onclick: () => {
+					const set = tab === 'past' ? pastIds : outIds;
+
+					if (on) {
+						set.delete(item.entry.id);
+					}
+					else {
+						set.add(item.entry.id);
+					}
+
+					draw();
+					results.querySelector(`[data-entry="${CSS.escape(item.entry.id)}"]`)?.focus();
+				}, type: 'button'}, ...copyTile(item, {extra, selected: on}));
+			}));
+			more.hidden = list.length <= shown;
+			more.textContent = `Show more (${formatCount(list.length - shown)} left)`;
+			done.textContent = n ? `Done (${formatCount(n)})` : 'Done';
+
+			fillRecords(list.slice(0, shown).map(({entry}) => ({cardId: entry.card_id, catalog: entry.catalog})), index, () => alive && outSheet.open)
+				.then((filled) => {
+					if (filled && alive && outSheet.open) {
+						index = filled;
+
+						for (const item of [...mine, ...past]) {
+							item.info = entryInfo(item.entry, index, viewing);
+						}
+
+						draw();
+					}
+				})
+				.catch(() => {});
+		}
+
+		search.addEventListener('input', () => {
+			shown = PAGE;
+			draw();
+		});
+		more.addEventListener('click', () => {
+			shown += PAGE;
+			draw();
+		});
+		done.addEventListener('click', close);
+
+		outSheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'move-out-sheet-title'}, kind === 'gift' ? 'Cards given' : 'Cards out'),
+				h('button', {class: 'small', id: 'move-out-close', onclick: close, type: 'button'}, 'Close')
+			),
+			tabs,
+			onlyLine,
+			search,
+			count,
+			results,
+			more,
+			h('div', {class: 'tray-pick-foot'}, done)
+		);
+		showSheet(outSheet, () => drawChosen());
+		draw();
+	}
+
+	// ----------------------------------------------------- the cards in
+
+	function openIn() {
+		const close = () => inSheet.close();
+		const lang = h('select', {'aria-label': 'Catalog', id: 'move-in-catalog'},
+			h('option', {value: catalogFor(viewing) === 'international' ? viewing : 'en'}, 'International'),
+			h('option', {value: 'ja'}, 'Japanese'),
+			h('option', {value: 'ko'}, 'Korean'));
+		const search = h('input', {'aria-label': 'Search the catalog', autocomplete: 'off', class: 'search', id: 'move-in-search', placeholder: 'Card name, number, or ID', type: 'search'});
+		const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'move-in-status'}, 'Search the catalog for the card that came in.');
+		const results = h('div', {class: 'pick-grid', id: 'move-in-results'});
+		const form = h('form', {class: 'want-form', id: 'move-in-form'}, h('span', {class: 'select-wrap'}, lang), search, h('button', {class: 'primary', id: 'move-in-go', type: 'submit'}, 'Search'));
+		const pane = h('div', {class: 'move-in-pane'}, form, status, results);
+		let asked = 0;
+
+		async function choose(card) {
+			const catalog = card.catalog || catalogFor(lang.value);
+			const record = await cardRecord(card.id, card.lang || lang.value, catalog).catch(() => null);
+			const full = record ? record.card : null;
+			const variants = full && Array.isArray(full.variants_detailed) ? full.variants_detailed : [];
+			const finishes = finishChoices(variants);
+			const plain = plainVariantId(variants);
+			const languages = copyLanguages(catalog);
+			const language = sheetSelect('move-in-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang.value) ? lang.value : languages[0].code);
+			const finish = sheetSelect('move-in-finish', [{label: 'Not set', value: ''}, ...finishes], plain && finishes.some((option) => option.value === plain) ? plain : '');
+			const condition = sheetSelect('move-in-condition', conditionOptions(), '');
+			const count = h('input', {class: 'search copy-count', id: 'move-in-count', inputmode: 'numeric', max: MAX_ADD, min: 1, step: 1, type: 'number', value: 1});
+			const info = {image: cardImage(card.image, 'low'), name: card.name, number: card.localId, setName: card.setName};
+			const note = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-in-error'});
+			const add = h('button', {class: 'primary', id: 'move-in-add', type: 'button'}, 'Add to cards in');
+			const backButton = h('button', {class: 'small', id: 'move-in-back', onclick: () => inSheet.replaceChildren(head(), pane), type: 'button'}, 'Back to results');
+
+			add.addEventListener('click', () => {
+				const n = Number.parseInt(count.value, 10);
+
+				if (!Number.isInteger(n) || n < 1 || n > MAX_ADD) {
+					note.textContent = `Choose from 1 to ${MAX_ADD} copies.`;
+
+					return;
+				}
+
+				const fields = {card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: finish.value || null};
+
+				if (catalogFor(language.value) !== catalog) {
+					fields.fallback = true;
+				}
+
+				if (condition.value) {
+					fields.condition = condition.value;
+				}
+
+				ins.push({fields, info, n});
+
+				// Its name and set for the tiles, from the search or the record.
+				if (full && full.set) {
+					saveToCardIndex([recordFrom(catalog, record.lang, full)]).then((filled) => {
+						if (filled) {
+							index = filled;
+						}
+					}).catch(() => {});
+				}
+
+				close();
+				drawChosen();
+			});
+
+			inSheet.replaceChildren(
+				head(),
+				h('div', {class: 'move-in-card'},
+					h('div', {class: 'art-wrap'}, cardArt(info, info.image)),
+					h('p', {class: 'big'}, [card.name, card.localId ? `#${card.localId}` : null, card.setName].filter(Boolean).join(' · '))
+				),
+				h('div', {class: 'copy-form'},
+					sheetField('Language', 'move-in-language', language),
+					sheetField('Finish', 'move-in-finish', finish),
+					sheetField('Condition', 'move-in-condition', condition),
+					sheetField(`How many (1 to ${MAX_ADD})`, 'move-in-count', count),
+					note,
+					add
+				),
+				backButton
+			);
+		}
+
+		form.addEventListener('submit', async (event) => {
+			event.preventDefault();
+
+			const query = search.value.trim();
+
+			if (query.length < 2) {
+				status.textContent = 'Type at least two letters of the name.';
+
+				return;
+			}
+
+			const ticket = ++asked;
+
+			status.textContent = 'Searching…';
+			results.replaceChildren();
+
+			try {
+				const {more, results: list} = await searchCards(query, lang.value);
+
+				if (ticket !== asked || !alive) {
+					return;
+				}
+
+				status.textContent = list.length
+					? `${plural(list.length + more, 'card', 'cards')} found for "${query}"${more ? `, the first ${formatCount(list.length)} shown` : ''}.`
+					: `No cards found for "${query}".`;
+				results.replaceChildren(...list.map((card) => {
+					const info = {name: card.name, number: card.localId, setName: card.setName};
+
+					return h('button', {class: 'pick move-in-result', 'data-card': card.id, onclick: () => choose(card), type: 'button'},
+						h('div', {class: 'art-wrap'}, cardArt(info, cardImage(card.image, 'low'))),
+						h('span', {class: 'tile-name'}, card.name),
+						h('span', {class: 'tile-meta'}, [card.localId ? `#${card.localId}` : null, card.setName].filter(Boolean).join(' · '))
+					);
+				}));
+			}
+			catch (err) {
+				if (ticket !== asked) {
+					return;
+				}
+
+				status.textContent = err instanceof SearchHint
+					? err.message
+					: navigator.onLine ? `The catalog search did not work. ${errorText(err)}` : 'This search needs a connection the first time.';
+			}
+		});
+
+		const head = () => h('div', {class: 'sheet-head'},
+			h('h2', {id: 'move-in-sheet-title'}, kind === 'gift' ? 'A card received' : 'A card in'),
+			h('button', {class: 'small', id: 'move-in-close', onclick: close, type: 'button'}, 'Close'));
+
+		inSheet.replaceChildren(head(), pane);
+		showSheet(inSheet);
+		search.focus();
+	}
+
+	// ----------------------------------------------------------- saving
+
+	const formElement = h('form', {class: 'copy-form move-form', id: 'move-form', novalidate: true},
+		kinds,
+		sheetField('Date', 'move-date', date),
+		h('div', {class: 'copy-field'}, whoLabel, who),
+		priceRow,
+		moneyRow,
+		sheetField('Note', 'move-note', note),
+		outSection,
+		inSection,
+		error,
+		save
+	);
+
+	formElement.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		error.textContent = '';
+
+		const side = shows();
+		const out = side.out ? [...outIds] : [];
+		const past = side.out ? [...pastIds] : [];
+		const incoming = side.in ? ins.flatMap((item) => Array.from({length: item.n}, () => ({...item.fields}))) : [];
+
+		if (kind === 'sold' && !out.length && !past.length) {
+			error.textContent = 'Choose the cards you sold.';
+
+			return;
+		}
+
+		if (kind === 'bought' && !incoming.length) {
+			error.textContent = 'Add the cards you bought.';
+
+			return;
+		}
+
+		if (!out.length && !past.length && !incoming.length) {
+			error.textContent = 'Choose at least one card out or in.';
+
+			return;
+		}
+
+		if (price.value.trim() && !priceRow.hidden && !(Number(price.value.trim().replace(',', '.')) > 0)) {
+			error.textContent = 'Type the price as a number, such as 30,50, or leave it empty.';
+			price.focus();
+
+			return;
+		}
+
+		save.disabled = true;
+
+		let result;
+
+		try {
+			result = await applyMove({
+				currency: currency.value,
+				date: date.value || today(),
+				in: incoming,
+				kind,
+				money: money.value,
+				note: note.value,
+				out,
+				past,
+				price: priceRow.hidden ? null : price.value,
+				who: who.value,
+			});
+		}
+		catch (err) {
+			save.disabled = false;
+			error.textContent = `Not saved. ${errorText(err)}`;
+
+			return;
+		}
+
+		const {counts, move} = result;
+		const words = [counts.out + counts.past ? `${plural(counts.out + counts.past, 'card', 'cards')} out` : null, counts.in ? `${plural(counts.in, 'card', 'cards')} in` : null].filter(Boolean).join(', ');
+		const after = afterText({got: {length: counts.got}, placed: {length: counts.filled}});
+
+		go('trades', {replace: true});
+		toast(`Saved: ${words}.${after ? ` ${after}` : ''}`, {
+			action: () => runUndo(move.id),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	});
+
+	root.append(
+		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, '‹ Trades and sales'),
+		h('div', {class: 'view-head'}, h('h2', null, 'Log a move')),
+		formElement
+	);
+	drawKind();
+
+	Promise.all([loadDocument(), cardIndex().catch(() => new Map())]).then(([loaded, read]) => {
+		if (!alive) {
+			return;
+		}
+
+		doc = loaded;
+		index = read;
+
+		// Copies handed over that are gone by now are dropped.
+		for (const id of [...outIds]) {
+			if (!doc.cards.some((entry) => entry && entry.id === id && isLive(entry))) {
+				outIds.delete(id);
+			}
+		}
+
+		drawChosen();
+
+		// A card's page with several copies: its copies to pick from.
+		if (handed.card && !outIds.size) {
+			openOut({card: handed.card});
+		}
+	}).catch((err) => {
+		error.textContent = `Your cards did not load. ${errorText(err)}`;
+	});
+
+	return () => {
+		alive = false;
+
+		for (const sheet of [outSheet, inSheet]) {
+			if (sheet.open) {
+				sheet.close();
+			}
+		}
+	};
+}
+
+export const movesRoutes = [
+	{pattern: /^trades$/, render: historyView, tab: 'cards', title: 'Trades and sales | Card Tracker'},
+	{pattern: /^trades\/new$/, render: newMoveView, tab: 'cards', title: 'Log a move | Card Tracker'},
+];
+
+export const movesAccountViews = [historyView, newMoveView];

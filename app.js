@@ -15,6 +15,8 @@
 //   profile, signin           Profile, and its sign-in panel on its own
 //   import, check, camera, storage  Opened from Profile: Import from
 //                             monprice, Phone check and its two tests
+//   trades, trades/new        Trades and sales: History, and Log a move
+//                             (js/moves-view.js)
 //   family/<userId>[/lists[/<id>]]  A family member's cards or checklists,
 //                             view only (js/shell.js holds the lens)
 //
@@ -34,6 +36,7 @@ import {BASE, go, pushRoute, showError} from './js/dom.js';
 import {COLLECTIONS_ACCOUNT_VIEWS, COLLECTIONS_ROUTES} from './js/collections-view.js';
 import {goalAccountViews, goalRoutes} from './js/goals-view.js';
 import {importView} from './js/import-view.js';
+import {movesAccountViews, movesRoutes} from './js/moves-view.js';
 import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
 import {startPhotoSync} from './js/photos/index.js';
 import {pokemonCardsAccountViews, pokemonCardsRoutes} from './js/pokemon-cards-view.js';
@@ -71,11 +74,12 @@ const ROUTES = [
 	...WISHLIST_ROUTES,
 	...COLLECTIONS_ROUTES,
 	...tradeRoutes,
+	...movesRoutes,
 ];
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...goalAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

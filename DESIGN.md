@@ -468,7 +468,8 @@ by older apps:
     "purchase_price", "purchase_currency",
     "opening_id", "storage",              -- storage: "Stored in", e.g. "Bulk box A" (below)
     "grader", "grade", "cert_number", "graded_price",   -- optional; TCGdex has no graded data
-    "notes", "is_favorite", "photo_path", "created_at"
+    "notes", "is_favorite", "photo_path", "created_at",
+    "left_via", "came_via"                -- the move it left or came with (Trades and Sales)
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
   "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages",
@@ -485,6 +486,8 @@ by older apps:
                     "got_at", "got_entry_id" }],   -- got: a copy that fits was added
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
   "storage_places": [{ "id", "name" }],   -- the saved "Stored in" places (below)
+  "moves":       [{ "id", "kind", "date", "who", "price", "currency", "money", "note",
+                    "out", "past", "in", "undo" }],   -- trades and sales (section 11)
   "settings":    { "theme", "favorite_pokemon", "fill_placeholders" }   -- follows the person to every device
 }
 ```
@@ -2030,33 +2033,62 @@ what it pulled at today's prices, and the best pull.
 
 ### Trades and Sales
 
-(Eric, 2026-10-31; designed, not built.) A log of how cards came and went, so the collection follows
-what happens to the real cards. Each operation is one entry in a new synced list, `moves`, merged
-entry by entry like the other lists:
+(Eric, 2026-10-31; built in v55, `js/moves.js` and `js/moves-view.js`.) A log of how cards came
+and went, so the collection follows what happens to the real cards. Each operation is one entry
+in a new synced list, `moves`, merged entry by entry like the other lists:
 
 ```
-"moves": [{ "id", "kind", "date", "who", "price", "currency", "note",
-            "out": [entry_id, ...], "in": [entry_id, ...],
-            "created_at", "updated_at", "deleted_at" }]
+"moves": [{ "id", "kind", "date", "who", "price", "currency", "money", "note",
+            "out": [entry_id, ...], "past": [entry_id, ...], "in": [entry_id, ...],
+            "undo", "created_at", "updated_at", "deleted_at" }]
 ```
 
-- **kind:** sold, bought, traded, or gift (given or received). A trade has both cards out and cards
-  in; a sale has cards out and a price; a purchase has cards in and a price.
+- **kind:** sold, bought, traded, or gift (given, received, or both). A trade has both cards out and
+  cards in; a sale has cards out and a price; a purchase has cards in and a price.
 - **out:** copies he owns that leave, picked from his collection; the Trade view's spares come first.
   Saving soft-deletes them (as Delete does) and stamps each with `left_via: <move id>`.
-- **in:** new copies that arrive, picked from the catalog like the Add cards tray (language and
-  finish asked), added as copies with `came_via: <move id>`.
+- **in:** new copies that arrive, picked from the catalog with language, finish, and condition (as
+  Add a copy asks), added as copies with `came_via: <move id>`. They go through the add helper's
+  rule (`planAfterAdding`, js/placeholder-fill.js): they fill the binder placeholders waiting for
+  them when "Fill binder placeholders automatically" is on, and move the wishes they fit to Got it.
 - **price:** one amount for the whole move (sold for R$ 30, bought for R$ 20, cash added to a trade),
-  optional. Prices only: no cost per copy and no profit, by Eric's choice (2026-10-31).
+  optional, in BRL, USD, or EUR. Prices only: no cost per copy and no profit, by Eric's choice
+  (2026-10-31). **money** says which way it went: in for a sale, out for a purchase, and for a
+  trade the form asks ("I paid it" or "I got it"); a gift has no price.
+- **undo:** what Undo needs from the save (pockets turned into placeholders, trays, list picks,
+  collections, fills, wishes, and a hash of each copy in), kept on the move so any phone can undo
+  it later.
 
 A card's page says where each copy came from and where earlier copies went ("Came in: traded with
-a friend, 12 Nov"; "Left: sold for R$ 30, 3 Dec"), using `came_via` and `left_via`; photos and notes
-stay on the card record (see "Photos and notes belong to the card"). A History screen lists every
-move, newest first, with totals of money in and out per month. Undo of a move (and deleting a move)
-brings the outgoing copies back and removes the incoming ones that are unchanged since, the same
-rules as Start over's Undo. A copy that leaves keeps its binder pocket as a placeholder, as Start
-over does. Build it with the same review rounds as Start over (multi-phone, Undo, older versions
-that do not know `moves`, `came_via`, `left_via`).
+Bruno, 12 Nov"; "Left: sold for R$ 30,00 to Ana, 3 Dec"), using `came_via` and `left_via`; photos and
+notes stay on the card record (see "Photos and notes belong to the card") and a move never touches
+them. A History screen (route `trades`) lists every move, newest first, by month, with the money in
+and out each month per currency. Undo of a move (on the toast after saving, or Undo this move in
+History, which is also how a move is deleted) brings the outgoing copies back without `left_via`
+and removes the incoming ones that are unchanged since, the same rules as Start over's Undo (the
+copy hash, pockets, trays, picks, collections, fills, and wishes; js/start-over.js `undoSwap`), and
+leaves the move as a tombstone. After a Start over that ran later, Undo changes nothing and says
+why. A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
+share one step for it (js/start-over.js `planSwap`).
+
+**Where:** Trades beside Spares on My Cards (on a phone the title takes its own line), "Trades and
+sales" in Profile, and **Sell or trade** on a copy sheet (the copies it would change) and on a card's
+page (its copy, or with several, the card's copies to pick from). Never on a family member's
+screens.
+
+**Log a past sale** (Eric, 2026-11-04). He sold and traded cards before the log existed and removed
+those copies by hand. The cards out picker has a second tab, Removed lately: the copies removed in
+the last 30 days, newest removal first, with the day each was removed. Picking one links it to the
+move (`left_via`, and its id in `past`) without changing its deletion. Left out: copies the
+duplicate repair folded into another (`merged_into`), copies a live move already names, copies a
+Start over removed (it added them again), and copies an undone move had added. Undo of the move
+unlinks them and leaves them removed, so they are offered again.
+
+**Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
+(js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's
+`patch_document` writes any list. A merge copies every field of a copy, and an edit changes a copy
+in place, so `left_via` and `came_via` survive an older phone's save; it shows the copies as any
+other. A copy an older phone changed after it came in counts as changed, so Undo keeps it.
 
 ## 12. Open Questions
 

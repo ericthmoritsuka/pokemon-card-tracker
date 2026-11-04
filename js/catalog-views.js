@@ -18,10 +18,10 @@ import {regionTag, speciesNames} from './checklists.js';
 import {parseCardQuery, searchOnline, searchSaved} from './card-search.js';
 import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
-import {cardInfoList, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
+import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
-import {BASE, errorText, h, segmentCounts} from './dom.js';
+import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
@@ -42,6 +42,7 @@ import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
 import {addToBinderButton} from './binder-hand.js';
+import {cardHistory, historyLine, setPendingMove} from './moves.js';
 
 // Card art lives in js/tile.js with the badges; this name stays for the
 // modules that import it from here.
@@ -1021,7 +1022,7 @@ function variantText(variant) {
 }
 
 // The finish select's options for a card: each variant TCGdex gives an ID.
-const finishChoices = (variants) => variants
+export const finishChoices = (variants) => variants
 	.filter((variant) => variant && variant.variantId)
 	.map((variant) => ({label: variantText(variant), value: variant.variantId}));
 
@@ -1163,6 +1164,7 @@ export function cardView(root, {lang, cardId}) {
 			),
 			twin.element,
 			copies,
+			movesSlot,
 			ligaRow,
 			collectSlot,
 			priceSlot,
@@ -1187,6 +1189,46 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	const copies = h('section', {'aria-labelledby': 'copies-title', class: 'copies', hidden: true});
+
+	// How your copies of this card came and went (js/moves.js cardHistory):
+	// "Left: sold for R$ 30,50 to Ana, 3 Nov", each line opening History.
+	// Yours only: a family member's moves are not shown.
+	const movesSlot = h('div', {class: 'card-moves', hidden: true, id: 'card-moves'});
+	let movesRun = 0;
+
+	async function drawMoves() {
+		const run = ++movesRun;
+
+		if (readOnly) {
+			movesSlot.hidden = true;
+
+			return;
+		}
+
+		const rows = cardHistory(await loadDocument(), {card_id: cardId, catalog: catalogFor(lang)});
+
+		if (run !== movesRun || !alive) {
+			return;
+		}
+
+		movesSlot.hidden = !rows.length;
+		movesSlot.replaceChildren(...rows.map((row) => {
+			const languages = [...new Set(row.entries.map((entry) => entry.language).filter(Boolean))].map(languageName).join(', ');
+			const copiesText = row.entries.length > 1 ? `${row.entries.length} copies` : null;
+			const extra = [copiesText, languages].filter(Boolean).join(', ');
+
+			return h('a', {class: `card-move-line card-move-${row.side}`, 'data-link': 'trades', 'data-move': row.move.id, href: `${BASE}trades`}, `${historyLine(row)}${extra ? ` (${extra})` : ''}`);
+		}));
+	}
+
+	// Sell or trade: Log a move with this card's copy, or, with several,
+	// this card's copies to pick from (js/moves-view.js).
+	function moveButton(live) {
+		return h('button', {class: 'small', id: 'card-move', onclick: () => {
+			setPendingMove(live.length === 1 ? {out: [live[0].id]} : {card: {card_id: cardId, catalog: catalogFor(lang)}});
+			go('trades/new');
+		}, type: 'button'}, 'Sell or trade');
+	}
 
 	// Ver na Liga, or why there is none, right under Your copies, with Add
 	// to wishlist beside it.
@@ -1582,6 +1624,8 @@ export function cardView(root, {lang, cardId}) {
 		// Your wishlist, on a member's card too.
 		readWish();
 
+		drawMoves().catch(() => {});
+
 		if (!live.length) {
 			// A member's card says so; yours offers Add.
 			copies.hidden = false;
@@ -1689,6 +1733,7 @@ export function cardView(root, {lang, cardId}) {
 		collectSlot.replaceChildren(...(readOnly ? [] : [
 			collectButton(live, shownName),
 			addToBinderButton({cardId, catalog: catalogFor(lang), name: shownName, toast}),
+			moveButton(live),
 		]));
 		collectSlot.hidden = readOnly;
 

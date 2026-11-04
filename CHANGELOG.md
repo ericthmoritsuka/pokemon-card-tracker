@@ -12,6 +12,25 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-04
+
+- **v55:** a log of the cards you sell, buy, trade, and give. `TBD`
+  - **Trades**, beside Spares on My Cards (and **Trades and sales** in Profile), opens History.
+    **Log a move** records a sale, a purchase, a trade, or a gift: the date, who with, one price for
+    the whole move if there was one, and a note. A trade asks whether you paid the cash or got it.
+  - Cards out are picked from your copies, spares first. They leave your collection, and a card
+    that was in a binder leaves its placeholder there. Cards in are picked from the catalog with
+    their language, finish, and condition; they go into a waiting placeholder and move a wish to
+    Got it, as any card you add does.
+  - **Sell or trade** on a copy's sheet and on a card's page starts a move with that copy.
+  - **Log a past sale:** the cards out picker also lists the copies you removed in the last 30
+    days, newest first. Picking one links it to the move; it stays removed.
+  - History lists every move, newest first, with the money in and out each month. A card's page
+    says how its copies came and went, such as "Left: sold for R$ 30,00 to Ana, 3 Nov".
+  - **Undo**, on the message after saving or on a move in History, puts the cards out back in
+    their pockets and removes the cards in, except one you changed since. Photos and notes stay
+    with the card all along. Prices only: there is no profit per card.
+
 ### 2026-11-03
 
 - **v54:** your photos show on every screen, not only in My Cards. `574476c`

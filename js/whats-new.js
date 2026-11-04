@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-04',
+		items: [
+			'Trades on My Cards logs a sale, purchase, trade, or gift: cards out leave your collection and cards in are added, with Undo.',
+			'History shows the money in and out each month, a card\'s page says how its copies came and went, and a past sale can use copies you removed in the last 30 days.',
+		],
+		version: 'v55',
+	},
+	{
 		date: '2026-11-03',
 		items: [
 			'Your own photos and the main image you chose now show everywhere a card does: binders, placeholders, Sets, a Pokémon\'s cards, goals, and the wishlist.',

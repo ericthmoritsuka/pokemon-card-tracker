@@ -322,6 +322,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   cards in are added, linked to the move, so each card shows how it came and went, and a History
   screen lists the moves. Prices only, no profit per copy (Eric's choice). Spec: DESIGN.md
   "Trades and Sales". Medium. Review it like Start over before publishing.
+  - Done in v55 (branch `trades-log`): `js/moves.js` (the plans, pure, `tests/moves.test.mjs`) and
+    `js/moves-view.js` (History at `trades`, Log a move at `trades/new`, `tests/moves-browser.test.mjs`),
+    reached from Trades beside Spares, Profile, and Sell or trade on a copy sheet and a card's page.
+    It shares Start over's removal and Undo steps (js/start-over.js `planSwap` and `undoSwap`). Eric
+    added Log a past sale on 2026-11-04: the cards out picker also offers copies removed by hand in
+    the last 30 days, linked without changing their deletion. Not reviewed in rounds yet.
 - **Import "Match this file" (Eric, 2026-10-22; first in line):** Eric will scan his whole collection
   into a new monprice list to get exact counts. Today an import adds missing copies by import_key
   (monprice id, language, finish, copy index: js/monprice.js importKey) but never removes extras,
