@@ -15,8 +15,9 @@
 //     placeholders waiting for those copies, when "Fill binder placeholders
 //     automatically" is on (Profile, on by default), and moves the wishlist
 //     items they fit to Got it (js/wishlist.js). undoAdding takes both back.
-//     A new path that adds copies (a trades log) calls addCopies, or
-//     afterAdding after its own save, and gets the same.
+//     A new path that adds copies calls addCopies, or afterAdding after its
+//     own save, and gets the same; the trades log (js/moves.js) adds its
+//     copies in one save with its removals, through planAfterAdding.
 //   - addToBinder, for "Add cards to the tray": copies picked for one binder
 //     go into its placeholders first, with the setting on, and the rest into
 //     its tray.
@@ -339,12 +340,13 @@ export function afterText(result) {
 // (Start over): fills the placeholders waiting for the copies `added` and
 // marks the wishes they fit, in `doc` itself. Returns {placed, got} for
 // Undo, as afterAdding resolves. fill: whether to fill (the setting);
-// skipWish as planGot's skip.
-export function planAfterAdding(doc, added, {at, fill = autoFillOn(doc), now = Date.parse(at), skipWish = null} = {}) {
+// skipWish as planGot's skip; undo: the kept Start over undo, for the
+// languages of the placeholders it made (fillPlan, as afterAdding passes).
+export function planAfterAdding(doc, added, {at, fill = autoFillOn(doc), now = Date.parse(at), skipWish = null, undo = null} = {}) {
 	let placed = [];
 
 	if (fill && added.length) {
-		const plan = fillPlan(doc, {only: new Set(added.map((entry) => entry.id))});
+		const plan = fillPlan(doc, {only: new Set(added.map((entry) => entry.id)), undo});
 
 		if (plan.rows.length) {
 			const result = fillPlaceholders(doc.binders || [], plan.rows, {at});

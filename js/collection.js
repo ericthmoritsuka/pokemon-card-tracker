@@ -466,17 +466,24 @@ export async function addCard(fields) {
 	return entry;
 }
 
+// New copies from fields, as addCards writes them, without saving: each
+// stamped one millisecond after the last, a Stored in place added to `doc`
+// when new. For a change that writes them in one save with others (the
+// trades log, js/moves.js). Fields outside ENTRY_FIELDS are dropped.
+export function newCopies(doc, list, {now = Date.now()} = {}) {
+	return list.map((fields, i) => {
+		const at = fields.created_at || new Date(now + i).toISOString();
+
+		return {...pick(withPlace(doc, fields, now)), created_at: at, deleted_at: null, id: newId(), updated_at: at};
+	});
+}
+
 // Several new entries in one save, so a hand-made card's copies are written
 // once (js/custom-card.js). Each is stamped one millisecond after the last.
 // Returns the entries added.
 export async function addCards(list) {
 	const doc = await loadDocument();
-	const now = Date.now();
-	const added = list.map((fields, i) => {
-		const at = fields.created_at || new Date(now + i).toISOString();
-
-		return {...pick(withPlace(doc, fields, now)), created_at: at, deleted_at: null, id: newId(), updated_at: at};
-	});
+	const added = newCopies(doc, list);
 
 	if (added.length) {
 		doc.cards.push(...added);
