@@ -203,8 +203,8 @@ function cardRoute(local, catalog, cardId) {
 	return routeTo('cards', lang, cardId);
 }
 
-// What a tile needs for one copy.
-function entryInfo(entry, index, viewing) {
+// What a tile needs for one copy. Also the trades log's (js/moves-view.js).
+export function entryInfo(entry, index, viewing) {
 	const record = index.get(indexKey(entry.catalog, entry.card_id)) || null;
 	const local = display(record, [catalogFor(viewing) === entry.catalog ? viewing : null, entry.language, catalogLanguage(entry.catalog)]);
 	const source = sourceNames(entry, record);
@@ -348,13 +348,13 @@ const cardTarget = (item) => ({catalog: item.catalog || 'international', card_id
 // art (tileArt, or an .art-wrap); a photo that arrives later is drawn as
 // cardArt in its place. records: a family member's card records on their
 // binder, whose photos it shows; null for the person's own.
-function artOf(target, info, draw, records = null) {
+export function artOf(target, info, draw, records = null) {
 	const options = records ? {family: false, records} : {};
 
 	return mainArt(target, info.image, draw, (src) => cardArt(info, src), options);
 }
 
-function recordFrom(catalog, lang, card) {
+export function recordFrom(catalog, lang, card) {
 	const set = card.set || {};
 
 	return {
@@ -368,7 +368,7 @@ function recordFrom(catalog, lang, card) {
 
 // Reads the catalog records the visible tiles have none for, four at a
 // time, cache first. Returns the new index, or null when nothing was added.
-async function fillRecords(items, index, isAlive) {
+export async function fillRecords(items, index, isAlive) {
 	const missing = new Map();
 
 	for (const {catalog, cardId} of items) {

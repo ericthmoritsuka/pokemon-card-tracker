@@ -53,6 +53,7 @@ import {
 	validGrid,
 } from '../js/binders.js';
 import {mergeDocuments, nextStamp} from '../js/merge.js';
+import {untilInPage} from './poll.mjs';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -1281,7 +1282,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 
 		// Offline: the shell and the binder open from the phone.
 		await page.evaluate(() => navigator.serviceWorker.ready);
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the shell cache to hold the binder files', async () => {
 			for (const key of (await caches.keys()).filter((name) => name.startsWith('card-tracker-shell-'))) {
 				const paths = (await (await caches.open(key)).keys()).map((request) => new URL(request.url).pathname);
 
@@ -1291,7 +1292,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 			}
 
 			return false;
-		}, null, {timeout: 15000});
+		}, {timeout: 15000});
 
 		const before = {...counts};
 

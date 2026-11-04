@@ -18,6 +18,7 @@ import {after, before, describe, test} from 'node:test';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -790,7 +791,7 @@ describe('a new version', () => {
 			// Release a new version: the same files with another VERSION.
 			server.setOverride((pathname) => (pathname === `${BASE}sw.js` ? sw.replace(`const VERSION = '${version}'`, 'const VERSION = \'vnext\'') : null));
 			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+			await untilInPage(page, 'the vnext worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
 
 			// Waiting: the page and its cache stay on the old version.
 			await page.getByText('A new version is installed.').waitFor();
@@ -800,11 +801,11 @@ describe('a new version', () => {
 
 			// Reload hands over to the new version and loads its files.
 			await page.getByRole('button', {name: 'Reload'}).click();
-			await page.waitForFunction(async () => {
+			await untilInPage(page, 'the vnext cache and a controlling worker after Reload', async () => {
 				const keys = await caches.keys();
 
 				return keys.some((key) => key.endsWith('vnext')) && Boolean(navigator.serviceWorker.controller);
-			}, null, {timeout: 30000});
+			}, {timeout: 30000});
 			await page.waitForSelector('main h2');
 			assert.deepEqual(errors, []);
 		}

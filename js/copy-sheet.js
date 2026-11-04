@@ -34,10 +34,11 @@ import {
 	updateCard,
 	updateCards,
 } from './collection.js';
-import {errorText, h} from './dom.js';
+import {errorText, go, h} from './dom.js';
 import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES} from './monprice.js';
+import {setPendingMove} from './moves.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
 import {toast} from './shell.js';
@@ -485,6 +486,17 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		}
 	});
 
+	// Sell or trade (js/moves-view.js): the copies this sheet would change,
+	// taken to Log a move, where the rest is chosen.
+	const move = h('button', {id: 'copy-move', type: 'button'}, 'Sell or trade');
+
+	// The route change closes the sheet (js/sheet.js), its history entry
+	// becoming the new screen's.
+	move.addEventListener('click', () => {
+		setPendingMove({out: targets().map((entry) => entry.id)});
+		go('trades/new');
+	});
+
 	const form = h('form', {class: 'copy-form', id: 'copy-form'},
 		scopeChoice,
 		field('Language', 'copy-language', language),
@@ -541,7 +553,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		head(many ? `Edit copies (${entries.length} alike)` : 'Edit copy', close),
 		h('p', {class: 'muted copy-sub'}, [card.name, card.number, placed.length === 1 && !many ? placeText(placed[0]) : null].filter(Boolean).join(' · ')),
 		form,
-		h('div', {class: 'copy-danger'}, remove, leaves)
+		h('div', {class: 'copy-danger'}, h('div', {class: 'copy-danger-row'}, move, remove), leaves)
 	);
 
 	return show(sheet);

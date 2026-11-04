@@ -13,6 +13,7 @@ import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
 import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
+import {startOverBlockedText} from './moves.js';
 import {afterAdding, afterText, undoAdding} from './placeholder-fill.js';
 import {UNDO_MS} from './reorder.js';
 import {toast} from './shell.js';
@@ -164,6 +165,24 @@ function undoStartOverButton(box, undo, label, id) {
 		catch (err) {
 			if (err && err.stale) {
 				box.replaceChildren(h('p', {id: 'start-over-undo-stale', role: 'alert'}, err.message));
+
+				return;
+			}
+
+			// A later move counts the run's copies (js/start-over.js
+			// movesAfterRun): name it, link the log, and keep Undo for after.
+			if (err && err.blocked && err.blocked.length) {
+				const shown = box.querySelector('#start-over-undo-blocked');
+
+				button.disabled = false;
+
+				if (shown) {
+					shown.remove();
+				}
+
+				box.append(h('p', {id: 'start-over-undo-blocked', role: 'alert'},
+					startOverBlockedText(err.blocked[0]), ' ',
+					h('a', {'data-link': 'trades', href: `${BASE}trades`}, 'Open Trades and sales')));
 
 				return;
 			}

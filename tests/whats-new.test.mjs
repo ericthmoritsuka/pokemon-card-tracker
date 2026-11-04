@@ -17,6 +17,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -102,7 +103,7 @@ describe('the releases', () => {
 		const releases = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/whats-new.js')).RELEASES);
 
 		assert.ok(releases.length >= 2);
-		assert.deepEqual(releases.slice(0, 2).map((release) => release.version), ['v54', 'v53']);
+		assert.deepEqual(releases.slice(0, 2).map((release) => release.version), ['v55', 'v54']);
 
 		for (const [i, release] of releases.entries()) {
 			assert.match(release.version, /^v\d+$/);
@@ -152,7 +153,7 @@ describe('Profile without a worker', () => {
 		await page.click('#profile-whats-new');
 		await page.waitForSelector('#whats-new-sheet[open]');
 		assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new');
-		assert.deepEqual(await page.locator('#whats-new-sheet .whats-new-release').evaluateAll((nodes) => nodes.map((node) => node.dataset.version)).then((list) => list.slice(0, 2)), ['v54', 'v53']);
+		assert.deepEqual(await page.locator('#whats-new-sheet .whats-new-release').evaluateAll((nodes) => nodes.map((node) => node.dataset.version)).then((list) => list.slice(0, 2)), ['v55', 'v54']);
 		assert.ok((await page.locator('#whats-new-sheet [data-version="v30"]').textContent()).includes('A small Value button on sets, checklists, and binders.'));
 		await page.screenshot({path: '/tmp/whats-new-sheet.png'});
 
@@ -191,7 +192,7 @@ describe('with the service worker', () => {
 			// v31 is released and waits.
 			await serve('v31');
 			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
 			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
 			assert.equal(await lineText(page), 'Card Tracker v30 · v31 ready Reload · What\'s new');
 			await page.screenshot({path: '/tmp/whats-new-ready.png'});
@@ -254,7 +255,7 @@ describe('with the service worker', () => {
 			await page.evaluate(() => localStorage.removeItem('cardTracker.whatsNewSeen'));
 			await serve('v31');
 			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
 
 			// The toast's Reload.
 			await page.getByRole('button', {name: 'Reload'}).first().click();

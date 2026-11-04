@@ -736,6 +736,26 @@ describe('saving', () => {
 		assert.equal(await savedUndo(), null, 'dropped, not just hidden');
 	});
 
+	test('a kept Undo is refused while a later move sold a copy it added, and stays offered; after that move\'s Undo it runs, and the run cannot be undone twice', async () => {
+		const doc = await collection.loadDocument();
+		const {undo} = await applyStartOver(ENTRIES);
+		const {applyMove, undoMove} = await import('../js/moves.js');
+		const {move} = await applyMove({kind: 'sold', out: [undo.added[0]], price: '1.500', who: 'Ana'});
+		const before = stableJson(doc);
+
+		await assert.rejects(undoStartOver(undo), (err) => !err.stale && err.blocked.map((item) => item.id).join() === move.id && /Undo that move first/.test(err.message));
+		assert.equal(stableJson(doc), before, 'nothing changed');
+		assert.deepEqual((await savedUndo()).undo, undo, 'still offered');
+
+		await undoMove(move.id);
+
+		const back = await undoStartOver(undo);
+
+		assert.deepEqual(back, {added: 3, kept: 0, restored: 3});
+		assert.equal(doc.start_over.undoes, undo.run);
+		await assert.rejects(undoStartOver(undo), /already undone/);
+	});
+
 	test('a failed save leaves the document on screen unchanged', async () => {
 		const doc = await collection.loadDocument();
 		const before = stableJson(doc);

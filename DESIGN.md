@@ -468,7 +468,9 @@ by older apps:
     "purchase_price", "purchase_currency",
     "opening_id", "storage",              -- storage: "Stored in", e.g. "Bulk box A" (below)
     "grader", "grade", "cert_number", "graded_price",   -- optional; TCGdex has no graded data
-    "notes", "is_favorite", "photo_path", "created_at"
+    "notes", "is_favorite", "photo_path", "created_at",
+    "left_via", "came_via",               -- the move it left or came with (Trades and Sales)
+    "removed_by"                          -- {at, run}: Start over or its Undo removed it (section 7)
   }],
   "collections": [{ "id", "name", "rule", "card_ids": [] }],   -- rule null when hand-picked
   "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages",
@@ -485,6 +487,8 @@ by older apps:
                     "got_at", "got_entry_id" }],   -- got: a copy that fits was added
   "openings":    [{ "id", "product", "set_id", "pack_count", "cost", "currency", "opened_at" }],
   "storage_places": [{ "id", "name" }],   -- the saved "Stored in" places (below)
+  "moves":       [{ "id", "kind", "date", "who", "price", "currency", "money", "note",
+                    "out", "past", "in", "undo", "after_run" }],   -- trades and sales (section 11)
   "settings":    { "theme", "favorite_pokemon", "fill_placeholders" }   -- follows the person to every device
 }
 ```
@@ -1320,7 +1324,19 @@ the document with its run (`start_over: {id, at}`, synced, the newest run winnin
 Undo from an older run, kept on a phone where the account started over again since, here or on
 another phone, is refused with a message and dropped, since it would bring the old copies back
 beside the new ones. So is an Undo whose added copies the merge folded into another run's copies
-(two phones started over offline, then synced). Undo is kept beside
+(two phones started over offline, then synced). Each copy Start over removes carries `removed_by:
+{at, run}`, its own removal stamp and the run's id, which older phones keep through their merges
+as they keep `left_via`; Log a past sale leaves those copies out (section 11, Trades and Sales).
+The mark stands only while the copy is still removed at that stamp, since an older phone's Undo
+brings a copy back keeping the field. Undo, when it runs, marks the copies it removes the same way
+(with its own id), drops the mark from the copies that come back, and marks the document with
+itself (`start_over: {id, at, undoes: <run id>}`), so the run is no longer the latest on any
+phone: a kept Undo of it elsewhere is refused ("already undone"), and a move logged before the
+Undo can no longer be undone (section 11). Undo is also refused, with a message naming the move
+and a link to Trades and sales, while a live move logged since names a copy the run added in its
+cards out or in, or a copy the run removed in its past sale list: Undo would bring the old copy
+back while the move still counts the new one sold, so the card would have two live copies. The
+move is undone first, then Start over; the kept Undo stays offered meanwhile. Undo is kept beside
 the document (`meta:start-over-undo`), so the import screen offers "Undo Start over" after the
 screen was left or the page reloaded: for 7 days, to the account that started over, until it is
 used or another Start over replaces it. The change is planned on a copy of the document by one
@@ -1332,6 +1348,9 @@ screen takes the save's content.
 Known limits. After Undo, a removed copy that another phone edited offline before the run comes
 back as this phone's version, without that edit. Two phones that start over offline and undo
 before syncing cannot see each other's run, so an Undo there can still leave both runs' copies.
+Older phones (v51 to v54) know nothing of moves: their Start over Undo is not refused when a move
+counts the run's copies, so they can still bring back two live copies of a sold card, and their
+Undo does not mark the document, so a v55 phone still lets a move logged before it be undone.
 
 ## 8. Persistence and Auth
 
@@ -2120,33 +2139,83 @@ what it pulled at today's prices, and the best pull.
 
 ### Trades and Sales
 
-(Eric, 2026-10-31; designed, not built.) A log of how cards came and went, so the collection follows
-what happens to the real cards. Each operation is one entry in a new synced list, `moves`, merged
-entry by entry like the other lists:
+(Eric, 2026-10-31; built in v55, `js/moves.js` and `js/moves-view.js`.) A log of how cards came
+and went, so the collection follows what happens to the real cards. Each operation is one entry
+in a new synced list, `moves`, merged entry by entry like the other lists:
 
 ```
-"moves": [{ "id", "kind", "date", "who", "price", "currency", "note",
-            "out": [entry_id, ...], "in": [entry_id, ...],
-            "created_at", "updated_at", "deleted_at" }]
+"moves": [{ "id", "kind", "date", "who", "price", "currency", "money", "note",
+            "out": [entry_id, ...], "past": [entry_id, ...], "in": [entry_id, ...],
+            "undo", "created_at", "updated_at", "deleted_at" }]
 ```
 
-- **kind:** sold, bought, traded, or gift (given or received). A trade has both cards out and cards
-  in; a sale has cards out and a price; a purchase has cards in and a price.
+- **kind:** sold, bought, traded, or gift (given, received, or both). A trade has both cards out and
+  cards in; a sale has cards out and a price; a purchase has cards in and a price.
 - **out:** copies he owns that leave, picked from his collection; the Trade view's spares come first.
   Saving soft-deletes them (as Delete does) and stamps each with `left_via: <move id>`.
-- **in:** new copies that arrive, picked from the catalog like the Add cards tray (language and
-  finish asked), added as copies with `came_via: <move id>`.
+- **in:** new copies that arrive, picked from the catalog with language, finish, and condition (as
+  Add a copy asks), added as copies with `came_via: <move id>`. They go through the add helper's
+  rule (`planAfterAdding`, js/placeholder-fill.js): they fill the binder placeholders waiting for
+  them when "Fill binder placeholders automatically" is on, and move the wishes they fit to Got it.
 - **price:** one amount for the whole move (sold for R$ 30, bought for R$ 20, cash added to a trade),
-  optional. Prices only: no cost per copy and no profit, by Eric's choice (2026-10-31).
+  optional, in BRL, USD, or EUR. Prices only: no cost per copy and no profit, by Eric's choice
+  (2026-10-31). It is typed the Brazilian or the English way (js/moves.js `parsePrice`): with a
+  comma, the dots group thousands and the comma is the decimal point ("1.500,00" is 1500, "30,50"
+  is 30.5); without one, a dot followed by exactly three digits groups thousands ("1.500" is 1500),
+  and any other dot is the decimal point ("30.5"). Anything else is refused with the expected form,
+  and the form shows the amount as it will be saved ("Saved as R$ 1.500,00") as it is typed. **money** says which way it went: in for a sale, out for a purchase, and for a
+  trade the form asks ("I paid it" or "I got it"); a gift has no price.
+- **undo:** what Undo needs from the save (pockets turned into placeholders, trays, list picks,
+  collections, fills, wishes, and a hash of each copy in), kept on the move so any phone can undo
+  it later.
 
 A card's page says where each copy came from and where earlier copies went ("Came in: traded with
-a friend, 12 Nov"; "Left: sold for R$ 30, 3 Dec"), using `came_via` and `left_via`; photos and notes
-stay on the card record (see "Photos and notes belong to the card"). A History screen lists every
-move, newest first, with totals of money in and out per month. Undo of a move (and deleting a move)
-brings the outgoing copies back and removes the incoming ones that are unchanged since, the same
-rules as Start over's Undo. A copy that leaves keeps its binder pocket as a placeholder, as Start
-over does. Build it with the same review rounds as Start over (multi-phone, Undo, older versions
-that do not know `moves`, `came_via`, `left_via`).
+Bruno, 12 Nov"; "Left: sold for R$ 30,00 to Ana, 3 Dec"), using `came_via` and `left_via`; photos and
+notes stay on the card record (see "Photos and notes belong to the card") and a move never touches
+them. A History screen (route `trades`) lists every move, newest first, by month, with the money in
+and out each month per currency. Undo of a move (on the toast after saving, or Undo this move in
+History, which is also how a move is deleted) brings the outgoing copies back without `left_via`
+and removes the incoming ones that are unchanged since, the same rules as Start over's Undo (the
+copy hash, pockets, trays, picks, collections, fills, and wishes; js/start-over.js `undoSwap`), and
+leaves the move as a tombstone. Each move records the document's latest Start over mark when it
+was logged (`after_run`, the mark's id or null; js/start-over.js `latestRun`). While the latest
+mark is another one, because Start over ran later or Start over's Undo did (on any phone, whatever
+its clock says), Undo of the move changes nothing and says which. A move from before `after_run`
+compares the mark's stamp with when it was logged. Undo of a move is also refused, naming the
+other move, while a later live move has one of its cards in among its cards out (a card traded in,
+then sold): that move is undone first, or the card would come back with nothing that brought it.
+Start over's Undo is refused the other way round, while a later move counts its copies (section
+7). A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
+share one step for it (js/start-over.js `planSwap`).
+
+**Where:** Trades beside Spares on My Cards (on a phone the title takes its own line), "Trades and
+sales" in Profile, and **Sell or trade** on a copy sheet (the copies it would change) and on a card's
+page (its copy, or with several, the card's copies to pick from). Never on a family member's
+screens.
+
+**Log a past sale** (Eric, 2026-11-04). He sold and traded cards before the log existed and removed
+those copies by hand. The cards out picker has a second tab, Removed lately: the copies removed in
+the last 30 days, newest removal first, with the day each was removed. Picking one links it to the
+move (`left_via`, and its id in `past`) without changing its deletion. Left out: copies the
+duplicate repair folded into another (`merged_into`), copies a live move already names, copies a
+Start over or its Undo removed (Start over added them again), and copies an undone move had added.
+Undo of the move unlinks them and leaves them removed, so they are offered again. What Start over
+and its Undo removed is read from `removed_by` on the copy (section 7). Removals from before that
+mark existed have none, so for them the picker also leaves out the copies the kept Start over
+undo on this phone names (its removed copies still removed at the stamp it records, and its added
+copies once the run was undone somewhere; while the run stands, an added copy removed is a removal
+by hand), and a removed copy whose
+card a placeholder now waits for, removed at the moment that placeholder was written (Start over
+stamps both with the run's time). Only when none of that applies, and the document's latest Start
+over mark is from before `removed_by`, does the old rule remain: a copy removed within a minute
+after that mark is left out. That rule alone missed an earlier run, Start over's Undo, and a copy
+whose stamp was ahead, and hid a real removal right after a run.
+
+**Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
+(js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's
+`patch_document` writes any list. A merge copies every field of a copy, and an edit changes a copy
+in place, so `left_via` and `came_via` survive an older phone's save; it shows the copies as any
+other. A copy an older phone changed after it came in counts as changed, so Undo keeps it.
 
 ## 12. Open Questions
 

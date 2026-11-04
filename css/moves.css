@@ -1,0 +1,151 @@
+/* The trades and sales log (js/moves-view.js): History by month, the
+   Log a move form, and its two pickers. The form reuses the copy sheet's
+   fields (css/copies.css) and the tray picker's tiles (css/binders.css). */
+
+.moves-month {
+	margin: 0 0 var(--space-4);
+}
+
+.moves-month-head {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-1) var(--space-3);
+	justify-content: space-between;
+}
+
+.moves-month-head h3 {
+	margin: 0;
+}
+
+.moves-money {
+	color: var(--muted);
+	font-weight: 600;
+	margin: 0;
+}
+
+.moves-list {
+	display: grid;
+	gap: var(--space-2);
+	list-style: none;
+	margin: var(--space-2) 0 0;
+	padding: 0;
+}
+
+.moves-row {
+	align-items: flex-start;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	justify-content: flex-start;
+	min-height: var(--target);
+	text-align: left;
+	width: 100%;
+}
+
+.moves-title {
+	font-weight: 700;
+}
+
+.moves-meta,
+.moves-cards {
+	color: var(--muted);
+	font-weight: 400;
+	overflow-wrap: anywhere;
+}
+
+.move-form .segmented {
+	grid-template-columns: repeat(4, 1fr);
+	margin: 0;
+}
+
+.move-tabs {
+	grid-template-columns: 1fr 1fr;
+}
+
+.move-price-inputs {
+	display: flex;
+	gap: var(--space-2);
+}
+
+.move-price-inputs input {
+	flex: 1;
+	min-width: 0;
+}
+
+.move-side h3 {
+	margin: 0;
+}
+
+.move-chosen {
+	margin: var(--space-2) 0;
+}
+
+.move-only {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.move-in-card {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	margin: 0 0 var(--space-3);
+}
+
+.move-in-card .art-wrap {
+	flex: none;
+	width: 72px;
+}
+
+.move-facts {
+	margin: 0 0 var(--space-2);
+}
+
+.move-confirm p {
+	margin: 0 0 var(--space-2);
+}
+
+/* A card's page: how your copies came and went, under Your copies. */
+.card-moves {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-2) 0 0;
+}
+
+.card-move-line {
+	color: var(--muted);
+	overflow-wrap: anywhere;
+}
+
+/* A chosen copy's tile: the tray picker's tile, not a button. */
+.move-chosen .pick {
+	display: flex;
+}
+
+.move-chosen > .muted {
+	grid-column: 1 / -1;
+	margin: 0;
+}
+
+/* My Cards' heading: Spares, Trades, and Add by hand do not fit beside the
+   title on a phone, so the title takes its own line. */
+@media (max-width: 599px) {
+	.view-head:has(#cards-moves) {
+		flex-wrap: wrap;
+	}
+
+	.view-head:has(#cards-moves) h2 {
+		flex: 1 0 100%;
+	}
+}
+
+.move-price-read {
+	margin: var(--space-1) 0 0;
+}
+
+.move-price-read:empty {
+	display: none;
+}
