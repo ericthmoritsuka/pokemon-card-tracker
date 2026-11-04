@@ -18,6 +18,7 @@ import {after, before, describe, test} from 'node:test';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {BASE, CARDS, COPIES, documentWith, fakeServices, fullRecord, indexRecords, linkNewStyles, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -1059,7 +1060,7 @@ describe('card images', () => {
 
 		assert.equal((await art(page, doubled)).shown, doubled);
 		assert.equal((await art(page, single)).shown, single);
-		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).length === 1, null, TIMEOUT);
+		await untilInPage(page, 'one image in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 1, TIMEOUT);
 		assert.deepEqual(modes, ['004 cors', '004 no-cors', '005 cors'], 'the doubled image does not send the rest of its folder to no-cors');
 		assert.deepEqual(await kept(), {'card-tracker-images': ['005'], 'card-tracker-images-opaque': ['004']}, 'only the doubled image is kept opaque');
 
@@ -1068,9 +1069,9 @@ describe('card images', () => {
 		const third = doubled.replace('/004/', '/006/');
 
 		assert.equal((await art(page, third)).shown, third);
-		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).length === 2, null, TIMEOUT);
+		await untilInPage(page, 'two images in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 2, TIMEOUT);
 		await page.evaluate((url) => fetch(url, {mode: 'no-cors'}), single);
-		await page.waitForFunction(async () => (await (await caches.open('card-tracker-images')).keys()).map((request) => request.url.split('/').at(-2)).join() === '006,005', null, TIMEOUT);
+		await untilInPage(page, 'card-tracker-images in the order 006,005', async () => (await (await caches.open('card-tracker-images')).keys()).map((request) => request.url.split('/').at(-2)).join() === '006,005', TIMEOUT);
 
 		// Offline, both Portuguese images show from the phone, no English stand-in.
 		await context.setOffline(true);

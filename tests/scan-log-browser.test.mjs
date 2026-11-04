@@ -23,6 +23,7 @@ import {readFile, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {untilInPage} from './poll.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -511,7 +512,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		assert.ok(entry.report && entry.report.picture && entry.report.picture.groups.length, 'the report with the picture match');
 
 		await page.click('#scan-undo-session');
-		await page.waitForFunction(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).length === 0);
+		await untilInPage(page, 'Undo to leave no cards in the collection', async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).length === 0, {timeout: 30000});
 
 		for (let i = 0; i < 50 && !entry.outcome.undone; i++) {
 			entry = (await logEntries(page)).find((one) => one.id === item.id);
@@ -528,11 +529,11 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 		await trayIs(page, (items) => items.length === 1 && items[0].status === 'ready', 'card A ready');
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the scan log\'s first entry to be ready', async () => {
 			const [entry] = await (await import('/pokemon-card-tracker/js/scan/log.js')).listEntries();
 
 			return Boolean(entry && entry.first && entry.first.status === 'ready');
-		}, null, {polling: 200, timeout: 30000});
+		}, {interval: 200, timeout: 30000});
 
 		// A share sheet that takes files, as Chrome on Android has.
 		await page.addInitScript(() => {

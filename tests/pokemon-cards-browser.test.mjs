@@ -19,6 +19,7 @@ import {speciesRows} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {FIXTURES} from './pokemon-cards-fixtures.mjs';
 import {startHarness} from './pokemon-cards-harness.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -487,7 +488,7 @@ describe('every card of a Pokémon', () => {
 		// Offline: the app, the prints, the sets, and the finishes already
 		// read all come from the phone; Japanese finishes were never read.
 		await serviceWorkerReady(page);
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the shell cache to hold pokemon-cards-view.js and pokemon-cards.css', async () => {
 			for (const key of (await caches.keys()).filter((name) => name.startsWith('card-tracker-shell-'))) {
 				const paths = (await (await caches.open(key)).keys()).map((request) => new URL(request.url).pathname);
 
@@ -497,7 +498,7 @@ describe('every card of a Pokémon', () => {
 			}
 
 			return false;
-		}, null, {timeout: 30000});
+		}, {timeout: 30000});
 
 		const before = JSON.stringify(counts);
 
