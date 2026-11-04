@@ -5,7 +5,7 @@
 // from v21 on keep the list and its entries whole):
 //
 //   {id, kind, date, who, price, currency, money, note, out, past, in, undo,
-//    created_at, updated_at, deleted_at}
+//    after_run, created_at, updated_at, deleted_at}
 //
 //   kind      sold, bought, traded, or gift (given, received, or both)
 //   date      the day it happened, YYYY-MM-DD
@@ -23,6 +23,10 @@
 //   undo      what Undo needs from the save (js/start-over.js planSwap), so
 //             any phone can undo the move later: the in copies' hashes,
 //             pockets, trays, picks, collections, fills, and wishes
+//   after_run the id of the document's latest Start over mark when the move
+//             was logged (js/start-over.js latestRun), or null: Undo of the
+//             move is refused once the latest mark is another one (a later
+//             run, or Start over's Undo), whatever the phones' clocks say
 //
 // Saving soft-deletes the out copies (as Delete does), stamped left_via; a
 // copy that leaves keeps its binder pocket as its card's placeholder, as
@@ -33,6 +37,9 @@
 // write fails. Undo, and deleting a move from History, is one step: the out
 // copies come back and the in copies unchanged since go, by Start over's
 // Undo rules (js/start-over.js undoSwap), and the move becomes a tombstone.
+// It is refused while a later live move names one of its in copies (sold
+// on, say): that move is undone first, or the copy would come back with
+// nothing that brought it.
 // Photos and notes live on the card records (card_info), which a move never
 // touches, so they show again when a copy of the card comes back.
 //
@@ -47,7 +54,7 @@ import {isLive, loadDocument, newCopies, newId, saveCopy} from './collection.js'
 import {nextStamp, stampEntry} from './merge.js';
 import {autoFillOn, keptStartOver} from './placeholder-fill.js';
 import {formatMoney, shortDate} from './prices.js';
-import {copyHash, planSwap, undoSwap} from './start-over.js';
+import {copyHash, latestRun, planSwap, removedByStartOver, undoSwap} from './start-over.js';
 import {stampMs} from './stamp.js';
 
 export const KINDS = ['sold', 'bought', 'traded', 'gift'];
@@ -65,11 +72,47 @@ export const liveMoves = (doc) => list(doc).filter((move) => move && move.id && 
 
 const moveById = (doc, id) => list(doc).find((move) => move && move.id === id) || null;
 
-// The price as a number to the cent, or null: a positive amount only.
-export function cleanPrice(value) {
-	const number = typeof value === 'number' ? value : Number(String(value ?? '').trim().replace(/\s/g, '').replace(',', '.'));
+export const PRICE_FORM_TEXT = 'Type the price as 30,50 or 1.500,00, or leave it empty.';
 
-	return Number.isFinite(number) && number > 0 ? Math.round(number * 100) / 100 : null;
+// A typed price, the Brazilian way or the English way (Eric, 2026-11-04):
+// {value, error}. With a comma, the dots group thousands and the comma is
+// the decimal point ("1.500,00" is 1500, "30,50" is 30.5); without one, a
+// dot followed by exactly three digits groups thousands ("1.500" is 1500,
+// "1.500.000" is 1500000), and any other dot is the decimal point ("30.5").
+// Spaces are ignored. Empty is no price, {value: null, error: null};
+// anything else, and zero, is refused with PRICE_FORM_TEXT.
+export function parsePrice(text) {
+	const typed = String(text ?? '').replace(/\s/g, '');
+
+	if (!typed) {
+		return {error: null, value: null};
+	}
+
+	let plain = null;
+
+	if (/^(\d{1,3}(\.\d{3})+|\d+),\d{1,2}$/.test(typed)) {
+		plain = typed.replace(/\./g, '').replace(',', '.');
+	}
+	else if (/^\d{1,3}(\.\d{3})+$/.test(typed)) {
+		plain = typed.replace(/\./g, '');
+	}
+	else if (/^\d+(\.\d{1,2})?$/.test(typed)) {
+		plain = typed;
+	}
+
+	const number = plain === null ? NaN : Number(plain);
+
+	return Number.isFinite(number) && number > 0 ? {error: null, value: Math.round(number * 100) / 100} : {error: PRICE_FORM_TEXT, value: null};
+}
+
+// The price as a number to the cent, or null: a positive amount only. A
+// string is read by parsePrice.
+export function cleanPrice(value) {
+	if (typeof value !== 'number') {
+		return parsePrice(value).value;
+	}
+
+	return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
 }
 
 // Which way a move's price went: {amount, currency, way: 'in' | 'out'}, or
@@ -114,24 +157,103 @@ export function monthTotals(moves) {
 	return [...months.values()];
 }
 
-// True when a copy was removed by a Start over: its tombstone is stamped
-// with the run's time (js/start-over.js planStartOver), or just after when
-// the copy's own stamp was ahead.
-function startedOver(doc, entry) {
-	const run = doc && doc.start_over && stampMs(doc.start_over.at, null);
-	const gone = stampMs(entry.deleted_at, null);
+// Copies Start over or its Undo removed before removed_by existed (v51 to
+// v55 before this fix), Set of ids, from the evidence older data holds:
+//
+// - the kept Start over undo on this phone (kept; js/placeholder-fill.js
+//   keptStartOver): a copy its removed list names, still removed at the
+//   stamp it records (the copies its pockets name are among them); and the
+//   copies its added list names once the run was undone somewhere (a copy
+//   it removed is live again), since those removals were the Undo's, not
+//   his: while the run stands, an added copy removed is a removal by hand;
+// - a placeholder a pocket became (js/start-over.js planSwap, from v51 on),
+//   which other phones see too: a removed copy of its card whose
+//   deleted_at is the placeholder's placed_at, as both are stamped with the
+//   run's time (js/placeholder-fill.js pocketLanguages reads it the same
+//   way). A placeholder filled since no longer tells.
+function unmarkedRemovals(doc, kept) {
+	const cards = (doc && doc.cards) || [];
+	const byId = new Map(cards.filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+	const out = new Set();
 
-	return run !== null && gone !== null && gone >= run && gone - run < 60 * 1000;
+	if (kept) {
+		const removed = Array.isArray(kept.removed) ? kept.removed.filter((item) => item && item.id) : [];
+
+		for (const item of removed) {
+			if ((byId.get(item.id) || {}).deleted_at === item.deleted_at) {
+				out.add(item.id);
+			}
+		}
+
+		if (removed.some((item) => isLive(byId.get(item.id) || {deleted_at: 'gone'}))) {
+			for (const id of Array.isArray(kept.added) ? kept.added : []) {
+				out.add(id);
+			}
+		}
+	}
+
+	const waiting = new Map();
+
+	for (const binder of (doc && doc.binders) || []) {
+		if (!binder || !isLive(binder)) {
+			continue;
+		}
+
+		for (const slot of Array.isArray(binder.slots) ? binder.slots : []) {
+			if (slot && !slot.cleared && !slot.entry_id && slot.want && slot.want.card_id && slot.placed_at) {
+				const key = `${slot.want.catalog || 'international'}|${slot.want.card_id}|${slot.placed_at}`;
+
+				waiting.set(key, true);
+			}
+		}
+	}
+
+	for (const entry of cards) {
+		if (entry && entry.deleted_at && waiting.has(`${entry.catalog || 'international'}|${entry.card_id}|${entry.deleted_at}`)) {
+			out.add(entry.id);
+		}
+	}
+
+	return out;
+}
+
+// The last fallback, only for a removal with no removed_by that nothing in
+// unmarkedRemovals names, and only while the document's latest Start over
+// mark is from before removed_by: a tombstone stamped within a minute after
+// that mark. It misses an earlier run, a copy whose stamp was ahead of the
+// run, and hides a removal by hand right after one, which is why every
+// removal Start over and its Undo write now carries removed_by. A run that
+// marks its removals leaves a copy marked with its id; an Undo's mark
+// (undoes) is never from before removed_by.
+// Returns the test, (entry) => boolean.
+function nearLatestRun(doc) {
+	const latest = latestRun(doc);
+	const run = latest && stampMs(latest.at, null);
+
+	if (run === null || run === undefined || latest.undoes || ((doc && doc.cards) || []).some((item) => item && item.removed_by && item.removed_by.run === latest.id)) {
+		return () => false;
+	}
+
+	return (entry) => {
+		const gone = stampMs(entry.deleted_at, null);
+
+		return gone !== null && gone >= run && gone - run < 60 * 1000;
+	};
 }
 
 // Log a past sale (Eric, 2026-11-04): the copies removed by hand in the last
 // PAST_DAYS days that a move can still claim, newest removal first. Left
 // out: copies the duplicate repair folded into another (merged_into), copies
-// a live move already names, copies a Start over removed (it added them
-// again), and copies an undone move had added (they never were his).
-export function pastCandidates(doc, {now = Date.now()} = {}) {
+// a live move already names, copies Start over or its Undo removed (Start
+// over added them again; js/start-over.js removedByStartOver, and for older
+// removals unmarkedRemovals, then nearLatestRun), and copies an undone move
+// had added (they never were his). kept: the kept Start over undo
+// (js/placeholder-fill.js keptStartOver), or null.
+export function pastCandidates(doc, {kept = null, now = Date.now()} = {}) {
 	const moves = new Map(list(doc).filter((move) => move && move.id).map((move) => [move.id, move]));
 	const claimed = (id) => Boolean(id) && moves.has(id) && isLive(moves.get(id));
+	const unmarked = unmarkedRemovals(doc, kept);
+	const near = nearLatestRun(doc);
 
 	return ((doc && doc.cards) || [])
 		.filter((entry) => {
@@ -141,7 +263,14 @@ export function pastCandidates(doc, {now = Date.now()} = {}) {
 
 			const gone = stampMs(entry.deleted_at, null);
 
-			if (gone === null || now - gone > PAST_DAYS * DAY_MS || startedOver(doc, entry)) {
+			if (gone === null || now - gone > PAST_DAYS * DAY_MS) {
+				return false;
+			}
+
+			// A mark that no longer stands (the copy came back on an older
+			// phone and was removed again later) means a later removal: the
+			// evidence for older removals no longer applies to it.
+			if (entry.removed_by ? removedByStartOver(entry) : unmarked.has(entry.id) || near(entry)) {
 				return false;
 			}
 
@@ -169,7 +298,7 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 
 	const next = structuredClone(doc);
 	const outIds = new Set(fields.out || []);
-	const pastIds = new Set(pastCandidates(doc, {now}).map((entry) => entry.id).filter((entryId) => (fields.past || []).includes(entryId)));
+	const pastIds = new Set(pastCandidates(doc, {kept: fillUndo, now}).map((entry) => entry.id).filter((entryId) => (fields.past || []).includes(entryId)));
 	const removed = new Map();
 	const past = [];
 
@@ -205,7 +334,9 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 	const swap = planSwap(doc, next, removed, added, {fill, fillUndo, now});
 	const at = new Date(now).toISOString();
 	const price = cleanPrice(fields.price);
+	const run = latestRun(doc);
 	const move = {
+		after_run: run && run.id ? run.id : null,
 		created_at: at,
 		currency: price ? (CURRENCIES.includes(fields.currency) ? fields.currency : 'BRL') : null,
 		date: /^\d{4}-\d{2}-\d{2}$/.test(String(fields.date || '')) ? fields.date : at.slice(0, 10),
@@ -239,19 +370,69 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 
 export const STALE_MOVE_TEXT = 'You started over after this move, so undoing it would put old copies back beside the new ones. Nothing was changed.';
 
+export const UNDID_START_OVER_MOVE_TEXT = 'You undid Start over after this move, so undoing it could bring copies back twice. Nothing was changed.';
+
+export const GONE_MOVE_TEXT = 'This move was already undone, on this phone or another. Nothing was changed.';
+
+// Why Undo of a move was refused, for its message.
+export function staleMoveText({later = null, reason = 'gone'} = {}, {now = new Date()} = {}) {
+	if (reason === 'later' && later) {
+		const date = shortDate(later.date, {now});
+
+		return `A later move, "${moveTitle(later)}"${date ? ` on ${date}` : ''}, counts a card this move brought in. Undo that move first. Nothing was changed.`;
+	}
+
+	return reason === 'run' ? STALE_MOVE_TEXT : reason === 'undo' ? UNDID_START_OVER_MOVE_TEXT : GONE_MOVE_TEXT;
+}
+
+// Why Start over's Undo was refused (js/start-over.js movesAfterRun),
+// naming the newest move in the way.
+export function startOverBlockedText(move, {now = new Date()} = {}) {
+	const date = shortDate(move.date, {now});
+
+	return `"${moveTitle(move)}"${date ? ` on ${date}` : ''} in Trades and sales counts a copy that Undo Start over would change. Undo that move first, then Undo Start over. Nothing was changed.`;
+}
+
+// True when the document's latest Start over mark is not the one the move
+// was logged after (after_run): a run, or Start over's Undo, came since.
+// A move from before after_run existed compares the stamps instead.
+function runSince(doc, move) {
+	const latest = latestRun(doc);
+
+	if (Object.prototype.hasOwnProperty.call(move, 'after_run')) {
+		return ((latest && latest.id) || null) !== (move.after_run || null);
+	}
+
+	return Boolean(latest) && stampMs(latest.at) > stampMs(move.created_at);
+}
+
 // Undo of a move, and deleting it from History: the out copies come back
 // (without left_via), the in copies unchanged since go (js/start-over.js
 // undoSwap: a copy changed since stays, and so do its pockets), the copies
 // a past sale linked lose the link and stay removed, and the move becomes a
-// tombstone. Returns {counts, doc, stale}: counts {restored, added, kept,
-// unlinked}; stale is true, and nothing changes, when the move is gone or
-// already undone, or a Start over ran after it.
+// tombstone. Returns {counts, doc, stale, reason, later}: counts {restored,
+// added, kept, unlinked}; stale is true, and nothing changes, when the move
+// is gone or already undone (reason 'gone'), a Start over ran after it
+// ('run'), Start over's Undo ran after it ('undo'), or a later live move
+// names one of its in copies in its out list ('later', that move in later).
 export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 	const move = moveById(doc, moveId);
 	const counts = {added: 0, kept: 0, restored: 0, unlinked: 0};
+	const refuse = (reason, later = null) => ({counts, doc: structuredClone(doc), later, reason, stale: true});
 
-	if (!move || !isLive(move) || (doc.start_over && stampMs(doc.start_over.at) > stampMs(move.created_at))) {
-		return {counts, doc: structuredClone(doc), stale: true};
+	if (!move || !isLive(move)) {
+		return refuse('gone');
+	}
+
+	if (runSince(doc, move)) {
+		return refuse(latestRun(doc).undoes ? 'undo' : 'run');
+	}
+
+	const brought = new Set(Array.isArray(move.in) ? move.in : []);
+	const later = liveMoves(doc).filter((item) => item.id !== move.id && Array.isArray(item.out) && item.out.some((id) => brought.has(id))).sort(newestFirst);
+
+	if (later.length) {
+		return refuse('later', later[0]);
 	}
 
 	const kept = move.undo || {};
@@ -292,7 +473,7 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 		return stampEntry(item, {...item, deleted_at: at, updated_at: at});
 	});
 
-	return {counts: {...counts, ...done.counts}, doc: next, stale: false};
+	return {counts: {...counts, ...done.counts}, doc: next, later: null, reason: null, stale: false};
 }
 
 // How each copy of a card came and went, for its page: [{side: 'in' |
@@ -391,13 +572,14 @@ export async function applyMove(fields) {
 }
 
 // Saved: undoes a move (Undo on the toast, or Undo this move in History).
-// Resolves its counts; rejects with an error whose stale is true when there
-// was nothing to undo.
+// Resolves its counts; rejects with an error whose stale is true, and whose
+// message says why (staleMoveText), when it was refused.
 export async function undoMove(moveId) {
-	const {counts, doc, stale} = planUndoMove(await loadDocument(), moveId);
+	const result = planUndoMove(await loadDocument(), moveId);
+	const {counts, doc, stale} = result;
 
 	if (stale) {
-		throw Object.assign(new Error(STALE_MOVE_TEXT), {stale: true});
+		throw Object.assign(new Error(staleMoveText(result)), {reason: result.reason, stale: true});
 	}
 
 	await saveCopy(doc);

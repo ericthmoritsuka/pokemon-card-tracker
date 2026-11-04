@@ -28,6 +28,25 @@ import {isMember, memberIds, withMembers, withoutMembers} from './collections.js
 import {infoKey} from './card-info.js';
 import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
 
+// The document's latest Start over mark, {at, id}, or null: Start over's
+// Undo writes one too, {at, id, undoes: <the run's id>}. Start over, its
+// Undo, and the trades log (js/moves.js) all read it here. The newest mark
+// wins the merge (js/merge.js newestRun), on every phone from v51 on.
+export function latestRun(doc) {
+	const run = doc && doc.start_over;
+
+	return run && typeof run === 'object' && !Array.isArray(run) ? run : null;
+}
+
+// The mark Start over and its Undo leave on each copy they remove:
+// removed_by {at, run}, at the removal's own deleted_at and the run's id (or
+// the Undo's). It stands only while the copy is still removed at that
+// stamp: an older phone's Undo brings the copy back keeping the field
+// (js/merge.js restoreEntry keeps every other field), and a later removal
+// by hand gives it another deleted_at. Log a past sale leaves out what it
+// marks (js/moves.js pastCandidates).
+export const removedByStartOver = (entry) => Boolean(entry && entry.deleted_at && entry.removed_by && entry.removed_by.at === entry.deleted_at);
+
 // The ids the added copies take: new random ids, never the import's own
 // (importEntryId) or any id worked out from the key. Two phones that each
 // start over then add different copies of each row, and the merge folds
@@ -300,7 +319,7 @@ export function planStartOver(doc, entries, {fill = false, ids = new Map(), now 
 	const left = [];
 
 	// Newer than any run this phone knows of, even with its clock behind.
-	next.start_over = {at: nextStamp(doc.start_over && doc.start_over.at, now), id: run};
+	next.start_over = {at: nextStamp(latestRun(doc) && latestRun(doc).at, now), id: run};
 
 	next.cards = (next.cards || []).map((entry) => {
 		if (!entry || !isLive(entry) || isCustom(entry)) {
@@ -314,7 +333,7 @@ export function planStartOver(doc, entries, {fill = false, ids = new Map(), now 
 		}
 
 		const at = nextStamp(entry.updated_at, now);
-		const gone = stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
+		const gone = stampEntry(entry, {...entry, deleted_at: at, removed_by: {at, run}, updated_at: at});
 
 		removed.set(entry.id, gone);
 
@@ -385,11 +404,13 @@ export function planStartOver(doc, entries, {fill = false, ids = new Map(), now 
 // copies were folded into another run's (two phones started over offline,
 // then synced).
 export function staleUndo(doc, undo) {
-	if (!doc || !doc.start_over) {
+	const latest = latestRun(doc);
+
+	if (!latest) {
 		return false;
 	}
 
-	if (doc.start_over.id !== (undo && undo.run)) {
+	if (latest.id !== (undo && undo.run)) {
 		return true;
 	}
 
@@ -398,6 +419,24 @@ export function staleUndo(doc, undo) {
 	const ours = new Set([...(undo.added || []), ...(undo.left || [])]);
 
 	return (doc.cards || []).some((entry) => entry && ours.has(entry.id) && entry.merged_into && !ours.has(entry.merged_into));
+}
+
+// The live moves in the trades log (js/moves.js) that Undo would contradict:
+// one that names a copy this run added in its out or in list (it sold,
+// traded, or gave that copy away), or a copy this run removed in its past
+// list. Undo would bring the run's removed copies back while the move still
+// counts the copies it moved, so the card would have two live copies (or
+// a sale of a copy that is back). Such a move was logged after the run,
+// since the added copies did not exist before it and a copy the run removed
+// was live until then. Newest first.
+export function movesAfterRun(doc, undo) {
+	const added = new Set((undo && undo.added) || []);
+	const removed = new Set(((undo && undo.removed) || []).map((item) => item && item.id));
+	const names = (ids, set) => Array.isArray(ids) && ids.some((id) => set.has(id));
+
+	return ((doc && Array.isArray(doc.moves)) ? doc.moves : [])
+		.filter((move) => move && move.id && isLive(move) && (names(move.out, added) || names(move.in, added) || names(move.past, removed)))
+		.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')) || String(a.id).localeCompare(String(b.id)));
 }
 
 // Undo for planStartOver: removed copies come back (js/merge.js
@@ -420,22 +459,43 @@ export function staleUndo(doc, undo) {
 // that copy goes. Returns {doc, counts, stale}; `doc` itself is not changed. When the
 // document's latest run is another one (staleUndo), nothing is undone and
 // stale is true: undoing would bring the old copies back beside that
-// run's.
-export function planUndo(doc, undo, {now = Date.now()} = {}) {
+// run's. When a live move logged since names the run's copies
+// (movesAfterRun), nothing is undone either, and blocked lists those moves:
+// the move is undone first. Otherwise the copies Undo removes carry
+// removed_by (the Undo's own id), the copies that come back lose it, and
+// the document is marked with the Undo (start_over: {at, id, undoes}), so
+// every phone sees the run as no longer the latest: a kept Undo of it
+// elsewhere is refused, and a move logged before the Undo cannot be undone
+// (js/moves.js planUndoMove).
+export function planUndo(doc, undo, {id = newId(), now = Date.now()} = {}) {
+	const counts = {added: 0, kept: 0, restored: 0};
+
 	if (staleUndo(doc, undo)) {
-		return {counts: {added: 0, kept: 0, restored: 0}, doc: structuredClone(doc), stale: true};
+		return {counts, doc: structuredClone(doc), stale: true};
 	}
 
-	return undoSwap(doc, undo, {now});
+	const blocked = movesAfterRun(doc, undo);
+
+	if (blocked.length) {
+		return {blocked, counts, doc: structuredClone(doc), stale: false};
+	}
+
+	const done = undoSwap(doc, undo, {drop: ['removed_by'], mark: id, now});
+
+	done.doc.start_over = {at: nextStamp(latestRun(doc) && latestRun(doc).at, now), id, undoes: (undo && undo.run) || null};
+
+	return {...done, stale: false};
 }
 
 // planUndo's work, for any change planSwap made (Start over, a move in the
 // trades log): `undo` is planSwap's undo with added (the ids of the copies
 // put in) and hashes (copyHash of each, as written). drop: fields a copy
-// that comes back loses (a move's left_via), stamped as changed so a merge
-// with the tombstone does not bring them back. Returns {counts, doc}; `doc`
-// itself is not changed.
-export function undoSwap(doc, undo, {drop = [], now = Date.now()} = {}) {
+// that comes back loses (a move's left_via, Start over's removed_by),
+// stamped as changed so a merge with the tombstone does not bring them
+// back. mark: the id each copy this removes is marked with (removed_by;
+// Start over's Undo), or null. Returns {counts, doc}; `doc` itself is not
+// changed.
+export function undoSwap(doc, undo, {drop = [], mark = null, now = Date.now()} = {}) {
 	const next = structuredClone(doc);
 	const removedAt = new Map(undo.removed.map((item) => [item.id, item.deleted_at]));
 	const added = new Set(undo.added);
@@ -481,7 +541,7 @@ export function undoSwap(doc, undo, {drop = [], now = Date.now()} = {}) {
 			gone.add(entry.id);
 			goneEntries.set(entry.id, entry);
 
-			return stampEntry(entry, {...entry, deleted_at: at, updated_at: at});
+			return stampEntry(entry, {...entry, deleted_at: at, ...(mark ? {removed_by: {at, run: mark}} : {}), updated_at: at});
 		}
 
 		return entry;
@@ -633,6 +693,10 @@ export async function savedUndo({now = Date.now()} = {}) {
 
 export const STALE_UNDO_TEXT = 'You started over again, on this phone or another, so this Undo would put old copies back beside the new ones. Nothing was changed.';
 
+export const UNDONE_UNDO_TEXT = 'This Start over was already undone, on this phone or another. Nothing was changed.';
+
+export const BLOCKED_UNDO_TEXT = 'A move in Trades and sales counts a copy that Undo Start over would change. Undo that move first, then Undo Start over. Nothing was changed.';
+
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
 // it rejects and the document on the phone is as it was. A failed write of
 // the kept undo only loses Undo after leaving the screen.
@@ -649,14 +713,23 @@ export async function applyStartOver(entries) {
 
 // Saved: Undo for applyStartOver, in one save. Resolves its counts. Rejects
 // with an error whose stale is true, and drops the kept undo, when the
-// document's latest run is another one.
+// document's latest run is another one; rejects with an error whose blocked
+// lists the moves (movesAfterRun), and keeps the kept undo, while a later
+// move counts the run's copies.
 export async function undoStartOver(undo) {
-	const {counts, doc, stale} = planUndo(await loadDocument(), undo);
+	const current = await loadDocument();
+	const {blocked, counts, doc, stale} = planUndo(current, undo);
 
 	if (stale) {
 		await writeMeta(UNDO_META, null).catch(() => {});
 
-		throw Object.assign(new Error(STALE_UNDO_TEXT), {stale: true});
+		const latest = latestRun(current);
+
+		throw Object.assign(new Error(latest && latest.undoes && latest.undoes === (undo && undo.run) ? UNDONE_UNDO_TEXT : STALE_UNDO_TEXT), {stale: true});
+	}
+
+	if (blocked) {
+		throw Object.assign(new Error(BLOCKED_UNDO_TEXT), {blocked});
 	}
 
 	await saveCopy(doc);

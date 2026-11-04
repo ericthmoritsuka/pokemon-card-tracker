@@ -141,3 +141,11 @@
 		flex: 1 0 100%;
 	}
 }
+
+.move-price-read {
+	margin: var(--space-1) 0 0;
+}
+
+.move-price-read:empty {
+	display: none;
+}

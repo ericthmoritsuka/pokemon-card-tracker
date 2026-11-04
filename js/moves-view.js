@@ -24,9 +24,9 @@ import {MAX_ADD, conditionOptions, copyLanguages, languageName, sheetDialog, she
 import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, applyMove, liveMoves, monthTotals, moveTitle, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, applyMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
 import {searchKey} from './names.js';
-import {afterText} from './placeholder-fill.js';
+import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
 import {toast} from './shell.js';
 import {cardArt, entryFinish, tileArt} from './tile.js';
@@ -217,6 +217,9 @@ export function newMoveView(root) {
 	const ins = [];
 	let kind = 'sold';
 	let doc = null;
+	// The kept Start over undo, which tells Log a past sale what an older
+	// Start over removed (js/moves.js pastCandidates).
+	let kept = null;
 	let index = new Map();
 	const viewing = viewingLanguage();
 	const outSheet = sheetDialog('move-out-sheet', 'Cards out');
@@ -230,7 +233,20 @@ export function newMoveView(root) {
 	const currency = sheetSelect('move-currency', CURRENCIES.map((code) => ({label: code, value: code})), 'BRL');
 	const money = sheetSelect('move-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], 'out');
 	const moneyRow = h('div', {class: 'copy-field', hidden: true}, h('label', {for: 'move-money'}, 'The cash'), h('span', {class: 'select-wrap'}, money));
-	const priceRow = h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)));
+	// The price as it will be saved, under the field as he types, so "1.500"
+	// reads back as R$ 1.500,00 before he saves (js/moves.js parsePrice).
+	const priceRead = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: 'move-price-read'});
+	const priceRow = h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)), priceRead);
+
+	function readPrice() {
+		const {error: wrong, value} = parsePrice(price.value);
+
+		priceRead.classList.toggle('form-error', Boolean(wrong));
+		priceRead.textContent = wrong || (value ? `Saved as ${formatMoney(value, currency.value)}` : '');
+	}
+
+	price.addEventListener('input', readPrice);
+	currency.addEventListener('change', readPrice);
 	const note = h('textarea', {class: 'copy-notes', id: 'move-note', maxlength: 500, name: 'move-note', rows: 2});
 	const outList = h('div', {class: 'pick-grid move-chosen', id: 'move-out-list'});
 	const inList = h('div', {class: 'pick-grid move-chosen', id: 'move-in-list'});
@@ -319,7 +335,7 @@ export function newMoveView(root) {
 		const live = doc.cards.filter((entry) => entry && entry.id && isLive(entry));
 		const spares = new Set(spareEntries(live).map((entry) => entry.id));
 		const mine = described(live, index, viewing).sort((a, b) => Number(spares.has(b.entry.id)) - Number(spares.has(a.entry.id)) || a.info.name.localeCompare(b.info.name) || String(a.entry.created_at).localeCompare(String(b.entry.created_at)));
-		const past = described(pastCandidates(doc), index, viewing);
+		const past = described(pastCandidates(doc, {kept}), index, viewing);
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'move-out-search', placeholder: 'Search your cards', type: 'search'});
 		const tabs = h('div', {'aria-label': 'Which cards', class: 'segmented move-tabs', role: 'radiogroup'},
 			[['mine', 'Your cards'], ['past', 'Removed lately']].map(([value, label]) => h('label', null,
@@ -617,8 +633,9 @@ export function newMoveView(root) {
 			return;
 		}
 
-		if (price.value.trim() && !priceRow.hidden && !(Number(price.value.trim().replace(',', '.')) > 0)) {
-			error.textContent = 'Type the price as a number, such as 30,50, or leave it empty.';
+		if (!priceRow.hidden && parsePrice(price.value).error) {
+			readPrice();
+			error.textContent = parsePrice(price.value).error;
 			price.focus();
 
 			return;
@@ -668,13 +685,18 @@ export function newMoveView(root) {
 	);
 	drawKind();
 
-	Promise.all([loadDocument(), cardIndex().catch(() => new Map())]).then(([loaded, read]) => {
+	Promise.all([loadDocument(), cardIndex().catch(() => new Map())]).then(async ([loaded, read]) => {
 		if (!alive) {
 			return;
 		}
 
 		doc = loaded;
 		index = read;
+		kept = await keptStartOver(doc).catch(() => null);
+
+		if (!alive) {
+			return;
+		}
 
 		// Copies handed over that are gone by now are dropped.
 		for (const id of [...outIds]) {

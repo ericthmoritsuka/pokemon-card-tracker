@@ -247,3 +247,74 @@ test('Log a past sale links a copy removed by hand, and it stays removed', async
 	assert.match(await page.locator('#card-moves').textContent(), /^Left: sold for R\$ 12,00, /);
 	await done();
 });
+
+test('the price reads back as it will be saved, "1.500" as R$ 1.500,00, and a form it cannot read is refused', async () => {
+	const {done, page} = await phone();
+	const read = () => page.locator('#move-price-read').textContent();
+
+	await page.goto(url('cards/en/tsa1-001'));
+	await page.waitForSelector('#card-move');
+	await page.click('#card-move');
+	await page.waitForSelector('#move-out-list [data-entry="c-01"]');
+
+	await page.fill('#move-price', '1,2,3');
+	assert.equal(await read(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
+	await page.click('#move-save');
+	assert.equal(await page.locator('#move-error').textContent(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
+	assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`, 'not saved');
+
+	await page.fill('#move-price', '30,50');
+	assert.match(await read(), /^Saved as R\$\s30,50$/);
+	await page.fill('#move-price', '1.500');
+	assert.match(await read(), /^Saved as R\$\s1\.500,00$/);
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-price-read.png`});
+	await page.click('#move-save');
+	await page.waitForSelector('.moves-row');
+	assert.equal((await state(page)).moves[0].price, 1500);
+	assert.match(await page.locator('.moves-title').first().textContent(), /^Sold for R\$\s1\.500,00$/);
+	await done();
+});
+
+test('Undo Start over is refused, naming the move, while a later sale counts a copy it added, and works once that sale is undone', async () => {
+	const {done, page} = await phone();
+
+	// Start over with a file holding Bulbasaur, then sell the copy it added.
+	await page.evaluate(async () => {
+		const {applyStartOver} = await import('/pokemon-card-tracker/js/start-over.js');
+		const {importEntries} = await import('/pokemon-card-tracker/js/monprice.js');
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+		const entries = importEntries([{cardId: 'tsa1-001', catalog: 'international', row: {count: 1, finish: 'NORMAL', language: 'en', monpriceId: 'tsa1_int_1', name: 'Bulbasaur', setName: 'Test set A'}, status: 'matched', variantId: 'normal'}]);
+		const {undo} = await applyStartOver(entries);
+
+		await applyMove({date: '2026-11-01', kind: 'sold', out: [undo.added[0]], price: '50', who: 'Ana'});
+	});
+
+	await page.goto(url('import'));
+	await page.waitForSelector('#start-over-kept-undo');
+	await page.click('#start-over-kept-undo');
+	await page.waitForSelector('#start-over-undo-blocked');
+	assert.match(await page.locator('#start-over-undo-blocked').textContent(), /^"Sold for R\$\s50,00 to Ana" on 1 Nov( 2026)? in Trades and sales counts a copy that Undo Start over would change\. Undo that move first, then Undo Start over\. Nothing was changed\. Open Trades and sales$/);
+	assert.equal(await page.locator('#start-over-kept-undo').isEnabled(), true, 'Undo stays for after');
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-start-over-blocked.png`});
+
+	let now = await state(page);
+
+	assert.equal(Object.values(now.cards).filter((entry) => !entry.deleted_at).length, 0, 'nothing came back');
+
+	// Undo the sale in History, then Undo Start over.
+	await page.click('#start-over-undo-blocked a');
+	await page.waitForSelector('.moves-row');
+	await page.click('.moves-row');
+	await page.click('#move-undo');
+	await page.click('#move-undo-go');
+	await page.waitForSelector('#moves-empty');
+	await page.goto(url('import'));
+	await page.waitForSelector('#start-over-kept-undo');
+	await page.click('#start-over-kept-undo');
+	await page.waitForSelector('#start-over-undone');
+
+	now = await state(page);
+	assert.deepEqual(Object.entries(now.cards).filter(([, entry]) => !entry.deleted_at).map(([id]) => id).sort(), ['c-01', 'c-02', 'c-03', 'c-04', 'c-05', 'c-06', 'c-07', 'c-08', 'c-09', 'c-10']);
+	assert.equal(now.pocket, 'c-01', 'Bulbasaur is back in its pocket');
+	await done();
+});

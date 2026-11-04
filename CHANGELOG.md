@@ -18,6 +18,8 @@ are Recife time. Each line ends with its commit.
   - **Trades**, beside Spares on My Cards (and **Trades and sales** in Profile), opens History.
     **Log a move** records a sale, a purchase, a trade, or a gift: the date, who with, one price for
     the whole move if there was one, and a note. A trade asks whether you paid the cash or got it.
+    Type the price as 30,50 or 1.500,00 (1.500 is fifteen hundred); the form shows the amount it
+    will save.
   - Cards out are picked from your copies, spares first. They leave your collection, and a card
     that was in a binder leaves its placeholder there. Cards in are picked from the catalog with
     their language, finish, and condition; they go into a waiting placeholder and move a wish to
@@ -30,6 +32,8 @@ are Recife time. Each line ends with its commit.
   - **Undo**, on the message after saving or on a move in History, puts the cards out back in
     their pockets and removes the cards in, except one you changed since. Photos and notes stay
     with the card all along. Prices only: there is no profit per card.
+  - **Undo Start over** waits while a move sold or traded a copy it added, and names that move:
+    undo the move first. A move logged before a Start over, or before its Undo, keeps no Undo.
 
 ### 2026-11-03
 
