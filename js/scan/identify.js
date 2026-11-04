@@ -14,11 +14,13 @@
 // want back.
 //
 // Script detection: the English model reads no Japanese, Korean, or Chinese,
-// and no light method that tells kana from Hangul ships with the app (no
-// jpn or kor model is vendored), so a card whose Latin label row reads
-// nothing is reported as "non-latin" and its sheet asks for the language
-// with nothing preselected. The read never borrows the last card's
-// language.
+// so a card whose Latin label row reads nothing is reported as "non-latin"
+// and its sheet asks for the language with nothing preselected. The read
+// never borrows the last card's language. Its name strip alone may be read
+// with the Japanese or Korean model (js/scan/cjk.js, read.js readName,
+// Eric, 2026-11-04), which loads in a worker of its own only when a card
+// asks for it (ocr.js createAsianReader); the name it reads helps find the
+// card, never decides its language.
 
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
@@ -792,9 +794,13 @@ async function readText(seen, {readOptions = {}} = {}) {
 		// digits and read first (read.js ringedNumbers); a picture that is not
 		// clear has its name strip read too when no number reads, for the
 		// name route.
+		// The Japanese or Korean model, when the name strip asks for one
+		// (readOptions.cjk, from the view), starts in its own worker.
+		const options = {...readOptions, prepareModel: engine.prepare || null};
+
 		read = picture
-			? await readNumberOnly(card, engine.ocr, {...readOptions, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, prefer: numberSide(picture), setCode: several})
-			: await readCard(card, engine.ocr, readOptions);
+			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, prefer: numberSide(picture), setCode: several})
+			: await readCard(card, engine.ocr, options);
 		read.script = null;
 		workers = engine.size;
 		ocrMs = read.timings.ocr;

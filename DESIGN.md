@@ -1067,6 +1067,82 @@ frame with four clean edges. Decided:
   text route (no picture index) on 194 (190). The holder benchmarks match pictures only, which this
   leaves alone.
 
+**Japanese and Korean names (Eric, 2026-11-04; built 2026-11-04).** Most of Eric's Asian cards are
+Korean copies kept on Japanese records (section 5), and most of those records have no image, so the
+picture route cannot match them; when the collector number does not read either, the scanner had
+nothing to go on, because the English model reads no Japanese or Korean. Now the name strip can be
+read in either script:
+
+- **Two more models, loaded only when a card asks** (`js/scan/ocr.js` `createAsianReader`):
+  Tesseract's `jpn` and `kor` from tessdata_fast (Apache-2.0), gzipped beside the English one in
+  `lab/vendor/tesseract/lang` (1.52 MB and 1.11 MB). They run in a worker of their own, one model
+  at a time (switching takes about 40 ms), so a Latin card's reads never wait for them; the
+  service worker keeps them the first time one is used (`sw.js` `ocrResponse`) and never precaches
+  them, so the app's first load does not grow. A first load slower than 20 s is not waited for:
+  that card is read without it. Chosen over the integerized tessdata_best models (2.0 and 1.6 MB)
+  on the benchmark below, read as known Japanese or Korean cards: Japanese names right on 29 of 48
+  reads against 26, Korean 16 of 32 against 16, in less time.
+- **When they load** (`js/scan/cjk.js` `wantsCjk`, `read.js` `readName`): a card whose language
+  is already Japanese or Korean (picked by hand, or Set for all) has its name strip read with that
+  model only. Otherwise the English read of the strip comes first. When it names no known Pokémon
+  or Trainer (`local-names.js` `latinNameScore` under 0.8) and the label row, when it was read,
+  holds no Latin label (one that does vetoes it), the strip is read with a model if its tallest
+  line has the shapes of kana, kanji, or Hangul (`looksCjk`: glyphs nearly as tall as the
+  tallest, not narrow, mostly ground inside their boxes; on the benchmark's name lines 68 % of the
+  Japanese and Korean ones pass and 10 % of the Latin ones), if the label row read no Latin label,
+  or if the last language picked in Scan was Japanese or Korean. The model tried first is the one
+  the strip's closed loops suggest (Hangul is full of them), else the last Asian language picked
+  (Korean before any); the other is tried when the first names nothing. A read that names nothing waits for the
+  English passes and is kept only when they read nothing.
+- **Matching** (`cjk.js` `cjkKey`, `matchCjkNames`): full and half width, hiragana and katakana,
+  small kana, voicing marks, long vowel marks and the kanji the model reads for katakana (口 for
+  ロ, 力 for カ, 一 for ー), and Hangul composed or spelled out are folded to one key, Hangul in jamo
+  so a misread stroke costs one letter of several; a short name must read exactly, and a Korean read
+  is only compared with Korean names. The names (`js/scan/asian-names.json`, 43 KB, 17 KB gzipped,
+  precached, built by `lab/names/build.mjs`): every species in Japanese and Korean from PokeAPI
+  (BSD-3-Clause; `ja-Hrkt` is the same as `ja` for every species) and the 711 Japanese Trainer names
+  TCGdex prints from Sun & Moon on (MIT). No free source of Korean Trainer names was found:
+  TCGdex's Korean catalog holds 34 Trainer cards, numbered unlike the Japanese records they share
+  codes with, and TCGdex's Japanese names of older Pokémon prints are machine translations, so
+  neither is used.
+- **Finding the prints** (`js/scan/match.js`): a Japanese name finds the species' Japanese prints
+  (`pokemon-cards.js` `loadAsian`), a Japanese Trainer's by its Japanese name; a Korean name
+  searches the Korean catalog and then the Japanese records Korean copies sit on. A record the
+  number found agrees with a Japanese or Korean name through the species its own name is
+  (`dexOfCjkName`), so a Korean read agrees with the Japanese record. A name alone never makes a
+  card sure; with the number and total it can, as before. When the picture is unclear and the
+  number does not read, a candidate the name route found for that name is put first, not sure
+  (`picture.js` `namedBy`).
+- **The lab benchmark** (`lab/bench/asian.json`, `run.mjs --dataset asian.json`, six captures of
+  40 cards, text route, same machine, before and after): 16 Japanese Pokémon and 8 Japanese
+  Trainers from TCGdex's Japanese scans, and 16 Korean copies made synthetic by painting the Korean
+  name over the Japanese scan's (TCGdex has no Korean images; Noto Sans CJK KR Bold, not the
+  printed typeface). Japanese names were read right on 56 of 96 Pokémon captures and
+  18 of 48 Trainer captures, Korean on 45 of 96 (none before); the right card came first on 186
+  of 240 (136), in the first three on 199 (147), and on 21 of the 40 captures with the number
+  blurred out (none); sure on 81 (72). Wrong but sure stayed at 1, the same capture before and
+  after: a blurred Korean copy whose number reads 120 for 123, with no name read either. The
+  median card read 14 OCR calls (13) and took 1.2 s (0.9), 1.8 s at the 90th percentile (1.5),
+  inside the 2 s a card; the first model load took 0.4 to 0.8 s and a switch between the two
+  models about 40 ms. After (before):
+
+  | Captures | Name right | Right first | Top 3 | Sure | Wrong but sure | OCR calls | ms, median and p90 |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Japanese Pokémon, 96 | 56 (0) | 77 (55) | 81 (58) | 35 (31) | 0 (0) | 14 (13) | 1308, 1844 (877, 1559) |
+  | Japanese Trainers, 48 | 18 (0) | 38 (32) | 39 (32) | 19 (17) | 0 (0) | 16 (14) | 1250, 1563 (865, 1293) |
+  | Korean, synthetic, 96 | 45 (0) | 71 (49) | 79 (57) | 27 (24) | 1 (1) | 14 (13) | 1216, 1827 (927, 1428) |
+
+  The Western benchmark (240 captures) is unchanged: the right card first on 194 of 240 both
+  times, names right on 164 both times, none wrong but sure, sure on 102 (103: a Latin card whose English read failed was read
+  as Japanese junk that named another Pokémon, which held it back from sure), and 11 of the 240
+  captures (cards whose English name read failed) read their name strip with a Japanese or
+  Korean model as well.
+  Measured on a laptop, not a phone (Eric's phone took 2 to 11 s per OCR call, 2026-10-03).
+- **Still open:** the model tried first is often the wrong one when nothing is picked (the loops
+  tell the scripts apart poorly on the synthetic Korean), costing a second read; the Korean
+  captures are synthetic until Eric's own Korean cards are scanned; the language is still picked
+  by hand (the name's script is not used to set it).
+
 **A new card means a new picture, automatic holder mode, and read safety (Eric, 2026-10-16,
 version 40).** Eric's v38 phone log (51 entries, holder mode at 1x) showed a real card skipped as
 "moved" at 20:17:21 (its picture changed a tenth of the view, 29 % of the last card's box, under the

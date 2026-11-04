@@ -20,6 +20,20 @@ eng.traineddata, tessdata_best integerized ("best_int"), Tesseract 4.0.0 model
   lang/LICENSE). Chosen over tessdata_fast on the lab benchmark: see
   lab/README.md.
 
+jpn.traineddata and kor.traineddata, tessdata_fast (Eric, 2026-11-04)
+  lang/jpn.traineddata.gz  from tesseract-ocr/tessdata_fast, main branch
+  lang/kor.traineddata.gz  (github.com/tesseract-ocr/tessdata_fast, Apache-2.0,
+                           lang/LICENSE), gzipped here (gzip -9)
+  Read only the name strip of a Japanese or Korean card, loaded only when a
+  card asks for one (js/scan/cjk.js, js/scan/ocr.js createAsianReader).
+  Chosen over the integerized tessdata_best models (@tesseract.js-data/jpn
+  and /kor 1.0.0, 4.0.0_best_int: 2.0 and 1.6 MB gzipped) on the lab
+  benchmark: Japanese names right 29 of 48 reads against 26, Korean 16 of
+  32 against 16, in less time. See DESIGN.md section 6.
+  Raw SHA-256 before gzip:
+  1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d  jpn.traineddata
+  6b85e11d9bbf07863b97b3523b1b112844c43e713df8b66418a081fd1060b3b2  kor.traineddata
+
 SHA-256
   d14933faf368fec22a7d32dd1b3ee9692f03961968d1e2a16f8087a65bc22873  tesseract.esm.min.js
   f113187fae220d9f895d7bd28d2b94d7640261ae91031b0d6005c2773fcb9861  worker.min.js
@@ -27,3 +41,5 @@ SHA-256
   861a536cf9ef8e63cb644d57bab39c388f37f7d6b6f60024b741c5f6b39a59b3  core/tesseract-core-relaxedsimd-lstm.wasm.js
   c58b46a4c796c0b8afccf77591d5b875b6896b45d402bbce8caa6f5362447b38  core/tesseract-core-simd-lstm.wasm.js
   45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91  lang/eng.traineddata.gz
+  c68c7f1f569cb086b8d6f19807be3cf921de86017d538d038a972a1275256da5  lang/jpn.traineddata.gz
+  8c9482fbc70e8561fe32c002252eebf8485fb34ab6973c8ecd5ccbee9ed04d0f  lang/kor.traineddata.gz

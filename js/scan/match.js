@@ -12,7 +12,12 @@
 //   number is hidden, blurred, or cropped is still found. A name printed in
 //   Portuguese, French, or German (js/scan/local-names.js) counts through
 //   its English one, and a Trainer's prints come by its English name
-//   (namedPrints).
+//   (namedPrints). A name read in Japanese or Korean (js/scan/cjk.js, Eric,
+//   2026-11-04) is matched against the Japanese and Korean names and finds
+//   the species' prints in the Japanese catalog (after the Korean one for a
+//   Korean name: Korean copies are saved against the Japanese records,
+//   DESIGN.md section 5), a Japanese Trainer's by its Japanese name
+//   (asianPrints, asianNamedPrints).
 //
 // The name route runs when the number route found no card with the exact
 // number and total read. Both feed one list, scored by the same rules: number and total,
@@ -28,12 +33,13 @@
 
 import {importApi, setList} from '../catalog.js';
 import {speciesNames} from '../checklists.js';
-import {isPocket, loadInternational} from '../pokemon-cards.js';
-import {graphql} from '../tcgdex.js';
+import {isPocket, loadAsian, loadInternational, localIdOf, setIdOf} from '../pokemon-cards.js';
+import {fetchJson, graphql} from '../tcgdex.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {artworkSims} from './artwork.js';
+import {dexOfCjkName, hasCjk, matchCjkNames, scriptOf} from './cjk.js';
 import {cluesOf, fold, matchNames, orderByArtwork, rankCards, setNameRead, speciesEntries, TIE_POINTS} from './evidence.js';
-import {loadLocalNames} from './local-names.js';
+import {loadAsianNames, loadLocalNames} from './local-names.js';
 import {ASIAN_LANGUAGES, searchOrder} from './session.js';
 
 // The catalog could not be reached for something the match needs.
@@ -113,9 +119,53 @@ async function namedPrints(name) {
 	return prints || [];
 }
 
+// A species' prints in a Japanese or Korean catalog (js/pokemon-cards.js
+// loadAsian: one request, kept on the phone), waiting at most a few seconds.
+async function asianPrints(catalog, dex) {
+	const result = await within(loadAsian(catalog, dex), 4000, {prints: []}).catch(() => ({prints: []}));
+
+	return result.prints || [];
+}
+
+// A Japanese Trainer's prints by its Japanese name, from TCGdex's REST list
+// of that catalog (`name=eq:` matches the whole name). Each name is asked
+// once a visit; with no signal there are none.
+export const asianNamedPrintsPath = (catalog, name) => `${catalog}/cards?name=eq:${encodeURIComponent(String(name))}`;
+
+export function asianNamedPrintsFrom(list) {
+	return (Array.isArray(list) ? list : [])
+		.filter((card) => card && card.id && !isPocket(null, card.image))
+		.map((card) => {
+			const setId = setIdOf(card.id);
+
+			return {cardId: card.id, image: card.image || null, localId: card.localId || localIdOf(card.id, setId), name: card.name || null, releaseDate: '', setId, setName: null};
+		});
+}
+
+const asianNamedKept = new Map();
+
+async function asianNamedPrints(catalog, name) {
+	const key = `${catalog}|${name}`;
+
+	if (!asianNamedKept.has(key)) {
+		asianNamedKept.set(key, within(fetchJson(asianNamedPrintsPath(catalog, name), {attempts: 1}).then(asianNamedPrintsFrom), 4000, null).catch(() => null));
+	}
+
+	const prints = await asianNamedKept.get(key);
+
+	if (!prints) {
+		asianNamedKept.delete(key);
+	}
+
+	return prints || [];
+}
+
 export const DEFAULT_API = {
 	allSets,
 	artworkSims,
+	asianNamedPrints,
+	asianNames: loadAsianNames,
+	asianPrints,
 	cardDetail: importApi.cardDetail,
 	localNames: loadLocalNames,
 	namedPrints,
@@ -226,11 +276,15 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 	// setNameRead): it neither finds cards nor counts for or against them.
 	// The English set list is the one the name route reads anyway.
 	const latin = !ASIAN_LANGUAGES.includes(language);
-	const named = Boolean(clues.name && clues.name.text && latin && api.species);
+	// A name read in Japanese or Korean letters (js/scan/cjk.js), whatever
+	// the language read or picked: it is matched against the Asian names.
+	const script = clues.name && clues.name.text ? scriptOf(clues.name.text) : null;
+	const named = Boolean(clues.name && clues.name.text && latin && !script && api.species);
 	const [species, englishSets, local] = named
 		? await Promise.all([api.species().catch(() => []), listFor('en'), api.localNames ? Promise.resolve().then(() => api.localNames()).catch(() => []) : []])
 		: [[], null, []];
 	const setName = named ? setNameRead(clues.name.text, englishSets, species) : null;
+	const asianEntries = script && api.asianNames ? await Promise.resolve().then(() => api.asianNames()).catch(() => []) : [];
 
 	if (setName) {
 		clues.name = null;
@@ -238,9 +292,12 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 
 	// The species list, and the names Western cards print (local-names.js:
 	// French and German species names, the Portuguese Paradox Pokémon,
-	// Trainers under their Portuguese, French, and German names).
+	// Trainers under their Portuguese, French, and German names); or, for a
+	// Japanese or Korean read, the Asian names.
 	const entries = [...speciesEntries(species), ...(local || [])];
-	const names = entries.length && clues.name ? matchNames(clues.name.text, entries) : [];
+	const names = script
+		? matchCjkNames(clues.name.text, asianEntries)
+		: entries.length && clues.name ? matchNames(clues.name.text, entries) : [];
 
 	clues.names = names;
 
@@ -300,7 +357,14 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 					continue;
 				}
 
+				// A Japanese or Korean record carries its name, not its
+				// species: with a Japanese or Korean name read, the species
+				// its name is (cjk.js dexOfCjkName) lets a Korean read agree
+				// with the Japanese record a Korean copy sits on.
+				const dex = script && hasCjk(card.name) ? dexOfCjkName(card.name, asianEntries) : null;
+
 				add({
+					...(dex ? {dexIds: [dex]} : {}),
 					first: index === 0,
 					id: card.id,
 					image: card.image || null,
@@ -320,8 +384,59 @@ export async function findCandidates(read, language, {artwork = null, limit = 6,
 
 	// ---- the name route
 
+	// A Japanese or Korean name: the species' prints in the Japanese catalog,
+	// after the Korean one for a Korean name (session.js searchOrder), each
+	// with its set's card count and name from that catalog's set list; a
+	// Japanese Trainer's prints by its Japanese name.
+	const asianRoute = async (lookups) => {
+		if (!api.asianPrints) {
+			return;
+		}
+
+		routes.push('name');
+
+		for (const catalog of script === 'ko' ? ['ko', 'ja'] : ['ja']) {
+			const list = await listFor(catalog);
+			const sets = new Map((list || []).map((set) => [set.id, set]));
+
+			if (!searched.includes(catalog)) {
+				searched.push(catalog);
+			}
+
+			for (const match of lookups) {
+				const lookup = match.dex ? api.asianPrints(catalog, match.dex) : match.trainer && catalog === match.lang && api.asianNamedPrints ? api.asianNamedPrints(catalog, match.spelling) : [];
+				const prints = await Promise.resolve(lookup).catch(() => []);
+
+				for (const print of prints || []) {
+					const set = sets.get(print.setId) || null;
+
+					add({
+						dexIds: match.dex ? [match.dex] : null,
+						first: catalog === order[0],
+						id: print.cardId,
+						image: print.image || null,
+						lang: catalog,
+						localId: print.localId,
+						name: print.name || match.spelling,
+						official: set && set.cardCount && set.cardCount.official ? String(set.cardCount.official) : null,
+						releaseDate: print.releaseDate || '',
+						setCode: catalog === 'ja' ? print.setId : null,
+						setId: print.setId,
+						setName: print.setName || (set && set.name) || print.setId,
+					});
+				}
+			}
+		}
+	};
+
 	const nameRoute = async () => {
 		const lookups = names.filter((match) => match.score >= NAME_LOOKUP && match.score >= names[0].score - 0.1).slice(0, 2);
+
+		if (lookups.length && script) {
+			await asianRoute(lookups);
+
+			return;
+		}
 
 		if (!lookups.length || !(api.speciesPrints || api.namedPrints)) {
 			return;

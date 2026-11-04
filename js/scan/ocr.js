@@ -67,10 +67,11 @@ const linesOf = (data) => {
 const FIXED = {tessedit_do_invert: '0', user_defined_dpi: '300'};
 
 // Tesseract.js is imported with the first worker, so the pool's scheduler
-// (createSlots) loads in Node, where its tests run.
-async function startWorker(logger) {
+// (createSlots) loads in Node, where its tests run. `lang` is the model:
+// 'eng', or 'jpn' or 'kor' for the Asian worker (createAsianReader).
+async function startWorker(logger, lang = 'eng') {
 	const {default: Tesseract} = await import('../../lab/vendor/tesseract/tesseract.esm.min.js');
-	const worker = await Tesseract.createWorker('eng', Tesseract.OEM.LSTM_ONLY, {
+	const worker = await Tesseract.createWorker(lang, Tesseract.OEM.LSTM_ONLY, {
 		cacheMethod: 'none',
 		// A folder, so Tesseract picks the relaxed-SIMD, SIMD, or plain build
 		// to suit the browser. All three are vendored.
@@ -146,13 +147,134 @@ export function createSlots({backgroundSlots = BACKGROUND_SLOTS} = {}) {
 	};
 }
 
+// The Japanese and Korean models (Eric, 2026-11-04; DESIGN.md section 6),
+// for the name strip of a Japanese or Korean card (js/scan/cjk.js wantsCjk).
+// tessdata_fast models from tesseract-ocr/tessdata_fast (Apache-2.0),
+// gzipped beside the English one: jpn 1.5 MB, kor 1.1 MB. They load only
+// when a card asks for one, in a worker of their own, never in place of an
+// English worker, so a Latin card's reads never wait for them; the service
+// worker keeps them on first use (sw.js ocrResponse), never in its install
+// precache. One worker holds one model at a time and switches
+// (reinitialize) when the other is asked for.
+export const ASIAN_MODELS = ['jpn', 'kor'];
+
+// A first load that takes longer than this (a slow connection) is not waited
+// for: the card is read without it, and the model goes on loading for the
+// next one.
+export const ASIAN_WAIT_MS = 20000;
+
+// One worker for the Asian models, started on first use: {ocr(image,
+// {lang, psm, whitelist}), prepare(lang), terminate(), loads}. Jobs run one
+// at a time. Pure apart from `start` (startWorker), which tests replace.
+export function createAsianReader({logger = () => {}, start = startWorker, wait = ASIAN_WAIT_MS} = {}) {
+	let worker = null;
+	let current = '';
+	let model = null;
+	let chain = Promise.resolve();
+	let stopped = false;
+	const loads = [];
+
+	// Resolves with the worker holding `lang`, starting it or switching its
+	// model first.
+	const ready = (lang) => {
+		if (!worker) {
+			const started = performance.now();
+
+			model = lang;
+			worker = start(logger, lang).then((made) => {
+				loads.push({lang, ms: Math.round(performance.now() - started)});
+
+				if (stopped) {
+					made.terminate();
+				}
+
+				return made;
+			});
+			worker.catch(() => {
+				worker = null;
+				model = null;
+			});
+
+			return worker;
+		}
+
+		return worker.then(async (made) => {
+			if (model !== lang) {
+				const started = performance.now();
+
+				await made.reinitialize(lang, 1);
+				await made.setParameters(FIXED);
+				model = lang;
+				current = '';
+				loads.push({lang, ms: Math.round(performance.now() - started), switched: true});
+			}
+
+			return made;
+		});
+	};
+
+	const run = (job) => {
+		const next = chain.then(job, job);
+
+		chain = next.catch(() => {});
+
+		return next;
+	};
+
+	return {
+		loads,
+		// Starts loading `lang` behind whatever runs, for a card known to
+		// be Japanese or Korean before its name is read.
+		prepare(lang) {
+			if (ASIAN_MODELS.includes(lang) && !worker) {
+				run(() => ready(lang)).catch(() => {});
+			}
+		},
+		ocr(image, {lang, psm = '7', whitelist = ''} = {}) {
+			if (!ASIAN_MODELS.includes(lang)) {
+				return Promise.reject(new Error(`No ${lang} model.`));
+			}
+
+			return run(async () => {
+				const loading = ready(lang);
+				const made = await Promise.race([loading, new Promise((resolve) => setTimeout(() => resolve(null), wait))]);
+
+				if (!made) {
+					throw new Error(`The ${lang} model is still loading.`);
+				}
+
+				const key = `${psm}|${whitelist}`;
+
+				if (key !== current) {
+					await made.setParameters({tessedit_char_whitelist: whitelist, tessedit_pageseg_mode: psm});
+					current = key;
+				}
+
+				const {data} = await made.recognize(toPgm(image), {}, {blocks: true, text: true});
+
+				return {confidence: Math.round(data.confidence), lines: linesOf(data), text: data.text.trim()};
+			});
+		},
+		get started() {
+			return Boolean(worker);
+		},
+		terminate() {
+			stopped = true;
+
+			return worker ? worker.then((made) => made.terminate(), () => {}) : Promise.resolve();
+		},
+	};
+}
+
 // Starts the pool. The first worker is waited for; the second joins when it
 // is up, so a read never waits for it. Returns {ocr, size, terminate,
-// loadMs, trace}; ocr(image, {psm, whitelist, background}) resolves to
-// {confidence, lines, text}, like lab/js/ocr.js; background: true for a
-// read nobody is waiting on (createSlots). trace: the last TRACE_KEPT
-// calls, {background, queued, started, ended} (performance.now()), for the
-// tests and the phone check.
+// loadMs, trace, prepare, asianLoads}; ocr(image, {psm, whitelist,
+// background, lang}) resolves to {confidence, lines, text}, like
+// lab/js/ocr.js; background: true for a read nobody is waiting on
+// (createSlots); lang 'jpn' or 'kor' for the Asian worker
+// (createAsianReader), started on first use. trace: the last TRACE_KEPT
+// calls, {background, queued, started, ended, lang} (performance.now()),
+// for the tests and the phone check.
 const TRACE_KEPT = 200;
 
 export async function createPool({logger = () => {}, size = workerCount()} = {}) {
@@ -184,13 +306,26 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 		startWorker(() => {}).then(add, () => {});
 	}
 
-	async function ocr(image, {background = false, psm = '7', whitelist = ''} = {}) {
-		const call = {background, ended: null, queued: performance.now(), started: null};
+	const asian = createAsianReader({logger});
+
+	async function ocr(image, {background = false, lang = 'eng', psm = '7', whitelist = ''} = {}) {
+		const call = {background, ended: null, queued: performance.now(), started: null, ...(lang === 'eng' ? {} : {lang})};
 
 		trace.push(call);
 
 		if (trace.length > TRACE_KEPT) {
 			trace.shift();
+		}
+
+		if (lang !== 'eng') {
+			call.started = performance.now();
+
+			try {
+				return await asian.ocr(image, {lang, psm, whitelist});
+			}
+			finally {
+				call.ended = performance.now();
+			}
 		}
 
 		const slot = await slots.take(background);
@@ -216,15 +351,17 @@ export async function createPool({logger = () => {}, size = workerCount()} = {})
 	}
 
 	return {
+		asianLoads: asian.loads,
 		loadMs,
 		ocr,
+		prepare: (lang) => asian.prepare(lang),
 		get size() {
 			return all.length;
 		},
 		terminate: () => {
 			stopped = true;
 
-			return Promise.all(all.map((slot) => slot.worker.terminate()));
+			return Promise.all([...all.map((slot) => slot.worker.terminate()), asian.terminate()]);
 		},
 		trace,
 	};

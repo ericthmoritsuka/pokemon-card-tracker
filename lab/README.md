@@ -76,11 +76,20 @@ default CDN; the headless check below confirms no CDN request.
 | `core/tesseract-core-simd-lstm.wasm.js` | 3.9 MB |
 | `core/tesseract-core-lstm.wasm.js` | 3.9 MB |
 | `lang/eng.traineddata.gz` | 2.95 MB |
-| Licenses and `SOURCES.txt` | 36 KB |
-| **Total in `vendor`** | **14.9 MB** |
+| `lang/jpn.traineddata.gz` | 1.52 MB |
+| `lang/kor.traineddata.gz` | 1.11 MB |
+| Licenses and `SOURCES.txt` | 37 KB |
+| **Total in `vendor`** | **17.5 MB** |
 
 A phone downloads one of the three cores (Tesseract picks it by SIMD support), so about 7 MB, or
 about 5 MB over the wire with compression.
+
+**Japanese and Korean: `jpn` and `kor` tessdata_fast** (Eric, 2026-11-04), used by the scanner
+only, to read the name strip of a Japanese or Korean card (DESIGN.md section 6). They load in a
+worker of their own the first time a card asks for one, never with the English model, so the lab
+and a Latin card never download them. Chosen over the best_int models (2.0 and 1.6 MB) on the scan
+benchmark (`lab/bench`, `asian.json`): Japanese names right on 29 of 48 reads against 26, Korean 16
+of 32 against 16, and faster.
 
 **Model: `eng` best_int** (the integerized tessdata_best model, from `@tesseract.js-data/eng`
 1.0.0) rather than tessdata_fast (1.98 MB). On the benchmark best_int read the number and total
@@ -183,7 +192,9 @@ Real-camera accuracy is unknown until the phone test runs.
 1. Compare the candidates' images with the capture only when text leaves a tie (DESIGN.md
    section 6): the Japanese twin sets, `tk` trainer kits, and promos that share a number.
 1. Detect the script properly: Tesseract's `osd` model, or a `jpn` and `kor` pass on the label row
-   when no Latin label reads, so "Not Latin script" becomes Japanese, Korean, or Chinese.
+   when no Latin label reads, so "Not Latin script" becomes Japanese, Korean, or Chinese. (Since
+   2026-11-04 the scanner reads the name strip with `jpn` or `kor`, DESIGN.md section 6, but the
+   language is still picked by hand.)
 1. Read the set code box from a second, higher-resolution grab (`ImageCapture.takePhoto()`), or
    with two binarisation thresholds and a vote.
 1. Ask for a second capture when the number's confidence is low, rather than guessing (DESIGN.md
@@ -203,4 +214,4 @@ Real-camera accuracy is unknown until the phone test runs.
 | `lab/js/ocr.js` | Tesseract worker from `lab/vendor/tesseract` |
 | `js/vision/match.js` | TCGdex lookup and candidate ranking (shared with the app) |
 | `lab/js/log.js` | Attempt log in `localStorage`, summary, JSON and CSV export |
-| `lab/vendor/tesseract/` | Tesseract.js 7.0.0, cores, English model, licenses, `SOURCES.txt` |
+| `lab/vendor/tesseract/` | Tesseract.js 7.0.0, cores, English, Japanese, and Korean models, licenses, `SOURCES.txt` |

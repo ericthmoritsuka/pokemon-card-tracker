@@ -23,6 +23,22 @@ import {pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
 
 let pool = null;
 
+// The Japanese and Korean name reading's options as the app passes them
+// (js/scan/view.js cjkOptions, with no language picked yet: Korean is tried
+// first), when the tree being measured has them. An older tree has no
+// local-names.js asianNameScore, and its reader ignores the options.
+const names = await import('/pokemon-card-tracker/js/scan/local-names.js').catch(() => ({}));
+const APP_OPTIONS = names.asianNameScore ? {cjk: {guess: 'ko', language: null, lean: false}, scoreLatin: (text) => names.latinNameScore(text), scoreName: (text) => names.asianNameScore(text)} : {};
+
+// Every OCR call of one card, counted here so an older tree's reads are
+// counted the same way.
+let calls = 0;
+const counted = (image, settings) => {
+	calls++;
+
+	return pool.ocr(image, settings);
+};
+
 function seeded(text) {
 	let h = 2166136261;
 
@@ -65,6 +81,74 @@ export const PASSES = {
 	slant: {angle: 20, blur: 0.6, minAngle: 10, quality: 0.8},
 	tilt: {angle: 4.5, blur: 0.6, quality: 0.8},
 };
+
+// A Korean copy of a Japanese card, for the benchmark only: TCGdex has no
+// Korean images for the sets Korean copies are kept on, so the Japanese
+// scan's name is painted over and the Korean name drawn in its place, in a
+// bold Korean gothic as tall as the Japanese name. Measured on modern
+// Japanese scans (600 x 825): the name runs from about 19 % to at most 70 %
+// of the width, 3 to 8 % down, after the stage label and before the HP. Each
+// column of that box is filled with the colour just above it (the stage
+// label's shadow lies just left of it, the art's frame just below).
+// Synthetic: real Korean prints use their own typeface.
+export async function koreanCard(bitmap, korean) {
+	const w = bitmap.width;
+	const h = bitmap.height;
+	const canvas = new OffscreenCanvas(w, h);
+	const ctx = canvas.getContext('2d');
+
+	ctx.drawImage(bitmap, 0, 0);
+
+	const image = ctx.getImageData(0, 0, w, h);
+	const x0 = Math.round(w * 0.185);
+	const x1 = Math.round(w * 0.715);
+	const y0 = Math.round(h * 0.03);
+	const y1 = Math.round(h * 0.08);
+	const colourAt = (x, y) => {
+		const sum = [0, 0, 0];
+
+		for (let dx = -1; dx <= 1; dx++) {
+			const i = (y * w + Math.min(w - 1, Math.max(0, x + dx))) * 4;
+
+			for (let c = 0; c < 3; c++) {
+				sum[c] += image.data[i + c] / 3;
+			}
+		}
+
+		return sum;
+	};
+
+	for (let x = x0; x <= x1; x++) {
+		const above = colourAt(x, y0 - 2);
+
+		for (let y = y0; y <= y1; y++) {
+			const o = (y * w + x) * 4;
+
+			for (let c = 0; c < 3; c++) {
+				image.data[o + c] = above[c];
+			}
+		}
+	}
+
+	ctx.putImageData(image, 0, 0);
+
+	let size = Math.round(h * 0.04);
+
+	ctx.font = `700 ${size}px "Noto Sans CJK KR", sans-serif`;
+
+	const width = ctx.measureText(korean).width;
+
+	if (width > w * 0.5) {
+		size = Math.floor((size * w * 0.5) / width);
+		ctx.font = `700 ${size}px "Noto Sans CJK KR", sans-serif`;
+	}
+
+	ctx.fillStyle = '#1d1d1f';
+	ctx.textBaseline = 'alphabetic';
+	ctx.fillText(korean, Math.round(w * 0.195), Math.round(h * 0.073));
+
+	return createImageBitmap(canvas);
+}
 
 async function capture(bitmap, id, passName) {
 	const k = PASSES[passName];
@@ -227,7 +311,10 @@ async function measure(image, {crops = false, options = {}} = {}) {
 	const t0 = performance.now();
 	const r = rectify(image);
 	const t1 = performance.now();
-	const read = await readCard(r.card, pool.ocr, options);
+
+	calls = 0;
+
+	const read = await readCard(r.card, counted, {...APP_OPTIONS, ...options});
 	const t2 = performance.now();
 	const artwork = artVector(r.card);
 	const lang = langOf(read);
@@ -239,6 +326,7 @@ async function measure(image, {crops = false, options = {}} = {}) {
 	const out = {
 		angle: r.angle,
 		attack: read.attackText ? read.attackText.slice(0, 120) : '',
+		calls,
 		candidates: small(full.candidates),
 		cardSize: `${r.card.width}x${r.card.height}`,
 		found: r.found,
@@ -314,9 +402,14 @@ window.bench = {
 
 		return {pool: pool.loadMs, size: pool.size};
 	},
-	// One card from the dataset through one pass.
+	// The Japanese and Korean models' first loads in this page (ocr.js
+	// createAsianReader), for the report.
+	asianLoads: () => (pool && pool.asianLoads) || [],
+	// One card from the dataset through one pass; a card with `korean` is
+	// first given that Korean name (koreanCard).
 	async run(item, {crops = false, options = {}, pass = 'clean'} = {}) {
-		const image = await capture(await bitmapOf(item.file), item.id, pass);
+		const bitmap = await bitmapOf(item.file);
+		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass);
 
 		return {id: item.id, new: await measure(image, {crops, options}), pass};
 	},

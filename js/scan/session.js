@@ -180,7 +180,7 @@ export function summariseRead(read) {
 		copyrightYear: (read && read.copyrightYear) || null,
 		hp: hp ? {after: Boolean(hp.after), confidence: hp.confidence || 0, value: hp.value, values: hp.values || [hp.value]} : null,
 		language: {code: language.code || null, confidence: language.confidence || 0, source: language.source || null},
-		name: name ? {confidence: name.confidence || 0, suffix: name.suffix || null, text: String(name.text).slice(0, 60)} : null,
+		name: name ? {confidence: name.confidence || 0, suffix: name.suffix || null, text: String(name.text).slice(0, 60), ...(name.script ? {lang: name.lang || name.script, script: name.script} : {})} : null,
 		number: number
 			? {
 				confidence: number.confidence,

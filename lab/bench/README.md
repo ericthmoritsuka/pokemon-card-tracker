@@ -46,6 +46,25 @@ PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --dataset ful
   --numbers --passes clean,blur,jpeg,glare,tilt --options '{"fullArt":true}'
 ```
 
+## Japanese and Korean Cards
+
+`--dataset asian.json` runs 40 cards whose names are printed in Japanese or Korean (Eric,
+2026-11-04): 16 Japanese Pokémon and 8 Japanese Trainers from `SV1S` to `S12a`, picked at random
+with a fixed seed from the main run of each set, and 16 Korean copies of Japanese records. TCGdex
+has no Korean images for the sets Korean copies are kept on, so the Korean ones are synthetic:
+the Japanese scan's name is painted over and the Korean name (PokeAPI's `ko` species name plus
+the print's suffix) drawn in its place in Noto Sans CJK KR Bold (`bench.js` `koreanCard`), which
+must be installed where Chromium finds it. The right card for a Korean copy is the Japanese
+record. The reader gets the options the app gives a card with no language picked
+(`js/scan/view.js` `cjkOptions`: Korean tried first); `--options '{"cjk":{"language":"ja"}}'`
+reads every name as a card picked as Japanese. A tree from before the Japanese and Korean reading
+(`REPO=`) is measured the same way, without them.
+
+```sh
+PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --dataset asian.json \
+  --passes clean,blur,glare,tilt,jpeg,nonumber
+```
+
 ## What It Prints
 
 One line per read (rank of the right card with the number alone, with the name route, and with the
@@ -56,8 +75,12 @@ artwork tiebreak too), then a table per capture and over all of them:
 - **+Name+art first** and **top 3**: with the artwork tiebreak as well. This is what the scanner
   shows; "right card first out of 240" is the **all** row of this column.
 
-Then, per capture, how many names, numbers, HPs, and card edges were read, and the median and 90th
-percentile of the time from straightening to the match.
+Then, per capture, how many names, numbers, HPs, and card edges were read (and how many names were
+the right one), how many reads were sure and how many of those wrong, the median OCR calls, and
+the median and 90th percentile of the time from straightening to the match. Last, a table per
+group of the dataset (`modern-en`, `japanese-ja`, `korean-ja`, ...) with the names read right, the
+right card first and in the first three, sure, wrong but sure, OCR calls, and time, and the
+Japanese and Korean model loads (`ocr.js` `asianLoads`).
 
 The captures (`bench.js`, `PASSES`): each card is laid on a table colour with a 12 % margin, turned
 and scaled a little, at a seeded random, so every run sees the same images.

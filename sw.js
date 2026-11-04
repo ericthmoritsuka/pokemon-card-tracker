@@ -161,6 +161,11 @@ const SHELL = [
 	'js/vision/index.bin',
 	'js/scan/camera.js',
 	'js/scan/chime.js',
+	// Japanese and Korean names (Eric, 2026-11-04): the reader and the name
+	// table (43 KB, 17 KB gzipped). The Japanese and Korean OCR models are
+	// not here: ocrResponse keeps them the first time a card asks for one.
+	'js/scan/cjk.js',
+	'js/scan/asian-names.json',
 	'js/scan/draft.js',
 	'js/scan/finish.js',
 	'js/scan/identify.js',
