@@ -13,6 +13,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {FakeSupabase, SUPABASE_ORIGIN} from './fake-supabase.mjs';
+import {untilInPage} from './poll.mjs';
 import {checkIntegration, startHarness} from './wishlist-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -491,7 +492,7 @@ describe('wishlist', () => {
 
 		// Offline: the app opens from the service worker, and both lists come
 		// from the phone.
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the shell cache to hold the wishlist files', async () => {
 			for (const key of (await caches.keys()).filter((name) => name.startsWith('card-tracker-shell-'))) {
 				const paths = (await (await caches.open(key)).keys()).map((request) => new URL(request.url).pathname);
 
@@ -501,7 +502,7 @@ describe('wishlist', () => {
 			}
 
 			return false;
-		}, null, {timeout: 15000});
+		}, {timeout: 15000});
 
 		const familyUrl = page.url();
 		const before = {...counts};

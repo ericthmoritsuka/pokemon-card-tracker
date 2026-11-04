@@ -23,6 +23,7 @@ import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {BASE, CARDS, COPIES, documentWith, fakeServices, indexRecords, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -542,11 +543,11 @@ describe('Collections in your own order', () => {
 
 		const saved = async () => (await savedCollections(page)).filter((item) => !item.deleted_at).sort((a, b) => a.order - b.order).map((item) => item.name);
 
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'Charlie to be saved first in the order', async () => {
 			const {loadDocument} = await import(`${location.origin}/pokemon-card-tracker/js/collection.js`);
 
 			return (await loadDocument()).collections.find((item) => item.name === 'Charlie').order < 1;
-		});
+		}, TIMEOUT);
 		assert.deepEqual(await saved(), ['Charlie', 'Alpha', 'Bravo']);
 
 		// Dragging: Charlie from the top to below Bravo.

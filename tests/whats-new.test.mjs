@@ -17,6 +17,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -191,7 +192,7 @@ describe('with the service worker', () => {
 			// v31 is released and waits.
 			await serve('v31');
 			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
 			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
 			assert.equal(await lineText(page), 'Card Tracker v30 · v31 ready Reload · What\'s new');
 			await page.screenshot({path: '/tmp/whats-new-ready.png'});
@@ -254,7 +255,7 @@ describe('with the service worker', () => {
 			await page.evaluate(() => localStorage.removeItem('cardTracker.whatsNewSeen'));
 			await serve('v31');
 			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await page.waitForFunction(async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), null, {timeout: 30000});
+			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
 
 			// The toast's Reload.
 			await page.getByRole('button', {name: 'Reload'}).first().click();

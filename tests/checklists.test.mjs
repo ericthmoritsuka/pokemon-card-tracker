@@ -17,6 +17,7 @@ import {after, before, describe, test} from 'node:test';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -453,7 +454,7 @@ describe('checklists', () => {
 		// Offline: the app opens from the service worker, and the list,
 		// names, ownership, and the Missing filter all come from the phone.
 		await serviceWorkerReady(page);
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'the shell cache to hold checklists-view.js and the image cache sprite 8', async () => {
 			const keys = await caches.keys();
 
 			for (const key of keys.filter((name) => name.startsWith('card-tracker-shell-'))) {
@@ -468,7 +469,7 @@ describe('checklists', () => {
 			}
 
 			return false;
-		}, null, {timeout: 30000});
+		}, {timeout: 30000});
 
 		const listUrl = page.url();
 		const before = {...counts};
@@ -855,12 +856,12 @@ describe('checklists in your own order (Eric, 2026-10-06)', () => {
 		await page.waitForTimeout(300);
 		await page.screenshot({path: '/tmp/checklists-order.png'});
 
-		await page.waitForFunction(async () => {
+		await untilInPage(page, 'every region list in the saved document to have an order', async () => {
 			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
 			const goals = (await loadDocument()).goals.filter((goal) => goal.kind === 'region');
 
 			return goals.every((goal) => typeof goal.order === 'number');
-		});
+		}, {timeout: 30000});
 
 		const doc = await localDoc(page);
 		const orders = Object.fromEntries(doc.goals.map((goal) => [goal.id, goal.order]));
