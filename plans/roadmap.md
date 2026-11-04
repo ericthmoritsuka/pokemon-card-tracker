@@ -390,7 +390,11 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
 - **Clean-up and speed:** the single language table (10, wave 2), the rest of the clean-up (10),
   block J's speed and data items in `plans/audit.md`, Portuguese and French images offline (E-20).
 - **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
-  Japanese and Korean text, and the strong-slant cut at the bottom.
+  Japanese and Korean text (done in v56: the name strip is read with Tesseract's Japanese or Korean
+  model, DESIGN.md section 6), and the strong-slant cut at the bottom (still open, measured
+  2026-11-04: when the card's bottom edge runs out of the capture, the edge and box searches take
+  the weakness row for it; a fix needs a box whose bottom is worked out from a found top and the
+  width, DESIGN.md section 6).
 - **Small gaps:** done in v37 (tile meta clamp, Add cards to the tray, twins on set tiles); the
   Japanese promo Liga rule was already done (edecc19). Left: a long Japanese set name is cut off in
   My Cards' Filters set select at 360 px (Q-05 selects part).
