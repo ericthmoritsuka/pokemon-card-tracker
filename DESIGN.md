@@ -1143,6 +1143,20 @@ read in either script:
   captures are synthetic until Eric's own Korean cards are scanned; the language is still picked
   by hand (the name's script is not used to set it).
 
+**The strong-slant cut (roadmap, measured 2026-11-04, not fixed).** The `slant` pass (a card as
+tall as the guide, turned 10 to 20 degrees) finds edges on all 40 cards and cuts none short. The cut
+appears on a new `slantfull` pass, the card 106 to 112 % of the guide's height so its bottom edge
+runs out of the capture too: right card first on 31 of 40 against 34 on `slant`, numbers read 20 of
+40 against 28, and the crops end at the weakness row. With the real bottom edge mostly outside the
+capture, both the outermost-edge search (`rectify.js` `findEdges`, `plausible`) and the box search
+(`findQuad`) take the weakness row's line for it, and work the top out from the width. It needs a
+box whose bottom is worked out from a found top and the width (the mirror of the worked-out top),
+scored against boxes with a found bottom without taking over normal captures, which means
+measuring it on all the passes; and the number strip can only be read when the capture holds it.
+In the app the whole-frame crop (`steady.js` `findCard`, version 34) cuts the capture round a card
+whose four corners are in the frame, so the cut should only happen when `findCard` finds no card;
+that path is not in this benchmark, which feeds the guide's crop alone.
+
 **A new card means a new picture, automatic holder mode, and read safety (Eric, 2026-10-16,
 version 40).** Eric's v38 phone log (51 entries, holder mode at 1x) showed a real card skipped as
 "moved" at 20:17:21 (its picture changed a tenth of the view, 29 % of the last card's box, under the

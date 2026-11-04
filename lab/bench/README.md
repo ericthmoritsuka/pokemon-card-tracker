@@ -94,6 +94,7 @@ and scaled a little, at a seeded random, so every run sees the same images.
 | `jpeg` | JPEG quality 0.3. |
 | `nonumber` | The bottom 12 % blurred out, as a thumb or a sleeve edge would hide the number. |
 | `slant` | Turned 10 to 20 degrees either way, so the corners run out of the capture. Not in the default run, which stays comparable with earlier measurements; ask for it with `--passes slant`. |
+| `slantfull` | As `slant`, the card 106 to 112 % of the guide's height (the capture's whole height), so its bottom edge runs out of the capture too: the roadmap's strong-slant cut at the weakness row (DESIGN.md section 6, 2026-11-04). Not in the default run. |
 
 ## Images and Data
 

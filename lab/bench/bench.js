@@ -79,6 +79,10 @@ export const PASSES = {
 	// the card's corners run out of the capture. Not in the default run,
 	// which stays comparable with the 240 reads measured before it.
 	slant: {angle: 20, blur: 0.6, minAngle: 10, quality: 0.8},
+	// The same, the card a little taller than the guide (106 to 112 % of
+	// it: the whole capture's height), so more of it runs out (the roadmap's
+	// strong-slant cut, 2026-11-04).
+	slantfull: {angle: 20, blur: 0.6, minAngle: 10, quality: 0.8, scale: [1.06, 0.06]},
 	tilt: {angle: 4.5, blur: 0.6, quality: 0.8},
 };
 
@@ -159,7 +163,8 @@ async function capture(bitmap, id, passName) {
 	const H = Math.round(h * 1.12);
 	const turn = rand() * 2 - 1;
 	const angle = k.minAngle ? Math.sign(turn) * (k.minAngle + Math.abs(turn) * (k.angle - k.minAngle)) : turn * k.angle;
-	const scale = 0.95 + rand() * 0.06;
+	const [scaleFrom, scaleSpread] = k.scale || [0.95, 0.06];
+	const scale = scaleFrom + rand() * scaleSpread;
 	const dx = (rand() * 2 - 1) * 0.02 * w;
 	const dy = (rand() * 2 - 1) * 0.02 * h;
 	const brightness = 0.92 + rand() * 0.16;
