@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-04
 
-- **v56:** the scanner reads the names on Japanese and Korean cards. `TBD`
+- **v56:** the scanner reads the names on Japanese and Korean cards. `bf8f0bb`
   - When neither the picture nor the number finds a Japanese or Korean card, the scanner reads its
     name in Japanese or Korean and looks the card up by it. A Korean name finds the Japanese record
     your Korean copies are kept on. A name alone never makes a card sure: you still confirm it.
