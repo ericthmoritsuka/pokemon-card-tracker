@@ -8,63 +8,81 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v56';
+const VERSION = 'v59';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
 const IMAGE_HOST = 'assets.tcgdex.net';
 
+// The memory of images that fail in cors mode, the English image rule, and
+// the opaque cache's size (js/image-folders.js, a classic script shared with
+// the Node tests).
+importScripts('js/image-folders.js');
+
+const {englishOf, imageMemory, opaqueLimit} = self.imageFolders;
+
 // Two image caches, each trimmed least recently used first.
 //
-// assets.tcgdex.net sends Access-Control-Allow-Origin: * once on most card
-// images, but twice on some Portuguese and French ones (checked 2026-10-15:
-// 6 of 40 sampled, image by image, so pt/me/me01/001 and 003 doubled and 002
-// not), and a browser fails a CORS request whose header is doubled. So each
-// image is fetched in cors mode first, and in no-cors mode when that fails.
+// assets.tcgdex.net sends Access-Control-Allow-Origin once on most card
+// images, but twice on some, and a browser fails a cors request whose
+// header is doubled. It varies image by image inside one set folder: on
+// 2026-10-15, 6 of 40 sampled Portuguese and French images (pt/me/me01/001
+// and 003 doubled, 002 not); on 2026-11-05, pt/me/me01/001 doubled and 002
+// not, both from the same object store, and en/me/me01/001 not. So each
+// image is fetched in cors mode first, and in no-cors mode only when that
+// fails; an image that failed is remembered on its own, fetched straight in
+// no-cors mode, and tried in cors mode again only now and then
+// (js/image-folders.js imageMemory). The memory is kept in its own cache,
+// so a new worker starts from it.
 //
-// A cors response counts its true size: a grid image is about 20 KB, a detail
-// image about 90 KB, a logo up to 100 KB, so 3,000 entries is roughly 60 to
-// 120 MB.
+// A cors response counts its true size: a grid image is about 16 to 20 KB,
+// a detail image about 90 KB, a logo up to 100 KB, so 3,000 entries is
+// roughly 50 to 120 MB.
 //
 // A no-cors response is opaque. Chrome pads each opaque entry by a random
-// amount in quota accounting, so its real size cannot be learned: measured in
-// Chromium on 2026-10-01, 10 grid images took 177 KB of quota as cors
-// entries and 88 MB as opaque ones, about 9 MB each (2026-10-15: 200 opaque
-// 20 KB images counted 1.4 to 1.5 GB, about 7.5 MB each, while the files on
-// disk took 5.9 MB). So the opaque cache holds a tenth of the origin's quota
-// in padded entries (limitOf), never fewer than 100 nor more than 300 (about
-// 2.3 GB counted, so the storage Chrome shows stays modest), which keeps
-// the padding from crowding out the IndexedDB data that shares the quota. An opaque status cannot be read either, so the app deletes an
-// entry whose image fails to decode (js/catalog-views.js).
+// 0 to 14 MiB in quota accounting (about 7 MiB on average), so its real
+// size cannot be learned: measured in Chromium on 2026-10-01, 10 grid
+// images took 177 KB of quota as cors entries and 88 MB as opaque ones
+// (2026-10-15: 200 opaque 20 KB images counted 1.4 to 1.5 GB, about 7.5 MB
+// each, while the files on disk took 5.9 MB). So the opaque cache holds a
+// tenth of the origin's quota in padded entries at 8 MiB each, 100 to 1,000
+// entries (opaqueLimit; about 120 on Eric's phone, whose quota is 10 GB),
+// which leaves the rest to the IndexedDB data and photos that share the
+// quota. For every image kept opaque, the English image of the same card
+// is kept at its true size too (keepEnglish), so the app has a stand-in
+// once the opaque copy is trimmed (js/tile.js). An opaque status cannot be
+// read either, so the app deletes an entry whose image fails to decode
+// (js/tile.js forgetImage).
 const IMAGE_CACHES = [
 	{limit: 3000, name: 'card-tracker-images'},
-	{limit: 100, name: 'card-tracker-images-opaque', sized: true},
+	{name: 'card-tracker-images-opaque', sized: true},
 ];
 
-const OPAQUE_PAD = 8 * 1024 * 1024;
+const FOLDERS_CACHE = 'card-tracker-image-folders';
 
-let opaqueLimit = null;
+let opaqueLimitOnce = null;
 
-// The opaque cache's entry limit from the quota, worked out once per worker.
+// A cache's entry limit; the opaque cache's from the quota, worked out once
+// per worker.
 function limitOf(target) {
 	if (!target.sized) {
 		return Promise.resolve(target.limit);
 	}
 
-	if (!opaqueLimit) {
-		opaqueLimit = (async () => {
+	if (!opaqueLimitOnce) {
+		opaqueLimitOnce = (async () => {
 			try {
 				const {quota} = await navigator.storage.estimate();
 
-				return Math.max(target.limit, Math.min(300, Math.floor((quota || 0) / 10 / OPAQUE_PAD)));
+				return opaqueLimit(quota);
 			}
 			catch {
-				return target.limit;
+				return opaqueLimit(0);
 			}
 		})();
 	}
 
-	return opaqueLimit;
+	return opaqueLimitOnce;
 }
 
 // The OCR engine's worker, WebAssembly core, and English model, kept the
@@ -152,6 +170,7 @@ const SHELL = [
 	'js/monprice.js',
 	'js/names.js',
 	'js/phone-check.js',
+	'js/scan-reports-view.js',
 	'js/pokemon-cards-view.js',
 	'js/pokemon-cards.js',
 	'js/price-view.js',
@@ -194,6 +213,10 @@ const SHELL = [
 	'js/scan/local-names.js',
 	'js/scan/local-names.json',
 	'js/scan/log.js',
+	'js/scan/report-file.js',
+	'js/scan/report-queue.js',
+	'js/scan/report-scans.js',
+	'js/scan/reports.js',
 	'js/scan/drop.js',
 	'js/scan/see-worker.js',
 	'js/scan/match.js',
@@ -225,6 +248,7 @@ const SHELL = [
 	'js/format.js',
 	'js/goals.js',
 	'js/idb.js',
+	'js/image-folders.js',
 	'js/goals-view.js',
 	'js/collections.js',
 	'js/collections-view.js',
@@ -363,53 +387,236 @@ function keep(event, target, url, response) {
 	);
 }
 
-// Images that failed in cors mode and then loaded in no-cors mode: fetched
-// again (after a trim), they skip the cors attempt. TCGdex doubles the header
-// image by image, not by folder or language, so it is learned per image; a
-// folder memory sent a whole set to the small opaque cache after one doubled
-// image. Kept while this worker runs.
-const corsFails = new Set();
+const [CORS_IMAGES, OPAQUE_IMAGES] = IMAGE_CACHES;
+
+const cachedImage = async (url) => {
+	for (const target of IMAGE_CACHES) {
+		const cached = await caches.match(url, {cacheName: target.name});
+
+		if (cached) {
+			return {cached, target};
+		}
+	}
+
+	return null;
+};
+
+// ------------------------------------------------------- image memory
+
+let memoryRead = null;
+
+// The images that failed in cors mode (js/image-folders.js imageMemory),
+// read once per worker from its cache.
+function images() {
+	if (!memoryRead) {
+		memoryRead = (async () => {
+			let saved = {};
+
+			try {
+				const hit = await caches.match(scopeUrl('image-folders.json'), {cacheName: FOLDERS_CACHE});
+
+				if (hit) {
+					saved = await hit.json();
+				}
+			}
+			catch {
+				// Unreadable: every image is tried in cors mode again.
+			}
+
+			return imageMemory(saved);
+		})();
+	}
+
+	return memoryRead;
+}
+
+// Saves are chained, so the last state is the one kept, and changes made
+// while a save waits go out with it.
+let memorySaved = Promise.resolve();
+let saveWaiting = false;
+
+function remember(memory) {
+	if (!saveWaiting) {
+		saveWaiting = true;
+		memorySaved = memorySaved
+			.then(() => {
+				saveWaiting = false;
+
+				return caches.open(FOLDERS_CACHE);
+			})
+			.then((cache) => cache.put(scopeUrl('image-folders.json'), new Response(JSON.stringify(memory), {headers: {'Content-Type': 'application/json'}})))
+			.catch(() => {});
+	}
+
+	return memorySaved;
+}
+
+// --------------------------------------------- work behind the screen
+
+// The English stand-ins and the cors tries of opaque images run two at a
+// time, so the images on screen go first. pending: the URLs queued or
+// running, so one is never fetched twice at once.
+let slotsRunning = 0;
+const slotsWaiting = [];
+const pending = new Set();
+
+async function slot(work) {
+	while (slotsRunning >= 2) {
+		await new Promise((resolve) => slotsWaiting.push(resolve));
+	}
+
+	slotsRunning++;
+
+	try {
+		return await work();
+	}
+	finally {
+		slotsRunning--;
+
+		const next = slotsWaiting.shift();
+
+		if (next) {
+			next();
+		}
+	}
+}
+
+function behind(event, url, work) {
+	if (pending.has(url)) {
+		return;
+	}
+
+	pending.add(url);
+	event.waitUntil(work().catch(() => {}).finally(() => pending.delete(url)));
+}
+
+// The English image of a Portuguese or French one kept opaque, fetched in
+// cors mode and kept at its true size (about 16 KB). Never kept opaque, and
+// not tried while it is remembered as failing in cors mode.
+function keepEnglish(event, memory, url) {
+	const english = englishOf(url);
+
+	if (!english || memory.remembered(english)) {
+		return;
+	}
+
+	behind(event, english, () => slot(async () => {
+		if (await cachedImage(english)) {
+			return;
+		}
+
+		const response = await fetch(english, {credentials: 'omit', mode: 'cors'});
+
+		if (response.ok) {
+			await (await caches.open(CORS_IMAGES.name)).put(english, response);
+			await trimImages(CORS_IMAGES);
+		}
+	}));
+}
+
+// An image kept opaque, fetched again in cors mode when its try is due
+// (imageMemory check) and moved to the cors cache when that works, which
+// gives back its padding. cache: 'reload' skips the HTTP cache, which keeps
+// the doubled header for a year (max-age=31536000). A failure, or an error
+// status, is remembered, so neither this worker nor the next tries it again
+// before it is due.
+// Offline nothing is tried: it would only fail.
+function upgrade(event, url) {
+	if (self.navigator && self.navigator.onLine === false) {
+		return;
+	}
+
+	behind(event, url, async () => {
+		const memory = await images();
+
+		if (!memory.check(url)) {
+			return;
+		}
+
+		await slot(async () => {
+			let response = null;
+
+			try {
+				response = await fetch(url, {cache: 'reload', credentials: 'omit', mode: 'cors'});
+			}
+			catch {
+				// Still doubled (or the network dropped): it stays opaque.
+				memory.failed(url);
+				await remember(memory);
+
+				return;
+			}
+
+			if (!response.ok) {
+				// An error status (a 503 in an outage): the opaque copy stays,
+				// and the try waits until it is due again.
+				memory.failed(url);
+				await remember(memory);
+
+				return;
+			}
+
+			await (await caches.open(CORS_IMAGES.name)).put(url, response);
+			await (await caches.open(OPAQUE_IMAGES.name)).delete(url);
+			memory.worked(url);
+			await remember(memory);
+			await trimImages(CORS_IMAGES);
+		});
+	});
+}
+
+// ------------------------------------------------------------ images
 
 // Images put again since this worker started, so a grid scrolled back and
 // forth moves each one to the end once, not at every draw.
 const touched = new Set();
 
 async function imageResponse(event) {
-	const request = event.request;
-	const url = request.url;
+	const url = event.request.url;
+	const hit = await cachedImage(url);
 
-	for (const target of IMAGE_CACHES) {
-		const cached = await caches.match(url, {cacheName: target.name});
+	if (hit) {
+		// Put again, it moves to the end of the trim order. The count stays
+		// the same, so there is nothing to trim.
+		if (!touched.has(url)) {
+			const copy = hit.cached.clone();
 
-		if (cached) {
-			// Put again, it moves to the end of the trim order. The count
-			// stays the same, so there is nothing to trim.
-			if (!touched.has(url)) {
-				const copy = cached.clone();
-
-				touched.add(url);
-				event.waitUntil(caches.open(target.name).then((cache) => cache.put(url, copy)).catch(() => {}));
-			}
-
-			return cached;
+			touched.add(url);
+			event.waitUntil(caches.open(hit.target.name).then((cache) => cache.put(url, copy)).catch(() => {}));
 		}
+
+		if (hit.target === OPAQUE_IMAGES) {
+			upgrade(event, url);
+		}
+
+		return hit.cached;
 	}
 
-	const [corsCache, opaqueCache] = IMAGE_CACHES;
+	// Each image is tried in cors mode first, unless it failed there and is
+	// not due a try (imageMemory plan).
+	const memory = await images();
+	const plan = memory.plan(url);
 
-	if (!corsFails.has(url)) {
+	if (plan !== 'no-cors') {
 		try {
-			const response = await fetch(url, {credentials: 'omit', mode: 'cors'});
+			// A retry skips the HTTP cache, which may hold the doubled header.
+			const response = await fetch(url, {cache: plan === 'retry' ? 'reload' : 'default', credentials: 'omit', mode: 'cors'});
 
-			// A 503 from an image host outage is passed on, never kept.
+			// A 503 from an image host outage is passed on, never kept, and
+			// teaches nothing.
 			if (response.ok) {
-				keep(event, corsCache, url, response);
+				if (memory.worked(url)) {
+					event.waitUntil(remember(memory));
+				}
+
+				keep(event, CORS_IMAGES, url, response);
 			}
 
 			return response;
 		}
 		catch {
-			// CORS failed (the doubled header) or the network is down.
+			// CORS failed (the doubled header, or a 404, which TCGdex sends
+			// without CORS headers) or the network is down.
 		}
 	}
 
@@ -417,18 +624,26 @@ async function imageResponse(event) {
 		const response = await fetch(url, {credentials: 'omit', mode: 'no-cors'});
 
 		if (response.type === 'opaque') {
-			// The network is up, so the cors attempt failed on the header.
-			corsFails.add(url);
-		}
+			// The network is up, so the cors try just made failed on the
+			// header (or the image is missing). Only this image is
+			// remembered.
+			if (plan !== 'no-cors') {
+				memory.failed(url);
+				event.waitUntil(remember(memory));
+			}
 
-		if (response.type === 'opaque' || response.ok) {
-			keep(event, response.type === 'opaque' ? opaqueCache : corsCache, url, response);
+			keep(event, OPAQUE_IMAGES, url, response);
+			keepEnglish(event, memory, url);
+		}
+		else if (response.ok) {
+			keep(event, CORS_IMAGES, url, response);
 		}
 
 		return response;
 	}
 	catch {
-		// Offline or unreachable: the app shows its card-back tile.
+		// Offline or unreachable: the app shows the English image if it is
+		// kept (js/tile.js), else its card-back tile.
 		return Response.error();
 	}
 }

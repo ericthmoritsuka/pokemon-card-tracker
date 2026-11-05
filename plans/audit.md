@@ -30,6 +30,8 @@
 
 ## Status
 
+Updated 2026-11-05 with version 57: E-20 done. Portuguese and French images are learned image by image (cors first, no-cors only for the images whose header is doubled, remembered across worker restarts and tried again at most weekly or once an hour per folder), the opaque cache stays at a tenth of the quota (100 to 1,000 entries), and offline a missing one shows the English image, marked (DESIGN.md section 5). The header report for TCGdex is drafted in `plans/tcgdex-cors-report.txt`, not sent.
+
 Updated 2026-10-03 with version 26 (`adc0e7b`): block C done (plan commits 8 to 11 and 13; 12, the clock offset, skipped), the remaining Low items done except a residual 15 px swatch shift and Q-30, scanner round 3 (border edges on light tables, sure by lead, Asian language default, Clear), the sw.js per-folder CORS memory, and the Phone check scan report switch. Still open: block H (shared modules), Q-19, Q-20, and real-phone checks of the scanner.
 
 Updated 2026-10-03 with version 23 (`b0bbbd1`). v23 added block F, block J (except the optional sw.js part of E-20), most of block I (Q-16, Q-21, stripes, the benchmark in `lab/bench/`, plus a scan report and Pick a photo), N-07 (copy stepper), and N-08 (Poké Ball Scan disc).
@@ -209,7 +211,7 @@ None of this is urgent at 1,600 copies.
 
 | Item | Severity | Effort | Sources |
 | --- | --- | --- | --- |
-| Portuguese and French images: TCGdex sends a doubled CORS header, so only 100 are kept offline; fall back to the English image offline and report the header upstream | Medium | M | E-20 |
+| **Done in v57:** Portuguese and French images: TCGdex sends a doubled CORS header, so only 100 are kept offline; fall back to the English image offline and report the header upstream | Medium | M | E-20 |
 | Whole documents move for small changes; the family wishlist cache downloads every member's whole collection at each start | Medium | M | E-18 |
 | A hand tick redraws twice and rebuilds the tick set per row | Low | S | E-27, verify |
 | My Cards reloads on every save; the card index is parsed whole several times | Low | M | E-28 |

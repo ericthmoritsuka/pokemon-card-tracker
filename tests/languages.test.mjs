@@ -1,5 +1,7 @@
 // The one language table (js/languages.js) and the list-language rules
-// built on it (js/checklists.js). Node only, no browser and no network.
+// built on it (js/checklists.js), with the rule that a list's languages
+// decide its ticks, its Pokémon screen, and a binder made from it (Eric,
+// 2026-11-05). Node only, no browser and no network.
 
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
@@ -32,7 +34,7 @@ import {
 	namesListLanguages,
 	sortLanguages,
 } from '../js/languages.js';
-import {listByDex, listLanguages} from '../js/checklists.js';
+import {listByDex, listLanguages, ownedElsewhere} from '../js/checklists.js';
 import {copiesByPrint} from '../js/pokemon-cards.js';
 
 describe('the table', () => {
@@ -217,5 +219,100 @@ describe('list languages', () => {
 
 		assert.equal(copiesByPrint(entries, null).size, 3, 'a list with no languages counts de and no-language copies');
 		assert.deepEqual([...copiesByPrint(entries, listLanguages({languages: ['pt']})).keys()], ['international|sv03.5-039']);
+	});
+});
+
+describe('a list\'s languages decide its ticks (Eric, 2026-11-05)', () => {
+	const copy = (id, language, card = 'tst1-001') => ({card_id: card, catalog: 'international', deleted_at: null, id, language});
+	// Bulbasaur in Portuguese and English, Eevee in English only, Pikachu
+	// with no language recorded, Squirtle in Japanese and German.
+	const byDex = () => new Map([
+		[1, [copy('a', 'pt'), copy('b', 'en')]],
+		[133, [copy('c', 'en', 'tst1-133')]],
+		[25, [copy('d', null, 'tst1-025')]],
+		[7, [copy('e', 'ja', 'tstj-007'), copy('f', 'de', 'tst1-007')]],
+	]);
+	const ticked = (goal, map) => [...listByDex(goal, map).keys()].sort((x, y) => x - y);
+
+	test('set: only copies in the list\'s languages tick, and a number owned only in others says which', () => {
+		const map = byDex();
+		const pt = {languages: ['pt']};
+
+		assert.deepEqual(ticked(pt, map), [1]);
+		assert.deepEqual(ownedElsewhere(pt, map, 133), ['en']);
+		assert.deepEqual(ownedElsewhere(pt, map, 7), ['ja', 'de'], 'in the table\'s order');
+		assert.deepEqual(ownedElsewhere(pt, map, 25), [null], 'a copy with no language recorded');
+		assert.deepEqual(ownedElsewhere(pt, map, 1), [], 'ticked, so no note, though an English copy is owned too');
+		assert.deepEqual(ownedElsewhere(pt, map, 2), [], 'not owned at all');
+		assert.deepEqual(ticked({languages: ['en', 'ja']}, map), [1, 7, 133]);
+		assert.deepEqual(ownedElsewhere({languages: ['en', 'ja']}, map, 25), [null]);
+	});
+
+	test('unset: a list without the field counts any language, and nothing has a note', () => {
+		const map = byDex();
+
+		for (const goal of [{}, {languages: []}, {languages: ['xx']}, null]) {
+			assert.equal(listByDex(goal, map), map);
+			assert.deepEqual([1, 7, 25, 133].flatMap((n) => ownedElsewhere(goal, map, n)), []);
+		}
+	});
+
+	test('Any language restored: it removes the field, and ticking every language saves the same', () => {
+		const map = byDex();
+
+		assert.equal(listLanguagesToSave(null), null);
+		assert.equal(listLanguagesToSave([...LIST_LANGUAGE_CODES]), null, 'not seven flags');
+		assert.deepEqual(listLanguagesToSave(['pt']), ['pt']);
+
+		// What setListLanguages does with null: the field goes.
+		const goal = {id: 'l1', languages: ['pt']};
+
+		delete goal.languages;
+		assert.equal(namesListLanguages(goal), false);
+		assert.deepEqual(ticked(goal, map), [1, 7, 25, 133], 'de and no-language copies count again');
+	});
+
+	test('the Pokémon screen and a binder made from the list count the same copies as its ticks', async () => {
+		const entries = [...byDex().values()].flat();
+		const pt = {kind: 'custom_pokemon', dex_list: [1, 7, 25, 133], languages: ['pt']};
+
+		assert.deepEqual([...copiesByPrint(entries, listLanguages(pt)).keys()], ['international|tst1-001']);
+		assert.deepEqual(copiesByPrint(entries, listLanguages(pt)).get('international|tst1-001').map((entry) => entry.id), ['a']);
+
+		// js/binder-sources.js reaches window when it loads.
+		globalThis.window = globalThis.window || globalThis;
+		globalThis.addEventListener = globalThis.addEventListener || (() => {});
+
+		const {checklistItems} = await import('../js/binder-sources.js');
+		const copiesOf = (goal) => Object.fromEntries(checklistItems(goal, byDex(), []).map((item) => [item.dex, item.copies.map((entry) => entry.id)]));
+
+		assert.deepEqual(copiesOf(pt), {1: ['a'], 7: [], 25: [], 133: []});
+		assert.deepEqual(copiesOf({...pt, languages: undefined}), {1: ['a', 'b'], 7: ['e', 'f'], 25: ['d'], 133: ['c']}, 'a list without languages fills from any language');
+	});
+
+	test('a binder made from a list with languages also gets the any-language reading an older phone makes, and the languages it was read with', async () => {
+		globalThis.window = globalThis.window || globalThis;
+		globalThis.addEventListener = globalThis.addEventListener || (() => {});
+
+		const {checklistAnyItems, listLanguagesKey} = await import('../js/binder-sources.js');
+		const copiesOf = (items) => Object.fromEntries(items.map((item) => [item.dex, item.copies.map((entry) => entry.id)]));
+		const pt = {kind: 'custom_pokemon', dex_list: [1, 7, 25, 133], languages: ['pt']};
+
+		assert.deepEqual(copiesOf(checklistAnyItems(pt, byDex(), [])), {1: ['a', 'b'], 7: ['e', 'f'], 25: ['d'], 133: ['c']});
+		assert.equal(checklistAnyItems({...pt, languages: undefined}, byDex(), []), null, 'a list without languages reads the same either way');
+		assert.equal(listLanguagesKey(pt), 'pt');
+		assert.equal(listLanguagesKey({languages: ['pt', 'en', 'xx']}), listLanguagesKey({languages: ['en', 'pt']}), 'one key whatever the order, unknown codes left out');
+		assert.equal(listLanguagesKey({}), null);
+		assert.equal(listLanguagesKey(null), null);
+	});
+
+	test('a family member\'s list is read with the member\'s languages, and reading changes nothing', () => {
+		const member = Object.freeze({id: 'theirs', kind: 'region', languages: Object.freeze(['en']), target: 'kanto'});
+		const map = byDex();
+
+		assert.deepEqual(ticked(member, map), [1, 133], 'the member counts English');
+		assert.deepEqual(ownedElsewhere(member, map, 7), ['ja', 'de']);
+		assert.deepEqual(member.languages, ['en']);
+		assert.equal(map.get(1).length, 2, 'the copies by number are left whole');
 	});
 });

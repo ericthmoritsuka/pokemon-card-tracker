@@ -20,6 +20,30 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-05',
+		items: [
+			'Profile, Phone check, Send report sends your scan log, with card pictures if you keep them, to a private folder in your account in one tap.',
+			'Sent reports lists what you sent and shows each scan. Offline, a report waits and goes up when you are back online.',
+		],
+		version: 'v59',
+	},
+	{
+		date: '2026-11-05',
+		items: [
+			'A logged sale, purchase, trade, or gift can be edited: its date, who, price, and note. Changing its cards is still Undo and log again.',
+			'A binder made from a list with languages uses only copies in those languages, and a missing card says which language you own it in.',
+		],
+		version: 'v58',
+	},
+	{
+		date: '2026-11-05',
+		items: [
+			'Portuguese and French card images stay on the phone more reliably.',
+			'Offline, a missing one shows the English image, marked "English image".',
+		],
+		version: 'v57',
+	},
+	{
 		date: '2026-11-04',
 		items: [
 			'The scanner reads the names on Japanese and Korean cards.',

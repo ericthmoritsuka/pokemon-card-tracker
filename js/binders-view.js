@@ -664,11 +664,14 @@ const itemCopies = (items) => items.flatMap((item) => item.copies);
 
 // What a refresh of binderLike ({rows, cols, rule, snapshot, page_count})
 // with the loaded items would save, the defaults ranked by value:
-// {plan, rankOf}.
+// {plan, rankOf}. For a checklist with languages, the plan also says
+// whether it differs from the stored layout only by those languages
+// (languageOnly), ranked over every copy as a v56 phone ranks them.
 async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map()} = {}) {
-	const rankOf = await rankerFor(itemCopies(loaded.items));
+	const rankOf = await rankerFor(itemCopies(loaded.anyItems || loaded.items));
+	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf});
 
-	return {plan: planRefresh(binderLike, loaded.items, {at: nowIso(), liveIds, partial: loaded.partial, picks, rankOf}), rankOf};
+	return {plan, rankOf};
 }
 
 // The form for a new binder made from a list: the binder form with the
@@ -687,7 +690,7 @@ async function listForm({onCancel, start = {}}) {
 
 			const rule = section.rule();
 			const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
-			const binder = await createGeneratedBinder(fields, rule, plan.snapshot);
+			const binder = await createGeneratedBinder(fields, rule, plan.snapshot, {languages: plan.languages});
 
 			go(`binders/${encodeURIComponent(binder.id)}`);
 		},
@@ -1754,10 +1757,13 @@ function binderScreen(root, source, id, pageParam) {
 	}
 
 	// Reads the list again: new pockets for cards added to it, pockets gone
-	// for cards that left, owned cards filled in, and defaults moved to the
-	// best copy, picks kept (planRefresh). Saves only what changed, and says
-	// it. manual: the Refresh button, which also asks again what a failed
-	// download put off (force).
+	// for cards that left, owned cards filled in, pockets emptied, and
+	// defaults moved to the best copy, picks kept (planRefresh). Saves only
+	// what changed, and says it. manual: the Refresh button, which also asks
+	// again what a failed download put off (force). On opening, a layout
+	// that differs from the stored one only by the list's languages, which
+	// a v56 phone would put back on its next opening, is shown but neither
+	// saved nor told (planRefresh languageOnly); Refresh saves it.
 	async function refreshList({force = false, manual = false} = {}) {
 		if (source.readOnly || !binder || !listMode) {
 			return;
@@ -1804,12 +1810,13 @@ function binderScreen(root, source, id, pageParam) {
 			gen.rankOf = rankOf;
 			gen.partial = loaded.partial;
 
-			const text = refreshText(plan, nameOfKey);
+			const held = plan.languageOnly && !manual;
+			const text = held ? '' : refreshText(plan, nameOfKey);
 			const partly = loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : '';
 
 			showListNote(text ? `${text}${partly}` : manual ? `Up to date.${partly}` : '');
 
-			if (plan.changed) {
+			if (plan.changed && !held) {
 				await saveRefresh(binderId, plan);
 			}
 			else {
@@ -1966,6 +1973,7 @@ function binderScreen(root, source, id, pageParam) {
 			onSubmit: async (fields, section) => {
 				const rule = section.rule();
 				let snapshot = editing.snapshot;
+				let languages;
 
 				if (!snapshot || ruleKey(rule) !== ruleKey(editing.rule) || fields.rows !== editing.rows || fields.cols !== editing.cols) {
 					const loaded = await section.ready();
@@ -1983,9 +1991,10 @@ function binderScreen(root, source, id, pageParam) {
 					}
 
 					snapshot = plan.snapshot;
+					languages = plan.languages;
 				}
 
-				await updateGeneratedBinder(editing.id, fields, rule, snapshot);
+				await updateGeneratedBinder(editing.id, fields, rule, snapshot, {languages});
 				editor.replaceChildren();
 
 				return true;

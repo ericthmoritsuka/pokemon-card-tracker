@@ -326,6 +326,28 @@ export async function logSize() {
 	}
 }
 
+// Removes these entries and their pictures (the scans a sent report holds,
+// js/scan/reports.js), and keeps any recorded since. Answers how many were
+// removed.
+export function removeEntries(ids) {
+	return serial(async () => {
+		let removed = 0;
+
+		for (const id of ids || []) {
+			if (await get(ENTRIES, id)) {
+				removed++;
+			}
+
+			await db.run(ENTRIES, 'readwrite', (s) => s.delete(id));
+			await db.run(PICTURES, 'readwrite', (s) => s.delete(id));
+			await db.run(PICTURES, 'readwrite', (s) => s.delete(`${id}:before`));
+			await db.run(PICTURES, 'readwrite', (s) => s.delete(`${id}:after`));
+		}
+
+		return removed;
+	});
+}
+
 export function clearLog() {
 	return serial(async () => {
 		await db.run(ENTRIES, 'readwrite', (s) => s.clear());

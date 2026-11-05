@@ -211,6 +211,76 @@ describe('refresh', () => {
 		assert.equal(sold.snapshot.shown['dex:1'], undefined);
 	});
 
+	test('a pocket that had a copy and has none now is told as emptied', () => {
+		const binder = generated('b1', {snapshot: {at: at(0), keys: ['dex:1', 'dex:4', 'dex:7'], rule_key: 'checklist:list-1|dex', shown: {'dex:1': 'c1', 'dex:4': 'c4'}}});
+		const plan = planRefresh(binder, [item(1, [copy('c1', 'p1')]), item(4), item(7)], {at: at(10), rankOf: () => ({})});
+
+		assert.deepEqual(plan.emptied, ['dex:4']);
+		assert.deepEqual([plan.filled, plan.updated], [[], []]);
+		assert.equal(plan.changed, true);
+		assert.equal(refreshText(plan, (key) => key.replace('dex:', 'Mon ')), '1 pocket emptied: no copy you own fits it now (Mon 4).');
+
+		const two = planRefresh(binder, [item(1), item(4), item(7)], {at: at(10), rankOf: () => ({})});
+
+		assert.deepEqual(two.emptied, ['dex:1', 'dex:4']);
+		assert.equal(refreshText(two, (key) => key.replace('dex:', 'Mon ')), '2 pockets emptied: no copy you own fits them now (Mon 1 and Mon 4).');
+	});
+
+	// A list that counts Portuguese only: #25 is owned only in English, #26
+	// in both. An older phone (v56) fills a binder made from it from any
+	// language, this one from the list's languages.
+	describe('a list\'s languages and an older phone', () => {
+		const en25 = copy('en25', 'x25');
+		const pt26 = copy('pt26', 'x26', {language: 'pt'});
+		const en26 = copy('en26', 'x26', {created_at: at(5)});
+		const listItems = [item(25), item(26, [pt26])];
+		const anyItems = [item(25, [en25]), item(26, [pt26, en26])];
+		const base = generated('b1', {snapshot: {at: at(0), keys: ['dex:25', 'dex:26'], rule_key: 'checklist:list-1|dex', shown: {}}});
+		const older = (binder) => planRefresh(binder, anyItems, {at: at(10), rankOf: () => ({})});
+		const opened = (binder) => planRefresh(binder, listItems, {anyItems, at: at(10), languages: 'pt', rankOf: () => ({})});
+		const saved = (binder, plan) => ({...binder, ...(plan.languages === undefined ? {} : {list_languages: plan.languages}), page_count: plan.page_count, snapshot: plan.snapshot});
+
+		test('a refresh that differs from the older phone\'s only by the list\'s languages is not saved on opening, once the binder records those languages', () => {
+			const v56 = saved(base, older(base));
+
+			assert.deepEqual(v56.snapshot.shown, {'dex:25': 'en25', 'dex:26': 'en26'});
+
+			const plan = opened({...v56, list_languages: 'pt'});
+
+			assert.equal(plan.changed, true);
+			assert.equal(plan.languageOnly, true, 'the older phone would put it back');
+			assert.deepEqual(plan.emptied, ['dex:25']);
+			assert.equal(plan.languages, 'pt');
+			assert.equal(opened(v56).languageOnly, false, 'the binder never recorded the list\'s languages: save, and record them');
+			assert.equal(opened({...v56, list_languages: 'en,pt'}).languageOnly, false, 'the list\'s languages changed since');
+			assert.equal(planRefresh({...v56, list_languages: 'pt'}, listItems, {at: at(10), languages: 'pt', rankOf: () => ({})}).languageOnly, false, 'no any-language reading to compare with');
+
+			// Something the older phone would save too (a new copy) is saved.
+			const more = [item(25, [en25, copy('en25b', 'x25', {created_at: at(6)})]), item(26, [pt26, en26])];
+
+			assert.equal(planRefresh({...v56, list_languages: 'pt'}, listItems, {anyItems: more, at: at(10), languages: 'pt', rankOf: () => ({})}).languageOnly, false);
+		});
+
+		test('two phones opening the binder in turn stop saving after one round', () => {
+			let binder = base;
+			const saves = [];
+
+			for (const who of ['v57', 'v56', 'v57', 'v56', 'v57', 'v56']) {
+				const plan = who === 'v57' ? opened(binder) : older(binder);
+				const save = plan.changed && !(who === 'v57' && plan.languageOnly);
+
+				saves.push(`${who}:${save}`);
+
+				if (save) {
+					binder = who === 'v57' ? saved(binder, plan) : {...binder, page_count: plan.page_count, snapshot: plan.snapshot};
+				}
+			}
+
+			assert.deepEqual(saves, ['v57:true', 'v56:true', 'v57:false', 'v56:false', 'v57:false', 'v56:false']);
+			assert.equal(binder.list_languages, 'pt', 'the older phone keeps the field it does not know');
+		});
+	});
+
 	test('a new rule or grid always saves', () => {
 		const binder = generated('b1', {rule: {order: 'name', source: {id: 'list-1', kind: 'checklist'}}});
 		const plan = planRefresh(binder, [item(1, [copy('c1', 'p1')]), item(4), item(7)], {at: at(10), rankOf: () => ({})});
@@ -763,6 +833,60 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card'});
 		await page.screenshot({fullPage: true, path: `${SHOTS}/goal-portrait-360.png`});
 
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a list that counts Portuguese only: opening saves once and records the languages, an older phone\'s any-language layout is then left alone on opening, and Refresh saves', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const rule = {order: 'dex', source: {id: 'list-1', kind: 'checklist'}};
+		// What a v56 phone saves: Pikachu filled with the English copy.
+		const older = {at: AT, keys: ['dex:1', 'dex:4', 'dex:7', 'dex:25'], rule_key: ruleKey(rule), shown: {'dex:1': 'c1', 'dex:25': 'c8', 'dex:4': 'c4', 'dex:7': 'c5'}};
+		const binder = {art: [], cols: 2, cover_color: '#1d2e60', created_at: AT, deleted_at: null, id: 'gen-1', name: 'Test starters', notes: '', page_count: 1, rows: 2, rule, slots: [], snapshot: older, updated_at: AT};
+
+		await seedLocal(page, documentWith({binders: [binder], cards: [...CARDS, card('c8', 'tst1-025', {language: 'en'})], goals: [{...CHECKLIST, languages: ['pt']}, SET_GOAL]}));
+
+		// The first opening empties Pikachu, says so, and records the languages.
+		await page.goto(url('binders/gen-1'));
+		await page.waitForFunction(() => /^1 pocket emptied: no copy you own fits it now \(Pikachu\)\.$/.test((document.getElementById('binder-list-note') || {}).textContent), null, {timeout: 15000});
+		await waitForPocket(page, spreadPocket(1, 4), {kind: 'want'});
+
+		let doc = await localDoc(page);
+
+		assert.equal(doc.binders[0].list_languages, 'pt');
+		assert.equal(doc.binders[0].snapshot.shown['dex:25'], undefined);
+
+		// The v56 phone opens it and saves its own layout back, keeping the
+		// field it does not know.
+		await page.goto(url('binders'));
+		await page.evaluate(async (snapshot) => {
+			const {saveRefresh} = await import('/pokemon-card-tracker/js/binders.js');
+
+			await saveRefresh('gen-1', {page_count: 1, snapshot});
+		}, older);
+		doc = await localDoc(page);
+		assert.equal(doc.binders[0].snapshot.shown['dex:25'], 'c8');
+		assert.equal(doc.binders[0].list_languages, 'pt');
+
+		const stamp = doc.binders[0].updated_at;
+
+		// Opening it here again shows Pikachu empty but saves nothing and says nothing.
+		await page.click('.binder-cover[data-binder="gen-1"]');
+		await waitForPocket(page, spreadPocket(1, 4), {kind: 'want'});
+		await page.waitForTimeout(800);
+		doc = await localDoc(page);
+		assert.equal(doc.binders[0].updated_at, stamp, 'not saved on opening');
+		assert.equal(await page.locator('#binder-list-note').isHidden(), true);
+
+		// Refresh saves it, and says what it did.
+		await page.click('#binder-refresh');
+		await page.waitForFunction(() => /^1 pocket emptied: no copy you own fits it now \(Pikachu\)\.$/.test((document.getElementById('binder-list-note') || {}).textContent), null, {timeout: 15000});
+		for (let tries = 0; tries < 50 && (doc = await localDoc(page)).binders[0].updated_at === stamp; tries++) {
+			await page.waitForTimeout(100);
+		}
+
+		assert.notEqual(doc.binders[0].updated_at, stamp, 'saved by Refresh');
+		assert.equal(doc.binders[0].snapshot.shown['dex:25'], undefined);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
