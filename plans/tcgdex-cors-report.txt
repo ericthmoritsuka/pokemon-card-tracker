@@ -1,0 +1,48 @@
+Draft, not sent. For Eric to file with TCGdex if he wants (an issue on GitHub, tcgdex/cards-database, is one place; the right repository for the asset server is not confirmed).
+
+Title: assets.tcgdex.net sends Access-Control-Allow-Origin twice on some pt and fr images, which browsers reject
+
+Some card images on assets.tcgdex.net answer with every CORS header twice. Browsers treat a doubled Access-Control-Allow-Origin ("*, *") as invalid, so a cors-mode request for those images fails: fetch() rejects, and an <img crossorigin> does not load. The images still show in a plain <img>, but a web app cannot read them, draw them to a canvas, or cache them at their real size in a service worker (it can only keep an opaque response, which Chrome counts at several MB of storage quota each).
+
+Example, checked 2026-11-05 with curl -I and an Origin header:
+
+  https://assets.tcgdex.net/pt/me/me01/001/low.webp
+  https://assets.tcgdex.net/fr/me/me01/001/low.webp
+
+    access-control-allow-headers: *
+    access-control-allow-headers: DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range
+    access-control-allow-methods: GET, POST, PUT, DELETE, OPTIONS, HEAD
+    access-control-allow-methods: GET, OPTIONS
+    access-control-allow-origin: *
+    access-control-allow-origin: *
+    access-control-expose-headers: x-request-id, x-amz-request-id, content-type, content-length, etag
+    access-control-expose-headers: Content-Length,Content-Range
+    cache-control: max-age=31536000
+    cache-control: public, max-age=31536000, immutable
+    server: nginx
+    x-amz-request-id: ...
+
+  https://assets.tcgdex.net/en/me/me01/001/low.webp (fine, for comparison)
+
+    access-control-allow-headers: DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range
+    access-control-allow-methods: GET, OPTIONS
+    access-control-allow-origin: *
+    access-control-expose-headers: Content-Length,Content-Range
+    cache-control: public, max-age=31536000, immutable
+    server: nginx
+
+The doubled responses all carry x-amz-request-id, so it looks like nginx adds its own CORS and Cache-Control headers to a response proxied from an S3-compatible store that already has its own. It varies image by image, not by folder: on 2026-10-15, pt/me/me01/002 had a single header while 001 and 003 were doubled.
+
+A likely fix, in the nginx location that proxies to the store, either:
+
+  proxy_hide_header Access-Control-Allow-Origin;
+  proxy_hide_header Access-Control-Allow-Methods;
+  proxy_hide_header Access-Control-Allow-Headers;
+  proxy_hide_header Access-Control-Expose-Headers;
+  proxy_hide_header Cache-Control;
+
+or removing the CORS rules from the bucket and keeping nginx's.
+
+Since the responses are cached for a year (max-age=31536000, immutable), browsers that already fetched a doubled response keep it until it expires; that is fine for display, and new visitors get the fixed headers.
+
+Thanks for TCGdex. My Pokémon collection app uses it for every card and image.
