@@ -260,9 +260,11 @@ const SHAPE_SLACK = 0.06;
 // corners).
 //
 // Edges are on the detection copy, as findEdges gives them. Returns null
-// when no edge is out of the capture, else {edges, out}: the box's edges
-// (top null when it is to be worked out from the bottom; a placed one may
-// lie past the copy), and which edges are out of the capture.
+// when no edge is out of the capture, else {edges, inner, out}: the box's
+// edges (top null when it is to be worked out from the bottom; a placed one
+// may lie past the copy), which edges found were inside the card (those
+// placed), and which are out of the capture (those plausible leaves
+// unjudged: also an edge found on the capture's last rows, kept there).
 export function outOfCapture(work, edges) {
 	const {height, width} = work;
 	const near = EDGE_REACH + 2;
@@ -296,11 +298,23 @@ export function outOfCapture(work, edges) {
 	// its top the card's own (the sides do not run on above it), the
 	// bottom found is the line inside the card.
 	const short = edges.top !== null && h < (w / CARD_RATIO) * (1 - SHAPE_SLACK) && below.length > 0 && below.every((share) => share < 0) && !past(columns, EDGE_REACH, box.top - h * 0.02, false);
+	// Inside the card: the edges across run on past it, or (the bottom)
+	// the box is too short and the capture hides the sides below it. An
+	// edge not found counts as one inside the card at the capture's edge.
+	const inner = {
+		bottom: edges.bottom === null || runsOut(below) || short,
+		left: edges.left === null || past(rows, EDGE_REACH, box.left - w * 0.02, true),
+		right: edges.right === null || past(rows, box.right + w * 0.02, width - EDGE_REACH, true),
+		top: edges.top === null || past(columns, EDGE_REACH, box.top - h * 0.02, false),
+	};
+	// Out of the capture: inside the card, or found on the capture's last
+	// rows (the card's own edge, kept where it was found, but not judged:
+	// the steps that judge an edge cannot be measured there).
 	const out = {
-		bottom: !inside(box.bottom, height) || runsOut(below) || short,
-		left: !inside(box.left, width) || past(rows, EDGE_REACH, box.left - w * 0.02, true),
-		right: !inside(box.right, width) || past(rows, box.right + w * 0.02, width - EDGE_REACH, true),
-		top: !inside(box.top, height) || past(columns, EDGE_REACH, box.top - h * 0.02, false),
+		bottom: inner.bottom || !inside(box.bottom, height),
+		left: inner.left || !inside(box.left, width),
+		right: inner.right || !inside(box.right, width),
+		top: inner.top || !inside(box.top, height),
 	};
 
 	if (!out.bottom && !out.left && !out.right && !out.top) {
@@ -311,23 +325,23 @@ export function outOfCapture(work, edges) {
 	// few percent, what a placed edge may be off by), or, on a copy turned
 	// straight, mostly outside it (seen: the share of it inside).
 	const unseen = (row, seen) => row >= height - 1 - near - h * 0.02 || seen < 0.5;
-	const placed = {...box, top: out.top && !out.bottom ? null : box.top};
+	const placed = {...box, top: inner.top && !inner.bottom ? null : box.top};
 
-	if (out.left !== out.right && !out.top && !out.bottom) {
+	if (inner.left !== inner.right && !out.top && !out.bottom) {
 		const across = h * CARD_RATIO;
 
-		placed.left = out.left ? Math.min(0, box.right - across) : box.left;
-		placed.right = out.right ? Math.max(width - 1, box.left + across) : box.right;
+		placed.left = inner.left ? Math.min(0, box.right - across) : box.left;
+		placed.right = inner.right ? Math.max(width - 1, box.left + across) : box.right;
 	}
 	else {
-		placed.left = out.left ? 0 : box.left;
-		placed.right = out.right ? width - 1 : box.right;
+		placed.left = inner.left ? 0 : box.left;
+		placed.right = inner.right ? width - 1 : box.right;
 	}
 
-	if (out.bottom) {
+	if (inner.bottom) {
 		// From a top found: one the sides run on past is inside the card,
-		// while one found on the capture's last rows is the card's own.
-		if (edges.top === null || past(columns, EDGE_REACH, box.top - h * 0.02, false)) {
+		// while one found on the capture's first rows is the card's own.
+		if (inner.top) {
 			return null;
 		}
 
@@ -345,7 +359,7 @@ export function outOfCapture(work, edges) {
 		placed.bottom = bottom;
 	}
 
-	return {edges: placed, out};
+	return {edges: placed, inner, out};
 }
 
 // Whether a box's two sides run out of the capture, from how much of each
@@ -1230,8 +1244,8 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		return asIs('Card edges not found; read the frame as it is.');
 	}
 
-	const placed = Boolean(outside && outside.out.bottom);
-	const beside = Boolean(outside && (outside.out.left || outside.out.right));
+	const placed = Boolean(outside && outside.inner.bottom);
+	const beside = Boolean(outside && (outside.inner.left || outside.inner.right));
 	const left = judged.left / scale;
 	const right = judged.right / scale;
 	const bottom = judged.bottom / scale;
