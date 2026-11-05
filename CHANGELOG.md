@@ -12,6 +12,24 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-05
+
+- **v57:** Portuguese and French card images work better offline. `TBD`
+  - TCGdex sends a broken header on some Portuguese and French images (not on others in the same
+    set), so the phone can only keep those in a form that Chrome counts at about 7 MB each. The app
+    now finds out image by image which ones those are, keeps every other image at its real size,
+    and remembers what it learned when it restarts, so it no longer downloads the same images
+    again on every visit.
+  - The broken ones are kept in a space of about a tenth of the phone's storage for the app (about
+    120 images on Eric's phone), the most recently seen first. For each, the app also keeps the
+    English image of the same card.
+  - Offline, a Portuguese or French card whose image is not on the phone shows the English image,
+    marked "English image" under the tile (a caption on the card page), instead of the card back.
+    Your own photos and family photos still come first: a tile showing one never says "English
+    image".
+  - If TCGdex fixes the header, the app notices (it tries one of those images again about once an
+    hour while in use) and moves the images it kept to their real size.
+
 ### 2026-11-04
 
 - **v56:** the scanner reads the names on Japanese and Korean cards. `bf8f0bb`

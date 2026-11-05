@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-05',
+		items: [
+			'Portuguese and French card images stay on the phone more reliably.',
+			'Offline, a missing one shows the English image, marked "English image".',
+		],
+		version: 'v57',
+	},
+	{
 		date: '2026-11-04',
 		items: [
 			'The scanner reads the names on Japanese and Korean cards.',
