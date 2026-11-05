@@ -24,7 +24,7 @@ import {MAX_ADD, conditionOptions, copyLanguages, languageName, sheetDialog, she
 import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, applyMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
@@ -38,6 +38,10 @@ const PAGE = 60;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const monthName = (month) => (/^\d{4}-\d{2}$/.test(month) ? `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}` : 'No date');
+
+// A saved price as the form shows it, the Brazilian way: 1500 is
+// "1.500,00", which parsePrice reads back as 1500.
+const priceInput = (value) => (typeof value === 'number' && value > 0 ? value.toLocaleString('pt-BR', {maximumFractionDigits: 2, minimumFractionDigits: 2}) : '');
 
 const moneyLine = (sums) => Object.entries(sums).map(([currency, amount]) => formatMoney(amount, currency)).join(' + ');
 
@@ -96,6 +100,10 @@ export function historyView(root) {
 	let alive = true;
 	const body = h('div', {class: 'moves-body', id: 'moves-body'}, h('p', {class: 'muted'}, 'Loading…'));
 	const sheet = sheetDialog('move-sheet', 'Move');
+	// The names of a move's cards, from the last draw, for Cancel in Edit.
+	let cardNames = () => [];
+	const outNames = (move) => cardNames(move.out);
+	const inNames = (move) => cardNames(move.in);
 
 	async function draw() {
 		const doc = await loadDocument();
@@ -109,6 +117,8 @@ export function historyView(root) {
 		const byId = new Map((doc.cards || []).filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
 		const viewing = viewingLanguage();
 		const names = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean).map((entry) => entryInfo(entry, index, viewing).name);
+
+		cardNames = names;
 
 		if (!months.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
@@ -160,6 +170,7 @@ export function historyView(root) {
 			undo.hidden = true;
 			confirm.hidden = false;
 		}, type: 'button'}, 'Undo this move');
+		const edit = h('button', {id: 'move-edit', onclick: () => editMoveForm(move), type: 'button'}, 'Edit');
 
 		sheet.replaceChildren(
 			h('div', {class: 'sheet-head'},
@@ -173,9 +184,101 @@ export function historyView(root) {
 				...(came.length ? [h('dt', null, 'Cards in'), h('dd', {id: 'move-sheet-in'}, came.join(', '))] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
+			h('div', {class: 'button-row move-sheet-actions'}, edit),
+			h('p', {class: 'muted move-edit-hint'}, 'Edit changes the date, who, price, and note. To change the cards, undo this move and log it again.'),
 			h('div', {class: 'copy-danger'}, undo, confirm)
 		);
 		showSheet(sheet);
+	}
+
+	// Edit a logged move (Eric, 2026-11-05): the date, who, price with its
+	// currency and which way it went, and the note, in the same sheet. The
+	// cards stay as they are (js/moves.js planEditMove).
+	function editMoveForm(move) {
+		const close = () => sheet.close();
+		const [whoWords, priceWords] = KIND_WORDS[move.kind] || KIND_WORDS.gift;
+		const date = h('input', {class: 'search', id: 'move-edit-date', name: 'move-edit-date', type: 'date', value: move.date || today()});
+		const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-edit-who', maxlength: 80, name: 'move-edit-who', type: 'text', value: move.who || ''});
+		const price = h('input', {class: 'search', id: 'move-edit-price', inputmode: 'decimal', name: 'move-edit-price', placeholder: '0,00', type: 'text', value: priceInput(move.price)});
+		const currency = sheetSelect('move-edit-currency', CURRENCIES.map((code) => ({label: code, value: code})), CURRENCIES.includes(move.currency) ? move.currency : 'BRL');
+		const money = sheetSelect('move-edit-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], move.money === 'in' ? 'in' : 'out');
+		const priceRead = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: 'move-edit-price-read'});
+		const note = h('textarea', {class: 'copy-notes', id: 'move-edit-note', maxlength: 500, name: 'move-edit-note', rows: 2});
+		const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-edit-error'});
+		const save = h('button', {class: 'primary', id: 'move-edit-save', type: 'submit'}, 'Save');
+		const cancel = h('button', {id: 'move-edit-cancel', onclick: () => openMove(move, outNames(move), inNames(move)), type: 'button'}, 'Cancel');
+
+		note.value = move.note || '';
+
+		// The price as it will be saved, as the log form shows it.
+		function readPrice() {
+			const {error: wrong, value} = parsePrice(price.value);
+
+			priceRead.classList.toggle('form-error', Boolean(wrong));
+			priceRead.textContent = wrong || (value ? `Saved as ${formatMoney(value, currency.value)}` : '');
+		}
+
+		price.addEventListener('input', () => {
+			error.textContent = '';
+			readPrice();
+		});
+		currency.addEventListener('change', readPrice);
+		readPrice();
+
+		const form = h('form', {class: 'copy-form move-form', id: 'move-edit-form', novalidate: true},
+			sheetField('Date', 'move-edit-date', date),
+			h('div', {class: 'copy-field'}, h('label', {for: 'move-edit-who'}, whoWords), who),
+			...(priceWords ? [h('div', {class: 'copy-field move-price-row'}, h('label', {for: 'move-edit-price'}, priceWords), h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)), priceRead)] : []),
+			...(move.kind === 'traded' ? [h('div', {class: 'copy-field'}, h('label', {for: 'move-edit-money'}, 'The cash'), h('span', {class: 'select-wrap'}, money))] : []),
+			sheetField('Note', 'move-edit-note', note),
+			error,
+			h('div', {class: 'button-row'}, cancel, save)
+		);
+
+		form.addEventListener('submit', async (event) => {
+			event.preventDefault();
+			error.textContent = '';
+
+			if (priceWords && parsePrice(price.value).error) {
+				readPrice();
+				error.textContent = parsePrice(price.value).error;
+				price.focus();
+
+				return;
+			}
+
+			const fields = {date: date.value || move.date, note: note.value, who: who.value};
+
+			if (priceWords) {
+				Object.assign(fields, {currency: currency.value, price: price.value});
+			}
+
+			if (move.kind === 'traded') {
+				fields.money = money.value;
+			}
+
+			save.disabled = true;
+
+			try {
+				const {changed} = await editMove(move.id, fields);
+
+				close();
+				toast(changed.length ? 'Saved your changes to the move.' : 'Nothing changed.');
+			}
+			catch (err) {
+				save.disabled = false;
+				error.textContent = err.stale ? err.message : `Not saved. ${errorText(err)}`;
+			}
+		});
+
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'move-sheet-title'}, `Edit: ${moveTitle(move)}`),
+				h('button', {class: 'small', id: 'move-sheet-close', onclick: close, type: 'button'}, 'Close')
+			),
+			form
+		);
+		date.focus();
 	}
 
 	const stop = onChange(() => {
@@ -204,6 +307,15 @@ export function historyView(root) {
 }
 
 // ------------------------------------------------------------ Log a move
+
+// The labels of who and the price for each kind: [who, price], with no
+// price for a gift. The log form and Edit share them.
+const KIND_WORDS = {
+	bought: ['Bought from', 'Paid (optional)'],
+	gift: ['Who', null],
+	sold: ['Sold to', 'Sold for (optional)'],
+	traded: ['Traded with', 'Cash added (optional)'],
+};
 
 // In the order a person reaches for them.
 const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'], ['gift', 'Gift']];
@@ -270,12 +382,7 @@ export function newMoveView(root) {
 
 	function drawKind() {
 		const side = shows();
-		const words = {
-			bought: ['Bought from', 'Paid (optional)'],
-			gift: ['Who', null],
-			sold: ['Sold to', 'Sold for (optional)'],
-			traded: ['Traded with', 'Cash added (optional)'],
-		}[kind];
+		const words = KIND_WORDS[kind];
 
 		whoLabel.textContent = words[0];
 		priceRow.hidden = !words[1];

@@ -40,6 +40,9 @@
 // It is refused while a later live move names one of its in copies (sold
 // on, say): that move is undone first, or the copy would come back with
 // nothing that brought it.
+// Edit (Eric, 2026-11-05) changes a logged move's date, who, price, and
+// note, stamped field by field, and never its cards, undo, or after_run, so
+// Undo works the same after it; an undone move cannot be edited.
 // Photos and notes live on the card records (card_info), which a move never
 // touches, so they show again when a copy of the card comes back.
 //
@@ -476,6 +479,80 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 	return {counts: {...counts, ...done.counts}, doc: next, later: null, reason: null, stale: false};
 }
 
+// Edit a logged move (Eric, 2026-11-05): the fields a move can change after
+// it is logged. The cards are not among them: changing which cards went out
+// or came in is Undo this move and logging it again.
+export const EDIT_FIELDS = ['date', 'who', 'price', 'currency', 'money', 'note'];
+
+export const UNDONE_EDIT_TEXT = 'This move was undone, on this phone or another, so it cannot be edited. Nothing was changed.';
+
+// What an edit does to `doc`: the move's date, who, price (with its currency
+// and which way the money went), and note, from the fields given (a field
+// left out stays as it is), read as planMove reads them. Nothing else on
+// the move changes (kind, out, in, past, undo, after_run, created_at), and
+// no copy is touched, so Undo of the move works as before. The move is
+// stamped field by field (js/merge.js stampEntry), only where a value
+// changed, so two phones editing different fields both keep their change.
+// Returns {changed: [field, ...], doc, move, stale}; `doc` itself is not
+// changed. stale is true, and nothing changes, when the move is gone or
+// undone (a tombstone cannot be edited). A price neither form reads is
+// refused with PRICE_FORM_TEXT.
+export function planEditMove(doc, moveId, fields = {}, {now = Date.now()} = {}) {
+	const move = moveById(doc, moveId);
+
+	if (!move || !isLive(move)) {
+		return {changed: [], doc: structuredClone(doc), move: null, stale: true};
+	}
+
+	const has = (key) => Object.prototype.hasOwnProperty.call(fields, key);
+	const next = {...move};
+
+	if (has('date') && /^\d{4}-\d{2}-\d{2}$/.test(String(fields.date || ''))) {
+		next.date = fields.date;
+	}
+
+	if (has('who')) {
+		next.who = text(fields.who);
+	}
+
+	if (has('note')) {
+		next.note = text(fields.note);
+	}
+
+	if (move.kind === 'gift') {
+		next.currency = null;
+		next.money = null;
+		next.price = null;
+	}
+	else if (has('price') || has('currency') || has('money')) {
+		if (has('price') && typeof fields.price !== 'number' && parsePrice(fields.price).error) {
+			throw new Error(PRICE_FORM_TEXT);
+		}
+
+		const price = has('price') ? cleanPrice(fields.price) : cleanPrice(move.price);
+		const currency = has('currency') ? fields.currency : move.currency;
+		const way = has('money') ? fields.money : move.money;
+
+		next.price = price;
+		next.currency = price ? (CURRENCIES.includes(currency) ? currency : 'BRL') : null;
+		next.money = price ? (move.kind === 'sold' ? 'in' : move.kind === 'bought' ? 'out' : way === 'in' || way === 'out' ? way : null) : null;
+	}
+
+	const changed = EDIT_FIELDS.filter((key) => (next[key] ?? null) !== (move[key] ?? null));
+
+	if (!changed.length) {
+		return {changed, doc: structuredClone(doc), move, stale: false};
+	}
+
+	const at = nextStamp(move.updated_at, now);
+	const edited = stampEntry(move, {...next, updated_at: at});
+	const out = structuredClone(doc);
+
+	out.moves = list(out).map((item) => (item && item.id === move.id ? edited : item));
+
+	return {changed, doc: out, move: edited, stale: false};
+}
+
 // How each copy of a card came and went, for its page: [{side: 'in' |
 // 'out', move, entries}], one row per move and side, newest move first.
 // side 'in' is a live copy that came with a live move; 'out' a copy that
@@ -585,6 +662,24 @@ export async function undoMove(moveId) {
 	await saveCopy(doc);
 
 	return counts;
+}
+
+// Saved: edits a move's date, who, price, and note (Edit in History).
+// Resolves {changed, move}; saves nothing when nothing changed. Rejects with
+// an error whose stale is true when the move was undone, and with
+// PRICE_FORM_TEXT for a price it cannot read.
+export async function editMove(moveId, fields) {
+	const {changed, doc, move, stale} = planEditMove(await loadDocument(), moveId, fields);
+
+	if (stale) {
+		throw Object.assign(new Error(UNDONE_EDIT_TEXT), {reason: 'gone', stale: true});
+	}
+
+	if (changed.length) {
+		await saveCopy(doc);
+	}
+
+	return {changed, move};
 }
 
 // The copies a move form opens with, handed over by Sell or trade (a copy

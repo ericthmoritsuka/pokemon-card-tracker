@@ -1,9 +1,10 @@
 // Unit tests for the trades and sales log (js/moves.js; DESIGN.md section
-// 11, "Trades and Sales", Eric 2026-10-31 and 2026-11-04): what a move
-// removes and adds, binder pockets, Log a past sale, Undo and deleting a
-// move (after another phone edited an incoming copy, and after a sync), the
-// money per month, two phones logging moves, and older phones that do not
-// know `moves`, `left_via`, or `came_via`. Plain Node over an in-memory
+// 11, "Trades and Sales", Eric 2026-10-31, 2026-11-04, and 2026-11-05): what
+// a move removes and adds, binder pockets, Log a past sale, Undo and
+// deleting a move (after another phone edited an incoming copy, and after a
+// sync), Edit of a logged move (its fields, two phones' edits, Undo after
+// it, and an undone move), the money per month, two phones logging moves,
+// and older phones that do not know `moves`, `left_via`, or `came_via`. Plain Node over an in-memory
 // IndexedDB; invented data only, and nothing is requested.
 //
 // Run: node --test tests/moves.test.mjs
@@ -70,7 +71,7 @@ const collection = await import('../js/collection.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const v47 = await import('./v47/merge.js');
 const v21 = await import('./merge-v21.mjs');
-const {applyMove, cardHistory, cleanPrice, historyLine, moneyOf, monthTotals, moveTitle, parsePrice, pastCandidates, planMove, planUndoMove, startOverBlockedText, undoMove} = await import('../js/moves.js');
+const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, startOverBlockedText, undoMove} = await import('../js/moves.js');
 const {importEntries} = await import('../js/monprice.js');
 const {planStartOver, planUndo, startOverIds} = await import('../js/start-over.js');
 
@@ -671,6 +672,110 @@ describe('Start over and moves', () => {
 	});
 });
 
+describe('Edit a logged move', () => {
+	// What an edit must leave alone: everything Undo reads, and the copies.
+	const kept = (move) => ({after_run: move.after_run, created_at: move.created_at, deleted_at: move.deleted_at, id: move.id, in: move.in, kind: move.kind, out: move.out, past: move.past, undo: move.undo});
+
+	test('changes the date, who, price with its currency, and note, and nothing else: the cards and what Undo needs stay as they were', () => {
+		const {doc} = sale();
+		const before = structuredClone(doc);
+		const {changed, doc: edited, move, stale} = planEditMove(doc, 'm1', {currency: 'USD', date: '2026-10-28', note: '  paid  in cash ', price: '1.500,00', who: 'Ana Lima'}, {now: LATER});
+
+		assert.equal(stale, false);
+		assert.deepEqual(changed.sort(), ['currency', 'date', 'note', 'price', 'who']);
+		assert.deepEqual({currency: move.currency, date: move.date, money: move.money, note: move.note, price: move.price, who: move.who}, {currency: 'USD', date: '2026-10-28', money: 'in', note: 'paid in cash', price: 1500, who: 'Ana Lima'});
+		assert.deepEqual(kept(move), kept(before.moves[0]));
+		assert.equal(stableJson(edited.cards), stableJson(before.cards), 'no copy is touched');
+		assert.equal(stableJson(edited.binders), stableJson(before.binders));
+		assert.equal(stableJson(doc), stableJson(before), 'the document passed in is not changed');
+		assert.equal(move.updated_at, new Date(LATER).toISOString());
+		assert.equal(move.field_stamps.at, move.updated_at, 'stamped, so the merge takes the edit');
+		assert.deepEqual(Object.keys(move.field_stamps).filter((key) => key !== 'at' && key !== 'since').sort(), ['currency', 'date', 'note', 'price', 'who'], 'only the changed fields are stamped');
+
+		// History's month and money, and the card page's line, follow.
+		assert.deepEqual(monthTotals(edited.moves).map((month) => [month.month, month.in]), [['2026-10', {USD: 1500}]]);
+		assert.equal(historyLine(cardHistory(edited, {card_id: 'tst1-001'})[0], {now: new Date('2026-11-05T12:00:00')}), 'Left: sold for US$\u00a01.500,00 to Ana Lima, 28 Oct');
+		assert.equal(moveTitle(move), 'Sold for US$\u00a01.500,00 to Ana Lima');
+	});
+
+	test('reads the price as the log form does, keeps the money\'s way by kind, and a gift keeps no price', () => {
+		const {doc} = trade();
+
+		assert.throws(() => planEditMove(doc, 'm2', {price: '1,2,3'}, {now: LATER}), /Type the price as 30,50 or 1\.500,00/);
+
+		const paid = planEditMove(doc, 'm2', {money: 'in', price: '7'}, {now: LATER}).move;
+
+		assert.deepEqual([paid.price, paid.currency, paid.money], [7, 'BRL', 'in'], 'a trade says which way the cash went');
+
+		const none = planEditMove(doc, 'm2', {price: ''}, {now: LATER}).move;
+
+		assert.deepEqual([none.price, none.currency, none.money], [null, null, null], 'an empty price takes it away');
+
+		const sold = planEditMove(sale().doc, 'm1', {money: 'out', price: '12'}, {now: LATER}).move;
+
+		assert.equal(sold.money, 'in', 'a sale\'s money always comes in');
+
+		const gift = planMove(startDoc(), {kind: 'gift', out: ['a2'], who: 'Ana'}, {id: 'g1', now: NOW}).doc;
+		const given = planEditMove(gift, 'g1', {currency: 'USD', price: '30', who: 'Bia'}, {now: LATER});
+
+		assert.deepEqual(given.changed, ['who']);
+		assert.deepEqual([given.move.price, given.move.currency, given.move.money], [null, null, null]);
+
+		const same = planEditMove(doc, 'm2', {date: '2026-11-04', who: 'Bruno'}, {now: LATER});
+
+		assert.deepEqual(same.changed, [], 'nothing changed');
+		assert.equal(stableJson(same.doc), stableJson(doc));
+	});
+
+	test('two phones editing different fields both keep their change, either way round', () => {
+		const {doc} = sale();
+		const one = planEditMove(doc, 'm1', {currency: 'BRL', date: '2026-11-03', note: '', price: '30,50', who: 'Ana Lima'}, {now: LATER}).doc;
+		const two = planEditMove(doc, 'm1', {currency: 'BRL', date: '2026-11-03', note: '', price: '45', who: 'Ana'}, {now: LATER + 60000}).doc;
+		const a = mergeDocuments(one, two);
+		const b = mergeDocuments(two, one);
+
+		for (const merged of [a, b]) {
+			assert.equal(merged.moves[0].who, 'Ana Lima', 'the first phone\'s who');
+			assert.equal(merged.moves[0].price, 45, 'the second phone\'s price');
+			assert.deepEqual(kept(merged.moves[0]), kept(doc.moves[0]));
+		}
+
+		assert.equal(stableJson(a.moves), stableJson(b.moves));
+	});
+
+	test('Undo after an edit works as before: the copy comes back, the incoming copy goes, and the move is a tombstone', () => {
+		const {doc} = trade();
+		const plain = planUndoMove(doc, 'm2', {now: LATER + 1000});
+		const edited = planEditMove(doc, 'm2', {money: 'in', note: 'Fair', price: '10', who: 'Bruno S.'}, {now: LATER}).doc;
+		const undone = planUndoMove(edited, 'm2', {now: LATER + 1000});
+
+		assert.equal(undone.stale, false);
+		assert.deepEqual(undone.counts, plain.counts);
+		assert.equal(stableJson(undone.doc.cards), stableJson(plain.doc.cards));
+		assert.equal(stableJson(undone.doc.binders), stableJson(plain.doc.binders));
+		assert.ok(undone.doc.moves[0].deleted_at);
+		assert.deepEqual(monthTotals(undone.doc.moves), []);
+	});
+
+	test('an undone move cannot be edited, and an edit on another phone does not bring it back', async () => {
+		const {doc} = sale();
+		const undone = planUndoMove(doc, 'm1', {now: LATER}).doc;
+		const refused = planEditMove(undone, 'm1', {who: 'Bia'}, {now: LATER + 1000});
+
+		assert.equal(refused.stale, true);
+		assert.equal(stableJson(refused.doc), stableJson(undone));
+		assert.equal(planEditMove(doc, 'nope', {who: 'Bia'}).stale, true);
+
+		// The other phone edited before it heard of the Undo.
+		const edited = planEditMove(doc, 'm1', {who: 'Bia'}, {now: LATER + 5000}).doc;
+
+		for (const merged of [mergeDocuments(edited, undone), mergeDocuments(undone, edited)]) {
+			assert.ok(merged.moves[0].deleted_at, 'the delete sticks');
+			assert.ok(!byId(merged, 'a1').deleted_at, 'and the copy stays back');
+		}
+	});
+});
+
 describe('saved', () => {
 	test('applyMove and undoMove save once each, and a failed save leaves the document on screen unchanged', async () => {
 		const doc = await collection.loadDocument();
@@ -692,10 +797,22 @@ describe('saved', () => {
 		failWrites = false;
 		assert.equal(stableJson(await collection.loadDocument()), before);
 
+		// Edit saves once, and saves nothing when nothing changed.
+		const {changed} = await editMove(move.id, {price: '9', who: 'Ana'});
+
+		assert.deepEqual(changed.sort(), ['price', 'who']);
+		assert.equal((await collection.loadDocument()).moves[0].price, 9);
+
+		const edited = stableJson(await collection.loadDocument());
+
+		assert.deepEqual((await editMove(move.id, {price: '9'})).changed, []);
+		assert.equal(stableJson(await collection.loadDocument()), edited);
+
 		const back = await undoMove(move.id);
 
 		assert.deepEqual(back, {added: 0, kept: 0, restored: 1, unlinked: 0});
 		assert.ok(!byId(await collection.loadDocument(), 'a2').deleted_at);
 		await assert.rejects(undoMove(move.id), (err) => err.stale === true);
+		await assert.rejects(editMove(move.id, {who: 'Bia'}), (err) => err.stale === true && /cannot be edited/.test(err.message));
 	});
 });
