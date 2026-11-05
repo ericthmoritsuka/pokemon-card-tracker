@@ -76,7 +76,7 @@ export const INTEGRATION = {
 			name: 'row(n) shows the mark alone, with nothing to tap',
 		},
 		{
-			line: '\t\treturn h(\'li\', {class: `dex-row dex-row-linked ${kind}`, \'data-dex\': n}, entry, tick);',
+			line: '\t\treturn h(\'li\', {class: `dex-row dex-row-linked ${kind}${note ? \' elsewhere\' : \'\'}`, \'data-dex\': n}, entry, tick);',
 			name: 'row(n) returns the linked row',
 		},
 	],
