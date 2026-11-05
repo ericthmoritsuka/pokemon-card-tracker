@@ -1990,14 +1990,34 @@ chosen, for a "Make a binder" button on those screens.
   Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
 - **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for
   cards that joined the list, in their order, pockets gone for cards that left it, owned cards
-  filled in, and defaults moved to the best copy now; hand picks stay. A line says what changed
-  ("1 pocket added (Charizard); 1 pocket filled with a card you own now (Pikachu)."). The Refresh
+  filled in, pockets emptied, and defaults moved to the best copy now; hand picks stay. A line
+  says what changed ("1 pocket added (Charizard); 1 pocket filled with a card you own now
+  (Pikachu)."; a pocket that had a copy and has none now, sold or owned only in a language the
+  list does not count, is "1 pocket emptied: no copy you own fits it now (Pikachu)."). The Refresh
   button does the same and also asks again what a failed download put off. Opening reads only what
   the list's own screen reads and keeps (the Pokédex numbers of owned cards, a goal's card list),
   so after the first time it is cheap and works offline. When part of the list cannot be read, a
   pocket keeps a stored copy that is still owned, and when none of it can be read the pages stay as
   they were. A list deleted since leaves the pages as they were, with a line saying to choose
   another in Edit binder.
+- **A list's languages and a v56 phone** (built 2026-11-05, after a review found the flip-flop). A
+  v56 phone fills a checklist's binder from copies in any language, this version only from the
+  list's languages, and each saves its own layout on opening, so with both in the family the
+  stored layout changed back and forth on every opening. Neither loses anything (a generated
+  binder places no copy, and `binder_picks` stay), but every opening was a save and a sync. So for a
+  list that names languages, opening also works out the layout as a v56 phone would
+  (`checklistAnyItems`), and when the stored layout is exactly that one and the binder records the
+  list's current languages (`list_languages`, "en,pt", written by every save of a new layout
+  here), the difference is only the languages, which the v56 phone would undo: the pages show the
+  list's layout, but opening neither saves it nor says anything (`planRefresh` `languageOnly`).
+  **Refresh** still saves it, and so does opening when something a v56 phone would also save
+  changed (a new copy, a pocket added) or when the list's languages changed since the binder last
+  recorded them. The field sits on the binder rather than in `snapshot`, because a v56 phone
+  rewrites `snapshot` whole but keeps a field it does not know, as it clones the entry. The cost:
+  until a save here, the binder's count on the Binders screen and a family member's view show the
+  stored layout, the v56 one. Chosen over saving only on Refresh, which would leave a new copy in
+  the list's languages unsaved until someone pressed it, and over filling binders from any
+  language again, against Eric's decision that a list's languages decide its binder (2026-11-05).
 - **Edit binder** changes the name, notes, cover, list, order, and pocket size. A change to the
   list, order, or grid shows the new first page and what changes in a sheet before it is saved,
   as a resize does; a change of grid raises `layout`.
@@ -2012,7 +2032,8 @@ chosen, for a "Make a binder" button on those screens.
 - **Data.** The binder entry keeps its `slots` empty and adds `rule` (`{source: {kind, id} or
   {kind: 'filter', filter}, order}`) and `snapshot` (`{at, rule_key, keys, shown}`: the pockets in
   order as Pokémon keys `dex:25` or card keys `international|sv01-001`, and each pocket's default
-  copy), so every phone and the family view show the same pages; `rows`, `cols`, `preset`, and
+  copy), so every phone and the family view show the same pages, and for a checklist that names
+  languages `list_languages` (above); `rows`, `cols`, `preset`, and
   `page_count` are the grid and pages as for any binder. Both new fields merge per field like
   `name`, so a rule changed on one phone and a refresh saved on another both stay (the next
   refresh lays out the new rule). Hand picks are a top-level list, `binder_picks`, one entry per

@@ -290,6 +290,22 @@ describe('a list\'s languages decide its ticks (Eric, 2026-11-05)', () => {
 		assert.deepEqual(copiesOf({...pt, languages: undefined}), {1: ['a', 'b'], 7: ['e', 'f'], 25: ['d'], 133: ['c']}, 'a list without languages fills from any language');
 	});
 
+	test('a binder made from a list with languages also gets the any-language reading an older phone makes, and the languages it was read with', async () => {
+		globalThis.window = globalThis.window || globalThis;
+		globalThis.addEventListener = globalThis.addEventListener || (() => {});
+
+		const {checklistAnyItems, listLanguagesKey} = await import('../js/binder-sources.js');
+		const copiesOf = (items) => Object.fromEntries(items.map((item) => [item.dex, item.copies.map((entry) => entry.id)]));
+		const pt = {kind: 'custom_pokemon', dex_list: [1, 7, 25, 133], languages: ['pt']};
+
+		assert.deepEqual(copiesOf(checklistAnyItems(pt, byDex(), [])), {1: ['a', 'b'], 7: ['e', 'f'], 25: ['d'], 133: ['c']});
+		assert.equal(checklistAnyItems({...pt, languages: undefined}, byDex(), []), null, 'a list without languages reads the same either way');
+		assert.equal(listLanguagesKey(pt), 'pt');
+		assert.equal(listLanguagesKey({languages: ['pt', 'en', 'xx']}), listLanguagesKey({languages: ['en', 'pt']}), 'one key whatever the order, unknown codes left out');
+		assert.equal(listLanguagesKey({}), null);
+		assert.equal(listLanguagesKey(null), null);
+	});
+
 	test('a family member\'s list is read with the member\'s languages, and reading changes nothing', () => {
 		const member = Object.freeze({id: 'theirs', kind: 'region', languages: Object.freeze(['en']), target: 'kanto'});
 		const map = byDex();
