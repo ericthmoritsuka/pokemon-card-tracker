@@ -401,14 +401,18 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
 
 ## Open Decisions for Eric
 
-- **Do a list's languages decide its ticks?** Today a checklist ticks from any language (his Kanto
-  list shows 141 of 151), and since v19 a list without a `languages` field says "All" so the label
-  matches. Proposed: lists without a `languages` field keep counting any language; new lists
-  follow their setting (Portuguese by default). The change is in `js/checklists-view.js`,
-  `checklistScreen`'s `load()`: call `resolveOwned(entriesInLanguages(data.entries,
-  listLanguages(found)), ...)`, using the helpers exported from `js/checklists.js`.
-- **The family switcher's place:** v13 moved it to a "Mine" chip in the header with a bottom
-  sheet; ask whether that works for him.
+- **Decided and built, 2026-11-05 (branch `eric-decisions`):**
+  - **Do a list's languages decide its ticks?** Yes (Eric, 2026-11-05). A list that names
+    languages counts only copies in them, in its ticks, counts, ring, Value, the
+    every-card-of-a-Pokémon screen, and a binder made from it; a list without a `languages` field
+    keeps counting any language, and Any language on the list's languages Edit removes the field
+    again. The ticks, the Pokémon screen, and Any language were already in v38 (2026-10-15); this
+    branch adds binders made from a list and the flags of the languages a missing Pokémon is owned
+    in on its row. DESIGN.md section 11, "Every card of a Pokémon".
+  - **Edit a logged move** (Eric, 2026-11-05): the trade cash question stays "I paid it / I got
+    it", and History's move sheet gets Edit for the date, who, price, and note, never the cards.
+    DESIGN.md section 11, "Trades and Sales".
+  - **The family switcher's place:** Eric keeps the "Mine" chip in the header (2026-11-05).
 - **Scanner:** after the improvement lands, Eric tests on 20 to 30 real cards (Portuguese and
   Korean included), ideally through `/lab/` too, and sends the CSV export.
 

@@ -1761,7 +1761,16 @@ Portuguese copy. **Any language** removes the setting, and so does ticking every
 list counts a copy in any language, German, Spanish, Italian, and copies with no language
 recorded included. Lists made before the setting decided ticks have none, so they keep counting
 any language until someone picks languages for them; a new list starts with Portuguese.
-*(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)* International prints come from the
+*(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)*
+**A list's languages decide everything it counts** (Eric, 2026-11-05; built 2026-11-05): its
+ticks, counts, progress ring, and Value, the every-card-of-a-Pokémon screen reached from it, and
+a binder made from it (`js/checklists.js` `listByDex`, `js/binder-sources.js`). A list without a
+`languages` field keeps counting any language, so nothing changes until languages are set, and
+**Any language** on the list's languages Edit removes the field again. A Pokémon owned only in
+languages the list does not count stays missing, and its row shows the flags of the languages it
+is owned in under the mark ("Owned only in English"; `ownedElsewhere`), so it is clear why it is
+not ticked. A family member's lists are read with that member's languages, view only. Older
+phones keep counting any language: the rule changes no data beyond the existing field. International prints come from the
 bulk `id` and `dexId` list the checklists already cache (23,736 cards in one request), so they
 work offline; Japanese and Korean prints load from their own catalogs, one request per set, only
 when the list includes those languages, and are kept for offline use. TCG Pocket is left out. Every
@@ -1964,8 +1973,9 @@ list's name. `binders/new/<checklist|collection|goal>/<id>` opens the same form 
 chosen, for a "Make a binder" button on those screens.
 
 - **A pocket is a Pokémon or a card, not a copy.** A checklist gives one pocket per Pokédex
-  entry, and a copy fits when its card's Pokédex numbers include it, in any language, as the
-  checklist screen ticks it. A collection or a filter gives one pocket per owned card (catalog and
+  entry, and a copy fits when its card's Pokédex numbers include it, in one of the list's
+  languages (any language for a list that names none), as the checklist screen ticks it
+  (Eric, 2026-11-05; built 2026-11-05, `js/binder-sources.js` `checklistItems`). A collection or a filter gives one pocket per owned card (catalog and
   card id), and a goal one pocket per card of the set or artist, owned or not; their copies are the
   ones the collection holds, the filter matches (a language filter keeps only that language's
   copies), or the goal counts.
@@ -2242,6 +2252,19 @@ then sold): that move is undone first, or the card would come back with nothing 
 Start over's Undo is refused the other way round, while a later move counts its copies (section
 7). A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
 share one step for it (js/start-over.js `planSwap`).
+
+**Edit a logged move** (Eric, 2026-11-05; built 2026-11-05). A move's sheet in History has
+**Edit** for its date, who, price (with its currency, and for a trade which way the cash went: "I
+paid it" or "I got it", as the log form asks), and note. The price is typed and read back as the
+log form does (`parsePrice`, "Saved as R$ 1.500,00"). Edit never changes the cards: changing which
+cards went out or came in is Undo this move and logging it again. `planEditMove` (js/moves.js)
+changes only those six fields and stamps only the ones that changed (js/merge.js `stampEntry`),
+so two phones editing different fields both keep their change, as with any other entry; `out`,
+`in`, `past`, `undo`, `after_run`, `kind`, and `created_at` stay as they were, so Undo works the
+same after an edit. An undone move is a tombstone and cannot be edited, and an edit made on
+another phone before it heard of the Undo does not bring the move back (the delete sticks).
+History's months and money and the card page's lines follow the edit. A v55 or v56 phone shows
+the edited move, with no Edit; older ones merge it entry by entry and keep it whole.
 
 **Where:** Trades beside Spares on My Cards (on a phone the title takes its own line), "Trades and
 sales" in Profile, and **Sell or trade** on a copy sheet (the copies it would change) and on a card's
