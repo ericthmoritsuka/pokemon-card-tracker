@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
-- **v58:** edit a logged move, and list languages in binders. `TBD`
+- **v58:** edit a logged move, and list languages in binders. `f70ccba`
   - A sale, purchase, trade, or gift in Trades and sales has **Edit** for its date, who, price,
     and note. Only what you change is saved, so an edit on another phone is kept. To change which
     cards went or came, Undo the move and log it again.
