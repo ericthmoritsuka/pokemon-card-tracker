@@ -63,7 +63,10 @@ export function artFallback(src) {
 
 // Says that the art is a stand-in: a line under a tile's meta line, like a
 // family member's "Photo by" line, or a caption on the art anywhere else
-// (the card detail, the scan sheets).
+// (the card detail, the scan sheets). Never on a tile that shows or waits
+// for a family member's photo (its "Photo by" line): a photo wins over the
+// English stand-in, and js/photos/index.js fillPhoto takes the line away
+// when a photo replaces the art.
 function noteStandIn(frame, note) {
 	const tile = frame.closest('.tile');
 
@@ -73,7 +76,7 @@ function noteStandIn(frame, note) {
 		return;
 	}
 
-	if (tile.querySelector('.art-by')) {
+	if (tile.querySelector('.art-by') || tile.querySelector('.ph-by')) {
 		return;
 	}
 

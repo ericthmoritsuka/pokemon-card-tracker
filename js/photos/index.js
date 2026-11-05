@@ -770,6 +770,12 @@ function fillPhoto(tile, choice, catalogImage, art) {
 	const placeholder = h('div', {class: 'art loading', 'data-photo': choice.photo.id});
 
 	current.replaceWith(placeholder);
+
+	// The "English image" line went with the art it described (js/tile.js
+	// noteStandIn): a photo always wins over the English stand-in.
+	for (const line of tile.querySelectorAll('.art-by')) {
+		line.remove();
+	}
 	photoUrl(choice.photo).then((url) => {
 		const next = art(url || catalogImage || null);
 

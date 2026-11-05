@@ -613,7 +613,9 @@ size, about 16 KB for a grid image. The worker handles it in three parts:
 - **English stand-in.** For every image kept opaque, the worker also keeps the English image of
   the same card in cors mode, at its true size. When a Portuguese or French image is not on the
   phone, the art shows the English one marked "English image" (a line under a tile's meta line,
-  a caption on the art elsewhere), and the card back only when neither is kept.
+  a caption on the art elsewhere), and the card back only when neither is kept. A photo of your
+  own or a family member's always wins over the stand-in: a photo that arrives later replaces it
+  and its line, and a tile with a "Photo by" line never says "English image".
 
 The lasting fix is TCGdex sending the header once (a report for them is drafted in
 `plans/tcgdex-cors-report.txt`), or the server-side copy of owned-card images (section 3).
