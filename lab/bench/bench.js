@@ -20,6 +20,15 @@ import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
 import {identify} from '/pokemon-card-tracker/js/scan/identify.js';
 import {pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
+import {rectQuad} from '/pokemon-card-tracker/js/scan/rectify.js';
+
+// The whole-frame path (--frame): the camera's guide laid out on a phone
+// screen, and the card found anywhere in the frame (js/scan/steady.js
+// findCard, version 34), as js/scan/view.js does at the moment of capture.
+// A tree from before it (REPO=) has no frame mode.
+const whole = await Promise.all([import('/pokemon-card-tracker/js/scan/camera.js'), import('/pokemon-card-tracker/js/scan/steady.js')])
+	.then(([camera, steady]) => ({...camera, ...steady}))
+	.catch(() => null);
 
 let pool = null;
 
@@ -159,7 +168,91 @@ export async function koreanCard(bitmap, korean) {
 	return createImageBitmap(canvas);
 }
 
-async function capture(bitmap, id, passName) {
+// The four corners (top left, top right, bottom right, bottom left) of a
+// w x h card centred on (cx, cy) and turned `angle` degrees clockwise: where
+// the card really is in a capture, for --geometry.
+function cardCorners(cx, cy, w, h, angle) {
+	const radians = (angle * Math.PI) / 180;
+	const cos = Math.cos(radians);
+	const sin = Math.sin(radians);
+
+	return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({x: cx + x * cos - y * sin, y: cy + x * sin + y * cos}));
+}
+
+// The camera frame and the screen the frame mode lays the guide out on: a
+// portrait 1080 x 1920 frame shown in a 384 x 600 CSS px video area (Eric's
+// phone is 384 px wide; the tray takes the foot of the screen).
+const FRAME = {height: 1920, width: 1080};
+const STAGE = {height: 600, width: 384};
+
+// The card under the guide of a whole camera frame, with the same turn,
+// size, offset, light, blur, and JPEG as the guide's capture (all scaled
+// from the card scan's pixels to the guide's), then found in the frame as
+// js/scan/view.js finds it at the moment of capture (the shutter: a small
+// card is taken too) and cut out round it (camera.js boxAround); with no
+// card found, the guide's capture area. The ImageData carries `truth` (the
+// card's corners in its pixels), `frameFound`, and `quads` (the outlines
+// found, in its pixels, as identify.js takes them).
+async function frameCapture(card, k, {angle, brightness, dx, dy, scale}) {
+	const area = whole.layoutGuide(FRAME, STAGE);
+	const f = area.guide.h / card.height;
+	const canvas = new OffscreenCanvas(FRAME.width, FRAME.height);
+	const ctx = canvas.getContext('2d');
+	const cx = area.guide.x + area.guide.w / 2 + dx * f;
+	const cy = area.guide.y + area.guide.h / 2 + dy * f;
+
+	ctx.fillStyle = '#5a4a3c';
+	ctx.fillRect(0, 0, FRAME.width, FRAME.height);
+	ctx.filter = `blur(${(k.blur * f).toFixed(2)}px) brightness(${brightness.toFixed(2)})`;
+	ctx.translate(cx, cy);
+	ctx.rotate((angle * Math.PI) / 180);
+	ctx.scale(scale * f, scale * f);
+	ctx.drawImage(card, -card.width / 2, -card.height / 2);
+
+	const back = await createImageBitmap(await canvas.convertToBlob({quality: k.quality, type: 'image/jpeg'}));
+	// A canvas standing in for the video: camera.js reads videoWidth and
+	// videoHeight and draws it.
+	const video = document.createElement('canvas');
+
+	video.width = FRAME.width;
+	video.height = FRAME.height;
+	video.getContext('2d').drawImage(back, 0, 0);
+	Object.defineProperties(video, {videoHeight: {value: FRAME.height}, videoWidth: {value: FRAME.width}});
+
+	const view = whole.viewFrame(video, document.createElement('canvas'), area.view, whole.FIND_SIDE_CAPTURE);
+	const found = whole.findCard(view.grey, view.width, view.height);
+	const toFrame = (p) => ({x: view.rect.x + p.x / view.scale, y: view.rect.y + p.y / view.scale});
+	let region = area.capture;
+	let quads = [];
+
+	if (found.quad) {
+		const all = [{angle: found.angle, corners: found.quad, ratio: found.ratio, upright: found.upright}, ...found.others]
+			.map((one) => ({...one, box: whole.boxAround(FRAME, one.corners.map(toFrame)), corners: one.corners.map(toFrame)}));
+		const [chosen] = all;
+		const shot = whole.thumbnailFrame(video, document.createElement('canvas'), chosen.box);
+		const upright = chosen.upright && Math.abs(chosen.angle) <= 20;
+		const present = upright ? whole.presence(shot.grey, whole.THUMB_W, whole.THUMB_H, {colour: shot.colour}).present : shot.colour >= whole.COLOURLESS;
+
+		if (present) {
+			const box = chosen.box;
+			const inBox = (c) => c.x >= box.x && c.y >= box.y && c.x <= box.x + box.w && c.y <= box.y + box.h;
+			const others = all.filter((one) => one !== chosen && one.corners.every(inBox));
+
+			region = whole.boxAround(FRAME, [...chosen.corners, ...others.flatMap((other) => other.corners)]);
+			quads = [chosen, ...others].map((one) => ({corners: one.corners.map((c) => ({x: c.x - region.x, y: c.y - region.y})), ratio: one.ratio, upright: one.upright}));
+		}
+	}
+
+	const image = video.getContext('2d').getImageData(region.x, region.y, region.w, region.h);
+
+	image.truth = cardCorners(cx - region.x, cy - region.y, card.width * scale * f, card.height * scale * f, angle);
+	image.frameFound = quads.length > 0;
+	image.quads = quads;
+
+	return image;
+}
+
+async function capture(bitmap, id, passName, {frame = false} = {}) {
 	const k = PASSES[passName];
 	const rand = seeded(id + passName);
 	const w = bitmap.width;
@@ -201,6 +294,14 @@ async function capture(bitmap, id, passName) {
 		cctx.fillRect(0, 0, w, h);
 	}
 
+	if (frame) {
+		if (!whole) {
+			throw new Error('This tree has no whole-frame search (steady.js findCard).');
+		}
+
+		return frameCapture(card, k, {angle, brightness, dx, dy, scale});
+	}
+
 	const canvas = new OffscreenCanvas(W, H);
 	const ctx = canvas.getContext('2d');
 
@@ -218,7 +319,36 @@ async function capture(bitmap, id, passName) {
 
 	out.getContext('2d').drawImage(back, 0, 0);
 
-	return out.getContext('2d').getImageData(0, 0, W, H);
+	const image = out.getContext('2d').getImageData(0, 0, W, H);
+
+	image.truth = cardCorners(W / 2 + dx, H / 2 + dy, w * scale, h * scale, angle);
+
+	return image;
+}
+
+// How far the box rectify cut lies from the card (--geometry), as shares
+// of the card's height: error, the farthest corner; top and bottom, how far
+// the box's top and bottom edges sit inside the card along its own sides
+// (negative: outside it), so a crop that stops short of the card's bottom
+// shows as a positive bottom.
+function boxError(r, image) {
+	const truth = image.truth;
+	const quad = r.corners || (r.rect ? rectQuad(image, r.rect, r.angle || 0) : null);
+
+	if (!r.found || !quad) {
+		return null;
+	}
+
+	const tall = (Math.hypot(truth[3].x - truth[0].x, truth[3].y - truth[0].y) + Math.hypot(truth[2].x - truth[1].x, truth[2].y - truth[1].y)) / 2;
+	const down = {x: (truth[3].x - truth[0].x + truth[2].x - truth[1].x) / (2 * tall), y: (truth[3].y - truth[0].y + truth[2].y - truth[1].y) / (2 * tall)};
+	const along = (p) => (p.x - truth[0].x) * down.x + (p.y - truth[0].y) * down.y;
+	const share = (value) => Math.round((value / tall) * 1000) / 1000;
+
+	return {
+		bottom: share(tall - (along(quad[2]) + along(quad[3])) / 2),
+		error: share(Math.max(...quad.map((p, i) => Math.hypot(p.x - truth[i].x, p.y - truth[i].y)))),
+		top: share((along(quad[0]) + along(quad[1])) / 2),
+	};
 }
 
 // A camera frame (width x height) showing the photo with the card's box
@@ -268,6 +398,17 @@ async function imageUrl(img) {
 	});
 }
 
+// An ImageData's pixels as RGBA bytes in base64, with its size.
+function rgbaBase64(image) {
+	let binary = '';
+
+	for (let i = 0; i < image.data.length; i += 0x8000) {
+		binary += String.fromCharCode.apply(null, image.data.subarray(i, i + 0x8000));
+	}
+
+	return {data: btoa(binary), height: image.height, width: image.width};
+}
+
 const langOf = (read) => (read.language && read.language.code) || null;
 const small = (cands) => cands.map((c) => ({conf: c.confidence ?? null, id: c.id, reasons: c.reasons, score: c.score}));
 
@@ -277,7 +418,8 @@ const small = (cands) => cands.map((c) => ({conf: c.confidence ?? null, id: c.id
 // pictureMatch, with the text route behind it, as js/scan/view.js does.
 async function measurePicture(image, {crops = false} = {}) {
 	const t0 = performance.now();
-	const result = await identify(image);
+	// The outlines found in the whole frame (--frame), as view.js passes them.
+	const result = await identify(image, {quads: image.quads || []});
 	const read = result.read ? summariseRead(result.read) : null;
 	const lang = read && read.language.code ? read.language.code : null;
 	const t1 = performance.now();
@@ -358,6 +500,11 @@ async function measure(image, {crops = false, options = {}} = {}) {
 		year: read.copyrightYear,
 	};
 
+	if (image.truth) {
+		out.box = boxError(r, image);
+		out.frameFound = image.frameFound ?? null;
+	}
+
 	if (crops) {
 		out.crops = {card: await imageUrl(r.card)};
 
@@ -417,11 +564,27 @@ window.bench = {
 	asianLoads: () => (pool && pool.asianLoads) || [],
 	// One card from the dataset through one pass; a card with `korean` is
 	// first given that Korean name (koreanCard).
-	async run(item, {crops = false, options = {}, pass = 'clean'} = {}) {
+	async run(item, {crops = false, frame = false, options = {}, pass = 'clean'} = {}) {
 		const bitmap = await bitmapOf(item.file);
-		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass);
+		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass, {frame});
 
 		return {id: item.id, new: await measure(image, {crops, options}), pass};
+	},
+	// One card through one pass, straightened only (run.mjs --geometry):
+	// where the box rectify cut lies against the card (boxError), with no
+	// text read.
+	async geometry(item, {crops = false, frame = false, pass = 'clean'} = {}) {
+		const bitmap = await bitmapOf(item.file);
+		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass, {frame});
+		const t0 = performance.now();
+		const r = rectify(image);
+		const out = {box: boxError(r, image), found: r.found, frameFound: image.frameFound ?? null, guessed: r.guessed, note: r.note, timings: {rectify: Math.round(performance.now() - t0)}};
+
+		if (crops) {
+			out.crops = {card: await imageUrl(r.card)};
+		}
+
+		return {id: item.id, new: out, pass};
 	},
 	// One card's collector number alone, through one pass.
 	async number(item, {crops = false, options = {}, pass = 'clean'} = {}) {
@@ -435,17 +598,19 @@ window.bench = {
 
 		return {id: null, new: await measure(cropRect(full, captureRect(full.width, full.height)), {crops, options}), pass: frame.name};
 	},
+	// One card's capture through one pass, as RGBA bytes in base64 with the
+	// card's corners in it, for working on the straightening outside the
+	// page (Node runs js/scan/rectify.js on it as it is).
+	async captureBytes(item, {frame = false, pass = 'clean'} = {}) {
+		const bitmap = await bitmapOf(item.file);
+		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass, {frame});
+
+		return {...rgbaBase64(image), truth: image.truth};
+	},
 	// The same framing as a whole camera frame, as RGBA bytes in base64, for
 	// a fake camera still (run.mjs --stills).
 	async photoFrameBytes(src, frame) {
-		const full = await photoFrame(src, frame);
-		let binary = '';
-
-		for (let i = 0; i < full.data.length; i += 0x8000) {
-			binary += String.fromCharCode.apply(null, full.data.subarray(i, i + 0x8000));
-		}
-
-		return {data: btoa(binary), height: full.height, width: full.width};
+		return rgbaBase64(await photoFrame(src, frame));
 	},
 };
 

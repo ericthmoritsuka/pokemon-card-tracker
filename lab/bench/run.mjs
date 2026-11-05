@@ -6,6 +6,7 @@
 //   [--throttle 4] [--workers 2] [--out results.json] [--crops <dir>]
 //   [--photo <file> --box x,y,w,h [--framings name:fit:angle:size,...] [--stills <dir>]]
 //   [--dataset fullart.json] [--numbers [--options '{"fullArt":true}']]
+//   [--frame] [--geometry]
 //
 // REPO=<tree> measures another checkout of the app (default: this repo).
 // BENCH_CACHE=<dir> is where card images, recorded TCGdex answers, and
@@ -232,12 +233,44 @@ else {
 		}
 	}
 
-	for (const pass of args.numbers ? [] : passes) {
+	// --geometry: straightened only, and where the box cut lies against the
+	// card (bench.js boxError): a box is right when its farthest corner is
+	// within 4 % of the card's height of the card's, and short at the
+	// bottom when its bottom edge sits more than 4 % inside the card.
+	for (const pass of args.geometry ? passes : []) {
+		for (const item of dataset) {
+			const r = await page.evaluate(([it, o]) => window.bench.geometry(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), pass}]);
+
+			await saveCrops(r, `${item.id}-${pass}`);
+			rows.push(r);
+
+			const box = r.new.box;
+
+			console.log(`${pass} ${item.id}${args.frame ? ` frame card ${r.new.frameFound ? 'found' : 'not found'}` : ''} | ${r.new.found ? `error ${box.error} top ${box.top} bottom ${box.bottom}` : 'no edges'} | ${r.new.note} ${r.new.timings.rectify} ms`);
+		}
+	}
+
+	if (args.geometry) {
+		const median = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)] ?? 0;
+
+		console.log('\n| Pass | n | Card found in the frame | Edges found | Box right | Short at the bottom | Error (median, worst) | Rectify ms (median) |');
+		console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
+
+		for (const pass of passes) {
+			const list = rows.filter((r) => r.pass === pass);
+			const boxes = list.filter((r) => r.new.box).map((r) => r.new.box);
+			const errors = boxes.map((box) => box.error);
+
+			console.log(`| ${pass} | ${list.length} | ${args.frame ? list.filter((r) => r.new.frameFound).length : '-'} | ${boxes.length} | ${boxes.filter((box) => box.error <= 0.04).length} | ${boxes.filter((box) => box.bottom > 0.04).length} | ${median(errors)}, ${Math.max(0, ...errors)} | ${median(list.map((r) => r.new.timings.rectify))} |`);
+		}
+	}
+
+	for (const pass of args.numbers || args.geometry ? [] : passes) {
 		for (const item of dataset) {
 			let r;
 
 			try {
-				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), options, pass}]));
+				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), options, pass}]));
 			}
 			catch (err) {
 				console.error(item.id, pass, err.message);
@@ -273,18 +306,20 @@ else {
 		return `${Math.round((100 * k) / Math.max(1, list.length))} % (${k})`;
 	};
 
-	if (!args.numbers) {
+	if (!args.numbers && !args.geometry) {
 		console.log('\n| Pass | n | Number only first | +Name first | +Name top 3 | +Name+art first | +Name+art top 3 |');
 		console.log('| --- | --- | --- | --- | --- | --- | --- |');
 	}
 
-	for (const pass of args.numbers ? [] : [...passes, 'all']) {
+	for (const pass of args.numbers || args.geometry ? [] : [...passes, 'all']) {
 		const list = rows.filter((r) => pass === 'all' || r.pass === pass);
 
 		console.log(`| ${pass} | ${list.length} | ${share(list, at('numberOnly', 1))} | ${share(list, at('noArt', 1))} | ${share(list, at('noArt', 3))} | ${share(list, at('candidates', 1))} | ${share(list, at('candidates', 3))} |`);
 	}
 
-	console.log('');
+	if (!args.geometry) {
+		console.log('');
+	}
 
 	const median = (list) => {
 		const sorted = [...list].sort((a, b) => a - b);
@@ -292,7 +327,7 @@ else {
 		return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 	};
 
-	for (const pass of args.numbers ? [] : passes) {
+	for (const pass of args.numbers || args.geometry ? [] : passes) {
 		const list = rows.filter((r) => r.pass === pass);
 		const times = list.map((r) => r.new.timings);
 		const totals = times.map((t) => t.total).sort((a, b) => a - b);
@@ -304,12 +339,12 @@ else {
 			continue;
 		}
 
-		console.log(`${pass}: name matched ${list.filter((r) => r.new.names && r.new.names[0] && r.new.names[0].score >= 0.75).length}/${list.length} (right ${list.filter((r) => r.nameRight).length}), number read ${list.filter((r) => r.new.number).length}, HP read ${list.filter((r) => r.new.hp).length}, edges ${list.filter((r) => r.new.found).length}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.wrongSure).length}); OCR calls median ${median(list.map((r) => r.new.calls || 0))}; rectify ${median(times.map((t) => t.rectify))} ms, OCR ${median(times.map((t) => t.ocr))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms`);
+		console.log(`${pass}: name matched ${list.filter((r) => r.new.names && r.new.names[0] && r.new.names[0].score >= 0.75).length}/${list.length} (right ${list.filter((r) => r.nameRight).length}), number read ${list.filter((r) => r.new.number).length}, HP read ${list.filter((r) => r.new.hp).length}, edges ${list.filter((r) => r.new.found).length}${args.frame ? ` (card found in the frame ${list.filter((r) => r.new.frameFound).length})` : ''}${list.some((r) => r.new.box) ? `, box right ${list.filter((r) => r.new.box && r.new.box.error <= 0.04).length}, short at the bottom ${list.filter((r) => r.new.box && r.new.box.bottom > 0.04).length}` : ''}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.wrongSure).length}); OCR calls median ${median(list.map((r) => r.new.calls || 0))}; rectify ${median(times.map((t) => t.rectify))} ms, OCR ${median(times.map((t) => t.ocr))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms`);
 	}
 
 	// Per group (a dataset's `group` and language): names read right, the
 	// right card first, and wrong but sure.
-	if (!args.numbers && !args.picture) {
+	if (!args.numbers && !args.picture && !args.geometry) {
 		console.log('\n| Group | n | Name right | Right first | Top 3 | Sure | Wrong but sure | OCR calls (median) | ms (median, p90) |');
 		console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 

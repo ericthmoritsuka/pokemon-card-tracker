@@ -25,10 +25,40 @@ A full run takes about ten minutes. Useful options:
 | `--workers 2` | OCR workers in the pool (the app uses two). |
 | `--out <file>` | Where the results JSON goes (default: the cache folder). |
 | `--crops <dir>` | Saves the straightened card and every OCR crop as PNG files. |
+| `--frame` | The whole-frame path instead of the guide's capture (below). |
+| `--geometry` | Straightens only, and says how far the box cut lies from the card (below). No text is read, so a run takes a minute or two a pass. |
 
 `REPO=<path>` measures another checkout of the app with the same benchmark, for a before and after:
 for example `git worktree add --detach /tmp/base <commit>`, then `REPO=/tmp/base node
 lab/bench/run.mjs`.
+
+## Where the Box Lies, and the Whole Frame
+
+Every capture knows where its card really is, so `--geometry` measures the straightening alone
+(`rectify.js`): per capture, how far the farthest corner of the box cut lies from the card's, and
+how far its top and bottom sit inside the card, as shares of the card's height. A box is right
+within 4 %, and short at the bottom when its bottom edge sits more than 4 % inside the card (a
+crop that stops at the weakness row is about 12 % short). It prints one line per capture and a
+table per pass. With `REPO=`, an older tree is measured the same way, for a before and after
+card by card.
+
+`--frame` builds the capture the way the app does since version 34 rather than as the guide's
+capture: the card is laid under the guide of a 1080 x 1920 camera frame shown in a 384 x 600 px
+video area (`camera.js` `layoutGuide`; Eric's phone is 384 px wide), with the same turn, size,
+light, blur, and JPEG as the pass gives it, scaled to the guide. The card is then looked for in
+the whole frame (`steady.js` `findCard` on the 360 px copy, judged as `view.js` judges it at the
+shutter), the capture cut round the card found (`camera.js` `boxAround`), and its outlines given
+to `identify.js` with `--picture`; with no card found, the guide's capture area is read, as the
+app reads it. The lines and tables say how many cards were found in the frame. It works with
+`--geometry` and with a full run, and needs a tree from version 34 on.
+
+```sh
+PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --geometry --frame \
+  --passes slantfull,slant,clean,tilt
+```
+
+`window.bench.captureBytes` hands one capture's pixels and its card's corners to Node, for working
+on the straightening outside the page.
 
 ## Collector Numbers Alone
 
@@ -96,7 +126,7 @@ and scaled a little, at a seeded random, so every run sees the same images.
 | `jpeg` | JPEG quality 0.3. |
 | `nonumber` | The bottom 12 % blurred out, as a thumb or a sleeve edge would hide the number. |
 | `slant` | Turned 10 to 20 degrees either way, so the corners run out of the capture. Not in the default run, which stays comparable with earlier measurements; ask for it with `--passes slant`. |
-| `slantfull` | As `slant`, the card 106 to 112 % of the guide's height (the capture's whole height), so its bottom edge runs out of the capture too: the roadmap's strong-slant cut at the weakness row (DESIGN.md section 6, 2026-11-04). Not in the default run. |
+| `slantfull` | As `slant`, the card 106 to 112 % of the guide's height (the capture's whole height), so its bottom edge runs out of the capture too, and with the capture's 6 % margin its sides as well: the strong-slant cut at the weakness row (DESIGN.md section 6, measured 2026-11-04, fixed 2026-11-05). Not in the default run. |
 
 ## Images and Data
 
