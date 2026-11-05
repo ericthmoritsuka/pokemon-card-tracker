@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
-- **v59:** send a scan report in one tap. `TBD`
+- **v59:** send a scan report in one tap. `7f0e026`
   - In Profile, Phone check, **Send report** sends the scan log (with card pictures when Include card
     pictures is on) to a private folder in your account, with an optional note. Only your account
     can see it; your family cannot.
