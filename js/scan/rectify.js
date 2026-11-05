@@ -241,9 +241,10 @@ const SHAPE_SLACK = 0.06;
 // table beyond it, which they do not cross), or when it lies on the
 // capture's edge itself. A bottom is also taken as inside the card when the
 // box is too short for a card's shape, the capture shows nothing of the
-// sides below it (they run out through its corners, the card turned), and
-// the sides do not run on above the top, so the top is the card's own. The
-// card's own edge is then out of the capture:
+// sides below it (they run out through its corners, the card turned, or
+// the bottom was found on or just above the capture's last rows, the card
+// held low), and the sides do not run on above the top, so the top is the
+// card's own. The card's own edge is then out of the capture:
 //
 // - the bottom is placed from the top found and the width, at a card's
 //   63:88, past the capture's edge (the mirror of the worked-out top);
@@ -293,11 +294,23 @@ export function outOfCapture(work, edges) {
 	const shares = (lines, from, to, vertical) => (to - from >= 4 ? lines.map((line) => continuity(work, line, Math.round(from), Math.round(to), vertical, slack, -1, 4)) : []);
 	const past = (lines, from, to, vertical) => runsOut(shares(lines, from, to, vertical));
 	const below = shares(columns, box.bottom + h * 0.02, height - EDGE_REACH, false);
+	// The top is the card's own when the sides do not run on above it.
+	const ownTop = edges.top !== null && !past(columns, EDGE_REACH, box.top - h * 0.02, false);
 	// A box too short for a card's shape whose sides the capture does not
-	// show below its bottom (out of its corners, the card turned): with
-	// its top the card's own (the sides do not run on above it), the
-	// bottom found is the line inside the card.
-	const short = edges.top !== null && h < (w / CARD_RATIO) * (1 - SHAPE_SLACK) && below.length > 0 && below.every((share) => share < 0) && !past(columns, EDGE_REACH, box.top - h * 0.02, false);
+	// show below its bottom: out of its corners, the card turned, or no
+	// room left under a bottom found on (or just above) the capture's last
+	// rows, the card held low or larger than the guide. With its top the
+	// card's own, the bottom found is a line inside the card, or the
+	// capture's edge: snapped up from it, the box took in the table above
+	// the card and stopped short of its foot. A bottom that close to the
+	// capture's foot, between sides found inside it, is taken once the box
+	// is more than half the shape's slack short (a top found a little
+	// inside the card, at its border's inner line, also makes the box
+	// short, by 2 to 3 %); otherwise past the whole slack, since a side on
+	// the capture's edge leaves the width, and so the shape, a guess.
+	const nearFoot = box.bottom + h * 0.02 + 4 > height - EDGE_REACH;
+	const short = ownTop && edges.bottom !== null && below.every((share) => share < 0)
+		&& (below.length > 0 ? h < (w / CARD_RATIO) * (1 - SHAPE_SLACK) : inside(box.top, height) && h < (w / CARD_RATIO) * (1 - (nearFoot && columns.length === 2 ? SHAPE_SLACK / 2 : SHAPE_SLACK)));
 	// Inside the card: the edges across run on past it, or (the bottom)
 	// the box is too short and the capture hides the sides below it. An
 	// edge not found counts as one inside the card at the capture's edge.

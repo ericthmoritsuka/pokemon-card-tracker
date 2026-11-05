@@ -113,38 +113,71 @@ describe('a card whose foot runs out of the capture (rectify.js outOfCapture)', 
 		assert.ok(Math.abs(straight.card.width / straight.card.height - RATIO) < 0.006, 'card-shaped');
 	});
 
-	test('turned 12 degrees either way: the crop reaches the card\'s foot', () => {
-		for (const angle of [-12, 12]) {
-			const {corners, image} = capture({...CUT, angle, ch: 640});
+	test('turned 16 degrees either way, its foot out of the capture: the bottom is placed, and the crop reaches it', () => {
+		// Before the fix these were cut at the weakness row, 12 % short.
+		for (const angle of [-16, 16]) {
+			const {corners, image} = capture({...CUT, angle, ch: 680});
 			const straight = rectify(image);
 			const box = boxError(straight, image, corners);
 
 			assert.ok(straight.found, `${angle}: ${straight.note}`);
-			assert.ok(box.bottom <= 0.03, `${angle} degrees: the bottom ${box.bottom.toFixed(3)} short (${straight.note})`);
+			assert.equal(straight.placed, true, `${angle}: ${straight.note}`);
+			assert.equal(straight.guessed, 'bottom', `${angle}: ${straight.note}`);
+			assert.ok(Math.abs(box.bottom) <= 0.03, `${angle} degrees: the bottom ${box.bottom.toFixed(3)} short (${straight.note})`);
 			assert.ok(box.error <= 0.04, `${angle} degrees: box within 4 % (${box.error.toFixed(3)}): ${straight.note}`);
 		}
 	});
 
-	test('cut at the top: the top is worked out from the bottom, as before, and nothing is placed', () => {
-		const {corners, image} = capture({...CUT, cy: 326});
+	test('held low, the weakness row on the capture\'s last rows: the bottom is placed, not the top worked out from that row', () => {
+		// The card's foot 74 px past the capture, its weakness row 16 px
+		// inside it: too near the edge to show the sides below it.
+		for (const angle of [0, -3, 3]) {
+			const {corners, image} = capture({angle, ch: 690, cx: 260, cy: 455});
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+
+			assert.ok(straight.found, `${angle}: ${straight.note}`);
+			assert.equal(straight.placed, true, `${angle}: ${straight.note}`);
+			assert.equal(straight.guessed, 'bottom', `${angle}: ${straight.note}`);
+			assert.ok(Math.abs(box.bottom) <= 0.02, `${angle} degrees: the bottom ${box.bottom.toFixed(3)} short (${straight.note})`);
+			assert.ok(box.error <= 0.03, `${angle} degrees: box within 3 % (${box.error.toFixed(3)}): ${straight.note}`);
+		}
+	});
+
+	test('a box a few percent short whose bottom is on the capture\'s last rows is snapped as before, not placed', () => {
+		// The foot 12 px past the capture and the border's inner line found
+		// for it: 3 % short, within half the shape's slack.
+		const {corners, image} = capture({ch: 690, cx: 260, cy: 393});
 		const straight = rectify(image);
 		const box = boxError(straight, image, corners);
 
 		assert.ok(straight.found, straight.note);
-		assert.equal(straight.guessed, 'top');
-		assert.equal(straight.placed, false);
-		assert.ok(Math.abs(box.bottom) <= 0.02, `bottom ${box.bottom.toFixed(3)}`);
+		assert.equal(straight.placed, false, straight.note);
+		assert.ok(box.error <= 0.03, `box within 3 % (${box.error.toFixed(3)}): ${straight.note}`);
+	});
+
+	test('cut at the top: the top is worked out from the bottom, as before, and nothing is placed', () => {
+		for (const angle of [0, -10, 10]) {
+			const {corners, image} = capture({...CUT, angle, cy: 326});
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+
+			assert.ok(straight.found, `${angle}: ${straight.note}`);
+			assert.equal(straight.guessed, 'top', `${angle}: ${straight.note}`);
+			assert.equal(straight.placed, false, `${angle}: ${straight.note}`);
+			assert.ok(Math.abs(box.bottom) <= 0.02, `${angle} degrees: bottom ${box.bottom.toFixed(3)}`);
+		}
 	});
 
 	test('a normal capture, the card inside it with table all round, is cut as before', () => {
-		for (const angle of [0, -4, 4]) {
-			const {corners, image} = capture({angle, ch: 605, cx: 260, cy: 363});
+		for (const [angle, ch] of [[0, 605], [-4, 605], [4, 605], [-12, 560], [12, 560], [18, 560]]) {
+			const {corners, image} = capture({angle, ch, cx: 260, cy: 363});
 			const straight = rectify(image);
 			const box = boxError(straight, image, corners);
 
 			assert.ok(straight.found, straight.note);
 			assert.equal(straight.placed, false, `${angle}: ${straight.note}`);
-			assert.notEqual(straight.guessed, 'bottom');
+			assert.equal(straight.guessed, null, `${angle}: ${straight.note}`);
 			assert.ok(box.error <= 0.03, `${angle} degrees: box within 3 % (${box.error.toFixed(3)})`);
 		}
 	});
