@@ -1206,6 +1206,13 @@ const CARD_DETAIL = 10;
 // floor round a card lying on it).
 const RING_BUSY = 12;
 
+// How far past the frame's edge a corner of a card-shaped outline must lie,
+// as a share of its width, for a box inside it to be taken as part of that
+// card (the strong-slant cut, 2026-11-05): on the bench's held-low and
+// slanted captures, 6 % kept every art box out while finding 22 of 40
+// held-low cards in the frame; at 10 % art boxes came back.
+const CUT_PAST = 0.06;
+
 function ringDetail(grey, width, height, outer, inner) {
 	const [tl, tr, br, bl] = outer.corners;
 	let n = 0;
@@ -1335,12 +1342,17 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 				// the frame are drawn, and some of it is outside.
 				const visible = sides.filter((s) => s.inside > 0.3);
 
-				// Only an outline some of which is past the frame's edge: one
-				// whose corner merely sits in the margin (a line along the
-				// frame's edge taken for a side, round a card wholly in it)
-				// does not hide a card.
+				// Only an outline some of which is past the frame's edge hides
+				// a box inside it, and only one with a corner CUT_PAST of its
+				// width past it: one whose corner merely sits in the margin (a
+				// line along the frame's edge taken for a side, round a card
+				// wholly in it), or a pixel or two past (a card held low whose
+				// inner border was found, the crop round it padded enough),
+				// does not.
 				if (visible.length >= 2 && visible.every((s) => s.share >= FIND_SIDE_MIN) && sides.some((s) => s.inside < 0.97) && interiorDetail(grey, width, height, corners) >= CARD_DETAIL) {
-					cut.push({corners});
+					if (Math.max(...corners.map((c) => Math.max(-c.x, c.x - (width - 1), -c.y, c.y - (height - 1)))) >= box.across * CUT_PAST) {
+						cut.push({corners});
+					}
 
 					if (visible.length >= 3 && visible.every((s) => s.share >= TOUCH_SIDE_MIN)) {
 						touching = true;
