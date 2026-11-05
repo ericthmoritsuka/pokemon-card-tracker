@@ -31,7 +31,7 @@ Example, checked 2026-11-05 with curl -I and an Origin header:
     cache-control: public, max-age=31536000, immutable
     server: nginx
 
-The doubled responses all carry x-amz-request-id, so it looks like nginx adds its own CORS and Cache-Control headers to a response proxied from an S3-compatible store that already has its own. It varies image by image, not by folder: on 2026-10-15, pt/me/me01/002 had a single header while 001 and 003 were doubled.
+The doubled responses all carry x-amz-request-id, so it looks like nginx adds its own CORS and Cache-Control headers to a response proxied from an S3-compatible store that already has its own on some objects. It varies image by image, not by folder, and single responses can come from the store too: on 2026-10-15, pt/me/me01/002 had a single header while 001 and 003 were doubled, and on 2026-11-05 002 was still single with an x-amz-request-id.
 
 A likely fix, in the nginx location that proxies to the store, either:
 

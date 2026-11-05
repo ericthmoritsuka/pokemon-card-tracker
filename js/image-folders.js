@@ -1,16 +1,16 @@
-// What the service worker remembers about each image folder, and how many
-// opaque images it keeps (E-20). A classic script, not a module: sw.js is
-// registered without type: 'module' and loads it with importScripts, and
-// the Node tests import it for globalThis.imageFolders. No DOM, no storage:
-// sw.js keeps the memory in Cache Storage.
+// What the service worker remembers about the card images it could not
+// fetch in cors mode, and how many opaque images it keeps (E-20). A classic
+// script, not a module: sw.js is registered without type: 'module' and
+// loads it with importScripts, and the Node tests import it for
+// globalThis.imageFolders. No DOM, no storage: sw.js keeps the memory in
+// Cache Storage.
 //
-// assets.tcgdex.net sends Access-Control-Allow-Origin twice on some images,
-// the ones whose response carries an x-amz-request-id, so most likely those
-// proxied from an object store (checked 2026-11-05: pt/me/me01/001 and
-// fr/me/me01/001 doubled; en/me/me01/001 once, without the id), and a
-// browser fails a cors request whose header is doubled.
-// Such an image can only be kept as an opaque response, which Chrome pads
-// in quota accounting (sw.js, IMAGE_CACHES).
+// assets.tcgdex.net sends Access-Control-Allow-Origin twice on some images
+// and once on others, and a browser fails a cors request whose header is
+// doubled (curl, 2026-11-05: pt/me/me01/001 doubled and 002 single, both
+// from its object store, as their x-amz-request-id shows; en/me/me01/001
+// single). Such an image can only be kept as an opaque response, which
+// Chrome pads in quota accounting (sw.js, IMAGE_CACHES).
 
 (() => {
 	// An image folder: the host and the first path segment, which on
@@ -29,111 +29,140 @@
 
 	const englishOf = (url) => (LOCALIZED.test(String(url || '')) ? String(url).replace(LOCALIZED, '$1en$2') : null);
 
-	// A folder goes straight to no-cors after this many cors failures in a
-	// row. Not after one: on 2026-10-15 one set folder doubled 001 and 003
-	// but not 002, and a folder that switched on the first failure sent its
-	// single-header images to the padded cache too.
-	const FLIP_AFTER = 3;
-
-	// A folder on no-cors tries cors again on every 20th image, or on the
-	// first one an hour after its last try, so a folder TCGdex fixes
-	// switches back.
-	const PROBE_EVERY = 20;
+	// TCGdex doubles the header image by image inside one folder (curl,
+	// 2026-11-05: pt/me/me01/001 doubled, 002 single, both from the store), so
+	// the worker learns it per image: every image not kept yet is fetched in
+	// cors mode first, and in no-cors mode only when that fails. An image
+	// whose cors request failed while a no-cors fetch of it came back opaque
+	// is remembered with the time it failed, and it is fetched straight in
+	// no-cors mode, and not tried in cors mode again, until one of these:
+	//
+	//   - a week has passed since it failed (RETRY_AFTER_MS);
+	//   - its folder (host and language) has had no cors try for an hour
+	//     (PROBE_AFTER_MS): the first remembered image of the folder shown
+	//     after that is tried, so a fix reaches the phone within the hour
+	//     without trying every image;
+	//   - another remembered image of its folder worked in cors mode since it
+	//     failed: TCGdex fixed something there, so each one is worth one try.
+	//
+	// A failed try sets its time again. The folder never sends an image to
+	// no-cors: it only decides when to try again.
+	//
+	// The worker cannot tell the doubled header from a missing image: TCGdex
+	// answers a 404 without CORS headers, so its cors request fails too, and
+	// in no-cors mode every answer is opaque. Either one is remembered for
+	// that image only, so missing English images never send the next English
+	// image to no-cors.
+	const RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 	const PROBE_AFTER_MS = 60 * 60 * 1000;
 
-	const blank = () => ({fails: 0, mode: 'cors', probedAt: 0, recovered: false});
+	// Images remembered at most, the ones that failed longest ago forgotten
+	// first (the cors cache's limit; about 70 bytes each when saved).
+	const IMAGES_MAX = 3000;
 
 	// The memory, from what toJSON() saved. now: injectable for tests.
 	//
-	//   plan(folder)          'cors', 'no-cors', or 'probe' (a cors try for a
-	//                         folder on no-cors) for an image not kept yet
-	//   record(folder, ok)    a cors try worked (ok) or failed on the header
-	//                         while the network was up; true when the state
-	//                         to save changed
-	//   mode(folder)          'cors' or 'no-cors'
-	//   recovered(folder)     true when the folder came back to cors after
-	//                         being on no-cors, so its opaque images are
-	//                         worth fetching again in cors mode
-	function folderMemory(saved = {}, now = () => Date.now()) {
+	//   plan(url)      for an image not kept: 'cors', 'retry' (a cors try of
+	//                  an image that failed before, skipping the HTTP cache,
+	//                  which keeps the doubled header for a year), or
+	//                  'no-cors'
+	//   check(url)     for an image kept opaque: true when a cors try is due
+	//                  (also for one kept with nothing remembered, such as an
+	//                  earlier version's)
+	//   failed(url)    the cors request failed and a no-cors fetch came back
+	//                  opaque
+	//   worked(url)    a cors request worked; true when the state to save
+	//                  changed
+	//   remembered(url) true when the image failed and is not due a try
+	function imageMemory(saved = {}, now = () => Date.now()) {
+		const images = new Map();
 		const folders = new Map();
-		// Images sent no-cors since the folder's last cors try. Only in
-		// memory: a worker that restarts counts again, and the hour rule
-		// still applies.
-		const skipped = new Map();
+		const source = saved && typeof saved === 'object' ? saved : {};
 
-		for (const [folder, state] of Object.entries(saved && typeof saved === 'object' ? saved : {})) {
-			if (state && (state.mode === 'cors' || state.mode === 'no-cors')) {
-				folders.set(folder, {
-					fails: Number(state.fails) || 0,
-					mode: state.mode,
-					probedAt: Number(state.probedAt) || 0,
-					recovered: state.recovered === true,
-				});
+		for (const [url, failedAt] of Object.entries(source.images && typeof source.images === 'object' ? source.images : {})) {
+			if (Number.isFinite(failedAt)) {
+				images.set(url, failedAt);
 			}
 		}
 
-		const stateOf = (folder) => {
+		for (const [folder, state] of Object.entries(source.folders && typeof source.folders === 'object' ? source.folders : {})) {
+			if (state && typeof state === 'object') {
+				folders.set(folder, {fixedAt: Number(state.fixedAt) || 0, probedAt: Number(state.probedAt) || 0});
+			}
+		}
+
+		const folderState = (url) => {
+			const folder = folderOf(url);
+
 			if (!folders.has(folder)) {
-				folders.set(folder, blank());
+				folders.set(folder, {fixedAt: 0, probedAt: 0});
 			}
 
 			return folders.get(folder);
 		};
 
+		// True when the remembered image is due a cors try. claim: take the
+		// folder's hourly try, so the next image shown waits another hour.
+		function due(url, claim) {
+			const failedAt = images.get(url);
+			const folder = folderState(url);
+
+			if (now() - failedAt >= RETRY_AFTER_MS || folder.fixedAt > failedAt) {
+				return true;
+			}
+
+			if (now() - folder.probedAt >= PROBE_AFTER_MS) {
+				if (claim) {
+					folder.probedAt = now();
+				}
+
+				return true;
+			}
+
+			return false;
+		}
+
 		return {
-			mode: (folder) => (folders.get(folder) || blank()).mode,
+			check: (url) => !images.has(url) || due(url, true),
 
-			plan(folder) {
-				const state = folders.get(folder);
+			failed(url) {
+				images.delete(url);
+				images.set(url, now());
+				folderState(url).probedAt = now();
 
-				if (!state || state.mode === 'cors') {
-					return 'cors';
-				}
-
-				const count = (skipped.get(folder) || 0) + 1;
-
-				if (count >= PROBE_EVERY || now() - state.probedAt >= PROBE_AFTER_MS) {
-					skipped.set(folder, 0);
-					state.probedAt = now();
-
-					return 'probe';
-				}
-
-				skipped.set(folder, count);
-
-				return 'no-cors';
-			},
-
-			record(folder, ok) {
-				const state = stateOf(folder);
-
-				if (ok) {
-					if (state.mode === 'cors' && !state.fails) {
-						return false;
+				for (const old of images.keys()) {
+					if (images.size <= IMAGES_MAX) {
+						break;
 					}
 
-					state.recovered = state.recovered || state.mode === 'no-cors';
-					state.fails = 0;
-					state.mode = 'cors';
-
-					return true;
-				}
-
-				state.fails += 1;
-
-				if (state.mode === 'cors' && state.fails >= FLIP_AFTER) {
-					state.mode = 'no-cors';
-					state.probedAt = now();
-					state.recovered = false;
-					skipped.set(folder, 0);
+					images.delete(old);
 				}
 
 				return true;
 			},
 
-			recovered: (folder) => Boolean(folders.get(folder) && folders.get(folder).mode === 'cors' && folders.get(folder).recovered),
+			plan(url) {
+				if (!images.has(url)) {
+					return 'cors';
+				}
 
-			toJSON: () => Object.fromEntries(folders),
+				return due(url, true) ? 'retry' : 'no-cors';
+			},
+
+			remembered: (url) => images.has(url) && !due(url, false),
+
+			toJSON: () => ({folders: Object.fromEntries(folders), images: Object.fromEntries(images)}),
+
+			worked(url) {
+				if (!images.has(url)) {
+					return false;
+				}
+
+				images.delete(url);
+				folderState(url).fixedAt = now();
+
+				return true;
+			},
 		};
 	}
 
@@ -160,15 +189,15 @@
 	}
 
 	globalThis.imageFolders = {
-		FLIP_AFTER,
+		IMAGES_MAX,
 		OPAQUE_MAX,
 		OPAQUE_MIN,
 		OPAQUE_PAD,
 		PROBE_AFTER_MS,
-		PROBE_EVERY,
+		RETRY_AFTER_MS,
 		englishOf,
-		folderMemory,
 		folderOf,
+		imageMemory,
 		opaqueLimit,
 	};
 })();

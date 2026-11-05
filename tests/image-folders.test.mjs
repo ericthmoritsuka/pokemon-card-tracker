@@ -1,8 +1,9 @@
-// Unit tests for what the service worker remembers about each image folder
-// (js/image-folders.js), the opaque cache's size, and the English stand-in
-// the art falls back to (js/tile.js artFallback). Node only, no browser,
-// no network. The browser side is in tests/my-cards-browser.test.mjs,
-// "card images".
+// Unit tests for what the service worker remembers about the images that
+// fail in cors mode (js/image-folders.js), the opaque cache's size, and the
+// English stand-in the art falls back to (js/tile.js artFallback). Node
+// only, no browser, no network. The worker itself is in
+// tests/image-worker.test.mjs, the browser side in
+// tests/my-cards-browser.test.mjs, "card images".
 //
 // Run: node --test tests/image-folders.test.mjs
 
@@ -16,7 +17,7 @@ globalThis.window = globalThis.window || {addEventListener() {}};
 await import('../js/image-folders.js');
 
 const {ENGLISH_NOTE, artFallback, englishImage} = await import('../js/tile.js');
-const {FLIP_AFTER, OPAQUE_MAX, OPAQUE_MIN, PROBE_AFTER_MS, PROBE_EVERY, englishOf, folderMemory, folderOf, opaqueLimit} = globalThis.imageFolders;
+const {IMAGES_MAX, OPAQUE_MAX, OPAQUE_MIN, PROBE_AFTER_MS, RETRY_AFTER_MS, englishOf, folderOf, imageMemory, opaqueLimit} = globalThis.imageFolders;
 
 const PT = 'assets.tcgdex.net/pt';
 const FR = 'assets.tcgdex.net/fr';
@@ -31,7 +32,9 @@ function clock(start = 1_000_000) {
 	return {at, now: () => at.now};
 }
 
-describe('image folders', () => {
+const image = (folder, n) => `https://${folder}/me/me01/${String(n).padStart(3, '0')}/low.webp`;
+
+describe('the image memory', () => {
 	test('a folder is the host and the language', () => {
 		assert.equal(folderOf('https://assets.tcgdex.net/pt/me/me01/001/low.webp'), PT);
 		assert.equal(folderOf('https://assets.tcgdex.net/fr/sv/sv01/001/high.webp'), FR);
@@ -39,125 +42,115 @@ describe('image folders', () => {
 		assert.equal(folderOf('https://raw.githubusercontent.com/PokeAPI/sprites/master/1.png'), 'raw.githubusercontent.com/PokeAPI');
 	});
 
-	test('every folder starts on cors', () => {
-		const memory = folderMemory();
+	test('every image starts on cors, and an image kept opaque with nothing remembered is worth one try', () => {
+		const memory = imageMemory();
 
-		assert.equal(memory.plan(PT), 'cors');
-		assert.equal(memory.mode(PT), 'cors');
-		assert.equal(memory.recovered(PT), false);
+		assert.equal(memory.plan(image(PT, 1)), 'cors');
+		assert.equal(memory.check(image(PT, 1)), true);
+		assert.equal(memory.remembered(image(PT, 1)), false);
+		assert.equal(memory.worked(image(PT, 1)), false, 'nothing to save');
 	});
 
-	test(`a folder goes to no-cors after ${FLIP_AFTER} doubled headers in a row, and not before`, () => {
-		const memory = folderMemory();
+	test('a failed image goes straight to no-cors; the images around it in its folder stay on cors', () => {
+		const memory = imageMemory();
 
-		for (let i = 1; i < FLIP_AFTER; i++) {
-			assert.equal(memory.record(PT, false), true);
-			assert.equal(memory.plan(PT), 'cors', `still cors after ${i}`);
+		// Three in a row, as pt/me/me01/001 to 003 can be.
+		for (const n of [1, 2, 3]) {
+			assert.equal(memory.failed(image(PT, n)), true);
 		}
 
-		assert.equal(memory.record(PT, false), true);
-		assert.equal(memory.mode(PT), 'no-cors');
-		assert.equal(memory.plan(PT), 'no-cors');
+		assert.deepEqual([1, 2, 3].map((n) => memory.plan(image(PT, n))), ['no-cors', 'no-cors', 'no-cors']);
+		assert.deepEqual([4, 5].map((n) => memory.plan(image(PT, n))), ['cors', 'cors']);
+		assert.equal(memory.check(image(PT, 1)), false);
+		assert.equal(memory.remembered(image(PT, 1)), true);
 	});
 
-	test('a folder that doubles some images and not others stays on cors', () => {
-		const memory = folderMemory();
-
-		// As on 2026-10-15: 001 and 003 doubled, 002 not, again and again.
-		for (let i = 0; i < 30; i++) {
-			memory.record(PT, i % 3 === 1);
-		}
-
-		assert.equal(memory.mode(PT), 'cors');
-		assert.equal(memory.record(PT, true), true, 'a success after a failure resets the count');
-		assert.equal(memory.record(PT, true), false, 'and a second one changes nothing to save');
-	});
-
-	test('folders are remembered apart: Portuguese on no-cors leaves French and English on cors', () => {
-		const memory = folderMemory();
-
-		for (let i = 0; i < FLIP_AFTER; i++) {
-			memory.record(PT, false);
-		}
-
-		memory.record(FR, false);
-		assert.deepEqual([memory.mode(PT), memory.mode(FR), memory.mode(EN)], ['no-cors', 'cors', 'cors']);
-	});
-
-	test(`a folder on no-cors tries cors on every ${PROBE_EVERY}th image, and switches back when it works`, () => {
+	test('a remembered image is tried again after a week', () => {
 		const time = clock();
-		const memory = folderMemory({}, time.now);
+		const memory = imageMemory({}, time.now);
 
-		for (let i = 0; i < FLIP_AFTER; i++) {
-			memory.record(PT, false);
-		}
-
-		const plans = Array.from({length: PROBE_EVERY}, () => memory.plan(PT));
-
-		assert.deepEqual(plans, [...Array(PROBE_EVERY - 1).fill('no-cors'), 'probe']);
-
-		// The probe failed: still no-cors, and the count starts again.
-		memory.record(PT, false);
-		assert.equal(memory.mode(PT), 'no-cors');
-		assert.deepEqual(Array.from({length: PROBE_EVERY}, () => memory.plan(PT)).at(-1), 'probe');
-
-		// The next probe works: TCGdex fixed the header.
-		assert.equal(memory.record(PT, true), true);
-		assert.equal(memory.mode(PT), 'cors');
-		assert.equal(memory.plan(PT), 'cors');
-		assert.equal(memory.recovered(PT), true, 'its opaque images are worth fetching again');
-	});
-
-	test('a folder on no-cors also tries cors an hour after its last try', () => {
-		const time = clock();
-		const memory = folderMemory({}, time.now);
-
-		for (let i = 0; i < FLIP_AFTER; i++) {
-			memory.record(PT, false);
-		}
-
-		assert.equal(memory.plan(PT), 'no-cors');
-		time.at.now += PROBE_AFTER_MS - 1;
-		assert.equal(memory.plan(PT), 'no-cors');
+		memory.failed(image(PT, 1));
+		// Another image's try keeps the folder's hourly one taken.
+		time.at.now += RETRY_AFTER_MS - 1;
+		memory.failed(image(PT, 2));
+		assert.equal(memory.plan(image(PT, 1)), 'no-cors');
 		time.at.now += 1;
-		assert.equal(memory.plan(PT), 'probe');
-		assert.equal(memory.plan(PT), 'no-cors', 'once, not at every image after the hour');
+		assert.equal(memory.plan(image(PT, 1)), 'retry');
+		assert.equal(memory.check(image(PT, 1)), true);
 	});
 
-	test('the memory survives a new worker, and a folder that went back to no-cors is no longer recovered', () => {
+	test('a folder gets one try an hour, on the first remembered image shown, and only that one', () => {
 		const time = clock();
-		const memory = folderMemory({}, time.now);
+		const memory = imageMemory({}, time.now);
 
-		for (let i = 0; i < FLIP_AFTER; i++) {
-			memory.record(PT, false);
+		for (const n of [1, 2, 3]) {
+			memory.failed(image(PT, n));
 		}
 
-		memory.record(FR, false);
+		time.at.now += PROBE_AFTER_MS - 1;
+		assert.equal(memory.check(image(PT, 2)), false);
+		time.at.now += 1;
+		assert.equal(memory.check(image(PT, 2)), true, 'the hour is up');
+		assert.equal(memory.check(image(PT, 3)), false, 'the hour\'s try is taken');
+		assert.equal(memory.plan(image(PT, 1)), 'no-cors');
+		assert.equal(memory.check(image(FR, 1)), true, 'other folders keep their own');
 
-		const again = folderMemory(JSON.parse(JSON.stringify(memory)), time.now);
-
-		assert.deepEqual([again.mode(PT), again.mode(FR)], ['no-cors', 'cors']);
-		assert.equal(again.plan(PT), 'no-cors');
-
-		// FR has one failure on record: two more flip it.
-		again.record(FR, false);
-		again.record(FR, false);
-		assert.equal(again.mode(FR), 'no-cors');
-
-		again.record(PT, true);
-		assert.equal(again.recovered(PT), true);
-
-		for (let i = 0; i < FLIP_AFTER; i++) {
-			again.record(PT, false);
-		}
-
-		assert.equal(again.recovered(PT), false);
+		// It failed: the next try is an hour on.
+		memory.failed(image(PT, 2));
+		time.at.now += PROBE_AFTER_MS - 1;
+		assert.equal(memory.check(image(PT, 1)), false);
 	});
 
-	test('a saved memory that is not one is ignored', () => {
-		for (const saved of [null, 'x', [], {[PT]: {mode: 'sideways'}}, {[PT]: null}]) {
-			assert.equal(folderMemory(saved).mode(PT), 'cors', JSON.stringify(saved));
+	test('when a remembered image works, each other one in its folder is worth one more try', () => {
+		const time = clock();
+		const memory = imageMemory({}, time.now);
+
+		for (const n of [1, 2, 3]) {
+			memory.failed(image(PT, n));
 		}
+
+		memory.failed(image(FR, 1));
+		time.at.now += PROBE_AFTER_MS;
+		assert.equal(memory.check(image(PT, 1)), true);
+		assert.equal(memory.worked(image(PT, 1)), true);
+		assert.equal(memory.plan(image(PT, 1)), 'cors', 'forgotten');
+		assert.equal(memory.check(image(PT, 2)), true);
+		assert.equal(memory.plan(image(PT, 3)), 'retry');
+		assert.equal(memory.toJSON().folders[FR].fixedAt, 0, 'not in another folder');
+
+		// One that still fails is left alone again.
+		time.at.now += 1;
+		memory.failed(image(PT, 2));
+		assert.equal(memory.check(image(PT, 2)), false);
+	});
+
+	test('the memory survives a new worker, and a saved memory that is not one is ignored', () => {
+		const time = clock();
+		const memory = imageMemory({}, time.now);
+
+		memory.failed(image(PT, 1));
+
+		const again = imageMemory(JSON.parse(JSON.stringify(memory)), time.now);
+
+		assert.equal(again.plan(image(PT, 1)), 'no-cors');
+		assert.equal(again.check(image(PT, 1)), false, 'its folder\'s hourly try is remembered too');
+
+		for (const saved of [null, 'x', [], {images: {[image(PT, 1)]: 'soon'}}, {folders: {[PT]: null}}, {[PT]: {mode: 'no-cors'}}]) {
+			assert.equal(imageMemory(saved).plan(image(PT, 1)), 'cors', JSON.stringify(saved));
+		}
+	});
+
+	test(`at most ${IMAGES_MAX} images are remembered, the ones that failed longest ago forgotten first`, () => {
+		const time = clock();
+		const memory = imageMemory({}, time.now);
+
+		for (let n = 1; n <= IMAGES_MAX + 2; n++) {
+			time.at.now += 1;
+			memory.failed(image(PT, n));
+		}
+
+		assert.equal(Object.keys(memory.toJSON().images).length, IMAGES_MAX);
+		assert.deepEqual([1, 2, 3].map((n) => memory.plan(image(PT, n))), ['cors', 'cors', 'no-cors']);
 	});
 });
 

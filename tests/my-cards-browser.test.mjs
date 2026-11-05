@@ -1051,7 +1051,7 @@ describe('card images', () => {
 		await context.close();
 	});
 
-	test('one doubled image keeps its folder on cors, the rest keep their true size, the doubled one gets an English stand-in, and the least recently used is trimmed first', async () => {
+	test('one doubled image sends no other image to no-cors, the rest keep their true size, the doubled one gets an English stand-in, and the least recently used is trimmed first', async () => {
 		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
 		const net = {offline: false};
 		const modes = [];
@@ -1111,7 +1111,7 @@ describe('card images', () => {
 		await context.close();
 	});
 
-	test('when TCGdex doubles every Portuguese and French header, the images seen online still show offline, a trimmed one falls back to English, and a folder TCGdex fixes switches back', async () => {
+	test('when TCGdex doubles every Portuguese and French header, the images seen online still show offline, a trimmed one falls back to English, and a fixed header moves them to the cors cache', async () => {
 		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
 		const net = {doubled: true, offline: false};
 		const modes = [];
@@ -1143,25 +1143,36 @@ describe('card images', () => {
 			return hit ? hit.json() : null;
 		});
 
-		// Online: every image shows. After three cors failures in a row the
-		// Portuguese folder is fetched in no-cors mode straight away.
+		// Online: every image shows. Each is tried in cors mode, then fetched
+		// in no-cors mode, and remembered on its own: TCGdex doubles the
+		// header image by image, so failures in a row say nothing about the
+		// next image.
 		for (const number of SEEN) {
 			assert.deepEqual(await art(page, pt(number)), {back: false, fallback: null, note: null, shown: pt(number)}, number);
 		}
 
-		assert.deepEqual(modes.filter((mode) => mode.startsWith('pt/')), [
-			'pt/001 cors', 'pt/001 no-cors',
-			'pt/002 cors', 'pt/002 no-cors',
-			'pt/003 cors', 'pt/003 no-cors',
-			'pt/004 no-cors',
-			'pt/005 no-cors',
-		]);
-		await untilInPage(page, 'the Portuguese folder saved on no-cors', async () => {
+		assert.deepEqual(modes.filter((mode) => mode.startsWith('pt/')), SEEN.flatMap((number) => [`pt/${number} cors`, `pt/${number} no-cors`]));
+		await untilInPage(page, 'the five Portuguese images saved as failing in cors mode', async () => {
 			const hit = await caches.match(new URL('/pokemon-card-tracker/image-folders.json', location.origin).href, {cacheName: 'card-tracker-image-folders'});
 
-			return Boolean(hit) && (await hit.json())['assets.tcgdex.net/pt'].mode === 'no-cors';
+			return Boolean(hit) && Object.keys((await hit.json()).images).filter((url) => url.includes('/pt/')).length === 5;
 		}, TIMEOUT);
 		await untilInPage(page, 'five English stand-ins in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).filter((request) => request.url.includes('/en/')).length === 5, TIMEOUT);
+
+		// A new worker fetches them straight in no-cors mode, without the
+		// failing cors request.
+		const cdp = await context.newCDPSession(page);
+		const restartWorker = async () => {
+			await cdp.send('ServiceWorker.enable');
+			await cdp.send('ServiceWorker.stopAllWorkers');
+		};
+
+		await page.evaluate(async (url) => (await caches.open('card-tracker-images-opaque')).delete(url), pt('005'));
+		await restartWorker();
+		modes.length = 0;
+		await page.evaluate((url) => fetch(url, {mode: 'no-cors'}), pt('005'));
+		assert.deepEqual(modes, ['pt/005 no-cors']);
+		await untilInPage(page, 'pt/005 kept opaque again', async (url) => Boolean(await (await caches.open('card-tracker-images-opaque')).match(url)), {...TIMEOUT, arg: pt('005')});
 
 		const online = await kept(page);
 
@@ -1214,41 +1225,48 @@ describe('card images', () => {
 		});
 		await page.locator('body > .art:has(.art-note)').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-art.png`});
 
-		// Online again, and TCGdex has fixed the header: within 20 images the
-		// folder tries cors, it works, and the rest go cors.
+		// Online again, and TCGdex has fixed the header: new images go cors
+		// at once.
 		net.offline = false;
 		await context.setOffline(false);
 		net.doubled = false;
-
-		const before = modes.length;
-		const batch = Array.from({length: 20}, (_, i) => pt(String(10 + i).padStart(3, '0')));
-
+		modes.length = 0;
 		await page.evaluate(async (urls) => {
 			for (const url of urls) {
 				await fetch(url, {mode: 'no-cors'});
 			}
-		}, batch);
+		}, ['010', '011', '012'].map(pt));
+		assert.deepEqual(modes, ['pt/010 cors', 'pt/011 cors', 'pt/012 cors']);
 
-		const after = modes.slice(before).filter((mode) => mode.startsWith('pt/')).map((mode) => mode.split(' ')[1]).join(' ');
+		// An opaque image is tried again in cors mode once its folder's
+		// hourly try is due (here an hour has passed, as the saved memory
+		// says), skipping the HTTP cache; it works, so the folder's other
+		// opaque images are each tried once when next shown, and all move to
+		// the cache that counts their true size.
+		await page.evaluate(async () => {
+			const cache = await caches.open('card-tracker-image-folders');
+			const key = new URL('/pokemon-card-tracker/image-folders.json', location.origin).href;
+			const saved = await (await cache.match(key)).json();
 
-		assert.match(after, /^(?:no-cors )+cors(?: cors)*$/, 'one cors try, then cors for the rest');
-		await untilInPage(page, 'the Portuguese folder saved back on cors', async () => {
-			const hit = await caches.match(new URL('/pokemon-card-tracker/image-folders.json', location.origin).href, {cacheName: 'card-tracker-image-folders'});
-			const state = hit && (await hit.json())['assets.tcgdex.net/pt'];
+			saved.folders['assets.tcgdex.net/pt'].probedAt -= 60 * 60 * 1000;
+			await cache.put(key, new Response(JSON.stringify(saved), {headers: {'Content-Type': 'application/json'}}));
+		});
+		await restartWorker();
+		modes.length = 0;
 
-			return Boolean(state) && state.mode === 'cors' && state.recovered === true;
-		}, TIMEOUT);
+		for (const number of ['001', '002']) {
+			assert.equal((await art(page, pt(number))).shown, pt(number));
+			await untilInPage(page, `pt/${number} moved out of the opaque cache`, async (url) => {
+				const opaque = await (await caches.open('card-tracker-images-opaque')).match(url);
+				const real = await (await caches.open('card-tracker-images')).match(url);
 
-		// A Portuguese image kept opaque is fetched again in cors mode when it
-		// is next shown, and moves to the cache that counts its true size.
-		assert.equal((await art(page, pt('001'))).shown, pt('001'));
-		await untilInPage(page, 'pt/001 moved out of the opaque cache', async (url) => {
-			const opaque = await (await caches.open('card-tracker-images-opaque')).match(url);
-			const real = await (await caches.open('card-tracker-images')).match(url);
+				return !opaque && Boolean(real) && real.type === 'cors';
+			}, {...TIMEOUT, arg: pt(number)});
+		}
 
-			return !opaque && Boolean(real) && real.type === 'cors';
-		}, {...TIMEOUT, arg: pt('001')});
-		assert.equal((await folders())['assets.tcgdex.net/fr'], undefined, 'a request that failed offline taught the French folder nothing');
+		assert.deepEqual(modes, ['pt/001 cors', 'pt/002 cors'], 'one cors request each, nothing else');
+		assert.equal((await folders()).folders['assets.tcgdex.net/fr'], undefined, 'a request that failed offline taught the French folder nothing');
+		assert.ok(!Object.keys((await folders()).images).some((url) => url.includes('/fr/')));
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

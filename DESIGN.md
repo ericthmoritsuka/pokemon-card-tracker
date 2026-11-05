@@ -582,21 +582,28 @@ than downloading a whole language up front.
 `access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images on 2026-10-01;
 on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image; on
 2026-11-05, `pt/me/me01/001` and `fr/me/me01/001` doubled and `en/me/me01/001` not), which
-browsers reject as a CORS failure. It varies image by image within one set folder: the doubled
-responses carry an `x-amz-request-id` and a second set of CORS headers, which points to images
-proxied from an S3-compatible store whose CORS headers nginx sends on top of its own. Images
-therefore load without `crossorigin`, and the service worker keeps those as opaque responses,
-which Chrome counts at a random 0 to 14 MiB of quota each (about 7 MiB on average; measured, 200
-opaque 20 KB images counted about 1.5 GB) although the file on disk is its real size, about 16 KB
-for a grid image. The worker handles it in three parts:
+browsers reject as a CORS failure. It varies image by image within one set folder, even between
+images from the same store: on 2026-11-05 `pt/me/me01/001` was doubled and `002` single, and both
+carried an `x-amz-request-id`. The doubled responses carry a second set of CORS headers, which
+points to an S3-compatible store whose CORS headers nginx sends on top of its own on some
+objects. Images therefore load without `crossorigin`, and the service worker keeps those as opaque
+responses, which Chrome counts at a random 0 to 14 MiB of quota each (about 7 MiB on average;
+measured, 200 opaque 20 KB images counted about 1.5 GB) although the file on disk is its real
+size, about 16 KB for a grid image. The worker handles it in three parts:
 
-- **Per folder, then per image.** The worker remembers each image folder (host and language, such
-  as `assets.tcgdex.net/pt`) in its own cache (`js/image-folders.js`). A folder starts on cors and
-  falls back to no-cors image by image; after three cors failures in a row it goes straight to
-  no-cors, which saves the failing request on every new image. It tries cors again on every 20th
-  image or an hour after its last try, skipping the HTTP cache (which keeps the doubled header for
-  a year); when that works, the folder switches back, and each opaque image from it is fetched
-  again in cors mode when next shown and moved to the cors cache, giving back its padding.
+- **Per image, with the folder deciding when to try again.** Because it varies image by image, a
+  memory per folder is only a hint. Every image not kept yet is fetched in cors mode first, and in
+  no-cors mode only when that fails. An image whose cors request failed while its no-cors fetch
+  came back opaque is remembered with the time, in the worker's own cache
+  (`js/image-folders.js`), so a new worker starts from it: it is fetched straight in no-cors mode
+  and tried in cors mode again, skipping the HTTP cache (which keeps the doubled header for a
+  year), only when a week has passed, or when its folder (host and language) has had no try for an
+  hour (the first remembered image shown takes that try), or when another image of its folder has
+  worked since (TCGdex fixed something there). An opaque image whose try works moves to the cors
+  cache, giving back its padding; one that fails is not tried again until it is due, by any
+  worker. The tries and the English stand-ins below run two at a time. A missing image looks the
+  same to the worker (TCGdex answers a 404 without CORS headers, and every no-cors answer is
+  opaque), so it is remembered for that image alone and never sends another image to no-cors.
 - **Sized by bytes, counted in entries.** The cors cache keeps 3,000 images at their true size
   (about 50 to 120 MB). The opaque cache keeps half the origin's quota in padded entries at 8 MiB
   each, 100 to 3,000 entries: about 600 on Eric's phone (10 GB quota), which is about 5 GB in
