@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
-- **v57:** Portuguese and French card images work better offline. `TBD`
+- **v57:** Portuguese and French card images work better offline. `6e8504f`
   - TCGdex sends a broken header on some Portuguese and French images (not on others in the same
     set), so the phone can only keep those in a form that Chrome counts at about 7 MB each. The app
     now finds out image by image which ones those are, keeps every other image at its real size,
