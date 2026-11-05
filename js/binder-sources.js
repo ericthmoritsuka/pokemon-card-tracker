@@ -3,8 +3,10 @@
 // person's document, as items with the copies that fit each one.
 //
 //   checklist   one pocket per Pokédex entry; a copy fits when its card's
-//               Pokédex numbers include the entry's, in any language, as the
-//               checklist screen ticks it (js/checklists.js resolveOwned)
+//               Pokédex numbers include the entry's, in one of the list's
+//               languages (any language for a list that names none), as the
+//               checklist screen ticks it (js/checklists.js resolveOwned and
+//               listByDex; Eric, 2026-11-05)
 //   collection  one pocket per card the collection holds; its copies there
 //   goal        one pocket per card of the set or artist goal, owned or not;
 //               the copies the goal counts (js/goals.js computeGoal)
@@ -20,7 +22,7 @@
 // goal's card list, and card details for a rule.
 
 import {cardIndex, catalogLanguage, catalogFor, indexKey, priceRecords, setIdOfCard, viewingLanguage} from './catalog.js';
-import {checklistDex, dexLabel, isChecklist, nameOf, pokemonNames, resolveOwned, sortChecklists, spriteUrl} from './checklists.js';
+import {checklistDex, dexLabel, isChecklist, listByDex, nameOf, pokemonNames, resolveOwned, sortChecklists, spriteUrl} from './checklists.js';
 import {collectionEntries, fillDetails, itemFor, ruleMatches, sortCollections} from './collections.js';
 import {isLive, placeFold, storedPlaces} from './collection.js';
 import {customRecord} from './custom-card.js';
@@ -211,6 +213,15 @@ export const pokemonItem = (n, names, copies = []) => ({
 	setName: null,
 });
 
+// A checklist's items, one per Pokémon, with the copies that count on the
+// list (js/checklists.js listByDex): only those in its languages when it
+// names some, as its ticks. byDex: resolveOwned's, every copy.
+export function checklistItems(goal, byDex, names = []) {
+	const counted = listByDex(goal, byDex) || new Map();
+
+	return checklistDex(goal).map((n) => pokemonItem(n, names, counted.get(n) || []));
+}
+
 // The source's items, in the rule's order: {items, error, partial, gone}.
 // gone: the list was deleted. partial: some copies could not be told
 // (Pokédex numbers still unknown, or a goal's card list not on the phone),
@@ -241,7 +252,7 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 
 		error = owned.error || null;
 		partial = owned.unresolved > 0 || Boolean(owned.error);
-		items = checklistDex(goal).map((n) => pokemonItem(n, names, owned.byDex.get(n) || []));
+		items = checklistItems(goal, owned.byDex, names);
 	}
 	else if (kind === 'collection') {
 		const collection = sourceEntry(clean, doc);

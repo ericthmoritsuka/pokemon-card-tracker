@@ -1965,6 +1965,23 @@ progress {
 	color: var(--link);
 }
 
+/* Missing on this list, owned in a language it does not count: that
+   language's flag under the mark, dimmed (Eric, 2026-11-05). */
+.dex-elsewhere {
+	align-items: center;
+	display: inline-flex;
+	opacity: 0.75;
+}
+
+.dex-elsewhere .flags-inline {
+	margin-right: 0;
+}
+
+.dex-elsewhere-text {
+	color: var(--muted);
+	font-size: 0.7rem;
+}
+
 .dex-cards {
 	padding: 0 0 var(--space-3);
 }

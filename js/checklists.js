@@ -31,6 +31,7 @@ import {
 	isAsian,
 	listLanguagesToSave,
 	namesListLanguages,
+	sortLanguages,
 } from './languages.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
@@ -340,8 +341,9 @@ export const deleteChecklist = (id) => changeChecklist(id, (goal) => {
 //
 // Each list's languages (DESIGN.md section 11, "Every card of a Pokémon"):
 // the prints a Pokémon's cards screen shows (js/pokemon-cards.js), and the
-// languages a copy must be in to count as owned, on that screen and in the
-// list's ticks. Stored on the goal as languages, a list of language codes.
+// languages a copy must be in to count as owned, on that screen, in the
+// list's ticks, counts, ring, and Value, and in a binder made from the list
+// (js/binder-sources.js; Eric, 2026-11-05). Stored on the goal as languages, a list of language codes.
 // A list with none names no languages and counts a copy in any language:
 // the lists made before languages decided ticks keep counting as they did
 // (plans/roadmap.md, "Open Decisions for Eric"). A new checklist starts with
@@ -420,6 +422,22 @@ export function listByDex(goal, byDex) {
 	}
 
 	return byLanguages.get(key);
+}
+
+// Why a number is not ticked though a copy of it is owned (Eric,
+// 2026-11-05): the languages of the copies of n that byDex holds (every
+// copy, resolveOwned's) when none of them counts on the list, in the
+// table's order, so its row can show their flags. Empty when n is ticked,
+// not owned at all, or the list names no languages (then every copy
+// counts). A copy with no language recorded gives null.
+export function ownedElsewhere(goal, byDex, n) {
+	if (!byDex || !namesListLanguages(goal) || !byDex.has(n) || listByDex(goal, byDex).has(n)) {
+		return [];
+	}
+
+	const codes = new Set(byDex.get(n).filter(isLive).map((entry) => entry.language || null));
+
+	return [...sortLanguages([...codes].filter(Boolean)), ...(codes.has(null) ? [null] : [])];
 }
 
 // ------------------------------------------------------------ the cache

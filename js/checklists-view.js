@@ -11,9 +11,11 @@ import {currentUser} from './auth.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
+import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {goalsSection} from './goals-view.js';
 import {isGoal, listGoals} from './goals.js';
+import {languageLabel} from './languages.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
 import {UNDO_MS, orderSection} from './reorder.js';
@@ -33,6 +35,7 @@ import {
 	listByDex,
 	listChecklists,
 	nameOf,
+	ownedElsewhere,
 	speciesNames,
 	progress,
 	regionById,
@@ -690,6 +693,26 @@ function checklistScreen(root, source, id) {
 		}
 	}
 
+	// A Pokémon owned only in languages the list does not count shows them
+	// under its missing mark, so the row says why it is not ticked (Eric,
+	// 2026-11-05): "Owned only in English".
+	function elsewhereNote(n) {
+		const codes = result ? ownedElsewhere(goal, result.byDex, n) : [];
+
+		if (!codes.length) {
+			return null;
+		}
+
+		const known = codes.filter(Boolean);
+		const words = [...known.map(languageLabel), ...(codes.includes(null) ? ['no language'] : [])].join(', ');
+
+		// The flags carry the names as their label; a copy with no language
+		// recorded has no flag, so it is said in words.
+		return h('span', {class: 'dex-elsewhere', title: `Owned only in ${words}, which this list does not count`},
+			known.length ? flagBadge(known, {className: 'flags-inline', prefix: 'Owned only in'}) : h('span', {class: 'dex-elsewhere-text'}, 'owned, no language')
+		);
+	}
+
 	function mark(kind, count) {
 		if (kind === 'owned') {
 			return h('span', {class: 'dex-mark'},
@@ -723,9 +746,14 @@ function checklistScreen(root, source, id) {
 				h('span', {class: 'dex-name'}, name)
 			)
 		);
+		const note = kind === 'missing' ? elsewhereNote(n) : null;
 		const tick = h('span', {class: 'dex-tick'}, mark(kind, entries.length));
 
-		return h('li', {class: `dex-row dex-row-linked ${kind}`, 'data-dex': n}, entry, tick);
+		if (note) {
+			tick.querySelector('.dex-mark').append(note);
+		}
+
+		return h('li', {class: `dex-row dex-row-linked ${kind}${note ? ' elsewhere' : ''}`, 'data-dex': n}, entry, tick);
 	}
 
 	function drawList() {
