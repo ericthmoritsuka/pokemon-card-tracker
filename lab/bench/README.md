@@ -126,7 +126,9 @@ and scaled a little, at a seeded random, so every run sees the same images.
 | `jpeg` | JPEG quality 0.3. |
 | `nonumber` | The bottom 12 % blurred out, as a thumb or a sleeve edge would hide the number. |
 | `slant` | Turned 10 to 20 degrees either way, so the corners run out of the capture. Not in the default run, which stays comparable with earlier measurements; ask for it with `--passes slant`. |
-| `slantfull` | As `slant`, the card 106 to 112 % of the guide's height (the capture's whole height), so its bottom edge runs out of the capture too, and with the capture's 6 % margin its sides as well: the strong-slant cut at the weakness row (DESIGN.md section 6, measured 2026-11-04, fixed 2026-11-05). Not in the default run. |
+| `slantfull` | As `slant`, the card 106 to 112 % of the guide's height (95 to 100 % of the capture's), so with the turn its corners run well out of the capture, and its sides out of the capture's 6 % margin: the strong-slant cut (DESIGN.md section 6, measured 2026-11-04, fixed 2026-11-05). The card is centred, so its foot stays mostly in the capture; `low` cuts the foot. Not in the default run. |
+| `low` | The card held low: 108 to 112 % of the guide's height, 7 % of it below the middle, turned up to 4 degrees, so its foot runs 5 to 9 % out of the capture while its top is in it. Not in the default run. |
+| `lowslant` | As `low`, the card as tall as the guide and turned 6 to 16 degrees. Not in the default run. |
 
 ## Images and Data
 

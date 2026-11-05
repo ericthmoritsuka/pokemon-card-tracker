@@ -98,6 +98,14 @@ export const PASSES = {
 	// strong-slant cut, 2026-11-04).
 	slantfull: {angle: 20, blur: 0.6, minAngle: 10, quality: 0.8, scale: [1.06, 0.06]},
 	tilt: {angle: 4.5, blur: 0.6, quality: 0.8},
+	// Held low: the card as tall as the capture (108 to 112 % of the guide)
+	// and 7 % of its height below the middle, turned up to 4 degrees, so
+	// its foot runs 5 to 9 % out of the capture while its top is in it
+	// (2026-11-05: slantfull centres the card, so only its corners run
+	// out, and never cuts the foot this way).
+	low: {angle: 4, blur: 0.6, down: 0.07, quality: 0.8, scale: [1.08, 0.04]},
+	// The same, the card as tall as the guide and turned 6 to 16 degrees.
+	lowslant: {angle: 16, blur: 0.6, down: 0.07, minAngle: 6, quality: 0.8, scale: [1, 0.04]},
 };
 
 // A Korean copy of a Japanese card, for the benchmark only: TCGdex has no
@@ -264,7 +272,7 @@ async function capture(bitmap, id, passName, {frame = false} = {}) {
 	const [scaleFrom, scaleSpread] = k.scale || [0.95, 0.06];
 	const scale = scaleFrom + rand() * scaleSpread;
 	const dx = (rand() * 2 - 1) * 0.02 * w;
-	const dy = (rand() * 2 - 1) * 0.02 * h;
+	const dy = (rand() * 2 - 1) * 0.02 * h + (k.down || 0) * h;
 	const brightness = 0.92 + rand() * 0.16;
 	const card = new OffscreenCanvas(w, h);
 	const cctx = card.getContext('2d');
