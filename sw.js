@@ -512,8 +512,9 @@ function keepEnglish(event, memory, url) {
 // An image kept opaque, fetched again in cors mode when its try is due
 // (imageMemory check) and moved to the cors cache when that works, which
 // gives back its padding. cache: 'reload' skips the HTTP cache, which keeps
-// the doubled header for a year (max-age=31536000). A failure is
-// remembered, so the next worker does not try it again before it is due.
+// the doubled header for a year (max-age=31536000). A failure, or an error
+// status, is remembered, so neither this worker nor the next tries it again
+// before it is due.
 // Offline nothing is tried: it would only fail.
 function upgrade(event, url) {
 	if (self.navigator && self.navigator.onLine === false) {
@@ -541,13 +542,20 @@ function upgrade(event, url) {
 				return;
 			}
 
-			if (response.ok) {
-				await (await caches.open(CORS_IMAGES.name)).put(url, response);
-				await (await caches.open(OPAQUE_IMAGES.name)).delete(url);
-				memory.worked(url);
+			if (!response.ok) {
+				// An error status (a 503 in an outage): the opaque copy stays,
+				// and the try waits until it is due again.
+				memory.failed(url);
 				await remember(memory);
-				await trimImages(CORS_IMAGES);
+
+				return;
 			}
+
+			await (await caches.open(CORS_IMAGES.name)).put(url, response);
+			await (await caches.open(OPAQUE_IMAGES.name)).delete(url);
+			memory.worked(url);
+			await remember(memory);
+			await trimImages(CORS_IMAGES);
 		});
 	});
 }

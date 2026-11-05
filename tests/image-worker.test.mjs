@@ -266,6 +266,28 @@ describe('a folder that doubles some images and not others', () => {
 		assert.deepEqual(Object.keys((await storage.memory()).images), [pt(1)]);
 	});
 
+	test('a cors try of an opaque image that gets an error status is not repeated at every view', async () => {
+		const storage = makeStorage();
+		const net = tcgdex({doubled: []});
+		const clock = makeClock();
+
+		await (await storage.caches.open(OPAQUE_CACHE)).put(pt(1), opaque());
+		net.status = 503;
+
+		const worker = startWorker(storage, net.fetch, {clock});
+
+		for (let view = 0; view < 5; view++) {
+			await worker.show(pt(1));
+		}
+
+		const next = startWorker(storage, net.fetch, {clock});
+
+		await worker.show(pt(1));
+		await next.show(pt(1));
+		assert.deepEqual([...worker.log, ...next.log].map((entry) => `${entry.mode} ${entry.cache}`), ['cors reload'], 'one try, then left until it is due');
+		assert.deepEqual(storage.urls(OPAQUE_CACHE), [pt(1)], 'it stays on the phone');
+	});
+
 	test('offline, an opaque image is not tried in cors mode', async () => {
 		const storage = makeStorage();
 		const net = tcgdex();
