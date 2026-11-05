@@ -42,8 +42,8 @@ export function forgetImage(url) {
 //
 // Many Portuguese and French images send Access-Control-Allow-Origin twice,
 // so the service worker keeps them as opaque responses, which Chrome counts
-// at about 7 MiB each: a few hundred fit, while it keeps thousands of
-// English ones. For each image it keeps opaque it also keeps the English
+// at about 7 MiB each: about a hundred fit on a 10 GB phone, while it keeps
+// thousands of English ones. For each image it keeps opaque it also keeps the English
 // one. Offline, a Portuguese tile whose image is not on the phone shows the
 // English art instead of the card back (E-20). Online, the English art also
 // stands in for a Portuguese image that fails to load.

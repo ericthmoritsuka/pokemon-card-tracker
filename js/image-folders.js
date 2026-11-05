@@ -171,14 +171,16 @@
 	// opaque entry in quota accounting (Chromium's kPaddingRange), about
 	// 7 MiB on average, while the file on disk is its real size (a grid image
 	// is about 16 KB); measured, 7.5 to 9 MB each (DESIGN.md section 5).
-	// So the cache holds half the origin's quota in padded entries at 8 MiB
-	// each, never fewer than 100 nor more than 3,000 (the cors cache's
-	// limit). Eric's phone reports a 10 GB quota: about 600 entries, about
-	// 5 GB counted and about 10 MB on disk.
+	// So the cache holds a tenth of the origin's quota in padded entries at
+	// 8 MiB each, never fewer than 100 nor more than 1,000, as Eric decided
+	// on 2026-10-15 and kept on 2026-11-05: the padding must not crowd out
+	// the collection and photos that share the quota, and the English
+	// stand-in covers the images trimmed. Eric's phone reports a 10 GB
+	// quota: about 120 entries, about 1 GB counted and about 2 MB on disk.
 	const OPAQUE_PAD = 8 * 1024 * 1024;
-	const OPAQUE_SHARE = 0.5;
+	const OPAQUE_SHARE = 0.1;
 	const OPAQUE_MIN = 100;
-	const OPAQUE_MAX = 3000;
+	const OPAQUE_MAX = 1000;
 
 	function opaqueLimit(quota) {
 		if (!(quota > 0)) {

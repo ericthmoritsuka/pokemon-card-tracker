@@ -44,10 +44,10 @@ const {englishOf, imageMemory, opaqueLimit} = self.imageFolders;
 // size cannot be learned: measured in Chromium on 2026-10-01, 10 grid
 // images took 177 KB of quota as cors entries and 88 MB as opaque ones
 // (2026-10-15: 200 opaque 20 KB images counted 1.4 to 1.5 GB, about 7.5 MB
-// each, while the files on disk took 5.9 MB). So the opaque cache holds half
-// the origin's quota in padded entries at 8 MiB each, 100 to 3,000 entries
-// (opaqueLimit; about 600 on Eric's phone, whose quota is 10 GB), which
-// leaves the other half to the IndexedDB data and photos that share the
+// each, while the files on disk took 5.9 MB). So the opaque cache holds a
+// tenth of the origin's quota in padded entries at 8 MiB each, 100 to 1,000
+// entries (opaqueLimit; about 120 on Eric's phone, whose quota is 10 GB),
+// which leaves the rest to the IndexedDB data and photos that share the
 // quota. For every image kept opaque, the English image of the same card
 // is kept at its true size too (keepEnglish), so the app has a stand-in
 // once the opaque copy is trimmed (js/tile.js). An opaque status cannot be

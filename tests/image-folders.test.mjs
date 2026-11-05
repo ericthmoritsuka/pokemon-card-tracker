@@ -155,11 +155,13 @@ describe('the image memory', () => {
 });
 
 describe('the opaque cache size', () => {
-	test('half the quota at 8 MiB an entry, between the floor and the ceiling', () => {
-		assert.equal(opaqueLimit(10 * GB), 640, 'Eric\'s phone: 10 GB of quota, 5 GB of padded entries');
-		assert.equal(opaqueLimit(10e9), 596);
+	test('a tenth of the quota at 8 MiB an entry, 100 to 1,000 entries (Eric, 2026-10-15 and 2026-11-05)', () => {
+		assert.equal(OPAQUE_MIN, 100);
+		assert.equal(OPAQUE_MAX, 1000);
+		assert.equal(opaqueLimit(10 * GB), 128, 'Eric\'s phone: 10 GB of quota, 1 GB of padded entries');
+		assert.equal(opaqueLimit(10e9), 119);
 		assert.equal(opaqueLimit(GB), OPAQUE_MIN, 'a small quota still keeps the floor');
-		assert.equal(opaqueLimit(500 * GB), OPAQUE_MAX);
+		assert.equal(opaqueLimit(100 * GB), OPAQUE_MAX);
 		assert.equal(opaqueLimit(0), OPAQUE_MIN);
 		assert.equal(opaqueLimit(undefined), OPAQUE_MIN);
 		assert.equal(opaqueLimit(Number.NaN), OPAQUE_MIN);

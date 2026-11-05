@@ -605,11 +605,13 @@ size, about 16 KB for a grid image. The worker handles it in three parts:
   same to the worker (TCGdex answers a 404 without CORS headers, and every no-cors answer is
   opaque), so it is remembered for that image alone and never sends another image to no-cors.
 - **Sized by bytes, counted in entries.** The cors cache keeps 3,000 images at their true size
-  (about 50 to 120 MB). The opaque cache keeps half the origin's quota in padded entries at 8 MiB
-  each, 100 to 3,000 entries: about 600 on Eric's phone (10 GB quota), which is about 5 GB in
-  Chrome's site storage figure and about 10 MB on disk. Both trim the least recently used first.
-  So on that phone the opaque cache cannot hold all of about 1,600 Portuguese copies plus family
-  cards; the English stand-in covers the rest.
+  (about 50 to 120 MB). The opaque cache keeps a tenth of the origin's quota in padded entries at
+  8 MiB each, 100 to 1,000 entries, as decided on 2026-10-15: about 120 on Eric's phone (10 GB
+  quota), which is about 1 GB in Chrome's site storage figure and about 2 MB on disk, so the
+  padding never crowds out the collection and photos that share the quota. Both trim the least
+  recently used first. Since only the doubled images are kept opaque, the cap covers the doubled
+  share of the Portuguese and French cards seen most recently; the English stand-in covers the
+  rest. *(Eric kept the tenth on 2026-11-05 rather than half.)*
 - **English stand-in.** For every image kept opaque, the worker also keeps the English image of
   the same card in cors mode, at its true size. When a Portuguese or French image is not on the
   phone, the art shows the English one marked "English image" (a line under a tile's meta line,
