@@ -14,6 +14,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
+- **v59:** send a scan report in one tap. `TBD`
+  - In Profile, Phone check, **Send report** sends the scan log (with card pictures when Include card
+    pictures is on) to a private folder in your account, with an optional note. Only your account
+    can see it; your family cannot.
+  - **Sent reports** lists what you sent and shows each scan: what was read, the candidates, the card
+    saved, and the picture. You can download or delete a report there.
+  - Offline, a report waits on the phone and goes up when you are back online.
+  - Needs `supabase/scan-reports.sql` run once in the Supabase SQL Editor.
+
 - **v58:** edit a logged move, and list languages in binders. `f70ccba`
   - A sale, purchase, trade, or gift in Trades and sales has **Edit** for its date, who, price,
     and note. Only what you change is saved, so an edit on another phone is kept. To change which

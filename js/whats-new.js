@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-05',
 		items: [
+			'Profile, Phone check, Send report sends your scan log, with card pictures if you keep them, to a private folder in your account in one tap.',
+			'Sent reports lists what you sent and shows each scan. Offline, a report waits and goes up when you are back online.',
+		],
+		version: 'v59',
+	},
+	{
+		date: '2026-11-05',
+		items: [
 			'A logged sale, purchase, trade, or gift can be edited: its date, who, price, and note. Changing its cards is still Undo and log again.',
 			'A binder made from a list with languages uses only copies in those languages, and a missing card says which language you own it in.',
 		],
