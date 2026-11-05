@@ -46,7 +46,8 @@ Steps 1 to 4 of the 2026-10-01 list are done: the scanner (v15, fixed in v17), b
 the audit below to confirm or drop:
 
 - **Scanner:** Eric's real-card test, then the ideas above. Known gaps: a card filling 100% of the
-  guide's height at a strong slant is still cut at the weakness row; perfectly regular vertical
+  guide's height at a strong slant cut at the weakness row (done 2026-11-05 on branch `slant-cut`,
+  DESIGN.md section 6); perfectly regular vertical
   stripes still pass the presence check. Worth committing the benchmark into `lab/` (it uses
   TCGdex images only) so it survives `/tmp` being cleared.
 - **Binders (v18):** the empty-binder hint still says "Tap a pocket", which in portrait means
@@ -393,10 +394,11 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   image, marked, offline when one is missing.
 - **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
   Japanese and Korean text (done in v56: the name strip is read with Tesseract's Japanese or Korean
-  model, DESIGN.md section 6), and the strong-slant cut at the bottom (still open, measured
-  2026-11-04: when the card's bottom edge runs out of the capture, the edge and box searches take
-  the weakness row for it; a fix needs a box whose bottom is worked out from a found top and the
-  width, DESIGN.md section 6).
+  model, DESIGN.md section 6), and the strong-slant cut at the bottom (done 2026-11-05 on branch
+  `slant-cut`, DESIGN.md section 6: a bottom out of the capture is placed from the found top and
+  the width, and the whole-frame search no longer cuts the capture round the art box of a card
+  running off the frame; held low, right card first 11 to 27 of 40 on the guide's capture, and
+  slanted in the whole frame 21 to 36).
 - **Small gaps:** done in v37 (tile meta clamp, Add cards to the tray, twins on set tiles); the
   Japanese promo Liga rule was already done (edecc19). Left: a long Japanese set name is cut off in
   My Cards' Filters set select at 360 px (Q-05 selects part).

@@ -1269,19 +1269,79 @@ read in either script:
   call and his own Korean cards. The Korean captures are synthetic until Eric's own Korean cards
   are scanned; the language is still picked by hand (the name's script is not used to set it).
 
-**The strong-slant cut (roadmap, measured 2026-11-04, not fixed).** The `slant` pass (a card as
-tall as the guide, turned 10 to 20 degrees) finds edges on all 40 cards and cuts none short. The cut
-appears on a new `slantfull` pass, the card 106 to 112 % of the guide's height so its bottom edge
-runs out of the capture too: right card first on 31 of 40 against 34 on `slant`, numbers read 20 of
-40 against 28, and the crops end at the weakness row. With the real bottom edge mostly outside the
-capture, both the outermost-edge search (`rectify.js` `findEdges`, `plausible`) and the box search
-(`findQuad`) take the weakness row's line for it, and work the top out from the width. It needs a
-box whose bottom is worked out from a found top and the width (the mirror of the worked-out top),
-scored against boxes with a found bottom without taking over normal captures, which means
-measuring it on all the passes; and the number strip can only be read when the capture holds it.
-In the app the whole-frame crop (`steady.js` `findCard`, version 34) cuts the capture round a card
-whose four corners are in the frame, so the cut should only happen when `findCard` finds no card;
-that path is not in this benchmark, which feeds the guide's crop alone.
+**The strong-slant cut (roadmap, measured 2026-11-04, fixed 2026-11-05, branch `slant-cut`).** A
+card held larger than the guide, or low in it, and turned runs out of the capture, and the
+outermost line left on that side is one inside the card (the weakness row, the number strip's rule,
+or the border's inner line), so the box stopped there: on the guide's capture, `rectify.js`
+`findEdges` and `plausible` and the box search `findQuad` took that line for the bottom and worked
+the top out from the width, taking in the table above the card. The whole-frame path (`steady.js`
+`findCard`, version 34) was worse: with the card running off the frame, the best box left was its
+art box (a Sword & Shield art box has a lying card's shape) or its inner border, and the capture was
+cut round it, cutting the card. Fixed:
+
+- **An edge out of the capture is placed, not taken at a line inside the card** (`rectify.js`
+  `outOfCapture`). An edge found is inside the card when the two edges across it run on past it to
+  the capture's edge (a card's edge has table beyond it), and a bottom also when the box is too
+  short for a card's shape, the top is the card's own (the sides do not run on above it), and the
+  capture shows nothing of the sides below the bottom: they leave through its corners, or the
+  bottom was found on or just above its last rows (half the shape's slack between sides found
+  inside the capture, the whole slack when a side is on its edge, since a top at the border's inner
+  line also makes the box 2 to 3 % short). The bottom is then placed from the top and the width,
+  past the capture's edge, only where the capture shows no edge and the top steps sharply all along
+  and closes at both corners; the crop runs past the capture, its last row repeated, and the box
+  hung from the bottom found is kept beside it for the picture to choose. An edge found on the
+  capture's last rows is kept where it was found but not judged (its steps cannot be measured
+  there). `findQuad` gets the mirror of the worked-out top: a box with its bottom placed from its
+  top where the capture shows no bottom and the sides run out of it. The scan report says "bottom
+  PLACED past the capture's edge".
+- **No card in the frame inside a card running off it** (`findCard`): a box inside a card-shaped
+  outline with a corner at least 6 % of its width past the frame's edge, the ring between them a
+  card's border or print, is part of that card, so no card is found and the guide's capture is
+  read. At 6 % no art box is taken on the bench; at 10 % they came back; with no threshold, cards
+  held low a pixel or two past the frame lost their whole-frame crop.
+- **Two bench passes for the cut foot** (`lab/bench`): `slantfull` centres the card, so only its
+  corners run out and its foot stays mostly in the capture; `low` holds it as tall as the capture
+  7 % below the middle (its foot 5 to 9 % out) and `lowslant` the same turned 6 to 16 degrees.
+  `--geometry` measures the box against the card's corners and `--frame` the whole-frame path.
+
+Measured on a laptop, the branch's scanner against `ac3ba3e` (version 59, the same scanner as
+version 56), each pair run side by side (the whole frame on `3eda742`, the guide's capture on
+`794712e`, whose straightening is the same); right card first, sure, and wrong but sure, then the
+time from straightening to the match (median and 90th percentile, ms):
+
+| Pass | Guide's capture: first | Sure | Wrong, sure | ms | Whole frame: first | Sure | Wrong, sure | ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `slantfull` | 31 → 31 | 14 → 14 | 0 → 0 | 1126, 1441 → 1134, 1428 | 24 → 34 | 13 → 20 | 0 → 0 | 1186, 2003 → 1155, 1755 |
+| `slant` | 34 → 34 | 19 → 19 | 0 → 0 | 953, 1277 → 954, 1285 | 21 → 36 | 14 → 20 | 0 → 0 | 1213, 1604 → 1245, 1488 |
+| `low` | 11 → 27 | 1 → 6 | 0 → 0 | 1243, 1810 → 1191, 1599 | 25 → 33 | 12 → 16 | 0 → 0 | 1152, 1725 → 1113, 1592 |
+| `lowslant` | 19 → 34 | 6 → 12 | 0 → 0 | 993, 1469 → 846, 1295 | 16 → 33 | 7 → 21 | 0 → 0 | 1093, 1577 → 920, 1377 |
+| `clean` | 37 → 37 | 26 → 26 | 0 → 0 | 867, 1410 → 849, 1364 | 39 → 39 | 32 → 32 | 0 → 0 | 830, 1390 → 780, 1490 |
+| `blur` | 28 → 28 | 5 → 5 | 0 → 0 | 1013, 1312 → 1014, 1338 | 28 → 28 | 4 → 4 | 0 → 0 | 1141, 1301 → 1078, 1362 |
+| `glare` | 33 → 33 | 20 → 20 | 0 → 0 | 771, 1268 → 785, 1288 | 38 → 38 | 22 → 22 | 0 → 0 | 832, 1451 → 807, 1342 |
+| `tilt` | 37 → 37 | 24 → 24 | 0 → 0 | 967, 1428 → 956, 1424 | 38 → 38 | 20 → 20 | 0 → 0 | 936, 1380 → 940, 1394 |
+| `jpeg` | 33 → 33 | 22 → 22 | 0 → 0 | 952, 1504 → 923, 1448 | 35 → 35 | 21 → 21 | 0 → 0 | 938, 1379 → 951, 1394 |
+| `nonumber` | 26 → 26 | 6 → 6 | 0 → 0 | 951, 1234 → 947, 1233 | 29 → 29 | 8 → 8 | 0 → 0 | 891, 1199 → 991, 1298 |
+| Western, 240 | 194 → 194 | 103 → 103 | 0 → 0 | 930, 1390 → 913, 1371 | 207 → 207 | 107 → 107 | 0 → 0 | 928, 1379 → 940, 1387 |
+| Japanese and Korean, 240 | 167 → 167 | 79 → 79 | 1 → 1 | 991, 1376 → 997, 1377 | - | - | - | - |
+
+On the guide's capture the box is right (within 4 % of the card) on `slantfull` 37 of 40 (34), `low`
+31 (0), and `lowslant` 37 (13); in the whole frame on `slantfull` 40 (27), `slant` 40 (23), `low` 33
+(25), and `lowslant` 40 (22). The normal passes (`clean`, `blur`, `glare`, `tilt`, `jpeg`,
+`nonumber`) cut every capture exactly as before on both paths, card by card, and no capture lost its
+right card but one: `low` `neo1-3` in the whole frame, which version 59 found in the frame by its
+art box (a box 41 % off) and named right from the name alone; now that box is not taken, the guide's
+capture is read, its foot is out and its box 6 % off, and the name does not read. The Western set
+stays at 194 of 240 first (103 sure, none wrong), and the Japanese and Korean set at 167 of 240 (79
+sure, the one wrong but sure as before).
+
+- **Still open:** on `slantfull` the box is right on 37 of 40 but the right card first stays 31:
+  the number strip is out of the capture on most of them (numbers read 19 of 40 against 28 on
+  `slant`), and the name alone does not settle them. Seven held-low cards in the whole frame are
+  not found in it and their guide's capture is cut 4 to 6 % short (the foot just past it, the box
+  within half the slack, so not placed). The bottom `findQuad` places is chosen once on the bench
+  (`low` `swsh1-111`, and that box is 7 % off), so nearly every placed bottom comes from the
+  outermost edges. The captures are synthetic; Eric's own strongly slanted scans would show how
+  often the cut happens in the hand.
 
 **A new card means a new picture, automatic holder mode, and read safety (Eric, 2026-10-16,
 version 40).** Eric's v38 phone log (51 entries, holder mode at 1x) showed a real card skipped as
