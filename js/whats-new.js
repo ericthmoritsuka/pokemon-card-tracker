@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-05',
 		items: [
+			'A logged sale, purchase, trade, or gift can be edited: its date, who, price, and note. Changing its cards is still Undo and log again.',
+			'A binder made from a list with languages uses only copies in those languages, and a missing card says which language you own it in.',
+		],
+		version: 'v58',
+	},
+	{
+		date: '2026-11-05',
+		items: [
 			'Portuguese and French card images stay on the phone more reliably.',
 			'Offline, a missing one shows the English image, marked "English image".',
 		],

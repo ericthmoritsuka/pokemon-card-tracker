@@ -14,6 +14,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
+- **v58:** edit a logged move, and list languages in binders. `TBD`
+  - A sale, purchase, trade, or gift in Trades and sales has **Edit** for its date, who, price,
+    and note. Only what you change is saved, so an edit on another phone is kept. To change which
+    cards went or came, Undo the move and log it again.
+  - A binder made from a list that names languages uses only copies in those languages, and the
+    refresh note says when a pocket is emptied because no copy fits it now.
+  - A card missing from such a list says which language you own it in, for example "Owned only in
+    English".
+
 - **v57:** Portuguese and French card images work better offline. `6e8504f`
   - TCGdex sends a broken header on some Portuguese and French images (not on others in the same
     set), so the phone can only keep those in a form that Chrome counts at about 7 MB each. The app
