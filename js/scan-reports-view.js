@@ -39,7 +39,7 @@ function waitingLine(row) {
 	const problem = problemText(row);
 	const progress = row.parts > 1 && row.sent_parts ? ` ${row.sent_parts} of ${row.parts} parts sent.` : '';
 
-	return `Waiting to send: ${what}.${progress}${problem ? ` ${problem}` : ''}`;
+	return `${row.error_kind === 'deleted' ? 'Stopped' : 'Waiting to send'}: ${what}.${progress}${problem ? ` ${problem}` : ''}`;
 }
 
 // ------------------------------------------------------------- Send report
@@ -97,20 +97,25 @@ export function reportSendPanel({onLogChanged = () => {}} = {}) {
 	async function drawWaiting() {
 		const rows = await reportSender.waiting().catch(() => []);
 		const user = currentUser();
-		const shown = rows.filter((row) => !user || row.user_id === user.id);
+		// Only the signed-in person's: signed out, none (drawButton says to
+		// sign in), so nobody sees or saves another account's report.
+		const shown = rows.filter((row) => user && row.user_id === user.id);
 
 		waitingList.replaceChildren(...shown.map((row) => {
 			const actions = [];
 
 			if (row.error_kind === 'refused') {
-				actions.push(
-					h('button', {class: 'scan-report-save', onclick: () => saveFile(row.id), type: 'button'}, 'Save it as a file'),
-					h('button', {class: 'scan-report-remove', onclick: () => removeRow(row.id), type: 'button'}, 'Remove it'));
+				actions.push(h('button', {class: 'scan-report-save', onclick: () => saveFile(row.id), type: 'button'}, 'Save it as a file'));
+			}
+
+			// Deleted on another device: dropped from this phone once seen.
+			if (row.error_kind === 'refused' || row.error_kind === 'deleted') {
+				actions.push(h('button', {class: 'scan-report-remove', onclick: () => removeRow(row.id), type: 'button'}, 'Remove it'));
 			}
 
 			return h('li', {'data-id': row.id}, waitingLine(row), actions.length ? h('div', {style: 'display: grid; gap: 8px; margin-top: 8px'}, ...actions) : null);
 		}));
-		retry.hidden = !shown.some((row) => row.error);
+		retry.hidden = !shown.some((row) => row.error && row.error_kind !== 'deleted');
 	}
 
 	async function saveFile(id) {
@@ -204,7 +209,7 @@ export function reportSendPanel({onLogChanged = () => {}} = {}) {
 		}
 
 		if (event.type === 'failed' && row && mine.has(row.id)) {
-			say(row.error_kind === 'refused' ? problemText(row) : `${problemText(row)} The report is kept on this phone until it goes.`, true);
+			say(row.error_kind === 'refused' || row.error_kind === 'deleted' ? problemText(row) : `${problemText(row)} The report is kept on this phone until it goes.`, true);
 		}
 
 		drawWaiting();
@@ -243,7 +248,10 @@ function signedOutCard(text) {
 		h('a', {class: 'button', 'data-link': 'signin', href: `${BASE}signin`}, 'Sign in'));
 }
 
-// One report in the list, with Delete asking first.
+// One report in the list, with Delete asking first. A report still going
+// up (a part or its meta file missing) can be deleted too, so one whose
+// phone never finishes it is not stuck: the phone sending it finds it gone
+// before its next piece and stops (js/scan/report-queue.js).
 function reportItem(report, onDeleted) {
 	const info = report.info || {};
 	const sentAt = info.sent_at ? new Date(info.sent_at) : report.at;
@@ -261,7 +269,9 @@ function reportItem(report, onDeleted) {
 		del.hidden = open;
 
 		if (open) {
-			confirm.replaceChildren(confirmRow(`sent-report-confirm-${report.base.replace(/\W/g, '')}`, `Delete the report of ${when(sentAt)} (${scansText(report.count)}) from your account?`, ['Delete it', 'Keep it'], remove, () => ask(false)));
+			const going = !report.complete || !report.meta ? ' It is still going up from the phone that sent it: that phone stops sending it and says so.' : '';
+
+			confirm.replaceChildren(confirmRow(`sent-report-confirm-${report.base.replace(/\W/g, '')}`, `Delete the report of ${when(sentAt)} (${scansText(report.count)}) from your account?${going}`, ['Delete it', 'Keep it'], remove, () => ask(false)));
 		}
 	}
 

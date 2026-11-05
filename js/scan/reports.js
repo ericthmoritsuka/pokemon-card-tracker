@@ -13,7 +13,7 @@ import {database} from '../idb.js';
 
 import {logFile} from './log.js';
 import {createReportSender} from './report-queue.js';
-import {REPORT_BUCKET, groupReports, objectPath, unpackReport} from './report-file.js';
+import {REPORT_BUCKET, objectPath, readReport, readReports} from './report-file.js';
 
 const OUTBOX = 'outbox';
 
@@ -53,16 +53,16 @@ export async function sendReport(note) {
 
 let started = false;
 
-// Sends what waits now, when the phone comes back online, when someone
-// signs in, and when an ended session comes back. Safe to call from every
-// view.
+// Sends what waits now, when the phone comes back online (every report at
+// once, without waiting its turn), when someone signs in, and when an ended
+// session comes back. Safe to call from every view.
 export function startReportSync() {
 	if (started) {
 		return;
 	}
 
 	started = true;
-	window.addEventListener('online', () => reportSender.flush());
+	window.addEventListener('online', () => reportSender.wake());
 	onUser(() => reportSender.retry());
 	onSession(({expired}) => {
 		if (!expired) {
@@ -86,67 +86,21 @@ async function bucket() {
 	return {files: client.storage.from(REPORT_BUCKET), user};
 }
 
-async function readMeta(files, user, report) {
-	if (!report.meta) {
-		return null;
-	}
-
-	try {
-		const {data, error} = await files.download(objectPath(user.id, report.meta));
-
-		return error || !data ? null : JSON.parse(await data.text());
-	}
-	catch {
-		return null;
-	}
-}
-
 // The signed-in person's reports, newest first, each with its meta file
 // read (note, numbers) or null when it has none yet.
 export async function listReports() {
 	const {files, user} = await bucket();
-	const {data, error} = await files.list(user.id, {limit: 1000, sortBy: {column: 'name', order: 'desc'}});
 
-	if (error) {
-		throw error;
-	}
-
-	const reports = groupReports(data || []);
-	const metas = await Promise.all(reports.map((report) => readMeta(files, user, report)));
-
-	return reports.map((report, index) => ({...report, info: metas[index]}));
+	return readReports(files, user.id);
 }
 
 // One report by its base name: {report, info, log, text}, log the parsed
 // scan log file and text the file itself. Throws when it is not there or
-// cannot be read.
+// cannot be read. Only its own files are listed and downloaded.
 export async function loadReport(base) {
 	const {files, user} = await bucket();
-	const report = (await listReports()).find((item) => item.base === base);
 
-	if (!report || !report.files.length) {
-		throw new Error('This report is not in your account (it may have been deleted).');
-	}
-
-	if (!report.complete) {
-		throw new Error(`This report is still going up: ${report.found} of ${report.parts} parts are there.`);
-	}
-
-	const pieces = [];
-
-	for (const name of report.files) {
-		const {data, error} = await files.download(objectPath(user.id, name));
-
-		if (error || !data) {
-			throw error || new Error(`${name} could not be read.`);
-		}
-
-		pieces.push(data);
-	}
-
-	const text = await unpackReport(pieces, report.encoding);
-
-	return {info: report.info, log: JSON.parse(text), report, text};
+	return readReport(files, user.id, base);
 }
 
 // Deletes every file of a report. Throws when the server kept any.

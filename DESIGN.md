@@ -173,24 +173,33 @@ exactly the file Download makes (with the card pictures when Include card pictur
 recording), gzipped where the browser can, and puts it in the private `scan-reports` bucket at
 `<user_id>/<sent at>-<scans>.json.gz` (sent at like `20261105T101919.274Z`), with a small
 `.meta.json` beside it holding the note and the numbers. Gzip because the pictures are JPEG already
-and only the text around them shrinks: a log of 30 cards with pictures is about 1.3 MB as a file
-and 0.9 MB sent (holder mode, which keeps the view before and after each drop, roughly doubles
-both). A log over 5 MiB goes up in parts (`.json.gz.part1of3`), each under the bucket's 6 MB file
-limit, so even the log's 500-scan limit fits. The report is kept on the phone first
+and only the text around them shrinks: a log of 30 cards with pictures is about 1.3 MB as a file and
+0.9 MB sent (holder mode, which keeps the view before and after each drop, roughly doubles both). A
+log over 5 MiB goes up in parts (`.json.gz.part1of3`), each under the bucket's 6 MB file limit, so
+even the log's 500-scan limit fits. The report is kept on the phone first
 (`js/scan/report-queue.js`), so with no signal, signed out, or a send cut off part way, it waits and
 goes on from the piece that failed when the phone is back online, someone signs in, or the app
 starts; a refusal (no bucket yet, too large) is kept with its reason, Try sending again, and Save it
-as a file. The log itself is never touched by a send. After a send, Clear the N scans sent from this
-phone is offered, not done: it removes only the scans in the report, so any recorded since stay.
-Profile > Phone check > Sent reports lists the account's reports newest first (date, scans, size,
-note) and opens one as plain text and real images, readable by a person or by page text extraction
-on any device signed in to the account, desktop Chrome included: per scan the time, scanner
-version, what was read, the text and picture routes, the candidates with the scanner's answer and
-the saved one marked, the picture, and any errors. An open report is also `window.scanReport`
-(`{base, info, log}`) for a reader in the browser. Download the scan log file and Delete are there
-too. Only the sender reads, lists, or deletes their reports: no family member, nobody signed out,
-and nobody replaces a sent file (`supabase/scan-reports.sql`, run once). *(Eric, 2026-11-05; built
-2026-11-05.)*
+as a file. A report that fails for a while (no connection, a server hiccup) does not hold back the
+newer ones: each waits its own turn, 30 seconds and then twice as long each time up to 10 minutes,
+and all go at once when the phone is back online. Signed out, Send report lists none of the reports
+waiting on the phone, only "Sign in to send reports to your account", so nobody sees or saves
+another account's report. The log itself is never touched by a send. After a send, Clear the N scans
+sent from this phone is offered, not done: it removes only the scans in the report, so any recorded
+since stay. Profile > Phone check > Sent reports lists all the account's reports newest first (date,
+scans, size, note), page by page however many there are, and opens one as plain text and real
+images, reading only that report's files, readable by a person or by page text extraction on any
+device signed in to the account, desktop Chrome included: per scan the time, scanner version, what
+was read, the text and picture routes, the candidates with the scanner's answer and the saved one
+marked, the picture, and any errors. An open report is also `window.scanReport` (`{base, info,
+log}`) for a reader in the browser. Download the scan log file and Delete are there too. A report
+still going up (Still going up: 1 of 3 parts) can be deleted as well, with a note that the send
+stops, so one whose phone never finishes it is not stuck: before going on from a part sent earlier,
+and before the meta file that finishes a report, the phone checks that its parts are still there;
+when they are not, it sends nothing more, removes what it sent since, and says "Not sent: it was
+deleted from your account on another device" until Remove it drops its copy. Only the sender reads,
+lists, or deletes their reports: no family member, nobody signed out, and nobody replaces a sent
+file (`supabase/scan-reports.sql`, run once). *(Eric, 2026-11-05; built 2026-11-05.)*
 
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
 cards dropped into a box, auto capture waits for each drop to settle and takes it once; everything

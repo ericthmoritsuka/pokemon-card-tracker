@@ -13,6 +13,10 @@
 // - Offline, the report waits on the phone and goes when it is back online.
 // - A project without the bucket keeps the report and says why; Try again
 //   sends it once the bucket is there.
+// - Signed out, Send report lists none of the reports waiting on the phone.
+// - A report still going up can be deleted, with a note that the send
+//   stops; the phone that was sending it says it was deleted, sends nothing
+//   more, and drops its copy when Remove it is tapped.
 //
 // Screenshots: $SHOTS/scan-reports-*.png (default /tmp).
 //
@@ -125,6 +129,74 @@ function recordScans(page, {from = 1, pictures = [true], tag = 'a'} = {}) {
 
 		return ids;
 	}, {from, pictures, tag});
+}
+
+// A phone nobody is signed in on.
+async function signedOutDevice(fake) {
+	const context = await browser.newContext({serviceWorkers: 'block', viewport: PHONE});
+	const errors = [];
+
+	await context.route((target) => !target.href.startsWith(server.origin) && !target.href.startsWith(SUPABASE_ORIGIN), (route) => route.fulfill({body: '', status: 404}));
+	await fake.attach(context, 'signed-out');
+
+	const page = await context.newPage();
+
+	page.on('pageerror', (err) => errors.push(String(err)));
+
+	return {context, errors, page};
+}
+
+// Puts a report row straight into the phone's send queue, as an earlier
+// page left it.
+function queueRow(page, fields) {
+	return page.evaluate(async (fields) => {
+		const {database} = await import('/pokemon-card-tracker/js/idb.js');
+		const db = database('card-tracker-scan-reports', ['outbox']);
+		const text = JSON.stringify({app: 'v56', entries: [{id: 'scan-q-1'}], exported: new Date().toISOString()});
+		const row = {
+			at: Date.now(),
+			blob: new Blob([text], {type: 'application/json'}),
+			bytes: text.length,
+			count: 1,
+			encoding: 'none',
+			entry_ids: ['scan-q-1'],
+			error: null,
+			error_kind: null,
+			error_status: null,
+			meta: {base: fields.base, count: 1, note: ''},
+			meta_sent: false,
+			note: '',
+			part_bytes: 5242880,
+			parts: 1,
+			raw_bytes: text.length,
+			sent_parts: 0,
+			type: 'application/json',
+			...fields,
+			id: fields.base,
+		};
+
+		await db.run('outbox', 'readwrite', (store) => store.put(row, row.id));
+		(await db.open()).close();
+	}, fields);
+}
+
+// The Send report panel's list of waiting reports once it has read the
+// queue: the panel reads it as it opens, so a read after that one ends
+// after it.
+function waitingShown(page) {
+	return page.evaluate(async () => {
+		const {reportSender} = await import('/pokemon-card-tracker/js/scan/reports.js');
+
+		await reportSender.waiting();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		return {
+			items: [...document.querySelectorAll('#scan-report-waiting li')].map((li) => li.textContent),
+			remove: document.querySelectorAll('#scan-report-waiting .scan-report-remove').length,
+			retry: !document.getElementById('scan-report-retry').hidden,
+			save: document.querySelectorAll('#scan-report-waiting .scan-report-save').length,
+		};
+	});
 }
 
 async function openCheck(page, count) {
@@ -349,4 +421,71 @@ describe('Send report and Sent reports (Eric, 2026-11-05)', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('signed out, Send report lists none of the reports waiting on the phone and says to sign in', async () => {
+		const fake = new FakeReportStorage();
+		const eric = fake.addUser('eric@example.test');
+		const {context, errors, page} = await signedOutDevice(fake);
+
+		await page.goto(url('check'));
+		await page.waitForSelector('#scan-report-send');
+		await queueRow(page, {base: '20261105T101919.274Z-1', error: 'Bucket not found', error_kind: 'refused', error_status: 400, user_id: eric.id});
+		await page.reload();
+		await page.waitForFunction(() => document.getElementById('scan-report-status').textContent === 'Sign in to send reports to your account.');
+		assert.deepEqual(await waitingShown(page), {items: [], remove: 0, retry: false, save: 0}, 'no report, no Save it as a file, no Try sending again');
+		assert.ok(await page.locator('#scan-report-send').isDisabled());
+		assert.equal(fake.reports.size, 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a report still going up can be deleted, with a note that the send stops; the phone says so and drops its copy only when told', async () => {
+		const fake = new FakeReportStorage();
+		const eric = fake.addUser('eric@example.test');
+		const base = '20261105T101919.274Z-400';
+
+		// Part 1 of 3 is up; the phone is between parts.
+		fake.reports.set(`${eric.id}/${base}.json.gz.part1of3`, {bytes: Buffer.from('part one'), contentType: 'application/gzip', created_at: new Date().toISOString(), owner: eric.id});
+
+		const desk = await device(fake, eric, {viewport: DESKTOP});
+
+		await desk.page.goto(url('check/reports'));
+		await desk.page.waitForSelector('#sent-reports li');
+		assert.match(await desk.page.locator('#sent-reports li').innerText(), /Still going up: 1 of 3 parts\./);
+		await desk.page.click('.sent-report-delete');
+		assert.match(await desk.page.locator('#sent-reports li [role="group"] p').textContent(), /^Delete the report of .+ \(400 scans\) from your account\? It is still going up from the phone that sent it: that phone stops sending it and says so\.$/);
+		await desk.page.click('#sent-reports li .danger');
+		await desk.page.waitForFunction(() => !document.querySelector('#sent-reports li'));
+		assert.equal(fake.reportsOf(eric.id).length, 0);
+		assert.deepEqual(desk.errors, []);
+		await desk.context.close();
+
+		// The phone, told by the bucket on its next try, as the queue leaves
+		// it (tests/scan-reports.test.mjs sends the parts).
+		const phone = await device(fake, eric);
+		const {page} = phone;
+
+		await page.goto(url('check'));
+		await page.waitForSelector('#scan-report-send');
+		await queueRow(page, {base, error: 'Deleted from your account on another device', error_kind: 'deleted', parts: 3, sent_parts: 1, user_id: eric.id});
+		await page.reload();
+		await page.waitForSelector('#scan-report-waiting li');
+
+		const shown = await waitingShown(page);
+
+		assert.equal(shown.items.length, 1);
+		assert.match(shown.items[0], /^Stopped: 1 scan, \d+ KB\. 1 of 3 parts sent\. Not sent: it was deleted from your account on another device\. The scan log on this phone is not touched\.Remove it$/);
+		assert.deepEqual({remove: shown.remove, retry: shown.retry, save: shown.save}, {remove: 1, retry: false, save: 0});
+		await page.screenshot({fullPage: true, path: `${SHOTS}/scan-reports-deleted-elsewhere.png`});
+
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/reports.js')).reportSender.retry());
+		assert.equal(fake.log.filter((entry) => entry.storage === 'upload').length, 0, 'never sent again');
+
+		await page.click('#scan-report-waiting .scan-report-remove');
+		await page.waitForFunction(() => !document.querySelector('#scan-report-waiting li'));
+		assert.deepEqual(await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/reports.js')).reportSender.waiting()).length), 0);
+		assert.deepEqual(phone.errors, []);
+		await phone.context.close();
+	});
 });
+

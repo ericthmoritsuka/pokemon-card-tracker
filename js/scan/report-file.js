@@ -178,6 +178,90 @@ export async function unpackReport(pieces, encoding) {
 	return (await through(joined, new DecompressionStream('gzip'))).text();
 }
 
+// ------------------------------------------------------------- reading
+
+// How many names one list call asks for. A report is two files or more, so
+// a folder past one page is listed page by page.
+export const LIST_PAGE = 1000;
+
+// Every object in the folder `folder` of `files` (a Supabase Storage bucket)
+// whose name starts with `search`, page by page, each name once.
+export async function listFolder(files, folder, {page = LIST_PAGE, search = ''} = {}) {
+	const objects = new Map();
+
+	for (let offset = 0; ; offset += page) {
+		const {data, error} = await files.list(folder, {limit: page, offset, search, sortBy: {column: 'name', order: 'desc'}});
+
+		if (error) {
+			throw error;
+		}
+
+		for (const object of data || []) {
+			objects.set(object.name, object);
+		}
+
+		if (!data || data.length < page) {
+			return [...objects.values()];
+		}
+	}
+}
+
+async function readMeta(files, userId, report) {
+	if (!report.meta) {
+		return null;
+	}
+
+	try {
+		const {data, error} = await files.download(objectPath(userId, report.meta));
+
+		return error || !data ? null : JSON.parse(await data.text());
+	}
+	catch {
+		return null;
+	}
+}
+
+// The reports in userId's folder, newest first, each with its meta file
+// read (note, numbers) as info, or null when it has none yet.
+export async function readReports(files, userId, {page} = {}) {
+	const reports = groupReports(await listFolder(files, userId, {page}));
+	const metas = await Promise.all(reports.map((report) => readMeta(files, userId, report)));
+
+	return reports.map((report, index) => ({...report, info: metas[index]}));
+}
+
+// One report by its base name, listing and downloading only its own files:
+// {report, info, log, text}, log the parsed scan log file and text the file
+// itself. Throws when it is not there, is still going up, or cannot be read.
+export async function readReport(files, userId, base, {page} = {}) {
+	const report = groupReports(await listFolder(files, userId, {page, search: `${base}.`})).find((item) => item.base === base);
+
+	if (!report || !report.files.length) {
+		throw new Error('This report is not in your account (it may have been deleted).');
+	}
+
+	if (!report.complete) {
+		throw new Error(`This report is still going up: ${report.found} of ${report.parts} parts are there.`);
+	}
+
+	const info = await readMeta(files, userId, report);
+	const pieces = [];
+
+	for (const name of report.files) {
+		const {data, error} = await files.download(objectPath(userId, name));
+
+		if (error || !data) {
+			throw error || new Error(`${name} could not be read.`);
+		}
+
+		pieces.push(data);
+	}
+
+	const text = await unpackReport(pieces, report.encoding);
+
+	return {info, log: JSON.parse(text), report: {...report, info}, text};
+}
+
 // ------------------------------------------------------------- the meta file
 
 const shortAgent = (agent) => String(agent || '').slice(0, 300) || null;
@@ -261,6 +345,10 @@ export function problemText(row) {
 
 	if (row.error_kind === 'auth') {
 		return 'Sign in again to send it.';
+	}
+
+	if (row.error_kind === 'deleted') {
+		return 'Not sent: it was deleted from your account on another device. The scan log on this phone is not touched.';
 	}
 
 	if (row.error_kind !== 'refused') {

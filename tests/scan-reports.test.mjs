@@ -15,6 +15,7 @@ import {readFile} from 'node:fs/promises';
 import {describe, test} from 'node:test';
 
 import {
+	LIST_PAGE,
 	NAME_PATTERN,
 	PART_BYTES,
 	dataNames,
@@ -26,6 +27,8 @@ import {
 	partCount,
 	partOf,
 	problemText,
+	readReport,
+	readReports,
 	reportBase,
 	reportStamp,
 	sizeText,
@@ -238,13 +241,31 @@ describe('gzip, parts, and size', () => {
 // ------------------------------------------------------------- the queue
 
 // A bucket that keeps what it is sent. fail(path, call) answers an error
-// for that upload, or null.
-function fakeBucket(fail = () => null) {
+// for that upload, or null; uploaded(path, files) runs after an upload is
+// kept (another device deleting files in between). list answers names
+// starting with `search`, as Supabase Storage does, and remove deletes.
+function fakeBucket(fail = () => null, uploaded = () => {}) {
 	const files = new Map();
 	const calls = [];
+	const lists = [];
+	const removes = [];
 	const client = {
 		storage: {
 			from: (bucket) => ({
+				async list(folder, {limit = 100, offset = 0, search = ''} = {}) {
+					lists.push({folder, limit, offset, search});
+
+					const names = [...files.keys()].filter((path) => path.startsWith(`${folder}/`)).map((path) => path.slice(folder.length + 1)).filter((name) => name.startsWith(search)).sort();
+
+					return {data: names.slice(offset, offset + limit).map((name) => ({metadata: {size: files.get(`${folder}/${name}`).body.length}, name})), error: null};
+				},
+				async remove(paths) {
+					removes.push(paths);
+
+					const gone = paths.filter((path) => files.delete(path));
+
+					return {data: gone.map((name) => ({name})), error: null};
+				},
 				async upload(path, body, options) {
 					calls.push({bucket, options, path, size: body.byteLength});
 
@@ -259,6 +280,7 @@ function fakeBucket(fail = () => null) {
 					}
 
 					files.set(path, {body: Buffer.from(body), type: options.contentType});
+					uploaded(path, files);
 
 					return {data: {path}, error: null};
 				},
@@ -266,18 +288,23 @@ function fakeBucket(fail = () => null) {
 		},
 	};
 
-	return {calls, client, files};
+	return {calls, client, files, lists, removes};
 }
 
-function setup({fail, partBytes, user = {id: USER}} = {}) {
+// The sender over a Map and a fake bucket. state.clock is the time the
+// waits count in; running a timer moves it on to when the timer was due.
+function setup({fail, partBytes, uploaded, user = {id: USER}} = {}) {
 	const rows = new Map();
-	const bucket = fakeBucket(fail);
+	const bucket = fakeBucket(fail, uploaded);
 	const timers = [];
-	const state = {expired: false, online: true, user};
+	const state = {clock: AT.getTime(), expired: false, online: true, user};
 	const events = [];
 	let clock = AT.getTime();
 	const sender = createReportSender({
-		clearTimer: () => {},
+		clearTimer: (id) => {
+			timers[id - 1].cleared = true;
+		},
+		clock: () => state.clock,
 		currentUser: () => state.user,
 		expired: () => state.expired,
 		getClient: async () => bucket.client,
@@ -286,7 +313,18 @@ function setup({fail, partBytes, user = {id: USER}} = {}) {
 		online: () => state.online,
 		partBytes,
 		setTimer: (fn, ms) => {
-			timers.push({fn, ms});
+			const due = state.clock + ms;
+			const timer = {
+				fn: () => {
+					timer.ran = true;
+					state.clock = Math.max(state.clock, due);
+
+					return fn();
+				},
+				ms,
+			};
+
+			timers.push(timer);
 
 			return timers.length;
 		},
@@ -441,6 +479,178 @@ describe('the send queue', () => {
 		assert.ok(saved.blob.size > 0);
 		assert.equal(await sender.remove(row.id), true);
 		assert.equal(rows.size, 0);
+	});
+});
+
+describe('the send queue, reports going up at once', () => {
+	test('a report deleted on another device between its parts stops: nothing more goes up, nothing is left half sent, and the phone keeps its copy until it has said so', async () => {
+		let down = true;
+		const {bucket, events, rows, sender, timers} = setup({
+			fail: (path) => (down && path.endsWith('part2of3') ? {message: 'Service Unavailable', status: 503} : null),
+			partBytes: 2000,
+		});
+		const row = await sender.add({file: logFileOf([entry(1, {picture: picture(2600)})]), userId: USER});
+
+		await sender.flush();
+		assert.equal([...rows.values()][0].sent_parts, 1, 'part 1 is up, part 2 failed');
+
+		// Sent reports > Delete on the desktop removes every file it lists.
+		bucket.files.clear();
+		down = false;
+
+		const uploads = bucket.calls.length;
+
+		await timers[0].fn();
+		await sender.flush();
+
+		assert.equal(bucket.calls.length, uploads, 'no part goes up after the delete');
+		assert.equal(bucket.files.size, 0, 'no report is left that can never finish');
+		assert.ok(bucket.lists.length > 0 && bucket.lists.every((list) => list.folder === USER && list.search === `${row.base}.`), 'only this report\'s files are looked up');
+
+		const [stopped] = rows.values();
+
+		assert.equal(stopped.error_kind, 'deleted', 'kept on the phone until the person is told');
+		assert.match(problemText(stopped), /deleted from your account on another device/);
+		assert.equal(events.filter((event) => event.type === 'failed').at(-1).row.error_kind, 'deleted');
+		assert.equal(timers.length, 1, 'not tried again by itself');
+
+		await sender.retry();
+		assert.equal(bucket.calls.length, uploads, 'Try sending again does not send it either');
+		assert.equal(await sender.remove(row.id), true, 'removed once the person has seen it');
+		assert.equal(rows.size, 0);
+	});
+
+	test('a report deleted on another device after its last part is not finished with a meta file alone', async () => {
+		const {bucket, rows, sender} = setup({
+			partBytes: 2000,
+			uploaded: (path, files) => {
+				if (path.endsWith('part2of3')) {
+					files.clear();
+				}
+			},
+		});
+
+		await sender.add({file: logFileOf([entry(1, {picture: picture(2600)})]), userId: USER});
+		await sender.flush();
+
+		assert.equal(bucket.calls.some((call) => call.path.endsWith('.meta.json')), false, 'no meta file');
+		assert.equal(bucket.files.size, 0, 'part 3, sent after the delete, is removed again');
+		assert.equal([...rows.values()][0].error_kind, 'deleted');
+	});
+
+	test('a report failing for a while does not hold the newer ones back, and each waits its own growing time', async () => {
+		const failing = new Set();
+		const {bucket, rows, sender, timers} = setup({fail: (path) => ([...failing].some((base) => path.includes(`/${base}.`)) ? {message: 'Failed to fetch', name: 'StorageUnknownError'} : null)});
+		const older = await sender.add({file: logFileOf([entry(1)]), userId: USER});
+		const newer = await sender.add({file: logFileOf([entry(2)]), userId: USER});
+		const tries = (base) => bucket.calls.filter((call) => call.path.includes(`/${base}.`)).length;
+
+		failing.add(older.base);
+		await sender.flush();
+		assert.ok(bucket.files.has(`${USER}/${newer.base}.meta.json`), 'the newer report went');
+		assert.deepEqual([...rows.keys()], [older.base]);
+		assert.equal(timers.length, 1);
+		assert.equal(timers[0].ms, 30000);
+
+		await sender.flush();
+		assert.equal(tries(older.base), 1, 'not tried again before its wait is over');
+
+		await timers[0].fn();
+		await sender.flush();
+		assert.equal(tries(older.base), 2);
+		assert.equal(timers.at(-1).ms, 60000, 'its wait grows');
+
+		// A third report fails once: its own first wait, which ends sooner.
+		const third = await sender.add({file: logFileOf([entry(3)]), userId: USER});
+
+		failing.add(third.base);
+		await sender.flush();
+		assert.equal(tries(older.base), 2, 'the first still waits');
+		assert.equal(timers.at(-1).ms, 30000, 'the third waits its own 30 s');
+		assert.ok(timers.slice(0, -1).every((timer) => timer.cleared || timer.ran), 'one timer at a time');
+
+		failing.clear();
+		await timers.at(-1).fn();
+		await sender.flush();
+		assert.ok(bucket.files.has(`${USER}/${third.base}.meta.json`), 'the third went when its wait was over');
+		assert.ok(rows.has(older.base), 'the first still waits for its own time');
+		assert.equal(timers.at(-1).ms, 30000, 'and is woken when it is over');
+
+		// Back online: everything waiting goes at once.
+		await sender.wake();
+		assert.equal(rows.size, 0);
+	});
+});
+
+// ------------------------------------------------------------- reading
+
+// A person's folder in the bucket with `count` reports of 3 scans, one
+// second apart, plain JSON, each with its meta file; list honours limit,
+// offset, and search (a name prefix), as Supabase Storage does. Counts
+// every list and download.
+function folderOf(count, {extra = []} = {}) {
+	const objects = new Map();
+	const lists = [];
+	const downloads = [];
+	const bases = [];
+	const put = (base, note) => {
+		bases.push(base);
+		objects.set(`${USER}/${base}.json`, JSON.stringify({app: 'v56', entries: [{id: `${base}-a`}], exported: AT.toISOString()}));
+		objects.set(`${USER}/${metaName(base)}`, JSON.stringify({note, sent_at: stampDate(base).toISOString()}));
+	};
+
+	for (let i = 0; i < count; i++) {
+		put(reportBase(new Date(AT.getTime() + i * 1000), 3), `note ${i}`);
+	}
+
+	for (const base of extra) {
+		put(base, `note ${base}`);
+	}
+
+	const files = {
+		async download(path) {
+			downloads.push(path);
+
+			return objects.has(path) ? {data: new Blob([objects.get(path)]), error: null} : {data: null, error: {message: 'Object not found', status: 400}};
+		},
+		async list(folder, {limit = 100, offset = 0, search = ''} = {}) {
+			lists.push({folder, limit, offset, search});
+
+			const names = [...objects.keys()].map((path) => path.slice(folder.length + 1)).filter((name) => name.startsWith(search)).sort().reverse();
+
+			return {data: names.slice(offset, offset + limit).map((name) => ({metadata: {size: objects.get(`${USER}/${name}`).length}, name})), error: null};
+		},
+	};
+
+	return {bases, downloads, files, lists};
+}
+
+describe('reading reports from the bucket', () => {
+	test('Sent reports pages through the folder, so every report is listed however many there are', async () => {
+		const {bases, files, lists} = folderOf(5);
+		const reports = await readReports(files, USER, {page: 4});
+
+		assert.deepEqual(reports.map((report) => report.base), [...bases].reverse(), 'all five, newest first');
+		assert.deepEqual(lists.map((list) => list.offset), [0, 4, 8], 'ten files in pages of four');
+		assert.deepEqual(reports.map((report) => report.info.note), ['note 4', 'note 3', 'note 2', 'note 1', 'note 0']);
+		assert.equal(LIST_PAGE, 1000);
+	});
+
+	test('opening one report lists only its files and downloads only them', async () => {
+		const at = new Date(AT.getTime() + 2000);
+		const {bases, downloads, files, lists} = folderOf(5, {extra: [reportBase(at, 30)]});
+		const target = bases[2];
+
+		assert.equal(target, reportBase(at, 3), 'a report whose name starts another\'s');
+
+		const opened = await readReport(files, USER, target);
+
+		assert.deepEqual(lists.map((list) => list.search), [`${target}.`], 'one list, of this report');
+		assert.deepEqual(downloads.sort(), [`${USER}/${target}.json`, `${USER}/${target}.meta.json`]);
+		assert.equal(opened.info.note, 'note 2');
+		assert.deepEqual(opened.log.entries.map((item) => item.id), [`${target}-a`]);
+		assert.equal(opened.report.base, target);
+		await assert.rejects(readReport(files, USER, reportBase(new Date(AT.getTime() + 99000), 3)), /not in your account/);
 	});
 });
 
