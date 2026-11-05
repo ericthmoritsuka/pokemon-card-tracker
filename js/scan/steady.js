@@ -1335,10 +1335,14 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 				// the frame are drawn, and some of it is outside.
 				const visible = sides.filter((s) => s.inside > 0.3);
 
-				if (visible.length >= 2 && visible.every((s) => s.share >= FIND_SIDE_MIN) && interiorDetail(grey, width, height, corners) >= CARD_DETAIL) {
+				// Only an outline some of which is past the frame's edge: one
+				// whose corner merely sits in the margin (a line along the
+				// frame's edge taken for a side, round a card wholly in it)
+				// does not hide a card.
+				if (visible.length >= 2 && visible.every((s) => s.share >= FIND_SIDE_MIN) && sides.some((s) => s.inside < 0.97) && interiorDetail(grey, width, height, corners) >= CARD_DETAIL) {
 					cut.push({corners});
 
-					if (visible.length >= 3 && visible.every((s) => s.share >= TOUCH_SIDE_MIN) && sides.some((s) => s.inside < 0.97)) {
+					if (visible.length >= 3 && visible.every((s) => s.share >= TOUCH_SIDE_MIN)) {
 						touching = true;
 					}
 				}
