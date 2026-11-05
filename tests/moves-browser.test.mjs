@@ -385,3 +385,45 @@ test('Edit changes a logged sale\'s price and who: History and the card page fol
 	assert.equal(now.moves[0].deleted, true);
 	await done();
 });
+
+test('Edit saves only what was changed in the form: who changed on another phone while the form was open stays', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+
+		await applyMove({currency: 'USD', date: '2026-11-03', kind: 'sold', out: ['c-01'], price: '1500', who: 'Ana'});
+	});
+
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	await page.click('.moves-row');
+	await page.waitForSelector('#move-edit');
+	await page.click('#move-edit');
+	await page.waitForSelector('#move-edit-form');
+	assert.equal(await page.inputValue('#move-edit-price'), '1.500,00');
+
+	// Another phone's change to who reaches this phone while the form is open.
+	await page.evaluate(async () => {
+		const {editMove, liveMoves} = await import('/pokemon-card-tracker/js/moves.js');
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+		await editMove(liveMoves(await loadDocument())[0].id, {who: 'Bia'});
+	});
+	await page.waitForFunction(() => document.querySelector('.moves-title')?.textContent.includes('Bia'));
+	assert.equal(await page.inputValue('#move-edit-who'), 'Ana', 'the open form still shows what it opened with');
+
+	await page.fill('#move-edit-note', 'Paid in cash');
+	await page.click('#move-edit-save');
+
+	const saved = await untilInPage(page, 'the note saved', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const move = ((await loadDocument()).moves || [])[0];
+
+		return move && move.note === 'Paid in cash' ? move : null;
+	});
+
+	assert.deepEqual([saved.who, saved.price, saved.currency, saved.money], ['Bia', 1500, 'USD', 'in'], 'who stays as the other phone left it, and the price as it was');
+	await done();
+});

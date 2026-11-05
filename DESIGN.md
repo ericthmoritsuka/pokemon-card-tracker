@@ -2259,7 +2259,14 @@ paid it" or "I got it", as the log form asks), and note. The price is typed and 
 log form does (`parsePrice`, "Saved as R$ 1.500,00"). Edit never changes the cards: changing which
 cards went out or came in is Undo this move and logging it again. `planEditMove` (js/moves.js)
 changes only those six fields and stamps only the ones that changed (js/merge.js `stampEntry`),
-so two phones editing different fields both keep their change, as with any other entry; `out`,
+so two phones editing different fields both keep their change, as with any other entry. The form
+keeps the move it was filled from and saves only the fields changed in it (`base`), so a field
+another phone changed while the form was open keeps that change rather than going back to what
+the form showed. The price, its currency, and which way the money went are one unit: when any of
+them changes, all three are saved as the form shows them and take the same stamp, so the merge
+takes all three from the same phone, and a price cleared on one phone and changed on another never
+comes out as a price with no currency or way. The form shows the price the Brazilian way
+("1.500,00", `priceForInput`) without the phone's pt-BR number data, which some browsers lack. `out`,
 `in`, `past`, `undo`, `after_run`, `kind`, and `created_at` stay as they were, so Undo works the
 same after an edit. An undone move is a tombstone and cannot be edited, and an edit made on
 another phone before it heard of the Undo does not bring the move back (the delete sticks).

@@ -71,7 +71,7 @@ const collection = await import('../js/collection.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const v47 = await import('./v47/merge.js');
 const v21 = await import('./merge-v21.mjs');
-const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, startOverBlockedText, undoMove} = await import('../js/moves.js');
+const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, startOverBlockedText, undoMove} = await import('../js/moves.js');
 const {importEntries} = await import('../js/monprice.js');
 const {planStartOver, planUndo, startOverIds} = await import('../js/start-over.js');
 
@@ -690,7 +690,7 @@ describe('Edit a logged move', () => {
 		assert.equal(stableJson(doc), stableJson(before), 'the document passed in is not changed');
 		assert.equal(move.updated_at, new Date(LATER).toISOString());
 		assert.equal(move.field_stamps.at, move.updated_at, 'stamped, so the merge takes the edit');
-		assert.deepEqual(Object.keys(move.field_stamps).filter((key) => key !== 'at' && key !== 'since').sort(), ['currency', 'date', 'note', 'price', 'who'], 'only the changed fields are stamped');
+		assert.deepEqual(Object.keys(move.field_stamps).filter((key) => key !== 'at' && key !== 'since').sort(), ['currency', 'date', 'money', 'note', 'price', 'who'], 'only the changed fields are stamped, the price, currency, and money together');
 
 		// History's month and money, and the card page's line, follow.
 		assert.deepEqual(monthTotals(edited.moves).map((month) => [month.month, month.in]), [['2026-10', {USD: 1500}]]);
@@ -741,6 +741,107 @@ describe('Edit a logged move', () => {
 		}
 
 		assert.equal(stableJson(a.moves), stableJson(b.moves));
+	});
+
+	test('a form saves only what was changed in it: a field another phone changed while it was open keeps that change', () => {
+		const {doc} = sale(startDoc(), {currency: 'USD', price: '30'});
+		// What phone A's Edit form was filled from.
+		const opened = structuredClone(doc.moves[0]);
+		// Phone B changes who, and it reaches phone A while the form is open.
+		const b = planEditMove(doc, 'm1', {who: 'Bia'}, {now: LATER}).doc;
+		const aSees = mergeDocuments(doc, b);
+		// Phone A's form sends every field, as filled; only the note was changed.
+		const form = {currency: opened.currency, date: opened.date, note: 'cash', price: priceForInput(opened.price), who: opened.who};
+		const a = planEditMove(aSees, 'm1', form, {base: opened, now: LATER + 60000});
+
+		assert.deepEqual(a.changed, ['note']);
+		assert.equal(a.move.who, 'Bia', 'B\'s who stays on A');
+		assert.deepEqual([a.move.price, a.move.currency, a.move.money], [30, 'USD', 'in']);
+		assert.deepEqual(Object.keys(a.move.field_stamps).filter((key) => key !== 'at' && key !== 'since' && key !== 'who').sort(), ['note'], 'the untouched price is not stamped');
+
+		for (const merged of [mergeDocuments(a.doc, b), mergeDocuments(b, a.doc)]) {
+			assert.deepEqual([merged.moves[0].who, merged.moves[0].note], ['Bia', 'cash']);
+		}
+
+		// The price typed on A goes with the currency A's form showed, not
+		// one another phone set meanwhile: the three are one change.
+		const euro = planEditMove(doc, 'm1', {currency: 'EUR'}, {now: LATER}).doc;
+		const typed = planEditMove(mergeDocuments(doc, euro), 'm1', {...form, note: opened.note, price: '35'}, {base: opened, now: LATER + 60000});
+
+		assert.deepEqual(typed.changed.sort(), ['currency', 'price']);
+		assert.deepEqual([typed.move.price, typed.move.currency, typed.move.money], [35, 'USD', 'in']);
+
+		// A form that changed nothing saves nothing, whatever changed meanwhile.
+		assert.deepEqual(planEditMove(aSees, 'm1', {...form, note: opened.note}, {base: opened, now: LATER + 60000}).changed, []);
+	});
+
+	test('the price, its currency, and which way the money went merge as one: never a price from one phone with another\'s currency', () => {
+		const {doc} = sale(startDoc(), {currency: 'USD', price: '30'});
+		// Phone A takes the price away; phone B, a minute later, makes it 40.
+		const cleared = planEditMove(doc, 'm1', {price: ''}, {now: LATER}).doc;
+		const forty = planEditMove(doc, 'm1', {price: '40'}, {now: LATER + 60000}).doc;
+
+		for (const merged of [mergeDocuments(cleared, forty), mergeDocuments(forty, cleared)]) {
+			const move = merged.moves[0];
+
+			assert.deepEqual([move.price, move.currency, move.money], [40, 'USD', 'in'], 'B\'s price, whole');
+			assert.deepEqual(moneyOf(move), {amount: 40, currency: 'USD', way: 'in'});
+			assert.deepEqual(monthTotals(merged.moves)[0].in, {USD: 40});
+		}
+
+		// The other way round in time: the later clear wins, whole.
+		const fortyFirst = planEditMove(doc, 'm1', {price: '40'}, {now: LATER}).doc;
+		const clearedLater = planEditMove(doc, 'm1', {price: ''}, {now: LATER + 60000}).doc;
+
+		for (const merged of [mergeDocuments(fortyFirst, clearedLater), mergeDocuments(clearedLater, fortyFirst)]) {
+			assert.deepEqual([merged.moves[0].price, merged.moves[0].currency, merged.moves[0].money], [null, null, null]);
+			assert.equal(moneyOf(merged.moves[0]), null);
+		}
+
+		// A trade: phone A clears the cash, phone B changes the amount; then
+		// phone A turns the cash round while phone B changed the amount earlier.
+		const {doc: traded} = trade();
+		const noCash = planEditMove(traded, 'm2', {price: ''}, {now: LATER}).doc;
+		const eight = planEditMove(traded, 'm2', {price: '8'}, {now: LATER + 60000}).doc;
+
+		for (const merged of [mergeDocuments(noCash, eight), mergeDocuments(eight, noCash)]) {
+			assert.deepEqual([merged.moves[0].price, merged.moves[0].currency, merged.moves[0].money], [8, 'BRL', 'out'], 'the cash keeps its way');
+			assert.deepEqual(moneyOf(merged.moves[0]), {amount: 8, currency: 'BRL', way: 'out'});
+		}
+
+		const opened = structuredClone(traded.moves[0]);
+		const eightFirst = planEditMove(traded, 'm2', {price: '8'}, {now: LATER}).doc;
+		const turned = planEditMove(traded, 'm2', {currency: 'BRL', money: 'in', price: priceForInput(opened.price)}, {base: opened, now: LATER + 60000}).doc;
+
+		for (const merged of [mergeDocuments(eightFirst, turned), mergeDocuments(turned, eightFirst)]) {
+			assert.deepEqual([merged.moves[0].price, merged.moves[0].currency, merged.moves[0].money], [5, 'BRL', 'in'], 'the later change, whole');
+		}
+	});
+
+	test('the price shows in the form the Brazilian way without the phone\'s pt-BR number data, and reads back the same', () => {
+		const values = [0.01, 0.5, 30.5, 999.99, 1000, 1500, 1234567.89];
+		const expected = ['0,01', '0,50', '30,50', '999,99', '1.000,00', '1.500,00', '1.234.567,89'];
+		const own = Number.prototype.toLocaleString;
+		const OwnFormat = Intl.NumberFormat;
+
+		// A phone without pt-BR data formats as en-US.
+		Number.prototype.toLocaleString = function (_locale, options) {
+			return own.call(this, 'en-US', options);
+		};
+		Intl.NumberFormat = function (_locale, options) {
+			return new OwnFormat('en-US', options);
+		};
+
+		try {
+			assert.deepEqual(values.map(priceForInput), expected);
+			assert.deepEqual(expected.map((typed) => parsePrice(typed).value), values);
+		}
+		finally {
+			Number.prototype.toLocaleString = own;
+			Intl.NumberFormat = OwnFormat;
+		}
+
+		assert.deepEqual([null, 0, -3, NaN, '30'].map(priceForInput), ['', '', '', '', '']);
 	});
 
 	test('Undo after an edit works as before: the copy comes back, the incoming copy goes, and the move is a tombstone', () => {

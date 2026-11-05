@@ -24,7 +24,7 @@ import {MAX_ADD, conditionOptions, copyLanguages, languageName, sheetDialog, she
 import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceText, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceForInput, priceText, takePendingMove, undoMove} from './moves.js';
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
@@ -38,10 +38,6 @@ const PAGE = 60;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const monthName = (month) => (/^\d{4}-\d{2}$/.test(month) ? `${MONTHS[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}` : 'No date');
-
-// A saved price as the form shows it, the Brazilian way: 1500 is
-// "1.500,00", which parsePrice reads back as 1500.
-const priceInput = (value) => (typeof value === 'number' && value > 0 ? value.toLocaleString('pt-BR', {maximumFractionDigits: 2, minimumFractionDigits: 2}) : '');
 
 const moneyLine = (sums) => Object.entries(sums).map(([currency, amount]) => formatMoney(amount, currency)).join(' + ');
 
@@ -193,13 +189,16 @@ export function historyView(root) {
 
 	// Edit a logged move (Eric, 2026-11-05): the date, who, price with its
 	// currency and which way it went, and the note, in the same sheet. The
-	// cards stay as they are (js/moves.js planEditMove).
+	// cards stay as they are (js/moves.js planEditMove). The form keeps the
+	// move it was filled from and saves only what was changed in it, so a
+	// change another phone made while it was open stays.
 	function editMoveForm(move) {
+		const opened = structuredClone(move);
 		const close = () => sheet.close();
 		const [whoWords, priceWords] = KIND_WORDS[move.kind] || KIND_WORDS.gift;
 		const date = h('input', {class: 'search', id: 'move-edit-date', name: 'move-edit-date', type: 'date', value: move.date || today()});
 		const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-edit-who', maxlength: 80, name: 'move-edit-who', type: 'text', value: move.who || ''});
-		const price = h('input', {class: 'search', id: 'move-edit-price', inputmode: 'decimal', name: 'move-edit-price', placeholder: '0,00', type: 'text', value: priceInput(move.price)});
+		const price = h('input', {class: 'search', id: 'move-edit-price', inputmode: 'decimal', name: 'move-edit-price', placeholder: '0,00', type: 'text', value: priceForInput(move.price)});
 		const currency = sheetSelect('move-edit-currency', CURRENCIES.map((code) => ({label: code, value: code})), CURRENCIES.includes(move.currency) ? move.currency : 'BRL');
 		const money = sheetSelect('move-edit-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], move.money === 'in' ? 'in' : 'out');
 		const priceRead = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: 'move-edit-price-read'});
@@ -260,7 +259,7 @@ export function historyView(root) {
 			save.disabled = true;
 
 			try {
-				const {changed} = await editMove(move.id, fields);
+				const {changed} = await editMove(move.id, fields, {base: opened});
 
 				close();
 				toast(changed.length ? 'Saved your changes to the move.' : 'Nothing changed.');
