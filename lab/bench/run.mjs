@@ -247,8 +247,14 @@ else {
 			await saveCrops(r, `${item.id}-${pass}`);
 			r.truth = item.id;
 			r.group = `${item.group}-${item.lang}`;
+			// The name read right: the dataset's species (dex), or for a
+			// Trainer its name, first among the names matched.
+			const top = (r.new.names || [])[0];
+
+			r.nameRight = Boolean(top && (item.dex ? top.dex === item.dex : (top.spelling || top.name) === item.name));
+			r.wrongSure = Boolean(r.new.sure && (r.new.candidates[0] || {}).id !== item.id);
 			rows.push(r);
-			console.log(`${pass} ${item.id} num:${rank(r.new.numberOnly, item.id)} name:${rank(r.new.noArt, item.id)} full:${rank(r.new.candidates, item.id)} | n=${r.new.number} name="${r.new.name && r.new.name.text}" hp=${r.new.hp && r.new.hp.value} ${r.new.timings.total}ms (ocr ${r.new.timings.ocr})`);
+			console.log(`${pass} ${item.id} num:${rank(r.new.numberOnly, item.id)} name:${rank(r.new.noArt, item.id)} full:${rank(r.new.candidates, item.id)} | n=${r.new.number} name="${r.new.name && r.new.name.text}"${r.nameRight ? ' (right)' : ''} hp=${r.new.hp && r.new.hp.value} calls ${r.new.calls} ${r.new.timings.total}ms (ocr ${r.new.timings.ocr})${r.wrongSure ? ' WRONG BUT SURE' : ''}`);
 		}
 	}
 
@@ -298,7 +304,27 @@ else {
 			continue;
 		}
 
-		console.log(`${pass}: name matched ${list.filter((r) => r.new.names && r.new.names[0] && r.new.names[0].score >= 0.75).length}/${list.length}, number read ${list.filter((r) => r.new.number).length}, HP read ${list.filter((r) => r.new.hp).length}, edges ${list.filter((r) => r.new.found).length}; rectify ${median(times.map((t) => t.rectify))} ms, OCR ${median(times.map((t) => t.ocr))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms`);
+		console.log(`${pass}: name matched ${list.filter((r) => r.new.names && r.new.names[0] && r.new.names[0].score >= 0.75).length}/${list.length} (right ${list.filter((r) => r.nameRight).length}), number read ${list.filter((r) => r.new.number).length}, HP read ${list.filter((r) => r.new.hp).length}, edges ${list.filter((r) => r.new.found).length}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.wrongSure).length}); OCR calls median ${median(list.map((r) => r.new.calls || 0))}; rectify ${median(times.map((t) => t.rectify))} ms, OCR ${median(times.map((t) => t.ocr))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms`);
+	}
+
+	// Per group (a dataset's `group` and language): names read right, the
+	// right card first, and wrong but sure.
+	if (!args.numbers && !args.picture) {
+		console.log('\n| Group | n | Name right | Right first | Top 3 | Sure | Wrong but sure | OCR calls (median) | ms (median, p90) |');
+		console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+
+		for (const group of [...new Set(rows.map((r) => r.group))]) {
+			const list = rows.filter((r) => r.group === group);
+			const totals = list.map((r) => r.new.timings.total).sort((a, b) => a - b);
+
+			console.log(`| ${group} | ${list.length} | ${list.filter((r) => r.nameRight).length} | ${list.filter(at('candidates', 1)).length} | ${list.filter(at('candidates', 3)).length} | ${list.filter((r) => r.new.sure).length} | ${list.filter((r) => r.wrongSure).length} | ${median(list.map((r) => r.new.calls || 0))} | ${median(totals)}, ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} |`);
+		}
+
+		const loads = await page.evaluate(() => window.bench.asianLoads());
+		const first = loads.filter((load) => !load.switched);
+		const switches = loads.filter((load) => load.switched).map((load) => load.ms).sort((a, b) => a - b);
+
+		console.log(`Japanese and Korean models: first load ${first.map((load) => `${load.lang} ${load.ms} ms`).join(', ') || 'none'}; ${switches.length} switches between them, median ${median(switches)} ms`);
 	}
 }
 

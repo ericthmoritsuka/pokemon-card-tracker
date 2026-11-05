@@ -38,6 +38,7 @@ import {
 	SHARPEN,
 	TEXT_PX,
 } from '../vision/pipeline.js';
+import {looksCjk, medianGrey, MODEL, parseCjkName, plausibleLatin, wantsCjk} from './cjk.js';
 import {misreadNumbers, parseHp, parseName, parsePartialNumber} from './evidence.js';
 
 // Regions as fractions of the straightened card, as in js/vision/pipeline.js.
@@ -654,13 +655,116 @@ const shiftLines = (result, y0) => linesOf(result).map((read) => ({
 
 // ------------------------------------------------------------ the name strip
 
+// A Japanese or Korean name read with the table (scoreName) this well is a
+// name: the other model is not tried.
+export const CJK_NAME_FOUND = 0.7;
+
+// A Japanese or Korean read on a card whose language is not known names the
+// card only this well: the English passes are skipped for it. A weaker one
+// waits for them (random Hangul and kana reach 0.7 against the table about
+// one time in a hundred and fifty, 0.8 about one in a thousand; review of
+// version 56's first draft, lab script junk.mjs).
+export const CJK_NAME_TAKEN = 0.8;
+
+// Without a table to check it against, a Japanese or Korean read with this
+// much word confidence is taken as a name.
+export const CJK_CONFIDENCE = 0.5;
+
+// The shapes of the name strip's tallest line (js/scan/cjk.js looksCjk):
+// the name prints larger than the stage label and the "evolves from" line.
+function stripShapes(image, textPx) {
+	const lines = findTextLines(image, textPx, 2);
+
+	if (!lines.length) {
+		return null;
+	}
+
+	const tallest = lines.reduce((best, line) => (line.y1 - line.y0 > best.y1 - best.y0 ? line : best));
+
+	return looksCjk(cropRows(image, tallest));
+}
+
+// Reads the name strip with the Japanese or Korean model (plan from
+// cjk.js wantsCjk): its two most text-like lines, each as one line; then
+// with the other model when the first read no name (scoreName, the best
+// table score of a text, or the word confidence without one). Returns
+// parseCjkName's {text, suffix, confidence, script} with lang, the model's
+// language, and score; text '' when neither read a name, or the model could
+// not load.
+async function readCjkName(crop, recognise, plan, {crops, noWait = false, raw, scoreName = null, textPx}) {
+	const found = findTextLines(crop, textPx, 2);
+	const readWith = async (lang) => {
+		try {
+			const results = await Promise.all(found.map((line, index) => {
+				// The models read dark print on light: a line still light on
+				// dark is turned over.
+				if (!crops[`nameCjk${index + 1}`]) {
+					const rows = cropRows(crop, line);
+
+					crops[`nameCjk${index + 1}`] = medianGrey(rows) < 110 ? invertCrop(rows) : rows;
+				}
+
+				return recognise('nameCjk', crops[`nameCjk${index + 1}`], {...OCR_SETTINGS.name, lang: MODEL[lang], ...(noWait ? {noWait} : {})}).then((result) => shiftLines(result, line.y0));
+			}));
+			const lines = results.flat();
+			const parsed = parseCjkName(inkHeights(crop, lines));
+			const score = parsed.text ? (scoreName ? await scoreName(parsed.text) : parsed.confidence) : 0;
+
+			raw.nameCjk = {confidence: 0, lines: [...((raw.nameCjk && raw.nameCjk.lines) || []), ...lines], text: [raw.nameCjk && raw.nameCjk.text, `${lang}: ${lines.map((line) => line.text).join(' | ')}`].filter(Boolean).join('\n')};
+
+			return {...parsed, lang, score};
+		}
+		catch (err) {
+			raw.nameCjk = {confidence: 0, lines: [], text: [raw.nameCjk && raw.nameCjk.text, `${lang}: ${err && err.message}`].filter(Boolean).join('\n')};
+
+			return {confidence: 0, lang, score: 0, script: null, suffix: null, text: ''};
+		}
+	};
+	const enough = (read) => read.text && read.score >= (scoreName ? CJK_NAME_FOUND : CJK_CONFIDENCE);
+	let best = await readWith(plan.first);
+
+	if (!enough(best) && plan.then) {
+		const other = await readWith(plan.then);
+
+		if (other.text && (!best.text || other.score > best.score)) {
+			best = other;
+		}
+	}
+
+	return best;
+}
+
 // Reads the name strip: its two most text-like lines, each as one line;
 // again inverted when the read is poor (a name bar half light, half dark),
 // keeping the likelier name; then the whole strip sparse when nothing
 // name-like came. recognise(key, crop, settings) runs one OCR call; crops
 // and raw are filled in under `name`. Returns parseName's {text, suffix,
 // confidence}.
-async function readName(card, recognise, {blur = true, crops, flat = false, raw, textPx = TEXT_PX}) {
+//
+// cjk: {language, guess, lean} for the Japanese and Korean models
+// (js/scan/cjk.js wantsCjk): a card known to be Japanese or Korean is read
+// with its model only; otherwise, when the strip's tallest line has the
+// shapes of kana, kanji, or Hangul (or the last language picked was
+// Japanese or Korean), the English read of the first two lines is checked
+// against the Western names, and when it names nothing plausible the strip
+// is read with the Japanese or Korean model before the inverted and sparse
+// English passes, which a read that names a known name skips. Such a read
+// adds script ('ja' or 'ko'), lang (the model's language), and score to the
+// result.
+// latinLabel: a promise of the label row's parseLabel answer (readCard),
+// whose Latin label vetoes the Japanese and Korean models.
+// scoreName(text): the best table score of a Japanese or Korean text
+// (js/scan/local-names.js asianNameScore), or null; scoreLatin(text) the
+// same for a Latin one against the Western names (latinNameScore), which
+// says whether the English read named anything, null when the table is not
+// loaded (then the models are not asked: nothing says the read named
+// nothing). It is asked only once the shapes or the last pick ask for the
+// models, since it costs tens of milliseconds on the main thread.
+// modelState(model): which models the reader holds (js/scan/ocr.js
+// createAsianReader state), and prepareModel(model) loads one behind the
+// scan: with no language known, a model that is not loaded is never waited
+// for, only prepared for the next card.
+async function readName(card, recognise, {blur = true, cjk = null, crops, flat = false, latinLabel = null, modelState = null, prepareModel = null, raw, scoreLatin = null, scoreName = null, textPx = TEXT_PX}) {
 	const crop = prepareRegion(card, regionRect(card, REGIONS.name), scaleFor(card, REGIONS.name, textPx), {blur, flat, sharpen: SHARPEN});
 	const readLines = async (image) => {
 		const found = findTextLines(image, textPx, 2);
@@ -675,10 +779,70 @@ async function readName(card, recognise, {blur = true, crops, flat = false, raw,
 
 	crops.name = crop;
 
+	const known = wantsCjk(cjk);
+
+	if (known.read && known.skipLatin) {
+		raw.name = {confidence: 0, lines: [], text: ''};
+
+		const asian = await readCjkName(crop, recognise, known, {crops, raw, scoreName, textPx});
+
+		return asian.text ? asian : {confidence: 0, suffix: null, text: ''};
+	}
+
 	const lines = await readLines(crop);
 	let parsed = parseName(inkHeights(crop, lines));
 
 	raw.name = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
+
+	let asian = null;
+
+	if (cjk && !cjk.off) {
+		// The shapes are cheap (a few milliseconds), so they are measured and
+		// kept for the scan log whenever Japanese and Korean reading is on.
+		const shapes = stripShapes(crop, textPx);
+		const asked = Boolean((shapes && shapes.cjk) || cjk.lean);
+		// No plausible Latin name: a Japanese or Korean one.
+		const latinScore = asked && scoreLatin && parsed.text ? await scoreLatin(parsed.text) : null;
+		const unknown = asked && scoreLatin && parsed.text && typeof latinScore !== 'number';
+
+		raw.nameShapes = {confidence: 0, lines: [], text: shapes ? `tall ${shapes.tall}, wide ${shapes.wide}, fill ${shapes.fill}, holes ${shapes.holes}, glyphs ${shapes.glyphs}, latin ${latinScore}` : 'no line'};
+
+		if (asked && !unknown && !plausibleLatin(parsed, latinScore)) {
+			// The label row read alongside (readCard): a Latin label read on it
+			// is a Latin card (lab benchmark: a third of the Latin captures
+			// that reached here had one).
+			const label = latinLabel ? await latinLabel.catch(() => null) : null;
+			const models = modelState ? {ja: modelState(MODEL.ja) || null, ko: modelState(MODEL.ko) || null} : null;
+			const plan = label && label.code ? {read: false} : wantsCjk(cjk, parsed, shapes, latinScore, models);
+
+			if (plan.read) {
+				asian = await readCjkName(crop, recognise, plan, {crops, noWait: Boolean(models), raw, scoreName, textPx});
+			}
+
+			if (prepareModel && models) {
+				// The model this card wanted and could not wait for; or, when
+				// the one it read with named nothing, the other, for the next
+				// card.
+				const other = plan.first === 'ja' ? 'ko' : 'ja';
+				const named = Boolean(asian && asian.text && asian.score >= (scoreName ? CJK_NAME_FOUND : CJK_CONFIDENCE));
+				const later = plan.prepare || (plan.read && !plan.then && !named && !models[other] ? other : null);
+
+				if (later) {
+					prepareModel(MODEL[later]);
+				}
+			}
+
+			// A Japanese or Korean read that names a known name well is the
+			// name; a weaker one waits for the English passes below, and is
+			// kept only when they read no name either (lab benchmark: a
+			// glared Latin Sableye, its first English read poor, was read as
+			// Korean "오를은", which named nothing, while the inverted English
+			// pass read it).
+			if (asian && asian.text && asian.score >= (scoreName ? CJK_NAME_TAKEN : CJK_CONFIDENCE)) {
+				return asian;
+			}
+		}
+	}
 
 	if (!parsed.text || parsed.confidence < 0.45) {
 		const other = invertCrop(crop);
@@ -697,6 +861,10 @@ async function readName(card, recognise, {blur = true, crops, flat = false, raw,
 
 		raw.name = {...sparse, text: raw.name.text + '\n' + sparse.text};
 		parsed = parseName(inkHeights(crop, [...lines, ...linesOf(sparse)]));
+	}
+
+	if (asian && asian.text && !parsed.text) {
+		return asian;
 	}
 
 	return parsed;
@@ -737,7 +905,10 @@ export async function readLabel(card, ocr, {textPx = TEXT_PX} = {}) {
 // options: attacks (read the attack box when the number did not read;
 // default true), blurName (blur the name strip first, for photos of
 // screens), flat (flat-field the strips, for glare), onProgress(fraction)
-// as reads come back, textPx, now.
+// as reads come back, textPx, now; cjk, scoreLatin, scoreName, and
+// modelState for Japanese and Korean names (readName), and
+// prepareModel(model), which starts loading the Japanese or Korean model of
+// a card known to be one, or of the next card when this one could not wait.
 //
 // Returns {copyrightYear, crops, hp, label, language, name, number,
 // partial, attackText, raw, setCodeBox, timings, wizards}. timings.ocr is
@@ -745,7 +916,7 @@ export async function readLabel(card, ocr, {textPx = TEXT_PX} = {}) {
 // numberOnly: read the collector number, total, set code box, and
 // language label only (no name, HP, or attacks), for a card the picture
 // already narrowed to a few (js/scan/picture.js).
-export async function readCard(card, ocr, {attacks = true, blurName = true, flat = false, now = () => performance.now(), numberOnly = false, onProgress = null, textPx = TEXT_PX} = {}) {
+export async function readCard(card, ocr, {attacks = true, blurName = true, cjk = null, flat = false, modelState = null, now = () => performance.now(), numberOnly = false, onProgress = null, prepareModel = null, scoreLatin = null, scoreName = null, textPx = TEXT_PX} = {}) {
 	if (numberOnly) {
 		attacks = false;
 	}
@@ -838,8 +1009,20 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 		}
 	});
 
+	// A card known to be Japanese or Korean: its model starts loading beside
+	// the first reads.
+	if (!numberOnly && prepareModel && cjk && MODEL[cjk.language]) {
+		prepareModel(MODEL[cjk.language]);
+	}
+
 	const left = numberTask('numberLeft', 3);
-	const name = numberOnly ? Promise.resolve(null) : readName(card, recognise, {blur: blurName, crops, flat, raw, textPx});
+	// The label row's answer, for the name strip's Japanese and Korean
+	// decision (readName latinLabel); the label is read below.
+	let labelDone = () => {};
+	const labelReady = new Promise((resolve) => {
+		labelDone = resolve;
+	});
+	const name = numberOnly ? Promise.resolve(null) : readName(card, recognise, {blur: blurName, cjk, crops, flat, latinLabel: labelReady, modelState, prepareModel, raw, scoreLatin, scoreName, textPx});
 	const right = numberTask('numberRight', 2);
 	// HP: dark digits on most cards, light ones on the dark name bar of V,
 	// VMAX, and many ex cards, so a miss is read again inverted.
@@ -878,6 +1061,8 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 
 		return parseLabel(raw.label.text);
 	});
+
+	label.then(labelDone, () => labelDone(null));
 
 	// ---- what depends on the number strips
 
@@ -936,6 +1121,7 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 	const [nameRead, hpRead, labelRead] = await Promise.all([name, hp, label, ...follow]);
 
 	timings.ocr = Math.round(now() - started);
+	timings.calls = done;
 
 	const partial = number ? {number: null, total: null} : parsePartialNumber(`${raw.numberLeft.text}\n${raw.numberRight.text}`);
 
@@ -982,7 +1168,10 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, flat
 // no sure number. name: read the name strip when no
 // number reads (the picture was not clear either, js/scan/identify.js), for
 // the name route (js/scan/picture.js pictureMatch); otherwise name is null.
-export async function readNumber(card, ocr, {fullArt = false, label: withLabel = false, name: withName = false, now = () => performance.now(), onProgress = null, prefer = 'left', setCode = false, textPx = TEXT_PX} = {}) {
+// cjk, scoreLatin, scoreName, modelState, prepareModel: as readCard, for a
+// name in Japanese or Korean (readName), with the label row, when it is
+// read, as latinLabel.
+export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
@@ -1139,7 +1328,7 @@ export async function readNumber(card, ocr, {fullArt = false, label: withLabel =
 
 	// No number (or only one whose slash was misread): the name, for the name
 	// route, when asked for.
-	const name = withName && (!number || number.misread) ? await readName(card, recognise, {crops, raw, textPx}) : null;
+	const name = withName && (!number || number.misread) ? await readName(card, recognise, {cjk, crops, latinLabel: withLabel ? labelRead : null, modelState, prepareModel, raw, scoreLatin, scoreName, textPx}) : null;
 
 	timings.ocr = Math.round(now() - started);
 	timings.calls = calls;

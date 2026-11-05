@@ -14,6 +14,21 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-04
 
+- **v56:** the scanner reads the names on Japanese and Korean cards. `bf8f0bb`
+  - When neither the picture nor the number finds a Japanese or Korean card, the scanner reads its
+    name in Japanese or Korean and looks the card up by it. A Korean name finds the Japanese record
+    your Korean copies are kept on. A name alone never makes a card sure: you still confirm it.
+  - A card you picked as Japanese or Korean (or Set for all) is read in its language at once. Any
+    other card is tried in Japanese or Korean only when its name looks like Japanese or Korean
+    letters, or your last pick in Scan was Japanese or Korean.
+  - The Japanese and Korean reading data (1.5 MB and 1.1 MB) downloads the first time a card needs
+    it and is kept for offline use; opening the app downloads nothing more. A card picked as
+    Japanese or Korean waits up to 20 seconds for it. Any other card never waits: it starts the
+    download, and the cards after it use it.
+  - English, Portuguese, Energy, and Trainer cards read as before, with no Japanese or Korean
+    download. With no connection before the data was kept, the scanner tries again once the
+    phone is back online.
+
 - **v55:** a log of the cards you sell, buy, trade, and give. `a6ba8e2`
   - **Trades**, beside Spares on My Cards (and **Trades and sales** in Profile), opens History.
     **Log a move** records a sale, a purchase, a trade, or a gift: the date, who with, one price for

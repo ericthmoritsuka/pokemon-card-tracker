@@ -1,10 +1,13 @@
 // Builds js/scan/local-names.json, the scanner's table of Pokémon and
 // Trainer names in the languages printed on Western cards, so a name read
 // off a Portuguese, French, or German card leads to the card
-// (js/scan/local-names.js, js/scan/match.js). A developer tool: nothing in
-// the app loads it.
+// (js/scan/local-names.js, js/scan/match.js), and js/scan/asian-names.json,
+// the same for names read off Japanese and Korean cards with the Japanese
+// and Korean OCR models (js/scan/cjk.js). A developer tool: nothing in the
+// app loads it.
 //
-// node lab/names/build.mjs [--out js/scan/local-names.json] [--cache <dir>]
+// node lab/names/build.mjs [--out js/scan/local-names.json]
+//   [--asian-out js/scan/asian-names.json] [--cache <dir>]
 //
 // Sources, both free, read once here and never by the app:
 //
@@ -20,6 +23,16 @@
 //   older French and German spellings); a Trainer printed under another name
 //   gives that name, joined to its English one by the card's id (Trainers
 //   from Sun & Moon on only, to keep the table small).
+// - For the Asian table: PokeAPI's Japanese (`ja`; `ja-Hrkt`, its kana form,
+//   is the same for every species, checked 2026-11-04) and Korean (`ko`)
+//   species names, and the Japanese Trainer names TCGdex's Japanese catalog
+//   prints from Sun & Moon on (set ids SM, S, SV, M, and their promos).
+//   TCGdex's Japanese names of older Pokémon prints are machine translations
+//   ("雑草" for Weedle), so Pokémon prints add no spellings there. No free
+//   source of Korean Trainer names was found: TCGdex's Korean catalog holds
+//   34 Trainer cards, numbered unlike the Japanese records they share codes
+//   with (its SV4K-059 is Earthen Vessel, the Japanese SV4K-059 a Snorlax
+//   Doll), so Korean Trainers are not in the table.
 //
 // --cache keeps the answers in a folder outside the repo, so a rebuild needs
 // no network.
@@ -33,6 +46,7 @@ const args = Object.fromEntries(process.argv.slice(2)
 	.map((a, i, all) => (a.startsWith('--') ? [a.slice(2), all[i + 1] && !all[i + 1].startsWith('--') ? all[i + 1] : true] : null))
 	.filter(Boolean));
 const out = resolve(String(args.out || join(ROOT, 'js/scan/local-names.json')));
+const asianOut = resolve(String(args['asian-out'] || join(ROOT, 'js/scan/asian-names.json')));
 const cache = args.cache ? resolve(String(args.cache)) : null;
 
 if (cache && cache.startsWith(ROOT + '/')) {
@@ -40,7 +54,7 @@ if (cache && cache.startsWith(ROOT + '/')) {
 }
 
 const MAX_DEX = 1025;
-const POKEAPI_LANGUAGES = {5: 'fr', 6: 'de', 9: 'en'};
+const POKEAPI_LANGUAGES = {3: 'ko', 5: 'fr', 6: 'de', 9: 'en', 11: 'ja'};
 const CARD_LANGUAGES = ['pt', 'fr', 'de'];
 
 async function cached(name, load) {
@@ -89,7 +103,7 @@ const cardsIn = (lang) => cached(`tcgdex-${lang}.json`, async () => (await post(
 
 const fold = (text) => String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const names = {de: [], en: [], fr: []};
+const names = {de: [], en: [], fr: [], ja: [], ko: []};
 
 for (const row of species.pokemonspeciesname) {
 	const lang = POKEAPI_LANGUAGES[row.language_id];
@@ -100,8 +114,10 @@ for (const row of species.pokemonspeciesname) {
 }
 
 for (let dex = 1; dex <= MAX_DEX; dex++) {
-	if (!names.en[dex - 1]) {
-		throw new Error(`PokeAPI gave no English name for #${dex}.`);
+	for (const lang of ['en', 'ja', 'ko']) {
+		if (!names[lang][dex - 1]) {
+			throw new Error(`PokeAPI gave no ${lang} name for #${dex}.`);
+		}
 	}
 }
 
@@ -206,3 +222,30 @@ const text = JSON.stringify(table);
 
 await writeFile(out, text + '\n');
 console.log(`${out}: ${text.length} bytes; ${table.prints.length} species with other print spellings, ${table.trainers.length} Trainers (${table.trainers.reduce((sum, row) => sum + row.length - 1, 0)} other names)`);
+
+// ---- the Asian table
+
+// Every Japanese card's name. TCGdex's dexId field fails on a few Japanese
+// cards (384.1, a Delta Species Rayquaza), so it is not asked for.
+const japanese = await cached('tcgdex-ja.json', async () => (await post('https://api.tcgdex.net/v2/graphql',
+	'{ cards(filters: {id: "-"}, pagination: {page: 1, itemsPerPage: 50000}) @locale(lang: "ja") { id name category } }')).cards);
+const ASIAN_TRAINER_SETS = /^(SM|S\d|S-P|SV|M\d|M-P|MC)/;
+// The name strip prints a Trainer's name with the plain spaces the OCR reads.
+const asianTrainer = (name) => String(name || '').normalize('NFKC').replace(/\s+/gu, ' ').trim();
+const japaneseTrainers = [...new Set(japanese
+	.filter((card) => card && card.category === 'Trainer' && ASIAN_TRAINER_SETS.test(card.id) && /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(card.name || ''))
+	.map((card) => asianTrainer(card.name)))].sort();
+
+const asian = {
+	about: 'Pokémon and Trainer names printed on Japanese and Korean cards, for the scanner\'s name route (js/scan/cjk.js, js/scan/local-names.js). Built by lab/names/build.mjs from PokeAPI species names (BSD-3-Clause) and TCGdex card names (MIT). species: Japanese and Korean names by National Dex number less one. trainers.ja: the Japanese Trainer names from Sun & Moon on. No free source of Korean Trainer names was found.',
+	built: new Date().toISOString().slice(0, 10),
+	species: {
+		ja: names.ja.join('|'),
+		ko: names.ko.join('|'),
+	},
+	trainers: {ja: japaneseTrainers},
+};
+const asianText = JSON.stringify(asian);
+
+await writeFile(asianOut, asianText + '\n');
+console.log(`${asianOut}: ${Buffer.byteLength(asianText)} bytes; ${MAX_DEX} species in Japanese and Korean, ${japaneseTrainers.length} Japanese Trainers`);

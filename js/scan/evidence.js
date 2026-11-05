@@ -11,6 +11,7 @@
 // is as good.
 
 import {confusedVariants, LEFT_NUMBER_FROM, sameNumber, setCodeMatches, WIZARDS_UNTIL} from '../vision/match.js';
+import {cjkSimilarity, hasCjk} from './cjk.js';
 
 // ------------------------------------------------------------ text
 
@@ -549,11 +550,21 @@ export function scoreCard(clues, card) {
 	if (clues.name && clues.name.text) {
 		// A name read in another language counts through its English name
 		// (matchNames): a Trainer, or a card found by its number, which
-		// carries no species, is matched by that name.
-		const bySpecies = (clues.names || []).filter((match) => (match.dex && (card.dexIds || []).includes(match.dex)) || (match.spelling && card.name && nameKey(stripSuffixText(card.name)) === nameKey(match.name)));
+		// carries no species, is matched by that name. A Japanese or Korean
+		// name has no Latin letters to compare (nameKey is empty), so it never
+		// counts this way.
+		const latinKey = (name) => {
+			const key = nameKey(name);
+
+			return key.length >= 3 ? key : null;
+		};
+		const bySpecies = (clues.names || []).filter((match) => (match.dex && (card.dexIds || []).includes(match.dex)) || (match.spelling && card.name && latinKey(stripSuffixText(card.name)) && latinKey(stripSuffixText(card.name)) === latinKey(match.name)));
 		// A card found by its number carries its name, not its species: its
-		// name is matched against the read the way a species name is.
-		const own = card.name ? matchSpecies(clues.name.text, [null, stripSuffixText(card.name)], {limit: 1, min: 0})[0] : null;
+		// name is matched against the read the way a species name is, in
+		// Japanese or Korean letters when the read is (js/scan/cjk.js).
+		const own = !card.name ? null : hasCjk(clues.name.text)
+			? {score: hasCjk(card.name) ? cjkSimilarity(stripSuffixText(card.name), clues.name.text) : 0}
+			: matchSpecies(clues.name.text, [null, stripSuffixText(card.name)], {limit: 1, min: 0})[0];
 		const best = Math.max(0, ...bySpecies.map((match) => match.score), own ? own.score : 0);
 
 		if (best >= 0.7) {

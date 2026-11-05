@@ -8,7 +8,7 @@
 // Catalog JSON is not cached here: the app keeps it in IndexedDB
 // (js/catalog.js), which lets it show a saved copy and refresh it behind.
 
-const VERSION = 'v55';
+const VERSION = 'v56';
 const PREFIX = 'card-tracker-shell-';
 const CACHE = PREFIX + VERSION;
 
@@ -92,9 +92,20 @@ function limitOf(target) {
 const OCR_CACHE = 'card-tracker-ocr-tesseract-7.0.0';
 const OCR_PATH = 'lab/vendor/tesseract/';
 
+// The OCR models by version: the first 12 hex digits of each file's SHA-256
+// (tests/scan-cjk.test.mjs checks them against the files). A model is kept
+// under its address with ?v=<version>, so a changed model, whose new version
+// comes with a new sw.js, is fetched again, and the copy of the old one is
+// dropped when the new one is kept.
+const OCR_MODELS = {eng: '45b4cb346724', jpn: 'c68c7f1f569c', kor: '8c9482fbc70e'};
+
 async function ocrResponse(event) {
 	const cache = await caches.open(OCR_CACHE);
-	const hit = await cache.match(event.request, {ignoreSearch: true});
+	const url = new URL(event.request.url);
+	const model = /\/([a-z_]+)\.traineddata\.gz$/.exec(url.pathname);
+	const version = model ? OCR_MODELS[model[1]] : null;
+	const key = version ? `${url.origin}${url.pathname}?v=${version}` : event.request;
+	const hit = await cache.match(key, {ignoreSearch: !version});
 
 	if (hit) {
 		return hit;
@@ -105,7 +116,17 @@ async function ocrResponse(event) {
 	if (response.ok) {
 		const copy = response.clone();
 
-		event.waitUntil(cache.put(event.request, copy).catch(() => {}));
+		event.waitUntil((async () => {
+			if (version) {
+				for (const kept of await cache.keys()) {
+					if (new URL(kept.url).pathname === url.pathname && kept.url !== key) {
+						await cache.delete(kept);
+					}
+				}
+			}
+
+			await cache.put(key, copy);
+		})().catch(() => {}));
 	}
 
 	return response;
@@ -178,6 +199,11 @@ const SHELL = [
 	'js/vision/index.bin',
 	'js/scan/camera.js',
 	'js/scan/chime.js',
+	// Japanese and Korean names (Eric, 2026-11-04): the reader and the name
+	// table (43 KB, 17 KB gzipped). The Japanese and Korean OCR models are
+	// not here: ocrResponse keeps them the first time a card asks for one.
+	'js/scan/cjk.js',
+	'js/scan/asian-names.json',
 	'js/scan/draft.js',
 	'js/scan/finish.js',
 	'js/scan/identify.js',

@@ -15,9 +15,16 @@
 //
 // Pure apart from loadLocalNames: Node tests the rest (tests/scan.test.mjs).
 
-import {nameKey} from './evidence.js';
+import {asianNameEntries, matchCjkNames} from './cjk.js';
+import {matchNames, nameKey} from './evidence.js';
 
 export const LOCAL_NAMES_URL = new URL('./local-names.json', import.meta.url).href;
+
+// The Japanese and Korean names (js/scan/asian-names.json, about 43 KB, 17 KB
+// gzipped, built by the same lab/names/build.mjs), fetched only the first
+// time a Japanese or Korean name is read (js/scan/cjk.js), and precached by
+// the service worker like the Western table.
+export const ASIAN_NAMES_URL = new URL('./asian-names.json', import.meta.url).href;
 
 // The table as entries for evidence.js matchNames: [{dex, name, english,
 // lang, key}]. dex is the National Dex number (null for a Trainer); english
@@ -92,4 +99,69 @@ export function loadLocalNames({fetchImpl = (...args) => fetch(...args), url = L
 	}
 
 	return loading;
+}
+
+let asianLoading = null;
+
+// The Asian table's entries (js/scan/cjk.js asianNameEntries), each species
+// with its English name from the Western table, fetched once. A failed fetch
+// resolves to no entries and is tried again next time.
+export function loadAsianNames({fetchImpl = (...args) => fetch(...args), local = () => loadLocalNames(), url = ASIAN_NAMES_URL} = {}) {
+	if (!asianLoading) {
+		asianLoading = Promise.all([
+			Promise.resolve().then(() => fetchImpl(url)).then((response) => {
+				if (!response.ok) {
+					throw new Error(`The Asian name table answered ${response.status}.`);
+				}
+
+				return response.json();
+			}),
+			Promise.resolve().then(local).catch(() => []),
+		])
+			.then(([table, western]) => {
+				const english = [];
+
+				for (const entry of western || []) {
+					if (entry.dex && entry.lang === 'en') {
+						english[entry.dex - 1] = entry.name;
+					}
+				}
+
+				return asianNameEntries(table, english);
+			})
+			.catch(() => {
+				asianLoading = null;
+
+				return [];
+			});
+	}
+
+	return asianLoading;
+}
+
+// The best table score (0 to 1) of a Japanese or Korean name read, for
+// read.js, which tries the other model when the first reads no name.
+export async function asianNameScore(text, {load = loadAsianNames} = {}) {
+	const [best] = matchCjkNames(text, await load(), {limit: 1, min: 0});
+
+	return best ? best.score : 0;
+}
+
+// The best score (0 to 1) of a Latin name read against the Western names
+// (every species in English, French, and German, and the Trainers), for
+// read.js: an English read of the name strip that names nothing may be a
+// Japanese or Korean name the English model cannot read. null when the
+// table could not be loaded (offline before the service worker kept it):
+// with no names to ask, a score of 0 would call every Latin card's name
+// unknown, and read.js takes null as "do not load a model".
+export async function latinNameScore(text, {load = loadLocalNames} = {}) {
+	const entries = await load();
+
+	if (!entries || !entries.length) {
+		return null;
+	}
+
+	const [best] = matchNames(text, entries, {limit: 1, min: 0.5});
+
+	return best ? best.score : 0;
 }

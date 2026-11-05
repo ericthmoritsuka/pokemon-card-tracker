@@ -33,6 +33,7 @@ import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
+import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import * as S from './session.js';
@@ -69,6 +70,10 @@ function textFirst() {
 // a Chinese Eevee started in Portuguese).
 const LANGUAGE_KEY = 'card-tracker:scan-language';
 const ASIAN_LANGUAGE_KEY = 'card-tracker:scan-language-asian';
+// The last language picked of either kind: when it is Japanese or Korean,
+// a name strip the English model reads no name off is read with that
+// model even before its shapes are measured (js/scan/cjk.js wantsCjk).
+const LAST_LANGUAGE_KEY = 'card-tracker:scan-language-last';
 
 function stored(key, fallback, fits) {
 	try {
@@ -84,9 +89,24 @@ function stored(key, fallback, fits) {
 const lastLanguage = () => stored(LANGUAGE_KEY, 'pt', (code) => !S.ASIAN_LANGUAGES.includes(code));
 const lastAsianLanguage = () => stored(ASIAN_LANGUAGE_KEY, 'ko', (code) => S.ASIAN_LANGUAGES.includes(code));
 
+// What the name strip's Japanese and Korean reading goes by (read.js
+// readName, js/scan/cjk.js wantsCjk): the card's own language when it is
+// already Japanese or Korean (picked, or Set for all), the last Asian pick
+// to try first, and whether the last pick of all was Japanese or Korean.
+function cjkOptions(item) {
+	const own = item && item.language && item.languageBy !== 'default' ? item.language : null;
+
+	return {
+		guess: lastAsianLanguage(),
+		language: ['ja', 'ko'].includes(own) ? own : null,
+		lean: ['ja', 'ko'].includes(stored(LAST_LANGUAGE_KEY, '', (code) => Boolean(code))),
+	};
+}
+
 function rememberLanguage(code) {
 	try {
 		localStorage.setItem(S.ASIAN_LANGUAGES.includes(code) ? ASIAN_LANGUAGE_KEY : LANGUAGE_KEY, code);
+		localStorage.setItem(LAST_LANGUAGE_KEY, code);
 	}
 	catch {
 		// Not kept; the next card starts in Portuguese, or Korean.
@@ -1956,7 +1976,7 @@ export function scanView(root) {
 			progress.set(id, 0.05);
 			draw();
 
-			const readOptions = {onProgress: (fraction) => {
+			const readOptions = {cjk: cjkOptions(S.findItem(session, id)), scoreLatin: (text) => latinNameScore(text), scoreName: (text) => asianNameScore(text), onProgress: (fraction) => {
 				progress.set(id, fraction);
 
 				// At most a redraw every tenth of the way.

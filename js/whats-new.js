@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-04',
 		items: [
+			'The scanner reads the names on Japanese and Korean cards.',
+			'The first such card downloads the reading data once.',
+		],
+		version: 'v56',
+	},
+	{
+		date: '2026-11-04',
+		items: [
 			'Trades on My Cards logs a sale, purchase, trade, or gift: cards out leave your collection and cards in are added, with Undo.',
 			'History shows the money in and out each month, a card\'s page says how its copies came and went, and a past sale can use copies you removed in the last 30 days.',
 		],

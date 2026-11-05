@@ -21,6 +21,7 @@
 import {importApi} from '../catalog.js';
 import {ASIAN_LANGUAGES} from '../languages.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
+import {cjkSimilarity, hasCjk} from './cjk.js';
 import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
 import {queryFingerprints, thumbnail, turnImage, turnThumb, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
@@ -532,8 +533,16 @@ const baseOf = (name) => {
 // Whether a candidate bears the name read: its name, less its mechanic
 // suffix, is one of the names matched (the English name, or the spelling
 // read), or reads closely like the text itself (a Portuguese print's own
-// name).
-function namedBy(candidate, names, text) {
+// name). A name read in Japanese or Korean (js/scan/cjk.js) is borne by a
+// candidate whose own Japanese or Korean name reads like it, or that the
+// name route found for that name (`foundIds`: a Korean read names the
+// Japanese record a Korean copy sits on, whose name is Japanese).
+function namedBy(candidate, names, text, foundIds = new Set()) {
+	if (hasCjk(text)) {
+		return foundIds.has(candidate.id)
+			|| (hasCjk(candidate.name) && (cjkSimilarity(candidate.name, text) >= NAME_PROMOTE || names.some((match) => match.spelling && cjkSimilarity(candidate.name, match.spelling) >= 0.9)));
+	}
+
 	const base = baseOf(candidate.name);
 
 	if (base.length < 3) {
@@ -695,7 +704,8 @@ export async function pictureMatch(picture, read, said, {api = {setDetail: impor
 		}
 
 		const names = ((found && found.names) || []).filter((match) => match.score >= NAME_PROMOTE);
-		const bearing = all.filter((c) => namedBy(c, names, nameText));
+		const foundIds = new Set(names.length ? ((found && found.candidates) || []).filter((c) => (c.agree || []).includes('name')).map((c) => c.id) : []);
+		const bearing = all.filter((c) => namedBy(c, names, nameText, foundIds));
 
 		if (bearing.length) {
 			return done({
