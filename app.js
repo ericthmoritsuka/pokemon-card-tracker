@@ -15,6 +15,8 @@
 //   profile, signin           Profile, and its sign-in panel on its own
 //   import, check, camera, storage  Opened from Profile: Import from
 //                             monprice, Phone check and its two tests
+//   check/reports[/<base>]    Phone check's Sent reports, and one report
+//                             (js/scan-reports-view.js)
 //   trades, trades/new        Trades and sales: History, and Log a move
 //                             (js/moves-view.js)
 //   family/<userId>[/lists[/<id>]]  A family member's cards or checklists,
@@ -41,6 +43,8 @@ import {cameraView, phoneCheckView, storageView} from './js/phone-check.js';
 import {startPhotoSync} from './js/photos/index.js';
 import {pokemonCardsAccountViews, pokemonCardsRoutes} from './js/pokemon-cards-view.js';
 import {euroRates, exchangeRates} from './js/prices.js';
+import {scanReportAccountViews, scanReportRoutes} from './js/scan-reports-view.js';
+import {startReportSync} from './js/scan/reports.js';
 import {scanView} from './js/scan/routes.js';
 import {startSettings} from './js/settings.js';
 import {tradeAccountViews, tradeRoutes} from './js/trade-view.js';
@@ -61,6 +65,7 @@ const ROUTES = [
 	{pattern: /^check$/, render: phoneCheckView, tab: null, title: 'Phone check | Card Tracker'},
 	{pattern: /^camera$/, render: cameraView, tab: null, title: 'Camera test | Card Tracker'},
 	{pattern: /^storage$/, render: storageView, tab: null, title: 'Storage test | Card Tracker'},
+	...scanReportRoutes,
 	{pattern: /^signin$/, render: signInView, tab: null, title: 'Sign in | Card Tracker'},
 	{pattern: /^profile$/, render: profileView, tab: null, title: 'Profile | Card Tracker'},
 	{keys: ['userId'], pattern: /^family\/([^/]+)$/, render: familyCardsView, tab: 'cards', title: 'Family cards | Card Tracker'},
@@ -79,7 +84,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 
@@ -352,6 +357,7 @@ async function startAccount(authReturn) {
 	startSync();
 	keepFamilyWishlistsCached();
 	startPhotoSync();
+	startReportSync();
 
 	if (authReturn && authReturn.error) {
 		setSignInNotice(signInErrorText(authReturn.error));

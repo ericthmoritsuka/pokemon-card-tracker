@@ -166,6 +166,32 @@ a separate tile. For testing on real cards, Phone check's Record every scan (off
 nobody records by surprise) keeps each scan's report, the scanner's first answer, and what was
 saved, as one file to send. *(Decided by Eric, 2026-10-09.)*
 
+**Send report puts the scan log in the account, not in a file to find.** Testing the scanner on 20
+to 30 real cards ended in Download scan log, finding the file, and attaching it somewhere. Phone
+check's Scanner card now has Send report, with a short note ("Korean cards, glare"): one tap makes
+exactly the file Download makes (with the card pictures when Include card pictures was on while
+recording), gzipped where the browser can, and puts it in the private `scan-reports` bucket at
+`<user_id>/<sent at>-<scans>.json.gz` (sent at like `20261105T101919.274Z`), with a small
+`.meta.json` beside it holding the note and the numbers. Gzip because the pictures are JPEG already
+and only the text around them shrinks: a log of 30 cards with pictures is about 1.3 MB as a file
+and 0.9 MB sent (holder mode, which keeps the view before and after each drop, roughly doubles
+both). A log over 5 MiB goes up in parts (`.json.gz.part1of3`), each under the bucket's 6 MB file
+limit, so even the log's 500-scan limit fits. The report is kept on the phone first
+(`js/scan/report-queue.js`), so with no signal, signed out, or a send cut off part way, it waits and
+goes on from the piece that failed when the phone is back online, someone signs in, or the app
+starts; a refusal (no bucket yet, too large) is kept with its reason, Try sending again, and Save it
+as a file. The log itself is never touched by a send. After a send, Clear the N scans sent from this
+phone is offered, not done: it removes only the scans in the report, so any recorded since stay.
+Profile > Phone check > Sent reports lists the account's reports newest first (date, scans, size,
+note) and opens one as plain text and real images, readable by a person or by page text extraction
+on any device signed in to the account, desktop Chrome included: per scan the time, scanner
+version, what was read, the text and picture routes, the candidates with the scanner's answer and
+the saved one marked, the picture, and any errors. An open report is also `window.scanReport`
+(`{base, info, log}`) for a reader in the browser. Download the scan log file and Delete are there
+too. Only the sender reads, lists, or deletes their reports: no family member, nobody signed out,
+and nobody replaces a sent file (`supabase/scan-reports.sql`, run once). *(Eric, 2026-11-05; built
+2026-11-05.)*
+
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
 cards dropped into a box, auto capture waits for each drop to settle and takes it once; everything
 else (the tray, the repeat bar, Review) is the same flow. Details in section 6. *(Decided by Eric,

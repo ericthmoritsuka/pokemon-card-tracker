@@ -1086,6 +1086,68 @@ select:focus-visible {
 	white-space: pre-wrap;
 }
 
+/* Sent scan reports (js/scan-reports-view.js): plain text and real
+   images, so page text extraction reads every scan. */
+
+.scan-report-confirm {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 1fr 1fr;
+}
+
+.sent-reports {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.sent-reports li {
+	display: grid;
+	gap: var(--space-2);
+	overflow-wrap: anywhere;
+	padding: var(--space-3) 0;
+}
+
+.sent-reports li + li {
+	border-top: 1px solid var(--border);
+}
+
+.scan-report-pictures {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: var(--space-2) 0;
+}
+
+.scan-report-pictures figure {
+	margin: 0;
+}
+
+.scan-report-pictures img {
+	border-radius: 6px;
+	display: block;
+	height: auto;
+	max-width: 100%;
+	width: 180px;
+}
+
+.scan-report-pictures figcaption {
+	color: var(--muted);
+	font-size: 0.8rem;
+}
+
+.scan-report-scan h4 {
+	font-size: 0.95rem;
+	margin: var(--space-3) 0 var(--space-1);
+}
+
+.scan-report-scan ul {
+	font-size: 0.9rem;
+	margin: 0;
+	overflow-wrap: anywhere;
+	padding-left: 1.2em;
+}
+
 /* Messages */
 
 .error {

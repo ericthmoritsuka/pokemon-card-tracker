@@ -6,6 +6,7 @@ import {formatCount} from './format.js';
 import {openDatabase} from './idb.js';
 import {downloadBlob} from './scan/image.js';
 import {clearLog, logFile, logSize, picturesOn, recording, setPictures, setRecording} from './scan/log.js';
+import {reportSendPanel} from './scan-reports-view.js';
 import {clockGap, clockIsOff, clockOffset, onClockOffset} from './sync.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
@@ -242,6 +243,7 @@ async function copyText(text) {
 export function phoneCheckView(root) {
 	const report = h('pre', {class: 'report'}, 'Building the report...');
 	const status = h('p', {class: 'status', role: 'status'});
+	const scanLog = scanLogCard();
 
 	// Shown only while the clock is more than 2 minutes off.
 	const clockCard = h('section', {class: 'card', hidden: true, id: 'phone-clock'},
@@ -302,7 +304,7 @@ export function phoneCheckView(root) {
 			h('a', {class: 'button', href: BASE + 'camera', 'data-link': 'camera'}, 'Camera test'),
 			h('a', {class: 'button', href: BASE + 'storage', 'data-link': 'storage'}, 'Storage test')
 		),
-		scanLogCard(),
+		scanLog.element,
 		h('section', {class: 'card'},
 			h('h2', null, 'Device report'),
 			h('p', {class: 'muted'}, 'Results are kept on this phone. The installed app and the browser may keep them separately, so copy the report from each.'),
@@ -325,6 +327,7 @@ export function phoneCheckView(root) {
 		window.removeEventListener('online', refresh);
 		window.removeEventListener('offline', refresh);
 		stopClock();
+		scanLog.stop();
 	};
 }
 
@@ -345,12 +348,15 @@ function canShareFile(file) {
 
 // The Scanner section: Record every scan (js/scan/log.js), off until
 // switched on here, so nobody records by surprise; Include card pictures;
-// how much is kept; and the log as one file to download or share.
+// how much is kept; the log sent to the account with a note
+// (js/scan-reports-view.js, Send report), or as one file to download or
+// share; and Sent reports. Answers {element, stop}.
 function scanLogCard() {
 	const size = h('p', {id: 'scan-log-size'}, 'Counting the recorded scans...');
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'scan-log-status'});
 	const share = h('button', {hidden: true, id: 'scan-log-share', onclick: () => shareNow(), type: 'button'}, 'Share');
-	const download = h('button', {class: 'primary', id: 'scan-log-download', onclick: () => send(), type: 'button'}, 'Download scan log');
+	const download = h('button', {id: 'scan-log-download', onclick: () => send(), type: 'button'}, 'Download scan log');
+	const report = reportSendPanel({onLogChanged: () => drawSize()});
 	const clear = h('button', {id: 'scan-log-clear', onclick: () => askClear(true), type: 'button'}, 'Clear log');
 	const confirmRow = h('div', {hidden: true, id: 'scan-log-confirm', role: 'group', 'aria-label': 'Clear the scan log', style: 'display: grid; gap: 8px; grid-template-columns: 1fr 1fr'},
 		h('p', {id: 'scan-log-confirm-text', style: 'grid-column: 1 / -1; margin: 0'}),
@@ -365,6 +371,7 @@ function scanLogCard() {
 		size.textContent = count ? `${formatCount(count)} ${count === 1 ? 'scan' : 'scans'} recorded · ${megabytes(found.bytes)}` : 'No scans recorded yet.';
 		download.disabled = !count;
 		clear.disabled = !count;
+		report.setCount(count);
 		share.hidden = !count || !canShareFile(new File(['{}'], 'scan-log.txt', {type: 'text/plain'}));
 		prepare();
 	}
@@ -454,7 +461,7 @@ function scanLogCard() {
 
 	drawSize();
 
-	return h('section', {class: 'card', id: 'scan-log'},
+	const element = h('section', {class: 'card', id: 'scan-log'},
 		h('h2', null, 'Scanner'),
 		h('label', null,
 			h('input', {checked: recording(), id: 'scan-log-record', onchange: (event) => setRecording(event.target.checked), type: 'checkbox'}),
@@ -462,11 +469,14 @@ function scanLogCard() {
 		h('label', null,
 			h('input', {checked: picturesOn(), id: 'scan-log-pictures', onchange: (event) => setPictures(event.target.checked), type: 'checkbox'}),
 			' Include card pictures'),
-		h('p', {class: 'muted'}, 'While this is on, every scan is kept on this phone: the phone, each step\'s time, what was read, the cards considered, and what you saved in the end. Pictures are small copies of each card. Download the scan log and send the file to Eric.'),
+		h('p', {class: 'muted'}, 'While this is on, every scan is kept on this phone: the phone, each step\'s time, what was read, the cards considered, and what you saved in the end. Pictures are small copies of each card. Send report puts the log in your account, under Sent reports, with no file to find; Download scan log saves it as a file instead.'),
 		size,
-		h('div', {style: 'display: grid; gap: 8px'}, download, share, clear, confirmRow),
+		report.element,
+		h('div', {style: 'display: grid; gap: 8px; margin-top: 8px'}, download, share, clear, confirmRow),
 		status
 	);
+
+	return {element, stop: report.stop};
 }
 
 // ---------------------------------------------------------- camera view
