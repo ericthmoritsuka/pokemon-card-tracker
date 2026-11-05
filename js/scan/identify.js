@@ -743,6 +743,8 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 		print: thumb ? {art: phash(thumb, ART, 64), face: phash(thumb, FACE, 64)} : null,
 		trace,
 		guessed: rectified.guessed || null,
+		// An edge placed past the capture's edge (rectify.js outOfCapture).
+		placed: Boolean(rectified.placed),
 		needsText: !picture || needsText(picture),
 		note: rectified.note || null,
 		ocr: false,

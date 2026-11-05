@@ -197,6 +197,170 @@ function findEdges(work) {
 	};
 }
 
+// How close to the copy's edge a straight edge can be found: profile and
+// continuity measure a step 2 pixels either side of a row, so the last
+// rows of the copy can hold no edge.
+const EDGE_REACH = 4;
+
+// The share of row `index` from..to that is inside the capture: on a copy
+// turned straight (rotateGrey), its corners came from outside it. 0 for a
+// row past the copy's edge.
+function seenShare({height, outside = null, width}, index, from, to) {
+	const row = Math.round(index);
+
+	if (row < 0 || row >= height) {
+		return 0;
+	}
+
+	if (!outside) {
+		return 1;
+	}
+
+	let seen = 0;
+	let all = 0;
+
+	for (let x = Math.max(0, Math.round(from)); x < Math.min(width, Math.round(to)); x++) {
+		all++;
+		seen += outside[row * width + x] ? 0 : 1;
+	}
+
+	return all ? seen / all : 0;
+}
+
+// How much a box's height may be off a card's 63:88 for its width, as a
+// share, and still have its top and bottom taken as found.
+const SHAPE_SLACK = 0.06;
+
+// The strong-slant cut (DESIGN.md section 6, measured 2026-11-04, fixed
+// 2026-11-05): a card held larger than the guide and turned runs out of the
+// capture, or onto its last rows, where no edge can be found, and the
+// outermost line left on that side is one inside the card (the weakness
+// row's at the bottom, the border's inner line at a side), so the box
+// stopped there. An edge found is taken as inside the card when the two
+// edges across it run on past it to the capture's edge (a card's edge has
+// table beyond it, which they do not cross), or when it lies on the
+// capture's edge itself. A bottom is also taken as inside the card when the
+// box is too short for a card's shape, the capture shows nothing of the
+// sides below it (they run out through its corners, the card turned), and
+// the sides do not run on above the top, so the top is the card's own. The
+// card's own edge is then out of the capture:
+//
+// - the bottom is placed from the top found and the width, at a card's
+//   63:88, past the capture's edge (the mirror of the worked-out top);
+// - the top is left to be worked out from the bottom, as before;
+// - a side is placed from the other side and the height, when the top and
+//   bottom were found and that reaches past the capture's edge, or else at
+//   the capture's edge.
+//
+// A placed edge must land where the capture shows no edge (past its edge
+// or reach, or outside it on a copy turned straight): one that lands inside
+// it would have been found, so the box is left as the edges found it, and a
+// normal capture is never changed. A bottom placed from the top asks that
+// top to be a card's edge (a sharp step all along it, closed at both
+// corners).
+//
+// Edges are on the detection copy, as findEdges gives them. Returns null
+// when no edge is out of the capture, else {edges, out}: the box's edges
+// (top null when it is to be worked out from the bottom; a placed one may
+// lie past the copy), and which edges are out of the capture.
+export function outOfCapture(work, edges) {
+	const {height, width} = work;
+	const near = EDGE_REACH + 2;
+	const box = {
+		bottom: edges.bottom ?? height - 1,
+		left: edges.left ?? 0,
+		right: edges.right ?? width - 1,
+		top: edges.top ?? 0,
+	};
+	const w = box.right - box.left;
+	const h = box.bottom - box.top;
+
+	if (w < width * 0.45 || h < height * 0.45) {
+		return null;
+	}
+
+	const slack = Math.max(2, Math.round(w * 0.02));
+	const inside = (value, length) => value > near && value < length - 1 - near;
+	const rows = [box.top, box.bottom].filter((row) => inside(row, height));
+	const columns = [box.left, box.right].filter((column) => inside(column, width));
+
+	// Whether the edges across (rows, or columns with !vertical) run on over
+	// from..to, as far as the capture shows them (runsOut): a card turned in
+	// the hand has the far ends of its sides out of the capture's corners,
+	// so whatever stretch of them it shows is enough.
+	const shares = (lines, from, to, vertical) => (to - from >= 4 ? lines.map((line) => continuity(work, line, Math.round(from), Math.round(to), vertical, slack, -1, 4)) : []);
+	const past = (lines, from, to, vertical) => runsOut(shares(lines, from, to, vertical));
+	const below = shares(columns, box.bottom + h * 0.02, height - EDGE_REACH, false);
+	// A box too short for a card's shape whose sides the capture does not
+	// show below its bottom (out of its corners, the card turned): with
+	// its top the card's own (the sides do not run on above it), the
+	// bottom found is the line inside the card.
+	const short = edges.top !== null && h < (w / CARD_RATIO) * (1 - SHAPE_SLACK) && below.length > 0 && below.every((share) => share < 0) && !past(columns, EDGE_REACH, box.top - h * 0.02, false);
+	const out = {
+		bottom: !inside(box.bottom, height) || runsOut(below) || short,
+		left: !inside(box.left, width) || past(rows, EDGE_REACH, box.left - w * 0.02, true),
+		right: !inside(box.right, width) || past(rows, box.right + w * 0.02, width - EDGE_REACH, true),
+		top: !inside(box.top, height) || past(columns, EDGE_REACH, box.top - h * 0.02, false),
+	};
+
+	if (!out.bottom && !out.left && !out.right && !out.top) {
+		return null;
+	}
+
+	// A row where the capture shows no edge: past its last rows (less a
+	// few percent, what a placed edge may be off by), or, on a copy turned
+	// straight, mostly outside it (seen: the share of it inside).
+	const unseen = (row, seen) => row >= height - 1 - near - h * 0.02 || seen < 0.5;
+	const placed = {...box, top: out.top && !out.bottom ? null : box.top};
+
+	if (out.left !== out.right && !out.top && !out.bottom) {
+		const across = h * CARD_RATIO;
+
+		placed.left = out.left ? Math.min(0, box.right - across) : box.left;
+		placed.right = out.right ? Math.max(width - 1, box.left + across) : box.right;
+	}
+	else {
+		placed.left = out.left ? 0 : box.left;
+		placed.right = out.right ? width - 1 : box.right;
+	}
+
+	if (out.bottom) {
+		// From a top found: one the sides run on past is inside the card,
+		// while one found on the capture's last rows is the card's own.
+		if (edges.top === null || past(columns, EDGE_REACH, box.top - h * 0.02, false)) {
+			return null;
+		}
+
+		const wide = placed.right - placed.left;
+		const top = box.top;
+		const bottom = top + wide / CARD_RATIO;
+
+		if (!unseen(bottom, seenShare(work, bottom, placed.left + wide * 0.1, placed.right - wide * 0.1))
+			|| continuity(work, top, Math.round(box.left + w * 0.1), Math.round(box.right - w * 0.1), true) < 0.5
+			|| continuity(work, top, Math.round(box.left + w * 0.05), Math.round(box.left + w * 0.15), true, slack, 1) < 0.5
+			|| continuity(work, top, Math.round(box.right - w * 0.15), Math.round(box.right - w * 0.05), true, slack, 1) < 0.5) {
+			return null;
+		}
+
+		placed.bottom = bottom;
+	}
+
+	return {edges: placed, out};
+}
+
+// Whether a box's two sides run out of the capture, from how much of each
+// is drawn over its last stretch inside it, -1 for a side the capture does
+// not show there (outside it, on a copy turned straight): at least one
+// shown, and every one shown drawn along at least half of it. A card cut
+// by the capture's edge runs its sides into it; a box that borrows a side
+// from something else (the edge of a screen) has the card's own side stop
+// at the card's corner, short of the edge.
+function runsOut(shares) {
+	const shown = shares.filter((share) => share >= 0);
+
+	return shown.length > 0 && shown.every((share) => share >= 0.5);
+}
+
 // How much of a straight line at `index` (a column, or a row with
 // `vertical`) is a sharp step, over the part of the other axis from..to: a
 // card's edge steps all along it; text, buttons, and the screen around a
@@ -210,7 +374,10 @@ function findEdges(work) {
 // judged; `unseen` is what a line mostly outside it scores (0: cannot count
 // as an edge; 1: a corner that cannot be checked is not held against the
 // card).
-function continuity({grey, height, outside = null, step = STEP, width}, index, from, to, vertical = false, slack = 1, unseen = 0) {
+//
+// least: how many pixels of the stretch must be inside the capture for it
+// to be judged at all (a third of it, unless given).
+function continuity({grey, height, outside = null, step = STEP, width}, index, from, to, vertical = false, slack = 1, unseen = 0, least = (to - from) / 3) {
 	const length = vertical ? height : width;
 	const d = 2;
 	let on = 0;
@@ -247,7 +414,7 @@ function continuity({grey, height, outside = null, step = STEP, width}, index, f
 		}
 	}
 
-	if (seen < (to - from) / 3) {
+	if (seen < least) {
 		return unseen;
 	}
 
@@ -451,13 +618,18 @@ function coverage(line, t0, t1, unseen = 0) {
 // bottom edge is always in a capture the reader can use (the number strip
 // sits on it), while the top is often cut off, lost in glare, or bowed by
 // the lens, so a side line may fit only its lower part.
-function cornerSupport({bottom, left, right}, yTop, yBottom, w) {
+//
+// A box whose bottom was placed past the capture (no `bottom`) has its top
+// corners checked instead, the mirror: the capture holds its top.
+function cornerSupport({bottom, left, right, top}, yTop, yBottom, w) {
 	const h = yBottom - yTop;
+	const y = bottom ? yBottom : yTop;
+	const stretch = bottom ? [yBottom - h * 0.15, yBottom - h * 0.05] : [yTop + h * 0.05, yTop + h * 0.15];
 	const corner = (side, inward) => {
-		const x = side.p + side.q * yBottom;
+		const x = side.p + side.q * y;
 		const along = inward > 0 ? [x + w * 0.05, x + w * 0.15] : [x - w * 0.15, x - w * 0.05];
 
-		return Math.min(coverage(side, yBottom - h * 0.15, yBottom - h * 0.05, 1), coverage(bottom, ...along, 1));
+		return Math.min(coverage(side, ...stretch, 1), coverage(bottom || top, ...along, 1));
 	};
 
 	return Math.min(corner(left, 1), corner(right, -1));
@@ -474,7 +646,17 @@ function cornerSupport({bottom, left, right}, yTop, yBottom, w) {
 // card is wider than the card, and its top, worked out from that width,
 // takes in the heading above it), then the widest (the card's own edge is
 // outside its inner border), helped a little by straighter sides.
-// Returns {left, right, top, bottom} as lines, top null when worked out.
+//
+// The mirror of the lost top (the strong-slant cut, 2026-11-05): with its
+// bottom out of the capture, a box takes its bottom from its top and width,
+// only where the capture shows no bottom and the sides run out of it (or
+// the capture does not show them there), its top corners checked in place
+// of the bottom ones. A box whose sides run on below its bottom, where the
+// capture shows them, has a line inside the card for a bottom and loses
+// 0.1 of its score.
+// Returns {left, right, top, bottom} as lines, top null when worked out,
+// bottom null when placed (foundBottom: the lowest bottom line found under
+// its top, for the box hung from it).
 function findQuad(work) {
 	const {height, width} = work;
 	const columns = profile(work, Math.round(height * 0.2), Math.round(height * 0.8));
@@ -501,30 +683,72 @@ function findQuad(work) {
 
 	for (const left of lefts) {
 		for (const right of rights) {
-			for (const bottom of bottoms) {
+			const widthAt = (y) => right.p + right.q * y - (left.p + left.q * y);
+			const xMid = (left.p + right.p) / 2;
+
+			for (const bottom of [...bottoms, null]) {
 				for (const top of [...tops, null]) {
-					// Corners, with a lost top taken from the width.
-					const xMid = (left.p + right.p) / 2;
-					const yBottom = bottom.p + bottom.q * xMid;
-					let w = right.p + right.q * yBottom - (left.p + left.q * yBottom);
-					const yTop = top ? top.p + top.q * xMid : yBottom - w * ratio;
+					if (!bottom && !top) {
+						continue;
+					}
+
+					// Corners, with a lost top taken from the width, or a bottom
+					// out of the capture placed from it (outOfCapture).
+					let yBottom;
+					let yTop;
+
+					if (bottom) {
+						yBottom = bottom.p + bottom.q * xMid;
+						yTop = top ? top.p + top.q * xMid : yBottom - widthAt(yBottom) * ratio;
+					}
+					else {
+						yTop = top.p + top.q * xMid;
+						yBottom = yTop + widthAt(yTop) * ratio;
+					}
+
 					const yMid = (yTop + yBottom) / 2;
+					const w = widthAt(yMid);
 
-					w = (right.p + right.q * yMid) - (left.p + left.q * yMid);
-
-					if (w < width * 0.45 || (top && Math.abs((yBottom - yTop) / w - ratio) / ratio > 0.06) || (!top && yTop < -height * 0.08)) {
+					if (w < width * 0.45 || (top && bottom && Math.abs((yBottom - yTop) / w - ratio) / ratio > SHAPE_SLACK) || (!top && yTop < -height * 0.08)) {
 						continue;
 					}
 
 					const xLeft = left.p + left.q * yMid;
 					const xRight = right.p + right.q * yMid;
-					const t0 = Math.max(0, yTop) + (yBottom - Math.max(0, yTop)) * 0.08;
-					const t1 = yBottom - (yBottom - Math.max(0, yTop)) * 0.08;
 					const s0 = xLeft + w * 0.08;
 					const s1 = xRight - w * 0.08;
-					const sides = [coverage(left, t0, t1), coverage(right, t0, t1), coverage(bottom, s0, s1), ...(top ? [coverage(top, s0, s1)] : [])];
-					const corners = cornerSupport({bottom, left, right}, yTop, yBottom, w);
-					const score = w / width + Math.min(...sides) * 0.3 + corners * 0.5 - (top ? 0 : 0.05);
+
+					const yEnd = Math.min(yBottom, height - EDGE_REACH);
+
+					// Placed only where the capture shows no bottom (past its
+					// edge or its reach, or outside it on a copy turned
+					// straight), and the sides run out of it (runsOut).
+					if (!bottom) {
+						const tail = [Math.max(yTop + (yBottom - yTop) * 0.5, yEnd - (yBottom - yTop) * 0.1), yEnd];
+
+						const run = [coverage(left, ...tail, -1), coverage(right, ...tail, -1)];
+
+						if ((yBottom + w * ratio * 0.02 < height - EDGE_REACH && seenShare(work, yBottom, s0, s1) >= 0.5) || tail[1] - tail[0] < 4 || (!runsOut(run) && run.some((share) => share >= 0))) {
+							continue;
+						}
+					}
+
+					const t0 = Math.max(0, yTop) + (yEnd - Math.max(0, yTop)) * 0.08;
+					const t1 = yEnd - (yEnd - Math.max(0, yTop)) * 0.08;
+					const sides = [coverage(left, t0, t1), coverage(right, t0, t1), ...(bottom ? [coverage(bottom, s0, s1)] : []), ...(top ? [coverage(top, s0, s1)] : [])];
+					const corners = cornerSupport({bottom, left, right, top}, yTop, yBottom, w);
+					let score = w / width + Math.min(...sides) * 0.3 + corners * 0.5 - (top && bottom ? 0 : 0.05);
+
+					// A bottom the sides run on past, as far as the capture
+					// shows, is a line inside the card: a card whose bottom was
+					// found has table under it.
+					if (bottom && Math.min(...sides) >= 0.45) {
+						const below = [yBottom + (yBottom - yTop) * 0.03, Math.min(height - EDGE_REACH, yBottom + (yBottom - yTop) * 0.12)];
+
+						if (below[1] - below[0] >= 4 && Math.min(coverage(left, ...below), coverage(right, ...below)) >= 0.6) {
+							score -= 0.1;
+						}
+					}
 
 					if (Math.min(...sides) >= 0.45 && (!best || score > best.score)) {
 						best = {bottom, left, right, score, top, w};
@@ -532,6 +756,16 @@ function findQuad(work) {
 				}
 			}
 		}
+	}
+
+	// A placed bottom keeps the best bottom found with the same sides and top,
+	// for the box hung from it (rectify's `others`).
+	if (best && !best.bottom) {
+		const xMid = (best.left.p + best.right.p) / 2;
+		const yTop = best.top.p + best.top.q * xMid;
+
+		best.foundBottom = bottoms.filter((line) => line.p + line.q * xMid > yTop + best.w * 0.5)
+			.sort((a, b) => (b.p + b.q * xMid) - (a.p + a.q * xMid))[0] || null;
 	}
 
 	return best;
@@ -595,14 +829,18 @@ export function warpQuad(img, [tl, tr, br, bl], width, height) {
 	return {data: out, height, width};
 }
 
-function plausible(work, edges) {
+// out: which edges are out of the capture (outOfCapture, which placed
+// them and has judged the top in the bottom's stead): those are not judged,
+// and the sides are judged down to the capture's edge.
+function plausible(work, edges, out = null) {
 	if (edges.left === null || edges.right === null || edges.bottom === null) {
 		return false;
 	}
 
 	const w = edges.right - edges.left;
-	const top = edges.top === null || Math.abs((edges.bottom - edges.top) * CARD_RATIO - w) / w > 0.06 ? Math.max(0, edges.bottom - w / CARD_RATIO) : edges.top;
-	const span = [Math.round(top + (edges.bottom - top) * 0.1), Math.round(top + (edges.bottom - top) * 0.9)];
+	const top = edges.top === null || (!out && Math.abs((edges.bottom - edges.top) * CARD_RATIO - w) / w > SHAPE_SLACK) ? Math.max(0, edges.bottom - w / CARD_RATIO) : edges.top;
+	const end = Math.min(edges.bottom, work.height - EDGE_REACH);
+	const span = [Math.round(Math.max(0, top) + (end - Math.max(0, top)) * 0.1), Math.round(Math.max(0, top) + (end - Math.max(0, top)) * 0.9)];
 
 	// The bottom corners closed, as in cornerSupport: the bottom edge runs
 	// out to both sides, so a side borrowed from the screen around the card
@@ -612,13 +850,14 @@ function plausible(work, edges) {
 	// sides run down to the bottom is not asked here: the dark lower corner
 	// of a full-art card can barely stand out from a dark table.
 	const slack = Math.max(2, Math.round(w * 0.02));
+	const bottomFound = !out || !out.bottom;
 
 	return w >= work.width * 0.6
-		&& continuity(work, edges.left, span[0], span[1]) >= 0.5
-		&& continuity(work, edges.right, span[0], span[1]) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.1), Math.round(edges.right - w * 0.1), true) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.05), Math.round(edges.left + w * 0.15), true, slack, 1) >= 0.5
-		&& continuity(work, edges.bottom, Math.round(edges.right - w * 0.15), Math.round(edges.right - w * 0.05), true, slack, 1) >= 0.5;
+		&& (out && out.left || continuity(work, edges.left, span[0], span[1]) >= 0.5)
+		&& (out && out.right || continuity(work, edges.right, span[0], span[1]) >= 0.5)
+		&& (!bottomFound || (continuity(work, edges.bottom, Math.round(edges.left + w * 0.1), Math.round(edges.right - w * 0.1), true) >= 0.5
+			&& continuity(work, edges.bottom, Math.round(edges.left + w * 0.05), Math.round(edges.left + w * 0.15), true, slack, 1) >= 0.5
+			&& continuity(work, edges.bottom, Math.round(edges.right - w * 0.15), Math.round(edges.right - w * 0.05), true, slack, 1) >= 0.5));
 }
 
 // The most a card held by hand is taken to be turned in the plane, either
@@ -862,19 +1101,23 @@ const MOVES = [
 const OVERRUN = 0.03;
 
 // Returns {card, angle, found, note, rect, corners, ratio, others, cut,
-// guessed, variants, variant}. `card` is the straightened crop when the
+// guessed, placed, variants, variant}. `card` is the straightened crop when the
 // edges were found and make a card-shaped box, otherwise the input (scaled
 // to CARD_MAX_HEIGHT at most; found false, with the reason in `note`).
 //
 // guessed: 'top' when the top edge was worked out from the width (not
 // found, or not where a card's shape puts it), 'bottom' when the box was
 // too tall and snapped up from its bottom (the bottom may be the wrong
-// edge), else null. variants: other crops worth fingerprinting when the
+// edge), or when the bottom was placed past the capture's edge from the top
+// and the width (placed true), else null. placed: an edge out of the
+// capture was placed (outOfCapture, and findQuad's box with its bottom
+// placed), and the crop runs past the capture there, its edge repeated.
+// others: then also the box hung from the bottom found. variants: other crops worth fingerprinting when the
 // picture match of `card` is weak (MOVES), each {how}; variant(v, height)
 // cuts one. They are only cut when asked for (js/scan/identify.js), so a
 // good capture pays nothing for them. others: boxes always fingerprinted
 // beside `card`, each {how, rect} (rect.angle: its own turn, when it has
-// one); cut(rect, height) cuts one.
+// one) or {how, corners}; cut(rect, height) cuts one.
 export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	const scale = Math.min(1, WORK_HEIGHT / img.height);
 	const level = greyCopy(img, scale);
@@ -891,6 +1134,10 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	}
 
 	const edges = findEdges(work);
+	// Edges out of the capture, placed (outOfCapture); the box with them is
+	// judged in place of the edges found.
+	const outside = outOfCapture(work, edges);
+	const judged = outside ? outside.edges : edges;
 
 	// The lab's outermost edges, kept when they make a card whose sides run
 	// straight; otherwise the best card-shaped four-sided box, which may
@@ -898,7 +1145,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	// a lean of up to about 7 degrees itself, so a small tilt is looked for
 	// on the copy as it is first, as before; a larger one on the copy turned
 	// straight, its corners then turned back onto the capture.
-	if (!plausible(work, edges)) {
+	if (!plausible(work, judged, outside && outside.out)) {
 		const tries = !angle ? [[work, 0]] : Math.abs(angle) < 4 ? [[level, 0], [work, angle]] : [[work, angle], [level, 0]];
 
 		for (const [grid, turned] of tries) {
@@ -909,7 +1156,8 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 			}
 
 			const top = quad.top || {p: quad.bottom.p - quad.w / CARD_RATIO, q: quad.bottom.q};
-			const corners = [cross(quad.left, top), cross(quad.right, top), cross(quad.right, quad.bottom), cross(quad.left, quad.bottom)]
+			const bottom = quad.bottom || {p: quad.top.p + quad.w / CARD_RATIO, q: quad.top.q};
+			const corners = [cross(quad.left, top), cross(quad.right, top), cross(quad.right, bottom), cross(quad.left, bottom)]
 				.map((point) => unturn(point, turned, grid))
 				.map((point) => ({x: point.x / scale, y: point.y / scale}));
 			const across = Math.max(Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y), Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y));
@@ -927,13 +1175,29 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 				return corners.map((point) => ({x: cx + (point.x - cx) * zoom + downX * share, y: cy + (point.y - cy) * zoom + downY * share}));
 			};
 			const slack = down * OVERRUN;
-			const inside = (points) => points.every((point) => point.x >= -slack && point.y >= -slack && point.x <= img.width + slack && point.y <= img.height + slack);
+			// A box whose bottom was placed runs past the capture by design,
+			// and its moves may run as far.
+			const reach = quad.bottom ? {x0: 0, x1: img.width, y0: 0, y1: img.height} : {
+				x0: Math.min(0, ...corners.map((point) => point.x)),
+				x1: Math.max(img.width, ...corners.map((point) => point.x)),
+				y0: Math.min(0, ...corners.map((point) => point.y)),
+				y1: Math.max(img.height, ...corners.map((point) => point.y)),
+			};
+			const inside = (points) => points.every((point) => point.x >= reach.x0 - slack && point.y >= reach.y0 - slack && point.x <= reach.x1 + slack && point.y <= reach.y1 + slack);
 			const variants = MOVES.map((move) => ({corners: moved(move), how: move.how})).filter((v) => inside(v.corners));
 
 			// The box of the outermost edges, when they were found but judged not
 			// card-shaped: a silver border on a light table steps so little that
 			// a sound box can fail the test, and the fingerprint then chooses.
 			const others = [];
+
+			// A box with its bottom placed has the box hung from the bottom
+			// found kept beside it the same way: the picture chooses.
+			const hung = !quad.bottom && quad.foundBottom ? [cross(quad.left, {p: quad.foundBottom.p - quad.w / CARD_RATIO, q: quad.foundBottom.q}), cross(quad.right, {p: quad.foundBottom.p - quad.w / CARD_RATIO, q: quad.foundBottom.q}), cross(quad.right, quad.foundBottom), cross(quad.left, quad.foundBottom)] : null;
+
+			if (hung) {
+				others.push({corners: hung.map((point) => unturn(point, turned, grid)).map((point) => ({x: point.x / scale, y: point.y / scale})), how: 'the bottom edge found'});
+			}
 
 			if (edges.left !== null && edges.right !== null && edges.bottom !== null && edges.right - edges.left >= work.width * 0.45) {
 				const w = (edges.right - edges.left) / scale;
@@ -943,13 +1207,14 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 			}
 
 			return {
-				angle: Math.round((turned + Math.atan(quad.bottom.q) * 180 / Math.PI) * 10) / 10,
+				angle: Math.round((turned + Math.atan(bottom.q) * 180 / Math.PI) * 10) / 10,
 				card: warpQuad(img, corners, Math.round(tall * CARD_RATIO), Math.round(tall)),
 				corners,
 				found: true,
-				guessed: quad.top ? null : 'top',
-				note: quad.top ? 'Card edges found, at a slant.' : 'Card edges found, at a slant; top edge worked out from the width.',
+				guessed: !quad.top ? 'top' : !quad.bottom ? 'bottom' : null,
+				note: !quad.top ? 'Card edges found, at a slant; top edge worked out from the width.' : !quad.bottom ? 'Card edges found, at a slant; bottom edge placed from the top and the width, past the capture\'s edge.' : 'Card edges found, at a slant.',
 				others,
+				placed: !quad.bottom,
 				ratio: Math.round((across / down) * 1000) / 1000,
 				rect: null,
 				cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -(r.angle || 0), r, height / r.h),
@@ -961,17 +1226,19 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 
 	const asIs = (note) => ({angle: 0, card: img.height > maxHeight ? warpCrop(img, 0, {h: img.height, w: img.width, x: 0, y: 0}, maxHeight / img.height) : img, found: false, guessed: null, note, rect: null, variants: []});
 
-	if (edges.left === null || edges.right === null || edges.bottom === null) {
+	if (judged.left === null || judged.right === null || judged.bottom === null) {
 		return asIs('Card edges not found; read the frame as it is.');
 	}
 
-	const left = edges.left / scale;
-	const right = edges.right / scale;
-	const bottom = edges.bottom / scale;
+	const placed = Boolean(outside && outside.out.bottom);
+	const beside = Boolean(outside && (outside.out.left || outside.out.right));
+	const left = judged.left / scale;
+	const right = judged.right / scale;
+	const bottom = judged.bottom / scale;
 	const width = right - left;
-	let top = edges.top === null ? null : edges.top / scale;
-	let note = 'Card edges found.';
-	let guessed = null;
+	let top = judged.top === null ? null : judged.top / scale;
+	let note = placed ? 'Card edges found; bottom edge placed from the top and the width, past the capture\'s edge.' : beside ? 'Card edges found; a side placed at or past the capture\'s edge.' : 'Card edges found.';
+	let guessed = placed ? 'bottom' : null;
 	const foundTop = top;
 
 	if (width < img.width * 0.45) {
@@ -985,9 +1252,20 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	let ratio = CARD_RATIO;
 	const others = [];
 
-	if (top === null || Math.abs((bottom - top) - expected) / expected > 0.06) {
+	if (placed) {
+		// The box the edges found, for the scan report, and the box hung from
+		// its bottom (what was cut before), for the picture to choose.
+		if (edges.bottom !== null) {
+			const found = edges.bottom / scale;
+			const y = Math.max(0, found - expected);
+
+			ratio = width / (found - top);
+			others.push({how: 'the bottom edge found', rect: {h: Math.round(found - y), w: Math.round(width), x: Math.round(left), y: Math.round(y)}});
+		}
+	}
+	else if (top === null || Math.abs((bottom - top) - expected) / expected > SHAPE_SLACK) {
 		top = Math.max(0, bottom - expected);
-		note = 'Card edges found; top edge worked out from the width.';
+		note = beside ? 'Card edges found; a side placed at or past the capture\'s edge, the top edge worked out from the width.' : 'Card edges found; top edge worked out from the width.';
 		guessed = 'top';
 	}
 	else {
@@ -1024,15 +1302,22 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		}
 	}
 
+	// A placed bottom runs past the capture: the crop goes on to it, the
+	// capture's edge repeated there (warpCrop), rather than stop short.
 	const rect = {
-		h: Math.round(Math.min(img.height, bottom) - top),
+		h: Math.round((placed ? bottom : Math.min(img.height, bottom)) - top),
 		w: Math.round(width),
 		x: Math.round(left),
 		y: Math.round(top),
 	};
 
-	rect.w = Math.min(rect.w, img.width - rect.x);
-	rect.h = Math.min(rect.h, img.height - rect.y);
+	if (!beside) {
+		rect.w = Math.min(rect.w, img.width - rect.x);
+	}
+
+	if (!placed) {
+		rect.h = Math.min(rect.h, img.height - rect.y);
+	}
 
 	const out = Math.min(1, maxHeight / rect.h);
 
@@ -1040,7 +1325,14 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 	// top edge was found but not used, the box hung from that top instead of
 	// the bottom.
 	const variants = [];
-	const fits = (r) => r.y >= -r.h * OVERRUN && r.y + r.h <= img.height + r.h * OVERRUN && r.x >= -r.h * OVERRUN && r.x + r.w <= img.width + r.h * OVERRUN;
+	// A box placed past the capture's edge (outOfCapture) may have its moves
+	// run as far past it.
+	const past = {
+		bottom: Math.max(0, rect.y + rect.h - img.height),
+		left: Math.max(0, -rect.x),
+		right: Math.max(0, rect.x + rect.w - img.width),
+	};
+	const fits = (r) => r.y >= -r.h * OVERRUN && r.y + r.h <= img.height + past.bottom + r.h * OVERRUN && r.x >= -past.left - r.h * OVERRUN && r.x + r.w <= img.width + past.right + r.h * OVERRUN;
 
 	if (guessed && foundTop !== null && Math.abs(foundTop - top) > rect.h * 0.015) {
 		variants.push({how: 'hung from the top edge found', rect: {...rect, y: Math.round(foundTop)}});
@@ -1065,6 +1357,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		// The width over the height of the box the edges made, before the
 		// snap (a card is 0.716), for the scan report.
 		ratio: Math.round(ratio * 1000) / 1000,
+		placed: placed || beside,
 		rect,
 		others: others.map(({how, rect: r}) => ({how, rect: r})),
 		// Straightens another rect of the same capture (one of `others`), at

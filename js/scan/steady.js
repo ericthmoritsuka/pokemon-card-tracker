@@ -1291,6 +1291,10 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 	}
 
 	const boxes = [];
+	// Card-shaped outlines running off the frame, their sides drawn where the
+	// frame shows them: a box found inside one of them is that card's art box
+	// or inner border, not a card.
+	const cut = [];
 	let touching = false;
 
 	for (let p = 0; p < pairs.length; p++) {
@@ -1331,8 +1335,12 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 				// the frame are drawn, and some of it is outside.
 				const visible = sides.filter((s) => s.inside > 0.3);
 
-				if (visible.length >= 3 && visible.every((s) => s.share >= TOUCH_SIDE_MIN) && sides.some((s) => s.inside < 0.97) && interiorDetail(grey, width, height, corners) >= CARD_DETAIL) {
-					touching = true;
+				if (visible.length >= 2 && visible.every((s) => s.share >= FIND_SIDE_MIN) && interiorDetail(grey, width, height, corners) >= CARD_DETAIL) {
+					cut.push({corners});
+
+					if (visible.length >= 3 && visible.every((s) => s.share >= TOUCH_SIDE_MIN) && sides.some((s) => s.inside < 0.97)) {
+						touching = true;
+					}
 				}
 
 				continue;
@@ -1420,6 +1428,23 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 	if (debug) {
 		debug.boxes = kept.map((box) => ({...box, dropped: box !== best}));
 		debug.lines = lines.map(({rho, theta, votes}) => ({rho, theta, votes}));
+	}
+
+	// The strong-slant cut (DESIGN.md section 6, 2026-11-05): a card held
+	// larger than the guide and turned runs off the frame, and the best box
+	// left is its art box or inner border (a Sword & Shield art box has a
+	// lying card's shape), which the capture was then cut round, cutting
+	// the card. A box inside a card-shaped outline running off the frame,
+	// with the ring between them a card's border or print (as `grow` asks),
+	// is part of that card: no card is found, the outline counts as a card
+	// running off the frame, and the guide's capture is read instead.
+	if (best && cut.some((outline) => contains(outline, best) && (borderGaps(outline, best) || ringDetail(grey, width, height, outline, best) >= RING_BUSY))) {
+		if (debug) {
+			debug.inside = best;
+			debug.cut = cut;
+		}
+
+		return {...none, touching: true};
 	}
 
 	if (!best) {
