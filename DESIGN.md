@@ -615,16 +615,48 @@ than downloading a whole language up front.
 
 **Doubled CORS header on images.** Some `assets.tcgdex.net` images send
 `access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images on 2026-10-01;
-on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image), which
-browsers reject as a CORS failure. It varies image by image within one set folder, and the
-doubled responses also carry a second set of storage-backend CORS headers. Images therefore load
-without `crossorigin`, and the service worker keeps those as opaque responses, which Chrome
-counts at roughly 7.5 to 9 MB of quota each although the file on disk is its real size (200
-opaque 20 KB images: about 1.5 GB counted, 5.9 MB on disk). So the worker learns the failure per
-image, keeps every other image at its true size, sizes the opaque cache at a tenth of the quota
-(100 to 1,000 entries), and trims both caches least recently used first; offline, a Portuguese or
-French image not kept falls back to the English one. The lasting fix is the server-side copy of
-owned-card images (section 3), or TCGdex fixing the header. *(Updated 2026-10-15.)*
+on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image; on
+2026-11-05, `pt/me/me01/001` and `fr/me/me01/001` doubled and `en/me/me01/001` not), which
+browsers reject as a CORS failure. It varies image by image within one set folder, even between
+images from the same store: on 2026-11-05 `pt/me/me01/001` was doubled and `002` single, and both
+carried an `x-amz-request-id`. The doubled responses carry a second set of CORS headers, which
+points to an S3-compatible store whose CORS headers nginx sends on top of its own on some
+objects. Images therefore load without `crossorigin`, and the service worker keeps those as opaque
+responses, which Chrome counts at a random 0 to 14 MiB of quota each (about 7 MiB on average;
+measured, 200 opaque 20 KB images counted about 1.5 GB) although the file on disk is its real
+size, about 16 KB for a grid image. The worker handles it in three parts:
+
+- **Per image, with the folder deciding when to try again.** Because it varies image by image, a
+  memory per folder is only a hint. Every image not kept yet is fetched in cors mode first, and in
+  no-cors mode only when that fails. An image whose cors request failed while its no-cors fetch
+  came back opaque is remembered with the time, in the worker's own cache
+  (`js/image-folders.js`), so a new worker starts from it: it is fetched straight in no-cors mode
+  and tried in cors mode again, skipping the HTTP cache (which keeps the doubled header for a
+  year), only when a week has passed, or when its folder (host and language) has had no try for an
+  hour (the first remembered image shown takes that try), or when another image of its folder has
+  worked since (TCGdex fixed something there). An opaque image whose try works moves to the cors
+  cache, giving back its padding; one that fails is not tried again until it is due, by any
+  worker. The tries and the English stand-ins below run two at a time. A missing image looks the
+  same to the worker (TCGdex answers a 404 without CORS headers, and every no-cors answer is
+  opaque), so it is remembered for that image alone and never sends another image to no-cors.
+- **Sized by bytes, counted in entries.** The cors cache keeps 3,000 images at their true size
+  (about 50 to 120 MB). The opaque cache keeps a tenth of the origin's quota in padded entries at
+  8 MiB each, 100 to 1,000 entries, as decided on 2026-10-15: about 120 on Eric's phone (10 GB
+  quota), which is about 1 GB in Chrome's site storage figure and about 2 MB on disk, so the
+  padding never crowds out the collection and photos that share the quota. Both trim the least
+  recently used first. Since only the doubled images are kept opaque, the cap covers the doubled
+  share of the Portuguese and French cards seen most recently; the English stand-in covers the
+  rest. *(Eric kept the tenth on 2026-11-05 rather than half.)*
+- **English stand-in.** For every image kept opaque, the worker also keeps the English image of
+  the same card in cors mode, at its true size. When a Portuguese or French image is not on the
+  phone, the art shows the English one marked "English image" (a line under a tile's meta line,
+  a caption on the art elsewhere), and the card back only when neither is kept. A photo of your
+  own or a family member's always wins over the stand-in: a photo that arrives later replaces it
+  and its line, and a tile with a "Photo by" line never says "English image".
+
+The lasting fix is TCGdex sending the header once (a report for them is drafted in
+`plans/tcgdex-cors-report.txt`), or the server-side copy of owned-card images (section 3).
+*(Eric, 2026-11-05.)*
 
 **A second free image source.** About 1,750 English and 1,160 Portuguese TCGdex cards have no
 image, mostly promos (`smp`, `swshp`, `mep`, `svp`), trainer kits (`tk`), and subsets such as the
@@ -1796,7 +1828,16 @@ Portuguese copy. **Any language** removes the setting, and so does ticking every
 list counts a copy in any language, German, Spanish, Italian, and copies with no language
 recorded included. Lists made before the setting decided ticks have none, so they keep counting
 any language until someone picks languages for them; a new list starts with Portuguese.
-*(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)* International prints come from the
+*(Ticks follow the languages: Eric's open decision, settled 2026-10-15 as the roadmap proposed.)*
+**A list's languages decide everything it counts** (Eric, 2026-11-05; built 2026-11-05): its
+ticks, counts, progress ring, and Value, the every-card-of-a-Pokémon screen reached from it, and
+a binder made from it (`js/checklists.js` `listByDex`, `js/binder-sources.js`). A list without a
+`languages` field keeps counting any language, so nothing changes until languages are set, and
+**Any language** on the list's languages Edit removes the field again. A Pokémon owned only in
+languages the list does not count stays missing, and its row shows the flags of the languages it
+is owned in under the mark ("Owned only in English"; `ownedElsewhere`), so it is clear why it is
+not ticked. A family member's lists are read with that member's languages, view only. Older
+phones keep counting any language: the rule changes no data beyond the existing field. International prints come from the
 bulk `id` and `dexId` list the checklists already cache (23,736 cards in one request), so they
 work offline; Japanese and Korean prints load from their own catalogs, one request per set, only
 when the list includes those languages, and are kept for offline use. TCG Pocket is left out. Every
@@ -1999,8 +2040,9 @@ list's name. `binders/new/<checklist|collection|goal>/<id>` opens the same form 
 chosen, for a "Make a binder" button on those screens.
 
 - **A pocket is a Pokémon or a card, not a copy.** A checklist gives one pocket per Pokédex
-  entry, and a copy fits when its card's Pokédex numbers include it, in any language, as the
-  checklist screen ticks it. A collection or a filter gives one pocket per owned card (catalog and
+  entry, and a copy fits when its card's Pokédex numbers include it, in one of the list's
+  languages (any language for a list that names none), as the checklist screen ticks it
+  (Eric, 2026-11-05; built 2026-11-05, `js/binder-sources.js` `checklistItems`). A collection or a filter gives one pocket per owned card (catalog and
   card id), and a goal one pocket per card of the set or artist, owned or not; their copies are the
   ones the collection holds, the filter matches (a language filter keeps only that language's
   copies), or the goal counts.
@@ -2015,14 +2057,34 @@ chosen, for a "Make a binder" button on those screens.
   Add to wishlist; a Pokémon links to its cards on the checklist, to choose the card to wish for.
 - **Refresh.** Opening the binder reads its list again and saves only what changed: pockets for
   cards that joined the list, in their order, pockets gone for cards that left it, owned cards
-  filled in, and defaults moved to the best copy now; hand picks stay. A line says what changed
-  ("1 pocket added (Charizard); 1 pocket filled with a card you own now (Pikachu)."). The Refresh
+  filled in, pockets emptied, and defaults moved to the best copy now; hand picks stay. A line
+  says what changed ("1 pocket added (Charizard); 1 pocket filled with a card you own now
+  (Pikachu)."; a pocket that had a copy and has none now, sold or owned only in a language the
+  list does not count, is "1 pocket emptied: no copy you own fits it now (Pikachu)."). The Refresh
   button does the same and also asks again what a failed download put off. Opening reads only what
   the list's own screen reads and keeps (the Pokédex numbers of owned cards, a goal's card list),
   so after the first time it is cheap and works offline. When part of the list cannot be read, a
   pocket keeps a stored copy that is still owned, and when none of it can be read the pages stay as
   they were. A list deleted since leaves the pages as they were, with a line saying to choose
   another in Edit binder.
+- **A list's languages and a v56 phone** (built 2026-11-05, after a review found the flip-flop). A
+  v56 phone fills a checklist's binder from copies in any language, this version only from the
+  list's languages, and each saves its own layout on opening, so with both in the family the
+  stored layout changed back and forth on every opening. Neither loses anything (a generated
+  binder places no copy, and `binder_picks` stay), but every opening was a save and a sync. So for a
+  list that names languages, opening also works out the layout as a v56 phone would
+  (`checklistAnyItems`), and when the stored layout is exactly that one and the binder records the
+  list's current languages (`list_languages`, "en,pt", written by every save of a new layout
+  here), the difference is only the languages, which the v56 phone would undo: the pages show the
+  list's layout, but opening neither saves it nor says anything (`planRefresh` `languageOnly`).
+  **Refresh** still saves it, and so does opening when something a v56 phone would also save
+  changed (a new copy, a pocket added) or when the list's languages changed since the binder last
+  recorded them. The field sits on the binder rather than in `snapshot`, because a v56 phone
+  rewrites `snapshot` whole but keeps a field it does not know, as it clones the entry. The cost:
+  until a save here, the binder's count on the Binders screen and a family member's view show the
+  stored layout, the v56 one. Chosen over saving only on Refresh, which would leave a new copy in
+  the list's languages unsaved until someone pressed it, and over filling binders from any
+  language again, against Eric's decision that a list's languages decide its binder (2026-11-05).
 - **Edit binder** changes the name, notes, cover, list, order, and pocket size. A change to the
   list, order, or grid shows the new first page and what changes in a sheet before it is saved,
   as a resize does; a change of grid raises `layout`.
@@ -2037,7 +2099,8 @@ chosen, for a "Make a binder" button on those screens.
 - **Data.** The binder entry keeps its `slots` empty and adds `rule` (`{source: {kind, id} or
   {kind: 'filter', filter}, order}`) and `snapshot` (`{at, rule_key, keys, shown}`: the pockets in
   order as Pokémon keys `dex:25` or card keys `international|sv01-001`, and each pocket's default
-  copy), so every phone and the family view show the same pages; `rows`, `cols`, `preset`, and
+  copy), so every phone and the family view show the same pages, and for a checklist that names
+  languages `list_languages` (above); `rows`, `cols`, `preset`, and
   `page_count` are the grid and pages as for any binder. Both new fields merge per field like
   `name`, so a rule changed on one phone and a refresh saved on another both stay (the next
   refresh lays out the new rule). Hand picks are a top-level list, `binder_picks`, one entry per
@@ -2277,6 +2340,26 @@ then sold): that move is undone first, or the card would come back with nothing 
 Start over's Undo is refused the other way round, while a later move counts its copies (section
 7). A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
 share one step for it (js/start-over.js `planSwap`).
+
+**Edit a logged move** (Eric, 2026-11-05; built 2026-11-05). A move's sheet in History has
+**Edit** for its date, who, price (with its currency, and for a trade which way the cash went: "I
+paid it" or "I got it", as the log form asks), and note. The price is typed and read back as the
+log form does (`parsePrice`, "Saved as R$ 1.500,00"). Edit never changes the cards: changing which
+cards went out or came in is Undo this move and logging it again. `planEditMove` (js/moves.js)
+changes only those six fields and stamps only the ones that changed (js/merge.js `stampEntry`),
+so two phones editing different fields both keep their change, as with any other entry. The form
+keeps the move it was filled from and saves only the fields changed in it (`base`), so a field
+another phone changed while the form was open keeps that change rather than going back to what
+the form showed. The price, its currency, and which way the money went are one unit: when any of
+them changes, all three are saved as the form shows them and take the same stamp, so the merge
+takes all three from the same phone, and a price cleared on one phone and changed on another never
+comes out as a price with no currency or way. The form shows the price the Brazilian way
+("1.500,00", `priceForInput`) without the phone's pt-BR number data, which some browsers lack. `out`,
+`in`, `past`, `undo`, `after_run`, `kind`, and `created_at` stay as they were, so Undo works the
+same after an edit. An undone move is a tombstone and cannot be edited, and an edit made on
+another phone before it heard of the Undo does not bring the move back (the delete sticks).
+History's months and money and the card page's lines follow the edit. A v55 or v56 phone shows
+the edited move, with no Edit; older ones merge it entry by entry and keep it whole.
 
 **Where:** Trades beside Spares on My Cards (on a phone the title takes its own line), "Trades and
 sales" in Profile, and **Sell or trade** on a copy sheet (the copies it would change) and on a card's

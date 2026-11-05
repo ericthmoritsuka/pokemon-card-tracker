@@ -949,7 +949,7 @@ describe('card images', () => {
 	const IMAGE = 'https://assets.tcgdex.net/{lang}/tst/tsa1/004/low.webp';
 
 	// Draws one card art with the app's tile.js and waits for it to settle:
-	// the image shown, or the card back.
+	// the image shown, or the card back, and the note on an English stand-in.
 	const art = (page, src) => page.evaluate(async (url) => {
 		const {cardArt} = await import('/pokemon-card-tracker/js/tile.js');
 		const frame = cardArt({name: 'Test Charmander', number: '004', setName: 'Test Alpha'}, url, {eager: true});
@@ -962,8 +962,41 @@ describe('card images', () => {
 
 		const img = frame.querySelector('img');
 
-		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
+		const note = frame.querySelector('.art-note');
+
+		return {back: Boolean(frame.querySelector('.card-back')), fallback: frame.dataset.fallback || null, note: note ? note.textContent : null, shown: img && img.naturalWidth > 0 ? img.currentSrc : null};
 	}, src);
+
+	const english = (src) => src.replace(/\/(?:pt|fr)\//, '/en/');
+
+	// The service worker's caches, as language/number per entry, in trim order.
+	const kept = (page) => page.evaluate(async () => {
+		const out = {};
+
+		for (const name of ['card-tracker-images', 'card-tracker-images-opaque']) {
+			out[name] = (await (await caches.open(name)).keys()).map((request) => {
+				const parts = new URL(request.url).pathname.split('/');
+
+				return `${parts[1]}/${parts[4]}`;
+			});
+		}
+
+		return out;
+	});
+
+	// A worker that controls the page, with the pages server's app.
+	async function workerPage(context) {
+		const page = await context.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(err.message));
+		await page.goto(`${server.origin}${BASE}check`);
+		await page.evaluate(() => navigator.serviceWorker.ready);
+		await page.reload();
+		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
+
+		return {errors, page};
+	}
 
 	test('the English image stands in for a Portuguese one that is not on the phone, offline', async () => {
 		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
@@ -999,33 +1032,35 @@ describe('card images', () => {
 		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
 
 		// Online, the English image is seen once and kept by the worker.
-		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'en')), {back: false, fallback: null, shown: IMAGE.replace('{lang}', 'en')});
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'en')), {back: false, fallback: null, note: null, shown: IMAGE.replace('{lang}', 'en')});
 
-		// Offline, the Portuguese image was never kept: the English art shows.
+		// Offline, the Portuguese image was never kept: the English art shows,
+		// marked as such.
 		await context.setOffline(true);
 		net.offline = true;
-		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', note: 'English image', shown: IMAGE.replace('{lang}', 'en')});
 
 		// A French card the phone has neither image of shows the card back.
-		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'fr').replace('004', '006')), {back: true, fallback: 'en', shown: null});
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'fr').replace('004', '006')), {back: true, fallback: 'en', note: null, shown: null});
 
 		// A Japanese image has no English stand-in.
-		assert.deepEqual(await art(page, 'https://assets.tcgdex.net/ja/tst/TSJ1/025/low.webp'), {back: true, fallback: null, shown: null});
+		assert.deepEqual(await art(page, 'https://assets.tcgdex.net/ja/tst/TSJ1/025/low.webp'), {back: true, fallback: null, note: null, shown: null});
 		net.offline = false;
 		await context.setOffline(false);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
 
-	test('the worker learns the doubled CORS header image by image, keeps the rest at their true size, and trims the least recently used', async () => {
+	test('one doubled image sends no other image to no-cors, the rest keep their true size, the doubled one gets an English stand-in, and the least recently used is trimmed first', async () => {
 		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
 		const net = {offline: false};
 		const modes = [];
 
 		await fakeServices(context, {cards: CARDS});
 		await fakePokeApi(context);
-		// As TCGdex does today: in one set folder, 004 sends its header twice
-		// (seen as "*, *", which a browser rejects in cors mode) and 005 once.
+		// As TCGdex did on 2026-10-15: in one set folder, 004 sends its header
+		// twice (seen as "*, *", which a browser rejects in cors mode) and 005
+		// once.
 		await context.route('https://assets.tcgdex.net/**', (route) => {
 			const request = route.request();
 
@@ -1033,53 +1068,205 @@ describe('card images', () => {
 				return route.abort('internetdisconnected');
 			}
 
-			modes.push(`${request.url().split('/').at(-2)} ${request.headers().origin ? 'cors' : 'no-cors'}`);
+			const parts = new URL(request.url()).pathname.split('/');
+			const doubled = parts[1] === 'pt' && parts[4] === '004';
 
-			return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': request.url().includes('/004/') ? '*, *' : '*'}, status: 200});
+			modes.push(`${parts[1]}/${parts[4]} ${request.headers().origin ? 'cors' : 'no-cors'}`);
+
+			return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': doubled ? '*, *' : '*'}, status: 200});
 		});
 
-		const page = await context.newPage();
-		const errors = [];
+		const {errors, page} = await workerPage(context);
 		const doubled = IMAGE.replace('{lang}', 'pt');
 		const single = doubled.replace('/004/', '/005/');
-		const kept = () => page.evaluate(async () => {
-			const out = {};
-
-			for (const name of ['card-tracker-images', 'card-tracker-images-opaque']) {
-				out[name] = (await (await caches.open(name)).keys()).map((request) => request.url.split('/').at(-2));
-			}
-
-			return out;
-		});
-
-		page.on('pageerror', (err) => errors.push(err.message));
-		await page.goto(`${server.origin}${BASE}check`);
-		await page.evaluate(() => navigator.serviceWorker.ready);
-		await page.reload();
-		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
 
 		assert.equal((await art(page, doubled)).shown, doubled);
 		assert.equal((await art(page, single)).shown, single);
-		await untilInPage(page, 'one image in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 1, TIMEOUT);
-		assert.deepEqual(modes, ['004 cors', '004 no-cors', '005 cors'], 'the doubled image does not send the rest of its folder to no-cors');
-		assert.deepEqual(await kept(), {'card-tracker-images': ['005'], 'card-tracker-images-opaque': ['004']}, 'only the doubled image is kept opaque');
+		await untilInPage(page, 'two images in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 2, TIMEOUT);
+		assert.deepEqual(modes.filter((mode) => mode.startsWith('pt/')), ['pt/004 cors', 'pt/004 no-cors', 'pt/005 cors'], 'the doubled image does not send the rest of its folder to no-cors');
+		assert.deepEqual(modes.filter((mode) => mode.startsWith('en/')), ['en/004 cors'], 'the doubled image\'s English stand-in is fetched once, in cors mode');
+
+		const first = await kept(page);
+
+		assert.deepEqual(first['card-tracker-images'].sort(), ['en/004', 'pt/005'], 'the single-header image and the stand-in keep their true size');
+		assert.deepEqual(first['card-tracker-images-opaque'], ['pt/004'], 'only the doubled image is kept opaque');
 
 		// A third image, then a second look at 005: 005 moves behind 006,
-		// so a trim would take 006 first.
+		// so a trim would take the English 004, then 006, first.
 		const third = doubled.replace('/004/', '/006/');
 
 		assert.equal((await art(page, third)).shown, third);
-		await untilInPage(page, 'two images in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 2, TIMEOUT);
+		await untilInPage(page, 'three images in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).length === 3, TIMEOUT);
 		await page.evaluate((url) => fetch(url, {mode: 'no-cors'}), single);
-		await untilInPage(page, 'card-tracker-images in the order 006,005', async () => (await (await caches.open('card-tracker-images')).keys()).map((request) => request.url.split('/').at(-2)).join() === '006,005', TIMEOUT);
+		await untilInPage(page, 'card-tracker-images in the order en/004, pt/006, pt/005', async () => (await (await caches.open('card-tracker-images')).keys()).map((request) => request.url.split('/').slice(3, 7).join('/')).join() === 'en/tst/tsa1/004,pt/tst/tsa1/006,pt/tst/tsa1/005', TIMEOUT);
 
-		// Offline, both Portuguese images show from the phone, no English stand-in.
+		// Offline, the Portuguese images show from the phone, no English stand-in.
 		await context.setOffline(true);
 		net.offline = true;
-		assert.deepEqual(await art(page, doubled), {back: false, fallback: null, shown: doubled});
-		assert.deepEqual(await art(page, single), {back: false, fallback: null, shown: single});
+		assert.deepEqual(await art(page, doubled), {back: false, fallback: null, note: null, shown: doubled});
+		assert.deepEqual(await art(page, single), {back: false, fallback: null, note: null, shown: single});
 		net.offline = false;
 		await context.setOffline(false);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('when TCGdex doubles every Portuguese and French header, the images seen online still show offline, a trimmed one falls back to English, and a fixed header moves them to the cors cache', async () => {
+		const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
+		const net = {doubled: true, offline: false};
+		const modes = [];
+
+		await fakeServices(context, {cards: CARDS});
+		await fakePokeApi(context);
+		// As TCGdex does on 2026-11-05 for the images it keeps in object
+		// storage: every pt and fr image sends its header twice, en once.
+		await context.route('https://assets.tcgdex.net/**', (route) => {
+			const request = route.request();
+
+			if (net.offline) {
+				return route.abort('internetdisconnected');
+			}
+
+			const parts = new URL(request.url()).pathname.split('/');
+
+			modes.push(`${parts[1]}/${parts[4]} ${request.headers().origin ? 'cors' : 'no-cors'}`);
+
+			return route.fulfill({body: PNG, contentType: 'image/webp', headers: {'access-control-allow-origin': net.doubled && parts[1] !== 'en' ? '*, *' : '*'}, status: 200});
+		});
+
+		const {errors, page} = await workerPage(context);
+		const pt = (number) => IMAGE.replace('{lang}', 'pt').replace('/004/', `/${number}/`);
+		const SEEN = ['001', '002', '003', '004', '005'];
+		const folders = () => page.evaluate(async () => {
+			const hit = await caches.match(new URL('/pokemon-card-tracker/image-folders.json', location.origin).href, {cacheName: 'card-tracker-image-folders'});
+
+			return hit ? hit.json() : null;
+		});
+
+		// Online: every image shows. Each is tried in cors mode, then fetched
+		// in no-cors mode, and remembered on its own: TCGdex doubles the
+		// header image by image, so failures in a row say nothing about the
+		// next image.
+		for (const number of SEEN) {
+			assert.deepEqual(await art(page, pt(number)), {back: false, fallback: null, note: null, shown: pt(number)}, number);
+		}
+
+		assert.deepEqual(modes.filter((mode) => mode.startsWith('pt/')), SEEN.flatMap((number) => [`pt/${number} cors`, `pt/${number} no-cors`]));
+		await untilInPage(page, 'the five Portuguese images saved as failing in cors mode', async () => {
+			const hit = await caches.match(new URL('/pokemon-card-tracker/image-folders.json', location.origin).href, {cacheName: 'card-tracker-image-folders'});
+
+			return Boolean(hit) && Object.keys((await hit.json()).images).filter((url) => url.includes('/pt/')).length === 5;
+		}, TIMEOUT);
+		await untilInPage(page, 'five English stand-ins in card-tracker-images', async () => (await (await caches.open('card-tracker-images')).keys()).filter((request) => request.url.includes('/en/')).length === 5, TIMEOUT);
+
+		// A new worker fetches them straight in no-cors mode, without the
+		// failing cors request.
+		const cdp = await context.newCDPSession(page);
+		const restartWorker = async () => {
+			await cdp.send('ServiceWorker.enable');
+			await cdp.send('ServiceWorker.stopAllWorkers');
+		};
+
+		await page.evaluate(async (url) => (await caches.open('card-tracker-images-opaque')).delete(url), pt('005'));
+		await restartWorker();
+		modes.length = 0;
+		await page.evaluate((url) => fetch(url, {mode: 'no-cors'}), pt('005'));
+		assert.deepEqual(modes, ['pt/005 no-cors']);
+		await untilInPage(page, 'pt/005 kept opaque again', async (url) => Boolean(await (await caches.open('card-tracker-images-opaque')).match(url)), {...TIMEOUT, arg: pt('005')});
+
+		const online = await kept(page);
+
+		assert.deepEqual(online['card-tracker-images-opaque'].sort(), SEEN.map((number) => `pt/${number}`));
+		assert.deepEqual(online['card-tracker-images'].sort(), SEEN.map((number) => `en/${number}`));
+
+		// Offline: every Portuguese image seen shows from the phone.
+		await context.setOffline(true);
+		net.offline = true;
+
+		for (const number of SEEN) {
+			assert.deepEqual(await art(page, pt(number)), {back: false, fallback: null, note: null, shown: pt(number)}, `${number} offline`);
+		}
+
+		// One trimmed from the opaque cache: its English image stands in,
+		// marked, on the art and on a tile. The reload (offline, from the
+		// worker) drops the page's own copy of the image it already drew.
+		await page.evaluate(async (url) => (await caches.open('card-tracker-images-opaque')).delete(url), pt('003'));
+		await page.reload();
+		await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, TIMEOUT);
+		assert.deepEqual(await art(page, pt('003')), {back: false, fallback: 'en', note: 'English image', shown: english(pt('003'))});
+
+		const tile = await page.evaluate(async (url) => {
+			const {cardTile} = await import('/pokemon-card-tracker/js/tile.js');
+			const node = cardTile({art: {eager: true, info: {name: 'Test Charmander', number: '003', setName: 'Test Alpha'}, src: url}, meta: '#003 · Test Alpha', names: 'Test Charmander'});
+
+			document.body.append(node);
+
+			for (let i = 0; i < 100 && !node.querySelector('.art-by') && !node.querySelector('.card-back'); i++) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+
+			return {lines: [...node.querySelectorAll('.tile-meta')].map((line) => line.textContent), overlay: Boolean(node.querySelector('.art-note'))};
+		}, pt('003'));
+
+		assert.deepEqual(tile, {lines: ['#003 · Test Alpha', 'English image'], overlay: false}, 'a tile says it under its meta line, clear of the corners');
+
+		// A French image never seen: the English one kept for the Portuguese
+		// card of the same number stands in.
+		const french = IMAGE.replace('{lang}', 'fr').replace('/004/', '/001/');
+
+		assert.deepEqual(await art(page, french), {back: false, fallback: 'en', note: 'English image', shown: english(french)});
+
+		// A Portuguese image never seen and no English one: the card back.
+		assert.deepEqual(await art(page, pt('009')), {back: true, fallback: 'en', note: null, shown: null});
+		await page.locator('body > .tile').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-tile.png`});
+		// The art on its own at a tile's width, clear of the tab bar.
+		await page.locator('body > .art:has(.art-note)').last().evaluate((node) => {
+			node.style.cssText = 'left: 16px; position: fixed; top: 80px; width: 110px; z-index: 10;';
+		});
+		await page.locator('body > .art:has(.art-note)').last().screenshot({path: `${SHOTS}/my-cards-english-stand-in-art.png`});
+
+		// Online again, and TCGdex has fixed the header: new images go cors
+		// at once.
+		net.offline = false;
+		await context.setOffline(false);
+		net.doubled = false;
+		modes.length = 0;
+		await page.evaluate(async (urls) => {
+			for (const url of urls) {
+				await fetch(url, {mode: 'no-cors'});
+			}
+		}, ['010', '011', '012'].map(pt));
+		assert.deepEqual(modes, ['pt/010 cors', 'pt/011 cors', 'pt/012 cors']);
+
+		// An opaque image is tried again in cors mode once its folder's
+		// hourly try is due (here an hour has passed, as the saved memory
+		// says), skipping the HTTP cache; it works, so the folder's other
+		// opaque images are each tried once when next shown, and all move to
+		// the cache that counts their true size.
+		await page.evaluate(async () => {
+			const cache = await caches.open('card-tracker-image-folders');
+			const key = new URL('/pokemon-card-tracker/image-folders.json', location.origin).href;
+			const saved = await (await cache.match(key)).json();
+
+			saved.folders['assets.tcgdex.net/pt'].probedAt -= 60 * 60 * 1000;
+			await cache.put(key, new Response(JSON.stringify(saved), {headers: {'Content-Type': 'application/json'}}));
+		});
+		await restartWorker();
+		modes.length = 0;
+
+		for (const number of ['001', '002']) {
+			assert.equal((await art(page, pt(number))).shown, pt(number));
+			await untilInPage(page, `pt/${number} moved out of the opaque cache`, async (url) => {
+				const opaque = await (await caches.open('card-tracker-images-opaque')).match(url);
+				const real = await (await caches.open('card-tracker-images')).match(url);
+
+				return !opaque && Boolean(real) && real.type === 'cors';
+			}, {...TIMEOUT, arg: pt(number)});
+		}
+
+		assert.deepEqual(modes, ['pt/001 cors', 'pt/002 cors'], 'one cors request each, nothing else');
+		assert.equal((await folders()).folders['assets.tcgdex.net/fr'], undefined, 'a request that failed offline taught the French folder nothing');
+		assert.ok(!Object.keys((await folders()).images).some((url) => url.includes('/fr/')));
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -1091,7 +1278,7 @@ describe('card images', () => {
 			? route.fulfill({body: PNG, contentType: 'image/webp', status: 200})
 			: route.fulfill({status: 404})));
 		await page.goto(`${server.origin}${BASE}check`);
-		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', shown: IMAGE.replace('{lang}', 'en')});
+		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', note: 'English image', shown: IMAGE.replace('{lang}', 'en')});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

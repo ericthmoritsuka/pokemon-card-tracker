@@ -37,17 +37,59 @@ export function forgetImage(url) {
 
 // The English image of the same card, for a Portuguese or French one:
 // international prints share one card ID in every Western language, so only
-// the language in the path differs. Null for any other image.
+// the language in the path differs. Null for any other image. The service
+// worker uses the same rule (js/image-folders.js englishOf).
 //
-// Most Portuguese and French images send Access-Control-Allow-Origin twice,
-// so the service worker can keep only a few of them (opaque, capped at 100),
-// while it keeps thousands of English ones. Offline, a Portuguese tile whose
-// image is not on the phone shows the English art instead of the card back
-// (E-20). Online, the English art also stands in for a Portuguese image that
-// fails to load.
+// Many Portuguese and French images send Access-Control-Allow-Origin twice,
+// so the service worker keeps them as opaque responses, which Chrome counts
+// at about 7 MiB each: about a hundred fit on a 10 GB phone, while it keeps
+// thousands of English ones. For each image it keeps opaque it also keeps the English
+// one. Offline, a Portuguese tile whose image is not on the phone shows the
+// English art instead of the card back (E-20). Online, the English art also
+// stands in for a Portuguese image that fails to load.
 const LOCALIZED_IMAGE = /^(https:\/\/assets\.tcgdex\.net\/)(?:pt|fr)(\/)/;
 
 export const englishImage = (src) => (LOCALIZED_IMAGE.test(String(src || '')) ? String(src).replace(LOCALIZED_IMAGE, '$1en$2') : null);
+
+// What the art shows when src fails: the English image with the note that
+// says so, or null when there is no stand-in (the card back follows).
+export const ENGLISH_NOTE = 'English image';
+
+export function artFallback(src) {
+	const english = englishImage(src);
+
+	return english ? {note: ENGLISH_NOTE, src: english} : null;
+}
+
+// Says that the art is a stand-in: a line under a tile's meta line, like a
+// family member's "Photo by" line, or a caption on the art anywhere else
+// (the card detail, the scan sheets). Never on a tile that shows or waits
+// for a family member's photo (its "Photo by" line): a photo wins over the
+// English stand-in, and js/photos/index.js fillPhoto takes the line away
+// when a photo replaces the art.
+function noteStandIn(frame, note) {
+	const tile = frame.closest('.tile');
+
+	if (!tile) {
+		frame.append(h('span', {class: 'art-note'}, note));
+
+		return;
+	}
+
+	if (tile.querySelector('.art-by') || tile.querySelector('.ph-by')) {
+		return;
+	}
+
+	const line = h('span', {class: 'tile-meta art-by'}, note);
+	const meta = tile.querySelector(':scope > .tile-meta');
+
+	if (meta) {
+		meta.after(line);
+	}
+	else {
+		tile.append(line);
+	}
+}
 
 function imageStatus(missing) {
 	if (!navigator.onLine) {
@@ -69,7 +111,8 @@ function cardBack({name, number, setName}, missing) {
 
 // Card art in the 63:88 card shape. It shimmers while the image loads and
 // turns into the card-back tile if the image fails, after trying the English
-// image of a Portuguese or French card (englishImage).
+// image of a Portuguese or French card (artFallback), which is marked
+// "English image" when it shows.
 //
 // decorative: the name is already in text beside the art (a tile), so the
 // image has an empty alt and a screen reader does not say the name twice.
@@ -95,14 +138,22 @@ export function cardArt(info, src, {decorative = false, eager = false} = {}) {
 	});
 
 	let shown = src;
-	let fallback = englishImage(src);
+	let fallback = artFallback(src);
+	let note = null;
 
-	img.addEventListener('load', () => frame.classList.remove('loading'), {once: true});
+	img.addEventListener('load', () => {
+		frame.classList.remove('loading');
+
+		if (note) {
+			noteStandIn(frame, note);
+		}
+	}, {once: true});
 	img.addEventListener('error', function failed() {
 		forgetImage(shown);
 
 		if (fallback) {
-			shown = fallback;
+			shown = fallback.src;
+			note = fallback.note;
 			fallback = null;
 			frame.dataset.fallback = 'en';
 			img.addEventListener('error', failed, {once: true});

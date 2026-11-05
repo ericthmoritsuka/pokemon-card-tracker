@@ -40,6 +40,11 @@
 // It is refused while a later live move names one of its in copies (sold
 // on, say): that move is undone first, or the copy would come back with
 // nothing that brought it.
+// Edit (Eric, 2026-11-05) changes a logged move's date, who, price, and
+// note, stamped field by field (the price, currency, and money as one
+// unit), and never its cards, undo, or after_run, so Undo works the same
+// after it; an undone move cannot be edited. The form sends only what was
+// changed in it, so it never puts back what another phone changed.
 // Photos and notes live on the card records (card_info), which a move never
 // touches, so they show again when a copy of the card comes back.
 //
@@ -476,6 +481,154 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 	return {counts: {...counts, ...done.counts}, doc: next, later: null, reason: null, stale: false};
 }
 
+// Edit a logged move (Eric, 2026-11-05): the fields a move can change after
+// it is logged. The cards are not among them: changing which cards went out
+// or came in is Undo this move and logging it again.
+export const EDIT_FIELDS = ['date', 'who', 'price', 'currency', 'money', 'note'];
+
+export const UNDONE_EDIT_TEXT = 'This move was undone, on this phone or another, so it cannot be edited. Nothing was changed.';
+
+// The price, its currency, and which way the money went, as a move keeps
+// them: all null without a price or for a gift; a sale's money comes in, a
+// purchase's goes out, and a trade's goes the way given, if any. price is a
+// number already read (cleanPrice).
+function moneyFields(kind, price, currency, way) {
+	if (kind === 'gift' || !price) {
+		return {currency: null, money: null, price: null};
+	}
+
+	return {
+		currency: CURRENCIES.includes(currency) ? currency : 'BRL',
+		money: kind === 'sold' ? 'in' : kind === 'bought' ? 'out' : way === 'in' || way === 'out' ? way : null,
+		price,
+	};
+}
+
+const MONEY_FIELDS = ['price', 'currency', 'money'];
+
+// The fields of an Edit form that differ from what the form opened with
+// (base, the move it was filled from): a field left as it was is not sent,
+// so a change another phone made to it while the form was open stays. The
+// price, currency, and money count as one: when any of them differs, all
+// three go as the form shows them, so a price is never saved with a
+// currency the person did not see beside it.
+function editedSince(kind, fields, base) {
+	const has = (key) => Object.prototype.hasOwnProperty.call(fields, key);
+	const out = {};
+
+	if (has('date') && fields.date !== base.date) {
+		out.date = fields.date;
+	}
+
+	for (const key of ['who', 'note']) {
+		if (has(key) && text(fields[key]) !== text(base[key])) {
+			out[key] = fields[key];
+		}
+	}
+
+	if (MONEY_FIELDS.some(has)) {
+		const opened = moneyFields(kind, cleanPrice(base.price), base.currency, base.money);
+		const shown = moneyFields(kind, has('price') ? cleanPrice(fields.price) : opened.price, has('currency') ? fields.currency : base.currency, has('money') ? fields.money : base.money);
+
+		if (MONEY_FIELDS.some((key) => shown[key] !== opened[key])) {
+			Object.assign(out, shown);
+		}
+	}
+
+	return out;
+}
+
+// What an edit does to `doc`: the move's date, who, price (with its currency
+// and which way the money went), and note, from the fields given (a field
+// left out stays as it is), read as planMove reads them. Nothing else on
+// the move changes (kind, out, in, past, undo, after_run, created_at), and
+// no copy is touched, so Undo of the move works as before.
+//
+// base: the move as the Edit form opened with it. Given, only the fields
+// whose value differs from base are applied (editedSince), so the form,
+// which sends every field, never puts back a value another phone changed
+// while it was open.
+//
+// The move is stamped field by field (js/merge.js stampEntry), only where a
+// value changed, so two phones editing different fields both keep their
+// change. The price, currency, and money are one unit: when any of them
+// changes, all three take the same stamp, so the merge takes all three from
+// the same phone (a price cleared on one phone and changed on another never
+// comes out as a price with no currency or way).
+//
+// Returns {changed: [field, ...], doc, move, stale}; `doc` itself is not
+// changed. stale is true, and nothing changes, when the move is gone or
+// undone (a tombstone cannot be edited). A price neither form reads is
+// refused with PRICE_FORM_TEXT.
+export function planEditMove(doc, moveId, fields = {}, {base = null, now = Date.now()} = {}) {
+	const move = moveById(doc, moveId);
+
+	if (!move || !isLive(move)) {
+		return {changed: [], doc: structuredClone(doc), move: null, stale: true};
+	}
+
+	if (Object.prototype.hasOwnProperty.call(fields, 'price') && typeof fields.price !== 'number' && parsePrice(fields.price).error) {
+		throw new Error(PRICE_FORM_TEXT);
+	}
+
+	const wanted = base ? editedSince(move.kind, fields, base) : fields;
+	const has = (key) => Object.prototype.hasOwnProperty.call(wanted, key);
+	const next = {...move};
+
+	if (has('date') && /^\d{4}-\d{2}-\d{2}$/.test(String(wanted.date || ''))) {
+		next.date = wanted.date;
+	}
+
+	if (has('who')) {
+		next.who = text(wanted.who);
+	}
+
+	if (has('note')) {
+		next.note = text(wanted.note);
+	}
+
+	if (move.kind === 'gift' || MONEY_FIELDS.some(has)) {
+		const price = has('price') ? cleanPrice(wanted.price) : cleanPrice(move.price);
+
+		Object.assign(next, moneyFields(move.kind, price, has('currency') ? wanted.currency : move.currency, has('money') ? wanted.money : move.money));
+	}
+
+	const changed = EDIT_FIELDS.filter((key) => (next[key] ?? null) !== (move[key] ?? null));
+
+	if (!changed.length) {
+		return {changed, doc: structuredClone(doc), move, stale: false};
+	}
+
+	const at = nextStamp(move.updated_at, now);
+	const edited = stampEntry(move, {...next, updated_at: at});
+
+	if (MONEY_FIELDS.some((key) => changed.includes(key))) {
+		for (const key of MONEY_FIELDS) {
+			edited.field_stamps[key] = at;
+		}
+	}
+
+	const out = structuredClone(doc);
+
+	out.moves = list(out).map((item) => (item && item.id === move.id ? edited : item));
+
+	return {changed, doc: out, move: edited, stale: false};
+}
+
+// The price as the Edit form shows it, the Brazilian way: 1500 is
+// "1.500,00", which parsePrice reads back as 1500. Built by hand rather
+// than with toLocaleString('pt-BR'), which a phone without that locale's
+// data answers as "1,500.00", a form parsePrice refuses. '' for no price.
+export function priceForInput(value) {
+	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+		return '';
+	}
+
+	const [whole, cents] = (Math.round(value * 100) / 100).toFixed(2).split('.');
+
+	return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${cents}`;
+}
+
 // How each copy of a card came and went, for its page: [{side: 'in' |
 // 'out', move, entries}], one row per move and side, newest move first.
 // side 'in' is a live copy that came with a live move; 'out' a copy that
@@ -585,6 +738,25 @@ export async function undoMove(moveId) {
 	await saveCopy(doc);
 
 	return counts;
+}
+
+// Saved: edits a move's date, who, price, and note (Edit in History). base:
+// the move as the form opened with it (planEditMove). Resolves {changed,
+// move}; saves nothing when nothing changed. Rejects with an error whose
+// stale is true when the move was undone, and with PRICE_FORM_TEXT for a
+// price it cannot read.
+export async function editMove(moveId, fields, {base = null} = {}) {
+	const {changed, doc, move, stale} = planEditMove(await loadDocument(), moveId, fields, {base});
+
+	if (stale) {
+		throw Object.assign(new Error(UNDONE_EDIT_TEXT), {reason: 'gone', stale: true});
+	}
+
+	if (changed.length) {
+		await saveCopy(doc);
+	}
+
+	return {changed, move};
 }
 
 // The copies a move form opens with, handed over by Sell or trade (a copy

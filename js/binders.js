@@ -21,6 +21,11 @@
 //   rule, snapshot  a binder made from a list (js/binder-rules.js): what
 //                fills it and the layout of its last refresh. Its slots
 //                stay empty, and it never places a copy (placements below)
+//   list_languages  for a binder made from a checklist: the list's
+//                languages ("en,pt") when its layout was last saved here,
+//                absent for a list that names none. Kept outside the
+//                snapshot, which a v56 phone rewrites whole (planRefresh
+//                languageOnly)
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -931,16 +936,29 @@ function generatedFields(fields, snapshot) {
 	return cleanFields({...fields, page_count: validGrid(rows, cols) ? pagesFor(count, rows, cols) : 1});
 }
 
+// list_languages from a refresh plan's languages: a list's languages are
+// recorded, a list without them removes the field, and undefined (not a
+// checklist, or no new layout) leaves it as it is.
+function recordLanguages(next, languages) {
+	if (typeof languages === 'string') {
+		next.list_languages = languages;
+	}
+	else if (languages === null) {
+		delete next.list_languages;
+	}
+}
+
 // A new binder made from a list: fields as for createBinder (the pages are
-// worked out), rule {source, order}, and the first snapshot.
-export function createGeneratedBinder(fields, rule, snapshot) {
+// worked out), rule {source, order}, and the first snapshot. languages: the
+// plan's (planRefresh), recorded as list_languages.
+export function createGeneratedBinder(fields, rule, snapshot, {languages} = {}) {
 	const clean = generatedFields(fields, snapshot);
 	const checked = checkBinderRule(rule);
 	const at = nowIso();
 
 	return serial(async () => {
 		const order = orderForNew(liveBinders(await allBinders()));
-		const [binder] = await saveBinders([{
+		const made = {
 			...clean,
 			art: [],
 			created_at: at,
@@ -951,7 +969,11 @@ export function createGeneratedBinder(fields, rule, snapshot) {
 			slots: [],
 			snapshot: {...snapshot, at},
 			updated_at: at,
-		}]);
+		};
+
+		recordLanguages(made, languages);
+
+		const [binder] = await saveBinders([made]);
 
 		return binder;
 	});
@@ -959,8 +981,9 @@ export function createGeneratedBinder(fields, rule, snapshot) {
 
 // Changes a list's binder: name, notes, cover, the grid, the rule, and the
 // layout worked out for them. A change of grid raises the layout number, as
-// a resize does.
-export function updateGeneratedBinder(id, fields, rule, snapshot) {
+// a resize does. languages: as for createGeneratedBinder, given with a new
+// layout.
+export function updateGeneratedBinder(id, fields, rule, snapshot, {languages} = {}) {
 	const clean = generatedFields(fields, snapshot);
 	const checked = checkBinderRule(rule);
 
@@ -973,6 +996,7 @@ export function updateGeneratedBinder(id, fields, rule, snapshot) {
 		next.rule = checked;
 		next.snapshot = {...snapshot, at: next.updated_at};
 		next.slots = [];
+		recordLanguages(next, languages);
 
 		if (clean.rows !== binder.rows || clean.cols !== binder.cols) {
 			next.layout = layoutOf(binder) + 1;
@@ -984,10 +1008,12 @@ export function updateGeneratedBinder(id, fields, rule, snapshot) {
 	});
 }
 
-// Saves a refresh's layout (planRefresh): the snapshot and the pages. A
-// refresh worked out for a rule the binder no longer has (changed on another
-// phone meanwhile) is dropped. Resolves the saved binder, or null.
-export function saveRefresh(id, {page_count: pageCount, snapshot}) {
+// Saves a refresh's layout (planRefresh): the snapshot and the pages, and
+// for a checklist the list's languages it was worked out with
+// (list_languages). A refresh worked out for a rule the binder no longer
+// has (changed on another phone meanwhile) is dropped. Resolves the saved
+// binder, or null.
+export function saveRefresh(id, {languages, page_count: pageCount, snapshot}) {
 	return serial(async () => {
 		const binder = liveBinders(await allBinders()).find((item) => item.id === id);
 
@@ -1003,6 +1029,7 @@ export function saveRefresh(id, {page_count: pageCount, snapshot}) {
 
 		next.snapshot = {...snapshot, at: next.updated_at};
 		next.page_count = Math.min(MAX_PAGES, Math.max(1, pageCount));
+		recordLanguages(next, languages);
 
 		const [saved] = await saveBinders(stamped([next]));
 

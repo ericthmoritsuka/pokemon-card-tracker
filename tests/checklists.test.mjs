@@ -672,6 +672,7 @@ describe('checklists', () => {
 		assert.equal(new URL(page.url()).pathname.startsWith(`${BASE}family/${owner.id}/lists/`), true);
 		assert.equal(await page.locator('.dex-row button').count(), 0, 'nothing to tap in the view');
 		assert.equal(await page.locator('#list-languages-edit').count(), 0, 'no languages Edit in the view');
+		assert.deepEqual(await flagsIn(page, '.dex-row[data-dex="7"] .dex-elsewhere'), ['ja'], 'the owner\'s Japanese Squirtle, by the owner\'s Portuguese setting');
 		assert.equal(await page.locator('.dex-row[data-dex="3"] a.dex-link').getAttribute('href'), `${new URL(page.url()).pathname}/pokemon/3`);
 		assert.equal(await page.locator('.actions').count(), 0, 'no Rename or Delete in the view');
 		await page.screenshot({path: '/tmp/checklists-family.png'});
@@ -880,6 +881,64 @@ describe('checklists in your own order (Eric, 2026-10-06)', () => {
 		await page.waitForFunction(() => document.querySelectorAll('#lists-body .list-tile').length === 4);
 		assert.deepEqual(await page.locator('#lists-body .list-name').allTextContents(), ['Hoenn', 'Johto', 'Kanto', 'Sinnoh']);
 		await page.screenshot({fullPage: true, path: '/tmp/checklists-ordered.png'});
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('a list\'s languages decide its ticks (Eric, 2026-11-05)', () => {
+	// A list from before languages decided ticks: no languages field.
+	const OLD_KANTO = {created_at: AT, deleted_at: null, dex_list: null, hand_ticks: {}, id: 'list-old-kanto', kind: 'region', level: null, name: 'Kanto', target: 'kanto', updated_at: AT};
+	// An English Eevee, the only copy of #133.
+	const WITH_EEVEE = [...CARDS, entry('c8', {card_id: 'tst1-133', catalog: 'international', language: 'en'})];
+
+	test('an old list counts any language; set to Portuguese, the English-only Eevee unticks and shows its flag; Any language ticks it again', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const row = (n) => page.locator(`.dex-row[data-dex="${n}"]`);
+
+		await seedLocal(page, documentWith(WITH_EEVEE, [OLD_KANTO]));
+		await page.goto(url(`lists/${OLD_KANTO.id}`));
+
+		// Nothing he sees today changes until he sets languages.
+		await waitForSummary(page, '5 owned, 146 missing.');
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.match(await row(133).getAttribute('class'), /\bowned\b/);
+		assert.equal(await page.locator('.dex-elsewhere').count(), 0, 'no note while every language counts');
+
+		// Portuguese only: Eevee (English) and Squirtle (Japanese) untick,
+		// each showing the language it is owned in.
+		await page.click('#list-languages-edit');
+		assert.ok(await page.locator('#list-languages-any').isChecked());
+		await page.check('#list-languages-editor input[value="pt"]');
+		await page.click('#list-languages-save');
+		await waitForSummary(page, '3 owned, 148 missing.');
+		assert.match(await page.locator('#checklist-meta').textContent(), /3 \/ 151/);
+		assert.match(await row(133).getAttribute('class'), /\bmissing\b.*\belsewhere\b/);
+		assert.deepEqual(await flagsIn(page, '.dex-row[data-dex="133"] .dex-elsewhere'), ['en']);
+		assert.equal(await row(133).locator('.dex-elsewhere .flags').getAttribute('aria-label'), 'Owned only in English');
+		assert.deepEqual(await flagsIn(page, '.dex-row[data-dex="7"] .dex-elsewhere'), ['ja']);
+		assert.equal(await row(1).locator('.dex-elsewhere').count(), 0, 'a ticked row has no note, though an English copy is owned too');
+		assert.equal(await row(2).locator('.dex-elsewhere').count(), 0, 'a Pokémon not owned at all has none');
+		assert.deepEqual((await localDoc(page)).goals[0].languages, ['pt']);
+		await row(133).scrollIntoViewIfNeeded();
+		await page.screenshot({path: '/tmp/checklists-owned-elsewhere.png'});
+
+		// The Pokémon screen agrees: the English Eevee is not owned there.
+		await row(133).locator('a.dex-link').click();
+		await waitForPokemonTitle(page, 'Eevee, 0 of 1 card');
+		await page.click('#pc-back');
+
+		// Any language removes the field, and Eevee ticks again.
+		await waitForSummary(page, '3 owned, 148 missing.');
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		await page.click('#list-languages-save');
+		await waitForSummary(page, '5 owned, 146 missing.');
+		assert.match(await row(133).getAttribute('class'), /\bowned\b/);
+		assert.equal(await page.locator('.dex-elsewhere').count(), 0);
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.equal('languages' in (await localDoc(page)).goals[0], false, 'the field is gone again');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

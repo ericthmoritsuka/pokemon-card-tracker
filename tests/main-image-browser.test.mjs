@@ -494,6 +494,107 @@ describe('the main image on every screen', () => {
 	});
 });
 
+// --------------------------------------------- the English stand-in
+
+// A Portuguese image that does not load shows the same card's English image
+// marked "English image" in a line under the tile's meta (js/tile.js). A
+// photo of your own or a family member's always wins over it, and the line
+// never describes a photo.
+describe('the English stand-in under a photo', () => {
+	const PT_IMAGE = 'https://assets.tcgdex.net/pt/tst/tst1/010/low.webp';
+	const INFO = {name: 'Tesuto', number: '010', setName: 'Test Japanese Set'};
+
+	// The Portuguese image fails (404), its English one loads.
+	const englishLoads = (page) => page.context().route('https://assets.tcgdex.net/en/**', (route) => route.fulfill({body: PNG, contentType: 'image/png', status: 200}));
+
+	test('a photo that arrives after the English stand-in replaces it, line and all', async () => {
+		const {done, page} = await phone();
+
+		await englishLoads(page);
+
+		const ids = await seed(page);
+
+		// The photo pinned as the main image wins over the catalog image.
+		await pin(page, ids.photo1);
+		// A page with no tiles, so the photo's address is not ready when the
+		// tile is drawn: withMainPhoto puts it in after the catalog art.
+		await page.goto(url('check'));
+
+		const result = await page.evaluate(async ({info, photoId, src}) => {
+			const {cardArt, cardTile} = await import('/pokemon-card-tracker/js/tile.js');
+			const {withMainPhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+			const {cachedPhotoUrl} = await import('/pokemon-card-tracker/js/photos/store.js');
+			const {cardInfoList} = await import('/pokemon-card-tracker/js/collection.js');
+			const until = async (ok) => {
+				for (let i = 0; i < 150 && !ok(); i++) {
+					await new Promise((resolve) => setTimeout(resolve, 100));
+				}
+
+				return Boolean(ok());
+			};
+
+			await until(() => cardInfoList().some((record) => record.main_image === photoId));
+
+			const tile = cardTile({art: {eager: true, info, src}, meta: '#010 · Test Japanese Set', names: info.name});
+			const lines = () => [...tile.querySelectorAll('.tile-meta')].map((line) => line.textContent);
+
+			document.body.append(tile);
+
+			const standIn = await until(() => tile.querySelector('.art-by'));
+			const before = lines();
+			const ready = Boolean(cachedPhotoUrl(photoId));
+
+			withMainPhoto(tile, {card_id: 'jpt1-010', catalog: 'ja', language: 'ja'}, src, (photo) => cardArt(info, photo, {decorative: true}));
+
+			const photo = await until(() => {
+				const img = tile.querySelector('.art[data-photo="photo"] img');
+
+				return img && img.naturalWidth > 0;
+			});
+
+			// Time for a late load event of the art it replaced.
+			await new Promise((resolve) => setTimeout(resolve, 300));
+
+			return {after: lines(), before, photo, ready, standIn};
+		}, {info: INFO, photoId: ids.photo1, src: PT_IMAGE});
+
+		assert.equal(result.ready, false, 'the photo was not ready when the tile was drawn');
+		assert.equal(result.standIn, true);
+		assert.deepEqual(result.before, ['#010 · Test Japanese Set', 'English image']);
+		assert.equal(result.photo, true, 'the photo shows');
+		assert.deepEqual(result.after, ['#010 · Test Japanese Set'], 'no "English image" under a photo');
+		await done();
+	});
+
+	test('a tile with a family member\'s "Photo by" line never says "English image"', async () => {
+		const {done, page} = await phone();
+
+		await englishLoads(page);
+
+		const result = await page.evaluate(async ({info, src}) => {
+			const {cardTile} = await import('/pokemon-card-tracker/js/tile.js');
+			const tile = cardTile({art: {eager: true, info, src}, meta: '#010 · Test Japanese Set', names: info.name});
+			const by = document.createElement('span');
+
+			// As withMainPhoto puts it, before the art has loaded.
+			by.className = 'tile-meta ph-by';
+			by.textContent = 'Photo by Ana';
+			tile.querySelector('.tile-meta').after(by);
+			document.body.append(tile);
+
+			for (let i = 0; i < 150 && !tile.querySelector('.art[data-fallback="en"]:not(.loading)'); i++) {
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+
+			return {english: Boolean(tile.querySelector('.art[data-fallback="en"]:not(.loading)')), lines: [...tile.querySelectorAll('.tile-meta')].map((line) => line.textContent)};
+		}, {info: INFO, src: PT_IMAGE});
+
+		assert.equal(result.english, true, 'the English image loaded');
+		assert.deepEqual(result.lines, ['#010 · Test Japanese Set', 'Photo by Ana']);
+		await done();
+	});
+});
+
 // ------------------------------------------------------------- the family
 
 async function device(fake, name) {

@@ -378,13 +378,31 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 // ranks a copy for the default. partial: the source could not tell every
 // copy (offline, or Pokédex numbers still unknown), so a pocket whose stored
 // default is still a live copy keeps it rather than going empty (liveIds).
-// Returns {snapshot, page_count, added, removed, filled, updated, changed}:
+//
+// A checklist that names languages fills its pockets only from copies in
+// them (js/binder-sources.js checklistItems), while a v56 phone fills them
+// from any language. anyItems: the pockets as a v56 phone reads them
+// (checklistAnyItems), and languages: the list's languages (listLanguagesKey),
+// both from loadRuleItems. With them, languageOnly is true when the stored
+// layout is what a v56 phone would save and the only difference is the
+// list's languages, which that phone would undo on its next opening, and
+// the binder last recorded these same languages (list_languages): the
+// screen then leaves the stored layout alone on opening and saves only on
+// Refresh, so two phones never save the binder back and forth (DESIGN.md,
+// "Binders from a list").
+//
+// Returns {snapshot, page_count, added, removed, filled, emptied, updated,
+// changed, languageOnly, languages}:
 //   added, removed  keys that joined or left the list
 //   filled          keys that had no copy and have one now
+//   emptied         keys that had a copy and have none now (sold, or no
+//                   copy in the list's languages)
 //   updated         keys whose default moved to another copy (pockets
 //                   picked by hand never count: their pick stays)
 //   changed         anything to save
-export function planRefresh(binder, items, {at, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
+//   languageOnly    see above; false without anyItems
+//   languages       as given, for saveRefresh to record on the binder
+export function planRefresh(binder, items, {anyItems = null, at, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
 	const before = isObject(binder.snapshot) ? binder.snapshot : {};
 	const oldKeys = Array.isArray(before.keys) ? before.keys : [];
 	const oldShown = isObject(before.shown) ? before.shown : {};
@@ -393,6 +411,7 @@ export function planRefresh(binder, items, {at, liveIds = null, partial = false,
 	const newSet = new Set(keys);
 	const shown = {};
 	const filled = [];
+	const emptied = [];
 	const updated = [];
 
 	for (const item of items) {
@@ -416,6 +435,9 @@ export function planRefresh(binder, items, {at, liveIds = null, partial = false,
 		if (!had && id) {
 			filled.push(item.key);
 		}
+		else if (had && !id) {
+			emptied.push(item.key);
+		}
 		else if (had && id && had !== id && !picks.has(item.key)) {
 			updated.push(item.key);
 		}
@@ -429,10 +451,20 @@ export function planRefresh(binder, items, {at, liveIds = null, partial = false,
 		&& oldKeys.length === keys.length && oldKeys.every((key, i) => key === keys[i])
 		&& sameShown(oldShown, shown);
 
+	const changed = !same || binder.page_count !== pageCount;
+	let languageOnly = false;
+
+	if (changed && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
+		languageOnly = !planRefresh(binder, anyItems, {at, liveIds, partial, picks, rankOf}).changed;
+	}
+
 	return {
 		added,
-		changed: !same || binder.page_count !== pageCount,
+		changed,
+		emptied,
 		filled,
+		languageOnly,
+		languages,
 		page_count: pageCount,
 		removed,
 		snapshot,
@@ -467,6 +499,10 @@ export function refreshText(plan, nameOf = (key) => key) {
 
 	if (plan.filled.length) {
 		parts.push(`${plan.filled.length === 1 ? '1 pocket' : `${plan.filled.length} pockets`} filled with a card you own now (${named(plan.filled)})`);
+	}
+
+	if (plan.emptied && plan.emptied.length) {
+		parts.push(`${plan.emptied.length === 1 ? '1 pocket' : `${plan.emptied.length} pockets`} emptied: no copy you own fits ${plan.emptied.length === 1 ? 'it' : 'them'} now (${named(plan.emptied)})`);
 	}
 
 	if (plan.updated.length) {

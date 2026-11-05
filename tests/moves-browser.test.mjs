@@ -1,8 +1,9 @@
 // Browser test for the trades and sales log (js/moves-view.js; DESIGN.md
 // section 11, "Trades and Sales"): a sale of one copy logged from its card
 // page, seen in History and on the card page, then undone; a trade with one
-// card out and one in; and Log a past sale, which links a copy removed by
-// hand two days ago. Headless Chromium against tests/pages-server.mjs,
+// card out and one in; Log a past sale, which links a copy removed by hand
+// two days ago; and Edit of a logged move's price, seen in History and on
+// the card page, with Undo working after it. Headless Chromium against tests/pages-server.mjs,
 // signed out, at 390 x 844.
 //
 // Every outside service is faked: TCGdex and the exchange rates by
@@ -20,6 +21,7 @@ import {after, before, test} from 'node:test';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {BASE, BINDERS, COPIES, fakeServices, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -316,5 +318,112 @@ test('Undo Start over is refused, naming the move, while a later sale counts a c
 	now = await state(page);
 	assert.deepEqual(Object.entries(now.cards).filter(([, entry]) => !entry.deleted_at).map(([id]) => id).sort(), ['c-01', 'c-02', 'c-03', 'c-04', 'c-05', 'c-06', 'c-07', 'c-08', 'c-09', 'c-10']);
 	assert.equal(now.pocket, 'c-01', 'Bulbasaur is back in its pocket');
+	await done();
+});
+
+test('Edit changes a logged sale\'s price and who: History and the card page follow, and Undo still puts the copy back', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+
+		await applyMove({currency: 'BRL', date: '2026-11-03', kind: 'sold', out: ['c-01'], price: '30,50', who: 'Ana'});
+	});
+
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	assert.match(await page.locator('.moves-title').first().textContent(), /^Sold for R\$\s30,50 to Ana$/);
+	await page.click('.moves-row');
+	await page.waitForSelector('#move-edit');
+	await page.click('#move-edit');
+	await page.waitForSelector('#move-edit-form');
+	assert.equal(await page.inputValue('#move-edit-price'), '30,50', 'the saved price, the Brazilian way');
+	assert.equal(await page.inputValue('#move-edit-who'), 'Ana');
+	assert.equal(await page.locator('#move-edit-money').count(), 0, 'a sale\'s money always comes in');
+
+	await page.fill('#move-edit-price', '1,2,3');
+	await page.click('#move-edit-save');
+	assert.equal(await page.locator('#move-edit-error').textContent(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
+
+	await page.fill('#move-edit-price', '1.500');
+	assert.match(await page.locator('#move-edit-price-read').textContent(), /^Saved as R\$\s1\.500,00$/);
+	await page.fill('#move-edit-who', 'Ana Lima');
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-edit.png`});
+	await page.click('#move-edit-save');
+
+	await page.waitForFunction(() => document.querySelector('.moves-title')?.textContent.includes('Ana Lima'));
+	assert.match(await page.locator('.moves-title').first().textContent(), /^Sold for R\$\s1\.500,00 to Ana Lima$/);
+	assert.match(await page.locator('.moves-money').first().textContent(), /^In R\$\s1\.500,00$/);
+	assert.equal(await page.locator('#move-sheet[open]').count(), 0, 'the sheet closed');
+
+	const saved = await untilInPage(page, 'the edited move', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const move = ((await loadDocument()).moves || [])[0];
+
+		return move && move.price === 1500 ? move : null;
+	});
+
+	assert.deepEqual([saved.who, saved.out, saved.in, saved.kind], ['Ana Lima', ['c-01'], [], 'sold']);
+
+	await page.goto(url('cards/en/tsa1-001'));
+	await page.waitForSelector('#card-moves .card-move-out');
+	assert.match(await page.locator('#card-moves').textContent(), /^Left: sold for R\$\s1\.500,00 to Ana Lima, 3 Nov( 2026)? \(English\)$/);
+
+	// Undo after the edit puts the copy back in its pocket.
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	await page.click('.moves-row');
+	await page.click('#move-undo');
+	await page.click('#move-undo-go');
+	await page.waitForSelector('#moves-empty');
+
+	const now = await state(page);
+
+	assert.equal(now.cards['c-01'].deleted_at, null);
+	assert.equal(now.pocket, 'c-01');
+	assert.equal(now.moves[0].deleted, true);
+	await done();
+});
+
+test('Edit saves only what was changed in the form: who changed on another phone while the form was open stays', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+
+		await applyMove({currency: 'USD', date: '2026-11-03', kind: 'sold', out: ['c-01'], price: '1500', who: 'Ana'});
+	});
+
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	await page.click('.moves-row');
+	await page.waitForSelector('#move-edit');
+	await page.click('#move-edit');
+	await page.waitForSelector('#move-edit-form');
+	assert.equal(await page.inputValue('#move-edit-price'), '1.500,00');
+
+	// Another phone's change to who reaches this phone while the form is open.
+	await page.evaluate(async () => {
+		const {editMove, liveMoves} = await import('/pokemon-card-tracker/js/moves.js');
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+		await editMove(liveMoves(await loadDocument())[0].id, {who: 'Bia'});
+	});
+	await page.waitForFunction(() => document.querySelector('.moves-title')?.textContent.includes('Bia'));
+	assert.equal(await page.inputValue('#move-edit-who'), 'Ana', 'the open form still shows what it opened with');
+
+	await page.fill('#move-edit-note', 'Paid in cash');
+	await page.click('#move-edit-save');
+
+	const saved = await untilInPage(page, 'the note saved', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const move = ((await loadDocument()).moves || [])[0];
+
+		return move && move.note === 'Paid in cash' ? move : null;
+	});
+
+	assert.deepEqual([saved.who, saved.price, saved.currency, saved.money], ['Bia', 1500, 'USD', 'in'], 'who stays as the other phone left it, and the price as it was');
 	await done();
 });

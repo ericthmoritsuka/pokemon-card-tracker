@@ -1403,6 +1403,22 @@ select {
 	opacity: 0.85;
 }
 
+/* The caption on art that stands in for a missing image ("English image",
+   js/tile.js). A tile says it in a line under its meta line instead, clear
+   of the corner badges. */
+.art-note {
+	background: rgba(0, 0, 0, 0.7);
+	border-radius: var(--radius-badge);
+	bottom: var(--space-2);
+	color: #ffffff;
+	font-size: 0.75rem;
+	left: 50%;
+	padding: 2px var(--space-2);
+	position: absolute;
+	transform: translateX(-50%);
+	white-space: nowrap;
+}
+
 /* A card-back in the detail's hero reads at body size. */
 .hero-art .card-back {
 	font-size: 0.875rem;
@@ -2025,6 +2041,23 @@ progress {
 
 .dex-row.hand .dex-mark-text {
 	color: var(--link);
+}
+
+/* Missing on this list, owned in a language it does not count: that
+   language's flag under the mark, dimmed (Eric, 2026-11-05). */
+.dex-elsewhere {
+	align-items: center;
+	display: inline-flex;
+	opacity: 0.75;
+}
+
+.dex-elsewhere .flags-inline {
+	margin-right: 0;
+}
+
+.dex-elsewhere-text {
+	color: var(--muted);
+	font-size: 0.7rem;
 }
 
 .dex-cards {
