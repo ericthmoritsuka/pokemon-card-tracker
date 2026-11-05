@@ -388,7 +388,9 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   reais, borrows another finish's price when the copy's is not listed, and drops the Liga editor;
   Ver na Liga stays. Eric chose this over a faster Liga form or a list of cards missing a Liga price.
 - **Clean-up and speed:** the single language table (10, wave 2), the rest of the clean-up (10),
-  block J's speed and data items in `plans/audit.md`, Portuguese and French images offline (E-20).
+  block J's speed and data items in `plans/audit.md`. Done in v57: Portuguese and French images
+  offline (E-20): learned image by image, an opaque cache at a tenth of the quota, and the English
+  image, marked, offline when one is missing.
 - **Scanner:** full-art number reads (the Ampharos SIR's outlined digits), translated name lists,
   Japanese and Korean text (done in v56: the name strip is read with Tesseract's Japanese or Korean
   model, DESIGN.md section 6), and the strong-slant cut at the bottom (still open, measured

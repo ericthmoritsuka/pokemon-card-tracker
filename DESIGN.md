@@ -580,16 +580,48 @@ than downloading a whole language up front.
 
 **Doubled CORS header on images.** Some `assets.tcgdex.net` images send
 `access-control-allow-origin: *` twice (seen on most sampled `pt` and `fr` images on 2026-10-01;
-on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image), which
-browsers reject as a CORS failure. It varies image by image within one set folder, and the
-doubled responses also carry a second set of storage-backend CORS headers. Images therefore load
-without `crossorigin`, and the service worker keeps those as opaque responses, which Chrome
-counts at roughly 7.5 to 9 MB of quota each although the file on disk is its real size (200
-opaque 20 KB images: about 1.5 GB counted, 5.9 MB on disk). So the worker learns the failure per
-image, keeps every other image at its true size, sizes the opaque cache at a tenth of the quota
-(100 to 1,000 entries), and trims both caches least recently used first; offline, a Portuguese or
-French image not kept falls back to the English one. The lasting fix is the server-side copy of
-owned-card images (section 3), or TCGdex fixing the header. *(Updated 2026-10-15.)*
+on 2026-10-15, 6 of 40 sampled `pt` and `fr` images and no sampled `en` card image; on
+2026-11-05, `pt/me/me01/001` and `fr/me/me01/001` doubled and `en/me/me01/001` not), which
+browsers reject as a CORS failure. It varies image by image within one set folder, even between
+images from the same store: on 2026-11-05 `pt/me/me01/001` was doubled and `002` single, and both
+carried an `x-amz-request-id`. The doubled responses carry a second set of CORS headers, which
+points to an S3-compatible store whose CORS headers nginx sends on top of its own on some
+objects. Images therefore load without `crossorigin`, and the service worker keeps those as opaque
+responses, which Chrome counts at a random 0 to 14 MiB of quota each (about 7 MiB on average;
+measured, 200 opaque 20 KB images counted about 1.5 GB) although the file on disk is its real
+size, about 16 KB for a grid image. The worker handles it in three parts:
+
+- **Per image, with the folder deciding when to try again.** Because it varies image by image, a
+  memory per folder is only a hint. Every image not kept yet is fetched in cors mode first, and in
+  no-cors mode only when that fails. An image whose cors request failed while its no-cors fetch
+  came back opaque is remembered with the time, in the worker's own cache
+  (`js/image-folders.js`), so a new worker starts from it: it is fetched straight in no-cors mode
+  and tried in cors mode again, skipping the HTTP cache (which keeps the doubled header for a
+  year), only when a week has passed, or when its folder (host and language) has had no try for an
+  hour (the first remembered image shown takes that try), or when another image of its folder has
+  worked since (TCGdex fixed something there). An opaque image whose try works moves to the cors
+  cache, giving back its padding; one that fails is not tried again until it is due, by any
+  worker. The tries and the English stand-ins below run two at a time. A missing image looks the
+  same to the worker (TCGdex answers a 404 without CORS headers, and every no-cors answer is
+  opaque), so it is remembered for that image alone and never sends another image to no-cors.
+- **Sized by bytes, counted in entries.** The cors cache keeps 3,000 images at their true size
+  (about 50 to 120 MB). The opaque cache keeps a tenth of the origin's quota in padded entries at
+  8 MiB each, 100 to 1,000 entries, as decided on 2026-10-15: about 120 on Eric's phone (10 GB
+  quota), which is about 1 GB in Chrome's site storage figure and about 2 MB on disk, so the
+  padding never crowds out the collection and photos that share the quota. Both trim the least
+  recently used first. Since only the doubled images are kept opaque, the cap covers the doubled
+  share of the Portuguese and French cards seen most recently; the English stand-in covers the
+  rest. *(Eric kept the tenth on 2026-11-05 rather than half.)*
+- **English stand-in.** For every image kept opaque, the worker also keeps the English image of
+  the same card in cors mode, at its true size. When a Portuguese or French image is not on the
+  phone, the art shows the English one marked "English image" (a line under a tile's meta line,
+  a caption on the art elsewhere), and the card back only when neither is kept. A photo of your
+  own or a family member's always wins over the stand-in: a photo that arrives later replaces it
+  and its line, and a tile with a "Photo by" line never says "English image".
+
+The lasting fix is TCGdex sending the header once (a report for them is drafted in
+`plans/tcgdex-cors-report.txt`), or the server-side copy of owned-card images (section 3).
+*(Eric, 2026-11-05.)*
 
 **A second free image source.** About 1,750 English and 1,160 Portuguese TCGdex cards have no
 image, mostly promos (`smp`, `swshp`, `mep`, `svp`), trainer kits (`tk`), and subsets such as the
