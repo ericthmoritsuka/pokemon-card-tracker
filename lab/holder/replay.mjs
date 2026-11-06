@@ -1,7 +1,7 @@
 // Detection replay: a holder video through the scanner's drop detection,
 // crop, and picture match, at the app's frame-loop rate (lab/holder/README.md).
 //
-// node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40]
+// node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40|v64]
 //   [--repo <checkout>] [--fps 8] [--stage 384x470] [--busy 0]
 //   [--out <results.json>] [--crops <dir>] [--verbose]
 //
@@ -16,9 +16,13 @@
 // startLoop, look, capture): findCard on every frame, steady.js
 // createHolderCapture, and identify.js identify on each capture.
 // --mode v36: drop.js createDropDetector and the capture it plans
-// (drop.js dropCapture), then identify.js identifyPicture. --mode v40
-// (default): version 36's loop with version 40's content check (createV40);
-// a drop answered with the repeat bar instead of a capture is "asked".
+// (drop.js dropCapture), then identify.js identifyPicture. --mode v40:
+// version 36's loop with version 40's content check (createV40); a drop
+// answered with the repeat bar instead of a capture is "asked". --mode v64
+// (default): version 40's loop, where a capture that reads out of focus
+// waits up to drop.js RETRY_MS for a sharper still look of its spot, is
+// added from that look, logged as a repeat or as gone, or added blurred and
+// marked to check (createV64, view.js captureDrop).
 //
 // --busy N holds the frame loop for N times the time the capture took here
 // (synchronous work on the phone's main thread blocks the loop; about 4 for
@@ -44,12 +48,12 @@ const opts = parseArgs();
 const videoPath = opts._[0];
 
 if (!videoPath) {
-	console.error('node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40]');
+	console.error('node lab/holder/replay.mjs <video> --labels <labels.json> [--mode v35|v36|v40|v64]');
 	process.exit(1);
 }
 
 const repo = resolve(opts.repo || REPO);
-const mode = String(opts.mode || 'v40');
+const mode = String(opts.mode || 'v64');
 const fps = Number(opts.fps || 8);
 const busy = Number(opts.busy || 0);
 const [stageW, stageH] = String(opts.stage || '384x470').split('x').map(Number);
@@ -439,12 +443,237 @@ function createV40() {
 	};
 }
 
+// ------------------------------------------------------------ version 64
+
+// view.js holderTick of version 64: version 40's loop unchanged (the base
+// moves on every still look), with each capture it decides on going
+// through captureDrop: sharp (drop.js captureFocus), it is taken at once; out
+// of focus, its frame is cut and kept, and each still look after it judges
+// its spot (drop.js retryVerdict, view.js retryTick) for at most RETRY_MS:
+// 'sharp' takes that look, 'repeat' and 'gone' take nothing (notes), and
+// with no answer in time, or another card elsewhere, the kept frame is
+// taken, marked blurred. A tick can then give two captures (captures).
+function createV64() {
+	const detector = drop.createDropDetector();
+	const recent = [];
+	let last = null;
+	let pending = null;
+	let retry = null;
+
+	const plan = (frame, area, view, change) => {
+		const fine = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+
+		return {...drop.dropCapture(change, view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, last}), fine};
+	};
+
+	const take = (frame, change, planned, step, content, at, {blurred = false, grabbed = null, retried = null} = {}) => {
+		recent.push(planned.sharpness);
+
+		if (recent.length > 5) {
+			recent.shift();
+		}
+
+		last = {...drop.takenCard(last, planned.card), at, fresh: false, print: content.print, quad: content.quad};
+
+		return {blurred, change, content, focus: planned.focus || null, frame: grabbed || grabFrame(frame, planned.region), identify: (image) => identifyMod.identifyPicture(image, {quads: planned.quads}), lookAt: retried ? at - retried.ms : at, plan: planned, region: planned.region, retried, settleMs: step.still, sharpness: planned.sharpness};
+	};
+
+	const flush = (reason, at) => {
+		const held = retry;
+
+		retry = null;
+
+		return held ? take(null, held.change, held.plan, held.step, held.content, at, {blurred: true, grabbed: held.grabbed, retried: {ms: Math.round(at - held.at), reason, verdict: 'kept blurred'}}) : null;
+	};
+
+	// view.js captureDrop: {captures, note}.
+	const capture = (frame, change, planned, step, content, before, at, byPicture = false) => {
+		const fine = planned.fine;
+		const quads = [drop.planQuads(planned, fine, 1)[0].map(drop.fromView(fine)), planned.card.corners];
+		const focus = drop.captureFocus(fine, quads.map((quad) => quad.map(drop.toView(fine))));
+		const withFocus = {...planned, focus};
+		const box = drop.boxOf(planned.card.corners);
+		const out = [];
+
+		if (retry) {
+			if (drop.sameSpot(box, retry.box)) {
+				if (focus.why) {
+					retry.folded++;
+
+					return {captures: out, note: 'blurred, waiting'};
+				}
+
+				const held = retry;
+
+				retry = null;
+
+				return {captures: [take(frame, change, withFocus, step, content, at, {retried: {ms: Math.round(at - held.at), verdict: 'retaken'}})], note: null};
+			}
+
+			out.push(flush('next card', at));
+		}
+
+		if (!focus.why) {
+			out.push(take(frame, change, withFocus, step, content, at));
+
+			return {captures: out, note: null};
+		}
+
+		retry = {at, before, box, byPicture, change, content, folded: 0, grabbed: grabFrame(frame, planned.region), plan: withFocus, prev: last, quads, step, until: at + drop.RETRY_MS};
+
+		return {captures: out, note: `blurred (${focus.why} ${focus.blur.toFixed(2)})`};
+	};
+
+	// view.js retryTick: {captures, note, consumed}.
+	const retryTick = (frame, area, view, step, at) => {
+		if (!retry) {
+			return null;
+		}
+
+		if (step.change) {
+			const fine = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+			const held = retry;
+			const spotBox = drop.boxOf(held.quads[1].map(drop.toView(view)));
+			const focus = drop.captureFocus(fine, held.quads.map((quad) => quad.map(drop.toView(fine))));
+			const stir = drop.regionStir(detector.base, held.before, spotBox);
+			let planned = null;
+			let content = null;
+
+			if (!focus.why) {
+				planned = {...drop.planCapture(held.quads[1], [], view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, sharpBox: spotBox}), fine, focus};
+				content = drop.contentCheck(planned, fine, held.prev);
+			}
+
+			const verdict = drop.retryVerdict({byPicture: held.byPicture, content, focus, stir});
+
+			if (verdict) {
+				retry = null;
+
+				const consumed = !(step.drop && !drop.sameSpot(drop.boxOf(step.change.corners), spotBox));
+
+				if (verdict === 'sharp') {
+					return {captures: [take(frame, held.change, planned, held.step, content, at, {retried: {ms: Math.round(at - held.at), verdict}})], consumed, note: null};
+				}
+
+				if (verdict === 'repeat' && held.prev && content.match) {
+					held.prev.print = content.match.print;
+					held.prev.quad = content.match.quad;
+				}
+
+				return {captures: [], consumed, note: verdict === 'repeat' ? 'retry: repeat' : 'retry: gone'};
+			}
+		}
+
+		if (at >= retry.until) {
+			return {captures: [flush('time', at)], consumed: false, note: null};
+		}
+
+		return null;
+	};
+
+	return {
+		reframe() {
+			const out = flush('reframe', 0);
+
+			detector.reframe();
+			last = null;
+			pending = null;
+			recent.length = 0;
+
+			return out;
+		},
+		tick(frame, area, at) {
+			const view = viewFrame(frame, area.view, steady.FIND_SIDE);
+			const before = detector.base;
+			const step = detector.push(view, at);
+
+			if (pending) {
+				const planned = plan(frame, area, view, pending.change);
+
+				if (planned.skip || step.moving || at >= pending.until || drop.sharpEnough(planned.sharpness, recent)) {
+					const held = pending;
+
+					pending = null;
+
+					return planned.skip ? {note: planned.skip} : capture(frame, held.change, planned, held.step, drop.contentCheck(planned, planned.fine, last), held.before, at);
+				}
+
+				return {note: null};
+			}
+
+			const retried = retryTick(frame, area, view, step, at);
+			const early = retried ? retried.captures : [];
+
+			if (retried && retried.consumed) {
+				return {captures: early, note: retried.note};
+			}
+
+			const rest = (answer) => ({...answer, captures: [...early, ...(answer.captures || [])], note: answer.note ?? (retried && retried.note) ?? null});
+
+			if (!step.change) {
+				return rest({motion: step.motion, note: null});
+			}
+
+			const disturbed = drop.asksRepeat(step.burst, last);
+
+			if (!step.drop) {
+				const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE) : null;
+				const content = fine ? drop.contentAt(last, fine) : null;
+
+				if (content && content.verdict === 'new') {
+					const spot = {...drop.planCapture(last.quad, [], view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, sharpBox: drop.boxOf(last.quad.map(drop.toView(view)))}), fine};
+
+					return rest(capture(frame, step.change, spot, step, {...drop.contentCheck(spot, fine, null), distance: content.distance, verdict: 'new on the same spot'}, before, at, true));
+				}
+
+				if (content && content.verdict === 'same' && disturbed) {
+					return rest({burst: step.burst, change: step.change, content, motion: step.motion, note: 'repeat bar'});
+				}
+
+				if (step.change.kind === 'none' && !step.burst && last && last.quad && !last.fresh && !retry) {
+					const now = viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE);
+
+					last.fresh = true;
+					last.print = drop.printOf(now.grey, now.width, now.height, last.quad.map(drop.toView(now)));
+				}
+
+				return rest({change: step.change, content, motion: step.motion, note: step.change.kind});
+			}
+
+			const planned = plan(frame, area, view, step.change);
+
+			if (planned.skip) {
+				return rest({change: step.change, note: planned.skip});
+			}
+
+			const content = drop.contentCheck(planned, planned.fine, last);
+
+			if (content.verdict === 'same') {
+				// In place, as view.js does: a waiting capture's card before is
+				// this object.
+				last.print = content.match.print;
+				last.quad = content.match.quad;
+
+				return rest({burst: step.burst, change: step.change, content, note: disturbed ? 'repeat bar' : 'same card'});
+			}
+
+			if (!drop.sharpEnough(planned.sharpness, recent)) {
+				pending = {before, change: step.change, step, until: at + drop.SHARP_WAIT_MS};
+
+				return rest({note: 'held for a sharper frame'});
+			}
+
+			return rest(capture(frame, step.change, planned, step, content, before, at));
+		},
+	};
+}
+
 // ------------------------------------------------------------ the replay
 
 const info = videoInfo(videoPath);
 const frameSize = {height: info.height, width: info.width};
 const area = camera.layoutGuide(frameSize, {height: stageH, width: stageW});
-const loop = mode === 'v35' ? createV35() : mode === 'v36' ? createV36() : createV40();
+const loop = mode === 'v35' ? createV35() : mode === 'v36' ? createV36() : mode === 'v40' ? createV40() : createV64();
 const reframes = [...(labels.reframes || [])].sort((a, b) => a - b);
 const captures = [];
 const notes = [];
@@ -456,9 +685,16 @@ if (cropsDir) {
 }
 
 for await (const {image, t} of videoFrames(videoPath, {fps})) {
+	const flushed = [];
+
 	while (reframes.length && reframes[0] <= t) {
 		reframes.shift();
-		loop.reframe();
+
+		const out = loop.reframe();
+
+		if (out) {
+			flushed.push(out);
+		}
 	}
 
 	if (t < blockedUntil) {
@@ -480,8 +716,7 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 		}
 	}
 
-	if (step.capture) {
-		const {capture} = step;
+	for (const capture of [...flushed, ...(step.captures || []), ...(step.capture ? [step.capture] : [])].filter(Boolean)) {
 		const idStarted = performance.now();
 		const result = await capture.identify(capture.frame);
 		const pictureMs = Math.round(performance.now() - idStarted);
@@ -501,6 +736,14 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 			clear: verdict.clear,
 			t: Math.round(t * 1000) / 1000,
 			top: groups[0] ? groups[0].cards.map((c) => c.id) : [],
+			// Version 64: added blurred, marked to check; how a blurred
+			// capture's wait ended; its focus.
+			blurred: Boolean(capture.blurred),
+			// The look that first decided to take it (a blurred capture's, when
+			// it waited): the drop it belongs to is told by this time.
+			dropT: typeof capture.lookAt === 'number' ? Math.round(capture.lookAt) / 1000 : null,
+			focus: capture.focus ? {blur: Math.round(capture.focus.blur * 100) / 100, texture: Math.round(capture.focus.texture * 100) / 100, why: capture.focus.why} : null,
+			retried: capture.retried || null,
 		};
 
 		captures.push(row);
@@ -516,7 +759,7 @@ for await (const {image, t} of videoFrames(videoPath, {fps})) {
 		}
 
 		if (opts.verbose) {
-			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan && capture.change.rect && capture.change.cover !== undefined ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness} alike=${capture.change.alike}` : ''}${capture.content ? ` print=${capture.content.distance ?? '-'} ${capture.content.verdict}` : ''}`);
+			console.log(`${row.t.toFixed(2)}s capture ${row.top[0] || '-'} d=${row.distance} gap=${row.gap} ${row.sure ? 'sure' : row.clear ? 'clear' : 'unsure'} ${pictureMs} ms ${row.how || ''}${capture.plan && capture.change.rect && capture.change.cover !== undefined ? ` agree=${capture.plan.agree} cover=${capture.change.cover.toFixed(2)} rect=${Math.round(capture.change.rect.w)}x${Math.round(capture.change.rect.h)}@${capture.change.rect.angle} sharp=${capture.plan.sharpness} alike=${capture.change.alike}` : ''}${capture.content ? ` print=${capture.content.distance ?? '-'} ${capture.content.verdict}` : ''}${capture.focus ? ` focus=${capture.focus.blur.toFixed(2)}/${capture.focus.texture.toFixed(2)}` : ''}${capture.retried ? ` retried=${capture.retried.verdict}${capture.retried.reason ? `(${capture.retried.reason})` : ''} ${capture.retried.ms} ms` : ''}${capture.blurred ? ' MARKED' : ''}`);
 		}
 	}
 }
@@ -535,7 +778,7 @@ for (const n of notes.filter((one) => one.note === 'repeat bar')) {
 }
 
 for (const c of captures) {
-	const owner = [...drops].reverse().find((d) => d.start <= c.t + 0.01);
+	const owner = [...drops].reverse().find((d) => d.start <= (c.dropT ?? c.t) + 0.01);
 
 	c.drop = owner ? owner.i : null;
 
@@ -568,6 +811,7 @@ function summary(list, name, extra = {}) {
 		pictureP90: percentile(firsts.map((c) => c.pictureMs), 0.9),
 		right: labelled.filter((c) => c.right).length,
 		labelled: labelled.length,
+		marked: cs.filter((c) => c.blurred).length,
 		sure: firsts.filter((c) => c.sure).length,
 		unsure: firsts.filter((c) => !c.sure).length,
 		wrongSure: labelled.filter((c) => c.sure && !c.right).length,
@@ -587,15 +831,36 @@ rows.push(summary(drops, 'all'));
 const extra = captures.filter((c) => c.drop === null);
 
 console.log(`\n${videoPath.split('/').pop()}: mode ${mode}, ${fps} fps loop, stage ${stageW}x${stageH}, busy x${busy}`);
-console.log('| Segment | Drops | Noticed once | Asked (repeat bar) | Missed | Double | Mid-fall | Sure | Unsure | Right / labelled | Wrong but sure | Picture ms (median, p90) |');
-console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+console.log('| Segment | Drops | Noticed once | Asked (repeat bar) | Missed | Double | Mid-fall | Marked to check | Sure | Unsure | Right / labelled | Wrong but sure | Picture ms (median, p90) |');
+console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
 
 for (const r of rows) {
-	console.log(`| ${r.name} | ${r.drops} | ${r.noticedOnce} | ${r.asked} | ${r.missed} | ${r.double} | ${r.midFall} | ${r.sure} | ${r.unsure} (${pct(r.unsure, r.sure + r.unsure)}) | ${r.right} / ${r.labelled} | ${r.wrongSure} | ${r.pictureMs}, ${r.pictureP90} |`);
+	console.log(`| ${r.name} | ${r.drops} | ${r.noticedOnce} | ${r.asked} | ${r.missed} | ${r.double} | ${r.midFall} | ${r.marked} | ${r.sure} | ${r.unsure} (${pct(r.unsure, r.sure + r.unsure)}) | ${r.right} / ${r.labelled} | ${r.wrongSure} | ${r.pictureMs}, ${r.pictureP90} |`);
 }
 
 if (extra.length) {
 	console.log(`\nCaptures before the first labelled drop: ${extra.length}`);
+}
+
+// Version 64: how each blurred capture's wait ended.
+if (mode === 'v64') {
+	const ends = {};
+
+	for (const n of notes) {
+		const key = n.note.startsWith('blurred (') ? 'blurred, waited' : n.note;
+
+		if (key.startsWith('retry: ') || key.startsWith('blurred')) {
+			ends[key] = (ends[key] || 0) + 1;
+		}
+	}
+
+	for (const c of captures.filter((one) => one.retried)) {
+		const key = `added: ${c.retried.verdict}${c.retried.reason ? ` (${c.retried.reason})` : ''}`;
+
+		ends[key] = (ends[key] || 0) + 1;
+	}
+
+	console.log(`\nBlurred captures: ${JSON.stringify(ends)}`);
 }
 
 if (opts.verbose) {
