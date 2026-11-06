@@ -11,7 +11,7 @@ import {currentUser, onUser} from './auth.js';
 import {BASE, go, h} from './dom.js';
 import {downloadBlob} from './scan/image.js';
 import {removeEntries} from './scan/log.js';
-import {NOTE_MAX, REPORT_KEEP_DAYS, deleteAt, problemText, scansText, sizeText, stampDate} from './scan/report-file.js';
+import {NOTE_MAX, REPORT_KEEP_DAYS, problemText, reportDeleteAt, scansText, sizeText, stampDate} from './scan/report-file.js';
 import {scanView} from './scan/report-scans.js';
 import {deleteReport, listReports, loadReport, reportSender, sendReport, startReportSync} from './scan/reports.js';
 
@@ -24,10 +24,11 @@ const when = (date) => {
 // An error's own words, for a status line.
 const reason = (err) => String((err && err.message) || err || 'unknown error').replace(/\.$/, '');
 
-// When the cleanup deletes a report (js/scan/report-file.js deleteAt):
-// "Deleted Dec 6", or "Deleted soon" once that day is past.
+// The day the cleanup deletes a report (js/scan/report-file.js
+// reportDeleteAt): "Deleted Dec 6", "Deleted soon" once that day is past,
+// or nothing when the report has no known upload time and is kept.
 function deleteText(report) {
-	const end = deleteAt(report.at);
+	const end = reportDeleteAt(report);
 
 	if (!end) {
 		return null;

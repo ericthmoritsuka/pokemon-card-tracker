@@ -36,6 +36,7 @@ import {
 	readReports,
 	reportBase,
 	removeReport,
+	reportDeleteAt,
 	reportStamp,
 	sizeText,
 	stampDate,
@@ -667,37 +668,47 @@ const NOW = Date.parse('2026-12-10T12:00:00.000Z');
 
 // A folder with reports sent `days` ago each (a 3-part gzip log and its
 // meta file, or one JSON file), plus any other names, read and deleted
-// through readReports and removeReport as js/scan/reports.js does. The
-// clock, the phone's storage, the outbox, and who is signed in are state.
+// through readReports and removeReport as js/scan/reports.js does. A day
+// count is when the report was sent and when its files reached the
+// account; {sent, uploaded, meta} sets them apart, uploaded an array of
+// days ago per file (data files, then the meta file) or null for a
+// listing with no created_at, and meta false for a report still going up.
+// The clock, the phone's storage, the outbox, and who is signed in are
+// state.
 function cleanupSetup({days = [], extra = [], failRemove = () => false, queued = []} = {}) {
 	const objects = new Map();
 	const removes = [];
 	const warnings = [];
 	const state = {listed: 0, now: NOW, online: true, user: {id: USER}};
-	const bases = days.map((ago, i) => reportBase(new Date(NOW - ago * DAY), 10 + i));
+	const plans = days.map((item) => (typeof item === 'number' ? {sent: item} : item));
+	const bases = plans.map((plan, i) => reportBase(new Date(NOW - plan.sent * DAY), 10 + i));
+	const daysAgo = (ago) => new Date(NOW - ago * DAY).toISOString();
 
 	bases.forEach((base, i) => {
-		const names = i % 2 ? dataNames(base, 'none') : dataNames(base, 'gzip', 3);
+		const {meta = true, sent, uploaded = sent} = plans[i];
+		const names = [...(i % 2 ? dataNames(base, 'none') : dataNames(base, 'gzip', 3)), ...(meta ? [metaName(base)] : [])];
 
-		for (const name of [...names, metaName(base)]) {
-			objects.set(`${USER}/${name}`, '{}');
-		}
+		names.forEach((name, n) => {
+			const ago = Array.isArray(uploaded) ? uploaded[n] : uploaded;
+
+			objects.set(`${USER}/${name}`, {body: '{}', created_at: ago === null || ago === undefined ? undefined : daysAgo(ago)});
+		});
 	});
 
 	for (const name of extra) {
-		objects.set(`${USER}/${name}`, '{}');
+		objects.set(`${USER}/${name}`, {body: '{}', created_at: daysAgo(60)});
 	}
 
 	const files = {
 		async download(path) {
-			return {data: new Blob([objects.get(path) || '{}']), error: null};
+			return {data: new Blob([(objects.get(path) || {body: '{}'}).body]), error: null};
 		},
 		async list(folder, {limit = 100, offset = 0, search = ''} = {}) {
 			state.listed++;
 
 			const names = [...objects.keys()].filter((path) => path.startsWith(`${folder}/`)).map((path) => path.slice(folder.length + 1)).filter((name) => name.startsWith(search)).sort().reverse();
 
-			return {data: names.slice(offset, offset + limit).map((name) => ({metadata: {size: 2}, name})), error: null};
+			return {data: names.slice(offset, offset + limit).map((name) => ({created_at: objects.get(`${folder}/${name}`).created_at, metadata: {size: 2}, name})), error: null};
 		},
 		async remove(paths) {
 			removes.push(paths);
@@ -722,7 +733,7 @@ function cleanupSetup({days = [], extra = [], failRemove = () => false, queued =
 	});
 	const left = () => [...objects.keys()].map((path) => path.slice(USER.length + 1)).sort();
 
-	return {bases, cleanup, kept, left, removes, state, warnings};
+	return {bases, cleanup, files, kept, left, removes, state, warnings};
 }
 
 describe('deleting old reports', () => {
@@ -746,6 +757,33 @@ describe('deleting old reports', () => {
 		assert.equal(removes.length, 1);
 		assert.ok(removes[0].every((path) => path.includes(bases[0])));
 		assert.deepEqual(left(), [...extra, ...dataNames(bases[1], 'none'), metaName(bases[1])].sort());
+	});
+
+	test('a report sent long ago that reached the account lately (offline, signed out, a clock behind) waits 30 days from its arrival', async () => {
+		const {bases, cleanup, files, left} = cleanupSetup({days: [{sent: 40, uploaded: 2}]});
+
+		assert.deepEqual(await cleanup.run(), {deleted: 0, failed: 0});
+		assert.equal(left().length, 4, 'kept, all its files');
+
+		const [report] = await readReports(files, USER);
+
+		assert.equal(report.base, bases[0]);
+		assert.equal(reportDeleteAt(report).getTime(), NOW - 2 * DAY + REPORT_KEEP_DAYS * DAY, 'Deleted shows 30 days after it arrived');
+	});
+
+	test('a report still going up (no meta file) whose newest part arrived lately is kept, even with an old stamp and an old first part', async () => {
+		const {cleanup, left} = cleanupSetup({days: [{meta: false, sent: 40, uploaded: [35, 0, 0]}]});
+
+		assert.deepEqual(await cleanup.run(), {deleted: 0, failed: 0});
+		assert.equal(left().length, 3);
+	});
+
+	test('a report whose listing has no upload time is kept, whatever its stamp says', async () => {
+		const {cleanup, files, left} = cleanupSetup({days: [{sent: 90, uploaded: null}, {sent: 90, uploaded: [90, null]}]});
+
+		assert.deepEqual(await cleanup.run(), {deleted: 0, failed: 0});
+		assert.equal(left().length, 6);
+		assert.deepEqual((await readReports(files, USER)).map(reportDeleteAt), [null, null], 'no date shown either');
 	});
 
 	test('it runs at most once a day on a phone', async () => {

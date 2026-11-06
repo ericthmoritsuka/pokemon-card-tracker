@@ -82,8 +82,11 @@ export function parseName(name) {
 
 // The reports in a listing of one person's folder (Supabase Storage list:
 // [{name, metadata: {size}, created_at}], folders with no metadata), newest
-// first: {base, at, count, encoding, files (data names in order), meta (its
-// name or null), parts, found, complete, bytes}.
+// first: {base, at, uploaded, count, encoding, files (data names in order),
+// meta (its name or null), parts, found, complete, bytes}. at is the stamp
+// in the name, when the report was queued on its phone; uploaded is the
+// newest created_at among its files, when the server last took one of
+// them, or null when any of them has none.
 export function groupReports(objects) {
 	const reports = new Map();
 
@@ -97,10 +100,12 @@ export function groupReports(objects) {
 		if (!reports.has(info.base)) {
 			const count = Number(info.base.split('-').pop());
 
-			reports.set(info.base, {at: stampDate(info.base), base: info.base, bytes: 0, count, data: [], meta: null});
+			reports.set(info.base, {at: stampDate(info.base), base: info.base, bytes: 0, count, data: [], meta: null, times: []});
 		}
 
 		const report = reports.get(info.base);
+
+		report.times.push(Date.parse(object.created_at));
 
 		if (info.kind === 'meta') {
 			report.meta = object.name;
@@ -110,7 +115,7 @@ export function groupReports(objects) {
 		}
 	}
 
-	return [...reports.values()].map(({data, ...report}) => {
+	return [...reports.values()].map(({data, times, ...report}) => {
 		const parts = data.length ? Math.max(...data.map((item) => item.of)) : 0;
 		const pieces = data.sort((a, b) => a.part - b.part);
 		const found = new Set(pieces.map((item) => item.part)).size;
@@ -123,6 +128,7 @@ export function groupReports(objects) {
 			files: pieces.map((item) => item.name),
 			found,
 			parts,
+			uploaded: times.every(Number.isFinite) ? new Date(Math.max(...times)) : null,
 		};
 	}).sort((a, b) => b.base.localeCompare(a.base));
 }
@@ -300,14 +306,33 @@ export function deleteAt(at) {
 	return Number.isFinite(time) ? new Date(time + REPORT_KEEP_DAYS * DAY_MS) : null;
 }
 
-// Deletes the signed-in person's reports sent more than REPORT_KEEP_DAYS
-// ago, each with all its files, through listReports and deleteReport
+// When the cleanup deletes a report: REPORT_KEEP_DAYS after the later of
+// its stamp and the newest of its files in the account, or null (never)
+// when either is not known. The stamp alone is not enough: it is set when
+// the report is queued, and a report can wait on its phone for weeks
+// (offline, signed out, a clock behind) and must not be deleted the day it
+// arrives. A report still going up has a file that arrived lately, so it
+// is not deleted under the phone sending it either.
+export function reportDeleteAt(report) {
+	if (!report || !(report.uploaded instanceof Date)) {
+		return null;
+	}
+
+	const end = deleteAt(report.at);
+	const sinceUpload = deleteAt(report.uploaded);
+
+	return end && sinceUpload ? (end > sinceUpload ? end : sinceUpload) : null;
+}
+
+// Deletes the signed-in person's reports whose reportDeleteAt is past,
+// each with all its files, through listReports and deleteReport
 // (js/scan/reports.js). Its parts come in as arguments so Node tests run
 // it over a fake bucket. Signed out or offline it does nothing and tries
 // again at the next call; otherwise it notes the day first, so a failure
 // (only a console warning) is tried again on a later day, never in a
-// loop. A name with no time in it is never listed as a report, so never
-// deleted, and a report still in this phone's outbox (waiting rows) is
+// loop. A name with no time in it is never listed as a report, and a
+// listing with no created_at gives no date, so neither is deleted; a
+// report still in this phone's outbox (waiting rows) is
 // left alone. run() never throws.
 export function createReportCleanup({currentUser, deleteReport, listReports, now = () => Date.now(), online = () => true, storage, waiting = async () => [], warn = (...args) => console.warn(...args)}) {
 	let running = null;
@@ -335,7 +360,7 @@ export function createReportCleanup({currentUser, deleteReport, listReports, now
 	async function sweep(time) {
 		const queued = new Set((await waiting()).map((row) => row.base));
 		const due = (await listReports()).filter((report) => {
-			const end = deleteAt(report.at);
+			const end = reportDeleteAt(report);
 
 			return end && end.getTime() < time && !queued.has(report.base);
 		});

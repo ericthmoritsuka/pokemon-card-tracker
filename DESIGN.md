@@ -205,14 +205,20 @@ file (`supabase/scan-reports.sql`, run once). *(Eric, 2026-11-05; built 2026-11-
 hand, and SQL cannot delete Storage files, so the app does it with the delete each person already
 has on their own files (`scan-reports: delete own`). A minute after the app starts, someone signs
 in, or the phone comes back online, and only when signed in and online, the app lists the person's
-reports and deletes each one whose sent-at time, read from its name, is more than
-`REPORT_KEEP_DAYS` (30) days ago, all its parts and its `.meta.json` in one delete, through the same
-list and delete as Sent reports (`createReportCleanup` in `js/scan/report-file.js`). A name with no
-time in it is never deleted, and a report still in the phone's outbox is left alone. It runs at
+reports and deletes each one more than `REPORT_KEEP_DAYS` (30) days past both its sent-at time,
+read from its name, and the newest of its files in the account (the server's `created_at`), all its
+parts and its `.meta.json` in one delete, through the same list and delete as Sent reports
+(`createReportCleanup` and `reportDeleteAt` in `js/scan/report-file.js`). Both, because the name's
+time is when the report was queued, and a report can wait on its phone for weeks (offline, signed
+out on a shared phone, a clock behind): it must not be deleted the day it arrives, nor under a phone
+still sending it (its newest part arrived lately). A name with no time in it, and a report whose
+listing has no `created_at`, are never deleted, and a report still in the phone's outbox is left
+alone. It runs at
 most once a day per person on each phone (a time in localStorage, noted before it starts), so a
 failure is only a console warning and is tried again on a later day. Sent reports says "Reports are
-deleted automatically 30 days after they are sent." and each report shows its day ("Deleted Dec
-6", or "Deleted soon" once that day is past). *(Eric, 2026-11-06; built 2026-11-06.)*
+deleted automatically 30 days after they are sent." and each report shows its day, counted from the
+later of the two times ("Deleted Dec 6", or "Deleted soon" once that day is past). *(Eric,
+2026-11-06; built 2026-11-06; counted from arrival too after review, 2026-11-06.)*
 
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
 cards dropped into a box, auto capture waits for each drop to settle and takes it once; everything
