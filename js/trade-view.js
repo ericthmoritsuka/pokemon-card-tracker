@@ -15,46 +15,19 @@
 
 import {currentUser} from './auth.js';
 import {cardsScreen} from './cards-view.js';
-import {isLive, listCards, onChange} from './collection.js';
+import {listCards, onChange} from './collection.js';
 import {BASE, h} from './dom.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
-import {sparesFor} from './wishlist.js';
+import {spareEntries} from './wishlist.js';
 
 const CHOICE_KEY = 'cardTracker.tradeChoice';
 // The filters that mean something over spares.
 const OFFERED = ['set', 'language', 'rarity', 'price', 'storage', 'favorite'];
 
-const entryCatalog = (entry) => entry.catalog || 'international';
-
-// Which copy a person keeps: a favorite first, then the one added first.
-const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favorite === true)
-	|| String(a.created_at).localeCompare(String(b.created_at))
-	|| String(a.id).localeCompare(String(b.id));
-
-// The live copies that are spares. How many each card and language holds is
-// js/wishlist.js sparesFor, the same count a family wishlist shows; this only
-// picks which copies they are (the keeper is left out).
-export function spareEntries(cards) {
-	const groups = new Map();
-
-	for (const entry of (cards || []).filter((one) => one && isLive(one))) {
-		const key = `${entryCatalog(entry)}|${entry.card_id}|${entry.language}`;
-
-		groups.set(key, [...(groups.get(key) || []), entry]);
-	}
-
-	const spares = [];
-
-	for (const group of groups.values()) {
-		const [first] = group;
-		const count = sparesFor({card_id: first.card_id, catalog: entryCatalog(first), language: first.language}, group);
-
-		spares.push(...group.sort(keeperOrder).slice(group.length - count));
-	}
-
-	return spares;
-}
+// The spares rule lives in js/wishlist.js beside sparesFor, so the scanner's
+// Trade or sale mode can reach it from Node tests too.
+export {spareEntries};
 
 // "2 spares · Near Mint": the count and the conditions the spares are in.
 function metaFor(group) {

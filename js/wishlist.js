@@ -309,6 +309,37 @@ export function sparesFor(item, cards) {
 	return spares;
 }
 
+// Which copy a person keeps: a favorite first, then the one added first.
+const keeperOrder = (a, b) => Number(b.is_favorite === true) - Number(a.is_favorite === true)
+	|| String(a.created_at).localeCompare(String(b.created_at))
+	|| String(a.id).localeCompare(String(b.id));
+
+// The live copies that are spares (the Trade view, js/trade-view.js, and
+// the copies a trade takes first: the trades log's cards out picker and the
+// scanner's Trade or sale mode). How many each card and language holds is
+// sparesFor above, the same count a family wishlist shows; this only picks
+// which copies they are (the keeper is left out).
+export function spareEntries(cards) {
+	const groups = new Map();
+
+	for (const entry of (cards || []).filter((one) => one && isLive(one))) {
+		const key = `${entryCatalog(entry)}|${entry.card_id}|${entry.language}`;
+
+		groups.set(key, [...(groups.get(key) || []), entry]);
+	}
+
+	const spares = [];
+
+	for (const group of groups.values()) {
+		const [first] = group;
+		const count = sparesFor({card_id: first.card_id, catalog: entryCatalog(first), language: first.language}, group);
+
+		spares.push(...group.sort(keeperOrder).slice(group.length - count));
+	}
+
+	return spares;
+}
+
 // Which family members want a card: the scanner's "<member> wants this card"
 // (DESIGN.md section 6).
 //
