@@ -13,9 +13,11 @@
 // - a card that lands blurred and then lies sharp is added once, from the
 //   sharp look;
 // - a card that stays blurred is added all the same once drop.js RETRY_MS
-//   passes, marked to check;
+//   passes, marked to check when its match is not sure;
 // - a card whose own print reads soft, as a basic Energy's does, is added,
-//   not held back;
+//   not held back, and not marked when its match is sure;
+// - a card dropped on a blurred one waiting is its own card, and the
+//   waiting one is added first;
 // - the card just taken, with a blurred card held over it and then taken
 //   away, is not added again (logged as a repeat), and with the blurred
 //   card held there past RETRY_MS, the blurred look is added marked and the
@@ -100,12 +102,14 @@ const setScene = (page, scene) => page.evaluate((next) => {
 
 const captures = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.captures);
 
-// The tray as kept in the draft: each card's match, status, whether it was
-// added blurred, and its drop's numbers.
+// The tray as kept in the draft: each card's match, whether the match is
+// sure, whether it was added blurred and needs a look (marked to check),
+// its status, and its drop's numbers.
 const items = (page) => page.evaluate(async () => {
 	const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+	const S = await import('/pokemon-card-tracker/js/scan/session.js');
 
-	return session ? session.items.map((item) => ({blurred: Boolean(item.blurred), card: item.card && item.card.id, copies: item.copies || 1, drop: item.report && item.report.geometry && item.report.geometry.drop, id: item.id, status: item.status})) : [];
+	return session ? session.items.map((item) => ({blurred: Boolean(item.blurred), card: item.card && item.card.id, copies: item.copies || 1, drop: item.report && item.report.geometry && item.report.geometry.drop, id: item.id, look: S.needsLook(item), status: item.status, sure: Boolean(item.sure)})) : [];
 });
 
 // The holder entries of the scan log that took nothing: why, and the wait
@@ -129,16 +133,17 @@ const readAll = (page, count, errors = []) => untilInPage(page, `${count} cards 
 
 // Drops `card` onto the pile from above the frame, as
 // tests/scan-holder-browser.test.mjs does; `last` is drawn for its last step
-// (a card landing blurred), and `held` over everything throughout.
-function drop(page, pile, card, {held = null, last = card} = {}) {
-	return page.evaluate(async ({below, falling, hand, landed}) => {
-		for (let step = 6; step >= 0; step--) {
+// (a card landing blurred), and `held` over everything throughout; steps:
+// how many looks it falls for (a quick drop falls for fewer).
+function drop(page, pile, card, {held = null, last = card, steps = 6} = {}) {
+	return page.evaluate(async ({below, falling, hand, landed, from}) => {
+		for (let step = from; step >= 0; step--) {
 			const now = step ? {...falling, angle: (falling.angle || 0) + step * 4, dy: (falling.dy || 0) - step * 0.16} : landed;
 
 			window.scene = {background: 'box', cards: [...below, now], held: hand};
 			await new Promise((resolve) => setTimeout(resolve, 60));
 		}
-	}, {below: pile, falling: card, hand: held, landed: last});
+	}, {below: pile, falling: card, from: steps, hand: held, landed: last});
 }
 
 const SPOT = {angle: 1, dx: 0.01, dy: 0.02, size: 0.88};
@@ -198,7 +203,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await context.close();
 	});
 
-	test('a card that stays blurred is added all the same once RETRY_MS passes, marked to check', async () => {
+	test('a card that stays blurred is added all the same once RETRY_MS passes, marked to check when its match is not sure', async () => {
 		const {context, errors, page} = await open();
 
 		await warm(page, {...SPOT, blur: 0.02, card: 'c'});
@@ -220,7 +225,9 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 
 		const [item] = await items(page);
 
-		assert.equal(item.blurred, true, 'marked: its picture was blurred');
+		assert.equal(item.blurred, true, 'its picture was blurred');
+		assert.equal(item.sure, false, `this blurred its match is not sure: ${JSON.stringify(item)}`);
+		assert.equal(item.look, true, 'marked to check');
 		assert.equal(item.drop.retry.verdict, 'kept blurred');
 		assert.equal(item.drop.retry.reason, 'time');
 		assert.ok(item.drop.retry.ms >= 1400, `it waited RETRY_MS: ${item.drop.retry.ms} ms`);
@@ -234,7 +241,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await context.close();
 	});
 
-	test('a card whose own print reads soft, as a basic Energy\'s does, is added and not held back', async () => {
+	test('a card whose own print reads soft, as a basic Energy\'s does, is added, not held back, and not marked when its match is sure', async () => {
 		const {context, errors, page} = await open();
 		// A print a little soft of its own, lying dead still: no sharper look
 		// ever comes.
@@ -249,12 +256,16 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 
 		const [item] = await items(page);
 
-		const {retry} = item.drop;
+		const {focus, retry} = item.drop;
 
-		// Taken at once when it reads sharp enough here, else after waiting
-		// RETRY_MS for a sharper look that never comes, and then marked.
-		assert.ok(!retry || retry.ms <= 2500, `added within RETRY_MS of its capture: ${JSON.stringify(retry)}`);
-		assert.equal(item.blurred, Boolean(retry && retry.verdict === 'kept blurred'), `marked only when kept blurred: ${JSON.stringify(retry)}`);
+		// It reads soft, waits RETRY_MS for a sharper look that never comes,
+		// and is added as it is; its match is sure, so it is not marked
+		// (Eric, 2026-11-06: what the scanner is sure of is never marked).
+		assert.ok(retry && retry.verdict === 'kept blurred' && retry.ms <= 2500, `waited for a sharper look, then added: ${JSON.stringify(retry)}`);
+		assert.ok(focus && focus.why, `its focus is logged: ${JSON.stringify(focus)}`);
+		assert.equal(item.card, CARDS.a);
+		assert.equal(item.sure, true, `its match is sure: ${JSON.stringify(item)}`);
+		assert.equal(item.look, false, 'not marked to check');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -298,7 +309,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await context.close();
 	});
 
-	test('a blurred card held over the card on top for longer than RETRY_MS is added marked, and the card beneath is not added again', async () => {
+	test('a blurred card held over the card on top for longer than RETRY_MS is added as it is, and the card beneath is not added again', async () => {
 		const {context, errors, page} = await open();
 		const pile = [{...SPOT, card: 'c'}];
 		const held = HELD;
@@ -331,6 +342,46 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		assert.equal(list[1].blurred, true, 'the blurred look is marked to check');
 		assert.equal(list[1].drop.retry.reason, 'time');
 		assert.ok((await skipped(page)).some((entry) => entry.why === 'repeat'), 'the card beneath, seen again, is logged as a repeat');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Never lose a card (Eric, 2026-11-06): a card dropped on a blurred one
+	// waiting for a sharper look is its own card, and the waiting one is
+	// added first (version 64 as first built took the new card's sharp look
+	// for the waiting card's, and the waiting card was lost).
+	test('a card that lands blurred, then another dropped on top of it within a second: both added, the first first', async () => {
+		const {context, errors, page} = await open();
+		const blurred = {...SPOT, blur: 0.02, card: 'c'};
+		const second = {angle: -2, card: 'a', dx: 0.02, dy: 0.03, size: 0.88};
+
+		await warm(page, blurred);
+		await drop(page, [], {...SPOT, card: 'c'}, {last: blurred});
+
+		// The first waits for a sharper look; the second falls on it well
+		// within RETRY_MS of the first's capture (a quick drop, timed in the
+		// page), so the first is still waiting when the second lands.
+		const early = await page.evaluate(async () => {
+			const view = await import('/pokemon-card-tracker/js/scan/view.js');
+
+			await new Promise((resolve) => setTimeout(resolve, 300));
+
+			return view.scanStats.captures;
+		});
+
+		assert.equal(early, 0, 'the first waits for a sharper look');
+		await drop(page, [blurred], second, {steps: 3});
+		await capturedAt(page, 2, 'both cards added', 8000);
+		await readAll(page, 2, errors);
+		await page.waitForTimeout(1500);
+		assert.equal(await captures(page), 2, 'each once');
+
+		const list = await items(page);
+
+		assert.equal(list[0].blurred, true, `the waiting card first, as it was taken: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.drop && item.drop.retry]))}`);
+		assert.equal(list[0].drop.retry.reason, 'next card');
+		assert.equal(list[1].card, CARDS.a, 'then the card dropped on it');
+		assert.equal(list[1].blurred, false);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

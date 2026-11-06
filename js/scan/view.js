@@ -29,7 +29,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists, spareEntries} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, SAME_PRINT, sameSpot, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
+import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, GONE_STIR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, SAME_PRINT, sameSpot, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -3370,7 +3370,7 @@ export function scanView(root) {
 			return;
 		}
 
-		if (retryTick(step, view, area, at)) {
+		if (retryTick(step, view, area, at, before)) {
 			return;
 		}
 
@@ -3510,7 +3510,7 @@ export function scanView(root) {
 		const box = boxOf(plan.card.corners);
 
 		if (retry) {
-			if (sameSpot(box, retry.box)) {
+			if (sameSpot(box, retry.box) && !landedOn({disturbed: retry.disturbed || disturbedBy(step.burst), print: content.print, waiting: retry.content.print})) {
 				if (focus.why) {
 					// The waiting card's spot, still out of focus: one more look
 					// at it, logged, and it waits on.
@@ -3520,7 +3520,8 @@ export function scanView(root) {
 					return;
 				}
 
-				// Sharp on the waiting card's spot: this is the card.
+				// Sharp on the waiting card's spot, with no other card landed
+				// on it: this is the card, settled.
 				const held = endRetry();
 
 				discardFrame(held.grabbed);
@@ -3529,7 +3530,8 @@ export function scanView(root) {
 				return;
 			}
 
-			// Another card elsewhere: the waiting one goes in first, as it is.
+			// Another card, elsewhere or dropped on the waiting one: the
+			// waiting one goes in first, as it is, and this one is its own.
 			flushRetry('next card');
 		}
 
@@ -3582,7 +3584,9 @@ export function scanView(root) {
 	// judges its spot (drop.js retryVerdict). Returns true when the look was
 	// the waiting card's and the loop has nothing more to do with it (a card
 	// that landed elsewhere in the same look is still judged by the loop).
-	function retryTick(step, view, area, at) {
+	// before: the base this look was judged against, for telling whether a
+	// disturbance like a drop's moved the spot (held.disturbed).
+	function retryTick(step, view, area, at, before) {
 		if (!retry) {
 			return false;
 		}
@@ -3594,6 +3598,12 @@ export function scanView(root) {
 			const spotBox = boxOf(held.quads[1].map(toView(view)));
 			const focus = captureFocus(fine, held.quads.map((quad) => quad.map(toView(fine))));
 			const stir = regionStir(dropDetector.base, held.before, spotBox);
+
+			// A drop's fall, or a hand, moved the spot since the capture: a
+			// sharp look of it may be another card that landed there.
+			if (disturbedBy(step.burst) && regionStir(dropDetector.base, before, spotBox) > GONE_STIR) {
+				held.disturbed = true;
+			}
 			let plan = null;
 			let content = null;
 
@@ -3608,6 +3618,19 @@ export function scanView(root) {
 			held.best = Math.min(held.best, focus.blur);
 
 			const verdict = retryVerdict({byPicture: held.byPicture, content, focus, stir});
+
+			if (verdict === 'sharp' && landedOn({disturbed: held.disturbed, print: content.print, waiting: held.content.print})) {
+				// Another card landed on the waiting one: never lose it. The
+				// waiting capture goes in first, as it is, then this look is
+				// the new card's own, judged against it.
+				flushRetry('next card');
+
+				const own = contentCheck(plan, fine, lastDrop);
+
+				takeDrop(step.change && step.drop ? step.change : held.change, plan, step, area, own);
+
+				return !(step.drop && !sameSpot(boxOf(step.change.corners), spotBox));
+			}
 
 			if (verdict) {
 				resolveRetry(verdict, plan, content, area, at, {focus, stir});
@@ -3716,6 +3739,7 @@ export function scanView(root) {
 		return {
 			best: roundTo(held.best),
 			blur: roundTo(held.plan.focus.blur),
+			disturbed: Boolean(held.disturbed),
 			folded: held.folded,
 			looks: held.looks,
 			ms: Math.round(at - held.at),
@@ -3913,7 +3937,10 @@ export function scanView(root) {
 		const fullSaved = keepFull(item.id, frame);
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
-		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};
+		// A card told by its picture on the very spot of the last (contentAt)
+		// comes with a change that has no rectangle: its box stands in.
+		const rect = change && change.rect ? change.rect : {angle: 0, ...boxOf(plan.card.corners)};
+		const card = {angle: rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(rect.w, rect.h) / Math.max(rect.w, rect.h, 1)) * 1000) / 1000, small: false, upright: rect.h >= rect.w};
 		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step, content)};
 
 		refocusSoon();

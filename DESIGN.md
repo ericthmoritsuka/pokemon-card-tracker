@@ -1456,25 +1456,34 @@ judged as a drop.
   repeat, so a real second copy is one tap away); a spot that looks as it did before the drop
   (under 3 % of its cells changed, the noise of a card lying still on his videos) is a hand that left
   nothing (logged as `blurred, nothing left`); sharp and anything else is the card, added once from
-  that look. With no such look in time the kept frame is added all the same, marked to check: the
-  tile shows `?`, it counts among the cards to check, and its sheet says "Check this one: its
-  picture was blurred." until This is the card (or another pick) confirms it.
+  that look. With no such look in time the kept frame is added all the same. It is marked to check
+  only when its match is not sure, by the scanner's usual rule (Eric, 2026-11-06, after Trade or
+  sale asked about every card: what the scanner is sure of is never marked): a soft card matched
+  surely is added plainly, like a sharp one, and the scan log keeps its focus. A blurred card that
+  is not sure shows `?` and counts among the cards to check like any unsure card, and its sheet
+  says "Check this one: its picture was blurred."
+- **Another card dropped on a waiting one is its own card** (`drop.js` `landedOn`, Eric,
+  2026-11-06). A sharp look of the spot replaces the waiting capture only when it is the same card
+  settling: no disturbance like a drop's moved the spot since the capture, or the look's print is
+  within 23 bits of the waiting capture's (two different cards one on the other were 24 to 62 apart
+  on his logs and videos). Otherwise the waiting capture is added first, as it was taken, and the
+  new card is added after it as its own, or waits for its own sharper look.
 - **Nothing is ever lost on the way.** While a capture waits, a drop on the same spot that still
   reads blurred is the same card looked at again (logged as `blurred, waiting`), and a sharp one is
-  the card (added, the blurred frame dropped); a drop anywhere else adds the waiting card first, as
-  it is, marked. The shutter, a zoom change, a camera restart, and closing the scanner add it too.
+  the card settled (added, the blurred frame dropped), unless another card landed on it (above); a
+  drop anywhere else adds the waiting card first, as it is. The shutter, a zoom change, a camera restart, and closing the scanner add it too.
   Switching Add and Trade or sale and Auto's switch wait for it, as for any card being taken. A hand
-  held still over the card on top for longer than 1.5 s is added that way, marked; when it leaves,
-  a sharp look of the card beneath on the same spot is a repeat of the card before it, not a new
-  card. A card
-  on the very spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing
-  left", since its cells barely change. When unsure whether the sharp look is the card before
+  held still over the card on top for longer than 1.5 s is added that way; when it leaves, a sharp
+  look of the card beneath on the same spot is a repeat of the card before it, not a new card. A
+  card on the very spot of the last, told by its picture alone (`contentAt`), is never taken for
+  "nothing left", since its cells barely change. When unsure whether the sharp look is the card before
   (print 17 to 23 bits off), it is added.
 - **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
-  Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s and is
-  added marked to check, one tap. The one case this still gets wrong: a card that lands blurred and
-  is covered by the next card before any still look shows it sharp, within the 1.5 s, is taken as
-  that next card's spot; the blurred drop is logged with the card that replaced it.
+  Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s, and is
+  marked only when its match is not sure. Never losing a card can add one too many: the next card
+  in a hand, taken blurred, then dropped on the spot is added twice, the blurred look first (on his
+  log those blurred looks were never matched surely, so they are marked); and a card that bounces
+  as it settles, with its sharp print 24 bits or more from its blurred one, would be too.
 - **Measured on the log** (`lab/holder/replay-log.mjs`, each card taken put through `captureFocus` on
   the straightened picture the log kept, scaled to 200 pixels tall with the contrast of the view
   after): the 19 clean cards are all added at once (0 to 8 % of their printed blocks soft); the 8 bad
@@ -1489,7 +1498,7 @@ judged as a drop.
   `tests/scan-retry-browser.test.mjs`.
 - **The scan log** (scanner 64) keeps each drop's focus and, for a blurred capture, how its wait
   ended (`retry`: sharp, retaken, repeat, nothing left, or kept blurred and why), how long it took,
-  and over how many looks.
+  over how many looks, and whether a drop-like disturbance moved its spot meanwhile.
 
 **Known hard parts:**
 

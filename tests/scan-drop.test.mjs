@@ -634,6 +634,20 @@ describe('a blurred capture is retried, never lost (Eric, 2026-11-06, version 64
 		assert.equal(D.retryVerdict({byPicture: true, focus: soft, stir: 0}), null);
 	});
 
+	test('landedOn: after a disturbance on the spot, a print far from the waiting one is another card; with none, the card settling', () => {
+		// Prints as printOf makes them: two 64-bit hashes, two 32-bit words each.
+		const a = {art: Uint32Array.from([0x01234567, 0x89abcdef]), face: Uint32Array.from([0x0f0f0f0f, 0x0f0f0f0f])};
+		const near = {art: Uint32Array.from([0x01234560, 0x89abcdef]), face: a.face};
+		const far = {art: Uint32Array.from([~0x01234567 >>> 0, ~0x89abcdef >>> 0]), face: a.face};
+
+		assert.ok(D.printDistance(near, a) < D.NEW_PRINT && D.printDistance(far, a) >= D.NEW_PRINT);
+
+		assert.equal(D.landedOn({disturbed: true, print: far, waiting: a}), true, 'a different card dropped on it');
+		assert.equal(D.landedOn({disturbed: true, print: near, waiting: a}), false, 'the same card, settled');
+		assert.equal(D.landedOn({disturbed: false, print: far, waiting: a}), false, 'no drop in between: the card settling');
+		assert.equal(D.landedOn({disturbed: true, print: far, waiting: null}), true, 'no print to compare: added, never replaced');
+	});
+
 	test('sameSpot: a card on the waiting one\'s spot is one spot; a card beside it is another', () => {
 		const spot = {h: 100, w: 70, x: 50, y: 50};
 

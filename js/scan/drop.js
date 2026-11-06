@@ -1090,11 +1090,13 @@ export const asksRepeat = (burst, last) => disturbedBy(burst) && !(last && typeo
 // RETRY_MS: a sharp look that is the card taken before is a repeat (logged,
 // never added; the repeat bar asks after a disturbance like a drop's, as for
 // any repeat), a spot that looks as it did before the drop is a hand that
-// left nothing (logged), and any other sharp look is the card, added once.
-// With no such look in time, the blurred capture is added all the same,
-// marked to check (session.js blurred). A version 62 build that held the
-// base until a drop settled (branch holder-settle) was dropped: two reviews
-// found ways it lost cards.
+// left nothing (logged), and any other sharp look is the card, added once,
+// unless another card landed on it meanwhile (landedOn): then the waiting
+// capture is added first and the new card is its own. With no such look in
+// time, the blurred capture is added all the same, marked to check only
+// when its match is not sure (session.js blocker). A version 62 build that
+// held the base until a drop settled (branch holder-settle) was dropped:
+// two reviews found ways it lost cards.
 
 // How sharp a card is, block by block, on the finer view (camera.js
 // viewFrame at FIND_SIDE_CAPTURE: the card about 200 pixels tall at 1x):
@@ -1117,7 +1119,7 @@ export const asksRepeat = (burst, last) => disturbedBy(burst) && !(last && typeo
 // it, the cards on 76 to 99 %. Scans of basic Energies read soft by this
 // measure (0.2 to 0.6: their smooth gradients), a card held out of focus
 // near the lens about 1: an Energy is retried and, with no sharper look,
-// added marked to check.
+// added as it is, marked to check only when its match is not sure.
 export const FOCUS_EDGE = 0.55;
 export const BLUR_SHARE = 0.09;
 export const TEXTURE_MIN = 0.35;
@@ -1307,6 +1309,16 @@ export const RETRY_MS = 1500;
 // Eric's videos stirred up to 2.9 % look to look with the shared video's
 // own noise; a different card on the spot changes its art.
 export const GONE_STIR = 0.03;
+
+// Whether a look of a waiting capture's spot shows another card that
+// landed on it (Eric, 2026-11-06: never lose a card): a disturbance like a
+// drop's moved the spot since the capture (disturbed), and the look's print
+// is NEW_PRINT or more from the waiting capture's (waiting). Two different
+// cards one on the other were 24 to 62 apart on his logs and videos; the
+// same card settling stays closer. A missing print counts as another card,
+// so the waiting one is added rather than replaced. Without a disturbance a
+// sharper look of the spot is the waiting card settling.
+export const landedOn = ({disturbed, print, waiting}) => Boolean(disturbed) && printDistance(print, waiting) >= NEW_PRINT;
 
 // Two boxes are one spot when either lies this much inside the other.
 const SPOT_SHARE = 0.5;

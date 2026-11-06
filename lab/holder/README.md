@@ -68,7 +68,7 @@ the last card's, after a disturbance like a drop's, is answered with the repeat 
 capture; the table counts those drops as asked. Per segment it reports drops noticed exactly once, missed, taken twice, taken
 before the card settled (mid-fall), sure and unsure first answers, right among the labelled, wrong
 but sure, how long the picture took (on this machine), and in version 64 the captures added
-blurred and marked to check, with a line counting how each blurred capture's wait ended (a sharper
+blurred and not sure (marked to check), with a line counting how each blurred capture's wait ended (a sharper
 look, a repeat, nothing left, or kept blurred, and why).
 
 | Option | What it does |
