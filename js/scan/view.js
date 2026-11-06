@@ -3006,6 +3006,9 @@ export function scanView(root) {
 	// lastDrop: the card taken last (drop.js takenCard), forgotten when the
 	// zoom changes.
 	let pendingDrop = null;
+	// A card was just taken from a wait, its box copied into the base: the
+	// next look of no card's shape is checked where it lay (nonDrop).
+	let afterWaitTake = false;
 	let lastDrop = null;
 	let pileCheckedAt = -Infinity;
 	let holderView = null;
@@ -3130,7 +3133,14 @@ export function scanView(root) {
 		// (Eric, 2026-10-16). Its picture tells, once it has settled (version
 		// 62): a hand over the last card makes it read new too, so this path
 		// takes only a settled look, never on patience or at the limit.
-		const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
+		// Also on the first look after a card was taken from a wait: a card
+		// that landed on it meanwhile is partly inside the box copied into the
+		// base (releaseDrop), so its change may be too small for a card's.
+		const recheck = afterWaitTake;
+
+		afterWaitTake = false;
+
+		const fine = (step.burst || recheck) && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
 		const content = fine ? contentAt(lastDrop, fine) : null;
 
 		if (content && content.verdict === 'new') {
@@ -3190,6 +3200,8 @@ export function scanView(root) {
 	// again on each still look against the picture before it.
 	function considerDrop(step, view, area, at) {
 		const held = pendingDrop;
+
+		afterWaitTake = false;
 		// The look the drop was first seen on: its disturbance is the drop's.
 		const first = held ? held.step : step;
 		const plan = planDrop(step.change, view, area);
@@ -3408,6 +3420,7 @@ export function scanView(root) {
 		held.ready = null;
 		pendingDrop = null;
 		dropDetector.release(box, cells);
+		afterWaitTake = true;
 		takeDrop(change, plan, {...held.step, heldMs: Math.round(at - held.at), settle: {...settle, early: true, waited: held.whys}}, area, content, grab);
 	}
 
@@ -3434,6 +3447,7 @@ export function scanView(root) {
 
 		if (dropDetector.held) {
 			dropDetector.release(box);
+			afterWaitTake = Boolean(box);
 		}
 
 		return held;
@@ -3670,6 +3684,7 @@ export function scanView(root) {
 		dropDetector.reframe();
 		holderView = null;
 		pendingDrop = null;
+		afterWaitTake = false;
 		lastDrop = null;
 		holdFocusSoon();
 	}

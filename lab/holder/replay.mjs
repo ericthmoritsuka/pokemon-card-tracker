@@ -471,6 +471,8 @@ function createV62() {
 	};
 
 	// view.js releaseDrop.
+	let afterWaitTake = false;
+
 	const release = (box = null) => {
 		const held = pending;
 
@@ -478,6 +480,7 @@ function createV62() {
 
 		if (detector.held) {
 			detector.release(box);
+			afterWaitTake = Boolean(box);
 		}
 
 		return held;
@@ -567,6 +570,7 @@ function createV62() {
 
 		pending = null;
 		detector.release(box, cells);
+		afterWaitTake = true;
 
 		return take(null, change, planned, {...held.step, heldMs: at - held.at}, content, at, {...settle, early: true, waited: held.whys}, grabbed);
 	};
@@ -579,7 +583,11 @@ function createV62() {
 	};
 
 	const nonDrop = (frame, area, view, step, at, held = null) => {
-		const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE) : null;
+		const recheck = afterWaitTake;
+
+		afterWaitTake = false;
+
+		const fine = (step.burst || recheck) && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(frame, area.view, steady.FIND_SIDE_CAPTURE) : null;
 		const content = fine ? drop.contentAt(last, fine) : null;
 
 		if (content && content.verdict === 'new') {
@@ -612,6 +620,8 @@ function createV62() {
 
 	const consider = (frame, area, view, step, at) => {
 		const held = pending;
+
+		afterWaitTake = false;
 		const first = held ? held.step : step;
 		const planned = plan(frame, area, view, step.change);
 

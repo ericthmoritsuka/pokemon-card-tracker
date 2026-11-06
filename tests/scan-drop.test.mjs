@@ -726,20 +726,26 @@ describe('holder mode takes a card once it has settled (Eric, 2026-11-06, versio
 
 		assert.ok(held);
 
+		// Its last still look, as view.js keepReady keeps it.
+		const still = detector.latest;
+
 		for (const scene of [{cards: [left, {...right, cy: 0.9, smear: 0.08}]}, {cards: [left, right]}, {cards: [left, right]}, {cards: [left, right]}]) {
 			detector.push(render(scene), at);
 			at += FRAME_MS;
 		}
 
-		// The left card is taken: only its box joins the base.
-		detector.release(D.grownBox(cornersOf(left)));
+		// The left card is taken from that look (view.js takeReady): only its
+		// box joins the base.
+		detector.release(D.grownBox(cornersOf(left)), still);
 
+		// The first look judged after the release (every one after it is
+		// compared with the look before).
 		let next = null;
 
 		for (let k = 0; k < 4; k++, at += FRAME_MS) {
 			const out = detector.push(render({cards: [left, right]}), at);
 
-			next = out.change || next;
+			next = next || out.change;
 		}
 
 		assert.equal(next.kind, 'drop', 'the right card is still what changed');
@@ -761,7 +767,7 @@ describe('holder mode takes a card once it has settled (Eric, 2026-11-06, versio
 		let after = null;
 
 		for (let k = 0; k < 4; k++, at += FRAME_MS) {
-			after = whole.push(render({cards: [left, right]}), at).change || after;
+			after = after || whole.push(render({cards: [left, right]}), at).change;
 		}
 
 		assert.equal(after.kind, 'none');

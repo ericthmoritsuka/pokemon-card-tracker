@@ -246,7 +246,7 @@ describe('holder mode takes a card once it has settled', () => {
 		await hover(page, pile, HELD, {every: 250, ms: 2200, sway: 0});
 		await setScene(page, {background: 'box', cards: pile});
 		await page.waitForTimeout(2000);
-		assert.equal(await captures(page), 1, 'not taken again after a hand held dead still over it for 2 s');
+		assert.equal(await captures(page), 1, `not taken again after a hand held dead still over it for 2 s: ${JSON.stringify((await items(page)).map((item) => item.drop && {kind: item.drop.kind, print: item.drop.print, settle: item.drop.settle, verdict: item.drop.printVerdict}))}`);
 		await setScene(page, {background: 'box', cards: pile, held: HELD});
 		await hover(page, pile, HELD, HAND);
 		await setScene(page, {background: 'box', cards: pile});
