@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v63:** scan a trade or a sale. `TBD`
+- **v63:** scan a trade or a sale. `c918349`
   - Scan has two modes: **Add** and **Trade or sale**, switched at the head of the tray. In Trade
     or sale the camera has a teal frame and the tray has two sides, **Going out** and **Coming in**;
     tap a side to send the next scans there.
