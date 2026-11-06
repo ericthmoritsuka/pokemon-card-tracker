@@ -1429,6 +1429,68 @@ the worker. Decided:
 - **The scan log** (scanner 40) keeps skipped drops' views too (120 entries' views), each drop's print
   distance, verdict, and motion frames, the repeats, and the mode switches.
 
+**Holder mode retries a blurred capture and never adds a repeat (Eric, 2026-11-06, version 64).**
+Eric's phone log of 2026-11-06 (holder mode, Android 10, cards dropped one by one into the box;
+versions 60 to 63 hold the same holder code): of 27 cards taken, 19 were clean, 4 were taken blurred
+while his hand brought the next card near the lens, out of focus, over the card on top (each ended
+"no card" or was fixed by hand), and 4 were the same card taken again about a second after it, with
+that hand over it, so its print read new (he removed them). The cause: the detector judges stillness
+on the whole view, so a slow, blurred card over a fifth of it passes, and a still look of it is
+judged as a drop.
+
+- **Eric's rule: never lose a card.** A first fix (branch `holder-settle`, built as version 62 and
+  never released) held the picture before a drop until the drop settled and was sharp. Two read-only
+  reviews of it found ways it lost cards: a card waiting for its focus was passed over when the next
+  card landed first, and a hand over a waiting card let it go. It was abandoned. Version 64 keeps
+  version 63's frame loop exactly as it is (the base moves on every still look, so every drop is
+  still seen) and changes only what a drop's capture does once the loop has decided to take it.
+- **A blurred capture is retried, not added** (`js/scan/view.js` `captureDrop`, `retryTick`;
+  `js/scan/drop.js` `captureFocus`, `retryVerdict`). The card's focus is measured on the finer view,
+  block by block, relative to the view's own contrast, so dim light reads the same (`cardFocus`: a
+  printed block is soft when its mean Laplacian is under 0.55 of its mean step), on the outline the
+  capture cuts first and on what changed, the worse counting. Sharp (at most 9 % of its printed
+  blocks soft, and at least 35 % of it printed), it is added at once, as before. Out of focus, its
+  frame is grabbed and kept, and each still look for up to `RETRY_MS` (1.5 s, Eric's fastest rhythm
+  was a card every 1.5 s) judges the same spot: sharp and the card taken before it is a repeat
+  (logged as `repeat`, never added; the repeat bar asks after a disturbance like a drop's, as for any
+  repeat, so a real second copy is one tap away); a spot that looks as it did before the drop
+  (under 3 % of its cells changed, the noise of a card lying still on his videos) is a hand that left
+  nothing (logged as `blurred, nothing left`); sharp and anything else is the card, added once from
+  that look. With no such look in time the kept frame is added all the same, marked to check: the
+  tile shows `?`, it counts among the cards to check, and its sheet says "Check this one: its
+  picture was blurred." until This is the card (or another pick) confirms it.
+- **Nothing is ever lost on the way.** While a capture waits, a drop on the same spot that still
+  reads blurred is the same card looked at again (logged as `blurred, waiting`), and a sharp one is
+  the card (added, the blurred frame dropped); a drop anywhere else adds the waiting card first, as
+  it is, marked. The shutter, a zoom change, a camera restart, and closing the scanner add it too.
+  Switching Add and Trade or sale and Auto's switch wait for it, as for any card being taken. A hand
+  held still over the card on top for longer than 1.5 s is added that way, marked; when it leaves,
+  a sharp look of the card beneath on the same spot is a repeat of the card before it, not a new
+  card. A card
+  on the very spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing
+  left", since its cells barely change. When unsure whether the sharp look is the card before
+  (print 17 to 23 bits off), it is added.
+- **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
+  Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s and is
+  added marked to check, one tap. The one case this still gets wrong: a card that lands blurred and
+  is covered by the next card before any still look shows it sharp, within the 1.5 s, is taken as
+  that next card's spot; the blurred drop is logged with the card that replaced it.
+- **Measured on the log** (`lab/holder/replay-log.mjs`, each card taken put through `captureFocus` on
+  the straightened picture the log kept, scaled to 200 pixels tall with the contrast of the view
+  after): the 19 clean cards are all added at once (0 to 8 % of their printed blocks soft); the 8 bad
+  ones (7 removed by Eric, 1 fixed by hand) are all retried (12 to 45 % soft, and the first card of
+  the session, a blurred blob, 20 % printed). The log keeps one look per drop, so what the looks after
+  each would have shown is not replayed.
+- **Measured on the videos of 2026-10-09** (`lab/holder/replay.mjs --mode v64`, against `--mode v40`
+  on version 63, the same drop labels, the zoom change in the first video marked): both videos take
+  the very same cards in the same order (39 and 22), none lost, none added, none marked to check. One
+  capture of the first video read soft (12 % of its blocks) and was taken from the next still look,
+  250 ms later; every other one at once. The canvas cards of the browser tests are measured by
+  `tests/scan-retry-browser.test.mjs`.
+- **The scan log** (scanner 64) keeps each drop's focus and, for a blurred capture, how its wait
+  ended (`retry`: sharp, retaken, repeat, nothing left, or kept blurred and why), how long it took,
+  and over how many looks.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.

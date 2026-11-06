@@ -207,7 +207,7 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 		assert.equal(taken.length, 4);
 
 		for (const entry of taken) {
-			assert.equal(entry.scanner, 40);
+			assert.equal(entry.scanner, 64);
 			assert.equal(entry.report.geometry.drop.kind, 'drop');
 			assert.ok(entry.report.geometry.drop.share > 0 && entry.report.geometry.drop.stillFrames >= 2);
 			assert.ok(entry.report.geometry.drop.sharpness > 0);

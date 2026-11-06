@@ -1074,3 +1074,265 @@ export const disturbedBy = (burst) => Boolean(burst && burst.frames >= DISTURB_F
 export const REPEAT_GAP_MS = 800;
 
 export const asksRepeat = (burst, last) => disturbedBy(burst) && !(last && typeof last.at === 'number' && burst.start - last.at < REPEAT_GAP_MS);
+
+// ------------------------------------------------------------ a blurred capture (version 64)
+
+// Never lose a card (Eric, 2026-11-06). His v60 to v63 phone log (holder
+// mode, 27 cards taken, Android 10): 4 cards taken blurred while his hand
+// brought the next card near the lens, out of focus, over part of the card
+// on top (each ended "no card" or was fixed by hand), and 4 taken twice
+// about a second apart, the second with that hand over the card just taken,
+// so its print read new. The frame loop stays as version 63 has it: the
+// base moves on every still look, so every drop is still seen. What changes
+// is what a drop's capture does once it is planned (view.js captureDrop): a
+// capture whose card reads out of focus is not added yet. The next still
+// looks of the same spot are judged instead (retryVerdict), for at most
+// RETRY_MS: a sharp look that is the card taken before is a repeat (logged,
+// never added; the repeat bar asks after a disturbance like a drop's, as for
+// any repeat), a spot that looks as it did before the drop is a hand that
+// left nothing (logged), and any other sharp look is the card, added once.
+// With no such look in time, the blurred capture is added all the same,
+// marked to check (session.js blurred). A version 62 build that held the
+// base until a drop settled (branch holder-settle) was dropped: two reviews
+// found ways it lost cards.
+
+// How sharp a card is, block by block, on the finer view (camera.js
+// viewFrame at FIND_SIDE_CAPTURE: the card about 200 pixels tall at 1x):
+// the card inside its outline (inset by FOCUS_INSET, so its own edge and a
+// strip of the card beneath do not count) is cut into square blocks,
+// FOCUS_BLOCKS of them down its long side. A block is printed when its mean
+// step from pixel to pixel is at least FOCUS_DETAIL of the view's contrast
+// (its 5th to 95th percentile of grey), so dim light, which lowers every
+// step and the contrast with them, counts the same blocks; and a printed
+// block is soft when its mean Laplacian is under FOCUS_EDGE of its mean
+// step: a ratio, the width of its edges, which neither the light nor the
+// print's own contrast moves. Returns {blocks, printed, soft, blur (soft
+// over printed), texture (printed over blocks)}.
+//
+// Measured on the 28 drops of Eric's log of 2026-11-06 (their straightened
+// pictures scaled to 200 pixels tall, with the contrast of the view after
+// each; lab/holder/replay-log.mjs): the 19 clean cards had 0 to 8 % of
+// their printed blocks soft; the 7 taken blurred or under his hand 12 to 45
+// %; the first, a blurred blob and no card, had printed blocks on 20 % of
+// it, the cards on 76 to 99 %. Scans of basic Energies read soft by this
+// measure (0.2 to 0.6: their smooth gradients), a card held out of focus
+// near the lens about 1: an Energy is retried and, with no sharper look,
+// added marked to check.
+export const FOCUS_EDGE = 0.55;
+export const BLUR_SHARE = 0.09;
+export const TEXTURE_MIN = 0.35;
+const FOCUS_BLOCKS = 16.7;
+const FOCUS_DETAIL = 0.035;
+const FOCUS_INSET = 0.06;
+
+// The grey level spread of a view: its 95th percentile less its 5th (every
+// second pixel each way).
+export function viewContrast(grey, width, height) {
+	const counts = new Uint32Array(256);
+	let n = 0;
+
+	for (let y = 0; y < height; y += 2) {
+		for (let x = 0; x < width; x += 2) {
+			counts[Math.max(0, Math.min(255, Math.round(grey[y * width + x])))]++;
+			n++;
+		}
+	}
+
+	const at = (share) => {
+		let seen = 0;
+
+		for (let v = 0; v < 256; v++) {
+			seen += counts[v];
+
+			if (seen >= share * n) {
+				return v;
+			}
+		}
+
+		return 255;
+	};
+
+	return at(0.95) - at(0.05);
+}
+
+// Whether a point lies inside a convex quad (corners in order).
+function insideQuad(corners, x, y) {
+	let sign = 0;
+
+	for (let k = 0; k < corners.length; k++) {
+		const a = corners[k];
+		const b = corners[(k + 1) % corners.length];
+		const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+
+		if (cross !== 0) {
+			if (sign && Math.sign(cross) !== sign) {
+				return false;
+			}
+
+			sign = Math.sign(cross);
+		}
+	}
+
+	return true;
+}
+
+export function cardFocus(grey, width, height, corners, {contrast = viewContrast(grey, width, height), detail = FOCUS_DETAIL, edge = FOCUS_EDGE} = {}) {
+	const cx = corners.reduce((sum, p) => sum + p.x, 0) / corners.length;
+	const cy = corners.reduce((sum, p) => sum + p.y, 0) / corners.length;
+	const inner = corners.map((p) => ({x: cx + (p.x - cx) * (1 - FOCUS_INSET * 2), y: cy + (p.y - cy) * (1 - FOCUS_INSET * 2)}));
+	const sides = [0, 1, 2, 3].map((k) => Math.hypot(corners[(k + 1) % 4].x - corners[k].x, corners[(k + 1) % 4].y - corners[k].y));
+	const long = Math.max((sides[0] + sides[2]) / 2, (sides[1] + sides[3]) / 2);
+	const block = Math.max(4, Math.round(long / FOCUS_BLOCKS));
+	const box = boxOf(inner);
+	const floor = Math.max(1, contrast * detail);
+	let blocks = 0;
+	let printed = 0;
+	let soft = 0;
+
+	for (let y0 = Math.max(1, Math.floor(box.y)); y0 + block <= Math.min(height - 1, box.y + box.h); y0 += block) {
+		for (let x0 = Math.max(1, Math.floor(box.x)); x0 + block <= Math.min(width - 1, box.x + box.w); x0 += block) {
+			if (!insideQuad(inner, x0 + block / 2, y0 + block / 2)) {
+				continue;
+			}
+
+			let lap = 0;
+			let step = 0;
+
+			for (let y = y0; y < y0 + block; y++) {
+				for (let x = x0; x < x0 + block; x++) {
+					const i = y * width + x;
+
+					lap += Math.abs(4 * grey[i] - grey[i - 1] - grey[i + 1] - grey[i - width] - grey[i + width]);
+					step += Math.abs(grey[i + 1] - grey[i - 1]) + Math.abs(grey[i + width] - grey[i - width]);
+				}
+			}
+
+			blocks++;
+
+			if (step / (block * block) >= floor) {
+				printed++;
+
+				if (lap < step * edge) {
+					soft++;
+				}
+			}
+		}
+	}
+
+	return {blocks, blur: printed ? soft / printed : 1, printed, soft, texture: blocks ? printed / blocks : 0};
+}
+
+// Why a card's focus is not good enough to add it at once, or null when it
+// is: 'plain' (too little of it is printed: a blurred blob, a hand) or 'soft'
+// (too much of its print is soft: a card out of focus over it, a card still
+// sliding, or a print soft of its own, as a basic Energy's).
+export function focusVerdict(focus) {
+	if (focus.texture < TEXTURE_MIN) {
+		return 'plain';
+	}
+
+	if (focus.blur > BLUR_SHARE) {
+		return 'soft';
+	}
+
+	return null;
+}
+
+// The focus of a capture on the finer view: cardFocus over each of quads
+// (fine view pixels: the outline the capture cuts first, and the card where
+// it changed), the worse counting, so a hand over half the card cannot hide
+// behind an outline round the other half. Returns cardFocus's answer with
+// the worst blur and texture, and why (focusVerdict).
+export function captureFocus(fine, quads) {
+	const contrast = viewContrast(fine.grey, fine.width, fine.height);
+	let worst = null;
+
+	for (const corners of quads) {
+		if (!corners || corners.length !== 4) {
+			continue;
+		}
+
+		const focus = cardFocus(fine.grey, fine.width, fine.height, corners, {contrast});
+
+		worst = worst ? {...worst, blur: Math.max(worst.blur, focus.blur), texture: Math.min(worst.texture, focus.texture)} : focus;
+	}
+
+	const focus = worst || {blocks: 0, blur: 1, printed: 0, soft: 0, texture: 0};
+
+	return {...focus, contrast, why: focusVerdict(focus)};
+}
+
+// The share of the cells inside box (view pixels, {x, y, w, h}) that
+// changed by more than `change` between two looks' cells (drop.js cells),
+// the earlier look's brightness scaled to the later's (gainOf: a lamp
+// flickering or the camera re-exposing scales every cell).
+export const STIR_CHANGE = 8;
+
+export function regionStir(now, before, box, cell = CELL, change = STIR_CHANGE) {
+	if (!now || !before || now.data.length !== before.data.length) {
+		return 1;
+	}
+
+	const gain = gainOf(now, before);
+	const x0 = Math.max(0, Math.floor(box.x / cell));
+	const y0 = Math.max(0, Math.floor(box.y / cell));
+	const x1 = Math.min(now.cw, Math.ceil((box.x + box.w) / cell));
+	const y1 = Math.min(now.ch, Math.ceil((box.y + box.h) / cell));
+	let count = 0;
+	let total = 0;
+
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
+			const i = y * now.cw + x;
+
+			total++;
+
+			if (Math.abs(now.data[i] - before.data[i] * gain) > change) {
+				count++;
+			}
+		}
+	}
+
+	return total ? count / total : 0;
+}
+
+// How long a blurred capture waits for a sharper look of its spot before it
+// is added all the same, marked to check. Eric's fastest rhythm was a card
+// every 1.5 s.
+export const RETRY_MS = 1500;
+
+// A spot whose cells are this close to the picture before the drop
+// (regionStir at most GONE_STIR) shows nothing new: what was taken blurred
+// there was a hand, or the card in it, that left. The cards lying still on
+// Eric's videos stirred up to 2.9 % look to look with the shared video's
+// own noise; a different card on the spot changes its art.
+export const GONE_STIR = 0.03;
+
+// Two boxes are one spot when either lies this much inside the other.
+const SPOT_SHARE = 0.5;
+
+export const sameSpot = (a, b) => Boolean(a && b) && (inside(a, b) >= SPOT_SHARE || inside(b, a) >= SPOT_SHARE);
+
+// What a still look says of a capture waiting for its focus: focus the
+// spot's (captureFocus), content the spot's content check against the card
+// taken before the blurred one (contentCheck, measured only when the spot
+// reads sharp, else null), stir how much the spot changed since the picture
+// before the drop (regionStir), byPicture whether the drop was told by its
+// picture alone (contentAt: a card on the very spot of the last, which
+// changes too few cells for its stir to say anything). 'repeat' (sharp, and
+// the card taken before: a hand passed over it), 'gone' (the spot looks as
+// it did before the drop: nothing was left there), 'sharp' (the card, sharp
+// now: add this look), or null (wait).
+export function retryVerdict({byPicture = false, content = null, focus, stir}) {
+	const sharp = !focusVerdict(focus);
+
+	if (sharp && content && content.verdict === 'same') {
+		return 'repeat';
+	}
+
+	if (!byPicture && stir <= GONE_STIR) {
+		return 'gone';
+	}
+
+	return sharp ? 'sharp' : null;
+}

@@ -17,7 +17,9 @@
 // when not set, Eric, 2026-10-09), and worth, what the card is worth for
 // the valuable card highlight and the rising price mark (js/scan/worth.js
 // scanWorth: {brl, source, valuable, rising, change}; null or missing
-// until its price and a rate are known; Eric, 2026-10-15).
+// until its price and a rate are known; Eric, 2026-10-15), and blurred,
+// true for a holder capture added blurred because no sharper look of it
+// came in time: it needs a look until checked (blocker; Eric, 2026-11-06).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -922,6 +924,13 @@ export function blocker(item) {
 		return 'unsure';
 	}
 
+	// A holder capture added blurred, with no sharper look of it in time
+	// (view.js captureDrop, version 64): checked by a tap on This is the
+	// card, however sure its match.
+	if (item.blurred && !item.confirmed) {
+		return 'unsure';
+	}
+
 	if (!item.language) {
 		return 'language';
 	}
@@ -950,12 +959,14 @@ export const needsLook = (item) => LOOK.has(blocker(item));
 export const isSavable = (item) => blocker(item) === null;
 
 // The plain-language reason a card needs a look, for its sheet.
+export const BLURRED_WHY = 'Check this one: its picture was blurred.';
+
 export function lookReason(item) {
 	switch (blocker(item)) {
 		case 'unmatched':
-			return item.why || 'No card was found. Search for it, or remove it.';
+			return item.blurred ? `${BLURRED_WHY} Search for it, or remove it.` : item.why || 'No card was found. Search for it, or remove it.';
 		case 'unsure':
-			return item.why || 'Not sure this is the card. Tap the right one.';
+			return item.blurred && !item.confirmed ? `${BLURRED_WHY} ${item.card && item.sure ? 'Tap This is the card if it is right.' : item.why || 'Tap the right one.'}` : item.why || 'Not sure this is the card. Tap the right one.';
 		case 'language':
 			return 'Not sure of the language. Pick the one printed on the card.';
 		case 'finish':
