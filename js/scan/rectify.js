@@ -232,26 +232,29 @@ function seenShare({height, outside = null, width}, index, from, to) {
 const SHAPE_SLACK = 0.06;
 
 // The strong-slant cut (DESIGN.md section 6, measured 2026-11-04, fixed
-// 2026-11-05): a card held larger than the guide and turned runs out of the
-// capture, or onto its last rows, where no edge can be found, and the
+// 2026-11-05): a card held larger than the guide and turned runs out of
+// the capture, or onto its last rows, where no edge can be found, and the
 // outermost line left on that side is one inside the card (the weakness
 // row's at the bottom, the border's inner line at a side), so the box
 // stopped there. An edge found is taken as inside the card when the two
 // edges across it run on past it to the capture's edge (a card's edge has
-// table beyond it, which they do not cross), or when it lies on the
-// capture's edge itself. A bottom is also taken as inside the card when the
-// box is too short for a card's shape, the capture shows nothing of the
-// sides below it (they run out through its corners, the card turned, or
-// the bottom was found on or just above the capture's last rows, the card
-// held low), and the sides do not run on above the top, so the top is the
-// card's own. The card's own edge is then out of the capture:
+// table beyond it, which they do not cross; a side asks both its top and
+// bottom found inside the capture, and the box too narrow for its height,
+// since one line across the whole capture runs past both sides of a card
+// wholly in it), or when it lies on the capture's edge itself. A bottom is
+// also taken as inside the card when the box is too short for a card's
+// shape, the capture shows nothing of the sides below it (they run out
+// through its corners, the card turned, or the bottom was found on or just
+// above the capture's last rows, the card held low), and the sides do not
+// run on above the top, so the top is the card's own. The card's own edge
+// is then out of the capture:
 //
 // - the bottom is placed from the top found and the width, at a card's
 //   63:88, past the capture's edge (the mirror of the worked-out top);
 // - the top is left to be worked out from the bottom, as before;
 // - a side is placed from the other side and the height, when the top and
-//   bottom were found and that reaches past the capture's edge, or else at
-//   the capture's edge.
+//   bottom were found, only where that reaches past the capture's edge (the
+//   box is otherwise left as found), or else at the capture's edge.
 //
 // A placed edge must land where the capture shows no edge (past its edge
 // or reach, or outside it on a copy turned straight): one that lands inside
@@ -311,13 +314,21 @@ export function outOfCapture(work, edges) {
 	const nearFoot = box.bottom + h * 0.02 + 4 > height - EDGE_REACH;
 	const short = ownTop && edges.bottom !== null && below.every((share) => share < 0)
 		&& (below.length > 0 ? h < (w / CARD_RATIO) * (1 - SHAPE_SLACK) : inside(box.top, height) && h < (w / CARD_RATIO) * (1 - (nearFoot && columns.length === 2 ? SHAPE_SLACK / 2 : SHAPE_SLACK)));
+	// A side found is inside the card only when the box is too narrow for
+	// its height (the mirror of `short`) and both its top and bottom were
+	// found inside the capture and run on past that side: a single line
+	// across the whole capture (a table's or a wall's edge, a bar of light
+	// taken for the top, the foot on the capture's last rows) runs past
+	// both sides of a card wholly inside the capture, which is no sign of
+	// the card running out of it.
+	const narrow = rows.length === 2 && w < h * CARD_RATIO * (1 - SHAPE_SLACK);
 	// Inside the card: the edges across run on past it, or (the bottom)
 	// the box is too short and the capture hides the sides below it. An
 	// edge not found counts as one inside the card at the capture's edge.
 	const inner = {
 		bottom: edges.bottom === null || runsOut(below) || short,
-		left: edges.left === null || past(rows, EDGE_REACH, box.left - w * 0.02, true),
-		right: edges.right === null || past(rows, box.right + w * 0.02, width - EDGE_REACH, true),
+		left: edges.left === null || (narrow && past(rows, EDGE_REACH, box.left - w * 0.02, true)),
+		right: edges.right === null || (narrow && past(rows, box.right + w * 0.02, width - EDGE_REACH, true)),
 		top: edges.top === null || past(columns, EDGE_REACH, box.top - h * 0.02, false),
 	};
 	// Out of the capture: inside the card, or found on the capture's last
@@ -340,8 +351,18 @@ export function outOfCapture(work, edges) {
 	const unseen = (row, seen) => row >= height - 1 - near - h * 0.02 || seen < 0.5;
 	const placed = {...box, top: inner.top && !inner.bottom ? null : box.top};
 
-	if (inner.left !== inner.right && !out.top && !out.bottom) {
+	if ((inner.left || inner.right) && !out.top && !out.bottom) {
+		// A side placed from the other side and the height must land where
+		// the capture shows no edge, at or past its edge: one that lands
+		// inside it would have been found, so the box is left as the edges
+		// found it rather than stretched to the capture's edge. (Both sides
+		// cannot land past it: a card as wide as a portrait capture is
+		// taller than it, and its top and bottom were found inside it.)
 		const across = h * CARD_RATIO;
+
+		if ((inner.left && box.right - across > near) || (inner.right && box.left + across < width - 1 - near)) {
+			return null;
+		}
 
 		placed.left = inner.left ? Math.min(0, box.right - across) : box.left;
 		placed.right = inner.right ? Math.max(width - 1, box.left + across) : box.right;
@@ -1139,6 +1160,7 @@ const OVERRUN = 0.03;
 // and the width (placed true), else null. placed: an edge out of the
 // capture was placed (outOfCapture, and findQuad's box with its bottom
 // placed), and the crop runs past the capture there, its edge repeated.
+// placedEdges: which ('bottom', 'left', 'right'), for the scan report.
 // others: then also the box hung from the bottom found. variants: other crops worth fingerprinting when the
 // picture match of `card` is weak (MOVES), each {how}; variant(v, height)
 // cuts one. They are only cut when asked for (js/scan/identify.js), so a
@@ -1242,6 +1264,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 				note: !quad.top ? 'Card edges found, at a slant; top edge worked out from the width.' : !quad.bottom ? 'Card edges found, at a slant; bottom edge placed from the top and the width, past the capture\'s edge.' : 'Card edges found, at a slant.',
 				others,
 				placed: !quad.bottom,
+				placedEdges: quad.bottom ? [] : ['bottom'],
 				ratio: Math.round((across / down) * 1000) / 1000,
 				rect: null,
 				cut: (r, height = Math.min(maxHeight, r.h)) => warpCrop(img, -(r.angle || 0), r, height / r.h),
@@ -1385,6 +1408,7 @@ export function rectify(img, {maxHeight = CARD_MAX_HEIGHT} = {}) {
 		// snap (a card is 0.716), for the scan report.
 		ratio: Math.round(ratio * 1000) / 1000,
 		placed: placed || beside,
+		placedEdges: [...(placed ? ['bottom'] : []), ...(outside && outside.inner.left ? ['left'] : []), ...(outside && outside.inner.right ? ['right'] : [])],
 		rect,
 		others: others.map(({how, rect: r}) => ({how, rect: r})),
 		// Straightens another rect of the same capture (one of `others`), at

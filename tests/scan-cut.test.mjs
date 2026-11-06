@@ -44,18 +44,25 @@ function frameOf({angle = 0, ch, cx, cy}) {
 // busy art box, lines of text, and the weakness row, a dark bar across the
 // card inside its border 86 to 88 % of the way down (the line the box
 // stopped at before the fix).
-function capture({W = 520, H = 726, ...card}) {
+// `border` the border's grey (180: none, the art box's edge then the
+// outermost line inside the card); `table(x, y)` the table's grey; `bar`
+// [from, to], a dark bar across the whole card, border to border, that far
+// down (a line that closes at both corners as a foot does).
+function capture({W = 520, H = 726, bar = null, border = 215, table = () => 70, ...card}) {
 	const {corners, face} = frameOf(card);
 	const data = new Uint8ClampedArray(W * H * 4);
 
 	for (let y = 0; y < H; y++) {
 		for (let x = 0; x < W; x++) {
 			const {u, v} = face(x, y);
-			let value = 70;
+			let value = table(x, y);
 
 			if (u >= 0 && u < 1 && v >= 0 && v < 1) {
-				if (u < 0.04 || u > 0.96 || v < 0.03 || v > 0.97) {
-					value = 215;
+				if (bar && v >= bar[0] && v < bar[1]) {
+					value = 40;
+				}
+				else if (u < 0.04 || u > 0.96 || v < 0.03 || v > 0.97) {
+					value = border;
 				}
 				else if (u > 0.08 && u < 0.92 && v > 0.11 && v < 0.48) {
 					value = 60 + ((Math.floor(u * 90) * 7 + Math.floor(v * 120) * 13) % 70);
@@ -183,6 +190,106 @@ describe('a card whose foot runs out of the capture (rectify.js outOfCapture)', 
 	});
 });
 
+describe('a card wholly inside the capture beside a line across it, and a side out of it (outOfCapture)', () => {
+	test('a table\'s edge, or a bar of light, across the capture above a card whose foot is on its last rows: cut as before, nothing placed', () => {
+		// Before the review fix the line, taken for the top, ran past both
+		// sides, so both were placed at the capture's edges: a box 20 % off.
+		const cases = [
+			{ch: 605, cx: 260, cy: 416, table: (x, y) => (y < 60 ? 70 : 130)},
+			{ch: 605, cx: 260, cy: 418, table: (x, y) => (y < 30 ? 70 : 130)},
+			{ch: 605, cx: 260, cy: 416, table: (x, y) => (y >= 58 && y < 62 ? 200 : 70)},
+		];
+
+		for (const card of cases) {
+			const {corners, image} = capture(card);
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+
+			assert.ok(straight.found, straight.note);
+			assert.equal(straight.placed, false, `cy ${card.cy}: ${straight.note}`);
+			assert.deepEqual(straight.placedEdges, []);
+			assert.ok(box.error <= 0.01, `cy ${card.cy}: box within 1 % (${box.error.toFixed(3)}): ${straight.note}`);
+		}
+	});
+
+	test('lines across the capture above and below a card: its sides are kept, not placed at the capture\'s edges', () => {
+		const card = {ch: 560, cx: 260, cy: 363, table: (x, y) => ((y >= 60 && y < 63) || (y >= 663 && y < 666) ? 200 : 70)};
+		const {corners, image} = capture(card);
+		const straight = rectify(image);
+		const box = boxError(straight, image, corners);
+
+		assert.ok(straight.found, straight.note);
+		assert.equal(straight.placed, false, straight.note);
+		assert.ok(Math.abs(straight.rect.w - card.ch * RATIO) <= card.ch * RATIO * 0.03, `width ${straight.rect.w}, the card's ${Math.round(card.ch * RATIO)}`);
+		assert.ok(box.error <= 0.05, `box within 5 % (${box.error.toFixed(3)}): ${straight.note}`);
+	});
+
+	test('a card wholly inside the capture on a shelf, lines along its top and foot running off one side: no side is placed', () => {
+		// The lines run on past one side to the capture's edge, but the box
+		// is a card's width for its height, and a side placed from that
+		// height would land where the capture shows the side found.
+		const card = {ch: 560, cx: 260, cy: 363};
+		const top = card.cy - card.ch / 2;
+		const foot = card.cy + card.ch / 2;
+		const half = (card.ch * RATIO) / 2;
+
+		for (const [side, off] of [['left', (x) => x < card.cx + half], ['right', (x) => x > card.cx - half]]) {
+			const {corners, image} = capture({...card, table: (x, y) => ((Math.abs(y - top) < 2 || Math.abs(y - foot) < 2) && off(x) ? 200 : 70)});
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+
+			assert.equal(straight.placed, false, `${side}: ${straight.note}`);
+			assert.ok(box.error <= 0.01, `${side}: box within 1 % (${box.error.toFixed(3)}): ${straight.note}`);
+		}
+	});
+
+	test('a card running out at one side, its top and bottom found running on past the line inside it: that side is placed from the height', () => {
+		// No border, so the outermost line inside the card is its art box's
+		// edge, 8 % in: the box is too narrow for its height.
+		for (const [cx, side] of [[206, 'left'], [314, 'right']]) {
+			const {corners, image} = capture({border: 180, ch: 605, cx, cy: 363});
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+
+			assert.ok(straight.found, straight.note);
+			assert.deepEqual(straight.placedEdges, [side], straight.note);
+			assert.ok(box.error <= 0.02, `${side}: box within 2 % (${box.error.toFixed(3)}): ${straight.note}`);
+		}
+	});
+});
+
+describe('a bottom out of the capture in the box search (findQuad)', () => {
+	test('a side half lost against a table as bright as its border, the foot past the capture: the bottom is placed from the top, at a slant', () => {
+		// The outermost edges fail (the right side steps along too little of
+		// its length), so the box search takes over.
+		const {corners, image} = capture({...CUT, table: (x, y) => (x > 260 && y >= 200 && y < 500 ? 205 : 70)});
+		const straight = rectify(image);
+		const box = boxError(straight, image, corners);
+
+		assert.match(straight.note, /at a slant; bottom edge placed/);
+		assert.deepEqual(straight.placedEdges, ['bottom']);
+		assert.equal(straight.guessed, 'bottom');
+		assert.ok(box.error <= 0.02, `box within 2 % (${box.error.toFixed(3)}): ${straight.note}`);
+		assert.ok(straight.corners[2].y > image.height, 'the crop runs past the capture');
+
+		const hung = straight.others.find((other) => other.how === 'the bottom edge found');
+
+		assert.ok(hung && hung.corners, 'the box hung from the bottom found is kept for the picture');
+		assert.ok(hung.corners[2].y < image.height, 'hung from a bottom inside the capture');
+	});
+
+	test('a dark bar across the whole card above its foot, the sides running on below it: the bottom is still placed, not taken at the bar', () => {
+		// The bar closes at both corners as a foot does; only the sides
+		// running on below it (the 0.1 taken off its score) tell it from one.
+		const {corners, image} = capture({...CUT, bar: [0.88, 0.9], table: (x, y) => (x > 260 && y >= 200 && y < 500 ? 205 : 70)});
+		const straight = rectify(image);
+		const box = boxError(straight, image, corners);
+
+		assert.match(straight.note, /at a slant; bottom edge placed/);
+		assert.ok(box.error <= 0.02, `box within 2 % (${box.error.toFixed(3)}): ${straight.note}`);
+	});
+});
+
 // The detection copy's grey, as rectify makes it (no turn): `capture`'s
 // pixels averaged to one channel.
 function work(image) {
@@ -220,12 +327,15 @@ describe('whether a bottom edge found is the card\'s (outOfCapture)', () => {
 	});
 
 	test('a bottom placed where the capture would show it is not placed', () => {
-		// The sides run on past the weakness row, but a card of that width
-		// ends inside the capture, where its foot would have been found.
-		const card = {ch: 605, cx: 260, cy: 363};
-		const copy = work(capture(CUT).image);
+		// The card's foot 26 px inside the capture: the sides run on past the
+		// weakness row nearly to the capture's edge, so that row is taken as
+		// a line inside the card, but the bottom placed from the top and the
+		// width lands on the foot, where the capture shows it, so it would
+		// have been found: nothing is placed.
+		const card = {ch: 605, cx: 260, cy: 397};
+		const copy = work(capture(card).image);
 
-		assert.equal(outOfCapture(copy, {...edgesOf(card, Math.round(card.cy + card.ch * 0.3)), top: 35}), null);
+		assert.equal(outOfCapture(copy, edgesOf(card, Math.round(card.cy - card.ch / 2 + card.ch * 0.88))), null);
 	});
 });
 
@@ -277,6 +387,20 @@ describe('a card running off the frame round its art box (steady.js findCard)', 
 
 			assert.equal(found.quad, null, `${angle} degrees: the art box is not taken for a card (${JSON.stringify(found.quad)})`);
 			assert.equal(found.touching, true, `${angle} degrees`);
+		}
+	});
+
+	test('a card a few percent past the frame\'s edge is still found, by its own edge or inner border', () => {
+		// Turned 10 degrees, a corner 3.7 % of its width past the frame: not
+		// far enough for its outline to hide the box inside it (CUT_PAST).
+		for (const angle of [-10, 10]) {
+			const card = {angle, cx: 100, cy: 150, size: 240};
+			const {grey, H, W} = frameView(card);
+			const found = findCard(grey, W, H);
+			const truth = frameOf({...card, ch: card.size}).corners;
+
+			assert.ok(found.quad, `${angle} degrees: found`);
+			assert.ok(Math.max(...found.quad.map((p, i) => Math.hypot(p.x - truth[i].x, p.y - truth[i].y))) <= card.size * 0.06, `${angle} degrees: ${JSON.stringify(found.quad)}`);
 		}
 	});
 
