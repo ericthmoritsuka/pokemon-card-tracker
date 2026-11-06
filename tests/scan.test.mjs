@@ -2372,6 +2372,32 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.match(S.reportText(item, {at: AT}), /- Catalog lookup: shown after 90 ms from what the phone had \(card index ready after 4 ms\); full records 2400 ms, behind it/);
 	});
 
+	test('an edge placed past the capture\'s edge is named for the edge it was (the strong-slant cut, 2026-11-05)', () => {
+		const edges = (result) => {
+			const session = S.newSession(AT, 's1');
+			const item = S.addCapture(session, AT);
+
+			item.report = S.reportOfRead({card: {height: 1400, width: 1002}, found: true, ocr: false, read: null, ratio: 0.7, timings: {rectify: 80, total: 160}, ...result});
+
+			return S.reportText(item, {at: AT}).split('\n').find((line) => line.startsWith('- Edges: '));
+		};
+
+		// A side placed, the box then too tall and snapped up from its
+		// bottom: the bottom was found, not placed.
+		const side = edges({guessed: 'bottom', placed: true, placedEdges: ['left']});
+
+		assert.match(side, /all four found, but the box was too tall/);
+		assert.match(side, /the left side PLACED at or past the capture's edge/);
+		assert.doesNotMatch(side, /bottom PLACED/);
+
+		const bottom = edges({guessed: 'bottom', placed: true, placedEdges: ['bottom']});
+
+		assert.match(bottom, /left, right, and top found; bottom PLACED past the capture's edge/);
+		assert.doesNotMatch(bottom, /side PLACED/);
+		assert.match(edges({guessed: 'top', placed: true, placedEdges: ['left', 'right']}), /top GUESSED.*the left and right sides PLACED/);
+		assert.equal(edges({guessed: null, placed: false, placedEdges: []}), '- Edges: all four found');
+	});
+
 	test('the full records naming the same card keep the finishes loaded meanwhile', () => {
 		const session = S.newSession(AT, 's1');
 		const item = S.addCapture(session, AT);

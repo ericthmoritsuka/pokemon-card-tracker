@@ -1517,6 +1517,7 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 			guessed: result.guessed || null,
 			ms: result.timings ? result.timings.rectify : null,
 			placed: Boolean(result.placed),
+			placedEdges: Array.isArray(result.placedEdges) ? result.placedEdges : [],
 			note: result.note || null,
 			ratio: typeof result.ratio === 'number' ? result.ratio : null,
 		},
@@ -1663,9 +1664,15 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	if (report.rectify && report.rectify.found) {
 		const guessed = report.rectify.guessed;
 
-		const placed = report.rectify.placed ? '; an edge PLACED past the capture\'s edge, the card running out of it' : '';
+		// The edges placed past the capture's edge (rectify.js
+		// placedEdges): the bottom from the top and the width, a side at or
+		// past the capture's edge.
+		const placedEdges = report.rectify.placedEdges || [];
+		const bottomPlaced = placedEdges.includes('bottom');
+		const sides = placedEdges.filter((edge) => edge === 'left' || edge === 'right');
+		const sidesText = sides.length ? `; the ${sides.join(' and ')} side${sides.length > 1 ? 's' : ''} PLACED at or past the capture's edge, the card running out of it` : '';
 
-		lines.push(`- Edges: ${guessed === 'top' ? 'left, right, and bottom found; top GUESSED (worked out from the width)' : guessed === 'bottom' && report.rectify.placed ? 'left, right, and top found; bottom PLACED past the capture\'s edge (worked out from the top and the width)' : guessed === 'bottom' ? 'all four found, but the box was too tall; snapped up from the bottom, which may be the wrong edge' : 'all four found'}${guessed === 'bottom' ? '' : placed}`);
+		lines.push(`- Edges: ${bottomPlaced ? 'left, right, and top found; bottom PLACED past the capture\'s edge (worked out from the top and the width)' : guessed === 'top' ? 'left, right, and bottom found; top GUESSED (worked out from the width)' : guessed === 'bottom' ? 'all four found, but the box was too tall; snapped up from the bottom, which may be the wrong edge' : 'all four found'}${sidesText}`);
 	}
 
 	if (report.rectify && typeof report.rectify.ratio === 'number') {

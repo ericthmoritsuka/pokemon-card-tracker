@@ -745,6 +745,7 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 		guessed: rectified.guessed || null,
 		// An edge placed past the capture's edge (rectify.js outOfCapture).
 		placed: Boolean(rectified.placed),
+		placedEdges: rectified.placedEdges || [],
 		needsText: !picture || needsText(picture),
 		note: rectified.note || null,
 		ocr: false,
