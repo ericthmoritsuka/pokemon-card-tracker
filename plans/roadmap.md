@@ -259,6 +259,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   Also "Clear all" (js/filter-bar.js shows it only with 2+ active filters): show it whenever any
   filter, search, or From is active, and make it clear the search and From too, everywhere filters
   appear (Eric, 2026-10-16).
+- **Built 2026-11-06 on branch `picker-sort`: Sort in the binder pickers (Eric, 2026-11-06: "My binders are
+  all region-related"):** the pocket's card chooser and Add cards to the tray sort by Pokédex number
+  (the first time), Set (oldest set first, then the number), or Name; the last one picked is kept on
+  the phone for both. DESIGN.md section 11, Filters and Sorting. Small.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free

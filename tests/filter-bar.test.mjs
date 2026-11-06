@@ -158,6 +158,37 @@ describe('the sorts', () => {
 		assert.deepEqual(sorted('newest'), ['Charizard', 'Tag Team', 'Test Ball', 'Pikachu']);
 		assert.deepEqual(sorted('oldest'), ['Charizard', 'Pikachu', 'Test Ball', 'Tag Team']);
 		assert.deepEqual(sorted('price'), ['Charizard', 'Pikachu', 'Tag Team', 'Test Ball'], 'unknown last');
+		assert.deepEqual(sorted('setOld'), ['Pikachu', 'Tag Team', 'Charizard', 'Test Ball'], 'oldest set, then number');
 		assert.deepEqual(sorted('nonsense'), sorted('newest'));
+	});
+
+	// The binder pickers' orders (Eric, 2026-11-06).
+	const ties = () => [
+		item({dexIds: [25], name: 'Pikachu new', number: '2', releaseDate: '2025-01-01', setKey: 'international|sv1'}),
+		item({dexIds: [25], name: 'Pikachu old', number: '58', releaseDate: '1999-01-09', setKey: 'international|base1'}),
+		item({dexIds: [], name: 'Potion', category: 'Trainer', number: '1', releaseDate: '1999-01-09', setKey: 'international|base1'}),
+		item({dexIds: [], name: 'Energy', category: 'Energy', number: '3', releaseDate: '1999-01-09', setKey: 'international|base1'}),
+		item({dexIds: [4], name: 'Charmander 10', number: '10', releaseDate: '2025-01-01', setKey: 'international|sv1'}),
+		item({dexIds: [4], name: 'Charmander TG10', number: 'TG10', releaseDate: '2025-01-01', setKey: 'international|sv1'}),
+		item({dexIds: [4], name: 'Charmander TG05', number: 'TG05', releaseDate: '2025-01-01', setKey: 'international|sv1'}),
+		item({dexIds: [1], name: 'Bulbasaur undated', number: '1', releaseDate: '', setKey: 'international|zz1'}),
+		item({dexIds: [1], name: 'Bulbasaur dated', number: '44', releaseDate: '1999-01-09', setKey: 'international|base1'}),
+	];
+
+	test('Pokédex: the lowest number, then the oldest set and the number; no number last, by name', () => {
+		assert.deepEqual(names(fb.sortItems(ties(), 'dex')), [
+			'Bulbasaur dated', 'Bulbasaur undated',
+			'Charmander 10', 'Charmander TG05', 'Charmander TG10',
+			'Pikachu old', 'Pikachu new',
+			'Energy', 'Potion',
+		]);
+	});
+
+	test('Set, oldest first: the release date (none last), then the number read as a number', () => {
+		assert.deepEqual(names(fb.sortItems(ties(), 'setOld')), [
+			'Potion', 'Energy', 'Bulbasaur dated', 'Pikachu old',
+			'Pikachu new', 'Charmander 10', 'Charmander TG05', 'Charmander TG10',
+			'Bulbasaur undated',
+		]);
 	});
 });

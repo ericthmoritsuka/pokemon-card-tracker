@@ -58,7 +58,7 @@ import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {pokemonNames} from './checklists.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
-import {activeFilters, applyFilters, filterBar, searchTextOf} from './filter-bar.js';
+import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
 import {
@@ -269,18 +269,47 @@ function pickFilterItem(group, index) {
 		group,
 		key: group.key,
 		language: entry.language || null,
+		name: info.name,
+		number: (record && record.collector_number) || info.number || null,
 		rarity: (record && record.rarity) || null,
+		releaseDate: (record && record.release_date) || '',
 		setKey: setId ? `${catalog}|${setId}` : null,
 		setName: info.setName || entry.set_name_local || null,
 		types: (record && record.types) || [],
 	};
 }
 
-// The tiles the sheet's choice leaves, in their order.
-function filterPicks(groups, filters, index) {
-	return activeFilters(filters).length
-		? applyFilters(groups.map((group) => pickFilterItem(group, index)), {filters}).map((item) => item.group)
-		: groups;
+// The tiles the sheet's choice leaves, in its sort. Tiles the sort ties
+// keep the order they came in.
+function filterPicks(groups, {filters, sort}, index) {
+	const items = groups.map((group) => pickFilterItem(group, index));
+
+	return sortItems(activeFilters(filters).length ? applyFilters(items, {filters}) : items, sort).map((item) => item.group);
+}
+
+// The binder pickers' sorts (Eric, 2026-11-06: his binders go by region,
+// so Pokédex number first), and the last one picked, on this phone only.
+const PICK_SORTS = ['dex', 'setOld', 'name'];
+const PICK_SORT_KEY = 'cardTracker.binderPickerSort';
+
+function savedPickSort() {
+	try {
+		const saved = localStorage.getItem(PICK_SORT_KEY);
+
+		return PICK_SORTS.includes(saved) ? saved : PICK_SORTS[0];
+	}
+	catch {
+		return PICK_SORTS[0];
+	}
+}
+
+function savePickSort(sort) {
+	try {
+		localStorage.setItem(PICK_SORT_KEY, sort);
+	}
+	catch {
+		// The order lasts while the picker is open.
+	}
 }
 
 // The filters a picker offers: all My Cards has but the price (a picker
@@ -1036,8 +1065,9 @@ function binderScreen(root, source, id, pageParam) {
 		h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'binder-empty-scan'}, 'Scan cards')
 	);
 
-	// A picker's Filters (js/filter-bar.js): one bar at a time, its sheet
-	// removed when the picker closes or gives way to another.
+	// A picker's Filters and sort (js/filter-bar.js): one bar at a time, its
+	// sheet removed when the picker closes or gives way to another. A sort
+	// picked is kept for the next picker (savedPickSort); the filters are not.
 	let pickerBars = [];
 
 	function dropPickerBars() {
@@ -1048,10 +1078,24 @@ function binderScreen(root, source, id, pageParam) {
 		pickerBars = [];
 	}
 
-	function pickerBar(options) {
+	function pickerBar({onChange = () => {}, ...options}) {
 		dropPickerBars();
 
-		const bar = filterBar({placeholder: 'Search your cards', search: false, sorts: [], storageKey: null, ...options});
+		const bar = filterBar({
+			onChange: (state, reason) => {
+				if (reason === 'sort') {
+					savePickSort(state.sort);
+				}
+
+				onChange(state, reason);
+			},
+			placeholder: 'Search your cards',
+			search: false,
+			sort: savedPickSort(),
+			sorts: PICK_SORTS,
+			storageKey: null,
+			...options,
+		});
 
 		pickerBars.push(bar);
 
@@ -2622,8 +2666,8 @@ function binderScreen(root, source, id, pageParam) {
 	// ------------------------------------ adding many cards to the tray
 	//
 	// "Add cards to the tray": a picker over the copies in no binder yet
-	// (js/binders.js trayCandidates), with a search, a set filter, and
-	// Filters (the sheet My Cards has, PICK_FILTERS). Tap
+	// (js/binders.js trayCandidates), with a search, a set filter,
+	// Filters (the sheet My Cards has, PICK_FILTERS), and the sort. Tap
 	// tiles to select them, or Select all for what is shown, then add them
 	// all; Undo on the toast takes them back out. Alike copies share one
 	// tile with a count (pickKey), and a selected tile's "- N +" says how
@@ -2689,7 +2733,7 @@ function binderScreen(root, source, id, pageParam) {
 			const query = search.value.trim().toLowerCase();
 			const set = setFilter.value;
 
-			return filterPicks(groupPicks(items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName)), bar.state.filters, index);
+			return filterPicks(groupPicks(items.filter((item) => (!set || setOf(item) === set) && matches(item, query)).sort(byName)), bar.state, index);
 		};
 		const chosenOf = (group) => Math.min(chosen.get(group.key) || 0, group.items.length);
 		const total = () => [...chosen.values()].reduce((sum, n) => sum + n, 0);
@@ -2928,7 +2972,7 @@ function binderScreen(root, source, id, pageParam) {
 			// In the order shown, so the tray fills in the same order. Of a
 			// tile's copies, those "From" shows go first.
 			const shownIds = new Set(items.map((item) => item.entry.id));
-			const ids = groupPicks([...all].sort(byName))
+			const ids = filterPicks(groupPicks([...all].sort(byName)), {filters: null, sort: bar.state.sort}, index)
 				.filter((group) => chosen.get(group.key))
 				.flatMap((group) => group.items
 					.map((item) => item.entry.id)
@@ -3308,7 +3352,10 @@ function binderScreen(root, source, id, pageParam) {
 		const visible = () => {
 			const query = search.value.trim().toLowerCase();
 
-			return filterPicks(tilesOf(live.filter((item) => (!onlyLoose() || !item.where) && matches(item, query))), bar.state.filters, index);
+			const groups = filterPicks(tilesOf(live.filter((item) => (!onlyLoose() || !item.where) && matches(item, query))), bar.state, index);
+
+			// Copies in no pocket yet stay first.
+			return [...groups.filter((group) => !group.items[0].where), ...groups.filter((group) => group.items[0].where)];
 		};
 
 		function draw() {

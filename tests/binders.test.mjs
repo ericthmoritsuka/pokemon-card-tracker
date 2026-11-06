@@ -1816,13 +1816,14 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('#binder-add-tray');
 		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
 		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'tray-search', 'on a phone the search waits for a tap');
-		assert.deepEqual(await tiles('#tray-results'), ['g1×2', 'g4', 'g5'], 'g3, in another tray, is not counted');
+		// The same name in Pokédex order without a number: English first.
+		assert.deepEqual(await tiles('#tray-results'), ['g4', 'g1×2', 'g5'], 'g3, in another tray, is not counted');
 		assert.equal(await page.locator('#tray-count').textContent(), '4 cards not in a binder yet.');
 		assert.equal(await page.locator('#tray-all').textContent(), 'Select all 4');
 
 		// A tap selects every copy; - and + choose how many, 1 to 2.
 		await page.click('#tray-results .tray-pick[data-entry="g1"]');
-		assert.deepEqual(await tiles('#tray-results'), ['g1×2*', 'g4', 'g5']);
+		assert.deepEqual(await tiles('#tray-results'), ['g4', 'g1×2*', 'g5']);
 		assert.equal(await page.locator('#tray-results .pick-n').textContent(), '2 of 2');
 		assert.equal(await page.locator('#tray-results .pick-more').isDisabled(), true);
 		assert.equal(await page.locator('#tray-add').textContent(), 'Add 2 cards to the tray');
@@ -1845,7 +1846,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.screenshot({path: '/tmp/binders-tray-grouped.png'});
 		await page.click('#tray-add');
 		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
-		assert.deepEqual((await saved()).staged, ['g1', 'g4', 'g5']);
+		assert.deepEqual((await saved()).staged, ['g4', 'g1', 'g5']);
 
 		// The pocket chooser: the three alike copies in no pocket share a
 		// tile, and a tap places the one in no tray.
@@ -1853,7 +1854,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await pocket(page, 1).click();
 		await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
 		assert.equal(await page.locator('#owned-count').textContent(), '5 cards not in a binder yet.');
-		assert.deepEqual(await tiles('#owned-results'), ['g3×3', 'g4', 'g5']);
+		assert.deepEqual(await tiles('#owned-results'), ['g4', 'g3×3', 'g5']);
 		await page.click('#owned-results .pick[data-entry="g3"]');
 		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
 		assert.equal((await saved()).slots.find((slot) => slot.page === 1 && slot.position === 1).entry_id, 'g2');
@@ -1971,6 +1972,99 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.click('#owned-sheet-close');
 		assert.deepEqual(await picks(), ['c2', 'c5']);
 		await page.screenshot({path: '/tmp/binders-pocket-filters.png'});
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('The binder pickers\' sort: Pokédex number first, then Set (oldest first) or Name, with a region filter, remembered on the phone', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const binder = binderOf('b-sort', {cols: 2, created_at: AT, name: 'Sort binder', page_count: 2, rows: 2, slots: [], updated_at: AT});
+		const cards = [
+			entry('s1', {card_id: 'tst1-025', catalog: 'international'}),
+			entry('s2', {card_id: 'tst2-007', catalog: 'international'}),
+			entry('s3', {card_id: 'tst2-001', catalog: 'international'}),
+			entry('s4', {card_id: 'tst2-152', catalog: 'international'}),
+			entry('s5', {card_id: 'tst1-090', catalog: 'international'}),
+		];
+		const inSet = (id, number, name, set, date, fields) => ({
+			...record(id, number, name),
+			category: 'Pokemon',
+			illustrator: 'Rina Testa',
+			localizations: {en: {image: null, lang: 'en', name, set_name: set === 'tst1' ? 'Test set one' : 'Test set two'}},
+			release_date: date,
+			set_id: set,
+			...fields,
+		});
+		const records = [
+			inSet('tst1-025', '025', 'Test Pikachu', 'tst1', '1999-01-09', {dex_ids: [25]}),
+			inSet('tst2-007', '007', 'Test Squirtle', 'tst2', '2025-01-01', {dex_ids: [7]}),
+			inSet('tst2-001', '001', 'Test Bulbasaur', 'tst2', '2025-01-01', {dex_ids: [1]}),
+			inSet('tst2-152', '152', 'Test Chikorita', 'tst2', '2025-01-01', {dex_ids: [152]}),
+			inSet('tst1-090', '090', 'Test Ball', 'tst1', '1999-01-09', {category: 'Trainer', dex_ids: []}),
+		];
+		const picks = () => page.locator('#owned-results .pick').evaluateAll((items) => items.map((item) => item.dataset.entry));
+		const openPocket = async () => {
+			if (!await pocket(page, 1).isVisible()) {
+				await openPage(page, 1);
+			}
+
+			await pocket(page, 1).click();
+			await page.waitForSelector('#pocket-sheet[open] #owned-results .pick');
+		};
+
+		await seedLocal(page, documentWith(cards, [binder]), records);
+		await page.goto(url(`binders/${binder.id}`));
+		await openPocket();
+
+		// The first time: Pokédex number, a Trainer last.
+		assert.deepEqual(await page.$$eval('#owned-sort option', (list) => list.map((option) => option.textContent)), ['Pokédex', 'Set', 'Name']);
+		assert.equal(await page.locator('#owned-sort').inputValue(), 'dex');
+		assert.deepEqual(await picks(), ['s3', 's2', 's1', 's4', 's5']);
+
+		// Kanto only, then each order over it.
+		await page.click('#owned-filters');
+		await page.waitForSelector('#owned-sheet[open]');
+		await page.selectOption('#owned-f-region', 'kanto');
+		await page.click('#owned-sheet-close');
+		assert.deepEqual(await picks(), ['s3', 's2', 's1']);
+		await page.selectOption('#owned-sort', 'name');
+		assert.deepEqual(await picks(), ['s3', 's1', 's2'], 'Bulbasaur, Pikachu, Squirtle');
+		await page.selectOption('#owned-sort', 'dex');
+		assert.deepEqual(await picks(), ['s3', 's2', 's1'], '#1, #7, #25');
+		await page.selectOption('#owned-sort', 'setOld');
+		assert.deepEqual(await picks(), ['s1', 's3', 's2'], 'the 1999 set, then 001 and 007 of the 2025 set');
+		assert.deepEqual(await page.locator('#pocket-sheet .fb-chip').allTextContents(), ['Kanto (Gen 1)×'], 'the filter holds through a sort');
+
+		// The sort fits beside Filters at 360 px, untruncated.
+		const row = await page.locator('#owned-panel .fb-row').evaluate((element) => {
+			const select = element.querySelector('select');
+
+			return {right: Math.max(...[...element.children].map((child) => child.getBoundingClientRect().right)), width: select.clientWidth, text: select.scrollWidth};
+		});
+
+		assert.ok(row.right <= 360, `the row fits: ${row.right}`);
+		assert.ok(row.text <= row.width, `the sort is not cut: ${row.text} > ${row.width}`);
+		await page.screenshot({path: '/tmp/binders-picker-sort.png'});
+
+		// Remembered: the next picker opens on Set, without the filter; so
+		// does the tray picker, and so does a reload.
+		await page.click('#sheet-close');
+		await openPocket();
+		assert.equal(await page.locator('#owned-sort').inputValue(), 'setOld');
+		assert.deepEqual(await picks(), ['s1', 's5', 's3', 's2', 's4']);
+		await page.click('#sheet-close');
+		await page.click('#binder-add-tray');
+		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
+		assert.equal(await page.locator('#tray-sort').inputValue(), 'setOld');
+		assert.deepEqual(await page.locator('#tray-results .tray-pick').evaluateAll((items) => items.map((item) => item.dataset.entry)), ['s1', 's5', 's3', 's2', 's4']);
+		await page.screenshot({path: '/tmp/binders-tray-sort.png'});
+		await page.selectOption('#tray-sort', 'name');
+		await page.click('#sheet-close');
+		await page.waitForSelector('#pocket-sheet', {state: 'hidden'});
+		await page.goto(url(`binders/${binder.id}`));
+		await openPocket();
+		assert.equal(await page.locator('#owned-sort').inputValue(), 'name');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

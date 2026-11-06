@@ -317,7 +317,7 @@ function goalScreen(root, source, id) {
 			onChange: () => draw(),
 			placeholder: 'Search this goal',
 			sort: 'set',
-			sorts: ['set', 'name'],
+			sorts: ['name', 'set'],
 			storageKey: `cardTracker.goalBar.${goal.kind}`,
 		});
 		barSlot.replaceChildren(bar.element);

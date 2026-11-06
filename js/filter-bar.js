@@ -64,7 +64,14 @@ export const SORTS = [
 	{label: 'Pokédex', long: 'Pokédex number', value: 'dex'},
 	{label: 'Set', long: 'Set and number, newest set first', value: 'set'},
 	{label: 'Price', long: 'Price, highest first', value: 'price'},
+	// The binder card pickers' set order (Eric, 2026-11-06): a binder fills
+	// from the oldest set, so My Cards does not offer it.
+	{label: 'Set', long: 'Set and number, oldest set first', value: 'setOld'},
 ];
+
+// What a bar offers when the screen names no sorts: all but setOld, whose
+// label My Cards' newest-first Set already uses.
+const DEFAULT_SORTS = SORTS.map((option) => option.value).filter((value) => value !== 'setOld');
 
 // Every filter the bar knows, in the order the sheet shows them. dex is a
 // Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
@@ -248,18 +255,42 @@ const firstDex = (item) => (item.dexIds && item.dexIds.length ? Math.min(...item
 
 const byName = (a, b) => collator.compare(text(a.name), text(b.name)) || text(a.language).localeCompare(text(b.language));
 
+const byNumber = (a, b) => collator.compare(text(a.number), text(b.number));
+
 const bySet = (a, b) => text(b.releaseDate).localeCompare(text(a.releaseDate))
 	|| text(a.setKey).localeCompare(text(b.setKey))
-	|| collator.compare(text(a.number), text(b.number));
+	|| byNumber(a, b);
+
+// Oldest set first, a set with no release date last, then the set ID and
+// the collector number, read as numbers ("2" before "10", "TG05" before
+// "TG10"), as binder rules order sets (js/binder-rules.js).
+function byOldSet(a, b) {
+	return Number(!a.releaseDate) - Number(!b.releaseDate)
+		|| text(a.releaseDate).localeCompare(text(b.releaseDate))
+		|| collator.compare(text(a.setKey), text(b.setKey))
+		|| byNumber(a, b);
+}
 
 const SORTERS = {
-	dex: (a, b) => firstDex(a) - firstDex(b) || byName(a, b),
+	// The same number (Pikachu in many sets) by the oldest set; no number
+	// (a Trainer or an Energy) last, by name.
+	dex: (a, b) => {
+		const first = firstDex(a);
+		const other = firstDex(b);
+
+		if (first !== other) {
+			return first < other ? -1 : 1;
+		}
+
+		return (first === Infinity ? 0 : byOldSet(a, b)) || byName(a, b);
+	},
 	name: byName,
 	newest: (a, b) => text(b.newest).localeCompare(text(a.newest)),
 	oldest: (a, b) => text(a.oldest).localeCompare(text(b.oldest)),
 	// Unknown prices last, never counted as zero.
 	price: (a, b) => (b.price ?? -1) - (a.price ?? -1) || byName(a, b),
 	set: bySet,
+	setOld: (a, b) => byOldSet(a, b) || byName(a, b),
 };
 
 export const sortItems = (items, sort) => [...items].sort(SORTERS[sort] || SORTERS.newest);
@@ -402,7 +433,8 @@ let barCount = 0;
 //   countShown  (state) => how many cards the screen shows, for the sheet's
 //               Show button (default: the bar's items the choice leaves)
 //   filters     which of FILTERS to offer (default all)
-//   sorts       which SORTS values to offer (default all)
+//   sorts       which SORTS values to offer, in that order (default all
+//               but setOld)
 //   sort        the default sort
 //   legacy      () => {filters, sort} read when nothing is saved yet
 //   query       the search text to start with (Back from a card page)
@@ -425,7 +457,7 @@ export function filterBar({
 	query = '',
 	search: ownSearch = true,
 	sort: defaultSort = 'newest',
-	sorts: sortValues = SORTS.map((option) => option.value),
+	sorts: sortValues = DEFAULT_SORTS,
 	storageKey,
 }) {
 	const saved = readChoice(storageKey, legacy);
@@ -481,7 +513,7 @@ export function filterBar({
 	const sortSelect = h('select', {'aria-label': 'Sort cards', class: 'fb-sort', id: `${id}-sort`, onchange: () => {
 		state.sort = sortSelect.value;
 		changed('sort');
-	}}, SORTS.filter((option) => sortValues.includes(option.value)).map((option) => h('option', {title: option.long, value: option.value}, option.label)));
+	}}, sortValues.map((value) => SORTS.find((option) => option.value === value)).filter(Boolean).map((option) => h('option', {title: option.long, value: option.value}, option.label)));
 
 	sortSelect.value = state.sort;
 
