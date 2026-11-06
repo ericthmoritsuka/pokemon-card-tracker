@@ -900,18 +900,60 @@ button.bc-handle:focus-visible::after {
 /* A phone held sideways (js/binder-spread.js SIDEWAYS_QUERY): the app's
    header scrolls away with the page while a binder is open, instead of
    sticking over the spread, and the spread is sized to the height left
-   above the tab bar, so both pages show whole when it is scrolled to the
-   top: the screen less the scroll margin (4 px), the "Page N of M" line
-   (24 px, which the zip's pull reaches into), the tab bar, the Scan disc's
-   rise above the bar (28 px, style.css .scan-disc), and a 4 px gap. */
+   above the tab bar, so both pages and the page slider show whole when it
+   is scrolled to the top: the screen less the scroll margin (4 px), the
+   "Page N of M" line (24 px, which the zip's pull reaches into), the bar
+   under the book (a 2 px gap, its 34 px row, and 2 px above the tab bar),
+   and the tab bar.
+
+   The bar is one row that the Scan disc rises into (28 px, style.css
+   .scan-disc): the slider on the disc's left, the page menu on its right,
+   and a hole for the disc between them, centered on the screen, which is
+   where the disc is. --bs-hole-shift moves the hole right when the spread
+   is not centered on the screen (css/binders.css, the tray column). The
+   bubble over the slider's thumb still opens above the row.
+
+   The row is 34 px tall, not 44: at 360 px high a 44 px row would shrink
+   the book until its pockets are narrower than 44 px, and the pockets are
+   what is tapped most. The slider's thumb is 16 px, so it stays whole. */
 @media (orientation: landscape) and (max-height: 500px) {
 	body:has(#binder-spread) .shell-top {
 		position: static;
 	}
 
 	.bs {
-		--bs-chrome: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 60px);
+		--bs-chrome: calc(var(--tab-height, 64px) + env(safe-area-inset-bottom, 0px) + 66px);
+		--bs-hole: calc(var(--scan-size, 64px) + 16px);
 		scroll-margin-top: 4px;
+	}
+
+	.bs-bar {
+		align-items: center;
+		display: grid;
+		grid-template-columns: calc(50% + var(--bs-hole-shift, 0px) - (var(--bs-hole) / 2)) var(--bs-hole) minmax(0, 1fr);
+		margin-top: 2px;
+	}
+
+	.bs-bar > .bs-scrub {
+		grid-column: 1;
+		margin: 0;
+		max-width: none;
+	}
+
+	.bs-bar .bs-slider {
+		min-height: 34px;
+	}
+
+	.bs-bar > .bs-jump-wrap {
+		grid-column: 3;
+		grid-row: 1;
+	}
+
+	.bs-bar .bs-jump {
+		height: 34px;
+		min-height: 0;
+		padding-bottom: 0;
+		padding-top: 0;
 	}
 
 	.bs-label {

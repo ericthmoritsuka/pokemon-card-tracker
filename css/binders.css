@@ -711,13 +711,18 @@ button.bt-fill {
 }
 
 /* A phone held sideways: the spread fills the height above the tab bar, so
-   the tray is a column beside it instead, scrolling up and down. */
+   the tray is a column beside it instead, scrolling up and down. The
+   spread's column then sits left of the screen's middle by half the tray
+   and its gap, so the hole its bar leaves for the Scan disc
+   (css/binder-spread.css) moves right by as much. */
 @media (orientation: landscape) and (max-height: 500px) {
 	#binder-spread-holder:has(> .bt:not([hidden])) {
+		--bt-column: 96px;
+		--bs-hole-shift: calc((var(--bt-column) + var(--space-2)) / 2);
 		align-items: start;
 		column-gap: var(--space-2);
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 96px;
+		grid-template-columns: minmax(0, 1fr) var(--bt-column);
 	}
 
 	#binder-spread-holder > .bt-note {
