@@ -1047,7 +1047,9 @@ export function scanView(root) {
 		}
 
 		// A card being taken or read finishes in the tray it was taken for.
-		if (capturing > 0 || shutterBusy || photosOpening > 0 || session.items.some((item) => working.has(item.id))) {
+		// A holder drop held for a sharper frame (pendingDrop) is a card being
+		// taken too: it goes to the tray of the mode it was dropped in.
+		if (capturing > 0 || shutterBusy || photosOpening > 0 || pendingDrop || session.items.some((item) => working.has(item.id))) {
 			drawMode();
 			setNote('A card is still being taken or read. Switch once it is in the tray.');
 

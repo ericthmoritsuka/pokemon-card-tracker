@@ -354,10 +354,12 @@ export function newMoveView(root) {
 	let alive = true;
 	const handed = takePendingMove() || {};
 	const outIds = new Set(handed.out || []);
+	// What the scanner handed over, so the left-out line counts only its cards.
+	const handedOut = new Set(handed.out || []);
 	const pastIds = new Set();
 	// The cards in: {fields, info, n}. The scanner's Trade or sale mode hands
 	// its cards coming in over in this shape (js/scan/trade.js tradeHandoff).
-	const ins = (handed.in || []).map((item) => ({fields: {...item.fields}, info: {...item.info}, n: item.n}));
+	const ins = (handed.in || []).map((item) => ({fields: {...item.fields}, info: {...item.info}, n: item.n, scanned: true}));
 	let kind = KIND_LABELS.some(([value]) => value === handed.kind) ? handed.kind : 'sold';
 	let doc = null;
 	// The kept Start over undo, which tells Log a past sale what an older
@@ -432,7 +434,7 @@ export function newMoveView(root) {
 
 		// A kind that leaves out cards the scanner handed over says so: they
 		// are not saved, and stay in the scanner's trade tray (onSaved).
-		const left = handed.from === 'scan' ? leftOutText(kind, {in: ins.reduce((sum, item) => sum + item.n, 0), out: outIds.size}) : null;
+		const left = handed.from === 'scan' ? leftOutText(kind, {in: ins.filter((item) => item.scanned).reduce((sum, item) => sum + item.n, 0), out: [...outIds].filter((id) => handedOut.has(id)).length}) : null;
 
 		leftOut.hidden = !left;
 		leftOut.textContent = left || '';

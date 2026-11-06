@@ -109,7 +109,8 @@ function tradeRow(item, {languageName, photoUrl, result, where}) {
 			: [languageName(item.language), item.condition].filter(Boolean).join(' · ');
 	// Pick when Eric must choose; changing a copy the scanner chose is on the
 	// card's sheet (tradeBlock), so the narrow row keeps room for the name.
-	const pick = status === 'ask' || (status === 'other' && result.candidates.length);
+	// No button when nothing is left to pick: the line says to remove the card.
+	const pick = (status === 'ask' || status === 'other') && Boolean((result.candidates || []).length);
 
 	return h('li', {class: ['scan-trade-row', looks ? 'is-look' : '', status === 'none' || status === 'other' ? 'is-skipped' : '', status === 'ask' ? 'is-ask' : ''].filter(Boolean).join(' '), 'data-row': item.id, 'data-status': status || reason || 'ready'},
 		h('button', {
