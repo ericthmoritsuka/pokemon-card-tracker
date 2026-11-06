@@ -1281,7 +1281,10 @@ cut round it, cutting the card. Fixed:
 
 - **An edge out of the capture is placed, not taken at a line inside the card** (`rectify.js`
   `outOfCapture`). An edge found is inside the card when the two edges across it run on past it to
-  the capture's edge (a card's edge has table beyond it), and a bottom also when the box is too
+  the capture's edge (a card's edge has table beyond it; a side only when both its top and bottom
+  were found inside the capture and the box is too narrow for its height, since a single line
+  across the whole capture, a table's edge or a bar of light taken for the top, runs past both
+  sides of a card wholly in it), and a bottom also when the box is too
   short for a card's shape, the top is the card's own (the sides do not run on above it), and the
   capture shows nothing of the sides below the bottom: they leave through its corners, or the
   bottom was found on or just above its last rows (half the shape's slack between sides found
@@ -1291,9 +1294,11 @@ cut round it, cutting the card. Fixed:
   and closes at both corners; the crop runs past the capture, its last row repeated, and the box
   hung from the bottom found is kept beside it for the picture to choose. An edge found on the
   capture's last rows is kept where it was found but not judged (its steps cannot be measured
-  there). `findQuad` gets the mirror of the worked-out top: a box with its bottom placed from its
-  top where the capture shows no bottom and the sides run out of it. The scan report says "bottom
-  PLACED past the capture's edge".
+  there). A side is placed from the other side and the height only where that lands past the
+  capture's edge; otherwise the box is left as found. `findQuad` gets the mirror of the worked-out
+  top: a box with its bottom placed from its top where the capture shows no bottom and the sides
+  run out of it. The scan report names the edge placed ("bottom PLACED past the capture's edge",
+  or the side).
 - **No card in the frame inside a card running off it** (`findCard`): a box inside a card-shaped
   outline with a corner at least 6 % of its width past the frame's edge, the ring between them a
   card's border or print, is part of that card, so no card is found and the guide's capture is
@@ -1313,7 +1318,7 @@ time from straightening to the match (median and 90th percentile, ms):
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `slantfull` | 31 → 31 | 14 → 14 | 0 → 0 | 1126, 1441 → 1134, 1428 | 24 → 34 | 13 → 20 | 0 → 0 | 1186, 2003 → 1155, 1755 |
 | `slant` | 34 → 34 | 19 → 19 | 0 → 0 | 953, 1277 → 954, 1285 | 21 → 36 | 14 → 20 | 0 → 0 | 1213, 1604 → 1245, 1488 |
-| `low` | 11 → 27 | 1 → 6 | 0 → 0 | 1243, 1810 → 1191, 1599 | 25 → 33 | 12 → 16 | 0 → 0 | 1152, 1725 → 1113, 1592 |
+| `low` | 11 → 27 | 1 → 7 | 0 → 0 | 1243, 1810 → 1191, 1599 | 25 → 33 | 12 → 16 | 0 → 0 | 1152, 1725 → 1113, 1592 |
 | `lowslant` | 19 → 34 | 6 → 12 | 0 → 0 | 993, 1469 → 846, 1295 | 16 → 33 | 7 → 21 | 0 → 0 | 1093, 1577 → 920, 1377 |
 | `clean` | 37 → 37 | 26 → 26 | 0 → 0 | 867, 1410 → 849, 1364 | 39 → 39 | 32 → 32 | 0 → 0 | 830, 1390 → 780, 1490 |
 | `blur` | 28 → 28 | 5 → 5 | 0 → 0 | 1013, 1312 → 1014, 1338 | 28 → 28 | 4 → 4 | 0 → 0 | 1141, 1301 → 1078, 1362 |
@@ -1333,6 +1338,15 @@ art box (a box 41 % off) and named right from the name alone; now that box is no
 capture is read, its foot is out and its box 6 % off, and the name does not read. The Western set
 stays at 194 of 240 first (103 sure, none wrong), and the Japanese and Korean set at 167 of 240 (79
 sure, the one wrong but sure as before).
+
+A review then found a card wholly inside the capture, its foot on the last rows, beside a line
+across the whole capture (a table's edge, or a bar of light taken for its top), cut 20 % off: that
+line ran past both sides, so both were placed at the capture's edges. With a side placed only for a
+box too narrow between a top and bottom found, and only where it lands past the capture (`18c699a`
+against `f38ff8c`, every pass on both paths and both sets), the right card first is the same
+everywhere; one more `low` card on the guide's capture is sure (7), and two boxes moved, both still
+on the same side of right: `low` `me01-018` on the guide's capture (6 % off either way) and `low`
+`swsh3-48` in the whole frame (1.8 to 3.6 % off).
 
 - **Still open:** on `slantfull` the box is right on 37 of 40 but the right card first stays 31:
   the number strip is out of the capture on most of them (numbers read 19 of 40 against 28 on
