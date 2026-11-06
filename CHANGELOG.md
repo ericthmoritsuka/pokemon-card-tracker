@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v61:** sort the binder card pickers, a binder's worth, and report cleanup. `TBD`
+- **v61:** sort the binder card pickers, a binder's worth, and report cleanup. `981ab96`
   - The pocket chooser and Add cards to the tray have **Sort**: Pokédex number, set (oldest set
     first, then card number), or name. The pick is remembered on each phone and starts at Pokédex.
     Region and other filters work with any order.
