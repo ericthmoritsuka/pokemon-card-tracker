@@ -439,7 +439,10 @@ rule: never lose a card. Built (version 64 to be): the capture loop of version 6
 capture that reads out of focus waits up to 1.5 s for a sharper still look of its spot and is added
 from it, or logged as a repeat (the repeat bar asks after a drop-like disturbance) or as nothing left,
 or, with no sharper look, added anyway, marked "Check this one" only when its match is not sure. A
-card dropped on a waiting one is its own card, added after it. The wait-and-hold build of branch
+card dropped on a waiting one is its own card, added after it. Never lose a card and never add one
+silently: a blurred capture added because another card landed, Log it, or leaving is always marked,
+a hand over the card before is a repeat, and a drop on the card before's place whose picture names
+the same card asks with the repeat bar. The wait-and-hold build of branch
 `holder-settle` was dropped: two reviews found ways it lost cards. Also: **Scan the cards** on Trades
 and sales opens Scan in Trade or sale, the trade tray as it was. DESIGN.md section 6, "Holder mode
 retries a blurred capture", and section 11, "Scan a trade or a sale". Tests:
@@ -451,10 +454,9 @@ To check on the phone and with Eric:
   how each wait ended.
 - Basic Energies read soft by the focus measure, so each waits 1.5 s before it is added; it is marked
   only when its match is not sure.
-- Never losing a card can add one too many: a hand held still over the pile for longer than 1.5 s,
-  or the next card in a hand taken blurred and then dropped on the spot, adds the blurred look (to
-  remove by hand; marked when its match is not sure); the card under the hand is not added again
-  when it leaves.
+- Never losing a card can add one too many, always marked: the next card in a hand taken blurred
+  over a card that is not the one before, then dropped on the spot. A hand held over a card that
+  just landed leaves one card; the card under a hand is not added again when it leaves.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

@@ -22,7 +22,9 @@
 // came in time (view.js captureDrop): it needs a look only when its match
 // is not sure, like any card, and its sheet then says the picture was
 // blurred (lookReason; Eric, 2026-11-06: what the scanner is sure of is
-// never marked).
+// never marked); and check, true for one added blurred because another card
+// landed or the scanner left before it was seen sharp: it needs a look
+// until confirmed, however sure (never added silently).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -927,6 +929,14 @@ export function blocker(item) {
 		return 'unsure';
 	}
 
+	// A blurred holder capture added because another card landed, or the
+	// scanner left, before a sharper look of it came (view.js flushRetry):
+	// checked by a tap, however sure its match, so it is never added
+	// silently (Eric, 2026-11-06).
+	if (item.check && !item.confirmed) {
+		return 'unsure';
+	}
+
 	if (!item.language) {
 		return 'language';
 	}
@@ -962,7 +972,7 @@ export function lookReason(item) {
 		case 'unmatched':
 			return item.blurred ? `${BLURRED_WHY} Search for it, or remove it.` : item.why || 'No card was found. Search for it, or remove it.';
 		case 'unsure':
-			return item.blurred ? `${BLURRED_WHY} ${item.why || 'Tap the right one.'}` : item.why || 'Not sure this is the card. Tap the right one.';
+			return item.blurred ? `${BLURRED_WHY} ${item.card && item.sure ? 'Tap This is the card if it is right.' : item.why || 'Tap the right one.'}` : item.why || 'Not sure this is the card. Tap the right one.';
 		case 'language':
 			return 'Not sure of the language. Pick the one printed on the card.';
 		case 'finish':

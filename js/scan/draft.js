@@ -109,18 +109,22 @@ export const loadPhoto = (key) => run(PHOTOS, 'readonly', (store) => store.get(k
 
 export const deletePhoto = (key) => run(PHOTOS, 'readwrite', (store) => store.delete(key));
 
-// Takes the sides a logged move saved ({out, in}, each true or false) out
-// of the Trade or sale tray (js/moves-view.js), unless a newer tray has
-// taken its place (sessionId names the one handed over). A side the move's
-// kind left out (a sale's cards coming in) stays for another move. The
-// photos of the cards taken out go at the next prune.
-export async function clearTrade(sessionId, sides = {in: true, out: true}) {
+// Takes the cards a logged move saved out of the Trade or sale tray
+// (js/moves-view.js): of the sides it saved ({out, in}, each true or
+// false), only the cards handed over (handed: {out, in}, the item ids each
+// side held when Log it was tapped, js/scan/trade.js tradeHandoff), never
+// a whole side, so a card scanned after Log it stays. Nothing goes when a
+// newer tray has taken its place (sessionId names the one handed over). A
+// side the move's kind left out (a sale's cards coming in) stays for
+// another move. The photos of the cards taken out go at the next prune.
+export async function clearTrade(sessionId, sides = {in: true, out: true}, handed = {in: [], out: []}) {
 	await saving;
 
 	const kept = await run(SESSION, 'readonly', (store) => store.get(TRADE)).catch(() => null);
 
 	if (kept && kept.id === sessionId) {
-		const saved = (item) => Boolean(sides[item.side === 'in' ? 'in' : 'out']);
+		const side = (item) => (item.side === 'in' ? 'in' : 'out');
+		const saved = (item) => Boolean(sides[side(item)]) && ((handed && handed[side(item)]) || []).includes(item.id);
 
 		await saveSession({...kept, items: kept.items.filter((item) => !saved(item)), updated_at: new Date().toISOString()});
 	}

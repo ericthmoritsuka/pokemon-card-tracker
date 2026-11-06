@@ -547,6 +547,39 @@ describe('Trade or sale', () => {
 		await context.close();
 	});
 
+	// Review of 2026-11-06: the save took a whole side out of the tray, so a
+	// card that joined it after Log it (a holder capture still being taken)
+	// was deleted though it was never in the form.
+	test('saving the move takes out only the cards Log it handed over; a card added to the tray after it stays', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
+		const item = (id, cardId, name, side) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
+		const tray = {created_at: at, id: 'trade-4', items: [item('t1', CARDS.a, 'Owned card', 'out')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		const {context, errors, ids, page} = await open({drafts: [tray], owned: [CARDS.a]});
+
+		await page.click('#scan-mode');
+		await page.waitForSelector('#scan-trade-out [data-row="t1"][data-status="chosen"]');
+		await page.click('#scan-done-open');
+		await page.waitForSelector(`#move-out-list [data-entry="${ids[0]}"]`);
+
+		// A card going out joins the trade tray after the form opened.
+		await page.evaluate(async (late) => {
+			const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+			const session = await draft.loadSession('trade');
+
+			await draft.saveSession({...session, items: [...session.items, late]});
+		}, item('t2', CARDS.c, 'Late card', 'out'));
+		await page.click('#move-save');
+		await page.waitForSelector('.moves-row');
+		await untilInPage(page, 'the card handed over left the tray, the late one stayed', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
+
+			return Boolean(session && session.items.length === 1 && session.items[0].id === 't2');
+		});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a kind that leaves a side out says so, saves the other side, and the side left out stays in the trade tray', async () => {
 		const at = '2026-11-06T10:00:00.000Z';
 		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});

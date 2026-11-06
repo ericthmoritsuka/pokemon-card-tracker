@@ -1462,28 +1462,49 @@ judged as a drop.
   surely is added plainly, like a sharp one, and the scan log keeps its focus. A blurred card that
   is not sure shows `?` and counts among the cards to check like any unsure card, and its sheet
   says "Check this one: its picture was blurred."
-- **Another card dropped on a waiting one is its own card** (`drop.js` `landedOn`, Eric,
-  2026-11-06). A sharp look of the spot replaces the waiting capture only when it is the same card
-  settling: no disturbance like a drop's moved the spot since the capture, or the look's print is
-  within 23 bits of the waiting capture's (two different cards one on the other were 24 to 62 apart
-  on his logs and videos). Otherwise the waiting capture is added first, as it was taken, and the
-  new card is added after it as its own, or waits for its own sharper look.
-- **Nothing is ever lost on the way.** While a capture waits, a drop on the same spot that still
-  reads blurred is the same card looked at again (logged as `blurred, waiting`), and a sharp one is
-  the card settled (added, the blurred frame dropped), unless another card landed on it (above); a
-  drop anywhere else adds the waiting card first, as it is. The shutter, a zoom change, a camera restart, and closing the scanner add it too.
-  Switching Add and Trade or sale and Auto's switch wait for it, as for any card being taken. A hand
-  held still over the card on top for longer than 1.5 s is added that way; when it leaves, a sharp
-  look of the card beneath on the same spot is a repeat of the card before it, not a new card. A
-  card on the very spot of the last, told by its picture alone (`contentAt`), is never taken for
-  "nothing left", since its cells barely change. When unsure whether the sharp look is the card before
-  (print 17 to 23 bits off), it is added.
+- **Never lose a card, and never add one silently** (Eric's rule after a review of the v64
+  candidate, 2026-11-06). Every blurred capture added for any other reason than its wait running
+  out (another card landed, Log it or Done, the shutter, a zoom change, the camera stopping or
+  stalling, leaving Scan, the spot showing something sharp that is not it), or that reads as soft
+  as a card held in a hand (`HAND_BLUR`, over 0.7 of its blocks soft), is marked "Check this one"
+  however sure its match (`session.js` `check`), unless all it shows sharp is the card taken before,
+  a hand's card out of focus over that card: then it is logged as a repeat (the repeat bar asks
+  after a disturbance like a drop's; after a wait that ran out, only for a hand-soft one, since a
+  soft card of its own may lie half on the card before).
+- **Another card dropped on a waiting one is its own card** (`drop.js` `landedOn`, `spotVerdict`).
+  It counts only on a card-shaped change on the spot after the capture (a drop there, or a new
+  picture on the very spot of the card before), with the look's print 24 bits or more from the
+  waiting capture's (the closest of the look's outlines: two different cards one on the other were
+  24 to 62 apart on his logs and videos), and the look not the waiting card itself: neither its
+  sharp detail found again (`revealedIn`: a hand that covered part of it left) nor the capture
+  looking like this look out of focus (`blurredLike`: it came into focus). Then the waiting capture
+  is added first, marked, and the new card after it as its own, cut from its own change. Otherwise
+  a sharp look is the waiting card settled (added once, from it), and a blurred one is one more look
+  at it, except after a fall like a drop's with the same picture: a second copy of the same card
+  (two Fire Energies), where the waiting card goes in and the repeat bar asks about the second.
+- **A drop on the card before's place asks when the picture names the same card**
+  (`readItemNow` `askIfSame`): a hand that covered the card just taken, or its picture taken a
+  moment before it settled, can make the same card print new; the card it reads as is then compared
+  with the card before, as hand-held scanning does, and the repeat bar asks instead of adding it
+  twice. A blurred capture added a moment ago whose spot then shows the same card sharp
+  (`sameCardThere`) is replaced by that sharp look, so a hand held over a card that just landed, for
+  any time, leaves one card.
+- **Nothing is ever lost on the way.** A drop anywhere else adds the waiting card first. The
+  shutter, a zoom change, a camera restart, the camera stopping or stalling, and closing the
+  scanner add it too. Switching Add and Trade or sale and Auto's switch wait for it, as for any card
+  being taken, and so do Log it and Done ("A card is still being taken."). A hand held still over
+  the card on top for longer than 1.5 s is added that way; when it leaves, a sharp look of the card
+  beneath on the same spot is a repeat of the card before it, not a new card. A card on the very
+  spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing left",
+  since its cells barely change. When unsure whether the sharp look is the card before (print 17 to
+  23 bits off), it is added. The wait counts from the frame in hand, so a slow grab does not use it
+  up.
 - **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
   Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s, and is
-  marked only when its match is not sure. Never losing a card can add one too many: the next card
-  in a hand, taken blurred, then dropped on the spot is added twice, the blurred look first (on his
-  log those blurred looks were never matched surely, so they are marked); and a card that bounces
-  as it settles, with its sharp print 24 bits or more from its blurred one, would be too.
+  marked only when its match is not sure. Never losing a card can add one too many, always marked:
+  the next card in a hand, taken blurred over a card that is not the one before, then dropped on the
+  spot. A heavily blurred card and another of the same layout and colours dropped on it within 1.5 s
+  could read as one card coming into focus.
 - **Measured on the log** (`lab/holder/replay-log.mjs`, each card taken put through `captureFocus` on
   the straightened picture the log kept, scaled to 200 pixels tall with the contrast of the view
   after): the 19 clean cards are all added at once (0 to 8 % of their printed blocks soft); the 8 bad
@@ -1498,7 +1519,7 @@ judged as a drop.
   `tests/scan-retry-browser.test.mjs`.
 - **The scan log** (scanner 64) keeps each drop's focus and, for a blurred capture, how its wait
   ended (`retry`: sharp, retaken, repeat, nothing left, or kept blurred and why), how long it took,
-  over how many looks, and whether a drop-like disturbance moved its spot meanwhile.
+  over how many looks, and whether a card-shaped change landed on its spot meanwhile.
 
 **Known hard parts:**
 
@@ -2731,7 +2752,12 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   line counts only the copies still in his cards, and says when one handed over is not any more. A
   kind that leaves a side out (Sold with cards coming in, Bought with cards going out) says so
   under the kinds ("The 1 card coming in is not part of a sale; it stays in the scanner's trade
-  tray"): that side is not saved, and stays in the trade tray for another move.
+  tray"): that side is not saved, and stays in the trade tray for another move. Log it waits while a
+  holder capture is still being taken or waits for a sharper look ("A card is still being taken."),
+  so every card scanned is in the form, and the save takes out of the tray only the cards that were
+  in the tray when Log it was tapped, never a whole side: a card scanned after it stays (review of
+  2026-11-06: a card still being taken was added after the form opened, and the save deleted it with
+  its side).
 - **Nothing changes before Save.** The collection changes only when the move is saved; then the
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit

@@ -1298,6 +1298,13 @@ export function regionStir(now, before, box, cell = CELL, change = STIR_CHANGE) 
 	return total ? count / total : 0;
 }
 
+// A capture this soft (its share of soft blocks) is no card lying in the
+// box but a card held out of focus near the lens: the scans of basic
+// Energies, the softest prints, read 0.2 to 0.6, a card held in a hand
+// about 1 (view.js flushRetry: never added silently, and over the card
+// before, a repeat).
+export const HAND_BLUR = 0.7;
+
 // How long a blurred capture waits for a sharper look of its spot before it
 // is added all the same, marked to check. Eric's fastest rhythm was a card
 // every 1.5 s.
@@ -1311,14 +1318,155 @@ export const RETRY_MS = 1500;
 export const GONE_STIR = 0.03;
 
 // Whether a look of a waiting capture's spot shows another card that
-// landed on it (Eric, 2026-11-06: never lose a card): a disturbance like a
-// drop's moved the spot since the capture (disturbed), and the look's print
-// is NEW_PRINT or more from the waiting capture's (waiting). Two different
-// cards one on the other were 24 to 62 apart on his logs and videos; the
-// same card settling stays closer. A missing print counts as another card,
-// so the waiting one is added rather than replaced. Without a disturbance a
-// sharper look of the spot is the waiting card settling.
-export const landedOn = ({disturbed, print, waiting}) => Boolean(disturbed) && printDistance(print, waiting) >= NEW_PRINT;
+// landed on it (Eric, 2026-11-06: never lose a card, never add one
+// silently): a card-shaped change on the spot after the capture (landed:
+// a drop there, or a new picture on the very spot of the card before), the
+// look's print NEW_PRINT or more from the waiting capture's (waiting), and
+// the look not the waiting card itself (same, sameCardThere: a hand that
+// covered part of it left, or it came into focus). Two different cards one
+// on the other were 24 to 62 apart on his logs and videos. A missing print
+// counts as another card, so the waiting one is added rather than replaced.
+export const landedOn = ({landed, print, same = false, waiting}) => Boolean(landed) && !same && printDistance(print, waiting) >= NEW_PRINT;
+
+// What a capture planned on a waiting capture's spot is (view.js
+// captureDrop: a card-shaped change there, landed): 'another card' dropped
+// on it (landedOn), 'settled' (sharp, and the waiting card: its sharp look
+// is the card), 'second copy' (still blurred, after a fall like a drop's,
+// fell, with the waiting card's picture but not the waiting card itself,
+// same: a second copy of the same card dropped on it, which the repeat bar
+// asks about, as version 40 does; review of 2026-11-06: it was folded into
+// the waiting card without a word), or 'waiting' (still blurred with no
+// fall: a hand over it moving slowly, one more look at the waiting card).
+export function spotVerdict({fell = false, landed = false, print, same = false, sharp, waiting}) {
+	if (landedOn({landed, print, same, waiting})) {
+		return 'another card';
+	}
+
+	if (sharp) {
+		return 'settled';
+	}
+
+	return fell && !same ? 'second copy' : 'waiting';
+}
+
+// The sharp detail of one picture of a card's place (a cardThumb, source)
+// found again in another (other): the thumbnail cells where source has
+// detail (its step from cell to cell at least REVEAL_STEP) and how many of
+// them other matches within REVEAL_TOLERANCE grey levels. A blurred part
+// (a hand's card out of focus) has no detail, so only what was sharp
+// counts: the part of the card the hand left uncovered.
+export const REVEAL_STEP = 24;
+export const REVEAL_TOLERANCE = 20;
+// Enough detail to go by, and how much of it must match.
+export const REVEAL_MIN = 120;
+export const REVEAL_SHARE = 0.6;
+
+export function detailMatch(source, other) {
+	if (!source || !other || source.w !== other.w || source.h !== other.h) {
+		return {cells: 0, share: 0};
+	}
+
+	const {h, w} = source;
+	const at = (thumb, x, y) => thumb.rgb[(y * w + x) * 3];
+	let cells = 0;
+	let same = 0;
+
+	for (let y = 1; y < h - 1; y++) {
+		for (let x = 1; x < w - 1; x++) {
+			const step = Math.abs(at(source, x + 1, y) - at(source, x - 1, y)) + Math.abs(at(source, x, y + 1) - at(source, x, y - 1));
+
+			if (step >= REVEAL_STEP) {
+				cells++;
+
+				if (Math.abs(at(source, x, y) - at(other, x, y)) <= REVEAL_TOLERANCE) {
+					same++;
+				}
+			}
+		}
+	}
+
+	return {cells, share: cells ? same / cells : 0};
+}
+
+export function revealedIn(source, other) {
+	const {cells, share} = detailMatch(source, other);
+
+	return cells >= REVEAL_MIN && share >= REVEAL_SHARE;
+}
+
+// How alike a blurred picture of a card's place is to a sharp one, as the
+// sharp one would look out of focus: the least mean grey difference between
+// `blurred` and `sharp` blurred by up to LIKE_PASSES passes of a 3 x 3 box
+// (a cardThumb each). The same card coming into focus reads close; another
+// card, or a hand's card over it, does not.
+export const LIKE_PASSES = 4;
+export const LIKE_MAD = 12;
+
+export function blurredLike(blurred, sharp) {
+	if (!blurred || !sharp || blurred.w !== sharp.w || blurred.h !== sharp.h) {
+		return 255;
+	}
+
+	const {h, w} = sharp;
+	const target = new Float32Array(w * h);
+	let grey = new Float32Array(w * h);
+
+	for (let i = 0; i < w * h; i++) {
+		target[i] = blurred.rgb[i * 3];
+		grey[i] = sharp.rgb[i * 3];
+	}
+
+	const mad = (a) => {
+		let sum = 0;
+
+		for (let i = 0; i < a.length; i++) {
+			sum += Math.abs(a[i] - target[i]);
+		}
+
+		return sum / a.length;
+	};
+	let best = mad(grey);
+
+	for (let pass = 0; pass < LIKE_PASSES; pass++) {
+		const next = new Float32Array(w * h);
+
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				let sum = 0;
+				let n = 0;
+
+				for (let dy = -1; dy <= 1; dy++) {
+					for (let dx = -1; dx <= 1; dx++) {
+						const xx = x + dx;
+						const yy = y + dy;
+
+						if (xx >= 0 && xx < w && yy >= 0 && yy < h) {
+							sum += grey[yy * w + xx];
+							n++;
+						}
+					}
+				}
+
+				next[y * w + x] = sum / n;
+			}
+		}
+
+		grey = next;
+		best = Math.min(best, mad(grey));
+	}
+
+	return best;
+}
+
+// Whether a look of a waiting capture's place shows the waiting card
+// itself: its sharp detail found again (revealedIn: a hand that covered
+// part of it left). A card coming into focus is told by its print, which
+// stays close (landedOn); a heavily blurred picture looks like any other
+// heavily blurred one (blurredLike), so likeness alone never says so.
+export const sameCardThere = (waiting, now) => revealedIn(waiting, now);
+
+// A card's place (quad, frame pixels) on a finer view, as a thumbnail.
+export const thumbAt = (fine, quad) => cardThumb(fine.grey, fine.width, fine.height, quad.map(toView(fine)));
 
 // Two boxes are one spot when either lies this much inside the other.
 const SPOT_SHARE = 0.5;

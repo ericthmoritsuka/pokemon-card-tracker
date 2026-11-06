@@ -419,8 +419,8 @@ export function guessKind(outCount, inCount) {
 }
 
 // What Log it hands the trades log's form (js/moves-view.js newMoveView):
-// {kind, alternatives, out: [copy ids], in: [{fields, info, n}], records,
-// session}. The cards in are the copies Add would save (session.js
+// {kind, alternatives, out: [copy ids], in: [{fields, info, n}], items:
+// {out, in} (the tray's item ids on each side), records, session}. The cards in are the copies Add would save (session.js
 // entriesToSave: card, catalog, language, language_source 'scan', finish,
 // condition), one row per tray card with its copies as n; records names
 // them in the card index (as Add's save does), so the form shows their
@@ -468,8 +468,11 @@ export function tradeHandoff(session, results, owned = new Map()) {
 	}
 
 	const {alternatives, kind} = guessKind(out.length, incoming.length);
+	// The tray's cards on each side as they are now: the save takes out
+	// only these (draft.js clearTrade).
+	const items = {in: ins.map((item) => item.id), out: session.items.filter((item) => sideOf(item) === 'out').map((item) => item.id)};
 
-	return {alternatives, in: incoming, kind, out, records, session: session.id};
+	return {alternatives, in: incoming, items, kind, out, records, session: session.id};
 }
 
 // One line under a card going out, saying which copy goes or why none does.

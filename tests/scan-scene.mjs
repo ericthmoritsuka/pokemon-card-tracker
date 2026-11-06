@@ -199,6 +199,11 @@ export function sceneCamera({height, width}) {
 			if (placed.blur) {
 				const soft = blurredCard(placed, image, gh);
 
+				// No cast shadow: a shadow blurred over a picture this large
+				// holds the headless browser for a fifth of a second a draw,
+				// and an out-of-focus card shows none sharp enough to matter.
+				ctx.shadowColor = 'transparent';
+
 				ctx.drawImage(soft, -soft.width / 2, -soft.height / 2);
 			}
 			else {

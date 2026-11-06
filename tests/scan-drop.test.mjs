@@ -634,18 +634,59 @@ describe('a blurred capture is retried, never lost (Eric, 2026-11-06, version 64
 		assert.equal(D.retryVerdict({byPicture: true, focus: soft, stir: 0}), null);
 	});
 
-	test('landedOn: after a disturbance on the spot, a print far from the waiting one is another card; with none, the card settling', () => {
+	test('landedOn: a card-shaped change on the spot and a print far from the waiting one is another card, unless the waiting card shows again', () => {
 		// Prints as printOf makes them: two 64-bit hashes, two 32-bit words each.
 		const a = {art: Uint32Array.from([0x01234567, 0x89abcdef]), face: Uint32Array.from([0x0f0f0f0f, 0x0f0f0f0f])};
 		const near = {art: Uint32Array.from([0x01234560, 0x89abcdef]), face: a.face};
 		const far = {art: Uint32Array.from([~0x01234567 >>> 0, ~0x89abcdef >>> 0]), face: a.face};
 
 		assert.ok(D.printDistance(near, a) < D.NEW_PRINT && D.printDistance(far, a) >= D.NEW_PRINT);
+		assert.equal(D.landedOn({landed: true, print: far, waiting: a}), true, 'a different card dropped on it');
+		assert.equal(D.landedOn({landed: true, print: near, waiting: a}), false, 'the same card, settled');
+		assert.equal(D.landedOn({landed: false, print: far, waiting: a}), false, 'no card-shaped change on the spot: the card settling');
+		assert.equal(D.landedOn({landed: true, print: far, same: true, waiting: a}), false, 'the waiting card shows again: a hand over it left, or it came into focus');
+		assert.equal(D.landedOn({landed: true, print: far, waiting: null}), true, 'no print to compare: added, never replaced');
+	});
 
-		assert.equal(D.landedOn({disturbed: true, print: far, waiting: a}), true, 'a different card dropped on it');
-		assert.equal(D.landedOn({disturbed: true, print: near, waiting: a}), false, 'the same card, settled');
-		assert.equal(D.landedOn({disturbed: false, print: far, waiting: a}), false, 'no drop in between: the card settling');
-		assert.equal(D.landedOn({disturbed: true, print: far, waiting: null}), true, 'no print to compare: added, never replaced');
+	test('spotVerdict: on a waiting capture\'s spot, another card, the card settled, a second copy, or one more look', () => {
+		const a = {art: Uint32Array.from([0x01234567, 0x89abcdef]), face: Uint32Array.from([0x0f0f0f0f, 0x0f0f0f0f])};
+		const far = {art: Uint32Array.from([~0x01234567 >>> 0, ~0x89abcdef >>> 0]), face: a.face};
+
+		assert.equal(D.spotVerdict({landed: true, print: far, sharp: true, waiting: a}), 'another card');
+		assert.equal(D.spotVerdict({landed: true, print: far, sharp: false, waiting: a}), 'another card', 'blurred too: added after the waiting one');
+		assert.equal(D.spotVerdict({landed: true, print: far, same: true, sharp: true, waiting: a}), 'settled', 'a hand over it left, or it came into focus');
+		assert.equal(D.spotVerdict({landed: true, print: a, sharp: true, waiting: a}), 'settled');
+		// Review of 2026-11-06: two Fire Energies, the second dropped on the
+		// first while it waited, were folded into one without a word.
+		assert.equal(D.spotVerdict({fell: true, landed: true, print: a, sharp: false, waiting: a}), 'second copy');
+		assert.equal(D.spotVerdict({fell: false, landed: true, print: a, sharp: false, waiting: a}), 'waiting', 'a hand over it moving slowly');
+		assert.equal(D.spotVerdict({fell: true, landed: true, print: a, same: true, sharp: false, waiting: a}), 'waiting', 'the waiting card itself');
+	});
+
+	test('blurredLike: the same card out of focus reads close to its sharp look; another card does not', () => {
+		const thumbOf = (view) => D.cardThumb(view.grey, view.width, view.height, QUAD);
+		const sharp = fineView();
+		const other = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value) => 255 - value)};
+
+		assert.ok(D.blurredLike(thumbOf(fineView({blur: 3})), thumbOf(sharp)) <= D.LIKE_MAD);
+		assert.ok(D.blurredLike(thumbOf(fineView({blur: 3})), thumbOf(other)) > D.LIKE_MAD);
+		assert.equal(D.sameCardThere(thumbOf(fineView({blur: 3})), thumbOf(sharp)), true);
+	});
+
+	test('revealedIn: the sharp part of a card half under a blurred hand is found again once the hand leaves; another card on it is not', () => {
+		const corners = QUAD;
+		const thumbOf = (view) => D.cardThumb(view.grey, view.width, view.height, corners);
+		const sharp = fineView();
+		const soft = fineView({blur: 3});
+		// The lower half under a hand's card out of focus.
+		const covered = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value, i) => (Math.floor(i / FW) > Y0 + CH / 2 ? soft.grey[i] : value))};
+		const other = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value, i) => 255 - value)};
+
+		assert.equal(D.revealedIn(thumbOf(covered), thumbOf(sharp)), true, 'the card, the hand gone');
+		assert.equal(D.revealedIn(thumbOf(covered), thumbOf(other)), false, 'another card dropped on it');
+		assert.equal(D.revealedIn(thumbOf(fineView({blur: 10})), thumbOf(sharp)), false, 'nothing sharp to go by: never taken for the same');
+		assert.equal(D.revealedIn(thumbOf(soft), thumbOf(sharp)), true, 'a little soft, the same card');
+		assert.ok(D.detailMatch(thumbOf(covered), thumbOf(sharp)).cells >= D.REVEAL_MIN);
 	});
 
 	test('sameSpot: a card on the waiting one\'s spot is one spot; a card beside it is another', () => {

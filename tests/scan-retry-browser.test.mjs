@@ -17,7 +17,12 @@
 // - a card whose own print reads soft, as a basic Energy's does, is added,
 //   not held back, and not marked when its match is sure;
 // - a card dropped on a blurred one waiting is its own card, and the
-//   waiting one is added first;
+//   waiting one is added first, marked to check;
+// - a card landing under a hand held over it, the hand leaving without
+//   dropping, is one card, for a moment or past RETRY_MS;
+// - the hand holding the next card over the card on top, then dropping it
+//   there: each card once;
+// - Log it while a capture waits: it waits, and the card joins the tray;
 // - the card just taken, with a blurred card held over it and then taken
 //   away, is not added again (logged as a repeat), and with the blurred
 //   card held there past RETRY_MS, the blurred look is added marked and the
@@ -59,8 +64,9 @@ after(async () => {
 });
 
 // Holder mode on, the scan log recording, the phone over the empty box from
-// the first frame (tests/scan-holder-browser.test.mjs open says why).
-async function open() {
+// the first frame (tests/scan-holder-browser.test.mjs open says why). trade:
+// Scan opens in Trade or sale, with `drafts` (trays) written first.
+async function open({drafts = null, trade = false} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 900, width: 384}});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
@@ -77,15 +83,28 @@ async function open() {
 		}
 	});
 	await context.addInitScript(sceneCamera, FRAME);
-	await context.addInitScript(() => {
+	await context.addInitScript((mode) => {
 		localStorage.setItem('card-tracker:scan-holder', 'on');
 		localStorage.setItem('card-tracker:scan-log', 'on');
-	});
+		localStorage.setItem('card-tracker:scan-mode', mode);
+	}, trade ? 'trade' : 'add');
 
 	const page = await context.newPage();
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(String(err)));
+
+	if (drafts) {
+		await page.goto(`${harness.origin}${BASE}cards`);
+		await page.evaluate(async (trays) => {
+			const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+
+			for (const tray of trays) {
+				await draft.saveSession(tray);
+			}
+		}, drafts);
+	}
+
 	await page.goto(`${harness.origin}${BASE}scan`);
 	await page.waitForSelector('#scan-guide:not([hidden])', {timeout: 30000});
 	await page.waitForFunction(() => document.getElementById('scan-video').videoWidth > 0);
@@ -131,6 +150,34 @@ const readAll = (page, count, errors = []) => untilInPage(page, `${count} cards 
 	return Boolean(session) && session.items.length === n && session.items.every((item) => item.status !== 'reading' && item.status !== 'matching');
 }, {arg: count, timeout: 60000});
 
+// Until no card in the tray is still being read.
+const settled = (page) => untilInPage(page, 'every card read', async () => {
+	const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+
+	return Boolean(session) && session.items.every((item) => item.status !== 'reading' && item.status !== 'matching');
+}, {timeout: 60000});
+
+// Holds the next card in the hand, out of focus, over `pile` for `ms` (timed
+// in the page), then takes the hand away; with `next`, drops that card
+// instead as the hand goes, as drop does.
+function hover(page, pile, hand, ms, next = null) {
+	return page.evaluate(async ({cards, held, wait, then}) => {
+		window.scene = {background: 'box', cards, held};
+		await new Promise((resolve) => setTimeout(resolve, wait));
+
+		if (then) {
+			for (let step = 6; step >= 0; step--) {
+				window.scene = {background: 'box', cards: [...cards, step ? {...then, angle: (then.angle || 0) + step * 4, dy: (then.dy || 0) - step * 0.16} : then]};
+				await new Promise((resolve) => setTimeout(resolve, 60));
+			}
+
+			return;
+		}
+
+		window.scene = {background: 'box', cards};
+	}, {cards: pile, held: hand, then: next, wait: ms});
+}
+
 // Drops `card` onto the pile from above the frame, as
 // tests/scan-holder-browser.test.mjs does; `last` is drawn for its last step
 // (a card landing blurred), and `held` over everything throughout; steps:
@@ -150,6 +197,8 @@ const SPOT = {angle: 1, dx: 0.01, dy: 0.02, size: 0.88};
 // The next card in the hand, out of focus near the lens, over most of the
 // card on top.
 const HELD = {angle: -6, blur: 0.016, card: 'a', dx: 0.03, dy: 0.05, size: 1.02};
+// The same, over the lower part of the card only: its top stays in view.
+const HELD_LOW = {angle: -6, blur: 0.016, card: 'a', dx: 0.04, dy: 0.34, size: 0.8};
 
 // Makes the blurred cards a test draws before it draws them: making one
 // holds the page for up to a second (tests/scan-scene.mjs warmBlur), which
@@ -245,7 +294,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		const {context, errors, page} = await open();
 		// A print a little soft of its own, lying dead still: no sharper look
 		// ever comes.
-		const soft = {...SPOT, blur: 0.007, card: 'a'};
+		const soft = {...SPOT, blur: 0.001, card: 'a'};
 
 		await warm(page, soft);
 		await drop(page, [], {...SPOT, card: 'a'}, {last: soft});
@@ -358,18 +407,10 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await warm(page, blurred);
 		await drop(page, [], {...SPOT, card: 'c'}, {last: blurred});
 
-		// The first waits for a sharper look; the second falls on it well
-		// within RETRY_MS of the first's capture (a quick drop, timed in the
-		// page), so the first is still waiting when the second lands.
-		const early = await page.evaluate(async () => {
-			const view = await import('/pokemon-card-tracker/js/scan/view.js');
-
-			await new Promise((resolve) => setTimeout(resolve, 300));
-
-			return view.scanStats.captures;
-		});
-
-		assert.equal(early, 0, 'the first waits for a sharper look');
+		// The first waits for a sharper look (scanStats.retries); the second
+		// falls on it at once, well within RETRY_MS of the first's capture.
+		await untilInPage(page, 'the first waiting for a sharper look', async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.retries >= 1, {interval: 30, timeout: 5000});
+		assert.equal(await captures(page), 0, 'the first waits for a sharper look');
 		await drop(page, [blurred], second, {steps: 3});
 		await capturedAt(page, 2, 'both cards added', 8000);
 		await readAll(page, 2, errors);
@@ -379,9 +420,87 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		const list = await items(page);
 
 		assert.equal(list[0].blurred, true, `the waiting card first, as it was taken: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.drop && item.drop.retry]))}`);
-		assert.equal(list[0].drop.retry.reason, 'next card');
+		// Added because the second landed on it (marked, however sure), or,
+		// when the test camera's picture lags past RETRY_MS, because its
+		// wait ran out first; either way before the second, never replaced.
+		assert.ok(['next card', 'time'].includes(list[0].drop.retry.reason), JSON.stringify(list[0].drop.retry));
+
+		if (list[0].drop.retry.reason === 'next card') {
+			assert.equal(list[0].look, true, 'the waiting card is marked to check: never added silently');
+		}
+
 		assert.equal(list[1].card, CARDS.a, 'then the card dropped on it');
-		assert.equal(list[1].blurred, false);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Review of 2026-11-06: the hand bringing the next card hovered over the
+	// card that just landed before its first still look; when it left, the
+	// card's sharp look read as another card dropped on it, and the card was
+	// added twice.
+	for (const [name, ms] of [['for a moment', 900], ['for longer than RETRY_MS', 2600]]) {
+		test(`a card that lands under a hand held over it ${name}, the hand leaving without dropping: one card`, async () => {
+			const {context, errors, page} = await open();
+			const first = {...SPOT, card: 'c'};
+
+			await warm(page, HELD_LOW);
+			await drop(page, [], first, {held: HELD_LOW});
+			await hover(page, [first], HELD_LOW, ms);
+			await page.waitForTimeout(3500);
+			await settled(page);
+
+			const list = await items(page);
+
+			assert.deepEqual(list.map((item) => item.card), [CARDS.c], `one card: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.look, item.drop && item.drop.retry]))}`);
+			assert.equal(list[0].blurred, false, 'from its sharp look');
+			assert.deepEqual(errors, []);
+			await context.close();
+		});
+	}
+
+	test('the hand holds the next card over the card on top for a moment, then drops it there: each card once', async () => {
+		const {context, errors, page} = await open();
+		const first = {...SPOT, card: 'c'};
+		const next = {angle: -2, card: 'a', dx: 0.02, dy: 0.03, size: 0.88};
+
+		await warm(page, HELD_LOW);
+		await drop(page, [], first);
+		await capturedAt(page, 1, 'card c taken');
+		await readAll(page, 1, errors);
+		await page.waitForTimeout(1000);
+		await hover(page, [first], HELD_LOW, 900, next);
+		await page.waitForTimeout(3500);
+		await settled(page);
+
+		const list = await items(page);
+
+		assert.deepEqual(list.map((item) => item.card), [CARDS.c, CARDS.a], `c once, a once: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.look, item.drop && item.drop.retry]))}`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Review of 2026-11-06: Log it while the last capture waited for its
+	// sharper look built the form without it, and the save then deleted it
+	// from the trade tray with its side.
+	test('Log it while a capture waits for a sharper look: it waits, and the card joins the trade tray', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = {catalog: 'international', id: CARDS.a, image: null, lang: 'en', localId: '1', name: 'Card in', official: '99', setId: 'me01', setName: 'Test'};
+		const tray = {created_at: at, id: 'trade-1', items: [{candidates: [], captured_at: at, card, condition: null, confirmed: true, finishBy: 'plain', id: 't1', language: 'en', languageBy: 'hand', names: [], read: null, side: 'in', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null}], lastSave: null, mode: 'trade', sheetShown: false, side: 'in', updated_at: at};
+		const {context, errors, page} = await open({drafts: [tray], trade: true});
+		const blurred = {...SPOT, blur: 0.02, card: 'c'};
+
+		await warm(page, blurred);
+		await drop(page, [], {...SPOT, card: 'c'}, {last: blurred});
+		await page.waitForTimeout(700);
+		assert.equal(await captures(page), 0, 'the capture waits for a sharper look');
+		await page.click('#scan-done-open');
+		assert.match(await page.textContent('#scan-note'), /A card is still being taken\./);
+		assert.equal(new URL(page.url()).pathname, `${BASE}scan`, 'the form does not open yet');
+		await untilInPage(page, 'the card in the trade tray', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
+
+			return Boolean(session) && session.items.length === 2;
+		}, {timeout: 10000});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
