@@ -14,6 +14,17 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
+- **v62:** take a card out of its pocket, and lay out a binder from a list. `TBD`
+  - Tapping a card in a binder lifts it out over the binder, large, with pinch and double-tap zoom.
+    Under it: Details (the pocket's sheet), To the tray, Move, and Card page. Tap outside, swipe
+    down, or Back puts it back. Placing a card from the tray still works as before.
+  - **Lay out from a list** on a hand-made binder: pick a checklist, and its Pokémon go into the
+    empty pockets as placeholders in Pokédex order, from the first empty pocket after the last one
+    in use (or every empty pocket from page 1). Pokémon already in the binder are skipped, filled
+    pockets never change, and pages can be added when the list does not fit. Cards you own fill
+    them now, and new copies fill them as you add them. Undo takes it back; pages it added stay,
+    empty.
+
 - **v61:** sort the binder card pickers, a binder's worth, and report cleanup. `981ab96`
   - The pocket chooser and Add cards to the tray have **Sort**: Pokédex number, set (oldest set
     first, then card number), or name. The pick is remembered on each phone and starts at Pokédex.

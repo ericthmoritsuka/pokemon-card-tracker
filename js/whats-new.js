@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-06',
 		items: [
+			'Tap a card in a binder to take it out of its pocket and look at it large, with zoom. Details, To the tray, Move, and Card page sit under it.',
+			'Lay out from a list: a binder you fill by hand can take a checklist, such as Johto, as placeholders in Pokédex order in its empty pockets. Cards you own go in now, and new ones as you add them.',
+		],
+		version: 'v62',
+	},
+	{
+		date: '2026-11-06',
+		items: [
 			'Filling a binder, the card pickers sort by Pokédex number, set (oldest first), or name, and remember your pick.',
 			'A binder shows what it is worth under its name. Tap it for the breakdown.',
 			'Sent scan reports are deleted automatically 30 days after they reach your account.',
