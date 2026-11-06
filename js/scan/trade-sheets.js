@@ -188,12 +188,27 @@ function copyTiles(ctx, item, result, {on, tap}) {
 // pocket, a binder's tray, a storage place, or no binder), spares marked,
 // best first. A card standing for several copies picks that many; one copy
 // is picked with one tap.
+// The copies tapped for a card standing for several, as each draw of a
+// sheet should show them: until he taps one, the copies the scanner has for
+// it now (they change when another card takes one); after, his taps, less
+// any copy no longer offered (taken by another card, or gone).
+function tappedNow(tapped, result) {
+	if (!tapped) {
+		return new Set(result.copies.map((entry) => entry.id));
+	}
+
+	const offered = new Set(result.candidates.map((entry) => entry.id));
+
+	return new Set([...tapped].filter((id) => offered.has(id)));
+}
+
 export function copyPicker(ctx, itemId) {
 	const titleId = 'scan-copy-title';
 	const body = h('div', {class: 'scan-sheet-body'});
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-copy-sheet', id: 'scan-copy-sheet', role: 'dialog'},
 		sheetHeader('Which copy goes out?', () => ctx.closeSheet(), titleId),
 		body);
+	let tapped = null;
 	let chosen = null;
 
 	function refresh() {
@@ -208,9 +223,7 @@ export function copyPicker(ctx, itemId) {
 
 		const need = result.need;
 
-		if (!chosen) {
-			chosen = new Set(result.copies.map((entry) => entry.id));
-		}
+		chosen = tappedNow(tapped, result);
 
 		const fits = result.status !== 'other';
 		const intro = need > 1
@@ -235,6 +248,7 @@ export function copyPicker(ctx, itemId) {
 					chosen.add(entry.id);
 				}
 
+				tapped = chosen;
 				refresh();
 			},
 		});
@@ -281,7 +295,9 @@ export function picksSheet(ctx) {
 		body);
 	const listed = new Set();
 	// For a card standing for several copies: the copies tapped so far, kept
-	// here until there are as many as it stands for.
+	// here until there are as many as it stands for (tappedNow; an untapped
+	// card shows the scanner's copies as they are now).
+	const tapped = new Map();
 	const chosen = new Map();
 	const outs = () => ctx.session.items.filter((item) => sideOf(item) === 'out');
 	const skipped = (result) => result.status === 'none' || result.status === 'other';
@@ -297,8 +313,8 @@ export function picksSheet(ctx) {
 		const need = result.need;
 		const nameId = `scan-picks-name-${item.id}`;
 
-		if (need > 1 && !chosen.has(item.id)) {
-			chosen.set(item.id, new Set(result.copies.map((entry) => entry.id)));
+		if (need > 1) {
+			chosen.set(item.id, tappedNow(tapped.get(item.id), result));
 		}
 
 		const tiles = copyTiles(ctx, item, result, {
@@ -319,6 +335,8 @@ export function picksSheet(ctx) {
 				else if (set.size < need) {
 					set.add(entry.id);
 				}
+
+				tapped.set(item.id, set);
 
 				if (set.size === need) {
 					ctx.pickCopies(item.id, [...set]);

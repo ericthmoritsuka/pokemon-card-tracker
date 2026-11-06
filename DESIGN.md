@@ -2691,7 +2691,11 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   a condition not set counting as its own), it takes one by itself, a spare first (the Trade view's
   rule, `spareEntries`), then the newest added. It asks only when the choice matters: the loose
   copies differ in finish or condition, so the choice changes what leaves, or not enough loose
-  copies fit and one would come out of a binder. Then the row says "Pick which copy goes" and
+  copies fit and one would come out of a binder. A loose copy with no finish saved may be the finish
+  read too, so it counts for the condition beside the copies in that finish (a Played holo never
+  goes silently while a Near Mint copy of unknown finish was the other choice), and when the finish
+  read sits only in a binder and the loose copies have no finish saved, it asks rather than take a
+  copy of unknown finish (review of 2026-11-06). Then the row says "Pick which copy goes" and
   **Pick the copy** shows the copies as pictures with their language, finish, condition, where
   they are, and Spare. *(Decided by Eric, 2026-11-06, on v63: "the app is asking me about every
   card I'm scanning in the trade to select which copy goes out... didn't you say it would select

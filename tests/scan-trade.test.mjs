@@ -187,8 +187,9 @@ describe('which copy goes out', () => {
 	});
 
 	test('a finish read narrows to that finish: a copy with no finish saved goes only when none in the finish is loose', () => {
-		// u1 (no finish saved) is newer and a spare, but h1 is the holo read.
-		const cards = [copy('h1', {condition: 'Near Mint'}), copy('u1', {condition: 'Played', created_at: at(2), variant_id: null})];
+		// u1 (no finish saved) is newer and a spare, but h1 is the holo read,
+		// in the same condition.
+		const cards = [copy('h1', {condition: 'Near Mint'}), copy('u1', {condition: 'Near Mint', created_at: at(2), variant_id: null})];
 		const result = T.outCopies(tray([{}]), cards).get('t1');
 
 		assert.equal(result.status, 'chosen');
@@ -199,12 +200,31 @@ describe('which copy goes out', () => {
 		const differ = T.outCopies(tray([{}]), [...cards, copy('h2', {condition: 'Played', created_at: at(3)})]).get('t1');
 
 		assert.equal(differ.status, 'ask');
+	});
 
-		// The holo copy in a binder: the loose one with no finish saved goes.
-		const binder = T.outCopies(tray([{}]), cards, {where: new Map([['h1', {binder_name: 'Binder', kind: 'tray'}]])}).get('t1');
+	// Review of 2026-11-06: "asks only when copies differ in finish or
+	// condition, or only binder copies fit" held only before a finish match.
+	test('a holo Played and a Near Mint copy of no finish saved: it asks, since the one with no finish may be the holo too', () => {
+		const result = T.outCopies(tray([{}]), [copy('h1', {condition: 'Played'}), copy('u1', {condition: 'Near Mint', variant_id: null})]).get('t1');
 
-		assert.deepEqual(ids(binder.copies), ['u1']);
+		assert.equal(result.status, 'ask');
+		assert.deepEqual(ids(result.copies), []);
+		assert.deepEqual(ids(result.candidates).sort(), ['h1', 'u1']);
+	});
 
+	test('the holo read is in a binder and the loose copy has no finish saved: it asks rather than take a copy of unknown finish', () => {
+		const result = T.outCopies(tray([{}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null})], {where: new Map([['h1', {binder_name: 'Binder', kind: 'tray'}]])}).get('t1');
+
+		assert.equal(result.status, 'ask');
+		assert.deepEqual(ids(result.copies), []);
+
+		// With no finish read, the loose copy goes as before.
+		const unread = T.outCopies(tray([{variantId: null}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null})], {where: new Map([['h1', {binder_name: 'Binder', kind: 'tray'}]])}).get('t1');
+
+		assert.deepEqual(ids(unread.copies), ['u1']);
+	});
+
+	test('a card standing for two takes the holo read and the newer of two alike copies with no finish saved', () => {
 		// A card standing for two: the one holo goes, and of the two alike
 		// copies with no finish saved, the newer.
 		const two = T.outCopies(tray([{copies: 2}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null}), copy('u2', {created_at: at(3), variant_id: null})]).get('t1');

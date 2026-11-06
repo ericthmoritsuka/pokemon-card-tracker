@@ -171,8 +171,11 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 //                     (or every one already going out): not logged unless
 //                     Eric picks one
 //           'ask'     the loose copies it would choose between differ in
-//                     finish or condition, or too few loose copies fit and
-//                     the rest are in binders: Eric picks
+//                     finish or condition (a loose copy with no finish saved
+//                     counts for the condition beside the ones in the finish
+//                     read), too few loose copies fit and the rest are in
+//                     binders, or the finish read is in a binder while the
+//                     loose copies have no finish saved: Eric picks
 //           'short'   fewer copies fit than the card's copies: those go
 //           'chosen'  the copies are settled (by 'auto' or 'hand')
 //   need        how many copies the card stands for (its Copies)
@@ -315,8 +318,18 @@ export function outCopies(session, cards, {known = 'loaded', where = new Map()} 
 		const settled = exactFits.length >= remaining ? [] : exactFits;
 		const between = exactFits.length >= remaining ? exactFits : looseFits.filter((entry) => !settled.includes(entry));
 		const left = remaining - settled.length;
+		// Loose copies with no finish saved may be the finish read too: when
+		// the copies in that finish are enough, they still count for the
+		// condition, so a Played holo never goes silently while a Near Mint
+		// copy of unknown finish was the other choice.
+		const unknown = exactFits.length >= remaining ? looseFits.filter((entry) => !entry.variant_id) : [];
+		const conditions = new Set([...between, ...unknown].map((entry) => entry.condition || null));
+		// A finish read, too few loose copies in it, and the loose ones left
+		// have no finish saved while a copy in that very finish sits in a
+		// binder: which one is the card in his hand is his call.
+		const binderExact = Boolean(item.variantId) && exactFits.length < remaining && fits.some((entry) => !loose(entry) && exact(item, entry)) && between.every((entry) => !entry.variant_id);
 
-		if (between.length > left && new Set(between.map(kindOf)).size > 1) {
+		if ((between.length > left && new Set(between.map(kindOf)).size > 1) || (unknown.length && conditions.size > 1) || binderExact) {
 			Object.assign(result, {copies: hand, status: 'ask'});
 			continue;
 		}
