@@ -49,7 +49,7 @@ import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
-import {valueButton} from './value-sheet.js';
+import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
@@ -1043,11 +1043,21 @@ function binderScreen(root, source, id, pageParam) {
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
 	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
-	// The value of the copies in the binder, on demand and at the top: a
-	// small Value button opens the sheet (js/value-sheet.js), never a big box.
+	// The value of the copies in the binder, at the top: a small Value button
+	// with the total on it (Eric, 2026-11-06) opens the sheet
+	// (js/value-sheet.js), never a big box.
 	const statsSlot = h('div', {class: 'binder-stats', id: 'binder-stats'});
 	let statsEntries = [];
-	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder')});
+	// The total, read after the pages draw; a later read wins (showTotal).
+	// Pockets and Liga prices change through draw; a rate the sheet read, on
+	// its close; prices saved by another screen, on coming back to this one.
+	const drawValue = () => {
+		if (alive && statsEntries.length) {
+			showTotal(valueOpen, statsEntries, {index}).catch(() => {});
+		}
+	};
+	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder'), onClose: drawValue});
+	const onVisible = () => document.visibilityState === 'visible' && drawValue();
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
 	// Many cards into the tray at once; a binder made from a list has none.
 	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
@@ -1331,6 +1341,8 @@ function binderScreen(root, source, id, pageParam) {
 		else if (!statsSlot.contains(valueOpen)) {
 			statsSlot.replaceChildren(valueOpen);
 		}
+
+		drawValue();
 	}
 
 	function draw() {
@@ -3575,6 +3587,7 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	}, {records: false});
 
+	document.addEventListener('visibilitychange', onVisible);
 	root.append(...[back, body, sheet].filter(Boolean));
 	load();
 
@@ -3585,6 +3598,7 @@ function binderScreen(root, source, id, pageParam) {
 		clearTimeout(trayNoteTimer);
 		clearTimeout(handMessageTimer);
 		document.removeEventListener('keydown', onHandKey);
+		document.removeEventListener('visibilitychange', onVisible);
 		stop();
 		stopCovers();
 		stopImages();

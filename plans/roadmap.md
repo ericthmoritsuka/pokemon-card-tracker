@@ -263,6 +263,10 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   all region-related"):** the pocket's card chooser and Add cards to the tray sort by Pokédex number
   (the first time), Set (oldest set first, then the number), or Name; the last one picked is kept on
   the phone for both. DESIGN.md section 11, Filters and Sorting. Small.
+- **Built 2026-11-06 on branch `picker-sort`: a binder's worth on its Value button (Eric, 2026-11-06):** the
+  small button reads "Value R$ 1.245" ("~" for a US estimate, ", partly priced" when some copies have
+  none), the Value sheet's own sum, updated as pockets and prices change. DESIGN.md section 10. Sets
+  and checklists could take the same `showTotal` call if Eric wants it there too. Small.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free

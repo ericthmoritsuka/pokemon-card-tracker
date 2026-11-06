@@ -10,7 +10,7 @@ import {h} from './dom.js';
 import {formatCount} from './format.js';
 import {ASIAN_LANGUAGES} from './languages.js';
 import {statsBar} from './price-view.js';
-import {copyValue, savedRates} from './prices.js';
+import {copyValue, listStats, savedRates, valueLabel} from './prices.js';
 
 const ASIAN = new Set(ASIAN_LANGUAGES);
 
@@ -133,12 +133,29 @@ export function openValueSheet({cardsById, entries, filling = false, label = 'th
 	return sheet;
 }
 
+// Puts the total of entries on a valueButton's label (prices.js valueLabel),
+// with the same records and sums the sheet reads at a tap. index is the
+// card index the screen holds. A later call wins: an older read that ends
+// after it changes nothing.
+export async function showTotal(button, entries, {index = new Map()} = {}) {
+	const run = (button.totalRun || 0) + 1;
+
+	button.totalRun = run;
+
+	const saved = await savedCardRecords(entries).catch(() => new Map());
+
+	if (button.totalRun === run) {
+		button.textContent = valueLabel(listStats(entries, new Map([...index, ...saved]), {rates: savedRates()}));
+	}
+}
+
 // The small Value button for a screen that is not My Cards (a set, a list,
 // a binder): entries() gives the copies at the tap, and the records the
 // sheet needs are read then, not on every redraw. id names the button;
 // label says what the copies are ("your cards from Base"), or is a function
-// that does at the tap.
-export function valueButton({entries, id, label}) {
+// that does at the tap. onClose runs when the sheet closes, which may have
+// read a new exchange rate.
+export function valueButton({entries, id, label, onClose = null}) {
 	let opening = false;
 
 	const button = h('button', {'aria-haspopup': 'dialog', class: 'small value-open', id, onclick: async () => {
@@ -154,7 +171,11 @@ export function valueButton({entries, id, label}) {
 
 			if (button.isConnected) {
 				button.focus();
-				openValueSheet({cardsById: new Map([...index, ...saved]), entries: list, label: typeof label === 'function' ? label() : label, saved});
+				const sheet = openValueSheet({cardsById: new Map([...index, ...saved]), entries: list, label: typeof label === 'function' ? label() : label, saved});
+
+				if (onClose) {
+					sheet.addEventListener('close', onClose);
+				}
 			}
 		}
 		finally {

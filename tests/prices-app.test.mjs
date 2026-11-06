@@ -242,7 +242,12 @@ describe('prices in the app', () => {
 		await page.waitForSelector('#binder-stats #binder-value');
 		assert.ok(await page.evaluate(() => document.querySelector('.binder-head').nextElementSibling.id === 'binder-stats'), 'right under the binder\'s name');
 		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics on the binder');
+		// The button carries the sheet's total, short (Eric, 2026-11-06).
+		await page.waitForFunction(() => document.getElementById('binder-value').textContent !== 'Value');
+		assert.equal(plain(await page.locator('#binder-value').textContent()), 'Value ~R$ 4.952');
+		assert.ok(await page.locator('#binder-value').evaluate((button) => button.getBoundingClientRect().right <= 360 && button.scrollWidth <= button.clientWidth), 'the label fits at 360 px');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-binder.png'});
+		await page.screenshot({fullPage: false, path: `${SHOTS}/binder-value.png`});
 		await page.click('#binder-value');
 		await page.waitForSelector('.value-sheet[open] .price-stats');
 		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of Vitrine');
@@ -251,6 +256,15 @@ describe('prices in the app', () => {
 		await page.keyboard.press('Escape');
 		await page.waitForSelector('.value-sheet', {state: 'detached'});
 		await noSideways(page, 'the binder');
+
+		// A pocket emptied: the total follows.
+		await page.evaluate(async (id) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+
+			await binders.clearPocket(id, 1, 2);
+		}, binderId);
+		await page.waitForFunction(() => document.getElementById('binder-value').textContent.replace(/\s/g, ' ') !== 'Value ~R$ 4.952');
+		assert.match(plain(await page.locator('#binder-value').textContent()), /^Value (R\$ 52,30|~R\$ 4\.900)$/);
 
 		assert.deepEqual(device.errors.map(String), []);
 		assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');

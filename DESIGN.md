@@ -1853,6 +1853,15 @@ are Asian prints with no market price, how many still wait for a price, how many
 price for, then the statistics bar under "Of the priced copies", and a link that filters My Cards
 to the copies without a price. The sheet takes any list of copies, so the Trade view can open it.
 
+**A binder's Value button carries its total** (Eric, 2026-11-06: "you should also show how much the
+binder is worth based on the cards in it"). Still the small button, not a box: it reads "Value
+R$ 1.245", "Value ~R$ 4.952" when part of it is a US estimate, or "Value R$ 50,00, partly priced"
+when some copies have no price, the Collections list's words; plain "Value" when none has one. It is
+the sheet's own sum over the same copies (prices.js listStats and valueLabel), in whole reais from
+R$ 100. It is read after the pages draw, again when a pocket or a copy's Liga price changes, when
+the sheet closes (it may have read a new rate), and on coming back to the app; a later read wins.
+The binder screen asks for no prices or rates itself. Sets and checklists keep a plain "Value".
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
