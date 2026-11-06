@@ -280,12 +280,7 @@ export function defaultCopy(copies, rankOf = () => ({})) {
 			continue;
 		}
 
-		const raw = rankOf(entry) || {};
-		const rank = {
-			created: text(entry.created_at),
-			rarity: rarityRank(raw.rarity),
-			value: Number.isFinite(raw.value) ? raw.value : null,
-		};
+		const rank = copyRank(entry, rankOf);
 
 		if (!best || beats(rank, entry, bestRank, best)) {
 			best = entry;
@@ -294,6 +289,41 @@ export function defaultCopy(copies, rankOf = () => ({})) {
 	}
 
 	return best;
+}
+
+const copyRank = (entry, rankOf) => {
+	const raw = rankOf(entry) || {};
+
+	return {
+		created: text(entry.created_at),
+		rarity: rarityRank(raw.rarity),
+		value: Number.isFinite(raw.value) ? raw.value : null,
+	};
+};
+
+// The same order as a sort comparator, best copy first, for the copies that
+// fill placeholders (js/placeholder-fill.js fillPlan; Eric, 2026-11-06).
+// Each copy's rank is worked out once.
+export function copyOrder(rankOf = () => ({})) {
+	const ranks = new Map();
+	const rankOfCopy = (entry) => {
+		if (!ranks.has(entry)) {
+			ranks.set(entry, copyRank(entry, rankOf));
+		}
+
+		return ranks.get(entry);
+	};
+
+	return (a, b) => {
+		const rankA = rankOfCopy(a);
+		const rankB = rankOfCopy(b);
+
+		if (beats(rankA, a, rankB, b)) {
+			return -1;
+		}
+
+		return beats(rankB, b, rankA, a) ? 1 : 0;
+	};
 }
 
 function beats(a, entryA, b, entryB) {

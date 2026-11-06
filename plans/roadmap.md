@@ -50,16 +50,20 @@ the audit below to confirm or drop:
   DESIGN.md section 6); perfectly regular vertical
   stripes still pass the presence check. Worth committing the benchmark into `lab/` (it uses
   TCGdex images only) so it survives `/tmp` being cleared.
-- **Binders (v18):** the empty-binder hint still says "Tap a pocket", which in portrait means
-  tapping the page first; the binder screen's action buttons no longer stick (they covered the
+- **Binders (v18):** the binder screen's action buttons no longer stick (they covered the
   spread); new binders default to 40 pages; old `binders/<id>/<page>` links open the spread
-  holding that page; another phone keeps a deleted binder's cover in its local cache; in
-  landscape the raised Scan button sits over the bottom of the spine.
+  holding that page; another phone keeps a deleted binder's cover in its local cache. Done in
+  v22 (checked 2026-11-06): the empty-binder hint says "Tap a page, then a pocket" upright and
+  "Tap a pocket" sideways (`0731f45`, tests/shell.test.mjs), and held sideways the spread is
+  sized to stay clear of the raised Scan button (`97f9def`; at 740 x 360, 780 x 360, 844 x 390,
+  and 915 x 412 the book ends 3 to 4 px above the disc).
 - **Every card of a Pokémon (v19):** a list with no `languages` field shows "All" and counts any
-  language. Once Edit saves languages there is no way back to "All" (ticking every box counts the
-  same but shows seven flags). On an "All" list the first visit to a Pokémon makes four Asian
-  catalog requests plus one per Japanese or Korean set with that Pokémon, cached afterwards. Owned
-  rows no longer expand inline; the row links to the Pokémon's screen instead.
+  language. Done (checked 2026-11-06): Edit offers "Any language", which removes the field
+  (v22, `ba990c6`, tests/checklists.test.mjs), and ticking every box saves the same way
+  (`3bec825`, js/languages.js `listLanguagesToSave`). On an "All" list the first visit to a
+  Pokémon makes four Asian catalog requests plus one per Japanese or Korean set with that
+  Pokémon, cached afterwards. Owned rows no longer expand inline; the row links to the Pokémon's
+  screen instead.
 - **Twins (v20):** Ver na Liga on a Japanese Trainer now builds its link from the twin's English
   name; check against Liga's Japanese pages that this is right. Set detail tiles do not use twins.
   No test opens a family member's cards with Japanese entries. Twins and the Pokémon screen each
@@ -281,6 +285,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   what does not fit, owned copies filled in, and Undo. A Pokémon's placeholder is a `want` with no
   card and a `dex`, which v47 to v61 keep. `js/binder-layout.js`, DESIGN.md section 11. Medium. To
   check with Eric: an older phone's Open card on such a pocket opens an empty card page.
+- **Built 2026-11-06 on branch `binder-polish`: placeholders take the most valuable copy (Eric,
+  2026-11-06; it was the oldest):** Fill placeholders, the fill after adding copies, Add cards to the
+  tray, and Lay out from a list put in the copy a binder from a list would show (price, else
+  rarity, else newest added, a tie to the lowest id; `js/binder-rules.js` `copyOrder`). Start over
+  and the trades log still take the oldest, having no prices inside their one save. DESIGN.md
+  section 11, "Placeholders fill themselves". Small.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free
