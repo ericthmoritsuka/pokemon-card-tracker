@@ -1159,7 +1159,7 @@ export function scanView(root) {
 		saveToCardIndex(handoff.records).catch(() => {});
 		setPendingMove({...handoff, from: 'scan', onSaved: () => draft.clearTrade(sessionId, T.newTradeSession())});
 		persist();
-		go('trades/new');
+		closeSheet().then(() => go('trades/new'));
 	}
 
 	let noteText = null;
@@ -1239,10 +1239,10 @@ export function scanView(root) {
 		}
 	}
 
+	// Resolves once the sheet's history entry is gone, so a route change
+	// made after it is not undone by the sheet's own Back.
 	function closeSheet() {
-		if (sheetHandle) {
-			sheetHandle.close();
-		}
+		return sheetHandle ? sheetHandle.close() : Promise.resolve();
 	}
 
 	// After the sheet layer closes, however it closed (focus goes back to
@@ -3860,8 +3860,7 @@ export function scanView(root) {
 		if (T.isTrade(session) && session.items.length) {
 			showSheet(leaveTradeSheet(ctx, {action: 'Discard and close', count: session.items.length, onLeave: () => {
 				discardTrade();
-				closeSheet();
-				close();
+				closeSheet().then(() => close());
 			}}));
 
 			return;

@@ -417,4 +417,30 @@ describe('Trade or sale', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('Close with cards in the trade tray asks, and Discard and close leaves with the tray empty and nothing changed', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = {catalog: 'international', id: CARDS.a, image: null, lang: 'en', localId: '1', name: 'Owned card', official: '132', setId: 'me01', setName: 'Test'};
+		const tray = {created_at: at, id: 'trade-2', items: [{candidates: [], captured_at: at, card, condition: null, confirmed: true, finishBy: 'plain', id: 't1', language: 'en', languageBy: 'hand', names: [], read: null, side: 'out', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null}], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		const {context, errors, page} = await open({drafts: [tray], owned: [CARDS.a]});
+
+		await page.click('#scan-mode-trade');
+		await page.waitForSelector('#scan-trade-out [data-row="t1"]');
+		await page.click('#scan-close');
+		await page.waitForSelector('#scan-leave-sheet');
+		await page.click('#scan-leave-go');
+		await page.waitForSelector('#scan', {state: 'detached'});
+		await untilInPage(page, 'the trade tray emptied', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
+
+			return Boolean(session && session.items.length === 0);
+		});
+		assert.notEqual(new URL(page.url()).pathname, `${BASE}scan`);
+
+		const kept = await collectionState(page);
+
+		assert.equal(kept.cards.filter((entry) => !entry.deleted).length, 1, 'nothing in the collection changed');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
