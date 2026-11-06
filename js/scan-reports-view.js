@@ -11,7 +11,7 @@ import {currentUser, onUser} from './auth.js';
 import {BASE, go, h} from './dom.js';
 import {downloadBlob} from './scan/image.js';
 import {removeEntries} from './scan/log.js';
-import {NOTE_MAX, problemText, scansText, sizeText, stampDate} from './scan/report-file.js';
+import {NOTE_MAX, REPORT_KEEP_DAYS, deleteAt, problemText, scansText, sizeText, stampDate} from './scan/report-file.js';
 import {scanView} from './scan/report-scans.js';
 import {deleteReport, listReports, loadReport, reportSender, sendReport, startReportSync} from './scan/reports.js';
 
@@ -23,6 +23,18 @@ const when = (date) => {
 
 // An error's own words, for a status line.
 const reason = (err) => String((err && err.message) || err || 'unknown error').replace(/\.$/, '');
+
+// When the cleanup deletes a report (js/scan/report-file.js deleteAt):
+// "Deleted Dec 6", or "Deleted soon" once that day is past.
+function deleteText(report) {
+	const end = deleteAt(report.at);
+
+	if (!end) {
+		return null;
+	}
+
+	return end.getTime() <= Date.now() ? 'Deleted soon' : `Deleted ${end.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`;
+}
 
 const reportRoute = (base) => `check/reports/${encodeURIComponent(base)}`;
 
@@ -263,6 +275,7 @@ function reportItem(report, onDeleted) {
 		info.scanners && info.scanners.length ? `scanner ${info.scanners.join(', ')}` : null,
 		typeof info.pictures === 'number' ? `${info.pictures} with pictures` : null,
 	].filter(Boolean);
+	const deleting = deleteText(report);
 
 	function ask(open) {
 		confirm.hidden = !open;
@@ -293,6 +306,7 @@ function reportItem(report, onDeleted) {
 		h('p', {style: 'margin: 0'}, `Note: ${info.note || 'none'}`),
 		facts.length ? h('p', {class: 'muted', style: 'margin: 0'}, facts.join(' · ')) : null,
 		report.complete ? null : h('p', {class: 'muted', style: 'margin: 0'}, `Still going up: ${report.found} of ${report.parts} parts.`),
+		deleting ? h('p', {class: 'muted sent-report-expiry', style: 'margin: 0'}, deleting) : null,
 		del, confirm, status);
 }
 
@@ -349,6 +363,7 @@ export function sentReportsView(root) {
 		h('section', {class: 'card'},
 			h('h2', null, 'Sent reports'),
 			h('p', {class: 'muted'}, 'Scan logs sent with Send report in Phone check, kept in your account. Only you can see them, from any device you are signed in on.'),
+			h('p', {class: 'muted', id: 'sent-reports-expiry'}, `Reports are deleted automatically ${REPORT_KEEP_DAYS} days after they are sent.`),
 			status,
 			waiting,
 			list),

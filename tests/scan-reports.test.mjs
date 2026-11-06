@@ -15,10 +15,15 @@ import {readFile} from 'node:fs/promises';
 import {describe, test} from 'node:test';
 
 import {
+	CLEANUP_EVERY_MS,
+	CLEANUP_KEY,
 	LIST_PAGE,
 	NAME_PATTERN,
 	PART_BYTES,
+	REPORT_KEEP_DAYS,
+	createReportCleanup,
 	dataNames,
+	deleteAt,
 	failureKind,
 	groupReports,
 	metaName,
@@ -30,6 +35,7 @@ import {
 	readReport,
 	readReports,
 	reportBase,
+	removeReport,
 	reportStamp,
 	sizeText,
 	stampDate,
@@ -651,6 +657,171 @@ describe('reading reports from the bucket', () => {
 		assert.deepEqual(opened.log.entries.map((item) => item.id), [`${target}-a`]);
 		assert.equal(opened.report.base, target);
 		await assert.rejects(readReport(files, USER, reportBase(new Date(AT.getTime() + 99000), 3)), /not in your account/);
+	});
+});
+
+// ------------------------------------------------------------- cleanup
+
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.parse('2026-12-10T12:00:00.000Z');
+
+// A folder with reports sent `days` ago each (a 3-part gzip log and its
+// meta file, or one JSON file), plus any other names, read and deleted
+// through readReports and removeReport as js/scan/reports.js does. The
+// clock, the phone's storage, the outbox, and who is signed in are state.
+function cleanupSetup({days = [], extra = [], failRemove = () => false, queued = []} = {}) {
+	const objects = new Map();
+	const removes = [];
+	const warnings = [];
+	const state = {listed: 0, now: NOW, online: true, user: {id: USER}};
+	const bases = days.map((ago, i) => reportBase(new Date(NOW - ago * DAY), 10 + i));
+
+	bases.forEach((base, i) => {
+		const names = i % 2 ? dataNames(base, 'none') : dataNames(base, 'gzip', 3);
+
+		for (const name of [...names, metaName(base)]) {
+			objects.set(`${USER}/${name}`, '{}');
+		}
+	});
+
+	for (const name of extra) {
+		objects.set(`${USER}/${name}`, '{}');
+	}
+
+	const files = {
+		async download(path) {
+			return {data: new Blob([objects.get(path) || '{}']), error: null};
+		},
+		async list(folder, {limit = 100, offset = 0, search = ''} = {}) {
+			state.listed++;
+
+			const names = [...objects.keys()].filter((path) => path.startsWith(`${folder}/`)).map((path) => path.slice(folder.length + 1)).filter((name) => name.startsWith(search)).sort().reverse();
+
+			return {data: names.slice(offset, offset + limit).map((name) => ({metadata: {size: 2}, name})), error: null};
+		},
+		async remove(paths) {
+			removes.push(paths);
+
+			if (failRemove(paths)) {
+				return {data: null, error: {message: 'Service unavailable', status: 503}};
+			}
+
+			return {data: paths.filter((path) => objects.delete(path)).map((name) => ({name})), error: null};
+		},
+	};
+	const kept = new Map();
+	const cleanup = createReportCleanup({
+		currentUser: () => state.user,
+		deleteReport: (report) => removeReport(files, USER, report),
+		listReports: () => readReports(files, USER),
+		now: () => state.now,
+		online: () => state.online,
+		storage: {getItem: (key) => (kept.has(key) ? kept.get(key) : null), setItem: (key, value) => kept.set(key, value)},
+		waiting: async () => queued.map((index) => ({base: bases[index]})),
+		warn: (...args) => warnings.push(args.join(' ')),
+	});
+	const left = () => [...objects.keys()].map((path) => path.slice(USER.length + 1)).sort();
+
+	return {bases, cleanup, kept, left, removes, state, warnings};
+}
+
+describe('deleting old reports', () => {
+	test('a report sent 31 days ago goes with all its parts and its meta file in one delete; one sent 29 days ago stays', async () => {
+		const {bases, cleanup, left, removes, warnings} = cleanupSetup({days: [31, 29]});
+		const result = await cleanup.run();
+
+		assert.equal(REPORT_KEEP_DAYS, 30);
+		assert.deepEqual(result, {deleted: 1, failed: 0});
+		assert.deepEqual(removes, [[...dataNames(bases[0], 'gzip', 3), metaName(bases[0])].map((name) => `${USER}/${name}`)], 'one call, every file of the old report');
+		assert.deepEqual(left(), [...dataNames(bases[1], 'none'), metaName(bases[1])].sort());
+		assert.deepEqual(warnings, []);
+		assert.equal(deleteAt(stampDate(bases[1])).getTime(), NOW + DAY, 'the kept one goes in a day');
+	});
+
+	test('names it cannot read as a report, and a report still in the phone\'s outbox, are never deleted', async () => {
+		const extra = ['notes.txt', '2026-01-01.json', 'old.json.gz', '20251001T000000Z-3.json'];
+		const {bases, cleanup, left, removes} = cleanupSetup({days: [40, 45], extra, queued: [1]});
+
+		assert.deepEqual(await cleanup.run(), {deleted: 1, failed: 0});
+		assert.equal(removes.length, 1);
+		assert.ok(removes[0].every((path) => path.includes(bases[0])));
+		assert.deepEqual(left(), [...extra, ...dataNames(bases[1], 'none'), metaName(bases[1])].sort());
+	});
+
+	test('it runs at most once a day on a phone', async () => {
+		const {cleanup, kept, state} = cleanupSetup({days: [31]});
+
+		await cleanup.run();
+		assert.equal(state.listed, 1);
+		assert.equal(kept.get(`${CLEANUP_KEY}:${USER}`), String(NOW));
+
+		state.now = NOW + CLEANUP_EVERY_MS - 1;
+		assert.deepEqual(await cleanup.run(), {skipped: 'ran today'});
+		assert.equal(state.listed, 1, 'not listed again the same day');
+
+		state.now = NOW + CLEANUP_EVERY_MS;
+		assert.deepEqual(await cleanup.run(), {deleted: 0, failed: 0});
+		assert.equal(state.listed, 2, 'listed again the next day');
+	});
+
+	test('signed out or offline it does nothing, and runs once signed in and online', async () => {
+		const {cleanup, kept, left, state} = cleanupSetup({days: [31]});
+
+		state.user = null;
+		assert.deepEqual(await cleanup.run(), {skipped: 'signed out'});
+		state.user = {id: USER};
+		state.online = false;
+		assert.deepEqual(await cleanup.run(), {skipped: 'offline'});
+		assert.equal(state.listed, 0);
+		assert.equal(kept.size, 0, 'no day noted');
+		assert.equal(left().length, 4, '3 parts and the meta file');
+
+		state.online = true;
+		assert.deepEqual(await cleanup.run(), {deleted: 1, failed: 0});
+		assert.deepEqual(left(), []);
+	});
+
+	test('a failed delete does not throw, only warns, and is tried again the next day', async () => {
+		let down = true;
+		const {cleanup, left, removes, state, warnings} = cleanupSetup({days: [31, 35], failRemove: () => down});
+
+		assert.deepEqual(await cleanup.run(), {deleted: 0, failed: 2});
+		assert.equal(warnings.length, 2);
+		assert.match(warnings[0], /not deleted; tried again another day/);
+		assert.equal(left().length, 6, 'nothing deleted');
+
+		down = false;
+		state.now = NOW + DAY / 2;
+		assert.deepEqual(await cleanup.run(), {skipped: 'ran today'});
+		state.now = NOW + DAY;
+		assert.deepEqual(await cleanup.run(), {deleted: 2, failed: 0});
+		assert.deepEqual(left(), []);
+		assert.equal(removes.length, 4);
+	});
+
+	test('a listing that fails, or a phone whose storage throws, does not throw either', async () => {
+		const warnings = [];
+		const cleanup = createReportCleanup({
+			currentUser: () => ({id: USER}),
+			deleteReport: async () => assert.fail('nothing to delete'),
+			listReports: async () => {
+				throw new Error('Failed to fetch');
+			},
+			now: () => NOW,
+			storage: {
+				getItem: () => {
+					throw new Error('SecurityError');
+				},
+				setItem: () => {
+					throw new Error('SecurityError');
+				},
+			},
+			warn: (...args) => warnings.push(args.join(' ')),
+		});
+		const result = await cleanup.run();
+
+		assert.equal(result.error.message, 'Failed to fetch');
+		assert.match(warnings[0], /not checked; tried again another day/);
 	});
 });
 

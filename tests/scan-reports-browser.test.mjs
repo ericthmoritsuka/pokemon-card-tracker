@@ -282,6 +282,10 @@ describe('Send report and Sent reports (Eric, 2026-11-05)', () => {
 		assert.match(item, /3 scans · \d+ KB/);
 		assert.match(item, /Note: Korean cards, glare/);
 		assert.match(item, /2 with pictures/);
+
+		// Deleted by itself 30 days after it was sent, and the list says so.
+		assert.equal(await page.locator('#sent-reports-expiry').textContent(), 'Reports are deleted automatically 30 days after they are sent.');
+		assert.equal(await page.locator('#sent-reports li .sent-report-expiry').textContent(), await page.evaluate(() => `Deleted ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`));
 		await page.screenshot({fullPage: true, path: `${SHOTS}/scan-reports-list.png`});
 
 		// The report, readable as text with real images.
