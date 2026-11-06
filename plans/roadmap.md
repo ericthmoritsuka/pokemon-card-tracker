@@ -397,8 +397,10 @@ To check on the phone and with Eric:
 - With three or more copies of a card he is asked every time; if that is often, a "same as last
   time" choice or "any spare" could follow.
 - The system Back from the scanner keeps the trade tray instead of asking (Close asks).
-- The mode switch sits over the foot of the camera, above the Settings and holder chips; check it
-  does not hide what he needs to see in holder mode.
+- The mode switch leads the tray head under the camera (one button naming the mode); at 360 px with
+  Set for all showing, the tray's count beside it hides, as the running count over the camera says
+  the same. Landscape was already short of room before this mode (the controls fall below the
+  screen); the switch shows there, the trade tray is cut like the Add tray.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

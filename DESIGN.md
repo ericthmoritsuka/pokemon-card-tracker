@@ -2511,10 +2511,15 @@ trades/sales too instead of registering them just manually. Maybe we could have 
 could scan the cards and select a trade/sell/giveaway option so the system could make the
 adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
 
-- **Two modes.** Scan has a switch over the foot of the camera, above the Settings and holder
-  chips: **Add** (what Scan always did, the default) and **Trade or sale**. The choice is remembered on the phone (`card-tracker:scan-mode`).
-  In Trade or sale the switch is teal, a teal frame runs round the camera, and Done reads
-  **Log it**, so a card meant for a sale is never added by mistake.
+- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: one button that
+  names the mode in use, **Add** (what Scan always did, the default) or **Trade or sale**, and
+  switches to the other. It is never over the picture (Eric aims by the card's number strip) or
+  under the repeat bar, and it takes no height from the camera, whose band over the guide holds the
+  running count; the count beside it shows only when it fits whole. The choice is remembered on the
+  phone (`card-tracker:scan-mode`). In Trade or sale the switch is teal, a teal frame runs round
+  the camera, and Done reads **Log it**, so a card meant for a sale is never added by mistake. The
+  mode does not change while a card is being taken or read, or a gallery photo opened: the switch
+  says to wait, and a card is never put in the other mode's tray.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
   the Add tray waits untouched while it is used. It has two columns, **Going out** and **Coming
   in**; tapping a column's head sends the next scans there, and it starts on Going out. A card
@@ -2529,7 +2534,12 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   language, finish, condition, where they are, and Spare. A card he does not own says so on its row
   and is not logged; owned only in another language or finish, it is not logged unless he picks a
   copy. The same copy is never chosen twice: hand picks hold their copies first, then the cards are
-  settled in the order scanned. A card standing for several copies takes that many.
+  settled in the order scanned. A card standing for several copies takes that many. A copy he
+  picked that is gone since (removed on another phone) or went to an earlier card is never swapped
+  for another without a word: the card asks again ("The copy you picked is gone; pick again"), and
+  Log it waits. Until his cards are read, no card going out is matched ("Checking your cards"), and
+  when they cannot be read the row says "Could not read your cards; try again" and Log it waits, so
+  an unread list never reads as "not in your cards" and logs a purchase without them.
 - **A card coming in** is a new copy as Add would make it (`entriesToSave`: language, finish,
   condition, `language_source: scan`), its Copies as the count.
 - **Log it** opens the trades log's form (`trades/new`), filled in: the copies going out, the cards
@@ -2537,9 +2547,13 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   other choice; only in: Bought, or Gift; both: Traded). He adds who and the price and saves there.
   Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
   History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
-  a card needs a look, is still read, or asks for its copy, and opens that card first.
+  a card needs a look, is still read, or asks for its copy, and opens that card first. The form's
+  line counts only the copies still in his cards, and says when one handed over is not any more. A
+  kind that leaves a side out (Sold with cards coming in, Bought with cards going out) says so
+  under the kinds ("The 1 card coming in is not part of a sale; it stays in the scanner's trade
+  tray"): that side is not saved, and stays in the trade tray for another move.
 - **Nothing changes before Save.** The collection changes only when the move is saved; then the
-  trade tray empties. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
+  sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
   instead. A tray left by Log it without saving is there when Scan opens again.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
