@@ -1424,6 +1424,76 @@ the worker. Decided:
 - **The scan log** (scanner 40) keeps skipped drops' views too (120 entries' views), each drop's print
   distance, verdict, and motion frames, the repeats, and the mode switches.
 
+**Holder mode takes a card once it has settled (Eric, 2026-11-06, version 62).** Eric's v60 phone
+log (Android 10, holder mode, cards dropped one by one into the box): "the scanner is working
+faster now, maybe too fast even? it gets some blurred photos in transitions." Of 27 cards taken, 19
+were clean and right, about a second each, whenever the picture led by more than about 25; 4 were
+taken soft in the middle of a drop (the picture led by 0.5 to 6, so the text route ran 8 to 16 s,
+and still failed on 3: the fourth he fixed by hand); and 4 were the same card taken again from one
+drop, about a second apart, which he removed by hand. Nothing in the holder code had changed since
+version 40: what the log shows is his hand. He held the next card over the bottom of the box, near
+the lens and out of focus, and moved it a little between drops. The detector's stillness is the
+whole view's mean (`MOTION`) and a share of cells moving a lot (`MOVE_CHANGE`): a blurred card moving
+slowly over a fifth of the view passes both, so every look it paused on was judged against the last
+still picture, its change was card-shaped, and it was taken; over the card just taken, the hand made
+that card's print read new (40 to 50 bits off), so it was taken twice. For about 15 s no look between
+captures was quiet. Decided (Eric: wait for a sharp, settled card before capturing, and do not
+capture again a card just taken from the same drop; speeding up the text route is not part of it):
+
+- **A drop is taken only once it has settled** (`js/scan/drop.js` `settleVerdict`, `view.js`
+  `considerDrop`): its part of the view still over the last two looks (`regionStir`: under
+  `REGION_STIR`, 3 %, of the cells in the card's box grown by 15 % changed by more than 8 grey levels,
+  the brightness change scaled out), printed (`TEXTURE_MIN`: at least 35 % of the card's blocks carry
+  detail, against the view's own contrast), and sharp (`cardFocus`: at most `BLUR_SHARE`, 9 %, of its
+  printed blocks have a mean Laplacian under `FOCUS_EDGE`, 0.55, of their mean step, a ratio that
+  the light does not move). Both the outline the capture cuts first and what changed are measured,
+  the worse counting, so a hand over half the card cannot hide behind an outline round the other half.
+- **Until then the drop waits** (`pendingDrop`): the detector holds the picture before the drop
+  (`createDropDetector` `hold`), so each still look is judged against it: a card under a hand is
+  still what changed when the hand leaves, and a hand that leaves nothing changes nothing. A card dead
+  still (stir at most 1 %) for `SETTLE_PATIENCE_MS` (1.5 s) that still reads soft or plain is taken
+  all the same (a basic Energy's smooth gradient reads soft); a sharp, printed card whose part of the
+  view still stirs after `SETTLE_STIR_MS` (3 s: a hand moving beside it) is taken; and any drop that
+  has waited `SETTLE_LIMIT_MS` (6 s) is taken however it reads: a card fixed by hand is better than
+  one lost without a word, and a longer hold folds the next drops into it. A soft card with a hand
+  still moving over it waits for the hand to leave rather than being taken at 3 s: taken with the
+  hand, its print would make the same card read new once the hand left (the browser test caught
+  exactly that). A card landing on the very spot of the last (`contentAt`) waits the same way.
+- **The same card is told only on settled looks**: the content check is unchanged, but nothing
+  unsettled is ever taken or kept as the last card's print, so a hand over the card just taken no
+  longer makes it read new. The repeat bar rules of version 40 stand.
+- **Measured on the log** (`lab/holder/replay-log.mjs`, which now puts each card taken through the
+  settle check on the straightened picture the log kept, scaled to 200 pixels tall, the card's size
+  in the finer view at 1x): the 19 clean cards all settled at once (0 to 8 % of their printed blocks
+  soft, 76 to 99 % printed); the 4 soft ones and the 4 taken again would all have waited (soft: 12 to
+  45 % soft), and the first card of the session, a blurred blob with no print, too (plain: 20 %
+  printed). At 180 and 240 pixels tall the same split held. The log keeps one look per drop, so the
+  stillness over looks is not replayed, nor how long each would have waited. Drop to capture on the
+  phone: from the picture going still, a median of 0.72 s (0.51 to 1.10) for the clean cards, which
+  settled on the look they were taken on, so it stays the same.
+- **Measured on the videos of 2026-10-09** (`lab/holder/replay.mjs --mode v62`, against `--mode v40`
+  on version 61, the same drop labels, proposed by `label.mjs` and named by version 61's sure
+  answers): with the zoom change in the first video marked, as the app starts the detector over when
+  the zoom changes, both videos took the very same cards in the same order (39 and 22), none lost and
+  none added; in the torch video none waited; in the first, 13 waited, a median of 0 ms more and at
+  most 0.9 s (his fast rhythm: his hand already coming in with the next card), so from the card lying
+  still to its capture took a median of 525 ms (510 before), 750 ms at the 90th percentile (700).
+  With the zoom change not marked, the change it makes read soft and held the base for 6 s, and 3
+  drops inside it were not taken (of their two cards, one was taken from a later drop of it):
+  `SETTLE_LIMIT_MS` bounds that.
+- **The scan log** (scanner 62) keeps each drop's settle numbers (`settle`: stir, soft and printed
+  shares, why its focus failed, what it waited for, and whether it was taken on patience or at a
+  limit) and `heldMs`; a
+  drop's view before is now the picture it was compared with (after a capture, the view after it),
+  where a run of drops with no quiet look between them used to keep the view from before the first.
+- **A card on the very spot of the last, told by its picture where no card-shaped change showed
+  (`contentAt`), was never read**: its capture read the change's rectangle, which such a change does
+  not have, and stopped with its tile left reading. It now takes the last card's box (found when
+  the holder browser test's drops began to wait, 2026-11-06).
+- **The thresholds** were measured on Eric's pictures, taken by his camera; the canvas cards of the
+  browser tests read softer (one of them is taken on patience). The first phone log of version 62
+  will say how the finer view reads on his phone.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.

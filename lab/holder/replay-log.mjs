@@ -12,6 +12,14 @@
 // skipped? --identify also matches the card cut from the small view
 // (much softer than the phone's own capture, so a lower bound).
 //
+// From version 62 each card taken is also put through the settle check
+// (drop.js cardFocus, settleVerdict) on the straightened picture the log
+// kept, scaled to the card's size in the finer view (200 pixels tall at 1x)
+// with the contrast of the view after: whether that capture would have been
+// taken at once, or would have waited for a settled look. The log keeps one
+// look per drop, so how still the card was over the looks before (stir) is
+// not replayed: it counts as still.
+//
 // From version 40 each drop is also checked by its picture against the
 // card before it (drop.js contentCheck, contentAt), as view.js holderTick
 // does: the card before is the last drop the replay took, printed on its
@@ -67,6 +75,27 @@ function view(image, side) {
 let agree = 0;
 let right = 0;
 let labelled = 0;
+// The settle check (version 62) on each card taken: settled at once, or why
+// it would have waited.
+const withSettle = typeof drop.cardFocus === 'function';
+const settleCounts = {};
+
+function settleOf(entry) {
+	if (!withSettle || !entry.picture || !entry.views || !entry.views.after) {
+		return null;
+	}
+
+	const card = decodeImage(dataUrlBytes(entry.picture), {maxSide: 200});
+	const viewed = decodeImage(dataUrlBytes(entry.views.after), {maxSide: steady.FIND_SIDE_CAPTURE});
+	const contrast = drop.viewContrast(steady.toGrey(viewed.data, viewed.width, viewed.height), viewed.width, viewed.height);
+	const {height: h, width: w} = card;
+	const focus = drop.cardFocus(steady.toGrey(card.data, w, h), w, h, [{x: 0, y: 0}, {x: w, y: 0}, {x: w, y: h}, {x: 0, y: h}], {contrast});
+	const why = drop.settleVerdict({focus, stir: 0});
+
+	settleCounts[why || 'settled'] = (settleCounts[why || 'settled'] || 0) + 1;
+
+	return `${why ? `would wait (${why})` : 'settled'} blur=${focus.blur.toFixed(2)} texture=${focus.texture.toFixed(2)}`;
+}
 // The last drop taken, for the content check: {print, quad, size}.
 let last = null;
 const withContent = typeof drop.contentCheck === 'function';
@@ -136,9 +165,15 @@ for (const entry of entries) {
 
 	agree += replayed === logged || (logged === 'drop' && replayed.startsWith('drop')) ? 1 : 0;
 
+	const settled = logged === 'drop' ? settleOf(entry) : null;
+
 	if (opts.verbose || replayed !== logged) {
-		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}${content ? ` print=${content.distance ?? '-'} ${content.verdict}` : ''}`);
+		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}${content ? ` print=${content.distance ?? '-'} ${content.verdict}` : ''}${settled ? `; ${settled}` : ''}`);
 	}
 }
 
 console.log(`\n${entries.length} drops with views: the replay agrees on ${agree} (${pct(agree, entries.length)})${labelled ? `; picture right on ${right} of ${labelled} saved cards` : ''}`);
+
+if (Object.keys(settleCounts).length) {
+	console.log(`Cards taken, put through the settle check on their pictures: ${Object.entries(settleCounts).map(([why, n]) => `${why} ${n}`).join(', ')}`);
+}

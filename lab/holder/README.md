@@ -56,15 +56,18 @@ strip of frames per proposal under `--sheet` to check by eye. Edit the JSON by h
 
 `replay.mjs` decodes the video at the app's frame-loop rate (`--fps`, 8 by default), takes the part
 of each frame the screen shows (`camera.js` `layoutGuide` for `--stage`, 384 x 470 CSS pixels on
-Eric's phone), and runs it through the frame loop of version 40 (`--mode v40`, the default:
-`drop.js` as `view.js` `holderTick` calls it, with the content check), version 36 (`--mode v36`,
+Eric's phone), and runs it through the frame loop of version 62 (`--mode v62`, the default:
+`drop.js` as `view.js` `holderTick` calls it, a drop taken only once it has settled), version 40
+(`--mode v40`, with the content check but taking a drop on its first still look; run it with
+`--repo` on a version 40 to 61 checkout for a before), version 36 (`--mode v36`,
 without it, and with the "moved" skip when run with `--repo` on an older checkout) or version 35
 (`--mode v35`, `steady.js` `findCard` and `createHolderCapture` as version 35's `startLoop` did),
 then the picture match of each capture (OCR is never started). In version 40 a drop whose picture is
 the last card's, after a disturbance like a drop's, is answered with the repeat bar instead of a
 capture; the table counts those drops as asked. Per segment it reports drops noticed exactly once, missed, taken twice, taken
 before the card settled (mid-fall), sure and unsure first answers, right among the labelled, wrong
-but sure, and how long the picture took (on this machine).
+but sure, how long the picture took (on this machine), and how long from the labelled settle to the
+first capture (the wait version 62 adds).
 
 | Option | What it does |
 | --- | --- |
@@ -86,7 +89,12 @@ drop, taken or skipped (skipped ones from version 40): as it lay still before, a
 `replay-log.mjs` judges each pair again with `drop.js` and says where the replay disagrees with what
 the phone did; `--identify` also matches the card cut from the small view. With version 40's
 `drop.js` it also checks each drop's picture against the last drop it took (`contentCheck`,
-`contentAt`) and prints the print distance.
+`contentAt`) and prints the print distance. With version 62's `drop.js` each card taken is also put
+through the settle check (`cardFocus`, `settleVerdict`) on the straightened picture the log kept,
+scaled to 200 pixels tall: whether that capture would have been taken at once or waited, and why
+(soft, plain). The log keeps one look per drop, so the card's stillness over the looks before is not
+replayed. From version 62 a drop's view before is the picture the drop was compared with; before
+it, a run of drops with no quiet look between them all kept the view from before the first.
 
 ## Files
 
