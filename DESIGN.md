@@ -2100,7 +2100,9 @@ and it zooms like the inspection viewer, whose zoom pane it reuses (`zoomPane` i
 `js/photos/viewer.js`): pinch, double tap, Ctrl and the wheel, and + and -. Under the card (beside
 it held sideways) are its name, its language and pocket, and what the pocket's sheet offers there:
 
-- your own hand-made binder: **Details** (the pocket sheet as before), **To the tray**, **Move**
+- your own hand-made binder: **Details** (the pocket sheet as before), **To the tray** (only the
+  copy shown: when a sync has put another card in the pocket meanwhile, nothing moves and a line
+  says so, as in the sheet), **Move**
   (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
 - a binder from a list: Details (its copies sheet) and Card page;
 - a family member's binder, read only: Card page alone (the pocket was a link to it before).
@@ -2162,7 +2164,8 @@ pockets to refill one by one.
   entry id, not a placeholder, so it does not fill.
 - **A Pokémon's placeholder** (laid out from a list, below) takes any copy of a card showing that
   Pokémon, in one of the list's languages when the list named some, the oldest first, the binder's
-  most common language first. Which Pokémon a card shows comes from the Pokédex numbers the
+  most common language first. Card placeholders choose first, in every binder, so a copy goes to
+  its own card's placeholder before a Pokémon's that would take it too. Which Pokémon a card shows comes from the Pokédex numbers the
   checklists read (`js/checklists.js` `resolveOwned`), read only when some binder holds such a
   placeholder (`dexOfCopies`). Start over and the trades log fill in one save with no such read, so
   their copies fill a Pokémon's placeholder at the next Fill placeholders or copy added.
@@ -2190,8 +2193,11 @@ pockets placeholders for the list's Pokémon in Pokédex order:
 - **Preview, save, Undo.** The sheet says what happens before anything is saved ("152 placeholders
   on pages 3 to 19, 23 filled with cards you own.", where it starts, how many are skipped). Lay out
   is one save; Undo on the toast takes out each placeholder and each copy it put in, only where the
-  pocket still holds it, and the pages it added while they are still empty and the binder was not
-  resized since (`undoLayOut`).
+  pocket still holds it (a placeholder only with the time the layout gave it, so the same Pokémon
+  laid out again later stays). The pages it added stay, empty, and the toast says to remove them in
+  Edit binder (decided 2026-11-06 after a review): one phone cannot tell that another has placed a
+  card on them that has not synced yet, and its smaller page count would win the merge and drop
+  that card (`undoLayOut`).
 - **The representation** (decided 2026-11-06). A placeholder was a card (`want: {card_id,
   catalog, variant_id, name, image}`); binders from a list keep Pokémon pockets in their
   `snapshot`, which a hand-made binder does not have. The smallest form older phones keep is the

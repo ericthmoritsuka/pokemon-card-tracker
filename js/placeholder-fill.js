@@ -23,7 +23,8 @@
 //     its tray.
 //
 // Which copy goes where: a copy fits a placeholder of the same card (card
-// id, and catalog when the placeholder names one). The placeholders that
+// id, and catalog when the placeholder names one); card placeholders
+// choose before Pokémon placeholders. The placeholders that
 // name a finish and a language choose first, then those naming a finish,
 // then a language, then the rest, each taking the oldest copy that fits
 // what it names; a placeholder whose finish or language no copy has takes
@@ -276,17 +277,24 @@ export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo 
 		return (pool.get(want.card_id) || []).filter((entry) => !want.catalog || catalogOf(entry) === want.catalog);
 	};
 
-	for (const fits of passes) {
-		for (const spot of spots) {
-			if (chosen.has(spot)) {
-				continue;
-			}
+	// Card placeholders choose first, through every pass, then the
+	// Pokémon's: a copy fits its own card's placeholder before any
+	// placeholder that takes every card of its Pokémon, in any binder.
+	const groups = [spots.filter((spot) => !isPokemonWant(spot.want)), spots.filter((spot) => isPokemonWant(spot.want))];
 
-			const copy = candidates(spot.want).find((entry) => !used.has(entry.id) && fits(spot, entry));
+	for (const group of groups) {
+		for (const fits of passes) {
+			for (const spot of group) {
+				if (chosen.has(spot)) {
+					continue;
+				}
 
-			if (copy) {
-				used.add(copy.id);
-				chosen.set(spot, copy);
+				const copy = candidates(spot.want).find((entry) => !used.has(entry.id) && fits(spot, entry));
+
+				if (copy) {
+					used.add(copy.id);
+					chosen.set(spot, copy);
+				}
 			}
 		}
 	}

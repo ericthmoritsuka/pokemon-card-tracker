@@ -21,8 +21,9 @@
 //     fillPlaceholders; later copies fill them through the same automatic
 //     fill (afterAdding).
 //   - One save, with Undo on the toast: Undo takes out each placeholder
-//     and each copy the layout put in, where the pocket still holds it,
-//     and the pages it added while they are still empty.
+//     and each copy the layout put in, where the pocket still holds it;
+//     pages it added stay, empty, to be removed in Edit binder (another
+//     phone may have placed a card there that has not synced yet).
 //
 // A Pokémon's placeholder is the existing placeholder (slot.want) with no
 // card: {card_id: null, catalog: null, variant_id: null, image: null,
@@ -177,14 +178,18 @@ export function layoutDraft(doc, binderId, loaded, {addPages = false, at = nowIs
 		}
 	}
 
+	// Each placeholder's placed_at as saved (the stamp may move it past
+	// `at`), so Undo takes out only this layout's.
+	const saved = changed.find((item) => item.id === binderId);
+	const placedAt = new Map(saved ? slotsOf(saved).map((slot) => [keyOf(slot), slot.placed_at]) : []);
+
 	return {
 		changed,
 		done: {
 			binderId,
 			fills,
-			pageCountAfter: plan.pageCount,
-			pageCountBefore: plan.pageCountBefore,
-			wants: laid.done.map((pocket) => ({dex: pocket.want.dex, page: pocket.page, position: pocket.position})),
+			pagesAdded: plan.pageCount - plan.pageCountBefore,
+			wants: laid.done.map((pocket) => ({dex: pocket.want.dex, page: pocket.page, placedAt: placedAt.get(keyOf(pocket)) || at, position: pocket.position})),
 		},
 		fills: fills.length,
 		plan,
@@ -299,4 +304,18 @@ export function doneText(result, listName) {
 	const filled = result.fills ? `; ${formatCount(result.fills)} filled with ${result.fills === 1 ? 'a card' : 'cards'} you own` : '';
 
 	return `Laid out ${plural(n, 'placeholder', 'placeholders')} from ${listName}${filled}.`;
+}
+
+// The toast after Undo. kept: pockets left as they were (undoLayOut);
+// done.pagesAdded: pages the layout added, which stay.
+export function undoText({kept}, done) {
+	const pages = done && done.pagesAdded
+		? ` The ${done.pagesAdded === 1 ? 'page it added stays' : `${formatCount(done.pagesAdded)} pages it added stay`}, empty; remove ${done.pagesAdded === 1 ? 'it' : 'them'} in Edit binder.`
+		: '';
+
+	if (kept) {
+		return `Taken back, but ${plural(kept, 'pocket has', 'pockets have')} changed since, so ${kept === 1 ? 'it stays' : 'they stay'} as ${kept === 1 ? 'it is' : 'they are'}.${pages}`;
+	}
+
+	return pages ? `Taken back.${pages}` : 'The binder is as it was.';
 }

@@ -605,12 +605,19 @@ export function unstageCards(binders, {at = nowIso(), binderId, entryIds}) {
 }
 
 // Takes the card in a pocket out into the binder's tray, at the end.
-export function pocketToTray(binders, {at = nowIso(), binderId, page, position}) {
+// entryId, when given, is the copy the person saw there: when the pocket
+// holds another by now (a sync while the sheet or the card was open),
+// nothing moves and the error says so.
+export function pocketToTray(binders, {at = nowIso(), binderId, entryId = null, page, position}) {
 	const target = findLive(binders, binderId);
 	const slot = pageSlots(target, page, placements(binders)).get(position);
 
 	if (!slot || !slot.entry_id) {
 		throw new Error('There is no card in that pocket to move to the tray.');
+	}
+
+	if (entryId && slot.entry_id !== entryId) {
+		throw new Error('That pocket holds another card now, so nothing moved.');
 	}
 
 	return stageCards(binders, {at, binderId, entryIds: [slot.entry_id]});
@@ -1153,7 +1160,7 @@ export const movePocket = (binderId, from, to) => serial(async () => saveBinders
 // The tray, saved. Each reads what the last change saved, like the pockets.
 const liveCardIds = async () => new Set(((await loadDocument()).cards || []).filter(isLive).map((entry) => entry.id));
 
-export const moveToTray = (binderId, page, position) => serial(async () => saveBinders(pocketToTray(await allBinders(), {binderId, page, position})));
+export const moveToTray = (binderId, page, position, entryId = null) => serial(async () => saveBinders(pocketToTray(await allBinders(), {binderId, entryId, page, position})));
 
 // "Add cards to the tray", and its Undo.
 export const addToTray = (binderId, entryIds) => serial(async () => saveBinders(stageCards(await allBinders(), {binderId, entryIds})));
@@ -1410,13 +1417,17 @@ export function layOutWants(binders, {at = nowIso(), binderId, pageCount = null,
 }
 
 // Undo of a layout: takes out each Pokémon placeholder it wrote (wants:
-// [{page, position, dex}]) and each copy its fill put in (fills: [{page,
-// position, entryId}]), only where the pocket still holds it, and gives
-// back the pages it added (pageCountBefore, pageCountAfter) when they are
-// still empty and the binder has not been resized since. Returns
-// {changed, back, kept}: the binder to save, the pockets emptied, and the
-// pockets left as they are because they changed since.
-export function undoLayOut(binders, {at = nowIso(), binderId, fills = [], pageCountAfter = null, pageCountBefore = null, wants = []}) {
+// [{page, position, dex, placedAt}]) and each copy its fill put in (fills:
+// [{page, position, entryId}]), only where the pocket still holds it. A
+// placeholder counts as the layout's only with the placed_at the layout
+// gave it, so the same Pokémon laid out again by a later layout stays. The
+// pages the layout added stay too, empty, to be removed in Edit binder:
+// this phone cannot know whether another phone has placed a card on them
+// that has not synced yet, and fewer pages would drop it (decided
+// 2026-11-06). Returns {changed, back, kept}: the binder to save, the
+// pockets emptied, and the pockets left as they are because they changed
+// since.
+export function undoLayOut(binders, {at = nowIso(), binderId, fills = [], wants = []}) {
 	const target = liveBinders(binders).find((binder) => binder.id === binderId && !isGenerated(binder));
 
 	if (!target) {
@@ -1438,26 +1449,22 @@ export function undoLayOut(binders, {at = nowIso(), binderId, fills = [], pageCo
 	for (const row of wants) {
 		const slot = holds.get(keyOf(row));
 
-		if (slot && isPokemonWant(slot.want) && slot.want.dex === row.dex) {
+		if (slot && isPokemonWant(slot.want) && slot.want.dex === row.dex && slot.placed_at === row.placedAt) {
 			take.add(keyOf(row));
 		}
+	}
+
+	if (!take.size) {
+		return {back: 0, changed: [], kept: wants.length};
 	}
 
 	const next = copyOf(target, at);
 
 	next.slots = next.slots.filter((slot) => slot.art || !take.has(keyOf(slot)));
 
-	const shrink = Number.isInteger(pageCountBefore) && pageCountBefore < target.page_count && target.page_count === pageCountAfter
-		&& ![...holds.values()].some((slot) => slot.page > pageCountBefore && !take.has(keyOf(slot)));
-
-	if (shrink) {
-		next.page_count = pageCountBefore;
-		next.slots = next.slots.filter((slot) => slot.page <= pageCountBefore);
-	}
-
 	return {
 		back: take.size,
-		changed: take.size || shrink ? stamped([next]) : [],
+		changed: stamped([next]),
 		kept: wants.filter((row) => !take.has(keyOf(row))).length,
 	};
 }

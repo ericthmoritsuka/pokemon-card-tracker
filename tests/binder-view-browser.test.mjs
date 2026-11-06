@@ -359,6 +359,28 @@ describe('a card out of its pocket', () => {
 		await done();
 	});
 
+	test('To the tray moves only the card shown: when a sync changed the pocket meanwhile, nothing moves', async () => {
+		const {done, page} = await open(PHONE);
+
+		await seed(page, ALBUM_DOC);
+		await page.goto(url('binders/album'));
+		await page.waitForSelector('#binder-spread .bs-page');
+		await openPage(page, 1);
+		await page.click(zoomed(2));
+		await waitOpen(page);
+
+		// Another phone put c3 in pocket 2 while c2 was out.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binders.js')).placeCard('album', 1, 2, 'c3'));
+		await page.click('#pv-to-tray');
+		await page.locator('#toasts .toast', {hasText: 'That pocket holds another card now, so nothing moved.'}).waitFor();
+
+		const doc = await localDoc(page);
+
+		assert.equal(doc.binders[0].slots.find((slot) => slot.page === 1 && slot.position === 2 && !slot.cleared).entry_id, 'c3');
+		assert.deepEqual(doc.binders[0].staged || [], [], 'c3 left the tray for the pocket, and nothing went back to it');
+		await done();
+	});
+
 	test('placing from the tray still places, and empty pockets and placeholders still open the sheet', async () => {
 		const {done, page} = await open(PHONE);
 

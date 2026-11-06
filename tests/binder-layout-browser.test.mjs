@@ -252,11 +252,11 @@ describe('lay out from a list', () => {
 		await page.waitForSelector('#binder-spread .pocket[data-page="1"][data-position="3"]');
 		assert.equal(await page.getAttribute('#binder-spread .pocket[data-page="1"][data-position="3"]', 'data-kind'), 'open', 'the empty pocket before the last one in use stays empty');
 
-		// Undo takes it all back, pages included.
+		// Undo takes back every pocket; the page it added stays, empty.
 		await undoOn(page, 'Laid out 5 placeholders').click();
-		await page.locator('#toasts .toast', {hasText: 'The binder is as it was.'}).waitFor();
+		await page.locator('#toasts .toast', {hasText: 'Taken back. The page it added stays, empty; remove it in Edit binder.'}).waitFor();
 		doc = await localDoc(page);
-		assert.equal(doc.binders[0].page_count, 2);
+		assert.equal(doc.binders[0].page_count, 3);
 		assert.deepEqual(pocketsOf(doc), [[1, 1, 'c4'], [1, 2, 'empty'], [1, 4, 'tst1-007']]);
 
 		// Again, then a copy of a card showing Pokémon 155 added later fills
@@ -264,7 +264,7 @@ describe('lay out from a list', () => {
 		await page.click('#binder-layout-list');
 		await page.waitForFunction(() => /placeholders on/.test(document.getElementById('layout-preview').textContent));
 		await page.click('#layout-go');
-		await undoOn(page, 'Laid out 4 placeholders from Test starters; 2 filled with cards you own.').waitFor();
+		await undoOn(page, 'Laid out 5 placeholders from Test starters; 2 filled with cards you own.').waitFor();
 
 		const added = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/placeholder-fill.js')).addCopies([{card_id: 'tst3-155', catalog: 'international', language: 'en', language_source: 'manual'}]));
 

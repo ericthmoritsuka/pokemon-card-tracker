@@ -613,6 +613,15 @@ describe('the tray', () => {
 		assert.throws(() => pocketToTray(binders, {binderId: 'a', page: 1, position: 2}), /no card in that pocket/);
 	});
 
+	test('To the tray with the copy that was shown moves nothing when the pocket holds another by now', () => {
+		const binders = trayBinders();
+
+		// The person saw c9 in pocket 1 (a sync put c1 there since).
+		assert.throws(() => pocketToTray(binders, {binderId: 'a', entryId: 'c9', page: 1, position: 1}), /holds another card now, so nothing moved/);
+		assert.equal(where(binders, 'c1'), 'a:1:1');
+		assert.equal(pocketToTray(binders, {at: at(5), binderId: 'a', entryId: 'c1', page: 1, position: 1}).length, 1);
+	});
+
 	test('"Fill the rest in order" uses the open pockets in reading order and passes over placeholders and empty-on-purpose', () => {
 		let binders = trayBinders();
 

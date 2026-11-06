@@ -247,6 +247,24 @@ describe('filling a Pokémon\'s placeholder later', () => {
 		assert.equal(wrong.done.length, 0, 'a row for another Pokémon is passed over');
 	});
 
+	test('a card\'s own placeholder chooses before a Pokémon\'s, in one binder and across binders; a second copy fills the Pokémon\'s', () => {
+		const dexOf = new Map([['c1', [25]], ['c2', [25]]]);
+		const mon = spot(1, layout.pokemonWant(item(25)));
+		const card = {...cardWant(1, 2, 'sv1-25')};
+		const one = [copy('c1', 'sv1-25')];
+
+		assert.deepEqual(fill.fillPlan({binders: [hand('b', [mon, card])], cards: one}, {dexOf}).rows.map((row) => [row.position, row.entryId]), [[2, 'c1']]);
+
+		// Binder a (the Pokémon's) comes first in the binder list.
+		const across = [hand('a', [mon], {created_at: at(0)}), hand('b', [{...card, position: 1}], {created_at: at(1)})];
+
+		assert.deepEqual(fill.fillPlan({binders: across, cards: one}, {dexOf}).rows.map((row) => [row.binderId, row.entryId]), [['b', 'c1']]);
+
+		const two = [copy('c1', 'sv1-25'), copy('c2', 'sv1-25', {created_at: at(1)})];
+
+		assert.deepEqual(fill.fillPlan({binders: [hand('b', [mon, card])], cards: two}, {dexOf}).rows.map((row) => [row.position, row.entryId, row.dex || null]), [[1, 'c2', 25], [2, 'c1', null]]);
+	});
+
 	test('hasPokemonWants tells whether the Pokédex numbers are needed at all', () => {
 		assert.equal(fill.hasPokemonWants([hand('b', [cardWant(1, 1, 'tst1-001')])]), false);
 		assert.equal(fill.hasPokemonWants([hand('b', [spot(1, layout.pokemonWant(item(1)))])]), true);
@@ -267,7 +285,7 @@ describe('Undo', () => {
 		return {after: mergeDocuments({binders: before}, {binders: result.changed}).binders, result};
 	}
 
-	test('takes back every placeholder and copy it put in, and the page it added', () => {
+	test('takes back every placeholder and copy it put in; the page it added stays, empty', () => {
 		const {after, result} = laidOut();
 
 		assert.equal(after[0].page_count, 3);
@@ -278,9 +296,39 @@ describe('Undo', () => {
 
 		assert.equal(undo.back, 8);
 		assert.equal(undo.kept, 0);
-		assert.equal(back[0].page_count, 2);
+		assert.equal(back[0].page_count, 3, 'another phone may have placed a card on it that has not synced');
 		assert.deepEqual(pocketsOf(back[0]), [[1, 1, 'c9']]);
 		assert.deepEqual(binders.placements(back).has('c1'), false, 'c1 is in no pocket again');
+		assert.equal(result.done.pagesAdded, 1);
+		assert.equal(layout.undoText(undo, result.done), 'Taken back. The page it added stays, empty; remove it in Edit binder.');
+		assert.equal(layout.undoText({kept: 2}, {pagesAdded: 0}), 'Taken back, but 2 pockets have changed since, so they stay as they are.');
+		assert.equal(layout.undoText({kept: 0}, {pagesAdded: 0}), 'The binder is as it was.');
+	});
+
+	test('an earlier layout\'s Undo leaves the same Pokémon laid out again by a later one', () => {
+		const one = loadedOf([item(25)]);
+		const before = [hand('b')];
+		const first = layout.layoutDraft({binders: before, cards: [], settings: {}}, 'b', one, {at: at(10)});
+		const afterFirst = mergeDocuments({binders: before}, {binders: first.changed}).binders;
+
+		// Taken out by hand, then laid out again later in the same pocket.
+		const cleared = binders.setPocket(afterFirst, {at: at(12), binderId: 'b', content: null, page: 1, position: 1});
+		const empty = mergeDocuments({binders: afterFirst}, {binders: cleared}).binders;
+		const second = layout.layoutDraft({binders: empty, cards: [], settings: {}}, 'b', one, {at: at(14)});
+		const afterSecond = mergeDocuments({binders: empty}, {binders: second.changed}).binders;
+
+		assert.deepEqual(pocketsOf(afterSecond[0]), [[1, 1, 'dex:25']]);
+		assert.notEqual(first.done.wants[0].placedAt, second.done.wants[0].placedAt);
+
+		const stale = binders.undoLayOut(afterSecond, {...first.done, at: at(20)});
+
+		assert.equal(stale.back, 0);
+		assert.equal(stale.kept, 1);
+		assert.deepEqual(stale.changed, []);
+
+		const fresh = binders.undoLayOut(afterSecond, {...second.done, at: at(21)});
+
+		assert.equal(fresh.back, 1);
 	});
 
 	test('a pocket changed since stays, and so does the page it is on', () => {
@@ -293,7 +341,7 @@ describe('Undo', () => {
 		const back = mergeDocuments({binders: now}, {binders: undo.changed}).binders;
 
 		assert.equal(undo.kept, 1);
-		assert.equal(back[0].page_count, 3, 'page 3 holds a card, so it stays');
+		assert.equal(back[0].page_count, 3);
 		assert.deepEqual(pocketsOf(back[0]), [[1, 1, 'c9'], [3, 1, 'c-other']]);
 	});
 });

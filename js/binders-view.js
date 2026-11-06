@@ -49,7 +49,7 @@ import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {imageCardKey, mainArt, mainSlide, onImagesChange} from './photos/index.js';
 import {openPocketViewer} from './pocket-viewer.js';
-import {addPagesText, applyLayout, doneText, previewLayout, previewLines, readList, undoLayout} from './binder-layout.js';
+import {addPagesText, applyLayout, doneText, previewLayout, previewLines, readList, undoLayout, undoText} from './binder-layout.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -3267,7 +3267,8 @@ function binderScreen(root, source, id, pageParam) {
 
 		if (!source.readOnly) {
 			actions.push({id: 'pv-details', label: 'Details', run: () => openSheet(pg, position)});
-			actions.push({id: 'pv-to-tray', label: 'To the tray', run: () => moveToTray(binder.id, pg, position).catch((err) => showError('Could not move the card to the tray.', err))});
+			// Only the copy shown: a sync may have changed the pocket since.
+			actions.push({id: 'pv-to-tray', label: 'To the tray', run: () => moveToTray(binder.id, pg, position, entry.id).catch((err) => toast(err.message || `Could not move the card to the tray. ${errorText(err)}`))});
 
 			// As the sheet: a one-pocket binder has nowhere to move to.
 			if (pocketsPerPage(binder) * binder.page_count > 1) {
@@ -3452,9 +3453,7 @@ function binderScreen(root, source, id, pageParam) {
 			toast(doneText(result, name), {
 				action: () => {
 					undoLayout(result.done)
-						.then(({kept}) => toast(kept
-							? `Taken back, but ${plural(kept, 'pocket has', 'pockets have')} changed since, so ${kept === 1 ? 'it stays' : 'they stay'} as ${kept === 1 ? 'it is' : 'they are'}.`
-							: 'The binder is as it was.'))
+						.then((undone) => toast(undoText(undone, result.done)))
 						.catch((err) => toast(`Could not undo. ${errorText(err)}`));
 				},
 				actionLabel: 'Undo',
@@ -3573,7 +3572,7 @@ function binderScreen(root, source, id, pageParam) {
 						}, type: 'button'}, 'Move to pocket...')
 						: null,
 					content.kind === 'card'
-						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
+						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position, slot.entry_id), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
 						: null,
 					slot.art
 						? h('p', {class: 'muted'}, 'Michi art is edited with the art tools, which are not here yet.')
