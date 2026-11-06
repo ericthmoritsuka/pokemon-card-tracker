@@ -23,7 +23,8 @@
 // blur (a share of the guide's height) draws it out of focus, and
 // scene.held ({card, dx, dy, size, angle, blur}, as a card) draws a card
 // held over the pile near the lens, out of focus, over everything else
-// (Eric's next card in his hand, 2026-11-06); and
+// (Eric's next card in his hand, 2026-11-06), window.warmBlur(card) making a
+// blurred card ahead of the step that shows it; and
 // scene.light dims (below 1) or brightens (above 1) the whole picture.
 // navigator.vibrate records each buzz in window.buzzes, and
 // window.drawScene() draws the scene at once, for a test that holds the
@@ -38,6 +39,43 @@ export function sceneCamera({height, width}) {
 	const cards = {a: new Image(), b: new Image(), c: new Image()};
 	// Blurred cards, drawn once each (scene card blur).
 	const blurred = new Map();
+
+	// A card drawn out of focus (scene card blur), blurred once into a canvas
+	// of its own and kept: a blur filter over the whole frame on every draw
+	// takes the headless browser most of a second, so the camera's picture
+	// would lag the scene. Making one still takes up to a second, which holds
+	// the page: window.warmBlur(card) makes it before a test needs it.
+	const blurredCard = (placed, image, gh) => {
+		const ch = gh * (placed.size ?? 0.95);
+		const cw = ch * 63 / 88;
+		const radius = Math.round(gh * placed.blur);
+		const key = `${placed.card || 'a'}:${radius}:${Math.round(cw)}x${Math.round(ch)}`;
+
+		if (!blurred.has(key)) {
+			const soft = document.createElement('canvas');
+			const sctx = soft.getContext('2d');
+
+			soft.width = Math.round(cw + radius * 4);
+			soft.height = Math.round(ch + radius * 4);
+			sctx.filter = `blur(${radius}px)`;
+			sctx.drawImage(image, radius * 2, radius * 2, cw, ch);
+			blurred.set(key, soft);
+		}
+
+		return blurred.get(key);
+	};
+
+	window.warmBlur = (placed) => {
+		const image = cards[placed.card || 'a'];
+
+		if (!anchor || !image.complete) {
+			return false;
+		}
+
+		blurredCard(placed, image, anchor.gh);
+
+		return true;
+	};
 
 	canvas.width = width;
 	canvas.height = height;
@@ -159,24 +197,7 @@ export function sceneCamera({height, width}) {
 			ctx.shadowOffsetY = gh * 0.004;
 
 			if (placed.blur) {
-				// Blurred once into a canvas of its own and kept: a blur filter
-				// over the whole frame on every draw takes the headless browser
-				// most of a second, so the camera's picture would lag the scene.
-				const radius = Math.round(gh * placed.blur);
-				const key = `${placed.card || 'a'}:${radius}:${Math.round(cw)}x${Math.round(ch)}`;
-
-				if (!blurred.has(key)) {
-					const soft = document.createElement('canvas');
-					const sctx = soft.getContext('2d');
-
-					soft.width = Math.round(cw + radius * 4);
-					soft.height = Math.round(ch + radius * 4);
-					sctx.filter = `blur(${radius}px)`;
-					sctx.drawImage(image, radius * 2, radius * 2, cw, ch);
-					blurred.set(key, soft);
-				}
-
-				const soft = blurred.get(key);
+				const soft = blurredCard(placed, image, gh);
 
 				ctx.drawImage(soft, -soft.width / 2, -soft.height / 2);
 			}
