@@ -14,6 +14,17 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
+- **v60:** the scanner cuts a card held low or at a strong slant. `TBD`
+  - When a card runs past the guide's capture (held low, or turned so a corner or its foot leaves
+    the frame), the edge found on the capture's border is kept and the missing bottom is placed
+    from the top and the width, instead of cutting the card short.
+  - The whole-frame search hides a box inside a bigger outline only when that outline really runs
+    past the frame, so a card's art is not taken for the card and a card near the border is still
+    found.
+  - The scan report names which edge was placed.
+  - On the lab bench, right card first on cards held low went from 11 to 27 of 40 (guide's capture)
+    and 25 to 33 (whole frame); normal captures are cut exactly as before.
+
 - **v59:** send a scan report in one tap. `7f0e026`
   - In Profile, Phone check, **Send report** sends the scan log (with card pictures when Include card
     pictures is on) to a private folder in your account, with an optional note. Only your account

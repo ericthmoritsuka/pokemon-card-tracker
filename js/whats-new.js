@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-05',
 		items: [
+			'The scanner cuts a card held low or at a strong slant properly, even when its foot or corners are outside the frame.',
+			'A card in the frame with a table edge or shelf line above it is no longer taken for something bigger.',
+		],
+		version: 'v60',
+	},
+	{
+		date: '2026-11-05',
+		items: [
 			'Profile, Phone check, Send report sends your scan log, with card pictures if you keep them, to a private folder in your account in one tap.',
 			'Sent reports lists what you sent and shows each scan. Offline, a report waits and goes up when you are back online.',
 		],
