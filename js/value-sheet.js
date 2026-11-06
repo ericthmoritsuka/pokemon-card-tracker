@@ -133,7 +133,7 @@ export function openValueSheet({cardsById, entries, filling = false, label = 'th
 	return sheet;
 }
 
-// Puts the total of entries on a valueButton's label (prices.js valueLabel),
+// Puts the total of entries on a binder's value line (prices.js valueLabel),
 // with the same records and sums the sheet reads at a tap. index is the
 // card index the screen holds. A later call wins: an older read that ends
 // after it changes nothing.

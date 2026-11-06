@@ -670,14 +670,14 @@ describe('listStats', () => {
 		entry({deleted_at: '2026-09-01T00:00:00Z', id: 'g', variant_id: V.masterball}),
 	];
 
-	// The binder's Value button (Eric, 2026-11-06).
-	test('the Value button\'s label: the total, "~" for an estimate, partly priced, or plain Value', () => {
+	// The binder's value line (Eric, 2026-11-06).
+	test('a binder\'s value line: the total, "~" for an estimate, partly priced, or plain Value', () => {
 		const label = (list) => plain(valueLabel(listStats(list, cards, {rates: RATES})));
 
-		assert.equal(label([liga('a', 1234.5, 1200), liga('b', 10, 8)]), 'Value R$ 1.245', 'whole reais from R$ 100, as Liga prices only');
-		assert.equal(label([liga('a', 50, 40), liga('b', 10, 8)]), 'Value R$ 60,00', 'cents below R$ 100');
-		assert.equal(label([liga('a', 50, 40), entry({card_id: 'base1-4', id: 'd', variant_id: unlimited})]), 'Value ~R$ 4.950', 'a US estimate in it, as the sheet marks it');
-		assert.equal(label([liga('a', 50, 40), entry({card_id: 'missing-1', id: 'f'})]), 'Value R$ 50,00, partly priced');
+		assert.equal(label([liga('a', 1234.5, 1200), liga('b', 10, 8)]), 'R$ 1.245 in value', 'whole reais from R$ 100, as Liga prices only');
+		assert.equal(label([liga('a', 50, 40), liga('b', 10, 8)]), 'R$ 60,00 in value', 'cents below R$ 100');
+		assert.equal(label([liga('a', 50, 40), entry({card_id: 'base1-4', id: 'd', variant_id: unlimited})]), '~R$ 4.950 in value', 'a US estimate in it, as the sheet marks it');
+		assert.equal(label([liga('a', 50, 40), entry({card_id: 'missing-1', id: 'f'})]), 'R$ 50,00 in value, partly priced');
 		assert.equal(label([entry({card_id: 'missing-1', id: 'f'})]), 'Value', 'nothing priced');
 		assert.equal(label([]), 'Value');
 		assert.equal(valueLabel(null), 'Value');

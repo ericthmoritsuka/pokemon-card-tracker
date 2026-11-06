@@ -945,19 +945,20 @@ export function listStats(entries, cardsById, {basis = 'avg', rates = null} = {}
 	return stats;
 }
 
-// The small Value button's label over listStats (Eric, 2026-11-06: a binder
-// says what it is worth): the Value sheet's total, "~" when part of it is a
-// US estimate as the sheet marks it, in whole reais from R$ 100 so it stays
-// short, and "partly priced" as the Collections list says when some copies
-// have no price. Plain "Value" when none has one.
+// What a binder is worth, for the line under its name that opens the Value
+// sheet (Eric, 2026-11-06), over listStats: the sheet's total, "~" when part
+// of it is a US estimate as the sheet marks it, in whole reais from R$ 100 so
+// it stays short, and "partly priced" as the Collections list says when some
+// copies have no price. Plain "Value" when none has one, so the sheet is
+// still there to open.
 export function valueLabel(stats) {
 	if (!stats || !stats.priced) {
 		return 'Value';
 	}
 
-	const total = `${stats.estimate.count ? '~' : ''}${formatBrlCompact(stats.total)}`;
+	const total = `${stats.estimate.count ? '~' : ''}${formatBrlCompact(stats.total)} in value`;
 
-	return stats.unknown.count ? `Value ${total}, partly priced` : `Value ${total}`;
+	return stats.unknown.count ? `${total}, partly priced` : total;
 }
 
 // The total and how much of it is Liga, estimated, or unknown, for an

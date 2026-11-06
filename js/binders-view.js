@@ -1043,9 +1043,9 @@ function binderScreen(root, source, id, pageParam) {
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
 	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
-	// The value of the copies in the binder, at the top: a small Value button
-	// with the total on it (Eric, 2026-11-06) opens the sheet
-	// (js/value-sheet.js), never a big box.
+	// The value of the copies in the binder: a line under its name with the
+	// total, a button that reads as text and opens the sheet (js/value-sheet.js;
+	// Eric, 2026-11-06), never a box.
 	const statsSlot = h('div', {class: 'binder-stats', id: 'binder-stats'});
 	let statsEntries = [];
 	// The total, read after the pages draw; a later read wins (showTotal).
@@ -1057,6 +1057,8 @@ function binderScreen(root, source, id, pageParam) {
 		}
 	};
 	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder'), onClose: drawValue});
+
+	valueOpen.className = 'value-open value-line';
 	const onVisible = () => document.visibilityState === 'visible' && drawValue();
 	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
 	// Many cards into the tray at once; a binder made from a list has none.
@@ -1410,8 +1412,7 @@ function binderScreen(root, source, id, pageParam) {
 			// replaceChildren prints a null argument as "null", and a family
 			// member's binder leaves several parts out.
 			body.replaceChildren(...[
-				h('div', {class: 'binder-head'}, title, meta, notes),
-				statsSlot,
+				h('div', {class: 'binder-head'}, title, meta, statsSlot, notes),
 				listNote,
 				spreadHolder,
 				summary,

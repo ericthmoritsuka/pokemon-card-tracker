@@ -12,6 +12,37 @@ button.value-open {
 	min-height: var(--target);
 }
 
+/* A binder's value: a line under its name and size, in the theme's link
+   color with a chevron, a whole tap target tall, that opens the sheet
+   (Eric, 2026-11-06: the boxed button did not look pretty). The line is
+   there from the first draw, so the total arriving moves nothing. */
+.binder-head .binder-stats:not(:empty) {
+	margin: 0;
+}
+
+button.value-line {
+	background: none;
+	border: 0;
+	border-radius: var(--radius-control);
+	color: var(--link);
+	gap: var(--space-2);
+	justify-content: flex-start;
+	min-height: var(--target);
+	padding: 0;
+	text-align: left;
+	width: auto;
+}
+
+button.value-line::after {
+	border-right: 2px solid currentcolor;
+	border-top: 2px solid currentcolor;
+	content: "";
+	flex: none;
+	height: 0.45em;
+	transform: rotate(45deg);
+	width: 0.45em;
+}
+
 .value-sheet[open] {
 	display: flex;
 	flex-direction: column;

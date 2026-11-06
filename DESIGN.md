@@ -1853,14 +1853,18 @@ are Asian prints with no market price, how many still wait for a price, how many
 price for, then the statistics bar under "Of the priced copies", and a link that filters My Cards
 to the copies without a price. The sheet takes any list of copies, so the Trade view can open it.
 
-**A binder's Value button carries its total** (Eric, 2026-11-06: "you should also show how much the
-binder is worth based on the cards in it"). Still the small button, not a box: it reads "Value
-R$ 1.245", "Value ~R$ 4.952" when part of it is a US estimate, or "Value R$ 50,00, partly priced"
-when some copies have no price, the Collections list's words; plain "Value" when none has one. It is
-the sheet's own sum over the same copies (prices.js listStats and valueLabel), in whole reais from
-R$ 100. It is read after the pages draw, again when a pocket or a copy's Liga price changes, when
-the sheet closes (it may have read a new rate), and on coming back to the app; a later read wins.
-The binder screen asks for no prices or rates itself. Sets and checklists keep a plain "Value".
+**A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
+is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
+line under the binder's name and size, in the theme's link color with a chevron, that opens the
+Value sheet: "R$ 1.245 in value", "~R$ 4.952 in value" when part of it is a US estimate, or
+"R$ 50,00 in value, partly priced" when some copies have no price, the Collections list's words;
+plain "Value" in the same style when none has one, so the sheet is still reachable, and no line for
+a binder with no copies. It stays a real button (a dialog opener, the focus ring, 48 px tall), and
+the line is there from the first draw, so the total arriving moves nothing. It is the sheet's own
+sum over the same copies (prices.js listStats and valueLabel), in whole reais from R$ 100. It is
+read after the pages draw, again when a pocket or a copy's Liga price changes, when the sheet closes
+(it may have read a new rate), and on coming back to the app; a later read wins. The binder screen
+asks for no prices or rates itself. Sets and checklists keep their small Value button.
 
 Three ways to handle it, and they can coexist:
 
