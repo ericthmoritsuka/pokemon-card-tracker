@@ -182,6 +182,7 @@ describe('moving pockets in a hand-made binder', () => {
 		await page.waitForTimeout(300);
 		assert.equal(await kindOf(page, 2, 1), 'card');
 		assert.equal(await page.locator('#pocket-sheet[open]').count(), 0, 'the lift is not a tap');
+		assert.equal(await page.locator('#pocket-viewer').count(), 0, 'nor does it take the card out');
 
 		// A placeholder moves like a card.
 		await touchDrag(page, await centerOf(page, 3, 5), await centerOf(page, 3, 1));
@@ -203,7 +204,9 @@ describe('moving pockets in a hand-made binder', () => {
 		const {binder, copies} = await seed(page);
 
 		await openBinder(page, binder);
+		// The card comes out of its pocket; Details are the sheet.
 		await page.click(pocketSel(2, 1));
+		await page.click('#pv-details');
 		await page.waitForSelector('#pocket-sheet[open]');
 		await page.click('#pocket-move');
 		assert.ok(await page.locator('#move-panel').isVisible());
@@ -222,10 +225,11 @@ describe('moving pockets in a hand-made binder', () => {
 		await undoOn(page, 'Swapped page 2, pocket 1 with page 3, pocket 5.').click();
 		await waitKind(page, 2, 1, 'card');
 
-		// The next free pocket, in reading order: page 1, pocket 1.
+		// The next free pocket, in reading order: page 1, pocket 1. The card
+		// out of its pocket's Move opens the sheet on Move to pocket.
 		await page.click(pocketSel(2, 2));
-		await page.waitForSelector('#pocket-sheet[open]');
-		await page.click('#pocket-move');
+		await page.click('#pv-move');
+		await page.waitForSelector('#pocket-sheet[open] #move-panel:not([hidden])');
 		assert.equal(await page.locator('#move-next-free').textContent(), 'Move to the next free pocket (page 1, pocket 1)');
 		await page.click('#move-next-free');
 		await page.waitForSelector('#pocket-sheet[open]', {state: 'detached'});

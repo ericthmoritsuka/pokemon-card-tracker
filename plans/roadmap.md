@@ -268,6 +268,19 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   none; "Value" when none is priced), that opens the Value sheet; no boxed button. The sheet's own
   sum, updated as pockets and prices change. DESIGN.md section 10. Sets and checklists keep their
   button. Small.
+- **Built 2026-11-06 on branch `binder-view-layout`: a card out of its pocket (Eric, 2026-11-06: "as if I
+  was taking it out of the slot and looking at it in real life"):** a tap on a filled pocket lifts the
+  card out, large over the dimmed binder, with the inspection viewer's zoom, and Details (the old
+  sheet), To the tray, Move, and Card page; a tap outside, a swipe down, Escape, or Back put it back.
+  Placing from the tray or a card in hand is unchanged. `js/pocket-viewer.js`, DESIGN.md section 11.
+  Small to medium.
+- **Built 2026-11-06 on branch `binder-view-layout`: Lay out from a list (Eric, 2026-11-06: "if I put the
+  Johto list and select a binder for it, it should imagine I'm adding the Pokémon from Johto in
+  order"):** a hand-made binder takes a checklist's Pokémon as placeholders in its empty pockets after
+  the last one in use (or from page 1), skipping Pokémon it has, with a preview, pages offered for
+  what does not fit, owned copies filled in, and Undo. A Pokémon's placeholder is a `want` with no
+  card and a `dex`, which v47 to v61 keep. `js/binder-layout.js`, DESIGN.md section 11. Medium. To
+  check with Eric: an older phone's Open card on such a pocket opens an empty card page.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free

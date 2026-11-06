@@ -901,7 +901,8 @@ catalog searches, photo cleanup's official image, and the twin picker.
 
 **Inspection viewer** (Eric, 2026-10-01: "find some details in the card or compare to another card
 to figure out if the card is original"). Tapping the card image on its page opens it full screen
-with pinch and double-tap zoom and panning. **Compare** shows two images side by side (by default
+with pinch and double-tap zoom and panning (a binder's card out of its pocket zooms with the same
+pane, 2026-11-06). **Compare** shows two images side by side (by default
 the official image and the person's photo) with zoom and pan synchronized in card coordinates, so
 the same corner, font, energy symbol, or holo pattern lines up on both; the link can be turned off.
 Official images are about 600 x 825 px, enough for most details but not microprint, and photos are
@@ -2091,6 +2092,33 @@ search and a set filter; tap tiles or Select all, then add them all, in name ord
 the toast. A copy waiting in another binder's tray is not offered, so the picker never takes a
 card from the binder it was meant for. A binder made from a list has no tray and no button.
 
+**A card out of its pocket** (Eric, 2026-11-06: "when I'm looking at a card in my binder, I should be
+able to see the preview as in a modal if I click the card. Right now a dialog appears at the bottom
+with some information. I would like to see the full card too, as if I was taking it out of the slot
+and looking at it in real life."; built 2026-11-06), `js/pocket-viewer.js`. A tap on a pocket
+holding a card you own lifts the card out: it slides toward the pocket's open side (right on a
+right-hand page, left on a left-hand one), then grows to the middle of the screen over the dimmed
+binder, and the pocket shows empty while it is out. The image is the copy's main image as its tile
+shows it (the person's photo when it is the main image, else the official image in its large size),
+and it zooms like the inspection viewer, whose zoom pane it reuses (`zoomPane` in
+`js/photos/viewer.js`): pinch, double tap, Ctrl and the wheel, and + and -. Under the card (beside
+it held sideways) are its name, its language and pocket, and what the pocket's sheet offers there:
+
+- your own hand-made binder: **Details** (the pocket sheet as before), **To the tray** (only the
+  copy shown: when a sync has put another card in the pocket meanwhile, nothing moves and a line
+  says so, as in the sheet), **Move**
+  (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
+- a binder from a list: Details (its copies sheet) and Card page;
+- a family member's binder, read only: Card page alone (the pocket was a link to it before).
+
+A tap outside the card, a swipe down at zoom 1, Escape, Back, or Close put the card back: it
+shrinks to the pocket's side and slides in. An action closes it at once and opens its own sheet.
+With reduced motion it appears and goes without moving. It is a sheet (`js/sheet.js`): Back closes
+it without leaving the binder, Tab stays inside, focus goes to its first action and back to the
+pocket after. Taps that place a card are unchanged: with a tray card picked or a card in hand, a
+tap on a filled pocket still places or swaps, and never opens it; empty pockets, placeholders, Gone
+pockets, and art keep their sheet. In portrait the overview still opens the page first.
+
 **Placeholders fill themselves** (Eric, 2026-10-31; built 2026-10-31), `js/placeholder-fill.js` and
 `js/fill-view.js`. A placeholder is a card he wants in that pocket, so whenever he has or adds a
 copy of that card, the copy goes there. The need came from Start over: every pocket that held a
@@ -2138,6 +2166,55 @@ pockets to refill one by one.
   pockets change, so thousands of pockets fill at once.
 - **Not counted as placeholders:** a pocket whose copy was deleted (shown as "Gone") holds an
   entry id, not a placeholder, so it does not fill.
+- **A Pokémon's placeholder** (laid out from a list, below) takes any copy of a card showing that
+  Pokémon, in one of the list's languages when the list named some, the oldest first, the binder's
+  most common language first. Card placeholders choose first, in every binder, so a copy goes to
+  its own card's placeholder before a Pokémon's that would take it too. Which Pokémon a card shows comes from the Pokédex numbers the
+  checklists read (`js/checklists.js` `resolveOwned`), read only when some binder holds such a
+  placeholder (`dexOfCopies`). Start over and the trades log fill in one save with no such read, so
+  their copies fill a Pokémon's placeholder at the next Fill placeholders or copy added.
+
+**Lay out from a list** (Eric, 2026-11-06: "if I put the Johto list and select a binder for it, it
+should imagine I'm adding the Pokémon from Johto in order"; built 2026-11-06), `js/binder-layout.js`.
+His region binders are hand-made (Empty binder, filled by hand from the tray), so a binder from a
+list does not fit them. **Lay out from a list** on a hand-made binder picks a checklist (a region or
+his own Pokémon list, the same lists New binder > From a list offers) and gives the binder's empty
+pockets placeholders for the list's Pokémon in Pokédex order:
+
+- **Where.** From the first empty pocket after the last pocket in use (a card, a Gone card, a
+  placeholder, art, or one left empty on purpose), because his binders fill in order and a gap
+  before the last card is likely his own; the sheet also offers "Every empty pocket from page 1".
+  A pocket holding anything never changes, so a pocket left empty on purpose stays empty.
+- **Which.** One placeholder per Pokémon on the list the binder does not have yet: a Pokémon is in
+  it when a copy in one of its pockets shows it (in any language), or a placeholder stands for it
+  (a Pokémon's, or a card's whose record names it).
+- **Too many.** The preview says how many do not fit and offers to add the pages that make room at
+  the end, up to the 200 a binder can have, and says what still does not fit.
+- **Cards he owns.** With "Fill binder placeholders automatically" on, the copies in no pocket and in
+  no tray go into their placeholders in the same save (`fillPlan` and `fillPlaceholders`, as Fill
+  placeholders does), in the list's languages; copies added later fill the rest through the same
+  automatic fill. A copy in a tray stays there.
+- **Preview, save, Undo.** The sheet says what happens before anything is saved ("152 placeholders
+  on pages 3 to 19, 23 filled with cards you own.", where it starts, how many are skipped). Lay out
+  is one save; Undo on the toast takes out each placeholder and each copy it put in, only where the
+  pocket still holds it (a placeholder only with the time the layout gave it, so the same Pokémon
+  laid out again later stays). The pages it added stay, empty, and the toast says to remove them in
+  Edit binder (decided 2026-11-06 after a review): one phone cannot tell that another has placed a
+  card on them that has not synced yet, and its smaller page count would win the merge and drop
+  that card (`undoLayOut`).
+- **The representation** (decided 2026-11-06). A placeholder was a card (`want: {card_id,
+  catalog, variant_id, name, image}`); binders from a list keep Pokémon pockets in their
+  `snapshot`, which a hand-made binder does not have. The smallest form older phones keep is the
+  same `want` with no card: `{card_id: null, catalog: null, variant_id: null, image: null, name,
+  dex}`, plus `languages` (`["en", "pt"]`) when the list names some. Every app since v26 merges a
+  binder pocket by pocket and edits a clone of the entry, so a phone on v47 to v61 keeps the slot
+  whole when it merges or saves the binder (tested with the frozen v47 merge,
+  `tests/binder-layout.test.mjs`). It shows it as a placeholder with the Pokémon's name on the card
+  back ("Want"), since `image` is null; its fill and its scanner's "Goes in" match placeholders
+  by card id, so they never pick it, and a card it places in that pocket replaces it as for any
+  placeholder. The one rough edge: its Open card on that pocket opens a card page for
+  no card. A new field on the slot instead (`pokemon`) would have read as an empty pocket there, so
+  an older phone would have filled it by Fill the rest in order or a tap without a word.
 
 **Binders from a list** (Eric, 2026-10-05; built 2026-10-09), `js/binder-rules.js`,
 `js/binder-sources.js`, and `js/binder-rule-view.js`. New binder offers Empty binder or **From a
