@@ -225,6 +225,9 @@ const SHELL = [
 	'js/scan/sheets.js',
 	'js/scan/steady.js',
 	'js/scan/tile.js',
+	// Trade or sale mode (Eric, 2026-11-06).
+	'js/scan/trade.js',
+	'js/scan/trade-sheets.js',
 	'js/scan/view.js',
 	'js/scan/worth.js',
 	'js/settings.js',

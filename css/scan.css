@@ -1343,3 +1343,308 @@ html.scan-open body {
 .scan-worth-rising {
 	color: var(--scan-rising);
 }
+
+/* ------------------------------------------------------------ Trade or sale */
+
+/* Trade or sale mode (js/scan/trade-sheets.js; Eric, 2026-11-06). The mode
+   switch sits at the top of the camera in both modes; in Trade or sale a
+   teal frame round the camera and the teal switch keep the mode in sight,
+   so a card meant for a sale is never added by mistake. */
+.scan {
+	--scan-trade: #4fd1c5;
+	--scan-on-trade: #06201d;
+}
+
+.scan-mode {
+	background: rgba(0, 0, 0, 0.7);
+	border: 1px solid var(--scan-border);
+	border-radius: 999px;
+	display: inline-flex;
+	gap: 2px;
+	padding: 2px;
+	pointer-events: auto;
+}
+
+.scan-mode-option {
+	background: none;
+	border: 0;
+	border-radius: 999px;
+	color: var(--scan-text);
+	cursor: pointer;
+	font-size: 14px;
+	font-weight: 600;
+	min-height: 40px;
+	padding: 0 14px;
+	white-space: nowrap;
+}
+
+.scan .scan-mode-option {
+	padding: 0 14px;
+}
+
+.scan-mode-option[aria-checked="true"] {
+	background: var(--scan-text);
+	color: #000000;
+}
+
+.scan-mode-option[data-mode="trade"][aria-checked="true"] {
+	background: var(--scan-trade);
+	color: var(--scan-on-trade);
+}
+
+.scan.is-trade .scan-stage::after {
+	border: 4px solid var(--scan-trade);
+	content: "";
+	inset: 0;
+	pointer-events: none;
+	position: absolute;
+}
+
+.scan.is-trade .scan-done-button:not(:disabled) {
+	background: var(--scan-trade);
+	border-color: var(--scan-trade);
+	color: var(--scan-on-trade);
+}
+
+/* The trade tray: two columns, Going out and Coming in, each scrolling on
+   its own. The column the next scans go to has a teal head. */
+.scan-tray.is-trade {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: 1fr 1fr;
+	height: 156px;
+	min-height: 0;
+	overflow: hidden;
+	padding: 0;
+	scroll-snap-type: none;
+}
+
+.scan-trade-col {
+	background: var(--scan-surface);
+	border: 1px solid var(--scan-border);
+	border-radius: 12px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.scan-trade-col.is-next {
+	border-color: var(--scan-trade);
+}
+
+.scan .scan-trade-head {
+	align-items: center;
+	background: var(--scan-surface-2);
+	border: 0;
+	color: var(--scan-text);
+	cursor: pointer;
+	display: flex;
+	flex: 0 0 auto;
+	font-size: 14px;
+	font-weight: 600;
+	gap: 6px;
+	min-height: 40px;
+	padding: 0 10px;
+	text-align: left;
+	width: 100%;
+}
+
+.scan-trade-col.is-next .scan-trade-head {
+	background: var(--scan-trade);
+	color: var(--scan-on-trade);
+}
+
+.scan-trade-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.scan-trade-count {
+	font-variant-numeric: tabular-nums;
+}
+
+.scan-trade-next {
+	display: none;
+}
+
+.scan-trade-rows {
+	flex: 1 1 auto;
+	list-style: none;
+	margin: 0;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: 0;
+}
+
+.scan-trade-empty {
+	color: var(--scan-muted);
+	font-size: 13px;
+	padding: 8px 10px;
+}
+
+/* The card and its x on the first line, Pick the copy under them when
+   Eric must choose. */
+.scan-trade-row {
+	border-top: 1px solid var(--scan-border);
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 28px;
+	min-width: 0;
+}
+
+.scan-trade-row:first-child {
+	border-top: 0;
+}
+
+.scan .scan-trade-open {
+	align-items: flex-start;
+	background: none;
+	border: 0;
+	color: var(--scan-text);
+	cursor: pointer;
+	display: flex;
+	flex: 1 1 auto;
+	gap: 6px;
+	min-height: 56px;
+	min-width: 0;
+	padding: 4px 0 4px 6px;
+	text-align: left;
+}
+
+.scan-trade-thumb {
+	aspect-ratio: 63 / 88;
+	background: #24376f;
+	border-radius: 3px;
+	flex: 0 0 auto;
+	overflow: hidden;
+	position: relative;
+	width: 34px;
+}
+
+.scan-trade-thumb img,
+.scan-trade-thumb .scan-tile-blank {
+	display: block;
+	height: 100%;
+	object-fit: cover;
+	width: 100%;
+}
+
+.scan-trade-flag {
+	bottom: 1px;
+	left: 1px;
+	position: absolute;
+}
+
+.scan-trade-flag .flag {
+	border-radius: 1px;
+	display: block;
+	height: 9px;
+}
+
+.scan-trade-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.scan-trade-title {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 17px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.scan-trade-line {
+	color: var(--scan-muted);
+	display: -webkit-box;
+	font-size: 12px;
+	line-height: 15px;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+.scan-trade-row.is-ask .scan-trade-line {
+	color: var(--scan-primary);
+}
+
+.scan-trade-row.is-skipped .scan-trade-line {
+	color: var(--scan-danger);
+}
+
+.scan-trade-row.is-skipped .scan-trade-thumb {
+	opacity: 0.5;
+}
+
+.scan-trade-row.is-look .scan-trade-thumb {
+	outline: 2px solid var(--scan-warn);
+}
+
+.scan .scan-trade-pick {
+	background: var(--scan-primary);
+	border: 0;
+	border-radius: 8px;
+	color: var(--scan-on-primary);
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 700;
+	grid-column: 1 / -1;
+	margin: 0 6px 6px;
+	min-height: 36px;
+	padding: 0 8px;
+}
+
+.scan .scan-trade-remove {
+	align-items: center;
+	background: none;
+	border: 0;
+	color: var(--scan-muted);
+	cursor: pointer;
+	display: flex;
+	font-size: 18px;
+	justify-content: center;
+	min-height: 44px;
+	width: 28px;
+}
+
+/* A card's sheet in the trade tray: its side and its copy. */
+.scan-trade-block .scan-row {
+	margin-top: 8px;
+}
+
+/* The copy picker: the person's copies as tiles, on the scanner's dark
+   sheet. */
+.scan-copy-grid {
+	grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+
+.scan .scan-copy {
+	background: none;
+	border: 2px solid transparent;
+	border-radius: 10px;
+	color: var(--scan-text);
+	cursor: pointer;
+	display: flex;
+	padding: 4px;
+}
+
+.scan .scan-copy.is-suggested {
+	border-color: var(--scan-border);
+}
+
+.scan .scan-copy[aria-pressed="true"] {
+	border-color: var(--scan-trade);
+}
+
+.scan-copy .tile-meta {
+	color: var(--scan-muted);
+	font-size: 12px;
+	line-height: 16px;
+}

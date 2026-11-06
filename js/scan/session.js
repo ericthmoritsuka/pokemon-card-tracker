@@ -9,6 +9,8 @@
 //   {id, captured_at, status, waitingFor, read, candidates, partial, card,
 //    variants, variantId, finishBy, language, languageBy, languageHint,
 //    condition, conditionBy, confirmed, sure, why, timings, labelCheck}
+// and, in the Trade or sale tray (session.mode 'trade', js/scan/trade.js),
+// side ('out' or 'in') and picked (the copies chosen to go out by hand),
 // and place, false once Place it there is switched off for a binder
 // placeholder the card fits (placeholderPlan below), and copies, how many
 // alike copies the card stands for (the Copies stepper on its sheet; 1
@@ -156,6 +158,12 @@ export function addCapture(session, {at = nowIso(), id = newId()} = {}) {
 		waitingFor: null,
 		why: null,
 	};
+
+	// The Trade or sale tray (js/scan/trade.js): a card joins the side chosen
+	// when it was scanned, Going out or Coming in.
+	if (session.mode === 'trade') {
+		item.side = session.side === 'in' ? 'in' : 'out';
+	}
 
 	session.items.push(item);
 	touch(session, at);

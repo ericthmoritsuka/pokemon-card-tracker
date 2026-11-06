@@ -72,6 +72,9 @@ export const INTEGRATION = {
 			'\t\'js/scan/sheets.js\',',
 			'\t\'js/scan/steady.js\',',
 			'\t\'js/scan/tile.js\',',
+			// Trade or sale mode (Eric, 2026-11-06).
+			'\t\'js/scan/trade.js\',',
+			'\t\'js/scan/trade-sheets.js\',',
 			'\t\'js/scan/view.js\',',
 			// What a scanned card is worth: the valuable card highlight and the
 			// rising price mark (Eric, 2026-10-15).

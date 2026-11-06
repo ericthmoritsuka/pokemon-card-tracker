@@ -16,16 +16,17 @@
 // camera says how many are in the tray. With Record every scan on (Phone
 // check), each scan is kept in the scan log (js/scan/log.js).
 
-import {waitingPlaceholderList} from '../binders.js';
+import {listBinders, waitingPlaceholderList} from '../binders.js';
 import {afterAdding, undoAdding} from '../placeholder-fill.js';
+import {setPendingMove} from '../moves.js';
 import {addCards, deleteCard, listCards, onChange} from '../collection.js';
-import {cardIndex, saveToCardIndex} from '../catalog.js';
+import {cardIndex, saveToCardIndex, viewingLanguage} from '../catalog.js';
 import {BASE, go, h} from '../dom.js';
 import {flagLanguageName} from '../flags.js';
 import {plural} from '../format.js';
 import {euroRates, exchangeRates, formatBrl, savedEuroRates, savedRates} from '../prices.js';
 import {openSheet} from '../sheet.js';
-import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
+import {familyWishlists, refreshFamilyWishlists, spareEntries} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, NEW_PRINT, planCapture, printDistance, printOf, SAME_PRINT, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
@@ -40,6 +41,8 @@ import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
+import * as T from './trade.js';
+import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -364,6 +367,16 @@ function grabHere() {
 
 export function scanView(root) {
 	let session = null;
+	// Add or Trade or sale (js/scan/trade.js), remembered on the phone, and
+	// the other mode's tray, kept as it was while this one shows.
+	let mode = T.storedMode();
+	let parked = null;
+	// For Trade or sale: the person's live copies, where each is in the
+	// binders, which are spares, and which copy each card going out takes.
+	let ownCards = [];
+	let where = new Map();
+	let spareIds = new Set();
+	let outResults = new Map();
 	let owned = new Map();
 	let family = [];
 	// The placeholders in the person's own binders (js/binders.js
@@ -530,7 +543,7 @@ export function scanView(root) {
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
 	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
-	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => openDone(), type: 'button'}, 'Done');
+	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => (T.isTrade(session) ? logIt() : openDone()), type: 'button'}, 'Done');
 	const live = h('p', {'aria-live': 'polite', class: 'scan-live', id: 'scan-live'});
 	const sheetLayer = h('div', {class: 'scan-sheet-layer', hidden: true, id: 'scan-sheet-layer', onclick: (event) => {
 		if (event.target === sheetLayer) {
@@ -545,7 +558,9 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
+	// Add or Trade or sale, at the top of the camera.
+	const modeBar = modeSwitch((next) => chooseMode(next));
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, modeBar, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -562,6 +577,7 @@ export function scanView(root) {
 	root.replaceChildren(screen);
 	document.documentElement.classList.add('scan-open');
 	drawHolderSwitch();
+	drawMode();
 
 	// ------------------------------------------------------------ context for the sheets
 
@@ -571,6 +587,17 @@ export function scanView(root) {
 		chooseCard,
 		closeSheet,
 		discard,
+		// Trade or sale (js/scan/trade.js): whether the tray is the trade
+		// tray, Log it, and what a card's sheet says about its side and copy.
+		get trade() {
+			return T.isTrade(session);
+		},
+		logIt: () => logIt(),
+		tradeBlock: (id) => {
+			const item = T.isTrade(session) ? S.findItem(session, id) : null;
+
+			return item ? tradeBlock(item, {onMove: moveSide, onPick: openPicker, result: outResults.get(id) || null, where}) : null;
+		},
 		get defaultFinish() {
 			return defaultFinish;
 		},
@@ -593,6 +620,22 @@ export function scanView(root) {
 		},
 		get worthSettings() {
 			return worth;
+		},
+		// The copy picker (js/scan/trade-sheets.js copyPicker).
+		get cardIndex() {
+			return knownIndex || new Map();
+		},
+		isSpare: (entryId) => spareIds.has(entryId),
+		outResult: (id) => outResults.get(id) || null,
+		pickCopies: (id, entryIds) => {
+			change(() => T.pickCopies(session, id, entryIds));
+			announce(entryIds.length ? 'Copy picked.' : 'The scanner chooses the copy again.');
+		},
+		get viewing() {
+			return viewingLanguage();
+		},
+		get where() {
+			return where;
 		},
 		setWorthSetting: (name, value) => {
 			saveWorthSetting(name, value);
@@ -627,8 +670,10 @@ export function scanView(root) {
 			return owned;
 		},
 		photoUrl: (id) => photoUrls.get(id) || null,
+		// The trade tray fills no placeholder by its own choice: a move's cards
+		// in fill them as the trades log decides (js/moves.js planMove).
 		get placeholders() {
-			return placeholders;
+			return T.isTrade(session) ? [] : placeholders;
 		},
 		remove,
 		reportText: (id) => S.reportText(S.findItem(session, id), {device: deviceInfo()}),
@@ -784,11 +829,24 @@ export function scanView(root) {
 
 	async function refreshOwned() {
 		try {
-			owned = S.ownedIndex(await listCards());
+			ownCards = await listCards();
+			owned = S.ownedIndex(ownCards);
 		}
 		catch {
+			ownCards = [];
 			owned = new Map();
 		}
+
+		// For the trade tray's cards going out: where each copy is, and which
+		// are spares.
+		try {
+			where = T.copyWhere(await listBinders());
+		}
+		catch {
+			where = new Map();
+		}
+
+		spareIds = new Set(spareEntries(ownCards).map((entry) => entry.id));
 
 		try {
 			placeholders = await waitingPlaceholderList();
@@ -870,6 +928,10 @@ export function scanView(root) {
 		doneButton.disabled = !items.length;
 		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
 
+		if (T.isTrade(session)) {
+			drawTrade();
+		}
+
 		drawNote();
 
 		// A Review run moves on from a card once it no longer needs a look.
@@ -924,7 +986,180 @@ export function scanView(root) {
 
 		const run = review && review.current === item.id ? reviewState(item.id) : null;
 
-		return JSON.stringify([item, photoUrls.has(item.id), session.items.length, summary.look, summary.waiting, summary.total, run, owned.size, family.length, placeholders.length, Boolean(session.lastSave)]);
+		const copy = T.isTrade(session) && outResults.get(item.id);
+		const trade = copy ? [copy.status, copy.copies.map((entry) => entry.id), copy.candidates.length, where.size] : null;
+
+		return JSON.stringify([item, photoUrls.has(item.id), session.items.length, summary.look, summary.waiting, summary.total, run, owned.size, family.length, placeholders.length, Boolean(session.lastSave), trade]);
+	}
+
+	// ------------------------------------------------------------ Trade or sale
+
+	// The trade tray (js/scan/trade-sheets.js tradeColumns) in place of the
+	// Add tray's tiles, and Log it in place of Done.
+	function drawTrade() {
+		outResults = T.outCopies(session, ownCards, {where});
+
+		const sum = T.tradeSummary(session, outResults);
+		// Short: the columns count the cards on each side.
+		const parts = [sum.look ? `${sum.look} to check` : null, sum.ask ? `${sum.ask} to pick` : null].filter(Boolean);
+
+		tray.replaceChildren(...tradeColumns({photoUrl: (id) => photoUrls.get(id) || null, results: outResults, session, where}));
+		count.textContent = parts.join(' · ') || 'Trade or sale';
+		doneButton.disabled = !session.items.length;
+		doneButton.textContent = 'Log it';
+	}
+
+	function drawMode() {
+		const trade = mode === 'trade';
+
+		drawModeSwitch(modeBar, mode);
+		screen.classList.toggle('is-trade', trade);
+		tray.classList.toggle('is-trade', trade);
+		tray.setAttribute('aria-label', trade ? 'Trade or sale: cards going out and coming in' : 'Cards in this session');
+	}
+
+	// Add or Trade or sale, from the switch over the camera. Leaving Trade or
+	// sale with cards in its tray asks first; the Add tray is kept as it is.
+	function chooseMode(next) {
+		if (!session || next === mode) {
+			drawMode();
+
+			return;
+		}
+
+		// A card being read finishes in the tray it was taken for.
+		if (session.items.some((item) => working.has(item.id))) {
+			drawMode();
+			setNote('A card is still being read. Switch once it is in the tray.');
+
+			return;
+		}
+
+		if (T.isTrade(session) && session.items.length) {
+			drawMode();
+			showSheet(leaveTradeSheet(ctx, {action: 'Discard and switch to Add', count: session.items.length, onLeave: () => {
+				discardTrade();
+				closeSheet();
+				switchMode(next);
+			}}));
+
+			return;
+		}
+
+		switchMode(next);
+	}
+
+	function switchMode(next) {
+		answerRepeat(false);
+		closeSheet();
+		forgetRemoved();
+		discarded = null;
+		noteText = null;
+		persist();
+
+		const other = parked;
+
+		parked = session;
+		mode = next;
+		T.rememberMode(next);
+		session = other && T.isTrade(other) === (next === 'trade') ? other : next === 'trade' ? T.newTradeSession() : S.newSession();
+
+		for (const item of session.items) {
+			loadPhotoUrl(item.id).then(draw);
+		}
+
+		drawMode();
+		draw();
+		announce(next === 'trade'
+			? 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log the move.'
+			: 'Add. Cards you scan are added to your cards when you save.');
+		resume().catch(() => {});
+	}
+
+	// Throws the trade tray away (asked first by leaveTradeSheet). Nothing in
+	// the collection changed, so nothing is undone.
+	function discardTrade() {
+		const gone = session.items.map((item) => item.id);
+
+		for (const id of gone) {
+			scanLog.setOutcome(id, {kind: 'discarded'});
+			toBuzz.delete(id);
+			dropPhoto(id);
+		}
+
+		forgetCard(gone);
+		forgetRemoved();
+		session = {...T.newTradeSession(), side: session.side};
+		persist();
+		draft.prunePhotos([]).catch(() => {});
+		draw();
+	}
+
+	function setSide(side) {
+		change(() => T.setSide(session, side));
+		announce(`Next scans go to ${T.SIDE_NAMES[side]}.`);
+	}
+
+	function moveSide(id, side) {
+		change(() => T.moveToSide(session, id, side));
+		announce(`Moved to ${T.SIDE_NAMES[side]}.`);
+	}
+
+	function openPicker(id) {
+		const result = outResults.get(id);
+
+		if (!result || !result.candidates.length) {
+			return;
+		}
+
+		endReview();
+		showSheet(copyPicker(ctx, id));
+	}
+
+	// Log it: the trades log's form (js/moves-view.js), filled with the
+	// cards going out (the copies chosen), the cards coming in, the kind the
+	// sides suggest, and today. Eric adds who and the price and saves there;
+	// that save is the only one, and it empties this tray.
+	function logIt() {
+		if (!T.isTrade(session) || !session.items.length) {
+			return;
+		}
+
+		const sum = T.tradeSummary(session, outResults);
+
+		if (sum.look) {
+			openReview();
+
+			return;
+		}
+
+		if (sum.ask) {
+			const first = session.items.find((item) => T.sideOf(item) === 'out' && (outResults.get(item.id) || {}).status === 'ask');
+
+			openPicker(first.id);
+
+			return;
+		}
+
+		if (sum.busy) {
+			setNote(`Wait a moment: ${plural(sum.busy, 'card is', 'cards are')} still being read or looked up.`);
+
+			return;
+		}
+
+		if (!sum.loggable) {
+			setNote('Nothing to log: no card going out is yours, and no card is coming in.');
+
+			return;
+		}
+
+		const handoff = T.tradeHandoff(session, outResults, owned);
+		const sessionId = session.id;
+
+		saveToCardIndex(handoff.records).catch(() => {});
+		setPendingMove({...handoff, from: 'scan', onSaved: () => draft.clearTrade(sessionId, T.newTradeSession())});
+		persist();
+		go('trades/new');
 	}
 
 	let noteText = null;
@@ -1176,6 +1411,14 @@ export function scanView(root) {
 	}
 
 	function openDone() {
+		// The trade tray has Log it, never Done's Save (Set for all comes back
+		// here).
+		if (T.isTrade(session)) {
+			closeSheet();
+
+			return;
+		}
+
 		if (!session.items.length) {
 			return;
 		}
@@ -1335,6 +1578,13 @@ export function scanView(root) {
 	}
 
 	async function saveNow({skipOwned = false} = {}) {
+		// The trade tray never adds cards by itself: they go through Log it.
+		if (T.isTrade(session)) {
+			logIt();
+
+			return;
+		}
+
 		const summary = S.doneSummary(session, owned);
 
 		if (!S.canSave(summary)) {
@@ -1482,7 +1732,7 @@ export function scanView(root) {
 		}
 
 		noteText = null;
-		session = S.newSession();
+		session = T.isTrade(kept) ? {...T.newTradeSession(), side: kept.side} : S.newSession();
 		session.lastSave = kept.lastSave;
 		persist();
 		closeSheet();
@@ -3604,6 +3854,19 @@ export function scanView(root) {
 	// another screen in the app; My Cards, when the scanner was opened
 	// directly (the home screen shortcut, a reload).
 	function close() {
+		// Leaving with cards in the trade tray asks first (Eric, 2026-11-06).
+		// The system Back cannot be asked about; the tray is kept for next
+		// time instead.
+		if (T.isTrade(session) && session.items.length) {
+			showSheet(leaveTradeSheet(ctx, {action: 'Discard and close', count: session.items.length, onLeave: () => {
+				discardTrade();
+				closeSheet();
+				close();
+			}}));
+
+			return;
+		}
+
 		if (history.state && history.state.inApp && history.length > 1) {
 			history.back();
 		}
@@ -3611,6 +3874,24 @@ export function scanView(root) {
 			go('cards', {replace: true});
 		}
 	}
+
+	// The trade tray's Pick buttons and its column heads (Going out, Coming
+	// in), which choose where the next scans go.
+	tray.addEventListener('click', (event) => {
+		const pick = event.target.closest('[data-pick]');
+
+		if (pick) {
+			openPicker(pick.dataset.pick);
+
+			return;
+		}
+
+		const side = event.target.closest('[data-side-to]');
+
+		if (side && T.isTrade(session)) {
+			setSide(side.dataset.sideTo);
+		}
+	});
 
 	tray.addEventListener('click', (event) => {
 		const x = event.target.closest('[data-remove]');
@@ -3659,10 +3940,16 @@ export function scanView(root) {
 
 	(async () => {
 		try {
-			session = (await draft.loadSession()) || S.newSession();
+			// Both trays: the one for the mode in use, and the other kept as it
+			// is for a switch.
+			const [add, trade] = await Promise.all([draft.loadSession('add'), draft.loadSession('trade').catch(() => null)]);
+			const both = {add: add || S.newSession(), trade: T.isTrade(trade) ? trade : T.newTradeSession()};
+
+			session = both[mode];
+			parked = both[mode === 'trade' ? 'add' : 'trade'];
 		}
 		catch {
-			session = S.newSession();
+			session = mode === 'trade' ? T.newTradeSession() : S.newSession();
 			setNote('This phone could not keep a draft tray; save before closing the app.');
 		}
 

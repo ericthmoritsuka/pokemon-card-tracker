@@ -453,7 +453,9 @@ export function confirmSheet(ctx, itemId) {
 			const copies = copiesOf(item);
 			const adds = copies > 1 ? ` These add ${copies}, making ${next} in ${langName(item.language)}.` : ` This adds a ${ordinal(next)} in ${langName(item.language)}.`;
 
-			lines.push(h('p', {id: 'scan-owned-line'}, `You have ${parts.join(', ')}.${item.language && owned.inLanguage ? adds : ''}`));
+			// The trade tray adds nothing here: its card's line says what goes
+			// or comes (ctx.tradeBlock).
+			lines.push(h('p', {id: 'scan-owned-line'}, `You have ${parts.join(', ')}.${item.language && owned.inLanguage && !ctx.trade ? adds : ''}`));
 		}
 		else if (item.card) {
 			const inTray = quantity(ctx.session, item, ctx.owned);
@@ -524,11 +526,14 @@ export function confirmSheet(ctx, itemId) {
 		const run = ctx.review ? ctx.review(itemId) : null;
 		const save = run && run.next
 			? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-next', onclick: () => ctx.reviewNext(), type: 'button'}, 'Next card')
-			: single
-				? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
-				: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
+			// The trade tray saves nothing itself: Log it opens the trades log.
+			: ctx.trade
+				? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-log-it', onclick: () => ctx.logIt(), type: 'button'}, 'Log it')
+				: single
+					? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
+					: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
 
-		const blockedText = single && saveBlocked
+		const blockedText = single && saveBlocked && !ctx.trade
 			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'finish' ? 'Pick the finish before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
 			: null;
 
@@ -579,6 +584,7 @@ export function confirmSheet(ctx, itemId) {
 			conditionBlock(item),
 			item.card ? copiesBlock(item) : null,
 			ownedLines(item),
+			ctx.trade ? ctx.tradeBlock(itemId) : null,
 			placeholderBlock(item),
 			actions(item),
 		].filter(Boolean));

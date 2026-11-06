@@ -72,12 +72,13 @@ async function runUndo(moveId) {
 	}
 }
 
-// The names, languages, and art of copies: {entry, info}.
-const described = (entries, index, viewing) => entries.map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
+// The names, languages, and art of copies: {entry, info}. The scanner's
+// copy picker (js/scan/trade-sheets.js) shows copies the same way.
+export const described = (entries, index, viewing) => entries.map((entry) => ({entry, info: entryInfo(entry, index, viewing)}));
 
 const copyMeta = (entry, extra = null) => [languageName(entry.language), entry.condition, extra].filter(Boolean).join(' · ');
 
-function copyTile({entry, info}, {extra = null, selected = null} = {}) {
+export function copyTile({entry, info}, {extra = null, selected = null} = {}) {
 	const frame = artOf({catalog: entry.catalog || 'international', card_id: entry.card_id, language: entry.language || null}, info, (src) => tileArt({
 		finish: entryFinish(entry),
 		info,
@@ -319,14 +320,26 @@ const KIND_WORDS = {
 // In the order a person reaches for them.
 const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'], ['gift', 'Gift']];
 
+// "Scanned: 2 cards out and 1 in. Traded is picked; change it if that is
+// not what happened." with the alternative the sides allow.
+export function scannedText({alternatives = [], in: incoming = [], kind, out = []}) {
+	const inCount = incoming.reduce((sum, item) => sum + (item.n || 1), 0);
+	const sides = [out.length ? `${plural(out.length, 'card')} out` : null, inCount ? `${plural(inCount, 'card')} in` : null].filter(Boolean).join(' and ');
+	const label = (value) => (KIND_LABELS.find(([one]) => one === value) || [null, value])[1];
+	const other = alternatives.length ? ` Pick ${alternatives.map(label).join(' or ')} if ${kind === 'bought' ? 'they were a gift to you' : 'you gave them away'}.` : '';
+
+	return `Scanned: ${sides || 'no cards'}. ${label(kind)} is picked.${other} Add who and the price, then Save.`;
+}
+
 export function newMoveView(root) {
 	let alive = true;
 	const handed = takePendingMove() || {};
 	const outIds = new Set(handed.out || []);
 	const pastIds = new Set();
-	// The cards in: {fields, info, n}.
-	const ins = [];
-	let kind = 'sold';
+	// The cards in: {fields, info, n}. The scanner's Trade or sale mode hands
+	// its cards coming in over in this shape (js/scan/trade.js tradeHandoff).
+	const ins = (handed.in || []).map((item) => ({fields: {...item.fields}, info: {...item.info}, n: item.n}));
+	let kind = KIND_LABELS.some(([value]) => value === handed.kind) ? handed.kind : 'sold';
 	let doc = null;
 	// The kept Start over undo, which tells Log a past sale what an older
 	// Start over removed (js/moves.js pastCandidates).
@@ -376,6 +389,10 @@ export function newMoveView(root) {
 				drawKind();
 			}, type: 'radio', value}),
 			h('span', null, label))));
+	// From the scanner: what was scanned, and the kind it suggests, which he
+	// can change (Sold or Gift for cards only going out, Bought or Gift for
+	// cards only coming in).
+	const scanned = handed.from === 'scan' ? h('p', {class: 'muted move-scanned', id: 'move-scanned'}, scannedText(handed)) : null;
 
 	const shows = () => ({in: kind !== 'sold', out: kind !== 'bought'});
 
@@ -701,6 +718,7 @@ export function newMoveView(root) {
 
 	const formElement = h('form', {class: 'copy-form move-form', id: 'move-form', novalidate: true},
 		kinds,
+		...(scanned ? [scanned] : []),
 		sheetField('Date', 'move-date', date),
 		h('div', {class: 'copy-field'}, whoLabel, who),
 		priceRow,
@@ -773,6 +791,11 @@ export function newMoveView(root) {
 		}
 
 		const {counts, move} = result;
+
+		// The scanner's Trade or sale tray empties once its move is saved.
+		if (typeof handed.onSaved === 'function') {
+			Promise.resolve().then(() => handed.onSaved(move)).catch(() => {});
+		}
 		const words = [counts.out + counts.past ? `${plural(counts.out + counts.past, 'card', 'cards')} out` : null, counts.in ? `${plural(counts.in, 'card', 'cards')} in` : null].filter(Boolean).join(', ');
 		const after = afterText({got: {length: counts.got}, placed: {length: counts.filled}});
 

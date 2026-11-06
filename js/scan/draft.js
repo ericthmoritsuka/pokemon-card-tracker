@@ -3,7 +3,9 @@
 //
 // Its own database, apart from the person's document: a draft is not
 // ownership, is never synced, and goes when the session is saved.
-//   session   the current session (js/scan/session.js), key "current"
+//   session   the current session (js/scan/session.js), key "current", and
+//             the Trade or sale tray (js/scan/trade.js), key "trade", so
+//             switching modes keeps each tray as it was
 //   photos    each tray card's photo as a JPEG Blob, key "<item id>", and
 //             the full-size card for a re-read, key "<item id>:full"
 
@@ -12,6 +14,9 @@ const VERSION = 1;
 const SESSION = 'session';
 const PHOTOS = 'photos';
 const CURRENT = 'current';
+const TRADE = 'trade';
+
+const keyOf = (session) => (session && session.mode === 'trade' ? TRADE : CURRENT);
 
 let dbPromise = null;
 
@@ -58,21 +63,26 @@ async function run(storeName, mode, op) {
 	});
 }
 
-export const loadSession = () => run(SESSION, 'readonly', (store) => store.get(CURRENT));
+// The Add tray, or with mode 'trade' the Trade or sale tray.
+export const loadSession = (mode = 'add') => run(SESSION, 'readonly', (store) => store.get(mode === 'trade' ? TRADE : CURRENT));
 
 // Saves are serialized, so a later state never lands before an earlier one.
 let saving = Promise.resolve();
 
-// Every save tells the page how many cards the draft holds, as the event
-// DRAFT_EVENT with detail {count}, so the shell can put a count dot on the
-// Scan tab (plans/design-review.md: "unsaved tray cards put a count dot on
-// the Scan tab").
+// Every save of the Add tray tells the page how many cards the draft holds,
+// as the event DRAFT_EVENT with detail {count}, so the shell can put a count
+// dot on the Scan tab (plans/design-review.md: "unsaved tray cards put a
+// count dot on the Scan tab"). The Trade or sale tray adds nothing to the
+// collection when saved, so it is not counted there.
 export const DRAFT_EVENT = 'card-tracker:scan-draft';
 
 export function saveSession(session) {
 	const copy = JSON.parse(JSON.stringify(session));
-	const next = saving.then(() => run(SESSION, 'readwrite', (store) => store.put(copy, CURRENT))).then(() => {
-		window.dispatchEvent(new CustomEvent(DRAFT_EVENT, {detail: {count: copy.items.length}}));
+	const key = keyOf(copy);
+	const next = saving.then(() => run(SESSION, 'readwrite', (store) => store.put(copy, key))).then(() => {
+		if (key === CURRENT) {
+			window.dispatchEvent(new CustomEvent(DRAFT_EVENT, {detail: {count: copy.items.length}}));
+		}
 	});
 
 	saving = next.catch(() => {});
@@ -99,9 +109,26 @@ export const loadPhoto = (key) => run(PHOTOS, 'readonly', (store) => store.get(k
 
 export const deletePhoto = (key) => run(PHOTOS, 'readwrite', (store) => store.delete(key));
 
-// Deletes every photo whose item is not in `keepIds`.
+// Empties the Trade or sale tray once its move is logged (js/moves-view.js),
+// unless a newer tray has taken its place (sessionId names the one handed
+// over). Its photos go at the next prune.
+export async function clearTrade(sessionId, emptied) {
+	await saving;
+
+	const kept = await run(SESSION, 'readonly', (store) => store.get(TRADE)).catch(() => null);
+
+	if (kept && kept.id === sessionId) {
+		await saveSession(emptied);
+	}
+}
+
+// Deletes every photo whose item is in neither tray: `keepIds` (the tray on
+// the screen, which may be ahead of its draft) and both trays kept here.
 export async function prunePhotos(keepIds) {
-	const keep = new Set(keepIds);
+	await saving;
+
+	const kept = await Promise.all([CURRENT, TRADE].map((key) => run(SESSION, 'readonly', (store) => store.get(key)).catch(() => null)));
+	const keep = new Set([...keepIds, ...kept.flatMap((one) => (one && Array.isArray(one.items) ? one.items.map((item) => item.id) : []))]);
 	const keys = await run(PHOTOS, 'readonly', (store) => store.getAllKeys());
 
 	await Promise.all((keys || [])
