@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
+- **v63:** scan a trade or a sale. `TBD`
+  - Scan has two modes: **Add** and **Trade or sale**, switched at the head of the tray. In Trade
+    or sale the camera has a teal frame and the tray has two sides, **Going out** and **Coming in**;
+    tap a side to send the next scans there.
+  - A card going out is matched to a copy you own: a spare first, in the language and finish read.
+    When two copies fit, you pick the copy; a card you do not own cannot go out.
+  - **Log it** opens the trades form filled in with the cards, the kind (Traded, Sold, or Bought,
+    with Gift as the alternative), and today's date. Add who and the price, then Save. Saving and
+    Undo are the trades log's own; nothing in your cards changes before Save.
+
 - **v62:** take a card out of its pocket, and lay out a binder from a list. `341151f`
   - Tapping a card in a binder lifts it out over the binder, large, with pinch and double-tap zoom.
     Under it: Details (the pocket's sheet), To the tray, Move, and Card page. Tap outside, swipe

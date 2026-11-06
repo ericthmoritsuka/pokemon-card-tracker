@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-06',
 		items: [
+			'Scan a trade or a sale: switch Scan to Trade or sale, scan the cards going out and coming in, and tap Log it.',
+			'The trades form opens already filled. Add who and the price, then Save; nothing changes in your cards before that.',
+			'A card going out is matched to a spare first. When two copies fit, you pick which one leaves.',
+		],
+		version: 'v63',
+	},
+	{
+		date: '2026-11-06',
+		items: [
 			'Tap a card in a binder to take it out of its pocket and look at it large, with zoom. Details, To the tray, Move, and Card page sit under it.',
 			'Lay out from a list: a binder you fill by hand can take a checklist, such as Johto, as placeholders in Pokédex order in its empty pockets. Cards you own go in now, and new ones as you add them.',
 		],
