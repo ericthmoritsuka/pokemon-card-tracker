@@ -22,6 +22,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-06',
 		items: [
+			'Holder mode waits for a sharp look of a blurred card instead of saving it blurred, never takes the same card twice, and never loses a card. A card it is not sure of says Check this one.',
+			'Trade or sale picks the copy by itself when your loose copies are alike, and asks for all the cards that need a choice on one sheet.',
+			'Trades and sales has Scan the cards, which opens Scan in Trade or sale.',
+			'Placeholders take your most valuable copy that fits.',
+		],
+		version: 'v64',
+	},
+	{
+		date: '2026-11-06',
+		items: [
 			'Scan a trade or a sale: switch Scan to Trade or sale, scan the cards going out and coming in, and tap Log it.',
 			'The trades form opens already filled. Add who and the price, then Save; nothing changes in your cards before that.',
 			'A card going out is matched to a spare first. When two copies fit, you pick which one leaves.',
