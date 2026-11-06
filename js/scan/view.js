@@ -28,7 +28,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, cardFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, focusVerdict, grownBox, NEW_PRINT, planCapture, printDistance, printOf, reachesEdge, SAME_PRINT, SETTLE_LIMIT_MS, SETTLE_PATIENCE_MS, SETTLE_STIR_MS, settleVerdict, takenCard, toView} from './drop.js';
+import {asksRepeat, boxOf, cardFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, focusVerdict, grownBox, NEW_PRINT, planCapture, printDistance, printOf, reachesEdge, SAME_PRINT, SETTLE_LIMIT_MS, SETTLE_PATIENCE_MS, SETTLE_STIR_MS, settleVerdict, SOFT_PRINT_MAX, takenCard, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -3146,6 +3146,14 @@ export function scanView(root) {
 		if (content && content.verdict === 'new') {
 			const plan = planSpot(view, fine);
 			const settle = settledAt([lastDrop.quad], view, fine);
+
+			// A card landing on the last one's spot changes nothing that reaches
+			// the edge of the view; a hand reaching in over the last card does,
+			// and makes its print read new: it waits for the hand to go.
+			if (!settle.why && reachesEdge(step.change, view.width, view.height)) {
+				settle.why = 'hand';
+			}
+
 			const next = waitToSettle(held, step, at, settle, {spot: true});
 
 			setPile(false);
@@ -3295,7 +3303,8 @@ export function scanView(root) {
 
 	// What a drop does on this look: 'take' (settled, or waited long
 	// enough), 'wait' (pendingDrop, the detector holding the picture before
-	// it), or 'give up' (waited SETTLE_LIMIT_MS with a hand's change reaching
+	// it; settle.why is 'moving', 'soft', 'plain', or on the very spot of the
+	// last card 'hand'), or 'give up' (waited SETTLE_LIMIT_MS with a hand's change reaching
 	// the edge of the view, or on the very spot of the last card: taking it
 	// would take the hand's card, or the last card again). edge: what changed
 	// reaches the edge (drop.js reachesEdge). spot: the drop waits on the very
@@ -3342,10 +3351,12 @@ export function scanView(root) {
 
 		// Only a printed card waiting for its focus alone is kept (soft): a
 		// blob with no print (plain) is no card to take early.
-		if (why === 'soft' && !edge && !wait.spot && ready) {
+		const softPrint = why === 'soft' && settle.blur <= SOFT_PRINT_MAX && !edge;
+
+		if (softPrint && !wait.spot && ready) {
 			keepReady(wait, ready);
 		}
-		else if (why !== 'soft' || edge) {
+		else if (!softPrint) {
 			dropReady(wait);
 		}
 
@@ -3370,7 +3381,7 @@ export function scanView(root) {
 		}
 		// Still for SETTLE_PATIENCE_MS and printed but soft, with no hand
 		// reaching in: the card's own print, taken all the same.
-		else if (why === 'soft' && !edge && at - wait.stillSince >= SETTLE_PATIENCE_MS) {
+		else if (softPrint && at - wait.stillSince >= SETTLE_PATIENCE_MS) {
 			settle.patience = true;
 		}
 		else {

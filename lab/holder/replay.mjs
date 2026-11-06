@@ -531,10 +531,12 @@ function createV62() {
 		const wait = pending;
 		const waited = at - wait.at;
 
-		if (why === 'soft' && !edge && !wait.spot && ready) {
+		const softPrint = why === 'soft' && settle.blur <= drop.SOFT_PRINT_MAX && !edge;
+
+		if (softPrint && !wait.spot && ready) {
 			wait.ready = wait.ready || {...ready, cells: detector.latest, grabbed: grabFrame(frame, ready.plan.region)};
 		}
-		else if (why !== 'soft' || edge) {
+		else if (!softPrint) {
 			wait.ready = null;
 		}
 
@@ -552,7 +554,7 @@ function createV62() {
 
 			settle.limit = true;
 		}
-		else if (why === 'soft' && !edge && at - wait.stillSince >= drop.SETTLE_PATIENCE_MS) {
+		else if (softPrint && at - wait.stillSince >= drop.SETTLE_PATIENCE_MS) {
 			settle.patience = true;
 		}
 		else {
@@ -593,6 +595,11 @@ function createV62() {
 		if (content && content.verdict === 'new') {
 			const spot = {...drop.planCapture(last.quad, [], view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, sharpBox: drop.boxOf(last.quad.map(drop.toView(view)))}), fine};
 			const settle = settledAt([last.quad], view, fine);
+
+			if (!settle.why && drop.reachesEdge(step.change, view.width, view.height)) {
+				settle.why = 'hand';
+			}
+
 			const next = waitToSettle(held, step, at, settle, {spot: true});
 
 			if (next === 'take') {

@@ -300,7 +300,7 @@ describe('Send report and Sent reports (Eric, 2026-11-05)', () => {
 
 		const text = await page.evaluate(() => document.body.innerText);
 
-		for (const expected of ['Scan 1 of 3: Test card 1, 001/132', 'Scan 2 of 3: Test card 2, 002/132', 'Scanner version: 40', 'What was read', 'Name: "Test card 1" (81 %)', 'Language: ko (80 %, from Korean model)', 'Text route', 'Name strip: "TEST CARD 1"', 'Picture route', 'Candidates', '<- the scanner\'s answer, saved', 'Saved: Test card 2, 002/132 (me01-002), language ko, finish normal (default), 1 copy', 'No picture in this scan.', 'Errors', 'Korean cards, glare']) {
+		for (const expected of ['Scan 1 of 3: Test card 1, 001/132', 'Scan 2 of 3: Test card 2, 002/132', 'Scanner version: 62', 'What was read', 'Name: "Test card 1" (81 %)', 'Language: ko (80 %, from Korean model)', 'Text route', 'Name strip: "TEST CARD 1"', 'Picture route', 'Candidates', '<- the scanner\'s answer, saved', 'Saved: Test card 2, 002/132 (me01-002), language ko, finish normal (default), 1 copy', 'No picture in this scan.', 'Errors', 'Korean cards, glare']) {
 			assert.ok(text.includes(expected), `the page says ${expected}`);
 		}
 

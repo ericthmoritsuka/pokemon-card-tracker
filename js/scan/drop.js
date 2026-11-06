@@ -1403,6 +1403,14 @@ export function focusVerdict(focus) {
 export const SETTLE_PATIENCE_MS = 1500;
 export const PATIENCE_STIR = REGION_STIR;
 
+// And only for a print no softer than SOFT_PRINT_MAX (its share of soft
+// blocks): the scans of basic Energies, the softest prints measured, read
+// 0.2 to 0.6 by cardFocus, and a card held out of focus near the lens 1
+// (nothing in it sharp). The browser test's blurred card held over the pile
+// without reaching the edge of the view was taken early as a card, under a
+// loaded machine, before this bound.
+export const SOFT_PRINT_MAX = 0.7;
+
 // Whether a change reaches the edge of the view (its rectangle within
 // `margin` view pixels of a side): a hand coming in from outside, or the
 // card it holds, near the lens. A card lying in the box never does: its

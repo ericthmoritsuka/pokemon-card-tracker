@@ -106,17 +106,19 @@ async function until(check, what, timeout = 30000) {
 	const end = Date.now() + timeout;
 
 	while (!(await check())) {
-		assert.ok(Date.now() < end, what);
+		assert.ok(Date.now() < end, typeof what === 'function' ? await what() : what);
 		await new Promise((resolve) => setTimeout(resolve, 150));
 	}
 }
 
-async function readAll(page, count) {
+// errors: the page's errors, named in the failure (a capture that throws
+// leaves its tile reading).
+async function readAll(page, count, errors = []) {
 	await until(async () => {
 		const list = await items(page);
 
 		return list.length === count && list.every((item) => item.status !== 'reading' && item.status !== 'matching');
-	}, `${count} cards read`, 60000);
+	}, async () => `${count} cards read: ${JSON.stringify({errors, items: (await items(page)).map((item) => [item.card, item.status, item.drop && item.drop.settle])})}`, 60000);
 }
 
 // Drops `card` onto the pile from above the frame, as
@@ -195,7 +197,7 @@ describe('holder mode takes a card once it has settled', () => {
 		await until(async () => (await captures(page)) === 2, 'taken once the hand left', 8000);
 		await page.waitForTimeout(1500);
 		assert.equal(await captures(page), 2, 'taken once');
-		await readAll(page, 2);
+		await readAll(page, 2, errors);
 
 		const list = await items(page);
 
@@ -227,7 +229,7 @@ describe('holder mode takes a card once it has settled', () => {
 
 		await drop(page, [], pile[0]);
 		await until(async () => (await captures(page)) === 1, 'card c taken', 8000);
-		await readAll(page, 1);
+		await readAll(page, 1, errors);
 		await page.waitForTimeout(900);
 
 		// The hand comes in over the card, holds still for a second, and
@@ -246,6 +248,10 @@ describe('holder mode takes a card once it has settled', () => {
 		await hover(page, pile, HELD, {every: 250, ms: 2200, sway: 0});
 		await setScene(page, {background: 'box', cards: pile});
 		await page.waitForTimeout(2000);
+		if (await captures(page) !== 1) {
+			await readAll(page, await captures(page), errors);
+		}
+
 		assert.equal(await captures(page), 1, `not taken again after a hand held dead still over it for 2 s: ${JSON.stringify((await items(page)).map((item) => item.drop && {kind: item.drop.kind, print: item.drop.print, settle: item.drop.settle, verdict: item.drop.printVerdict}))}`);
 		await setScene(page, {background: 'box', cards: pile, held: HELD});
 		await hover(page, pile, HELD, HAND);
@@ -287,7 +293,7 @@ describe('holder mode takes a card once it has settled', () => {
 		await until(async () => (await captures(page)) === 2, 'both cards taken', 10000);
 		await page.waitForTimeout(1500);
 		assert.equal(await captures(page), 2, 'each once');
-		await readAll(page, 2);
+		await readAll(page, 2, errors);
 
 		const list = await items(page);
 
@@ -310,10 +316,11 @@ describe('holder mode takes a card once it has settled', () => {
 		await page.waitForTimeout(900);
 
 		// The next card lands under the blurred card in the hand, which then
-		// gives way to a hand held still over the middle of the pile.
+		// gives way to a hand held still over the middle of the pile, its arm
+		// reaching in from the edge of the frame.
 		await drop(page, pile, next, {held: HELD});
 		await hover(page, [...pile, next], HELD, {every: 250, ms: 800, sway: 0.006});
-		await setScene(page, {background: 'box', cards: [...pile, next], hand: {dx: 0.05, dy: 0.1, r: 0.22}});
+		await setScene(page, {background: 'box', cards: [...pile, next], hand: {arm: true, dx: 0.05, dy: 0.1, r: 0.22}});
 		await page.waitForTimeout(1200);
 		assert.equal(await captures(page), 1, 'nothing taken while the hand is there');
 
@@ -321,7 +328,7 @@ describe('holder mode takes a card once it has settled', () => {
 		await until(async () => (await captures(page)) === 2, 'the card taken once the hand left', 10000);
 		await page.waitForTimeout(1500);
 		assert.equal(await captures(page), 2, 'taken once');
-		await readAll(page, 2);
+		await readAll(page, 2, errors);
 		assert.deepEqual((await items(page)).map((item) => item.card), [CARDS.c, CARDS.a]);
 		assert.deepEqual(errors, []);
 		await context.close();
@@ -336,7 +343,7 @@ describe('holder mode takes a card once it has settled', () => {
 		await until(async () => (await captures(page)) === 1, 'the first taken', 8000);
 		await drop(page, [first], second);
 		await until(async () => (await captures(page)) === 2, 'the second taken', 8000);
-		await readAll(page, 2);
+		await readAll(page, 2, errors);
 		assert.deepEqual((await items(page)).map((item) => item.card), [CARDS.a, CARDS.c]);
 		assert.deepEqual(errors, []);
 		await context.close();

@@ -18,7 +18,8 @@
 // camera's picture does; scene.reanchor measures it again. 'box' is a white box seen from above:
 // a white floor, and grey walls running out to the frame's edges.
 // window.scene can also be {kind: 'table'} (nothing). scene.hand ({dx, dy,
-// r}, shares of the guide's height) draws a hand over the cards; a card's
+// r, arm}, shares of the guide's height) draws a hand over the cards, with
+// arm its arm down to the frame's edge; a card's
 // blur (a share of the guide's height) draws it out of focus, and
 // scene.held ({card, dx, dy, size, angle, blur}, as a card) draws a card
 // held over the pile near the lens, out of focus, over everything else
@@ -163,12 +164,22 @@ export function sceneCamera({height, width}) {
 			ctx.restore();
 		}
 
-		// A hand over the pile: a dark disc, placed as a card is.
+		// A hand over the pile: a dark disc, placed as a card is, and with
+		// scene.hand.arm its arm, a band from it down to the frame's bottom
+		// edge, as a real hand reaches in.
 		if (scene.hand) {
+			const hx = cx + gh * (scene.hand.dx || 0);
+			const hy = cy + gh * (scene.hand.dy || 0);
+			const r = gh * (scene.hand.r || 0.3);
+
 			ctx.fillStyle = '#5a4436';
 			ctx.beginPath();
-			ctx.arc(cx + gh * (scene.hand.dx || 0), cy + gh * (scene.hand.dy || 0), gh * (scene.hand.r || 0.3), 0, Math.PI * 2);
+			ctx.arc(hx, hy, r, 0, Math.PI * 2);
 			ctx.fill();
+
+			if (scene.hand.arm) {
+				ctx.fillRect(hx - r * 0.7, hy, r * 1.4, height - hy);
+			}
 		}
 
 		// The light: below 1 dims the whole picture, above 1 brightens it (a
