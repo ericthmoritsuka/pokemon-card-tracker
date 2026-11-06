@@ -225,6 +225,10 @@ cards dropped into a box, auto capture waits for each drop to settle and takes i
 else (the tray, the repeat bar, Review) is the same flow. Details in section 6. *(Decided by Eric,
 2026-10-09.)*
 
+**Scan has a Trade or sale mode beside Add.** Eric, 2026-11-06, asked to log trades and sales by
+scanning the cards; the mode switch, its own two-sided tray, and Log it into the trades log are in
+section 11, "Scan a trade or a sale". Add stays the default and works as before.
+
 **A scan session is a tray, and every card in it carries its own language.**
 Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
 scanner, each one can be opened, retagged, or removed, and the session is assigned to
@@ -2501,6 +2505,45 @@ stamps both with the run's time). Only when none of that applies, and the docume
 over mark is from before `removed_by`, does the old rule remain: a copy removed within a minute
 after that mark is left out. That rule alone missed an earlier run, Start over's Undo, and a copy
 whose stamp was ahead, and hid a real removal right after a run.
+
+**Scan a trade or a sale** (Eric, 2026-11-06: "Maybe I could use the scanner to register the
+trades/sales too instead of registering them just manually. Maybe we could have another mode and I
+could scan the cards and select a trade/sell/giveaway option so the system could make the
+adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
+
+- **Two modes.** Scan has a switch at the top of the camera: **Add** (what Scan always did, the
+  default) and **Trade or sale**. The choice is remembered on the phone (`card-tracker:scan-mode`).
+  In Trade or sale the switch is teal, a teal frame runs round the camera, and Done reads
+  **Log it**, so a card meant for a sale is never added by mistake.
+- **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
+  the Add tray waits untouched while it is used. It has two columns, **Going out** and **Coming
+  in**; tapping a column's head sends the next scans there, and it starts on Going out. A card
+  scanned on the wrong side moves to the other from its sheet. Reading, Review, the repeat bar,
+  Copies, and holder mode are the scanner's own, unchanged.
+- **A card going out is one of his copies.** It is matched to a live copy of the same card in the
+  language and finish the scanner read (a copy saved with no finish, or a scan with none, fits
+  any), **spares first** (the Trade view's rule, `spareEntries`), then a copy in no binder pocket
+  or binder tray, then the very finish read. A copy is taken by itself only when it is plainly the
+  one; when two or more still fit, or the one left is in a binder while a loose copy also fits, the
+  row says "Pick which copy goes" and **Pick the copy** shows the copies as pictures with their
+  language, finish, condition, where they are, and Spare. A card he does not own says so on its row
+  and is not logged; owned only in another language or finish, it is not logged unless he picks a
+  copy. The same copy is never chosen twice: hand picks hold their copies first, then the cards are
+  settled in the order scanned. A card standing for several copies takes that many.
+- **A card coming in** is a new copy as Add would make it (`entriesToSave`: language, finish,
+  condition, `language_source: scan`), its Copies as the count.
+- **Log it** opens the trades log's form (`trades/new`), filled in: the copies going out, the cards
+  coming in, today's date, and the kind the sides suggest (only out: Sold, with Gift named as the
+  other choice; only in: Bought, or Gift; both: Traded). He adds who and the price and saves there.
+  Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
+  History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
+  a card needs a look, is still read, or asks for its copy, and opens that card first.
+- **Nothing changes before Save.** The collection changes only when the move is saved; then the
+  trade tray empties. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
+  them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
+  instead. A tray left by Log it without saving is there when Scan opens again.
+- **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
+  logs is an ordinary move.
 
 **Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
 (js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's

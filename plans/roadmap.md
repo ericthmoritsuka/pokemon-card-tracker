@@ -380,6 +380,26 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   match as today, shown first. Online it uses TCGdex's card search; offline it searches the sets
   already saved on the phone. Medium.
 
+## Scan a trade or a sale (Eric, 2026-11-06): built on branch `scan-trade`, to check on the phone
+
+Eric: "Maybe I could use the scanner to register the trades/sales too instead of registering them
+just manually." Built: Scan's Add or Trade or sale switch (remembered per phone, Add the default),
+a trade tray of its own with Going out and Coming in, cards going out matched to his copies (spares
+first, then loose copies, in the language and finish read; Pick the copy when two or more fit; a
+card not owned is not logged; no copy twice), and Log it into the trades log's form, filled in (the
+kind from the sides, today), saved by the trades log as always. DESIGN.md section 11, "Scan a
+trade or a sale". Tests: `tests/scan-trade.test.mjs`, `tests/scan-trade-browser.test.mjs`.
+
+To check on the phone and with Eric:
+
+- The rule for which copy goes by itself: a binder copy is never emptied by itself while a loose
+  copy also fits (it asks instead). Is that what he wants, or should spares always win?
+- With three or more copies of a card he is asked every time; if that is often, a "same as last
+  time" choice or "any spare" could follow.
+- The system Back from the scanner keeps the trade tray instead of asking (Close asks).
+- The mode switch sits over the top of the camera; check it does not hide what he needs to see in
+  holder mode.
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and
