@@ -2018,7 +2018,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await openPocket();
 
 		// The first time: Pokédex number, a Trainer last.
-		assert.deepEqual(await page.$$eval('#owned-sort option', (list) => list.map((option) => option.textContent)), ['Pokédex', 'Set', 'Name']);
+		assert.deepEqual(await page.$$eval('#owned-sort option', (list) => list.map((option) => option.textContent)), ['Sort: Pokédex', 'Sort: Set', 'Sort: Name']);
 		assert.equal(await page.locator('#owned-sort').inputValue(), 'dex');
 		assert.deepEqual(await picks(), ['s3', 's2', 's1', 's4', 's5']);
 
@@ -2058,6 +2058,8 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.waitForSelector('#pocket-sheet[open] #tray-results .tray-pick');
 		assert.equal(await page.locator('#tray-sort').inputValue(), 'setOld');
 		assert.deepEqual(await page.locator('#tray-results .tray-pick').evaluateAll((items) => items.map((item) => item.dataset.entry)), ['s1', 's5', 's3', 's2', 's4']);
+		assert.equal(await page.locator('#tray-sort option:checked').textContent(), 'Sort: Set', 'not read as a second set filter');
+		assert.ok(await page.locator('#tray-sort').evaluate((select) => select.scrollWidth <= select.clientWidth), 'the tray\'s sort is not cut');
 		await page.screenshot({path: '/tmp/binders-tray-sort.png'});
 		await page.selectOption('#tray-sort', 'name');
 		await page.click('#sheet-close');

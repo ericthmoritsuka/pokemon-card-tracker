@@ -2272,7 +2272,8 @@ the binder card picker, the tray, and the wishlist can reuse it:
   cards to the tray offer **Pokédex** (the lowest number; the same number by the oldest set, then
   the collector number; no number, such as a Trainer or an Energy, last by name), **Set** (oldest
   set first by release date, a set with no date last, then the collector number read as a number,
-  so 2 before 10), and **Name** (A to Z). The first time it is Pokédex; the last one picked is kept
+  so 2 before 10), and **Name** (A to Z), each shown as "Sort: Pokédex" and so on, since a bare
+  "Set" under the tray's set list read as a second set filter. The first time it is Pokédex; the last one picked is kept
   on the phone for both pickers (not synced), and the pickers' filters are not kept. "Set" here is
   the card's expansion, not a Collection. My Cards keeps its own Set, newest first, and does not
   offer the oldest-first one; its Pokédex order takes the same tie order. The chooser's copies in

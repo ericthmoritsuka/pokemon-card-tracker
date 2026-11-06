@@ -1092,6 +1092,8 @@ function binderScreen(root, source, id, pageParam) {
 			placeholder: 'Search your cards',
 			search: false,
 			sort: savedPickSort(),
+			// Under the tray's set list, a bare "Set" reads as a second set filter.
+			sortPrefix: 'Sort: ',
 			sorts: PICK_SORTS,
 			storageKey: null,
 			...options,

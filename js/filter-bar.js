@@ -436,6 +436,8 @@ let barCount = 0;
 //   sorts       which SORTS values to offer, in that order (default all
 //               but setOld)
 //   sort        the default sort
+//   sortPrefix  put before each sort's label ("Sort: "), where the select
+//               could read as a filter
 //   legacy      () => {filters, sort} read when nothing is saved yet
 //   query       the search text to start with (Back from a card page)
 //   extra       nodes placed after the Filters button (My Cards' Value)
@@ -457,6 +459,7 @@ export function filterBar({
 	query = '',
 	search: ownSearch = true,
 	sort: defaultSort = 'newest',
+	sortPrefix = '',
 	sorts: sortValues = DEFAULT_SORTS,
 	storageKey,
 }) {
@@ -513,7 +516,7 @@ export function filterBar({
 	const sortSelect = h('select', {'aria-label': 'Sort cards', class: 'fb-sort', id: `${id}-sort`, onchange: () => {
 		state.sort = sortSelect.value;
 		changed('sort');
-	}}, sortValues.map((value) => SORTS.find((option) => option.value === value)).filter(Boolean).map((option) => h('option', {title: option.long, value: option.value}, option.label)));
+	}}, sortValues.map((value) => SORTS.find((option) => option.value === value)).filter(Boolean).map((option) => h('option', {title: option.long, value: option.value}, `${sortPrefix}${option.label}`)));
 
 	sortSelect.value = state.sort;
 
