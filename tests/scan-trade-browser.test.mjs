@@ -7,10 +7,15 @@
 //
 // - switch to Trade or sale, scan two cards going out and one coming in
 //   (hand-held, Eric's pile method), the one spare of the first taken by
-//   itself and the second's copy picked from the copies that fit; Log it
-//   opens the trades log's form filled in (Traded, the copies out, the card
-//   in, today), Save logs the move: the copies left, the card arrived, the
+//   itself and the second's copy picked from the copies that fit (they
+//   differ in condition) with the tray's Pick the copy; Log it opens the
+//   trades log's form filled in (Traded, the copies out, the card in,
+//   today), Save logs the move: the copies left, the card arrived, the
 //   trade tray is empty, and Undo puts the collection back;
+// - three cards going out whose copies must be picked: Log it opens one
+//   sheet with all three (and the card not owned, under Not logged), they
+//   are picked in any order, and the last pick opens the form filled in
+//   with all three, with no second Log it;
 // - switching to Add with cards in the trade tray asks first, Keep them
 //   keeps them, the Add tray waits untouched meanwhile, Close asks too, and
 //   Add scans and saves as before.
@@ -51,9 +56,10 @@ after(async () => {
 });
 
 // A phone at 360 px, hand-held, English as the last language picked (the
-// test cards are English), with `owned` copies added and `drafts` written
-// before Scan opens. via 'trades': Scan is opened from Trades and sales'
-// Scan the cards rather than by its address.
+// test cards are English), with `owned` copies added (a card ID, Near Mint,
+// or {card, condition}) and `drafts` written before Scan opens. via
+// 'trades': Scan is opened from Trades and sales' Scan the cards rather than
+// by its address.
 async function open({drafts = null, owned = [], via = null} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 3, viewport: {height: 800, width: 360}});
 
@@ -86,7 +92,7 @@ async function open({drafts = null, owned = [], via = null} = {}) {
 	const ids = await page.evaluate(async ({drafts: trays, owned: list}) => {
 		const collection = await import('/pokemon-card-tracker/js/collection.js');
 		const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
-		const added = await collection.addCards(list.map((cardId) => ({card_id: cardId, catalog: 'international', condition: 'Near Mint', language: 'en', language_source: 'manual', variant_id: null})));
+		const added = await collection.addCards(list.map((one) => ({card_id: one.card || one, catalog: 'international', condition: one.condition || 'Near Mint', language: 'en', language_source: 'manual', variant_id: null})));
 
 		for (const tray of trays || []) {
 			await draft.saveSession(tray);
@@ -215,9 +221,10 @@ const collectionState = (page) => page.evaluate(async () => {
 
 describe('Trade or sale', () => {
 	test('scan two cards out and one in, Log it fills the trades log, Save logs the move, and Undo puts it back', async () => {
-		// me01-001: k-a kept, s-a its one spare. sv03.5-025: one kept, two
-		// spares, so its copy is asked for.
-		const {context, errors, ids, page} = await open({owned: [CARDS.a, CARDS.a, CARDS.b, CARDS.b, CARDS.b]});
+		// me01-001: k-a kept, s-a its one spare, alike, so the spare goes by
+		// itself. sv03.5-025: three copies, one Played, so its copy is asked
+		// for.
+		const {context, errors, ids, page} = await open({owned: [CARDS.a, CARDS.a, {card: CARDS.b, condition: 'Played'}, CARDS.b, CARDS.b]});
 		const [, spareA, ...copiesB] = ids;
 
 		assert.equal(await modeOf(page), 'add', 'Add is the default');
@@ -267,8 +274,8 @@ describe('Trade or sale', () => {
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-trade-tray.png`});
 
-		// Log it opens the picker for the card that asks.
-		await page.click('#scan-done-open');
+		// The row's Pick the copy opens the picker for that card.
+		await page.click('#scan-trade-out .scan-trade-pick[data-pick]');
 		await page.waitForSelector('#scan-copy-sheet');
 		assert.equal(await page.locator('#scan-copy-grid .scan-copy').count(), 3, 'every copy of the second card that fits');
 		await page.waitForTimeout(400);
@@ -358,6 +365,51 @@ describe('Trade or sale', () => {
 		await page.waitForSelector('#scan-trade-out [data-row="t1"]');
 		assert.deepEqual((await trays(page)).trade.map((one) => one.card), [CARDS.c], 'the trade tray kept its card');
 		assert.deepEqual((await trays(page)).add.map((one) => one.card), [CARDS.c], 'the Add tray is left as it was');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('three cards whose copies must be picked: Log it shows them all on one sheet, and the last pick opens the form with all three', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
+		const item = (id, cardId, name) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side: 'out', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
+		const tray = {created_at: at, id: 'trade-4', items: [item('t1', CARDS.a, 'First card'), item('t2', CARDS.b, 'Second card'), item('t3', CARDS.c, 'Third card'), item('t4', 'zzz9-999', 'Not owned card')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		// Two copies of each card, one Near Mint and one Played: each asks.
+		const owned = [CARDS.a, CARDS.b, CARDS.c].flatMap((id) => [id, {card: id, condition: 'Played'}]);
+		const {context, errors, ids, page} = await open({drafts: [tray], owned});
+		const [, playedA, nearB, , , playedC] = ids;
+
+		await page.click('#scan-mode');
+		await page.waitForSelector('#scan-trade-out [data-row="t3"][data-status="ask"]');
+		assert.equal(await page.locator('#scan-trade-out .scan-trade-row.is-ask').count(), 3);
+
+		await page.click('#scan-done-open');
+		await page.waitForSelector('#scan-picks-sheet');
+		assert.deepEqual(await page.$$eval('#scan-picks-sheet .scan-picks-card', (cards) => cards.map((one) => [one.dataset.pickItem, one.dataset.status])), [['t1', 'ask'], ['t2', 'ask'], ['t3', 'ask'], ['t4', 'none']], 'all three at once, and the card not owned under them');
+		assert.equal(await page.locator('#scan-picks-sheet [data-pick-item="t1"] .scan-copy').count(), 2);
+		assert.match(await page.textContent('#scan-picks-sheet [data-pick-item="t1"] .scan-copy'), /Not in a binder/);
+		assert.equal(await page.textContent('#scan-picks-sheet [data-pick-item="t4"] .scan-picks-line'), 'Not in your cards, so it cannot go out. Not logged.');
+		assert.ok(await page.locator('#scan-picks-go').isDisabled(), 'Log it waits for every pick');
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/scan-trade-picks.png`});
+
+		// Any order: the third, then the first; the sheet stays, each pick
+		// shown.
+		await page.click(`#scan-picks-sheet [data-pick-item="t3"] [data-entry="${playedC}"]`);
+		await page.waitForSelector(`#scan-picks-sheet [data-pick-item="t3"][data-status="chosen"] [data-entry="${playedC}"][aria-pressed="true"]`);
+		await page.click(`#scan-picks-sheet [data-pick-item="t1"] [data-entry="${playedA}"]`);
+		await page.waitForSelector('#scan-picks-sheet [data-pick-item="t1"][data-status="chosen"]');
+		assert.equal(await page.locator('#scan-picks-sheet').count(), 1);
+		assert.ok(await page.locator('#scan-picks-go').isDisabled());
+		assert.equal(new URL(page.url()).pathname, `${BASE}scan`);
+
+		// The last pick opens the form, filled in with all three.
+		await page.click(`#scan-picks-sheet [data-pick-item="t2"] [data-entry="${nearB}"]`);
+		await page.waitForSelector('#move-form');
+		assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`);
+		assert.ok(await page.isChecked('#move-kind-sold'), 'cards only going out: Sold');
+		await page.waitForSelector(`#move-out-list [data-entry="${playedC}"]`);
+		assert.deepEqual(await page.$$eval('#move-out-list [data-entry]', (cells) => cells.map((cell) => cell.dataset.entry)), [playedA, nearB, playedC]);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

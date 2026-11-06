@@ -13,12 +13,14 @@
 //
 // A card going out is one of Eric's copies (outCopies): one that fits what
 // the scanner read (the same card, the language, and the finish, where both
-// the scan and the copy name one), spares first (the Trade view's rule,
-// js/wishlist.js spareEntries), then a copy in no binder pocket or tray, then
-// the very finish read. A copy is taken by itself only when it is plainly
-// the one; when two or more still fit, or the one left is in a binder while
-// a loose copy also fits, Eric picks (item.picked, the copies' ids). A card
-// he does not own cannot go out and is not logged. No copy goes out twice.
+// the scan and the copy name one). Copies in no binder pocket or tray come
+// first, then the very finish read. When the copies it would choose between
+// are alike (the same finish and condition), it takes one by itself, a
+// spare first (the Trade view's rule, js/wishlist.js spareEntries), then the
+// newest. Eric picks (item.picked, the copies' ids) only when the choice
+// matters: the loose copies differ in finish or condition, or not enough
+// loose copies fit, so one would leave a binder. A card he does not own
+// cannot go out and is not logged. No copy goes out twice.
 // A card coming in is a new copy as Add would make it (session.js
 // entriesToSave). Log it hands both lists to the trades log's form
 // (tradeHandoff, js/moves.js setPendingMove), which saves as it always does;
@@ -168,8 +170,9 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 //           'other'   copies of the card, none in this language and finish
 //                     (or every one already going out): not logged unless
 //                     Eric picks one
-//           'ask'     two or more copies fit, or the one left is in a binder
-//                     while a loose copy also fits: Eric picks
+//           'ask'     the loose copies it would choose between differ in
+//                     finish or condition, or too few loose copies fit and
+//                     the rest are in binders: Eric picks
 //           'short'   fewer copies fit than the card's copies: those go
 //           'chosen'  the copies are settled (by 'auto' or 'hand')
 //   need        how many copies the card stands for (its Copies)
@@ -234,10 +237,16 @@ export function outCopies(session, cards, {known = 'loaded', where = new Map()} 
 		hands.set(item.id, picked);
 	}
 
-	const rank = (item) => (a, b) => Number(spare(b)) - Number(spare(a))
-		|| Number(loose(b)) - Number(loose(a))
-		|| Number(Boolean(item.variantId) && b.variant_id === item.variantId) - Number(Boolean(item.variantId) && a.variant_id === item.variantId)
+	const exact = (item, entry) => Boolean(item.variantId) && entry.variant_id === item.variantId;
+	// Best first: loose, then the very finish read, then spares, then the
+	// newest added.
+	const rank = (item) => (a, b) => Number(loose(b)) - Number(loose(a))
+		|| Number(exact(item, b)) - Number(exact(item, a))
+		|| Number(spare(b)) - Number(spare(a))
 		|| byAge(a, b);
+	// Copies alike for whoever gets them: the same finish and condition (a
+	// copy with neither saved is alike only to another without).
+	const kindOf = (entry) => JSON.stringify([entry.variant_id || null, entry.condition || null]);
 
 	for (const item of outs) {
 		const need = copiesOf(item);
@@ -288,33 +297,37 @@ export function outCopies(session, cards, {known = 'loaded', where = new Map()} 
 			continue;
 		}
 
-		// Spares first, then copies in no binder, then the very finish read,
-		// each only while enough copies are left to choose from.
-		let pool = fits;
-
-		for (const keep of [spare, loose, (entry) => Boolean(item.variantId) && entry.variant_id === item.variantId]) {
-			const narrower = pool.filter(keep);
-
-			if (narrower.length >= remaining) {
-				pool = narrower;
-			}
-		}
-
-		const binderOverLoose = pool.some((entry) => !loose(entry)) && fits.some((entry) => loose(entry) && !pool.includes(entry));
+		// Eric's rule (2026-11-06): the loose copies, in the finish read where
+		// enough are; among those, the scanner chooses by itself when the
+		// ones it chooses between are alike, and asks when the choice changes
+		// what leaves, or when a copy would have to leave a binder.
+		const looseFits = fits.filter(loose);
 
 		result.candidates = [...hand, ...fits];
-		result.suggested = pool.slice(0, remaining).map((entry) => entry.id);
+		result.suggested = fits.slice(0, remaining).map((entry) => entry.id);
 
-		if (pool.length === remaining && !binderOverLoose) {
-			for (const entry of pool) {
-				taken.add(entry.id);
-			}
-
-			Object.assign(result, {by: hand.length ? 'hand' : 'auto', copies: [...hand, ...pool], status: 'chosen'});
-		}
-		else {
+		if (looseFits.length < remaining) {
 			Object.assign(result, {copies: hand, status: 'ask'});
+			continue;
 		}
+
+		const exactFits = looseFits.filter((entry) => exact(item, entry));
+		const settled = exactFits.length >= remaining ? [] : exactFits;
+		const between = exactFits.length >= remaining ? exactFits : looseFits.filter((entry) => !settled.includes(entry));
+		const left = remaining - settled.length;
+
+		if (between.length > left && new Set(between.map(kindOf)).size > 1) {
+			Object.assign(result, {copies: hand, status: 'ask'});
+			continue;
+		}
+
+		const chosen = [...settled, ...between.slice(0, left)];
+
+		for (const entry of chosen) {
+			taken.add(entry.id);
+		}
+
+		Object.assign(result, {by: hand.length ? 'hand' : 'auto', copies: [...hand, ...chosen], status: 'chosen'});
 	}
 
 	return results;

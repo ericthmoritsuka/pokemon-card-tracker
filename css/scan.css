@@ -1658,3 +1658,33 @@ html.scan-open body {
 	font-size: 12px;
 	line-height: 16px;
 }
+
+/* Every pick Log it waits on, on one sheet: a section per card, its name
+   over its copies, the cards that are not logged under them. */
+.scan-picks-card {
+	border-top: 1px solid var(--scan-border);
+	padding: 12px 0 4px;
+}
+
+.scan-picks-card.is-skipped {
+	opacity: 0.75;
+}
+
+.scan-picks-name,
+.scan-picks-head {
+	font-size: 15px;
+	line-height: 20px;
+	margin: 0;
+}
+
+.scan-picks-head {
+	margin-top: 16px;
+}
+
+.scan-picks-line {
+	margin: 2px 0 8px;
+}
+
+#scan-picks-go {
+	margin-top: 12px;
+}
