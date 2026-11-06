@@ -320,15 +320,34 @@ const KIND_WORDS = {
 // In the order a person reaches for them.
 const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'], ['gift', 'Gift']];
 
-// "Scanned: 2 cards out and 1 in. Traded is picked; change it if that is
-// not what happened." with the alternative the sides allow.
-export function scannedText({alternatives = [], in: incoming = [], kind, out = []}) {
+const kindLabel = (value) => (KIND_LABELS.find(([one]) => one === value) || [null, value])[1];
+
+// "Scanned: 2 cards out and 1 card in. Traded is picked. Add who and the
+// price, then Save." with the alternative the sides allow. out counts the
+// copies still in his cards; dropped, those handed over that are not any
+// more (removed on another phone since the scan).
+export function scannedText({alternatives = [], dropped = 0, in: incoming = [], kind, out = []}) {
 	const inCount = incoming.reduce((sum, item) => sum + (item.n || 1), 0);
 	const sides = [out.length ? `${plural(out.length, 'card')} out` : null, inCount ? `${plural(inCount, 'card')} in` : null].filter(Boolean).join(' and ');
-	const label = (value) => (KIND_LABELS.find(([one]) => one === value) || [null, value])[1];
-	const other = alternatives.length ? ` Pick ${alternatives.map(label).join(' or ')} if ${kind === 'bought' ? 'they were a gift to you' : 'you gave them away'}.` : '';
+	const other = alternatives.length ? ` Pick ${alternatives.map(kindLabel).join(' or ')} if ${kind === 'bought' ? 'they were a gift to you' : 'you gave them away'}.` : '';
+	const gone = dropped ? ` ${plural(dropped, 'copy', 'copies')} you scanned going out ${dropped === 1 ? 'is' : 'are'} no longer in your cards, so ${dropped === 1 ? 'it is' : 'they are'} left out.` : '';
 
-	return `Scanned: ${sides || 'no cards'}. ${label(kind)} is picked.${other} Add who and the price, then Save.`;
+	return `Scanned: ${sides || 'no cards'}.${gone} ${kindLabel(kind)} is picked.${other} Add who and the price, then Save.`;
+}
+
+// Under the kinds, when the kind picked leaves out a side the scanner
+// handed over: "The 1 card coming in is not part of a sale; it stays in
+// the scanner's trade tray." Null when nothing is left out.
+export function leftOutText(kind, {in: inCount = 0, out: outCount = 0}) {
+	if (kind === 'sold' && inCount) {
+		return `The ${plural(inCount, 'card')} coming in ${inCount === 1 ? 'is' : 'are'} not part of a sale; ${inCount === 1 ? 'it stays' : 'they stay'} in the scanner's trade tray.`;
+	}
+
+	if (kind === 'bought' && outCount) {
+		return `The ${plural(outCount, 'card')} going out ${outCount === 1 ? 'is' : 'are'} not part of a purchase; ${outCount === 1 ? 'it stays' : 'they stay'} in the scanner's trade tray.`;
+	}
+
+	return null;
 }
 
 export function newMoveView(root) {
@@ -392,7 +411,9 @@ export function newMoveView(root) {
 	// From the scanner: what was scanned, and the kind it suggests, which he
 	// can change (Sold or Gift for cards only going out, Bought or Gift for
 	// cards only coming in).
-	const scanned = handed.from === 'scan' ? h('p', {class: 'muted move-scanned', id: 'move-scanned'}, scannedText(handed)) : null;
+	// Its text waits for the cards, so it counts only copies still in them.
+	const scanned = handed.from === 'scan' ? h('p', {class: 'muted move-scanned', id: 'move-scanned'}) : null;
+	const leftOut = h('p', {class: 'muted move-left-out', hidden: true, id: 'move-left-out'});
 
 	const shows = () => ({in: kind !== 'sold', out: kind !== 'bought'});
 
@@ -408,6 +429,13 @@ export function newMoveView(root) {
 		inSection.hidden = !side.in;
 		outTitle.textContent = kind === 'gift' ? 'Cards given' : 'Cards out';
 		inTitle.textContent = kind === 'gift' ? 'Cards received' : 'Cards in';
+
+		// A kind that leaves out cards the scanner handed over says so: they
+		// are not saved, and stay in the scanner's trade tray (onSaved).
+		const left = handed.from === 'scan' ? leftOutText(kind, {in: ins.reduce((sum, item) => sum + item.n, 0), out: outIds.size}) : null;
+
+		leftOut.hidden = !left;
+		leftOut.textContent = left || '';
 	}
 
 	function drawChosen() {
@@ -718,7 +746,7 @@ export function newMoveView(root) {
 
 	const formElement = h('form', {class: 'copy-form move-form', id: 'move-form', novalidate: true},
 		kinds,
-		...(scanned ? [scanned] : []),
+		...(scanned ? [scanned, leftOut] : []),
 		sheetField('Date', 'move-date', date),
 		h('div', {class: 'copy-field'}, whoLabel, who),
 		priceRow,
@@ -792,9 +820,10 @@ export function newMoveView(root) {
 
 		const {counts, move} = result;
 
-		// The scanner's Trade or sale tray empties once its move is saved.
+		// The scanner's Trade or sale tray lets go of the sides this move
+		// saved; a side the kind left out stays there.
 		if (typeof handed.onSaved === 'function') {
-			Promise.resolve().then(() => handed.onSaved(move)).catch(() => {});
+			Promise.resolve().then(() => handed.onSaved(move, side)).catch(() => {});
 		}
 		const words = [counts.out + counts.past ? `${plural(counts.out + counts.past, 'card', 'cards')} out` : null, counts.in ? `${plural(counts.in, 'card', 'cards')} in` : null].filter(Boolean).join(', ');
 		const after = afterText({got: {length: counts.got}, placed: {length: counts.filled}});
@@ -827,11 +856,20 @@ export function newMoveView(root) {
 			return;
 		}
 
-		// Copies handed over that are gone by now are dropped.
+		// Copies handed over that are gone by now are dropped, and the
+		// scanner's line counts what is left.
+		let dropped = 0;
+
 		for (const id of [...outIds]) {
 			if (!doc.cards.some((entry) => entry && entry.id === id && isLive(entry))) {
 				outIds.delete(id);
+				dropped++;
 			}
+		}
+
+		if (scanned) {
+			scanned.textContent = scannedText({...handed, dropped, out: [...outIds]});
+			drawKind();
 		}
 
 		drawChosen();

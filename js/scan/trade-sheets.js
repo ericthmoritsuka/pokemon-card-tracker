@@ -39,29 +39,27 @@ function sheetHeader(title, onClose, id) {
 
 // ------------------------------------------------------------ the mode switch
 
-// Add or Trade or sale, over the camera's top edge, always in view, so a
-// card meant for a sale is never added by mistake.
+// The scanning mode, at the head of the tray under the camera: one button
+// that names the mode in use ("Add", or "Trade or sale" in teal) and
+// switches to the other, so the mode is always in sight and never over the
+// picture. It takes the place of nothing the tray head needs: the count
+// beside it gives way when the row is short.
 export function modeSwitch(onChoose) {
-	const button = (mode, label) => h('button', {
-		'aria-checked': 'false',
-		class: 'scan-mode-option',
-		'data-mode': mode,
-		id: `scan-mode-${mode}`,
-		onclick: () => onChoose(mode),
-		role: 'radio',
-		type: 'button',
-	}, label);
+	const el = h('button', {class: 'scan-mode', 'data-mode': 'add', id: 'scan-mode', type: 'button'});
 
-	return h('div', {'aria-label': 'Scan mode', class: 'scan-mode', id: 'scan-mode', role: 'radiogroup'},
-		button('add', 'Add'),
-		button('trade', 'Trade or sale'));
+	el.addEventListener('click', () => onChoose(el.dataset.mode === 'trade' ? 'add' : 'trade'));
+
+	return el;
 }
 
 export function drawModeSwitch(el, mode) {
-	for (const option of el.querySelectorAll('[data-mode]')) {
-		option.setAttribute('aria-checked', String(option.dataset.mode === mode));
-		option.tabIndex = option.dataset.mode === mode ? 0 : -1;
-	}
+	const trade = mode === 'trade';
+
+	el.dataset.mode = trade ? 'trade' : 'add';
+	el.setAttribute('aria-label', trade ? 'Scan mode: Trade or sale. Tap to switch to Add.' : 'Scan mode: Add. Tap to switch to Trade or sale.');
+	el.replaceChildren(
+		h('span', {'aria-hidden': 'true', class: 'scan-mode-swap'}, '\u21c4'),
+		h('span', {class: 'scan-mode-name'}, trade ? 'Trade or sale' : 'Add'));
 }
 
 // ------------------------------------------------------------ the tray

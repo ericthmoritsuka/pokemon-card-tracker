@@ -374,6 +374,12 @@ export function scanView(root) {
 	// For Trade or sale: the person's live copies, where each is in the
 	// binders, which are spares, and which copy each card going out takes.
 	let ownCards = [];
+	// Whether ownCards was read: 'loading', 'loaded', or 'failed'. Until it
+	// is 'loaded', no card going out is matched, so an unread list never
+	// reads as "not in your cards".
+	let ownState = 'loading';
+	// Gallery photos being opened, which join the tray once they are.
+	let photosOpening = 0;
 	let where = new Map();
 	let spareIds = new Set();
 	let outResults = new Map();
@@ -558,17 +564,17 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	// Add or Trade or sale, over the foot of the camera above its two chips,
-	// in reach of the thumb as every scanner control is. It takes no room
-	// from the camera, and the band over the guide stays the running
-	// count's.
+	// Add or Trade or sale, at the head of the tray under the camera: always
+	// in view, never over the picture (Eric aims by the card's number strip)
+	// or under the repeat bar, and taking no height from the camera, whose
+	// band over the guide holds the running count.
 	const modeBar = modeSwitch((next) => chooseMode(next));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), modeBar, finishButton, holderSwitch, repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput),
+			h('div', {class: 'scan-tray-head'}, modeBar, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -834,10 +840,12 @@ export function scanView(root) {
 		try {
 			ownCards = await listCards();
 			owned = S.ownedIndex(ownCards);
+			ownState = 'loaded';
 		}
 		catch {
 			ownCards = [];
 			owned = new Map();
+			ownState = 'failed';
 		}
 
 		// For the trade tray's cards going out: where each copy is, and which
@@ -935,6 +943,12 @@ export function scanView(root) {
 			drawTrade();
 		}
 
+		// The count beside the mode switch shows only when it fits whole: a
+		// cut "Sess…" says nothing the running count over the camera does
+		// not.
+		count.style.visibility = '';
+		count.style.visibility = count.scrollWidth > count.clientWidth + 1 ? 'hidden' : '';
+
 		drawNote();
 
 		// A Review run moves on from a card once it no longer needs a look.
@@ -1000,14 +1014,16 @@ export function scanView(root) {
 	// The trade tray (js/scan/trade-sheets.js tradeColumns) in place of the
 	// Add tray's tiles, and Log it in place of Done.
 	function drawTrade() {
-		outResults = T.outCopies(session, ownCards, {where});
+		outResults = T.outCopies(session, ownCards, {known: ownState, where});
 
 		const sum = T.tradeSummary(session, outResults);
 		// Short: the columns count the cards on each side.
 		const parts = [sum.look ? `${sum.look} to check` : null, sum.ask ? `${sum.ask} to pick` : null].filter(Boolean);
 
 		tray.replaceChildren(...tradeColumns({photoUrl: (id) => photoUrls.get(id) || null, results: outResults, session, where}));
-		count.textContent = parts.join(' · ') || 'Trade or sale';
+		count.textContent = parts.join(' · ');
+		// Room in the head for the mode's longer name.
+		setAllButton.hidden = true;
 		doneButton.disabled = !session.items.length;
 		doneButton.textContent = 'Log it';
 	}
@@ -1030,10 +1046,10 @@ export function scanView(root) {
 			return;
 		}
 
-		// A card being read finishes in the tray it was taken for.
-		if (session.items.some((item) => working.has(item.id))) {
+		// A card being taken or read finishes in the tray it was taken for.
+		if (capturing > 0 || shutterBusy || photosOpening > 0 || session.items.some((item) => working.has(item.id))) {
 			drawMode();
-			setNote('A card is still being read. Switch once it is in the tray.');
+			setNote('A card is still being taken or read. Switch once it is in the tray.');
 
 			return;
 		}
@@ -1138,8 +1154,21 @@ export function scanView(root) {
 
 		if (sum.ask) {
 			const first = session.items.find((item) => T.sideOf(item) === 'out' && (outResults.get(item.id) || {}).status === 'ask');
+			const result = outResults.get(first.id);
 
-			openPicker(first.id);
+			if (result.candidates.length) {
+				openPicker(first.id);
+			}
+			else {
+				setNote(T.outLine(result, {where}));
+			}
+
+			return;
+		}
+
+		if (ownState !== 'loaded') {
+			setNote(ownState === 'failed' ? 'Could not read your cards; try again.' : 'Wait a moment: your cards are still being read.');
+			refreshOwned();
 
 			return;
 		}
@@ -1160,7 +1189,7 @@ export function scanView(root) {
 		const sessionId = session.id;
 
 		saveToCardIndex(handoff.records).catch(() => {});
-		setPendingMove({...handoff, from: 'scan', onSaved: () => draft.clearTrade(sessionId, T.newTradeSession())});
+		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => draft.clearTrade(sessionId, sides)});
 		persist();
 		closeSheet().then(() => go('trades/new'));
 	}
@@ -1928,6 +1957,10 @@ export function scanView(root) {
 	}
 
 	async function captureNow(how, {looked = null, settleMs = null} = {}) {
+		// The tray this capture is for: the mode never changes under it
+		// (chooseMode waits), and should it, the card is not put in the
+		// other mode's tray.
+		const target = session;
 		let now = null;
 		let shutterFound = null;
 		let shutterWaitMs = null;
@@ -1988,6 +2021,12 @@ export function scanView(root) {
 			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
 		}
 
+		if (T.isTrade(session) !== T.isTrade(target)) {
+			setNote('The mode changed while the card was taken, so it was not added. Scan it again.');
+
+			return;
+		}
+
 		const item = S.addCapture(session);
 
 		toBuzz.add(item.id);
@@ -2014,13 +2053,25 @@ export function scanView(root) {
 	// guide would hold), and its sheet opens when it is looked up.
 	async function readPhoto(file) {
 		const started = performance.now();
+		const target = session;
 		let frame;
+
+		photosOpening++;
 
 		try {
 			frame = await blobImage(file, {maxSide: PHOTO_MAX_SIDE});
 		}
 		catch {
 			setNote('That photo could not be opened. Try another one.');
+
+			return;
+		}
+		finally {
+			photosOpening--;
+		}
+
+		if (T.isTrade(session) !== T.isTrade(target)) {
+			setNote('The mode changed while the photo opened, so it was not added. Pick it again.');
 
 			return;
 		}

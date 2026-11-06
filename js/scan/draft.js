@@ -109,16 +109,20 @@ export const loadPhoto = (key) => run(PHOTOS, 'readonly', (store) => store.get(k
 
 export const deletePhoto = (key) => run(PHOTOS, 'readwrite', (store) => store.delete(key));
 
-// Empties the Trade or sale tray once its move is logged (js/moves-view.js),
-// unless a newer tray has taken its place (sessionId names the one handed
-// over). Its photos go at the next prune.
-export async function clearTrade(sessionId, emptied) {
+// Takes the sides a logged move saved ({out, in}, each true or false) out
+// of the Trade or sale tray (js/moves-view.js), unless a newer tray has
+// taken its place (sessionId names the one handed over). A side the move's
+// kind left out (a sale's cards coming in) stays for another move. The
+// photos of the cards taken out go at the next prune.
+export async function clearTrade(sessionId, sides = {in: true, out: true}) {
 	await saving;
 
 	const kept = await run(SESSION, 'readonly', (store) => store.get(TRADE)).catch(() => null);
 
 	if (kept && kept.id === sessionId) {
-		await saveSession(emptied);
+		const saved = (item) => Boolean(sides[item.side === 'in' ? 'in' : 'out']);
+
+		await saveSession({...kept, items: kept.items.filter((item) => !saved(item)), updated_at: new Date().toISOString()});
 	}
 }
 

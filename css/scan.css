@@ -1347,53 +1347,50 @@ html.scan-open body {
 /* ------------------------------------------------------------ Trade or sale */
 
 /* Trade or sale mode (js/scan/trade-sheets.js; Eric, 2026-11-06). The mode
-   switch sits over the foot of the camera, above the Settings and holder
-   chips, in both modes; in Trade or sale a teal frame round the camera and
-   the teal switch keep the mode in sight, so a card meant for a sale is
-   never added by mistake. */
+   switch leads the tray head under the camera, in both modes, never over
+   the picture or the repeat bar and taking no height from the camera; in
+   Trade or sale a teal frame round the camera and the teal switch keep the
+   mode in sight, so a card meant for a sale is never added by mistake. */
 .scan {
 	--scan-trade: #4fd1c5;
 	--scan-on-trade: #06201d;
 }
 
-.scan-mode {
-	background: rgba(0, 0, 0, 0.7);
+.scan .scan-mode {
+	align-items: center;
+	background: var(--scan-surface-2);
 	border: 1px solid var(--scan-border);
-	border-radius: 999px;
-	bottom: 64px;
-	display: inline-flex;
-	gap: 2px;
-	left: 50%;
-	padding: 2px;
-	position: absolute;
-	transform: translateX(-50%);
-}
-
-.scan-mode-option {
-	background: none;
-	border: 0;
 	border-radius: 999px;
 	color: var(--scan-text);
 	cursor: pointer;
+	display: inline-flex;
+	flex: 0 0 auto;
 	font-size: 14px;
 	font-weight: 600;
+	gap: 6px;
+	margin-right: 8px;
 	min-height: 40px;
-	padding: 0 14px;
+	padding: 0 12px;
 	white-space: nowrap;
 }
 
-.scan .scan-mode-option {
-	padding: 0 14px;
-}
-
-.scan-mode-option[aria-checked="true"] {
-	background: var(--scan-text);
-	color: #000000;
-}
-
-.scan-mode-option[data-mode="trade"][aria-checked="true"] {
+.scan .scan-mode[data-mode="trade"] {
 	background: var(--scan-trade);
+	border-color: var(--scan-trade);
 	color: var(--scan-on-trade);
+}
+
+.scan-mode-swap {
+	font-size: 16px;
+	line-height: 1;
+}
+
+/* The count beside the switch gives way, on one line, when the head is
+   short. */
+.scan-tray-head .scan-count {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .scan.is-trade .scan-stage::after {
@@ -1415,7 +1412,9 @@ html.scan-open body {
 .scan-tray.is-trade {
 	display: grid;
 	gap: 8px;
-	grid-template-columns: 1fr 1fr;
+	align-items: stretch;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
 	height: 156px;
 	min-height: 0;
 	overflow: hidden;
@@ -1432,6 +1431,12 @@ html.scan-open body {
 	min-height: 0;
 	min-width: 0;
 	overflow: hidden;
+}
+
+/* The app's "li + li" spacing (style.css) is not for the tray. */
+.scan-trade-col,
+.scan-trade-row {
+	margin: 0;
 }
 
 .scan-trade-col.is-next {
@@ -1514,6 +1519,7 @@ html.scan-open body {
 	display: flex;
 	flex: 1 1 auto;
 	gap: 6px;
+	justify-content: flex-start;
 	min-height: 56px;
 	min-width: 0;
 	padding: 4px 0 4px 6px;

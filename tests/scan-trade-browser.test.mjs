@@ -113,6 +113,9 @@ async function repaint(page) {
 	});
 }
 
+// The scanning mode the switch shows: 'add' or 'trade'.
+const modeOf = (page) => page.getAttribute('#scan-mode', 'data-mode');
+
 const captures = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.captures);
 
 // The trays as kept in the draft.
@@ -206,9 +209,11 @@ describe('Trade or sale', () => {
 		const {context, errors, ids, page} = await open({owned: [CARDS.a, CARDS.a, CARDS.b, CARDS.b, CARDS.b]});
 		const [, spareA, ...copiesB] = ids;
 
-		assert.equal(await page.getAttribute('#scan-mode-add', 'aria-checked'), 'true', 'Add is the default');
-		await page.click('#scan-mode-trade');
-		assert.equal(await page.getAttribute('#scan-mode-trade', 'aria-checked'), 'true');
+		assert.equal(await modeOf(page), 'add', 'Add is the default');
+		assert.equal(await page.textContent('#scan-mode .scan-mode-name'), 'Add');
+		await page.click('#scan-mode');
+		assert.equal(await modeOf(page), 'trade');
+		assert.equal(await page.textContent('#scan-mode .scan-mode-name'), 'Trade or sale');
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept on the phone');
 		assert.ok(await page.locator('#scan.is-trade').count(), 'the screen shows the mode');
 		assert.equal(await page.textContent('#scan-done-open'), 'Log it');
@@ -333,7 +338,7 @@ describe('Trade or sale', () => {
 		const tray = {created_at: at, id: 'trade-1', items: [item('t1', CARDS.a, 'Owned card', 'out'), item('t2', 'zzz9-999', 'Not owned card', 'out')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
 		const {context, errors, ids, page} = await open({drafts: [tray], owned: [CARDS.a]});
 
-		await page.click('#scan-mode-trade');
+		await page.click('#scan-mode');
 		await page.waitForSelector('#scan-trade-out [data-row="t2"]');
 		assert.equal(await page.textContent('#scan-trade-out [data-row="t2"] .scan-trade-line'), 'Not in your cards, so it cannot go out. Not logged.');
 		assert.equal(await page.getAttribute('#scan-trade-out [data-row="t2"]', 'data-status'), 'none');
@@ -341,8 +346,8 @@ describe('Trade or sale', () => {
 		await page.click('#scan-done-open');
 		await page.waitForSelector('#move-form');
 		assert.ok(await page.isChecked('#move-kind-sold'), 'cards only going out: Sold');
-		assert.match(await page.textContent('#move-scanned'), /Sold is picked\. Pick Gift if you gave them away\./);
 		await page.waitForSelector(`#move-out-list [data-entry="${ids[0]}"]`);
+		assert.match(await page.textContent('#move-scanned'), /Sold is picked\. Pick Gift if you gave them away\./);
 		assert.equal(await page.locator('#move-out-list [data-entry]').count(), 1, 'the card not owned is left out');
 		assert.ok(await page.locator('#move-in-section').isHidden(), 'a sale has no cards in');
 		assert.deepEqual(errors, []);
@@ -361,17 +366,17 @@ describe('Trade or sale', () => {
 		await page.waitForSelector('#scan-tray [data-item="a1"].scan-tile');
 		assert.equal(await page.textContent('#scan-done-open'), 'Done 1');
 
-		await page.click('#scan-mode-trade');
+		await page.click('#scan-mode');
 		await page.waitForSelector('#scan-trade-in [data-row="t1"]');
 		assert.equal(await page.locator('#scan-tray [data-item="a1"]').count(), 0, 'the Add tray waits');
 
 		// Back to Add with a card in the trade tray: asked.
-		await page.click('#scan-mode-add');
+		await page.click('#scan-mode');
 		await page.waitForSelector('#scan-leave-sheet');
 		assert.match(await page.textContent('#scan-leave-text'), /^The trade tray holds 1 card not logged yet\. Nothing in your cards has changed\./);
 		await page.click('#scan-leave-keep');
 		await page.waitForSelector('#scan-leave-sheet', {state: 'detached'});
-		assert.equal(await page.getAttribute('#scan-mode-trade', 'aria-checked'), 'true', 'Keep them stays in Trade or sale');
+		assert.equal(await modeOf(page), 'trade', 'Keep them stays in Trade or sale');
 		assert.equal((await trays(page)).trade.length, 1);
 
 		// Close asks too.
@@ -379,11 +384,11 @@ describe('Trade or sale', () => {
 		await page.waitForSelector('#scan-leave-sheet');
 		await page.click('#scan-leave-keep');
 
-		await page.click('#scan-mode-add');
+		await page.click('#scan-mode');
 		await page.waitForSelector('#scan-leave-sheet');
 		await page.click('#scan-leave-go');
 		await page.waitForSelector('#scan-tray [data-item="a1"].scan-tile');
-		assert.equal(await page.getAttribute('#scan-mode-add', 'aria-checked'), 'true');
+		assert.equal(await modeOf(page), 'add');
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'add');
 		await untilInPage(page, 'the trade tray emptied', async () => {
 			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
@@ -424,7 +429,7 @@ describe('Trade or sale', () => {
 		const tray = {created_at: at, id: 'trade-2', items: [{candidates: [], captured_at: at, card, condition: null, confirmed: true, finishBy: 'plain', id: 't1', language: 'en', languageBy: 'hand', names: [], read: null, side: 'out', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null}], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
 		const {context, errors, page} = await open({drafts: [tray], owned: [CARDS.a]});
 
-		await page.click('#scan-mode-trade');
+		await page.click('#scan-mode');
 		await page.waitForSelector('#scan-trade-out [data-row="t1"]');
 		await page.click('#scan-close');
 		await page.waitForSelector('#scan-leave-sheet');
@@ -440,6 +445,68 @@ describe('Trade or sale', () => {
 		const kept = await collectionState(page);
 
 		assert.equal(kept.cards.filter((entry) => !entry.deleted).length, 1, 'nothing in the collection changed');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('switching mode is refused while a card is being taken, and the card lands in the tray it was taken for', async () => {
+		const {context, errors, page} = await open();
+
+		await page.click('#scan-shutter');
+		await page.click('#scan-mode');
+		assert.equal(await modeOf(page), 'add', 'still Add');
+		assert.match(await page.textContent('#scan-note'), /A card is still being taken or read\. Switch once it is in the tray\./);
+		await until(async () => (await captures(page)) === 1, 'the shutter capture taken', 15000);
+		await until(async () => (await trays(page)).add.length === 1, 'the capture in the Add tray', 15000);
+		assert.deepEqual((await trays(page)).trade, [], 'nothing went to the trade tray');
+		assert.equal((await trays(page)).add[0].side, null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a kind that leaves a side out says so, saves the other side, and the side left out stays in the trade tray', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
+		const item = (id, cardId, name, side) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
+		const tray = {created_at: at, id: 'trade-3', items: [item('t1', CARDS.a, 'Owned card', 'out'), item('t2', CARDS.c, 'Card in', 'in')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		const {context, errors, ids, page} = await open({drafts: [tray], owned: [CARDS.a]});
+
+		await page.click('#scan-mode');
+		await page.waitForSelector('#scan-trade-out [data-row="t1"][data-status="chosen"]');
+		await page.click('#scan-done-open');
+		await page.waitForSelector(`#move-out-list [data-entry="${ids[0]}"]`);
+		assert.ok(await page.isChecked('#move-kind-traded'));
+		assert.ok(await page.locator('#move-left-out').isHidden(), 'a trade leaves nothing out');
+
+		await page.locator('label:has(#move-kind-sold)').click();
+		assert.equal(await page.textContent('#move-left-out'), 'The 1 card coming in is not part of a sale; it stays in the scanner\'s trade tray.');
+		await page.click('#move-save');
+		await page.waitForSelector('.moves-row');
+
+		const after = await collectionState(page);
+
+		assert.deepEqual(after.moves.map((move) => [move.kind, move.out.length, move.in.length]), [['sold', 1, 0]]);
+		assert.deepEqual(after.cards.filter((entry) => entry.came_via).length, 0, 'the card left out is not added');
+		await untilInPage(page, 'only the side saved left the trade tray', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
+
+			return Boolean(session && session.items.length === 1 && session.items[0].id === 't2');
+		});
+
+		// Copies handed over that are no longer in his cards (the one just
+		// sold, and one removed elsewhere) are left out, and the line counts
+		// only the copies still there and says so.
+		await page.evaluate(async ({live}) => {
+			const {setPendingMove} = await import('/pokemon-card-tracker/js/moves.js');
+			const {go} = await import('/pokemon-card-tracker/js/dom.js');
+
+			setPendingMove({alternatives: ['gift'], from: 'scan', in: [], kind: 'sold', out: [live, 'no-longer-here']});
+			go('trades/new');
+		}, {live: ids[0]});
+		await page.waitForSelector('#move-form');
+		await page.waitForFunction(() => document.getElementById('move-scanned').textContent.length > 0);
+		assert.equal(await page.locator('#move-out-list [data-entry]').count(), 0);
+		assert.equal(await page.textContent('#move-scanned'), 'Scanned: no cards. 2 copies you scanned going out are no longer in your cards, so they are left out. Sold is picked. Pick Gift if you gave them away. Add who and the price, then Save.');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
