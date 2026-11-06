@@ -13,7 +13,7 @@ import {database} from '../idb.js';
 
 import {logFile} from './log.js';
 import {createReportSender} from './report-queue.js';
-import {REPORT_BUCKET, objectPath, readReport, readReports} from './report-file.js';
+import {REPORT_BUCKET, createReportCleanup, readReport, readReports, removeReport} from './report-file.js';
 
 const OUTBOX = 'outbox';
 
@@ -55,21 +55,29 @@ let started = false;
 
 // Sends what waits now, when the phone comes back online (every report at
 // once, without waiting its turn), when someone signs in, and when an ended
-// session comes back. Safe to call from every view.
+// session comes back, and checks for old reports to delete (cleanUpLater).
+// Safe to call from every view.
 export function startReportSync() {
 	if (started) {
 		return;
 	}
 
 	started = true;
-	window.addEventListener('online', () => reportSender.wake());
-	onUser(() => reportSender.retry());
+	window.addEventListener('online', () => {
+		reportSender.wake();
+		cleanUpLater();
+	});
+	onUser(() => {
+		reportSender.retry();
+		cleanUpLater();
+	});
 	onSession(({expired}) => {
 		if (!expired) {
 			reportSender.flush();
 		}
 	});
 	reportSender.flush();
+	cleanUpLater();
 }
 
 // ------------------------------------------------------------- reading
@@ -106,14 +114,39 @@ export async function loadReport(base) {
 // Deletes every file of a report. Throws when the server kept any.
 export async function deleteReport(report) {
 	const {files, user} = await bucket();
-	const names = [...report.files, report.meta].filter(Boolean);
-	const {data, error} = await files.remove(names.map((name) => objectPath(user.id, name)));
 
-	if (error) {
-		throw error;
+	await removeReport(files, user.id, report);
+}
+
+// ------------------------------------------------------------- cleanup
+
+// Reports are deleted REPORT_KEEP_DAYS after they are sent
+// (js/scan/report-file.js createReportCleanup), checked at most once a day
+// on each phone, a minute after the app starts, someone signs in, or the
+// phone comes back online, so it never holds up starting or syncing.
+const CLEANUP_DELAY_MS = 60 * 1000;
+
+export const reportCleanup = createReportCleanup({
+	currentUser,
+	deleteReport,
+	listReports,
+	online: () => navigator.onLine,
+	storage: {
+		getItem: (key) => localStorage.getItem(key),
+		setItem: (key, value) => localStorage.setItem(key, value),
+	},
+	waiting: () => reportSender.waiting(),
+});
+
+let cleanupTimer = null;
+
+function cleanUpLater() {
+	if (cleanupTimer) {
+		return;
 	}
 
-	if (!data || data.length < names.length) {
-		throw new Error('The server kept some of its files. Try again.');
-	}
+	cleanupTimer = setTimeout(() => {
+		cleanupTimer = null;
+		reportCleanup.run();
+	}, CLEANUP_DELAY_MS);
 }

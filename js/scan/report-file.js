@@ -262,6 +262,135 @@ export async function readReport(files, userId, base, {page} = {}) {
 	return {info, log: JSON.parse(text), report: {...report, info}, text};
 }
 
+// Deletes every file of a report (all its parts and its meta file) in one
+// call. Throws when the server kept any. Sent reports' Delete and the
+// cleanup below both go through js/scan/reports.js deleteReport, which
+// calls this.
+export async function removeReport(files, userId, report) {
+	const names = [...report.files, report.meta].filter(Boolean);
+	const {data, error} = await files.remove(names.map((name) => objectPath(userId, name)));
+
+	if (error) {
+		throw error;
+	}
+
+	if (!data || data.length < names.length) {
+		throw new Error('The server kept some of its files. Try again.');
+	}
+}
+
+// ------------------------------------------------------------- cleanup
+
+// A sent report is deleted this many days after it was sent (Eric,
+// 2026-11-06: he would forget to delete them by hand).
+export const REPORT_KEEP_DAYS = 30;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// The cleanup runs at most once a day per person on each phone; the last
+// run's time is kept under CLEANUP_KEY:<user id> in localStorage.
+export const CLEANUP_EVERY_MS = DAY_MS;
+export const CLEANUP_KEY = 'card-tracker-report-cleanup';
+
+// When a report sent at `at` (the stamp in its name) is deleted, or null
+// when the time is not known.
+export function deleteAt(at) {
+	const time = at instanceof Date ? at.getTime() : NaN;
+
+	return Number.isFinite(time) ? new Date(time + REPORT_KEEP_DAYS * DAY_MS) : null;
+}
+
+// Deletes the signed-in person's reports sent more than REPORT_KEEP_DAYS
+// ago, each with all its files, through listReports and deleteReport
+// (js/scan/reports.js). Its parts come in as arguments so Node tests run
+// it over a fake bucket. Signed out or offline it does nothing and tries
+// again at the next call; otherwise it notes the day first, so a failure
+// (only a console warning) is tried again on a later day, never in a
+// loop. A name with no time in it is never listed as a report, so never
+// deleted, and a report still in this phone's outbox (waiting rows) is
+// left alone. run() never throws.
+export function createReportCleanup({currentUser, deleteReport, listReports, now = () => Date.now(), online = () => true, storage, waiting = async () => [], warn = (...args) => console.warn(...args)}) {
+	let running = null;
+
+	const keyOf = (user) => `${CLEANUP_KEY}:${user.id}`;
+
+	function lastRun(user) {
+		try {
+			return Number(storage.getItem(keyOf(user))) || 0;
+		}
+		catch {
+			return 0;
+		}
+	}
+
+	function mark(user, time) {
+		try {
+			storage.setItem(keyOf(user), String(time));
+		}
+		catch {
+			// Not kept: the cleanup may run again sooner.
+		}
+	}
+
+	async function sweep(time) {
+		const queued = new Set((await waiting()).map((row) => row.base));
+		const due = (await listReports()).filter((report) => {
+			const end = deleteAt(report.at);
+
+			return end && end.getTime() < time && !queued.has(report.base);
+		});
+		let deleted = 0;
+		let failed = 0;
+
+		for (const report of due) {
+			try {
+				await deleteReport(report);
+				deleted++;
+			}
+			catch (err) {
+				failed++;
+				warn(`Old scan report ${report.base} not deleted; tried again another day.`, err);
+			}
+		}
+
+		return {deleted, failed};
+	}
+
+	function run() {
+		if (running) {
+			return running;
+		}
+
+		const user = currentUser();
+
+		if (!user || !online()) {
+			return Promise.resolve({skipped: user ? 'offline' : 'signed out'});
+		}
+
+		const time = now();
+		const since = time - lastRun(user);
+
+		if (since >= 0 && since < CLEANUP_EVERY_MS) {
+			return Promise.resolve({skipped: 'ran today'});
+		}
+
+		mark(user, time);
+		running = sweep(time)
+			.catch((err) => {
+				warn('Old scan reports not checked; tried again another day.', err);
+
+				return {deleted: 0, error: err, failed: 0};
+			})
+			.finally(() => {
+				running = null;
+			});
+
+		return running;
+	}
+
+	return {run};
+}
+
 // ------------------------------------------------------------- the meta file
 
 const shortAgent = (agent) => String(agent || '').slice(0, 300) || null;
