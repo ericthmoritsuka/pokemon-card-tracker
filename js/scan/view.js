@@ -28,7 +28,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, cardFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, focusVerdict, grownBox, NEW_PRINT, PATIENCE_STIR, planCapture, printDistance, printOf, SAME_PRINT, SETTLE_LIMIT_MS, SETTLE_PATIENCE_MS, SETTLE_STIR_MS, settleVerdict, takenCard, toView} from './drop.js';
+import {asksRepeat, boxOf, cardFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, focusVerdict, grownBox, NEW_PRINT, planCapture, printDistance, printOf, reachesEdge, SAME_PRINT, SETTLE_LIMIT_MS, SETTLE_PATIENCE_MS, SETTLE_STIR_MS, settleVerdict, takenCard, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -2999,8 +2999,10 @@ export function scanView(root) {
 	// even when it lands on the same spot. Detection goes on while a sheet is
 	// open, so cards dropped while one is checked still join the tray.
 	//
-	// pendingDrop: a drop waiting to settle (version 62, considerDrop):
-	// {at, step (the look it was first seen on), stillSince, whys}.
+	// pendingDrop: a drop waiting to settle (version 62, waitToSettle):
+	// {at, step (the look it was first seen on), stillSince, whys, spot (it
+	// waits on the very spot of the last card), ready (the card as its last
+	// still look would take it, for takeReady)}.
 	// lastDrop: the card taken last (drop.js takenCard), forgotten when the
 	// zoom changes.
 	let pendingDrop = null;
@@ -3042,28 +3044,7 @@ export function scanView(root) {
 		// A drop waiting to settle (version 62): the detector holds the
 		// picture before it, so each still look says what changed since then.
 		if (pendingDrop) {
-			if (step.moving) {
-				pendingDrop.stillSince = null;
-
-				return;
-			}
-
-			if (!step.change) {
-				return;
-			}
-
-			if (step.drop) {
-				considerDrop(step, view, area, at);
-
-				return;
-			}
-
-			// Nothing card-like changed since the picture before the drop any
-			// more: a hand that came and went, or a card on the very spot of
-			// the last. The look is judged as any other.
-			const held = releaseDrop();
-
-			nonDrop({...step, burst: step.burst || held.step.burst}, view, area, at, held);
+			waitingLook(step, view, area, at);
 
 			return;
 		}
@@ -3081,6 +3062,65 @@ export function scanView(root) {
 		considerDrop(step, view, area, at);
 	}
 
+	// A look while a drop waits to settle (pendingDrop).
+	function waitingLook(step, view, area, at) {
+		const held = pendingDrop;
+
+		if (step.moving) {
+			held.stillSince = null;
+
+			// The picture moves again: a card that lay still and printed and
+			// waited only for its focus is taken now, from its last still look,
+			// before the next card can land on it (Eric drops one every 1.5 s).
+			if (held.ready) {
+				takeReady(held, area, at);
+			}
+			// Moving this long (the phone picked up, a hand never leaving): let
+			// it go, so Auto can switch and the next drop starts afresh.
+			else if (at - held.at >= SETTLE_LIMIT_MS) {
+				giveUp(held, area);
+			}
+
+			return;
+		}
+
+		if (!step.change) {
+			return;
+		}
+
+		if (step.drop) {
+			considerDrop(step, view, area, at);
+
+			return;
+		}
+
+		// Nothing changed since the picture before the drop any more (a hand
+		// that came and went), or the drop waits on the very spot of the last
+		// card, which a change of no card's shape is: the look is judged as any
+		// other.
+		if (step.change.kind === 'none' || held.spot) {
+			releaseDrop();
+			dropReady(held);
+			nonDrop({...step, burst: step.burst || held.step.burst}, view, area, at, held);
+
+			return;
+		}
+
+		// Something of no card's shape changed (a hand over the card, the
+		// light): the card may lie under it, so the picture before the drop is
+		// kept, until the limit.
+		held.stillSince = null;
+
+		if (at - held.at >= SETTLE_LIMIT_MS) {
+			if (held.ready) {
+				takeReady(held, area, at);
+			}
+			else {
+				giveUp(held, area);
+			}
+		}
+	}
+
 	// A still look whose change is no card's shape. held: the drop that was
 	// waiting to settle when this look was judged, or null.
 	function nonDrop(step, view, area, at, held = null) {
@@ -3088,21 +3128,25 @@ export function scanView(root) {
 		// on top may still be a new one: a card landing on the very spot of
 		// the last, with its layout and colours, changes too few cells
 		// (Eric, 2026-10-16). Its picture tells, once it has settled (version
-		// 62): a hand over the last card makes it read new too.
+		// 62): a hand over the last card makes it read new too, so this path
+		// takes only a settled look, never on patience or at the limit.
 		const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
 		const content = fine ? contentAt(lastDrop, fine) : null;
 
 		if (content && content.verdict === 'new') {
 			const plan = planSpot(view, fine);
 			const settle = settledAt([lastDrop.quad], view, fine);
+			const next = waitToSettle(held, step, at, settle, {spot: true});
 
 			setPile(false);
 
-			if (waitToSettle(held, step, at, settle)) {
-				return;
+			if (next === 'take') {
+				releaseDrop(grownBox(lastDrop.quad.map(toView(view))));
+				takeDrop(step.change, plan, {...(held ? held.step : step), heldMs: held ? Math.round(at - held.at) : null, settle}, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
 			}
-
-			takeDrop(step.change, plan, {...(held ? held.step : step), heldMs: held ? Math.round(at - held.at) : null, settle}, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
+			else if (next === 'give up') {
+				giveUp(pendingDrop || held, area);
+			}
 
 			return;
 		}
@@ -3151,7 +3195,22 @@ export function scanView(root) {
 		const plan = planDrop(step.change, view, area);
 
 		if (plan.skip) {
-			releaseDrop();
+			// While a drop waits, a skipped look (a hand reaching past the
+			// frame, the light) may hide the card: keep waiting.
+			if (held) {
+				held.stillSince = null;
+
+				if (at - held.at >= SETTLE_LIMIT_MS) {
+					if (held.ready) {
+						takeReady(held, area, at);
+					}
+					else {
+						giveUp(held, area);
+					}
+				}
+
+				return;
+			}
 
 			if (plan.skip === 'off the frame') {
 				setPile(true);
@@ -3176,6 +3235,7 @@ export function scanView(root) {
 
 		if (content.verdict === 'same') {
 			releaseDrop();
+			dropReady(held);
 			// The last card where it lies now (nudged), for the next check.
 			lastDrop.print = content.match.print;
 			lastDrop.quad = content.match.quad;
@@ -3197,18 +3257,23 @@ export function scanView(root) {
 		// the card a hand leaves clear is sharp, what changed under the hand
 		// is not.
 		const settle = settledAt([content.quad, plan.card.corners], view, plan.fine);
+		const edge = reachesEdge(step.change, view.width, view.height);
+		const box = grownBox(content.quad.map(toView(view)));
+		const next = waitToSettle(held, step, at, settle, {edge, ready: {box, change: step.change, content, plan, settle: {...settle}}});
 
-		if (waitToSettle(held, step, at, settle)) {
-			return;
+		if (next === 'take') {
+			releaseDrop(box);
+			takeDrop(step.change, plan, {...first, heldMs: held ? Math.round(at - held.at) : null, settle}, area, content);
 		}
-
-		takeDrop(step.change, plan, {...first, heldMs: held ? Math.round(at - held.at) : null, settle}, area, content);
+		else if (next === 'give up') {
+			giveUp(pendingDrop, area);
+		}
 	}
 
 	// Whether the card at each of `places` (frame pixels) has settled
 	// (drop.js settleVerdict), the worst of them: {why (null when settled),
-	// blur, texture, stir, limit, patience, waited}, as the scan log keeps
-	// it.
+	// focusWhy (the focus alone), blur, texture, stir, limit, patience,
+	// waited}, as the scan log keeps it.
 	function settledAt(places, view, fine) {
 		const stir = Math.max(...places.map((corners) => dropDetector.stirIn(grownBox(corners.map(toView(view))))));
 		const focus = places.map((corners) => cardFocus(fine.grey, fine.width, fine.height, corners.map(toView(fine)))).reduce((a, b) => ({blur: Math.max(a.blur, b.blur), texture: Math.min(a.texture, b.texture)}));
@@ -3216,75 +3281,159 @@ export function scanView(root) {
 		return {blur: Math.round(focus.blur * 100) / 100, focusWhy: focusVerdict(focus), limit: false, patience: false, stir: Math.round(stir * 1000) / 1000, texture: Math.round(focus.texture * 100) / 100, waited: [], why: settleVerdict({focus, stir})};
 	}
 
-	// A drop that has not settled waits (pendingDrop, the detector holding
-	// the picture before it): true. One that has, or has waited long enough,
-	// is to be taken: false, with settle saying what it waited for.
-	function waitToSettle(held, step, at, settle) {
+	// What a drop does on this look: 'take' (settled, or waited long
+	// enough), 'wait' (pendingDrop, the detector holding the picture before
+	// it), or 'give up' (waited SETTLE_LIMIT_MS with a hand's change reaching
+	// the edge of the view, or on the very spot of the last card: taking it
+	// would take the hand's card, or the last card again). edge: what changed
+	// reaches the edge (drop.js reachesEdge). spot: the drop waits on the very
+	// spot of the last card (nonDrop), which never takes on patience or at
+	// the limit. ready: the card as this look would take it, kept while it
+	// lies still and printed and waits only for its focus (takeReady).
+	function waitToSettle(held, step, at, settle, {edge = false, ready = null, spot = false} = {}) {
 		const {why} = settle;
 
 		settle.waited = held ? held.whys : [];
 		delete settle.why;
 
 		if (!why) {
-			releaseDrop();
+			dropReady(held);
 
-			return false;
+			return 'take';
 		}
+
+		const still = why !== 'moving';
 
 		if (!held) {
-			pendingDrop = {at, step: {...step, at}, stillSince: why === 'moving' || settle.stir > PATIENCE_STIR ? null : at, whys: [why]};
+			pendingDrop = {at, ready: null, spot, step: {...step, at}, stillSince: still ? at : null, whys: [why]};
 			dropDetector.hold();
-
-			return true;
-		}
-
-		// The drop was let go to judge this look (holderTick): it waits on.
-		pendingDrop = held;
-
-		if (!dropDetector.held) {
-			dropDetector.hold();
-		}
-
-		if (!held.whys.includes(why)) {
-			held.whys.push(why);
-		}
-
-		// Waited too long: taken all the same (drop.js SETTLE_LIMIT_MS), or a
-		// sharp card with a hand still moving beside it (SETTLE_STIR_MS).
-		if (at - held.at >= SETTLE_LIMIT_MS || (why === 'moving' && !settle.focusWhy && at - held.at >= SETTLE_STIR_MS)) {
-			settle.limit = true;
-		}
-		else if (why === 'moving' || settle.stir > PATIENCE_STIR) {
-			held.stillSince = null;
-
-			return true;
 		}
 		else {
-			held.stillSince = held.stillSince ?? at;
+			// The drop may have been let go to judge this look (waitingLook):
+			// it waits on.
+			pendingDrop = held;
+			held.spot = held.spot || spot;
 
-			if (at - held.stillSince < SETTLE_PATIENCE_MS) {
-				return true;
+			if (!dropDetector.held) {
+				dropDetector.hold();
 			}
 
-			// Dead still for SETTLE_PATIENCE_MS and still soft or plain: the
-			// card's own print, taken all the same.
-			settle.patience = true;
+			if (!held.whys.includes(why)) {
+				held.whys.push(why);
+			}
+
+			held.stillSince = still ? (held.stillSince ?? at) : null;
 		}
 
-		releaseDrop();
+		const wait = pendingDrop;
+		const waited = at - wait.at;
 
-		return false;
+		// Only a printed card waiting for its focus alone is kept (soft): a
+		// blob with no print (plain) is no card to take early.
+		if (why === 'soft' && !edge && !wait.spot && ready) {
+			keepReady(wait, ready);
+		}
+		else if (why !== 'soft' || edge) {
+			dropReady(wait);
+		}
+
+		if (wait.spot) {
+			return waited >= SETTLE_LIMIT_MS ? 'give up' : 'wait';
+		}
+
+		// Waited too long: taken all the same (drop.js SETTLE_LIMIT_MS) unless
+		// a hand reaches in; or a sharp card with a hand still moving beside
+		// it (SETTLE_STIR_MS).
+		if (why === 'moving' && !settle.focusWhy && !edge && waited >= SETTLE_STIR_MS) {
+			settle.limit = true;
+		}
+		else if (waited >= SETTLE_LIMIT_MS) {
+			// A hand reaching in, or no print at all (Eric's v60 log: the first
+			// card taken was a blurred blob and no card): let it go.
+			if (edge || settle.focusWhy === 'plain') {
+				return 'give up';
+			}
+
+			settle.limit = true;
+		}
+		// Still for SETTLE_PATIENCE_MS and printed but soft, with no hand
+		// reaching in: the card's own print, taken all the same.
+		else if (why === 'soft' && !edge && at - wait.stillSince >= SETTLE_PATIENCE_MS) {
+			settle.patience = true;
+		}
+		else {
+			return 'wait';
+		}
+
+		dropReady(wait);
+
+		return 'take';
+	}
+
+	// The card a waiting drop would take, kept with its look's cells and a
+	// grab of its frame, for takeReady.
+	function keepReady(wait, ready) {
+		if (wait.ready) {
+			return;
+		}
+
+		wait.ready = {...ready, cells: dropDetector.latest, grab: takeFrame(ready.plan.region).catch(() => null)};
+	}
+
+	// Forgets the card kept for takeReady, and lets its grab go.
+	function dropReady(wait) {
+		if (!wait || !wait.ready) {
+			return;
+		}
+
+		const {grab} = wait.ready;
+
+		wait.ready = null;
+		grab.then((grabbed) => {
+			const bitmap = grabbed && grabbed.frame && grabbed.frame.bitmap;
+
+			if (bitmap && bitmap.close) {
+				bitmap.close();
+			}
+		});
+	}
+
+	// Takes the card a drop kept while it lay still and printed, waiting only
+	// for its focus: the picture moves again (the next card coming), so it
+	// is taken from its last still look, with that look's frame, and only
+	// its own box joins the picture the next drop is compared with.
+	function takeReady(held, area, at) {
+		const {box, cells, change, content, grab, plan, settle} = held.ready;
+
+		held.ready = null;
+		pendingDrop = null;
+		dropDetector.release(box, cells);
+		takeDrop(change, plan, {...held.step, heldMs: Math.round(at - held.at), settle: {...settle, early: true, waited: held.whys}}, area, content, grab);
+	}
+
+	// Lets a waiting drop go without taking it, and logs it 'unsettled'.
+	function giveUp(held, area) {
+		if (!held) {
+			return;
+		}
+
+		dropReady(held);
+		releaseDrop();
+		logSkipped('unsettled', held.step, area);
+		keepBeforeView(area);
 	}
 
 	// Forgets the drop waiting to settle, and lets the detector's base move
-	// on again. Returns what waited, or null.
-	function releaseDrop() {
+	// on again: wholly, or (box, view pixels) with only the card just taken
+	// copied into the picture before the drop (createDropDetector release).
+	// Returns what waited, or null.
+	function releaseDrop(box = null) {
 		const held = pendingDrop;
 
 		pendingDrop = null;
 
 		if (dropDetector.held) {
-			dropDetector.release();
+			dropDetector.release(box);
 		}
 
 		return held;
@@ -3420,8 +3569,9 @@ export function scanView(root) {
 
 	// Takes the card a drop brought: a tile at once, the picture matched off
 	// the frame loop. content: its content check, whose print the next
-	// card is checked against.
-	async function takeDrop(change, plan, step, area, content) {
+	// card is checked against. grab: the frame already grabbed for it (a
+	// promise of a takeFrame answer, takeReady), or null to grab it now.
+	async function takeDrop(change, plan, step, area, content, grab = null) {
 		// The card taken, at once, so the next look checks against it; its
 		// tray card once added.
 		const taken = {...takenCard(lastDrop, plan.card), at: performance.now(), fresh: false, item: null, print: content.print, quad: content.quad};
@@ -3433,7 +3583,7 @@ export function scanView(root) {
 		let grabbed;
 
 		try {
-			grabbed = await takeFrame(plan.region);
+			grabbed = (grab && await grab) || await takeFrame(plan.region);
 		}
 		finally {
 			capturing--;
@@ -3457,20 +3607,25 @@ export function scanView(root) {
 		sinceOpen.add(item.id);
 		scanLog.startEntry(item.id, {at: item.captured_at, how: 'auto', phone: deviceInfo(), source: 'camera'});
 		logViews(item.id, area).catch(() => {});
+
 		// The view the next drop is compared with is this one (the detector's
 		// base), so it is the next drop's view before (version 62; before it,
 		// a run of drops with no quiet look between them kept the view from
-		// before the first).
-		keepBeforeView(area);
+		// before the first). Not for a card taken from its last still look
+		// (takeReady): the picture is moving now.
+		if (!grab) {
+			keepBeforeView(area);
+		}
 		persist();
 		draw();
 
 		const fullSaved = keepFull(item.id, frame);
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
-		// A card on the very spot of the last (nonDrop) comes from a change
-		// with no rectangle: its box is the last card's.
-		const rect = change.rect || {angle: 0, h: plan.card.box.h, w: plan.card.box.w};
+		// A card on the very spot of the last (nonDrop) comes from a change of
+		// no card's shape (with no rectangle, or the rectangle of a strip):
+		// its box is the last card's.
+		const rect = change.kind === 'drop' && change.rect ? change.rect : {angle: 0, h: plan.card.box.h, w: plan.card.box.w};
 		const card = {angle: rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(rect.w, rect.h) / Math.max(rect.w, rect.h)) * 1000) / 1000, small: false, upright: rect.h >= rect.w};
 		// From the picture going still to the capture: a drop that waited to
 		// settle (version 62) adds the wait.
@@ -3678,7 +3833,10 @@ export function scanView(root) {
 			return;
 		}
 
-		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop);
+		// A drop waiting to settle holds the switch only while the picture is
+		// still: the phone picked up moves it, and Auto must be free to go
+		// hand-held.
+		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop && pictureStillMs > 0);
 		const {evidence, switchTo} = stance.decide({at: performance.now(), busy, holder, pictureStillMs});
 
 		if (switchTo && (switchTo === 'holder') !== holder) {

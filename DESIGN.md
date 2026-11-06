@@ -1448,17 +1448,40 @@ capture again a card just taken from the same drop; speeding up the text route i
   printed blocks have a mean Laplacian under `FOCUS_EDGE`, 0.55, of their mean step, a ratio that
   the light does not move). Both the outline the capture cuts first and what changed are measured,
   the worse counting, so a hand over half the card cannot hide behind an outline round the other half.
-- **Until then the drop waits** (`pendingDrop`): the detector holds the picture before the drop
-  (`createDropDetector` `hold`), so each still look is judged against it: a card under a hand is
-  still what changed when the hand leaves, and a hand that leaves nothing changes nothing. A card dead
-  still (stir at most 1 %) for `SETTLE_PATIENCE_MS` (1.5 s) that still reads soft or plain is taken
-  all the same (a basic Energy's smooth gradient reads soft); a sharp, printed card whose part of the
-  view still stirs after `SETTLE_STIR_MS` (3 s: a hand moving beside it) is taken; and any drop that
-  has waited `SETTLE_LIMIT_MS` (6 s) is taken however it reads: a card fixed by hand is better than
-  one lost without a word, and a longer hold folds the next drops into it. A soft card with a hand
-  still moving over it waits for the hand to leave rather than being taken at 3 s: taken with the
-  hand, its print would make the same card read new once the hand left (the browser test caught
-  exactly that). A card landing on the very spot of the last (`contentAt`) waits the same way.
+- **Until then the drop waits** (`pendingDrop`, `view.js` `waitToSettle`): the detector holds the
+  picture before the drop (`createDropDetector` `hold`), so each still look is judged against it: a
+  card under a hand is still what changed when the hand leaves, and a hand that leaves nothing
+  changes nothing. The hold is let go only when nothing changed since that picture any more, when the
+  card turns out to be the last one, or when the card is taken; a change of no card's shape (a hand
+  over the card, the light) or a skipped look keeps it. When a card is taken, only its own box joins
+  the picture the next drop is compared with (`release(box)`), so a card that landed meanwhile is
+  still what changed.
+- **How long it waits:**
+  - A printed card that lies still and waits only for its focus (soft; a basic Energy's smooth
+    gradient reads soft) is taken from its last still look, with that look's frame, the moment the
+    picture moves again (`takeReady`): at a card every 1.5 s the next one would otherwise land on it
+    while it waited. Lying still that way for `SETTLE_PATIENCE_MS` (1.5 s), it is taken anyway. Still
+    means a stir of at most `PATIENCE_STIR`, which is `REGION_STIR` (3 %): the cards taken on his
+    videos stirred up to 2.9 % with the shared video's own noise.
+  - A sharp, printed card whose part of the view still stirs after `SETTLE_STIR_MS` (3 s: a hand
+    moving beside it) is taken.
+  - A drop that has waited `SETTLE_LIMIT_MS` (6 s) is taken however it reads, as before version 62,
+    except when what changed reaches the edge of the view (`reachesEdge`: a hand reaching in, with
+    the next card in it) or has no print (plain: the first card of his session was a blurred blob):
+    then it is let go and logged `unsettled`. A drop that keeps moving for 6 s is let go too, and a
+    waiting drop no longer stops Auto from switching to hand-held while the picture moves.
+  - Neither patience, nor the early take, nor the limit ever takes a card under a hand (a change
+    reaching the edge), nor a card on the very spot of the last (`contentAt`): there a hand held
+    still over the last card reads as a new card, so that path takes only a settled look and lets
+    go at the limit.
+  - A soft card with a hand still moving over it waits for the hand to leave rather than being taken
+    at 3 s: taken with the hand, its print would make the same card read new once the hand left.
+- **Reviewed the same day** (read-only review of the first build): a soft card waiting for patience
+  was lost when the next card landed first (the base moved past it on the take of the second); the
+  hold was let go on any look of no card's shape, so a hand over a waiting card lost it; a hand held
+  still over the last card for 1.5 s, or 6 s moving, was taken; a waiting drop kept Auto from
+  switching while the phone was picked up. Each is fixed as above and has a test
+  (`tests/scan-settle-browser.test.mjs`, `tests/scan-drop.test.mjs`).
 - **The same card is told only on settled looks**: the content check is unchanged, but nothing
   unsettled is ever taken or kept as the last card's print, so a hand over the card just taken no
   longer makes it read new. The repeat bar rules of version 40 stand.
@@ -1471,7 +1494,8 @@ capture again a card just taken from the same drop; speeding up the text route i
   stillness over looks is not replayed, nor how long each would have waited. Drop to capture on the
   phone: from the picture going still, a median of 0.72 s (0.51 to 1.10) for the clean cards, which
   settled on the look they were taken on, so it stays the same.
-- **Measured on the videos of 2026-10-09** (`lab/holder/replay.mjs --mode v62`, against `--mode v40`
+- **Measured on the videos of 2026-10-09**, on the first build, before the review's fixes (to be
+  measured again) (`lab/holder/replay.mjs --mode v62`, against `--mode v40`
   on version 61, the same drop labels, proposed by `label.mjs` and named by version 61's sure
   answers): with the zoom change in the first video marked, as the app starts the detector over when
   the zoom changes, both videos took the very same cards in the same order (39 and 22), none lost and
@@ -1482,8 +1506,8 @@ capture again a card just taken from the same drop; speeding up the text route i
   drops inside it were not taken (of their two cards, one was taken from a later drop of it):
   `SETTLE_LIMIT_MS` bounds that.
 - **The scan log** (scanner 62) keeps each drop's settle numbers (`settle`: stir, soft and printed
-  shares, why its focus failed, what it waited for, and whether it was taken on patience or at a
-  limit) and `heldMs`; a
+  shares, why its focus failed, what it waited for, and whether it was taken on patience, at a
+  limit, or early from its last still look) and `heldMs`, and logs a drop let go as `unsettled`; a
   drop's view before is now the picture it was compared with (after a capture, the view after it),
   where a run of drops with no quiet look between them used to keep the view from before the first.
 - **A card on the very spot of the last, told by its picture where no card-shaped change showed

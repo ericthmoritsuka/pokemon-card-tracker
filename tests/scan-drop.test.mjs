@@ -697,4 +697,80 @@ describe('holder mode takes a card once it has settled (Eric, 2026-11-06, versio
 		assert.ok(held, 'the hand was judged');
 		assert.equal(last.kind, 'none', 'nothing changed once the hand left');
 	});
+
+	// Review of 2026-11-06: a card taken after waiting must not fold another
+	// card that landed meanwhile into the base.
+	test('release with the card taken copies only that card into the picture before the drop: another card that landed meanwhile is still what changed', () => {
+		const detector = D.createDropDetector();
+		const left = card(1, {cx: 0.3, h: 0.4});
+		const right = card(2, {cx: 0.72, h: 0.4});
+		let at = 0;
+
+		for (let k = 0; k < 12; k++, at += FRAME_MS) {
+			detector.push(render({cards: []}), at);
+		}
+
+		// The left card lands and is held; the right one lands while it waits.
+		let held = false;
+
+		for (const scene of [{cards: [{...left, cy: 0.9, smear: 0.08}]}, {cards: [left]}, {cards: [left]}, {cards: [left]}, {cards: [left]}]) {
+			const out = detector.push(render(scene), at);
+
+			at += FRAME_MS;
+
+			if (out.drop && !held) {
+				held = true;
+				detector.hold();
+			}
+		}
+
+		assert.ok(held);
+
+		for (const scene of [{cards: [left, {...right, cy: 0.9, smear: 0.08}]}, {cards: [left, right]}, {cards: [left, right]}, {cards: [left, right]}]) {
+			detector.push(render(scene), at);
+			at += FRAME_MS;
+		}
+
+		// The left card is taken: only its box joins the base.
+		detector.release(D.grownBox(cornersOf(left)));
+
+		let next = null;
+
+		for (let k = 0; k < 4; k++, at += FRAME_MS) {
+			const out = detector.push(render({cards: [left, right]}), at);
+
+			next = out.change || next;
+		}
+
+		assert.equal(next.kind, 'drop', 'the right card is still what changed');
+		assert.ok(next.rect.cx / W > 0.55, `on the right: ${JSON.stringify(next.rect)}`);
+
+		// Released wholly instead, it would have been folded in.
+		const whole = D.createDropDetector();
+
+		at = 0;
+
+		for (const scene of [...Array(12).fill({cards: [left]}), ...Array(4).fill({cards: [left, right]})]) {
+			whole.push(render(scene), at);
+			at += FRAME_MS;
+		}
+
+		whole.hold();
+		whole.release();
+
+		let after = null;
+
+		for (let k = 0; k < 4; k++, at += FRAME_MS) {
+			after = whole.push(render({cards: [left, right]}), at).change || after;
+		}
+
+		assert.equal(after.kind, 'none');
+	});
+
+	test('a change reaching the edge of the view is a hand reaching in; a card lying in the box is not', () => {
+		assert.equal(D.reachesEdge({rect: {angle: 0, cx: 60, cy: 100, h: 110, w: 79}}, W, H), false);
+		assert.equal(D.reachesEdge({rect: {angle: 0, cx: 60, cy: 170, h: 80, w: 100}}, W, H), true);
+		assert.equal(D.reachesEdge({kind: 'none'}, W, H), false);
+		assert.ok(D.PATIENCE_STIR >= 0.029, 'patience counts looks as still as the noise on Eric\'s videos (2.9 %)');
+	});
 });

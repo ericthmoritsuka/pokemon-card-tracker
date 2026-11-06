@@ -624,9 +624,14 @@ export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = 
 // drop, not with the one before it, so a card waiting under a hand is still
 // what changed once the hand leaves, and a hand that leaves nothing changes
 // nothing. release() makes the last look the base, and lets every still
-// frame become the base again.
+// frame become the base again; release(box, from) keeps the picture before
+// the drop and copies into it only the cells in box (view pixels, the card
+// just taken, grown) from the look `from` (cells; the last look when
+// omitted), so another card that landed while this one waited is still
+// what changed on the next look, not folded into the base unseen.
 // stirIn(box) is how much the part of the view in box (view pixels) moved
-// over the last SETTLE_FRAMES looks (regionStir, the largest).
+// over the last SETTLE_FRAMES looks (regionStir, the largest); latest is
+// the last look's cells.
 export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, settleMs = SETTLE_MS, ...judge} = {}) {
 	let previous = null;
 	let base = null;
@@ -656,17 +661,52 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 		get held() {
 			return held;
 		},
+		get latest() {
+			return looks.length ? looks[looks.length - 1] : null;
+		},
 		pause() {
 			paused = true;
 		},
-		release() {
+		release(box = null, from = null) {
+			const was = held;
+
 			held = false;
 
-			// The look the drop was last judged on becomes the base, as every
-			// still look does when nothing waits.
-			if (base && looks.length) {
-				base = looks[looks.length - 1];
+			if (!base || !looks.length) {
+				return;
 			}
+
+			const now = from || looks[looks.length - 1];
+
+			if (!box || !was || now.data.length !== base.data.length) {
+				// The look the drop was last judged on becomes the base, as
+				// every still look does when nothing waits.
+				base = now;
+
+				return;
+			}
+
+			const cell = judge.cell || CELL;
+			const data = Float32Array.from(base.data);
+			const x0 = Math.max(0, Math.floor(box.x / cell));
+			const y0 = Math.max(0, Math.floor(box.y / cell));
+			const x1 = Math.min(base.cw, Math.ceil((box.x + box.w) / cell));
+			const y1 = Math.min(base.ch, Math.ceil((box.y + box.h) / cell));
+			const gain = gainOf(now, base);
+
+			// The picture before the drop, brought to the light of `from`
+			// (gainOf), with the card taken copied in.
+			for (let i = 0; i < data.length; i++) {
+				data[i] *= gain;
+			}
+
+			for (let y = y0; y < y1; y++) {
+				for (let x = x0; x < x1; x++) {
+					data[y * base.cw + x] = now.data[y * base.cw + x];
+				}
+			}
+
+			base = {ch: base.ch, cw: base.cw, data};
 		},
 		stirIn(box) {
 			let most = 0;
@@ -1350,24 +1390,44 @@ export function focusVerdict(focus) {
 	return null;
 }
 
-// A card whose part of the view has stayed dead still (its stir at most
+// A card whose part of the view has stayed still (its stir at most
 // PATIENCE_STIR on every look) this long while it read plain or soft is
-// taken all the same: a hand is never that still, and a card whose own
-// print reads soft (a basic Energy's smooth gradient, the camera's focus
-// lost on a tall pile) must not wait for ever.
+// taken all the same: a card whose own print reads soft (a basic Energy's
+// smooth gradient, the camera's focus lost on a tall pile) must not wait
+// for ever. PATIENCE_STIR is REGION_STIR: the cards taken on Eric's videos
+// stirred up to 2.9 % with the shared video's own noise, so a lower bar was
+// never met and such a card waited the full SETTLE_LIMIT_MS. Never for a
+// change that reaches the edge of the view (reachesEdge: a hand reaching
+// in, with the next card in it), nor for a card on the very spot of the
+// last (view.js nonDrop), where a hand over the last card reads as one.
 export const SETTLE_PATIENCE_MS = 1500;
-export const PATIENCE_STIR = 0.01;
+export const PATIENCE_STIR = REGION_STIR;
+
+// Whether a change reaches the edge of the view (its rectangle within
+// `margin` view pixels of a side): a hand coming in from outside, or the
+// card it holds, near the lens. A card lying in the box never does: its
+// floor lies inside the view, and a card running off it is skipped
+// (dropCapture 'off the frame').
+export function reachesEdge(change, width, height, margin = CELL * 1.5) {
+	return Boolean(change && change.rect) && rectCorners(change.rect).some((p) => p.x < margin || p.y < margin || p.x > width - margin || p.y > height - margin);
+}
 
 // A sharp, printed card whose part of the view still stirs after
 // SETTLE_STIR_MS (a hand moving beside it, not over it) is taken; and a
 // drop that has waited SETTLE_LIMIT_MS is taken however it reads, as before
-// version 62: a card soft for a moment is fixed by hand, a card never taken
-// is lost without a word, and while a drop waits the detector compares
-// every look with the picture before it, so a long wait folds the next
-// drops into it (Eric's first video of 2026-10-09, replayed with no zoom
-// change marked: two drops lost to a wait of 7 s over one). A soft card
-// with a hand still moving over it is not taken at SETTLE_STIR_MS: taken
-// with the hand, its print would make the same card read new once the hand
-// left, and it would be taken twice.
+// version 62, unless what changed reaches the edge of the view (a hand, the
+// card in it) or it waits on the very spot of the last card: then it is let
+// go and logged 'unsettled', since taking it would take the hand's card, or
+// the last card again under the hand. A card soft for a moment is fixed by
+// hand, a card never taken is lost without a word, and while a drop waits
+// the detector compares every look with the picture before it, so a long
+// wait folds the next drops into it (Eric's first video of 2026-10-09,
+// replayed with no zoom change marked: two drops lost to a wait of 7 s over
+// one). A soft card with a hand still moving over it is not taken at
+// SETTLE_STIR_MS: taken with the hand, its print would make the same card
+// read new once the hand left, and it would be taken twice. A card still
+// and printed that waits only for its focus is taken from its last still
+// look the moment the picture moves again (view.js takeReady), so the next
+// card never lands on it while it waits.
 export const SETTLE_STIR_MS = 3000;
 export const SETTLE_LIMIT_MS = 6000;

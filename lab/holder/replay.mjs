@@ -463,19 +463,21 @@ function createV62() {
 		return {...drop.dropCapture(change, view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, last}), fine};
 	};
 
-	const take = (frame, change, planned, step, content, at, settle = null) => {
+	// grabbed: the frame already cut for it (takeReady), or null.
+	const take = (frame, change, planned, step, content, at, settle = null, grabbed = null) => {
 		last = {...drop.takenCard(last, planned.card), at, fresh: false, print: content.print, quad: content.quad};
 
-		return {capture: {change, content, frame: grabFrame(frame, planned.region), identify: (image) => identifyMod.identifyPicture(image, {quads: planned.quads}), plan: planned, region: planned.region, settle, settleMs: step.still + (step.heldMs || 0), sharpness: planned.sharpness}};
+		return {capture: {change, content, frame: grabbed || grabFrame(frame, planned.region), identify: (image) => identifyMod.identifyPicture(image, {quads: planned.quads}), plan: planned, region: planned.region, settle, settleMs: step.still + (step.heldMs || 0), sharpness: planned.sharpness}};
 	};
 
-	const release = () => {
+	// view.js releaseDrop.
+	const release = (box = null) => {
 		const held = pending;
 
 		pending = null;
 
 		if (detector.held) {
-			detector.release();
+			detector.release(box);
 		}
 
 		return held;
@@ -489,60 +491,91 @@ function createV62() {
 		return {blur: Math.round(focus.blur * 100) / 100, focusWhy: drop.focusVerdict(focus), limit: false, patience: false, stir: Math.round(stir * 1000) / 1000, texture: Math.round(focus.texture * 100) / 100, waited: [], why: drop.settleVerdict({focus, stir})};
 	};
 
-	// view.js waitToSettle: true while the drop waits.
-	const waitToSettle = (held, step, at, settle) => {
+	// view.js waitToSettle: 'take', 'wait', or 'give up'; ready keeps the
+	// frame cut at that look (frame) for takeReady.
+	const waitToSettle = (held, step, at, settle, {edge = false, frame = null, ready = null, spot = false} = {}) => {
 		const {why} = settle;
 
 		settle.waited = held ? held.whys : [];
 		delete settle.why;
 
 		if (!why) {
-			release();
-
-			return false;
+			return 'take';
 		}
+
+		const still = why !== 'moving';
 
 		if (!held) {
-			pending = {at, step: {...step, at}, stillSince: why === 'moving' || settle.stir > drop.PATIENCE_STIR ? null : at, whys: [why]};
+			pending = {at, ready: null, spot, step: {...step, at}, stillSince: still ? at : null, whys: [why]};
 			detector.hold();
 			settle.why = why;
-
-			return true;
-		}
-
-		pending = held;
-
-		if (!detector.held) {
-			detector.hold();
-		}
-
-		if (!held.whys.includes(why)) {
-			held.whys.push(why);
-		}
-
-		// Waited too long: taken all the same (drop.js SETTLE_LIMIT_MS), or a
-		// sharp card with a hand still moving beside it (SETTLE_STIR_MS).
-		if (at - held.at >= drop.SETTLE_LIMIT_MS || (why === 'moving' && !settle.focusWhy && at - held.at >= drop.SETTLE_STIR_MS)) {
-			settle.limit = true;
-		}
-		else if (why === 'moving' || settle.stir > drop.PATIENCE_STIR) {
-			held.stillSince = null;
-
-			return true;
 		}
 		else {
-			held.stillSince = held.stillSince ?? at;
+			pending = held;
+			held.spot = held.spot || spot;
 
-			if (at - held.stillSince < drop.SETTLE_PATIENCE_MS) {
-				return true;
+			if (!detector.held) {
+				detector.hold();
 			}
 
-			settle.patience = true;
+			if (!held.whys.includes(why)) {
+				held.whys.push(why);
+			}
+
+			held.stillSince = still ? (held.stillSince ?? at) : null;
 		}
 
+		const wait = pending;
+		const waited = at - wait.at;
+
+		if (why === 'soft' && !edge && !wait.spot && ready) {
+			wait.ready = wait.ready || {...ready, cells: detector.latest, grabbed: grabFrame(frame, ready.plan.region)};
+		}
+		else if (why !== 'soft' || edge) {
+			wait.ready = null;
+		}
+
+		if (wait.spot) {
+			return waited >= drop.SETTLE_LIMIT_MS ? 'give up' : 'wait';
+		}
+
+		if (why === 'moving' && !settle.focusWhy && !edge && waited >= drop.SETTLE_STIR_MS) {
+			settle.limit = true;
+		}
+		else if (waited >= drop.SETTLE_LIMIT_MS) {
+			if (edge || settle.focusWhy === 'plain') {
+				return 'give up';
+			}
+
+			settle.limit = true;
+		}
+		else if (why === 'soft' && !edge && at - wait.stillSince >= drop.SETTLE_PATIENCE_MS) {
+			settle.patience = true;
+		}
+		else {
+			return 'wait';
+		}
+
+		wait.ready = null;
+
+		return 'take';
+	};
+
+	// view.js takeReady.
+	const takeReady = (held, at) => {
+		const {box, cells, change, content, grabbed, plan: planned, settle} = held.ready;
+
+		pending = null;
+		detector.release(box, cells);
+
+		return take(null, change, planned, {...held.step, heldMs: at - held.at}, content, at, {...settle, early: true, waited: held.whys}, grabbed);
+	};
+
+	// view.js giveUp.
+	const giveUp = () => {
 		release();
 
-		return false;
+		return {note: 'unsettled'};
 	};
 
 	const nonDrop = (frame, area, view, step, at, held = null) => {
@@ -552,12 +585,15 @@ function createV62() {
 		if (content && content.verdict === 'new') {
 			const spot = {...drop.planCapture(last.quad, [], view, fine, steady.findCard(fine.grey, fine.width, fine.height), {frame, sharpBox: drop.boxOf(last.quad.map(drop.toView(view)))}), fine};
 			const settle = settledAt([last.quad], view, fine);
+			const next = waitToSettle(held, step, at, settle, {spot: true});
 
-			if (waitToSettle(held, step, at, settle)) {
-				return {note: held ? null : `waiting on the same spot (${settle.why})`, settle};
+			if (next === 'take') {
+				release(drop.grownBox(last.quad.map(drop.toView(view))));
+
+				return take(frame, step.change, spot, {...(held ? held.step : step), heldMs: held ? at - held.at : 0}, {...drop.contentCheck(spot, fine, null), distance: content.distance, verdict: 'new on the same spot'}, at, settle);
 			}
 
-			return take(frame, step.change, spot, {...(held ? held.step : step), heldMs: held ? at - held.at : 0}, {...drop.contentCheck(spot, fine, null), distance: content.distance, verdict: 'new on the same spot'}, at, settle);
+			return next === 'give up' ? giveUp() : {note: held ? null : `waiting on the same spot (${settle.why})`, settle};
 		}
 
 		if (content && content.verdict === 'same' && drop.asksRepeat(step.burst, last)) {
@@ -580,7 +616,11 @@ function createV62() {
 		const planned = plan(frame, area, view, step.change);
 
 		if (planned.skip) {
-			release();
+			if (held) {
+				held.stillSince = null;
+
+				return at - held.at >= drop.SETTLE_LIMIT_MS ? (held.ready ? takeReady(held, at) : giveUp()) : {note: null};
+			}
 
 			return {change: step.change, note: planned.skip};
 		}
@@ -595,12 +635,17 @@ function createV62() {
 		}
 
 		const settle = settledAt([content.quad, planned.card.corners], view, planned.fine);
+		const edge = drop.reachesEdge(step.change, view.width, view.height);
+		const box = drop.grownBox(content.quad.map(drop.toView(view)));
+		const next = waitToSettle(held, step, at, settle, {edge, frame, ready: {box, change: step.change, content, plan: planned, settle: {...settle}}});
 
-		if (waitToSettle(held, step, at, settle)) {
-			return {change: step.change, content, note: held ? null : `waiting (${settle.why})`, settle};
+		if (next === 'take') {
+			release(box);
+
+			return take(frame, step.change, planned, {...first, heldMs: held ? at - held.at : 0}, content, at, settle);
 		}
 
-		return take(frame, step.change, planned, {...first, heldMs: held ? at - held.at : 0}, content, at, settle);
+		return next === 'give up' ? giveUp() : {change: step.change, content, note: held ? null : `waiting (${settle.why})`, settle};
 	};
 
 	return {
@@ -613,11 +658,18 @@ function createV62() {
 			const view = viewFrame(frame, area.view, steady.FIND_SIDE);
 			const step = detector.push(view, at);
 
+			// view.js waitingLook.
 			if (pending) {
-				if (step.moving) {
-					pending.stillSince = null;
+				const held = pending;
 
-					return {motion: step.motion, note: null};
+				if (step.moving) {
+					held.stillSince = null;
+
+					if (held.ready) {
+						return takeReady(held, at);
+					}
+
+					return at - held.at >= drop.SETTLE_LIMIT_MS ? giveUp() : {motion: step.motion, note: null};
 				}
 
 				if (!step.change) {
@@ -628,9 +680,20 @@ function createV62() {
 					return consider(frame, area, view, step, at);
 				}
 
-				const held = release();
+				if (step.change.kind === 'none' || held.spot) {
+					release();
+					held.ready = null;
 
-				return nonDrop(frame, area, view, {...step, burst: step.burst || held.step.burst}, at, held);
+					return nonDrop(frame, area, view, {...step, burst: step.burst || held.step.burst}, at, held);
+				}
+
+				held.stillSince = null;
+
+				if (at - held.at >= drop.SETTLE_LIMIT_MS) {
+					return held.ready ? takeReady(held, at) : giveUp();
+				}
+
+				return {note: null};
 			}
 
 			if (!step.change) {

@@ -15,7 +15,10 @@
 // - the card just taken, with a blurred card held over it and then taken
 //   away, is not taken again;
 // - two different cards dropped one straight after the other are both
-//   taken.
+//   taken, and so are a card that stays soft and the next one dropped on it
+//   within 1.5 s;
+// - a card that lands under a hand, held over it then still, is taken once
+//   the hand leaves.
 //
 // The cards used are the harness's 'a' and 'c': the canvas draws card 'b'
 // a little soft (its scan reads soft, so it is taken on patience).
@@ -200,10 +203,17 @@ describe('holder mode takes a card once it has settled', () => {
 
 		for (const [index, item] of list.entries()) {
 			assert.ok(item.drop.settle, `drop ${index + 1}: its settle numbers are logged`);
-			assert.ok(item.drop.settle.blur <= 0.09, `drop ${index + 1} taken sharp: ${JSON.stringify(item.drop.settle)}`);
-			assert.equal(item.drop.settle.patience, false, `drop ${index + 1}: not taken on patience`);
 			assert.equal(item.drop.settle.limit, false, `drop ${index + 1}: not taken for waiting too long`);
 		}
+
+		// The first was taken sharp, or, when going sharp moved the picture
+		// enough to count, from its last still look the moment it moved
+		// (view.js takeReady); never on patience.
+		assert.ok(list[0].drop.settle.blur <= 0.09 || list[0].drop.settle.early, `drop 1: ${JSON.stringify(list[0].drop.settle)}`);
+		assert.equal(list[0].drop.settle.patience, false, 'drop 1: not taken on patience');
+		assert.ok(list[1].drop.settle.blur <= 0.09, `drop 2 taken sharp: ${JSON.stringify(list[1].drop.settle)}`);
+		assert.equal(list[1].drop.settle.patience, false, 'drop 2: not taken on patience');
+		assert.equal(Boolean(list[1].drop.settle.early), false, 'drop 2: not taken from a look under the hand');
 
 		assert.ok(list[0].drop.settle.waited.includes('soft'), `the first waited while soft: ${JSON.stringify(list[0].drop.settle)}`);
 
@@ -230,6 +240,13 @@ describe('holder mode takes a card once it has settled', () => {
 		await setScene(page, {background: 'box', cards: pile});
 		await page.waitForTimeout(2000);
 		assert.equal(await captures(page), 1, 'not taken again after a hand held still over it');
+
+		// Held dead still for longer than drop.js SETTLE_PATIENCE_MS: a hand
+		// over the last card is never taken on patience.
+		await hover(page, pile, HELD, {every: 250, ms: 2200, sway: 0});
+		await setScene(page, {background: 'box', cards: pile});
+		await page.waitForTimeout(2000);
+		assert.equal(await captures(page), 1, 'not taken again after a hand held dead still over it for 2 s');
 		await setScene(page, {background: 'box', cards: pile, held: HELD});
 		await hover(page, pile, HELD, HAND);
 		await setScene(page, {background: 'box', cards: pile});
@@ -241,6 +258,71 @@ describe('holder mode takes a card once it has settled', () => {
 		assert.equal(await captures(page), 1, 'not taken again after a hand passing');
 		assert.equal((await items(page)).length, 1);
 		assert.equal((await items(page))[0].copies, 1, 'no copy added');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Review of 2026-11-06: a card waiting for its focus was lost when the
+	// next one landed before it was taken (both changes were judged as one,
+	// and the base moved on past the first).
+	test('a card that stays soft, then another dropped on the pile within 1.5 s: both are taken', async () => {
+		const {context, errors, page} = await open();
+		const soft = {...SPOT, blur: 0.012, card: 'c'};
+		const second = {angle: -3, card: 'a', dx: 0.06, dy: 0.07, size: 0.88};
+
+		await drop(page, [], {...SPOT, card: 'c'}, {last: soft});
+
+		// It lies still and soft for 0.8 s (timed in the page), then the next
+		// card falls onto it.
+		const before = await page.evaluate(async () => {
+			const view = await import('/pokemon-card-tracker/js/scan/view.js');
+
+			await new Promise((resolve) => setTimeout(resolve, 800));
+
+			return view.scanStats.captures;
+		});
+
+		assert.equal(before, 0, 'the soft card waits');
+		await drop(page, [soft], second);
+		await until(async () => (await captures(page)) === 2, 'both cards taken', 10000);
+		await page.waitForTimeout(1500);
+		assert.equal(await captures(page), 2, 'each once');
+		await readAll(page, 2);
+
+		const list = await items(page);
+
+		assert.deepEqual(list.map((item) => item.card), [CARDS.c, CARDS.a], JSON.stringify(list.map((item) => item.drop && item.drop.settle)));
+		assert.ok(list[0].drop.settle.early || list[0].drop.settle.patience, `the soft card was taken from its last still look: ${JSON.stringify(list[0].drop.settle)}`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Review of 2026-11-06: a change of no card's shape while a drop waited
+	// (a hand over the card) let the picture before the drop go, with the
+	// hand over the card in it, and the card was never taken.
+	test('a card that lands under a hand and then a still hand over it is taken once both leave', async () => {
+		const {context, errors, page} = await open();
+		const pile = [{...SPOT, card: 'c'}];
+		const next = {angle: -1, card: 'a', dx: 0.02, dy: 0.03, size: 0.88};
+
+		await drop(page, [], pile[0]);
+		await until(async () => (await captures(page)) === 1, 'card c taken', 8000);
+		await page.waitForTimeout(900);
+
+		// The next card lands under the blurred card in the hand, which then
+		// gives way to a hand held still over the middle of the pile.
+		await drop(page, pile, next, {held: HELD});
+		await hover(page, [...pile, next], HELD, {every: 250, ms: 800, sway: 0.006});
+		await setScene(page, {background: 'box', cards: [...pile, next], hand: {dx: 0.05, dy: 0.1, r: 0.22}});
+		await page.waitForTimeout(1200);
+		assert.equal(await captures(page), 1, 'nothing taken while the hand is there');
+
+		await setScene(page, {background: 'box', cards: [...pile, next]});
+		await until(async () => (await captures(page)) === 2, 'the card taken once the hand left', 10000);
+		await page.waitForTimeout(1500);
+		assert.equal(await captures(page), 2, 'taken once');
+		await readAll(page, 2);
+		assert.deepEqual((await items(page)).map((item) => item.card), [CARDS.c, CARDS.a]);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
