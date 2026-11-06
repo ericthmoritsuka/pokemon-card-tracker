@@ -2604,11 +2604,19 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   Copies, and holder mode are the scanner's own, unchanged.
 - **A card going out is one of his copies.** It is matched to a live copy of the same card in the
   language and finish the scanner read (a copy saved with no finish, or a scan with none, fits
-  any), **spares first** (the Trade view's rule, `spareEntries`), then a copy in no binder pocket
-  or binder tray, then the very finish read. A copy is taken by itself only when it is plainly the
-  one; when two or more still fit, or the one left is in a binder while a loose copy also fits, the
-  row says "Pick which copy goes" and **Pick the copy** shows the copies as pictures with their
-  language, finish, condition, where they are, and Spare. A card he does not own says so on its row
+  any). **Loose copies first** (in no binder pocket and no binder tray), then the very finish read.
+  When the loose copies it would choose between are alike (the same finish and the same condition,
+  a condition not set counting as its own), it takes one by itself, a spare first (the Trade view's
+  rule, `spareEntries`), then the newest added. It asks only when the choice matters: the loose
+  copies differ in finish or condition, so the choice changes what leaves, or not enough loose
+  copies fit and one would come out of a binder. Then the row says "Pick which copy goes" and
+  **Pick the copy** shows the copies as pictures with their language, finish, condition, where
+  they are, and Spare. *(Decided by Eric, 2026-11-06, on v63: "the app is asking me about every
+  card I'm scanning in the trade to select which copy goes out... didn't you say it would select
+  the spare whenever available and then ask if the spare is not available?" v63 took a copy by
+  itself only when exactly one was left after narrowing to spares, so two alike spares always
+  asked, and it asked whenever the spare, an arbitrary one of his alike copies, sat in a binder
+  while another was loose.)* A card he does not own says so on its row
   and is not logged; owned only in another language or finish, it is not logged unless he picks a
   copy. The same copy is never chosen twice: hand picks hold their copies first, then the cards are
   settled in the order scanned. A card standing for several copies takes that many. A copy he
@@ -2624,7 +2632,16 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   other choice; only in: Bought, or Gift; both: Traded). He adds who and the price and saves there.
   Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
   History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
-  a card needs a look, is still read, or asks for its copy, and opens that card first. The form's
+  a card needs a look or is still read, and opens that card first. When cards ask for their copy,
+  Log it opens **one sheet with every one of them** ("Which copies go out?"), each with its copies
+  as the picker shows them, and the cards not logged (not owned, or owned only in another language
+  or finish) under them with their row's line. He picks in any order; a card picked stays listed so
+  its pick can be changed, and a card that starts asking because its copy went to another joins
+  the list. The pick that settles the last one opens the form by itself, and the sheet's Log it
+  does the same once all are picked. The row's Pick the copy still picks for one card. *(Eric,
+  2026-11-06: "it doesn't show me all the cards I have to pick right away. I have to click Log it
+  and another card shows up. Log it, another card shows up. Log it... it's upsetting." v63 opened
+  the picker for one card per Log it.)* The form's
   line counts only the copies still in his cards, and says when one handed over is not any more. A
   kind that leaves a side out (Sold with cards coming in, Bought with cards going out) says so
   under the kinds ("The 1 card coming in is not part of a sale; it stays in the scanner's trade

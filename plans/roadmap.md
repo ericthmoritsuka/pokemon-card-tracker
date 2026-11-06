@@ -397,18 +397,24 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 Eric: "Maybe I could use the scanner to register the trades/sales too instead of registering them
 just manually." Built: Scan's Add or Trade or sale switch (remembered per phone, Add the default),
-a trade tray of its own with Going out and Coming in, cards going out matched to his copies (spares
-first, then loose copies, in the language and finish read; Pick the copy when two or more fit; a
-card not owned is not logged; no copy twice), and Log it into the trades log's form, filled in (the
+a trade tray of its own with Going out and Coming in, cards going out matched to his copies (loose
+copies first, in the language and finish read, alike ones taken by themselves with spares first;
+Pick the copy when the choice matters, every such card on one sheet from Log it; a card not owned
+is not logged; no copy twice), and Log it into the trades log's form, filled in (the
 kind from the sides, today), saved by the trades log as always. DESIGN.md section 11, "Scan a
 trade or a sale". Tests: `tests/scan-trade.test.mjs`, `tests/scan-trade-browser.test.mjs`.
 
 To check on the phone and with Eric:
 
-- The rule for which copy goes by itself: a binder copy is never emptied by itself while a loose
-  copy also fits (it asks instead). Is that what he wants, or should spares always win?
-- With three or more copies of a card he is asked every time; if that is often, a "same as last
-  time" choice or "any spare" could follow.
+- Settled 2026-11-06 on v63 (branch `trade-autopick`): which copy goes by itself. Eric: "the app
+  is asking me about every card I'm scanning in the trade to select which copy goes out". Loose
+  copies first, then the finish read; alike ones (same finish and condition) go by themselves, a
+  spare first, then the newest; it asks only when the loose copies differ or a copy would come out
+  of a binder. On the phone: is a copy with no condition set, beside a Near Mint one, asked about
+  too often?
+- Settled 2026-11-06 on v63 (branch `trade-autopick`): Log it shows every card to pick on one
+  sheet, and the last pick opens the form. Eric: "I have to click Log it and another card shows
+  up... it's upsetting."
 - The system Back from the scanner keeps the trade tray instead of asking (Close asks).
 - The mode switch leads the tray head under the camera (one button naming the mode); at 360 px with
   Set for all showing, the tray's count beside it hides, as the running count over the camera says

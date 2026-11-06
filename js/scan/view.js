@@ -42,7 +42,7 @@ import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from '
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
-import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, tradeBlock, tradeColumns} from './trade-sheets.js';
+import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -636,6 +636,8 @@ export function scanView(root) {
 		},
 		isSpare: (entryId) => spareIds.has(entryId),
 		outResult: (id) => outResults.get(id) || null,
+		// How many cards going out still wait for Eric's pick (picksSheet).
+		tradeAsks: () => T.tradeSummary(session, outResults).ask,
 		pickCopies: (id, entryIds) => {
 			change(() => T.pickCopies(session, id, entryIds));
 			announce(entryIds.length ? 'Copy picked.' : 'The scanner chooses the copy again.');
@@ -1154,16 +1156,11 @@ export function scanView(root) {
 			return;
 		}
 
+		// Every card whose copy he must pick, on one sheet (picksSheet); the
+		// last pick comes back here and goes on to the form.
 		if (sum.ask) {
-			const first = session.items.find((item) => T.sideOf(item) === 'out' && (outResults.get(item.id) || {}).status === 'ask');
-			const result = outResults.get(first.id);
-
-			if (result.candidates.length) {
-				openPicker(first.id);
-			}
-			else {
-				setNote(T.outLine(result, {where}));
-			}
+			endReview();
+			showSheet(picksSheet(ctx));
 
 			return;
 		}
