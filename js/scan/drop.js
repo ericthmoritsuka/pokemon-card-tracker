@@ -617,6 +617,16 @@ export function judgeChange(now, base, {cell = CELL, change = CHANGE, dropMax = 
 // picture becomes the base and takes nothing. pause() and resume() hold
 // it; a card that lands meanwhile is still told on the first still frame
 // after resume, because the base is kept.
+//
+// hold(), called on the look that saw a drop, puts back the base that look
+// was compared with and keeps it while the drop waits to settle (version 62,
+// settleVerdict): every still frame is compared with the picture before the
+// drop, not with the one before it, so a card waiting under a hand is still
+// what changed once the hand leaves, and a hand that leaves nothing changes
+// nothing. release() makes the last look the base, and lets every still
+// frame become the base again.
+// stirIn(box) is how much the part of the view in box (view pixels) moved
+// over the last SETTLE_FRAMES looks (regionStir, the largest).
 export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, settleMs = SETTLE_MS, ...judge} = {}) {
 	let previous = null;
 	let base = null;
@@ -625,13 +635,47 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 	let burst = null;
 	let startedAt = null;
 	let stillFrames = 0;
+	let held = false;
+	// The base the last judged look was compared with: hold() goes back to
+	// it, since that look has already become the base.
+	let judgedFrom = null;
+	// The last SETTLE_FRAMES + 1 looks' cells, newest last.
+	let looks = [];
 
 	return {
 		get base() {
 			return base;
 		},
+		hold() {
+			if (!held && judgedFrom) {
+				base = judgedFrom;
+			}
+
+			held = true;
+		},
+		get held() {
+			return held;
+		},
 		pause() {
 			paused = true;
+		},
+		release() {
+			held = false;
+
+			// The look the drop was last judged on becomes the base, as every
+			// still look does when nothing waits.
+			if (base && looks.length) {
+				base = looks[looks.length - 1];
+			}
+		},
+		stirIn(box) {
+			let most = 0;
+
+			for (let k = 1; k < looks.length; k++) {
+				most = Math.max(most, regionStir(looks[k], looks[k - 1], box, judge.cell || CELL));
+			}
+
+			return looks.length > 1 ? most : 1;
 		},
 		push(view, at) {
 			const now = cells(view.grey, view.width, view.height, judge.cell || CELL);
@@ -641,12 +685,16 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 				previous = null;
 				base = null;
 				startedAt = null;
+				held = false;
+				judgedFrom = null;
+				looks = [];
 			}
 
 			const moved = previous ? cellMotion(now, previous) : 0;
 			const spread = previous ? movedShare(now, previous, MOVE_CHANGE) : 0;
 
 			previous = now;
+			looks = [...looks, now].slice(-(SETTLE_FRAMES + 1));
 
 			if (moved > motion || spread > moveShare) {
 				lastMotion = at;
@@ -683,8 +731,13 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 			const seen = burst;
 
 			// Every still frame becomes the base: the next card is compared
-			// with the pile as it lies now.
-			base = now;
+			// with the pile as it lies now. Not while a drop waits to settle
+			// (hold): the picture before the drop stays the one to compare with.
+			if (!held) {
+				judgedFrom = base;
+				base = now;
+			}
+
 			burst = null;
 
 			return {burst: seen, change, drop: change.kind === 'drop', motion: moved, moving: false, still, stillFrames};
@@ -696,6 +749,9 @@ export function createDropDetector({motion = MOTION, moveShare = MOVE_SHARE, set
 			lastMotion = -Infinity;
 			startedAt = null;
 			stillFrames = 0;
+			held = false;
+			judgedFrom = null;
+			looks = [];
 		},
 		resume() {
 			paused = false;
@@ -1074,3 +1130,244 @@ export const disturbedBy = (burst) => Boolean(burst && burst.frames >= DISTURB_F
 export const REPEAT_GAP_MS = 800;
 
 export const asksRepeat = (burst, last) => disturbedBy(burst) && !(last && typeof last.at === 'number' && burst.start - last.at < REPEAT_GAP_MS);
+
+// ------------------------------------------------------------ settled (version 62)
+
+// A card is taken only once it lies settled and sharp (Eric, 2026-11-06).
+// His v60 phone log (holder mode, 27 cards taken, Android 10): 20 right,
+// but 4 taken mid-transition, soft or with his next card in his hand, out
+// of focus near the lens, over part of the card on top (the picture led by
+// 0.5 to 6, so the text route ran 8 to 16 s and still failed), and 4 taken
+// twice from one drop, about a second apart, the second with that hand
+// over the card so its print read new. The whole view's motion (MOTION,
+// MOVE_SHARE) let it through: a hand moving slowly over a fifth of the view
+// moves the mean little, and its blurred card changes no cell by
+// MOVE_CHANGE. So a drop is settled only when the card's own part of the
+// view is still and sharp; until then it waits, the detector holding the
+// picture before the drop (createDropDetector hold), and it is judged
+// again on each still look.
+
+// The share of the cells inside box (view pixels, {x, y, w, h}) that
+// changed by more than `change` from one look to the next, the earlier
+// look's brightness scaled to the later's (gainOf: a lamp flickering or the
+// camera re-exposing scales every cell, which a shift alone would leave in
+// the dark ones).
+export function regionStir(a, b, box, cell = CELL, change = STIR_CHANGE) {
+	if (!a || !b || a.data.length !== b.data.length) {
+		return 1;
+	}
+
+	const gain = gainOf(a, b);
+
+	const x0 = Math.max(0, Math.floor(box.x / cell));
+	const y0 = Math.max(0, Math.floor(box.y / cell));
+	const x1 = Math.min(a.cw, Math.ceil((box.x + box.w) / cell));
+	const y1 = Math.min(a.ch, Math.ceil((box.y + box.h) / cell));
+	let count = 0;
+	let total = 0;
+
+	for (let y = y0; y < y1; y++) {
+		for (let x = x0; x < x1; x++) {
+			const i = y * a.cw + x;
+
+			total++;
+
+			if (Math.abs(a.data[i] - b.data[i] * gain) > change) {
+				count++;
+			}
+		}
+	}
+
+	return total ? count / total : 0;
+}
+
+// The card's part of the view is still when under REGION_STIR of its cells
+// (its rectangle grown by STIR_GROW) changed by more than STIR_CHANGE from
+// one look to the next, over the last SETTLE_FRAMES looks. Measured on
+// Eric's videos of 2026-10-09 (lab/holder/replay.mjs --mode v62, 2026-11-06):
+// the cards taken 0 to 2.9 % (the shared video's own noise), the looks that
+// waited, with his hand coming in with the next card, 5.5 to 26 %. A card
+// lying still on the drawn scenes measures 0.
+export const STIR_CHANGE = 8;
+export const REGION_STIR = 0.03;
+export const STIR_GROW = 0.15;
+
+// The box round a card's rectangle grown by `grow` of its size (view
+// pixels).
+export function grownBox(corners, grow = STIR_GROW) {
+	const box = boxOf(corners);
+
+	return {h: box.h * (1 + grow), w: box.w * (1 + grow), x: box.x - (box.w * grow) / 2, y: box.y - (box.h * grow) / 2};
+}
+
+// How sharp the card is, block by block, on the finer view (the card about
+// 200 pixels tall at 1x): the card inside its outline (inset by FOCUS_INSET,
+// so its own edge and a strip of the card beneath do not count) is cut into
+// square blocks, FOCUS_BLOCKS of them down its long side. A block is printed
+// when its mean step from pixel to pixel is at least FOCUS_DETAIL of the
+// view's contrast (its 5th to 95th percentile of grey), so dim light, which
+// lowers every step and the contrast with them, counts the same blocks; and
+// a printed block is soft when its mean Laplacian is under FOCUS_EDGE of its
+// mean step: a ratio, the width of its edges, which neither the light nor
+// the print's own contrast moves. Returns {blocks, printed, soft, blur (soft
+// over printed), texture (printed over blocks)}.
+//
+// Measured on the 27 cards of Eric's v60 log (their straightened pictures
+// scaled to 200 pixels tall, as the finer view holds them, with the
+// contrast of the view after each; lab/holder/replay-log.mjs, 2026-11-06):
+// the 19 clean ones had 0 to 8 % of their printed blocks soft, the 7 taken
+// soft or under his hand 12 to 45 % (10 to 46 % at 180 and 240 pixels
+// tall); the first, a blurred blob and no card, had printed blocks on 20 %
+// of it, the cards on 76 to 99 %. Scans of basic Energies read soft by this
+// measure (their smooth gradients), which SETTLE_PATIENCE_MS answers.
+export const FOCUS_EDGE = 0.55;
+export const BLUR_SHARE = 0.09;
+export const TEXTURE_MIN = 0.35;
+const FOCUS_BLOCKS = 16.7;
+const FOCUS_DETAIL = 0.035;
+const FOCUS_INSET = 0.06;
+
+// The grey level spread of a view: its 95th percentile less its 5th (every
+// second pixel each way).
+export function viewContrast(grey, width, height) {
+	const counts = new Uint32Array(256);
+	let n = 0;
+
+	for (let y = 0; y < height; y += 2) {
+		for (let x = 0; x < width; x += 2) {
+			counts[Math.max(0, Math.min(255, Math.round(grey[y * width + x])))]++;
+			n++;
+		}
+	}
+
+	const at = (share) => {
+		let seen = 0;
+
+		for (let v = 0; v < 256; v++) {
+			seen += counts[v];
+
+			if (seen >= share * n) {
+				return v;
+			}
+		}
+
+		return 255;
+	};
+
+	return at(0.95) - at(0.05);
+}
+
+// Whether a point lies inside a convex quad (corners in order).
+function insideQuad(corners, x, y) {
+	let sign = 0;
+
+	for (let k = 0; k < corners.length; k++) {
+		const a = corners[k];
+		const b = corners[(k + 1) % corners.length];
+		const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+
+		if (cross !== 0) {
+			if (sign && Math.sign(cross) !== sign) {
+				return false;
+			}
+
+			sign = Math.sign(cross);
+		}
+	}
+
+	return true;
+}
+
+export function cardFocus(grey, width, height, corners, {contrast = viewContrast(grey, width, height), detail = FOCUS_DETAIL, edge = FOCUS_EDGE} = {}) {
+	const cx = corners.reduce((sum, p) => sum + p.x, 0) / corners.length;
+	const cy = corners.reduce((sum, p) => sum + p.y, 0) / corners.length;
+	const inner = corners.map((p) => ({x: cx + (p.x - cx) * (1 - FOCUS_INSET * 2), y: cy + (p.y - cy) * (1 - FOCUS_INSET * 2)}));
+	const sides = [0, 1, 2, 3].map((k) => Math.hypot(corners[(k + 1) % 4].x - corners[k].x, corners[(k + 1) % 4].y - corners[k].y));
+	const long = Math.max((sides[0] + sides[2]) / 2, (sides[1] + sides[3]) / 2);
+	const block = Math.max(4, Math.round(long / FOCUS_BLOCKS));
+	const box = boxOf(inner);
+	const floor = Math.max(1, contrast * detail);
+	let blocks = 0;
+	let printed = 0;
+	let soft = 0;
+
+	for (let y0 = Math.max(1, Math.floor(box.y)); y0 + block <= Math.min(height - 1, box.y + box.h); y0 += block) {
+		for (let x0 = Math.max(1, Math.floor(box.x)); x0 + block <= Math.min(width - 1, box.x + box.w); x0 += block) {
+			if (!insideQuad(inner, x0 + block / 2, y0 + block / 2)) {
+				continue;
+			}
+
+			let lap = 0;
+			let step = 0;
+
+			for (let y = y0; y < y0 + block; y++) {
+				for (let x = x0; x < x0 + block; x++) {
+					const i = y * width + x;
+
+					lap += Math.abs(4 * grey[i] - grey[i - 1] - grey[i + 1] - grey[i - width] - grey[i + width]);
+					step += Math.abs(grey[i + 1] - grey[i - 1]) + Math.abs(grey[i + width] - grey[i - width]);
+				}
+			}
+
+			blocks++;
+
+			if (step / (block * block) >= floor) {
+				printed++;
+
+				if (lap < step * edge) {
+					soft++;
+				}
+			}
+		}
+	}
+
+	return {blocks, blur: printed ? soft / printed : 1, printed, soft, texture: blocks ? printed / blocks : 0};
+}
+
+// Why a drop is not settled yet, or null when it is: 'moving' (the card's
+// part of the view moved over the last looks: stir, from the detector's
+// stirIn), 'plain' (too little of it is printed: a blurred blob, a hand),
+// or 'soft' (too much of its print is soft: a hand's card out of focus over
+// it, or the card still sliding).
+export function settleVerdict({focus, stir}) {
+	if (stir > REGION_STIR) {
+		return 'moving';
+	}
+
+	return focusVerdict(focus);
+}
+
+// The same, on the focus alone: 'plain', 'soft', or null.
+export function focusVerdict(focus) {
+	if (focus.texture < TEXTURE_MIN) {
+		return 'plain';
+	}
+
+	if (focus.blur > BLUR_SHARE) {
+		return 'soft';
+	}
+
+	return null;
+}
+
+// A card whose part of the view has stayed dead still (its stir at most
+// PATIENCE_STIR on every look) this long while it read plain or soft is
+// taken all the same: a hand is never that still, and a card whose own
+// print reads soft (a basic Energy's smooth gradient, the camera's focus
+// lost on a tall pile) must not wait for ever.
+export const SETTLE_PATIENCE_MS = 1500;
+export const PATIENCE_STIR = 0.01;
+
+// A sharp, printed card whose part of the view still stirs after
+// SETTLE_STIR_MS (a hand moving beside it, not over it) is taken; and a
+// drop that has waited SETTLE_LIMIT_MS is taken however it reads, as before
+// version 62: a card soft for a moment is fixed by hand, a card never taken
+// is lost without a word, and while a drop waits the detector compares
+// every look with the picture before it, so a long wait folds the next
+// drops into it (Eric's first video of 2026-10-09, replayed with no zoom
+// change marked: two drops lost to a wait of 7 s over one). A soft card
+// with a hand still moving over it is not taken at SETTLE_STIR_MS: taken
+// with the hand, its print would make the same card read new once the hand
+// left, and it would be taken twice.
+export const SETTLE_STIR_MS = 3000;
+export const SETTLE_LIMIT_MS = 6000;

@@ -18,7 +18,11 @@
 // camera's picture does; scene.reanchor measures it again. 'box' is a white box seen from above:
 // a white floor, and grey walls running out to the frame's edges.
 // window.scene can also be {kind: 'table'} (nothing). scene.hand ({dx, dy,
-// r}, shares of the guide's height) draws a hand over the cards, and
+// r}, shares of the guide's height) draws a hand over the cards; a card's
+// blur (a share of the guide's height) draws it out of focus, and
+// scene.held ({card, dx, dy, size, angle, blur}, as a card) draws a card
+// held over the pile near the lens, out of focus, over everything else
+// (Eric's next card in his hand, 2026-11-06); and
 // scene.light dims (below 1) or brightens (above 1) the whole picture.
 // navigator.vibrate records each buzz in window.buzzes, and
 // window.drawScene() draws the scene at once, for a test that holds the
@@ -130,7 +134,7 @@ export function sceneCamera({height, width}) {
 
 		const {cx, cy, gh} = anchor;
 
-		for (const placed of scene.cards) {
+		for (const placed of [...scene.cards, ...(scene.held ? [scene.held] : [])]) {
 			const image = cards[placed.card || 'a'];
 
 			if (!image.complete) {
@@ -150,6 +154,11 @@ export function sceneCamera({height, width}) {
 			ctx.shadowBlur = gh * 0.008;
 			ctx.shadowOffsetX = gh * 0.003;
 			ctx.shadowOffsetY = gh * 0.004;
+
+			if (placed.blur) {
+				ctx.filter = `blur(${Math.round(gh * placed.blur)}px)`;
+			}
+
 			ctx.drawImage(image, -cw / 2, -ch / 2, cw, ch);
 			ctx.restore();
 		}

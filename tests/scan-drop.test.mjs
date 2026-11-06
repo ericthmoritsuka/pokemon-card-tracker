@@ -499,3 +499,202 @@ describe('a new card means a new picture (Eric, 2026-10-16): the content check',
 		assert.equal(D.contentCheck(plan, view, null).verdict, 'new');
 	});
 });
+
+// ------------------------------------------------------------ settled (version 62)
+
+// The finer view the settle check reads (FIND_SIDE_CAPTURE: 284 x 360 at
+// 1x), a white box with card faces painted into it, and a box blur: a card
+// out of focus, as the next card in Eric's hand near the lens was in his
+// v60 log (2026-11-06).
+const FW = 284;
+const FH = 360;
+
+function paint(cards, {light = 1} = {}) {
+	const grey = new Float32Array(FW * FH);
+
+	for (let y = 0; y < FH; y++) {
+		for (let x = 0; x < FW; x++) {
+			let v = x < FW * 0.1 || x > FW * 0.9 ? 205 : 238;
+
+			for (const c of cards) {
+				const u = (x + 0.5 - c.x) / c.w;
+				const t = (y + 0.5 - c.y) / c.h;
+
+				if (u >= 0 && u <= 1 && t >= 0 && t <= 1) {
+					v = c.plain ? 90 : c.face(u, t);
+				}
+			}
+
+			grey[y * FW + x] = v * light;
+		}
+	}
+
+	return grey;
+}
+
+// Blurs the part of `grey` in box (a {x, y, w, h}) with a box filter of
+// radius r, three times (close to a Gaussian).
+function blurBox(grey, box, r) {
+	let out = grey;
+
+	for (let pass = 0; pass < 3; pass++) {
+		const src = out;
+
+		out = Float32Array.from(src);
+
+		for (let y = Math.max(0, box.y); y < Math.min(FH, box.y + box.h); y++) {
+			for (let x = Math.max(0, box.x); x < Math.min(FW, box.x + box.w); x++) {
+				let sum = 0;
+				let n = 0;
+
+				for (let dy = -r; dy <= r; dy++) {
+					for (let dx = -r; dx <= r; dx++) {
+						const xx = Math.min(FW - 1, Math.max(0, x + dx));
+						const yy = Math.min(FH - 1, Math.max(0, y + dy));
+
+						sum += src[yy * FW + xx];
+						n++;
+					}
+				}
+
+				out[y * FW + x] = sum / n;
+			}
+		}
+	}
+
+	return out;
+}
+
+const PLACE = {h: 210, w: 150, x: 67, y: 75};
+const cornersIn = ({h, w, x, y}) => [{x, y}, {x: x + w, y}, {x: x + w, y: y + h}, {x, y: y + h}];
+const focusOf = (grey, place = PLACE) => D.cardFocus(grey, FW, FH, cornersIn(place));
+
+describe('holder mode takes a card once it has settled (Eric, 2026-11-06, version 62)', () => {
+	test('a sharp card is settled; the same card soft, or with a blurred card held over half of it, is not', () => {
+		const sharp = paint([{...PLACE, face: FACES[0]}]);
+
+		assert.equal(D.settleVerdict({focus: focusOf(sharp), stir: 0}), null, JSON.stringify(focusOf(sharp)));
+
+		const soft = blurBox(sharp, {h: FH, w: FW, x: 0, y: 0}, 2);
+
+		assert.equal(D.settleVerdict({focus: focusOf(soft), stir: 0}), 'soft', JSON.stringify(focusOf(soft)));
+
+		// The next card in the hand, larger (near the lens) and out of focus,
+		// over the bottom of the card on the pile.
+		const held = {face: FACES[3], h: 260, w: 190, x: 40, y: 190};
+		const covered = blurBox(paint([{...PLACE, face: FACES[0]}, held]), {h: 300, w: 260, x: 20, y: 170}, 4);
+
+		assert.equal(D.settleVerdict({focus: focusOf(covered), stir: 0}), 'soft', JSON.stringify(focusOf(covered)));
+	});
+
+	test('dim light does not change the verdict (the measure is relative to the view\'s own contrast)', () => {
+		const sharp = paint([{...PLACE, face: FACES[1]}], {light: 0.3});
+		const soft = blurBox(sharp, {h: FH, w: FW, x: 0, y: 0}, 2);
+
+		assert.equal(D.settleVerdict({focus: focusOf(sharp), stir: 0}), null, JSON.stringify(focusOf(sharp)));
+		assert.equal(D.settleVerdict({focus: focusOf(soft), stir: 0}), 'soft', JSON.stringify(focusOf(soft)));
+	});
+
+	test('a blurred blob with no print (a hand, a sleeve) is plain', () => {
+		const blob = blurBox(paint([{...PLACE, plain: true}]), {h: FH, w: FW, x: 0, y: 0}, 5);
+
+		assert.equal(D.settleVerdict({focus: focusOf(blob), stir: 0}), 'plain', JSON.stringify(focusOf(blob)));
+	});
+
+	test('the card\'s part of the view moving is not settled, the light changing is', () => {
+		assert.equal(D.settleVerdict({focus: {blur: 0, texture: 1}, stir: D.REGION_STIR * 2}), 'moving');
+
+		const pile = [card(0)];
+		const box = D.grownBox(cornersOf(card(0)));
+		const detector = D.createDropDetector();
+		let at = 0;
+
+		for (let k = 0; k < 12; k++, at += FRAME_MS) {
+			detector.push(render({cards: pile}), at);
+		}
+
+		assert.equal(detector.stirIn(box), 0, 'a card lying still');
+
+		// A darker card held over the bottom of it, moving a little each look.
+		for (let k = 0; k < 3; k++, at += FRAME_MS) {
+			detector.push(render({cards: [...pile, {...card(3, {cy: 0.78, h: 0.6}), cx: 0.5 + (k % 2 ? 0.03 : -0.03), smear: 0.06}]}), at);
+		}
+
+		assert.ok(detector.stirIn(box) > D.REGION_STIR, `a card held over it, moving: ${detector.stirIn(box)}`);
+
+		for (const light of [0.85, 1.1, 0.9]) {
+			detector.push(render({cards: pile, light}), at);
+			at += FRAME_MS;
+		}
+
+		assert.ok(detector.stirIn(box) <= D.REGION_STIR, `the light changing: ${detector.stirIn(box)}`);
+	});
+
+	test('a drop waiting to settle is judged against the picture before it; a hand that leaves nothing changes nothing; release moves the base on', () => {
+		const detector = D.createDropDetector();
+		const before = run([...settle({cards: [card(0)]})], detector);
+
+		assert.equal(before.drops.length, 0);
+
+		// Card 1 lands; the drop is held on the look that saw it.
+		let at = 5000;
+		let seen = null;
+
+		for (const scene of [{cards: [card(0), {...card(1), cy: 0.9, smear: 0.08}]}, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}]) {
+			const out = detector.push(render(scene), at);
+
+			at += FRAME_MS;
+
+			if (out.drop && !seen) {
+				seen = out;
+				detector.hold();
+			}
+		}
+
+		assert.ok(seen, 'the drop was seen');
+
+		// Later still looks still see card 1 as what changed.
+		let later = null;
+
+		for (let k = 0; k < 4; k++, at += FRAME_MS) {
+			const out = detector.push(render({cards: [card(0), card(1)]}), at);
+
+			later = out.change || later;
+		}
+
+		assert.equal(later.kind, 'drop', 'still the drop, against the picture before it');
+		detector.release();
+
+		let after = null;
+
+		for (let k = 0; k < 4; k++, at += FRAME_MS) {
+			const out = detector.push(render({cards: [card(0), card(1)]}), at);
+
+			after = out.change || after;
+		}
+
+		assert.equal(after.kind, 'none', 'released: the card is the base now');
+
+		// A hand over the pile is held as a drop, and leaves nothing.
+		const hand = {cards: [card(0), card(1)], hand: {r: 0.3, x: 0.5, y: 0.5}};
+		let held = false;
+		let last = null;
+
+		for (const scene of [hand, hand, hand, hand, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}, {cards: [card(0), card(1)]}]) {
+			const out = detector.push(render(scene), at);
+
+			at += FRAME_MS;
+
+			if (out.change && !held && out.change.kind !== 'none') {
+				held = true;
+				detector.hold();
+			}
+			else if (out.change) {
+				last = out.change;
+			}
+		}
+
+		assert.ok(held, 'the hand was judged');
+		assert.equal(last.kind, 'none', 'nothing changed once the hand left');
+	});
+});

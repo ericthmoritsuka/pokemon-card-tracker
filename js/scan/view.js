@@ -28,7 +28,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, NEW_PRINT, planCapture, printDistance, printOf, SAME_PRINT, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
+import {asksRepeat, boxOf, cardFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, focusVerdict, grownBox, NEW_PRINT, PATIENCE_STIR, planCapture, printDistance, printOf, SAME_PRINT, SETTLE_LIMIT_MS, SETTLE_PATIENCE_MS, SETTLE_STIR_MS, settleVerdict, takenCard, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -2999,16 +2999,15 @@ export function scanView(root) {
 	// even when it lands on the same spot. Detection goes on while a sheet is
 	// open, so cards dropped while one is checked still join the tray.
 	//
-	// pendingDrop: a drop held for a sharper frame (drop.js sharpEnough):
-	// {change, until}. lastDrop: the card taken last (drop.js takenCard),
-	// forgotten when the zoom changes. sharpRecent: the last few cards'
-	// sharpness.
+	// pendingDrop: a drop waiting to settle (version 62, considerDrop):
+	// {at, step (the look it was first seen on), stillSince, whys}.
+	// lastDrop: the card taken last (drop.js takenCard), forgotten when the
+	// zoom changes.
 	let pendingDrop = null;
 	let lastDrop = null;
 	let pileCheckedAt = -Infinity;
 	let holderView = null;
 	const PILE_CHECK_MS = 1000;
-	const sharpRecent = [];
 	// A small copy of the view as it was before the last drop, for the scan
 	// log (the frames a replay needs), redrawn on every still frame.
 	const beforeCanvas = document.createElement('canvas');
@@ -3040,18 +3039,31 @@ export function scanView(root) {
 
 		pictureStillMs = step.moving ? 0 : step.still;
 
+		// A drop waiting to settle (version 62): the detector holds the
+		// picture before it, so each still look says what changed since then.
 		if (pendingDrop) {
-			const plan = planDrop(pendingDrop.change, view, area);
+			if (step.moving) {
+				pendingDrop.stillSince = null;
 
-			if (plan.skip || step.moving || at >= pendingDrop.until || sharpEnough(plan.sharpness, sharpRecent)) {
-				const held = pendingDrop;
-
-				pendingDrop = null;
-
-				if (!plan.skip) {
-					takeDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area, contentCheck(plan, plan.fine, lastDrop));
-				}
+				return;
 			}
+
+			if (!step.change) {
+				return;
+			}
+
+			if (step.drop) {
+				considerDrop(step, view, area, at);
+
+				return;
+			}
+
+			// Nothing card-like changed since the picture before the drop any
+			// more: a hand that came and went, or a card on the very spot of
+			// the last. The look is judged as any other.
+			const held = releaseDrop();
+
+			nonDrop({...step, burst: step.burst || held.step.burst}, view, area, at, held);
 
 			return;
 		}
@@ -3060,68 +3072,92 @@ export function scanView(root) {
 			return;
 		}
 
+		if (!step.drop) {
+			nonDrop(step, view, area, at);
+
+			return;
+		}
+
+		considerDrop(step, view, area, at);
+	}
+
+	// A still look whose change is no card's shape. held: the drop that was
+	// waiting to settle when this look was judged, or null.
+	function nonDrop(step, view, area, at, held = null) {
+		// What changed is no card's shape, but after a disturbance the card
+		// on top may still be a new one: a card landing on the very spot of
+		// the last, with its layout and colours, changes too few cells
+		// (Eric, 2026-10-16). Its picture tells, once it has settled (version
+		// 62): a hand over the last card makes it read new too.
+		const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
+		const content = fine ? contentAt(lastDrop, fine) : null;
+
+		if (content && content.verdict === 'new') {
+			const plan = planSpot(view, fine);
+			const settle = settledAt([lastDrop.quad], view, fine);
+
+			setPile(false);
+
+			if (waitToSettle(held, step, at, settle)) {
+				return;
+			}
+
+			takeDrop(step.change, plan, {...(held ? held.step : step), heldMs: held ? Math.round(at - held.at) : null, settle}, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
+
+			return;
+		}
+
 		// A disturbance like a drop's before this still picture, a moment
 		// after the last card was taken: the same card found after it is a
 		// second copy dropped in, or a hand that passed, and is asked about
 		// (askRepeat); after a smaller one (the last card nudged) or a card
 		// settling, nothing is.
-		const disturbed = asksRepeat(step.burst, lastDrop);
-
-		if (!step.drop) {
-			// What changed is no card's shape, but after a disturbance the card
-			// on top may still be a new one: a card landing on the very spot of
-			// the last, with its layout and colours, changes too few cells
-			// (Eric, 2026-10-16). Its picture tells.
-			const fine = step.burst && ['none', 'small', 'shape'].includes(step.change.kind) ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
-			const content = fine ? contentAt(lastDrop, fine) : null;
-
-			if (content && content.verdict === 'new') {
-				const plan = planSpot(view, fine);
-
-				setPile(false);
-				takeDrop(step.change, plan, step, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
-
-				return;
-			}
-
-			if (content && content.verdict === 'same' && disturbed) {
-				sameCardAgain(step, area, content);
-			}
-			else if (step.change.kind !== 'none') {
-				logSkipped(step.change.kind, step, area, content);
-			}
-			else if (!step.burst && lastDrop && lastDrop.quad && !lastDrop.fresh) {
-				// The first still look after a card is taken prints it again
-				// where it lies: the print taken with it may come from a frame
-				// a moment before it settled.
-				lastDrop.fresh = true;
-				lastDrop.print = freshPrint(lastDrop, area) || lastDrop.print;
-			}
-
-			// A still picture with nothing new: the last drop's frame for the
-			// log is this one, and once a second the pile is checked for a card
-			// running off the frame (a hint only).
-			keepBeforeView(area);
-
-			if (at - pileCheckedAt >= PILE_CHECK_MS) {
-				pileCheckedAt = at;
-
-				const found = findCard(view.grey, view.width, view.height);
-
-				setPile(Boolean(found.touching && !found.quad));
-			}
-
-			return;
+		if (content && content.verdict === 'same' && asksRepeat(step.burst, lastDrop)) {
+			sameCardAgain(step, area, content);
+		}
+		else if (step.change.kind !== 'none') {
+			logSkipped(step.change.kind, step, area, content);
+		}
+		else if (!step.burst && lastDrop && lastDrop.quad && !lastDrop.fresh) {
+			// The first still look after a card is taken prints it again
+			// where it lies: the print taken with it may come from a frame
+			// a moment before it settled.
+			lastDrop.fresh = true;
+			lastDrop.print = freshPrint(lastDrop, area) || lastDrop.print;
 		}
 
+		// A still picture with nothing new: the last drop's frame for the
+		// log is this one, and once a second the pile is checked for a card
+		// running off the frame (a hint only).
+		keepBeforeView(area);
+
+		if (at - pileCheckedAt >= PILE_CHECK_MS) {
+			pileCheckedAt = at;
+
+			const found = findCard(view.grey, view.width, view.height);
+
+			setPile(Boolean(found.touching && !found.quad));
+		}
+	}
+
+	// A still look whose change is a card's: planned, checked against the
+	// last card's picture, and taken once it has settled (version 62,
+	// drop.js settleVerdict); until then it waits as pendingDrop, judged
+	// again on each still look against the picture before it.
+	function considerDrop(step, view, area, at) {
+		const held = pendingDrop;
+		// The look the drop was first seen on: its disturbance is the drop's.
+		const first = held ? held.step : step;
 		const plan = planDrop(step.change, view, area);
 
 		if (plan.skip) {
+			releaseDrop();
+
 			if (plan.skip === 'off the frame') {
 				setPile(true);
 			}
 
-			logSkipped(plan.skip, step, area);
+			logSkipped(plan.skip, first, area);
 			keepBeforeView(area);
 
 			return;
@@ -3133,19 +3169,22 @@ export function scanView(root) {
 		// the change is, printed, against the last card taken. The same
 		// picture is the last card, nudged (nothing) or dropped again after a
 		// disturbance (asked); anything else is a new card, even on the very
-		// same spot.
+		// same spot, once it has settled: a look that has not is never taken
+		// (Eric's v60 log, 2026-11-06: with his hand over the card just
+		// taken, its print read new and it was taken twice).
 		const content = contentCheck(plan, plan.fine, lastDrop);
 
 		if (content.verdict === 'same') {
+			releaseDrop();
 			// The last card where it lies now (nudged), for the next check.
 			lastDrop.print = content.match.print;
 			lastDrop.quad = content.match.quad;
 
-			if (disturbed) {
-				sameCardAgain(step, area, content);
+			if (asksRepeat(first.burst, lastDrop)) {
+				sameCardAgain(first, area, content);
 			}
 			else {
-				logSkipped('same card', step, area, content);
+				logSkipped('same card', first, area, content);
 			}
 
 			keepBeforeView(area);
@@ -3153,13 +3192,102 @@ export function scanView(root) {
 			return;
 		}
 
-		if (!sharpEnough(plan.sharpness, sharpRecent)) {
-			pendingDrop = {at, change: step.change, step, until: at + SHARP_WAIT_MS};
+		// Measured both on the outline the capture cuts first and on what
+		// changed, the worse of the two: an outline found round the half of
+		// the card a hand leaves clear is sharp, what changed under the hand
+		// is not.
+		const settle = settledAt([content.quad, plan.card.corners], view, plan.fine);
 
+		if (waitToSettle(held, step, at, settle)) {
 			return;
 		}
 
-		takeDrop(step.change, plan, step, area, content);
+		takeDrop(step.change, plan, {...first, heldMs: held ? Math.round(at - held.at) : null, settle}, area, content);
+	}
+
+	// Whether the card at each of `places` (frame pixels) has settled
+	// (drop.js settleVerdict), the worst of them: {why (null when settled),
+	// blur, texture, stir, limit, patience, waited}, as the scan log keeps
+	// it.
+	function settledAt(places, view, fine) {
+		const stir = Math.max(...places.map((corners) => dropDetector.stirIn(grownBox(corners.map(toView(view))))));
+		const focus = places.map((corners) => cardFocus(fine.grey, fine.width, fine.height, corners.map(toView(fine)))).reduce((a, b) => ({blur: Math.max(a.blur, b.blur), texture: Math.min(a.texture, b.texture)}));
+
+		return {blur: Math.round(focus.blur * 100) / 100, focusWhy: focusVerdict(focus), limit: false, patience: false, stir: Math.round(stir * 1000) / 1000, texture: Math.round(focus.texture * 100) / 100, waited: [], why: settleVerdict({focus, stir})};
+	}
+
+	// A drop that has not settled waits (pendingDrop, the detector holding
+	// the picture before it): true. One that has, or has waited long enough,
+	// is to be taken: false, with settle saying what it waited for.
+	function waitToSettle(held, step, at, settle) {
+		const {why} = settle;
+
+		settle.waited = held ? held.whys : [];
+		delete settle.why;
+
+		if (!why) {
+			releaseDrop();
+
+			return false;
+		}
+
+		if (!held) {
+			pendingDrop = {at, step: {...step, at}, stillSince: why === 'moving' || settle.stir > PATIENCE_STIR ? null : at, whys: [why]};
+			dropDetector.hold();
+
+			return true;
+		}
+
+		// The drop was let go to judge this look (holderTick): it waits on.
+		pendingDrop = held;
+
+		if (!dropDetector.held) {
+			dropDetector.hold();
+		}
+
+		if (!held.whys.includes(why)) {
+			held.whys.push(why);
+		}
+
+		// Waited too long: taken all the same (drop.js SETTLE_LIMIT_MS), or a
+		// sharp card with a hand still moving beside it (SETTLE_STIR_MS).
+		if (at - held.at >= SETTLE_LIMIT_MS || (why === 'moving' && !settle.focusWhy && at - held.at >= SETTLE_STIR_MS)) {
+			settle.limit = true;
+		}
+		else if (why === 'moving' || settle.stir > PATIENCE_STIR) {
+			held.stillSince = null;
+
+			return true;
+		}
+		else {
+			held.stillSince = held.stillSince ?? at;
+
+			if (at - held.stillSince < SETTLE_PATIENCE_MS) {
+				return true;
+			}
+
+			// Dead still for SETTLE_PATIENCE_MS and still soft or plain: the
+			// card's own print, taken all the same.
+			settle.patience = true;
+		}
+
+		releaseDrop();
+
+		return false;
+	}
+
+	// Forgets the drop waiting to settle, and lets the detector's base move
+	// on again. Returns what waited, or null.
+	function releaseDrop() {
+		const held = pendingDrop;
+
+		pendingDrop = null;
+
+		if (dropDetector.held) {
+			dropDetector.release();
+		}
+
+		return held;
 	}
 
 	// The capture for a drop (drop.js dropCapture), with the card outlines
@@ -3267,9 +3395,14 @@ export function scanView(root) {
 		kind: change ? change.kind : null,
 		motionFrames: step.burst ? step.burst.frames : null,
 		motionPeak: step.burst ? Math.round(step.burst.peak * 10) / 10 : null,
-		movingMs: step.burst ? Math.round(performance.now() - step.burst.start - step.still) : null,
+		movingMs: step.burst ? Math.round((step.at ?? performance.now()) - step.burst.start - step.still) : null,
 		print: content && typeof content.distance === 'number' ? content.distance : null,
 		printVerdict: content ? content.verdict : null,
+		// How the card settled (version 62, settledAt and waitToSettle): its
+		// part of the view's stir, its soft and printed shares, why its focus
+		// failed (focusWhy), what it waited for, and whether it was taken on
+		// patience or at a limit.
+		settle: step.settle ?? null,
 		share: change ? Math.round(change.share * 1000) / 1000 : null,
 		sharpness: plan ? plan.sharpness : null,
 		stillFrames: step.stillFrames ?? null,
@@ -3289,12 +3422,6 @@ export function scanView(root) {
 	// the frame loop. content: its content check, whose print the next
 	// card is checked against.
 	async function takeDrop(change, plan, step, area, content) {
-		sharpRecent.push(plan.sharpness);
-
-		if (sharpRecent.length > 5) {
-			sharpRecent.shift();
-		}
-
 		// The card taken, at once, so the next look checks against it; its
 		// tray card once added.
 		const taken = {...takenCard(lastDrop, plan.card), at: performance.now(), fresh: false, item: null, print: content.print, quad: content.quad};
@@ -3330,14 +3457,24 @@ export function scanView(root) {
 		sinceOpen.add(item.id);
 		scanLog.startEntry(item.id, {at: item.captured_at, how: 'auto', phone: deviceInfo(), source: 'camera'});
 		logViews(item.id, area).catch(() => {});
+		// The view the next drop is compared with is this one (the detector's
+		// base), so it is the next drop's view before (version 62; before it,
+		// a run of drops with no quiet look between them kept the view from
+		// before the first).
+		keepBeforeView(area);
 		persist();
 		draw();
 
 		const fullSaved = keepFull(item.id, frame);
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
-		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};
-		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step, content)};
+		// A card on the very spot of the last (nonDrop) comes from a change
+		// with no rectangle: its box is the last card's.
+		const rect = change.rect || {angle: 0, h: plan.card.box.h, w: plan.card.box.w};
+		const card = {angle: rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(rect.w, rect.h) / Math.max(rect.w, rect.h)) * 1000) / 1000, small: false, upright: rect.h >= rect.w};
+		// From the picture going still to the capture: a drop that waited to
+		// settle (version 62) adds the wait.
+		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still + (step.heldMs || 0))}), drop: dropReport(change, plan, step, content)};
 
 		refocusSoon();
 		readItem(item.id, frame, {auto: true, captureMs, dropped: true, fullSaved, geometry, quads: plan.quads});
@@ -3379,7 +3516,6 @@ export function scanView(root) {
 		holderView = null;
 		pendingDrop = null;
 		lastDrop = null;
-		sharpRecent.length = 0;
 		holdFocusSoon();
 	}
 

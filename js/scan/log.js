@@ -47,8 +47,10 @@ const db = database('card-tracker-scan-log', [ENTRIES, PICTURES]);
 // The most entries kept: past it, the oldest go first.
 export const LOG_MAX = 500;
 
-// The scanner's version, in every entry.
-export const SCANNER = 40;
+// The scanner's version, in every entry: 62 from the settled holder capture
+// (a drop's settle numbers, and the view before a drop is the picture the
+// drop was compared with).
+export const SCANNER = 62;
 
 // The most entries whose drop views (before and after, about 15 KB each)
 // are kept: past it, the oldest entries' views go first. 120 from version
