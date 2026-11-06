@@ -2396,6 +2396,22 @@ describe('the scan report says where the guide was and what was guessed (Eric, 2
 		assert.doesNotMatch(bottom, /side PLACED/);
 		assert.match(edges({guessed: 'top', placed: true, placedEdges: ['left', 'right']}), /top GUESSED.*the left and right sides PLACED/);
 		assert.equal(edges({guessed: null, placed: false, placedEdges: []}), '- Edges: all four found');
+
+		// A report kept from version 59, before placedEdges: the wording it
+		// had, not read as nothing placed.
+		const kept = (rectify) => {
+			const session = S.newSession(AT, 's1');
+			const item = S.addCapture(session, AT);
+
+			item.report = S.reportOfRead({card: {height: 1400, width: 1002}, found: true, ocr: false, read: null, ratio: 0.7, timings: {rectify: 80, total: 160}, ...rectify});
+			delete item.report.rectify.placedEdges;
+
+			return S.reportText(item, {at: AT}).split('\n').find((line) => line.startsWith('- Edges: '));
+		};
+
+		assert.match(kept({guessed: 'bottom', placed: true}), /left, right, and top found; bottom PLACED past the capture's edge/);
+		assert.equal(kept({guessed: null, placed: true}), '- Edges: all four found; an edge PLACED past the capture\'s edge, the card running out of it');
+		assert.match(kept({guessed: 'top', placed: true}), /top GUESSED.*an edge PLACED/);
 	});
 
 	test('the full records naming the same card keep the finishes loaded meanwhile', () => {

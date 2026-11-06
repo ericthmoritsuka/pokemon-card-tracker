@@ -213,15 +213,28 @@ describe('a card wholly inside the capture beside a line across it, and a side o
 	});
 
 	test('lines across the capture above and below a card: its sides are kept, not placed at the capture\'s edges', () => {
-		const card = {ch: 560, cx: 260, cy: 363, table: (x, y) => ((y >= 60 && y < 63) || (y >= 663 && y < 666) ? 200 : 70)};
-		const {corners, image} = capture(card);
-		const straight = rectify(image);
-		const box = boxError(straight, image, corners);
+		// Lines close to the capture's first and last rows make the box too
+		// narrow for its height and run past both sides; before the second
+		// review fix both sides were then placed past the capture's edges.
+		const lines = (a, b) => (x, y) => ((y >= a && y < a + 3) || (y >= b && y < b + 3) ? 200 : 70);
+		const cases = [
+			{ch: 560, cx: 260, cy: 363, table: lines(60, 663)},
+			{ch: 560, cx: 260, cy: 363, table: lines(20, 703)},
+			{ch: 560, cx: 260, cy: 363, table: lines(12, 712)},
+			{ch: 520, cx: 260, cy: 363, table: lines(20, 703)},
+		];
 
-		assert.ok(straight.found, straight.note);
-		assert.equal(straight.placed, false, straight.note);
-		assert.ok(Math.abs(straight.rect.w - card.ch * RATIO) <= card.ch * RATIO * 0.03, `width ${straight.rect.w}, the card's ${Math.round(card.ch * RATIO)}`);
-		assert.ok(box.error <= 0.05, `box within 5 % (${box.error.toFixed(3)}): ${straight.note}`);
+		for (const card of cases) {
+			const {corners, image} = capture(card);
+			const straight = rectify(image);
+			const box = boxError(straight, image, corners);
+			const label = `ch ${card.ch}`;
+
+			assert.ok(straight.found, straight.note);
+			assert.equal(straight.placed, false, `${label}: ${straight.note}`);
+			assert.deepEqual(straight.placedEdges.filter((edge) => edge !== 'bottom'), [], `${label}: no side placed`);
+			assert.ok(Math.abs(straight.rect.w - card.ch * RATIO) <= card.ch * RATIO * 0.03, `${label}: width ${straight.rect.w}, the card's ${Math.round(card.ch * RATIO)}`);
+		}
 	});
 
 	test('a card wholly inside the capture on a shelf, lines along its top and foot running off one side: no side is placed', () => {

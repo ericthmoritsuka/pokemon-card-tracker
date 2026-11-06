@@ -322,13 +322,21 @@ export function outOfCapture(work, edges) {
 	// both sides of a card wholly inside the capture, which is no sign of
 	// the card running out of it.
 	const narrow = rows.length === 2 && w < h * CARD_RATIO * (1 - SHAPE_SLACK);
+	// Lines running on past both sides found are no sign of the card
+	// running out of the capture either: lines across the whole capture
+	// (a table's edge above, a shelf below) close to its first and last
+	// rows make a box too narrow for its height, and would place both
+	// sides past the capture's edges. A card runs out at one side.
+	const leftPast = narrow && past(rows, EDGE_REACH, box.left - w * 0.02, true);
+	const rightPast = narrow && past(rows, box.right + w * 0.02, width - EDGE_REACH, true);
+	const onePast = leftPast !== rightPast;
 	// Inside the card: the edges across run on past it, or (the bottom)
 	// the box is too short and the capture hides the sides below it. An
 	// edge not found counts as one inside the card at the capture's edge.
 	const inner = {
 		bottom: edges.bottom === null || runsOut(below) || short,
-		left: edges.left === null || (narrow && past(rows, EDGE_REACH, box.left - w * 0.02, true)),
-		right: edges.right === null || (narrow && past(rows, box.right + w * 0.02, width - EDGE_REACH, true)),
+		left: edges.left === null || (onePast && leftPast),
+		right: edges.right === null || (onePast && rightPast),
 		top: edges.top === null || past(columns, EDGE_REACH, box.top - h * 0.02, false),
 	};
 	// Out of the capture: inside the card, or found on the capture's last
