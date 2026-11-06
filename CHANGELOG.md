@@ -12,6 +12,18 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-06
+
+- **v61:** sort the binder card pickers, a binder's worth, and report cleanup. `TBD`
+  - The pocket chooser and Add cards to the tray have **Sort**: Pokédex number, set (oldest set
+    first, then card number), or name. The pick is remembered on each phone and starts at Pokédex.
+    Region and other filters work with any order.
+  - A binder shows its worth as a line under its name and size ("R$ 1.245 in value", with "~" when
+    part of it is a US estimate, "partly priced" when some cards have no price). Tap it for the
+    Value sheet.
+  - Scan reports sent from Phone check are deleted automatically 30 days after they reach your
+    account; Sent reports shows the day for each one.
+
 ### 2026-11-05
 
 - **v60:** the scanner cuts a card held low or at a strong slant. `e96962a`

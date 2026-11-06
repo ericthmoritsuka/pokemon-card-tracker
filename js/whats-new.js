@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-06',
+		items: [
+			'Filling a binder, the card pickers sort by Pokédex number, set (oldest first), or name, and remember your pick.',
+			'A binder shows what it is worth under its name. Tap it for the breakdown.',
+			'Sent scan reports are deleted automatically 30 days after they reach your account.',
+		],
+		version: 'v61',
+	},
+	{
 		date: '2026-11-05',
 		items: [
 			'The scanner cuts a card held low or at a strong slant properly, even when its foot or corners are outside the frame.',
