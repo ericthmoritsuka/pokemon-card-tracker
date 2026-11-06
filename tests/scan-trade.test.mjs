@@ -195,7 +195,58 @@ describe('which copy goes out', () => {
 		const twice = T.outCopies(session, cards);
 
 		assert.deepEqual(ids(twice.get('t1').copies), ['s2']);
-		assert.notDeepEqual(ids(twice.get('t2').copies), ['s2']);
+		assert.equal(twice.get('t2').status, 'ask', 'the later card asks again rather than take another copy');
+		assert.equal(twice.get('t2').stale, 'taken');
+		assert.deepEqual(twice.get('t2').copies, []);
+		assert.equal(T.outLine(twice.get('t2')), 'The copy you picked goes out with another card; pick again.');
+	});
+
+	test('a picked copy that is gone (removed on another phone) asks again, and holds Log it back until he picks', () => {
+		const session = tray([{}]);
+
+		T.pickCopies(session, 't1', ['x1'], AT);
+
+		const cards = [copy('x1', {deleted_at: at(9)}), copy('y1')];
+		const results = T.outCopies(session, cards);
+		const result = results.get('t1');
+
+		assert.equal(result.status, 'ask', 'never another copy without a word');
+		assert.equal(result.stale, 'gone');
+		assert.deepEqual(result.copies, []);
+		assert.deepEqual(ids(result.candidates), ['y1']);
+		assert.equal(T.outLine(result), 'The copy you picked is gone; pick again.');
+		assert.equal(T.tradeSummary(session, results).loggable, false);
+		assert.deepEqual(T.tradeHandoff(session, results).out, []);
+
+		T.pickCopies(session, 't1', ['y1'], AT);
+		assert.equal(T.tradeSummary(session, T.outCopies(session, cards)).loggable, true);
+
+		// A pick of a copy now of another card counts as gone too; with no
+		// copy left to pick, the line says to remove the card.
+		T.pickCopies(session, 't1', ['o1'], AT);
+
+		const other = T.outCopies(session, [copy('o1', {card_id: 'tst1-002'})]).get('t1');
+
+		assert.equal(other.status, 'ask');
+		assert.equal(T.outLine(other), 'The copy you picked is gone; no other copy fits, so remove this card.');
+	});
+
+	test('before his cards are read, or when they cannot be, no card going out is matched and Log it waits', () => {
+		const session = tray([{}, {side: 'in'}]);
+
+		for (const known of ['loading', 'failed']) {
+			const results = T.outCopies(session, [], {known});
+			const sum = T.tradeSummary(session, results);
+
+			assert.equal(results.get('t1').status, 'busy', `${known}: not "not in your cards"`);
+			assert.equal(sum.skipped, 0);
+			assert.equal(sum.busy, 1);
+			assert.equal(sum.loggable, false, `${known}: no purchase logged without the cards going out`);
+		}
+
+		assert.equal(T.outLine(T.outCopies(session, [], {known: 'failed'}).get('t1')), 'Could not read your cards; try again.');
+		assert.equal(T.outLine(T.outCopies(session, [], {known: 'loading'}).get('t1')), 'Checking your cards…');
+		assert.equal(T.outCopies(session, [copy('k1')]).get('t1').status, 'chosen', 'once read, the copy is matched');
 	});
 
 	test('a card standing for two copies takes two, and asks when three fit', () => {

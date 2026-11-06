@@ -177,11 +177,20 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 //   candidates  every copy he may pick for it, best first: the fitting ones,
 //               or for 'other' every copy of the card no other card takes
 //   suggested   the ids the scanner would take first
+//   stale       'gone' when a copy Eric picked is no longer in his cards
+//               (removed on another phone, say), 'taken' when an earlier
+//               card took it: the card asks again rather than take another
+//               copy without a word
+//   why         for 'busy' while his cards are not read yet: 'loading', or
+//               'failed' when they could not be read
 //
 // cards: the person's copies (live ones are used); where: copyWhere. Cards
 // are settled in the tray's order (the first scanned first), after every
-// hand pick has taken its copies, so no copy is chosen twice.
-export function outCopies(session, cards, {where = new Map()} = {}) {
+// hand pick has taken its copies, so no copy is chosen twice. known:
+// 'loaded' once the cards were read, else 'loading' or 'failed': until
+// they are, no card going out is matched (an empty list would read as
+// "not in your cards" and let Log it log a purchase without them).
+export function outCopies(session, cards, {known = 'loaded', where = new Map()} = {}) {
 	const live = (cards || []).filter((entry) => entry && entry.id && isLive(entry));
 	const byId = new Map(live.map((entry) => [entry.id, entry]));
 	const spares = new Set(spareEntries(live).map((entry) => entry.id));
@@ -190,15 +199,36 @@ export function outCopies(session, cards, {where = new Map()} = {}) {
 	const outs = session.items.filter((item) => sideOf(item) === 'out');
 	const taken = new Set();
 	const hands = new Map();
+	const stale = new Map();
 	const results = new Map();
 
-	// Hand picks first, in tray order: a copy picked twice stays with the
-	// first card.
-	for (const item of outs) {
-		const picked = (item.picked || []).map((id) => byId.get(id)).filter((entry) => entry && sameCard(entry, item) && !taken.has(entry.id)).slice(0, copiesOf(item));
+	if (known !== 'loaded') {
+		for (const item of outs) {
+			results.set(item.id, {by: null, candidates: [], copies: [], need: copiesOf(item), status: 'busy', suggested: [], why: known === 'failed' ? 'failed' : 'loading'});
+		}
 
-		for (const entry of picked) {
-			taken.add(entry.id);
+		return results;
+	}
+
+	// Hand picks first, in tray order: a copy picked twice stays with the
+	// first card. A pick whose copy is gone, or went to an earlier card,
+	// makes its card ask again.
+	for (const item of outs) {
+		const picked = [];
+
+		for (const id of (item.picked || []).slice(0, copiesOf(item))) {
+			const entry = byId.get(id);
+
+			if (!entry || !sameCard(entry, item)) {
+				stale.set(item.id, 'gone');
+			}
+			else if (taken.has(entry.id)) {
+				stale.set(item.id, stale.get(item.id) || 'taken');
+			}
+			else {
+				picked.push(entry);
+				taken.add(entry.id);
+			}
 		}
 
 		hands.set(item.id, picked);
@@ -224,6 +254,13 @@ export function outCopies(session, cards, {where = new Map()} = {}) {
 		const free = all.filter((entry) => !taken.has(entry.id));
 		const fits = free.filter((entry) => fitsScan(entry, item)).sort(rank(item));
 		const remaining = need - hand.length;
+
+		if (stale.has(item.id)) {
+			const others = (fits.length ? fits : free.sort(rank(item))).filter((entry) => !hand.includes(entry));
+
+			Object.assign(result, {by: 'hand', candidates: [...hand, ...others], copies: hand, stale: stale.get(item.id), status: 'ask'});
+			continue;
+		}
 
 		if (remaining <= 0) {
 			Object.assign(result, {by: 'hand', candidates: [...hand, ...fits], copies: hand, status: 'chosen'});
@@ -411,8 +448,22 @@ export function tradeHandoff(session, results, owned = new Map()) {
 
 // One line under a card going out, saying which copy goes or why none does.
 export function outLine(result, {where = new Map(), languageName = (code) => code} = {}) {
+	if (result && result.status === 'busy' && result.why === 'failed') {
+		return 'Could not read your cards; try again.';
+	}
+
+	if (result && result.status === 'busy' && result.why === 'loading') {
+		return 'Checking your cards…';
+	}
+
 	if (!result || result.status === 'busy') {
 		return null;
+	}
+
+	if (result.stale) {
+		const again = result.candidates.length ? 'pick again.' : 'no other copy fits, so remove this card.';
+
+		return result.stale === 'gone' ? `The copy you picked is gone; ${again}` : `The copy you picked goes out with another card; ${again}`;
 	}
 
 	const placeOf = (entry) => whereText(where.get(entry.id), entry);
