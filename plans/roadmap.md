@@ -397,8 +397,8 @@ To check on the phone and with Eric:
 - With three or more copies of a card he is asked every time; if that is often, a "same as last
   time" choice or "any spare" could follow.
 - The system Back from the scanner keeps the trade tray instead of asking (Close asks).
-- The mode switch sits over the top of the camera; check it does not hide what he needs to see in
-  holder mode.
+- The mode switch sits over the foot of the camera, above the Settings and holder chips; check it
+  does not hide what he needs to see in holder mode.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

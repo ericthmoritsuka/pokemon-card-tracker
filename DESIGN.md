@@ -2511,8 +2511,8 @@ trades/sales too instead of registering them just manually. Maybe we could have 
 could scan the cards and select a trade/sell/giveaway option so the system could make the
 adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
 
-- **Two modes.** Scan has a switch at the top of the camera: **Add** (what Scan always did, the
-  default) and **Trade or sale**. The choice is remembered on the phone (`card-tracker:scan-mode`).
+- **Two modes.** Scan has a switch over the foot of the camera, above the Settings and holder
+  chips: **Add** (what Scan always did, the default) and **Trade or sale**. The choice is remembered on the phone (`card-tracker:scan-mode`).
   In Trade or sale the switch is teal, a teal frame runs round the camera, and Done reads
   **Log it**, so a card meant for a sale is never added by mistake.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
