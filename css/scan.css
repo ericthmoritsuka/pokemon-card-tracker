@@ -1347,9 +1347,10 @@ html.scan-open body {
 /* ------------------------------------------------------------ Trade or sale */
 
 /* Trade or sale mode (js/scan/trade-sheets.js; Eric, 2026-11-06). The mode
-   switch sits at the top of the camera in both modes; in Trade or sale a
-   teal frame round the camera and the teal switch keep the mode in sight,
-   so a card meant for a sale is never added by mistake. */
+   switch sits over the foot of the camera, above the Settings and holder
+   chips, in both modes; in Trade or sale a teal frame round the camera and
+   the teal switch keep the mode in sight, so a card meant for a sale is
+   never added by mistake. */
 .scan {
 	--scan-trade: #4fd1c5;
 	--scan-on-trade: #06201d;
@@ -1359,10 +1360,13 @@ html.scan-open body {
 	background: rgba(0, 0, 0, 0.7);
 	border: 1px solid var(--scan-border);
 	border-radius: 999px;
+	bottom: 64px;
 	display: inline-flex;
 	gap: 2px;
+	left: 50%;
 	padding: 2px;
-	pointer-events: auto;
+	position: absolute;
+	transform: translateX(-50%);
 }
 
 .scan-mode-option {

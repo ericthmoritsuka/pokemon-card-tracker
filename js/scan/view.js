@@ -558,9 +558,12 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	// Add or Trade or sale, at the top of the camera.
+	// Add or Trade or sale, over the foot of the camera above its two chips,
+	// in reach of the thumb as every scanner control is. It takes no room
+	// from the camera, and the band over the guide stays the running
+	// count's.
 	const modeBar = modeSwitch((next) => chooseMode(next));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, modeBar, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), modeBar, finishButton, holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
