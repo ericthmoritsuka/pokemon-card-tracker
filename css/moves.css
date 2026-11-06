@@ -2,6 +2,12 @@
    Log a move form, and its two pickers. The form reuses the copy sheet's
    fields (css/copies.css) and the tray picker's tiles (css/binders.css). */
 
+/* History's heading: Scan the cards and Log a move beside the title, below
+   it on a narrow phone. */
+.view-head:has(#moves-new) {
+	flex-wrap: wrap;
+}
+
 .moves-month {
 	margin: 0 0 var(--space-4);
 }

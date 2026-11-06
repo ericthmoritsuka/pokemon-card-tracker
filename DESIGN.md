@@ -2697,6 +2697,10 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   instead. A tray left by Log it without saving is there when Scan opens again.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
+- **Scan the cards** (Eric, 2026-11-06): Trades and sales has a **Scan the cards** button beside
+  Log a move, which opens Scan already in Trade or sale. It sets the remembered mode, as the
+  scanner's own switch does, so the trade tray opens as it was left, cards and all, and the Add tray
+  waits untouched.
 
 **Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
 (js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's

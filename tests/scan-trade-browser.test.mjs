@@ -52,8 +52,9 @@ after(async () => {
 
 // A phone at 360 px, hand-held, English as the last language picked (the
 // test cards are English), with `owned` copies added and `drafts` written
-// before Scan opens.
-async function open({drafts = null, owned = []} = {}) {
+// before Scan opens. via 'trades': Scan is opened from Trades and sales'
+// Scan the cards rather than by its address.
+async function open({drafts = null, owned = [], via = null} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 3, viewport: {height: 800, width: 360}});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
@@ -94,7 +95,17 @@ async function open({drafts = null, owned = []} = {}) {
 		return added.map((entry) => entry.id);
 	}, {drafts, owned});
 
-	await page.goto(`${harness.origin}${BASE}scan`);
+	if (via === 'trades') {
+		await page.goto(`${harness.origin}${BASE}trades`);
+		await page.waitForSelector('#moves-scan');
+		assert.equal(await page.textContent('#moves-scan'), 'Scan the cards');
+		await page.screenshot({path: `${SHOTS}/scan-trade-from-trades.png`});
+		await page.click('#moves-scan');
+	}
+	else {
+		await page.goto(`${harness.origin}${BASE}scan`);
+	}
+
 	await page.waitForSelector('#scan-guide:not([hidden])', {timeout: 30000});
 	await page.waitForFunction(() => document.getElementById('scan-video').videoWidth > 0);
 	await page.waitForSelector('#scan-shutter:not([disabled])');
@@ -327,6 +338,26 @@ describe('Trade or sale', () => {
 
 		assert.deepEqual(undone.cards.filter((entry) => entry.deleted).map((entry) => entry.card_id), [CARDS.c], 'the copies are back and the card in is gone');
 		assert.equal(undone.cards.filter((entry) => !entry.deleted).length, 5);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Scan the cards on Trades and sales opens Scan in Trade or sale, with the trade tray as it was', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = {catalog: 'international', id: CARDS.c, image: null, lang: 'en', localId: '102', name: 'Waiting card', official: '189', setId: 'swsh3', setName: 'Darkness Ablaze'};
+		const item = (id, extra = {}) => ({candidates: [], captured_at: at, card, condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null, ...extra});
+		const addTray = {created_at: at, id: 'add-1', items: [item('a1')], lastSave: null, sheetShown: false, updated_at: at};
+		const tradeTray = {created_at: at, id: 'trade-1', items: [item('t1', {side: 'out'})], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		// Add was the mode last used on this phone.
+		const {context, errors, page} = await open({drafts: [addTray, tradeTray], via: 'trades'});
+
+		assert.equal(new URL(page.url()).pathname, `${BASE}scan`);
+		assert.equal(await modeOf(page), 'trade', 'opened in Trade or sale');
+		assert.equal(await page.textContent('#scan-mode .scan-mode-name'), 'Trade or sale');
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept, as the switch keeps it');
+		await page.waitForSelector('#scan-trade-out [data-row="t1"]');
+		assert.deepEqual((await trays(page)).trade.map((one) => one.card), [CARDS.c], 'the trade tray kept its card');
+		assert.deepEqual((await trays(page)).add.map((one) => one.card), [CARDS.c], 'the Add tray is left as it was');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

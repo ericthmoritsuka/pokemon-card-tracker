@@ -415,6 +415,28 @@ To check on the phone and with Eric:
   the same. Landscape was already short of room before this mode (the controls fall below the
   screen); the switch shows there, the trade tray is cut like the Add tray.
 
+## Holder retry and Scan the cards (Eric, 2026-11-06): built on branch `holder-retry`, to check on the phone
+
+Eric's phone log of 2026-11-06: in holder mode, 4 of 27 cards were taken blurred while his hand
+brought the next card near the lens, and 4 were the same card taken twice about a second apart. His
+rule: never lose a card. Built (version 64 to be): the capture loop of version 63 unchanged; a
+capture that reads out of focus waits up to 1.5 s for a sharper still look of its spot and is added
+from it, or logged as a repeat (the repeat bar asks after a drop-like disturbance) or as nothing left,
+or, with no sharper look, added anyway marked "Check this one". The wait-and-hold build of branch
+`holder-settle` was dropped: two reviews found ways it lost cards. Also: **Scan the cards** on Trades
+and sales opens Scan in Trade or sale, the trade tray as it was. DESIGN.md section 6, "Holder mode
+retries a blurred capture", and section 11, "Scan a trade or a sale". Tests:
+`tests/scan-retry-browser.test.mjs`, `tests/scan-drop.test.mjs`, `tests/scan-trade-browser.test.mjs`.
+
+To check on the phone and with Eric:
+
+- How often a clean card is held back: the next phone log's `retry` numbers say how many waited and
+  how each wait ended.
+- Basic Energies read soft by the focus measure, so each waits 1.5 s and is marked to check. If he
+  scans many, a softer bar for a card lying dead still could follow.
+- A hand held still over the pile for longer than 1.5 s adds its blurred look, marked to check (to
+  remove by hand); the card under it is not added again when the hand leaves.
+
 ## Kept Open Items (Eric, 2026-10-09)
 
 Eric went through every open item and kept these; Michi art, pack openings, price paid, and

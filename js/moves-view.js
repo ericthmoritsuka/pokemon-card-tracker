@@ -3,7 +3,8 @@
 //
 //   trades       History: every move, newest first, by month, with the
 //                money in and out each month. A move opens a sheet with its
-//                cards and Undo this move.
+//                cards and Undo this move. Scan the cards, beside Log a
+//                move, opens Scan in Trade or sale (js/scan/trade.js).
 //   trades/new   Log a move: the kind, date, who, price, note, the cards out
 //                (picked from your copies, spares first, or from the copies
 //                you removed in the last 30 days: Log a past sale) and the
@@ -28,6 +29,7 @@ import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, pars
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
+import {rememberMode} from './scan/trade.js';
 import {toast} from './shell.js';
 import {cardArt, entryFinish, tileArt} from './tile.js';
 import {spareEntries} from './trade-view.js';
@@ -290,7 +292,12 @@ export function historyView(root) {
 	root.append(
 		h('div', {class: 'view-head'},
 			h('h2', null, 'Trades and sales'),
-			h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move')
+			h('div', {class: 'view-head-links'},
+				// Scan opened in Trade or sale (Eric, 2026-11-06): the mode is
+				// kept on the phone as the scanner's own switch keeps it, and
+				// the trade tray is kept as it is, cards and all.
+				h('a', {class: 'button small view-head-link', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-scan', onclick: () => rememberMode('trade')}, 'Scan the cards'),
+				h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move'))
 		),
 		body
 	);
