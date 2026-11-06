@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v62:** take a card out of its pocket, and lay out a binder from a list. `TBD`
+- **v62:** take a card out of its pocket, and lay out a binder from a list. `341151f`
   - Tapping a card in a binder lifts it out over the binder, large, with pinch and double-tap zoom.
     Under it: Details (the pocket's sheet), To the tray, Move, and Card page. Tap outside, swipe
     down, or Back puts it back. Placing a card from the tray still works as before.
