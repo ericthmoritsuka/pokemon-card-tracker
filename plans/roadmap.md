@@ -285,6 +285,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   what does not fit, owned copies filled in, and Undo. A Pokémon's placeholder is a `want` with no
   card and a `dex`, which v47 to v61 keep. `js/binder-layout.js`, DESIGN.md section 11. Medium. To
   check with Eric: an older phone's Open card on such a pocket opens an empty card page.
+- **Built 2026-11-06 on branch `binder-polish`: placeholders take the most valuable copy (Eric,
+  2026-11-06; it was the oldest):** Fill placeholders, the fill after adding copies, Add cards to the
+  tray, and Lay out from a list put in the copy a binder from a list would show (price, else
+  rarity, else newest added, a tie to the lowest id; `js/binder-rules.js` `copyOrder`). Start over
+  and the trades log still take the oldest, having no prices inside their one save. DESIGN.md
+  section 11, "Placeholders fill themselves". Small.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free

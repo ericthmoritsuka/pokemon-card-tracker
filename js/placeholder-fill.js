@@ -26,9 +26,14 @@
 // id, and catalog when the placeholder names one); card placeholders
 // choose before Pokémon placeholders. The placeholders that
 // name a finish and a language choose first, then those naming a finish,
-// then a language, then the rest, each taking the oldest copy that fits
+// then a language, then the rest, each taking the best copy that fits
 // what it names; a placeholder whose finish or language no copy has takes
-// another copy of the card. A placeholder that names no language (v51's
+// another copy of the card. The best copy (Eric, 2026-11-06) is the most
+// valuable, else the rarest, else the newest added, ties to the lowest id:
+// the order a binder from a list picks its copy by (js/binder-rules.js
+// copyOrder, with js/binder-sources.js rankerFor's prices and rarities).
+// Start over and the trades log plan inside one save with no prices at
+// hand, so there the oldest copy fills, as before. A placeholder that names no language (v51's
 // Start over made hundreds) wants the language of the copy Start over
 // removed from it (pocketLanguages); when none is found and copies in
 // several languages fit, it prefers the language most of its binder's
@@ -55,6 +60,8 @@
 
 import {addCards, isLive, loadDocument, readMeta} from './collection.js';
 import {addToTray, fillPlaceholders, handBinders, isGenerated, isPokemonWant, liveBinders, placeScanned, placements, slotsOf, sortBinders, stagedOf, takeFromTray, unplaceScanned} from './binders.js';
+import {copyOrder} from './binder-rules.js';
+import {rankerFor} from './binder-sources.js';
 import {resolveOwned} from './checklists.js';
 import {gotWishes, planGot, ungotWishes} from './wishlist.js';
 import {plural} from './format.js';
@@ -177,6 +184,8 @@ const byAge = (a, b) => String(a.created_at || '').localeCompare(String(b.create
 // undo: the kept Start over undo (keptStartOver), for pocketLanguages.
 // dexOf: Map entry id -> the Pokédex numbers of its card (dexOfCopies),
 // for Pokémon placeholders; without it they wait and count as waiting.
+// rankOf: entry -> {value, rarity} (rankWhenNeeded), so the most valuable
+// copy fills; without it, the oldest.
 // Returns {rows, waiting, binders, unknownLanguage}: rows [{binderId,
 // binderName, page, position, entryId, cardId, catalog, want}, and dex for
 // a Pokémon's placeholder] in binder, page, and pocket order, ready for
@@ -184,7 +193,7 @@ const byAge = (a, b) => String(a.created_at || '').localeCompare(String(b.create
 // how many binders the rows fill; unknownLanguage, how many rows fill a
 // card's pocket whose language is not known while copies in several
 // languages fitted it.
-export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo = null} = {}) {
+export function fillPlan(doc, {binderId = null, dexOf = null, only = null, rankOf = null, undo = null} = {}) {
 	const binders = (doc && doc.binders) || [];
 	const placed = placements(binders);
 	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
@@ -202,8 +211,10 @@ export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo 
 		pool.get(entry.card_id).push(entry);
 	}
 
+	const order = rankOf ? copyOrder(rankOf) : byAge;
+
 	for (const list of pool.values()) {
-		list.sort(byAge);
+		list.sort(order);
 	}
 
 	const spots = [];
@@ -250,7 +261,7 @@ export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo 
 	const chosen = new Map();
 
 	// A Pokémon's copies: every pooled copy whose card shows it, in the
-	// list's languages when its placeholder names some, oldest first.
+	// list's languages when its placeholder names some, best first.
 	const byDex = new Map();
 
 	if (dexOf) {
@@ -263,7 +274,7 @@ export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo 
 		}
 
 		for (const list of byDex.values()) {
-			list.sort(byAge);
+			list.sort(order);
 		}
 	}
 
@@ -377,6 +388,28 @@ async function dexWhenNeeded(doc, entries = null) {
 	return dexOfCopies((entries || (doc.cards || [])).filter((entry) => entry && isLive(entry) && entry.card_id && !placed.has(entry.id) && !staged.has(entry.id)));
 }
 
+// Saved: rankOf for fillPlan, only when some hand-made binder holds a
+// placeholder: the prices and rarities saved on this phone for `entries`,
+// or every live copy in no pocket and no tray. null when they cannot be
+// read; the oldest copy then fills.
+async function rankWhenNeeded(doc, entries = null) {
+	const binders = (doc && doc.binders) || [];
+
+	if (!handBinders(binders).some((binder) => slotsOf(binder).some((slot) => slot.want && (slot.want.card_id || isPokemonWant(slot.want))))) {
+		return null;
+	}
+
+	const placed = placements(binders);
+	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
+
+	try {
+		return await rankerFor((entries || (doc.cards || [])).filter((entry) => entry && isLive(entry) && entry.card_id && !placed.has(entry.id) && !staged.has(entry.id)));
+	}
+	catch {
+		return null;
+	}
+}
+
 // ------------------------------------------------- Fill placeholders
 
 // Saved: the preview of "Fill placeholders" for one binder (binderId) or
@@ -384,14 +417,14 @@ async function dexWhenNeeded(doc, entries = null) {
 export async function previewFill({binderId = null} = {}) {
 	const doc = await loadDocument();
 
-	return fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), undo: await keptStartOver(doc)});
+	return fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), rankOf: await rankWhenNeeded(doc), undo: await keptStartOver(doc)});
 }
 
 // Saved: fills them, planned again now so a copy placed since is left
 // alone. Resolves {done, passed, waiting}; done is what undoFill takes.
 export async function fillNow({binderId = null} = {}) {
 	const doc = await loadDocument();
-	const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), undo: await keptStartOver(doc)});
+	const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), rankOf: await rankWhenNeeded(doc), undo: await keptStartOver(doc)});
 
 	if (!plan.rows.length) {
 		return {done: [], passed: [], waiting: plan.waiting};
@@ -437,12 +470,14 @@ export function afterText(result) {
 // marks the wishes they fit, in `doc` itself. Returns {placed, got} for
 // Undo, as afterAdding resolves. fill: whether to fill (the setting);
 // skipWish as planGot's skip; undo: the kept Start over undo, for the
-// languages of the placeholders it made (fillPlan, as afterAdding passes).
-export function planAfterAdding(doc, added, {at, fill = autoFillOn(doc), now = Date.parse(at), skipWish = null, undo = null} = {}) {
+// languages of the placeholders it made (fillPlan, as afterAdding passes);
+// rankOf as fillPlan's, which Start over and the trades log do not pass,
+// so the oldest copy fills there.
+export function planAfterAdding(doc, added, {at, fill = autoFillOn(doc), now = Date.parse(at), rankOf = null, skipWish = null, undo = null} = {}) {
 	let placed = [];
 
 	if (fill && added.length) {
-		const plan = fillPlan(doc, {only: new Set(added.map((entry) => entry.id)), undo});
+		const plan = fillPlan(doc, {only: new Set(added.map((entry) => entry.id)), rankOf, undo});
 
 		if (plan.rows.length) {
 			const result = fillPlaceholders(doc.binders || [], plan.rows, {at});
@@ -484,7 +519,7 @@ export async function afterAdding(entries, {fill = null, place = null} = {}) {
 		let rows = place;
 
 		if (!rows && (fill === null ? autoFillOn(doc) : fill)) {
-			rows = fillPlan(doc, {dexOf: await dexWhenNeeded(doc, added), only: new Set(added.map((entry) => entry.id)), undo: await keptStartOver(doc)}).rows;
+			rows = fillPlan(doc, {dexOf: await dexWhenNeeded(doc, added), only: new Set(added.map((entry) => entry.id)), rankOf: await rankWhenNeeded(doc, added), undo: await keptStartOver(doc)}).rows;
 		}
 
 		if (rows && rows.length) {
@@ -535,7 +570,8 @@ export async function addToBinder(binderId, entryIds, {fill = null} = {}) {
 
 	if (fill === null ? autoFillOn(doc) : fill) {
 		const picked = new Set(entryIds);
-		const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc, (doc.cards || []).filter((entry) => entry && picked.has(entry.id))), only: picked, undo: await keptStartOver(doc)});
+		const pickedCopies = (doc.cards || []).filter((entry) => entry && picked.has(entry.id));
+		const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc, pickedCopies), only: picked, rankOf: await rankWhenNeeded(doc, pickedCopies), undo: await keptStartOver(doc)});
 
 		if (plan.rows.length) {
 			placed = (await placeScanned(plan.rows)).done.map(doneRow);

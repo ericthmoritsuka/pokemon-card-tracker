@@ -128,6 +128,56 @@ describe('fillPlan', () => {
 	});
 });
 
+// Which copy fills a placeholder (Eric, 2026-11-06): the most valuable that
+// fits, else the rarest, else the newest added, ties to the lowest id, as a
+// binder from a list picks its copy (js/binder-rules.js copyOrder). rankOf
+// is what js/binder-sources.js rankerFor gives: {value, rarity}. Without
+// it (Start over, the trades log) the oldest copy fills, as before.
+describe('the most valuable copy fills', () => {
+	const ranks = (table) => (entry) => table[entry.id] || {};
+
+	test('of two copies that fit, the pricier one fills, a known price before none', () => {
+		const cards = [copy('c-old', {created_at: at(1)}), copy('c-new', {created_at: at(2)}), copy('c-none', {created_at: at(3)})];
+		const list = [hand('b', [spot(1), spot(2), spot(3)])];
+		const plan = fill.fillPlan({binders: list, cards}, {rankOf: ranks({'c-new': {value: 30}, 'c-old': {value: 5}})});
+
+		assert.deepEqual(plan.rows.map((row) => [row.position, row.entryId]), [[1, 'c-new'], [2, 'c-old'], [3, 'c-none']]);
+	});
+
+	test('no prices: the rarer copy; no rarity either: the newest added; a tie: the lowest id', () => {
+		const cards = [copy('c-holo', {card_id: 'tst1-002', created_at: at(1)}), copy('c-common', {card_id: 'tst1-002', created_at: at(2)}), copy('c-a', {created_at: at(1)}), copy('c-c', {created_at: at(4)}), copy('c-b', {created_at: at(4)})];
+		const list = [hand('b', [spot(1, want({card_id: 'tst1-002'})), spot(2), spot(3), spot(4)])];
+		const plan = fill.fillPlan({binders: list, cards}, {rankOf: ranks({'c-common': {rarity: 'Common'}, 'c-holo': {rarity: 'Rare Holo'}})});
+
+		assert.deepEqual(plan.rows.map((row) => [row.position, row.entryId]), [[1, 'c-holo'], [2, 'c-b'], [3, 'c-c'], [4, 'c-a']]);
+	});
+
+	test('the passes between placeholders stay: a placeholder naming a language takes a copy in it before a pricier one that is not', () => {
+		const cards = [copy('c-en', {created_at: at(1), language: 'en'}), copy('c-pt', {created_at: at(2)}), copy('c-pt-2', {created_at: at(3)})];
+		const list = [hand('b', [spot(1), spot(2, want({language: 'en'}))])];
+		const plan = fill.fillPlan({binders: list, cards}, {rankOf: ranks({'c-en': {value: 1}, 'c-pt': {value: 2}, 'c-pt-2': {value: 9}})});
+
+		assert.deepEqual(plan.rows.map((row) => [row.position, row.entryId]), [[1, 'c-pt-2'], [2, 'c-en']]);
+	});
+
+	test('a Pokémon\'s placeholder takes the most valuable copy showing it', () => {
+		const cards = [copy('c-old', {created_at: at(1)}), copy('c-new', {card_id: 'tst1-009', created_at: at(2)})];
+		const list = [hand('b', [spot(1, {card_id: null, catalog: null, dex: 1, image: null, name: 'Mon 1', variant_id: null})])];
+		const dexOf = new Map([['c-old', [1]], ['c-new', [1]]]);
+
+		assert.deepEqual(fill.fillPlan({binders: list, cards}, {dexOf}).rows.map((row) => row.entryId), ['c-old'], 'without a ranking, the oldest');
+		assert.deepEqual(fill.fillPlan({binders: list, cards}, {dexOf, rankOf: ranks({'c-new': {value: 8}})}).rows.map((row) => row.entryId), ['c-new']);
+	});
+
+	test('without a ranking (Start over, the trades log), planAfterAdding fills with the oldest copy, as before', () => {
+		const added = [copy('c-new', {created_at: at(2)}), copy('c-old', {created_at: at(1)})];
+		const doc = {binders: [hand('b', [spot(1)])], cards: added, settings: {}, wishlist: []};
+		const result = fill.planAfterAdding(doc, added, {at: at(9)});
+
+		assert.deepEqual(result.placed.map((row) => row.entryId), ['c-old']);
+	});
+});
+
 // Placeholders v51's Start over made carry no language, and an import's
 // copies share created_at, so the language a pocket wants comes from the
 // copy Start over removed from it (review of v53): named by the saved
@@ -316,7 +366,9 @@ describe('after adding copies', () => {
 		const result = await fill.addCopies([{card_id: 'tst1-001', catalog: 'international', language: 'pt'}, {card_id: 'tst1-001', catalog: 'international', language: 'pt'}, {card_id: 'tst1-002', catalog: 'international', language: 'pt'}]);
 		const ids = result.added.map((entry) => entry.id);
 
-		assert.deepEqual(await pocketsOf(binderId), [ids[0], ids[1], null]);
+		// Two copies alike, stamped a millisecond apart: the newest added
+		// takes the first placeholder (the most valuable copy's order).
+		assert.deepEqual(await pocketsOf(binderId), [ids[1], ids[0], null]);
 		assert.equal(fill.afterText(result), '2 cards went into binders.');
 
 		await fill.undoAdding(result);
@@ -329,6 +381,21 @@ describe('after adding copies', () => {
 		const second = await fill.addCopies([{card_id: 'tst1-001', catalog: 'international', language: 'pt'}]);
 
 		assert.deepEqual(await pocketsOf(binderId), [first.added[0].id, second.added[0].id, null]);
+	});
+
+	test('saved: Fill placeholders and a copy added put the copy with the higher Liga price in', async () => {
+		const binderId = await binderWithPlaceholders(1);
+		const liga = (avg) => ({avg, currency: 'BRL', date: '2026-11-01', low_nm: avg, source: 'liga'});
+		const [cheap, dear] = await collection.addCards([{card_id: 'tst1-001', catalog: 'international', language: 'pt', price_manual: liga(4)}, {card_id: 'tst1-001', catalog: 'international', language: 'pt', price_manual: liga(40)}]);
+
+		assert.ok(cheap.created_at <= dear.created_at, 'the cheap copy is the older');
+		await fill.fillNow({binderId});
+		assert.deepEqual(await pocketsOf(binderId), [dear.id, null, null]);
+
+		const second = await binderWithPlaceholders(1);
+		const result = await fill.addCopies([{card_id: 'tst1-001', catalog: 'international', language: 'pt'}, {card_id: 'tst1-001', catalog: 'international', language: 'pt', price_manual: liga(12)}]);
+
+		assert.deepEqual(await pocketsOf(second), [result.added[1].id, null, null]);
 	});
 
 	test('the setting off: nothing is placed, Fill placeholders still works', async () => {

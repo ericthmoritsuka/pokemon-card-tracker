@@ -2130,8 +2130,18 @@ pockets to refill one by one.
   are offered; a copy already in a pocket or a tray never moves, and a copy a binder from a list
   shows still counts as in no pocket, since that binder is a view. Placeholders that name a finish
   and a language choose first, then those naming a finish, then a language, then the rest, each
-  taking the oldest copy that fits what it names; a placeholder whose finish or language no copy
+  taking the best copy that fits what it names; a placeholder whose finish or language no copy
   has takes another copy of the card. One copy per pocket, in binder, page, and pocket order.
+  **The best copy is the most valuable** (Eric, 2026-11-06; it was the oldest): a Liga price
+  typed on it, else TCGplayer in reais at the saved rate, else the rarest (TCGdex's rarity words,
+  ranked), else the newest added, a tie to the lowest id: the order a binder from a list picks its
+  copy by (`js/binder-rules.js` `copyOrder`, with `js/binder-sources.js` `rankerFor`), read only
+  when some hand-made binder holds a placeholder. Only which copy fills a placeholder changed: the
+  order between placeholders, the passes above, and copies already in a pocket or a tray are as
+  before. Prices and rates are the ones saved on the phone, so two phones agree when they hold the
+  same ones. Start over (`planAfterAdding` on its draft) and the trades log plan inside one save
+  with no prices at hand, so there the oldest copy still fills, as it does when the prices cannot
+  be read.
   Placeholders made by Start over carry the removed copy's language, so the copy that fills them
   again is the most alike. Those v51's Start over made carry none, and an import's copies share
   their created_at, so for a placeholder that names no language the language is the removed
@@ -2167,8 +2177,8 @@ pockets to refill one by one.
 - **Not counted as placeholders:** a pocket whose copy was deleted (shown as "Gone") holds an
   entry id, not a placeholder, so it does not fill.
 - **A Pokémon's placeholder** (laid out from a list, below) takes any copy of a card showing that
-  Pokémon, in one of the list's languages when the list named some, the oldest first, the binder's
-  most common language first. Card placeholders choose first, in every binder, so a copy goes to
+  Pokémon, in one of the list's languages when the list named some, the most valuable first (the
+  oldest without prices, as above), the binder's most common language first. Card placeholders choose first, in every binder, so a copy goes to
   its own card's placeholder before a Pokémon's that would take it too. Which Pokémon a card shows comes from the Pokédex numbers the
   checklists read (`js/checklists.js` `resolveOwned`), read only when some binder holds such a
   placeholder (`dexOfCopies`). Start over and the trades log fill in one save with no such read, so
@@ -2192,7 +2202,8 @@ pockets placeholders for the list's Pokémon in Pokédex order:
   the end, up to the 200 a binder can have, and says what still does not fit.
 - **Cards he owns.** With "Fill binder placeholders automatically" on, the copies in no pocket and in
   no tray go into their placeholders in the same save (`fillPlan` and `fillPlaceholders`, as Fill
-  placeholders does), in the list's languages; copies added later fill the rest through the same
+  placeholders does), in the list's languages, the most valuable copy first (`readList` reads
+  their prices and rarities; Eric, 2026-11-06); copies added later fill the rest through the same
   automatic fill. A copy in a tray stays there.
 - **Preview, save, Undo.** The sheet says what happens before anything is saved ("152 placeholders
   on pages 3 to 19, 23 filled with cards you own.", where it starts, how many are skipped). Lay out
