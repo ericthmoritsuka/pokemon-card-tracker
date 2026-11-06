@@ -1245,3 +1245,10 @@ button.atb-binder {
 		grid-template-columns: 1fr 1fr;
 	}
 }
+
+.layout-add {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	margin: var(--space-2) 0;
+}

@@ -141,6 +141,7 @@ const SHELL = [
 	'js/binders-view.js',
 	'js/binder-cover.js',
 	'js/binder-hand.js',
+	'js/binder-layout.js',
 	'js/binder-presets.js',
 	'js/binder-rule-view.js',
 	'js/binder-rules.js',

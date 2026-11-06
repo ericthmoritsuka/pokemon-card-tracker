@@ -37,13 +37,24 @@
 // place (js/binder-rules.js): its pockets are never filled here, and a copy
 // it shows still counts as in no pocket.
 //
+// A Pokémon's placeholder (laid out from a list, js/binder-layout.js) is
+// filled by any copy of a card showing that Pokémon, in one of the list's
+// languages when it names some (want.languages). Which Pokémon a card shows
+// comes from the Pokédex numbers the checklists read (js/checklists.js
+// resolveOwned), passed to fillPlan as dexOf; they are read only when a
+// binder holds such a placeholder, so nothing changes for anyone else.
+// planAfterAdding, which Start over and the trades log run inside one
+// save, has no Pokédex numbers at hand: their copies fill those
+// placeholders at the next Fill placeholders or the next copy added.
+//
 // fillPlan is pure, so Node tests it (tests/placeholder-fill.test.mjs); the
 // pockets are written by js/binders.js fillPlaceholders, one copy and one
 // stamp per binder, and put back by restorePlaceholders, only where a
 // pocket still holds the copy it was given.
 
 import {addCards, isLive, loadDocument, readMeta} from './collection.js';
-import {addToTray, fillPlaceholders, isGenerated, liveBinders, placeScanned, placements, slotsOf, sortBinders, stagedOf, takeFromTray, unplaceScanned} from './binders.js';
+import {addToTray, fillPlaceholders, handBinders, isGenerated, isPokemonWant, liveBinders, placeScanned, placements, slotsOf, sortBinders, stagedOf, takeFromTray, unplaceScanned} from './binders.js';
+import {resolveOwned} from './checklists.js';
 import {gotWishes, planGot, ungotWishes} from './wishlist.js';
 import {plural} from './format.js';
 
@@ -163,13 +174,16 @@ const byAge = (a, b) => String(a.created_at || '').localeCompare(String(b.create
 // hand-made binder). only: a Set of entry ids, the only copies that may go
 // in (the copies just added); null for every copy in no pocket and no tray.
 // undo: the kept Start over undo (keptStartOver), for pocketLanguages.
+// dexOf: Map entry id -> the Pokédex numbers of its card (dexOfCopies),
+// for Pokémon placeholders; without it they wait and count as waiting.
 // Returns {rows, waiting, binders, unknownLanguage}: rows [{binderId,
-// binderName, page, position, entryId, cardId, catalog, want}] in binder,
-// page, and pocket order, ready for fillPlaceholders; waiting, the
-// placeholders left with no copy; binders, how many binders the rows fill;
-// unknownLanguage, how many rows fill a pocket whose language is not known
-// while copies in several languages fitted it.
-export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) {
+// binderName, page, position, entryId, cardId, catalog, want}, and dex for
+// a Pokémon's placeholder] in binder, page, and pocket order, ready for
+// fillPlaceholders; waiting, the placeholders left with no copy; binders,
+// how many binders the rows fill; unknownLanguage, how many rows fill a
+// card's pocket whose language is not known while copies in several
+// languages fitted it.
+export function fillPlan(doc, {binderId = null, dexOf = null, only = null, undo = null} = {}) {
 	const binders = (doc && doc.binders) || [];
 	const placed = placements(binders);
 	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
@@ -204,7 +218,7 @@ export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) 
 		const held = [];
 
 		for (const slot of slotsOf(binder, placed)) {
-			if (slot.want && slot.want.card_id) {
+			if (slot.want && (slot.want.card_id || isPokemonWant(slot.want))) {
 				own.push({binder, language: slot.want.language || known.get(pocketKey(binder.id, slot)) || null, slot, want: slot.want});
 			}
 			else if (slot.entry_id) {
@@ -234,15 +248,41 @@ export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) 
 	const used = new Set();
 	const chosen = new Map();
 
+	// A Pokémon's copies: every pooled copy whose card shows it, in the
+	// list's languages when its placeholder names some, oldest first.
+	const byDex = new Map();
+
+	if (dexOf) {
+		for (const list of pool.values()) {
+			for (const entry of list) {
+				for (const n of dexOf.get(entry.id) || []) {
+					byDex.set(n, [...(byDex.get(n) || []), entry]);
+				}
+			}
+		}
+
+		for (const list of byDex.values()) {
+			list.sort(byAge);
+		}
+	}
+
+	const candidates = (want) => {
+		if (isPokemonWant(want)) {
+			const languages = Array.isArray(want.languages) && want.languages.length ? want.languages : null;
+
+			return (byDex.get(want.dex) || []).filter((entry) => !languages || languages.includes(entry.language));
+		}
+
+		return (pool.get(want.card_id) || []).filter((entry) => !want.catalog || catalogOf(entry) === want.catalog);
+	};
+
 	for (const fits of passes) {
 		for (const spot of spots) {
 			if (chosen.has(spot)) {
 				continue;
 			}
 
-			const copy = (pool.get(spot.want.card_id) || []).find((entry) => !used.has(entry.id)
-				&& (!spot.want.catalog || catalogOf(entry) === spot.want.catalog)
-				&& fits(spot, entry));
+			const copy = candidates(spot.want).find((entry) => !used.has(entry.id) && fits(spot, entry));
 
 			if (copy) {
 				used.add(copy.id);
@@ -258,7 +298,9 @@ export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) 
 		const copy = chosen.get(spot);
 
 		if (copy) {
-			if (!spot.language && new Set((pool.get(spot.want.card_id) || []).filter((entry) => !spot.want.catalog || catalogOf(entry) === spot.want.catalog).map((entry) => entry.language || '')).size > 1) {
+			const pokemon = isPokemonWant(spot.want);
+
+			if (!pokemon && !spot.language && new Set(candidates(spot.want).map((entry) => entry.language || '')).size > 1) {
 				unknownLanguage++;
 			}
 
@@ -267,6 +309,7 @@ export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) 
 				binderName: spot.binder.name,
 				cardId: copy.card_id,
 				catalog: catalogOf(copy),
+				...(pokemon ? {dex: spot.want.dex} : {}),
 				entryId: copy.id,
 				page: spot.slot.page,
 				position: spot.slot.position,
@@ -281,6 +324,51 @@ export function fillPlan(doc, {binderId = null, only = null, undo = null} = {}) 
 // The rows a fill or Undo saves, kept small: what restorePlaceholders needs.
 const doneRow = (row) => ({binderId: row.binderId, cardId: row.cardId, catalog: row.catalog, entryId: row.entryId, page: row.page, position: row.position, want: row.want});
 
+// True when a hand-made binder holds a Pokémon's placeholder.
+export const hasPokemonWants = (binders) => handBinders(binders).some((binder) => slotsOf(binder).some((slot) => isPokemonWant(slot.want)));
+
+// Saved: Map entry id -> the Pokédex numbers of its card, for the copies
+// given, read as the checklists read them (js/checklists.js resolveOwned:
+// the saved map and card records first). An empty map when they cannot be
+// read; the placeholders then wait.
+export async function dexOfCopies(entries) {
+	const out = new Map();
+
+	if (!entries || !entries.length) {
+		return out;
+	}
+
+	try {
+		const {byDex} = await resolveOwned(entries);
+
+		for (const [n, copies] of byDex || []) {
+			for (const entry of copies) {
+				out.set(entry.id, [...(out.get(entry.id) || []), n]);
+			}
+		}
+	}
+	catch {
+		// Offline with nothing saved: nothing is told.
+	}
+
+	return out;
+}
+
+// Saved: dexOf for fillPlan, only when some binder holds a Pokémon's
+// placeholder: for `entries`, or every live copy in no pocket and no tray.
+async function dexWhenNeeded(doc, entries = null) {
+	const binders = (doc && doc.binders) || [];
+
+	if (!hasPokemonWants(binders)) {
+		return null;
+	}
+
+	const placed = placements(binders);
+	const staged = new Set(liveBinders(binders).flatMap((binder) => stagedOf(binder)));
+
+	return dexOfCopies((entries || (doc.cards || [])).filter((entry) => entry && isLive(entry) && entry.card_id && !placed.has(entry.id) && !staged.has(entry.id)));
+}
+
 // ------------------------------------------------- Fill placeholders
 
 // Saved: the preview of "Fill placeholders" for one binder (binderId) or
@@ -288,14 +376,14 @@ const doneRow = (row) => ({binderId: row.binderId, cardId: row.cardId, catalog: 
 export async function previewFill({binderId = null} = {}) {
 	const doc = await loadDocument();
 
-	return fillPlan(doc, {binderId, undo: await keptStartOver(doc)});
+	return fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), undo: await keptStartOver(doc)});
 }
 
 // Saved: fills them, planned again now so a copy placed since is left
 // alone. Resolves {done, passed, waiting}; done is what undoFill takes.
 export async function fillNow({binderId = null} = {}) {
 	const doc = await loadDocument();
-	const plan = fillPlan(doc, {binderId, undo: await keptStartOver(doc)});
+	const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc), undo: await keptStartOver(doc)});
 
 	if (!plan.rows.length) {
 		return {done: [], passed: [], waiting: plan.waiting};
@@ -388,7 +476,7 @@ export async function afterAdding(entries, {fill = null, place = null} = {}) {
 		let rows = place;
 
 		if (!rows && (fill === null ? autoFillOn(doc) : fill)) {
-			rows = fillPlan(doc, {only: new Set(added.map((entry) => entry.id)), undo: await keptStartOver(doc)}).rows;
+			rows = fillPlan(doc, {dexOf: await dexWhenNeeded(doc, added), only: new Set(added.map((entry) => entry.id)), undo: await keptStartOver(doc)}).rows;
 		}
 
 		if (rows && rows.length) {
@@ -438,7 +526,8 @@ export async function addToBinder(binderId, entryIds, {fill = null} = {}) {
 	let placed = [];
 
 	if (fill === null ? autoFillOn(doc) : fill) {
-		const plan = fillPlan(doc, {binderId, only: new Set(entryIds), undo: await keptStartOver(doc)});
+		const picked = new Set(entryIds);
+		const plan = fillPlan(doc, {binderId, dexOf: await dexWhenNeeded(doc, (doc.cards || []).filter((entry) => entry && picked.has(entry.id))), only: picked, undo: await keptStartOver(doc)});
 
 		if (plan.rows.length) {
 			placed = (await placeScanned(plan.rows)).done.map(doneRow);

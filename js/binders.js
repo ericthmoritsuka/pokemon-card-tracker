@@ -33,7 +33,12 @@
 //   {page, position, placed_at, entry_id}      an owned card (one copy)
 //   {page, position, placed_at, want}          a placeholder, with want =
 //       {card_id, catalog, variant_id, name, image} for a card not owned,
-//       and language when it was made from a copy (Start over)
+//       and language when it was made from a copy (Start over); or a
+//       Pokémon's placeholder, laid out from a checklist
+//       (js/binder-layout.js): {card_id: null, catalog: null, variant_id:
+//       null, image: null, name, dex}, and languages (["en", "pt"]) when
+//       the list names some. Any copy of a card showing that Pokémon fills
+//       it, in one of those languages (isPokemonWant)
 //   {page, position, placed_at, empty: true}   left empty on purpose
 //   {page, position, art}                      a tile of Michi art (not
 //       edited here yet; kept as it is)
@@ -116,6 +121,9 @@ export const clampPage = (binder, page) => Math.min(Math.max(1, Number.parseInt(
 export const inGrid = (binder, slot) => isWhole(slot.page) && isWhole(slot.position)
 	&& slot.page >= 1 && slot.page <= binder.page_count
 	&& slot.position >= 1 && slot.position <= pocketsPerPage(binder);
+
+// A placeholder for a Pokémon rather than a card (laid out from a list).
+export const isPokemonWant = (want) => Boolean(want) && !want.card_id && Number.isInteger(want.dex) && want.dex > 0;
 
 export const slotKind = (slot) => (slot.entry_id ? 'card' : slot.want ? 'want' : slot.art ? 'art' : slot.empty ? 'empty' : null);
 
@@ -331,7 +339,7 @@ export function placeholdersFor(binders, catalog, cardId) {
 
 	for (const binder of handBinders(binders)) {
 		for (const slot of slotsOf(binder)) {
-			if (slot.want && slot.want.card_id === cardId && (!slot.want.catalog || !catalog || slot.want.catalog === catalog)) {
+			if (slot.want && slot.want.card_id && slot.want.card_id === cardId && (!slot.want.catalog || !catalog || slot.want.catalog === catalog)) {
 				out.push({binder_id: binder.id, binder_name: binder.name, page: slot.page, position: slot.position});
 			}
 		}
@@ -1295,13 +1303,24 @@ function changePockets(binders, rows, {at, content, fits}) {
 }
 
 // True when a placeholder stands for the card a row brings: the same card
-// id, and the same catalog when both name one.
-const wantFits = (want, cardId, catalog) => Boolean(want) && want.card_id === cardId
-	&& (!catalog || !want.catalog || want.catalog === catalog);
+// id, and the same catalog when both name one; for a Pokémon's
+// placeholder, a row the plan made for that Pokémon (row.dex, set by
+// js/placeholder-fill.js fillPlan once it checked the card shows it).
+const wantFits = (want, row) => {
+	if (!want) {
+		return false;
+	}
+
+	if (isPokemonWant(want)) {
+		return row.dex === want.dex;
+	}
+
+	return want.card_id === row.cardId && (!row.catalog || !want.catalog || want.catalog === row.catalog);
+};
 
 // Puts saved copies in the placeholders waiting for them, one copy per
 // pocket. rows: [{binderId, page, position, entryId, cardId, catalog}]
-// (catalog optional). A pocket that no longer holds a placeholder for the
+// (catalog optional), and dex for a Pokémon's placeholder. A pocket that no longer holds a placeholder for the
 // card is passed over, and so is a copy already in a pocket or a tray (it
 // is never moved) or one an earlier row placed. Each done row carries want,
 // the placeholder it replaced, so restorePlaceholders can put it back.
@@ -1311,7 +1330,7 @@ export function fillPlaceholders(binders, rows, {at = nowIso()} = {}) {
 		at,
 		content: (row) => ({entry_id: row.entryId}),
 		fits: (row, slot, {placed, staged}) => {
-			if (!wantFits(slot.want, row.cardId, row.catalog) || !row.entryId || used.has(row.entryId) || placed.has(row.entryId) || staged.has(row.entryId)) {
+			if (!wantFits(slot.want, row) || !row.entryId || used.has(row.entryId) || placed.has(row.entryId) || staged.has(row.entryId)) {
 				return false;
 			}
 
@@ -1337,6 +1356,123 @@ export function restorePlaceholders(binders, rows, {at = nowIso()} = {}) {
 
 	return {changed: result.changed, done: result.done.map(({was, ...row}) => row), passed: result.passed};
 }
+
+// ------------------------------------------------- laid out from a list
+//
+// "Lay out from a list" (js/binder-layout.js; Eric, 2026-11-06): Pokémon
+// placeholders written into pockets with nothing in them, in one copy and
+// one stamp of the binder, and taken back by Undo.
+
+// Writes pockets [{page, position, want}] into a hand-made binder, each
+// only where the pocket has nothing in it now, so a filled pocket never
+// changes. pageCount, when more than the binder's pages, adds pages at the
+// end first (up to MAX_PAGES). Returns {changed, done}: the binder to save,
+// and the pockets written.
+export function layOutWants(binders, {at = nowIso(), binderId, pageCount = null, pockets}) {
+	const target = findLive(binders, binderId);
+
+	if (isGenerated(target)) {
+		throw new Error('This binder is made from a list, so its pockets fill themselves.');
+	}
+
+	const next = copyOf(target, at);
+
+	if (Number.isInteger(pageCount) && pageCount > target.page_count) {
+		next.page_count = Math.min(MAX_PAGES, pageCount);
+	}
+
+	const held = new Set(slotsOf(target, placements(binders)).map((slot) => `${slot.page}|${slot.position}`));
+	const done = [];
+
+	for (const pocket of pockets || []) {
+		const key = `${pocket.page}|${pocket.position}`;
+
+		if (held.has(key) || !inGrid(next, pocket) || !pocket.want) {
+			continue;
+		}
+
+		held.add(key);
+		done.push({page: pocket.page, position: pocket.position, want: pocket.want});
+	}
+
+	if (!done.length && next.page_count === target.page_count) {
+		return {changed: [], done};
+	}
+
+	const writing = new Set(done.map((pocket) => `${pocket.page}|${pocket.position}`));
+
+	// Cleared markers and stale slots in those pockets give way.
+	next.slots = next.slots.filter((slot) => slot.art || !writing.has(`${slot.page}|${slot.position}`));
+	next.slots.push(...done.map((pocket) => ({page: pocket.page, placed_at: at, position: pocket.position, want: pocket.want})));
+	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	return {changed: stamped([next]), done};
+}
+
+// Undo of a layout: takes out each Pokémon placeholder it wrote (wants:
+// [{page, position, dex}]) and each copy its fill put in (fills: [{page,
+// position, entryId}]), only where the pocket still holds it, and gives
+// back the pages it added (pageCountBefore, pageCountAfter) when they are
+// still empty and the binder has not been resized since. Returns
+// {changed, back, kept}: the binder to save, the pockets emptied, and the
+// pockets left as they are because they changed since.
+export function undoLayOut(binders, {at = nowIso(), binderId, fills = [], pageCountAfter = null, pageCountBefore = null, wants = []}) {
+	const target = liveBinders(binders).find((binder) => binder.id === binderId && !isGenerated(binder));
+
+	if (!target) {
+		return {back: 0, changed: [], kept: wants.length};
+	}
+
+	const keyOf = (where) => `${where.page}|${where.position}`;
+	const holds = new Map(slotsOf(target, placements(binders)).map((slot) => [keyOf(slot), slot]));
+	const take = new Set();
+
+	for (const row of fills) {
+		const slot = holds.get(keyOf(row));
+
+		if (slot && slot.entry_id === row.entryId) {
+			take.add(keyOf(row));
+		}
+	}
+
+	for (const row of wants) {
+		const slot = holds.get(keyOf(row));
+
+		if (slot && isPokemonWant(slot.want) && slot.want.dex === row.dex) {
+			take.add(keyOf(row));
+		}
+	}
+
+	const next = copyOf(target, at);
+
+	next.slots = next.slots.filter((slot) => slot.art || !take.has(keyOf(slot)));
+
+	const shrink = Number.isInteger(pageCountBefore) && pageCountBefore < target.page_count && target.page_count === pageCountAfter
+		&& ![...holds.values()].some((slot) => slot.page > pageCountBefore && !take.has(keyOf(slot)));
+
+	if (shrink) {
+		next.page_count = pageCountBefore;
+		next.slots = next.slots.filter((slot) => slot.page <= pageCountBefore);
+	}
+
+	return {
+		back: take.size,
+		changed: take.size || shrink ? stamped([next]) : [],
+		kept: wants.filter((row) => !take.has(keyOf(row))).length,
+	};
+}
+
+// Saved: runs change(doc) with the document read now, in the queue with
+// every other binder change, and saves the binders it returns as changed.
+// Resolves the rest of what it returns. For a change planned across lists
+// (js/binder-layout.js reads the cards and the binders together).
+export const changeBinders = (change) => serial(async () => {
+	const {changed = [], ...rest} = await change(await loadDocument());
+
+	await saveBinders(changed);
+
+	return rest;
+});
 
 // Saved: every placeholder in the person's binders, for the scanner.
 export async function waitingPlaceholderList() {

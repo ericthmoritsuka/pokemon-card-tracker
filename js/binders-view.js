@@ -49,6 +49,7 @@ import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {imageCardKey, mainArt, mainSlide, onImagesChange} from './photos/index.js';
 import {openPocketViewer} from './pocket-viewer.js';
+import {addPagesText, applyLayout, doneText, previewLayout, previewLines, readList, undoLayout} from './binder-layout.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -56,8 +57,8 @@ import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
 import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
-import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
-import {pokemonNames} from './checklists.js';
+import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
+import {dexLabel, pokemonNames, spriteUrl} from './checklists.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
@@ -80,6 +81,7 @@ import {
 	fillTray,
 	isGenerated,
 	isHex,
+	isPokemonWant,
 	leaveEmpty,
 	liveBinders,
 	openPockets,
@@ -1069,6 +1071,8 @@ function binderScreen(root, source, id, pageParam) {
 	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
 	// Fill this binder's placeholders with cards you own (js/fill-view.js).
 	const fill = source.readOnly ? null : fillPanel({binderId: id});
+	// A checklist's Pokémon as placeholders (openLayout); hand-made only.
+	const layoutButton = source.readOnly ? null : h('button', {id: 'binder-layout-list', onclick: () => openLayout(), type: 'button'}, 'Lay out from a list');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1166,6 +1170,20 @@ function binderScreen(root, source, id, pageParam) {
 			};
 		}
 
+		// A Pokémon's placeholder, laid out from a list
+		// (js/binder-layout.js): its picture and name, and no card to open.
+		if (isPokemonWant(slot.want)) {
+			const info = {image: spriteUrl(slot.want.dex), name: slot.want.name || `Pokémon ${dexLabel(slot.want.dex)}`, number: dexLabel(slot.want.dex), route: null, setName: null};
+
+			return {
+				info,
+				item: 'pokemon',
+				kind: 'want',
+				label: `${dexLabel(slot.want.dex)} ${info.name}, placeholder for a Pokémon not owned`,
+				node: h('div', {class: 'art-wrap'}, cardArt(info, info.image), h('span', {class: 'pocket-tag'}, 'Want')),
+			};
+		}
+
 		if (slot.want) {
 			const info = wantInfo(slot.want, index, viewing);
 
@@ -1203,6 +1221,7 @@ function binderScreen(root, source, id, pageParam) {
 		const attrs = {
 			'aria-label': `Page ${pg}, pocket ${position}: ${content.label}`,
 			class: `pocket pocket-${content.kind}`,
+			'data-item': content.item || null,
 			'data-kind': content.kind,
 			'data-page': pg,
 			'data-position': position,
@@ -1381,6 +1400,7 @@ function binderScreen(root, source, id, pageParam) {
 			unplacedLink.textContent = `${plural(loose, 'owned card', 'owned cards')} not in any binder`;
 			unplacedLink.hidden = listMode;
 			addTrayButton.hidden = listMode;
+			layoutButton.hidden = listMode;
 			refreshButton.hidden = !listMode;
 			fill.show(listMode ? 0 : binderStats(binder, placed).wanted);
 		}
@@ -1443,6 +1463,7 @@ function binderScreen(root, source, id, pageParam) {
 						refreshButton,
 						fill.button,
 						addTrayButton,
+						layoutButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
@@ -3081,7 +3102,7 @@ function binderScreen(root, source, id, pageParam) {
 	// empty pocket, or swapping with what is there. Undo on the toast moves
 	// both back, unless either pocket has changed since.
 
-	const contentKey = (slot) => (slot ? JSON.stringify([slot.entry_id || null, slot.want ? slot.want.card_id : null, Boolean(slot.art), Boolean(slot.empty)]) : 'none');
+	const contentKey = (slot) => (slot ? JSON.stringify([slot.entry_id || null, slot.want ? slot.want.card_id || `dex:${slot.want.dex}` : null, Boolean(slot.art), Boolean(slot.empty)]) : 'none');
 
 	function slotIn(fresh, where) {
 		return slotsOf(fresh).find((slot) => slot.page === where.page && slot.position === where.position) || null;
@@ -3277,6 +3298,199 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		showCard({actions, entry, info, pg, position, tapped});
+	}
+
+	// ------------------------------------------- lay out from a list
+	//
+	// A hand-made binder takes a checklist's Pokémon as placeholders in its
+	// empty pockets, in Pokédex order (js/binder-layout.js; Eric,
+	// 2026-11-06). A sheet picks the list and shows what would happen, then
+	// one save, with Undo on the toast.
+
+	let closeLayout = () => {};
+
+	async function openLayout() {
+		let doc;
+
+		try {
+			doc = await loadDocument();
+		}
+		catch (err) {
+			showError('Could not open the lists.', err);
+
+			return;
+		}
+
+		if (!alive || !binder || listMode) {
+			return;
+		}
+
+		const binderId = binder.id;
+		const lists = sourceChoices(doc).checklist;
+		const box = h('dialog', {'aria-labelledby': 'layout-title', class: 'pocket-sheet resize-sheet', id: 'layout-sheet'});
+		const select = h('select', {'aria-label': 'Checklist', id: 'layout-list'}, lists.map((item) => h('option', {value: item.id}, item.name)));
+		const from = h('div', {'aria-label': 'Where the placeholders go', class: 'resize-choice', id: 'layout-from', role: 'radiogroup'},
+			h('label', null, h('input', {checked: true, id: 'layout-from-after', name: 'layout-from', type: 'radio', value: 'after'}), h('span', null, 'After the last pocket in use')),
+			h('label', null, h('input', {id: 'layout-from-start', name: 'layout-from', type: 'radio', value: 'start'}), h('span', null, 'Every empty pocket from page 1')));
+		const lines = h('div', {'aria-live': 'polite', class: 'resize-lines', id: 'layout-preview'});
+		const addPages = h('input', {id: 'layout-add-pages', type: 'checkbox'});
+		const addText = h('span', {id: 'layout-add-text'});
+		const addRow = h('label', {class: 'layout-add', hidden: true, id: 'layout-add'}, addPages, addText);
+		const message = h('p', {'aria-live': 'polite', class: 'form-error', id: 'layout-error'});
+		const cancel = h('button', {id: 'layout-cancel', type: 'button'}, lists.length ? 'Cancel' : 'Close');
+		const go = h('button', {class: 'primary', disabled: true, id: 'layout-go', type: 'button'}, 'Lay out');
+		let loaded = null;
+		let asked = 0;
+		let handle = null;
+
+		const fromValue = () => from.querySelector('input:checked').value;
+		const options = () => ({addPages: addPages.checked, from: fromValue()});
+
+		function finish() {
+			closeLayout = () => {};
+
+			if (handle) {
+				handle.close();
+			}
+		}
+
+		// The preview for the list read and the choices now; the latest wins.
+		async function draw() {
+			const ticket = ++asked;
+
+			go.disabled = true;
+			message.textContent = '';
+
+			if (!loaded) {
+				return;
+			}
+
+			if (loaded.gone) {
+				lines.replaceChildren(h('p', null, 'That list was deleted. Choose another.'));
+
+				return;
+			}
+
+			try {
+				const preview = await previewLayout(binderId, loaded, options());
+
+				if (ticket !== asked || !box.open) {
+					return;
+				}
+
+				const offer = addPagesText(preview.plan, pocketsPerPage(binder));
+
+				lines.replaceChildren(...previewLines(preview, {from: fromValue(), partial: loaded.partial}).map((line) => h('p', null, line)));
+				addText.textContent = offer || addText.textContent;
+				addRow.hidden = !offer && !addPages.checked;
+				go.disabled = !preview.plan.pockets.length;
+			}
+			catch (err) {
+				if (ticket === asked) {
+					message.textContent = `Could not work it out. ${err.message || errorText(err)}`;
+				}
+			}
+		}
+
+		async function read() {
+			const ticket = ++asked;
+
+			loaded = null;
+			addPages.checked = false;
+			addRow.hidden = true;
+			go.disabled = true;
+			lines.replaceChildren(h('p', {class: 'muted'}, 'Reading the list and your cards…'));
+
+			try {
+				const result = await readList(select.value, {index, isAlive: () => alive && box.open});
+
+				if (ticket !== asked || !box.open) {
+					return;
+				}
+
+				loaded = result;
+				index = result.index || index;
+				draw();
+			}
+			catch (err) {
+				if (ticket === asked) {
+					lines.replaceChildren();
+					message.textContent = `The list could not be read. ${err.message || errorText(err)}`;
+				}
+			}
+		}
+
+		select.addEventListener('change', read);
+		from.addEventListener('change', draw);
+		addPages.addEventListener('change', draw);
+		cancel.addEventListener('click', finish);
+		box.addEventListener('click', (event) => {
+			if (event.target === box) {
+				finish();
+			}
+		});
+		go.addEventListener('click', async () => {
+			const name = loaded.name || 'the list';
+
+			go.disabled = true;
+			cancel.disabled = true;
+
+			let result;
+
+			try {
+				result = await applyLayout(binderId, loaded, options());
+			}
+			catch (err) {
+				go.disabled = false;
+				cancel.disabled = false;
+				message.textContent = `Could not lay it out. Nothing was changed. ${err.message || errorText(err)}`;
+
+				return;
+			}
+
+			finish();
+			toast(doneText(result, name), {
+				action: () => {
+					undoLayout(result.done)
+						.then(({kept}) => toast(kept
+							? `Taken back, but ${plural(kept, 'pocket has', 'pockets have')} changed since, so ${kept === 1 ? 'it stays' : 'they stay'} as ${kept === 1 ? 'it is' : 'they are'}.`
+							: 'The binder is as it was.'))
+						.catch((err) => toast(`Could not undo. ${errorText(err)}`));
+				},
+				actionLabel: 'Undo',
+				timeout: UNDO_MS,
+			});
+		});
+
+		box.append(
+			h('div', {class: 'sheet-head'}, h('h3', {id: 'layout-title'}, `Lay out ${binder.name} from a list`)),
+			...(lists.length
+				? [
+					h('p', {class: 'muted', id: 'layout-intro'}, 'The list\'s Pokémon go into the empty pockets as placeholders, in Pokédex order, as if you were adding them one by one. Pockets with anything in them stay as they are, and Pokémon already in this binder are skipped.'),
+					h('label', {class: 'field-label', for: 'layout-list'}, 'Checklist'),
+					h('span', {class: 'select-wrap'}, select),
+					from,
+					lines,
+					addRow,
+				]
+				: [h('p', {id: 'layout-none'}, 'You have no checklists yet. Make one in the Lists tab, such as a region, then come back.')]),
+			message,
+			h('div', {class: 'button-row'}, cancel, lists.length ? go : null)
+		);
+		root.append(box);
+		handle = openDialogSheet(box, {onClose: () => {
+			closeLayout = () => {};
+			box.remove();
+		}});
+		closeLayout = finish;
+
+		if (lists.length) {
+			select.focus();
+			read();
+		}
+		else {
+			cancel.focus();
+		}
 	}
 
 	// ------------------------------------------------- the pocket sheet
@@ -3714,6 +3928,7 @@ function binderScreen(root, source, id, pageParam) {
 		alive = false;
 		closeSheet();
 		closeResize();
+		closeLayout();
 		clearTimeout(trayNoteTimer);
 		clearTimeout(handMessageTimer);
 		document.removeEventListener('keydown', onHandKey);
