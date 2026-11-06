@@ -47,7 +47,8 @@ import {toast} from './shell.js';
 import {openDialogSheet} from './sheet.js';
 import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
-import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
+import {imageCardKey, mainArt, mainSlide, onImagesChange} from './photos/index.js';
+import {openPocketViewer} from './pocket-viewer.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -210,6 +211,9 @@ export function entryInfo(entry, index, viewing) {
 	const source = sourceNames(entry, record);
 
 	const info = {
+		// The large image, for the card held up out of its pocket
+		// (js/pocket-viewer.js).
+		full: local ? cardImage(local.image, 'high') : null,
 		image: local ? cardImage(local.image, 'low') : null,
 		name: (source && source.name) || (local && local.name) || entry.name_local || entry.card_id,
 		// A hand-made card's number is on the copy (js/custom-card.js).
@@ -1205,14 +1209,29 @@ function binderScreen(root, source, id, pageParam) {
 		};
 
 		if (!source.readOnly) {
-			// With a tray card picked, a tap places it; otherwise it opens
-			// the picker sheet.
-			// With a card in hand, a tap places it there.
-			return h('button', {...attrs, onclick: () => (hand ? handAt(pg, position) : picked ? placeFromTrayAt(picked, pg, position) : openSheet(pg, position)), type: 'button'}, content.node);
+			// With a card in hand, a tap places it there; with a tray card
+			// picked, a tap places that. Otherwise a card you own comes out
+			// of its pocket (viewPocket), and any other pocket opens the
+			// picker sheet.
+			return h('button', {...attrs, onclick: (event) => {
+				if (hand) {
+					handAt(pg, position);
+				}
+				else if (picked) {
+					placeFromTrayAt(picked, pg, position);
+				}
+				else if (content.kind === 'card') {
+					viewPocket(pg, position, event.currentTarget);
+				}
+				else {
+					openSheet(pg, position);
+				}
+			}, type: 'button'}, content.node);
 		}
 
-		if (content.kind === 'card' && content.info && content.info.route) {
-			return link(content.info.route, attrs, content.node);
+		// Read only, a card comes out of its pocket too, with Card page.
+		if (content.kind === 'card') {
+			return h('button', {...attrs, onclick: (event) => viewPocket(pg, position, event.currentTarget), type: 'button'}, content.node);
 		}
 
 		return h('div', attrs, content.node);
@@ -1703,12 +1722,14 @@ function binderScreen(root, source, id, pageParam) {
 			return h('div', attrs, content.node);
 		}
 
-		if (!source.readOnly) {
-			return h('button', {...attrs, onclick: () => openListSheet(pg, position), type: 'button'}, content.node);
+		// A copy shown comes out of its pocket (viewListPocket); a pocket
+		// with none opens the sheet, read only nothing.
+		if (state.shown) {
+			return h('button', {...attrs, onclick: (event) => viewListPocket(pg, position, event.currentTarget), type: 'button'}, content.node);
 		}
 
-		if (content.kind === 'card' && content.info && content.info.route) {
-			return link(content.info.route, attrs, content.node);
+		if (!source.readOnly) {
+			return h('button', {...attrs, onclick: () => openListSheet(pg, position), type: 'button'}, content.node);
 		}
 
 		return h('div', attrs, content.node);
@@ -3168,6 +3189,96 @@ function binderScreen(root, source, id, pageParam) {
 		);
 	}
 
+	// ------------------------------------------- a card out of its pocket
+	//
+	// A tap on a pocket holding a card takes the card out, large, over the
+	// dimmed binder (js/pocket-viewer.js; Eric, 2026-11-06), with what that
+	// pocket's sheet offers there: Details (the sheet itself), To the tray,
+	// Move, and Card page on your own hand-made binder; Details and Card
+	// page on a binder from a list; Card page alone read only. A tap that
+	// places a tray card or the card in hand never gets here.
+
+	// The pocket's element now, for the card to come from and go back to:
+	// the one tapped while it is on the page, else the one drawn since that
+	// is on screen (the spread draws pockets again on a sync).
+	function pocketOrigin(pg, position, tapped) {
+		return () => {
+			if (tapped && tapped.isConnected && tapped.getClientRects().length) {
+				return tapped;
+			}
+
+			const drawn = spread ? [...spread.element.querySelectorAll(`.pocket[data-page="${pg}"][data-position="${position}"]`)] : [];
+
+			return drawn.find((node) => node.getClientRects().length > 0) || null;
+		};
+	}
+
+	function showCard({actions, entry, info, pg, position, tapped}) {
+		const records = recordsShown();
+
+		openPocketViewer({
+			actions,
+			art: (src) => cardArt(info, src, {eager: true}),
+			origin: pocketOrigin(pg, position, tapped),
+			// Pockets open on the page's outer edge: right on a right-hand
+			// (odd) page, left on a left-hand one.
+			outward: pg % 2 === 1 ? 1 : -1,
+			slide: mainSlide(entry, info.full || info.image, records ? {family: false, records} : {}),
+			subtitle: `${languageLabel(entry.language)} · Page ${pg}, pocket ${position}`,
+			title: info.name,
+		});
+	}
+
+	function viewPocket(pg, position, tapped) {
+		const slot = slotsOn(pg).get(position) || null;
+		const entry = slot && slot.entry_id ? entriesById.get(slot.entry_id) : null;
+
+		if (!entry || !isLive(entry)) {
+			if (!source.readOnly) {
+				openSheet(pg, position);
+			}
+
+			return;
+		}
+
+		const info = entryInfo(entry, index, viewing);
+		const actions = [];
+
+		if (!source.readOnly) {
+			actions.push({id: 'pv-details', label: 'Details', run: () => openSheet(pg, position)});
+			actions.push({id: 'pv-to-tray', label: 'To the tray', run: () => moveToTray(binder.id, pg, position).catch((err) => showError('Could not move the card to the tray.', err))});
+
+			// As the sheet: a one-pocket binder has nowhere to move to.
+			if (pocketsPerPage(binder) * binder.page_count > 1) {
+				actions.push({id: 'pv-move', label: 'Move', run: () => openSheet(pg, position, {move: true})});
+			}
+		}
+
+		if (info.route) {
+			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
+		}
+
+		showCard({actions, entry, info, pg, position, tapped});
+	}
+
+	function viewListPocket(pg, position, tapped) {
+		const state = listState(indexAt(pg, position, binder.rows, binder.cols));
+
+		if (!state || !state.shown) {
+			return;
+		}
+
+		const {entry} = state.shown;
+		const info = entryInfo(entry, index, viewing);
+		const actions = source.readOnly ? [] : [{id: 'pv-details', label: 'Details', run: () => openListSheet(pg, position)}];
+
+		if (info.route) {
+			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
+		}
+
+		showCard({actions, entry, info, pg, position, tapped});
+	}
+
 	// ------------------------------------------------- the pocket sheet
 
 	function closeSheet() {
@@ -3212,7 +3323,8 @@ function binderScreen(root, source, id, pageParam) {
 
 	// The sheet for one pocket. The page travels with it, so a redraw while
 	// it is open (a sync, a turn) cannot move what it saves to another page.
-	function openSheet(page, position) {
+	// move: open on Move to pocket (the Move of a card out of its pocket).
+	function openSheet(page, position, {move = false} = {}) {
 		const slot = pageSlots(binder, page, placed).get(position) || null;
 		const content = pocketContent(slot);
 		const chooser = h('div', {class: 'chooser', hidden: Boolean(slot)});
@@ -3267,6 +3379,12 @@ function binderScreen(root, source, id, pageParam) {
 
 		if (!slot && finePointer()) {
 			sheet.querySelector('#owned-search').focus();
+		}
+
+		if (move && mover) {
+			current.hidden = true;
+			mover.hidden = false;
+			mover.querySelector('#move-page').focus();
 		}
 	}
 

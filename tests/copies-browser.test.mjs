@@ -743,7 +743,10 @@ describe('the count stepper', () => {
 		const pocket = page.locator('#bs-zoom-sheet .pocket[data-position="1"]');
 
 		await pocket.waitFor();
+		// The card comes out of its pocket (js/pocket-viewer.js); Details
+		// are the sheet.
 		await pocket.click();
+		await page.click('#pv-details');
 		await page.waitForSelector('#pocket-sheet[open] #pocket-count');
 		assert.equal(await page.locator('#pocket-count-label').textContent(), 'Copies like this');
 		assert.equal(await count(page, '#pocket-count'), '3');

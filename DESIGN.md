@@ -897,7 +897,8 @@ catalog searches, photo cleanup's official image, and the twin picker.
 
 **Inspection viewer** (Eric, 2026-10-01: "find some details in the card or compare to another card
 to figure out if the card is original"). Tapping the card image on its page opens it full screen
-with pinch and double-tap zoom and panning. **Compare** shows two images side by side (by default
+with pinch and double-tap zoom and panning (a binder's card out of its pocket zooms with the same
+pane, 2026-11-06). **Compare** shows two images side by side (by default
 the official image and the person's photo) with zoom and pan synchronized in card coordinates, so
 the same corner, font, energy symbol, or holo pattern lines up on both; the link can be turned off.
 Official images are about 600 x 825 px, enough for most details but not microprint, and photos are
@@ -2086,6 +2087,31 @@ follow-up) fills it in bulk: a sheet lists the copies in no pocket and in no bin
 search and a set filter; tap tiles or Select all, then add them all, in name order, with Undo on
 the toast. A copy waiting in another binder's tray is not offered, so the picker never takes a
 card from the binder it was meant for. A binder made from a list has no tray and no button.
+
+**A card out of its pocket** (Eric, 2026-11-06: "when I'm looking at a card in my binder, I should be
+able to see the preview as in a modal if I click the card. Right now a dialog appears at the bottom
+with some information. I would like to see the full card too, as if I was taking it out of the slot
+and looking at it in real life."; built 2026-11-06), `js/pocket-viewer.js`. A tap on a pocket
+holding a card you own lifts the card out: it slides toward the pocket's open side (right on a
+right-hand page, left on a left-hand one), then grows to the middle of the screen over the dimmed
+binder, and the pocket shows empty while it is out. The image is the copy's main image as its tile
+shows it (the person's photo when it is the main image, else the official image in its large size),
+and it zooms like the inspection viewer, whose zoom pane it reuses (`zoomPane` in
+`js/photos/viewer.js`): pinch, double tap, Ctrl and the wheel, and + and -. Under the card (beside
+it held sideways) are its name, its language and pocket, and what the pocket's sheet offers there:
+
+- your own hand-made binder: **Details** (the pocket sheet as before), **To the tray**, **Move**
+  (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
+- a binder from a list: Details (its copies sheet) and Card page;
+- a family member's binder, read only: Card page alone (the pocket was a link to it before).
+
+A tap outside the card, a swipe down at zoom 1, Escape, Back, or Close put the card back: it
+shrinks to the pocket's side and slides in. An action closes it at once and opens its own sheet.
+With reduced motion it appears and goes without moving. It is a sheet (`js/sheet.js`): Back closes
+it without leaving the binder, Tab stays inside, focus goes to its first action and back to the
+pocket after. Taps that place a card are unchanged: with a tray card picked or a card in hand, a
+tap on a filled pocket still places or swaps, and never opens it; empty pockets, placeholders, Gone
+pockets, and art keep their sheet. In portrait the overview still opens the page first.
 
 **Placeholders fill themselves** (Eric, 2026-10-31; built 2026-10-31), `js/placeholder-fill.js` and
 `js/fill-view.js`. A placeholder is a card he wants in that pocket, so whenever he has or adds a

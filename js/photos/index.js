@@ -13,6 +13,11 @@
 //                                   memory yet (a family member's photo
 //                                   when the card has no image at all,
 //                                   shared.js)
+//   mainSlide(target, catalogImage) the main image as one zoomable slide,
+//                                   with slideSrc and slideDetail to read a
+//                                   photo's full and detail copies, for the
+//                                   binder's card out of its pocket
+//                                   (js/pocket-viewer.js)
 //   onImagesChange(listener)        tells a screen which cards' images a
 //                                   save or a twin changed
 //   startPhotoSync()                the upload queue and photo restore
@@ -602,6 +607,25 @@ export function withMainPhoto(tile, target, catalogImage, art = plainArt, option
 
 	return cachedPhotoUrl(choice.photo.id) ? tile : fillPhoto(tile, choice, catalogImage, art);
 }
+
+// The main image, as tileSrc picks it, as one slide for the zoom pane
+// (js/photos/viewer.js zoomPane): {id, kind, label, photo, src}. A photo's
+// src is null; slideSrc and slideDetail read it. catalogImage is the
+// official image in the size to show (the high one for a card held up
+// full screen).
+export function mainSlide(target, catalogImage, options = {}) {
+	const choice = choose(target, catalogImage, options);
+
+	if (choice.kind === 'none') {
+		return {id: 'none', kind: 'none', label: 'No image', photo: null, src: null};
+	}
+
+	return {id: choice.photo ? choice.photo.id : choice.kind, kind: choice.kind, label: choice.label, photo: choice.photo || null, src: choice.src || null};
+}
+
+export const slideSrc = (slide) => (slide && slide.photo ? photoUrl(slide.photo) : Promise.resolve(null));
+
+export const slideDetail = (slide) => (slide && slide.photo ? detailUrl(slide.photo) : Promise.resolve(null));
 
 // Art drawn on its own, with the main image: draw(src) makes the element
 // (js/tile.js tileArt, or a frame holding cardArt), and frame(src) the bare

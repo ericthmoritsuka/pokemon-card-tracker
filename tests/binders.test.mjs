@@ -1171,8 +1171,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await page.locator('#binder-summary').textContent(), /^Page 1 of 3: 1 of 9 pockets filled\. 1 of 27 in the binder, 1 placeholder\.$/);
 		await page.screenshot({path: '/tmp/binders-page-1.png'});
 
-		// A filled pocket offers Change and Take out.
+		// A filled pocket takes its card out (js/pocket-viewer.js); its
+		// Details are the sheet, which offers Change and Take out.
 		await pocket(page, 2).click();
+		await page.click('#pv-details');
 		await page.waitForSelector('#pocket-clear');
 		assert.match(await page.locator('#sheet-current-label').textContent(), /Test Bulbasaur/);
 		await page.click('#sheet-close');
@@ -1709,10 +1711,12 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.deepEqual(await tray(), ['c1*']);
 		assert.deepEqual((await saved()).slots.map((slot) => [slot.position, slot.entry_id]), [[1, 'c3'], [2, 'c2']]);
 
-		// Unpicked, a pocket opens its sheet, and a card can go back to the tray.
+		// Unpicked, a pocket takes its card out, its Details open the sheet,
+		// and a card can go back to the tray.
 		await page.click('#bt-strip .bt-card[data-entry="c1"]');
 		assert.deepEqual(await tray(), ['c1']);
 		await pocket(page, 2).click();
+		await page.click('#pv-details');
 		await page.waitForSelector('#pocket-sheet[open]');
 		await page.click('#pocket-to-tray');
 		await waitForKind(page, 2, 'open');
@@ -2295,15 +2299,21 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await waitForKind(page, 1, 'card', 1);
 		assert.equal(await page.locator('#binder-body').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
 		assert.equal(await page.locator('#binder-spread').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
-		assert.equal(await page.locator('#binder-spread .bs-pocket button').count(), 0, 'no pocket can be tapped to edit');
-		assert.equal(await page.locator('#bs-spread a.pocket').count(), 1, 'the owned card opens its card page');
+		// Only the owned card takes a tap, to come out of its pocket.
+		assert.equal(await page.locator('#bs-spread .bs-pocket button.pocket').count(), 1, 'no other pocket can be tapped');
+		assert.equal(await page.locator('#bs-spread .bs-pocket button.pocket[data-kind="card"]').count(), 1);
 		assert.equal(await page.locator('#edit-binder, #binder-cover-image, #delete-binder, #pocket-sheet').count(), 0);
 		assert.match(await pocket(page, 1, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Charmander/);
 
-		// Opened at full size it is still read only, and the card links on.
+		// Opened at full size it is still read only: the card comes out
+		// with Card page alone.
 		await openPage(page, 1);
-		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket button').count(), 0);
-		assert.equal(await page.locator('#bs-zoom-sheet a.pocket').count(), 1);
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket button.pocket').count(), 1);
+		await page.click('#bs-zoom-sheet .bs-pocket button.pocket[data-kind="card"]');
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-card-page']);
+		await page.keyboard.press('Escape');
+		await page.waitForFunction(() => !document.getElementById('pocket-viewer'));
 		await page.click('#bs-zoom-back');
 		await waitForSpread(page, 1);
 

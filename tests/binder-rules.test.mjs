@@ -678,9 +678,13 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.deepEqual(made.slots, []);
 		assert.equal(made.page_count, 1);
 
-		// Pick the rarer copy by hand.
+		// Pick the rarer copy by hand: the copy shown comes out of its
+		// pocket with Details and Card page alone, and Details are the sheet.
 		await openPage(page, 1);
 		await page.click(zoomPocket(1));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-details', 'pv-card-page']);
+		await page.click('#pv-details');
 		await page.waitForSelector('#list-copies .list-copy[data-entry="c3"]');
 		assert.equal(await page.locator('#list-copies .list-copy').count(), 3);
 		assert.equal(await page.locator('#list-copies .list-copy[aria-pressed="true"]').getAttribute('data-entry'), 'c1');
@@ -910,6 +914,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await ownerPage.waitForSelector('#binder-spread .bs-page');
 		await openPage(ownerPage, 1);
 		await ownerPage.click(zoomPocket(1));
+		await ownerPage.click('#pv-details');
 		await ownerPage.click('#list-copies .list-copy[data-entry="c2"]');
 		await waitForPocket(ownerPage, zoomPocket(1), {picked: 'true'});
 
@@ -930,7 +935,8 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.waitForSelector('#binder-spread .bs-page');
 		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Bulbasaur: Test Sprout, English'});
 		await waitForPocket(page, spreadPocket(1, 4), {kind: 'want', label: 'Pikachu, not owned yet'});
-		assert.equal(await page.locator('#bs-spread a.pocket').count(), 3, 'owned pockets open their card pages');
+		assert.equal(await page.locator('#bs-spread button.pocket').count(), 3, 'owned pockets take their card out, with its card page');
+		assert.equal(await page.locator('#bs-spread button.pocket[data-kind="card"]').count(), 3);
 		assert.equal(await page.locator('#binder-refresh, #edit-binder, #delete-binder, #pocket-sheet').count(), 0);
 		await page.screenshot({path: `${SHOTS}/family-360.png`});
 		assert.equal((await localDoc(page)).binders.length, 0, 'viewing changes nothing on this phone');

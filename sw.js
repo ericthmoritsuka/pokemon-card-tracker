@@ -238,6 +238,7 @@ const SHELL = [
 	'js/moves-view.js',
 	'js/placeholder-fill.js',
 	'js/fill-view.js',
+	'js/pocket-viewer.js',
 	'js/sync.js',
 	'js/tcgdex.js',
 	'js/themes.js',

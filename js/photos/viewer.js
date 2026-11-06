@@ -95,7 +95,8 @@ const zoomText = (s) => `${s < 9.95 ? s.toFixed(1) : Math.round(s)}×`;
 // ------------------------------------------------------------- one pane
 
 // One zoomable image. The viewer owns two: one in single view, both in
-// Compare.
+// Compare. Exported for the binder's card out of its pocket
+// (js/pocket-viewer.js), which zooms the same way.
 //
 //   onView(pane)     the view changed by the person (a gesture or a key):
 //                    the viewer passes it to the other pane when linked
@@ -103,7 +104,10 @@ const zoomText = (s) => `${s < 9.95 ? s.toFixed(1) : Math.round(s)}×`;
 //   onReady(pane)    the image is laid out
 //   swipe            {allowed(), drag(dx), end(dx, velocity)}, the single
 //                    view's sideways swipe at zoom 1
-function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, swipe}) {
+//   pull             the same for a downward drag at zoom 1, {allowed(),
+//                    drag(dy), end(dy, velocity)}: the pocket viewer closes
+//                    on it
+export function zoomPane({art = plainArt, onActive = null, onReady = null, onView = null, pull = null, resolveDetail = () => Promise.resolve(null), resolveSrc = () => Promise.resolve(null), swipe = null}) {
 	const inner = h('div', {class: 'ph-pane-art'});
 	const element = h('div', {class: 'ph-pane', role: 'img'}, inner);
 
@@ -427,6 +431,9 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 			if (gesture && gesture.kind === 'swipe') {
 				swipe.end(0, 0);
 			}
+			else if (gesture && gesture.kind === 'pull') {
+				pull.end(0, 0);
+			}
 
 			lastTap = null;
 			gesture = {distance, kind: 'pinch', mid, start: {...view}};
@@ -461,7 +468,12 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 		gesture.moved = Math.max(gesture.moved || 0, Math.hypot(dx, dy));
 
 		if (gesture.kind === 'pending' && Math.hypot(dx, dy) > SLOP) {
-			gesture.kind = swipe && swipe.allowed() && Math.abs(dx) > Math.abs(dy) * 1.2 ? 'swipe' : 'pan';
+			if (swipe && swipe.allowed() && Math.abs(dx) > Math.abs(dy) * 1.2) {
+				gesture.kind = 'swipe';
+			}
+			else {
+				gesture.kind = pull && pull.allowed() && dy > Math.abs(dx) * 1.2 ? 'pull' : 'pan';
+			}
 		}
 
 		if (gesture.kind === 'pan') {
@@ -475,6 +487,9 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 		}
 		else if (gesture.kind === 'swipe') {
 			swipe.drag(dx);
+		}
+		else if (gesture.kind === 'pull') {
+			pull.drag(Math.max(0, dy));
 		}
 	});
 
@@ -516,6 +531,7 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 		const {anchor, moved = 0} = gesture;
 		const elapsed = event.timeStamp - gesture.t;
 		const dx = point.x - gesture.x;
+		const dy = Math.max(0, point.y - gesture.y);
 		const tapped = !cancelled && elapsed < TAP_MS && moved <= SLOP && !anchor;
 		const kind = tapped && gesture.kind === 'pan' ? 'pending' : gesture.kind;
 
@@ -545,6 +561,9 @@ function zoomPane({art, onActive, onReady, onView, resolveDetail, resolveSrc, sw
 		}
 		else if (kind === 'swipe') {
 			swipe.end(cancelled ? 0 : dx, cancelled ? 0 : dx / Math.max(1, elapsed));
+		}
+		else if (kind === 'pull') {
+			pull.end(cancelled ? 0 : dy, cancelled ? 0 : dy / Math.max(1, elapsed));
 		}
 		else if (kind === 'pending' && tapped) {
 			const tap = {t: event.timeStamp, x: point.x, y: point.y};
