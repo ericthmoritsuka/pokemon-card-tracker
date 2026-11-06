@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-05
 
-- **v60:** the scanner cuts a card held low or at a strong slant. `TBD`
+- **v60:** the scanner cuts a card held low or at a strong slant. `e96962a`
   - When a card runs past the guide's capture (held low, or turned so a corner or its foot leaves
     the frame), the edge found on the capture's border is kept and the missing bottom is placed
     from the top and the width, instead of cutting the card short.
