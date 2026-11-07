@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v65:** the binder page slider held sideways, and steadier tests. `TBD`
+- **v65:** the binder page slider held sideways, and steadier tests. `50d56ee`
   - Held sideways, a binder's page slider and page menu share one row beside the Scan button, so
     the slider's handle is fully visible above the bottom bar at every phone size.
   - Four tests that failed under load now wait for what really happens (What's new, the scan
