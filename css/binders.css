@@ -1143,8 +1143,10 @@ button.atb-binder {
 	z-index: 1000;
 }
 
+/* 94 percent: at 88 the binder's black text and yellow rings still read
+   through beside the card held sideways (design polish, 2026-11-06). */
 .pv-shade {
-	background: rgba(8, 10, 16, 0.88);
+	background: rgba(8, 10, 16, 0.94);
 	inset: 0;
 	position: absolute;
 }

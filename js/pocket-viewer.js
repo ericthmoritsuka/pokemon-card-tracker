@@ -5,7 +5,7 @@
 // the screen, large, over the dimmed binder. It zooms like the inspection
 // viewer (js/photos/viewer.js zoomPane: pinch, double tap, Ctrl and the
 // wheel, + and -), and under it a row of what the pocket offers (the
-// caller's actions, such as Details, To the tray, Move, and Card page).
+// caller's actions, such as Edit pocket, To the tray, Move, and Card page).
 //
 // A tap outside the card, a swipe down at zoom 1, Escape, Back, and Close
 // put the card back: it shrinks to the pocket's side and slides in. With

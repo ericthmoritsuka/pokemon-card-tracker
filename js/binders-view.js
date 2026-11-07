@@ -3524,10 +3524,13 @@ function binderScreen(root, source, id, pageParam) {
 	//
 	// A tap on a pocket holding a card takes the card out, large, over the
 	// dimmed binder (js/pocket-viewer.js; Eric, 2026-11-06), with what that
-	// pocket's sheet offers there: Details (the sheet itself), To the tray,
-	// Move, and Card page on your own hand-made binder; Details and Card
-	// page on a binder from a list; Card page alone read only. A tap that
-	// places a tray card or the card in hand never gets here.
+	// pocket's sheet offers there: Edit pocket (the sheet itself), To the
+	// tray, Move, and Card page on your own hand-made binder; Edit pocket and
+	// Card page on a binder from a list; Card page alone read only. A tap
+	// that places a tray card or the card in hand never gets here. Edit
+	// pocket was "Details"; not "Edit copy", since the sheet changes what the
+	// pocket holds (another card, which copy shows), never the copy itself
+	// (design polish, 2026-11-06).
 
 	// The pocket's element now, for the card to come from and go back to:
 	// the one tapped while it is on the page, else the one drawn since that
@@ -3576,7 +3579,7 @@ function binderScreen(root, source, id, pageParam) {
 		const actions = [];
 
 		if (!source.readOnly) {
-			actions.push({id: 'pv-details', label: 'Details', run: () => openSheet(pg, position)});
+			actions.push({id: 'pv-details', label: 'Edit pocket', run: () => openSheet(pg, position)});
 			// Only the copy shown: a sync may have changed the pocket since.
 			actions.push({id: 'pv-to-tray', label: 'To the tray', run: () => moveToTray(binder.id, pg, position, entry.id).catch((err) => toast(err.message || `Could not move the card to the tray. ${errorText(err)}`))});
 
@@ -3605,7 +3608,7 @@ function binderScreen(root, source, id, pageParam) {
 		const {entry} = state.shown;
 		const info = entryInfo(entry, index, viewing);
 		const actions = source.readOnly ? [] : [
-			{id: 'pv-details', label: 'Details', run: () => openListSheet(pg, position)},
+			{id: 'pv-details', label: 'Edit pocket', run: () => openListSheet(pg, position)},
 			{id: 'pv-move', label: 'Move to…', run: () => openListSheet(pg, position, {move: true})},
 			{id: 'pv-remove', label: 'Remove from this binder', run: () => openListSheet(pg, position, {remove: true})},
 		];

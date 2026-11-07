@@ -216,7 +216,7 @@ describe('a binder from a list', () => {
 		await page.click(zoomed(1));
 		await waitOpen(page);
 		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => [node.id, node.textContent])), [
-			['pv-details', 'Details'],
+			['pv-details', 'Edit pocket'],
 			['pv-move', 'Move to…'],
 			['pv-remove', 'Remove from this binder'],
 			['pv-card-page', 'Card page'],
@@ -348,7 +348,7 @@ describe('a hand-made binder', () => {
 		await openPage(page, 1);
 		await page.click(zoomed(1));
 		await waitOpen(page);
-		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.textContent)), ['Details', 'To the tray', 'Move to…', 'Remove from this binder', 'Card page']);
+		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.textContent)), ['Edit pocket', 'To the tray', 'Move to…', 'Remove from this binder', 'Card page']);
 		await page.click('#pv-remove');
 		await page.waitForSelector('#pocket-sheet[open] #remove-panel:not([hidden]) #remove-shift');
 		assert.equal(await page.locator('#remove-note').textContent(), 'The card leaves this binder and goes to Not in a binder. To keep it for this binder, use To the tray.');

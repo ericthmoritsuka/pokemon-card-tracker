@@ -1,6 +1,6 @@
 // Browser tests for a card out of its pocket (js/pocket-viewer.js; Eric,
 // 2026-11-06): a tap on a filled pocket opens the card large with
-// Details, To the tray, Move, and Card page; it zooms; Escape, Back, a tap
+// Edit pocket, To the tray, Move, and Card page; it zooms; Escape, Back, a tap
 // outside, and a swipe down put it back; a tap that places a tray card
 // never opens it, and empty pockets and placeholders still open the sheet.
 // Headless Chromium against tests/pages-server.mjs, signed out. TCGdex is
@@ -221,7 +221,7 @@ describe('a card out of its pocket', () => {
 		assert.equal(await page.locator('#pv-name').textContent(), 'Test Sprout');
 		assert.equal(await page.locator('#pv-meta').textContent(), 'English · Page 1, pocket 1');
 		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => [node.id, node.textContent])), [
-			['pv-details', 'Details'],
+			['pv-details', 'Edit pocket'],
 			['pv-to-tray', 'To the tray'],
 			['pv-move', 'Move to…'],
 			['pv-remove', 'Remove from this binder'],
@@ -314,7 +314,7 @@ describe('a card out of its pocket', () => {
 		await done();
 	});
 
-	test('Details opens the pocket sheet, Move opens it on Move to pocket, To the tray takes the card out, Card page opens the card', async () => {
+	test('Edit pocket opens the pocket sheet, Move opens it on Move to pocket, To the tray takes the card out, Card page opens the card', async () => {
 		const {done, page} = await open(PHONE);
 
 		await seed(page, ALBUM_DOC);
@@ -449,6 +449,8 @@ describe('a card out of its pocket', () => {
 
 		assert.ok(card.y >= 0 && card.y + card.height <= 360, 'the card fits the height');
 		assert.ok(actions.x >= card.x + card.width, 'the actions are beside the card');
+		// Dark enough that the binder beside the card does not read through.
+		assert.ok(await page.$eval('.pv-shade', (node) => Number(getComputedStyle(node).backgroundColor.match(/[\d.]+(?=\)$)/)[0]) >= 0.9));
 		await page.screenshot({path: `${SHOTS}/viewer-sideways.png`});
 		await page.keyboard.press('Escape');
 		await waitGone(page);
