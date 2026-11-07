@@ -801,7 +801,7 @@ export function filterBar({
 
 		return h('div', {class: 'fb-field fb-check', 'data-filter': 'unplaced'},
 			box,
-			h('label', {for: box.id}, `Not in a binder yet (${options.unplaced.toLocaleString('en-US')})`)
+			h('label', {for: box.id}, `Not in a binder (${options.unplaced.toLocaleString('en-US')})`)
 		);
 	}
 

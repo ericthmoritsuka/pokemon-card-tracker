@@ -3139,7 +3139,6 @@ function binderScreen(root, source, id, pageParam) {
 				}
 			},
 		});
-		const filtersButton = bar.element.querySelector('.fb-open');
 
 		// A tap on a tile selects all its copies, or none; - and + under a
 		// selected tile take one copy off or put one back, 1 to all of them.
@@ -3304,9 +3303,13 @@ function binderScreen(root, source, id, pageParam) {
 			h('p', {class: 'muted', id: 'tray-intro'}, 'Pick the cards you own that are not in a binder yet. They wait in the tray until you place them.'),
 			fromRow,
 			search,
-			h('div', {class: 'tray-pick-row'}, h('span', {class: 'select-wrap'}, setFilter), filtersButton, selectAll),
+			// As the pocket's chooser: the sort and Filters on one row; the
+			// set menu has its own row, so "All sets (12)" is never cut, and
+			// Select all sits beside the count it selects (design polish,
+			// 2026-11-06).
+			h('div', {class: 'select-wrap tray-set-row'}, setFilter),
 			bar.element,
-			count,
+			h('div', {class: 'tray-count-row'}, count, selectAll),
 			results,
 			more,
 			h('div', {class: 'tray-pick-foot'}, message, add)
@@ -3987,7 +3990,7 @@ function binderScreen(root, source, id, pageParam) {
 	function ownedPicker(page, position, message) {
 		const search = h('input', {'aria-label': 'Search your cards', autocomplete: 'off', class: 'search', id: 'owned-search', placeholder: 'Search your cards', type: 'search'});
 		const filter = h('div', {class: 'segmented', id: 'owned-filter', role: 'radiogroup'},
-			h('label', null, h('input', {checked: true, name: 'owned-filter', type: 'radio', value: 'unplaced'}), h('span', null, 'Not in a binder yet')),
+			h('label', null, h('input', {checked: true, name: 'owned-filter', type: 'radio', value: 'unplaced'}), h('span', null, 'Not in a binder')),
 			h('label', null, h('input', {name: 'owned-filter', type: 'radio', value: 'all'}), h('span', null, 'All my cards'))
 		);
 		const count = h('p', {'aria-live': 'polite', class: 'muted', id: 'owned-count'});

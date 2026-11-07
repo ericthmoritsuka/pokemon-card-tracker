@@ -804,7 +804,7 @@ export function stageCards(binders, {at = nowIso(), binderId, entryIds, index = 
 }
 
 // The copies "Add cards to the tray" offers: live copies in no pocket (My
-// Cards' "Not in a binder yet") that no binder's tray holds either, so
+// Cards' "Not in a binder") that no binder's tray holds either, so
 // adding one never takes it from a tray it was meant for.
 export function trayCandidates(entries, binders) {
 	const held = new Set(handBinders(binders).flatMap((binder) => stagedOf(binder)));

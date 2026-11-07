@@ -34,7 +34,7 @@
 // stays with its Pokémon or card when the order or the size changes.
 //
 // A generated binder is a view: it never places a copy. placements() in
-// js/binders.js passes over it, so "Not in a binder yet", the copy sheet's
+// js/binders.js passes over it, so "Not in a binder", the copy sheet's
 // pocket line, and the scanner's placeholders are about hand-made binders
 // only, and a copy shown here can also sit in a hand-made binder.
 //

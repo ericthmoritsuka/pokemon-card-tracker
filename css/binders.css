@@ -890,21 +890,35 @@ button.bt-fill {
 
 /* ------------------------------------- adding many cards to the tray */
 
-.tray-pick-row {
-	align-items: center;
-	display: grid;
-	gap: var(--space-2);
-	grid-template-columns: minmax(0, 1fr) auto auto;
-	margin-top: var(--space-2);
+/* Add cards to the tray: the set menu on a row of its own, over the sort
+   and Filters row the pocket's chooser has too, then the count with Select
+   all beside it (design polish, 2026-11-06). */
+.tray-set-row {
+	display: block;
+	margin: var(--space-2) 0;
 }
 
-.tray-pick-row .select-wrap,
-.tray-pick-row select {
+.tray-set-row select {
 	min-width: 0;
 	width: 100%;
 }
 
-.tray-pick-row button {
+.tray-count-row {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	margin: var(--space-2) 0;
+}
+
+.tray-count-row #tray-count {
+	flex: 1 1 auto;
+	margin: 0;
+	min-width: 0;
+}
+
+.tray-count-row button {
+	flex: none;
+	min-height: var(--target);
 	width: auto;
 }
 
