@@ -94,6 +94,31 @@ async function serve(version, {answers = true} = {}) {
 
 const lineText = (page) => page.locator('#profile-version').evaluate((node) => node.textContent.replace(/\s+/g, ' ').trim());
 
+// Asks for the update until the new worker is installed and waiting. One
+// update() call is not enough: a navigation makes Chromium check for an
+// update itself about a second later, and an update() made while that check
+// is running joins it, so it resolves with the script that check fetched,
+// from before serve() changed it, and nothing installs. On a busy machine
+// that check lands after serve(). A call while a worker installs waits.
+const updateUntilWaiting = (page, version) => untilInPage(page, `the ${version} worker to be waiting`, async () => {
+	const registration = await navigator.serviceWorker.getRegistration();
+
+	if (registration.waiting) {
+		return true;
+	}
+
+	if (!registration.installing) {
+		await registration.update().catch(() => {});
+	}
+
+	return false;
+}, {interval: 250, timeout: 30000});
+
+// Closing a sheet takes its history entry away with history.go(-1) on a
+// timer (js/sheet.js goBack). A page.goto made before that traversal runs is
+// cancelled by it (net::ERR_ABORTED), which a busy machine makes likely.
+const sheetEntryGone = (page) => page.waitForFunction(() => !(history.state && history.state.sheet), null, {timeout: 15000});
+
 describe('the releases', () => {
 	test('newest first, versions and dates well formed, plain words with no em dash', async () => {
 		const {context, errors, page} = await device();
@@ -191,8 +216,7 @@ describe('with the service worker', () => {
 
 			// v31 is released and waits.
 			await serve('v31');
-			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
+			await updateUntilWaiting(page, 'v31');
 			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
 			assert.equal(await lineText(page), 'Card Tracker v30 · v31 ready Reload · What\'s new');
 			await page.screenshot({path: '/tmp/whats-new-ready.png'});
@@ -205,6 +229,7 @@ describe('with the service worker', () => {
 			assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.whatsNewSeen')), 'v31');
 			await page.screenshot({path: '/tmp/whats-new-after-reload.png'});
 			await page.click('#whats-new-sheet-close');
+			await sheetEntryGone(page);
 
 			// Once: the next load shows nothing, and Profile says v31.
 			await page.goto(url('profile'));
@@ -254,8 +279,7 @@ describe('with the service worker', () => {
 			assert.equal(await page.locator('#whats-new-sheet').count(), 0);
 			await page.evaluate(() => localStorage.removeItem('cardTracker.whatsNewSeen'));
 			await serve('v31');
-			await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-			await untilInPage(page, 'the v31 worker to be waiting', async () => Boolean((await navigator.serviceWorker.getRegistration()).waiting), {timeout: 30000});
+			await updateUntilWaiting(page, 'v31');
 
 			// The toast's Reload.
 			await page.getByRole('button', {name: 'Reload'}).first().click();

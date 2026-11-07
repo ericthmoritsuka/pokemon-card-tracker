@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
-import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
+import {cardImage, countLooks, LOOK_MS, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 import {sceneCamera} from './scan-scene.mjs';
 
 const require = createRequire(import.meta.url);
@@ -70,6 +70,7 @@ async function open({clock = false, holder = true, record = true, scene = holder
 		}
 	}, scene);
 	await context.addInitScript(sceneCamera, FRAME);
+	await context.addInitScript(countLooks, LOOK_MS);
 	// Set once: a reload keeps what the switch made it.
 	await context.addInitScript(({holder: on, record: log}) => {
 		if (localStorage.getItem('card-tracker:scan-holder') === null) {
@@ -117,7 +118,10 @@ async function until(check, what, timeout = 30000) {
 // Drops `card` onto the pile: it falls from above the frame to its place
 // in seven steps a frame of the camera apart (60 ms, the page's own timer,
 // so the test's round trips cannot hold it mid-air), turning as it goes,
-// and lies still. Resolves with the captures counted at each step.
+// and lies still. Resolves with the captures counted at each step in the
+// air, so not after the last one: once the card has landed it may be taken
+// whenever it has settled, and a busy machine can stretch that last 60 ms
+// past the settle time (js/scan/drop.js SETTLE_MS).
 function drop(page, pile, card) {
 	return page.evaluate(async ({below, falling}) => {
 		const view = await import('/pokemon-card-tracker/js/scan/view.js');
@@ -126,12 +130,38 @@ function drop(page, pile, card) {
 		for (let step = 6; step >= 0; step--) {
 			window.scene = {background: 'box', cards: [...below, {...falling, angle: (falling.angle || 0) + step * 4, dy: (falling.dy || 0) - step * 0.16}]};
 			await new Promise((resolve) => setTimeout(resolve, 60));
-			counts.push(view.scanStats.captures);
+
+			if (step > 0) {
+				counts.push(view.scanStats.captures);
+			}
 		}
 
 		return counts;
 	}, {below: pile, falling: card});
 }
+
+// A hand passes over the pile: one scene per `dxs` place, then the pile as
+// it was. A passing hand is never still from one look of the scanner to
+// the next, so each place is held for `ms` and until the scanner has
+// looked once more, and no longer: the hand keeps pace with the scanner's
+// looks however late a busy machine runs them. Stepped from the test, with
+// a round trip and a fixed wait per place, a busy machine held the hand in
+// one place for several looks, past the drop detector's settle time
+// (js/scan/drop.js SETTLE_MS), and the pile under it read as a new card.
+const passHand = (page, pile, dxs, ms) => page.evaluate(async ({cards, places, step}) => {
+	const lookAfter = (seen) => new Promise((resolve) => {
+		const poll = () => (window.looks > seen ? resolve() : setTimeout(poll, 5));
+
+		poll();
+	});
+
+	for (const dx of places) {
+		window.scene = {background: 'box', cards, hand: {dx, dy: 0.1, r: 0.3}};
+		await Promise.all([lookAfter(window.looks), new Promise((resolve) => setTimeout(resolve, step))]);
+	}
+
+	window.scene = {background: 'box', cards};
+}, {cards: pile, places: dxs, step: ms});
 
 describe('holder mode: cards dropped into a box under a phone held still', () => {
 	test('each card dropped is taken once, after it settles, the top card of the pile is cut, and a card larger than the guide or beside it is found', async () => {
@@ -247,13 +277,12 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 		}
 
 		// A hand passes over the pile and leaves it as it was.
-		for (const dx of [-0.6, -0.3, 0, 0.3, 0.6]) {
-			await setScene(page, {background: 'box', cards: pile, hand: {dx, dy: 0.1, r: 0.3}});
-			await page.waitForTimeout(90);
-		}
+		const dropped = await captures(page);
 
-		await setScene(page, {background: 'box', cards: pile});
+		await passHand(page, pile, [-0.6, -0.3, 0, 0.3, 0.6], 90);
 		await page.waitForTimeout(1200);
+
+		const afterHand = await captures(page);
 
 		// The light flickers.
 		for (const light of [0.8, 1.12, 0.88, 1.08, 1]) {
@@ -262,7 +291,7 @@ describe('holder mode: cards dropped into a box under a phone held still', () =>
 		}
 
 		await page.waitForTimeout(800);
-		assert.equal(await captures(page), order.length, 'the hand and the light took nothing');
+		assert.deepEqual([dropped, afterHand, await captures(page)], [order.length, order.length, order.length], 'the hand and the light took nothing (captures after the drops, the hand, and the light)');
 
 		await until(async () => {
 			const list = await items(page);

@@ -382,6 +382,40 @@ export async function routeTcgdex(context, net = {offline: false}) {
 	return counts;
 }
 
+// The scanner looks at the camera on a 125 ms interval (js/scan/view.js
+// FRAME_MS, startLoop), and auto capture and the drop detector count
+// looks. On a busy machine each look runs late, so wall-clock time is a
+// poor measure of them. countLooks, given to context.addInitScript before
+// any script runs, counts the loop's looks in window.looks, and, once a
+// test has put the scanner module in window.scanView, notes the look and
+// the page time of the first capture in window.capturedAt, from inside the
+// loop, so a test needs no round trip to see when it happened.
+export const LOOK_MS = 125;
+
+export function countLooks(lookMs) {
+	const realSetInterval = window.setInterval;
+
+	window.looks = 0;
+	window.capturedAt = null;
+	window.setInterval = function (callback, ms, ...rest) {
+		if (ms !== lookMs || typeof callback !== 'function') {
+			return realSetInterval.call(this, callback, ms, ...rest);
+		}
+
+		return realSetInterval.call(this, function (...args) {
+			window.looks++;
+
+			const result = callback.apply(this, args);
+
+			if (!window.capturedAt && window.scanView && window.scanView.scanStats.captures > 0) {
+				window.capturedAt = {look: window.looks, now: performance.now()};
+			}
+
+			return result;
+		}, ms, ...rest);
+	};
+}
+
 // ------------------------------------------------------------ the fake camera
 
 // A TCGdex English card scan (high.webp, 600 x 825), downloaded once.
