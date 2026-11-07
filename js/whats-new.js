@@ -23,6 +23,7 @@ export const RELEASES = [
 		date: '2026-11-06',
 		items: [
 			'Holding the phone sideways in a binder, the page slider sits beside the Scan button, fully visible above the bottom bar.',
+			'The page menu sits on the same row, on the other side of the Scan button, so the book keeps its size.',
 		],
 		version: 'v65',
 	},
