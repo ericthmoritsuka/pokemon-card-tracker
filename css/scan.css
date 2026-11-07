@@ -227,15 +227,18 @@ html.scan-open body {
 	display: none;
 }
 
+/* A 44 px target (design polish, 2026-11-06; it was 32), reaching past the
+   tip's own padding so the tip stays one short line. */
 .scan-tip-close {
 	background: none;
 	border: 0;
 	color: var(--scan-text);
 	flex: none;
 	font-size: 18px;
-	height: 32px;
+	height: 44px;
 	line-height: 1;
-	width: 32px;
+	margin: -10px -4px -10px 0;
+	width: 44px;
 }
 
 /* "Same card as the last one." with Add a copy and Mistake, at the foot of
@@ -794,6 +797,14 @@ html.scan-open body {
 	top: 6px;
 	transform: translateX(-50%);
 	width: 40px;
+}
+
+/* A sheet's Close: an outlined button, as the app's sheets have and as the
+   scanner's own Close at its foot (design polish, 2026-11-06; it was a
+   yellow text link). */
+.scan .scan-sheet-close {
+	flex: none;
+	padding: 0 16px;
 }
 
 .scan-sheet-title {
@@ -1491,11 +1502,13 @@ html.scan-open body {
 	cursor: pointer;
 	display: flex;
 	flex: 0 0 auto;
+	flex-wrap: wrap;
 	font-size: 14px;
 	font-weight: 600;
-	gap: 6px;
-	min-height: 40px;
-	padding: 0 10px;
+	column-gap: 6px;
+	line-height: 18px;
+	min-height: 48px;
+	padding: 5px 10px;
 	text-align: left;
 	width: 100%;
 }

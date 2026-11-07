@@ -38,7 +38,7 @@ function sheetHeader(title, onClose, id) {
 	return h('div', {class: 'scan-sheet-head'},
 		h('span', {'aria-hidden': 'true', class: 'scan-sheet-grip'}),
 		h('h2', {class: 'scan-sheet-title', id}, title),
-		h('button', {class: 'scan-text-button', id: 'scan-sheet-close', onclick: onClose, type: 'button'}, 'Close')
+		h('button', {class: 'scan-control scan-sheet-close', id: 'scan-sheet-close', onclick: onClose, type: 'button'}, 'Close')
 	);
 }
 
