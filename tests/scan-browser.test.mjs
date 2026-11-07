@@ -303,7 +303,7 @@ describe('scanner', () => {
 		// shows the copy already owned.
 		await waitForTray(page, 1, 'Pikachu taken on its own');
 		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opens by itself');
-		assert.equal(await text(page, '#scan-run-count'), '1 card', 'the running count over the camera');
+		assert.equal(await text(page, '#scan-run-count'), 'Add · 1 card', 'the running count over the camera');
 		await openTile(page, 0);
 		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});
 		assert.equal(await text(page, '#scan-card-name'), 'Pikachu');

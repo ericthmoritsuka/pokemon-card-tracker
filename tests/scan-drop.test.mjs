@@ -499,3 +499,203 @@ describe('a new card means a new picture (Eric, 2026-10-16): the content check',
 		assert.equal(D.contentCheck(plan, view, null).verdict, 'new');
 	});
 });
+
+// ------------------------------------------------------------ a blurred capture (version 64)
+
+describe('a blurred capture is retried, never lost (Eric, 2026-11-06, version 64)', () => {
+	// The finer view (FIND_SIDE_CAPTURE): 160 x 260 grey, a card 200 pixels
+	// tall in its middle with a detailed print (fine strokes, as a card's art
+	// and text are at that size) over a plain floor.
+	const FW = 160;
+	const FH = 260;
+	const CH = 200;
+	const CW = Math.round(CH * (63 / 88));
+	const X0 = Math.round((FW - CW) / 2);
+	const Y0 = Math.round((FH - CH) / 2);
+	const QUAD = [{x: X0, y: Y0}, {x: X0 + CW, y: Y0}, {x: X0 + CW, y: Y0 + CH}, {x: X0, y: Y0 + CH}];
+
+	// A print of fine detail: a grey of its own in each 4 x 4 pixel cell.
+	const cellGrey = (cx, cy) => {
+		let hash = Math.imul(cx, 73856093) ^ Math.imul(cy, 19349663);
+
+		hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+		hash ^= hash >>> 16;
+
+		return 60 + ((hash >>> 0) % 140);
+	};
+
+	// blur: passes of a 3 x 3 box filter; light scales every pixel (dim
+	// light); print 'detail', 'plain' (a blob), or 'smooth' (a soft gradient,
+	// as a basic Energy's).
+	function fineView({blur = 0, light = 1, print = 'detail'} = {}) {
+		let grey = new Float32Array(FW * FH);
+
+		for (let y = 0; y < FH; y++) {
+			for (let x = 0; x < FW; x++) {
+				const u = (x - X0) / CW;
+				const v = (y - Y0) / CH;
+				let value = 230;
+
+				if (u >= 0 && u < 1 && v >= 0 && v < 1) {
+					value = print === 'plain'
+						? 170
+						: print === 'smooth'
+							? 120 + 80 * Math.sin(u * 3) * Math.cos(v * 2)
+							: cellGrey(Math.floor(x / 4), Math.floor(y / 4));
+				}
+
+				grey[y * FW + x] = value;
+			}
+		}
+
+		for (let pass = 0; pass < blur; pass++) {
+			const next = new Float32Array(grey.length);
+
+			for (let y = 0; y < FH; y++) {
+				for (let x = 0; x < FW; x++) {
+					let sum = 0;
+					let n = 0;
+
+					for (let dy = -1; dy <= 1; dy++) {
+						for (let dx = -1; dx <= 1; dx++) {
+							const xx = Math.min(FW - 1, Math.max(0, x + dx));
+							const yy = Math.min(FH - 1, Math.max(0, y + dy));
+
+							sum += grey[yy * FW + xx];
+							n++;
+						}
+					}
+
+					next[y * FW + x] = sum / n;
+				}
+			}
+
+			grey = next;
+		}
+
+		return {grey: Uint8ClampedArray.from(grey, (value) => value * light), height: FH, width: FW};
+	}
+
+	test('a sharp card reads sharp, the same card out of focus reads soft, in good light and dim', () => {
+		for (const light of [1, 0.35]) {
+			const sharp = D.captureFocus(fineView({light}), [QUAD]);
+			const soft = D.captureFocus(fineView({blur: 2, light}), [QUAD]);
+
+			assert.equal(sharp.why, null, `sharp at light ${light}: ${JSON.stringify(sharp)}`);
+			assert.ok(sharp.blur <= D.BLUR_SHARE && sharp.texture >= D.TEXTURE_MIN);
+			assert.equal(soft.why, 'soft', `out of focus at light ${light}: ${JSON.stringify(soft)}`);
+		}
+	});
+
+	test('a plain blob is plain, and a soft print of its own (a basic Energy\'s gradient) is not sharp', () => {
+		assert.equal(D.captureFocus(fineView({print: 'plain'}), [QUAD]).why, 'plain');
+		assert.notEqual(D.captureFocus(fineView({print: 'smooth'}), [QUAD]).why, null);
+	});
+
+	test('the worse of two outlines counts: a card half out of focus is not sharp', () => {
+		const view = fineView();
+		const soft = fineView({blur: 2});
+		// The lower half from the blurred picture: a hand's card over it.
+		const half = {...view, grey: Uint8ClampedArray.from(view.grey, (value, i) => (Math.floor(i / FW) > Y0 + CH / 2 ? soft.grey[i] : value))};
+		const top = [QUAD[0], QUAD[1], {x: QUAD[1].x, y: Y0 + CH / 2}, {x: QUAD[0].x, y: Y0 + CH / 2}];
+
+		assert.equal(D.captureFocus(half, [top]).why, null, 'the top half alone reads sharp');
+		assert.notEqual(D.captureFocus(half, [top, QUAD]).why, null, 'with the whole card, the soft half counts');
+	});
+
+	test('regionStir: an unchanged spot is still, under a lamp flickering too; a card landing on it is not', () => {
+		const empty = render({cards: []});
+		const withCard = render({cards: [card(0)]});
+		const cellsOf = (view) => D.cells(view.grey, view.width, view.height);
+		const spot = {h: H * 0.55, w: H * 0.55 * (63 / 88), x: W * 0.5 - H * 0.55 * (63 / 88) / 2, y: H * 0.48 - H * 0.55 / 2};
+
+		assert.ok(D.regionStir(cellsOf(empty), cellsOf(empty), spot) <= D.GONE_STIR);
+		assert.ok(D.regionStir(cellsOf(render({cards: [], light: 0.85})), cellsOf(empty), spot) <= D.GONE_STIR, 'the light alone');
+		assert.ok(D.regionStir(cellsOf(withCard), cellsOf(empty), spot) > 0.3, 'a card on the spot');
+		assert.ok(D.regionStir(cellsOf(render({cards: [card(0), card(1)]})), cellsOf(withCard), spot) > 0.1, 'another card on the very spot of the last');
+		assert.equal(D.regionStir(cellsOf(empty), null, spot), 1, 'nothing to compare with: it changed');
+	});
+
+	test('retryVerdict: a sharp look of the card before is a repeat, a spot as it was is gone, a sharp new look is the card, else it waits', () => {
+		const sharp = {blur: 0.02, texture: 0.9};
+		const soft = {blur: 0.3, texture: 0.9};
+
+		assert.equal(D.retryVerdict({content: {verdict: 'same'}, focus: sharp, stir: 0.5}), 'repeat');
+		assert.equal(D.retryVerdict({content: {verdict: 'same'}, focus: sharp, stir: 0}), 'repeat');
+		assert.equal(D.retryVerdict({content: {verdict: 'new'}, focus: sharp, stir: 0.01}), 'gone', 'the spot shows what lay there before the drop');
+		assert.equal(D.retryVerdict({focus: soft, stir: 0.01}), 'gone', 'a hand left nothing, even out of focus');
+		assert.equal(D.retryVerdict({content: {verdict: 'new'}, focus: sharp, stir: 0.4}), 'sharp');
+		assert.equal(D.retryVerdict({content: {verdict: 'unsure'}, focus: sharp, stir: 0.4}), 'sharp', 'unsure whether it is the same card: added');
+		assert.equal(D.retryVerdict({focus: soft, stir: 0.4}), null, 'still blurred: it waits');
+		assert.equal(D.retryVerdict({focus: {blur: 0, texture: 0.1}, stir: 0.4}), null, 'plain: it waits');
+		// A card on the very spot of the last, told by its picture: its cells
+		// barely change, so it is never taken for gone.
+		assert.equal(D.retryVerdict({byPicture: true, content: {verdict: 'new'}, focus: sharp, stir: 0}), 'sharp');
+		assert.equal(D.retryVerdict({byPicture: true, focus: soft, stir: 0}), null);
+	});
+
+	test('landedOn: a card-shaped change on the spot and a print far from the waiting one is another card, unless the waiting card shows again', () => {
+		// Prints as printOf makes them: two 64-bit hashes, two 32-bit words each.
+		const a = {art: Uint32Array.from([0x01234567, 0x89abcdef]), face: Uint32Array.from([0x0f0f0f0f, 0x0f0f0f0f])};
+		const near = {art: Uint32Array.from([0x01234560, 0x89abcdef]), face: a.face};
+		const far = {art: Uint32Array.from([~0x01234567 >>> 0, ~0x89abcdef >>> 0]), face: a.face};
+
+		assert.ok(D.printDistance(near, a) < D.NEW_PRINT && D.printDistance(far, a) >= D.NEW_PRINT);
+		assert.equal(D.landedOn({landed: true, print: far, waiting: a}), true, 'a different card dropped on it');
+		assert.equal(D.landedOn({landed: true, print: near, waiting: a}), false, 'the same card, settled');
+		assert.equal(D.landedOn({landed: false, print: far, waiting: a}), false, 'no card-shaped change on the spot: the card settling');
+		assert.equal(D.landedOn({landed: true, print: far, same: true, waiting: a}), false, 'the waiting card shows again: a hand over it left, or it came into focus');
+		assert.equal(D.landedOn({landed: true, print: far, waiting: null}), true, 'no print to compare: added, never replaced');
+	});
+
+	test('spotVerdict: on a waiting capture\'s spot, another card, the card settled, a second copy, or one more look', () => {
+		const a = {art: Uint32Array.from([0x01234567, 0x89abcdef]), face: Uint32Array.from([0x0f0f0f0f, 0x0f0f0f0f])};
+		const far = {art: Uint32Array.from([~0x01234567 >>> 0, ~0x89abcdef >>> 0]), face: a.face};
+
+		assert.equal(D.spotVerdict({landed: true, print: far, sharp: true, waiting: a}), 'another card');
+		assert.equal(D.spotVerdict({landed: true, print: far, sharp: false, waiting: a}), 'another card', 'blurred too: added after the waiting one');
+		assert.equal(D.spotVerdict({landed: true, print: far, same: true, sharp: true, waiting: a}), 'settled', 'a hand over it left, or it came into focus');
+		assert.equal(D.spotVerdict({landed: true, print: a, sharp: true, waiting: a}), 'settled');
+		// Review of 2026-11-06: two Fire Energies, the second dropped on the
+		// first while it waited, were folded into one without a word.
+		assert.equal(D.spotVerdict({fell: true, landed: true, print: a, sharp: false, waiting: a}), 'second copy');
+		assert.equal(D.spotVerdict({fell: false, landed: true, print: a, sharp: false, waiting: a}), 'waiting', 'a hand over it moving slowly');
+		assert.equal(D.spotVerdict({fell: true, landed: true, print: a, same: true, sharp: false, waiting: a}), 'waiting', 'the waiting card itself');
+	});
+
+	test('blurredLike: the same card out of focus reads close to its sharp look; another card does not', () => {
+		const thumbOf = (view) => D.cardThumb(view.grey, view.width, view.height, QUAD);
+		const sharp = fineView();
+		const other = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value) => 255 - value)};
+
+		assert.ok(D.blurredLike(thumbOf(fineView({blur: 3})), thumbOf(sharp)) <= D.LIKE_MAD);
+		assert.ok(D.blurredLike(thumbOf(fineView({blur: 3})), thumbOf(other)) > D.LIKE_MAD);
+		assert.equal(D.sameCardThere(thumbOf(fineView({blur: 3})), thumbOf(sharp)), true);
+	});
+
+	test('revealedIn: the sharp part of a card half under a blurred hand is found again once the hand leaves; another card on it is not', () => {
+		const corners = QUAD;
+		const thumbOf = (view) => D.cardThumb(view.grey, view.width, view.height, corners);
+		const sharp = fineView();
+		const soft = fineView({blur: 3});
+		// The lower half under a hand's card out of focus.
+		const covered = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value, i) => (Math.floor(i / FW) > Y0 + CH / 2 ? soft.grey[i] : value))};
+		const other = {...sharp, grey: Uint8ClampedArray.from(sharp.grey, (value, i) => 255 - value)};
+
+		assert.equal(D.revealedIn(thumbOf(covered), thumbOf(sharp)), true, 'the card, the hand gone');
+		assert.equal(D.revealedIn(thumbOf(covered), thumbOf(other)), false, 'another card dropped on it');
+		assert.equal(D.revealedIn(thumbOf(fineView({blur: 10})), thumbOf(sharp)), false, 'nothing sharp to go by: never taken for the same');
+		assert.equal(D.revealedIn(thumbOf(soft), thumbOf(sharp)), true, 'a little soft, the same card');
+		assert.ok(D.detailMatch(thumbOf(covered), thumbOf(sharp)).cells >= D.REVEAL_MIN);
+	});
+
+	test('sameSpot: a card on the waiting one\'s spot is one spot; a card beside it is another', () => {
+		const spot = {h: 100, w: 70, x: 50, y: 50};
+
+		assert.ok(D.sameSpot(spot, {h: 96, w: 68, x: 55, y: 54}));
+		assert.ok(D.sameSpot(spot, {h: 200, w: 140, x: 20, y: 20}), 'a larger change round it');
+		assert.ok(!D.sameSpot(spot, {h: 100, w: 70, x: 110, y: 50}), 'beside it');
+		assert.ok(!D.sameSpot(spot, null));
+		assert.equal(D.RETRY_MS, 1500);
+	});
+});

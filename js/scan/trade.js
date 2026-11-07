@@ -13,12 +13,14 @@
 //
 // A card going out is one of Eric's copies (outCopies): one that fits what
 // the scanner read (the same card, the language, and the finish, where both
-// the scan and the copy name one), spares first (the Trade view's rule,
-// js/wishlist.js spareEntries), then a copy in no binder pocket or tray, then
-// the very finish read. A copy is taken by itself only when it is plainly
-// the one; when two or more still fit, or the one left is in a binder while
-// a loose copy also fits, Eric picks (item.picked, the copies' ids). A card
-// he does not own cannot go out and is not logged. No copy goes out twice.
+// the scan and the copy name one). Copies in no binder pocket or tray come
+// first, then the very finish read. When the copies it would choose between
+// are alike (the same finish and condition), it takes one by itself, a
+// spare first (the Trade view's rule, js/wishlist.js spareEntries), then the
+// newest. Eric picks (item.picked, the copies' ids) only when the choice
+// matters: the loose copies differ in finish or condition, or not enough
+// loose copies fit, so one would leave a binder. A card he does not own
+// cannot go out and is not logged. No copy goes out twice.
 // A card coming in is a new copy as Add would make it (session.js
 // entriesToSave). Log it hands both lists to the trades log's form
 // (tradeHandoff, js/moves.js setPendingMove), which saves as it always does;
@@ -168,8 +170,12 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 //           'other'   copies of the card, none in this language and finish
 //                     (or every one already going out): not logged unless
 //                     Eric picks one
-//           'ask'     two or more copies fit, or the one left is in a binder
-//                     while a loose copy also fits: Eric picks
+//           'ask'     the loose copies it would choose between differ in
+//                     finish or condition (a loose copy with no finish saved
+//                     counts for the condition beside the ones in the finish
+//                     read), too few loose copies fit and the rest are in
+//                     binders, or the finish read is in a binder while the
+//                     loose copies have no finish saved: Eric picks
 //           'short'   fewer copies fit than the card's copies: those go
 //           'chosen'  the copies are settled (by 'auto' or 'hand')
 //   need        how many copies the card stands for (its Copies)
@@ -234,10 +240,16 @@ export function outCopies(session, cards, {known = 'loaded', where = new Map()} 
 		hands.set(item.id, picked);
 	}
 
-	const rank = (item) => (a, b) => Number(spare(b)) - Number(spare(a))
-		|| Number(loose(b)) - Number(loose(a))
-		|| Number(Boolean(item.variantId) && b.variant_id === item.variantId) - Number(Boolean(item.variantId) && a.variant_id === item.variantId)
+	const exact = (item, entry) => Boolean(item.variantId) && entry.variant_id === item.variantId;
+	// Best first: loose, then the very finish read, then spares, then the
+	// newest added.
+	const rank = (item) => (a, b) => Number(loose(b)) - Number(loose(a))
+		|| Number(exact(item, b)) - Number(exact(item, a))
+		|| Number(spare(b)) - Number(spare(a))
 		|| byAge(a, b);
+	// Copies alike for whoever gets them: the same finish and condition (a
+	// copy with neither saved is alike only to another without).
+	const kindOf = (entry) => JSON.stringify([entry.variant_id || null, entry.condition || null]);
 
 	for (const item of outs) {
 		const need = copiesOf(item);
@@ -288,33 +300,47 @@ export function outCopies(session, cards, {known = 'loaded', where = new Map()} 
 			continue;
 		}
 
-		// Spares first, then copies in no binder, then the very finish read,
-		// each only while enough copies are left to choose from.
-		let pool = fits;
-
-		for (const keep of [spare, loose, (entry) => Boolean(item.variantId) && entry.variant_id === item.variantId]) {
-			const narrower = pool.filter(keep);
-
-			if (narrower.length >= remaining) {
-				pool = narrower;
-			}
-		}
-
-		const binderOverLoose = pool.some((entry) => !loose(entry)) && fits.some((entry) => loose(entry) && !pool.includes(entry));
+		// Eric's rule (2026-11-06): the loose copies, in the finish read where
+		// enough are; among those, the scanner chooses by itself when the
+		// ones it chooses between are alike, and asks when the choice changes
+		// what leaves, or when a copy would have to leave a binder.
+		const looseFits = fits.filter(loose);
 
 		result.candidates = [...hand, ...fits];
-		result.suggested = pool.slice(0, remaining).map((entry) => entry.id);
+		result.suggested = fits.slice(0, remaining).map((entry) => entry.id);
 
-		if (pool.length === remaining && !binderOverLoose) {
-			for (const entry of pool) {
-				taken.add(entry.id);
-			}
-
-			Object.assign(result, {by: hand.length ? 'hand' : 'auto', copies: [...hand, ...pool], status: 'chosen'});
-		}
-		else {
+		if (looseFits.length < remaining) {
 			Object.assign(result, {copies: hand, status: 'ask'});
+			continue;
 		}
+
+		const exactFits = looseFits.filter((entry) => exact(item, entry));
+		const settled = exactFits.length >= remaining ? [] : exactFits;
+		const between = exactFits.length >= remaining ? exactFits : looseFits.filter((entry) => !settled.includes(entry));
+		const left = remaining - settled.length;
+		// Loose copies with no finish saved may be the finish read too: when
+		// the copies in that finish are enough, they still count for the
+		// condition, so a Played holo never goes silently while a Near Mint
+		// copy of unknown finish was the other choice.
+		const unknown = exactFits.length >= remaining ? looseFits.filter((entry) => !entry.variant_id) : [];
+		const conditions = new Set([...between, ...unknown].map((entry) => entry.condition || null));
+		// A finish read, too few loose copies in it, and the loose ones left
+		// have no finish saved while a copy in that very finish sits in a
+		// binder: which one is the card in his hand is his call.
+		const binderExact = Boolean(item.variantId) && exactFits.length < remaining && fits.some((entry) => !loose(entry) && exact(item, entry)) && between.every((entry) => !entry.variant_id);
+
+		if ((between.length > left && new Set(between.map(kindOf)).size > 1) || (unknown.length && conditions.size > 1) || binderExact) {
+			Object.assign(result, {copies: hand, status: 'ask'});
+			continue;
+		}
+
+		const chosen = [...settled, ...between.slice(0, left)];
+
+		for (const entry of chosen) {
+			taken.add(entry.id);
+		}
+
+		Object.assign(result, {by: hand.length ? 'hand' : 'auto', copies: [...hand, ...chosen], status: 'chosen'});
 	}
 
 	return results;
@@ -393,8 +419,8 @@ export function guessKind(outCount, inCount) {
 }
 
 // What Log it hands the trades log's form (js/moves-view.js newMoveView):
-// {kind, alternatives, out: [copy ids], in: [{fields, info, n}], records,
-// session}. The cards in are the copies Add would save (session.js
+// {kind, alternatives, out: [copy ids], in: [{fields, info, n}], items:
+// {out, in} (the tray's item ids on each side), records, session}. The cards in are the copies Add would save (session.js
 // entriesToSave: card, catalog, language, language_source 'scan', finish,
 // condition), one row per tray card with its copies as n; records names
 // them in the card index (as Add's save does), so the form shows their
@@ -442,8 +468,11 @@ export function tradeHandoff(session, results, owned = new Map()) {
 	}
 
 	const {alternatives, kind} = guessKind(out.length, incoming.length);
+	// The tray's cards on each side as they are now: the save takes out
+	// only these (draft.js clearTrade).
+	const items = {in: ins.map((item) => item.id), out: session.items.filter((item) => sideOf(item) === 'out').map((item) => item.id)};
 
-	return {alternatives, in: incoming, kind, out, records, session: session.id};
+	return {alternatives, in: incoming, items, kind, out, records, session: session.id};
 }
 
 // One line under a card going out, saying which copy goes or why none does.
@@ -476,7 +505,7 @@ export function outLine(result, {where = new Map(), languageName = (code) => cod
 				? 'None of your copies is in this language and finish. Not logged unless you pick one.'
 				: 'Every copy you own of it is already going out. Not logged.';
 		case 'ask':
-			return result.need > 1 ? `Pick which ${result.need} copies go (${result.candidates.length} fit).` : `Pick which copy goes (${result.candidates.length} fit).`;
+			return `${result.candidates.length} ${result.candidates.length === 1 ? 'copy matches' : 'copies match'}${result.need > 1 ? `; pick ${result.need}` : ''}.`;
 		case 'short':
 			return `You own only ${result.copies.length} that ${result.copies.length === 1 ? 'fits' : 'fit'}; ${result.copies.length === 1 ? 'it goes' : 'they go'}.`;
 		default: {

@@ -25,8 +25,10 @@ const when = (date) => {
 const reason = (err) => String((err && err.message) || err || 'unknown error').replace(/\.$/, '');
 
 // The day the cleanup deletes a report (js/scan/report-file.js
-// reportDeleteAt): "Deleted Dec 6", "Deleted soon" once that day is past,
-// or nothing when the report has no known upload time and is kept.
+// reportDeleteAt): "Kept until Dec 6", "Deleting soon" once that day is
+// past, or nothing when the report has no known upload time and is kept.
+// It says what holds now, not what has happened (design review,
+// 2026-11-06).
 function deleteText(report) {
 	const end = reportDeleteAt(report);
 
@@ -34,7 +36,7 @@ function deleteText(report) {
 		return null;
 	}
 
-	return end.getTime() <= Date.now() ? 'Deleted soon' : `Deleted ${end.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`;
+	return end.getTime() <= Date.now() ? 'Deleting soon' : `Kept until ${end.toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`;
 }
 
 const reportRoute = (base) => `check/reports/${encodeURIComponent(base)}`;
@@ -363,8 +365,8 @@ export function sentReportsView(root) {
 	root.append(
 		h('section', {class: 'card'},
 			h('h2', null, 'Sent reports'),
-			h('p', {class: 'muted'}, 'Scan logs sent with Send report in Phone check, kept in your account. Only you can see them, from any device you are signed in on.'),
-			h('p', {class: 'muted', id: 'sent-reports-expiry'}, `Reports are deleted automatically ${REPORT_KEEP_DAYS} days after they are sent.`),
+			// One notice (design review, 2026-11-06).
+			h('p', {class: 'muted', id: 'sent-reports-expiry'}, `Scan logs sent with Send report in Phone check, kept in your account and open on any device you are signed in on. Only you can see them. Each is deleted ${REPORT_KEEP_DAYS} days after it is sent.`),
 			status,
 			waiting,
 			list),

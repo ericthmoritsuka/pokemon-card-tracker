@@ -17,9 +17,9 @@
 //     the end, up to the 200 a binder can have.
 //   - Cards he owns: with "Fill binder placeholders automatically" on,
 //     copies in no pocket and no tray go into their placeholders in the
-//     same save, through js/placeholder-fill.js fillPlan and js/binders.js
-//     fillPlaceholders; later copies fill them through the same automatic
-//     fill (afterAdding).
+//     same save, the most valuable first (readList rankOf), through
+//     js/placeholder-fill.js fillPlan and js/binders.js fillPlaceholders;
+//     later copies fill them through the same automatic fill (afterAdding).
 //   - One save, with Undo on the toast: Undo takes out each placeholder
 //     and each copy the layout put in, where the pocket still holds it;
 //     pages it added stay, empty, to be removed in Edit binder (another
@@ -36,7 +36,7 @@ import {indexKey} from './catalog.js';
 import {loadDocument, nowIso} from './collection.js';
 import {formatCount, plural} from './format.js';
 import {MAX_PAGES, changeBinders, fillPlaceholders, handBinders, isPokemonWant, layOutWants, openPockets, placements, pocketsPerPage, slotsOf, undoLayOut} from './binders.js';
-import {loadRuleItems, sourceEntry} from './binder-sources.js';
+import {loadRuleItems, rankerFor, sourceEntry} from './binder-sources.js';
 import {autoFillOn, fillPlan} from './placeholder-fill.js';
 
 const keyOf = (where) => `${where.page}|${where.position}`;
@@ -168,7 +168,7 @@ export function layoutDraft(doc, binderId, loaded, {addPages = false, at = nowIs
 	if (laid.done.length && autoFillOn(doc)) {
 		const draft = {...doc, binders: binders.map((item) => changed.find((one) => one.id === item.id) || item)};
 		const written = new Set(laid.done.map(keyOf));
-		const rows = fillPlan(draft, {binderId, dexOf: dexOfItems(loaded.items)}).rows.filter((row) => written.has(keyOf(row)));
+		const rows = fillPlan(draft, {binderId, dexOf: dexOfItems(loaded.items), rankOf: loaded.rankOf || null}).rows.filter((row) => written.has(keyOf(row)));
 
 		if (rows.length) {
 			const filled = fillPlaceholders(draft.binders, rows, {at});
@@ -200,7 +200,9 @@ export function layoutDraft(doc, binderId, loaded, {addPages = false, at = nowIs
 
 // Reads a checklist's Pokémon and the copies that show them, as a binder
 // from a list reads them. Resolves loadRuleItems's result, with the list's
-// name (name), or {gone: true}.
+// name (name) and rankOf, the prices and rarities of those copies
+// (js/binder-sources.js rankerFor), so the most valuable copy fills its
+// placeholder (Eric, 2026-11-06); or {gone: true}.
 export async function readList(listId, {index = null, isAlive = () => true} = {}) {
 	const doc = await loadDocument();
 	const rule = listRule(listId);
@@ -210,7 +212,11 @@ export async function readList(listId, {index = null, isAlive = () => true} = {}
 		return {gone: true, items: []};
 	}
 
-	return {...await loadRuleItems(rule, doc, {index, isAlive}), name: list.name};
+	const loaded = await loadRuleItems(rule, doc, {index, isAlive});
+	const copies = (loaded.anyItems || loaded.items || []).flatMap((item) => item.copies || []);
+	const rankOf = await rankerFor(copies).catch(() => null);
+
+	return {...loaded, name: list.name, rankOf};
 }
 
 // What it would do now, without saving: layoutDraft's {plan, fills}, and

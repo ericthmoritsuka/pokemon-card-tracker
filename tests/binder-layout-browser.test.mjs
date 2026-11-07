@@ -184,7 +184,9 @@ const CHECKLIST = {created_at: AT, deleted_at: null, dex_list: [1, 4, 7, 25, 152
 
 const JOHTO_DOC = documentWith({
 	binders: [JOHTO],
-	cards: [card('c1', 'tst1-001'), card('c4', 'tst1-004'), card('c152', 'tst3-152')],
+	// c1-cheap is older than c1, with no price; c1 has a Liga price typed
+	// on it, so c1 fills (the most valuable copy; Eric, 2026-11-06).
+	cards: [card('c1', 'tst1-001', {price_manual: {avg: 30, currency: 'BRL', date: '2026-11-01', low_nm: 30, source: 'liga'}}), card('c1-cheap', 'tst1-001', {created_at: '2026-10-01T00:00:00.000Z'}), card('c4', 'tst1-004'), card('c152', 'tst3-152')],
 	goals: [CHECKLIST],
 });
 

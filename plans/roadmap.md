@@ -50,16 +50,20 @@ the audit below to confirm or drop:
   DESIGN.md section 6); perfectly regular vertical
   stripes still pass the presence check. Worth committing the benchmark into `lab/` (it uses
   TCGdex images only) so it survives `/tmp` being cleared.
-- **Binders (v18):** the empty-binder hint still says "Tap a pocket", which in portrait means
-  tapping the page first; the binder screen's action buttons no longer stick (they covered the
+- **Binders (v18):** the binder screen's action buttons no longer stick (they covered the
   spread); new binders default to 40 pages; old `binders/<id>/<page>` links open the spread
-  holding that page; another phone keeps a deleted binder's cover in its local cache; in
-  landscape the raised Scan button sits over the bottom of the spine.
+  holding that page; another phone keeps a deleted binder's cover in its local cache. Done in
+  v22 (checked 2026-11-06): the empty-binder hint says "Tap a page, then a pocket" upright and
+  "Tap a pocket" sideways (`0731f45`, tests/shell.test.mjs), and held sideways the spread is
+  sized to stay clear of the raised Scan button (`97f9def`; at 740 x 360, 780 x 360, 844 x 390,
+  and 915 x 412 the book ends 3 to 4 px above the disc).
 - **Every card of a Pokémon (v19):** a list with no `languages` field shows "All" and counts any
-  language. Once Edit saves languages there is no way back to "All" (ticking every box counts the
-  same but shows seven flags). On an "All" list the first visit to a Pokémon makes four Asian
-  catalog requests plus one per Japanese or Korean set with that Pokémon, cached afterwards. Owned
-  rows no longer expand inline; the row links to the Pokémon's screen instead.
+  language. Done (checked 2026-11-06): Edit offers "Any language", which removes the field
+  (v22, `ba990c6`, tests/checklists.test.mjs), and ticking every box saves the same way
+  (`3bec825`, js/languages.js `listLanguagesToSave`). On an "All" list the first visit to a
+  Pokémon makes four Asian catalog requests plus one per Japanese or Korean set with that
+  Pokémon, cached afterwards. Owned rows no longer expand inline; the row links to the Pokémon's
+  screen instead.
 - **Twins (v20):** Ver na Liga on a Japanese Trainer now builds its link from the twin's English
   name; check against Liga's Japanese pages that this is right. Set detail tiles do not use twins.
   No test opens a family member's cards with Japanese entries. Twins and the Pokémon screen each
@@ -281,6 +285,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   what does not fit, owned copies filled in, and Undo. A Pokémon's placeholder is a `want` with no
   card and a `dex`, which v47 to v61 keep. `js/binder-layout.js`, DESIGN.md section 11. Medium. To
   check with Eric: an older phone's Open card on such a pocket opens an empty card page.
+- **Built 2026-11-06 on branch `binder-polish`: placeholders take the most valuable copy (Eric,
+  2026-11-06; it was the oldest):** Fill placeholders, the fill after adding copies, Add cards to the
+  tray, and Lay out from a list put in the copy a binder from a list would show (price, else
+  rarity, else newest added, a tie to the lowest id; `js/binder-rules.js` `copyOrder`). Start over
+  and the trades log still take the oldest, having no prices inside their one save. DESIGN.md
+  section 11, "Placeholders fill themselves". Small.
 - **Done in v46: Add to binder from a card's page (Eric, 2026-10-16):** beside Add to wishlist and Add to
   collection; a sheet lists hand-made binders (cover, fill); the chosen binder opens with the card in
   hand (a bar at the bottom); turn pages and tap an empty pocket to place it, with Undo; Next free
@@ -397,23 +407,56 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
 
 Eric: "Maybe I could use the scanner to register the trades/sales too instead of registering them
 just manually." Built: Scan's Add or Trade or sale switch (remembered per phone, Add the default),
-a trade tray of its own with Going out and Coming in, cards going out matched to his copies (spares
-first, then loose copies, in the language and finish read; Pick the copy when two or more fit; a
-card not owned is not logged; no copy twice), and Log it into the trades log's form, filled in (the
+a trade tray of its own with Going out and Coming in, cards going out matched to his copies (loose
+copies first, in the language and finish read, alike ones taken by themselves with spares first;
+Pick the copy when the choice matters, every such card on one sheet from Log it; a card not owned
+is not logged; no copy twice), and Log it into the trades log's form, filled in (the
 kind from the sides, today), saved by the trades log as always. DESIGN.md section 11, "Scan a
 trade or a sale". Tests: `tests/scan-trade.test.mjs`, `tests/scan-trade-browser.test.mjs`.
 
 To check on the phone and with Eric:
 
-- The rule for which copy goes by itself: a binder copy is never emptied by itself while a loose
-  copy also fits (it asks instead). Is that what he wants, or should spares always win?
-- With three or more copies of a card he is asked every time; if that is often, a "same as last
-  time" choice or "any spare" could follow.
+- Settled 2026-11-06 on v63 (branch `trade-autopick`): which copy goes by itself. Eric: "the app
+  is asking me about every card I'm scanning in the trade to select which copy goes out". Loose
+  copies first, then the finish read; alike ones (same finish and condition) go by themselves, a
+  spare first, then the newest; it asks only when the loose copies differ or a copy would come out
+  of a binder. On the phone: is a copy with no condition set, beside a Near Mint one, asked about
+  too often?
+- Settled 2026-11-06 on v63 (branch `trade-autopick`): Log it shows every card to pick on one
+  sheet, and the last pick opens the form. Eric: "I have to click Log it and another card shows
+  up... it's upsetting."
 - The system Back from the scanner keeps the trade tray instead of asking (Close asks).
 - The mode switch leads the tray head under the camera (one button naming the mode); at 360 px with
   Set for all showing, the tray's count beside it hides, as the running count over the camera says
   the same. Landscape was already short of room before this mode (the controls fall below the
   screen); the switch shows there, the trade tray is cut like the Add tray.
+
+## Holder retry and Scan the cards (Eric, 2026-11-06): built on branch `holder-retry`, to check on the phone
+
+Eric's phone log of 2026-11-06: in holder mode, 4 of 27 cards were taken blurred while his hand
+brought the next card near the lens, and 4 were the same card taken twice about a second apart. His
+rule: never lose a card. Built (version 64 to be): the capture loop of version 63 unchanged; a
+capture that reads out of focus waits up to 1.5 s for a sharper still look of its spot and is added
+from it, or logged as a repeat (the repeat bar asks after a drop-like disturbance) or as nothing left,
+or, with no sharper look, added anyway, marked "Check this one" only when its match is not sure. A
+card dropped on a waiting one is its own card, added after it. Never lose a card and never add one
+silently: a blurred capture added because another card landed, Log it, or leaving is always marked,
+a hand over the card before is a repeat, and a drop on the card before's place whose picture names
+the same card asks with the repeat bar. The wait-and-hold build of branch
+`holder-settle` was dropped: two reviews found ways it lost cards. Also: **Scan the cards** on Trades
+and sales opens Scan in Trade or sale, the trade tray as it was. DESIGN.md section 6, "Holder mode
+retries a blurred capture", and section 11, "Scan a trade or a sale". Tests:
+`tests/scan-retry-browser.test.mjs`, `tests/scan-drop.test.mjs`, `tests/scan-trade-browser.test.mjs`.
+
+To check on the phone and with Eric:
+
+- How often a clean card is held back: the next phone log's `retry` numbers say how many waited and
+  how each wait ended.
+- Basic Energies read soft by the focus measure, so each waits 1.5 s before it is added; it is marked
+  only when its match is not sure.
+- Never losing a card can add one too many, always marked: the next card in a hand taken blurred
+  over a card that is not the one before, then dropped on the spot. A hand held over a card that
+  just landed leaves one card; the card under a hand is not added again when it leaves.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

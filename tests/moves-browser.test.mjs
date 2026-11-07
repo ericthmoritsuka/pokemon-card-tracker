@@ -96,6 +96,8 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Trades beside Spares fits at 390 px');
 	await page.click('#cards-moves');
 	await page.waitForSelector('#moves-empty');
+	assert.equal(await page.textContent('#moves-empty-scan'), 'Scan a trade or sale', 'the empty state offers the scanner too');
+	assert.equal(await page.textContent('#moves-scan'), 'Scan a trade');
 	await page.goto(url('profile'));
 	await page.waitForSelector('#profile-moves');
 

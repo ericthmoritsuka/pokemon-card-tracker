@@ -25,7 +25,7 @@ const STATUS_TEXT = {
 	reading: 'Reading…',
 	rematch: 'Looking it up…',
 	unmatched: 'Not found',
-	unsure: 'Needs a look',
+	unsure: 'To check',
 	waiting: 'Waiting for signal',
 };
 
@@ -39,27 +39,26 @@ function sheetHeader(title, onClose, id) {
 
 // ------------------------------------------------------------ the mode switch
 
-// The scanning mode, at the head of the tray under the camera: one button
-// that names the mode in use ("Add", or "Trade or sale" in teal) and
-// switches to the other, so the mode is always in sight and never over the
-// picture. It takes the place of nothing the tray head needs: the count
+// The scanning mode, at the head of the tray under the camera: two
+// segments, Add and Trade or sale, the one in use pressed (teal for Trade
+// or sale), so the mode is always in sight and never over the picture
+// (design review, 2026-11-06). Pressing the other segment asks to switch;
+// the view may refuse, and draws the switch again either way. The count
 // beside it gives way when the row is short.
 export function modeSwitch(onChoose) {
-	const el = h('button', {class: 'scan-mode', 'data-mode': 'add', id: 'scan-mode', type: 'button'});
+	const segment = (mode, label) => h('button', {'aria-pressed': 'false', class: 'scan-mode-segment', 'data-mode-to': mode, id: `scan-mode-${mode}`, onclick: () => onChoose(mode), type: 'button'}, label);
 
-	el.addEventListener('click', () => onChoose(el.dataset.mode === 'trade' ? 'add' : 'trade'));
-
-	return el;
+	return h('div', {'aria-label': 'Scan mode', class: 'scan-mode', 'data-mode': 'add', id: 'scan-mode', role: 'group'},
+		segment('add', 'Add'),
+		segment('trade', 'Trade or sale'));
 }
 
 export function drawModeSwitch(el, mode) {
-	const trade = mode === 'trade';
+	el.dataset.mode = mode === 'trade' ? 'trade' : 'add';
 
-	el.dataset.mode = trade ? 'trade' : 'add';
-	el.setAttribute('aria-label', trade ? 'Scan mode: Trade or sale. Tap to switch to Add.' : 'Scan mode: Add. Tap to switch to Trade or sale.');
-	el.replaceChildren(
-		h('span', {'aria-hidden': 'true', class: 'scan-mode-swap'}, '\u21c4'),
-		h('span', {class: 'scan-mode-name'}, trade ? 'Trade or sale' : 'Add'));
+	for (const button of el.querySelectorAll('[data-mode-to]')) {
+		button.setAttribute('aria-pressed', String(button.dataset.modeTo === el.dataset.mode));
+	}
 }
 
 // ------------------------------------------------------------ the tray
@@ -111,6 +110,9 @@ function tradeRow(item, {languageName, photoUrl, result, where}) {
 	// card's sheet (tradeBlock), so the narrow row keeps room for the name.
 	// No button when nothing is left to pick: the line says to remove the card.
 	const pick = (status === 'ask' || status === 'other') && Boolean((result.candidates || []).length);
+	// Beside Pick a copy the row says only how many copies match: the
+	// button says what to do (design review, 2026-11-06, 360 px rows).
+	const shown = pick && status === 'ask' ? `${result.candidates.length} match` : line;
 
 	return h('li', {class: ['scan-trade-row', looks ? 'is-look' : '', status === 'none' || status === 'other' ? 'is-skipped' : '', status === 'ask' ? 'is-ask' : ''].filter(Boolean).join(' '), 'data-row': item.id, 'data-status': status || reason || 'ready'},
 		h('button', {
@@ -124,10 +126,10 @@ function tradeRow(item, {languageName, photoUrl, result, where}) {
 			item.language ? flagBadge([item.language], {className: 'scan-trade-flag'}) : null),
 		h('span', {class: 'scan-trade-text'},
 			h('span', {class: 'scan-trade-title'}, copies > 1 ? `×${copies} ${name}` : name),
-			line ? h('span', {class: 'scan-trade-line'}, line) : null)),
+			shown ? h('span', {class: 'scan-trade-line'}, shown) : null)),
 		h('button', {'aria-label': `Remove ${item.card ? item.card.name : 'this scan'}`, class: 'scan-trade-remove', 'data-remove': item.id, title: 'Remove', type: 'button'},
 			h('span', {'aria-hidden': 'true'}, '×')),
-		pick ? h('button', {'aria-label': `Pick the copy of ${name} that goes out`, class: 'scan-trade-pick', 'data-pick': item.id, type: 'button'}, 'Pick the copy') : null);
+		pick ? h('button', {'aria-label': `Pick the copy of ${name} that goes out`, class: 'scan-trade-pick', 'data-pick': item.id, type: 'button'}, 'Pick a copy') : null);
 }
 
 // ------------------------------------------------------------ a card's sheet
@@ -144,8 +146,62 @@ export function tradeBlock(item, {languageName = langName, onMove, onPick, resul
 	return h('div', {class: 'scan-frame scan-trade-block', id: 'scan-trade-block'},
 		h('p', {id: 'scan-trade-side'}, h('strong', null, SIDE_NAMES[side]), line ? ` · ${line}` : ''),
 		h('div', {class: 'scan-row'},
-			canPick ? h('button', {class: 'scan-button', id: 'scan-trade-pick', onclick: () => onPick(item.id), type: 'button'}, result.status === 'chosen' ? 'Change the copy' : 'Pick the copy') : null,
+			canPick ? h('button', {class: 'scan-button', id: 'scan-trade-pick', onclick: () => onPick(item.id), type: 'button'}, result.status === 'chosen' ? 'Change the copy' : 'Pick a copy') : null,
 			h('button', {class: 'scan-button', id: 'scan-trade-move', onclick: () => onMove(item.id, other), type: 'button'}, `Move to ${SIDE_NAMES[other]}`)));
+}
+
+// Where a copy is, short enough for a tile: "Binder A, p. 3", "Binder A,
+// tray", its storage place, or "Loose".
+function whereShort(where, entry) {
+	if (where && where.kind === 'pocket') {
+		return `${where.binder_name}, p. ${where.page}`;
+	}
+
+	if (where && where.kind === 'tray') {
+		return `${where.binder_name}, tray`;
+	}
+
+	return entry.storage || 'Loose';
+}
+
+// The copies a card going out may take, as tiles (design review,
+// 2026-11-06): each copy's picture with its language, then in 14 px its
+// condition in bold (and its finish, only when it is known), where it is,
+// and Spare and Suggested as chips. A picked tile has a teal ring and a
+// check. on(entry) says whether a tile is picked; tap(entry, on) runs when
+// it is pressed.
+function copyTiles(ctx, item, result, {on, tap}) {
+	const suggested = new Set(result.suggested);
+	// Every copy is of the card scanned, so a copy the card index does not
+	// name yet shows the scanned card's name and picture.
+	const own = {image: item.card.image ? cardImage(item.card.image, 'low') : null, name: item.card.name, number: item.card.localId, setName: item.card.setName || null};
+
+	return described(result.candidates, ctx.cardIndex, ctx.viewing).map((one) => {
+		const known = one.info.name && one.info.name !== one.entry.card_id;
+		const shown = {...one, info: {...one.info, ...(known ? {} : {name: own.name, number: own.number, setName: own.setName}), image: one.info.image || own.image}};
+		const {entry} = shown;
+		const finish = entry.variant_id ? variantLabel(findVariant(item.variants, entry.variant_id)) : null;
+		const place = whereShort(ctx.where.get(entry.id), entry);
+		const spare = ctx.isSpare(entry.id);
+		const best = suggested.has(entry.id);
+		const pressed = on(entry);
+		const [art] = copyTile(shown, {selected: pressed});
+
+		return h('button', {
+			'aria-label': [entry.condition || 'Condition not set', finish, whereText(ctx.where.get(entry.id), entry), spare ? 'spare' : null, best ? 'suggested' : null].filter(Boolean).join(', '),
+			'aria-pressed': String(pressed),
+			class: `pick scan-copy${best ? ' is-suggested' : ''}`,
+			'data-entry': entry.id,
+			onclick: () => tap(entry, pressed),
+			type: 'button',
+		},
+		art,
+		h('span', {class: 'scan-copy-line'}, h('strong', null, entry.condition || 'Condition not set'), finish ? ` · ${finish}` : ''),
+		h('span', {class: 'scan-copy-where'}, place),
+		spare || best ? h('span', {class: 'scan-copy-chips'},
+			best ? h('span', {class: 'scan-copy-chip is-suggested'}, 'Suggested') : null,
+			spare ? h('span', {class: 'scan-copy-chip'}, 'Spare') : null) : null);
+	});
 }
 
 // ------------------------------------------------------------ the copy picker
@@ -155,12 +211,27 @@ export function tradeBlock(item, {languageName = langName, onMove, onPick, resul
 // pocket, a binder's tray, a storage place, or no binder), spares marked,
 // best first. A card standing for several copies picks that many; one copy
 // is picked with one tap.
+// The copies tapped for a card standing for several, as each draw of a
+// sheet should show them: until he taps one, the copies the scanner has for
+// it now (they change when another card takes one); after, his taps, less
+// any copy no longer offered (taken by another card, or gone).
+function tappedNow(tapped, result) {
+	if (!tapped) {
+		return new Set(result.copies.map((entry) => entry.id));
+	}
+
+	const offered = new Set(result.candidates.map((entry) => entry.id));
+
+	return new Set([...tapped].filter((id) => offered.has(id)));
+}
+
 export function copyPicker(ctx, itemId) {
 	const titleId = 'scan-copy-title';
 	const body = h('div', {class: 'scan-sheet-body'});
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-copy-sheet', id: 'scan-copy-sheet', role: 'dialog'},
 		sheetHeader('Which copy goes out?', () => ctx.closeSheet(), titleId),
 		body);
+	let tapped = null;
 	let chosen = null;
 
 	function refresh() {
@@ -175,9 +246,7 @@ export function copyPicker(ctx, itemId) {
 
 		const need = result.need;
 
-		if (!chosen) {
-			chosen = new Set(result.copies.map((entry) => entry.id));
-		}
+		chosen = tappedNow(tapped, result);
 
 		const fits = result.status !== 'other';
 		const intro = need > 1
@@ -185,45 +254,26 @@ export function copyPicker(ctx, itemId) {
 			: fits
 				? `${plural(result.candidates.length, 'copy fits', 'copies fit')} the ${langName(item.language)} card you scanned. Pick the one that goes out.`
 				: `None of your copies is ${langName(item.language)}${item.variantId ? ' in this finish' : ''}. Pick one only if it is the card in your hand.`;
-		const suggested = new Set(result.suggested);
-		// Every copy is of the card scanned, so a copy the card index does not
-		// name yet shows the scanned card's name and picture.
-		const own = {image: item.card.image ? cardImage(item.card.image, 'low') : null, name: item.card.name, number: item.card.localId, setName: item.card.setName || null};
-		const tiles = described(result.candidates, ctx.cardIndex, ctx.viewing).map((one) => {
-			const known = one.info.name && one.info.name !== one.entry.card_id;
-			const described = {...one, info: {...one.info, ...(known ? {} : {name: own.name, number: own.number, setName: own.setName}), image: one.info.image || own.image}};
-			const {entry} = described;
-			const variant = findVariant(item.variants, entry.variant_id);
-			const extra = [
-				entry.variant_id ? variantLabel(variant) || 'Finish set' : 'Finish not set',
-				whereText(ctx.where.get(entry.id), entry),
-				ctx.isSpare(entry.id) ? 'Spare' : null,
-			].filter(Boolean).join(' · ');
-			const on = chosen.has(entry.id);
+		const tiles = copyTiles(ctx, item, result, {
+			on: (entry) => chosen.has(entry.id),
+			tap: (entry, on) => {
+				if (need === 1) {
+					ctx.pickCopies(itemId, [entry.id]);
+					ctx.closeSheet();
 
-			return h('button', {
-				'aria-pressed': String(on),
-				class: `pick scan-copy${suggested.has(entry.id) ? ' is-suggested' : ''}`,
-				'data-entry': entry.id,
-				onclick: () => {
-					if (need === 1) {
-						ctx.pickCopies(itemId, [entry.id]);
-						ctx.closeSheet();
+					return;
+				}
 
-						return;
-					}
+				if (on) {
+					chosen.delete(entry.id);
+				}
+				else if (chosen.size < need) {
+					chosen.add(entry.id);
+				}
 
-					if (on) {
-						chosen.delete(entry.id);
-					}
-					else if (chosen.size < need) {
-						chosen.add(entry.id);
-					}
-
-					refresh();
-				},
-				type: 'button',
-			}, ...copyTile(described, {extra, selected: on}));
+				tapped = chosen;
+				refresh();
+			},
 		});
 
 		body.replaceChildren(...[
@@ -243,6 +293,141 @@ export function copyPicker(ctx, itemId) {
 	refresh();
 
 	return {el, itemId, refresh};
+}
+
+// ------------------------------------------------------------ every pick at once
+
+// Every card going out whose copy Eric must pick, on one sheet (Eric,
+// 2026-11-06: "it doesn't show me all the cards I have to pick right away.
+// I have to click Log it and another card shows up. Log it, another card
+// shows up. Log it... it's upsetting"). Log it opens it whenever a card
+// asks. Each card shows its copies as the copy picker does, and he picks
+// them in any order; the pick that settles the last one goes on to the
+// trades log's form by itself (ctx.logIt), and Log it at the foot does the
+// same once all are picked. A card stays listed once picked, so a pick can
+// be changed before that; one that starts asking after a pick (its copy
+// went to another card) joins the list. Cards going out that cannot go out
+// are listed under them with the line the tray shows, so nothing is a
+// surprise. The tray's Pick a copy still opens the copy picker for one
+// card.
+export function picksSheet(ctx) {
+	const titleId = 'scan-picks-title';
+	const body = h('div', {class: 'scan-sheet-body'});
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-copy-sheet scan-picks-sheet', id: 'scan-picks-sheet', role: 'dialog'},
+		sheetHeader('Which copies go out?', () => ctx.closeSheet(), titleId),
+		body);
+	const listed = new Set();
+	// For a card standing for several copies: the copies tapped so far, kept
+	// here until there are as many as it stands for (tappedNow; an untapped
+	// card shows the scanner's copies as they are now).
+	const tapped = new Map();
+	const chosen = new Map();
+	const outs = () => ctx.session.items.filter((item) => sideOf(item) === 'out');
+	const skipped = (result) => result.status === 'none' || result.status === 'other';
+
+	// The pick that leaves no card asking goes on to the form.
+	function onward() {
+		if (!ctx.tradeAsks()) {
+			ctx.logIt();
+		}
+	}
+
+	function card(item, result) {
+		const need = result.need;
+		const nameId = `scan-picks-name-${item.id}`;
+
+		if (need > 1) {
+			chosen.set(item.id, tappedNow(tapped.get(item.id), result));
+		}
+
+		const tiles = copyTiles(ctx, item, result, {
+			on: (entry) => (need > 1 ? chosen.get(item.id).has(entry.id) : result.status === 'chosen' && result.copies.some((one) => one.id === entry.id)),
+			tap: (entry, on) => {
+				if (need === 1) {
+					ctx.pickCopies(item.id, [entry.id]);
+					onward();
+
+					return;
+				}
+
+				const set = chosen.get(item.id);
+
+				if (on) {
+					set.delete(entry.id);
+				}
+				else if (set.size < need) {
+					set.add(entry.id);
+				}
+
+				tapped.set(item.id, set);
+
+				if (set.size === need) {
+					ctx.pickCopies(item.id, [...set]);
+					onward();
+
+					return;
+				}
+
+				if (item.picked) {
+					ctx.pickCopies(item.id, []);
+				}
+
+				refresh();
+			},
+		});
+
+		return h('section', {'aria-labelledby': nameId, class: 'scan-picks-card', 'data-pick-item': item.id, 'data-status': result.status},
+			h('h3', {class: 'scan-picks-name', id: nameId}, [need > 1 ? `×${need} ${item.card.name}` : item.card.name, langName(item.language)].join(' · ')),
+			h('p', {class: 'scan-muted scan-picks-line'}, outLine(result, {languageName: langName, where: ctx.where})),
+			tiles.length ? h('div', {class: 'pick-grid scan-copy-grid'}, ...tiles) : null);
+	}
+
+	function refresh() {
+		const rows = [];
+
+		for (const item of outs()) {
+			const result = ctx.outResult(item.id);
+
+			if (!item.card || !result) {
+				continue;
+			}
+
+			if (result.status === 'ask' || skipped(result)) {
+				listed.add(item.id);
+			}
+
+			if (listed.has(item.id)) {
+				rows.push([item, result]);
+			}
+		}
+
+		const toPick = rows.filter(([, result]) => !skipped(result));
+
+		if (!toPick.length) {
+			ctx.closeSheet();
+
+			return;
+		}
+
+		const left = toPick.filter(([, result]) => result.status === 'ask').length;
+		const notLogged = rows.filter(([, result]) => skipped(result));
+
+		body.replaceChildren(...[
+			h('p', {class: 'scan-muted', id: 'scan-picks-intro'}, left
+				? `${toPick.some(([, result]) => result.need > 1) ? 'Pick the copies for each card.' : 'Pick one copy for each card.'} The trade form opens when ${toPick.length === 1 ? 'it is' : `all ${toPick.length} are`} picked.`
+				: 'All picked. Log it opens the trades log.'),
+			...toPick.map(([item, result]) => card(item, result)),
+			notLogged.length ? h('h3', {class: 'scan-picks-head', id: 'scan-picks-skipped'}, 'Not logged') : null,
+			...notLogged.map(([item, result]) => h('section', {class: 'scan-picks-card is-skipped', 'data-pick-item': item.id, 'data-status': result.status},
+				h('h3', {class: 'scan-picks-name'}, [item.card.name, langName(item.language)].join(' · ')),
+				h('p', {class: 'scan-muted scan-picks-line'}, outLine(result, {languageName: langName, where: ctx.where})))),
+			h('button', {class: 'scan-button scan-primary scan-wide', disabled: left > 0, id: 'scan-picks-go', onclick: () => ctx.logIt(), type: 'button'}, left ? `Log it (${plural(left, 'card')} to pick)` : 'Log it'),
+		].filter(Boolean));
+	}
+
+	refresh();
+
+	return {el, itemId: null, refresh};
 }
 
 // ------------------------------------------------------------ before the tray goes

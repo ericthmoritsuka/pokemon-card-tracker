@@ -215,9 +215,10 @@ still sending it (its newest part arrived lately). A name with no time in it, an
 listing has no `created_at`, are never deleted, and a report still in the phone's outbox is left
 alone. It runs at
 most once a day per person on each phone (a time in localStorage, noted before it starts), so a
-failure is only a console warning and is tried again on a later day. Sent reports says "Reports are
-deleted automatically 30 days after they are sent." and each report shows its day, counted from the
-later of the two times ("Deleted Dec 6", or "Deleted soon" once that day is past). *(Eric,
+failure is only a console warning and is tried again on a later day. Sent reports has one notice,
+"...Only you can see them. Each is deleted 30 days after it is sent.", and each report shows its
+day, counted from the later of the two times ("Kept until Dec 6", or "Deleting soon" once that day
+is past; design review, 2026-11-06: "Deleted Dec 6" read as already gone). *(Eric,
 2026-11-06; built 2026-11-06; counted from arrival too after review, 2026-11-06.)*
 
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
@@ -1429,6 +1430,101 @@ the worker. Decided:
 - **The scan log** (scanner 40) keeps skipped drops' views too (120 entries' views), each drop's print
   distance, verdict, and motion frames, the repeats, and the mode switches.
 
+**Holder mode retries a blurred capture and never adds a repeat (Eric, 2026-11-06, version 64).**
+Eric's phone log of 2026-11-06 (holder mode, Android 10, cards dropped one by one into the box;
+versions 60 to 63 hold the same holder code): of 27 cards taken, 19 were clean, 4 were taken blurred
+while his hand brought the next card near the lens, out of focus, over the card on top (each ended
+"no card" or was fixed by hand), and 4 were the same card taken again about a second after it, with
+that hand over it, so its print read new (he removed them). The cause: the detector judges stillness
+on the whole view, so a slow, blurred card over a fifth of it passes, and a still look of it is
+judged as a drop.
+
+- **Eric's rule: never lose a card.** A first fix (branch `holder-settle`, built as version 62 and
+  never released) held the picture before a drop until the drop settled and was sharp. Two read-only
+  reviews of it found ways it lost cards: a card waiting for its focus was passed over when the next
+  card landed first, and a hand over a waiting card let it go. It was abandoned. Version 64 keeps
+  version 63's frame loop exactly as it is (the base moves on every still look, so every drop is
+  still seen) and changes only what a drop's capture does once the loop has decided to take it.
+- **A blurred capture is retried, not added** (`js/scan/view.js` `captureDrop`, `retryTick`;
+  `js/scan/drop.js` `captureFocus`, `retryVerdict`). The card's focus is measured on the finer view,
+  block by block, relative to the view's own contrast, so dim light reads the same (`cardFocus`: a
+  printed block is soft when its mean Laplacian is under 0.55 of its mean step), on the outline the
+  capture cuts first and on what changed, the worse counting. Sharp (at most 9 % of its printed
+  blocks soft, and at least 35 % of it printed), it is added at once, as before. Out of focus, its
+  frame is grabbed and kept, and each still look for up to `RETRY_MS` (1.5 s, Eric's fastest rhythm
+  was a card every 1.5 s) judges the same spot: sharp and the card taken before it is a repeat
+  (logged as `repeat`, never added; the repeat bar asks after a disturbance like a drop's, as for any
+  repeat, so a real second copy is one tap away); a spot that looks as it did before the drop
+  (under 3 % of its cells changed, the noise of a card lying still on his videos) is a hand that left
+  nothing (logged as `blurred, nothing left`); sharp and anything else is the card, added once from
+  that look. With no such look in time the kept frame is added all the same. It is marked to check
+  only when its match is not sure, by the scanner's usual rule (Eric, 2026-11-06, after Trade or
+  sale asked about every card: what the scanner is sure of is never marked): a soft card matched
+  surely is added plainly, like a sharp one, and the scan log keeps its focus. A blurred card that
+  is not sure shows `?` and counts among the cards to check like any unsure card, and its sheet
+  says "Blurred picture, and the number did not read. Tap the right card." ("Blurred picture. Tap
+  the right card." when the number read). *(Design review, 2026-11-06: one word for the check state
+  everywhere: the tile caption "Check", the count "2 to check", the tray head "2 to check", Done
+  "Done 5" with no count of its own, and the sheet's button "This one".)*
+- **Never lose a card, and never add one silently** (Eric's rule after a review of the v64
+  candidate, 2026-11-06). Every blurred capture added for any other reason than its wait running
+  out (another card landed, Log it or Done, the shutter, a zoom change, the camera stopping or
+  stalling, leaving Scan, the spot showing something sharp that is not it), or that reads as soft
+  as a card held in a hand (`HAND_BLUR`, over 0.7 of its blocks soft), is marked "Check this one"
+  however sure its match (`session.js` `check`), unless all it shows sharp is the card taken before,
+  a hand's card out of focus over that card: then it is logged as a repeat (the repeat bar asks
+  after a disturbance like a drop's; after a wait that ran out, only for a hand-soft one, since a
+  soft card of its own may lie half on the card before).
+- **Another card dropped on a waiting one is its own card** (`drop.js` `landedOn`, `spotVerdict`).
+  It counts only on a card-shaped change on the spot after the capture (a drop there, or a new
+  picture on the very spot of the card before), with the look's print 24 bits or more from the
+  waiting capture's (the closest of the look's outlines: two different cards one on the other were
+  24 to 62 apart on his logs and videos), and the look not the waiting card itself: neither its
+  sharp detail found again (`revealedIn`: a hand that covered part of it left) nor the capture
+  looking like this look out of focus (`blurredLike`: it came into focus). Then the waiting capture
+  is added first, marked, and the new card after it as its own, cut from its own change. Otherwise
+  a sharp look is the waiting card settled (added once, from it), and a blurred one is one more look
+  at it, except after a fall like a drop's with the same picture: a second copy of the same card
+  (two Fire Energies), where the waiting card goes in and the repeat bar asks about the second.
+- **A drop on the card before's place asks when the picture names the same card**
+  (`readItemNow` `askIfSame`): a hand that covered the card just taken, or its picture taken a
+  moment before it settled, can make the same card print new; the card it reads as is then compared
+  with the card before, as hand-held scanning does, and the repeat bar asks instead of adding it
+  twice. A blurred capture added a moment ago whose spot then shows the same card sharp
+  (`sameCardThere`) is replaced by that sharp look, so a hand held over a card that just landed, for
+  any time, leaves one card.
+- **Nothing is ever lost on the way.** A drop anywhere else adds the waiting card first. The
+  shutter, a zoom change, a camera restart, the camera stopping or stalling, and closing the
+  scanner add it too. Switching Add and Trade or sale and Auto's switch wait for it, as for any card
+  being taken, and so do Log it and Done ("A card is still being taken."). A hand held still over
+  the card on top for longer than 1.5 s is added that way; when it leaves, a sharp look of the card
+  beneath on the same spot is a repeat of the card before it, not a new card. A card on the very
+  spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing left",
+  since its cells barely change. When unsure whether the sharp look is the card before (print 17 to
+  23 bits off), it is added. The wait counts from the frame in hand, so a slow grab does not use it
+  up.
+- **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
+  Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s, and is
+  marked only when its match is not sure. Never losing a card can add one too many, always marked:
+  the next card in a hand, taken blurred over a card that is not the one before, then dropped on the
+  spot. A heavily blurred card and another of the same layout and colours dropped on it within 1.5 s
+  could read as one card coming into focus.
+- **Measured on the log** (`lab/holder/replay-log.mjs`, each card taken put through `captureFocus` on
+  the straightened picture the log kept, scaled to 200 pixels tall with the contrast of the view
+  after): the 19 clean cards are all added at once (0 to 8 % of their printed blocks soft); the 8 bad
+  ones (7 removed by Eric, 1 fixed by hand) are all retried (12 to 45 % soft, and the first card of
+  the session, a blurred blob, 20 % printed). The log keeps one look per drop, so what the looks after
+  each would have shown is not replayed.
+- **Measured on the videos of 2026-10-09** (`lab/holder/replay.mjs --mode v64`, against `--mode v40`
+  on version 63, the same drop labels, the zoom change in the first video marked): both videos take
+  the very same cards in the same order (39 and 22), none lost, none added, none marked to check. One
+  capture of the first video read soft (12 % of its blocks) and was taken from the next still look,
+  250 ms later; every other one at once. The canvas cards of the browser tests are measured by
+  `tests/scan-retry-browser.test.mjs`.
+- **The scan log** (scanner 64) keeps each drop's focus and, for a blurred capture, how its wait
+  ended (`retry`: sharp, retaken, repeat, nothing left, or kept blurred and why), how long it took,
+  over how many looks, and whether a card-shaped change landed on its spot meanwhile.
+
 **Known hard parts:**
 
 - Holo glare wrecks OCR.
@@ -2130,8 +2226,18 @@ pockets to refill one by one.
   are offered; a copy already in a pocket or a tray never moves, and a copy a binder from a list
   shows still counts as in no pocket, since that binder is a view. Placeholders that name a finish
   and a language choose first, then those naming a finish, then a language, then the rest, each
-  taking the oldest copy that fits what it names; a placeholder whose finish or language no copy
+  taking the best copy that fits what it names; a placeholder whose finish or language no copy
   has takes another copy of the card. One copy per pocket, in binder, page, and pocket order.
+  **The best copy is the most valuable** (Eric, 2026-11-06; it was the oldest): a Liga price
+  typed on it, else TCGplayer in reais at the saved rate, else the rarest (TCGdex's rarity words,
+  ranked), else the newest added, a tie to the lowest id: the order a binder from a list picks its
+  copy by (`js/binder-rules.js` `copyOrder`, with `js/binder-sources.js` `rankerFor`), read only
+  when some hand-made binder holds a placeholder. Only which copy fills a placeholder changed: the
+  order between placeholders, the passes above, and copies already in a pocket or a tray are as
+  before. Prices and rates are the ones saved on the phone, so two phones agree when they hold the
+  same ones. Start over (`planAfterAdding` on its draft) and the trades log plan inside one save
+  with no prices at hand, so there the oldest copy still fills, as it does when the prices cannot
+  be read.
   Placeholders made by Start over carry the removed copy's language, so the copy that fills them
   again is the most alike. Those v51's Start over made carry none, and an import's copies share
   their created_at, so for a placeholder that names no language the language is the removed
@@ -2167,8 +2273,8 @@ pockets to refill one by one.
 - **Not counted as placeholders:** a pocket whose copy was deleted (shown as "Gone") holds an
   entry id, not a placeholder, so it does not fill.
 - **A Pokémon's placeholder** (laid out from a list, below) takes any copy of a card showing that
-  Pokémon, in one of the list's languages when the list named some, the oldest first, the binder's
-  most common language first. Card placeholders choose first, in every binder, so a copy goes to
+  Pokémon, in one of the list's languages when the list named some, the most valuable first (the
+  oldest without prices, as above), the binder's most common language first. Card placeholders choose first, in every binder, so a copy goes to
   its own card's placeholder before a Pokémon's that would take it too. Which Pokémon a card shows comes from the Pokédex numbers the
   checklists read (`js/checklists.js` `resolveOwned`), read only when some binder holds such a
   placeholder (`dexOfCopies`). Start over and the trades log fill in one save with no such read, so
@@ -2192,7 +2298,8 @@ pockets placeholders for the list's Pokémon in Pokédex order:
   the end, up to the 200 a binder can have, and says what still does not fit.
 - **Cards he owns.** With "Fill binder placeholders automatically" on, the copies in no pocket and in
   no tray go into their placeholders in the same save (`fillPlan` and `fillPlaceholders`, as Fill
-  placeholders does), in the list's languages; copies added later fill the rest through the same
+  placeholders does), in the list's languages, the most valuable copy first (`readList` reads
+  their prices and rarities; Eric, 2026-11-06); copies added later fill the rest through the same
   automatic fill. A copy in a tray stays there.
 - **Preview, save, Undo.** The sheet says what happens before anything is saved ("152 placeholders
   on pages 3 to 19, 23 filled with cards you own.", where it starts, how many are skipped). Lay out
@@ -2588,13 +2695,19 @@ trades/sales too instead of registering them just manually. Maybe we could have 
 could scan the cards and select a trade/sell/giveaway option so the system could make the
 adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
 
-- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: one button that
-  names the mode in use, **Add** (what Scan always did, the default) or **Trade or sale**, and
-  switches to the other. It is never over the picture (Eric aims by the card's number strip) or
+- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: two segments,
+  **Add** (what Scan always did, the default) and **Trade or sale**, 48 px tall, the one in use
+  pressed (`aria-pressed`). It is never over the picture (Eric aims by the card's number strip) or
   under the repeat bar, and it takes no height from the camera, whose band over the guide holds the
-  running count; the count beside it shows only when it fits whole. The choice is remembered on the
-  phone (`card-tracker:scan-mode`). In Trade or sale the switch is teal, a teal frame runs round
-  the camera, and Done reads **Log it**, so a card meant for a sale is never added by mistake. The
+  running count; the count beside it shows only when it fits whole. Under 400 px wide the tray
+  head's own buttons keep the switch's row: Pick a photo takes two lines in its 48 px, and Set for
+  all, which Done's sheet also has, is left out of the head. The running count names the
+  mode first ("Add · 2 cards", "Trade or sale · 3 cards", or the mode alone with no cards). The
+  choice is remembered on the phone (`card-tracker:scan-mode`). In Trade or sale the pressed
+  segment and the running count are teal, a 6 px teal frame runs round the camera, and Done reads
+  **Log it**, so a card meant for a sale is never added by mistake. *(Design review, 2026-11-06: one
+  button that named the mode and switched to the other read as a label, not a switch, and the
+  4 px frame was easy to miss.)* The
   mode does not change while a card is being taken or read, or a gallery photo opened: the switch
   says to wait, and a card is never put in the other mode's tray.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
@@ -2604,11 +2717,26 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   Copies, and holder mode are the scanner's own, unchanged.
 - **A card going out is one of his copies.** It is matched to a live copy of the same card in the
   language and finish the scanner read (a copy saved with no finish, or a scan with none, fits
-  any), **spares first** (the Trade view's rule, `spareEntries`), then a copy in no binder pocket
-  or binder tray, then the very finish read. A copy is taken by itself only when it is plainly the
-  one; when two or more still fit, or the one left is in a binder while a loose copy also fits, the
-  row says "Pick which copy goes" and **Pick the copy** shows the copies as pictures with their
-  language, finish, condition, where they are, and Spare. A card he does not own says so on its row
+  any). **Loose copies first** (in no binder pocket and no binder tray), then the very finish read.
+  When the loose copies it would choose between are alike (the same finish and the same condition,
+  a condition not set counting as its own), it takes one by itself, a spare first (the Trade view's
+  rule, `spareEntries`), then the newest added. It asks only when the choice matters: the loose
+  copies differ in finish or condition, so the choice changes what leaves, or not enough loose
+  copies fit and one would come out of a binder. A loose copy with no finish saved may be the finish
+  read too, so it counts for the condition beside the copies in that finish (a Played holo never
+  goes silently while a Near Mint copy of unknown finish was the other choice), and when the finish
+  read sits only in a binder and the loose copies have no finish saved, it asks rather than take a
+  copy of unknown finish (review of 2026-11-06). Then the row says how many copies match ("3
+  match") over **Pick a copy** (44 px tall, beside the row's own 44 px x), which shows the copies as
+  pictures with their language flag and, in 14 px, the condition in bold (and the finish only when
+  it is known), where the copy is ("Loose", or "Binder A, p. 3"), and Spare and Suggested as chips;
+  the picked copy has a 3 px teal ring and a check. *(Design review, 2026-11-06: 12 px tiles that
+  said "Finish not set" and a suggestion shown only as a faint outline.)* *(Decided by Eric, 2026-11-06, on v63: "the app is asking me about every
+  card I'm scanning in the trade to select which copy goes out... didn't you say it would select
+  the spare whenever available and then ask if the spare is not available?" v63 took a copy by
+  itself only when exactly one was left after narrowing to spares, so two alike spares always
+  asked, and it asked whenever the spare, an arbitrary one of his alike copies, sat in a binder
+  while another was loose.)* A card he does not own says so on its row
   and is not logged; owned only in another language or finish, it is not logged unless he picks a
   copy. The same copy is never chosen twice: hand picks hold their copies first, then the cards are
   settled in the order scanned. A card standing for several copies takes that many. A copy he
@@ -2624,17 +2752,45 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   other choice; only in: Bought, or Gift; both: Traded). He adds who and the price and saves there.
   Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
   History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
-  a card needs a look, is still read, or asks for its copy, and opens that card first. The form's
+  a card needs a look or is still read, and opens that card first. When cards ask for their copy,
+  Log it opens **one sheet with every one of them** ("Which copies go out?", "Pick one copy for
+  each card. The trade form opens when all 3 are picked."; each card's line "2 copies match"), each with its copies
+  as the picker shows them, and the cards not logged (not owned, or owned only in another language
+  or finish) under them with their row's line. He picks in any order; a card picked stays listed so
+  its pick can be changed, and a card that starts asking because its copy went to another joins
+  the list. The pick that settles the last one opens the form by itself, and the sheet's Log it
+  does the same once all are picked. The row's Pick a copy still picks for one card. *(Eric,
+  2026-11-06: "it doesn't show me all the cards I have to pick right away. I have to click Log it
+  and another card shows up. Log it, another card shows up. Log it... it's upsetting." v63 opened
+  the picker for one card per Log it.)* The form's
   line counts only the copies still in his cards, and says when one handed over is not any more. A
   kind that leaves a side out (Sold with cards coming in, Bought with cards going out) says so
   under the kinds ("The 1 card coming in is not part of a sale; it stays in the scanner's trade
-  tray"): that side is not saved, and stays in the trade tray for another move.
+  tray"): that side is not saved, and stays in the trade tray for another move. Log it waits while a
+  holder capture is still being taken or waits for a sharper look ("A card is still being taken."),
+  so every card scanned is in the form, and the save takes out of the tray only the cards that were
+  in the tray when Log it was tapped, never a whole side: a card scanned after it stays (review of
+  2026-11-06: a card still being taken was added after the form opened, and the save deleted it with
+  its side).
 - **Nothing changes before Save.** The collection changes only when the move is saved; then the
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
   instead. A tray left by Log it without saving is there when Scan opens again.
+- **The form, from a scan** (design review, 2026-11-06): the scanned cards are compact rows of
+  about 56 px (picture, name, "English · Near Mint", and an x), not full-size tiles, and Save sits in
+  a sticky footer above the tab bar, so a long trade never pushes Save out of reach. Its line reads
+  "Scanned 2 going out, 1 coming in. Add who and the price, then Save.", with the alternative kind
+  and any copy dropped since. The form calls its sides **Going out** and **Coming in**, with **Add a
+  card going out** and **Add a card coming in**, for every kind and whether or not it came from a
+  scan, so each side has one name, the scanner's.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
+- **Scan a trade** (Eric, 2026-11-06): Trades and sales has a **Scan a trade** button, with the
+  Scan tab's icon, beside Log a move, which opens Scan already in Trade or sale; with no moves yet,
+  the empty state says "Scan the cards going out and coming in, or log a move by hand." over **Log
+  a move** and a full-width **Scan a trade or sale** (design review, 2026-11-06). It sets the remembered mode, as the
+  scanner's own switch does, so the trade tray opens as it was left, cards and all, and the Add tray
+  waits untouched.
 
 **Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
 (js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's

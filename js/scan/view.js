@@ -29,7 +29,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists, spareEntries} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, NEW_PRINT, planCapture, printDistance, printOf, SAME_PRINT, SHARP_WAIT_MS, sharpEnough, takenCard, toView} from './drop.js';
+import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
@@ -42,7 +42,7 @@ import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from '
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
-import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, tradeBlock, tradeColumns} from './trade-sheets.js';
+import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -349,7 +349,7 @@ const online = () => navigator.onLine !== false;
 // timings, in milliseconds.
 // grabs: how each full capture was read (away: a bitmap read in the
 // picture worker; here: its pixels read on the main thread).
-export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, prized: [], reads: [], shutterSounds: 0};
+export const scanStats = {captures: 0, grabs: {away: 0, here: 0}, prized: [], reads: [], retries: 0, shutterSounds: 0};
 
 // A developer switch (localStorage card-tracker:scan-grab-here = on): read
 // each full capture's pixels on the main thread, as before version 39, to
@@ -498,7 +498,7 @@ export function scanView(root) {
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
 	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Card inside the frame. Hold still.'));
 	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
-	// The running count over the camera ("12 cards · 2 to check"), so a
+	// The running count over the camera ("Add · 12 cards · 2 to check"), so a
 	// long run needs no look at the tray.
 	const runCount = h('p', {'aria-live': 'polite', class: 'scan-run-count', hidden: true, id: 'scan-run-count'});
 	// The repeat bar (askRepeat), at the foot of the camera, clear of the
@@ -636,6 +636,8 @@ export function scanView(root) {
 		},
 		isSpare: (entryId) => spareIds.has(entryId),
 		outResult: (id) => outResults.get(id) || null,
+		// How many cards going out still wait for Eric's pick (picksSheet).
+		tradeAsks: () => T.tradeSummary(session, outResults).ask,
 		pickCopies: (id, entryIds) => {
 			change(() => T.pickCopies(session, id, entryIds));
 			announce(entryIds.length ? 'Copy picked.' : 'The scanner chooses the copy again.');
@@ -917,7 +919,7 @@ export function scanView(root) {
 		const parts = [items.length ? `Session · ${plural(items.length, 'card')}` : 'No cards yet'];
 
 		if (summary.look) {
-			parts.push(`${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look`);
+			parts.push(`${summary.look} to check`);
 		}
 
 		if (summary.waiting) {
@@ -926,18 +928,22 @@ export function scanView(root) {
 
 		count.textContent = parts.join(' · ');
 
-		const running = items.length ? `${plural(items.length, 'card')}${summary.look ? ` · ${summary.look} to check` : ''}` : '';
+		// The mode first, so it is in sight over the picture: "Add · 2 cards",
+		// "Trade or sale · 3 cards · 1 to check", or the mode alone.
+		const modeName = T.isTrade(session) ? 'Trade or sale' : 'Add';
+		const counted = [modeName, items.length ? plural(items.length, 'card') : null].filter(Boolean).join(' · ');
+		const running = `${counted}${summary.look ? ` · ${summary.look} to check` : ''}`;
 
 		// "N to check" is a way into the Review run (openReview).
 		if (runCount.textContent !== running) {
-			runCount.replaceChildren(items.length ? plural(items.length, 'card') : '', ...(summary.look ? [' · ', h('button', {'aria-label': `${summary.look} to check: check them one after the other`, class: 'scan-look-count', id: 'scan-look-count', onclick: () => openReview(), type: 'button'}, `${summary.look} to check`)] : []));
+			runCount.replaceChildren(counted, ...(summary.look ? [' · ', h('button', {'aria-label': `${summary.look} to check: check them one after the other`, class: 'scan-look-count', id: 'scan-look-count', onclick: () => openReview(), type: 'button'}, `${summary.look} to check`)] : []));
 		}
 
-		runCount.hidden = !items.length;
+		runCount.hidden = false;
 		setAllButton.hidden = items.length < 2;
 		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
-		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
+		doneButton.textContent = items.length ? `Done ${items.length}` : 'Done';
 
 		if (T.isTrade(session)) {
 			drawTrade();
@@ -1047,9 +1053,10 @@ export function scanView(root) {
 		}
 
 		// A card being taken or read finishes in the tray it was taken for.
-		// A holder drop held for a sharper frame (pendingDrop) is a card being
-		// taken too: it goes to the tray of the mode it was dropped in.
-		if (capturing > 0 || shutterBusy || photosOpening > 0 || pendingDrop || session.items.some((item) => working.has(item.id))) {
+		// A holder drop held for a sharper frame (pendingDrop), or a blurred
+		// capture waiting for a sharper look (retry), is a card being taken
+		// too: it goes to the tray of the mode it was dropped in.
+		if (capturing > 0 || shutterBusy || photosOpening > 0 || pendingDrop || retry || session.items.some((item) => working.has(item.id))) {
 			drawMode();
 			setNote('A card is still being taken or read. Switch once it is in the tray.');
 
@@ -1146,6 +1153,10 @@ export function scanView(root) {
 			return;
 		}
 
+		if (stillTaking()) {
+			return;
+		}
+
 		const sum = T.tradeSummary(session, outResults);
 
 		if (sum.look) {
@@ -1154,16 +1165,11 @@ export function scanView(root) {
 			return;
 		}
 
+		// Every card whose copy he must pick, on one sheet (picksSheet); the
+		// last pick comes back here and goes on to the form.
 		if (sum.ask) {
-			const first = session.items.find((item) => T.sideOf(item) === 'out' && (outResults.get(item.id) || {}).status === 'ask');
-			const result = outResults.get(first.id);
-
-			if (result.candidates.length) {
-				openPicker(first.id);
-			}
-			else {
-				setNote(T.outLine(result, {where}));
-			}
+			endReview();
+			showSheet(picksSheet(ctx));
 
 			return;
 		}
@@ -1191,7 +1197,7 @@ export function scanView(root) {
 		const sessionId = session.id;
 
 		saveToCardIndex(handoff.records).catch(() => {});
-		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => draft.clearTrade(sessionId, sides)});
+		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => draft.clearTrade(sessionId, sides, handoff.items)});
 		persist();
 		closeSheet().then(() => go('trades/new'));
 	}
@@ -1444,6 +1450,25 @@ export function scanView(root) {
 		};
 	}
 
+	// A card still being taken (a holder drop held for a sharper frame, a
+	// blurred capture waiting for a sharper look, a frame being grabbed) is
+	// not in the tray yet: Log it and Done wait for it, so it is never left
+	// out of the form or the save. A waiting capture goes in at once, as it
+	// is (flushRetry). Returns whether to wait.
+	function stillTaking() {
+		const flushed = flushRetry('log it');
+
+		if (capturing > 0 || pendingDrop || retry) {
+			setNote('A card is still being taken.');
+			// The capture's own note-clearing must not hide why nothing opened.
+			flushed.then((id) => (id ? setNote('A card is still being taken.') : null));
+
+			return true;
+		}
+
+		return false;
+	}
+
 	function openDone() {
 		// The trade tray has Log it, never Done's Save (Set for all comes back
 		// here).
@@ -1453,7 +1478,7 @@ export function scanView(root) {
 			return;
 		}
 
-		if (!session.items.length) {
+		if (!session.items.length || stillTaking()) {
 			return;
 		}
 
@@ -2005,6 +2030,7 @@ export function scanView(root) {
 		// The shutter in holder mode: the card it took is the pile now, not a
 		// drop still to take.
 		if (holder) {
+			flushRetry('shutter');
 			dropDetector.reframe();
 			pendingDrop = null;
 		}
@@ -2266,7 +2292,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
 		let result;
 		let readDone = () => {};
 
@@ -2419,8 +2445,12 @@ export function scanView(root) {
 		// names either one unclearly, the two prints agree (drop.js
 		// SAME_PRINT). In holder mode a drop's picture was checked against
 		// the last card's before it was taken (view.js holderTick), so nothing
-		// is asked here.
-		const previous = auto && !dropped ? previousCapture(id) : null;
+		// is asked here, except for a drop on the very place of the card
+		// before (askIfSame, takeDrop): there a hand that covered it, or the
+		// picture taken a moment before it settled, can make the same card
+		// print new, and a card the picture names the same is asked about,
+		// never added twice without a word (review of 2026-11-06).
+		const previous = auto && (!dropped || askIfSame) ? previousCapture(id) : null;
 		const previousPicture = previous ? await pictureOf(previous) : null;
 
 		if (!alive || !S.findItem(session, id)) {
@@ -3265,6 +3295,9 @@ export function scanView(root) {
 	}
 
 	function stopCamera() {
+		// A capture waiting for a sharper look goes in as it is: no look of
+		// it comes while the camera is off.
+		flushRetry('stopped');
 		clearInterval(loop);
 		loop = null;
 
@@ -3306,10 +3339,12 @@ export function scanView(root) {
 	// open, so cards dropped while one is checked still join the tray.
 	//
 	// pendingDrop: a drop held for a sharper frame (drop.js sharpEnough):
-	// {change, until}. lastDrop: the card taken last (drop.js takenCard),
-	// forgotten when the zoom changes. sharpRecent: the last few cards'
-	// sharpness.
+	// {before, change, until}. lastDrop: the card taken last (drop.js
+	// takenCard), forgotten when the zoom changes. sharpRecent: the last few
+	// cards' sharpness. retry: a capture taken blurred, waiting for a sharper
+	// look of its spot (captureDrop, version 64).
 	let pendingDrop = null;
+	let retry = null;
 	let lastDrop = null;
 	let pileCheckedAt = -Infinity;
 	let holderView = null;
@@ -3324,6 +3359,10 @@ export function scanView(root) {
 		const laid = currentGeometry();
 
 		if (!laid || !video.videoWidth) {
+			// The camera stalled: a capture waiting for a sharper look goes in
+			// now, as it is, rather than keep the mode switch and Auto waiting.
+			flushRetry('stall');
+
 			return;
 		}
 
@@ -3338,10 +3377,16 @@ export function scanView(root) {
 		const view = viewFrame(video, viewCanvas, area.view, FIND_SIDE);
 
 		if (!view) {
+			flushRetry('stall');
+
 			return;
 		}
 
 		const at = performance.now();
+		// The picture a still look is judged against (the base before it), so
+		// a blurred capture can tell later whether its spot still differs
+		// from it (retryTick).
+		const before = dropDetector.base;
 		const step = dropDetector.push(view, at);
 
 		pictureStillMs = step.moving ? 0 : step.still;
@@ -3355,10 +3400,14 @@ export function scanView(root) {
 				pendingDrop = null;
 
 				if (!plan.skip) {
-					takeDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area, contentCheck(plan, plan.fine, lastDrop));
+					captureDrop(held.change, plan, {...held.step, heldMs: Math.round(at - held.at)}, area, contentCheck(plan, plan.fine, lastDrop), held.before);
 				}
 			}
 
+			return;
+		}
+
+		if (retryTick(step, view, area, at)) {
 			return;
 		}
 
@@ -3385,7 +3434,7 @@ export function scanView(root) {
 				const plan = planSpot(view, fine);
 
 				setPile(false);
-				takeDrop(step.change, plan, step, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'});
+				captureDrop(step.change, plan, step, area, {...contentCheck(plan, fine, null), distance: content.distance, verdict: 'new on the same spot'}, before, {byPicture: true});
 
 				return;
 			}
@@ -3396,12 +3445,19 @@ export function scanView(root) {
 			else if (step.change.kind !== 'none') {
 				logSkipped(step.change.kind, step, area, content);
 			}
-			else if (!step.burst && lastDrop && lastDrop.quad && !lastDrop.fresh) {
+			else if (!step.burst && lastDrop && lastDrop.quad && !lastDrop.fresh && !retry) {
 				// The first still look after a card is taken prints it again
 				// where it lies: the print taken with it may come from a frame
-				// a moment before it settled.
+				// a moment before it settled. Not while a blurred capture waits:
+				// what blurred it may lie over that card still.
+				const fineNow = viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE);
+
 				lastDrop.fresh = true;
-				lastDrop.print = freshPrint(lastDrop, area) || lastDrop.print;
+
+				if (fineNow) {
+					lastDrop.print = printOf(fineNow.grey, fineNow.width, fineNow.height, lastDrop.quad.map(toView(fineNow)));
+					lastDrop.thumb = thumbAt(fineNow, lastDrop.quad);
+				}
 			}
 
 			// A still picture with nothing new: the last drop's frame for the
@@ -3460,12 +3516,400 @@ export function scanView(root) {
 		}
 
 		if (!sharpEnough(plan.sharpness, sharpRecent)) {
-			pendingDrop = {at, change: step.change, step, until: at + SHARP_WAIT_MS};
+			pendingDrop = {at, before, change: step.change, step, until: at + SHARP_WAIT_MS};
 
 			return;
 		}
 
-		takeDrop(step.change, plan, step, area, content);
+		captureDrop(step.change, plan, step, area, content, before);
+	}
+
+	// ------------------------------------------------------------ a blurred capture
+
+	// Never lose a card (Eric, 2026-11-06, version 64): every drop the loop
+	// above decides to take comes here. Its card's focus on the finer view
+	// (drop.js captureFocus) decides: sharp, it is taken at once, as before;
+	// out of focus (a card still sliding, the next card in a hand near the
+	// lens over it), its frame is grabbed and kept, and it waits up to
+	// drop.js RETRY_MS for a sharper still look of its spot (retryTick). The
+	// loop itself is unchanged: the base still moves on every still look, so
+	// a card that lands meanwhile is still seen. A drop on the same spot
+	// while it waits is the same card, looked at again: taken when sharp,
+	// logged when still blurred. A drop elsewhere adds the waiting one first,
+	// as it is. Every way out adds the card or logs why not (resolveRetry,
+	// flushRetry).
+	//
+	// before: the base the drop was judged against (drop.js
+	// createDropDetector base), for telling later whether the spot still
+	// differs from it. byPicture: the drop was told by its picture alone, on
+	// the very spot of the last card (contentAt).
+	function captureDrop(change, plan, step, area, content, before, {byPicture = false} = {}) {
+		const fine = plan.fine;
+		// The outline the capture cuts first, and the card where it changed
+		// (frame pixels).
+		const quads = [planQuads(plan, fine, 1)[0].map(fromView(fine)), plan.card.corners];
+		const focus = captureFocus(fine, quads.map((quad) => quad.map(toView(fine))));
+		const planned = {...plan, focus};
+		const box = boxOf(plan.card.corners);
+
+		if (retry) {
+			// A card-shaped change on the waiting card's spot: the waiting card
+			// seen again (settled, or a hand over it moved), or another card
+			// dropped on it.
+			const held = retry;
+			const spot = sameSpot(box, held.box) ? spotVerdict({fell: disturbedBy(step.burst), landed: true, print: nearestPrint(planned, fine, held), same: sameCardThere(held.thumb, thumbAt(fine, held.quads[0])), sharp: !focus.why, waiting: held.content.print}) : null;
+
+			if (spot === 'settled') {
+				// Sharp, and the waiting card: its sharp look is the card.
+				endRetry();
+				discardFrame(held.grabbed);
+				takeDrop(change, planned, {...step, retry: retryReport(held, 'retaken', performance.now(), {focus})}, area, content);
+
+				return;
+			}
+
+			if (spot === 'second copy') {
+				// A second copy of the same card dropped on it (two Fire
+				// Energies): the waiting card goes in, and the repeat bar asks
+				// about the second, as for any repeat (version 40).
+				secondCopy(flushRetry('same card dropped on it'), change, planned, step, area, content);
+
+				return;
+			}
+
+			if (spot === 'waiting') {
+				// Still out of focus, and the waiting card (a hand over it
+				// moving slowly): one more look at it, logged, and it waits on.
+				held.folded++;
+				logSkipped('blurred, waiting', step, area, content);
+
+				return;
+			}
+
+			// Another card, elsewhere or dropped on the waiting one: the
+			// waiting one goes in first, marked to check, and this one is its
+			// own.
+			flushRetry('next card');
+		}
+
+		if (!focus.why) {
+			// Sharp where a blurred capture was just added (a hand held over
+			// the spot for longer than RETRY_MS): the card under the hand.
+			const flushed = lastDrop && lastDrop.flushed && lastDrop.quad && sameSpot(box, boxOf(lastDrop.quad)) ? lastDrop : null;
+			const under = flushed && flushed.over ? contentCheck(planned, fine, flushed.over) : null;
+
+			if (under && under.verdict === 'same') {
+				// The card before, again: a repeat, not a new card.
+				const over = flushed.over;
+
+				lastDrop = {...over, print: under.match.print, quad: under.match.quad};
+				logRepeat(change, planned, step, area, under, over, null);
+
+				return;
+			}
+
+			const replaced = flushed && flushed.item && flushed.thumb && sameCardThere(flushed.thumb, thumbAt(fine, flushed.quad)) ? S.findItem(session, flushed.item) : null;
+
+			if (replaced && !replaced.confirmed) {
+				// The blurred look added a moment ago shows again, sharp: it was
+				// this card under the hand. Its sharp look takes its place, so
+				// the card is in the tray once.
+				remove(replaced.id, {kind: 'dropped', why: 'retaken sharp'});
+				takeDrop(change, planned, {...step, retry: {replaced: replaced.id, verdict: 'retaken after adding'}}, area, content);
+
+				return;
+			}
+
+			takeDrop(change, planned, step, area, content);
+
+			return;
+		}
+
+		const at = performance.now();
+		const prev = lastDrop;
+
+		scanStats.retries++;
+		capturing++;
+		retry = {
+			area,
+			at,
+			before,
+			best: focus.blur,
+			box,
+			byPicture,
+			change,
+			content,
+			folded: 0,
+			grabbed: takeFrame(plan.region).catch(() => null).finally(() => {
+				capturing--;
+			}),
+			landed: false,
+			looks: 0,
+			plan: planned,
+			prev,
+			quads,
+			step,
+			// The picture taken, for telling later whether a sharp look of the
+			// spot shows the same card (drop.js revealedIn)...
+			thumb: thumbAt(fine, quads[0]),
+			// ...and whether all it shows sharp is the card before: a hand's
+			// card out of focus over it, not a card (flushRetry).
+			underPrev: Boolean(prev && prev.thumb && prev.quad) && revealedIn(thumbAt(fine, prev.quad), prev.thumb),
+			until: at + RETRY_MS,
+		};
+
+		// The wait counts from the frame in hand: a slow grab (pixels read on
+		// the main thread) must not use it up before any look of the spot.
+		const waiting = retry;
+
+		waiting.grabbed.then(() => {
+			if (retry === waiting) {
+				waiting.until = Math.max(waiting.until, performance.now() + RETRY_MS);
+			}
+		});
+	}
+
+	// Each look of the frame loop while a blurred capture waits: a still look
+	// judges its spot (drop.js retryVerdict). Returns true when the look was
+	// the waiting card's and the loop has nothing more to do with it (a card
+	// that landed elsewhere in the same look is still judged by the loop).
+	function retryTick(step, view, area, at) {
+		if (!retry) {
+			return false;
+		}
+
+		const fine = step.change ? viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE) : null;
+
+		if (fine) {
+			const held = retry;
+			const spotBox = boxOf(held.quads[1].map(toView(view)));
+			const focus = captureFocus(fine, held.quads.map((quad) => quad.map(toView(fine))));
+			const stir = regionStir(dropDetector.base, held.before, spotBox);
+
+			// A card-shaped change on the spot since the capture (a drop there,
+			// or a new picture on the very spot of the card before): a sharp
+			// look of it may be another card that landed there (landedOn).
+			if (step.drop && sameSpot(boxOf(step.change.corners), spotBox)) {
+				held.landed = true;
+			}
+			else if (step.burst && ['none', 'small', 'shape'].includes(step.change.kind) && held.prev && held.prev.quad && sameSpot(boxOf(held.prev.quad.map(toView(view))), spotBox)) {
+				const there = contentAt(held.prev, fine);
+
+				held.landed = held.landed || Boolean(there && there.verdict === 'new');
+			}
+
+			let plan = null;
+			let content = null;
+
+			if (!focus.why) {
+				const found = findCard(fine.grey, fine.width, fine.height);
+
+				plan = {...planCapture(held.quads[1], [], view, fine, found, {frame: camera.frame, sharpBox: spotBox}), fine, focus};
+				content = contentCheck(plan, fine, held.prev);
+			}
+
+			held.looks++;
+			held.best = Math.min(held.best, focus.blur);
+
+			const verdict = retryVerdict({byPicture: held.byPicture, content, focus, stir});
+
+			// Sharp, and not the waiting card: another card on the spot, or
+			// something the capture held that left (landedOn, landed or not).
+			const other = verdict === 'sharp' && landedOn({landed: true, print: nearestPrint(plan, fine, held), same: sameCardThere(held.thumb, thumbAt(fine, held.quads[0])), waiting: held.content.print});
+
+			if (other && !held.landed) {
+				// Sharp now, but not the waiting card, and no card landed on its
+				// spot: what the capture held (a hand's card out of focus) left.
+				// The capture goes in by flushRetry's rules (over the card before,
+				// a repeat; else marked), and the loop judges this look.
+				flushRetry('left the spot');
+
+				return false;
+			}
+
+			if (other) {
+				// Another card landed on the waiting one: never lose it. The
+				// waiting capture goes in first, marked to check, then this
+				// look is the new card's own, cut from its own change when it
+				// landed in this look, and judged against the waiting one.
+				flushRetry('next card');
+
+				const dropped = step.drop && sameSpot(boxOf(step.change.corners), spotBox) ? planDrop(step.change, view, area) : null;
+				const own = dropped && !dropped.skip ? {...dropped, focus: captureFocus(dropped.fine, [planQuads(dropped, dropped.fine, 1)[0]])} : plan;
+
+				takeDrop(dropped && !dropped.skip ? step.change : held.change, own, step, area, contentCheck(own, own.fine, lastDrop));
+
+				return !(step.drop && !sameSpot(boxOf(step.change.corners), spotBox));
+			}
+
+			if (verdict) {
+				resolveRetry(verdict, plan, content, area, at, {focus, stir});
+
+				return !(step.drop && !sameSpot(boxOf(step.change.corners), spotBox));
+			}
+		}
+
+		if (at >= retry.until) {
+			flushRetry('time');
+		}
+
+		return false;
+	}
+
+	// The spot of a blurred capture judged: 'sharp' takes this look,
+	// 'repeat' logs the card taken before seen again (the repeat bar asks
+	// after a disturbance like a drop's, as for any repeat), 'gone' logs a
+	// spot that shows nothing new.
+	function resolveRetry(verdict, plan, content, area, at, measured) {
+		const held = endRetry();
+		const report = retryReport(held, verdict, at, measured);
+
+		discardFrame(held.grabbed);
+
+		if (verdict === 'sharp') {
+			takeDrop(held.change, plan, {...held.step, retry: report}, area, content);
+
+			return;
+		}
+
+		if (verdict === 'repeat') {
+			// The card before, where it lies now, for the next check.
+			if (held.prev && content.match) {
+				held.prev.print = content.match.print;
+				held.prev.quad = content.match.quad;
+			}
+
+			logRepeat(held.change, held.plan, held.step, area, content, held.prev, report);
+
+			return;
+		}
+
+		logViews(scanLog.logEvent({at: new Date().toISOString(), drop: {...dropReport(held.change, held.plan, held.step, held.content), retry: report}, how: 'holder', why: 'blurred, nothing left'}), area).catch(() => {});
+	}
+
+	// The card taken before seen again where a capture was: logged as a
+	// repeat and never added. After a disturbance like a drop's the repeat
+	// bar asks (Add a copy), as for any repeat, so a real second copy is one
+	// tap away.
+	function logRepeat(change, plan, step, area, content, prev, report) {
+		const id = scanLog.logEvent({at: new Date().toISOString(), drop: {...dropReport(change, plan, step, content), retry: report}, how: 'holder', outcome: null, why: 'repeat'});
+
+		logViews(id, area).catch(() => {});
+
+		if (asksRepeat(step.burst, prev) && prev && prev.item && S.findItem(session, prev.item)) {
+			buzz(BUZZ_CAPTURE);
+			askRepeat(id, prev.item);
+		}
+		else {
+			outcomeOf(id, {kind: 'skipped', why: 'repeat'});
+		}
+	}
+
+	// Of a look's candidate outlines (plan quads, the outlines found first),
+	// the print closest to the waiting capture's, where it lay: a card
+	// landing half over another changes an L of the view, whose own
+	// rectangle is no card's outline, so its first quad would print apart
+	// from the same card.
+	function nearestPrint(plan, fine, held) {
+		const near = contentCheck(plan, fine, {print: held.content.print, quad: held.content.quad});
+
+		return near.match ? near.match.print : near.print;
+	}
+
+	// The waiting capture joins the tray as it was taken: no sharper look
+	// came in time (reason 'time'), another card landed elsewhere or on it
+	// ('next card', 'same card dropped on it'), the zoom changed or the
+	// camera restarted ('reframe'), the shutter was pressed ('shutter'), Log
+	// it or Done was tapped ('log it'), the camera stopped or stalled
+	// ('stopped', 'stall'), or the scanner closed ('left'). Never added
+	// silently (Eric, 2026-11-06): after a wait that ran out it is marked to
+	// check when its match is not sure (a basic Energy reads soft), and for
+	// any other reason, or when it reads as soft as a card held in a hand
+	// (HAND_BLUR), it is marked however sure (session.js check). One whose
+	// only sharp part is the card taken before (a hand's card out of focus
+	// over it) is logged as a repeat instead; after a wait that ran out,
+	// only when it reads as a hand's (a soft card of its own lying half on
+	// the card before is added). Resolves with the tray card's id, or null.
+	function flushRetry(reason) {
+		const held = endRetry();
+
+		if (!held) {
+			return Promise.resolve(null);
+		}
+
+		const at = performance.now();
+		// A card held out of focus near the lens rather than one lying in
+		// the box (HAND_BLUR): never added without a mark, whatever the reason.
+		const hand = held.plan.focus.blur > HAND_BLUR;
+
+		if (held.underPrev && (reason !== 'time' || hand)) {
+			discardFrame(held.grabbed);
+			logRepeat(held.change, held.plan, held.step, held.area, held.content, held.prev, retryReport(held, 'repeat', at, {reason}));
+
+			return Promise.resolve(null);
+		}
+
+		return takeDrop(held.change, held.plan, {...held.step, retry: retryReport(held, 'kept blurred', at, {reason})}, held.area, held.content, {blurred: true, check: reason !== 'time' || hand, grabbed: held.grabbed, over: held.prev, thumb: held.thumb}).catch(() => null);
+	}
+
+	// A second copy of the waiting card dropped on it (the same picture,
+	// after a fall like a drop's): logged as the same card again, and once
+	// the waiting card is in the tray (added: a promise of its id), the
+	// repeat bar asks (Add a copy), as sameCardAgain does.
+	function secondCopy(added, change, plan, step, area, content) {
+		const id = scanLog.logEvent({at: new Date().toISOString(), drop: dropReport(change, plan, step, content), how: 'holder', outcome: null, why: 'same card again'});
+
+		logViews(id, area).catch(() => {});
+		added.then((item) => {
+			if (item && S.findItem(session, item)) {
+				buzz(BUZZ_CAPTURE);
+				askRepeat(id, item);
+			}
+			else {
+				outcomeOf(id, {kind: 'skipped', why: 'same card again'});
+			}
+		});
+	}
+
+	function endRetry() {
+		const held = retry;
+
+		retry = null;
+
+		return held;
+	}
+
+	// A kept frame no longer needed: the camera's frame it holds is let go.
+	function discardFrame(grabbed) {
+		grabbed.then((got) => {
+			const frame = got && got.frame;
+
+			if (frame && frame.bitmap && frame.bitmap.close) {
+				frame.bitmap.close();
+			}
+		}).catch(() => {});
+	}
+
+	// What the scan log keeps of a blurred capture's wait: how it ended
+	// (verdict), how long it waited and over how many still looks, the
+	// drops on its spot meanwhile, its focus when taken and its best since,
+	// and what the last look measured.
+	const roundTo = (value, places = 2) => (typeof value === 'number' ? Math.round(value * 10 ** places) / 10 ** places : null);
+
+	function retryReport(held, verdict, at, {focus = null, reason = null, stir = null} = {}) {
+		return {
+			best: roundTo(held.best),
+			blur: roundTo(held.plan.focus.blur),
+			landed: Boolean(held.landed),
+			folded: held.folded,
+			looks: held.looks,
+			ms: Math.round(at - held.at),
+			now: focus ? {blur: roundTo(focus.blur), stir: roundTo(stir, 3), texture: roundTo(focus.texture)} : null,
+			reason,
+			texture: roundTo(held.plan.focus.texture),
+			verdict,
+			why: held.plan.focus.why,
+		};
 	}
 
 	// The capture for a drop (drop.js dropCapture), with the card outlines
@@ -3476,13 +3920,6 @@ export function scanView(root) {
 		const found = fine ? findCard(fine.grey, fine.width, fine.height) : null;
 
 		return {...dropCapture(change, view, fine || view, found, {frame: camera.frame, last: lastDrop}), fine: fine || view};
-	}
-
-	// The last card's print where it lies now, on the finer copy, or null.
-	function freshPrint(last, area) {
-		const fine = viewFrame(video, fineCanvas, area.view, FIND_SIDE_CAPTURE);
-
-		return fine ? printOf(fine.grey, fine.width, fine.height, last.quad.map(toView(fine))) : null;
 	}
 
 	// The capture of a new card lying where the last one lay (lastDrop.quad,
@@ -3569,6 +4006,9 @@ export function scanView(root) {
 		blob: change ? Math.round((change.blob || 0) * 1000) / 1000 : null,
 		cover: change && change.cover !== undefined ? Math.round(change.cover * 100) / 100 : null,
 		disturbed: disturbedBy(step.burst),
+		// The card's focus on the finer view (drop.js captureFocus), and a
+		// blurred capture's wait (retryReport), from version 64.
+		focus: plan && plan.focus ? {blur: Math.round(plan.focus.blur * 100) / 100, texture: Math.round(plan.focus.texture * 100) / 100, why: plan.focus.why} : null,
 		heldMs: step.heldMs ?? null,
 		kind: change ? change.kind : null,
 		motionFrames: step.burst ? step.burst.frames : null,
@@ -3576,6 +4016,7 @@ export function scanView(root) {
 		movingMs: step.burst ? Math.round(performance.now() - step.burst.start - step.still) : null,
 		print: content && typeof content.distance === 'number' ? content.distance : null,
 		printVerdict: content ? content.verdict : null,
+		retry: step.retry || null,
 		share: change ? Math.round(change.share * 1000) / 1000 : null,
 		sharpness: plan ? plan.sharpness : null,
 		stillFrames: step.stillFrames ?? null,
@@ -3594,7 +4035,14 @@ export function scanView(root) {
 	// Takes the card a drop brought: a tile at once, the picture matched off
 	// the frame loop. content: its content check, whose print the next
 	// card is checked against.
-	async function takeDrop(change, plan, step, area, content) {
+	// blurred: added as taken blurred, to check (flushRetry); grabbed: its
+	// frame, grabbed when it was taken (a promise of takeFrame's answer);
+	// over: the card taken before a blurred one, which a sharp look of the
+	// same spot may show again (captureDrop); check: marked to check however
+	// sure (session.js check); thumb: the blurred capture's picture, for
+	// telling a sharp look of the same card later (captureDrop). Resolves
+	// with the tray card's id.
+	async function takeDrop(change, plan, step, area, content, {blurred = false, check = false, grabbed: kept = null, over = null, thumb = null} = {}) {
 		sharpRecent.push(plan.sharpness);
 
 		if (sharpRecent.length > 5) {
@@ -3603,7 +4051,10 @@ export function scanView(root) {
 
 		// The card taken, at once, so the next look checks against it; its
 		// tray card once added.
-		const taken = {...takenCard(lastDrop, plan.card), at: performance.now(), fresh: false, item: null, print: content.print, quad: content.quad};
+		// On the very place of the card before: its picture match is checked
+		// against that card's too (readItemNow askIfSame).
+		const overLast = Boolean(lastDrop && lastDrop.quad && sameSpot(boxOf(plan.card.corners), boxOf(lastDrop.quad)));
+		const taken = {...takenCard(lastDrop, plan.card), at: performance.now(), flushed: blurred, fresh: false, item: null, over: blurred ? over : null, print: content.print, quad: content.quad, thumb: blurred ? thumb : (plan.fine ? thumbAt(plan.fine, content.quad) : null)};
 
 		lastDrop = taken;
 		dropsTaken++;
@@ -3612,7 +4063,7 @@ export function scanView(root) {
 		let grabbed;
 
 		try {
-			grabbed = await takeFrame(plan.region);
+			grabbed = (kept && await kept) || await takeFrame(plan.region);
 		}
 		finally {
 			capturing--;
@@ -3631,6 +4082,14 @@ export function scanView(root) {
 
 		const item = S.addCapture(session);
 
+		if (blurred) {
+			item.blurred = true;
+		}
+
+		if (check) {
+			item.check = true;
+		}
+
 		taken.item = item.id;
 		toBuzz.add(item.id);
 		sinceOpen.add(item.id);
@@ -3642,11 +4101,16 @@ export function scanView(root) {
 		const fullSaved = keepFull(item.id, frame);
 		// The card as the change found it, in the scan log's terms (the
 		// outlines found over it are the others).
-		const card = {angle: change.rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(change.rect.w, change.rect.h) / Math.max(change.rect.w, change.rect.h)) * 1000) / 1000, small: false, upright: change.rect.h >= change.rect.w};
+		// A card told by its picture on the very spot of the last (contentAt)
+		// comes with a change that has no rectangle: its box stands in.
+		const rect = change && change.rect ? change.rect : {angle: 0, ...boxOf(plan.card.corners)};
+		const card = {angle: rect.angle, others: plan.quads.slice(1), quad: plan.card.corners, ratio: Math.round((Math.min(rect.w, rect.h) / Math.max(rect.w, rect.h, 1)) * 1000) / 1000, small: false, upright: rect.h >= rect.w};
 		const geometry = {...geometryReport(area, 'auto', {card, region: plan.region, settleMs: Math.round(step.still)}), drop: dropReport(change, plan, step, content)};
 
 		refocusSoon();
-		readItem(item.id, frame, {auto: true, captureMs, dropped: true, fullSaved, geometry, quads: plan.quads});
+		readItem(item.id, frame, {askIfSame: overLast, auto: true, captureMs, dropped: true, fullSaved, geometry, quads: plan.quads});
+
+		return item.id;
 	}
 
 	// Focus and white balance are held once the camera has found them, in
@@ -3681,6 +4145,7 @@ export function scanView(root) {
 	// again from the next still picture, and the last card's size is
 	// forgotten.
 	function reframeHolder() {
+		flushRetry('reframe');
 		dropDetector.reframe();
 		holderView = null;
 		pendingDrop = null;
@@ -3848,7 +4313,7 @@ export function scanView(root) {
 			return;
 		}
 
-		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop);
+		const busy = shutterBusy || capturing > 0 || picturing > 0 || Boolean(pendingDrop) || Boolean(retry);
 		const {evidence, switchTo} = stance.decide({at: performance.now(), busy, holder, pictureStillMs});
 
 		if (switchTo && (switchTo === 'holder') !== holder) {
@@ -4049,6 +4514,9 @@ export function scanView(root) {
 	})();
 
 	return () => {
+		// A blurred holder capture still waiting for a sharper look joins the
+		// tray as it is, marked to check: never lost on leaving.
+		flushRetry('left');
 		alive = false;
 
 		if (repeat) {

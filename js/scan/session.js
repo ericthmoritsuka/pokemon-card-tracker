@@ -17,7 +17,14 @@
 // when not set, Eric, 2026-10-09), and worth, what the card is worth for
 // the valuable card highlight and the rising price mark (js/scan/worth.js
 // scanWorth: {brl, source, valuable, rising, change}; null or missing
-// until its price and a rate are known; Eric, 2026-10-15).
+// until its price and a rate are known; Eric, 2026-10-15), and blurred,
+// true for a holder capture added blurred because no sharper look of it
+// came in time (view.js captureDrop): it needs a look only when its match
+// is not sure, like any card, and its sheet then says the picture was
+// blurred (lookReason; Eric, 2026-11-06: what the scanner is sure of is
+// never marked); and check, true for one added blurred because another card
+// landed or the scanner left before it was seen sharp: it needs a look
+// until confirmed, however sure (never added silently).
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -584,7 +591,7 @@ export function applyVariants(session, id, cardId, variants, now = nowIso(), fin
 	return item;
 }
 
-// "This is the card", or one of the other candidates, or a search result: a
+// "This one", or one of the other candidates, or a search result: a
 // tap that clears the low-confidence flag.
 export function chooseCard(session, id, candidate, now = nowIso()) {
 	const item = mustFind(session, id);
@@ -922,6 +929,14 @@ export function blocker(item) {
 		return 'unsure';
 	}
 
+	// A blurred holder capture added because another card landed, or the
+	// scanner left, before a sharper look of it came (view.js flushRetry):
+	// checked by a tap, however sure its match, so it is never added
+	// silently (Eric, 2026-11-06).
+	if (item.check && !item.confirmed) {
+		return 'unsure';
+	}
+
 	if (!item.language) {
 		return 'language';
 	}
@@ -949,13 +964,26 @@ export const needsLook = (item) => LOOK.has(blocker(item));
 
 export const isSavable = (item) => blocker(item) === null;
 
-// The plain-language reason a card needs a look, for its sheet.
+// The plain-language reason a card needs a look, for its sheet. A blurred
+// capture says so first, and whether its number read (design review,
+// 2026-11-06: one short line for a reader whose first language is not
+// English).
+export const BLURRED_WHY = 'Blurred picture';
+
 export function lookReason(item) {
 	switch (blocker(item)) {
 		case 'unmatched':
-			return item.why || 'No card was found. Search for it, or remove it.';
+			return item.blurred ? `${BLURRED_WHY}, and no card was found. Search for it, or remove it.` : item.why || 'No card was found. Search for it, or remove it.';
 		case 'unsure':
-			return item.why || 'Not sure this is the card. Tap the right one.';
+			if (!item.blurred) {
+				return item.why || 'Not sure this is the card. Tap the right one.';
+			}
+
+			if (item.card && item.sure) {
+				return `${BLURRED_WHY}. Tap This one if it is right.`;
+			}
+
+			return item.read && item.read.number ? `${BLURRED_WHY}. Tap the right card.` : `${BLURRED_WHY}, and the number did not read. Tap the right card.`;
 		case 'language':
 			return 'Not sure of the language. Pick the one printed on the card.';
 		case 'finish':

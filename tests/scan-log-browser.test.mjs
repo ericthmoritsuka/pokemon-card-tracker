@@ -251,7 +251,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await page.waitForTimeout(2500);
 		assert.equal(await captures(page), 1, 'card A held still: one capture');
 		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opened by itself');
-		assert.equal(await page.locator('#scan-run-count').textContent(), '1 card');
+		assert.equal(await page.locator('#scan-run-count').textContent(), 'Add · 1 card');
 		assert.ok((await page.evaluate(() => window.buzzes)).includes(40), 'a sure card buzzes once, short');
 
 		// B straight in A's place, with no empty frame between.
@@ -261,7 +261,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await settled(page);
 		await page.waitForTimeout(2000);
 		assert.equal(await captures(page), 2, 'card B held still: one capture');
-		assert.equal(await page.locator('#scan-run-count').textContent(), '2 cards');
+		assert.equal(await page.locator('#scan-run-count').textContent(), 'Add · 2 cards');
 		assert.equal(await page.locator('#scan-confirm').count(), 0);
 		assert.equal(await barOpen(page), 0, 'a different card asks nothing');
 		assert.deepEqual(errors, []);
@@ -459,7 +459,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		items = await trayIs(page, (list) => list.length === 4, 'back');
 		assert.deepEqual(items[3], newest, 'back exactly as it was');
 		assert.equal(await outcomeOf(newest.id), null, 'Undo clears the log outcome');
-		assert.equal(await page.locator('#scan-run-count').textContent(), '4 cards');
+		assert.equal(await page.locator('#scan-run-count').textContent(), 'Add · 4 cards');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

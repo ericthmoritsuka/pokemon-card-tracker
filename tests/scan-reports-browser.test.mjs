@@ -284,8 +284,8 @@ describe('Send report and Sent reports (Eric, 2026-11-05)', () => {
 		assert.match(item, /2 with pictures/);
 
 		// Deleted by itself 30 days after it was sent, and the list says so.
-		assert.equal(await page.locator('#sent-reports-expiry').textContent(), 'Reports are deleted automatically 30 days after they are sent.');
-		assert.equal(await page.locator('#sent-reports li .sent-report-expiry').textContent(), await page.evaluate(() => `Deleted ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`));
+		assert.match(await page.locator('#sent-reports-expiry').textContent(), /Only you can see them\. Each is deleted 30 days after it is sent\.$/);
+		assert.equal(await page.locator('#sent-reports li .sent-report-expiry').textContent(), await page.evaluate(() => `Kept until ${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, {day: 'numeric', month: 'short'})}`));
 		await page.screenshot({fullPage: true, path: `${SHOTS}/scan-reports-list.png`});
 
 		// The report, readable as text with real images.
@@ -300,7 +300,7 @@ describe('Send report and Sent reports (Eric, 2026-11-05)', () => {
 
 		const text = await page.evaluate(() => document.body.innerText);
 
-		for (const expected of ['Scan 1 of 3: Test card 1, 001/132', 'Scan 2 of 3: Test card 2, 002/132', 'Scanner version: 40', 'What was read', 'Name: "Test card 1" (81 %)', 'Language: ko (80 %, from Korean model)', 'Text route', 'Name strip: "TEST CARD 1"', 'Picture route', 'Candidates', '<- the scanner\'s answer, saved', 'Saved: Test card 2, 002/132 (me01-002), language ko, finish normal (default), 1 copy', 'No picture in this scan.', 'Errors', 'Korean cards, glare']) {
+		for (const expected of ['Scan 1 of 3: Test card 1, 001/132', 'Scan 2 of 3: Test card 2, 002/132', 'Scanner version: 64', 'What was read', 'Name: "Test card 1" (81 %)', 'Language: ko (80 %, from Korean model)', 'Text route', 'Name strip: "TEST CARD 1"', 'Picture route', 'Candidates', '<- the scanner\'s answer, saved', 'Saved: Test card 2, 002/132 (me01-002), language ko, finish normal (default), 1 copy', 'No picture in this scan.', 'Errors', 'Korean cards, glare']) {
 			assert.ok(text.includes(expected), `the page says ${expected}`);
 		}
 

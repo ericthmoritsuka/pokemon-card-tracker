@@ -207,6 +207,12 @@ describe('the layout as one change, and the fill', () => {
 		]);
 	});
 
+	test('with the list read\'s ranking (readList rankOf), the most valuable copy fills instead (Eric, 2026-11-06)', () => {
+		const result = layout.layoutDraft(doc(), 'b', {...loaded, rankOf: (entry) => (entry.id === 'c1' ? {value: 25} : {value: 3})}, {at: at(10)});
+
+		assert.deepEqual(result.done.fills.map((row) => [row.position, row.entryId]), [[2, 'c1'], [3, 'c152-pt']]);
+	});
+
 	test('with "Fill binder placeholders automatically" off, nothing fills', () => {
 		const result = layout.layoutDraft({...doc(), settings: {fill_placeholders: false}}, 'b', loaded, {at: at(10)});
 

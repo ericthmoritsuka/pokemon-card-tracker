@@ -56,15 +56,20 @@ strip of frames per proposal under `--sheet` to check by eye. Edit the JSON by h
 
 `replay.mjs` decodes the video at the app's frame-loop rate (`--fps`, 8 by default), takes the part
 of each frame the screen shows (`camera.js` `layoutGuide` for `--stage`, 384 x 470 CSS pixels on
-Eric's phone), and runs it through the frame loop of version 40 (`--mode v40`, the default:
-`drop.js` as `view.js` `holderTick` calls it, with the content check), version 36 (`--mode v36`,
+Eric's phone), and runs it through the frame loop of version 64 (`--mode v64`, the default:
+version 40's loop, where a capture that reads out of focus waits up to 1.5 s for a sharper still
+look of its spot, as `view.js` `captureDrop` does), version 40 (`--mode v40`: `drop.js` as
+`view.js` `holderTick` calls it, with the content check; run it with `--repo` on a version 40 to 63
+checkout for a before), version 36 (`--mode v36`,
 without it, and with the "moved" skip when run with `--repo` on an older checkout) or version 35
 (`--mode v35`, `steady.js` `findCard` and `createHolderCapture` as version 35's `startLoop` did),
 then the picture match of each capture (OCR is never started). In version 40 a drop whose picture is
 the last card's, after a disturbance like a drop's, is answered with the repeat bar instead of a
 capture; the table counts those drops as asked. Per segment it reports drops noticed exactly once, missed, taken twice, taken
 before the card settled (mid-fall), sure and unsure first answers, right among the labelled, wrong
-but sure, and how long the picture took (on this machine).
+but sure, how long the picture took (on this machine), and in version 64 the captures added
+blurred and not sure (marked to check), with a line counting how each blurred capture's wait ended (a sharper
+look, a repeat, nothing left, or kept blurred, and why).
 
 | Option | What it does |
 | --- | --- |
@@ -86,7 +91,10 @@ drop, taken or skipped (skipped ones from version 40): as it lay still before, a
 `replay-log.mjs` judges each pair again with `drop.js` and says where the replay disagrees with what
 the phone did; `--identify` also matches the card cut from the small view. With version 40's
 `drop.js` it also checks each drop's picture against the last drop it took (`contentCheck`,
-`contentAt`) and prints the print distance.
+`contentAt`) and prints the print distance. With version 64's `drop.js` each card taken is also put
+through the focus check (`captureFocus`) on the straightened picture the log kept, scaled to 200
+pixels tall: added at once, or retried (soft, plain), with what became of it on the phone. The log
+keeps one look per drop, so the looks after a retried capture are not replayed.
 
 ## Files
 

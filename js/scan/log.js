@@ -24,7 +24,12 @@
 // or dropped by the scanner itself (with why: not a card, repeat, repeat on
 // reopen). A holder drop that took nothing (logEvent) is an entry of its
 // own, how 'holder', with the drop's numbers and why: none, small, large,
-// shape (judged on the change), moved, light, off the frame (on the card).
+// shape (judged on the change), moved, light, off the frame (on the card);
+// from version 64 also repeat (a blurred capture whose sharp look was the
+// card taken before), blurred, nothing left (its spot showed nothing new),
+// and blurred, waiting (another look at a spot still waiting); a drop's
+// numbers then carry its focus and, for a blurred capture, retry (view.js
+// retryReport).
 // scanner: SCANNER, the scanner's own version, kept even where the app's
 // version cannot be read. first.finishBy and a saved outcome's finishBy say
 // where the finish came from (js/scan/session.js finishBy): 'default' when
@@ -47,8 +52,9 @@ const db = database('card-tracker-scan-log', [ENTRIES, PICTURES]);
 // The most entries kept: past it, the oldest go first.
 export const LOG_MAX = 500;
 
-// The scanner's version, in every entry.
-export const SCANNER = 40;
+// The scanner's version, in every entry: 64 from the blurred holder
+// capture retried (view.js captureDrop).
+export const SCANNER = 64;
 
 // The most entries whose drop views (before and after, about 15 KB each)
 // are kept: past it, the oldest entries' views go first. 120 from version

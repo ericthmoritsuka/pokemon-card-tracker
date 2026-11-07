@@ -1,8 +1,9 @@
 // Unit tests for the scanner's Trade or sale mode (js/scan/trade.js; Eric,
 // 2026-11-06; DESIGN.md section 11, "Scan a trade or a sale"): which copy a
-// card going out takes (spares first, in the language and finish read,
-// asking when two or more still fit, a card not owned, the same copy never
-// twice, a hand pick), the side a capture joins, what the tray can log, and
+// card going out takes (loose copies first, in the language and finish
+// read, alike ones taken by themselves with spares first, asking only when
+// the copies differ or would leave a binder, a card not owned, the same copy
+// never twice, a hand pick), the side a capture joins, what the tray can log, and
 // what Log it hands the trades log's form (the kind guessed from the sides,
 // the cards in as Add would save them), saved through js/moves.js planMove
 // as the form saves it. Plain Node; invented data only.
@@ -104,33 +105,132 @@ describe('which copy goes out', () => {
 		assert.deepEqual(ids(unset.copies), ['u1']);
 	});
 
-	test('two spares that fit: it asks, best first, and suggests the loose one', () => {
+	test('three alike loose copies: one goes without asking, a spare first and the newest of those', () => {
+		// Eric, 2026-11-06: "the app is asking me about every card I'm
+		// scanning in the trade to select which copy goes out".
 		const cards = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)})];
-		const where = new Map([['s1', {binder_name: 'Binder', kind: 'pocket', page: 1, position: 2}]]);
-		const asked = T.outCopies(tray([{}]), cards).get('t1');
+		const result = T.outCopies(tray([{}]), cards).get('t1');
 
-		assert.equal(asked.status, 'ask');
-		assert.deepEqual(asked.copies, []);
-		assert.deepEqual(new Set(ids(asked.candidates)), new Set(['k1', 's1', 's2']));
-		assert.deepEqual(ids(asked.candidates).slice(2), ['k1'], 'the copy kept comes last');
-
-		// With s1 in a binder pocket, s2 (a spare in no binder) is the one.
-		const loose = T.outCopies(tray([{}]), cards, {where}).get('t1');
-
-		assert.equal(loose.status, 'chosen');
-		assert.deepEqual(ids(loose.copies), ['s2']);
+		assert.equal(result.status, 'chosen');
+		assert.equal(result.by, 'auto');
+		assert.deepEqual(ids(result.copies), ['s2']);
+		assert.deepEqual(result.suggested, ['s2']);
+		assert.deepEqual(ids(result.candidates).slice(2), ['k1'], 'the copy kept comes last');
 	});
 
-	test('the one spare in a binder while a loose copy also fits: it asks rather than empty a pocket', () => {
+	test('one loose copy and one in a binder: the loose one goes, even the copy kept', () => {
 		const cards = [copy('k1'), copy('s1', {created_at: at(2)})];
-		const where = new Map([['s1', {binder_name: 'Binder', kind: 'tray'}]]);
+
+		for (const where of [
+			new Map([['s1', {binder_name: 'Binder', kind: 'tray'}]]),
+			new Map([['s1', {binder_name: 'Binder', kind: 'pocket', page: 1, position: 2}]]),
+		]) {
+			const result = T.outCopies(tray([{}]), cards, {where}).get('t1');
+
+			assert.equal(result.status, 'chosen', `the spare in a binder ${where.get('s1').kind} stays`);
+			assert.equal(result.by, 'auto');
+			assert.deepEqual(ids(result.copies), ['k1']);
+		}
+
+		// Two loose and one in a binder: a loose spare goes.
+		const three = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)})];
+		const pocket = new Map([['s2', {binder_name: 'Binder', kind: 'pocket', page: 1, position: 2}]]);
+
+		assert.deepEqual(ids(T.outCopies(tray([{}]), three, {where: pocket}).get('t1').copies), ['s1']);
+	});
+
+	test('two loose copies in different conditions: it asks, since the choice changes what leaves', () => {
+		const cards = [copy('k1', {condition: 'Near Mint'}), copy('s1', {condition: 'Played', created_at: at(2)})];
+		const result = T.outCopies(tray([{}]), cards).get('t1');
+
+		assert.equal(result.status, 'ask');
+		assert.deepEqual(result.copies, []);
+		assert.deepEqual(result.suggested, ['s1'], 'the spare suggested');
+		assert.equal(T.outLine(result), '2 copies match.');
+
+		// A condition saved on one and not the other differs too.
+		const unset = T.outCopies(tray([{}]), [copy('k1', {condition: 'Near Mint'}), copy('s1', {created_at: at(2)})]).get('t1');
+
+		assert.equal(unset.status, 'ask');
+
+		// No finish read: two loose copies in different finishes ask too.
+		const finishes = T.outCopies(tray([{variantId: null}]), [copy('k1'), copy('r1', {variant_id: 'reverse'})]).get('t1');
+
+		assert.equal(finishes.status, 'ask');
+	});
+
+	test('only copies in binders fit: it asks rather than empty a pocket, and says where each is', () => {
+		const cards = [copy('k1'), copy('s1', {created_at: at(2)})];
+		const where = new Map([
+			['k1', {binder_name: 'Binder', kind: 'pocket', page: 3, position: 2}],
+			['s1', {binder_name: 'Binder', kind: 'tray'}],
+		]);
 		const result = T.outCopies(tray([{}]), cards, {where}).get('t1');
 
 		assert.equal(result.status, 'ask');
 		assert.deepEqual(result.suggested, ['s1']);
+
+		// Even the one copy owned, in a binder, asks.
+		const one = T.outCopies(tray([{}]), [copy('k1')], {where}).get('t1');
+
+		assert.equal(one.status, 'ask');
+		assert.deepEqual(ids(one.candidates), ['k1']);
+
+		// Not enough loose copies for a card standing for two: it asks.
+		const two = T.outCopies(tray([{copies: 2}]), [copy('k1'), copy('s1', {created_at: at(2)}), copy('l1', {created_at: at(3)})], {where}).get('t1');
+
+		assert.equal(two.status, 'ask');
 		assert.equal(T.whereText(where.get('s1')), 'In Binder\'s tray');
+		assert.equal(T.whereText(where.get('k1')), 'Binder, page 3, pocket 2');
 		assert.equal(T.whereText(null, copy('x', {storage: 'Box 1'})), 'Stored in Box 1');
 		assert.equal(T.whereText(null, copy('x')), 'Not in a binder');
+	});
+
+	test('a finish read narrows to that finish: a copy with no finish saved goes only when none in the finish is loose', () => {
+		// u1 (no finish saved) is newer and a spare, but h1 is the holo read,
+		// in the same condition.
+		const cards = [copy('h1', {condition: 'Near Mint'}), copy('u1', {condition: 'Near Mint', created_at: at(2), variant_id: null})];
+		const result = T.outCopies(tray([{}]), cards).get('t1');
+
+		assert.equal(result.status, 'chosen');
+		assert.deepEqual(ids(result.copies), ['h1']);
+
+		// Two holo copies that differ: it asks, though the copy with no
+		// finish saved also fits.
+		const differ = T.outCopies(tray([{}]), [...cards, copy('h2', {condition: 'Played', created_at: at(3)})]).get('t1');
+
+		assert.equal(differ.status, 'ask');
+	});
+
+	// Review of 2026-11-06: "asks only when copies differ in finish or
+	// condition, or only binder copies fit" held only before a finish match.
+	test('a holo Played and a Near Mint copy of no finish saved: it asks, since the one with no finish may be the holo too', () => {
+		const result = T.outCopies(tray([{}]), [copy('h1', {condition: 'Played'}), copy('u1', {condition: 'Near Mint', variant_id: null})]).get('t1');
+
+		assert.equal(result.status, 'ask');
+		assert.deepEqual(ids(result.copies), []);
+		assert.deepEqual(ids(result.candidates).sort(), ['h1', 'u1']);
+	});
+
+	test('the holo read is in a binder and the loose copy has no finish saved: it asks rather than take a copy of unknown finish', () => {
+		const result = T.outCopies(tray([{}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null})], {where: new Map([['h1', {binder_name: 'Binder', kind: 'tray'}]])}).get('t1');
+
+		assert.equal(result.status, 'ask');
+		assert.deepEqual(ids(result.copies), []);
+
+		// With no finish read, the loose copy goes as before.
+		const unread = T.outCopies(tray([{variantId: null}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null})], {where: new Map([['h1', {binder_name: 'Binder', kind: 'tray'}]])}).get('t1');
+
+		assert.deepEqual(ids(unread.copies), ['u1']);
+	});
+
+	test('a card standing for two takes the holo read and the newer of two alike copies with no finish saved', () => {
+		// A card standing for two: the one holo goes, and of the two alike
+		// copies with no finish saved, the newer.
+		const two = T.outCopies(tray([{copies: 2}]), [copy('h1'), copy('u1', {created_at: at(2), variant_id: null}), copy('u2', {created_at: at(3), variant_id: null})]).get('t1');
+
+		assert.equal(two.status, 'chosen');
+		assert.deepEqual(ids(two.copies), ['h1', 'u2']);
 	});
 
 	test('a card not owned cannot go out, and is not logged', () => {
@@ -249,16 +349,24 @@ describe('which copy goes out', () => {
 		assert.equal(T.outCopies(session, [copy('k1')]).get('t1').status, 'chosen', 'once read, the copy is matched');
 	});
 
-	test('a card standing for two copies takes two, and asks when three fit', () => {
+	test('a card standing for two copies takes two, also of more alike ones, and asks when they differ', () => {
 		const two = T.outCopies(tray([{copies: 2}]), [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)})]).get('t1');
 
 		assert.equal(two.status, 'chosen');
 		assert.deepEqual(new Set(ids(two.copies)), new Set(['s1', 's2']));
 
-		const three = T.outCopies(tray([{copies: 2}]), [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)}), copy('s3', {created_at: at(4)})]).get('t1');
+		const four = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)}), copy('s3', {created_at: at(4)})];
+		const alike = T.outCopies(tray([{copies: 2}]), four).get('t1');
+
+		assert.equal(alike.status, 'chosen');
+		assert.deepEqual(ids(alike.copies), ['s3', 's2'], 'the newest spares');
+
+		four[3].condition = 'Played';
+
+		const three = T.outCopies(tray([{copies: 2}]), four).get('t1');
 
 		assert.equal(three.status, 'ask');
-		assert.equal(T.outLine(three), 'Pick which 2 copies go (4 fit).');
+		assert.equal(T.outLine(three), '4 copies match; pick 2.');
 
 		const short = T.outCopies(tray([{copies: 3}]), [copy('k1'), copy('s1', {created_at: at(2)})]).get('t1');
 
@@ -351,7 +459,7 @@ describe('Log it', () => {
 
 	test('a card that asks for its copy holds Log it back until it is picked', () => {
 		const session = tray([{}]);
-		const cards = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {created_at: at(3)})];
+		const cards = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {condition: 'Played', created_at: at(3)})];
 		const asked = T.tradeSummary(session, T.outCopies(session, cards));
 
 		assert.equal(asked.ask, 1);

@@ -21,6 +21,15 @@
 // 'repeat bar'; the scan log's motion peak and frames (version 40; a
 // version 36 to 39 log has the peak only, and two frames are assumed)
 // tell which.
+//
+// From version 64 each card taken is also put through the focus check
+// (drop.js captureFocus) on the straightened picture the log kept, scaled
+// to the card's size in the finer view (200 pixels tall at 1x) with the
+// contrast of the view after: added at once, or retried (soft, plain), as
+// view.js captureDrop decides. The log keeps one look per drop, so what the
+// looks after a retried capture would have shown (a sharper look, the card
+// before, nothing left) is not replayed: --verbose names, for each retried
+// card, the outcome the phone's own answer and Eric's fix point to.
 
 import {join, resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -65,6 +74,35 @@ function view(image, side) {
 }
 
 let agree = 0;
+// The focus check (version 64) on each card taken: added at once, or why it
+// would be retried.
+const withFocus = typeof drop.captureFocus === 'function';
+const focusCounts = {};
+
+function focusOf(entry) {
+	if (!withFocus || !entry.picture || !entry.views || !entry.views.after) {
+		return null;
+	}
+
+	const card = decodeImage(dataUrlBytes(entry.picture), {maxSide: 200});
+	const viewed = decodeImage(dataUrlBytes(entry.views.after), {maxSide: steady.FIND_SIDE_CAPTURE});
+	const contrast = drop.viewContrast(steady.toGrey(viewed.data, viewed.width, viewed.height), viewed.width, viewed.height);
+	const {height: h, width: w} = card;
+	const focus = drop.cardFocus(steady.toGrey(card.data, w, h), w, h, [{x: 0, y: 0}, {x: w, y: 0}, {x: w, y: h}, {x: 0, y: h}], {contrast});
+	const why = drop.focusVerdict(focus);
+	const outcome = entry.outcome ? `${entry.outcome.kind}${entry.outcome.card ? ` ${entry.outcome.card}` : ''}` : 'no outcome';
+
+	focusCounts[why ? `retried (${why})` : 'added at once'] = (focusCounts[why ? `retried (${why})` : 'added at once'] || 0) + 1;
+
+	if (why) {
+		const key = `retried, then ${entry.outcome ? entry.outcome.kind : 'no outcome'}`;
+
+		focusCounts[key] = (focusCounts[key] || 0) + 1;
+	}
+
+	return `${why ? `retried (${why})` : 'added at once'} blur=${focus.blur.toFixed(2)} texture=${focus.texture.toFixed(2)}; on the phone: ${outcome}`;
+}
+
 let right = 0;
 let labelled = 0;
 // The last drop taken, for the content check: {print, quad, size}.
@@ -136,9 +174,15 @@ for (const entry of entries) {
 
 	agree += replayed === logged || (logged === 'drop' && replayed.startsWith('drop')) ? 1 : 0;
 
+	const focused = logged === 'drop' ? focusOf(entry) : null;
+
 	if (opts.verbose || replayed !== logged) {
-		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}${content ? ` print=${content.distance ?? '-'} ${content.verdict}` : ''}`);
+		console.log(`${entry.at} logged ${logged}, replayed ${replayed}${top ? `, ${top[0] || 'nothing'}${entry.truth ? ` (saved ${entry.truth})` : ''}` : ''} share=${change.share.toFixed(3)}${change.alike !== undefined ? ` alike=${change.alike}` : ''}${content ? ` print=${content.distance ?? '-'} ${content.verdict}` : ''}${focused ? `; ${focused}` : ''}`);
 	}
 }
 
 console.log(`\n${entries.length} drops with views: the replay agrees on ${agree} (${pct(agree, entries.length)})${labelled ? `; picture right on ${right} of ${labelled} saved cards` : ''}`);
+
+if (Object.keys(focusCounts).length) {
+	console.log(`Cards taken, put through the focus check on their pictures: ${Object.entries(focusCounts).map(([why, n]) => `${why} ${n}`).join(', ')}`);
+}

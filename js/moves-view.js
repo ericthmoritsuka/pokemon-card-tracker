@@ -3,7 +3,8 @@
 //
 //   trades       History: every move, newest first, by month, with the
 //                money in and out each month. A move opens a sheet with its
-//                cards and Undo this move.
+//                cards and Undo this move. Scan the cards, beside Log a
+//                move, opens Scan in Trade or sale (js/scan/trade.js).
 //   trades/new   Log a move: the kind, date, who, price, note, the cards out
 //                (picked from your copies, spares first, or from the copies
 //                you removed in the last 30 days: Log a past sale) and the
@@ -28,6 +29,7 @@ import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, pars
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
+import {rememberMode} from './scan/trade.js';
 import {toast} from './shell.js';
 import {cardArt, entryFinish, tileArt} from './tile.js';
 import {spareEntries} from './trade-view.js';
@@ -91,6 +93,35 @@ export function copyTile({entry, info}, {extra = null, selected = null} = {}) {
 	return [frame, h('span', {class: 'tile-name'}, info.name), h('span', {class: 'tile-meta'}, copyMeta(entry, extra))];
 }
 
+// The Scan tab's glyph (index.html), for the buttons that open Scan in
+// Trade or sale.
+function scanIcon() {
+	const SVG = 'http://www.w3.org/2000/svg';
+	const svg = document.createElementNS(SVG, 'svg');
+	const frame = document.createElementNS(SVG, 'path');
+	const card = document.createElementNS(SVG, 'rect');
+
+	svg.setAttribute('aria-hidden', 'true');
+	svg.setAttribute('class', 'tab-icon button-icon');
+	svg.setAttribute('focusable', 'false');
+	svg.setAttribute('viewBox', '0 0 24 24');
+	frame.setAttribute('d', 'M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3');
+	Object.entries({height: 10, rx: 1, width: 7, x: 8.5, y: 7}).forEach(([key, value]) => card.setAttribute(key, String(value)));
+	svg.append(frame, card);
+
+	return svg;
+}
+
+// A compact row for a card the scanner handed over (design review,
+// 2026-11-06): its picture, its name, its language and condition, and an x
+// that takes it out of the move.
+function chosenRow(attrs, art, name, meta, onRemove) {
+	return h('div', {...attrs, class: 'move-row'},
+		h('span', {class: 'move-row-thumb'}, art),
+		h('span', {class: 'move-row-text'}, h('span', {class: 'move-row-name'}, name), h('span', {class: 'move-row-meta'}, meta)),
+		h('button', {'aria-label': `Take ${name} out of the list`, class: 'move-row-remove move-unpick', onclick: onRemove, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
+}
+
 // ------------------------------------------------------------- History
 
 export function historyView(root) {
@@ -120,9 +151,10 @@ export function historyView(root) {
 		if (!months.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
 				h('p', {class: 'big'}, 'No trades or sales yet'),
-				h('p', {class: 'muted'}, 'Log a move records a sale, a purchase, a trade, or a gift: the cards out leave your collection, keeping their binder pockets as placeholders, and the cards in are added.'),
-				h('p', {class: 'muted'}, 'Sold something before? Log a move offers the copies you removed in the last 30 days too.'),
-				h('a', {class: 'button primary', 'data-link': 'trades/new', href: `${BASE}trades/new`}, 'Log a move')
+				h('p', {class: 'muted'}, 'Scan the cards going out and coming in, or log a move by hand.'),
+				h('div', {class: 'moves-empty-actions'},
+					h('a', {class: 'button primary', 'data-link': 'trades/new', href: `${BASE}trades/new`}, 'Log a move'),
+					h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-empty-scan', onclick: () => rememberMode('trade')}, scanIcon(), 'Scan a trade or sale'))
 			));
 
 			return;
@@ -177,8 +209,8 @@ export function historyView(root) {
 			h('dl', {class: 'facts move-facts'},
 				h('dt', null, 'Date'), h('dd', null, shortDate(move.date, {year: true}) || move.date),
 				...(priceText(move) ? [h('dt', null, 'Money'), h('dd', null, `${priceText(move)} ${move.money === 'in' ? 'in' : 'out'}`)] : []),
-				...(out.length ? [h('dt', null, 'Cards out'), h('dd', {id: 'move-sheet-out'}, out.join(', '))] : []),
-				...(came.length ? [h('dt', null, 'Cards in'), h('dd', {id: 'move-sheet-in'}, came.join(', '))] : []),
+				...(out.length ? [h('dt', null, 'Going out'), h('dd', {id: 'move-sheet-out'}, out.join(', '))] : []),
+				...(came.length ? [h('dt', null, 'Coming in'), h('dd', {id: 'move-sheet-in'}, came.join(', '))] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
 			h('div', {class: 'button-row move-sheet-actions'}, edit),
@@ -290,7 +322,12 @@ export function historyView(root) {
 	root.append(
 		h('div', {class: 'view-head'},
 			h('h2', null, 'Trades and sales'),
-			h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move')
+			h('div', {class: 'view-head-links'},
+				// Scan opened in Trade or sale (Eric, 2026-11-06): the mode is
+				// kept on the phone as the scanner's own switch keeps it, and
+				// the trade tray is kept as it is, cards and all.
+				h('a', {class: 'button small view-head-link', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-scan', onclick: () => rememberMode('trade')}, scanIcon(), 'Scan a trade'),
+				h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move'))
 		),
 		body
 	);
@@ -322,17 +359,19 @@ const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'
 
 const kindLabel = (value) => (KIND_LABELS.find(([one]) => one === value) || [null, value])[1];
 
-// "Scanned: 2 cards out and 1 card in. Traded is picked. Add who and the
-// price, then Save." with the alternative the sides allow. out counts the
-// copies still in his cards; dropped, those handed over that are not any
-// more (removed on another phone since the scan).
+// "Scanned 2 going out, 1 coming in. Add who and the price, then Save."
+// (design review, 2026-11-06), with the alternative the sides allow; the
+// kind picked shows in the kinds above it. out counts the copies still in
+// his cards; dropped, those handed over that are not any more (removed on
+// another phone since the scan), which were scanned all the same.
 export function scannedText({alternatives = [], dropped = 0, in: incoming = [], kind, out = []}) {
 	const inCount = incoming.reduce((sum, item) => sum + (item.n || 1), 0);
-	const sides = [out.length ? `${plural(out.length, 'card')} out` : null, inCount ? `${plural(inCount, 'card')} in` : null].filter(Boolean).join(' and ');
+	const outCount = out.length + dropped;
+	const sides = [outCount ? `${outCount} going out` : null, inCount ? `${inCount} coming in` : null].filter(Boolean).join(', ');
 	const other = alternatives.length ? ` Pick ${alternatives.map(kindLabel).join(' or ')} if ${kind === 'bought' ? 'they were a gift to you' : 'you gave them away'}.` : '';
 	const gone = dropped ? ` ${plural(dropped, 'copy', 'copies')} you scanned going out ${dropped === 1 ? 'is' : 'are'} no longer in your cards, so ${dropped === 1 ? 'it is' : 'they are'} left out.` : '';
 
-	return `Scanned: ${sides || 'no cards'}.${gone} ${kindLabel(kind)} is picked.${other} Add who and the price, then Save.`;
+	return `Scanned ${sides || 'no cards'}.${gone}${other} Add who and the price, then Save.`;
 }
 
 // Under the kinds, when the kind picked leaves out a side the scanner
@@ -367,8 +406,10 @@ export function newMoveView(root) {
 	let kept = null;
 	let index = new Map();
 	const viewing = viewingLanguage();
-	const outSheet = sheetDialog('move-out-sheet', 'Cards out');
-	const inSheet = sheetDialog('move-in-sheet', 'Card in');
+	const outSheet = sheetDialog('move-out-sheet', 'Going out');
+	const inSheet = sheetDialog('move-in-sheet', 'A card coming in');
+	// The scanner's cards as compact rows, so the form stays short.
+	const compact = handed.from === 'scan';
 
 	const date = h('input', {class: 'search', id: 'move-date', name: 'move-date', type: 'date', value: today()});
 	const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-who', maxlength: 80, name: 'move-who', type: 'text'});
@@ -393,16 +434,18 @@ export function newMoveView(root) {
 	price.addEventListener('input', readPrice);
 	currency.addEventListener('change', readPrice);
 	const note = h('textarea', {class: 'copy-notes', id: 'move-note', maxlength: 500, name: 'move-note', rows: 2});
-	const outList = h('div', {class: 'pick-grid move-chosen', id: 'move-out-list'});
-	const inList = h('div', {class: 'pick-grid move-chosen', id: 'move-in-list'});
-	const outTitle = h('h3', null, 'Cards out');
-	const inTitle = h('h3', null, 'Cards in');
+	const listClass = compact ? 'move-rows' : 'pick-grid move-chosen';
+	const outList = h('div', {class: listClass, id: 'move-out-list'});
+	const inList = h('div', {class: listClass, id: 'move-in-list'});
+	// One name for each side, whatever the kind (design review, 2026-11-06).
+	const outTitle = h('h3', null, 'Going out');
+	const inTitle = h('h3', null, 'Coming in');
 	const outSection = h('section', {class: 'card move-side', id: 'move-out-section'}, outTitle, outList,
-		h('button', {'aria-haspopup': 'dialog', id: 'move-add-out', onclick: () => openOut(), type: 'button'}, 'Choose cards out'));
+		h('button', {'aria-haspopup': 'dialog', id: 'move-add-out', onclick: () => openOut(), type: 'button'}, 'Add a card going out'));
 	const inSection = h('section', {class: 'card move-side', id: 'move-in-section'}, inTitle, inList,
-		h('button', {'aria-haspopup': 'dialog', id: 'move-add-in', onclick: () => openIn(), type: 'button'}, 'Add a card in'));
+		h('button', {'aria-haspopup': 'dialog', id: 'move-add-in', onclick: () => openIn(), type: 'button'}, 'Add a card coming in'));
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-error'});
-	const save = h('button', {class: 'primary', id: 'move-save', type: 'submit'}, 'Save');
+	const save = h('button', {class: 'primary wide', id: 'move-save', type: 'submit'}, 'Save');
 	const kinds = h('div', {'aria-label': 'What happened', class: 'segmented move-kinds', role: 'radiogroup'},
 		KIND_LABELS.map(([value, label]) => h('label', null,
 			h('input', {checked: value === kind, id: `move-kind-${value}`, name: 'move-kind', onchange: () => {
@@ -429,8 +472,6 @@ export function newMoveView(root) {
 		moneyRow.hidden = kind !== 'traded';
 		outSection.hidden = !side.out;
 		inSection.hidden = !side.in;
-		outTitle.textContent = kind === 'gift' ? 'Cards given' : 'Cards out';
-		inTitle.textContent = kind === 'gift' ? 'Cards received' : 'Cards in';
 
 		// A kind that leaves out cards the scanner handed over says so: they
 		// are not saved, and stay in the scanner's trade tray (onSaved).
@@ -448,6 +489,30 @@ export function newMoveView(root) {
 		const byId = new Map(doc.cards.filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
 		const out = [...outIds, ...pastIds].map((id) => byId.get(id)).filter(Boolean);
 
+		const dropOut = (id) => {
+			outIds.delete(id);
+			pastIds.delete(id);
+			drawChosen();
+		};
+		const dropIn = (i) => {
+			ins.splice(i, 1);
+			drawChosen();
+		};
+		const none = () => [h('p', {class: 'muted'}, 'None yet.')];
+
+		if (compact) {
+			outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => chosenRow({'data-entry': item.entry.id},
+				artOf({catalog: item.entry.catalog || 'international', card_id: item.entry.card_id, language: item.entry.language || null}, item.info, (src) => cardArt(item.info, src, {decorative: true})),
+				item.info.name,
+				copyMeta(item.entry, pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null),
+				() => dropOut(item.entry.id))) : none()));
+			inList.replaceChildren(...(ins.length ? ins.map((item, i) => chosenRow({'data-card': item.fields.card_id},
+				cardArt(item.info, item.info.image, {decorative: true}),
+				item.info.name,
+				[item.n > 1 ? `${item.n} copies` : null, languageName(item.fields.language), item.fields.condition].filter(Boolean).join(' · '),
+				() => dropIn(i))) : none()));
+		}
+		else {
 		outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => h('div', {class: 'pick-cell', 'data-entry': item.entry.id},
 			h('div', {class: 'pick'}, ...copyTile(item, {extra: pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null})),
 			h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => {
@@ -464,6 +529,7 @@ export function newMoveView(root) {
 				ins.splice(i, 1);
 				drawChosen();
 			}, type: 'button'}, 'Remove'))) : [h('p', {class: 'muted'}, 'None yet.')]));
+		}
 
 		fillRecords(out.map((entry) => ({cardId: entry.card_id, catalog: entry.catalog})), index, () => alive)
 			.then((filled) => {
@@ -589,7 +655,7 @@ export function newMoveView(root) {
 
 		outSheet.replaceChildren(
 			h('div', {class: 'sheet-head'},
-				h('h2', {id: 'move-out-sheet-title'}, kind === 'gift' ? 'Cards given' : 'Cards out'),
+				h('h2', {id: 'move-out-sheet-title'}, 'Going out'),
 				h('button', {class: 'small', id: 'move-out-close', onclick: close, type: 'button'}, 'Close')
 			),
 			tabs,
@@ -633,7 +699,7 @@ export function newMoveView(root) {
 			const count = h('input', {class: 'search copy-count', id: 'move-in-count', inputmode: 'numeric', max: MAX_ADD, min: 1, step: 1, type: 'number', value: 1});
 			const info = {image: cardImage(card.image, 'low'), name: card.name, number: card.localId, setName: card.setName};
 			const note = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-in-error'});
-			const add = h('button', {class: 'primary', id: 'move-in-add', type: 'button'}, 'Add to cards in');
+			const add = h('button', {class: 'primary', id: 'move-in-add', type: 'button'}, 'Add this card');
 			const backButton = h('button', {class: 'small', id: 'move-in-back', onclick: () => inSheet.replaceChildren(head(), pane), type: 'button'}, 'Back to results');
 
 			add.addEventListener('click', () => {
@@ -736,7 +802,7 @@ export function newMoveView(root) {
 		});
 
 		const head = () => h('div', {class: 'sheet-head'},
-			h('h2', {id: 'move-in-sheet-title'}, kind === 'gift' ? 'A card received' : 'A card in'),
+			h('h2', {id: 'move-in-sheet-title'}, 'A card coming in'),
 			h('button', {class: 'small', id: 'move-in-close', onclick: close, type: 'button'}, 'Close'));
 
 		inSheet.replaceChildren(head(), pane);
@@ -757,7 +823,8 @@ export function newMoveView(root) {
 		outSection,
 		inSection,
 		error,
-		save
+		// Save stays in reach, above the tab bar, however long the form.
+		h('div', {class: 'actions'}, save)
 	);
 
 	formElement.addEventListener('submit', async (event) => {
@@ -782,7 +849,7 @@ export function newMoveView(root) {
 		}
 
 		if (!out.length && !past.length && !incoming.length) {
-			error.textContent = 'Choose at least one card out or in.';
+			error.textContent = 'Add at least one card going out or coming in.';
 
 			return;
 		}
