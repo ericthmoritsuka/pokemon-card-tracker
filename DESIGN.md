@@ -2211,6 +2211,69 @@ pocket after. Taps that place a card are unchanged: with a tray card picked or a
 tap on a filled pocket still places or swaps, and never opens it; empty pockets, placeholders, Gone
 pockets, and art keep their sheet. In portrait the overview still opens the page first.
 
+**Remove and move, with the choice to shift** (Eric, 2026-11-06: "I should be able to remove cards in
+binders (even automatic ones) and the app should give me the choice to keep it as it is or shift the
+cards... I'm going through the Unova binder made based on the Unova region and it starts with Victini,
+not with the starters... I can't remove the card. I should be able to do it and move the Victini to
+the back of the binder if I wanted to."; for all binders, decided by Eric 2026-11-06; built
+2026-11-06). From a filled pocket, in the card out of its pocket and in the pocket sheet, of any binder
+the person can edit (never a family member's, read only):
+
+- **Remove from this binder**, then **Leave the pocket empty** or **Shift the rest back**: every later
+  pocket's content moves back one pocket, across pages, closing the gap. Pockets with nothing in them
+  move too, so a gap further on stays a gap.
+- **Move to...**: **End of the binder** (after the last pocket in use, so moving the first card there
+  makes the second pocket 1), or a page and pocket; the cards between shift one pocket to make room,
+  back when it moves later in the binder and forward when it moves earlier. In a hand-made binder a
+  pocket with nothing in it is a plain move, as before, and a filled one offers the shift or Swap with
+  this pocket (the old move).
+- **Undo** on each toast puts every pocket back, only while each still holds what the change put
+  there and no copy it brings back has gone to another pocket or a tray since.
+
+*A hand-made binder* (`js/binders.js` `removePocket`, `shiftMove`, `undoShift`). The pocket's
+content moves: a card, a Gone card, a placeholder, a pocket left empty on purpose, or art, all as
+pocket contents. A removed card goes to no tray: it is Not in a binder, as Take out made it (the
+button it replaces in the sheet), and the note says so; **To the tray** stays its own action for a
+card meant for this binder, so the remove sheet does not ask. A shift is one save of the one binder,
+stamped pocket by pocket (`stampEntry`), so another phone's edit to other pockets survives the merge.
+It only ever moves pockets between the two it runs between, so nothing passes the last pocket in use
+and no page is ever needed; a move whose result would leave the binder is refused before saving. When
+two phones write the same pocket at once (one shifts a card into it, the other places a card there),
+the later pocket wins as for any pocket, and the merge puts the copy that lost it in the binder's tray
+(`js/merge.js` `rescueCopies`): a copy both versions hold in this binder, in a pocket or the tray,
+that the merged binder holds nowhere. A copy one version took out on purpose is not in that version,
+so it stays out. Older apps merge without this, so when the merge runs on an older phone that copy
+ends up Not in a binder, never deleted.
+
+*A binder from a list* (`js/binder-rules.js` `listEditsOf`, `applyListEdits`, `moveEdit`). The list
+decides the pockets, so a change is an exception stored on the binder, `list_edits`, a list of
+`{key, kind, before, at}`, one per Pokémon or card key, the latest kept: `out` (left out, the rest shift
+back), `gap` (left out, its pocket stays empty: an empty key `''` in `snapshot.keys`, which every app
+since binders from a list draws as an Empty pocket), `end`, and `before` (just before another key; when
+that key has left the list, it keeps its list place). They apply after the list's order, oldest first,
+on every refresh, so a Pokémon that joins the list later still takes its list place. What is left
+out shows under the pages with **Put back**. The field merges as a whole, like `name`: two phones
+editing exceptions at the same moment keep the later set.
+
+*Older phones and the flip-flop* (the v56 languages note above, again). A phone on v64 or older
+lays out a list's binder from the list without the exceptions, and saves its layout on opening; this
+version saves its own, so each opening would flip the stored layout. Two parts stop it:
+
+- The exceptions survive an older phone's save: it edits a clone of the entry and keeps a field it
+  does not know (v54, v58, and v63 save it through `copyOf`, a `structuredClone`), and its stamp leaves `list_edits` alone, so
+  either merge keeps them (tested with the frozen v47 merge and a v63-shaped save,
+  `tests/binder-shift.test.mjs`).
+- This version recognizes a stored layout that is the list's own order, as an older phone saves it
+  (`planRefresh` `editsOnly`, mirroring `languageOnly`), and then shows its own layout without saving
+  it or saying anything; Refresh saves it, and so does opening when something an older phone would
+  save too changed. So the stored layout changes at most once more after an older phone opens it.
+
+The trade-off, as for languages: until a save here, the Binders screen's count and a family member's
+view (which show the stored layout) show the older phone's order, with Victini first; and a family
+phone on v64 or older always shows the list's own order. Chosen over keeping the exceptions inside
+`snapshot`, which an older phone rewrites whole, and over saving on every opening, which syncs on
+every opening on two phones.
+
 **Placeholders fill themselves** (Eric, 2026-10-31; built 2026-10-31), `js/placeholder-fill.js` and
 `js/fill-view.js`. A placeholder is a card he wants in that pocket, so whenever he has or adds a
 copy of that card, the copy goes there. The need came from Start over: every pocket that held a
@@ -2390,7 +2453,8 @@ chosen, for a "Make a binder" button on those screens.
   {kind: 'filter', filter}, order}`) and `snapshot` (`{at, rule_key, keys, shown}`: the pockets in
   order as Pokémon keys `dex:25` or card keys `international|sv01-001`, and each pocket's default
   copy), so every phone and the family view show the same pages, and for a checklist that names
-  languages `list_languages` (above); `rows`, `cols`, `preset`, and
+  languages `list_languages` (above), and `list_edits` for what is left out or moved (Remove and
+  move, above); `rows`, `cols`, `preset`, and
   `page_count` are the grid and pages as for any binder. Both new fields merge per field like
   `name`, so a rule changed on one phone and a refresh saved on another both stay (the next
   refresh lays out the new rule). Hand picks are a top-level list, `binder_picks`, one entry per

@@ -223,7 +223,8 @@ describe('a card out of its pocket', () => {
 		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => [node.id, node.textContent])), [
 			['pv-details', 'Details'],
 			['pv-to-tray', 'To the tray'],
-			['pv-move', 'Move'],
+			['pv-move', 'Move to…'],
+			['pv-remove', 'Remove from this binder'],
 			['pv-card-page', 'Card page'],
 		]);
 		assert.equal(await page.getAttribute('#pv-card-page', 'href'), `${BASE}cards/en/tst1-001`);

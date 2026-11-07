@@ -55,7 +55,7 @@ import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
-import {indexAt, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy} from './binder-rules.js';
+import {applyListEdits, indexAt, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {dexLabel, pokemonNames, spriteUrl} from './checklists.js';
@@ -70,6 +70,7 @@ import {
 	MAX_PAGES,
 	binderStats,
 	clearPocket,
+	contentKey,
 	cleanFields,
 	coverImageOf,
 	coverTextColor,
@@ -89,6 +90,7 @@ import {
 	locate,
 	getBinder,
 	movePocket,
+	moveWithShift,
 	moveToTray,
 	pageSlots,
 	placeCard,
@@ -97,8 +99,10 @@ import {
 	placements,
 	planResize,
 	pocketsPerPage,
+	removeFromBinder,
 	reorderBinders,
 	restoreBinder,
+	saveListEdits,
 	saveRefresh,
 	setPocketPick,
 	slotsOf,
@@ -106,6 +110,7 @@ import {
 	takeFromTray,
 	trayCandidates,
 	trayOf,
+	undoShifted,
 	unplaced,
 	updateBinder,
 	updateGeneratedBinder,
@@ -1006,7 +1011,7 @@ function binderScreen(root, source, id, pageParam) {
 	// then, when the pockets show the last layout.
 	let listMode = false;
 	let picks = new Map();
-	const gen = {busy: null, gone: false, items: null, names: null, partial: false, rankOf: undefined, started: false};
+	const gen = {busy: null, gone: false, held: null, items: null, loaded: null, names: null, partial: false, rankOf: undefined, started: false};
 	const refreshButton = source.readOnly ? null : h('button', {hidden: true, id: 'binder-refresh', onclick: () => refreshList({force: true, manual: true}), type: 'button'}, 'Refresh');
 	const listNote = h('p', {'aria-live': 'polite', class: 'binder-list-note', hidden: true, id: 'binder-list-note'});
 	// Closes the resize preview, if it is open (leaving the screen).
@@ -1049,6 +1054,7 @@ function binderScreen(root, source, id, pageParam) {
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
 	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
+	const leftOut = h('p', {class: 'muted binder-left-out', hidden: true, id: 'binder-left-out'});
 	// The value of the copies in the binder: a line under its name with the
 	// total, a button that reads as text and opens the sheet (js/value-sheet.js;
 	// Eric, 2026-11-06), never a box.
@@ -1426,7 +1432,7 @@ function binderScreen(root, source, id, pageParam) {
 			return;
 		}
 
-		binder = liveBinders(data.binders).find((item) => item.id === id) || null;
+		binder = shownList(liveBinders(data.binders).find((item) => item.id === id) || null);
 
 		if (!binder) {
 			if (spread) {
@@ -1455,6 +1461,7 @@ function binderScreen(root, source, id, pageParam) {
 				listNote,
 				spreadHolder,
 				summary,
+				leftOut,
 				emptyHint,
 				unplacedLink,
 				source.readOnly
@@ -1639,6 +1646,20 @@ function binderScreen(root, source, id, pageParam) {
 
 	const listKeys = () => (binder && binder.snapshot && Array.isArray(binder.snapshot.keys) ? binder.snapshot.keys : []);
 
+	// A layout worked out here but not saved on opening (planRefresh
+	// languageOnly or editsOnly: an older phone saved the stored one and
+	// would put it back), shown in its place while the stored one is the
+	// same.
+	function shownList(stored) {
+		const held = gen.held;
+
+		if (!stored || !held || !isGenerated(stored) || !stored.snapshot || stored.snapshot.at !== held.at) {
+			return stored;
+		}
+
+		return {...stored, page_count: held.page_count, snapshot: held.snapshot};
+	}
+
 	const liveEntry = (id) => {
 		const entry = id ? entriesById.get(id) : null;
 
@@ -1782,7 +1803,8 @@ function binderScreen(root, source, id, pageParam) {
 		}
 
 		offerCardList(listShown().map((entry) => entryInfo(entry, index, viewing).route), binder.name);
-		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(owned)} of ${plural(keys.length, 'pocket', 'pockets')} with a card you own.`;
+		summary.textContent = `${where} of ${binder.page_count}: ${filled} of ${per * pages.length} pockets filled. ${formatCount(owned)} of ${plural(keys.filter(Boolean).length, 'pocket', 'pockets')} with a card you own.`;
+		drawLeftOut();
 		fillListRecords(pages).catch(() => {});
 	}
 
@@ -1901,26 +1923,34 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-			const {plan, rankOf} = await planLayout(binder, loaded, {liveIds, picks});
+			// Against the binder as saved, not a layout shown in its place.
+			const stored = liveBinders(doc.binders).find((item) => item.id === binderId) || binder;
+			const {plan, rankOf} = await planLayout(stored, loaded, {liveIds, picks});
 
 			if (!alive || binder.id !== binderId) {
 				return;
 			}
 
 			gen.items = new Map(loaded.items.map((item) => [item.key, item]));
+			gen.loaded = loaded;
 			gen.rankOf = rankOf;
 			gen.partial = loaded.partial;
 
-			const held = plan.languageOnly && !manual;
+			const held = (plan.languageOnly || plan.editsOnly) && !manual;
 			const text = held ? '' : refreshText(plan, nameOfKey);
 			const partly = loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : '';
 
 			showListNote(text ? `${text}${partly}` : manual ? `Up to date.${partly}` : '');
 
 			if (plan.changed && !held) {
+				gen.held = null;
 				await saveRefresh(binderId, plan);
 			}
 			else {
+				const at = stored.snapshot && stored.snapshot.at;
+
+				gen.held = plan.changed ? {at, page_count: plan.page_count, snapshot: {...plan.snapshot, at}} : null;
+				binder = shownList(binder);
 				draw();
 			}
 		}
@@ -1942,16 +1972,29 @@ function binderScreen(root, source, id, pageParam) {
 	// The sheet for one pocket: every owned copy that fits, as pictures, to
 	// pick the one shown (the pick sticks through refreshes), or for a card
 	// not owned, Add to wishlist.
-	function openListSheet(page, position) {
+	// move or remove: open on Move to... or Remove from this binder.
+	function openListSheet(page, position, {move = false, remove = false} = {}) {
 		const i = indexAt(page, position, binder.rows, binder.cols);
 		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
 		const body = h('div', {class: 'list-sheet', id: 'list-sheet'});
+		let panel = move ? 'move' : remove ? 'remove' : null;
 
 		function fill() {
 			const state = listState(i);
 
 			if (!state) {
 				closeSheet();
+
+				return;
+			}
+
+			if (panel) {
+				sheet.querySelector('#sheet-title').textContent = state.item.kind === 'pokemon' ? `${state.item.number} ${state.item.name}` : state.item.name;
+				const shown = panel === 'move' ? listMovePanel(i, state) : listRemovePanel(state);
+
+				shown.hidden = false;
+				body.replaceChildren(shown);
+				body.querySelector(panel === 'move' ? '#move-end' : '#remove-shift').focus();
 
 				return;
 			}
@@ -2043,6 +2086,17 @@ function binderScreen(root, source, id, pageParam) {
 				parts.push(h('div', {class: 'button-row'}, actions));
 			}
 
+			if (!source.readOnly) {
+				const open = (which) => () => {
+					panel = which;
+					fill();
+				};
+
+				parts.push(h('div', {class: 'button-row list-arrange'},
+					h('button', {id: 'list-move', onclick: open('move'), type: 'button'}, 'Move to…'),
+					h('button', {class: 'danger', id: 'list-remove', onclick: open('remove'), type: 'button'}, 'Remove from this binder')));
+			}
+
 			body.replaceChildren(...parts);
 		}
 
@@ -2059,6 +2113,172 @@ function binderScreen(root, source, id, pageParam) {
 		if (!sheet.open) {
 			openDialogSheet(sheet);
 		}
+	}
+
+	// ------------------------------------ left out and moved, from a list
+	//
+	// A binder from a list leaves a Pokémon or card out, or moves it, as an
+	// exception on the binder (list_edits, js/binder-rules.js), applied after
+	// the list's order on every refresh (Eric, 2026-11-06).
+
+	const listEdits = () => listEditsOf(binder);
+
+	// The layout with these edits: worked out from the list when it has been
+	// read, else the shown pockets with the one edit applied. Null when
+	// neither can tell (an Undo before the list was read): the next refresh
+	// lays it out.
+	function listPlanWith(edits, edit) {
+		const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
+
+		if (gen.loaded && gen.items) {
+			return planRefresh({...binder, list_edits: edits}, gen.loaded.items, {at: nowIso(), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf});
+		}
+
+		if (!edit) {
+			return null;
+		}
+
+		const keys = applyListEdits(listKeys(), [edit]);
+		const shown = binder.snapshot.shown || {};
+
+		return {
+			page_count: pagesFor(keys.length, binder.rows, binder.cols),
+			snapshot: {...binder.snapshot, keys, shown: Object.fromEntries(Object.entries(shown).filter(([key]) => keys.includes(key)))},
+		};
+	}
+
+	async function saveListEdit(key, edit, text) {
+		const binderId = binder.id;
+		const previous = listEdits().find((item) => item.key === key) || null;
+		const edits = withListEdit(listEdits(), key, edit);
+
+		await saveListEdits(binderId, edits, listPlanWith(edits, edit));
+		toast(text, {
+			action: () => undoListEdit(binderId, key, edit, previous),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	// Undo: the key's edit before, while the one made is still the latest.
+	async function undoListEdit(binderId, key, made, previous) {
+		try {
+			const fresh = await getBinder(binderId);
+			const current = fresh ? listEditsOf(fresh).find((item) => item.key === key) : null;
+
+			if (!current || current.at !== made.at || current.kind !== made.kind) {
+				toast('That pocket has changed since, so it stays as it is.');
+
+				return;
+			}
+
+			const edits = withListEdit(listEditsOf(fresh), key, previous);
+
+			await saveListEdits(binderId, edits, binder && binder.id === binderId ? listPlanWith(edits, null) : null);
+		}
+		catch (err) {
+			showError('Could not undo.', err);
+		}
+	}
+
+	function listRemovePanel(state) {
+		const {item, key} = state;
+
+		return removePanel({
+			note: `${item.name} is left out of this binder: refreshing keeps it out, and cards that join the list later still take their places.`,
+			onEmpty: () => act(() => saveListEdit(key, {at: nowIso(), key, kind: 'gap'}, `${item.name} is left out of this binder; its pocket stays empty.`), 'Could not save the binder.'),
+			onShift: () => act(() => saveListEdit(key, {at: nowIso(), key, kind: 'out'}, `${item.name} is left out of this binder; the pockets after it moved back one.`), 'Could not save the binder.'),
+		});
+	}
+
+	// Move to...: the end of the binder, or a page and pocket; the pockets
+	// between shift to make room.
+	function listMovePanel(i, state) {
+		const {item} = state;
+		const per = binder.rows * binder.cols;
+		const keys = listKeys();
+		const here = {page: Math.floor(i / per) + 1, position: (i % per) + 1};
+		const pageSelect = h('select', {'aria-label': 'Page', id: 'move-page'},
+			...Array.from({length: binder.page_count}, (_, n) => h('option', {selected: n + 1 === here.page, value: n + 1}, `Page ${n + 1}`)));
+		const pocketSelect = h('select', {'aria-label': 'Pocket', id: 'move-pocket'});
+		const moveButton = h('button', {class: 'primary', id: 'move-shift', type: 'button'}, 'Move here');
+		const target = () => ((Number(pageSelect.value) - 1) * per) + Number(pocketSelect.value) - 1;
+		const nameAt = (n) => {
+			const at = listState(n);
+
+			return at ? at.item.name : 'Empty';
+		};
+
+		const fillPockets = () => {
+			const shownPage = Number(pageSelect.value);
+
+			pocketSelect.replaceChildren(...Array.from({length: per}, (_, n) => h('option', {value: n + 1}, `Pocket ${n + 1}: ${nameAt(((shownPage - 1) * per) + n)}`)));
+			pocketSelect.value = String(shownPage === here.page ? (here.position === per ? 1 : here.position + 1) : 1);
+			moveButton.disabled = target() === i;
+		};
+
+		const go = (to) => act(async () => {
+			const edit = moveEdit(keys, i, to, nowIso());
+
+			if (!edit) {
+				toast(to === 'end' ? `${item.name} is at the end already.` : `${item.name} is in that pocket already.`);
+
+				return;
+			}
+
+			const placed = applyListEdits(keys, [edit]).indexOf(item.key);
+			const where = {page: Math.floor(placed / per) + 1, position: (placed % per) + 1};
+
+			await saveListEdit(item.key, edit, edit.kind === 'end'
+				? `${item.name} goes to the end of this binder, page ${where.page}, pocket ${where.position}.`
+				: `${item.name} goes to page ${where.page}, pocket ${where.position}; the pockets between shifted one.`);
+		}, 'Could not save the binder.');
+
+		pageSelect.addEventListener('change', fillPockets);
+		pocketSelect.addEventListener('change', () => {
+			moveButton.disabled = target() === i;
+		});
+		moveButton.addEventListener('click', () => go(target()));
+		fillPockets();
+
+		return h('div', {class: 'move-panel', id: 'move-panel'},
+			h('h4', null, 'Move to…'),
+			h('p', {class: 'muted'}, 'Every refresh keeps it there; cards that join the list later still take their places.'),
+			h('div', {class: 'button-row'}, h('button', {class: 'primary', id: 'move-end', onclick: () => go('end'), type: 'button'}, 'End of the binder')),
+			h('p', {class: 'muted move-or'}, 'Or a pocket:'),
+			h('div', {class: 'button-row'}, pageSelect, pocketSelect),
+			h('div', {class: 'button-row'}, moveButton)
+		);
+	}
+
+	// What is left out, and Put back, under the pages.
+	function drawLeftOut() {
+		const out = source.readOnly ? [] : listEdits().filter((edit) => edit.kind === 'out' || edit.kind === 'gap');
+
+		leftOut.hidden = !out.length;
+
+		if (!out.length) {
+			leftOut.replaceChildren();
+
+			return;
+		}
+
+		const names = out.map((edit) => nameOfKey(edit.key));
+
+		leftOut.replaceChildren(
+			h('span', null, `Left out of this binder: ${names.slice(0, 5).join(', ')}${names.length > 5 ? `, and ${names.length - 5} more` : ''}. `),
+			h('button', {class: 'small', id: 'list-put-back', onclick: async () => {
+				try {
+					const binderId = binder.id;
+					const edits = listEdits().filter((edit) => edit.kind !== 'out' && edit.kind !== 'gap');
+
+					await saveListEdits(binderId, edits, listPlanWith(edits, null));
+					toast(`${plural(out.length, 'card is', 'cards are')} back in their list places.`);
+				}
+				catch (err) {
+					showError('Could not save the binder.', err);
+				}
+			}, type: 'button'}, 'Put back'));
 	}
 
 	// Edit for a binder made from a list: name, notes, and cover, and the
@@ -3102,8 +3322,6 @@ function binderScreen(root, source, id, pageParam) {
 	// empty pocket, or swapping with what is there. Undo on the toast moves
 	// both back, unless either pocket has changed since.
 
-	const contentKey = (slot) => (slot ? JSON.stringify([slot.entry_id || null, slot.want ? slot.want.card_id || `dex:${slot.want.dex}` : null, Boolean(slot.art), Boolean(slot.empty)]) : 'none');
-
 	function slotIn(fresh, where) {
 		return slotsOf(fresh).find((slot) => slot.page === where.page && slot.position === where.position) || null;
 	}
@@ -3166,6 +3384,7 @@ function binderScreen(root, source, id, pageParam) {
 		const pocketSelect = h('select', {'aria-label': 'Pocket', id: 'move-pocket'});
 		const holds = h('p', {'aria-live': 'polite', class: 'muted', id: 'move-holds'});
 		const moveButton = h('button', {class: 'primary', id: 'move-go', type: 'button'}, 'Move here');
+		const shiftButton = h('button', {class: 'primary', hidden: true, id: 'move-shift', type: 'button'}, 'Move here, shifting the cards between');
 		const target = () => ({page: Number(pageSelect.value), position: Number(pocketSelect.value)});
 
 		const describe = () => {
@@ -3175,8 +3394,10 @@ function binderScreen(root, source, id, pageParam) {
 			moveButton.disabled = where.page === page && where.position === position;
 			holds.textContent = moveButton.disabled
 				? 'This is the pocket it is in now.'
-				: slot ? `Holds ${pocketContent(slot).label}. They swap.` : 'Empty.';
+				: slot ? `Holds ${pocketContent(slot).label}. Move here shifts it and the cards between one pocket to make room; Swap trades the two.` : 'Empty.';
 			moveButton.textContent = slot ? 'Swap with this pocket' : 'Move here';
+			moveButton.classList.toggle('primary', !slot);
+			shiftButton.hidden = !slot || moveButton.disabled;
 		};
 
 		const fillPockets = () => {
@@ -3194,6 +3415,7 @@ function binderScreen(root, source, id, pageParam) {
 		pageSelect.addEventListener('change', fillPockets);
 		pocketSelect.addEventListener('change', describe);
 		moveButton.addEventListener('click', () => act(() => movePockets({page, position}, target()), 'Could not move the card.'));
+		shiftButton.addEventListener('click', () => act(() => shiftPockets({page, position}, target()), 'Could not move the card.'));
 
 		const free = openPockets(binder, placed)[0];
 		const nextFree = free
@@ -3203,11 +3425,88 @@ function binderScreen(root, source, id, pageParam) {
 		fillPockets();
 
 		return h('div', {class: 'move-panel', hidden: true, id: 'move-panel'},
-			h('h4', null, 'Move to pocket'),
+			h('h4', null, 'Move to…'),
+			h('div', {class: 'button-row'}, h('button', {class: 'primary', id: 'move-end', onclick: () => act(() => shiftPockets({page, position}, 'end'), 'Could not move the card.'), type: 'button'}, 'End of the binder')),
+			h('p', {class: 'muted move-or'}, 'Or a pocket:'),
 			h('div', {class: 'button-row'}, pageSelect, pocketSelect),
 			holds,
-			h('div', {class: 'button-row'}, moveButton, nextFree)
+			h('div', {class: 'button-row'}, shiftButton, moveButton, nextFree)
 		);
+	}
+
+	// Remove from this binder, then Leave the pocket empty or Shift the rest
+	// back (Eric, 2026-11-06). note says where the content goes.
+	function removePanel({note, onEmpty, onShift}) {
+		return h('div', {class: 'remove-panel', hidden: true, id: 'remove-panel'},
+			h('h4', null, 'Remove from this binder'),
+			h('p', {class: 'muted', id: 'remove-note'}, note),
+			h('div', {class: 'button-row'},
+				h('button', {id: 'remove-empty', onclick: onEmpty, type: 'button'}, 'Leave the pocket empty'),
+				h('button', {class: 'primary', id: 'remove-shift', onclick: onShift, type: 'button'}, 'Shift the rest back'))
+		);
+	}
+
+	// Undo on the toast of a shift: every pocket back, only while each holds
+	// what the shift put there (js/binders.js undoShift).
+	const shiftUndo = (done) => ({
+		action: async () => {
+			try {
+				const result = await undoShifted(done);
+
+				if (!result.back) {
+					toast('Those pockets have changed since, so they stay as they are.');
+				}
+			}
+			catch (err) {
+				showError('Could not undo.', err);
+			}
+		},
+		actionLabel: 'Undo',
+		timeout: UNDO_MS,
+	});
+
+	// Move to... with the cards between shifting: to a pocket, or 'end'.
+	async function shiftPockets(from, to) {
+		if (!binder || listMode) {
+			return;
+		}
+
+		const moving = slotIn(binder, from);
+
+		if (!moving) {
+			return;
+		}
+
+		const label = pocketContent(moving).label;
+		const result = await moveWithShift(binder.id, from, to, {expect: contentKey(moving)});
+
+		if (!result.changed.length) {
+			toast(to === 'end' ? `${label} is the last pocket in use already.` : 'Nothing moved.');
+
+			return;
+		}
+
+		toast(to === 'end'
+			? `Moved ${label} to the end of the binder, page ${result.to.page}, pocket ${result.to.position}.`
+			: `Moved ${label} to page ${result.to.page}, pocket ${result.to.position}; the cards between shifted one pocket.`, shiftUndo(result.done));
+	}
+
+	// Remove from this binder: the pocket's content leaves it (a card goes to
+	// no binder and no tray), and the pocket stays empty or the rest shift
+	// back one pocket.
+	async function removeHere(page, position, shift) {
+		const slot = slotIn(binder, {page, position});
+
+		if (!slot) {
+			return;
+		}
+
+		const label = pocketContent(slot).label;
+		const result = await removeFromBinder(binder.id, {page, position}, {expect: contentKey(slot), shift});
+
+		toast(shift
+			? `Removed ${label}; the pockets after it moved back one.`
+			: `Removed ${label}. Page ${page}, pocket ${position} stays empty.`, shiftUndo(result.done));
 	}
 
 	// ------------------------------------------- a card out of its pocket
@@ -3272,8 +3571,10 @@ function binderScreen(root, source, id, pageParam) {
 
 			// As the sheet: a one-pocket binder has nowhere to move to.
 			if (pocketsPerPage(binder) * binder.page_count > 1) {
-				actions.push({id: 'pv-move', label: 'Move', run: () => openSheet(pg, position, {move: true})});
+				actions.push({id: 'pv-move', label: 'Move to…', run: () => openSheet(pg, position, {move: true})});
 			}
+
+			actions.push({id: 'pv-remove', label: 'Remove from this binder', run: () => openSheet(pg, position, {remove: true})});
 		}
 
 		if (info.route) {
@@ -3292,7 +3593,11 @@ function binderScreen(root, source, id, pageParam) {
 
 		const {entry} = state.shown;
 		const info = entryInfo(entry, index, viewing);
-		const actions = source.readOnly ? [] : [{id: 'pv-details', label: 'Details', run: () => openListSheet(pg, position)}];
+		const actions = source.readOnly ? [] : [
+			{id: 'pv-details', label: 'Details', run: () => openListSheet(pg, position)},
+			{id: 'pv-move', label: 'Move to…', run: () => openListSheet(pg, position, {move: true})},
+			{id: 'pv-remove', label: 'Remove from this binder', run: () => openListSheet(pg, position, {remove: true})},
+		];
 
 		if (info.route) {
 			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
@@ -3536,14 +3841,24 @@ function binderScreen(root, source, id, pageParam) {
 
 	// The sheet for one pocket. The page travels with it, so a redraw while
 	// it is open (a sync, a turn) cannot move what it saves to another page.
-	// move: open on Move to pocket (the Move of a card out of its pocket).
-	function openSheet(page, position, {move = false} = {}) {
+	// move: open on Move to... (the Move to... of a card out of its pocket);
+	// remove: open on Remove from this binder.
+	function openSheet(page, position, {move = false, remove = false} = {}) {
 		const slot = pageSlots(binder, page, placed).get(position) || null;
 		const content = pocketContent(slot);
 		const chooser = h('div', {class: 'chooser', hidden: Boolean(slot)});
 		const message = h('p', {'aria-live': 'polite', class: 'form-error'});
 		const per = pocketsPerPage(binder) * binder.page_count;
 		const mover = slot && ['card', 'gone', 'want'].includes(content.kind) && per > 1 ? movePanel(page, position) : null;
+		const remover = slot && !slot.art
+			? removePanel({
+				note: content.kind === 'card'
+					? 'The card leaves this binder and goes to Not in a binder. To keep it for this binder, use To the tray.'
+					: content.kind === 'want' ? 'The placeholder goes.' : 'The pocket is free again.',
+				onEmpty: () => act(() => removeHere(page, position, false), 'Could not remove it.'),
+				onShift: () => act(() => removeHere(page, position, true), 'Could not remove it.'),
+			})
+			: null;
 
 		const header = h('div', {class: 'sheet-head'},
 			h('h3', {id: 'sheet-title'}, `Page ${page}, pocket ${position}`),
@@ -3569,19 +3884,23 @@ function binderScreen(root, source, id, pageParam) {
 							event.currentTarget.closest('.sheet-current').hidden = true;
 							mover.hidden = false;
 							mover.querySelector('#move-page').focus();
-						}, type: 'button'}, 'Move to pocket...')
+						}, type: 'button'}, 'Move to…')
 						: null,
 					content.kind === 'card'
 						? h('button', {id: 'pocket-to-tray', onclick: () => act(() => moveToTray(binder.id, page, position, slot.entry_id), 'Could not move the card to the tray.'), type: 'button'}, 'To the tray')
 						: null,
 					slot.art
 						? h('p', {class: 'muted'}, 'Michi art is edited with the art tools, which are not here yet.')
-						: h('button', {class: 'danger', id: 'pocket-clear', onclick: () => act(() => clearPocket(binder.id, page, position), 'Could not empty the pocket.'), type: 'button'}, 'Take out')
+						: h('button', {class: 'danger', id: 'pocket-clear', onclick: (event) => {
+							event.currentTarget.closest('.sheet-current').hidden = true;
+							remover.hidden = false;
+							remover.querySelector('#remove-shift').focus();
+						}, type: 'button'}, 'Remove from this binder')
 				))
 			: null;
 
 		chooser.append(...pocketChooser(page, position, message));
-		sheet.replaceChildren(header, current || '', mover || '', chooser, message);
+		sheet.replaceChildren(header, current || '', mover || '', remover || '', chooser, message);
 		// On a phone focus goes to Close, not the search field: most people
 		// scroll the list, and a focused field raises the keyboard over it.
 		// With a mouse the search takes it. Back closes the sheet instead of
@@ -3598,6 +3917,11 @@ function binderScreen(root, source, id, pageParam) {
 			current.hidden = true;
 			mover.hidden = false;
 			mover.querySelector('#move-page').focus();
+		}
+		else if (remove && remover) {
+			current.hidden = true;
+			remover.hidden = false;
+			remover.querySelector('#remove-shift').focus();
 		}
 	}
 

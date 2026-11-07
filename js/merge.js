@@ -525,6 +525,8 @@ function mergeValid(a, b) {
 		out.photos = mergePhotoLists(newer.photos, older.photos);
 	}
 
+	let rescued = false;
+
 	if (Array.isArray(a.slots) || Array.isArray(b.slots)) {
 		let slots;
 
@@ -547,6 +549,10 @@ function mergeValid(a, b) {
 		}
 
 		out.slots = sortSlots(slots.filter((slot) => !isPocket(slot) || inBinderGrid(out, slot)));
+
+		if (sameGrid(a, b)) {
+			rescued = rescueCopies(out, a, b);
+		}
 	}
 
 	if (isObject(a.hand_ticks) || isObject(b.hand_ticks) || isObject(a.hand_unticks) || isObject(b.hand_unticks)) {
@@ -583,9 +589,41 @@ function mergeValid(a, b) {
 	const at = stampAfter(a, b);
 
 	out.updated_at = at;
-	out.field_stamps = {...stamps, at};
+	out.field_stamps = rescued ? {...stamps, at, staged: at} : {...stamps, at};
 
 	return out;
+}
+
+// A copy both versions keep in this binder, in a pocket or its tray
+// (staged), that no pocket of the merged binder holds any more goes to its
+// tray, so it never drops out of the binder. Two phones writing the same
+// pocket at once do that: one shifts the pockets (Remove from this binder,
+// Move to...) while the other puts a card where a shifted card lands, and
+// the later pocket wins. A copy one version took out of the binder is not
+// in that version, so it stays out. True when the tray changed.
+function rescueCopies(out, a, b) {
+	const held = (entry) => {
+		const ids = new Set(Array.isArray(entry.staged) ? entry.staged : []);
+
+		for (const slot of pocketMap(entry.slots).values()) {
+			if (slot.entry_id && !slot.cleared) {
+				ids.add(slot.entry_id);
+			}
+		}
+
+		return ids;
+	};
+	const inA = held(a);
+	const kept = held(out);
+	const lost = [...held(b)].filter((id) => inA.has(id) && !kept.has(id)).sort();
+
+	if (!lost.length) {
+		return false;
+	}
+
+	out.staged = [...(Array.isArray(out.staged) ? out.staged : []), ...lost];
+
+	return true;
 }
 
 // At least one version written by an older app: the newer version whole, as

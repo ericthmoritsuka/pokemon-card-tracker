@@ -679,11 +679,12 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.equal(made.page_count, 1);
 
 		// Pick the rarer copy by hand: the copy shown comes out of its
-		// pocket with Details and Card page alone, and Details are the sheet.
+		// pocket with Details, Move to..., Remove from this binder, and Card
+		// page, and Details are the sheet.
 		await openPage(page, 1);
 		await page.click(zoomPocket(1));
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
-		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-details', 'pv-card-page']);
+		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-details', 'pv-move', 'pv-remove', 'pv-card-page']);
 		await page.click('#pv-details');
 		await page.waitForSelector('#list-copies .list-copy[data-entry="c3"]');
 		assert.equal(await page.locator('#list-copies .list-copy').count(), 3);

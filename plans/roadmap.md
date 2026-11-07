@@ -285,6 +285,19 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   what does not fit, owned copies filled in, and Undo. A Pokémon's placeholder is a `want` with no
   card and a `dex`, which v47 to v61 keep. `js/binder-layout.js`, DESIGN.md section 11. Medium. To
   check with Eric: an older phone's Open card on such a pocket opens an empty card page.
+- **Built 2026-11-06 on branch `binder-shift`: Remove from this binder and Move to... in every binder (Eric,
+  2026-11-06: "I should be able to remove cards in binders (even automatic ones) and the app should give
+  me the choice to keep it as it is or shift the cards"; his Unova binder from a list starts with
+  Victini):** from a filled pocket (the card out of its pocket and the pocket sheet), Remove from this
+  binder then Leave the pocket empty or Shift the rest back, and Move to... the End of the binder or a
+  page and pocket, the cards between shifting; Undo on each toast. A hand-made binder moves pocket
+  contents in one save (a removed card goes to Not in a binder; To the tray stays its own action). A
+  binder from a list stores each as an exception on the binder (`list_edits`), applied after the list's
+  order on every refresh, with Put back for what is left out. Older phones keep the field but save the
+  list's own order; this version shows its layout and does not save it back on opening (`editsOnly`,
+  as `languageOnly`). `js/binders.js`, `js/binder-rules.js`, DESIGN.md section 11, "Remove and move".
+  Medium. To check with Eric: until a save here, the Binders count and a family member's view show
+  the older phone's layout.
 - **Built 2026-11-06 on branch `binder-polish`: placeholders take the most valuable copy (Eric,
   2026-11-06; it was the oldest):** Fill placeholders, the fill after adding copies, Add cards to the
   tray, and Lay out from a list put in the copy a binder from a list would show (price, else

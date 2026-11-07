@@ -378,6 +378,117 @@ export function pickEntry({at, binderId, entryId, key, previous = null}) {
 	};
 }
 
+// ------------------------------------------------- left out and moved
+//
+// A binder from a list can leave a Pokémon or card out, or move it, as an
+// exception stored on the binder (Eric, 2026-11-06: "I should be able to
+// remove cards in binders (even automatic ones)"). list_edits is a list of
+// {key, kind, before, at}, one per key, the latest kept:
+//   out     left out, and the pockets after it move back one
+//   gap     left out, and its pocket stays empty (an empty key, '', in
+//           snapshot.keys: every app since binders from a list draws a
+//           pocket with no key as Empty)
+//   end     moved to the end of the binder
+//   before  moved to just before the key `before`; when that key is not in
+//           the list, it keeps its list place
+// They apply after the list's order, oldest first, on every refresh, so a
+// card that joins the list later still takes its list place.
+
+export const LIST_EDIT_KINDS = ['out', 'gap', 'end', 'before'];
+
+// The binder's edits, cleaned, oldest first (then by key, so every phone
+// applies them alike).
+export function listEditsOf(binder) {
+	const raw = binder && Array.isArray(binder.list_edits) ? binder.list_edits : [];
+	const byKey = new Map();
+
+	for (const edit of raw) {
+		if (!isObject(edit) || typeof edit.key !== 'string' || !edit.key || !LIST_EDIT_KINDS.includes(edit.kind) || typeof edit.at !== 'string') {
+			continue;
+		}
+
+		if (edit.kind === 'before' && (typeof edit.before !== 'string' || !edit.before || edit.before === edit.key)) {
+			continue;
+		}
+
+		const there = byKey.get(edit.key);
+
+		if (!there || edit.at >= there.at) {
+			byKey.set(edit.key, edit.kind === 'before' ? {at: edit.at, before: edit.before, key: edit.key, kind: 'before'} : {at: edit.at, key: edit.key, kind: edit.kind});
+		}
+	}
+
+	return [...byKey.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : byKey(a, b)));
+}
+
+// The edits with `edit` in place of any earlier one for its key; null
+// takes the key's edit away (Undo puts the one it replaced back).
+export function withListEdit(edits, key, edit) {
+	const rest = (Array.isArray(edits) ? edits : []).filter((item) => item && item.key !== key);
+
+	return edit ? [...rest, edit] : rest;
+}
+
+// The pockets' keys in order after the edits: keys is the list's order.
+export function applyListEdits(keys, edits) {
+	const out = [...keys];
+
+	for (const edit of edits) {
+		const i = out.indexOf(edit.key);
+
+		if (i < 0) {
+			continue;
+		}
+
+		if (edit.kind === 'out') {
+			out.splice(i, 1);
+		}
+		else if (edit.kind === 'gap') {
+			out[i] = '';
+		}
+		else if (edit.kind === 'end') {
+			out.splice(i, 1);
+			out.push(edit.key);
+		}
+		else if (out.includes(edit.before)) {
+			out.splice(i, 1);
+			out.splice(out.indexOf(edit.before), 0, edit.key);
+		}
+	}
+
+	return out;
+}
+
+// The edit that moves the key in pocket `from` to pocket `to` (indexes
+// from 0 into keys, the pockets as shown): the cards between shift to make
+// room. to past the last key, or 'end', is the end of the binder. Null
+// when nothing would move.
+export function moveEdit(keys, from, to, at) {
+	const key = keys[from];
+
+	if (!key) {
+		return null;
+	}
+
+	const rest = keys.filter((_, i) => i !== from);
+	const last = to === 'end' || to >= keys.length - 1;
+	const place = last ? rest.length : Math.max(0, to);
+
+	if (place === from && !last) {
+		return null;
+	}
+
+	const after = rest.slice(place).find(Boolean);
+
+	if (last || !after) {
+		const real = keys.filter(Boolean);
+
+		return real[real.length - 1] === key && keys[keys.length - 1] === key ? null : {at, key, kind: 'end'};
+	}
+
+	return {at, before: after, key, kind: 'before'};
+}
+
 // ------------------------------------------------------------ the layout
 
 // The copy a pocket shows: a hand pick while it still fits, else the
@@ -421,8 +532,10 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 // Refresh, so two phones never save the binder back and forth (DESIGN.md,
 // "Binders from a list").
 //
+// edits: the binder's list_edits (listEditsOf), applied after the order.
+//
 // Returns {snapshot, page_count, added, removed, filled, emptied, updated,
-// changed, languageOnly, languages}:
+// changed, languageOnly, editsOnly, languages}:
 //   added, removed  keys that joined or left the list
 //   filled          keys that had no copy and have one now
 //   emptied         keys that had a copy and have none now (sold, or no
@@ -431,13 +544,17 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 //                   picked by hand never count: their pick stays)
 //   changed         anything to save
 //   languageOnly    see above; false without anyItems
+//   editsOnly       the stored layout is the list's own order without the
+//                   binder's list_edits, as a phone on v64 or older saves
+//                   it: the screen leaves it alone on opening, as for
+//                   languageOnly (DESIGN.md, "Left out and moved")
 //   languages       as given, for saveRefresh to record on the binder
-export function planRefresh(binder, items, {anyItems = null, at, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
+export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
 	const before = isObject(binder.snapshot) ? binder.snapshot : {};
 	const oldKeys = Array.isArray(before.keys) ? before.keys : [];
 	const oldShown = isObject(before.shown) ? before.shown : {};
 	const oldSet = new Set(oldKeys);
-	const keys = items.map((item) => item.key);
+	const keys = applyListEdits(items.map((item) => item.key), edits);
 	const newSet = new Set(keys);
 	const shown = {};
 	const filled = [];
@@ -445,6 +562,10 @@ export function planRefresh(binder, items, {anyItems = null, at, languages = und
 	const updated = [];
 
 	for (const item of items) {
+		if (!newSet.has(item.key)) {
+			continue;
+		}
+
 		const fresh = defaultCopy(item.copies, rankOf);
 		let id = fresh ? fresh.id : null;
 
@@ -473,8 +594,8 @@ export function planRefresh(binder, items, {anyItems = null, at, languages = und
 		}
 	}
 
-	const added = keys.filter((key) => !oldSet.has(key));
-	const removed = oldKeys.filter((key) => !newSet.has(key));
+	const added = keys.filter((key) => key && !oldSet.has(key));
+	const removed = oldKeys.filter((key) => key && !newSet.has(key));
 	const pageCount = pagesFor(keys.length, binder.rows, binder.cols);
 	const snapshot = {at, keys, rule_key: ruleKey(binder.rule), shown};
 	const same = before.rule_key === snapshot.rule_key
@@ -483,14 +604,22 @@ export function planRefresh(binder, items, {anyItems = null, at, languages = und
 
 	const changed = !same || binder.page_count !== pageCount;
 	let languageOnly = false;
+	let editsOnly = false;
+
+	// What an older phone saves: the list's own order, without the edits it
+	// does not know (v57 to v64), and from any language (v56).
+	if (changed && edits.length) {
+		editsOnly = !planRefresh(binder, items, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
+	}
 
 	if (changed && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
-		languageOnly = !planRefresh(binder, anyItems, {at, liveIds, partial, picks, rankOf}).changed;
+		languageOnly = !planRefresh(binder, anyItems, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
 	}
 
 	return {
 		added,
 		changed,
+		editsOnly,
 		emptied,
 		filled,
 		languageOnly,

@@ -1113,6 +1113,15 @@ button.atb-binder {
 	min-width: 0;
 }
 
+.move-panel .move-or {
+	margin-bottom: 0;
+}
+
+/* What a binder from a list leaves out, with Put back. */
+.binder-left-out button {
+	margin-left: var(--space-1);
+}
+
 /* A card out of its pocket (js/pocket-viewer.js): the card large over the
    dimmed binder, its name and actions under it, or beside it held
    sideways. Taps on the empty stage reach the shade, which puts it back. */
@@ -1182,6 +1191,11 @@ button.atb-binder {
 	display: grid;
 	gap: var(--space-2);
 	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+}
+
+/* Remove from this binder: a row of its own, so its long label fits. */
+.pv-actions #pv-remove {
+	grid-column: 1 / -1;
 }
 
 .pv-actions .button,

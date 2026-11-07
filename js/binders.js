@@ -26,6 +26,10 @@
 //                absent for a list that names none. Kept outside the
 //                snapshot, which a v56 phone rewrites whole (planRefresh
 //                languageOnly)
+//   list_edits   for a binder made from a list: what is left out of it or
+//                moved, applied after the list's order on every refresh
+//                (js/binder-rules.js listEditsOf). Kept outside the
+//                snapshot for the same reason (planRefresh editsOnly)
 // A slot is one pocket that holds something. A pocket with no slot is
 // empty. Pages and positions count from 1, and a position runs across each
 // row, then down: on a 3 x 3 page, pocket 4 is row 2, column 1. Each slot is
@@ -488,6 +492,202 @@ export function swapPockets(binders, {at = nowIso(), binderId, from, to}) {
 	next.slots.sort((a, b) => (a.page - b.page) || (a.position - b.position));
 
 	return stamped([next]);
+}
+
+// ------------------------------------------------ remove and shift
+//
+// Remove from this binder and Move to... (Eric, 2026-11-06: "the app should
+// give me the choice to keep it as it is or shift the cards"). A pocket is
+// counted across the whole binder in reading order, from 0. A shift moves
+// every pocket between two pockets one place, empty ones too, so the gaps
+// in between keep their places relative to the cards; placeholders, pockets
+// left empty on purpose, and art move as pocket contents. It never reaches
+// past the two pockets it runs between, so nothing leaves the last page,
+// and it touches this binder alone: a removed copy goes to no binder and no
+// tray (To the tray is its own action). One save, stamped pocket by pocket
+// (stamped), so another phone's edit to other pockets survives the merge.
+
+// What a pocket holds, as a string, to tell later whether it changed.
+export const contentKey = (slot) => (slot ? JSON.stringify([slot.entry_id || null, slot.want ? slot.want.card_id || `dex:${slot.want.dex}` : null, Boolean(slot.art), Boolean(slot.empty)]) : 'none');
+
+const pocketIndex = (binder, where) => ((where.page - 1) * pocketsPerPage(binder)) + where.position - 1;
+
+const pocketAtIndex = (binder, i) => pageOfPocket(binder, i + 1);
+
+// The last pocket holding anything (a card, a Gone card, a placeholder,
+// art, or one left empty on purpose), as an index; -1 when none does.
+export function lastInUse(binder, placed = placements([binder])) {
+	const slots = slotsOf(binder, placed);
+
+	return slots.length ? Math.max(...slots.map((slot) => pocketIndex(binder, slot))) : -1;
+}
+
+// moves: Map from index -> index for every pocket that moves; drop: the
+// index whose content leaves the binder, or null. Returns {changed, done}
+// with done = {binderId, layout, rows, cols, pockets: [{page, position,
+// before, after}]} for undoShift: each pocket that changed, the slot it
+// held, and what it holds now (contentKey).
+function rewrite(binders, target, {at, drop = null, moves}) {
+	const placed = placements(binders);
+	const slots = slotsOf(target, placed);
+	const total = totalPockets(target);
+	const byIndex = new Map(slots.map((slot) => [pocketIndex(target, slot), slot]));
+	const after = new Map();
+
+	for (const [i, slot] of byIndex) {
+		if (i === drop) {
+			continue;
+		}
+
+		const to = moves.has(i) ? moves.get(i) : i;
+
+		if (!Number.isInteger(to) || to < 0 || to >= total || after.has(to)) {
+			throw new Error('That would push a card out of the binder, so nothing moved.');
+		}
+
+		if (to === i) {
+			after.set(i, slot);
+			continue;
+		}
+
+		const where = pocketAtIndex(target, to);
+		const moved = {...slot, page: where.page, position: where.position};
+
+		if (!slot.art) {
+			moved.placed_at = at;
+		}
+
+		after.set(to, moved);
+	}
+
+	const touched = new Set([...moves.keys(), ...moves.values(), ...(drop === null ? [] : [drop])]);
+	const pockets = [...touched].sort((x, y) => x - y)
+		.filter((i) => contentKey(byIndex.get(i)) !== contentKey(after.get(i)))
+		.map((i) => ({...pocketAtIndex(target, i), after: contentKey(after.get(i)), before: byIndex.get(i) || null}));
+	const next = copyOf(target, at);
+
+	next.slots = [...after.values()].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	return {
+		changed: pockets.length ? stamped([next]) : [],
+		done: {binderId: target.id, cols: target.cols, layout: layoutOf(target), pockets, rows: target.rows},
+	};
+}
+
+function checkHeld(binder, where, expect) {
+	checkPocket(binder, where.page, where.position);
+
+	const slot = slotsOf(binder).find((item) => item.page === where.page && item.position === where.position) || null;
+
+	if (!slot) {
+		throw new Error(`Page ${where.page}, pocket ${where.position} is empty.`);
+	}
+
+	if (expect !== undefined && contentKey(slot) !== expect) {
+		throw new Error('This pocket changed on another phone, so nothing moved.');
+	}
+
+	return slot;
+}
+
+// Remove from this binder: the pocket's content leaves it. shift: every
+// later pocket moves back one, closing the gap; else the pocket stays
+// empty. expect: the contentKey the person saw, so a pocket a sync changed
+// since is left alone.
+export function removePocket(binders, {at = nowIso(), binderId, expect = undefined, page, position, shift = false}) {
+	const target = findLive(binders, binderId);
+
+	checkHeld(target, {page, position}, expect);
+
+	const from = pocketIndex(target, {page, position});
+	const moves = new Map();
+
+	if (shift) {
+		const last = lastInUse(target);
+
+		for (let i = from + 1; i <= last; i++) {
+			moves.set(i, i - 1);
+		}
+	}
+
+	return rewrite(binders, target, {at, drop: from, moves});
+}
+
+// Move to...: the pocket's content goes to `to` ({page, position}, or
+// 'end' for the last pocket in use), and the pockets between shift one
+// place to make room, back when it moves later in the binder, forward when
+// it moves earlier. Moving the first card to the end makes the second
+// card pocket 1.
+export function shiftMove(binders, {at = nowIso(), binderId, expect = undefined, from, to}) {
+	const target = findLive(binders, binderId);
+
+	checkHeld(target, from, expect);
+
+	const s = pocketIndex(target, from);
+	let t;
+
+	if (to === 'end') {
+		t = lastInUse(target);
+	}
+	else {
+		checkPocket(target, to.page, to.position);
+		t = pocketIndex(target, to);
+	}
+
+	const moves = new Map();
+
+	if (t > s) {
+		for (let i = s + 1; i <= t; i++) {
+			moves.set(i, i - 1);
+		}
+	}
+	else {
+		for (let i = t; i < s; i++) {
+			moves.set(i, i + 1);
+		}
+	}
+
+	if (t !== s) {
+		moves.set(s, t);
+	}
+
+	return {...rewrite(binders, target, {at, moves}), to: pocketAtIndex(target, t)};
+}
+
+// Undo of removePocket or shiftMove: every pocket it changed gets back what
+// it held, in one save, but only while each still holds what the change
+// put there, the grid is the same, and no copy it brings back has gone to
+// another pocket or a tray since. Returns {changed, back} (back false when
+// something changed since; then nothing is written).
+export function undoShift(binders, {at = nowIso(), done}) {
+	const target = liveBinders(binders).find((item) => item.id === done.binderId);
+
+	if (!target || layoutOf(target) !== done.layout || target.rows !== done.rows || target.cols !== done.cols) {
+		return {back: false, changed: []};
+	}
+
+	const placed = placements(binders);
+	const now = new Map(slotsOf(target, placed).map((slot) => [`${slot.page}|${slot.position}`, slot]));
+	const here = new Set(done.pockets.map((pocket) => `${pocket.page}|${pocket.position}`));
+	const elsewhere = (entryId) => {
+		const real = placed.get(entryId);
+
+		return (real && (real.binder.id !== target.id || !here.has(`${real.slot.page}|${real.slot.position}`)))
+			|| liveBinders(binders).some((binder) => stagedOf(binder).includes(entryId));
+	};
+
+	if (done.pockets.some((pocket) => contentKey(now.get(`${pocket.page}|${pocket.position}`)) !== pocket.after
+		|| (pocket.before && pocket.before.entry_id && elsewhere(pocket.before.entry_id)))) {
+		return {back: false, changed: []};
+	}
+
+	const next = copyOf(target, at);
+	const kept = [...now.values()].filter((slot) => !here.has(`${slot.page}|${slot.position}`));
+	const back = done.pockets.filter((pocket) => pocket.before).map((pocket) => (pocket.before.art ? {...pocket.before} : {...pocket.before, placed_at: at}));
+
+	next.slots = [...kept, ...back].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	return {back: true, changed: stamped([next])};
 }
 
 // ----------------------------------------------------------- the tray
@@ -1052,6 +1252,35 @@ export function saveRefresh(id, {languages, page_count: pageCount, snapshot}) {
 	});
 }
 
+// A list's binder's exceptions (list_edits, js/binder-rules.js
+// listEditsOf), saved with the layout they give when the screen could work
+// it out (plan: {snapshot, page_count, languages}, as saveRefresh), in one
+// save. The field merges as a whole, like name, and an older app keeps it
+// when it saves the binder, since it edits a clone of the entry.
+export function saveListEdits(id, edits, plan = null) {
+	return serial(async () => {
+		const binder = liveBinders(await allBinders()).find((item) => item.id === id);
+
+		if (!binder || !isGenerated(binder)) {
+			throw new Error('This binder is not on this phone. It may have been deleted.');
+		}
+
+		const next = copyOf(binder, nowIso());
+
+		next.list_edits = edits;
+
+		if (plan && plan.snapshot && ruleKey(binder.rule) === plan.snapshot.rule_key) {
+			next.snapshot = {...plan.snapshot, at: next.updated_at};
+			next.page_count = Math.min(MAX_PAGES, Math.max(1, plan.page_count));
+			recordLanguages(next, plan.languages);
+		}
+
+		const [saved] = await saveBinders(stamped([next]));
+
+		return saved;
+	});
+}
+
 // Picks the copy a pocket of a list's binder shows (entryId), or puts the
 // default back (null). Saved in binder_picks, one entry per pocket, merged
 // entry by entry like any list.
@@ -1479,6 +1708,32 @@ export const changeBinders = (change) => serial(async () => {
 	await saveBinders(changed);
 
 	return rest;
+});
+
+// Saved: Remove from this binder (removePocket), Move to... (shiftMove),
+// and their Undo (undoShift). Each resolves what the pure function returns.
+export const removeFromBinder = (binderId, where, {expect, shift}) => serial(async () => {
+	const result = removePocket(await allBinders(), {binderId, expect, page: where.page, position: where.position, shift});
+
+	await saveBinders(result.changed);
+
+	return result;
+});
+
+export const moveWithShift = (binderId, from, to, {expect} = {}) => serial(async () => {
+	const result = shiftMove(await allBinders(), {binderId, expect, from, to});
+
+	await saveBinders(result.changed);
+
+	return result;
+});
+
+export const undoShifted = (done) => serial(async () => {
+	const result = undoShift(await allBinders(), {done});
+
+	await saveBinders(result.changed);
+
+	return result;
 });
 
 // Saved: every placeholder in the person's binders, for the scanner.
