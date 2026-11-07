@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-06',
 		items: [
+			'Remove from this binder: take any card out of a binder, even one made from a list, and choose Leave the pocket empty or Shift the rest back.',
+			'Move to: send a card to the end of the binder or to any pocket, and the cards in between shift to make room.',
+			'In a binder made from a list, your changes stay when it updates. A card you left out is listed under the pages with Put back.',
+		],
+		version: 'v66',
+	},
+	{
+		date: '2026-11-06',
+		items: [
 			'Holding the phone sideways in a binder, the page slider sits beside the Scan button, fully visible above the bottom bar.',
 			'The page menu sits on the same row, on the other side of the Scan button, so the book keeps its size.',
 		],

@@ -14,6 +14,17 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
+- **v66:** remove or move a card in any binder, shifting the rest. `TBD`
+  - From a card in a binder (the card taken out of its pocket, or the pocket's sheet): **Remove
+    from this binder**, then **Leave the pocket empty** or **Shift the rest back**; and **Move
+    to...**, the end of the binder or a page and pocket, with the cards in between shifting. Undo
+    on each.
+  - Works in binders made from a list too: a card left out or moved is kept as a change to the
+    list, so it stays when the binder updates, and a Pokémon that joins the list later still takes
+    its place. Cards left out are listed under the pages with **Put back**.
+  - Two phones shifting the same binder before they sync keep a sensible order. While family
+    phones on older versions sync, a shifted card can end up "Not in a binder" (never deleted).
+
 - **v65:** the binder page slider held sideways, and steadier tests. `50d56ee`
   - Held sideways, a binder's page slider and page menu share one row beside the Scan button, so
     the slider's handle is fully visible above the bottom bar at every phone size.

@@ -128,7 +128,7 @@ describe('the releases', () => {
 		const releases = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/whats-new.js')).RELEASES);
 
 		assert.ok(releases.length >= 2);
-		assert.deepEqual(releases.slice(0, 2).map((release) => release.version), ['v65', 'v64']);
+		assert.deepEqual(releases.slice(0, 2).map((release) => release.version), ['v66', 'v65']);
 
 		for (const [i, release] of releases.entries()) {
 			assert.match(release.version, /^v\d+$/);
@@ -178,7 +178,7 @@ describe('Profile without a worker', () => {
 		await page.click('#profile-whats-new');
 		await page.waitForSelector('#whats-new-sheet[open]');
 		assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new');
-		assert.deepEqual(await page.locator('#whats-new-sheet .whats-new-release').evaluateAll((nodes) => nodes.map((node) => node.dataset.version)).then((list) => list.slice(0, 2)), ['v65', 'v64']);
+		assert.deepEqual(await page.locator('#whats-new-sheet .whats-new-release').evaluateAll((nodes) => nodes.map((node) => node.dataset.version)).then((list) => list.slice(0, 2)), ['v66', 'v65']);
 		assert.ok((await page.locator('#whats-new-sheet [data-version="v30"]').textContent()).includes('A small Value button on sets, checklists, and binders.'));
 		await page.screenshot({path: '/tmp/whats-new-sheet.png'});
 
