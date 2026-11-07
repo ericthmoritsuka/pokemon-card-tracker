@@ -22,7 +22,7 @@
 //   dropping, is one card, for a moment or past RETRY_MS;
 // - the hand holding the next card over the card on top, then dropping it
 //   there: each card once;
-// - Log it while a capture waits: it waits, and the card joins the tray;
+// - Log cards while a capture waits: it waits, and the card joins the tray;
 // - the card just taken, with a blurred card held over it and then taken
 //   away, is not added again (logged as a repeat), and with the blurred
 //   card held there past RETRY_MS, the blurred look is added marked and the
@@ -479,10 +479,10 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await context.close();
 	});
 
-	// Review of 2026-11-06: Log it while the last capture waited for its
+	// Review of 2026-11-06: Log cards while the last capture waited for its
 	// sharper look built the form without it, and the save then deleted it
 	// from the trade tray with its side.
-	test('Log it while a capture waits for a sharper look: it waits, and the card joins the trade tray', async () => {
+	test('Log cards while a capture waits for a sharper look: it waits, and the card joins the trade tray', async () => {
 		const at = '2026-11-06T10:00:00.000Z';
 		const card = {catalog: 'international', id: CARDS.a, image: null, lang: 'en', localId: '1', name: 'Card in', official: '99', setId: 'me01', setName: 'Test'};
 		const tray = {created_at: at, id: 'trade-1', items: [{candidates: [], captured_at: at, card, condition: null, confirmed: true, finishBy: 'plain', id: 't1', language: 'en', languageBy: 'hand', names: [], read: null, side: 'in', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null}], lastSave: null, mode: 'trade', sheetShown: false, side: 'in', updated_at: at};

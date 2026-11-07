@@ -4,7 +4,7 @@
 // read, alike ones taken by themselves with spares first, asking only when
 // the copies differ or would leave a binder, a card not owned, the same copy
 // never twice, a hand pick), the side a capture joins, what the tray can log, and
-// what Log it hands the trades log's form (the kind guessed from the sides,
+// what Log cards hands the trades log's form (the kind guessed from the sides,
 // the cards in as Add would save them), saved through js/moves.js planMove
 // as the form saves it. Plain Node; invented data only.
 //
@@ -301,7 +301,7 @@ describe('which copy goes out', () => {
 		assert.equal(T.outLine(twice.get('t2')), 'The copy you picked goes out with another card; pick again.');
 	});
 
-	test('a picked copy that is gone (removed on another phone) asks again, and holds Log it back until he picks', () => {
+	test('a picked copy that is gone (removed on another phone) asks again, and holds Log cards back until he picks', () => {
 		const session = tray([{}]);
 
 		T.pickCopies(session, 't1', ['x1'], AT);
@@ -331,7 +331,7 @@ describe('which copy goes out', () => {
 		assert.equal(T.outLine(other), 'The copy you picked is gone; no other copy fits, so remove this card.');
 	});
 
-	test('before his cards are read, or when they cannot be, no card going out is matched and Log it waits', () => {
+	test('before his cards are read, or when they cannot be, no card going out is matched and Log cards waits', () => {
 		const session = tray([{}, {side: 'in'}]);
 
 		for (const known of ['loading', 'failed']) {
@@ -381,7 +381,7 @@ describe('which copy goes out', () => {
 		assert.deepEqual(ids(result.candidates), ['k1']);
 	});
 
-	test('a card still being read has no copy yet, and holds Log it back', () => {
+	test('a card still being read has no copy yet, and holds Log cards back', () => {
 		const session = tray([{}]);
 
 		session.items[0].status = 'reading';
@@ -393,7 +393,7 @@ describe('which copy goes out', () => {
 	});
 });
 
-describe('Log it', () => {
+describe('Log cards', () => {
 	test('the kind follows the sides: Sold or Gift for cards out, Bought or Gift for cards in, Traded for both', () => {
 		assert.deepEqual(T.guessKind(2, 0), {alternatives: ['gift'], kind: 'sold'});
 		assert.deepEqual(T.guessKind(0, 1), {alternatives: ['gift'], kind: 'bought'});
@@ -457,7 +457,7 @@ describe('Log it', () => {
 		assert.equal(handoff.in[0].fields.language_source, 'scan');
 	});
 
-	test('a card that asks for its copy holds Log it back until it is picked', () => {
+	test('a card that asks for its copy holds Log cards back until it is picked', () => {
 		const session = tray([{}]);
 		const cards = [copy('k1'), copy('s1', {created_at: at(2)}), copy('s2', {condition: 'Played', created_at: at(3)})];
 		const asked = T.tradeSummary(session, T.outCopies(session, cards));

@@ -1480,7 +1480,10 @@ html.scan-open body {
 	border-color: var(--scan-trade);
 }
 
+/* Each head is 48 px: the next scans' column filled, the other with its
+   "Tap to scan here" line under the name (design polish, 2026-11-06). */
 .scan .scan-trade-head {
+	align-content: center;
 	align-items: center;
 	background: var(--scan-surface-2);
 	border: 0;
@@ -1515,7 +1518,12 @@ html.scan-open body {
 }
 
 .scan-trade-next {
-	display: none;
+	color: var(--scan-primary);
+	flex: 1 0 100%;
+	font-weight: 400;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .scan-trade-rows {
@@ -1530,7 +1538,7 @@ html.scan-open body {
 
 .scan-trade-empty {
 	color: var(--scan-muted);
-	font-size: 13px;
+	font-size: 14px;
 	padding: 8px 10px;
 }
 

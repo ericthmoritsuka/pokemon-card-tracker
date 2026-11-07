@@ -526,9 +526,10 @@ export function confirmSheet(ctx, itemId) {
 		const run = ctx.review ? ctx.review(itemId) : null;
 		const save = run && run.next
 			? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-next', onclick: () => ctx.reviewNext(), type: 'button'}, 'Next card')
-			// The trade tray saves nothing itself: Log it opens the trades log.
+			// The trade tray saves nothing itself: Log <n> cards opens the
+			// trades log (the tray's own button, js/scan/trade-sheets.js logLabel).
 			: ctx.trade
-				? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-log-it', onclick: () => ctx.logIt(), type: 'button'}, 'Log it')
+				? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-log-it', onclick: () => ctx.logIt(), type: 'button'}, `Log ${plural(total, 'card')}`)
 				: single
 					? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
 					: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);

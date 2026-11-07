@@ -42,7 +42,7 @@ import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from '
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
-import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, modeSwitch, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
+import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, logLabel, modeSwitch, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -1018,7 +1018,7 @@ export function scanView(root) {
 	// ------------------------------------------------------------ Trade or sale
 
 	// The trade tray (js/scan/trade-sheets.js tradeColumns) in place of the
-	// Add tray's tiles, and Log it in place of Done.
+	// Add tray's tiles, and Log <n> cards in place of Done.
 	function drawTrade() {
 		outResults = T.outCopies(session, ownCards, {known: ownState, where});
 
@@ -1031,7 +1031,7 @@ export function scanView(root) {
 		// Room in the head for the mode's longer name.
 		setAllButton.hidden = true;
 		doneButton.disabled = !session.items.length;
-		doneButton.textContent = 'Log it';
+		doneButton.textContent = logLabel(session.items.length);
 	}
 
 	function drawMode() {
@@ -1099,7 +1099,7 @@ export function scanView(root) {
 		drawMode();
 		draw();
 		announce(next === 'trade'
-			? 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log the move.'
+			? 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log them.'
 			: 'Add. Cards you scan are added to your cards when you save.');
 		resume().catch(() => {});
 	}

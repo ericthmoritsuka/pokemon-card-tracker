@@ -17,6 +17,11 @@ import {outLine, SIDE_NAMES, sideOf, whereText} from './trade.js';
 
 export const langName = (code) => flagLanguageName(code) || languageLabel(code);
 
+// The trade tray's button and the sheets that name it: "Log 1 card", "Log 3
+// cards", counting the tray as Done counts the Add tray (design polish,
+// 2026-11-06; it was "Log it").
+export const logLabel = (count) => (count ? `Log ${plural(count, 'card')}` : 'Log cards');
+
 const STATUS_TEXT = {
 	finish: 'Pick the finish',
 	finishes: 'Loading finishes',
@@ -64,7 +69,10 @@ export function drawModeSwitch(el, mode) {
 // ------------------------------------------------------------ the tray
 
 // The trade tray: two columns, Going out and Coming in. Each column's head
-// says how many cards it holds and, pressed, sends the next scans there.
+// says how many cards it holds and, pressed, sends the next scans there:
+// the column the scans go to has a filled head, the other says "Tap to scan
+// here" under its name, and an empty column says what it is for ("Cards you
+// give", "Cards you get"; design polish, 2026-11-06).
 // A row is a card: its photo, its name, and what happens to it (for a card
 // going out, which copy goes, or why none does), with Pick when Eric must
 // choose the copy, and an x that takes it out of the tray with Undo.
@@ -85,10 +93,10 @@ export function tradeColumns({languageName = langName, photoUrl, results, sessio
 			},
 			h('span', {class: 'scan-trade-name'}, SIDE_NAMES[side]),
 			h('span', {class: 'scan-trade-count'}, String(items.length)),
-			on ? h('span', {class: 'scan-trade-next'}, 'Next scans') : null),
+			on ? null : h('span', {'aria-hidden': 'true', class: 'scan-trade-next'}, 'Tap to scan here')),
 			h('ul', {class: 'scan-trade-rows'}, ...(items.length
 				? items.map((item) => tradeRow(item, {languageName, photoUrl: photoUrl(item.id), result: side === 'out' ? results.get(item.id) : null, where}))
-				: [h('li', {class: 'scan-trade-empty'}, on ? 'Scan a card' : side === 'out' ? 'Cards you give' : 'Cards you get')])));
+				: [h('li', {class: 'scan-trade-empty'}, side === 'out' ? 'Cards you give' : 'Cards you get')])));
 	};
 
 	return [column('out'), column('in')];
@@ -415,13 +423,13 @@ export function picksSheet(ctx) {
 		body.replaceChildren(...[
 			h('p', {class: 'scan-muted', id: 'scan-picks-intro'}, left
 				? `${toPick.some(([, result]) => result.need > 1) ? 'Pick the copies for each card.' : 'Pick one copy for each card.'} The trade form opens when ${toPick.length === 1 ? 'it is' : `all ${toPick.length} are`} picked.`
-				: 'All picked. Log it opens the trades log.'),
+				: `All picked. ${logLabel(ctx.session.items.length)} opens the trades log.`),
 			...toPick.map(([item, result]) => card(item, result)),
 			notLogged.length ? h('h3', {class: 'scan-picks-head', id: 'scan-picks-skipped'}, 'Not logged') : null,
 			...notLogged.map(([item, result]) => h('section', {class: 'scan-picks-card is-skipped', 'data-pick-item': item.id, 'data-status': result.status},
 				h('h3', {class: 'scan-picks-name'}, [item.card.name, langName(item.language)].join(' · ')),
 				h('p', {class: 'scan-muted scan-picks-line'}, outLine(result, {languageName: langName, where: ctx.where})))),
-			h('button', {class: 'scan-button scan-primary scan-wide', disabled: left > 0, id: 'scan-picks-go', onclick: () => ctx.logIt(), type: 'button'}, left ? `Log it (${plural(left, 'card')} to pick)` : 'Log it'),
+			h('button', {class: 'scan-button scan-primary scan-wide', disabled: left > 0, id: 'scan-picks-go', onclick: () => ctx.logIt(), type: 'button'}, left ? `${logLabel(ctx.session.items.length)} (${left} to pick)` : logLabel(ctx.session.items.length)),
 		].filter(Boolean));
 	}
 
@@ -440,7 +448,7 @@ export function leaveTradeSheet(ctx, {count, action, onLeave}) {
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-leave-sheet', id: 'scan-leave-sheet', role: 'dialog'},
 		sheetHeader(`Discard ${plural(count, 'card')}?`, () => ctx.closeSheet(), titleId),
 		h('div', {class: 'scan-sheet-body'},
-			h('p', {id: 'scan-leave-text'}, `The trade tray holds ${plural(count, 'card')} not logged yet. Nothing in your cards has changed. Log it saves them as a move; ${action.toLowerCase()} throws them away.`),
+			h('p', {id: 'scan-leave-text'}, `The trade tray holds ${plural(count, 'card')} not logged yet. Nothing in your cards has changed. ${logLabel(count)} saves them in Trades and sales; ${action.toLowerCase()} throws them away.`),
 			h('div', {class: 'scan-row'},
 				h('button', {class: 'scan-button', id: 'scan-leave-keep', onclick: () => ctx.closeSheet(), type: 'button'}, 'Keep them'),
 				h('button', {class: 'scan-button scan-danger', id: 'scan-leave-go', onclick: onLeave, type: 'button'}, action))));

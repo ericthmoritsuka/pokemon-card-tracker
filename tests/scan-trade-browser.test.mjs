@@ -8,14 +8,14 @@
 // - switch to Trade or sale, scan two cards going out and one coming in
 //   (hand-held, Eric's pile method), the one spare of the first taken by
 //   itself and the second's copy picked from the copies that fit (they
-//   differ in condition) with the tray's Pick a copy; Log it opens the
+//   differ in condition) with the tray's Pick a copy; Log cards opens the
 //   trades log's form filled in (Traded, the copies out, the card in,
 //   today), Save logs the move: the copies left, the card arrived, the
 //   trade tray is empty, and Undo puts the collection back;
-// - three cards going out whose copies must be picked: Log it opens one
+// - three cards going out whose copies must be picked: Log cards opens one
 //   sheet with all three (and the card not owned, under Not logged), they
 //   are picked in any order, and the last pick opens the form filled in
-//   with all three, with no second Log it;
+//   with all three, with no second Log cards;
 // - switching to Add with cards in the trade tray asks first, Keep them
 //   keeps them, the Add tray waits untouched meanwhile, Close asks too, and
 //   Add scans and saves as before.
@@ -222,7 +222,7 @@ const collectionState = (page) => page.evaluate(async () => {
 });
 
 describe('Trade or sale', () => {
-	test('scan two cards out and one in, Log it fills the trades log, Save logs the move, and Undo puts it back', async () => {
+	test('scan two cards out and one in, Log cards fills the trades log, Save logs the move, and Undo puts it back', async () => {
 		// me01-001: k-a kept, s-a its one spare, alike, so the spare goes by
 		// itself. sv03.5-025: three copies, one Played, so its copy is asked
 		// for.
@@ -236,8 +236,14 @@ describe('Trade or sale', () => {
 		assert.equal(await page.textContent('#scan-mode [aria-pressed="true"]'), 'Trade or sale');
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept on the phone');
 		assert.ok(await page.locator('#scan.is-trade').count(), 'the screen shows the mode');
-		assert.equal(await page.textContent('#scan-done-open'), 'Log it');
+		assert.equal(await page.textContent('#scan-done-open'), 'Log cards', 'the button counts the tray, as Done does');
 		assert.equal(await page.getAttribute('#scan-side-out', 'aria-pressed'), 'true', 'scans start on Going out');
+		// The next scans' column has a filled head; the other says to tap it,
+		// and each empty column says what it is for.
+		assert.equal(await page.locator('#scan-side-out .scan-trade-next').count(), 0);
+		assert.equal(await page.textContent('#scan-side-in .scan-trade-next'), 'Tap to scan here');
+		assert.deepEqual(await page.locator('#scan-tray .scan-trade-empty').allTextContents(), ['Cards you give', 'Cards you get']);
+		assert.ok((await page.locator('#scan-side-out').boundingBox()).height >= 48, 'the heads are 48 px tall');
 		await page.screenshot({path: `${SHOTS}/scan-trade-mode.png`});
 
 		// Two cards going out.
@@ -247,6 +253,7 @@ describe('Trade or sale', () => {
 		await setScene(page, {cards: first});
 		await until(async () => (await captures(page)) === 1, 'the first card taken', 15000);
 		await readAll(page, 'trade', 1);
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 1 card');
 		await handTo(page, first, second);
 		await until(async () => (await captures(page)) === 2, 'the second card taken', 15000);
 		await readAll(page, 'trade', 2);
@@ -262,6 +269,9 @@ describe('Trade or sale', () => {
 		await readAll(page, 'trade', 3);
 
 		const scanned = (await trays(page)).trade;
+
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 cards');
+		assert.equal(await page.textContent('#scan-side-out .scan-trade-next'), 'Tap to scan here', 'the head of the column not scanning into says to tap it');
 
 		assert.deepEqual(scanned.map((item) => [item.card, item.side]), [[CARDS.a, 'out'], [CARDS.b, 'out'], [CARDS.c, 'in']]);
 		assert.deepEqual((await trays(page)).add, [], 'nothing went to the Add tray');
@@ -296,7 +306,7 @@ describe('Trade or sale', () => {
 		assert.equal(before.cards.filter((entry) => entry.deleted).length, 0);
 		assert.deepEqual(before.moves, []);
 
-		// Log it: the trades log's form, filled in.
+		// Log cards: the trades log's form, filled in.
 		await page.click('#scan-done-open');
 		await page.waitForSelector('#move-form');
 		assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`);
@@ -373,7 +383,7 @@ describe('Trade or sale', () => {
 		await context.close();
 	});
 
-	test('three cards whose copies must be picked: Log it shows them all on one sheet, and the last pick opens the form with all three', async () => {
+	test('three cards whose copies must be picked: Log cards shows them all on one sheet, and the last pick opens the form with all three', async () => {
 		const at = '2026-11-06T10:00:00.000Z';
 		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
 		const item = (id, cardId, name) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side: 'out', status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
@@ -393,7 +403,8 @@ describe('Trade or sale', () => {
 		assert.equal(await page.locator('#scan-picks-sheet [data-pick-item="t1"] .scan-copy').count(), 2);
 		assert.match(await page.textContent('#scan-picks-sheet [data-pick-item="t1"] .scan-copy'), /Loose/);
 		assert.equal(await page.textContent('#scan-picks-sheet [data-pick-item="t4"] .scan-picks-line'), 'Not in your cards, so it cannot go out. Not logged.');
-		assert.ok(await page.locator('#scan-picks-go').isDisabled(), 'Log it waits for every pick');
+		assert.ok(await page.locator('#scan-picks-go').isDisabled(), 'Log 4 cards waits for every pick');
+		assert.equal(await page.textContent('#scan-picks-go'), 'Log 4 cards (3 to pick)');
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-trade-picks.png`});
 
@@ -552,9 +563,9 @@ describe('Trade or sale', () => {
 	});
 
 	// Review of 2026-11-06: the save took a whole side out of the tray, so a
-	// card that joined it after Log it (a holder capture still being taken)
+	// card that joined it after Log cards (a holder capture still being taken)
 	// was deleted though it was never in the form.
-	test('saving the move takes out only the cards Log it handed over; a card added to the tray after it stays', async () => {
+	test('saving the move takes out only the cards Log cards handed over; a card added to the tray after it stays', async () => {
 		const at = '2026-11-06T10:00:00.000Z';
 		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
 		const item = (id, cardId, name, side) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
