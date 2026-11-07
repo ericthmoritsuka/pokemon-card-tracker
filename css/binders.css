@@ -934,15 +934,20 @@ button.bt-fill {
 	outline-offset: 2px;
 }
 
-/* The Add button stays in reach while the list scrolls. */
-.tray-pick-foot {
+/* The Add button stays in reach while the list scrolls, and so do Lay out
+   from a list's buttons (.sheet-foot). */
+.tray-pick-foot,
+.pocket-sheet .sheet-foot {
 	background: var(--bg);
 	bottom: calc(-1 * (var(--space-4) + env(safe-area-inset-bottom)));
 	padding: var(--space-2) 0 calc(var(--space-4) + env(safe-area-inset-bottom));
 	position: sticky;
+	/* Over the tiles' corner badges as they scroll under it. */
+	z-index: 3;
 }
 
-.tray-pick-foot .form-error:empty {
+.tray-pick-foot .form-error:empty,
+.pocket-sheet .sheet-foot .form-error:empty {
 	display: none;
 }
 
@@ -1273,9 +1278,28 @@ button.atb-binder {
 	}
 }
 
+/* Add N pages so they fit: a bordered 48 px row like the radio rows of
+   .resize-choice, bold when ticked (design polish, 2026-11-06). */
 .layout-add {
 	align-items: center;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
 	display: flex;
-	gap: var(--space-2);
+	font-weight: 600;
+	gap: 10px;
 	margin: var(--space-2) 0;
+	min-height: var(--target);
+	padding: 6px var(--space-3);
+}
+
+.layout-add:has(input:checked) {
+	border: 2px solid var(--text);
+}
+
+.layout-add input {
+	flex: none;
+	height: 20px;
+	margin: 0;
+	width: 20px;
 }

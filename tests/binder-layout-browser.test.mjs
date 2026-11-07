@@ -232,6 +232,16 @@ describe('lay out from a list', () => {
 			'2 Pokémon on the list are in this binder already and are skipped.',
 			'1 page added at the end: 2 to 3.',
 		]);
+		// One sentence of intro; the ticked row is 48 px tall; Lay out and
+		// Cancel stay on screen at 740 px tall (design polish, 2026-11-06).
+		assert.equal(await page.textContent('#layout-intro'), 'Puts the list\'s Pokémon in empty pockets as placeholders, in Pokédex order.');
+		assert.ok((await page.locator('#layout-add').boundingBox()).height >= 48);
+		for (const id of ['#layout-go', '#layout-cancel']) {
+			const box = await page.locator(id).boundingBox();
+
+			assert.ok(box.y >= 0 && box.y + box.height <= PHONE.height, `${id} is on screen`);
+		}
+
 		await page.screenshot({path: `${SHOTS}/layout-preview-pages-360.png`});
 
 		await page.click('#layout-go');

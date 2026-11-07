@@ -3655,6 +3655,7 @@ function binderScreen(root, source, id, pageParam) {
 		const lines = h('div', {'aria-live': 'polite', class: 'resize-lines', id: 'layout-preview'});
 		const addPages = h('input', {id: 'layout-add-pages', type: 'checkbox'});
 		const addText = h('span', {id: 'layout-add-text'});
+		// A bordered 48 px row, as the radio rows above it.
 		const addRow = h('label', {class: 'layout-add', hidden: true, id: 'layout-add'}, addPages, addText);
 		const message = h('p', {'aria-live': 'polite', class: 'form-error', id: 'layout-error'});
 		const cancel = h('button', {id: 'layout-cancel', type: 'button'}, lists.length ? 'Cancel' : 'Close');
@@ -3784,7 +3785,9 @@ function binderScreen(root, source, id, pageParam) {
 			h('div', {class: 'sheet-head'}, h('h3', {id: 'layout-title'}, `Lay out ${binder.name} from a list`)),
 			...(lists.length
 				? [
-					h('p', {class: 'muted', id: 'layout-intro'}, 'The list\'s Pokémon go into the empty pockets as placeholders, in Pokédex order, as if you were adding them one by one. Pockets with anything in them stay as they are, and Pokémon already in this binder are skipped.'),
+					// One sentence (design polish, 2026-11-06): the preview
+					// under it says what is skipped and where it starts.
+					h('p', {class: 'muted', id: 'layout-intro'}, 'Puts the list\'s Pokémon in empty pockets as placeholders, in Pokédex order.'),
 					h('label', {class: 'field-label', for: 'layout-list'}, 'Checklist'),
 					h('span', {class: 'select-wrap'}, select),
 					from,
@@ -3792,8 +3795,12 @@ function binderScreen(root, source, id, pageParam) {
 					addRow,
 				]
 				: [h('p', {id: 'layout-none'}, 'You have no checklists yet. Make one in the Lists tab, such as a region, then come back.')]),
-			message,
-			h('div', {class: 'button-row'}, cancel, lists.length ? go : null)
+			// Lay out and Cancel stay in reach at the sheet's foot while the
+			// preview scrolls (design polish, 2026-11-06: off screen at 740
+			// px tall).
+			h('div', {class: 'sheet-foot', id: 'layout-foot'},
+				message,
+				h('div', {class: 'button-row'}, cancel, lists.length ? go : null))
 		);
 		root.append(box);
 		handle = openDialogSheet(box, {onClose: () => {
