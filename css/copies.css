@@ -464,7 +464,7 @@ button.step-more {
 	white-space: nowrap;
 }
 
-/* Sell or trade beside Remove (js/copy-sheet.js). */
+/* Trade or sale beside Remove (js/copy-sheet.js). */
 .copy-danger-row {
 	display: grid;
 	gap: var(--space-2);

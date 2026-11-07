@@ -1,9 +1,10 @@
 /* The trades and sales log (js/moves-view.js): History by month, the
-   Log a move form, and its two pickers. The form reuses the copy sheet's
-   fields (css/copies.css) and the tray picker's tiles (css/binders.css). */
+   Log a trade or sale form, and its two pickers. The form reuses the copy
+   sheet's fields (css/copies.css) and the tray picker's tiles
+   (css/binders.css). */
 
-/* History's heading: Scan a trade and Log a move beside the title, below
-   it on a narrow phone. */
+/* History's heading: Scan a trade or sale and Log a trade or sale beside
+   the title, below it on a narrow phone. */
 .view-head:has(#moves-new) {
 	flex-wrap: wrap;
 }
@@ -133,7 +134,7 @@
 	width: 20px;
 }
 
-/* No moves yet: Log a move, and Scan a trade or sale under it, each the
+/* No moves yet: Log a trade or sale, and Scan a trade or sale under it, each the
    full width. */
 .moves-empty-actions {
 	display: grid;

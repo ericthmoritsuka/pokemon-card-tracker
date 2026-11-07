@@ -743,7 +743,7 @@ describe('saving', () => {
 		const {move} = await applyMove({kind: 'sold', out: [undo.added[0]], price: '1.500', who: 'Ana'});
 		const before = stableJson(doc);
 
-		await assert.rejects(undoStartOver(undo), (err) => !err.stale && err.blocked.map((item) => item.id).join() === move.id && /Undo that move first/.test(err.message));
+		await assert.rejects(undoStartOver(undo), (err) => !err.stale && err.blocked.map((item) => item.id).join() === move.id && /Undo it first/.test(err.message));
 		assert.equal(stableJson(doc), before, 'nothing changed');
 		assert.deepEqual((await savedUndo()).undo, undo, 'still offered');
 

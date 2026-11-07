@@ -104,7 +104,7 @@ async function open({drafts = null, owned = [], via = null} = {}) {
 	if (via === 'trades') {
 		await page.goto(`${harness.origin}${BASE}trades`);
 		await page.waitForSelector('#moves-scan');
-		assert.equal(await page.textContent('#moves-scan'), 'Scan a trade');
+		assert.equal(await page.textContent('#moves-scan'), 'Scan a trade or sale');
 		await page.screenshot({path: `${SHOTS}/scan-trade-from-trades.png`});
 		await page.click('#moves-scan');
 	}

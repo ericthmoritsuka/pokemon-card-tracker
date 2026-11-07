@@ -373,18 +373,18 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 	};
 }
 
-export const STALE_MOVE_TEXT = 'You started over after this move, so undoing it would put old copies back beside the new ones. Nothing was changed.';
+export const STALE_MOVE_TEXT = 'You started over after this trade or sale, so undoing it would put old copies back beside the new ones. Nothing was changed.';
 
-export const UNDID_START_OVER_MOVE_TEXT = 'You undid Start over after this move, so undoing it could bring copies back twice. Nothing was changed.';
+export const UNDID_START_OVER_MOVE_TEXT = 'You undid Start over after this trade or sale, so undoing it could bring copies back twice. Nothing was changed.';
 
-export const GONE_MOVE_TEXT = 'This move was already undone, on this phone or another. Nothing was changed.';
+export const GONE_MOVE_TEXT = 'This trade or sale was already undone, on this phone or another. Nothing was changed.';
 
 // Why Undo of a move was refused, for its message.
 export function staleMoveText({later = null, reason = 'gone'} = {}, {now = new Date()} = {}) {
 	if (reason === 'later' && later) {
 		const date = shortDate(later.date, {now});
 
-		return `A later move, "${moveTitle(later)}"${date ? ` on ${date}` : ''}, counts a card this move brought in. Undo that move first. Nothing was changed.`;
+		return `A later trade or sale, "${moveTitle(later)}"${date ? ` on ${date}` : ''}, counts a card this one brought in. Undo that one first. Nothing was changed.`;
 	}
 
 	return reason === 'run' ? STALE_MOVE_TEXT : reason === 'undo' ? UNDID_START_OVER_MOVE_TEXT : GONE_MOVE_TEXT;
@@ -395,7 +395,7 @@ export function staleMoveText({later = null, reason = 'gone'} = {}, {now = new D
 export function startOverBlockedText(move, {now = new Date()} = {}) {
 	const date = shortDate(move.date, {now});
 
-	return `"${moveTitle(move)}"${date ? ` on ${date}` : ''} in Trades and sales counts a copy that Undo Start over would change. Undo that move first, then Undo Start over. Nothing was changed.`;
+	return `"${moveTitle(move)}"${date ? ` on ${date}` : ''} in Trades and sales counts a copy that Undo Start over would change. Undo it first, then Undo Start over. Nothing was changed.`;
 }
 
 // True when the document's latest Start over mark is not the one the move
@@ -486,7 +486,7 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 // or came in is Undo this move and logging it again.
 export const EDIT_FIELDS = ['date', 'who', 'price', 'currency', 'money', 'note'];
 
-export const UNDONE_EDIT_TEXT = 'This move was undone, on this phone or another, so it cannot be edited. Nothing was changed.';
+export const UNDONE_EDIT_TEXT = 'This trade or sale was undone, on this phone or another, so it cannot be edited. Nothing was changed.';
 
 // The price, its currency, and which way the money went, as a move keeps
 // them: all null without a price or for a gift; a sale's money comes in, a
@@ -759,7 +759,7 @@ export async function editMove(moveId, fields, {base = null} = {}) {
 	return {changed, move};
 }
 
-// The copies a move form opens with, handed over by Sell or trade (a copy
+// The copies a move form opens with, handed over by Trade or sale (a copy
 // sheet, a card's page) when it opens the form: {out: [ids], card:
 // {card_id, catalog} | null}. Taken once.
 let pending = null;

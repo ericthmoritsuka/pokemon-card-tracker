@@ -695,7 +695,7 @@ export const STALE_UNDO_TEXT = 'You started over again, on this phone or another
 
 export const UNDONE_UNDO_TEXT = 'This Start over was already undone, on this phone or another. Nothing was changed.';
 
-export const BLOCKED_UNDO_TEXT = 'A move in Trades and sales counts a copy that Undo Start over would change. Undo that move first, then Undo Start over. Nothing was changed.';
+export const BLOCKED_UNDO_TEXT = 'A trade or sale in Trades and sales counts a copy that Undo Start over would change. Undo it first, then Undo Start over. Nothing was changed.';
 
 // Saved: Start over in one save. Resolves {counts, undo}; on a failed write
 // it rejects and the document on the phone is as it was. A failed write of

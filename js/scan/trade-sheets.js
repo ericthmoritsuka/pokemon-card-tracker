@@ -148,7 +148,7 @@ function tradeRow(item, {languageName, photoUrl, result, where}) {
 export function tradeBlock(item, {languageName = langName, onMove, onPick, result, where}) {
 	const side = sideOf(item);
 	const other = side === 'out' ? 'in' : 'out';
-	const line = side === 'out' ? outLine(result, {languageName, where}) : 'A new copy, added when the move is saved.';
+	const line = side === 'out' ? outLine(result, {languageName, where}) : 'A new copy, added when the trade or sale is logged.';
 	const canPick = side === 'out' && result && result.candidates.length && result.status !== 'none';
 
 	return h('div', {class: 'scan-frame scan-trade-block', id: 'scan-trade-block'},

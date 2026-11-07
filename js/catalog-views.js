@@ -1221,13 +1221,14 @@ export function cardView(root, {lang, cardId}) {
 		}));
 	}
 
-	// Sell or trade: Log a move with this card's copy, or, with several,
-	// this card's copies to pick from (js/moves-view.js).
+	// Trade or sale (was "Sell or trade"): Log a trade or sale with this
+	// card's copy, or, with several, this card's copies to pick from
+	// (js/moves-view.js).
 	function moveButton(live) {
 		return h('button', {class: 'small', id: 'card-move', onclick: () => {
 			setPendingMove(live.length === 1 ? {out: [live[0].id]} : {card: {card_id: cardId, catalog: catalogFor(lang)}});
 			go('trades/new');
-		}, type: 'button'}, 'Sell or trade');
+		}, type: 'button'}, 'Trade or sale');
 	}
 
 	// Ver na Liga, or why there is none, right under Your copies, with Add

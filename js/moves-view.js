@@ -5,7 +5,7 @@
 //                money in and out each month. A move opens a sheet with its
 //                cards and Undo this move. Scan the cards, beside Log a
 //                move, opens Scan in Trade or sale (js/scan/trade.js).
-//   trades/new   Log a move: the kind, date, who, price, note, the cards out
+//   trades/new   Log a trade or sale: the kind, date, who, price, note, the cards out
 //                (picked from your copies, spares first, or from the copies
 //                you removed in the last 30 days: Log a past sale) and the
 //                cards in (picked from the catalog with language, finish,
@@ -13,7 +13,7 @@
 //                toast.
 //
 // Reached from the Trades button beside Spares on My Cards, "Trades and
-// sales" in Profile, and Sell or trade on a copy sheet and a card's page,
+// sales" in Profile, and Trade or sale on a copy sheet and a card's page,
 // which hand their copies over (js/moves.js setPendingMove). Never on a
 // family member's screens.
 
@@ -127,7 +127,7 @@ function chosenRow(attrs, art, name, meta, onRemove) {
 export function historyView(root) {
 	let alive = true;
 	const body = h('div', {class: 'moves-body', id: 'moves-body'}, h('p', {class: 'muted'}, 'Loading…'));
-	const sheet = sheetDialog('move-sheet', 'Move');
+	const sheet = sheetDialog('move-sheet', 'Trade or sale');
 	// The names of a move's cards, from the last draw, for Cancel in Edit.
 	let cardNames = () => [];
 	const outNames = (move) => cardNames(move.out);
@@ -151,9 +151,9 @@ export function historyView(root) {
 		if (!months.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
 				h('p', {class: 'big'}, 'No trades or sales yet'),
-				h('p', {class: 'muted'}, 'Scan the cards going out and coming in, or log a move by hand.'),
+				h('p', {class: 'muted'}, 'Scan the cards going out and coming in, or log a trade or sale by hand.'),
 				h('div', {class: 'moves-empty-actions'},
-					h('a', {class: 'button primary', 'data-link': 'trades/new', href: `${BASE}trades/new`}, 'Log a move'),
+					h('a', {class: 'button primary', 'data-link': 'trades/new', href: `${BASE}trades/new`}, 'Log a trade or sale'),
 					h('a', {class: 'button', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-empty-scan', onclick: () => rememberMode('trade')}, scanIcon(), 'Scan a trade or sale'))
 			));
 
@@ -198,7 +198,7 @@ export function historyView(root) {
 		const undo = h('button', {class: 'danger', id: 'move-undo', onclick: () => {
 			undo.hidden = true;
 			confirm.hidden = false;
-		}, type: 'button'}, 'Undo this move');
+		}, type: 'button'}, 'Undo this trade or sale');
 		const edit = h('button', {id: 'move-edit', onclick: () => editMoveForm(move), type: 'button'}, 'Edit');
 
 		sheet.replaceChildren(
@@ -214,7 +214,7 @@ export function historyView(root) {
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
 			h('div', {class: 'button-row move-sheet-actions'}, edit),
-			h('p', {class: 'muted move-edit-hint'}, 'Edit changes the date, who, price, and note. To change the cards, undo this move and log it again.'),
+			h('p', {class: 'muted move-edit-hint'}, 'Edit changes the date, who, price, and note. To change the cards, undo this trade or sale and log it again.'),
 			h('div', {class: 'copy-danger'}, undo, confirm)
 		);
 		showSheet(sheet);
@@ -295,7 +295,7 @@ export function historyView(root) {
 				const {changed} = await editMove(move.id, fields, {base: opened});
 
 				close();
-				toast(changed.length ? 'Saved your changes to the move.' : 'Nothing changed.');
+				toast(changed.length ? 'Saved your changes to the trade or sale.' : 'Nothing changed.');
 			}
 			catch (err) {
 				save.disabled = false;
@@ -326,8 +326,8 @@ export function historyView(root) {
 				// Scan opened in Trade or sale (Eric, 2026-11-06): the mode is
 				// kept on the phone as the scanner's own switch keeps it, and
 				// the trade tray is kept as it is, cards and all.
-				h('a', {class: 'button small view-head-link', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-scan', onclick: () => rememberMode('trade')}, scanIcon(), 'Scan a trade'),
-				h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a move'))
+				h('a', {class: 'button small view-head-link', 'data-link': 'scan', href: `${BASE}scan`, id: 'moves-scan', onclick: () => rememberMode('trade')}, scanIcon(), 'Scan a trade or sale'),
+				h('a', {class: 'button small primary view-head-link', 'data-link': 'trades/new', href: `${BASE}trades/new`, id: 'moves-new'}, 'Log a trade or sale'))
 		),
 		body
 	);
@@ -343,7 +343,7 @@ export function historyView(root) {
 	};
 }
 
-// ------------------------------------------------------------ Log a move
+// ------------------------------------------------------------ Log a trade or sale
 
 // The labels of who and the price for each kind: [who, price], with no
 // price for a gift. The log form and Edit share them.
@@ -595,14 +595,14 @@ export function newMoveView(root) {
 			}
 
 			if (tab === 'past' && !past.length) {
-				count.textContent = 'No copy was removed in the last 30 days, or every one is in a move already.';
+				count.textContent = 'No copy was removed in the last 30 days, or every one is in a trade or sale already.';
 			}
 			else if (!list.length) {
 				count.textContent = 'No cards match.';
 			}
 			else {
 				count.textContent = tab === 'past'
-					? `${plural(list.length, 'copy', 'copies')} you removed in the last 30 days, newest first. Picking one links it to this move; it stays removed.`
+					? `${plural(list.length, 'copy', 'copies')} you removed in the last 30 days, newest first. Picking one links it to this trade or sale; it stays removed.`
 					: `${plural(list.length, 'copy', 'copies')}, spares first.`;
 			}
 
@@ -907,7 +907,7 @@ export function newMoveView(root) {
 
 	root.append(
 		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, '‹ Trades and sales'),
-		h('div', {class: 'view-head'}, h('h2', null, 'Log a move')),
+		h('div', {class: 'view-head'}, h('h2', null, 'Log a trade or sale')),
 		formElement
 	);
 	drawKind();
@@ -964,7 +964,7 @@ export function newMoveView(root) {
 
 export const movesRoutes = [
 	{pattern: /^trades$/, render: historyView, tab: 'cards', title: 'Trades and sales | Card Tracker'},
-	{pattern: /^trades\/new$/, render: newMoveView, tab: 'cards', title: 'Log a move | Card Tracker'},
+	{pattern: /^trades\/new$/, render: newMoveView, tab: 'cards', title: 'Log a trade or sale | Card Tracker'},
 ];
 
 export const movesAccountViews = [historyView, newMoveView];

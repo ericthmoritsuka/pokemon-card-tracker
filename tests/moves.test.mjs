@@ -579,7 +579,7 @@ describe('Start over and moves', () => {
 		assert.equal(refused.stale, false);
 		assert.deepEqual(refused.blocked.map((move) => move.id), ['m1']);
 		assert.equal(stableJson(refused.doc), stableJson(sold.doc), 'nothing changed');
-		assert.match(startOverBlockedText(refused.blocked[0], {now: new Date(RUN_AT + 2 * DAY)}), /^"Sold for R\$ 50,00 to Ana" on 1 Nov in Trades and sales counts a copy that Undo Start over would change\. Undo that move first, then Undo Start over\. Nothing was changed\.$/);
+		assert.match(startOverBlockedText(refused.blocked[0], {now: new Date(RUN_AT + 2 * DAY)}), /^"Sold for R\$ 50,00 to Ana" on 1 Nov in Trades and sales counts a copy that Undo Start over would change\. Undo it first, then Undo Start over\. Nothing was changed\.$/);
 
 		const moveBack = planUndoMove(sold.doc, 'm1', {now: RUN_AT + 3 * DAY});
 

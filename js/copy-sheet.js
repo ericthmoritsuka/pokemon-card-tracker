@@ -486,9 +486,11 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		}
 	});
 
-	// Sell or trade (js/moves-view.js): the copies this sheet would change,
-	// taken to Log a move, where the rest is chosen.
-	const move = h('button', {id: 'copy-move', type: 'button'}, 'Sell or trade');
+	// Trade or sale (js/moves-view.js): the copies this sheet would change,
+	// taken to Log a trade or sale, where the rest is chosen. It was "Sell
+	// or trade", the same action under a second name (design polish,
+	// 2026-11-06: one term per concept).
+	const move = h('button', {id: 'copy-move', type: 'button'}, 'Trade or sale');
 
 	// The route change closes the sheet (js/sheet.js), its history entry
 	// becoming the new screen's.

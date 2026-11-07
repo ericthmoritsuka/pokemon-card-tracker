@@ -97,12 +97,13 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	await page.click('#cards-moves');
 	await page.waitForSelector('#moves-empty');
 	assert.equal(await page.textContent('#moves-empty-scan'), 'Scan a trade or sale', 'the empty state offers the scanner too');
-	assert.equal(await page.textContent('#moves-scan'), 'Scan a trade');
+	assert.equal(await page.textContent('#moves-scan'), 'Scan a trade or sale');
 	await page.goto(url('profile'));
 	await page.waitForSelector('#profile-moves');
 
 	await page.goto(url('cards/en/tsa1-001'));
 	await page.waitForSelector('#card-move');
+	assert.equal(await page.textContent('#card-move'), 'Trade or sale', 'the card page names it as the scanner and the log do');
 	assert.ok(await page.locator('#card-moves').isHidden(), 'no move yet');
 	await page.click('#card-move');
 	await page.waitForSelector('#move-form');
@@ -155,12 +156,13 @@ test('a sale of one copy from its card page shows in History and on the card pag
 test('a trade with one card out and one card in', async () => {
 	const {done, page} = await phone();
 
-	// Sell or trade on a copy's sheet starts a move with that copy; the
+	// Trade or sale on a copy's sheet starts a move with that copy; the
 	// sheet closes with the route change.
 	await page.goto(url('cards/en/tsa1-004'));
 	await page.waitForSelector('.copy-row');
 	await page.locator('.copy-row').first().click();
 	await page.waitForSelector('#copy-move');
+	assert.equal(await page.textContent('#copy-move'), 'Trade or sale');
 	await page.click('#copy-move');
 	await page.waitForSelector('#move-out-list .pick-cell');
 	assert.equal(await page.locator('#move-out-list .pick-cell').count(), 1);
@@ -297,7 +299,7 @@ test('Undo Start over is refused, naming the move, while a later sale counts a c
 	await page.waitForSelector('#start-over-kept-undo');
 	await page.click('#start-over-kept-undo');
 	await page.waitForSelector('#start-over-undo-blocked');
-	assert.match(await page.locator('#start-over-undo-blocked').textContent(), /^"Sold for R\$\s50,00 to Ana" on 1 Nov( 2026)? in Trades and sales counts a copy that Undo Start over would change\. Undo that move first, then Undo Start over\. Nothing was changed\. Open Trades and sales$/);
+	assert.match(await page.locator('#start-over-undo-blocked').textContent(), /^"Sold for R\$\s50,00 to Ana" on 1 Nov( 2026)? in Trades and sales counts a copy that Undo Start over would change\. Undo it first, then Undo Start over\. Nothing was changed\. Open Trades and sales$/);
 	assert.equal(await page.locator('#start-over-kept-undo').isEnabled(), true, 'Undo stays for after');
 	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-start-over-blocked.png`});
 
