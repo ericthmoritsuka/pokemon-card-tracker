@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v64:** steadier holder scanning, easier trades, and the most valuable copy in placeholders. `TBD`
+- **v64:** steadier holder scanning, easier trades, and the most valuable copy in placeholders. `ea63f14`
   - Holder mode: a blurred capture waits up to 1.5 s for a sharp look of the same spot instead of
     being saved blurred, the same card is not taken twice when a hand passes over it, and no card
     is ever lost. A card added because another landed on it, or one the scanner is not sure of, is
