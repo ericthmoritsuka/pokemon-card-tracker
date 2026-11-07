@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
-- **v66:** remove or move a card in any binder, shifting the rest. `TBD`
+- **v66:** remove or move a card in any binder, shifting the rest. `9787c35`
   - From a card in a binder (the card taken out of its pocket, or the pocket's sheet): **Remove
     from this binder**, then **Leave the pocket empty** or **Shift the rest back**; and **Move
     to...**, the end of the binder or a page and pocket, with the cards in between shifting. Undo
