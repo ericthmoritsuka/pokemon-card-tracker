@@ -22,9 +22,9 @@ export const RELEASES = [
 	{
 		date: '2026-11-06',
 		items: [
-			'Holder mode waits for a sharp look of a blurred card instead of saving it blurred, never takes the same card twice, and never loses a card. A card it is not sure of says Check this one.',
+			'Holder mode waits for a sharp look of a blurred card instead of saving it blurred, never takes the same card twice, and never loses a card. A card it is not sure of is marked Check.',
 			'Trade or sale picks the copy by itself when your loose copies are alike, and asks for all the cards that need a choice on one sheet.',
-			'Trades and sales has Scan the cards, which opens Scan in Trade or sale.',
+			'Trades and sales has Scan a trade, which opens Scan in Trade or sale.',
 			'Placeholders take your most valuable copy that fits.',
 		],
 		version: 'v64',
