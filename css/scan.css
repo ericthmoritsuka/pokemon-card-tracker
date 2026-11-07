@@ -316,6 +316,7 @@ html.scan-open body {
 .scan-tray-head {
 	align-items: center;
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: space-between;
 	min-height: 32px;
 }
@@ -351,6 +352,7 @@ html.scan-open body {
 	display: flex;
 	flex: 0 0 auto;
 	gap: 0;
+	margin-left: auto;
 }
 
 .scan-photo-input[hidden] {
@@ -1356,45 +1358,80 @@ html.scan-open body {
 	--scan-on-trade: #06201d;
 }
 
+/* Two segments, Add and Trade or sale, 48 px tall: the one in use is
+   filled (teal for Trade or sale), the other outlined, each a button with
+   aria-pressed (design review, 2026-11-06). */
 .scan .scan-mode {
-	align-items: center;
 	background: var(--scan-surface-2);
 	border: 1px solid var(--scan-border);
 	border-radius: 999px;
-	color: var(--scan-text);
-	cursor: pointer;
 	display: inline-flex;
 	flex: 0 0 auto;
+	margin-right: 4px;
+	padding: 2px;
+}
+
+.scan .scan-mode-segment {
+	background: transparent;
+	border: 0;
+	border-radius: 999px;
+	color: var(--scan-text);
+	cursor: pointer;
 	font-size: 14px;
 	font-weight: 600;
-	gap: 6px;
-	margin-right: 8px;
-	min-height: 40px;
-	padding: 0 12px;
+	min-height: 42px;
+	padding: 0 10px;
 	white-space: nowrap;
 }
 
-.scan .scan-mode[data-mode="trade"] {
+.scan .scan-mode-segment[aria-pressed="true"] {
+	background: var(--scan-text);
+	color: var(--scan-bg);
+}
+
+.scan .scan-mode-segment[data-mode-to="trade"][aria-pressed="true"] {
 	background: var(--scan-trade);
-	border-color: var(--scan-trade);
 	color: var(--scan-on-trade);
 }
 
-.scan-mode-swap {
-	font-size: 16px;
-	line-height: 1;
+/* The running count over the camera names the mode too, teal in Trade or
+   sale. */
+.scan.is-trade .scan-run-count {
+	background: var(--scan-trade);
+	color: var(--scan-on-trade);
+}
+
+.scan.is-trade .scan-look-count {
+	color: inherit;
 }
 
 /* The count beside the switch gives way, on one line, when the head is
-   short. */
+   short. On a phone under 400 px the actions keep the switch's row: a long
+   label takes two lines in its 48 px, and Set for all, which Done's sheet
+   also has, is left out. Only a larger text size puts them under the
+   switch, at the right. */
+@media (max-width: 399px) {
+	.scan-tray-head .scan-text-button {
+		line-height: 18px;
+		max-width: 76px;
+		padding: 0 6px;
+		white-space: normal;
+	}
+
+	.scan-tray-head #scan-setall-open {
+		display: none;
+	}
+}
+
 .scan-tray-head .scan-count {
+	flex: 1 1 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
 .scan.is-trade .scan-stage::after {
-	border: 4px solid var(--scan-trade);
+	border: 6px solid var(--scan-trade);
 	content: "";
 	inset: 0;
 	pointer-events: none;
@@ -1497,12 +1534,13 @@ html.scan-open body {
 	padding: 8px 10px;
 }
 
-/* The card and its x on the first line, Pick the copy under them when
-   Eric must choose. */
+/* The card and its x on the first line, Pick a copy under them when Eric
+   must choose. The x is a 44 px target of its own column, clear of the
+   row's open target. */
 .scan-trade-row {
 	border-top: 1px solid var(--scan-border);
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 28px;
+	grid-template-columns: minmax(0, 1fr) 44px;
 	min-width: 0;
 }
 
@@ -1603,11 +1641,11 @@ html.scan-open body {
 	border-radius: 8px;
 	color: var(--scan-on-primary);
 	cursor: pointer;
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 700;
 	grid-column: 1 / -1;
 	margin: 0 6px 6px;
-	min-height: 36px;
+	min-height: 44px;
 	padding: 0 8px;
 }
 
@@ -1621,7 +1659,7 @@ html.scan-open body {
 	font-size: 18px;
 	justify-content: center;
 	min-height: 44px;
-	width: 28px;
+	width: 44px;
 }
 
 /* A card's sheet in the trade tray: its side and its copy. */
@@ -1637,26 +1675,56 @@ html.scan-open body {
 
 .scan .scan-copy {
 	background: none;
-	border: 2px solid transparent;
+	border: 3px solid transparent;
 	border-radius: 10px;
 	color: var(--scan-text);
 	cursor: pointer;
 	display: flex;
+	font-size: 14px;
+	gap: 2px;
+	line-height: 20px;
 	padding: 4px;
+	text-align: left;
 }
 
 .scan .scan-copy.is-suggested {
 	border-color: var(--scan-border);
 }
 
+/* The picked copy: a 3 px teal ring, with the tile's check. */
 .scan .scan-copy[aria-pressed="true"] {
 	border-color: var(--scan-trade);
 }
 
-.scan-copy .tile-meta {
+.scan-copy-line {
+	margin-top: 4px;
+}
+
+.scan-copy-where {
 	color: var(--scan-muted);
+	overflow-wrap: anywhere;
+}
+
+.scan-copy-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 2px;
+}
+
+.scan-copy-chip {
+	border: 1px solid var(--scan-border);
+	border-radius: 999px;
+	color: var(--scan-text);
 	font-size: 12px;
+	font-weight: 600;
 	line-height: 16px;
+	padding: 2px 8px;
+}
+
+.scan-copy-chip.is-suggested {
+	background: var(--scan-surface-2);
+	border-color: var(--scan-trade);
 }
 
 /* Every pick Log it waits on, on one sheet: a section per card, its name

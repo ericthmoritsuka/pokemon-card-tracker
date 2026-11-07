@@ -29,7 +29,7 @@ const STATUS_TEXT = {
 	reading: 'Reading…',
 	rematch: 'Looking it up…',
 	unmatched: 'Not found',
-	unsure: 'Needs a look',
+	unsure: 'Check',
 	waiting: 'Waiting for signal',
 };
 
@@ -63,7 +63,7 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 		chip ? FINISH_WORDS[chip] || option.label : null,
 		valuable ? `valuable, worth about ${formatBrl(worth.brl)}` : null,
 		rising ? `price up ${risePercent(worth.change)}% in 30 days` : null,
-		look ? `${reason === 'unsure' || !STATUS_TEXT[reason] ? 'Needs a look' : STATUS_TEXT[reason]}, opens the review` : reason ? STATUS_TEXT[reason] : null,
+		look ? `${reason === 'unsure' || !STATUS_TEXT[reason] ? 'To check' : STATUS_TEXT[reason]}, opens the review` : reason ? STATUS_TEXT[reason] : null,
 		wished,
 	].filter(Boolean).join(', ');
 

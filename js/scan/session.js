@@ -591,7 +591,7 @@ export function applyVariants(session, id, cardId, variants, now = nowIso(), fin
 	return item;
 }
 
-// "This is the card", or one of the other candidates, or a search result: a
+// "This one", or one of the other candidates, or a search result: a
 // tap that clears the low-confidence flag.
 export function chooseCard(session, id, candidate, now = nowIso()) {
 	const item = mustFind(session, id);
@@ -964,15 +964,26 @@ export const needsLook = (item) => LOOK.has(blocker(item));
 
 export const isSavable = (item) => blocker(item) === null;
 
-// The plain-language reason a card needs a look, for its sheet.
-export const BLURRED_WHY = 'Check this one: its picture was blurred.';
+// The plain-language reason a card needs a look, for its sheet. A blurred
+// capture says so first, and whether its number read (design review,
+// 2026-11-06: one short line for a reader whose first language is not
+// English).
+export const BLURRED_WHY = 'Blurred picture';
 
 export function lookReason(item) {
 	switch (blocker(item)) {
 		case 'unmatched':
-			return item.blurred ? `${BLURRED_WHY} Search for it, or remove it.` : item.why || 'No card was found. Search for it, or remove it.';
+			return item.blurred ? `${BLURRED_WHY}, and no card was found. Search for it, or remove it.` : item.why || 'No card was found. Search for it, or remove it.';
 		case 'unsure':
-			return item.blurred ? `${BLURRED_WHY} ${item.card && item.sure ? 'Tap This is the card if it is right.' : item.why || 'Tap the right one.'}` : item.why || 'Not sure this is the card. Tap the right one.';
+			if (!item.blurred) {
+				return item.why || 'Not sure this is the card. Tap the right one.';
+			}
+
+			if (item.card && item.sure) {
+				return `${BLURRED_WHY}. Tap This one if it is right.`;
+			}
+
+			return item.read && item.read.number ? `${BLURRED_WHY}. Tap the right card.` : `${BLURRED_WHY}, and the number did not read. Tap the right card.`;
 		case 'language':
 			return 'Not sure of the language. Pick the one printed on the card.';
 		case 'finish':

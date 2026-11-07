@@ -285,7 +285,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await page.waitForSelector(`[data-item="${item.id}"] .scan-status-look, #scan-look-count`);
 		await page.click('#scan-look-count');
 		await page.waitForSelector('#scan-why');
-		assert.match(await page.textContent('#scan-why'), /Check this one: its picture was blurred\./);
+		assert.match(await page.textContent('#scan-why'), /Blurred picture, and the number did not read\. Tap the right card\./);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

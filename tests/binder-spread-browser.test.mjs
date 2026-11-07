@@ -196,16 +196,41 @@ describe('spreads on a phone held upright', () => {
 	test('swipes and edge arrows turn the page, forward and back, with the URL', async () => {
 		const {page} = phone;
 
+		// The leaf is read in the page, frame by frame from the moment it is
+		// added until it is turned in 3D: read from the test after a fixed
+		// wait, a busy machine let the turn land and the leaf go first.
+		await page.evaluate(() => {
+			const book = document.getElementById('bs-book');
+			const pageOf = (leaf, face) => leaf.querySelector(`.bs-face-${face} .bs-page`)?.dataset.page || null;
+
+			window.midLeaf = null;
+			new MutationObserver((records, observer) => {
+				const leaf = book.querySelector('.bs-leaf');
+
+				if (!leaf) {
+					return;
+				}
+
+				observer.disconnect();
+
+				const frame = () => {
+					const transform = getComputedStyle(leaf).transform;
+
+					window.midLeaf = {back: pageOf(leaf, 'back'), done: !leaf.isConnected || /^matrix3d/.test(transform), front: pageOf(leaf, 'front'), transform};
+
+					if (!window.midLeaf.done) {
+						requestAnimationFrame(frame);
+					}
+				};
+
+				frame();
+			}).observe(book, {childList: true, subtree: true});
+		});
 		await swipe(page, -160);
-		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.turning === 'forward');
-		await page.waitForTimeout(110);
+		await page.waitForFunction(() => window.midLeaf && window.midLeaf.done);
 		await shot(page, 'turn-mid');
 
-		const midLeaf = await page.evaluate(() => {
-			const leaf = document.querySelector('.bs-leaf');
-
-			return leaf ? {front: leaf.querySelector('.bs-face-front .bs-page').dataset.page, back: leaf.querySelector('.bs-face-back .bs-page').dataset.page, transform: getComputedStyle(leaf).transform} : null;
-		});
+		const midLeaf = await page.evaluate(() => window.midLeaf);
 
 		assert.ok(midLeaf, 'a leaf turns');
 		assert.equal(midLeaf.front, '1', 'the leaf\'s front is the page being turned');
@@ -369,9 +394,14 @@ describe('spreads on a phone held upright', () => {
 			const p95 = sorted[Math.floor(sorted.length * 0.95)];
 			const over = moving.filter((gap) => gap > 25).length;
 
-			console.log(`# turn frame times, ${label}: ${moving.length} frames while the leaf moves over 4 turns, mean ${mean.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms, max ${sorted.at(-1).toFixed(1)} ms, ${over} over 25 ms; before it moves, the longest frame (building the new pages) ${Math.max(...setup).toFixed(1)} ms`);
+			// The same page doing nothing for as long, right after: the frame
+			// time this machine gives the page at the moment.
+			const idleGaps = (await page.evaluate(() => window.H.frames(() => new Promise((resolve) => setTimeout(resolve, 600))))).map((row) => row.gap);
+			const idle = idleGaps.reduce((sum, gap) => sum + gap, 0) / idleGaps.length;
 
-			return {mean, p95};
+			console.log(`# turn frame times, ${label}: ${moving.length} frames while the leaf moves over 4 turns, mean ${mean.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms, max ${sorted.at(-1).toFixed(1)} ms, ${over} over 25 ms; before it moves, the longest frame (building the new pages) ${Math.max(...setup).toFixed(1)} ms; idle frames mean ${idle.toFixed(1)} ms`);
+
+			return {idle, mean, p95};
 		};
 
 		const plain = await measure('unthrottled');
@@ -382,8 +412,15 @@ describe('spreads on a phone held upright', () => {
 
 		await cdp.send('Emulation.setCPUThrottlingRate', {rate: 1});
 		await cdp.detach();
-		assert.ok(plain.mean < 20, `mean frame ${plain.mean.toFixed(1)} ms`);
-		assert.ok(slow.mean < 25, `mean throttled frame ${slow.mean.toFixed(1)} ms`);
+		// The budgets (20 ms, and 25 ms throttled) are for a page that gets
+		// 60 fps when idle. A busy machine slows every frame, idle ones too,
+		// so each budget grows by as much as the idle frames are slower than
+		// 60 fps: the turn is held to what it adds to a frame, not to how
+		// busy the machine was.
+		const scale = (idle) => Math.max(1, idle / (1000 / 60));
+
+		assert.ok(plain.mean < 20 * scale(plain.idle), `mean frame ${plain.mean.toFixed(1)} ms (idle ${plain.idle.toFixed(1)} ms)`);
+		assert.ok(slow.mean < 25 * scale(slow.idle), `mean throttled frame ${slow.mean.toFixed(1)} ms (idle ${slow.idle.toFixed(1)} ms)`);
 	});
 
 	test('tapping a page zooms it; a pocket tap places a card through the handler; Back returns', async () => {

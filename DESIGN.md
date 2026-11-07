@@ -215,9 +215,10 @@ still sending it (its newest part arrived lately). A name with no time in it, an
 listing has no `created_at`, are never deleted, and a report still in the phone's outbox is left
 alone. It runs at
 most once a day per person on each phone (a time in localStorage, noted before it starts), so a
-failure is only a console warning and is tried again on a later day. Sent reports says "Reports are
-deleted automatically 30 days after they are sent." and each report shows its day, counted from the
-later of the two times ("Deleted Dec 6", or "Deleted soon" once that day is past). *(Eric,
+failure is only a console warning and is tried again on a later day. Sent reports has one notice,
+"...Only you can see them. Each is deleted 30 days after it is sent.", and each report shows its
+day, counted from the later of the two times ("Kept until Dec 6", or "Deleting soon" once that day
+is past; design review, 2026-11-06: "Deleted Dec 6" read as already gone). *(Eric,
 2026-11-06; built 2026-11-06; counted from arrival too after review, 2026-11-06.)*
 
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
@@ -1461,7 +1462,10 @@ judged as a drop.
   sale asked about every card: what the scanner is sure of is never marked): a soft card matched
   surely is added plainly, like a sharp one, and the scan log keeps its focus. A blurred card that
   is not sure shows `?` and counts among the cards to check like any unsure card, and its sheet
-  says "Check this one: its picture was blurred."
+  says "Blurred picture, and the number did not read. Tap the right card." ("Blurred picture. Tap
+  the right card." when the number read). *(Design review, 2026-11-06: one word for the check state
+  everywhere: the tile caption "Check", the count "2 to check", the tray head "2 to check", Done
+  "Done 5" with no count of its own, and the sheet's button "This one".)*
 - **Never lose a card, and never add one silently** (Eric's rule after a review of the v64
   candidate, 2026-11-06). Every blurred capture added for any other reason than its wait running
   out (another card landed, Log it or Done, the shutter, a zoom change, the camera stopping or
@@ -2785,13 +2789,19 @@ trades/sales too instead of registering them just manually. Maybe we could have 
 could scan the cards and select a trade/sell/giveaway option so the system could make the
 adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
 
-- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: one button that
-  names the mode in use, **Add** (what Scan always did, the default) or **Trade or sale**, and
-  switches to the other. It is never over the picture (Eric aims by the card's number strip) or
+- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: two segments,
+  **Add** (what Scan always did, the default) and **Trade or sale**, 48 px tall, the one in use
+  pressed (`aria-pressed`). It is never over the picture (Eric aims by the card's number strip) or
   under the repeat bar, and it takes no height from the camera, whose band over the guide holds the
-  running count; the count beside it shows only when it fits whole. The choice is remembered on the
-  phone (`card-tracker:scan-mode`). In Trade or sale the switch is teal, a teal frame runs round
-  the camera, and Done reads **Log it**, so a card meant for a sale is never added by mistake. The
+  running count; the count beside it shows only when it fits whole. Under 400 px wide the tray
+  head's own buttons keep the switch's row: Pick a photo takes two lines in its 48 px, and Set for
+  all, which Done's sheet also has, is left out of the head. The running count names the
+  mode first ("Add · 2 cards", "Trade or sale · 3 cards", or the mode alone with no cards). The
+  choice is remembered on the phone (`card-tracker:scan-mode`). In Trade or sale the pressed
+  segment and the running count are teal, a 6 px teal frame runs round the camera, and Done reads
+  **Log it**, so a card meant for a sale is never added by mistake. *(Design review, 2026-11-06: one
+  button that named the mode and switched to the other read as a label, not a switch, and the
+  4 px frame was easy to miss.)* The
   mode does not change while a card is being taken or read, or a gallery photo opened: the switch
   says to wait, and a card is never put in the other mode's tray.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
@@ -2810,9 +2820,12 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   read too, so it counts for the condition beside the copies in that finish (a Played holo never
   goes silently while a Near Mint copy of unknown finish was the other choice), and when the finish
   read sits only in a binder and the loose copies have no finish saved, it asks rather than take a
-  copy of unknown finish (review of 2026-11-06). Then the row says "Pick which copy goes" and
-  **Pick the copy** shows the copies as pictures with their language, finish, condition, where
-  they are, and Spare. *(Decided by Eric, 2026-11-06, on v63: "the app is asking me about every
+  copy of unknown finish (review of 2026-11-06). Then the row says how many copies match ("3
+  match") over **Pick a copy** (44 px tall, beside the row's own 44 px x), which shows the copies as
+  pictures with their language flag and, in 14 px, the condition in bold (and the finish only when
+  it is known), where the copy is ("Loose", or "Binder A, p. 3"), and Spare and Suggested as chips;
+  the picked copy has a 3 px teal ring and a check. *(Design review, 2026-11-06: 12 px tiles that
+  said "Finish not set" and a suggestion shown only as a faint outline.)* *(Decided by Eric, 2026-11-06, on v63: "the app is asking me about every
   card I'm scanning in the trade to select which copy goes out... didn't you say it would select
   the spare whenever available and then ask if the spare is not available?" v63 took a copy by
   itself only when exactly one was left after narrowing to spares, so two alike spares always
@@ -2834,12 +2847,13 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
   History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
   a card needs a look or is still read, and opens that card first. When cards ask for their copy,
-  Log it opens **one sheet with every one of them** ("Which copies go out?"), each with its copies
+  Log it opens **one sheet with every one of them** ("Which copies go out?", "Pick one copy for
+  each card. The trade form opens when all 3 are picked."; each card's line "2 copies match"), each with its copies
   as the picker shows them, and the cards not logged (not owned, or owned only in another language
   or finish) under them with their row's line. He picks in any order; a card picked stays listed so
   its pick can be changed, and a card that starts asking because its copy went to another joins
   the list. The pick that settles the last one opens the form by itself, and the sheet's Log it
-  does the same once all are picked. The row's Pick the copy still picks for one card. *(Eric,
+  does the same once all are picked. The row's Pick a copy still picks for one card. *(Eric,
   2026-11-06: "it doesn't show me all the cards I have to pick right away. I have to click Log it
   and another card shows up. Log it, another card shows up. Log it... it's upsetting." v63 opened
   the picker for one card per Log it.)* The form's
@@ -2856,10 +2870,19 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
   instead. A tray left by Log it without saving is there when Scan opens again.
+- **The form, from a scan** (design review, 2026-11-06): the scanned cards are compact rows of
+  about 56 px (picture, name, "English · Near Mint", and an x), not full-size tiles, and Save sits in
+  a sticky footer above the tab bar, so a long trade never pushes Save out of reach. Its line reads
+  "Scanned 2 going out, 1 coming in. Add who and the price, then Save.", with the alternative kind
+  and any copy dropped since. The form calls its sides **Going out** and **Coming in**, with **Add a
+  card going out** and **Add a card coming in**, for every kind and whether or not it came from a
+  scan, so each side has one name, the scanner's.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
-- **Scan the cards** (Eric, 2026-11-06): Trades and sales has a **Scan the cards** button beside
-  Log a move, which opens Scan already in Trade or sale. It sets the remembered mode, as the
+- **Scan a trade** (Eric, 2026-11-06): Trades and sales has a **Scan a trade** button, with the
+  Scan tab's icon, beside Log a move, which opens Scan already in Trade or sale; with no moves yet,
+  the empty state says "Scan the cards going out and coming in, or log a move by hand." over **Log
+  a move** and a full-width **Scan a trade or sale** (design review, 2026-11-06). It sets the remembered mode, as the
   scanner's own switch does, so the trade tray opens as it was left, cards and all, and the Add tray
   waits untouched.
 

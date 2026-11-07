@@ -498,7 +498,7 @@ export function scanView(root) {
 	const video = h('video', {'aria-hidden': 'true', autoplay: true, class: 'scan-video', id: 'scan-video', muted: true, playsinline: true});
 	const guide = h('div', {'aria-hidden': 'true', class: 'scan-guide', hidden: true, id: 'scan-guide'}, h('span', {class: 'scan-hint', id: 'scan-hint'}, 'Card inside the frame. Hold still.'));
 	const status = h('p', {'aria-live': 'polite', class: 'scan-top-status', id: 'scan-top-status', hidden: true});
-	// The running count over the camera ("12 cards · 2 to check"), so a
+	// The running count over the camera ("Add · 12 cards · 2 to check"), so a
 	// long run needs no look at the tray.
 	const runCount = h('p', {'aria-live': 'polite', class: 'scan-run-count', hidden: true, id: 'scan-run-count'});
 	// The repeat bar (askRepeat), at the foot of the camera, clear of the
@@ -919,7 +919,7 @@ export function scanView(root) {
 		const parts = [items.length ? `Session · ${plural(items.length, 'card')}` : 'No cards yet'];
 
 		if (summary.look) {
-			parts.push(`${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look`);
+			parts.push(`${summary.look} to check`);
 		}
 
 		if (summary.waiting) {
@@ -928,18 +928,22 @@ export function scanView(root) {
 
 		count.textContent = parts.join(' · ');
 
-		const running = items.length ? `${plural(items.length, 'card')}${summary.look ? ` · ${summary.look} to check` : ''}` : '';
+		// The mode first, so it is in sight over the picture: "Add · 2 cards",
+		// "Trade or sale · 3 cards · 1 to check", or the mode alone.
+		const modeName = T.isTrade(session) ? 'Trade or sale' : 'Add';
+		const counted = [modeName, items.length ? plural(items.length, 'card') : null].filter(Boolean).join(' · ');
+		const running = `${counted}${summary.look ? ` · ${summary.look} to check` : ''}`;
 
 		// "N to check" is a way into the Review run (openReview).
 		if (runCount.textContent !== running) {
-			runCount.replaceChildren(items.length ? plural(items.length, 'card') : '', ...(summary.look ? [' · ', h('button', {'aria-label': `${summary.look} to check: check them one after the other`, class: 'scan-look-count', id: 'scan-look-count', onclick: () => openReview(), type: 'button'}, `${summary.look} to check`)] : []));
+			runCount.replaceChildren(counted, ...(summary.look ? [' · ', h('button', {'aria-label': `${summary.look} to check: check them one after the other`, class: 'scan-look-count', id: 'scan-look-count', onclick: () => openReview(), type: 'button'}, `${summary.look} to check`)] : []));
 		}
 
-		runCount.hidden = !items.length;
+		runCount.hidden = false;
 		setAllButton.hidden = items.length < 2;
 		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
-		doneButton.textContent = items.length ? `Done ${items.length}${summary.look ? ` · ${summary.look} to check` : ''}` : 'Done';
+		doneButton.textContent = items.length ? `Done ${items.length}` : 'Done';
 
 		if (T.isTrade(session)) {
 			drawTrade();

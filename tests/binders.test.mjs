@@ -1568,6 +1568,99 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		}
 	});
 
+	// The page slider under the spread (v47) sat on the tab bar held sideways,
+	// its handle half under it and its middle under the Scan disc. Each size,
+	// with and without the tray column beside the spread, opens a binder and
+	// checks, at the scroll position it opens to, that the slider and its
+	// handle at the first, middle, and last spread are inside the screen and
+	// clear of the tab bar and the disc. The handle box is the thumb's column
+	// across the slider's whole touch height (a Chromium thumb is 16 px
+	// wide), so the touch target over the thumb must be clear, not only the
+	// dot drawn on the track.
+	test('held sideways, the page slider opens in view, clear of the tab bar and the Scan disc', async () => {
+		const shots = process.env.SLIDER_SHOTS || '/tmp';
+		const sizes = [{height: 360, width: 740}, {height: 360, width: 780}, {height: 390, width: 844}, {height: 412, width: 915}];
+
+		// Every size is measured before any assertion, so one run names each
+		// size that fails.
+		const problems = [];
+		const check = (ok, message) => {
+			if (!ok) {
+				problems.push(message);
+			}
+		};
+
+		for (const staged of [[], ['c2', 'c3']]) {
+			for (const viewport of sizes) {
+				const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
+
+				await fakeServices(context, {search: 0, single: 0}, {offline: false});
+				await context.route('https://*.supabase.co/**', (route) => route.abort());
+
+				const page = await context.newPage();
+				const errors = [];
+				const binder = binderOf('b-slide', {created_at: AT, name: 'Slider binder', page_count: 9, staged, updated_at: AT});
+				const size = `${viewport.width} x ${viewport.height}${staged.length ? ' with the tray' : ''}`;
+
+				page.on('pageerror', (err) => errors.push(err));
+				await seedLocal(page, documentWith(CARDS, [binder]), RECORDS);
+				await page.goto(url(`binders/${binder.id}`));
+				await page.waitForSelector('#binder-spread[data-mode="direct"] .bs-page');
+
+				if (staged.length) {
+					await page.waitForSelector('#binder-tray:not([hidden]) .bt-card');
+				}
+
+				await page.waitForFunction(() => Math.abs(document.getElementById('binder-spread').getBoundingClientRect().top - 4) < 2, null, {timeout: 5000});
+
+				const box = await page.evaluate(() => {
+					const plain = (r) => ({bottom: r.bottom, left: r.left, right: r.right, top: r.top});
+					const rect = (selector) => plain(document.querySelector(selector).getBoundingClientRect());
+					const slider = document.getElementById('bs-slider');
+					const track = slider.getBoundingClientRect();
+					const min = Number(slider.min);
+					const max = Number(slider.max);
+					const thumb = 16;
+					const handle = (value) => {
+						const left = track.left + (((value - min) / Math.max(1, max - min)) * (track.width - thumb));
+
+						return {bottom: track.bottom, left, right: left + thumb, top: track.top, value};
+					};
+
+					return {
+						book: rect('#bs-book'),
+						disc: rect('.scan-disc'),
+						handles: [handle(Number(slider.value)), handle(Math.round((min + max) / 2)), handle(max)],
+						scrubHidden: document.getElementById('bs-scrub').hidden,
+						slider: plain(track),
+						tabs: rect('.tabs'),
+						view: {height: window.innerHeight, width: window.innerWidth},
+					};
+				});
+				const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+				const inside = (r) => r.left >= 0 && r.top >= 0 && r.right <= box.view.width && r.bottom <= box.view.height;
+
+				await page.screenshot({path: `${shots}/slider-${viewport.width}x${viewport.height}${staged.length ? '-tray' : ''}.png`});
+				check(!box.scrubHidden, `${size}: nine pages show the slider`);
+
+				for (const handle of box.handles) {
+					check(inside(handle), `${size}: the handle at ${handle.value} is on the screen (${JSON.stringify(handle)})`);
+					check(handle.bottom <= box.tabs.top, `${size}: the handle at ${handle.value} ends at ${handle.bottom}, above the tab bar at ${box.tabs.top}`);
+					check(!overlaps(handle, box.disc), `${size}: the handle at ${handle.value} is clear of the Scan disc (${JSON.stringify(handle)} against ${JSON.stringify(box.disc)})`);
+				}
+
+				check(inside(box.slider) && box.slider.bottom <= box.tabs.top && !overlaps(box.slider, box.disc), `${size}: the whole slider is clear (${JSON.stringify(box.slider)}, tabs ${box.tabs.top}, disc ${JSON.stringify(box.disc)})`);
+				check(box.slider.right - box.slider.left >= 160, `${size}: the slider is ${box.slider.right - box.slider.left} px long`);
+				check(box.book.bottom <= box.slider.top, `${size}: the slider is under the book`);
+				check(box.book.bottom <= box.disc.top, `${size}: the book still clears the disc`);
+				check(!errors.length, `${size}: no page errors (${errors.join(', ')})`);
+				await context.close();
+			}
+		}
+
+		assert.deepEqual(problems, []);
+	});
+
 	test('a cover picture that arrives later is painted, and pictures no live binder uses leave the phone', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 		const withCover = (id, imageId, fields = {}) => binderOf(id, {cover_image: {at: AT, id: imageId, path: null, type: 'image/webp'}, created_at: AT, name: `Binder ${id}`, page_count: 2, updated_at: AT, ...fields});

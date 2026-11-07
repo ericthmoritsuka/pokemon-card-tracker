@@ -505,7 +505,7 @@ export function outLine(result, {where = new Map(), languageName = (code) => cod
 				? 'None of your copies is in this language and finish. Not logged unless you pick one.'
 				: 'Every copy you own of it is already going out. Not logged.';
 		case 'ask':
-			return result.need > 1 ? `Pick which ${result.need} copies go (${result.candidates.length} fit).` : `Pick which copy goes (${result.candidates.length} fit).`;
+			return `${result.candidates.length} ${result.candidates.length === 1 ? 'copy matches' : 'copies match'}${result.need > 1 ? `; pick ${result.need}` : ''}.`;
 		case 'short':
 			return `You own only ${result.copies.length} that ${result.copies.length === 1 ? 'fits' : 'fit'}; ${result.copies.length === 1 ? 'it goes' : 'they go'}.`;
 		default: {

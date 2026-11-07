@@ -2,7 +2,7 @@
    Log a move form, and its two pickers. The form reuses the copy sheet's
    fields (css/copies.css) and the tray picker's tiles (css/binders.css). */
 
-/* History's heading: Scan the cards and Log a move beside the title, below
+/* History's heading: Scan a trade and Log a move beside the title, below
    it on a narrow phone. */
 .view-head:has(#moves-new) {
 	flex-wrap: wrap;
@@ -124,6 +124,88 @@
 .card-move-line {
 	color: var(--muted);
 	overflow-wrap: anywhere;
+}
+
+/* The Scan tab's glyph on the buttons that open Scan in Trade or sale. */
+.button .button-icon {
+	height: 20px;
+	margin-right: var(--space-2);
+	width: 20px;
+}
+
+/* No moves yet: Log a move, and Scan a trade or sale under it, each the
+   full width. */
+.moves-empty-actions {
+	display: grid;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+}
+
+.moves-empty-actions .button {
+	margin: 0;
+	width: 100%;
+}
+
+/* The cards the scanner handed over: a compact row each, about 56 px, so
+   the form stays short and Save in sight (design review, 2026-11-06). */
+.move-rows {
+	display: grid;
+	margin: var(--space-2) 0;
+}
+
+.move-rows > .muted {
+	margin: 0;
+}
+
+.move-row {
+	align-items: center;
+	border-top: 1px solid var(--border);
+	display: flex;
+	gap: var(--space-3);
+	min-height: 56px;
+	min-width: 0;
+	padding: var(--space-1) 0;
+}
+
+.move-row:first-child {
+	border-top: 0;
+}
+
+.move-row-thumb {
+	flex: none;
+	width: 34px;
+}
+
+.move-row-text {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.move-row-name {
+	font-weight: 600;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.move-row-meta {
+	color: var(--muted);
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.move-row .move-row-remove {
+	background: none;
+	border: 0;
+	color: var(--muted);
+	flex: none;
+	font-size: 20px;
+	height: var(--target);
+	min-height: var(--target);
+	padding: 0;
+	width: var(--target);
 }
 
 /* A chosen copy's tile: the tray picker's tile, not a button. */

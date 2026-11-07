@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
-import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
+import {cardImage, countLooks, LOOK_MS, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -100,6 +100,7 @@ async function measure(height) {
 	await routeTcgdex(context);
 	await context.route('**/__test-card.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(CARD)}));
 	await context.addInitScript(portraitCamera, FRAME);
+	await context.addInitScript(countLooks, LOOK_MS);
 
 	const page = await context.newPage();
 	const errors = [];
@@ -123,34 +124,34 @@ async function measure(height) {
 
 	await page.screenshot({path: `${SHOTS}/scan-guide-${height}-${LABEL}.png`});
 
-	// The card held up: how long until the automatic capture, and until the
-	// card is in the tray.
-	const shown = await page.evaluate(() => {
+	// The card held up: how many looks and how long until the automatic
+	// capture, counted in the page from the moment the card is held up, and how
+	// long until the card is in the tray.
+	const shown = await page.evaluate(async () => {
+		window.scanView = await import('/pokemon-card-tracker/js/scan/view.js');
 		window.showCard = true;
 
-		return performance.now();
+		return {look: window.looks, now: performance.now()};
 	});
-	let captured = null;
 	let settled = null;
 
 	for (let i = 0; i < 200 && settled === null; i++) {
 		await page.waitForTimeout(50);
 
-		const state = await page.evaluate(async () => {
-			const view = await import('/pokemon-card-tracker/js/scan/view.js');
+		const state = await page.evaluate(() => {
 			const tile = document.querySelector('#scan-tray .scan-tile');
 
-			return {captures: view.scanStats.captures, now: performance.now(), status: tile ? tile.dataset.status : null};
+			return {now: performance.now(), status: tile ? tile.dataset.status : null};
 		});
 
-		if (captured === null && state.captures > 0) {
-			captured = Math.round(state.now - shown);
-		}
-
 		if (state.status && ['ready', 'unsure', 'unmatched', 'language', 'waiting'].includes(state.status)) {
-			settled = Math.round(state.now - shown);
+			settled = Math.round(state.now - shown.now);
 		}
 	}
+
+	const loop = await page.evaluate(() => ({capturedAt: window.capturedAt, looks: window.looks}));
+	const captured = loop.capturedAt ? Math.round(loop.capturedAt.now - shown.now) : null;
+	const capturedLooks = loop.capturedAt ? loop.capturedAt.look - shown.look : null;
 
 	// The label row is read behind the result; give it a moment.
 	for (let i = 0; i < 100; i++) {
@@ -180,19 +181,19 @@ async function measure(height) {
 
 	await context.close();
 
-	return {boxes, captured, errors, report, settled};
+	return {boxes, captured, capturedLooks, errors, looks: loop.looks, report, settled};
 }
 
 describe('the guide with a portrait camera (Eric\'s phone, 2026-10-03)', () => {
 	for (const height of [700, 730, 780]) {
 		test(`384 x ${height}: the whole guide shows, and a card held to it is captured and read`, async () => {
-			const {boxes, captured, errors, report, settled} = await measure(height);
+			const {boxes, captured, capturedLooks, errors, looks, report, settled} = await measure(height);
 			const {guide, stage} = boxes;
 			const picture = report && report.report && report.report.picture;
 			const rectify = report && report.report && report.report.rectify;
 			const match = report && report.report && report.report.match;
 
-			console.log(`# ${height}: camera ${boxes.camera}; stage ${Math.round(stage.width)} x ${Math.round(stage.height)} at ${Math.round(stage.top)}; guide ${Math.round(guide.width)} x ${Math.round(guide.height)}, top ${Math.round(guide.top - stage.top)}, bottom ${Math.round(stage.bottom - guide.bottom)} px inside the stage (negative: cut off); auto capture ${captured} ms after the card appeared; in the tray ${settled} ms; edges ${rectify ? `${rectify.found ? 'found' : 'not found'}${rectify.guessed ? `, ${rectify.guessed} guessed` : ''}` : '?'}; top distance ${picture && picture.groups[0] ? picture.groups[0].score : '?'}, lead ${picture ? picture.gap : '?'}; lookup ${match ? match.ms : '?'} ms; ${report ? `${report.card} "${report.name}", ${report.language} (${report.languageBy}), ${report.sure ? 'sure' : 'not sure'}` : 'no card'}`);
+			console.log(`# ${height}: camera ${boxes.camera}; stage ${Math.round(stage.width)} x ${Math.round(stage.height)} at ${Math.round(stage.top)}; guide ${Math.round(guide.width)} x ${Math.round(guide.height)}, top ${Math.round(guide.top - stage.top)}, bottom ${Math.round(stage.bottom - guide.bottom)} px inside the stage (negative: cut off); auto capture ${captured} ms (${capturedLooks} looks) after the card appeared; in the tray ${settled} ms; edges ${rectify ? `${rectify.found ? 'found' : 'not found'}${rectify.guessed ? `, ${rectify.guessed} guessed` : ''}` : '?'}; top distance ${picture && picture.groups[0] ? picture.groups[0].score : '?'}, lead ${picture ? picture.gap : '?'}; lookup ${match ? match.ms : '?'} ms; ${report ? `${report.card} "${report.name}", ${report.language} (${report.languageBy}), ${report.sure ? 'sure' : 'not sure'}` : 'no card'}`);
 
 			if (MEASURE_ONLY) {
 				return;
@@ -203,7 +204,10 @@ describe('the guide with a portrait camera (Eric\'s phone, 2026-10-03)', () => {
 			assert.ok(stage.bottom - guide.bottom >= 13.5, `guide bottom ${stage.bottom - guide.bottom} px inside`);
 			assert.ok(guide.left >= 13.5 && guide.right <= 384 - 13.5);
 			assert.ok(Math.abs(guide.width / guide.height - 63 / 88) < 0.01);
-			assert.ok(captured !== null && captured < 2000, `captured after ${captured} ms`);
+			// Within 2 s of looks at the loop's own pace (16 looks of 125 ms),
+			// however late a busy machine runs each one.
+			assert.ok(looks > 0, `the scanner's look loop was counted (is its interval still ${LOOK_MS} ms?)`);
+			assert.ok(capturedLooks !== null && capturedLooks <= 2000 / LOOK_MS, `captured after ${capturedLooks} looks (${captured} ms)`);
 			assert.equal(report.card, CARD);
 			assert.equal(rectify.found, true);
 			assert.equal(rectify.guessed, null, 'all four edges found');
