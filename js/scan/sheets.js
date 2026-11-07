@@ -266,7 +266,7 @@ export function confirmSheet(ctx, itemId) {
 		const buttons = [];
 
 		if (card && reason === 'unsure') {
-			buttons.push(h('button', {class: 'scan-button scan-primary', id: 'scan-this-card', onclick: () => ctx.chooseCard(itemId, null), type: 'button'}, 'This is the card'));
+			buttons.push(h('button', {class: 'scan-button scan-primary', id: 'scan-this-card', onclick: () => ctx.chooseCard(itemId, null), type: 'button'}, 'This one'));
 		}
 
 		if (card && !showOthers && item.candidates.length > 1 && item.sure) {
@@ -815,7 +815,7 @@ export function doneSheet(ctx) {
 
 		if (summary.look) {
 			rows.push(h('div', {class: 'scan-done-row scan-done-look'},
-				h('span', {id: 'scan-done-look'}, h('span', {'aria-hidden': 'true', class: 'scan-why-mark'}, '!'), ` ${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look`),
+				h('span', {id: 'scan-done-look'}, h('span', {'aria-hidden': 'true', class: 'scan-why-mark'}, '!'), ` ${summary.look} to check`),
 				h('button', {class: 'scan-button', id: 'scan-done-review', onclick: () => (ctx.openReview ? ctx.openReview() : ctx.openItem(firstLook.id)), type: 'button'}, 'Review')));
 		}
 
@@ -861,7 +861,7 @@ export function doneSheet(ctx) {
 
 		const ready = canSave(summary) && saving > 0;
 		const label = summary.look || summary.busy
-			? `Save ${summary.savableCopies}, ${summary.look ? `${summary.look} ${summary.look === 1 ? 'needs' : 'need'} a look` : `${summary.busy} still reading`}`
+			? `Save ${summary.savableCopies}, ${summary.look ? `${summary.look} to check` : `${summary.busy} still reading`}`
 			: `Save ${plural(saving, 'card')}`;
 
 		rows.push(h('div', {class: 'scan-actions'},

@@ -87,7 +87,7 @@ async function open({holder = false} = {}) {
 	}, CANDIDATES);
 	await page.goto(`${harness.origin}${BASE}scan`);
 	await page.waitForSelector('#scan-shutter:not([disabled])', {timeout: 30000});
-	await page.waitForFunction(() => /3 to check/.test(document.getElementById('scan-done-open').textContent));
+	await page.waitForFunction(() => /3 to check/.test(document.getElementById('scan-run-count').textContent));
 
 	return {context, errors, page};
 }
@@ -129,7 +129,7 @@ describe('Review: the cards that need a look, one after another', () => {
 		await page.click('#scan-confirm .scan-candidate[data-card="me01-001"]');
 		await page.waitForSelector('#scan-sheet-layer', {state: 'hidden', timeout: 5000});
 		assert.match(await page.locator('#scan-live').textContent(), /No more cards to check/);
-		assert.match(await page.locator('#scan-done-open').textContent(), /1 to check/);
+		assert.match(await page.locator('#scan-run-count').textContent(), /1 to check/);
 
 		// The count over the camera starts a run too; Stop ends it, and the
 		// card stays marked in the tray.
@@ -138,7 +138,7 @@ describe('Review: the cards that need a look, one after another', () => {
 		assert.equal(await runCount(page), 'Card 1 of 1 to check');
 		await page.click('#scan-review-stop');
 		await page.waitForSelector('#scan-sheet-layer', {state: 'hidden'});
-		assert.match(await page.locator('#scan-done-open').textContent(), /1 to check/);
+		assert.match(await page.locator('#scan-run-count').textContent(), /1 to check/);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -152,7 +152,7 @@ describe('Review: the cards that need a look, one after another', () => {
 		await page.waitForSelector('#scan-review-bar');
 		assert.equal(await runCount(page), 'Card 1 of 3 to check');
 		assert.equal(await openCard(page), 'sv03.5-025');
-		assert.match(await page.getAttribute('#scan-tray [data-item="look-1"]', 'aria-label'), /Needs a look, opens the review/);
+		assert.match(await page.getAttribute('#scan-tray [data-item="look-1"]', 'aria-label'), /To check, opens the review/);
 		await page.click('#scan-confirm .scan-candidate[data-card="sv03.5-025"]');
 		await page.waitForFunction(() => document.getElementById('scan-review-count') && document.getElementById('scan-review-count').textContent === 'Card 2 of 3 to check', null, {timeout: 5000});
 		assert.equal(await openCard(page), 'me01-001');
@@ -187,7 +187,7 @@ describe('Review: the cards that need a look, one after another', () => {
 		await page.click('#scan-done-open');
 		await page.waitForSelector('#scan-done');
 		// Save is blocked by the cards to check: it opens the run.
-		assert.match(await page.locator('#scan-save-session').textContent(), /3 need a look/);
+		assert.match(await page.locator('#scan-save-session').textContent(), /3 to check/);
 		await page.click('#scan-save-session');
 
 		await page.waitForSelector('#scan-review-bar');

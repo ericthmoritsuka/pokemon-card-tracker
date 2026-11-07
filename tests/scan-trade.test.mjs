@@ -146,7 +146,7 @@ describe('which copy goes out', () => {
 		assert.equal(result.status, 'ask');
 		assert.deepEqual(result.copies, []);
 		assert.deepEqual(result.suggested, ['s1'], 'the spare suggested');
-		assert.equal(T.outLine(result), 'Pick which copy goes (2 fit).');
+		assert.equal(T.outLine(result), '2 copies match.');
 
 		// A condition saved on one and not the other differs too.
 		const unset = T.outCopies(tray([{}]), [copy('k1', {condition: 'Near Mint'}), copy('s1', {created_at: at(2)})]).get('t1');
@@ -366,7 +366,7 @@ describe('which copy goes out', () => {
 		const three = T.outCopies(tray([{copies: 2}]), four).get('t1');
 
 		assert.equal(three.status, 'ask');
-		assert.equal(T.outLine(three), 'Pick which 2 copies go (4 fit).');
+		assert.equal(T.outLine(three), '4 copies match; pick 2.');
 
 		const short = T.outCopies(tray([{copies: 3}]), [copy('k1'), copy('s1', {created_at: at(2)})]).get('t1');
 
