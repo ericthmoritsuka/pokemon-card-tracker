@@ -14,6 +14,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-06
 
+- **v65:** the binder page slider held sideways, and steadier tests. `TBD`
+  - Held sideways, a binder's page slider and page menu share one row beside the Scan button, so
+    the slider's handle is fully visible above the bottom bar at every phone size.
+  - Four tests that failed under load now wait for what really happens (What's new, the scan
+    guide, binder page turns, holder hand passes). No change to the app.
+
 - **v64:** steadier holder scanning, easier trades, and the most valuable copy in placeholders. `ea63f14`
   - Holder mode: a blurred capture waits up to 1.5 s for a sharp look of the same spot instead of
     being saved blurred, the same card is not taken twice when a hand passes over it, and no card
