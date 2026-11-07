@@ -207,6 +207,45 @@ describe('a copy is never lost', () => {
 		assert.deepEqual(pocketsOf(merged(mine, shift)[0]), [[1, 'c2'], [2, 'c3']]);
 	});
 
+	// Two phones shifting the same binder before they sync: neither shift
+	// overrides the other, nothing goes to the tray, and merging again
+	// changes nothing.
+	test('two phones shifting the same binder at once: neither undoes the other, nothing goes to the tray, in either merge order', () => {
+		const six = () => [hand('b', [1, 2, 3, 4, 5, 6].map((n) => holding(Math.ceil(n / 4), ((n - 1) % 4) + 1, `c${n}`)))];
+		const shown = (list) => Object.fromEntries([...binders.placements(list)].map(([id, found]) => [id, ((found.slot.page - 1) * 4) + found.slot.position]));
+		const cases = [
+			// Remove pocket 1 with the shift, and Move to... pocket 6 to 2.
+			{
+				a: (list) => binders.removePocket(list, {at: at(10), binderId: 'b', page: 1, position: 1, shift: true}).changed,
+				b: (list) => binders.shiftMove(list, {at: at(11), binderId: 'b', from: {page: 2, position: 2}, to: {page: 1, position: 2}}).changed,
+				want: {c2: 3, c3: 4, c4: 5, c5: 6, c6: 2},
+			},
+			// Remove pocket 4 and, a minute later, pocket 2, each shifting.
+			{
+				a: (list) => binders.removePocket(list, {at: at(10), binderId: 'b', page: 1, position: 4, shift: true}).changed,
+				b: (list) => binders.removePocket(list, {at: at(11), binderId: 'b', page: 1, position: 2, shift: true}).changed,
+				want: {c1: 1, c3: 2, c5: 4, c6: 5},
+			},
+		];
+
+		for (const {a, b, want} of cases) {
+			const before = six();
+			const left = a(before);
+			const right = b(before);
+			const ab = merged(merged(before, left), right);
+			const ba = merged(merged(before, right), left);
+
+			assert.deepEqual(shown(ab), want);
+			assert.deepEqual(shown(ba), want);
+			assert.deepEqual(ab[0].staged, undefined, 'nothing goes to the tray');
+			assert.deepEqual(binders.slotsOf(ab[0]), binders.slotsOf(ba[0]), 'the same pockets either way');
+
+			for (const again of [ab, left, right]) {
+				assert.deepEqual(binders.slotsOf(merged(ab, again)[0]), binders.slotsOf(ab[0]), 'merging again changes nothing');
+			}
+		}
+	});
+
 	test('art a shift moved keeps its place when another phone edits another pocket', () => {
 		const before = [hand('b', [holding(2, 1, 'c3'), artOn(2, 2), holding(2, 3, 'c4')])];
 		const shift = binders.removePocket(before, {at: at(10), binderId: 'b', page: 2, position: 1, shift: true}).changed;

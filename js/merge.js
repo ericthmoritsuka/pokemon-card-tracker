@@ -363,13 +363,21 @@ function artSide(a, b) {
 
 // A copy a shift moved (moved_from: the pocket it left and the placed_at it
 // had there, js/binders.js) does not stand when a version without that
-// shift emptied or changed the pocket it left after it was put there:
-// that version took the copy out, moved it to another pocket or binder, or
-// put something else there, and the shift must not bring the copy back.
-// Its pocket gets a cleared marker at the shift's stamp instead, which
-// wins a tie.
+// shift changed the pocket it left after it was put there and holds the
+// copy in no pocket a shift of its own put it in: that version took the
+// copy out, moved it to the tray, another pocket by hand, or another
+// binder, or put something else in its place, and the shift must not bring
+// the copy back. Its pocket gets a cleared marker at the shift's stamp
+// instead, which wins a tie. Two phones shifting the same binder at once
+// both move the copy by a shift, so neither overrides the other: each
+// pocket goes to the later stamp as usual, the newer shift's layout winning
+// where both wrote, and a copy the older layout leaves in a second pocket
+// is read in the one placed last (js/binders.js placements).
 function dropOverridden(slots, a, b) {
-	const versions = [pocketMap(a.slots), pocketMap(b.slots)];
+	const shifted = (entry) => new Set((Array.isArray(entry.slots) ? entry.slots : [])
+		.filter((slot) => slot && slot.entry_id && !slot.cleared && isObject(slot.moved_from))
+		.map((slot) => slot.entry_id));
+	const versions = [{pockets: pocketMap(a.slots), shifted: shifted(a)}, {pockets: pocketMap(b.slots), shifted: shifted(b)}];
 
 	return slots.map((slot) => {
 		const from = slot && slot.entry_id && !slot.cleared && isObject(slot.moved_from) ? slot.moved_from : null;
@@ -378,11 +386,16 @@ function dropOverridden(slots, a, b) {
 			return slot;
 		}
 
-		const overridden = versions.some((pockets) => {
+		const overridden = versions.some(({pockets, shifted: byShift}) => {
 			const here = pockets.get(pocketKey(slot));
 
 			// A version that holds this move, or a later change of its pocket.
 			if (here && compareTimes(here.placed_at, slot.placed_at) >= 0) {
+				return false;
+			}
+
+			// A version whose own shift moved the copy too.
+			if (byShift.has(slot.entry_id)) {
 				return false;
 			}
 

@@ -2246,7 +2246,12 @@ Three merge rules keep a shift from undoing another phone's work (`js/merge.js`;
   that pocket after the copy was put there (it took the copy out, moved it to another pocket or
   binder, or put something else there), the shifted copy does not stand: its new pocket gets a
   cleared marker (`dropOverridden`). So a copy moved to another binder on one phone and shifted on
-  another ends up in the other binder only, whichever phone wrote first.
+  another ends up in the other binder only, whichever phone wrote first. A version whose own shift
+  moved the copy too does not count (a shift restamps every pocket after where it starts): two phones
+  shifting the same binder before they sync keep each pocket's later stamp, the newer shift's layout
+  winning where both wrote, and nothing goes to the tray. Where both removed a card with the shift,
+  the pocket the older removal closed can stay empty (two removals from pockets 4 and 2 of c1 to c6
+  give c1, c3, an empty pocket, c5, c6).
 - **A pocket both wrote.** When two phones write the same pocket at once (one shifts a card into it,
   the other places a card there), the later pocket wins as for any pocket, and the merge puts the copy
   that lost it in the binder's tray (`rescueCopies`): a copy both versions hold in this binder, in a
@@ -2260,7 +2265,11 @@ Three merge rules keep a shift from undoing another phone's work (`js/merge.js`;
 to v64 merges a shift first (with an edit of its own to the same binder), it takes the newer binder
 whole or pocket by pocket without them, so a shifted card that lost its pocket ends up Not in a
 binder (never deleted), and art may move back; the next merge here cannot tell that apart from a card
-taken out on purpose.
+taken out on purpose. Two more while older phones sync (found in review, 2026-11-06): shifted art can
+move back when an older phone merges in between, since its version carries the same `art_moved_at`
+stamp and the tie goes to the grid's side; and when a v47 phone merges a shift and another phone's
+move of a shifted card to another binder first, the card can sit in both binders (read in the pocket
+placed last) until the phone that moved it syncs again.
 
 *A binder from a list* (`js/binder-rules.js` `listEditsOf`, `applyListEdits`, `moveEdit`). The list
 decides the pockets, so a change is an exception stored on the binder, `list_edits`, a list of
