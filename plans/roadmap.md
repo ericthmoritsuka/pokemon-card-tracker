@@ -442,8 +442,9 @@ To check on the phone and with Eric:
 - The system Back from the scanner keeps the trade tray instead of asking (Close asks).
 - The mode switch leads the tray head under the camera (one button naming the mode); at 360 px with
   Set for all showing, the tray's count beside it hides, as the running count over the camera says
-  the same. Landscape was already short of room before this mode (the controls fall below the
-  screen); the switch shows there, the trade tray is cut like the Add tray.
+  the same. Landscape was already short of room before this mode (the controls fell below the
+  screen); done in the design polish below: held sideways the controls are a column beside the
+  camera.
 
 ## Holder retry and Scan the cards (Eric, 2026-11-06): built on branch `holder-retry`, to check on the phone
 
@@ -471,6 +472,33 @@ To check on the phone and with Eric:
 - Never losing a card can add one too many, always marked: the next card in a hand taken blurred
   over a card that is not the one before, then dropped on the spot. A hand held over a card that
   just landed leaves one card; the card under a hand is not added again when it leaves.
+
+## Design polish (design review, 2026-11-06): built on branch `design-polish`, to check on the phone
+
+Eight polish items from a principal design review of v65 and the v66 candidate, on top of `9787c35`.
+Built: the trade tray's column heads 48 px, the live one filled and the other saying "Tap to scan
+here", empty columns "Cards you give" and "Cards you get"; one name, "trade or sale", for the scanner
+mode and the log (the copy sheet's and card page's "Sell or trade", "Log a move", the log's
+messages), and the scanner's "Log it" now "Log 3 cards"; the pocket viewer's Details now **Edit
+pocket** (its sheet edits the pocket, not the copy) over a 94 percent backdrop; Lay out from a list
+with a one-sentence intro, a bordered 48 px "Add N pages" row, and a sticky footer; both binder
+pickers with Sort and Filters on one row, the tray's set menu on its own row and Select all beside
+the count, and the tab "Not in a binder"; the binder's value line "About R$ 4.952 in value"; the
+scanner held sideways with its controls in a column beside the camera, and the binder spread's
+sideways slider with a 24 px thumb 4 px above the tab bar; the light tip's x a 44 px target and the
+scanner sheets' Close an outlined button. DESIGN.md notes marked "design polish, 2026-11-06".
+Tests: `tests/scan-trade-browser.test.mjs` (heads, labels, sideways at 780 x 360 in both modes),
+`tests/binder-layout-browser.test.mjs`, `tests/binders.test.mjs` (the slider), and the label
+updates in the moves, binder, and prices tests.
+
+To check on the phone and with Eric:
+
+- The sideways scanner on the real phone: the camera is narrower (about 420 px of 780), so the
+  guide is smaller; does auto capture still fire at the usual distance?
+- "Edit pocket" rather than the reviewer's "Edit copy": the pocket's sheet changes what the pocket
+  holds and how many copies like it you have, but not the copy's condition or notes.
+- The Darkness theme's Scan disc is green and the trade marker teal, about 40 apart in CIELAB and
+  never on one screen, so the marker was left as it is.
 
 ## Kept Open Items (Eric, 2026-10-09)
 

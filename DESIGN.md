@@ -227,8 +227,20 @@ else (the tray, the repeat bar, Review) is the same flow. Details in section 6. 
 2026-10-09.)*
 
 **Scan has a Trade or sale mode beside Add.** Eric, 2026-11-06, asked to log trades and sales by
-scanning the cards; the mode switch, its own two-sided tray, and Log it into the trades log are in
-section 11, "Scan a trade or a sale". Add stays the default and works as before.
+scanning the cards; the mode switch, its own two-sided tray, and Log N cards into the trades log
+are in section 11, "Scan a trade or a sale". Add stays the default and works as before.
+
+**Held sideways, the scanner's controls are a column beside the camera** (design polish,
+2026-11-06). A phone sideways (500 px tall or less) shows the camera on the left and, in a column
+on the right, the mode switch and the tray's buttons at its head, the tray in the middle taking the
+height left (the trade tray's columns scroll down), and Close, the shutter, and Done or Log N cards
+at its foot, all on screen at 740 x 360, in both modes. Under the camera they fell below the screen
+at 780 x 360, and the trade tray cut Pick a copy. The small print of the same pass: the holder
+light tip's x is a 44 px target (it was 32), and the scanner's sheets close with an outlined Close,
+the scanner's own button style, as the app's sheets do (it was a yellow text link). The Darkness
+theme's Scan disc (the Dusk Ball: black with a #4ad37a ring, or #2f8a4f in dark mode) was checked
+against the trade teal (#4fd1c5): about 40 apart in CIELAB, green against teal, and never on screen
+with it, since the scanner covers the tab bar, so the trade marker is unchanged.
 
 **A scan session is a tray, and every card in it carries its own language.**
 Keep monprice's batch flow (section 2): scanned cards collect in a tray at the bottom of the
@@ -1468,7 +1480,7 @@ judged as a drop.
   "Done 5" with no count of its own, and the sheet's button "This one".)*
 - **Never lose a card, and never add one silently** (Eric's rule after a review of the v64
   candidate, 2026-11-06). Every blurred capture added for any other reason than its wait running
-  out (another card landed, Log it or Done, the shutter, a zoom change, the camera stopping or
+  out (another card landed, Log N cards or Done, the shutter, a zoom change, the camera stopping or
   stalling, leaving Scan, the spot showing something sharp that is not it), or that reads as soft
   as a card held in a hand (`HAND_BLUR`, over 0.7 of its blocks soft), is marked "Check this one"
   however sure its match (`session.js` `check`), unless all it shows sharp is the card taken before,
@@ -1496,7 +1508,7 @@ judged as a drop.
 - **Nothing is ever lost on the way.** A drop anywhere else adds the waiting card first. The
   shutter, a zoom change, a camera restart, the camera stopping or stalling, and closing the
   scanner add it too. Switching Add and Trade or sale and Auto's switch wait for it, as for any card
-  being taken, and so do Log it and Done ("A card is still being taken."). A hand held still over
+  being taken, and so do Log N cards and Done ("A card is still being taken."). A hand held still over
   the card on top for longer than 1.5 s is added that way; when it leaves, a sharp look of the card
   beneath on the same spot is a repeat of the card before it, not a new card. A card on the very
   spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing left",
@@ -1976,7 +1988,9 @@ to the copies without a price. The sheet takes any list of copies, so the Trade 
 **A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
 is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
 line under the binder's name and size, in the theme's link color with a chevron, that opens the
-Value sheet: "R$ 1.245 in value", "~R$ 4.952 in value" when part of it is a US estimate, or
+Value sheet: "R$ 1.245 in value", "About R$ 4.952 in value" when part of it is a US estimate (it
+read "~R$ 4.952"; "About" says it in words for a reader in a second language, design polish,
+2026-11-06; the Value sheet keeps its "~"), or
 "R$ 50,00 in value, partly priced" when some copies have no price, the Collections list's words;
 plain "Value" in the same style when none has one, so the sheet is still reachable, and no line for
 a binder with no copies. It stays a real button (a dialog opener, the focus ring, 48 px tall), and
@@ -2145,6 +2159,12 @@ landscape, so a phone with rotation locked keeps the overview. *(Eric, 2026-10-0
 also where Michi art can cross facing pages, which settles that open question. *(Planned
 2026-10-01, a block after the shell.)*
 
+**Held sideways, the bar under the book** is one 34 px row either side of the Scan disc: the page
+slider on its left, the page menu on its right. The slider's thumb is drawn 24 px wide on a 4 px
+track (Chromium's own is 16 px), and the row ends 4 px above the tab bar, so the active tab's mark
+stands clear of it. The 4 px came from the "Page N of M" line and the gap above the bar, not from
+the book, whose pockets stay 44 px wide at 740 x 360. *(Design polish, 2026-11-06.)*
+
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
 cards are not in any binder yet.
 
@@ -2200,12 +2220,17 @@ and it zooms like the inspection viewer, whose zoom pane it reuses (`zoomPane` i
 `js/photos/viewer.js`): pinch, double tap, Ctrl and the wheel, and + and -. Under the card (beside
 it held sideways) are its name, its language and pocket, and what the pocket's sheet offers there:
 
-- your own hand-made binder: **Details** (the pocket sheet as before), **To the tray** (only the
+- your own hand-made binder: **Edit pocket** (the pocket sheet as before; it read Details, and
+  not "Edit copy", since the sheet changes what the pocket holds, never the copy itself; design
+  polish, 2026-11-06), **To the tray** (only the
   copy shown: when a sync has put another card in the pocket meanwhile, nothing moves and a line
   says so, as in the sheet), **Move**
   (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
-- a binder from a list: Details (its copies sheet) and Card page;
+- a binder from a list: Edit pocket (its copies sheet, which picks the copy shown) and Card page;
 - a family member's binder, read only: Card page alone (the pocket was a link to it before).
+
+The binder behind is dimmed to 94 percent, so its text and rings do not read through beside a card
+held sideways (it was 88; design polish, 2026-11-06).
 
 A tap outside the card, a swipe down at zoom 1, Escape, Back, or Close put the card back: it
 shrinks to the pocket's side and slides in. An action closes it at once and opens its own sheet.
@@ -2394,6 +2419,10 @@ pockets placeholders for the list's Pokémon in Pokédex order:
   placeholders does), in the list's languages, the most valuable copy first (`readList` reads
   their prices and rarities; Eric, 2026-11-06); copies added later fill the rest through the same
   automatic fill. A copy in a tray stays there.
+- **The sheet** (design polish, 2026-11-06) opens with one sentence, "Puts the list's Pokémon in
+  empty pockets as placeholders, in Pokédex order." (the preview says the rest), has "Add N pages
+  so they fit" as a bordered 48 px row like its radio rows, and keeps Cancel and Lay out in a
+  sticky footer, so they are in reach at 740 px tall while the preview scrolls.
 - **Preview, save, Undo.** The sheet says what happens before anything is saved ("152 placeholders
   on pages 3 to 19, 23 filled with cards you own.", where it starts, how many are skipped). Lay out
   is one save; Undo on the toast takes out each placeholder and each copy it put in, only where the
@@ -2587,7 +2616,11 @@ the binder card picker, the tray, and the wishlist can reuse it:
   the collector number; no number, such as a Trainer or an Energy, last by name), **Set** (oldest
   set first by release date, a set with no date last, then the collector number read as a number,
   so 2 before 10), and **Name** (A to Z), each shown as "Sort: Pokédex" and so on, since a bare
-  "Set" under the tray's set list read as a second set filter. The first time it is Pokédex; the last one picked is kept
+  "Set" under the tray's set list read as a second set filter. Both pickers put the sort and
+  Filters on one row, in that order; Add cards to the tray has its set menu on a row of its own
+  above them, so "All sets (12)" is never cut, and Select all beside the count under them, and the
+  chooser's first tab reads **Not in a binder** (design polish, 2026-11-06: the tray put the set
+  menu, Filters, and Select all on one row and cut the menu to "All set…"). The first time it is Pokédex; the last one picked is kept
   on the phone for both pickers (not synced), and the pickers' filters are not kept. "Set" here is
   the card's expansion, not a Collection. My Cards keeps its own Set, newest first, and does not
   offer the oldest-first one; its Pokédex order takes the same tie order. The chooser's copies in
@@ -2762,9 +2795,13 @@ History's months and money and the card page's lines follow the edit. A v55 or v
 the edited move, with no Edit; older ones merge it entry by entry and keep it whole.
 
 **Where:** Trades beside Spares on My Cards (on a phone the title takes its own line), "Trades and
-sales" in Profile, and **Sell or trade** on a copy sheet (the copies it would change) and on a card's
+sales" in Profile, and **Trade or sale** on a copy sheet (the copies it would change) and on a card's
 page (its copy, or with several, the card's copies to pick from). Never on a family member's
-screens.
+screens. **One name** (design polish, 2026-11-06): what the app calls a move in its code is a
+"trade or sale" wherever the person reads it, the scanner's mode, the copy sheet's and card page's
+button (it read "Sell or trade", the same action), **Log a trade or sale** (it read "Log a move"),
+and the log's messages ("Undo this trade or sale"). The Trade view (Spares, titled "Trade") is
+another thing, the copies kept to trade, and keeps its name.
 
 **Log a past sale** (Eric, 2026-11-04). He sold and traded cards before the log existed and removed
 those copies by hand. The cards out picker has a second tab, Removed lately: the copies removed in
@@ -2799,14 +2836,18 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   mode first ("Add · 2 cards", "Trade or sale · 3 cards", or the mode alone with no cards). The
   choice is remembered on the phone (`card-tracker:scan-mode`). In Trade or sale the pressed
   segment and the running count are teal, a 6 px teal frame runs round the camera, and Done reads
-  **Log it**, so a card meant for a sale is never added by mistake. *(Design review, 2026-11-06: one
+  **Log 3 cards** ("Log 1 card", counting the tray as Done counts the Add tray), so a card meant for a sale is never added by mistake. *(Design review, 2026-11-06: one
   button that named the mode and switched to the other read as a label, not a switch, and the
   4 px frame was easy to miss.)* The
   mode does not change while a card is being taken or read, or a gallery photo opened: the switch
   says to wait, and a card is never put in the other mode's tray.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
   the Add tray waits untouched while it is used. It has two columns, **Going out** and **Coming
-  in**; tapping a column's head sends the next scans there, and it starts on Going out. A card
+  in**; tapping a column's head sends the next scans there, and it starts on Going out. Each head
+  is 48 px: the column the next scans go to is filled teal, the other says **Tap to scan here**
+  under its name, and an empty column says what it is for (**Cards you give**, **Cards you get**)
+  *(design polish, 2026-11-06: only the teal said which column was live, and the empty one read
+  "Scan a card")*. A card
   scanned on the wrong side moves to the other from its sheet. Reading, Review, the repeat bar,
   Copies, and holder mode are the scanner's own, unchanged.
 - **A card going out is one of his copies.** It is matched to a live copy of the same card in the
@@ -2836,23 +2877,23 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   settled in the order scanned. A card standing for several copies takes that many. A copy he
   picked that is gone since (removed on another phone) or went to an earlier card is never swapped
   for another without a word: the card asks again ("The copy you picked is gone; pick again"), and
-  Log it waits. Until his cards are read, no card going out is matched ("Checking your cards"), and
-  when they cannot be read the row says "Could not read your cards; try again" and Log it waits, so
+  Log N cards waits. Until his cards are read, no card going out is matched ("Checking your cards"), and
+  when they cannot be read the row says "Could not read your cards; try again" and Log N cards waits, so
   an unread list never reads as "not in your cards" and logs a purchase without them.
 - **A card coming in** is a new copy as Add would make it (`entriesToSave`: language, finish,
   condition, `language_source: scan`), its Copies as the count.
-- **Log it** opens the trades log's form (`trades/new`), filled in: the copies going out, the cards
+- **Log N cards** opens the trades log's form (`trades/new`), filled in: the copies going out, the cards
   coming in, today's date, and the kind the sides suggest (only out: Sold, with Gift named as the
   other choice; only in: Bought, or Gift; both: Traded). He adds who and the price and saves there.
   Saving, the price, the money's direction, `left_via` and `came_via`, placeholders, Undo, and
-  History are the trades log's own (`applyMove`); there is no second save path. Log it waits while
+  History are the trades log's own (`applyMove`); there is no second save path. Log N cards waits while
   a card needs a look or is still read, and opens that card first. When cards ask for their copy,
-  Log it opens **one sheet with every one of them** ("Which copies go out?", "Pick one copy for
+  Log N cards opens **one sheet with every one of them** ("Which copies go out?", "Pick one copy for
   each card. The trade form opens when all 3 are picked."; each card's line "2 copies match"), each with its copies
   as the picker shows them, and the cards not logged (not owned, or owned only in another language
   or finish) under them with their row's line. He picks in any order; a card picked stays listed so
   its pick can be changed, and a card that starts asking because its copy went to another joins
-  the list. The pick that settles the last one opens the form by itself, and the sheet's Log it
+  the list. The pick that settles the last one opens the form by itself, and the sheet's Log N cards
   does the same once all are picked. The row's Pick a copy still picks for one card. *(Eric,
   2026-11-06: "it doesn't show me all the cards I have to pick right away. I have to click Log it
   and another card shows up. Log it, another card shows up. Log it... it's upsetting." v63 opened
@@ -2860,16 +2901,16 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   line counts only the copies still in his cards, and says when one handed over is not any more. A
   kind that leaves a side out (Sold with cards coming in, Bought with cards going out) says so
   under the kinds ("The 1 card coming in is not part of a sale; it stays in the scanner's trade
-  tray"): that side is not saved, and stays in the trade tray for another move. Log it waits while a
+  tray"): that side is not saved, and stays in the trade tray for another move. Log N cards waits while a
   holder capture is still being taken or waits for a sharper look ("A card is still being taken."),
   so every card scanned is in the form, and the save takes out of the tray only the cards that were
-  in the tray when Log it was tapped, never a whole side: a card scanned after it stays (review of
+  in the tray when Log N cards was tapped, never a whole side: a card scanned after it stays (review of
   2026-11-06: a card still being taken was added after the form opened, and the save deleted it with
   its side).
 - **Nothing changes before Save.** The collection changes only when the move is saved; then the
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
-  instead. A tray left by Log it without saving is there when Scan opens again.
+  instead. A tray left by Log N cards without saving is there when Scan opens again.
 - **The form, from a scan** (design review, 2026-11-06): the scanned cards are compact rows of
   about 56 px (picture, name, "English · Near Mint", and an x), not full-size tiles, and Save sits in
   a sticky footer above the tab bar, so a long trade never pushes Save out of reach. Its line reads
@@ -2879,10 +2920,12 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   scan, so each side has one name, the scanner's.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
-- **Scan a trade** (Eric, 2026-11-06): Trades and sales has a **Scan a trade** button, with the
-  Scan tab's icon, beside Log a move, which opens Scan already in Trade or sale; with no moves yet,
-  the empty state says "Scan the cards going out and coming in, or log a move by hand." over **Log
-  a move** and a full-width **Scan a trade or sale** (design review, 2026-11-06). It sets the remembered mode, as the
+- **Scan a trade or sale** (Eric, 2026-11-06): Trades and sales has a **Scan a trade or sale**
+  button, with the Scan tab's icon, beside **Log a trade or sale**, which opens Scan already in
+  Trade or sale; with no moves yet, the empty state says "Scan the cards going out and coming in, or
+  log a trade or sale by hand." over **Log a trade or sale** and a full-width **Scan a trade or
+  sale** (design review, 2026-11-06; the head's "Scan a trade" and "Log a move" took the one name
+  in the design polish of 2026-11-06). It sets the remembered mode, as the
   scanner's own switch does, so the trade tray opens as it was left, cards and all, and the Add tray
   waits untouched.
 
