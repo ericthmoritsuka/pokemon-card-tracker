@@ -12,6 +12,17 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-07
+
+- **v67:** design polish across the scanner, trades, and binders. `TBD`
+  - One name, **Trade or sale**, for the scanner mode, the trades screen, and a card's button. The
+    scanner's button says how many cards it logs ("Log 3 cards").
+  - The trade tray's column heads are taller, and the one not in use says "Tap to scan here".
+  - Held sideways, the scanner's buttons sit in a column beside the camera, all on screen.
+  - Binders: a card out of its pocket offers **Edit pocket**; Lay out from a list is shorter and its
+    buttons stay on screen; the card pickers put Sort and Filters on one row; the worth line reads
+    "About R$ 4.952 in value"; the sideways page slider has a larger handle.
+
 ### 2026-11-06
 
 - **v66:** remove or move a card in any binder, shifting the rest. `9787c35`

@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-07',
+		items: [
+			'One name everywhere: Trade or sale. The scanner button says how many cards it logs, such as Log 3 cards.',
+			'Held sideways, the scanner keeps all its buttons in a column beside the camera.',
+			'Clearer binder screens: a card out of its pocket has Edit pocket, Lay out from a list keeps its buttons on screen, and a binder shows About R$ 4.952 in value.',
+		],
+		version: 'v67',
+	},
+	{
 		date: '2026-11-06',
 		items: [
 			'Remove from this binder: take any card out of a binder, even one made from a list, and choose Leave the pocket empty or Shift the rest back.',
