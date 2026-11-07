@@ -240,7 +240,7 @@ describe('a binder from a list', () => {
 		await undoOn(page, 'Bulbasaur goes to the end').click();
 		await untilInPage(page, 'Pokémon 1 back in pocket 1', () => document.querySelector('#bs-zoom-sheet .pocket[data-position="1"]')?.dataset.key === 'dex:1');
 		doc = await localDoc(page);
-		assert.deepEqual(doc.binders[0].list_edits, []);
+		assert.deepEqual(doc.binders[0].list_edits.map((edit) => [edit.key, edit.kind]), [['dex:1', 'none']], 'Undo takes the exception away');
 		assert.deepEqual(doc.binders[0].snapshot.keys, LIST_KEYS);
 
 		// Remove from this binder, Shift the rest back.
@@ -286,7 +286,7 @@ describe('a binder from a list', () => {
 		await page.click('#list-put-back');
 		await page.locator('#toasts .toast', {hasText: '1 card is back in their list places.'}).waitFor();
 		doc = await localDoc(page);
-		assert.deepEqual(doc.binders[0].list_edits, []);
+		assert.deepEqual(doc.binders[0].list_edits.map((edit) => [edit.key, edit.kind]), [['dex:1', 'none']]);
 		assert.deepEqual(doc.binders[0].snapshot.keys, LIST_KEYS);
 		await done();
 	});

@@ -170,6 +170,53 @@ describe('a copy is never lost', () => {
 		assert.deepEqual(pocketsOf(moved[0]).slice(0, 2), [[1, 'c12'], [2, 'c1']]);
 	});
 
+	// Another phone moved a shifted copy to another binder, or took it out,
+	// before or after the shift: the shift never brings it back.
+	test('a shift never undoes another phone\'s move or removal of a card it shifts, in either merge order', () => {
+		const before = [hand('b', [holding(1, 1, 'c1'), holding(1, 2, 'c2'), holding(1, 3, 'c3')]), hand('o', [])];
+		const shift = binders.removePocket(before, {at: at(11), binderId: 'b', page: 1, position: 1, shift: true}).changed;
+		const where = (list, id) => {
+			const found = binders.placements(list).get(id);
+
+			return found ? `${found.binder.id}:${found.slot.page}/${found.slot.position}` : 'loose';
+		};
+
+		for (const minute of [10, 12]) {
+			const moved = binders.setPocket(before, {at: at(minute), binderId: 'o', content: {entry_id: 'c3'}, page: 1, position: 1});
+			const removed = binders.removePocket(before, {at: at(minute), binderId: 'b', page: 1, position: 3}).changed;
+
+			for (const [left, right] of [[moved, shift], [shift, moved]]) {
+				const after = merged(merged(before, left), right);
+
+				assert.equal(where(after, 'c3'), 'o:1/1', `moved at ${minute}: only in the other binder`);
+				assert.deepEqual(pocketsOf(after[0]), [[1, 'c2']]);
+			}
+
+			for (const [left, right] of [[removed, shift], [shift, removed]]) {
+				const after = merged(merged(before, left), right);
+
+				assert.equal(where(after, 'c3'), 'loose', `removed at ${minute}: stays out`);
+				assert.deepEqual(pocketsOf(after[0]), [[1, 'c2']]);
+				assert.deepEqual(after[0].staged || [], []);
+			}
+		}
+
+		// The shift's own phone merging its result again changes nothing.
+		const mine = merged(before, shift);
+
+		assert.deepEqual(pocketsOf(merged(mine, shift)[0]), [[1, 'c2'], [2, 'c3']]);
+	});
+
+	test('art a shift moved keeps its place when another phone edits another pocket', () => {
+		const before = [hand('b', [holding(2, 1, 'c3'), artOn(2, 2), holding(2, 3, 'c4')])];
+		const shift = binders.removePocket(before, {at: at(10), binderId: 'b', page: 2, position: 1, shift: true}).changed;
+		const other = binders.setPocket(before, {at: at(11), binderId: 'b', content: {entry_id: 'c8'}, page: 3, position: 4});
+
+		for (const [left, right] of [[shift, other], [other, shift]]) {
+			assert.deepEqual(pocketsOf(merged(merged(before, left), right)[0]), [[5, 'art'], [6, 'c4'], [12, 'c8']]);
+		}
+	});
+
 	test('a shift merged with another phone\'s edit to another pocket keeps both, either way round', () => {
 		const before = [hand('b', [holding(1, 1, 'c1'), holding(1, 2, 'c2'), holding(1, 3, 'c3')])];
 		const shift = binders.removePocket(before, {at: at(10), binderId: 'b', page: 1, position: 1, shift: true}).changed;
@@ -250,12 +297,54 @@ describe('a binder from a list: exceptions', () => {
 		assert.deepEqual(rules.moveEdit(keys, 4, 'end', at(2)), null, 'the last is at the end already');
 		assert.deepEqual(rules.moveEdit(keys, 1, 1, at(2)), null);
 
-		// One edit per key, the latest; Undo puts the one before back.
-		const edits = rules.withListEdit([{at: at(1), key: 'dex:494', kind: 'end'}], 'dex:494', {at: at(3), key: 'dex:494', kind: 'out'});
+		// One edit per key, the latest; taking it away (none) leaves nothing
+		// to apply but stays saved.
+		const edits = rules.withListEdit([{at: at(1), key: 'dex:494', kind: 'end'}], {at: at(3), key: 'dex:494', kind: 'out'});
 
 		assert.deepEqual(rules.listEditsOf({list_edits: edits}), [{at: at(3), key: 'dex:494', kind: 'out'}]);
-		assert.deepEqual(rules.withListEdit(edits, 'dex:494', {at: at(1), key: 'dex:494', kind: 'end'}), [{at: at(1), key: 'dex:494', kind: 'end'}]);
+
+		const none = rules.withListEdit(edits, {at: at(4), key: 'dex:494', kind: 'none'});
+
+		assert.deepEqual(rules.listEditsOf({list_edits: none}), []);
+		assert.deepEqual(rules.listEditEntries({list_edits: none}), [{at: at(4), key: 'dex:494', kind: 'none'}]);
 		assert.deepEqual(rules.listEditsOf({list_edits: [{at: at(1), key: 'dex:1', kind: 'sideways'}, {at: at(1), before: 'dex:1', key: 'dex:1', kind: 'before'}, null]}), []);
+	});
+
+	test('two exceptions saved at the same moment apply in key order (no crash)', () => {
+		const same = [{at: at(1), key: 'dex:498', kind: 'end'}, {at: at(1), key: 'dex:494', kind: 'out'}];
+
+		assert.deepEqual(rules.listEditsOf({list_edits: same}).map((edit) => edit.key), ['dex:494', 'dex:498']);
+		assert.deepEqual(keysOf(rules.planRefresh(generated({list_edits: same}), UNOVA_LIST, {at: at(10), rankOf: () => ({})})), ['dex:495', 'dex:501', 'dex:504', 'dex:498']);
+	});
+
+	test('two phones\' exceptions merge key by key, and taking one away wins over it', () => {
+		const base = generated();
+		const edited = (list, minute) => stampEntry(base, {...structuredClone(base), list_edits: list, updated_at: at(minute)});
+		const victini = edited([{at: at(5), key: 'dex:494', kind: 'end'}], 5);
+		const snivy = edited([{at: at(6), key: 'dex:495', kind: 'out'}], 6);
+
+		for (const [left, right] of [[victini, snivy], [snivy, victini]]) {
+			const [binder] = mergeDocuments({binders: [left]}, {binders: [right]}).binders;
+
+			assert.deepEqual(rules.listEditsOf(binder).map((edit) => [edit.key, edit.kind]), [['dex:494', 'end'], ['dex:495', 'out']]);
+		}
+
+		// Undo of Victini's move on one phone, an older save of it on the other.
+		const undone = stampEntry(victini, {...structuredClone(victini), list_edits: [{at: at(7), key: 'dex:494', kind: 'none'}], updated_at: at(7)});
+		const stale = stampEntry(victini, {...structuredClone(victini), name: 'Unova 2', updated_at: at(8)});
+
+		for (const merge of [mergeDocuments, v47.mergeDocuments]) {
+			for (const [left, right] of [[undone, stale], [stale, undone]]) {
+				const [binder] = merge({binders: [left]}, {binders: [right]}).binders;
+
+				if (merge === mergeDocuments) {
+					assert.deepEqual(rules.listEditsOf(binder), [], 'taking it away wins');
+				}
+				else {
+					assert.ok(Array.isArray(binder.list_edits), 'an older merge keeps the field');
+				}
+			}
+		}
 	});
 
 	test('Victini to the end on refresh, with a new Pokémon joining at its list place', () => {

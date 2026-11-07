@@ -2237,13 +2237,30 @@ button it replaces in the sheet), and the note says so; **To the tray** stays it
 card meant for this binder, so the remove sheet does not ask. A shift is one save of the one binder,
 stamped pocket by pocket (`stampEntry`), so another phone's edit to other pockets survives the merge.
 It only ever moves pockets between the two it runs between, so nothing passes the last pocket in use
-and no page is ever needed; a move whose result would leave the binder is refused before saving. When
-two phones write the same pocket at once (one shifts a card into it, the other places a card there),
-the later pocket wins as for any pocket, and the merge puts the copy that lost it in the binder's tray
-(`js/merge.js` `rescueCopies`): a copy both versions hold in this binder, in a pocket or the tray,
-that the merged binder holds nowhere. A copy one version took out on purpose is not in that version,
-so it stays out. Older apps merge without this, so when the merge runs on an older phone that copy
-ends up Not in a binder, never deleted.
+and no page is ever needed; a move whose result would leave the binder is refused before saving.
+Three merge rules keep a shift from undoing another phone's work (`js/merge.js`; review fixes,
+2026-11-06):
+
+- **The pocket a copy left.** Each copy a shift moves records where it came from (`moved_from`: page,
+  position, and the `placed_at` it had there). When a version without that shift emptied or changed
+  that pocket after the copy was put there (it took the copy out, moved it to another pocket or
+  binder, or put something else there), the shifted copy does not stand: its new pocket gets a
+  cleared marker (`dropOverridden`). So a copy moved to another binder on one phone and shifted on
+  another ends up in the other binder only, whichever phone wrote first.
+- **A pocket both wrote.** When two phones write the same pocket at once (one shifts a card into it,
+  the other places a card there), the later pocket wins as for any pocket, and the merge puts the copy
+  that lost it in the binder's tray (`rescueCopies`): a copy both versions hold in this binder, in a
+  pocket or the tray, that the merged binder holds nowhere. A copy one version took out on purpose is
+  not in that version, so it stays out.
+- **Art.** Art tiles have no stamps of their own and came whole from the version whose grid stands, so
+  a concurrent edit elsewhere put shifted art back. A shift that moves art writes `art_moved_at`, and
+  the art comes from the version that moved it last (`artSide`).
+
+**Known limit while older phones sync:** these rules live in this version's merge. When a phone on v47
+to v64 merges a shift first (with an edit of its own to the same binder), it takes the newer binder
+whole or pocket by pocket without them, so a shifted card that lost its pocket ends up Not in a
+binder (never deleted), and art may move back; the next merge here cannot tell that apart from a card
+taken out on purpose.
 
 *A binder from a list* (`js/binder-rules.js` `listEditsOf`, `applyListEdits`, `moveEdit`). The list
 decides the pockets, so a change is an exception stored on the binder, `list_edits`, a list of
@@ -2252,8 +2269,11 @@ back), `gap` (left out, its pocket stays empty: an empty key `''` in `snapshot.k
 since binders from a list draws as an Empty pocket), `end`, and `before` (just before another key; when
 that key has left the list, it keeps its list place). They apply after the list's order, oldest first,
 on every refresh, so a Pokémon that joins the list later still takes its list place. What is left
-out shows under the pages with **Put back**. The field merges as a whole, like `name`: two phones
-editing exceptions at the same moment keep the later set.
+out shows under the pages with **Put back**. The field merges key by key (`js/merge.js`
+`applyListEdits`): of two phones' edits for one key the later `at` stands, so Victini moved on one phone
+and Snivy left out on another both stay. Undo and Put back save `{key, kind: 'none', at}` rather than
+deleting the edit, so taking an exception away wins over the exception it replaced; an Undo that puts
+back an earlier exception saves it again with a new time.
 
 *Older phones and the flip-flop* (the v56 languages note above, again). A phone on v64 or older
 lays out a list's binder from the list without the exceptions, and saves its layout on opening; this
@@ -2269,7 +2289,8 @@ version saves its own, so each opening would flip the stored layout. Two parts s
   save too changed. So the stored layout changes at most once more after an older phone opens it.
 
 The trade-off, as for languages: until a save here, the Binders screen's count and a family member's
-view (which show the stored layout) show the older phone's order, with Victini first; and a family
+view (which show the stored layout) show the older phone's order, with Victini first, and the count
+includes the Pokémon left out (the cover counts the stored keys, gaps not included); and a family
 phone on v64 or older always shows the list's own order. Chosen over keeping the exceptions inside
 `snapshot`, which an older phone rewrites whole, and over saving on every opening, which syncs on
 every opening on two phones.

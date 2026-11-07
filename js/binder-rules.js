@@ -394,39 +394,55 @@ export function pickEntry({at, binderId, entryId, key, previous = null}) {
 // They apply after the list's order, oldest first, on every refresh, so a
 // card that joins the list later still takes its list place.
 
-export const LIST_EDIT_KINDS = ['out', 'gap', 'end', 'before'];
+// none    the key's exception taken away (Undo, Put back), so taking it away
+//         wins the merge over the exception it replaces
+// js/merge.js merges the field key by key, the latest `at` standing.
 
-// The binder's edits, cleaned, oldest first (then by key, so every phone
-// applies them alike).
-export function listEditsOf(binder) {
+export const LIST_EDIT_KINDS = ['out', 'gap', 'end', 'before', 'none'];
+
+// One edit cleaned, or null. Its keys in sorted order, so two phones that
+// compare edits as text agree (js/merge.js stableJson).
+function cleanListEdit(edit) {
+	if (!isObject(edit) || typeof edit.key !== 'string' || !edit.key || !LIST_EDIT_KINDS.includes(edit.kind) || typeof edit.at !== 'string') {
+		return null;
+	}
+
+	if (edit.kind === 'before') {
+		return typeof edit.before === 'string' && edit.before && edit.before !== edit.key ? {at: edit.at, before: edit.before, key: edit.key, kind: 'before'} : null;
+	}
+
+	return {at: edit.at, key: edit.key, kind: edit.kind};
+}
+
+// Every key's latest edit, taken-away ones (none) included, as the binder
+// saves them: the later `at`, then the one whose text sorts last.
+export function listEditEntries(binder) {
 	const raw = binder && Array.isArray(binder.list_edits) ? binder.list_edits : [];
-	const byKey = new Map();
+	const latest = new Map();
 
-	for (const edit of raw) {
-		if (!isObject(edit) || typeof edit.key !== 'string' || !edit.key || !LIST_EDIT_KINDS.includes(edit.kind) || typeof edit.at !== 'string') {
-			continue;
-		}
+	for (const edit of raw.map(cleanListEdit).filter(Boolean)) {
+		const there = latest.get(edit.key);
 
-		if (edit.kind === 'before' && (typeof edit.before !== 'string' || !edit.before || edit.before === edit.key)) {
-			continue;
-		}
-
-		const there = byKey.get(edit.key);
-
-		if (!there || edit.at >= there.at) {
-			byKey.set(edit.key, edit.kind === 'before' ? {at: edit.at, before: edit.before, key: edit.key, kind: 'before'} : {at: edit.at, key: edit.key, kind: edit.kind});
+		if (!there || edit.at > there.at || (edit.at === there.at && JSON.stringify(edit) > JSON.stringify(there))) {
+			latest.set(edit.key, edit);
 		}
 	}
 
-	return [...byKey.values()].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : byKey(a, b)));
+	return [...latest.values()];
 }
 
-// The edits with `edit` in place of any earlier one for its key; null
-// takes the key's edit away (Undo puts the one it replaced back).
-export function withListEdit(edits, key, edit) {
-	const rest = (Array.isArray(edits) ? edits : []).filter((item) => item && item.key !== key);
+// The binder's edits that apply, oldest first (then by key, so every phone
+// applies them alike).
+export function listEditsOf(binder) {
+	return listEditEntries(binder)
+		.filter((edit) => edit.kind !== 'none')
+		.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : byKey(a, b)));
+}
 
-	return edit ? [...rest, edit] : rest;
+// The saved edits with `edit` in place of the key's: an exception, or
+// {key, kind: 'none', at} to take it away.
+export function withListEdit(entries, edit) {
+	return [...(Array.isArray(entries) ? entries : []).filter((item) => item && item.key !== edit.key), edit];
 }
 
 // The pockets' keys in order after the edits: keys is the list's order.

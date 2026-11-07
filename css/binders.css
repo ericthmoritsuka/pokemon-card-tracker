@@ -1117,6 +1117,12 @@ button.atb-binder {
 	margin-bottom: 0;
 }
 
+/* End of the binder: the whole width, on one line. */
+.move-panel .move-end {
+	white-space: nowrap;
+	width: 100%;
+}
+
 /* What a binder from a list leaves out, with Put back. */
 .binder-left-out button {
 	margin-left: var(--space-1);

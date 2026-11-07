@@ -68,7 +68,7 @@
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {byCreated, orderForNew, sortByOrder, withOrders} from './reorder.js';
-import {checkBinderRule, checkFits, isGenerated, pagesFor, pickEntry, pickId, ruleKey} from './binder-rules.js';
+import {checkBinderRule, checkFits, isGenerated, listEditEntries, pagesFor, pickEntry, pickId, ruleKey, withListEdit} from './binder-rules.js';
 
 export {isGenerated};
 
@@ -533,6 +533,7 @@ function rewrite(binders, target, {at, drop = null, moves}) {
 	const total = totalPockets(target);
 	const byIndex = new Map(slots.map((slot) => [pocketIndex(target, slot), slot]));
 	const after = new Map();
+	let artMoved = false;
 
 	for (const [i, slot] of byIndex) {
 		if (i === drop) {
@@ -551,10 +552,21 @@ function rewrite(binders, target, {at, drop = null, moves}) {
 		}
 
 		const where = pocketAtIndex(target, to);
-		const moved = {...slot, page: where.page, position: where.position};
+		const {moved_from: _from, ...rest} = slot;
+		const moved = {...rest, page: where.page, position: where.position};
 
-		if (!slot.art) {
+		if (slot.art) {
+			artMoved = true;
+		}
+		else {
 			moved.placed_at = at;
+		}
+
+		// Where a copy came from, so the merge can tell when another phone
+		// emptied that pocket or moved the copy since (js/merge.js
+		// dropOverridden).
+		if (slot.entry_id) {
+			moved.moved_from = {page: slot.page, placed_at: slot.placed_at || null, position: slot.position};
 		}
 
 		after.set(to, moved);
@@ -567,6 +579,12 @@ function rewrite(binders, target, {at, drop = null, moves}) {
 	const next = copyOf(target, at);
 
 	next.slots = [...after.values()].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	// Art has no pocket stamps; the merge keeps the art of the version
+	// that moved it last (js/merge.js artSide).
+	if (artMoved) {
+		next.art_moved_at = at;
+	}
 
 	return {
 		changed: pockets.length ? stamped([next]) : [],
@@ -683,9 +701,17 @@ export function undoShift(binders, {at = nowIso(), done}) {
 
 	const next = copyOf(target, at);
 	const kept = [...now.values()].filter((slot) => !here.has(`${slot.page}|${slot.position}`));
-	const back = done.pockets.filter((pocket) => pocket.before).map((pocket) => (pocket.before.art ? {...pocket.before} : {...pocket.before, placed_at: at}));
+	const back = done.pockets.filter((pocket) => pocket.before).map((pocket) => {
+		const {moved_from: _from, ...slot} = pocket.before;
+
+		return slot.art ? slot : {...slot, placed_at: at};
+	});
 
 	next.slots = [...kept, ...back].sort((a, b) => (a.page - b.page) || (a.position - b.position));
+
+	if (back.some((slot) => slot.art)) {
+		next.art_moved_at = at;
+	}
 
 	return {back: true, changed: stamped([next])};
 }
@@ -1253,11 +1279,13 @@ export function saveRefresh(id, {languages, page_count: pageCount, snapshot}) {
 }
 
 // A list's binder's exceptions (list_edits, js/binder-rules.js
-// listEditsOf), saved with the layout they give when the screen could work
-// it out (plan: {snapshot, page_count, languages}, as saveRefresh), in one
-// save. The field merges as a whole, like name, and an older app keeps it
-// when it saves the binder, since it edits a clone of the entry.
-export function saveListEdits(id, edits, plan = null) {
+// listEditsOf): changes, each an edit or {key, kind: 'none', at} to take a
+// key's away, go in place of the saved edit for their key, with the layout
+// they give when the screen could work it out (plan: {snapshot,
+// page_count, languages}, as saveRefresh), in one save. js/merge.js merges
+// the field key by key, and an older app keeps it when it saves the
+// binder, since it edits a clone of the entry.
+export function saveListEdits(id, changes, plan = null) {
 	return serial(async () => {
 		const binder = liveBinders(await allBinders()).find((item) => item.id === id);
 
@@ -1267,7 +1295,8 @@ export function saveListEdits(id, edits, plan = null) {
 
 		const next = copyOf(binder, nowIso());
 
-		next.list_edits = edits;
+		next.list_edits = changes.reduce(withListEdit, listEditEntries(binder))
+			.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
 		if (plan && plan.snapshot && ruleKey(binder.rule) === plan.snapshot.rule_key) {
 			next.snapshot = {...plan.snapshot, at: next.updated_at};

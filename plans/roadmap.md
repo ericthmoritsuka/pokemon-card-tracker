@@ -297,7 +297,8 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   list's own order; this version shows its layout and does not save it back on opening (`editsOnly`,
   as `languageOnly`). `js/binders.js`, `js/binder-rules.js`, DESIGN.md section 11, "Remove and move".
   Medium. To check with Eric: until a save here, the Binders count and a family member's view show
-  the older phone's layout.
+  the older phone's layout; and an older phone that merges a shift first can leave a shifted card Not in
+  a binder (DESIGN.md, known limit).
 - **Built 2026-11-06 on branch `binder-polish`: placeholders take the most valuable copy (Eric,
   2026-11-06; it was the oldest):** Fill placeholders, the fill after adding copies, Add cards to the
   tray, and Lay out from a list put in the copy a binder from a list would show (price, else

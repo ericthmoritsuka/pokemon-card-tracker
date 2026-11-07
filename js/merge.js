@@ -157,7 +157,7 @@ export const MERGE_VERSION = 2;
 // collections that carry stamps of their own inside.
 const BOOKKEEPING = new Set(['id', 'created_at', 'updated_at', 'deleted_at', 'restored_at', 'merged_into', 'field_stamps']);
 const KEYED = new Set(['photos', 'slots', 'hand_ticks', 'hand_unticks', 'entry_ids', 'removed_ids']);
-const OWN_RULE = new Set(['cover_image', 'layout']);
+const OWN_RULE = new Set(['cover_image', 'layout', 'list_edits']);
 
 // -1, 0, or 1, with a missing time counting as the earliest.
 function compareTimes(x, y) {
@@ -337,13 +337,62 @@ function mergeSlots(a, b) {
 		}
 	}
 
-	for (const slot of gridSide(a, b).slots || []) {
+	for (const slot of artSide(a, b).slots || []) {
 		if (isArt(slot)) {
 			out.push(slot);
 		}
 	}
 
-	return out;
+	return dropOverridden(out, a, b);
+}
+
+// Art tiles carry no stamps of their own: they come whole from the version
+// that moved them last (art_moved_at, written by a shift in js/binders.js),
+// else from the grid's side.
+function artSide(a, b) {
+	if ('art_moved_at' in a || 'art_moved_at' in b) {
+		const times = compareTimes(fieldStamp(a, 'art_moved_at'), fieldStamp(b, 'art_moved_at'));
+
+		if (times !== 0) {
+			return times > 0 ? a : b;
+		}
+	}
+
+	return gridSide(a, b);
+}
+
+// A copy a shift moved (moved_from: the pocket it left and the placed_at it
+// had there, js/binders.js) does not stand when a version without that
+// shift emptied or changed the pocket it left after it was put there:
+// that version took the copy out, moved it to another pocket or binder, or
+// put something else there, and the shift must not bring the copy back.
+// Its pocket gets a cleared marker at the shift's stamp instead, which
+// wins a tie.
+function dropOverridden(slots, a, b) {
+	const versions = [pocketMap(a.slots), pocketMap(b.slots)];
+
+	return slots.map((slot) => {
+		const from = slot && slot.entry_id && !slot.cleared && isObject(slot.moved_from) ? slot.moved_from : null;
+
+		if (!from || !Number.isInteger(from.page) || !Number.isInteger(from.position)) {
+			return slot;
+		}
+
+		const overridden = versions.some((pockets) => {
+			const here = pockets.get(pocketKey(slot));
+
+			// A version that holds this move, or a later change of its pocket.
+			if (here && compareTimes(here.placed_at, slot.placed_at) >= 0) {
+				return false;
+			}
+
+			const left = pockets.get(pocketKey(from));
+
+			return Boolean(left) && left.entry_id !== slot.entry_id && compareTimes(left.placed_at, from.placed_at) > 0;
+		});
+
+		return overridden ? {cleared: true, page: slot.page, placed_at: slot.placed_at, position: slot.position} : slot;
+	});
 }
 
 // Hand ticks merged dex by dex (both versions valid): the later of the tick
@@ -423,6 +472,35 @@ function applyMembers(out, a, b) {
 	if (Object.keys(removed).length) {
 		out.removed_ids = removed;
 	}
+}
+
+// A list's binder's exceptions (list_edits, js/binder-rules.js) merged key
+// by key: of the two versions' edits for a key, the later `at` stands, then
+// the one whose text sorts last, so two phones leaving out or moving
+// different Pokémon both keep theirs, and an exception taken away (kind
+// none) wins over the one it replaced. An older app keeps the field as it
+// had it, since it edits a clone of the entry.
+function applyListEdits(out, a, b) {
+	if (!Array.isArray(a.list_edits) && !Array.isArray(b.list_edits)) {
+		return;
+	}
+
+	const latest = new Map();
+
+	for (const edit of [...(Array.isArray(a.list_edits) ? a.list_edits : []), ...(Array.isArray(b.list_edits) ? b.list_edits : [])]) {
+		if (!isObject(edit) || typeof edit.key !== 'string') {
+			continue;
+		}
+
+		const there = latest.get(edit.key);
+		const times = there ? compareTimes(edit.at, there.at) : 1;
+
+		if (times > 0 || (times === 0 && compareJson(edit, there) > 0)) {
+			latest.set(edit.key, edit);
+		}
+	}
+
+	out.list_edits = [...latest.values()].sort((x, y) => compareTimes(x.at, y.at) || (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
 }
 
 // Two cover images: different pictures go to the one made later (its at),
@@ -566,6 +644,7 @@ function mergeValid(a, b) {
 	}
 
 	applyMembers(out, a, b);
+	applyListEdits(out, a, b);
 
 	if ('cover_image' in a || 'cover_image' in b) {
 		const picked = coverPick(a.cover_image, b.cover_image);
@@ -683,6 +762,7 @@ function mergeFallback(a, b) {
 	}
 
 	applyMembers(out, winner, loser);
+	applyListEdits(out, winner, loser);
 
 	const cover = coverPick(winner.cover_image, loser.cover_image);
 
