@@ -676,7 +676,7 @@ describe('listStats', () => {
 
 		assert.equal(label([liga('a', 1234.5, 1200), liga('b', 10, 8)]), 'R$ 1.245 in value', 'whole reais from R$ 100, as Liga prices only');
 		assert.equal(label([liga('a', 50, 40), liga('b', 10, 8)]), 'R$ 60,00 in value', 'cents below R$ 100');
-		assert.equal(label([liga('a', 50, 40), entry({card_id: 'base1-4', id: 'd', variant_id: unlimited})]), '~R$ 4.950 in value', 'a US estimate in it, as the sheet marks it');
+		assert.equal(label([liga('a', 50, 40), entry({card_id: 'base1-4', id: 'd', variant_id: unlimited})]), 'About R$ 4.950 in value', 'a US estimate in it, as the sheet marks it');
 		assert.equal(label([liga('a', 50, 40), entry({card_id: 'missing-1', id: 'f'})]), 'R$ 50,00 in value, partly priced');
 		assert.equal(label([entry({card_id: 'missing-1', id: 'f'})]), 'Value', 'nothing priced');
 		assert.equal(label([]), 'Value');

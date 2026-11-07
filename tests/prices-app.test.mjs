@@ -248,7 +248,7 @@ describe('prices in the app', () => {
 		const before = await line.evaluate((button) => button.getBoundingClientRect().height);
 
 		await page.waitForFunction(() => document.getElementById('binder-value').textContent !== 'Value');
-		assert.equal(plain(await line.textContent()), '~R$ 4.952 in value');
+		assert.equal(plain(await line.textContent()), 'About R$ 4.952 in value');
 		assert.equal(await line.getAttribute('aria-haspopup'), 'dialog');
 
 		const box = await line.evaluate((button) => {
@@ -286,8 +286,8 @@ describe('prices in the app', () => {
 
 			await binders.clearPocket(id, 1, 2);
 		}, binderId);
-		await page.waitForFunction(() => document.getElementById('binder-value').textContent.replace(/\s/g, ' ') !== '~R$ 4.952 in value');
-		assert.match(plain(await page.locator('#binder-value').textContent()), /^(R\$ 52,30|~R\$ 4\.900) in value$/);
+		await page.waitForFunction(() => document.getElementById('binder-value').textContent.replace(/\s/g, ' ') !== 'About R$ 4.952 in value');
+		assert.match(plain(await page.locator('#binder-value').textContent()), /^(R\$ 52,30|About R\$ 4\.900) in value$/);
 
 		assert.deepEqual(device.errors.map(String), []);
 		assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');
