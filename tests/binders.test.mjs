@@ -1574,9 +1574,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 	// checks, at the scroll position it opens to, that the slider and its
 	// handle at the first, middle, and last spread are inside the screen and
 	// clear of the tab bar and the disc. The handle box is the thumb's column
-	// across the slider's whole touch height (a Chromium thumb is 16 px
-	// wide), so the touch target over the thumb must be clear, not only the
-	// dot drawn on the track.
+	// across the slider's whole touch height (the thumb is drawn 24 px wide,
+	// design polish, 2026-11-06), so the touch target over the thumb must be
+	// clear, not only the dot drawn on the track; and the row ends 4 px above
+	// the tab bar, clear of the active tab's mark.
 	test('held sideways, the page slider opens in view, clear of the tab bar and the Scan disc', async () => {
 		const shots = process.env.SLIDER_SHOTS || '/tmp';
 		const sizes = [{height: 360, width: 740}, {height: 360, width: 780}, {height: 390, width: 844}, {height: 412, width: 915}];
@@ -1620,7 +1621,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 					const track = slider.getBoundingClientRect();
 					const min = Number(slider.min);
 					const max = Number(slider.max);
-					const thumb = 16;
+					const thumb = 24;
 					const handle = (value) => {
 						const left = track.left + (((value - min) / Math.max(1, max - min)) * (track.width - thumb));
 
@@ -1650,6 +1651,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 				}
 
 				check(inside(box.slider) && box.slider.bottom <= box.tabs.top && !overlaps(box.slider, box.disc), `${size}: the whole slider is clear (${JSON.stringify(box.slider)}, tabs ${box.tabs.top}, disc ${JSON.stringify(box.disc)})`);
+				check(box.tabs.top - box.slider.bottom >= 3.5, `${size}: the slider ends ${box.tabs.top - box.slider.bottom} px above the tab bar, 4 wanted`);
 				check(box.slider.right - box.slider.left >= 160, `${size}: the slider is ${box.slider.right - box.slider.left} px long`);
 				check(box.book.bottom <= box.slider.top, `${size}: the slider is under the book`);
 				check(box.book.bottom <= box.disc.top, `${size}: the book still clears the disc`);

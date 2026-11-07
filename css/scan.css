@@ -1764,3 +1764,88 @@ html.scan-open body {
 #scan-picks-go {
 	margin-top: 12px;
 }
+
+/* ------------------------------------------------------------ held sideways */
+
+/* A phone held sideways (360 to 500 px tall): the camera on the left and
+   every control in a column on the right, mode switch and tray actions at
+   its head, the tray in the middle taking what is left, and Close, the
+   shutter, and Done or Log at its foot, all on screen. Under the camera the
+   controls fell below the screen at 780 x 360, and the trade tray cut Pick a
+   copy (design polish, 2026-11-06). Sheets still rise over both. */
+@media (orientation: landscape) and (max-height: 500px) {
+	.scan {
+		flex-direction: row;
+	}
+
+	.scan-bottom {
+		background: #000000;
+		box-sizing: border-box;
+		display: flex;
+		flex: 0 0 auto;
+		flex-direction: column;
+		max-height: none;
+		padding: calc(4px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(4px + env(safe-area-inset-bottom, 0px)) 12px;
+		width: min(360px, 48vw);
+	}
+
+	.scan-note,
+	.scan-tray-head,
+	.scan-zoom,
+	.scan-controls {
+		flex: 0 0 auto;
+	}
+
+	/* The tray takes the column's height left; tiles keep their size and
+	   scroll sideways, the trade tray's columns scroll down. */
+	.scan-tray {
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.scan-tray:not(.is-trade) {
+		align-items: flex-start;
+		flex: 0 1 128px;
+	}
+
+	.scan-tray.is-trade {
+		height: auto;
+	}
+
+	/* The actions under the switch, at the right, when the head is short. */
+	.scan-tray-head {
+		row-gap: 0;
+	}
+
+	/* At the column's foot, where the thumb is. */
+	.scan-controls {
+		grid-template-columns: 1fr 72px 1fr;
+		margin-top: auto;
+	}
+
+	#scan-close {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	/* Torch takes Close's place on a second row only when the camera has
+	   one, so the shutter stays in the middle. */
+	#scan-torch {
+		grid-column: 1;
+		grid-row: 2;
+	}
+
+	#scan-torch[hidden] {
+		display: none;
+	}
+
+	.scan-shutter {
+		grid-column: 2;
+		grid-row: 1 / span 2;
+	}
+
+	.scan-done-button {
+		grid-column: 3;
+		grid-row: 1;
+	}
+}

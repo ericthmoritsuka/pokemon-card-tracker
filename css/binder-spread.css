@@ -902,9 +902,11 @@ button.bc-handle:focus-visible::after {
    sticking over the spread, and the spread is sized to the height left
    above the tab bar, so both pages and the page slider show whole when it
    is scrolled to the top: the screen less the scroll margin (4 px), the
-   "Page N of M" line (24 px, which the zip's pull reaches into), the bar
-   under the book (a 2 px gap, its 34 px row, and 2 px above the tab bar),
-   and the tab bar.
+   "Page N of M" line (21 px, which the zip's pull reaches into), the bar
+   under the book (a 1 px gap, its 34 px row, and 4 px above the tab bar, so
+   the active tab's mark stands clear of it), and the tab bar. The 4 px came
+   from the line and the gap, not the book, whose pockets are at 44 px wide
+   at 740 x 360 (design polish, 2026-11-06).
 
    The bar is one row that the Scan disc rises into (28 px, style.css
    .scan-disc): the slider on the disc's left, the page menu on its right,
@@ -915,7 +917,9 @@ button.bc-handle:focus-visible::after {
 
    The row is 34 px tall, not 44: at 360 px high a 44 px row would shrink
    the book until its pockets are narrower than 44 px, and the pockets are
-   what is tapped most. The slider's thumb is 16 px, so it stays whole. */
+   what is tapped most. The slider's thumb is drawn 24 px wide (design
+   polish, 2026-11-06; Chromium's own is 16 px, small for a thumb on a 34 px
+   row), on a 4 px track in the cover's color. */
 @media (orientation: landscape) and (max-height: 500px) {
 	body:has(#binder-spread) .shell-top {
 		position: static;
@@ -931,7 +935,7 @@ button.bc-handle:focus-visible::after {
 		align-items: center;
 		display: grid;
 		grid-template-columns: calc(50% + var(--bs-hole-shift, 0px) - (var(--bs-hole) / 2)) var(--bs-hole) minmax(0, 1fr);
-		margin-top: 2px;
+		margin-top: 1px;
 	}
 
 	.bs-bar > .bs-scrub {
@@ -941,7 +945,46 @@ button.bc-handle:focus-visible::after {
 	}
 
 	.bs-bar .bs-slider {
+		-webkit-appearance: none;
+		appearance: none;
+		background: transparent;
+		height: 34px;
 		min-height: 34px;
+	}
+
+	.bs-bar .bs-slider::-webkit-slider-runnable-track {
+		background: var(--border, #c9ccd4);
+		border-radius: 2px;
+		height: 4px;
+	}
+
+	.bs-bar .bs-slider::-moz-range-track {
+		background: var(--border, #c9ccd4);
+		border-radius: 2px;
+		height: 4px;
+	}
+
+	.bs-bar .bs-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		background: var(--cover, var(--accent, #3b5bdb));
+		border: 2px solid var(--surface, #ffffff);
+		border-radius: 50%;
+		box-shadow: 0 0 0 1px var(--text, #1b1b1f);
+		box-sizing: border-box;
+		height: 24px;
+		margin-top: -10px;
+		width: 24px;
+	}
+
+	.bs-bar .bs-slider::-moz-range-thumb {
+		background: var(--cover, var(--accent, #3b5bdb));
+		border: 2px solid var(--surface, #ffffff);
+		border-radius: 50%;
+		box-shadow: 0 0 0 1px var(--text, #1b1b1f);
+		box-sizing: border-box;
+		height: 24px;
+		width: 24px;
 	}
 
 	.bs-bar > .bs-jump-wrap {
@@ -958,8 +1001,8 @@ button.bc-handle:focus-visible::after {
 
 	.bs-label {
 		font-size: 0.9rem;
-		line-height: 22px;
-		margin-bottom: 2px;
+		line-height: 20px;
+		margin-bottom: 1px;
 	}
 }
 

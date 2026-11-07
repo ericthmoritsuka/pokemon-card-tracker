@@ -59,9 +59,10 @@ after(async () => {
 // test cards are English), with `owned` copies added (a card ID, Near Mint,
 // or {card, condition}) and `drafts` written before Scan opens. via
 // 'trades': Scan is opened from Trades and sales' Scan the cards rather than
-// by its address.
-async function open({drafts = null, owned = [], via = null} = {}) {
-	const context = await browser.newContext({deviceScaleFactor: 3, viewport: {height: 800, width: 360}});
+// by its address. viewport: another screen size, such as a phone held
+// sideways.
+async function open({drafts = null, owned = [], via = null, viewport = {height: 800, width: 360}} = {}) {
+	const context = await browser.newContext({deviceScaleFactor: 3, viewport});
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -640,5 +641,62 @@ describe('Trade or sale', () => {
 		assert.equal(await page.textContent('#move-scanned'), 'Scanned 2 going out. 2 copies you scanned going out are no longer in your cards, so they are left out. Pick Gift if you gave them away. Add who and the price, then Save.');
 		assert.deepEqual(errors, []);
 		await context.close();
+	});
+
+	// Design polish, 2026-11-06: at 780 x 360 the controls fell below the
+	// screen and the trade tray cut Pick a copy. Held sideways the controls
+	// are a column beside the camera, all on screen, in both modes.
+	test('held sideways, the mode switch, the tray, Pick a copy, Close, the shutter, and Log or Done are all on screen beside the camera', async () => {
+		const sideways = {height: 360, width: 780};
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
+		const item = (id, cardId, name, side) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
+		const tray = {created_at: at, id: 'trade-side', items: [item('t1', CARDS.a, 'First card', 'out'), item('t2', CARDS.b, 'Second card', 'out'), item('t3', CARDS.c, 'Third card', 'in')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		// Two copies of each card going out, one Played: each asks.
+		const owned = [CARDS.a, CARDS.b].flatMap((id) => [id, {card: id, condition: 'Played'}]);
+		const onScreen = async (page, selector) => {
+			const box = await page.locator(selector).first().boundingBox();
+
+			assert.ok(box, `${selector} is drawn`);
+			assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= sideways.width + 0.5 && box.y + box.height <= sideways.height + 0.5, `${selector} is on screen: ${JSON.stringify(box)}`);
+
+			return box;
+		};
+
+		const {context, errors, page} = await open({drafts: [tray], owned, viewport: sideways});
+
+		await switchMode(page);
+		await page.waitForSelector('#scan-trade-out [data-row="t2"][data-status="ask"]');
+
+		const stage = await onScreen(page, '#scan-stage');
+
+		for (const selector of ['#scan-mode', '#scan-side-out', '#scan-side-in', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+			const box = await onScreen(page, selector);
+
+			assert.ok(box.x >= stage.x + stage.width, `${selector} is beside the camera`);
+		}
+
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 cards');
+		await onScreen(page, '#scan-trade-out .scan-trade-pick');
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/scan-trade-sideways-780x360.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+
+		// Add, with two cards in its tray.
+		const addTray = {created_at: at, id: 'add-side', items: [item('a1', CARDS.a, 'First card', null), item('a2', CARDS.c, 'Third card', null)], lastSave: null, sheetShown: true, updated_at: at};
+		const add = await open({drafts: [addTray], viewport: sideways});
+
+		await add.page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
+		assert.equal(await add.page.textContent('#scan-done-open'), 'Done 2');
+
+		for (const selector of ['#scan-mode', '#scan-tray .scan-tray-item', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+			await onScreen(add.page, selector);
+		}
+
+		await add.page.waitForTimeout(400);
+		await add.page.screenshot({path: `${SHOTS}/scan-add-sideways-780x360.png`});
+		assert.deepEqual(add.errors, []);
+		await add.context.close();
 	});
 });
