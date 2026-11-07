@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-07
 
-- **v67:** design polish across the scanner, trades, and binders. `TBD`
+- **v67:** design polish across the scanner, trades, and binders. `f0493bf`
   - One name, **Trade or sale**, for the scanner mode, the trades screen, and a card's button. The
     scanner's button says how many cards it logs ("Log 3 cards").
   - The trade tray's column heads are taller, and the one not in use says "Tap to scan here".
