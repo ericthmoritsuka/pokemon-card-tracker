@@ -743,15 +743,23 @@ html.scan-open body {
 	position: absolute;
 }
 
-/* The two chips at the camera's foot keep to their halves, so they never
-   overlap; a label too long for its half takes two lines. Large text on a
-   324 px wide Realme put Hand-held (auto) over Settings (2026-11-09). */
+/* The two chips at the camera's foot keep to their shares, so they never
+   overlap; a label too long for its share takes two lines. Large text on a
+   324 px wide Realme put Hand-held (auto) over Settings (2026-11-09).
+   Settings is the short label, so it takes 40 %. */
 .scan-chip.scan-settings-open,
 .scan-chip.scan-holder {
 	box-sizing: border-box;
 	justify-content: center;
-	max-width: calc(50% - 12px);
 	text-align: center;
+}
+
+.scan-chip.scan-settings-open {
+	max-width: calc(40% - 12px);
+}
+
+.scan-chip.scan-holder {
+	max-width: calc(60% - 12px);
 }
 
 .scan-zoom[hidden] {
