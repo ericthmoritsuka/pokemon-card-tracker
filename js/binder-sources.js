@@ -328,7 +328,8 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 		error = result.error || null;
 		incomplete = Boolean(result.incomplete);
 		gaps = result.gaps || [];
-		partial = Boolean(result.missingList) || incomplete;
+		// Sets not read leave cards undated, never their copies unknown.
+		partial = Boolean(result.missingList) || (incomplete && !gaps.every((gap) => gap.kind === 'sets'));
 		keepOrder = goal.kind === 'pokemon' && clean.order === POKEMON_GOAL_ORDER;
 		items = result.states.map((state) => cardItem(cardKey(state.card.catalog, state.card.cardId), known, {copies: state.copies, facts: state.card}));
 	}

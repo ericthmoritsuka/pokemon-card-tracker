@@ -8,7 +8,7 @@ import {h} from './dom.js';
 import {filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
 import {LANGUAGES, languageLabel} from './catalog.js';
-import {FILTER_FIELDS, cleanBinderRule, checkBinderRule, checkFits, ordersFor, pagesFor} from './binder-rules.js';
+import {FILTER_FIELDS, cleanBinderRule, checkBinderRule, checkFits, layoutWaits, ordersFor, pagesFor} from './binder-rules.js';
 import {filterItems, loadRuleItems, sourceChoices, sourceEntry} from './binder-sources.js';
 import {gapText} from './goals.js';
 
@@ -198,8 +198,9 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 		const owned = counted.items.filter((item) => item.copies.length).length;
 
 		// Part of the list read: its count would be short, and the binder
-		// waits for the whole list (js/binders-view.js checkWholeList).
-		if (counted.incomplete) {
+		// waits for the whole list (js/binders-view.js checkWholeList), but
+		// for a binder kept in place through sets not read (layoutWaits).
+		if (layoutWaits(binder && {...binder, rule: draft()}, counted)) {
 			count.className = 'form-error';
 			count.textContent = `${gapText(counted.gaps, {online: navigator.onLine})} Open the list with a connection, then make the binder.`;
 

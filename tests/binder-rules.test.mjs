@@ -21,6 +21,7 @@ import {
 	indexAt,
 	isGenerated,
 	keptOrder,
+	layoutWaits,
 	ordersFor,
 	pagesFor,
 	parseKey,
@@ -355,6 +356,29 @@ describe('keeping the pockets in place', () => {
 
 		assert.deepEqual(moved.snapshot.keys, keys('', 's-30', 's-40', 's-10'));
 		assert.equal(moved.changed, false);
+	});
+
+	// A set of an Asian catalog not read leaves its cards undated, never
+	// missing: a binder in place waits only while a card new to it is
+	// undated in such a set. A catalog not read still waits.
+	test('a set not read holds the binder only while a card new to it is undated', () => {
+		const ja = (id, releaseDate = null) => ({copies: [], key: `ja|${id}`, kind: 'card', catalog: 'ja', cardId: id, releaseDate, setId: id.split('-')[0]});
+		const stored = generated('b1', {rule, snapshot: {at: at(0), keys: ['ja|SV2a-039', '', 'ja|S4a-001'], rule_key: 'goal:g1|set', shown: {}}});
+		const setsGap = [{catalog: 'ja', count: 1, kind: 'sets', setIds: ['SV2a']}];
+		const loaded = (items, gaps = setsGap, extra = {}) => ({gaps, incomplete: true, items, keepOrder: true, ...extra});
+		const read = [ja('SV2a-039'), ja('S4a-001', '2020-01-01')];
+
+		assert.equal(layoutWaits(stored, {gaps: [], incomplete: false, items: read, keepOrder: true}), false, 'the whole list');
+		assert.equal(layoutWaits(stored, loaded(read)), false, 'every card is in the binder already');
+		assert.equal(layoutWaits(stored, loaded([...read, ja('S5a-002', '2021-01-01')])), false, 'a new card from a set read');
+		assert.equal(layoutWaits(stored, loaded([...read, ja('SV2a-100')])), true, 'a new card undated in the set not read');
+		assert.equal(layoutWaits(stored, loaded([...read, ja('SV9-001')])), false, 'a new card undated in a set read (no date in TCGdex)');
+		assert.equal(layoutWaits(stored, loaded(read, [{catalog: 'ja', kind: 'list'}])), true, 'a catalog not read');
+		assert.equal(layoutWaits(stored, loaded(read, [...setsGap, {catalog: 'international', kind: 'index'}])), true, 'the set index not read');
+		assert.equal(layoutWaits(stored, loaded(read, setsGap, {keepOrder: false})), true, 'a binder that does not keep its pockets');
+		assert.equal(layoutWaits({rule}, loaded(read)), true, 'a new binder');
+		assert.equal(layoutWaits(null, loaded(read)), true, 'no binder');
+		assert.equal(layoutWaits({...stored, rule: {order: 'release', source: {id: 'g1', kind: 'goal'}}}, loaded(read)), true, 'another rule lays it out again');
 	});
 
 	test('a new rule lays the list out in its own order', () => {

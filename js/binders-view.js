@@ -55,7 +55,7 @@ import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
-import {applyListEdits, indexAt, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
+import {applyListEdits, indexAt, layoutWaits, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
 import {dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
@@ -718,9 +718,11 @@ async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map()
 
 // Throws, for a binder form, when the list was read only in part
 // (js/binder-sources.js loadRuleItems incomplete): a layout from it would
-// leave out the cards not read, or put undated ones last.
-function checkWholeList(loaded) {
-	if (loaded.incomplete) {
+// leave out the cards not read, or put undated ones last. binderLike: the
+// binder as the form would save it, which may keep its pockets in place
+// through sets not read (js/binder-rules.js layoutWaits).
+function checkWholeList(loaded, binderLike = null) {
+	if (layoutWaits(binderLike, loaded)) {
 		throw new Error(`${gapText(loaded.gaps, {online: navigator.onLine})} The binder can be laid out once the whole list is read: open the list with a connection, then try again.`);
 	}
 }
@@ -1937,12 +1939,17 @@ function binderScreen(root, source, id, pageParam) {
 				return;
 			}
 
+			// Against the binder as saved, not a layout shown in its place.
+			const stored = liveBinders(doc.binders).find((item) => item.id === binderId) || binder;
+
 			// Part of the list read (a goal's catalog or sets not on the
 			// phone): a layout from it would remove the pockets of the cards
 			// not read and move the rest, so the pages stay as stored, on
 			// opening and on Refresh, and nothing is saved until the whole
-			// list is read. The pockets read show their copies now.
-			if (loaded.incomplete) {
+			// list is read. The pockets read show their copies now. A binder
+			// that keeps its pockets in place goes on through sets not read
+			// while no card new to it is undated (layoutWaits), saying so.
+			if (layoutWaits(stored, loaded)) {
 				gen.items = new Map(loaded.items.map((item) => [item.key, item]));
 				gen.loaded = null;
 				gen.partial = true;
@@ -1960,8 +1967,6 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-			// Against the binder as saved, not a layout shown in its place.
-			const stored = liveBinders(doc.binders).find((item) => item.id === binderId) || binder;
 			const {plan, rankOf} = await planLayout(stored, loaded, {liveIds, picks});
 
 			if (!alive || binder.id !== binderId) {
@@ -1975,9 +1980,9 @@ function binderScreen(root, source, id, pageParam) {
 
 			const held = (plan.languageOnly || plan.editsOnly) && !manual;
 			const text = held ? '' : refreshText(plan, nameOfKey);
-			const partly = loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : '';
+			const partly = `${loaded.partial ? ' Some cards could not be checked yet; their pockets stay as they were.' : ''}${loaded.incomplete ? ` ${gapText(loaded.gaps, {online: navigator.onLine})}` : ''}`;
 
-			showListNote(text ? `${text}${partly}` : manual ? `Up to date.${partly}` : '');
+			showListNote(text ? `${text}${partly}` : manual || loaded.incomplete ? `Up to date.${partly}` : '');
 
 			if (plan.changed && !held) {
 				gen.held = null;
@@ -2354,10 +2359,11 @@ function binderScreen(root, source, id, pageParam) {
 						throw new Error('That list was deleted. Choose another.');
 					}
 
-					checkWholeList(loaded);
+					const draft = {...editing, cols: fields.cols, rows: fields.rows, rule};
+
+					checkWholeList(loaded, draft);
 
 					const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
-					const draft = {...editing, cols: fields.cols, rows: fields.rows, rule};
 					const {plan, rankOf} = await planLayout(draft, loaded, {liveIds, picks});
 
 					if (!await askRelayout(draft, loaded.items, plan, rankOf)) {

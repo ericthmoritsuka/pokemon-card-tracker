@@ -2629,7 +2629,15 @@ chosen, for a "Make a binder" button on those screens.
   Jigglypuff goal offline without the Japanese list) or move undated prints to the end (53 of 54
   pockets moved with one Japanese set unreadable), and the next full read would put them all back,
   each time a save and a sync. New binder and Edit binder refuse to lay out such a list and say why:
-  open the list with a connection, then make the binder (`js/binders-view.js` `checkWholeList`). A
+  open the list with a connection, then make the binder (`js/binders-view.js` `checkWholeList`).
+  **Sets not read do not hold a binder that keeps its pockets in place** (a Pokémon goal in set
+  order, its stored layout made for this rule): every card is there, only undated, and a date
+  matters only to where a card new to the binder goes. Such a binder refreshes and saves as usual,
+  its line still naming the sets not read ("Up to date. 1 set of Japanese prints could not be read,
+  so their cards have no set name or date yet."), and Edit binder keeping the same rule lays it out;
+  it waits as above only while a card new to the layout is undated in a set not read
+  (`js/binder-rules.js` `layoutWaits`). One set failing for good no longer holds the binder
+  forever. A catalog or the set index not read still holds it. A
   list deleted since leaves the pages as they were, with a line saying to choose another in Edit
   binder.
 - **A list's languages and a v56 phone** (built 2026-11-05, after a review found the flip-flop). A

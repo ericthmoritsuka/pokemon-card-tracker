@@ -655,6 +655,37 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 	};
 }
 
+// Whether a binder must wait for the whole list before a layout of it is
+// made or saved. loaded: js/binder-sources.js loadRuleItems; binder: the
+// binder as stored, or as the form would save it ({rule, snapshot}). A list
+// read only in part (incomplete) waits: a layout from it would drop the
+// pockets of the cards not read, or put undated ones last. One exception:
+// when the binder keeps its pockets in place (keepOrder, its stored layout
+// made for this rule) and the only gap is sets not read (js/goals.js gapText
+// 'sets'), every card is there and only dates are missing, which matter
+// only to where a card new to the layout goes. It waits then only while a
+// card new to the layout is undated in a set not read (DESIGN.md, "Binders
+// from a list").
+export function layoutWaits(binder, loaded) {
+	if (!loaded || !loaded.incomplete) {
+		return false;
+	}
+
+	const gaps = Array.isArray(loaded.gaps) ? loaded.gaps : [];
+	const before = binder && isObject(binder.snapshot) ? binder.snapshot : {};
+	const stored = Array.isArray(before.keys) ? before.keys : [];
+	const kept = Boolean(loaded.keepOrder) && stored.length > 0 && before.rule_key === ruleKey(binder.rule);
+
+	if (!kept || !gaps.length || !gaps.every((gap) => gap.kind === 'sets')) {
+		return true;
+	}
+
+	const had = new Set(stored);
+	const unread = (item) => gaps.some((gap) => gap.catalog === item.catalog && (!Array.isArray(gap.setIds) || !gap.setIds.length || gap.setIds.includes(item.setId)));
+
+	return (loaded.items || []).some((item) => !had.has(item.key) && !item.releaseDate && unread(item));
+}
+
 // The list's order for a binder that keeps its pockets in place, before
 // its edits (applyListEdits) apply. listOrder: the keys in the rule's
 // order; stored: the last layout's keys; edits: the binder's edit entries

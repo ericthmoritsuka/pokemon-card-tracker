@@ -491,8 +491,9 @@ export async function loadInternational(n, {force = false, onProgress = () => {}
 }
 
 // The prints of Pokémon n in an Asian catalog. {prints, error, missingList,
-// unreadSets}: unreadSets counts sets whose details are not on the phone
-// (their cards are listed without a set name or date).
+// unreadSets, unreadSetIds}: unreadSets counts sets whose details are not on
+// the phone (their cards are listed without a set name or date), and
+// unreadSetIds names them.
 export async function loadAsian(catalog, n, {force = false} = {}) {
 	const lang = catalogLanguage(catalog);
 	const briefs = await kept(`dex:${catalog}:${n}`, async () => {
@@ -506,12 +507,12 @@ export async function loadAsian(catalog, n, {force = false} = {}) {
 	}, {force, maxAge: 7 * DAY_MS});
 
 	if (!briefs.data) {
-		return {error: briefs.error, missingList: true, prints: [], unreadSets: 0};
+		return {error: briefs.error, missingList: true, prints: [], unreadSetIds: [], unreadSets: 0};
 	}
 
 	const setIds = [...new Set(briefs.data.map((brief) => setIdOf(brief.id)))];
 	const sets = new Map();
-	let unreadSets = 0;
+	const unreadSetIds = [];
 	let error = briefs.error;
 
 	await pool(setIds, CONCURRENCY, async (setId) => {
@@ -523,12 +524,12 @@ export async function loadAsian(catalog, n, {force = false} = {}) {
 		}
 		catch (err) {
 			sets.set(setId, null);
-			unreadSets++;
+			unreadSetIds.push(setId);
 			error = error || err;
 		}
 	});
 
-	return {error, missingList: false, prints: asianPrints({briefs: briefs.data, catalog, sets}), unreadSets};
+	return {error, missingList: false, prints: asianPrints({briefs: briefs.data, catalog, sets}), unreadSetIds: unreadSetIds.sort(), unreadSets: unreadSetIds.length};
 }
 
 // The finish part of the records read so far ({variants,

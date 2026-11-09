@@ -565,12 +565,14 @@ export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {
 
 // What a goal could not read, as gaps: {kind: 'list', catalog} for a
 // catalog whose card list is not on the phone (offline before its first
-// visit, or its download failed), {kind: 'sets', catalog, count} for sets
-// whose details could not be read, and {kind: 'index', catalog:
+// visit, or its download failed), {kind: 'sets', catalog, count, setIds}
+// for sets whose details could not be read, and {kind: 'index', catalog:
 // 'international'} for the set index. With a gap the cards are not all
 // there or not all dated, so a binder keeps its pages as they were
-// (js/binder-sources.js loadRuleItems incomplete) and the goal's screen says
-// which (gapText).
+// (js/binder-sources.js loadRuleItems incomplete), unless it keeps its
+// pockets in place and only undated cards already in it are concerned
+// (js/binder-rules.js layoutWaits), and the goal's screen says which
+// (gapText).
 const printsName = (catalog) => (catalog === 'international' ? 'international prints' : `${languageLabel(catalog)} prints`);
 
 // The gaps in words: "The Japanese prints are not on this phone yet."
@@ -615,7 +617,7 @@ async function loadPokemonGoalCards(goal) {
 		}
 
 		return [
-			...(result.unreadSets ? [{catalog: result.catalog, count: result.unreadSets, kind: 'sets'}] : []),
+			...(result.unreadSets ? [{catalog: result.catalog, count: result.unreadSets, kind: 'sets', setIds: result.unreadSetIds || []}] : []),
 			...(result.setIndexMissing ? [{catalog: result.catalog, kind: 'index'}] : []),
 		];
 	});

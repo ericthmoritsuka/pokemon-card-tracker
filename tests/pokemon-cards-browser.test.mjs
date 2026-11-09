@@ -1684,12 +1684,39 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		const sv2aDetails = (target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname);
 
 		await context.route(sv2aDetails, refuse);
+
+		// A binder that keeps its pockets in place has every card already:
+		// the set unread only leaves its cards undated, which matters to a
+		// card new to the binder alone. So it goes on, saying so.
 		await goInApp(page, `binders/${made}`);
+		await page.waitForFunction(() => /^Up to date\. 1 set of Japanese prints could not be read, so their cards have no set name or date yet\.$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
+		});
+		await page.waitForTimeout(500);
+		assert.deepEqual(await binderOf(page, made), stored, 'nothing to save with a set unread');
+		await page.click('#binder-refresh');
+		await page.waitForFunction(() => /^Up to date\. 1 set of Japanese prints could not be read/.test(document.getElementById('binder-list-note')?.textContent || '') && !document.getElementById('binder-refresh').disabled, null, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
+		});
+		assert.deepEqual((await binderOf(page, made)).snapshot.keys, stored.snapshot.keys, 'Refresh is not refused, and moves nothing');
+
+		// A binder that SV2a-039 would be new to waits: its place depends on
+		// the date of the set not read.
+		const late = await page.evaluate(async ({goalId, keys}) => {
+			const {createGeneratedBinder} = await import('/pokemon-card-tracker/js/binders.js');
+			const rule = {order: 'set', source: {id: goalId, kind: 'goal'}};
+			const without = keys.filter((key) => key !== 'ja|SV2a-039');
+
+			return (await createGeneratedBinder({cols: 3, name: 'Jigglypuff late', rows: 3}, rule, {at: new Date().toISOString(), keys: without, rule_key: `goal:${goalId}|set`, shown: {}})).id;
+		}, {goalId: goal.id, keys: stored.snapshot.keys});
+		const lateStored = await binderOf(page, late);
+
+		await goInApp(page, `binders/${late}`);
 		await page.waitForFunction(() => /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The pages stay as they were until the whole list can be read\.$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000}).catch(async (err) => {
 			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
 		});
 		await page.waitForTimeout(500);
-		assert.deepEqual(await binderOf(page, made), stored, 'nothing saved with a set unread');
+		assert.deepEqual(await binderOf(page, late), lateStored, 'nothing saved while a new card is undated');
 
 		await goInApp(page, `goals/${goal.id}`);
 		await page.waitForSelector('#goal-retry', {timeout: 20000});

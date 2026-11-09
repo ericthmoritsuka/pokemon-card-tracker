@@ -627,7 +627,9 @@ describe('Pokémon goals', async () => {
 			assert.equal(unread.items.length, 54, 'every print, one set\'s undated');
 			assert.equal(unread.items.find((item) => item.key === 'ja|SV2a-039').releaseDate, null);
 			assert.equal(unread.incomplete, true);
-			assert.deepEqual(unread.gaps, [{catalog: 'ja', count: 1, kind: 'sets'}]);
+			assert.deepEqual(unread.gaps, [{catalog: 'ja', count: 1, kind: 'sets', setIds: ['SV2a']}], 'the set named, for a binder kept in place (js/binder-rules.js layoutWaits)');
+			assert.equal(unread.items.find((item) => item.key === 'ja|SV2a-039').setId, 'SV2a');
+			assert.equal(unread.partial, false, 'its copies are all known');
 			assert.equal(goals.gapText(unread.gaps), '1 set of Japanese prints could not be read, so their cards have no set name or date yet.');
 		}
 		finally {
