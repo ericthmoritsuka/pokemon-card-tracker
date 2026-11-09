@@ -11,9 +11,12 @@
 // the bottom corners they hid the copies list and Ver na Liga on a phone.
 // A move replaces the history entry, so Back returns to the list, where
 // app.js restores the scroll position. The context is kept for this tab in
-// sessionStorage, so a reload on a card page keeps it.
+// sessionStorage, so a reload on a card page keeps it, and with each card
+// page's history entry (history.state.cardList, written when the page
+// first draws): Back to a card page opened from a set, after its Pokémon's
+// grid opened another card, brings back the set, not that grid.
 
-import {go, h} from './dom.js';
+import {go, h, rememberInHistory} from './dom.js';
 import {formatCount} from './format.js';
 
 const KEY = 'card-tracker-card-list';
@@ -70,6 +73,30 @@ export function followCardLink(route) {
 	}
 
 	save();
+}
+
+// A card page drawing: the context its history entry was opened with comes
+// back, and an entry that has none yet (the card link just followed, or a
+// swipe that replaced the entry) keeps the one in use now.
+export function restoreCardList() {
+	const state = history.state;
+
+	if (state && Object.hasOwn(state, 'cardList')) {
+		const kept = state.cardList;
+
+		active = kept && Array.isArray(kept.routes) ? kept : null;
+		save();
+
+		return;
+	}
+
+	try {
+		rememberInHistory({cardList: active});
+	}
+	catch {
+		// Too large for this browser's history: the context lasts until
+		// another list replaces it.
+	}
 }
 
 // {index, total, prev, next, label} for a card route in the context, or null.

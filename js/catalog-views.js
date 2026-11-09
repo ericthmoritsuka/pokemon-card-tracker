@@ -20,7 +20,7 @@ import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
-import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
+import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
@@ -1039,6 +1039,9 @@ export function cardView(root, {lang, cardId}) {
 	// Opened from a list, the card keeps it: a position line, edge arrows,
 	// and swiping move through it (js/card-swipe.js).
 	const route = routeTo('cards', lang, cardId);
+
+	restoreCardList();
+
 	const position = cardPosition(route);
 	const swipe = cardSwipe(root, route);
 	// A family member's card is read only and shows their copies: no copy
@@ -1091,24 +1094,38 @@ export function cardView(root, {lang, cardId}) {
 
 	// Every card of each Pokémon the card shows (pokemon/<dex>; Eric,
 	// 2026-11-09), one link per Pokédex number, so a TAG TEAM card has two.
-	// The species' English name, as that screen's title says it, from the
-	// names the phone keeps (js/checklists.js speciesNames, read once per
-	// device); while they load, a card of one Pokémon uses the name shown
-	// above. Your own card page only: the screen shows your own cards, so it
-	// ends a family member's lens, and Back would then show this card with
-	// your copies rather than theirs.
-	function pokemonLinks(card, name) {
+	// Each names the Pokémon as that screen's title does (nameOf): the
+	// species' English name from the names the phone keeps (js/checklists.js
+	// speciesNames, read once per device), else "Pokémon #039", while they
+	// load or when they never come. Their arrival rewrites the links' text
+	// alone, not the page. Your own card page only: the screen shows your
+	// own cards, so it ends a family member's lens, and Back would then show
+	// this card with your copies rather than theirs.
+	let pokemonShown = [];
+
+	const pokemonLabel = (n) => `Every ${nameOf(speciesTables && speciesTables.en, n)} card`;
+
+	function relabelPokemon() {
+		if (alive) {
+			pokemonShown.forEach(({anchor, n}) => {
+				anchor.textContent = pokemonLabel(n);
+			});
+		}
+	}
+
+	function pokemonLinks(card) {
 		const numbers = member ? [] : cardDexIds(card);
+
+		pokemonShown = numbers.map((n) => ({anchor: link(pokemonCardsRoute(n), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}), n}));
 
 		if (!numbers.length) {
 			return null;
 		}
 
-		const tables = loadedSpeciesNames(redrawNames);
-		const species = (n) => (tables && tables.en && tables.en[n]) || (numbers.length === 1 ? name : nameOf(null, n));
+		loadedSpeciesNames(relabelPokemon);
+		relabelPokemon();
 
-		return numbers.map((n) => h('span', {class: 'fact-line'},
-			link(pokemonCardsRoute(n), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}, `Every ${species(n)} card`)));
+		return pokemonShown.map(({anchor}) => h('span', {class: 'fact-line'}, anchor));
 	}
 
 	// The names the source gave the owner's copies, when every copy of this
@@ -1190,7 +1207,7 @@ export function cardView(root, {lang, cardId}) {
 						row('Set', setLink(set, setName)),
 						row('Number', number),
 						row('Rarity', card.rarity),
-						row('Pokémon', pokemonLinks(card, name)),
+						row('Pokémon', pokemonLinks(card)),
 						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
 						row('Catalog', languageLabel(lang))
 					)

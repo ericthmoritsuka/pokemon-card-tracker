@@ -796,11 +796,141 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		assert.equal(await page.locator('#card-pokemon-428').getAttribute('href'), `${BASE}pokemon/428`);
 		await page.screenshot({path: `${SHOTS}-card-tag-team.png`});
 
+		// Each link owns its 48 px band: a tap just inside its top or bottom
+		// edge opens it, not the other Pokémon (a tap low on Jigglypuff
+		// opened Lopunny when the second link's padding covered the first).
+		await page.locator('#card-pokemon-39').evaluate((anchor) => anchor.scrollIntoView({block: 'center'}));
+
+		const bands = await page.locator('.facts a[id^="card-pokemon-"]').evaluateAll((anchors) => anchors.map((anchor) => {
+			const box = anchor.getBoundingClientRect();
+			const x = box.left + Math.min(box.width / 2, 24);
+			const hit = (y) => (document.elementFromPoint(x, y)?.closest('a') || {}).id || null;
+
+			return {bottom: hit(box.bottom - 2), height: box.height, id: anchor.id, top: hit(box.top + 2)};
+		}));
+
+		for (const band of bands) {
+			assert.ok(band.height >= 48, `${band.id} is ${band.height} px tall`);
+			assert.equal(band.top, band.id, `a tap at the top of ${band.id}`);
+			assert.equal(band.bottom, band.id, `a tap at the bottom of ${band.id}`);
+		}
+
 		await page.goto(url('cards/en/sv03.5-196'));
 		await page.waitForSelector('.facts');
 		await page.waitForSelector('#card-set-link');
 		assert.deepEqual(await page.locator('.facts dt').allTextContents(), ['Set', 'Number', 'Rarity', 'Illustrator', 'Catalog']);
 		assert.equal(await page.locator('.facts a[id^="card-pokemon-"]').count(), 0);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the names arriving rename the link and leave the page as drawn', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, counts, errors, page} = await device(null, 'phone');
+		let release;
+		const held = new Promise((resolve) => {
+			release = resolve;
+		});
+
+		// Routes run newest first: the species names wait for release().
+		await context.route('https://graphql.pokeapi.co/**', async (route) => {
+			await held;
+			await route.fulfill({body: speciesBody(), contentType: 'application/json', status: 200});
+		});
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('cards/en/sv03.5-039'));
+		await page.waitForSelector('#card-set-link');
+		await page.waitForSelector('.card-detail h2');
+
+		// Worded as the Pokémon screen's title words it until the names come.
+		assert.equal(await page.locator('#card-pokemon-39').textContent(), 'Every Pokémon #039 card');
+		await page.waitForTimeout(500);
+		await page.evaluate(() => {
+			window.drawnHero = document.querySelector('.card-detail .card-hero');
+			window.drawnLink = document.getElementById('card-pokemon-39');
+		});
+
+		const cardsRead = counts.cards;
+
+		release();
+		await page.waitForFunction(() => document.getElementById('card-pokemon-39').textContent === 'Every Jigglypuff card');
+		await page.waitForTimeout(500);
+		assert.deepEqual(await page.evaluate(() => [window.drawnHero.isConnected, window.drawnLink === document.getElementById('card-pokemon-39')]), [true, true], 'the page was not drawn again');
+		assert.equal(counts.cards, cardsRead, 'no card read again');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('with no species names, the link names the Pokémon as the screen does', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		// PokeAPI never answers (pokeapi.co is already refused).
+		await context.route('https://graphql.pokeapi.co/**', (route) => route.abort('internetdisconnected'));
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('cards/en/sv03.5-039'));
+		await page.waitForSelector('#card-pokemon-39');
+		assert.equal(await page.locator('#card-pokemon-39').textContent(), 'Every Pokémon #039 card');
+		await page.click('#card-pokemon-39');
+		await waitForTitle(page, 'Pokémon #039, 5 of 58 cards');
+		await page.goBack();
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+		await page.waitForSelector('#card-pokemon-39');
+		assert.equal(await page.locator('#card-pokemon-39').textContent(), 'Every Pokémon #039 card');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Back to a card page brings back the list it was opened from', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const context151 = async () => {
+			await page.waitForSelector('#card-position');
+			assert.equal(await page.locator('#view .back').textContent(), '‹ 151');
+			assert.equal(await page.locator('#card-position').textContent(), '1 of 1');
+		};
+
+		await seedLocal(page, documentWith(CARDS, []));
+
+		// Set 151, then its Jigglypuff: the set is the context.
+		await page.goto(url('sets/en/sv03.5'));
+		await page.waitForSelector('#view .card-grid a.tile');
+		await page.click('#view .card-grid a.tile[data-link="cards/en/sv03.5-039"]');
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+		await context151();
+
+		// Every Jigglypuff card, and another card from that grid: its context.
+		await page.click('#card-pokemon-39');
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await waitForTitle(page, 'Jigglypuff, 5 of 58 cards');
+		await page.click('.pc-cell[data-card="me02-076"] a.tile');
+		await page.waitForURL(`**${BASE}cards/en/me02-076`);
+		await page.waitForSelector('#card-position');
+		assert.equal(await page.locator('#view .back').textContent(), '‹ Jigglypuff');
+
+		// Back twice: the 151 card again, with the set as its context.
+		await page.goBack();
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await waitForTitle(page, 'Jigglypuff, 5 of 58 cards');
+		await page.goBack();
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+		await context151();
+
+		// Forward twice: the other card keeps the Jigglypuff grid; back again,
+		// and through a reload, the 151 card keeps the set.
+		await page.goForward();
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await page.goForward();
+		await page.waitForURL(`**${BASE}cards/en/me02-076`);
+		await page.waitForSelector('#card-position');
+		assert.equal(await page.locator('#view .back').textContent(), '‹ Jigglypuff');
+		await page.goBack();
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await page.goBack();
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+		await context151();
+		await page.reload();
+		await context151();
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
