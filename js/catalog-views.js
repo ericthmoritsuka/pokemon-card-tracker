@@ -1398,8 +1398,10 @@ export function cardView(root, {lang, cardId}) {
 
 	// The language a new wish asks for: the catalog's on your own card. On a
 	// member's card, the language most of their copies are in, so wanting
-	// what they hold asks for that print; only a language the catalog takes
-	// (a Korean copy on a Japanese record cannot be wished for there).
+	// what they hold asks for that print; only the catalog's own languages
+	// count here (their Korean copies on a Japanese record ask for Japanese,
+	// though the wishlist takes a Korean wish on one, js/wishlist.js
+	// languagesFor).
 	function wishLanguage() {
 		if (!readOnly) {
 			return lang;
