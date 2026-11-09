@@ -14,18 +14,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
-- **v70:** from a card's page, open its set or every card of its Pokémon.
+- **v70:** from a card's page, open its set or every card of its Pokémon, one language at a time.
   - A card's **Set** opens that set's page, in the card's catalog and language.
-  - A **Pokémon** row links "Every Jigglypuff card": every print of that Pokémon, the same screen
-    a checklist row opens but with no checklist, with All, Owned, and Missing, the owned marks,
-    and one tap to the wishlist. A TAG TEAM card has a link per Pokémon; a Trainer or Energy card
-    has no Pokémon row.
-  - That screen's languages are kept on the phone and start as every language; changing them never
-    makes or changes a checklist.
-  - On a family member's card page the Set link shows but the Pokémon link does not, since that
-    screen shows your own cards.
+  - Under the card, "Every Jigglypuff card" opens every print of that Pokémon, the same screen a
+    checklist row opens but with no checklist, with All, Owned, and Missing, the owned marks, and
+    one tap to the wishlist. A TAG TEAM card has a link per Pokémon; a Trainer or Energy card has
+    none. On a family member's card page only the Set link shows.
+  - That screen has a row of flags at the top and shows one language at a time, starting with the
+    card's own. A language loads only when its flag is first tapped (so a tap never pulls every
+    Asian catalog over mobile data), and its flag then shows its count.
+  - The card page keeps **Ver na Liga** on a small phone's first screen: Number and Rarity share a
+    line, and a long name with its region wraps instead of running off the edge.
 
-- **v69:** four ways to see your cards on My Cards.
+- **v69:** four ways to see your cards on My Cards. `a4234d6`
   - A **View** menu under Sort and Filters offers **Large** (two a row, the art big with the name,
     the number as printed, and the value), **Grid** (the tile as before, and the default),
     **Mini** (the art alone, a binder page's worth at a glance), and **List** (a row per card).
@@ -35,7 +36,7 @@ are Recife time. Each line ends with its commit.
   - With large text on a narrow phone, each view gives fewer columns and List rows wrap, never a
     sideways scroll.
 
-- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens.
+- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens. `db8d46f`
   - As a card is matched, a green note over the camera says "✓ Pikachu: you have 2" for a few
     seconds, and its tray card gets a "✓ Have 2" strip and a green rim. Owned only in another
     language, both say which ("Have PT"). In a trade, only cards coming in are told.
