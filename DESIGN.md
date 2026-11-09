@@ -269,6 +269,22 @@ than once (in that language) carries a badge in its top-right corner (`×3`), in
 the scan tray. When the viewing language differs from the copy's language, a language chip
 (`PT`) sits in the opposite corner.
 
+**Card views: Large, Grid, Mini, and List** *(Eric, 2026-11-09: ways to see his cards in different
+sizes and layouts)*. My Cards has a View select beside Sort and Filters ("View: Grid"), kept on the
+phone (`cardTracker.cardsView`), Grid by default. **Large** is two a row on a phone, the art big
+with the name, the number as printed (`025 / 120`), and the value under it, for looking at the
+cards themselves. **Grid** is the tile as everywhere else. **Mini** is five or six a row at 384 px,
+the art alone with its `×N` and language corners and no caption, a binder page's overview; each
+tile is named for a screen reader instead. **List** is a row per card (a thumbnail, the name and
+value, set and number, language, finish, and `×N`), for reading facts down a column; the row is
+one link to the card page with one accessible name. Each view's minimum width grows with the text
+size, as Grid's does, so large text gives fewer columns and List rows wrap, never a sideways
+scroll. Only My Cards offers it for now; `js/card-view-mode.js` holds the select, the stored
+choice, and the List row, so another screen can take it with its own key. A select rather than four
+buttons, because the bar already uses selects for such choices and four segments do not fit beside
+Sort at 324 px. The views keep the low-resolution images, so Large adds no downloads and no
+second copy of each image to the phone's cache.
+
 **Set tiles show owned progress across every language.**
 Keep monprice's `2 / 122` ring on each set tile, but count a card as owned whatever language the
 copy is in, so the ring matches what the collection really holds.
