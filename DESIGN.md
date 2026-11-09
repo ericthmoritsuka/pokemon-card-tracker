@@ -254,6 +254,15 @@ A prompt per card would break the rhythm of batch scanning. A tray card that is 
 or scanned twice in the session, shows the quantity badge below, and the duplicate decision is
 made once when the session is saved.
 
+**A card already owned is said at the scan, not only counted** *(Eric, 2026-11-09: "a clearer hint
+that I already have that card"; v68)*. The `×N` corner alone was too easy to miss in a fast run.
+As the card is matched, a green notice over the camera says "✓ Pikachu: you have 2" for 3.5 s,
+spoken with the Added line; owned only in other languages, an outlined "Pikachu: you have it in
+Portuguese". Its tray tile carries a strip across the art under the top badges, "✓ Have 2" with
+a green rim, or an outlined "Have PT". Still no prompt and no buzz, so the rhythm holds. In a
+trade, only a card coming in is told: every card going out is owned. Tick and words with the
+colour, never colour alone.
+
 **Quantity is a corner badge, not a trailing counter.**
 monprice's `xN` beside the card is easy to miss. Any card image standing for a card owned more
 than once (in that language) carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and

@@ -225,6 +225,7 @@ const tiles = (page) => page.$$eval('#scan-tray .scan-tile', (list) => list.map(
 	label: tile.getAttribute('aria-label'),
 	qty: (tile.querySelector('.scan-qty') || {}).textContent || null,
 	status: tile.dataset.status,
+	have: (tile.querySelector('.scan-tile-have') || {}).textContent || null,
 	wish: (tile.querySelector('.scan-tile-wish') || {}).textContent || null,
 })));
 
@@ -301,8 +302,15 @@ describe('scanner', () => {
 		// no sheet opens by itself, the first scan included (Eric,
 		// 2026-10-09). A tap on its tile opens it, a check-only scan that
 		// shows the copy already owned.
-		await waitForTray(page, 1, 'Pikachu taken on its own');
+		const [pikachuTile] = await waitForTray(page, 1, 'Pikachu taken on its own');
+
 		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opens by itself');
+		// Owned already (Eric, 2026-11-09: a clearer hint): a strip across
+		// the tile's art, its label, and the notice over the camera, whose
+		// words stay in the page after it hides.
+		assert.equal(pikachuTile.have, '✓ Have 1');
+		assert.match(pikachuTile.label, /already in your cards: 1 in this language/);
+		assert.equal(await text(page, '#scan-owned-note'), '✓ Pikachu: you have 1');
 		assert.equal(await text(page, '#scan-run-count'), 'Add · 1 card', 'the running count over the camera');
 		await openTile(page, 0);
 		await page.waitForSelector('#scan-confirm #scan-sure', {timeout: 60000});

@@ -57,7 +57,7 @@
 // needs to know.
 
 import {catalogFor} from '../catalog.js';
-import {ASIAN_LANGUAGES, LANGUAGE_CODES} from '../languages.js';
+import {ASIAN_LANGUAGES, LANGUAGE_CODES, sortLanguages} from '../languages.js';
 import {newId, nowIso} from '../collection.js';
 import {wishedBy} from '../wishlist.js';
 import {defaultVariantId, findVariant, finishOptions, plainVariantId} from './finish.js';
@@ -1023,18 +1023,20 @@ export function ownedIndex(entries) {
 	return owned;
 }
 
+// How many of this card the person owns: in the scan's language
+// (inLanguage), in all (total), and the languages they own it in.
 export function ownedFor(item, owned) {
 	if (!item.card) {
-		return {inLanguage: 0, total: 0, entries: []};
+		return {entries: [], inLanguage: 0, languages: [], total: 0};
 	}
 
 	const found = owned && owned.get(cardKey(item.card.catalog, item.card.id));
 
 	if (!found) {
-		return {inLanguage: 0, total: 0, entries: []};
+		return {entries: [], inLanguage: 0, languages: [], total: 0};
 	}
 
-	return {entries: found.entries, inLanguage: item.language ? found.byLanguage.get(item.language) || 0 : 0, total: found.total};
+	return {entries: found.entries, inLanguage: item.language ? found.byLanguage.get(item.language) || 0 : 0, languages: sortLanguages([...found.byLanguage.keys()].filter(Boolean)), total: found.total};
 }
 
 const sameCopy = (a, b) => a.card && b.card && a.card.id === b.card.id && a.card.catalog === b.card.catalog && a.language === b.language;

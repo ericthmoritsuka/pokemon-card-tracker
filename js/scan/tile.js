@@ -13,9 +13,14 @@
 // (view.js offers Undo), for a card taken by accident. A valuable card
 // (js/scan/worth.js) has a gold rim and a star with its value under the
 // caption, a rising price an up arrow with its rise; the label says both.
+// A card already owned has a strip across the middle of its art (Eric,
+// 2026-11-09: the ×N corner alone was too easy to miss): "✓ Have 2" with a
+// green rim when owned in the scan's language, an outlined "Have PT" when
+// only in other languages.
 
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
+import {languageChip, languageLabel} from '../languages.js';
 import {blocker, copiesOf, itemFinishChip, needsLook, wishLine} from './session.js';
 import {finishOptions} from './finish.js';
 import {formatBrl} from '../prices.js';
@@ -37,10 +42,10 @@ const FINISH_WORDS = {'1ST': '1st Edition', FOIL: 'foil pattern', HOLO: 'holo', 
 
 const cardLine = (card) => (card ? `${card.name}, ${card.setName || card.setId}, ${Number(card.localId) || card.localId} of ${card.official || '?'}` : 'Unknown card');
 
-// info: {quantity, duplicate, marks, photoUrl, progress}. progress is how
+// info: {quantity, marks, owned, photoUrl, progress}. progress is how
 // far the read of a card still being read has got, 0 to 1, drawn as a bar
-// along the tile's foot.
-export function trayTile(item, {marks = [], photoUrl = null, progress = null, quantity = 1} = {}) {
+// along the tile's foot. owned is session.js ownedFor's answer.
+export function trayTile(item, {marks = [], owned = null, photoUrl = null, progress = null, quantity = 1} = {}) {
 	const reason = blocker(item);
 	const look = needsLook(item);
 	const waiting = item.status === 'waiting';
@@ -54,12 +59,16 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 	const worth = item.card && item.worth ? item.worth : null;
 	const valuable = Boolean(worth && worth.valuable);
 	const rising = Boolean(worth && worth.rising);
+	const have = item.card && owned ? owned.inLanguage : 0;
+	const haveElsewhere = item.card && owned && !have ? owned.languages : [];
 
 	const label = [
 		cardLine(item.card),
 		item.language ? flagLanguageName(item.language) : 'language not set',
 		copies > 1 ? `adds ${copies} copies` : null,
 		quantity > copies ? `${quantity} copies in all` : null,
+		have ? `already in your cards: ${have} in this language` : null,
+		haveElsewhere.length ? `in your cards in ${haveElsewhere.map(languageLabel).join(' and ')} only` : null,
 		chip ? FINISH_WORDS[chip] || option.label : null,
 		valuable ? `valuable, worth about ${formatBrl(worth.brl)}` : null,
 		rising ? `price up ${risePercent(worth.change)}% in 30 days` : null,
@@ -73,6 +82,11 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 			? flagBadge([item.language], {className: 'scan-badge scan-badge-tl'})
 			: h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tl scan-badge-unknown'}, '?'),
 		quantity > copies ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tr scan-qty'}, `×${quantity}`) : null,
+		have
+			? h('span', {'aria-hidden': 'true', class: 'scan-tile-have'}, `✓ Have ${have}`)
+			: haveElsewhere.length
+				? h('span', {'aria-hidden': 'true', class: 'scan-tile-have is-elsewhere'}, `Have ${haveElsewhere.slice(0, 2).map(languageChip).join(' ')}${haveElsewhere.length > 2 ? '+' : ''}`)
+				: null,
 		chip ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-bl scan-finish'}, chip) : null,
 		status ? h('span', {'aria-hidden': 'true', class: `scan-badge scan-badge-br scan-status-${status}`, title: status}, status === 'look' ? '?' : status === 'waiting' ? '☁' : '♥') : null,
 		reason === 'reading' || reason === 'matching' || reason === 'rematch' ? h('span', {'aria-hidden': 'true', class: 'scan-tile-busy'}) : null,
@@ -88,7 +102,7 @@ export function trayTile(item, {marks = [], photoUrl = null, progress = null, qu
 			h('span', {'aria-hidden': 'true'}, '×')),
 		h('button', {
 			'aria-label': label,
-			class: ['scan-tile', look ? 'is-look' : '', waiting ? 'is-waiting' : '', valuable ? 'is-valuable' : ''].filter(Boolean).join(' '),
+			class: ['scan-tile', look ? 'is-look' : '', waiting ? 'is-waiting' : '', valuable ? 'is-valuable' : '', have ? 'is-owned' : ''].filter(Boolean).join(' '),
 			'data-item': item.id,
 			'data-status': reason || 'ready',
 			title: label,

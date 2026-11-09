@@ -331,6 +331,8 @@ const BUZZ_SURE = 40;
 const BUZZ_LOOK = [60, 80, 60];
 // A valuable card (js/scan/worth.js): three short buzzes, unlike the others.
 const BUZZ_VALUABLE = [40, 60, 40, 60, 40];
+// How long the notice that a card is already owned stays over the camera.
+const OWNED_NOTE_MS = 3500;
 
 function buzz(pattern) {
 	if (navigator.vibrate) {
@@ -558,6 +560,11 @@ export function scanView(root) {
 	}});
 
 	// Holder mode's lighting tip, one line, until dismissed (drawTip).
+	// A card already owned, said over the camera as it is matched (tellOwned).
+	// Spoken with the Added line, so hidden from a screen reader here.
+	const ownedNote = h('p', {'aria-hidden': 'true', class: 'scan-owned-note', hidden: true, id: 'scan-owned-note'});
+	let ownedNoteTimer = 0;
+	const toldOwned = new Set();
 	const tip = h('p', {class: 'scan-tip', hidden: true, id: 'scan-tip'},
 		h('span', null, HOLDER_TIP),
 		h('button', {'aria-label': 'Dismiss the lighting tip', class: 'scan-tip-close', id: 'scan-tip-close', onclick: () => {
@@ -569,7 +576,7 @@ export function scanView(root) {
 	// or under the repeat bar, and taking no height from the camera, whose
 	// band over the guide holds the running count.
 	const modeBar = modeSwitch((next) => chooseMode(next));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, tip), finishButton, holderSwitch, repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip), finishButton, holderSwitch, repeatBar, cameraOff);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -912,6 +919,7 @@ export function scanView(root) {
 		tray.replaceChildren(...[...items].reverse().map((item) => trayTile(item, {
 			marks: S.wishMarks(item, family),
 			photoUrl: photoUrls.get(item.id) || null,
+			owned: S.ownedFor(item, owned),
 			progress: progress.get(item.id) ?? null,
 			quantity: S.quantity(session, item, owned),
 		})));
@@ -2216,6 +2224,40 @@ export function scanView(root) {
 		}
 	}
 
+	// A card already in the person's cards, told once as it is matched
+	// (Eric, 2026-11-09: the tray's ×N corner was too easy to miss): a green
+	// notice over the camera for OWNED_NOTE_MS, with how many they have in
+	// the scan's language, or the languages they have it in when none in
+	// that one. In a trade only a card coming in is told, since every card
+	// going out is owned. Returns the sentence for the Added line, or ''.
+	function tellOwned(id) {
+		const item = S.findItem(session, id);
+
+		if (!item || !item.card || toldOwned.has(id) || (T.isTrade(session) && T.sideOf(item) !== 'in')) {
+			return '';
+		}
+
+		const mine = S.ownedFor(item, owned);
+
+		if (!mine.total) {
+			return '';
+		}
+
+		toldOwned.add(id);
+
+		const where = mine.languages.map((code) => flagLanguageName(code)).join(' and ');
+
+		ownedNote.textContent = mine.inLanguage ? `✓ ${item.card.name}: you have ${mine.inLanguage}` : `${item.card.name}: you have it in ${where}`;
+		ownedNote.classList.toggle('is-elsewhere', !mine.inLanguage);
+		ownedNote.hidden = false;
+		clearTimeout(ownedNoteTimer);
+		ownedNoteTimer = setTimeout(() => {
+			ownedNote.hidden = true;
+		}, OWNED_NOTE_MS);
+
+		return mine.inLanguage ? ` You already have ${plural(mine.inLanguage, 'copy', 'copies')} in this language.` : ` You have it in ${where} only.`;
+	}
+
 	// A valuable card, told once: a gold flash, three short buzzes, and the
 	// chime when it is on.
 	function prize(id) {
@@ -2727,7 +2769,7 @@ export function scanView(root) {
 		}
 
 		if (current.card) {
-			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.${tellOwned(id)}`);
 		}
 
 		await loadVariants(id);
@@ -2852,7 +2894,7 @@ export function scanView(root) {
 		const after = S.findItem(session, id);
 
 		if (after.card) {
-			announce(`Added ${after.card.name}${after.language ? `, ${flagLanguageName(after.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.`);
+			announce(`Added ${after.card.name}${after.language ? `, ${flagLanguageName(after.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.${tellOwned(id)}`);
 		}
 
 		localiseLater(id);
