@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
-- **v69:** four ways to see your cards on My Cards.
+- **v69:** four ways to see your cards on My Cards. `a4234d6`
   - A **View** menu under Sort and Filters offers **Large** (two a row, the art big with the name,
     the number as printed, and the value), **Grid** (the tile as before, and the default),
     **Mini** (the art alone, a binder page's worth at a glance), and **List** (a row per card).
