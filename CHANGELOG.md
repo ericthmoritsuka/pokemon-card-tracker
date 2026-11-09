@@ -14,6 +14,17 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
+- **v70:** from a card's page, open its set or every card of its Pokémon.
+  - A card's **Set** opens that set's page, in the card's catalog and language.
+  - A **Pokémon** row links "Every Jigglypuff card": every print of that Pokémon, the same screen
+    a checklist row opens but with no checklist, with All, Owned, and Missing, the owned marks,
+    and one tap to the wishlist. A TAG TEAM card has a link per Pokémon; a Trainer or Energy card
+    has no Pokémon row.
+  - That screen's languages are kept on the phone and start as every language; changing them never
+    makes or changes a checklist.
+  - On a family member's card page the Set link shows but the Pokémon link does not, since that
+    screen shows your own cards.
+
 - **v69:** four ways to see your cards on My Cards.
   - A **View** menu under Sort and Filters offers **Large** (two a row, the art big with the name,
     the number as printed, and the value), **Grid** (the tile as before, and the default),
