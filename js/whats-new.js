@@ -24,7 +24,7 @@ export const RELEASES = [
 		items: [
 			'On a card\'s page, tap its Set to open that set\'s page.',
 			'Tap Every Jigglypuff card, or whichever Pokémon it is, to see every print of that Pokémon with Owned and Missing, no checklist needed.',
-			'That screen keeps its languages on your phone and starts with every language.',
+			'A row of flags at the top shows one language at a time, starting with the card\'s own; a language loads only when you tap its flag.',
 		],
 		version: 'v70',
 	},
