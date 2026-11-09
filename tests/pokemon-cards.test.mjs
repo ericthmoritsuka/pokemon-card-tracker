@@ -438,6 +438,32 @@ describe('without a checklist', () => {
 		assert.equal(cards.readPhoneLanguages(undefined), null);
 	});
 
+	test('storage off where reading window.localStorage itself throws', () => {
+		// Site data blocked: the property read throws, before any method.
+		const own = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+
+		Object.defineProperty(globalThis, 'localStorage', {
+			configurable: true,
+			get() {
+				throw new Error('SecurityError: access is denied for this document');
+			},
+		});
+
+		try {
+			assert.equal(cards.readPhoneLanguages(), null);
+			assert.deepEqual(cards.savePhoneLanguages(['pt']), ['pt']);
+			assert.equal(cards.savePhoneLanguages(null), null);
+		}
+		finally {
+			if (own) {
+				Object.defineProperty(globalThis, 'localStorage', own);
+			}
+			else {
+				delete globalThis.localStorage;
+			}
+		}
+	});
+
 	test('a card\'s Pokédex numbers', () => {
 		const tagTeam = record('en/cards/sm12-165');
 

@@ -594,11 +594,15 @@ export function phoneLanguagesValue(codes) {
 	return list ? list.join(',') : '';
 }
 
+// The phone's localStorage, read inside the callers' try: where site data
+// is blocked, reading window.localStorage itself throws.
+const phoneStorage = (storage) => (storage === undefined ? globalThis.localStorage : storage);
+
 // The languages kept on this phone, null (any) when none are kept or
 // storage is off.
-export function readPhoneLanguages(storage = globalThis.localStorage) {
+export function readPhoneLanguages(storage) {
 	try {
-		return phoneLanguagesFrom(storage.getItem(PHONE_LANGUAGES_KEY));
+		return phoneLanguagesFrom(phoneStorage(storage).getItem(PHONE_LANGUAGES_KEY));
 	}
 	catch {
 		return null;
@@ -608,7 +612,7 @@ export function readPhoneLanguages(storage = globalThis.localStorage) {
 // Keeps the languages on this phone and returns what now counts (null for
 // any). With storage off the choice lasts for this visit only, so the
 // caller holds on to the answer.
-export function savePhoneLanguages(codes, storage = globalThis.localStorage) {
+export function savePhoneLanguages(codes, storage) {
 	if (codes !== null && !cleanListLanguages(codes).length) {
 		throw new Error('Pick at least one language.');
 	}
@@ -617,10 +621,10 @@ export function savePhoneLanguages(codes, storage = globalThis.localStorage) {
 
 	try {
 		if (value) {
-			storage.setItem(PHONE_LANGUAGES_KEY, value);
+			phoneStorage(storage).setItem(PHONE_LANGUAGES_KEY, value);
 		}
 		else {
-			storage.removeItem(PHONE_LANGUAGES_KEY);
+			phoneStorage(storage).removeItem(PHONE_LANGUAGES_KEY);
 		}
 	}
 	catch {
