@@ -106,6 +106,13 @@ async function measure(height) {
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(String(err)));
+	// One English copy of the card is owned already, so the notice that the
+	// card is owned runs while the label read moves the card from
+	// Portuguese, where it starts, to English.
+	await page.goto(`${harness.origin}${BASE}cards`);
+	await page.evaluate(async (card) => {
+		await (await import('/pokemon-card-tracker/js/collection.js')).addCard({card_id: card, catalog: 'international', language: 'en'});
+	}, CARD);
 	await page.goto(`${harness.origin}${BASE}scan`);
 	await page.waitForSelector('#scan-guide:not([hidden])', {timeout: 30000});
 	await page.waitForFunction(() => document.getElementById('scan-video').videoWidth > 0);
@@ -179,15 +186,17 @@ async function measure(height) {
 		return item ? {card: item.card && item.card.id, label: item.labelCheck || null, language: item.language, languageBy: item.languageBy, name: item.card && item.card.name, report: item.report || null, sure: item.sure} : null;
 	});
 
+	const ownedNote = await page.locator('#scan-owned-note').textContent();
+
 	await context.close();
 
-	return {boxes, captured, capturedLooks, errors, looks: loop.looks, report, settled};
+	return {boxes, captured, capturedLooks, errors, looks: loop.looks, ownedNote, report, settled};
 }
 
 describe('the guide with a portrait camera (Eric\'s phone, 2026-10-03)', () => {
 	for (const height of [700, 730, 780]) {
 		test(`384 x ${height}: the whole guide shows, and a card held to it is captured and read`, async () => {
-			const {boxes, captured, capturedLooks, errors, looks, report, settled} = await measure(height);
+			const {boxes, captured, capturedLooks, errors, looks, ownedNote, report, settled} = await measure(height);
 			const {guide, stage} = boxes;
 			const picture = report && report.report && report.report.picture;
 			const rectify = report && report.report && report.report.rectify;
@@ -219,6 +228,9 @@ describe('the guide with a portrait camera (Eric\'s phone, 2026-10-03)', () => {
 			assert.equal(report.label && report.label.code, 'en');
 			assert.equal(report.language, 'en');
 			assert.equal(report.languageBy, 'read');
+			// The notice told as the card matched, in Portuguese, was taken
+			// back and told again in English, where the copy is.
+			assert.equal(ownedNote, `✓ ${report.name}: you have 1`);
 			assert.match(report.report.geometry.capture, /^\d+ x \d+ at \d+, \d+$/);
 		});
 	}

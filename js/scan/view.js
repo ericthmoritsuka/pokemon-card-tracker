@@ -564,6 +564,9 @@ export function scanView(root) {
 	// Spoken with the Added line, so hidden from a screen reader here.
 	const ownedNote = h('p', {'aria-hidden': 'true', class: 'scan-owned-note', hidden: true, id: 'scan-owned-note'});
 	let ownedNoteTimer = 0;
+	// Which tray card the notice is about, so a language read later can
+	// take it back (retellOwned).
+	let ownedNoteFor = null;
 	const toldOwned = new Set();
 	const tip = h('p', {class: 'scan-tip', hidden: true, id: 'scan-tip'},
 		h('span', null, HOLDER_TIP),
@@ -2250,12 +2253,39 @@ export function scanView(root) {
 		ownedNote.textContent = mine.inLanguage ? `✓ ${item.card.name}: you have ${mine.inLanguage}` : `${item.card.name}: you have it in ${where}`;
 		ownedNote.classList.toggle('is-elsewhere', !mine.inLanguage);
 		ownedNote.hidden = false;
+		ownedNoteFor = id;
 		clearTimeout(ownedNoteTimer);
 		ownedNoteTimer = setTimeout(() => {
 			ownedNote.hidden = true;
+			ownedNoteFor = null;
 		}, OWNED_NOTE_MS);
 
 		return mine.inLanguage ? ` You already have ${plural(mine.inLanguage, 'copy', 'copies')} in this language.` : ` You have it in ${where} only.`;
+	}
+
+	// The language label read behind the match changed the card's language
+	// (checkLabelLater): what the notice said may no longer hold, since it
+	// counted copies in the language the card started in. Take it back and
+	// tell again in the new language, or, when the card is looked up again
+	// in another catalog (lookAgain), leave it untold: its tile says it.
+	function retellOwned(id, {lookAgain = false} = {}) {
+		if (ownedNoteFor === id) {
+			clearTimeout(ownedNoteTimer);
+			ownedNote.hidden = true;
+			ownedNoteFor = null;
+		}
+
+		toldOwned.delete(id);
+
+		if (lookAgain) {
+			return;
+		}
+
+		const said = tellOwned(id);
+
+		if (said) {
+			announce(said.trim());
+		}
 	}
 
 	// A valuable card, told once: a gold flash, three short buzzes, and the
@@ -2965,10 +2995,17 @@ export function scanView(root) {
 				return;
 			}
 
+			const languageBefore = later.language;
 			const changed = scannerChange(id, () => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage(), category, western: lastLanguage()}));
 
 			if (changed) {
-				if (S.needsRematch(S.findItem(session, id))) {
+				const lookAgain = S.needsRematch(S.findItem(session, id));
+
+				if (S.findItem(session, id).language !== languageBefore) {
+					retellOwned(id, {lookAgain});
+				}
+
+				if (lookAgain) {
 					rematchItem(id);
 				}
 				else {
