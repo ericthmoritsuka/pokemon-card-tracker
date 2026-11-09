@@ -356,13 +356,18 @@ describe('sign in', () => {
 		assert.equal(await page.locator('h2').textContent(), 'Profile');
 		assert.equal(await page.locator('#profile-signin h3').textContent(), 'Sign in');
 
-		// Profile asks the project about Google on opening, without the email
-		// field being focused (Eric, 2026-11-09: the button only showed once
-		// the field was tapped). Google stays hidden: the settings say it is
-		// off.
-		await page.waitForFunction(() => performance.getEntriesByType('resource').some((entry) => entry.name.endsWith('/auth/v1/settings')));
+		// Continue with Google shows at once, nothing focused (Eric,
+		// 2026-11-09: it only showed once the email field was tapped), yet
+		// opening Profile contacts no one: the project is asked on the tap.
+		assert.ok(await page.locator('#signin-google').isVisible(), 'Google shows without a tap on the email field');
 		await page.waitForTimeout(200);
+		assert.equal(fake.log.filter((entry) => entry.path === '/auth/v1/settings').length, 0, 'opening Profile contacts no one');
+
+		// Here the settings say Google is off: the tap says so and hides it.
+		await page.click('#signin-google');
+		await page.waitForSelector('.form-error:has-text("Google sign-in is not available")');
 		assert.ok(await page.locator('#signin-google').isHidden());
+		assert.ok(!page.url().includes('authorize'), 'never leaves for an error page');
 
 		const text = (await page.locator('main').textContent()).toLowerCase();
 

@@ -64,10 +64,13 @@ export {memberName};
 // The email link form and, when the project turns it on, Google, with a
 // way to the name and password form. Returns {element, stop}; Profile shows
 // it at the top when signed out, and the signin route shows it alone.
-// Google is looked up as soon as the panel shows, in both: waiting for the
-// email field to be focused hid the button from anyone who came to sign in
-// with Google (Eric, 2026-11-09).
-function signInPanel() {
+// Profile (onIntent) shows Continue with Google at once and asks the project
+// whether Google is on only when it is tapped, so browsing Profile signed
+// out contacts no one; until v68 the button waited for the email field to be
+// focused, which hid it from anyone who came to sign in with Google (Eric,
+// 2026-11-09). The signin route asks as it opens and shows the button only
+// when Google is on.
+function signInPanel({onIntent = false} = {}) {
 	let alive = true;
 	let lastSent = 0;
 	let sentTo = '';
@@ -102,8 +105,8 @@ function signInPanel() {
 			value: sentTo,
 		});
 		const send = h('button', {class: 'primary', type: 'submit'}, 'Send link');
-		const google = h('button', {hidden: true, id: 'signin-google', onclick: withGoogle, type: 'button'}, 'Continue with Google');
-		const or = h('p', {class: 'muted or', hidden: true}, 'or');
+		const google = h('button', {hidden: !onIntent, id: 'signin-google', onclick: withGoogle, type: 'button'}, 'Continue with Google');
+		const or = h('p', {class: 'muted or', hidden: !onIntent}, 'or');
 		const error = h('p', {class: 'form-error', role: 'alert'});
 		const withPassword = h('button', {class: 'link-button', id: 'signin-use-password', onclick: passwordForm, type: 'button'}, 'Sign in with a name and password');
 
@@ -142,6 +145,18 @@ function signInPanel() {
 			error.textContent = '';
 			google.disabled = true;
 
+			// Shown before the project was asked: ask now, and say so
+			// rather than leave for an error page when Google is off.
+			if (onIntent && !(await googleEnabled())) {
+				if (alive) {
+					error.textContent = 'Google sign-in is not available. Use your email instead.';
+					google.hidden = true;
+					or.hidden = true;
+				}
+
+				return;
+			}
+
 			try {
 				// Leaves the page for Google, then comes back with ?code=.
 				await signInWithGoogle();
@@ -174,7 +189,9 @@ function signInPanel() {
 			}
 		});
 
-		showGoogle();
+		if (!onIntent) {
+			showGoogle();
+		}
 	}
 
 	// For a family member with no email: the account name and password the
@@ -357,7 +374,7 @@ export function profileView(root) {
 	if (!user) {
 		// Signed out, the sign-in panel comes first, then everything that
 		// works on this phone alone.
-		const panel = signInPanel();
+		const panel = signInPanel({onIntent: true});
 		const theme = themeCard(false);
 		const version = versionLine();
 
