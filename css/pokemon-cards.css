@@ -155,9 +155,28 @@
 }
 
 /* Its sheet: the languages to pick, as the list's languages editor shows
-   them, scrolling inside the sheet at large text. */
-.pc-goal-sheet {
+   them. The title and the buttons stay in sight, and the languages scroll
+   between them on a short screen or at large text; two columns only where
+   "Chinese (Traditional)" fits in each. */
+.pc-goal-sheet[open] {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.pc-goal-body {
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.pc-goal-sheet .pc-language-choices {
+	grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.pc-goal-buttons {
+	flex: none;
 }
 
 .pc-goal-about {

@@ -378,20 +378,24 @@ export function goalControl({language, n, name}) {
 				h('h2', {id: `${id}-title`}, `Make ${species} a goal`),
 				h('button', {class: 'small', id: 'pc-goal-close', onclick: () => dialog.close(), type: 'button'}, 'Close')
 			),
-			h('p', {class: 'muted pc-goal-about'}, `Every ${species} card in the languages you pick, in Lists with what you own and what is missing. A card counts as owned for a copy in one of them.`),
-			h('fieldset', {class: 'pc-language-editor pc-goal-languages', id: 'pc-goal-languages'},
-				h('legend', null, 'Languages'),
-				h('div', {class: 'pc-language-choices'},
-					h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
-					boxes.map((box) => h('label', {class: 'pc-language-choice'},
-						box,
-						flagBadge([box.value], {className: 'flags-inline', prefix: null}),
-						h('span', null, languageLabel(box.value))
-					))
-				)
+			// The title and the buttons stay in sight; the languages scroll
+			// between them on a short screen or at large text.
+			h('div', {class: 'pc-goal-body'},
+				h('p', {class: 'muted pc-goal-about'}, `Every ${species} card in the languages you pick, in Lists with what you own and what is missing. A card counts as owned for a copy in one of them.`),
+				h('fieldset', {class: 'pc-language-editor pc-goal-languages', id: 'pc-goal-languages'},
+					h('legend', null, 'Languages'),
+					h('div', {class: 'pc-language-choices'},
+						h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
+						boxes.map((box) => h('label', {class: 'pc-language-choice'},
+							box,
+							flagBadge([box.value], {className: 'flags-inline', prefix: null}),
+							h('span', null, languageLabel(box.value))
+						))
+					)
+				),
+				error
 			),
-			error,
-			h('div', {class: 'button-row'}, h('button', {onclick: () => dialog.close(), type: 'button'}, 'Cancel'), create)
+			h('div', {class: 'button-row pc-goal-buttons'}, h('button', {onclick: () => dialog.close(), type: 'button'}, 'Cancel'), create)
 		);
 
 		create.addEventListener('click', async () => {
