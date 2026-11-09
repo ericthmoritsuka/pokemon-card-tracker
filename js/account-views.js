@@ -63,9 +63,11 @@ export {memberName};
 
 // The email link form and, when the project turns it on, Google, with a
 // way to the name and password form. Returns {element, stop}; Profile shows
-// it at the top when signed out (onIntent: Google is looked up when the
-// email field is first focused), and the signin route shows it alone.
-function signInPanel({onIntent = false} = {}) {
+// it at the top when signed out, and the signin route shows it alone.
+// Google is looked up as soon as the panel shows, in both: waiting for the
+// email field to be focused hid the button from anyone who came to sign in
+// with Google (Eric, 2026-11-09).
+function signInPanel() {
 	let alive = true;
 	let lastSent = 0;
 	let sentTo = '';
@@ -172,15 +174,7 @@ function signInPanel({onIntent = false} = {}) {
 			}
 		});
 
-		// In Profile, the project is asked about Google only once the person
-		// starts to sign in, so browsing Profile signed out never contacts
-		// Supabase. The button appears below the field being filled in.
-		if (onIntent) {
-			email.addEventListener('focus', showGoogle, {once: true});
-		}
-		else {
-			showGoogle();
-		}
+		showGoogle();
 	}
 
 	// For a family member with no email: the account name and password the
@@ -363,7 +357,7 @@ export function profileView(root) {
 	if (!user) {
 		// Signed out, the sign-in panel comes first, then everything that
 		// works on this phone alone.
-		const panel = signInPanel({onIntent: true});
+		const panel = signInPanel();
 		const theme = themeCard(false);
 		const version = versionLine();
 

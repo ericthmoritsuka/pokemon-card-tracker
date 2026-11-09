@@ -356,13 +356,10 @@ describe('sign in', () => {
 		assert.equal(await page.locator('h2').textContent(), 'Profile');
 		assert.equal(await page.locator('#profile-signin h3').textContent(), 'Sign in');
 
-		// Profile asks the project about Google once the person starts to
-		// sign in, not on opening.
-		await page.waitForTimeout(200);
-		assert.equal(fake.log.filter((entry) => entry.path === '/auth/v1/settings').length, 0, 'opening Profile contacts no one');
-		await page.focus('#signin-email');
-
-		// Google stays hidden: the settings say it is off.
+		// Profile asks the project about Google on opening, without the email
+		// field being focused (Eric, 2026-11-09: the button only showed once
+		// the field was tapped). Google stays hidden: the settings say it is
+		// off.
 		await page.waitForFunction(() => performance.getEntriesByType('resource').some((entry) => entry.name.endsWith('/auth/v1/settings')));
 		await page.waitForTimeout(200);
 		assert.ok(await page.locator('#signin-google').isHidden());
@@ -454,6 +451,11 @@ describe('sign in', () => {
 		fake.googleUser = owner;
 
 		const {context, errors, page} = await device(fake, 'phone');
+
+		// Profile signed out shows it straight away, with nothing focused.
+		await page.goto(url('profile'));
+		await page.waitForSelector('#signin-google:not([hidden])');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'signin-email');
 
 		await page.goto(url('signin'));
 		await page.waitForSelector('#signin-google:not([hidden])');
