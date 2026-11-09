@@ -1706,6 +1706,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		await page.waitForFunction(() => /The Japanese prints are not on this phone yet\./.test(document.getElementById('goal-status')?.textContent || ''), null, {timeout: 20000});
 		assert.equal(await page.locator('#goal-status').textContent(), 'The Japanese prints are not on this phone yet. The count is of the cards read so far; open this goal with a connection to read the rest.');
 		assert.equal(await page.locator('#goal-summary').textContent(), '4 of 37 cards owned, 33 missing.');
+		assert.equal(await page.locator('#goal-meta .goal-ring').count(), 0, 'no ring on its screen either');
 
 		// Online, with one Japanese set's details refused.
 		net.offline = false;
@@ -1754,9 +1755,15 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		await goInApp(page, `goals/${goal.id}`);
 		await page.waitForSelector('#goal-retry', {timeout: 20000});
 		assert.match(await page.locator('#goal-status').textContent(), /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The count is of the cards read so far \(.+\)\. Try again$/);
+		assert.equal(await page.locator('#goal-meta .goal-ring').count(), 0);
+
+		// Read whole, the ring is back.
+		await context.unroute(sv2aDetails, refuse);
+		await page.click('#goal-retry');
+		await page.waitForSelector('#goal-meta .goal-ring', {timeout: 20000});
+		assert.equal(await page.locator('#goal-meta .goal-ring').getAttribute('aria-label'), '5 of 54 cards owned');
 
 		// The set readable again: the whole list, the same pockets.
-		await context.unroute(sv2aDetails, refuse);
 		await goInApp(page, `binders/${made}`);
 		await page.waitForSelector('#binder-refresh:not([hidden])');
 		await page.click('#binder-refresh');

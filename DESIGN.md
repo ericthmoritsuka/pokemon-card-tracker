@@ -2222,8 +2222,8 @@ edited on its screen, and **Make a binder**. The Japanese, Korean, and Chinese c
 rarity, so their prints are offered under **Rarity not listed** in the rarity choice rather than
 hidden by every rarity picked. When a catalog the goal needs is not on the phone, or some of its
 sets or the set index cannot be read, the goal's status names the part missing ("The Japanese prints
-are not on this phone yet.") beside the count of the cards read and Try again, and Lists shows no
-ring for it, since a count of the part read would hide the rest. A catalog counts as missing only
+are not on this phone yet.") beside the count of the cards read and Try again, and neither Lists nor
+the goal's own screen shows a ring for it, since a count of the part read would hide the rest. A catalog counts as missing only
 when its download failed and no copy of its list is on the phone; a stale list kept on the phone is
 read as usual. **To be turned into binders:** New binder from a list offers it with the other goals, one
 pocket per print, owned copies filling theirs and the rest placeholders that fill once a copy is

@@ -374,7 +374,9 @@ function goalScreen(root, source, id) {
 			parts.push(languageLabel(catalogLanguage(goal.catalog)));
 		}
 
-		meta.replaceChildren(parts.join(' · '), ...(result && !result.missingList ? [' ', progressRing(goal, result.tally)] : []));
+		// No ring for a goal read only in part, as in Lists: "4 of 37" would
+		// hide the prints not read. The status line says which part.
+		meta.replaceChildren(parts.join(' · '), ...(result && !result.missingList && !result.incomplete ? [' ', progressRing(goal, result.tally)] : []));
 
 		if (result && !result.missingList) {
 			const [one, many] = unitOf(goal);
