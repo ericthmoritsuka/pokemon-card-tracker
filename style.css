@@ -2946,26 +2946,30 @@ progress {
 	overflow-wrap: anywhere;
 }
 
-/* The facts, each label over its value. Number and Rarity, short, share a
-   line where the column fits two of them at 4.75 em each, as on a phone
-   wider than about 320 px at normal text size; larger text stacks them
-   again rather than break "001 / 131" in two. The grid's row gap is the
-   space above each label, so the first one adds none. */
+/* The facts, each label over its value, each on a line of its own. Number
+   and Rarity share one only where both fit whole: a flex line takes the
+   pair at their widths unwrapped, and wraps Rarity under Number when they
+   do not fit ("Special Illustration Rare" on a small phone, or any rarity
+   at large text), so neither value ever breaks to make room. No word is
+   broken either: a value wraps between words, and splits one only when
+   that word alone is wider than the column. The row gap is the space
+   above each label, so the first one adds none. */
 .card-detail .facts {
-	display: grid;
+	column-gap: var(--space-3);
+	display: flex;
+	flex-wrap: wrap;
 	font: var(--type-small);
-	gap: var(--space-1) var(--space-3);
-	grid-template-columns: repeat(auto-fill, minmax(4.75em, 1fr));
 	margin: 0;
+	row-gap: var(--space-1);
 }
 
 .card-detail .facts .fact {
-	grid-column: 1 / -1;
+	flex: 1 1 100%;
 	min-width: 0;
 }
 
 .card-detail .facts .fact-pair {
-	grid-column: auto;
+	flex: 1 1 auto;
 }
 
 .card-detail .facts dt {
@@ -2973,7 +2977,7 @@ progress {
 }
 
 .card-detail .facts dd {
-	overflow-wrap: anywhere;
+	overflow-wrap: break-word;
 }
 
 /* The set as a link to its cards. The padding reaches the 48 px target and
