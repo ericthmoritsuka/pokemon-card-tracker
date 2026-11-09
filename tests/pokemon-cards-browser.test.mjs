@@ -1129,6 +1129,39 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await context.close();
 	});
 
+	// The Korean flag counts the Japanese prints too, so it says loading
+	// until both lists are in, not "not loaded" once its own (empty) one is.
+	test('the Korean flag says loading while the Japanese list it counts is still loading', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		let open;
+		const held = new Promise((resolve) => {
+			open = resolve;
+		});
+		const seen = {ko: false};
+
+		await context.route((target) => /\/v2\/ja\/cards$/.test(target.pathname), async (route) => {
+			await held;
+			await route.fallback();
+		});
+		await context.route((target) => /\/v2\/ko\/cards$/.test(target.pathname), async (route) => {
+			seen.ko = true;
+			await route.fallback();
+		});
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('pokemon/39/pt'));
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+		await page.click('#pc-flag-ko');
+		await page.waitForSelector('.pc-section[data-catalog="ko"] .pc-none', {timeout: 20000});
+		assert.equal(seen.ko, true);
+		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '', 'Korean, loading']);
+		assert.deepEqual(await flag(page, 'ja'), ['ja', 'false', '', 'Japanese, loading']);
+		open();
+		await page.waitForFunction(() => document.getElementById('pc-flag-ko')?.getAttribute('aria-label') === 'Korean, 17 cards', null, {timeout: 20000});
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	// The flags draw before the person's cards are read: a flag tapped in
 	// that moment shows pressed at once.
 	test('a flag tapped before the cards are read shows pressed', {timeout: TEST_TIMEOUT}, async () => {

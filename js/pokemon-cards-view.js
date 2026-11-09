@@ -862,9 +862,11 @@ function screen(root, source, listId, dexParam, langParam = null) {
 
 		// Loading only while a request is out: a list that is not on the
 		// phone, offline, says not loaded, and its flag loads it on a tap.
+		// A flag waits on every catalog it counts (Korean on the Japanese
+		// one too, flagCount), so it is loading while any of them is.
 		for (const [code, button] of flagButtons) {
 			const count = flagCount(code, catalogs);
-			const loading = count === null && pending.has(catalogFor(code));
+			const loading = count === null && catalogsFor([code]).some((catalog) => pending.has(catalog));
 
 			button.setAttribute('aria-pressed', String(code === chosen));
 			button.setAttribute('aria-label', `${languageLabel(code)}, ${count !== null ? plural(count, 'card', 'cards') : loading ? 'loading' : 'not loaded'}`);
