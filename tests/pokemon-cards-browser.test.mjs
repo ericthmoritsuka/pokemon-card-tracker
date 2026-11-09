@@ -121,6 +121,18 @@ function finishesOf(detail) {
 
 const INTERNATIONAL_FINISHES = PHYSICAL.reduce((sum, card) => sum + finishesOf(FIXTURES.cards[`en/cards/${card.id}`]), 0);
 
+// What the card page's links need beyond the recordings: the 151 set's
+// record, cut to the one Jigglypuff card (made up from the card's own set
+// fields), and a Trainer card from the same set, invented.
+const SET_151 = {
+	...FIXTURES.cards['en/cards/sv03.5-039'].set,
+	cards: [{id: 'sv03.5-039', image: FIXTURES.cards['en/cards/sv03.5-039'].image, localId: '039', name: 'Jigglypuff'}],
+	releaseDate: '2023-09-22',
+	serie: {id: 'sv', name: 'Scarlet & Violet'},
+};
+const TRAINER = {category: 'Trainer', id: 'sv03.5-196', illustrator: 'Test Artist', image: null, localId: '196', name: 'Test Trainer', rarity: 'Uncommon', set: FIXTURES.cards['en/cards/sv03.5-039'].set, trainerType: 'Supporter', variants: {normal: true, reverse: true}};
+const EXTRA = {'en/cards/sv03.5-196': TRAINER, 'en/sets/sv03.5': SET_151};
+
 async function fakeServices(context, counts, net) {
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 
@@ -174,7 +186,7 @@ async function fakeServices(context, counts, net) {
 			return reply(FIXTURES.jaSets[decodeURIComponent(jaSet[1])]);
 		}
 
-		const card = FIXTURES.cards[decodeURIComponent(path)];
+		const card = FIXTURES.cards[decodeURIComponent(path)] || EXTRA[decodeURIComponent(path)];
 
 		if (card) {
 			counts.cards++;
@@ -648,12 +660,148 @@ describe('every card of a Pokémon', () => {
 		assert.match(await page.locator('#card-position').textContent(), /of 37$/);
 		assert.equal(await page.locator('.view-only').count(), 1);
 
+		// Its set opens with the lens on, as Back would; every card of the
+		// Pokémon shows your own cards, so the member's card page has no
+		// link to it.
+		await page.waitForSelector('#card-set-link');
+		assert.equal(await page.locator('#card-set-link').getAttribute('href'), `${BASE}sets/en/sv03.5`);
+		assert.equal(await page.locator('.facts a[id^="card-pokemon-"]').count(), 0);
+
 		// Viewing changed nothing on this phone.
 		const doc = await localDoc(page);
 
 		assert.equal(doc.goals.length, 0);
 		assert.equal(doc.wishlist.length, 0);
 		assert.equal(counts.bulk, 1);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+describe('every card of a Pokémon from the card page, without a list', () => {
+	const KEY = 'cardTracker.pokemonLanguages';
+
+	test('the Set and Pokémon links, the screen in every language, and its languages kept on the phone', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, []));
+
+		// The set's name opens the set's page, in the card's language.
+		await page.goto(url('cards/en/sv03.5-039'));
+		await page.waitForSelector('#card-set-link');
+		assert.equal(await page.locator('#card-set-link').textContent(), '151');
+		assert.equal(await page.locator('#card-set-link').getAttribute('href'), `${BASE}sets/en/sv03.5`);
+		await page.waitForSelector('#card-pokemon-39');
+		await page.waitForFunction(() => document.getElementById('card-pokemon-39').textContent === 'Every Jigglypuff card');
+		await page.screenshot({path: `${SHOTS}-card-links.png`});
+
+		const setBox = await page.locator('#card-set-link').boundingBox();
+		const pokemonBox = await page.locator('#card-pokemon-39').boundingBox();
+
+		assert.ok(setBox.height >= 48 && pokemonBox.height >= 48, `targets ${setBox.height} and ${pokemonBox.height} px tall`);
+		await page.click('#card-set-link');
+		await page.waitForURL(`**${BASE}sets/en/sv03.5`);
+		await page.waitForSelector('#view h2:has-text("151")');
+		await page.waitForSelector('#view .card-grid a.tile');
+		await page.goBack();
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+
+		// The Pokémon link opens every card of Jigglypuff with no list: every
+		// language by default, so the Japanese and Traditional Chinese prints
+		// too, and a copy in any language counts (the English Darkness Ablaze
+		// one among them).
+		await page.click('#card-pokemon-39');
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await waitForTitle(page, 'Jigglypuff, 5 of 58 cards');
+		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
+		assert.equal(await page.locator('#pc-back').textContent(), '‹ Back');
+		assert.deepEqual(await page.locator('.pc-heading').allTextContents(), ['International prints', 'Japanese prints', 'Korean prints', 'Chinese (Simplified) prints', 'Chinese (Traditional) prints']);
+		assert.equal((await cellIds(page)).length, 37);
+		assert.equal((await cellIds(page, 'ja')).length, 17);
+		assert.equal((await cellIds(page, 'zh-tw')).length, 4);
+		assert.deepEqual(await flagsOf(page, 'sv03.5-039'), ['pt', 'en']);
+		assert.deepEqual(await flagsOf(page, 'swsh3-67'), ['en']);
+		assert.equal(await page.locator('.pc-cell[data-card="me02-076"] .tile.unowned').count(), 1);
+		assert.equal(await page.locator('.pc-cell[data-card="me02-076"] .pc-wish').textContent(), 'Add to wishlist');
+		assert.equal(await page.evaluate((key) => localStorage.getItem(key), KEY), null, 'nothing kept until changed');
+
+		// Owned and Missing.
+		await page.click('#pc-filter label:has-text("Owned")');
+		assert.deepEqual((await cellIds(page)).sort(), ['base2-54', 'sm12-165', 'sv03.5-039', 'swsh3-67']);
+		assert.deepEqual(await cellIds(page, 'ja'), ['SV2a-039']);
+		await page.click('#pc-filter label:has-text("Missing")');
+		assert.equal((await cellIds(page)).length, 33);
+		assert.equal(await page.locator('.pc-cell.pc-owned').count(), 0);
+
+		// One tap puts a missing card on the wishlist, in any language.
+		await page.click('.pc-cell[data-card="xy1-87"] .pc-wish');
+		await page.waitForSelector('.pc-cell[data-card="xy1-87"] .pc-wished');
+
+		const wishes = (await localDoc(page)).wishlist.filter((item) => !item.deleted_at);
+
+		assert.deepEqual(wishes.map((item) => [item.card_id, item.language]), [['xy1-87', null]]);
+		await page.click('#pc-filter label:has-text("All")');
+
+		// Portuguese only: kept on the phone, not on any list.
+		await page.click('#list-languages-edit');
+		assert.equal(await page.locator('#list-languages-editor legend').textContent(), 'Languages to show');
+		assert.ok(await page.locator('#list-languages-any').isChecked());
+		await page.check('#list-languages-editor input[value="pt"]');
+		await page.click('#list-languages-save');
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+		assert.equal(await page.locator('.pc-heading').count(), 0);
+		assert.equal(await page.evaluate((key) => localStorage.getItem(key), KEY), 'pt');
+		assert.deepEqual((await localDoc(page)).goals, [], 'no list was made');
+		await page.reload();
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+		assert.deepEqual(await page.locator('#list-languages img.flag').evaluateAll((flags) => flags.map((flag) => flag.dataset.lang)), ['pt']);
+
+		// A tile opens the card page with this grid as its swipe context, and
+		// Back returns to the screen.
+		await page.click('.pc-cell[data-card="me02-076"] a.tile');
+		await page.waitForURL(`**${BASE}cards/en/me02-076`);
+		await page.waitForSelector('#card-position');
+		assert.equal(await page.locator('#card-position').textContent(), '1 of 37');
+		await page.goBack();
+		await page.waitForURL(`**${BASE}pokemon/39`);
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+
+		// Any language again removes the key.
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		await page.click('#list-languages-save');
+		await waitForTitle(page, 'Jigglypuff, 5 of 58 cards');
+		assert.equal(await page.evaluate((key) => localStorage.getItem(key), KEY), null);
+
+		// The screen's Back returns to the card page it was opened from.
+		await page.goto(url('cards/en/sv03.5-039'));
+		await page.click('#card-pokemon-39');
+		await waitForTitle(page, 'Jigglypuff, 5 of 58 cards');
+		await page.click('#pc-back');
+		await page.waitForURL(`**${BASE}cards/en/sv03.5-039`);
+
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a TAG TEAM card links each Pokémon, and a Trainer has no Pokémon row', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith([], []));
+		await page.goto(url('cards/en/sm12-165'));
+		await page.waitForSelector('#card-pokemon-428');
+		await page.waitForFunction(() => document.getElementById('card-pokemon-428').textContent === 'Every Lopunny card');
+		assert.deepEqual(await page.locator('.facts a[id^="card-pokemon-"]').allTextContents(), ['Every Jigglypuff card', 'Every Lopunny card']);
+		assert.equal(await page.locator('#card-pokemon-428').getAttribute('href'), `${BASE}pokemon/428`);
+		await page.screenshot({path: `${SHOTS}-card-tag-team.png`});
+
+		await page.goto(url('cards/en/sv03.5-196'));
+		await page.waitForSelector('.facts');
+		await page.waitForSelector('#card-set-link');
+		assert.deepEqual(await page.locator('.facts dt').allTextContents(), ['Set', 'Number', 'Rarity', 'Illustrator', 'Catalog']);
+		assert.equal(await page.locator('.facts a[id^="card-pokemon-"]').count(), 0);
+		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

@@ -2961,6 +2961,23 @@ progress {
 	overflow-wrap: anywhere;
 }
 
+/* The set and the Pokémon as links to their cards. The padding reaches the
+   48 px target and the margin takes it back, so the facts keep their
+   spacing. Several Pokémon (a TAG TEAM card) are one per line. */
+.card-detail .fact-link {
+	display: inline-block;
+	margin: -14px 0;
+	padding: 14px 0;
+}
+
+.card-detail .fact-line {
+	display: block;
+}
+
+.card-detail .fact-line + .fact-line {
+	margin-top: var(--space-2);
+}
+
 .card-detail .copies,
 .card-detail .variants-section {
 	border-top: 1px solid var(--border);

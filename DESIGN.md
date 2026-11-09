@@ -2092,6 +2092,23 @@ Portuguese copy shows Brazil, both show Brazil and the United States), and none 
 *(Languages per list by Eric, 2026-10-01.)*
 *(Planned 2026-10-01, a block after the shell.)*
 
+**Set and Pokémon links on the card page** (Eric, 2026-11-09: "I generally open the pokedex
+project so I can look at all the cards for that specific pokemon ... We should have a way to see
+the cards from that set and the cards from that specific pokemon too"). Rather than link the
+Pokédex app, which stays a separate app (section 1), card detail's **Set** value opens that set's
+page in the card's catalog and language, as Back does, and a **Pokémon** row links "Every
+Jigglypuff card" to the same screen a checklist row opens, without a list (`pokemon/<dex>`). A
+TAG TEAM card has one link per Pokédex number; a Trainer or Energy card has no row. The name is
+the species' English name, as the screen's title says it, from the names the phone keeps. With no
+list there are no list languages, so the screen's languages are kept on the phone
+(`cardTracker.pokemonLanguages`) and default to **every language**: every catalog's prints, and a
+copy in any language counts, as a list with no `languages` field does. Changing them never makes
+or changes a list. The rest is the list screen's own: All, Owned, and Missing, the owned marks and
+flags, missing cards dimmed with one tap to the wishlist, Count every finish, and the grid as the
+card page's swipe context. Owned always means your own cards, so the Pokémon link shows on your
+own card page only: following it from a family member's card would end their lens. The Set link
+shows on theirs too, and keeps it.
+
 A set or artist goal counts ownership in any language unless it names languages, the same rule
 as the set tile rings. Prismatic Evolutions shows
 why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants

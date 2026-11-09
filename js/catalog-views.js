@@ -14,7 +14,7 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
-import {regionTag, speciesNames} from './checklists.js';
+import {nameOf, regionTag, speciesNames} from './checklists.js';
 import {parseCardQuery, searchOnline, searchSaved} from './card-search.js';
 import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
@@ -41,6 +41,7 @@ import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
+import {cardDexIds, pokemonCardsRoute} from './pokemon-cards.js';
 import {addToBinderButton} from './binder-hand.js';
 import {cardHistory, historyLine, setPendingMove} from './moves.js';
 
@@ -1078,6 +1079,38 @@ export function cardView(root, {lang, cardId}) {
 		return value ? [h('dt', null, label), h('dd', null, value)] : [];
 	}
 
+	// The set's name, opening the set's page in this card's catalog and
+	// language, as Back and the Sets tab open it.
+	function setLink(set, setName) {
+		if (!setName || !set.id) {
+			return setName;
+		}
+
+		return link(routeTo('sets', lang, set.id), {class: 'fact-link', id: 'card-set-link'}, setName);
+	}
+
+	// Every card of each Pokémon the card shows (pokemon/<dex>; Eric,
+	// 2026-11-09), one link per Pokédex number, so a TAG TEAM card has two.
+	// The species' English name, as that screen's title says it, from the
+	// names the phone keeps (js/checklists.js speciesNames, read once per
+	// device); while they load, a card of one Pokémon uses the name shown
+	// above. Your own card page only: the screen shows your own cards, so it
+	// ends a family member's lens, and Back would then show this card with
+	// your copies rather than theirs.
+	function pokemonLinks(card, name) {
+		const numbers = member ? [] : cardDexIds(card);
+
+		if (!numbers.length) {
+			return null;
+		}
+
+		const tables = loadedSpeciesNames(redrawNames);
+		const species = (n) => (tables && tables.en && tables.en[n]) || (numbers.length === 1 ? name : nameOf(null, n));
+
+		return numbers.map((n) => h('span', {class: 'fact-line'},
+			link(pokemonCardsRoute(n), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}, `Every ${species(n)} card`)));
+	}
+
 	// The names the source gave the owner's copies, when every copy of this
 	// card is one the catalog has no names for in its language (a Korean
 	// copy on a Japanese record). Null shows the catalog's names.
@@ -1154,9 +1187,10 @@ export function cardView(root, {lang, cardId}) {
 						region ? h('span', {class: 'name-region', lang: 'en'}, ` (${region})`) : null),
 					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
 					h('dl', {class: 'facts'},
-						row('Set', setName),
+						row('Set', setLink(set, setName)),
 						row('Number', number),
 						row('Rarity', card.rarity),
+						row('Pokémon', pokemonLinks(card, name)),
 						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
 						row('Catalog', languageLabel(lang))
 					)
