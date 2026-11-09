@@ -24,7 +24,7 @@ export const RELEASES = [
 		items: [
 			'The scanner says when you already have a card: a green note over the camera, such as You have 2, and a Have 2 strip on its tray card.',
 			'Owned only in another language, the note and strip say which, such as Have PT.',
-			'On shorter screens the scanner keeps Close, the shutter, and Done on screen; the camera gives up the space.',
+			'On shorter screens or with large text, the scanner keeps all its buttons on screen; the camera gives up the space.',
 			'Profile shows Continue with Google straight away.',
 		],
 		version: 'v68',

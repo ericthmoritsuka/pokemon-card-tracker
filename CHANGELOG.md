@@ -20,7 +20,8 @@ are Recife time. Each line ends with its commit.
     language, both say which ("Have PT"). In a trade, only cards coming in are told.
   - On a shorter screen (a Realme at 360 x 660 with the zoom row showing), Close, the shutter, and
     Done fell below the screen. The camera now gives up the space instead, down to 200 px; under
-    that the panel scrolls with those buttons pinned.
+    that the panel scrolls with those buttons pinned. With large text on a narrow phone, the
+    Settings and Hand-held chips over the camera no longer overlap.
   - Profile shows **Continue with Google** straight away, not only after tapping the email field.
 
 ### 2026-11-07
