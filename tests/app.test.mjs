@@ -363,6 +363,15 @@ describe('sign in', () => {
 		await page.waitForTimeout(200);
 		assert.equal(fake.log.filter((entry) => entry.path === '/auth/v1/settings').length, 0, 'opening Profile contacts no one');
 
+		// The project cannot be asked (the request fails): the tap says so,
+		// and the button stays for another try, not "not available".
+		await page.route('**/auth/v1/settings', (route) => route.abort());
+		await page.click('#signin-google');
+		await page.waitForSelector('.form-error:has-text("Could not reach the server")');
+		assert.ok(await page.locator('#signin-google').isVisible());
+		assert.ok(await page.locator('#signin-google').isEnabled());
+		await page.unroute('**/auth/v1/settings');
+
 		// Here the settings say Google is off: the tap says so and hides it.
 		await page.click('#signin-google');
 		await page.waitForSelector('.form-error:has-text("Google sign-in is not available")');

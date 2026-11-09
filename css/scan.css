@@ -199,21 +199,25 @@ html.scan-open body {
 
 /* A card already owned (view.js tellOwned): green, with a tick and the
    count, or outlined when it is owned only in other languages. */
+/* Two lines at the most, so a narrow phone or large text never cuts the
+   count or the language off (a long name is what gets cut). */
 .scan-owned-note {
+	-webkit-box-orient: vertical;
 	animation: scan-rise 200ms ease-out;
 	background: var(--scan-owned);
-	border-radius: 999px;
+	border-radius: 16px;
 	color: var(--scan-on-owned);
+	display: -webkit-box;
 	font-size: 15px;
 	font-weight: 700;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
 	line-height: 20px;
 	margin: 0;
 	max-width: 100%;
 	overflow: hidden;
 	padding: 6px 14px;
 	text-align: center;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .scan-owned-note.is-elsewhere {
@@ -483,17 +487,17 @@ html.scan-open body {
 	border-color: var(--scan-owned);
 }
 
-/* Across the art just under the top corner badges (3 to 23 px) and above
-   the remove disc (from about 45 px down a 72 px tile), so it covers
-   neither. */
+/* Across the art just under the top corner badges (3 to 23 px inside the
+   art's 2 px border) and above the remove disc (39 px down the tile, 37
+   inside the art), so it covers neither. */
 .scan-tile-have {
 	background: var(--scan-owned);
-	top: 25px;
+	top: 23px;
 	color: var(--scan-on-owned);
 	font-size: 11px;
 	font-weight: 700;
 	left: 0;
-	line-height: 16px;
+	line-height: 14px;
 	overflow: hidden;
 	position: absolute;
 	right: 0;
@@ -505,6 +509,8 @@ html.scan-open body {
 .scan-tile-have.is-elsewhere {
 	background: rgba(0, 0, 0, 0.78);
 	border-block: 1px dashed var(--scan-owned);
+	/* The same 14 px in all, borders included. */
+	line-height: 12px;
 	color: var(--scan-owned);
 	font-weight: 600;
 }

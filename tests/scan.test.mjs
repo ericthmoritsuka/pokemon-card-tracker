@@ -250,6 +250,14 @@ describe('duplicate counting', () => {
 		assert.deepEqual(S.ownedFor(a, owned).languages, ['pt', 'en'], 'the languages owned, Portuguese first, the deleted copy left out of the counts');
 		assert.equal(S.ownedFor(a, owned).total, 2);
 		assert.deepEqual(S.ownedFor(b, owned).languages, []);
+
+		// Copies with no language: owned, in no language (the notice and the
+		// tile say "language not set" and "Have ?").
+		const unset = S.ownedIndex([entry('e4', 'swsh3-102', {language: null})]);
+
+		assert.equal(S.ownedFor(b, unset).total, 1);
+		assert.equal(S.ownedFor(b, unset).inLanguage, 0);
+		assert.deepEqual(S.ownedFor(b, unset).languages, []);
 		assert.equal(S.quantity(session, b, owned), 1);
 		assert.equal(S.duplicateKind(session, b, owned), null);
 

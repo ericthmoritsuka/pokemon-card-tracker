@@ -27,7 +27,7 @@ import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
-import {CARDS_VIEW_KEY, cardRow, viewSwitch} from './card-view-mode.js';
+import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
 import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
@@ -866,23 +866,37 @@ export function cardsScreen(root, {
 		].filter(Boolean).join(', ');
 	}
 
+	// A List row's language fact: the flag and chip, or for a copy with no
+	// language saved the words its accessible name says (js/languages.js
+	// languageLabel), never "NULL".
+	const rowLanguage = (code) => (code
+		? h('span', {class: 'row-lang'}, flagBadge([code], {prefix: ''}), languageChip(code))
+		: languageLabel(code));
+
+	// A List row's facts: language, finish, and copies. ×N follows the
+	// badge rule, never ×1.
+	function rowFacts(group, finish) {
+		const count = group.entries.length;
+
+		return [
+			rowLanguage(group.language),
+			finish,
+			count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
+			isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
+		];
+	}
+
 	// A List row (js/card-view-mode.js cardRow): the thumbnail, name and
-	// value, set and number, then language, finish, and copies. ×N follows
-	// the badge rule, never ×1; the accessible name always counts.
+	// value, set and number, then the facts. The accessible name always
+	// counts the copies.
 	function listRow(group, info, src) {
 		const finish = finishText(group);
-		const count = group.entries.length;
 		// First, as it works out whether the card has a price at all.
 		const price = priceNode(group);
 
 		return cardRow({
 			art: {info, src},
-			facts: [
-				h('span', {class: 'row-lang'}, flagBadge([group.language], {prefix: ''}), languageChip(group.language)),
-				finish,
-				count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
-				isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
-			],
+			facts: rowFacts(group, finish),
 			label: cardLabel(group, {finish, value: valueText(group)}),
 			meta: [group.setName, printedNumber(group.record)].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),
@@ -932,7 +946,9 @@ export function cardsScreen(root, {
 		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});
 	}
 
-	// The price line of a drawn tile, put right after a price arrives.
+	// The price line of a drawn tile, put right after a price arrives, in
+	// place: a tile or row drawn again would lose the focus a keyboard or
+	// screen reader left on it, and shimmer again while its photo is read.
 	function patchPrice(group) {
 		const element = tiles.get(group.key);
 
@@ -940,13 +956,7 @@ export function cardsScreen(root, {
 			return;
 		}
 
-		// A List row says its value in its name too, so it is drawn again.
-		if (shownView() === 'list') {
-			replaceTile(group);
-
-			return;
-		}
-
+		const list = shownView() === 'list';
 		const node = priceNode(group);
 		const slot = element.querySelector('.tile-price');
 
@@ -959,7 +969,24 @@ export function cardsScreen(root, {
 			slot.replaceChildren(node);
 		}
 		else {
-			element.append(h('span', {class: 'tile-price'}, node));
+			((list && element.querySelector('.row-head')) || element).append(h('span', {class: 'tile-price'}, node));
+		}
+
+		if (!list) {
+			return;
+		}
+
+		// A List row says its value in its name too, and the record that
+		// brought the price may name its finish.
+		const finish = finishText(group);
+		const facts = cardRowFacts(rowFacts(group, finish));
+		const oldFacts = element.querySelector('.row-facts');
+
+		element.setAttribute('aria-label', cardLabel(group, {finish, value: valueText(group)}));
+
+		// The language fact is always there, so a row always has the line.
+		if (oldFacts && facts) {
+			oldFacts.replaceWith(facts);
 		}
 	}
 

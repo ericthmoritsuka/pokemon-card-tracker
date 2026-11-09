@@ -16,7 +16,7 @@
 // A card already owned has a strip across the middle of its art (Eric,
 // 2026-11-09: the ×N corner alone was too easy to miss): "✓ Have 2" with a
 // green rim when owned in the scan's language, an outlined "Have PT" when
-// only in other languages.
+// only in other languages, "Have ?" when only in copies with no language.
 
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
@@ -61,6 +61,8 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 	const rising = Boolean(worth && worth.rising);
 	const have = item.card && owned ? owned.inLanguage : 0;
 	const haveElsewhere = item.card && owned && !have ? owned.languages : [];
+	// Owned, but only in copies with no language set.
+	const haveUnset = Boolean(item.card && owned && !have && owned.total && !haveElsewhere.length);
 
 	const label = [
 		cardLine(item.card),
@@ -69,6 +71,7 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 		quantity > copies ? `${quantity} copies in all` : null,
 		have ? `already in your cards: ${have} in this language` : null,
 		haveElsewhere.length ? `in your cards in ${haveElsewhere.map(languageLabel).join(' and ')} only` : null,
+		haveUnset ? 'in your cards with no language set' : null,
 		chip ? FINISH_WORDS[chip] || option.label : null,
 		valuable ? `valuable, worth about ${formatBrl(worth.brl)}` : null,
 		rising ? `price up ${risePercent(worth.change)}% in 30 days` : null,
@@ -86,7 +89,7 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 			? h('span', {'aria-hidden': 'true', class: 'scan-tile-have'}, `✓ Have ${have}`)
 			: haveElsewhere.length
 				? h('span', {'aria-hidden': 'true', class: 'scan-tile-have is-elsewhere'}, `Have ${haveElsewhere.slice(0, 2).map(languageChip).join(' ')}${haveElsewhere.length > 2 ? '+' : ''}`)
-				: null,
+				: haveUnset ? h('span', {'aria-hidden': 'true', class: 'scan-tile-have is-elsewhere'}, 'Have ?') : null,
 		chip ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-bl scan-finish'}, chip) : null,
 		status ? h('span', {'aria-hidden': 'true', class: `scan-badge scan-badge-br scan-status-${status}`, title: status}, status === 'look' ? '?' : status === 'waiting' ? '☁' : '♥') : null,
 		reason === 'reading' || reason === 'matching' || reason === 'rematch' ? h('span', {'aria-hidden': 'true', class: 'scan-tile-busy'}) : null,

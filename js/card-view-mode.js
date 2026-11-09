@@ -93,13 +93,20 @@ export function viewSwitch({id = 'cards', key = CARDS_VIEW_KEY, onChange = () =>
 //   price   the value node, or null when it is not known
 export function cardRow({art, facts = [], label, meta = null, names = [], price = null, route}) {
 	const [name, ...more] = names.filter(Boolean);
-	const shownFacts = facts.filter(Boolean);
 
 	return h('a', {'aria-label': label, class: 'tile card-row', 'data-link': route, href: BASE + route},
 		tileArt({decorative: true, ...art}),
 		h('span', {class: 'row-head'}, name || null, price ? h('span', {class: 'tile-price'}, price) : null),
 		...more,
 		meta ? h('span', {class: 'tile-meta'}, meta) : null,
-		shownFacts.length ? h('span', {class: 'row-facts'}, ...shownFacts.map((fact) => h('span', {class: 'row-fact'}, fact))) : null
+		cardRowFacts(facts)
 	);
+}
+
+// A row's facts line, or null when no fact is known: also what a drawn
+// row's facts are patched with when a price brings its finish.
+export function cardRowFacts(facts = []) {
+	const shown = facts.filter(Boolean);
+
+	return shown.length ? h('span', {class: 'row-facts'}, ...shown.map((fact) => h('span', {class: 'row-fact'}, fact))) : null;
 }

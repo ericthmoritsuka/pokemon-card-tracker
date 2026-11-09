@@ -564,7 +564,10 @@ export function scanView(root) {
 	// Spoken with the Added line, so hidden from a screen reader here.
 	const ownedNote = h('p', {'aria-hidden': 'true', class: 'scan-owned-note', hidden: true, id: 'scan-owned-note'});
 	let ownedNoteTimer = 0;
-	const toldOwned = new Set();
+	// Which tray card the notice is about, so a language read later can
+	// take it back (retellOwned).
+	let ownedNoteFor = null;
+	const toldOwned = new Map();
 	const tip = h('p', {class: 'scan-tip', hidden: true, id: 'scan-tip'},
 		h('span', null, HOLDER_TIP),
 		h('button', {'aria-label': 'Dismiss the lighting tip', class: 'scan-tip-close', id: 'scan-tip-close', onclick: () => {
@@ -2224,38 +2227,93 @@ export function scanView(root) {
 		}
 	}
 
-	// A card already in the person's cards, told once as it is matched
-	// (Eric, 2026-11-09: the tray's ×N corner was too easy to miss): a green
-	// notice over the camera for OWNED_NOTE_MS, with how many they have in
-	// the scan's language, or the languages they have it in when none in
-	// that one. In a trade only a card coming in is told, since every card
-	// going out is owned. Returns the sentence for the Added line, or ''.
-	function tellOwned(id) {
+	// A card already in the person's cards, told as it is matched (Eric,
+	// 2026-11-09: the tray's ×N corner was too easy to miss): a green notice
+	// over the camera for OWNED_NOTE_MS, with how many they have in the
+	// scan's language, or the languages they have it in when none in that
+	// one, or "language not set" when their only copies have none. In a trade
+	// only a card coming in is told, since every card going out is owned.
+	//
+	// toldOwned remembers, per tray card, the card and language last told,
+	// so a later answer that changes either (the picture route's full answer
+	// after its quick one, the language label read, a look-up again in
+	// another catalog) tells it again, and one that changes neither says
+	// nothing. A notice that no longer holds is taken back. Told again
+	// (`again`), it never covers a newer card's notice. Returns the sentence
+	// for the Added line, or ''.
+	function tellOwned(id, {again = false} = {}) {
 		const item = S.findItem(session, id);
+		const tellable = item && item.card && !(T.isTrade(session) && T.sideOf(item) !== 'in');
+		const key = tellable ? `${item.card.catalog}|${item.card.id}|${item.language || ''}` : null;
 
-		if (!item || !item.card || toldOwned.has(id) || (T.isTrade(session) && T.sideOf(item) !== 'in')) {
+		if (key && toldOwned.get(id) === key) {
 			return '';
 		}
 
-		const mine = S.ownedFor(item, owned);
+		const mine = key ? S.ownedFor(item, owned) : null;
 
-		if (!mine.total) {
+		if (!mine || !mine.total) {
+			if (key) {
+				toldOwned.set(id, key);
+			}
+			else {
+				toldOwned.delete(id);
+			}
+
+			takeBackOwned(id);
+
 			return '';
 		}
 
-		toldOwned.add(id);
+		toldOwned.set(id, key);
 
 		const where = mine.languages.map((code) => flagLanguageName(code)).join(' and ');
+		const name = item.card.name;
+		const shown = mine.inLanguage
+			? `✓ ${name}: you have ${mine.inLanguage}`
+			: where ? `${name}: you have it in ${where}` : `${name}: you have it, language not set`;
+		const said = mine.inLanguage
+			? `You already have ${plural(mine.inLanguage, 'copy', 'copies')} in this language.`
+			: where ? `You have it in ${where} only.` : 'You have it, with no language set.';
 
-		ownedNote.textContent = mine.inLanguage ? `✓ ${item.card.name}: you have ${mine.inLanguage}` : `${item.card.name}: you have it in ${where}`;
-		ownedNote.classList.toggle('is-elsewhere', !mine.inLanguage);
-		ownedNote.hidden = false;
-		clearTimeout(ownedNoteTimer);
-		ownedNoteTimer = setTimeout(() => {
+		if (!again || ownedNoteFor === id || ownedNote.hidden) {
+			ownedNote.textContent = shown;
+			ownedNote.classList.toggle('is-elsewhere', !mine.inLanguage);
+			ownedNote.hidden = false;
+			ownedNoteFor = id;
+			clearTimeout(ownedNoteTimer);
+			ownedNoteTimer = setTimeout(() => takeBackOwned(id), OWNED_NOTE_MS);
+		}
+
+		return again ? `${name}${item.language ? `, ${flagLanguageName(item.language)}` : ''}: ${said}` : ` ${said}`;
+	}
+
+	// Hides the notice when it is about this tray card.
+	function takeBackOwned(id) {
+		if (ownedNoteFor === id) {
+			clearTimeout(ownedNoteTimer);
 			ownedNote.hidden = true;
-		}, OWNED_NOTE_MS);
+			ownedNoteFor = null;
+		}
+	}
 
-		return mine.inLanguage ? ` You already have ${plural(mine.inLanguage, 'copy', 'copies')} in this language.` : ` You have it in ${where} only.`;
+	// The language label read behind the match changed the card's language
+	// (checkLabelLater): tell it again in the new language. When the card is
+	// looked up again in another catalog (lookAgain), take the notice back
+	// for now; the look-up's Added line tells the card it finds.
+	function retellOwned(id, {lookAgain = false} = {}) {
+		if (lookAgain) {
+			takeBackOwned(id);
+			toldOwned.delete(id);
+
+			return;
+		}
+
+		const said = tellOwned(id, {again: true});
+
+		if (said) {
+			announce(said);
+		}
 	}
 
 	// A valuable card, told once: a gold flash, three short buzzes, and the
@@ -2965,10 +3023,17 @@ export function scanView(root) {
 				return;
 			}
 
+			const languageBefore = later.language;
 			const changed = scannerChange(id, () => S.applyLabel(session, id, label, undefined, {asian: lastAsianLanguage(), category, western: lastLanguage()}));
 
 			if (changed) {
-				if (S.needsRematch(S.findItem(session, id))) {
+				const lookAgain = S.needsRematch(S.findItem(session, id));
+
+				if (S.findItem(session, id).language !== languageBefore) {
+					retellOwned(id, {lookAgain});
+				}
+
+				if (lookAgain) {
 					rematchItem(id);
 				}
 				else {
