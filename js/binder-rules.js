@@ -578,7 +578,7 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 	const oldSet = new Set(oldKeys);
 	const listOrder = items.map((item) => item.key);
 	const kept = keepOrder && oldKeys.length > 0 && before.rule_key === ruleKey(binder.rule);
-	const keys = applyListEdits(kept ? keptOrder(listOrder, oldKeys, new Set(listEditEntries(binder).map((edit) => edit.key))) : listOrder, edits);
+	const keys = applyListEdits(kept ? keptOrder(listOrder, oldKeys, listEditEntries(binder)) : listOrder, edits);
 	const newSet = new Set(keys);
 	const shown = {};
 	const filled = [];
@@ -657,43 +657,104 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 
 // The list's order for a binder that keeps its pockets in place, before
 // its edits (applyListEdits) apply. listOrder: the keys in the rule's
-// order; stored: the last layout's keys; edited: every key the binder has
-// an edit for, a taken-away one (none) too.
+// order; stored: the last layout's keys; edits: the binder's edit entries
+// (listEditEntries), a taken-away one (none) too.
 //   - a stored key still in the list keeps its place among the others
-//   - a key not stored that has an edit (left out, a gap, or Put back, Undo)
-//     takes its list place: after the nearest key before it in the rule's
-//     order, so a gap stays where its pocket is and Put back returns a card
-//     where it was
+//   - a stored empty key ('', a gap's pocket) keeps its place too: each key
+//     kept as a gap and missing from the layout takes one, the gaps in the
+//     list's order into the empty pockets in the layout's, so the gap never
+//     moves and the pockets after it never shift
+//   - any other key not stored that has an edit (left out, Put back, Undo,
+//     or a gap with no empty pocket left) takes its list place: just after
+//     the nearest key before it in the rule's order whose pocket still sits
+//     in the rule's order, so a card that joined at the end or was moved
+//     is never the anchor, and Put back returns a card where it was
 //   - any other key is new to the list and goes at the end, in the rule's
 //     order
-// A stored empty key (a gap's pocket) is not carried: the gap's own edit
-// makes it again at its key's place.
-export function keptOrder(listOrder, stored, edited = new Set()) {
+// An empty pocket no gap takes (its card left the list, or was put back)
+// goes, and the pockets after it move back one.
+export function keptOrder(listOrder, stored, edits = []) {
 	const live = new Set(listOrder);
-	const out = stored.filter((key) => key && live.has(key));
-	const placed = new Set(out);
+	const rank = new Map(listOrder.map((key, i) => [key, i]));
+	const kinds = new Map((Array.isArray(edits) ? edits : []).filter((edit) => edit && edit.key).map((edit) => [edit.key, edit.kind]));
+	const HOLE = null;
+	const out = stored.filter((key) => key === '' || live.has(key)).map((key) => (key === '' ? HOLE : key));
+	const placed = new Set(out.filter((key) => key !== HOLE));
+	const waiting = listOrder.filter((key) => !placed.has(key) && kinds.has(key));
 
-	listOrder.forEach((key, i) => {
-		if (placed.has(key) || !edited.has(key)) {
-			return;
+	// Each gap missing from the layout into an empty pocket.
+	for (const key of waiting.filter((one) => kinds.get(one) === 'gap')) {
+		const hole = out.indexOf(HOLE);
+
+		if (hole < 0) {
+			break;
 		}
 
-		let at = 0;
+		out[hole] = key;
+		placed.add(key);
+	}
 
-		for (let j = i - 1; j >= 0; j--) {
-			const there = out.indexOf(listOrder[j]);
+	// The anchors: the pockets that still sit in the rule's order. A key
+	// moved, or about to leave, is never one, and of the longest run in the
+	// rule's order the earliest pockets are, so a card added at the end is
+	// not taken for one in place.
+	const anchors = inOrder(out.filter((key) => key !== HOLE && !['out', 'end', 'before'].includes(kinds.get(key))), rank);
 
-			if (there >= 0) {
-				at = there + 1;
-				break;
+	for (const key of waiting.filter((one) => !placed.has(one))) {
+		const i = rank.get(key);
+		let at = -1;
+
+		for (let j = i - 1; j >= 0 && at < 0; j--) {
+			if (anchors.has(listOrder[j])) {
+				at = out.indexOf(listOrder[j]) + 1;
 			}
+		}
+
+		for (let j = i + 1; j < listOrder.length && at < 0; j++) {
+			if (anchors.has(listOrder[j])) {
+				at = out.indexOf(listOrder[j]);
+			}
+		}
+
+		if (at < 0) {
+			continue;
 		}
 
 		out.splice(at, 0, key);
 		placed.add(key);
-	});
+		anchors.add(key);
+	}
 
-	return [...out, ...listOrder.filter((key) => !placed.has(key))];
+	return [...out.filter((key) => key !== HOLE), ...listOrder.filter((key) => !placed.has(key))];
+}
+
+// The keys of the longest run of `keys` in the rule's order (rank), the
+// earliest positions taken where two runs are as long.
+function inOrder(keys, rank) {
+	const n = keys.length;
+	const longest = new Array(n).fill(1);
+
+	for (let i = n - 1; i >= 0; i--) {
+		for (let j = i + 1; j < n; j++) {
+			if (rank.get(keys[j]) > rank.get(keys[i]) && longest[j] + 1 > longest[i]) {
+				longest[i] = longest[j] + 1;
+			}
+		}
+	}
+
+	const out = new Set();
+	let need = Math.max(0, ...longest);
+	let last = -1;
+
+	for (let i = 0; i < n && need > 0; i++) {
+		if (longest[i] === need && (last < 0 || rank.get(keys[i]) > rank.get(keys[last]))) {
+			out.add(keys[i]);
+			last = i;
+			need--;
+		}
+	}
+
+	return out;
 }
 
 function sameShown(a, b) {

@@ -2232,8 +2232,13 @@ prints are collected and kept in a binder in release order. In that order the bi
 pockets where they are and adds a print new to the list **at the end**, whatever its date
 (`js/binder-rules.js` `planRefresh` `keepOrder`, `keptOrder`): a promo dated years back, or a
 Japanese set TCGdex adds late, would otherwise sort into the middle and move every pocket after it,
-in a real binder a reshuffle of every sleeve from there on. A pocket left out or emptied on purpose
-keeps its place. Pokédex order sorts a print by the lowest number it carries, so a TAG TEAM card
+in a real binder a reshuffle of every sleeve from there on. A pocket emptied on purpose (a gap)
+stays where it is as an empty pocket, and the gap's card takes it back, so neither the gap nor the
+pockets after it move once the stored order has drifted from the rule's (a print added at the end, a
+card moved); a refresh with nothing new saves nothing. A card left out and put back returns just
+after the nearest card before it in the rule's order whose pocket still sits in that order, so a
+print added at the end or a card moved is never the one it follows. An empty pocket whose card has
+left the list goes, and the pockets after it move back one. Pokédex order sorts a print by the lowest number it carries, so a TAG TEAM card
 whose partner has a lower number (Pikachu with Jigglypuff) comes before the rest, and one whose
 partner has a higher number sorts with them. Every print carries its numbers, from the bulk map for
 an international print and the goal's own number for a Japanese, Korean, or Chinese one (their card

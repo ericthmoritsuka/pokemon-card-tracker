@@ -304,8 +304,11 @@ describe('keeping the pockets in place', () => {
 
 	test('keptOrder: the stored keys keep their places, edited ones take their list places, new ones go last', () => {
 		assert.deepEqual(keptOrder(['a', 'b', 'c', 'd'], ['c', 'a', 'b']), ['c', 'a', 'b', 'd']);
-		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', '', 'c'], new Set(['b'])), ['a', 'b', 'c'], 'a gap\'s key goes back to its place');
-		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', 'c'], new Set()), ['a', 'c', 'b'], 'a key never edited is new');
+		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', '', 'c'], [{key: 'b', kind: 'gap'}]), ['a', 'b', 'c'], 'a gap\'s key takes its empty pocket');
+		assert.deepEqual(keptOrder(['a', 'b', 'c', 'd'], ['', 'c', 'a', ''], [{key: 'b', kind: 'gap'}, {key: 'd', kind: 'gap'}]), ['b', 'c', 'a', 'd'], 'gaps take the empty pockets in order');
+		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', '', 'c'], [{key: 'b', kind: 'none'}]), ['a', 'b', 'c'], 'a gap put back returns to its place');
+		assert.deepEqual(keptOrder(['a', 'c'], ['a', '', 'c'], []), ['a', 'c'], 'an empty pocket no gap takes goes');
+		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', 'c'], []), ['a', 'c', 'b'], 'a key never edited is new');
 		assert.deepEqual(keptOrder(['a', 'c'], ['a', 'b', 'c']), ['a', 'c'], 'a key that left the list leaves');
 	});
 
@@ -320,6 +323,38 @@ describe('keeping the pockets in place', () => {
 		assert.deepEqual(plan(['s-10', 's-30'], ['s-10', 's-20', 's-30', 's-40'], [{...gap, kind: 'out'}]), keys('s-10', 's-30', 's-40'));
 		assert.deepEqual(plan(['s-10', 's-30'], ['s-10', 's-20', 's-30', 's-40'], [{...gap, at: at(2), kind: 'none'}]), keys('s-10', 's-20', 's-30', 's-40'));
 		assert.deepEqual(plan(['s-20', 's-30', 's-10'], ['s-10', 's-20', 's-30', 's-40'], [{at: at(1), key: 'international|s-10', kind: 'end'}]), keys('s-20', 's-30', 's-40', 's-10'));
+	});
+
+	// The stored order drifts from the rule's once a card joins at the end
+	// or one is moved: a gap keeps its pocket, the pockets after it stay,
+	// and Put back anchors on a pocket still in the rule's order.
+	test('with the stored order off the rule\'s, a gap stays, nothing shifts, and Put back returns a card where it was', () => {
+		const gap = {at: at(1), key: 'international|s-20', kind: 'gap'};
+		const run = (stored, list, edits) => planRefresh(binder(stored, edits), cards(...list), {at: at(10), keepOrder: true, rankOf: () => ({})});
+
+		// A late print joins at the end; the next refresh, with nothing new,
+		// changes nothing and saves nothing.
+		const first = run(['s-10', '', 's-30'], ['s-10', 's-15', 's-20', 's-30'], [gap]);
+
+		assert.deepEqual(first.snapshot.keys, keys('s-10', '', 's-30', 's-15'));
+
+		const second = run(['s-10', '', 's-30', 's-15'], ['s-10', 's-15', 's-20', 's-30'], [gap]);
+
+		assert.deepEqual(second.snapshot.keys, keys('s-10', '', 's-30', 's-15'), 'the gap does not jump and s-30 does not move');
+		assert.equal(second.changed, false, 'nothing to save');
+
+		// Put back of a card left out, after the late print joined: where
+		// it was, not after the print added at the end.
+		assert.deepEqual(run(['s-10', 's-30', 's-15'], ['s-10', 's-15', 's-20', 's-30'], [{...gap, at: at(2), kind: 'none'}]).snapshot.keys, keys('s-10', 's-20', 's-30', 's-15'));
+		// And of the gap itself, into its pocket.
+		assert.deepEqual(run(['s-10', '', 's-30', 's-15'], ['s-10', 's-15', 's-20', 's-30'], [{...gap, at: at(2), kind: 'none'}]).snapshot.keys, keys('s-10', 's-20', 's-30', 's-15'));
+
+		// The card before the gap moved to the end: the gap stays first, and
+		// the first opening saves nothing.
+		const moved = run(['', 's-30', 's-40', 's-10'], ['s-10', 's-20', 's-30', 's-40'], [gap, {at: at(2), key: 'international|s-10', kind: 'end'}]);
+
+		assert.deepEqual(moved.snapshot.keys, keys('', 's-30', 's-40', 's-10'));
+		assert.equal(moved.changed, false);
 	});
 
 	test('a new rule lays the list out in its own order', () => {
