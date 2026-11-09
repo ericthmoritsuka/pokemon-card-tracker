@@ -343,6 +343,115 @@ describe('parsing', () => {
 	});
 });
 
+describe('without a checklist', () => {
+	// A phone's localStorage: a Map behind the three methods the screen uses.
+	function storage(initial = {}) {
+		const map = new Map(Object.entries(initial));
+
+		return {
+			getItem: (key) => (map.has(key) ? map.get(key) : null),
+			map,
+			removeItem: (key) => map.delete(key),
+			setItem: (key, value) => map.set(key, String(value)),
+		};
+	}
+
+	// Storage that is off (private mode, site data blocked).
+	const blocked = {
+		getItem() {
+			throw new Error('SecurityError');
+		},
+		removeItem() {
+			throw new Error('SecurityError');
+		},
+		setItem() {
+			throw new Error('QuotaExceededError');
+		},
+	};
+
+	const ALL = checklists.ALL_LIST_LANGUAGES;
+
+	test('the route and the key', () => {
+		assert.equal(cards.pokemonCardsRoute(39), 'pokemon/39');
+		assert.equal(cards.pokemonCardsRoute('039'), 'pokemon/39');
+		assert.match(cards.PHONE_LANGUAGES_KEY, /^cardTracker\./);
+	});
+
+	test('nothing kept is any language: every catalog, every copy', () => {
+		const phone = storage();
+		const languages = cards.readPhoneLanguages(phone);
+		const goal = cards.phoneGoal(languages);
+
+		assert.equal(languages, null);
+		assert.deepEqual(goal, {});
+		assert.equal(checklists.namesLanguages(goal), false, 'counts a copy in any language, as a list with no field');
+		assert.deepEqual(catalogsFor(checklists.listLanguages(goal)), ['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
+
+		// German, Spanish, and a copy with no language all count.
+		const owned = cards.copiesByPrint([
+			copy('a', {card_id: 'x-1', language: 'de'}),
+			copy('b', {card_id: 'x-2', language: 'es'}),
+			copy('c', {card_id: 'x-3', language: null}),
+		], checklists.namesLanguages(goal) ? checklists.listLanguages(goal) : null);
+
+		assert.equal(owned.size, 3);
+	});
+
+	test('a choice is kept, read back, and narrows the prints and the copies', () => {
+		const phone = storage();
+
+		assert.deepEqual(cards.savePhoneLanguages(['ja', 'pt'], phone), ['pt', 'ja'], 'in the table\'s order');
+		assert.equal(phone.getItem(cards.PHONE_LANGUAGES_KEY), 'pt,ja');
+		assert.deepEqual(cards.readPhoneLanguages(phone), ['pt', 'ja']);
+
+		const goal = cards.phoneGoal(cards.readPhoneLanguages(phone));
+
+		assert.ok(checklists.namesLanguages(goal));
+		assert.deepEqual(catalogsFor(checklists.listLanguages(goal)), ['international', 'ja']);
+		assert.equal(wishLanguage(checklists.listLanguages(goal), 'international'), 'pt');
+	});
+
+	test('any language, or every language ticked, removes the key', () => {
+		const phone = storage({[cards.PHONE_LANGUAGES_KEY]: 'pt'});
+
+		assert.equal(cards.savePhoneLanguages(null, phone), null);
+		assert.equal(phone.map.has(cards.PHONE_LANGUAGES_KEY), false);
+		cards.savePhoneLanguages(['en'], phone);
+		assert.equal(cards.savePhoneLanguages([...ALL], phone), null);
+		assert.equal(phone.map.has(cards.PHONE_LANGUAGES_KEY), false);
+		assert.equal(cards.phoneLanguagesValue([...ALL]), '');
+		assert.equal(cards.phoneLanguagesFrom(ALL.join(',')), null, 'a stored list of every language reads as any');
+	});
+
+	test('nothing chosen is refused, and junk reads as any language', () => {
+		assert.throws(() => cards.savePhoneLanguages([], storage()), /Pick at least one language/);
+		assert.throws(() => cards.savePhoneLanguages(['xx'], storage()), /Pick at least one language/);
+		assert.equal(cards.phoneLanguagesFrom('xx,,'), null);
+		assert.deepEqual(cards.phoneLanguagesFrom('en,xx,en'), ['en']);
+	});
+
+	test('storage off: any language to read, and a save still answers', () => {
+		assert.equal(cards.readPhoneLanguages(blocked), null);
+		assert.deepEqual(cards.savePhoneLanguages(['pt'], blocked), ['pt']);
+		assert.equal(cards.savePhoneLanguages(null, blocked), null);
+		// No localStorage at all (Node).
+		assert.equal(cards.readPhoneLanguages(undefined), null);
+	});
+
+	test('a card\'s Pokédex numbers', () => {
+		const tagTeam = record('en/cards/sm12-165');
+
+		assert.deepEqual(cards.cardDexIds(record('en/cards/sv03.5-039')), [39]);
+		assert.deepEqual(cards.cardDexIds(tagTeam), [39, 428], 'a TAG TEAM card, in its order');
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon', dexId: 39}), [39], 'one number, not in a list');
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon', dexId: [39, 39, 0, 2000, null]}), [39]);
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon'}), []);
+		assert.deepEqual(cards.cardDexIds({category: 'Trainer', dexId: [39]}), [], 'a Trainer gets no link');
+		assert.deepEqual(cards.cardDexIds({category: 'Energy'}), []);
+		assert.deepEqual(cards.cardDexIds(null), []);
+	});
+});
+
 describe('the integration', () => {
 	test('app.js, index.html, sw.js, and js/checklists-view.js carry the screen\'s lines', async () => {
 		await checkIntegration();

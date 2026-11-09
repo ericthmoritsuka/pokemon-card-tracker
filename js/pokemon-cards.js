@@ -32,7 +32,7 @@ import {compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, languageLabel} from './languages.js';
+import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, cleanListLanguages, languageLabel, listLanguagesToSave} from './languages.js';
 import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
@@ -564,3 +564,85 @@ export const dexFromParam = (value) => {
 
 	return validDex(n) && String(n) === String(value).replace(/^0+(?=\d)/, '') ? n : null;
 };
+
+// ------------------------------------------------- without a checklist
+//
+// Every card of a Pokémon opened from the card page (pokemon/<dex>; Eric,
+// 2026-11-09) has no list, so no list languages. The languages it shows and
+// counts are kept on this phone instead, as the list's field would be: no
+// value (the default) is any language, every catalog's prints and a copy in
+// any language counting, the same as a list with no languages field; else
+// the chosen codes, comma-joined.
+
+export const PHONE_LANGUAGES_KEY = 'cardTracker.pokemonLanguages';
+
+// The route of a Pokémon's cards without a list.
+export const pokemonCardsRoute = (n) => `pokemon/${Number(n)}`;
+
+// A stored value -> null (any language) or the list languages it names.
+export function phoneLanguagesFrom(raw) {
+	const codes = cleanListLanguages(String(raw || '').split(','));
+
+	return codes.length ? listLanguagesToSave(codes) : null;
+}
+
+// Languages (null for any) -> the value stored: '' for any language, and
+// for every language ticked, which counts the same.
+export function phoneLanguagesValue(codes) {
+	const list = listLanguagesToSave(codes);
+
+	return list ? list.join(',') : '';
+}
+
+// The languages kept on this phone, null (any) when none are kept or
+// storage is off.
+export function readPhoneLanguages(storage = globalThis.localStorage) {
+	try {
+		return phoneLanguagesFrom(storage.getItem(PHONE_LANGUAGES_KEY));
+	}
+	catch {
+		return null;
+	}
+}
+
+// Keeps the languages on this phone and returns what now counts (null for
+// any). With storage off the choice lasts for this visit only, so the
+// caller holds on to the answer.
+export function savePhoneLanguages(codes, storage = globalThis.localStorage) {
+	if (codes !== null && !cleanListLanguages(codes).length) {
+		throw new Error('Pick at least one language.');
+	}
+
+	const value = phoneLanguagesValue(codes);
+
+	try {
+		if (value) {
+			storage.setItem(PHONE_LANGUAGES_KEY, value);
+		}
+		else {
+			storage.removeItem(PHONE_LANGUAGES_KEY);
+		}
+	}
+	catch {
+		// Private mode or storage off.
+	}
+
+	return phoneLanguagesFrom(value);
+}
+
+// The goal-shaped stand-in for a list the screen reads its languages from:
+// {} counts any language, as a list with no field does.
+export const phoneGoal = (languages) => (languages ? {languages: [...languages]} : {});
+
+// A card record's Pokédex numbers, once each and valid, in the record's
+// order: TCGdex sends an array (several on a TAG TEAM card), an older saved
+// record may hold one number. A Trainer or Energy card has none.
+export function cardDexIds(card) {
+	if (!card || card.category === 'Trainer' || card.category === 'Energy') {
+		return [];
+	}
+
+	const raw = Array.isArray(card.dexId) ? card.dexId : [card.dexId];
+
+	return [...new Set(raw.map(Number).filter(validDex))];
+}

@@ -1,7 +1,10 @@
 // Every card of a Pokémon (DESIGN.md section 11), opened from a checklist
-// row:
+// row, or from the card page without a list:
 //   lists/<listId>/pokemon/<dex>                  the person's own list
 //   family/<userId>/lists/<listId>/pokemon/<dex>  a family member's, view only
+//   pokemon/<dex>                                 no list: the languages are
+//                                                 kept on this phone, any
+//                                                 language until changed
 //
 // "Jigglypuff, 9 of 48 cards": every print in the list's languages, newest
 // first, as the shared tiles (js/tile.js). An owned card carries the owned
@@ -12,7 +15,8 @@
 // (js/card-swipe.js). The data is js/pokemon-cards.js.
 //
 // languagesControl() is the list's languages setting (flags and an edit
-// control); the checklist screen shows it too.
+// control); the checklist screen shows it too, and the screen without a
+// list uses it for the languages kept on the phone.
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
@@ -48,7 +52,10 @@ import {
 	passesFilter,
 	printCounts,
 	printKey,
+	phoneGoal,
 	printRecord,
+	readPhoneLanguages,
+	savePhoneLanguages,
 	tally,
 	wishLanguage,
 } from './pokemon-cards.js';
@@ -85,6 +92,33 @@ const MINE = {
 		const [goal, entries, wishlist] = await Promise.all([getChecklist(id), listCards(), listWishlist()]);
 
 		return {entries, goal, wishlist};
+	},
+	readOnly: false,
+	watch: (reload) => onChange(reload),
+};
+
+// No list, opened from the card page: the person's own cards and wishlist,
+// counted in the languages kept on this phone (any language by default).
+// The goal is a stand-in that holds only those languages. The last choice
+// is also held here, so it lasts the visit when storage is off.
+let phoneChoice;
+
+const CATALOG = {
+	base: null,
+	languages: {
+		editLabel: 'Change the languages shown',
+		help: 'Only their prints are shown, and a card counts as owned only for a copy in one of them. Any language counts every copy. Kept on this phone.',
+		legend: 'Languages to show',
+		save: async (languages) => {
+			phoneChoice = savePhoneLanguages(languages);
+
+			return phoneGoal(phoneChoice);
+		},
+	},
+	load: async () => {
+		const [entries, wishlist] = await Promise.all([listCards(), listWishlist()]);
+
+		return {entries, goal: phoneGoal(phoneChoice === undefined ? readPhoneLanguages() : phoneChoice), wishlist};
 	},
 	readOnly: false,
 	watch: (reload) => onChange(reload),
@@ -127,8 +161,10 @@ function familySource(userId) {
 
 // The list's languages as flags, with Edit opening checkboxes. Returns
 // {element, update(goal)}; update redraws the flags unless the editor is
-// open. readOnly shows the flags alone.
-export function languagesControl({listId, readOnly = false, onSaved = null}) {
+// open. readOnly shows the flags alone. save (languages, null for any ->
+// the goal as saved) stores them somewhere other than the list, with the
+// editor's wording in editLabel, legend, and help.
+export function languagesControl({editLabel = 'Change the list\'s languages', help = null, legend = 'Languages this list counts', listId, onSaved = null, readOnly = false, save: store = null}) {
 	let goal = null;
 	let editing = false;
 
@@ -141,7 +177,7 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		const languages = listLanguages(goal);
 		const names = all ? 'Counts copies in any language' : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
-			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
+			'aria-label': `${editLabel} (${all ? 'any language' : names})`,
 			class: 'small',
 			id: 'list-languages-edit',
 			onclick: openEditor,
@@ -224,7 +260,7 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 				// Every box ticked saves as Any language (js/languages.js), so
 				// it counts every copy rather than dropping the languages no box
 				// names.
-				const saved = await setListLanguages(listId, any ? null : [...chosen]);
+				const saved = await (store ? store(any ? null : [...chosen]) : setListLanguages(listId, any ? null : [...chosen]));
 
 				goal = saved;
 				editing = false;
@@ -241,8 +277,8 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		});
 
 		element.replaceChildren(h('fieldset', {class: 'pc-language-editor', id: 'list-languages-editor'},
-			h('legend', null, 'Languages this list counts'),
-			h('p', {class: 'muted'}, 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
+			h('legend', null, legend),
+			h('p', {class: 'muted'}, help || 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
 			h('div', {class: 'pc-language-choices'},
 				h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
 				boxes
@@ -334,14 +370,18 @@ export const pokemonCardsView = (root, {dex, id}) => screen(root, MINE, id, dex)
 
 export const familyPokemonCardsView = (root, {dex, id, userId}) => screen(root, familySource(userId), id, dex);
 
-// For app.js ROUTES, after the checklist routes.
+export const catalogPokemonCardsView = (root, {dex}) => screen(root, CATALOG, null, dex);
+
+// For app.js ROUTES, after the checklist routes. The one without a list
+// shows your own cards, so it does not keep a family member's lens.
 export const pokemonCardsRoutes = [
 	{keys: ['id', 'dex'], pattern: /^lists\/([^/]+)\/pokemon\/(\d+)$/, render: pokemonCardsView, tab: 'lists', title: 'Pokémon cards | Card Tracker'},
 	{keys: ['userId', 'id', 'dex'], pattern: /^family\/([^/]+)\/lists\/([^/]+)\/pokemon\/(\d+)$/, render: familyPokemonCardsView, tab: 'lists', title: 'Family Pokémon cards | Card Tracker'},
+	{keys: ['dex'], pattern: /^pokemon\/(\d+)$/, render: catalogPokemonCardsView, tab: 'lists', title: 'Pokémon cards | Card Tracker'},
 ];
 
-// For app.js ACCOUNT_ROUTES: both depend on who is signed in.
-export const pokemonCardsAccountViews = [pokemonCardsView, familyPokemonCardsView];
+// For app.js ACCOUNT_ROUTES: each depends on who is signed in.
+export const pokemonCardsAccountViews = [pokemonCardsView, familyPokemonCardsView, catalogPokemonCardsView];
 
 function screen(root, source, listId, dexParam) {
 	const n = dexFromParam(dexParam);
@@ -370,11 +410,36 @@ function screen(root, source, listId, dexParam) {
 	const records = new Map();
 	const adding = new Set();
 
-	const listRoute = `${source.base}/${encodeURIComponent(listId)}`;
-	const back = link(listRoute, {class: 'back', id: 'pc-back'}, '‹ List');
+	// Without a list, Back returns to the card page it was opened from, or
+	// opens Lists when the screen was the first one opened.
+	const listRoute = source.base ? `${source.base}/${encodeURIComponent(listId)}` : 'lists';
+	const back = link(listRoute, {class: 'back', id: 'pc-back'}, source.base ? '‹ List' : '‹ Back');
 	const title = h('h2', {id: 'pc-title'});
 	const originals = h('div', {class: 'pc-originals', id: 'pc-originals'});
-	const languages = languagesControl({listId, readOnly: source.readOnly});
+	// A list's languages are saved to the list, whose change loads the
+	// screen again; the phone's are not, so the screen takes them here.
+	const languages = languagesControl({
+		...source.languages,
+		listId,
+		onSaved: source.base ? null : (saved) => {
+			if (alive) {
+				goal = saved;
+				draw();
+				loadCatalogs();
+			}
+		},
+		readOnly: source.readOnly,
+	});
+
+	if (!source.base) {
+		back.addEventListener('click', (event) => {
+			if (history.state && history.state.inApp) {
+				event.preventDefault();
+				event.stopPropagation();
+				history.back();
+			}
+		});
+	}
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'pc-status'});
 	const sections = h('div', {id: 'pc-sections'});
 
@@ -791,7 +856,7 @@ function screen(root, source, listId, dexParam) {
 			if (alive && run === loadRun) {
 				showNotice(h('div', {class: 'notice', role: 'alert'}, h('p', null, source.readOnly
 					? err.message || errorText(err)
-					: `This list could not be read from this phone. ${errorText(err)}`)));
+					: `${source.base ? 'This list' : 'Your cards'} could not be read from this phone. ${errorText(err)}`)));
 			}
 
 			return;
@@ -815,7 +880,11 @@ function screen(root, source, listId, dexParam) {
 		entries = data.entries;
 		memberRecords = data.records || null;
 		wished = new Set((data.wishlist || []).filter(isLive).map((item) => printKey(item.catalog || 'international', item.card_id)));
-		back.textContent = `‹ ${goal.name}`;
+
+		if (source.base) {
+			back.textContent = `‹ ${goal.name}`;
+		}
+
 		languages.update(goal);
 		draw();
 		await loadCatalogs({force});
