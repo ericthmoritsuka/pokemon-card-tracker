@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-09',
+		items: [
+			'The scanner says when you already have a card: a green note over the camera, such as You have 2, and a Have 2 strip on its tray card.',
+			'Owned only in another language, the note and strip say which, such as Have PT.',
+			'On shorter screens the scanner keeps Close, the shutter, and Done on screen; the camera gives up the space.',
+			'Profile shows Continue with Google straight away.',
+		],
+		version: 'v68',
+	},
+	{
 		date: '2026-11-07',
 		items: [
 			'One name everywhere: Trade or sale. The scanner button says how many cards it logs, such as Log 3 cards.',

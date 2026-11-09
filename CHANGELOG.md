@@ -12,6 +12,17 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-09
+
+- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens.
+  - As a card is matched, a green note over the camera says "✓ Pikachu: you have 2" for a few
+    seconds, and its tray card gets a "✓ Have 2" strip and a green rim. Owned only in another
+    language, both say which ("Have PT"). In a trade, only cards coming in are told.
+  - On a shorter screen (a Realme at 360 x 660 with the zoom row showing), Close, the shutter, and
+    Done fell below the screen. The camera now gives up the space instead, down to 200 px; under
+    that the panel scrolls with those buttons pinned.
+  - Profile shows **Continue with Google** straight away, not only after tapping the email field.
+
 ### 2026-11-07
 
 - **v67:** design polish across the scanner, trades, and binders. `f0493bf`
