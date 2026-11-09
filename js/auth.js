@@ -541,14 +541,14 @@ export async function signOut() {
 }
 
 // Whether the project offers Google sign-in, from Supabase's public auth
-// settings. Kept ten minutes. Any failure reads as "no", so the button
-// stays hidden rather than leading to an error.
-export async function googleEnabled() {
+// settings: 'on', 'off', or 'unknown' when it could not be asked (offline,
+// a server error). An answer is kept ten minutes; 'unknown' is not kept.
+export async function googleSetting() {
 	try {
 		const saved = JSON.parse(sessionStorage.getItem(SETTINGS_KEY) || 'null');
 
 		if (saved && Date.now() - saved.at < SETTINGS_FOR_MS) {
-			return saved.google === true;
+			return saved.google === true ? 'on' : 'off';
 		}
 	}
 	catch {
@@ -559,7 +559,7 @@ export async function googleEnabled() {
 		const response = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {headers: {apikey: SUPABASE_KEY}});
 
 		if (!response.ok) {
-			return false;
+			return 'unknown';
 		}
 
 		const settings = await response.json();
@@ -572,11 +572,17 @@ export async function googleEnabled() {
 			// Asked again next time.
 		}
 
-		return google;
+		return google ? 'on' : 'off';
 	}
 	catch {
-		return false;
+		return 'unknown';
 	}
+}
+
+// Whether the project offers Google sign-in. Any failure reads as "no", so
+// a button shown only when this says yes never leads to an error.
+export async function googleEnabled() {
+	return (await googleSetting()) === 'on';
 }
 
 // Words for the errors a person can meet while signing in.

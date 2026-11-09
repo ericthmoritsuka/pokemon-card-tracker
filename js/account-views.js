@@ -12,6 +12,7 @@ import {
 	changePassword,
 	currentUser,
 	googleEnabled,
+	googleSetting,
 	isAccountNameEmail,
 	MIN_PASSWORD_LENGTH,
 	onSession,
@@ -146,15 +147,30 @@ function signInPanel({onIntent = false} = {}) {
 			google.disabled = true;
 
 			// Shown before the project was asked: ask now, and say so
-			// rather than leave for an error page when Google is off.
-			if (onIntent && !(await googleEnabled())) {
-				if (alive) {
+			// rather than leave for an error page when Google is off. When
+			// the project cannot be asked (offline, a server error), the
+			// button stays for another try.
+			if (onIntent) {
+				const setting = await googleSetting();
+
+				if (!alive) {
+					return;
+				}
+
+				if (setting === 'off') {
 					error.textContent = 'Google sign-in is not available. Use your email instead.';
 					google.hidden = true;
 					or.hidden = true;
+
+					return;
 				}
 
-				return;
+				if (setting === 'unknown') {
+					error.textContent = navigator.onLine ? 'Could not reach the server. Try again in a moment.' : signInErrorText(null);
+					google.disabled = false;
+
+					return;
+				}
 			}
 
 			try {
