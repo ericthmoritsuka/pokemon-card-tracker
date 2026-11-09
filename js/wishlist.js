@@ -24,7 +24,7 @@
 import {compareNumbers, importApi, setList} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, isCatalogLanguage} from './languages.js';
+import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, catalogsOf, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
 import {fetchJson} from './tcgdex.js';
 
@@ -45,9 +45,21 @@ const priorityRank = (priority) => {
 const entryCatalog = (entry) => (entry && entry.catalog) || 'international';
 
 // The languages a card in this catalog can be wished for in: English,
-// Portuguese, and French share the international records; a Japanese,
-// Korean, or Chinese card has only its own (DESIGN.md section 3).
-export const languagesFor = (catalog) => CATALOG_LANGUAGES.filter((lang) => catalogFor(lang.code) === catalog);
+// Portuguese, and French share the international records; a Korean or
+// Chinese card has only its own, and a Japanese card is wished for in
+// Japanese or Korean, since Korean copies of the sets Korea prints under the
+// Japanese codes are saved on the Japanese records (js/languages.js
+// catalogsOf; DESIGN.md section 3).
+export const languagesFor = (catalog) => CATALOG_LANGUAGES.filter((lang) => catalogsOf(lang.code).includes(catalog));
+
+// Whether a card in this catalog can be wished for in this language.
+const wishableIn = (language, catalog) => isCatalogLanguage(language) && catalogsOf(language).includes(catalog);
+
+// The language a catalog's record of an item is read in: the item's own
+// when its catalog is that language's, else the catalog's (a Korean wish on
+// a Japanese print reads the Japanese record, never a Korean card that
+// shares the ID).
+const recordLanguage = (item) => (item.language && catalogFor(item.language) === entryCatalog(item) ? item.language : catalogLanguage(entryCatalog(item)));
 
 // ------------------------------------------------------- finish labels
 //
@@ -102,7 +114,7 @@ function cleanFields(fields, catalog) {
 	if (fields.language !== undefined) {
 		const language = fields.language || null;
 
-		if (language && (!isCatalogLanguage(language) || catalogFor(language) !== catalog)) {
+		if (language && !wishableIn(language, catalog)) {
 			throw new Error(`A card from the ${catalog} catalog cannot be wished for in ${language}.`);
 		}
 
@@ -593,7 +605,7 @@ async function warmCards(members) {
 
 	for (const member of members) {
 		for (const item of member.wishlist) {
-			const lang = item.language || catalogLanguage(entryCatalog(item));
+			const lang = recordLanguage(item);
 
 			cards.set(`${lang}|${item.card_id}`, {cardId: item.card_id, catalog: entryCatalog(item), lang});
 		}
@@ -752,8 +764,11 @@ export async function cardRecord(cardId, lang, catalog = catalogFor(lang)) {
 	return null;
 }
 
-// The language to show an item's card in.
-export const displayLanguage = (item, viewing) => item.language
+// The language to show an item's card in: its own when the item names one
+// of its catalog's languages, else the viewing language when it reads that
+// catalog, else the catalog's. A Korean wish on a Japanese print shows the
+// Japanese record.
+export const displayLanguage = (item, viewing) => (item.language && catalogFor(item.language) === entryCatalog(item) ? item.language : null)
 	|| (catalogFor(viewing) === entryCatalog(item) ? viewing : catalogLanguage(entryCatalog(item)));
 
 // --------------------------------------------------------- the search

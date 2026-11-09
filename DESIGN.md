@@ -2209,7 +2209,12 @@ kept on the phone. **Korean also reads the Japanese catalog**: Korea prints many
 Japanese set codes and its copies are saved on those records (section 5), and TCGdex's Korean
 catalog lacks most of them (none of Jigglypuff), so a Korean goal, checklist, or flag on the Pokémon
 screen shows the Japanese prints too, with a line saying why; without Japanese among its languages,
-its wishes from them are in Korean (`js/pokemon-cards.js` `catalogsFor`, `wishLanguage`). A copy counts in one of its languages, or with
+its wishes from them are in Korean (`js/pokemon-cards.js` `catalogsFor`, `wishLanguage`). **The wishlist
+takes a Korean wish on a Japanese print** for the same reason (`js/wishlist.js` `languagesFor`): its
+editor offers Japanese and Korean for a Japanese card, a Korean copy on the Japanese record fills it,
+and its card is read and opened from the Japanese record, never a Korean card that shares the ID. A
+v70 phone keeps, lists, and matches such a wish, but its editor has no Korean for a Japanese card, so
+Save changes there widens it to any language. A copy counts in one of its languages, or with
 no language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring,
 All, Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
 goal's language for that catalog when it names one, from a binder's placeholder too), its languages

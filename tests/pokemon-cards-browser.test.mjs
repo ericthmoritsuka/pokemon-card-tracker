@@ -956,6 +956,43 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await context.close();
 	});
 
+	// Korean copies are saved on the Japanese records, so a Korean screen's
+	// Japanese print goes on the wishlist in Korean, and the wishlist lists
+	// it with the Japanese record's card and keeps Korean in its editor.
+	test('Add to wishlist on a Japanese print under Korean wishes in Korean, and the wishlist lists it', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, counts, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('pokemon/39/ko'));
+
+		const button = page.locator('.pc-section[data-catalog="ja"] .pc-cell[data-card="SV2D-026"] .pc-wish');
+
+		await button.waitFor({timeout: 30000});
+		assert.match(await button.getAttribute('aria-label'), /in Korean$/);
+		await button.click();
+		await page.waitForSelector('.pc-section[data-catalog="ja"] .pc-cell[data-card="SV2D-026"] .pc-wished', {timeout: 10000}).catch(async (err) => {
+			throw new Error(`Not on the wishlist. Toast: "${await page.locator('.toast').allTextContents()}". ${err.message}`);
+		});
+		assert.deepEqual((await localDoc(page)).wishlist.filter((item) => !item.deleted_at).map((item) => [item.card_id, item.catalog, item.language]), [['SV2D-026', 'ja', 'ko']]);
+
+		await page.goto(url('wishlist'));
+
+		await page.waitForFunction(() => document.querySelectorAll('#view .wl-item:not(.wl-loading) .wl-name').length === 1, null, {timeout: 20000});
+		assert.equal(await page.locator('.wl-item .wl-name').textContent(), FIXTURES.cards['ja/cards/SV2D-026'].name, 'the Japanese record\'s card');
+		assert.equal(await page.locator('.wl-item .wl-chip[aria-label="Printed in Korean"]').textContent(), 'KO');
+		assert.equal(await page.locator('.wl-item a.wl-art').getAttribute('href'), `${BASE}cards/ja/SV2D-026`);
+		assert.ok(!counts.other.some((path) => /^ko\/cards\/SV2D-026/.test(path)), `no Korean card that shares the ID was asked for: ${counts.other.join(', ')}`);
+
+		// Its editor offers Japanese and Korean and keeps Korean.
+		await page.click('.wl-item .wl-edit');
+		await page.waitForSelector('#wishlist-editor');
+		assert.deepEqual(await page.locator('#wish-language option').evaluateAll((options) => options.map((option) => option.value)), ['', 'ja', 'ko']);
+		assert.equal(await page.inputValue('#wish-language'), 'ko');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	// Offline, a flag whose list was never downloaded says not loaded, offers
 	// Try again, and loads by itself when the connection comes back; a tap
 	// on a flag whose list failed loads it again.

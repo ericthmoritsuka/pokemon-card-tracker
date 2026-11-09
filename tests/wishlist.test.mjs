@@ -9,6 +9,7 @@ import {mergeDocuments, nextStamp, sameContent} from '../js/merge.js';
 import {
 	copyFits,
 	deletedWish,
+	displayLanguage,
 	editedWish,
 	languagesFor,
 	newWish,
@@ -20,6 +21,7 @@ import {
 	variantLabel,
 	wishedBy,
 } from '../js/wishlist.js';
+import {wishLanguage} from '../js/pokemon-cards.js';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -204,7 +206,44 @@ describe('builders', () => {
 
 	test('languages follow the catalog', () => {
 		assert.deepEqual(languagesFor('international').map((lang) => lang.code), ['pt', 'en', 'fr']);
-		assert.deepEqual(languagesFor('ja').map((lang) => lang.code), ['ja']);
+		assert.deepEqual(languagesFor('ja').map((lang) => lang.code), ['ja', 'ko']);
+		assert.deepEqual(languagesFor('ko').map((lang) => lang.code), ['ko']);
+	});
+
+	test('a Korean wish on a Japanese print is kept, matched, and shown on the Japanese record', () => {
+		// A Korean list's missing Japanese print wishes in Korean, since Korean
+		// copies are saved on the Japanese records (js/languages.js catalogsOf).
+		const language = wishLanguage(['ko'], 'ja');
+
+		assert.equal(language, 'ko');
+
+		const item = newWish('SV2a-039', {catalog: 'ja', language}, at(0), 'w-ko');
+
+		assert.equal(item.catalog, 'ja');
+		assert.equal(item.language, 'ko');
+		assert.equal(editedWish(item, {language: 'ko', note: 'binder'}, Date.parse(at(1))).language, 'ko');
+
+		// The Korean copy saved on the Japanese record fits it; a Japanese copy
+		// and a card of the Korean catalog that shares the ID do not.
+		assert.ok(copyFits(item, copy('c1', 'SV2a-039', {catalog: 'ja', language: 'ko'})));
+		assert.ok(!copyFits(item, copy('c2', 'SV2a-039', {catalog: 'ja', language: 'ja'})));
+		assert.ok(!copyFits(item, copy('c3', 'SV2a-039', {catalog: 'ko', language: 'ko'})));
+
+		// The scanner finds it for a Korean copy read on the Japanese record.
+		const family = [{name: 'Member A', user_id: 'u-a', wishlist: [item]}];
+
+		assert.equal(wishedBy('SV2a-039', {catalog: 'ja', language: 'ko'}, family).length, 1);
+		assert.equal(wishedBy('SV2a-039', {catalog: 'ko', language: 'ko'}, family).length, 0);
+
+		// Its card is read from the Japanese record, never a Korean card that
+		// shares the ID.
+		assert.equal(displayLanguage(item, 'pt'), 'ja');
+		assert.equal(displayLanguage(item, 'ko'), 'ja');
+		assert.equal(displayLanguage(newWish('S4a-001', {catalog: 'ko', language: 'ko'}), 'pt'), 'ko');
+
+		// Japanese stays off Korean prints, and Korean off Chinese ones.
+		assert.throws(() => newWish('S4a-001', {catalog: 'ko', language: 'ja'}), /cannot be wished for in ja/);
+		assert.throws(() => newWish('x-1', {catalog: 'zh-tw', language: 'ko'}), /cannot be wished for in ko/);
 	});
 
 	test('finish labels match the card detail wording', () => {
