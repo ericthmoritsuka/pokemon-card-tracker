@@ -969,6 +969,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		assert.deepEqual(await flag(page, 'ja'), ['ja', 'true', '', 'Japanese, not loaded']);
 		assert.match(await page.locator('#pc-status').textContent(), /Japanese prints are not on this phone yet/);
 		assert.equal(await page.locator('#pc-retry').count(), 1, 'Try again');
+		assert.equal(await titleText(page), 'Jigglypuff', 'no count for a list not on the phone');
 		await page.screenshot({path: `${SHOTS}-offline-flag.png`});
 		assert.equal(counts.asian.ja, undefined);
 

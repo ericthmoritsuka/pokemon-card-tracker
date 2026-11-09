@@ -860,7 +860,9 @@ function screen(root, source, listId, dexParam, langParam = null) {
 			blocks.push(h('section', {class: 'pc-section', 'data-catalog': catalog}, heading, body));
 		}
 
-		const loaded = shown.every((catalog) => catalogs.get(catalog));
+		// A list not on the phone has no count to give: "0 of 0 cards" would
+		// say the Pokémon has none.
+		const loaded = shown.every((catalog) => catalogs.get(catalog) && !catalogs.get(catalog).missingList);
 		const counts = loaded ? tally(allStates, everyFinish) : null;
 
 		drawHead(counts);
