@@ -1605,9 +1605,31 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		// The stored Japanese pocket still shows its copy.
 		const sv2a = stored.snapshot.keys.indexOf('ja|SV2a-039');
 
-		await openBinderPage(page, Math.floor(sv2a / 9) + 1);
+		const sv2aPage = Math.floor(sv2a / 9) + 1;
+
+		await goInApp(page, `binders/${made}/${sv2aPage}`);
+		await page.waitForSelector(`.bs-open[data-open="${sv2aPage}"]`, {timeout: 20000});
+		await openBinderPage(page, sv2aPage);
 		await page.waitForFunction((position) => document.querySelector(`#bs-zoom-sheet .pocket[data-position="${position}"]`)?.dataset.kind === 'card', (sv2a % 9) + 1, {timeout: 10000});
-		await page.click('#bs-zoom-sheet .sheet-head button, #bs-zoom-close').catch(() => {});
+		assert.deepEqual(await binderOf(page, made), stored, 'nor on opening a page');
+
+		// Lists shows no ring for it: a count of the cards read would hide
+		// the Japanese prints.
+		await goInApp(page, 'lists');
+		await page.waitForSelector(`.goal-tile[data-goal="${goal.id}"]`, {timeout: 20000});
+		await page.waitForTimeout(1500);
+		assert.equal(await page.locator(`.goal-tile[data-goal="${goal.id}"] .goal-ring`).count(), 0);
+
+		// New binder > From a list refuses to lay out the part read.
+		await goInApp(page, 'binders');
+		await page.click('#new-binder');
+		await page.check('#new-binder-list');
+		await page.waitForSelector('#rule-section');
+		await page.check('#rule-kind input[value="goal"]');
+		await page.waitForFunction(() => /^The Japanese prints are not on this phone yet\. Open the list with a connection, then make the binder\.$/.test(document.getElementById('rule-count')?.textContent || ''), null, {timeout: 20000});
+		await page.click('#binder-save');
+		await page.waitForFunction(() => /^Could not save the binder\. The Japanese prints are not on this phone yet\. The binder can be laid out once the whole list is read/.test(document.getElementById('binder-form-error')?.textContent || ''), null, {timeout: 20000});
+		assert.equal((await localDoc(page)).binders.length, 1, 'no binder made');
 
 		// The goal's screen says what is missing.
 		await goInApp(page, `goals/${goal.id}`);
@@ -1621,8 +1643,10 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		await forget(page, 'card-tracker-catalog', 'responses', 'set:ja:SV2a');
 
 		const refuse = (route) => route.fulfill({body: '{}', contentType: 'application/json', status: 403});
+		// One function for route and unroute, which matches it by identity.
+		const sv2aDetails = (target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname);
 
-		await context.route((target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname), refuse);
+		await context.route(sv2aDetails, refuse);
 		await goInApp(page, `binders/${made}`);
 		await page.waitForFunction(() => /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The pages stay as they were until the whole list can be read\.$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000}).catch(async (err) => {
 			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
@@ -1635,7 +1659,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		assert.match(await page.locator('#goal-status').textContent(), /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The count is of the cards read so far \(.+\)\. Try again$/);
 
 		// The set readable again: the whole list, the same pockets.
-		await context.unroute((target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname), refuse);
+		await context.unroute(sv2aDetails, refuse);
 		await goInApp(page, `binders/${made}`);
 		await page.waitForSelector('#binder-refresh:not([hidden])');
 		await page.click('#binder-refresh');
@@ -1667,8 +1691,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		net.offline = false;
 		await page.reload();
 		await waitForTitle(page, 'Jigglypuff, 4 of 37 cards');
-		await page.waitForFunction(async () => true);
-		await untilInPage(page, async () => (await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument()).goals[0].name === 'Jigglypuff', {timeout: 20000});
+		await untilInPage(page, 'the goal named Jigglypuff', async () => (await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument()).goals[0].name === 'Jigglypuff', {timeout: 20000});
 		assert.equal(await page.locator('#pc-goal-link').textContent(), 'Your goal: Every card in PT');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
