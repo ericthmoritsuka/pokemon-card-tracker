@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
-- **v70:** from a card's page, open its set or every card of its Pokémon, one language at a time.
+- **v70:** from a card's page, open its set or every card of its Pokémon, one language at a time. `8f68302`
   - A card's **Set** opens that set's page, in the card's catalog and language.
   - Under the card, "Every Jigglypuff card" opens every print of that Pokémon, the same screen a
     checklist row opens but with no checklist, with All, Owned, and Missing, the owned marks, and
