@@ -77,6 +77,10 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 	let counted = null;
 	let asked = 0;
 	let pending = null;
+	// An order picked by hand stays; until then a new binder starts on the
+	// order its list suggests (a Pokémon goal's oldest set first,
+	// js/binder-sources.js sourceChoices), else the first.
+	let orderPicked = false;
 
 	rowsSelect.value = String(binder ? binder.rows : 3);
 	colsSelect.value = String(binder ? binder.cols : 3);
@@ -139,6 +143,21 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 
 		if (orders.some((order) => order.value === keep)) {
 			orderSelect.value = keep;
+		}
+
+		suggestOrder();
+	}
+
+	function suggestOrder() {
+		if (rule || orderPicked) {
+			return;
+		}
+
+		const item = (choices[kind()] || []).find((one) => one.id === listSelect.value);
+		const wanted = (item && item.order) || ordersFor(kind())[0].value;
+
+		if ([...orderSelect.options].some((option) => option.value === wanted)) {
+			orderSelect.value = wanted;
 		}
 	}
 
@@ -242,8 +261,14 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 		fillList();
 		recount();
 	});
-	listSelect.addEventListener('change', recount);
-	orderSelect.addEventListener('change', recount);
+	listSelect.addEventListener('change', () => {
+		suggestOrder();
+		recount();
+	});
+	orderSelect.addEventListener('change', () => {
+		orderPicked = true;
+		recount();
+	});
 	rowsSelect.addEventListener('change', () => {
 		drawCount();
 		onChange();

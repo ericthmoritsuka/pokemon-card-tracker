@@ -124,7 +124,8 @@ export function dexCardsFrom(json) {
 // The international prints of one Pokémon. ids from the bulk map; sets the
 // set index ({setId: {...}}); cards this Pokémon's names and images, either
 // may be empty. A print: {catalog, cardId, setId, localId, name, image,
-// setName, releaseDate}.
+// rarity, setName, releaseDate}; rarity, from this Pokémon's GraphQL cards,
+// is for a Pokémon goal's rarity filter (js/goals.js).
 export function internationalPrints({cards = {}, ids, sets = {}}) {
 	const known = new Map(Object.entries(sets || {}));
 	const prints = [];
@@ -144,6 +145,7 @@ export function internationalPrints({cards = {}, ids, sets = {}}) {
 			image: card.image || null,
 			localId: card.localId || localIdOf(cardId, setId),
 			name: card.name || null,
+			rarity: card.rarity || null,
 			releaseDate: (set && set.releaseDate) || null,
 			setId,
 			setName: (set && set.name) || null,

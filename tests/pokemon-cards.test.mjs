@@ -93,7 +93,7 @@ describe('selecting the prints', () => {
 		assert.equal(asianPrints({briefs: [pocketBrief], catalog: 'ja', sets: new Map([['A1', {serie: {id: 'tcgp'}}]])}).length, 0);
 	});
 
-	test('a print carries its name, image, set, and date', () => {
+	test('a print carries its name, image, rarity, set, and date', () => {
 		const prints = internationalPrints({cards: dexCards, ids: ['sm12-165', 'tk-xy-w-12'], sets: setsIndex});
 
 		assert.deepEqual(prints[0], {
@@ -102,6 +102,7 @@ describe('selecting the prints', () => {
 			image: 'https://assets.tcgdex.net/en/sm/sm12/165',
 			localId: '165',
 			name: 'Mega Lopunny & Jigglypuff GX',
+			rarity: 'Ultra Rare',
 			releaseDate: '2019-11-01',
 			setId: 'sm12',
 			setName: 'Cosmic Eclipse',

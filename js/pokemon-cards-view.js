@@ -18,7 +18,8 @@
 // control); the checklist screen shows it too. The screen without a list
 // has a row of flags instead (drawFlags): a flag per language, one shown at
 // a time, each language's prints loaded the first time its flag is tapped
-// (Eric, 2026-11-09).
+// (Eric, 2026-11-09), and Make this a goal (goalControl), which keeps the
+// Pokémon as a goal in the languages picked (js/goals.js).
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
@@ -35,9 +36,10 @@ import {
 	spriteUrl,
 } from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, h, segmentCounts} from './dom.js';
+import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge, flagSrc, flagText} from './flags.js';
 import {formatCount, plural} from './format.js';
+import {createGoal, describeGoal, findGoal, listGoals} from './goals.js';
 import {ASIAN_LANGUAGES, LIST_LANGUAGE_CODES, NAME_TABLES, catalogFor, catalogLanguage, htmlLang, isCatalogLanguage, languageLabel} from './languages.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
@@ -67,6 +69,7 @@ import {
 import {mainArt, onImagesChange} from './photos/index.js';
 import {readChoice, saveChoice} from './settings.js';
 import {toast} from './shell.js';
+import {openDialogSheet} from './sheet.js';
 import {memberDocument} from './sync.js';
 import {cardArt, cardTile, entryFinish, variantFinish} from './tile.js';
 import {addToWishlist, listWishlist} from './wishlist.js';
@@ -291,6 +294,142 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 	};
 }
 
+// --------------------------------------------------- make this a goal
+//
+// The screen without a list keeps its Pokémon as a goal (Eric, 2026-11-09:
+// a list of every card of one Pokémon, to turn into a binder later). Make
+// this a goal opens a sheet to pick the goal's languages, the flag shown
+// ticked; the goal joins the set and artist goals in Lists (js/goals.js),
+// and a toast offers to open it. One goal per Pokémon: once one is kept,
+// the control is a link to it ("Your goal: Every card in PT, JA"), as the
+// set page's is, so the tap that would make a second one opens the first,
+// and the languages are changed on the goal's own screen.
+
+const goalPath = (id) => `goals/${encodeURIComponent(id)}`;
+
+// {element, refresh()}: refresh reads the goals again (a goal made or
+// deleted on another phone). language() is the flag shown; name() the
+// species' name.
+export function goalControl({language, n, name}) {
+	const element = h('div', {class: 'pc-goal', id: 'pc-goal'});
+	let kept = null;
+	let run = 0;
+
+	function draw() {
+		element.replaceChildren(kept
+			? link(goalPath(kept.id), {class: 'button small pc-goal-link', id: 'pc-goal-link'}, `Your goal: ${describeGoal(kept)}`)
+			: h('button', {'aria-haspopup': 'dialog', class: 'small', id: 'pc-make-goal', onclick: openSheet, type: 'button'}, 'Make this a goal'));
+	}
+
+	async function refresh() {
+		const mine = ++run;
+
+		try {
+			const goals = await listGoals();
+
+			if (mine === run) {
+				kept = findGoal(goals, {kind: 'pokemon', target: n});
+				draw();
+			}
+		}
+		catch {
+			// No control this time; the cards are unaffected.
+		}
+	}
+
+	function openSheet() {
+		const id = 'pc-goal-sheet';
+		const species = name();
+		const shown = language();
+		// German, Italian, and Spanish have no catalog of their own, so a list
+		// cannot name them (js/languages.js): their flag starts on Any
+		// language, which shows the international prints and counts their
+		// copies.
+		let any = !LANGUAGE_CHOICES.includes(shown);
+		const chosen = new Set(any ? [] : [shown]);
+		const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'pc-goal-error'});
+		const anyBox = h('input', {checked: any, id: 'pc-goal-any', name: 'pc-goal-language', type: 'checkbox', value: 'any'});
+		const boxes = LANGUAGE_CHOICES.map((code) => h('input', {checked: chosen.has(code), 'data-lang': code, name: 'pc-goal-language', type: 'checkbox', value: code}));
+
+		boxes.forEach((box) => box.addEventListener('change', () => {
+			if (box.checked) {
+				chosen.add(box.value);
+				any = false;
+				anyBox.checked = false;
+			}
+			else {
+				chosen.delete(box.value);
+			}
+		}));
+		anyBox.addEventListener('change', () => {
+			any = anyBox.checked;
+
+			if (any) {
+				chosen.clear();
+				boxes.forEach((box) => {
+					box.checked = false;
+				});
+			}
+		});
+
+		const create = h('button', {class: 'primary', id: 'pc-goal-create', type: 'button'}, 'Make goal');
+		const dialog = h('dialog', {'aria-labelledby': `${id}-title`, class: 'sheet pc-goal-sheet', id},
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: `${id}-title`}, `Make ${species} a goal`),
+				h('button', {class: 'small', id: 'pc-goal-close', onclick: () => dialog.close(), type: 'button'}, 'Close')
+			),
+			h('p', {class: 'muted pc-goal-about'}, `Every ${species} card in the languages you pick, in Lists with what you own and what is missing. A card counts as owned for a copy in one of them.`),
+			h('fieldset', {class: 'pc-language-editor pc-goal-languages', id: 'pc-goal-languages'},
+				h('legend', null, 'Languages'),
+				h('div', {class: 'pc-language-choices'},
+					h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
+					boxes.map((box) => h('label', {class: 'pc-language-choice'},
+						box,
+						flagBadge([box.value], {className: 'flags-inline', prefix: null}),
+						h('span', null, languageLabel(box.value))
+					))
+				)
+			),
+			error,
+			h('div', {class: 'button-row'}, h('button', {onclick: () => dialog.close(), type: 'button'}, 'Cancel'), create)
+		);
+
+		create.addEventListener('click', async () => {
+			if (!any && !chosen.size) {
+				error.textContent = 'Pick at least one language, or Any language.';
+
+				return;
+			}
+
+			create.disabled = true;
+
+			try {
+				const goal = await createGoal({kind: 'pokemon', languages: any ? null : [...chosen], name: species, target: n});
+
+				kept = goal;
+				draw();
+				dialog.close();
+				toast(`${goal.name} is a goal in Lists.`, {action: () => go(goalPath(goal.id)), actionLabel: 'Open'});
+			}
+			catch (err) {
+				error.textContent = `Could not make the goal. ${errorText(err)}`;
+				create.disabled = false;
+			}
+		});
+		dialog.addEventListener('click', (event) => {
+			if (event.target === dialog) {
+				dialog.close();
+			}
+		});
+		dialog.addEventListener('close', () => dialog.remove());
+		document.getElementById(id)?.remove();
+		document.body.append(dialog);
+		openDialogSheet(dialog);
+	}
+
+	return {element, refresh};
+}
+
 // ------------------------------------------------------------ helpers
 
 // What the status line says while the cards load, or null.
@@ -357,8 +496,9 @@ const FINISH_WORDS = {first: '1st Edition', masterball: 'Master Ball', normal: '
 
 // A tile's corner: the flags of the languages its copies are in, and a "?"
 // for copies with no language recorded, as the scan tray marks them
-// (js/scan/tile.js). Null for a card with no copies.
-function ownedBadge(copies) {
+// (js/scan/tile.js). Null for a card with no copies. A Pokémon goal's cells
+// (js/goals-view.js) show the same.
+export function ownedBadge(copies) {
 	const known = [...new Set(copies.map((entry) => entry.language).filter(Boolean))];
 	const unset = copies.some((entry) => !entry.language);
 
@@ -442,6 +582,8 @@ function screen(root, source, listId, dexParam, langParam = null) {
 	// screen again. Without a list, the flags choose one language.
 	const languages = source.flags ? null : languagesControl({listId, readOnly: source.readOnly});
 	const flags = source.flags ? h('div', {'aria-label': 'Languages', class: 'pc-flags', id: 'pc-flags', role: 'group'}) : null;
+	// Without a list, Make this a goal (or the goal already kept).
+	const goalSlot = source.flags && n ? goalControl({language: () => chosen, n, name: () => speciesName()}) : null;
 
 	if (!source.base) {
 		back.addEventListener('click', (event) => {
@@ -1041,6 +1183,10 @@ function screen(root, source, listId, dexParam, langParam = null) {
 			languages.update(goal);
 		}
 
+		if (goalSlot) {
+			goalSlot.refresh();
+		}
+
 		draw();
 		await loadCatalogs({force});
 	}
@@ -1068,13 +1214,14 @@ function screen(root, source, listId, dexParam, langParam = null) {
 	// new photo or pin is a save, which loads the screen again.
 	const stopImages = onImagesChange(() => alive && drawSoon(), {records: false});
 
-	content.append(
+	content.append(...[
 		h('div', {class: 'pc-head'}, sprite(n), h('div', {class: 'pc-head-text'}, title, originals)),
 		flags || languages.element,
+		goalSlot && goalSlot.element,
 		h('div', {class: 'pc-controls'}, filterControl, finishControl),
 		status,
-		sections
-	);
+		sections,
+	].filter(Boolean));
 	root.append(back, notice, content);
 	drawHead(null);
 

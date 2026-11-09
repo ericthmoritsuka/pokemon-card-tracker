@@ -1,4 +1,4 @@
-// Set and artist goals (js/goals.js) on screen:
+// Set, artist, and Pokémon goals (js/goals.js) on screen:
 //   goals/new                       a new goal: a set and its level, or an
 //                                   illustrator
 //   goals/artist/<name>             every card by an illustrator, opened
@@ -8,7 +8,8 @@
 //   family/<userId>/goals/<id>      a family member's, view only
 // plus the Goals section of the Lists tab (goalsSection), the set page's
 // "Make this a goal" (setGoalControl), and card detail's "All cards by this
-// artist" (artistLink).
+// artist" (artistLink). A Pokémon goal is made on the Pokémon screen
+// (js/pokemon-cards-view.js goalControl) and shown here like the others.
 //
 // A goal screen shows its cards as the shared tiles, owned ones in full and
 // missing ones dimmed with one tap to the wishlist, the All, Owned, and
@@ -33,7 +34,7 @@ import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogLanguage, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
-import {languagesControl} from './pokemon-cards-view.js';
+import {languagesControl, ownedBadge} from './pokemon-cards-view.js';
 import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
 import {printKey, wishLanguage} from './pokemon-cards.js';
 import {UNDO_MS, orderSection} from './reorder.js';
@@ -302,7 +303,7 @@ function goalScreen(root, source, id) {
 	);
 
 	// Search and sort over the goal's cards; set and rarity filters where
-	// they say something (an artist's cards span sets).
+	// they say something (an artist's or a Pokémon's cards span sets).
 	let bar = null;
 	const barSlot = h('div', {class: 'goal-bar', id: 'goal-bar'});
 
@@ -312,7 +313,7 @@ function goalScreen(root, source, id) {
 		}
 
 		bar = filterBar({
-			filters: goal.kind === 'artist' ? ['set', 'rarity'] : ['rarity'],
+			filters: goal.kind === 'set' ? ['rarity'] : ['set', 'rarity'],
 			id: 'goal',
 			onChange: () => draw(),
 			placeholder: 'Search this goal',
@@ -516,14 +517,19 @@ function goalScreen(root, source, id) {
 			},
 			attrs: {id: `goal-tile-${card.catalog}-${card.cardId}`},
 			className: owned ? '' : 'unowned',
-			meta: [card.localId ? `#${card.localId}` : null, goal.kind === 'artist' ? card.setName : null, finishText].filter(Boolean).join(' · '),
+			meta: [card.localId ? `#${card.localId}` : null, goal.kind === 'set' ? null : card.setName, finishText].filter(Boolean).join(' · '),
 			names: tileNames(names, lang),
 			route,
 		}), (src) => cardArt(info, src, {decorative: true}), source.readOnly ? {family: false, records: records || []} : {});
 		const ownedIn = [...new Set(copies.map((entry) => entry.language).filter(Boolean))];
+		// A Pokémon goal counts a copy with no language recorded, so its
+		// corner marks one with a "?", as the Pokémon screen does.
+		const badge = goal.kind === 'pokemon'
+			? ownedBadge(copies)
+			: ownedIn.length ? flagBadge(ownedIn, {className: 'badge badge-lang', prefix: 'Owned in'}) : null;
 
-		if (ownedIn.length) {
-			node.querySelector('.art-wrap').append(flagBadge(ownedIn, {className: 'badge badge-lang', prefix: 'Owned in'}));
+		if (badge) {
+			node.querySelector('.art-wrap').append(badge);
 		}
 
 		if (state.finishes) {

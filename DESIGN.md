@@ -572,6 +572,7 @@ by older apps:
   "goals":       [{ "id", "kind", "target", "level", "name", "dex_list", "hand_ticks", "languages",
                     "catalog" }],   -- catalog: a set goal's catalog (international, ja, ...)
                                   -- every_pokemon | region | custom_pokemon | set | pokemon | artist
+                                  -- (pokemon: a Pokémon goal, target its dex number, v71)
   "binders":     [{ "id", "name", "notes", "cover_color", "rows", "cols", "page_count",
                     "slots": [{ "page", "position",
                                 "entry_id" | "want": {card_id, variant_id} | "art": {art_id, tile} }],
@@ -2172,6 +2173,38 @@ goal per set (per catalog) or illustrator; a set goal's level changes on its own
   missing finishes ("Missing: Reverse holo, Master Ball pattern"), since GraphQL gives no variant ID
   to wish for. A family member's goal is read only (`family/<id>/goals/<id>`).
 
+**Pokémon goals** (Eric, 2026-11-09: "Transform the cards from a specific Pokémon into a list (I am
+making a wishlist/list of all cards from this Pokémon and I want to later transform this list into
+a binder)"), `js/goals.js` and `js/pokemon-cards-view.js` `goalControl`. A third kind beside set and
+artist goals, `{kind: 'pokemon', target: <dex number as text>, name, languages}`, made from the
+Pokémon screen without a list (`pokemon/<dex>/<flag>`): **Make this a goal**, under the flags, opens a
+sheet to pick the languages it covers, one or several, **chosen by Eric** (Eric, 2026-11-09), with the
+flag shown ticked; German, Italian, and Spanish have no catalog a list can name, so their flag starts
+the sheet on **Any language**. The goal is named for the Pokémon ("Jigglypuff", renamed on its
+screen like any goal), and its tile and screen say the languages ("Every card in PT, JA"), read from
+the field, so they stay true when the languages are changed on its screen; a name with the languages
+in it would go stale then. Once made, a toast offers to open it, and the control becomes a link to it
+("Your goal: Every card in PT, JA"), as the set page's does: one goal per Pokémon, so the tap that
+would make a second one opens the first, rather than a sheet that can only say it exists. It holds
+the prints the Pokémon screen shows (every print whose `dexId` includes the number, TAG TEAM cards
+included, TCG Pocket left out), read the way that screen reads them and from the catalogs of its
+languages only (the international one for Western languages, which share its records, and a
+Japanese, Korean, or Chinese one only when picked; an Any language goal reads the international one,
+as an artist goal does), each kept on the phone. A copy counts in one of its languages, or with no
+language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring, All,
+Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
+goal's language for that catalog when it names one), its languages edited on its screen, and **Make a
+binder**. **To be turned into binders:** New binder from a list offers it with the other goals, one
+pocket per print, owned copies filling theirs and the rest placeholders that fill once a copy is
+owned (Binders from a list), and it starts on **Set and number**, oldest set first: a Pokémon's
+prints are collected and kept in a binder in release order, and new prints then join at the end
+instead of moving every pocket after the first page down by one, as newest first would. Pokédex
+order would put TAG TEAM cards first, by their lowest number. An older phone (v70 and before) knows
+only set and artist goals: it leaves a Pokémon goal out of Lists, Edit order, and the binder form,
+says "This goal is not here" at its address, shows a binder made from it as made from a deleted list
+(its pages stay, nothing is saved), and its merge, by id and field, keeps the goal and the binder
+exactly as written (`tests/pokemon-goal-v70-browser.test.mjs` runs v70 itself against them).
+
 ### Binders
 
 A binder mirrors one real binder: a name, a grid, and a page count. Grids run from 1×1 to 5×4 so
@@ -2508,7 +2541,7 @@ pockets placeholders for the list's Pokémon in Pokédex order:
 
 **Binders from a list** (Eric, 2026-10-05; built 2026-10-09), `js/binder-rules.js`,
 `js/binder-sources.js`, and `js/binder-rule-view.js`. New binder offers Empty binder or **From a
-list**: the cards (a checklist, a collection, a set or artist goal, or a filter by region, set,
+list**: the cards (a checklist, a collection, a set, artist, or Pokémon goal, or a filter by region, set,
 type, and language), an order (Pokédex number, set and number with the oldest set first, name, or
 release date with the newest set first; a checklist offers Pokédex number and name), and a pocket
 size (the quick picks or any grid). The form counts the pockets and pages as the choice changes,
@@ -2520,7 +2553,7 @@ chosen, for a "Make a binder" button on those screens.
   entry, and a copy fits when its card's Pokédex numbers include it, in one of the list's
   languages (any language for a list that names none), as the checklist screen ticks it
   (Eric, 2026-11-05; built 2026-11-05, `js/binder-sources.js` `checklistItems`). A collection or a filter gives one pocket per owned card (catalog and
-  card id), and a goal one pocket per card of the set or artist, owned or not; their copies are the
+  card id), and a goal one pocket per card of the set, artist, or Pokémon, owned or not; their copies are the
   ones the collection holds, the filter matches (a language filter keeps only that language's
   copies), or the goal counts.
 - **The copy shown.** The default is the most valuable copy (a Liga price typed on it, else

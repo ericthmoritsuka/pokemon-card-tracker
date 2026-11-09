@@ -1267,3 +1267,153 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await context.close();
 	});
 });
+
+// A Pokémon goal (Eric, 2026-11-09: every card of one Pokémon as a list, to
+// turn into a binder later; js/goals.js, js/pokemon-cards-view.js
+// goalControl): made from the screen without a list in the languages
+// picked, shown in Lists like a set or artist goal, one tap to the
+// wishlist, and a binder from it with a pocket per print.
+describe('a Pokémon goal from the Pokémon screen', () => {
+	const checkedLanguages = (page) => page.locator('#pc-goal-languages input:checked').evaluateAll((boxes) => boxes.map((box) => box.value));
+	// Plus a copy with no language recorded, which counts as on the flags.
+	const OWNED = [...CARDS, entry('c8', {card_id: 'xy1-87', catalog: 'international', language: null})];
+
+	test('Make this a goal with two languages, the goal in Lists, the wishlist, and a binder from it', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, counts, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(OWNED, []));
+		await page.goto(url('pokemon/39/pt'));
+		await waitForTitle(page, 'Jigglypuff, 4 of 37 cards');
+		assert.equal(await page.locator('#pc-make-goal').textContent(), 'Make this a goal');
+
+		// The sheet: the flag shown ticked; Japanese added.
+		await page.click('#pc-make-goal');
+		await page.waitForSelector('#pc-goal-sheet[open]');
+		assert.equal(await page.locator('#pc-goal-sheet-title').textContent(), 'Make Jigglypuff a goal');
+		assert.deepEqual(await checkedLanguages(page), ['pt']);
+		await page.check('#pc-goal-languages input[value="ja"]');
+		assert.deepEqual(await checkedLanguages(page), ['pt', 'ja']);
+		assert.deepEqual(counts.asian, {}, 'nothing Japanese loaded before the goal is made');
+		await page.click('#pc-goal-create');
+		await page.waitForSelector('#pc-goal-sheet', {state: 'detached'});
+
+		// Made, offered to open, and the control is now its link.
+		await page.waitForSelector('#pc-goal-link');
+		assert.equal(await page.locator('#pc-goal-link').textContent(), 'Your goal: Every card in PT, JA');
+		assert.equal(await page.locator('#toasts .toast-text').last().textContent(), 'Jigglypuff is a goal in Lists.');
+
+		let doc = await localDoc(page);
+		const goal = doc.goals.find((item) => item.kind === 'pokemon');
+
+		assert.equal(doc.goals.length, 1);
+		assert.deepEqual({languages: goal.languages, name: goal.name, target: goal.target}, {languages: ['pt', 'ja'], name: 'Jigglypuff', target: '39'});
+
+		await page.click('#toasts .toast button:has-text("Open")');
+		await page.waitForURL(`**${BASE}goals/${goal.id}`);
+
+		// The goal: the 37 international prints and the 17 Japanese ones;
+		// owned in Portuguese (3), Japanese (1), or with no language (1).
+		await page.waitForFunction(() => /^5 of 54 cards owned, 49 missing\.$/.test((document.getElementById('goal-summary') || {}).textContent), null, {timeout: 30000}).catch(async (err) => {
+			throw new Error(`${await page.locator('#goal-summary').textContent()} / ${await page.locator('#goal-status').textContent()} ${err.message}`);
+		});
+		assert.equal(await page.locator('#goal-title').textContent(), 'Jigglypuff');
+		assert.match(await page.locator('#goal-meta').textContent(), /^Every card in PT, JA/);
+		assert.equal(counts.asian.ja, 1, 'the Japanese catalog, once');
+		assert.deepEqual(Object.keys(counts.asian), ['ja'], 'no other Asian catalog');
+		assert.deepEqual(await page.locator('#goal-filter label span').evaluateAll((spans) => spans.map((span) => span.textContent)), ['All 54', 'Owned 5', 'Missing 49']);
+		await page.click('#goal-filter input[value="missing"]');
+		assert.equal(await page.locator('#goal-grid .pc-cell').count(), 49);
+		assert.equal(await page.locator('#goal-grid .pc-cell[data-card="swsh3-67"]').count(), 1, 'owned only in English: missing');
+		await page.click('#goal-filter input[value="owned"]');
+		assert.deepEqual((await page.locator('#goal-grid .pc-cell').evaluateAll((cells) => cells.map((cell) => cell.dataset.card))).sort(), ['SV2a-039', 'base2-54', 'sm12-165', 'sv03.5-039', 'xy1-87']);
+		assert.equal(await page.locator('.pc-cell[data-card="xy1-87"] .badge-lang .flag-unset').textContent(), '?');
+		await page.click('#goal-filter input[value="all"]');
+
+		// One tap puts a missing card on the wishlist, in Portuguese, the
+		// goal's one Western language.
+		await page.click('.pc-cell[data-card="swsh3-67"] .pc-wish');
+		await page.waitForSelector('.pc-cell[data-card="swsh3-67"] .pc-wished');
+		doc = await localDoc(page);
+		assert.deepEqual(doc.wishlist.map((wish) => [wish.card_id, wish.catalog, wish.language]), [['swsh3-67', 'international', 'pt']]);
+
+		// In Lists, with the set and artist goals' tile and ring.
+		await page.goto(url('lists'));
+		await page.waitForSelector(`.goal-tile[data-goal="${goal.id}"] .goal-ring`, {timeout: 20000});
+		assert.equal(await page.locator(`.goal-tile[data-goal="${goal.id}"] .list-name`).textContent(), 'Jigglypuff');
+		assert.equal(await page.locator(`.goal-tile[data-goal="${goal.id}"] .set-meta`).textContent(), 'Every card in PT, JA');
+		assert.equal(await page.locator(`.goal-tile[data-goal="${goal.id}"] .goal-ring`).getAttribute('aria-label'), '5 of 54 cards owned');
+
+		// New binder > From a list > the goal: oldest set first, a pocket per
+		// print, the five owned filled and the rest placeholders.
+		await page.goto(url('binders'));
+		await page.click('#new-binder');
+		await page.check('#new-binder-list');
+		await page.waitForSelector('#rule-section');
+		await page.check('#rule-kind input[value="goal"]');
+		assert.equal(await page.locator('#rule-list option:checked').textContent(), 'Jigglypuff (Every card in PT, JA)');
+		assert.equal(await page.locator('#rule-order').inputValue(), 'set', 'a Pokémon goal starts on set and number, oldest first');
+		await page.waitForFunction(() => /^54 pockets \(5 with a card you own\): 6 pages of 3 × 3\.$/.test((document.getElementById('rule-count') || {}).textContent), null, {timeout: 20000});
+		await page.click('#binder-save');
+		await page.waitForSelector('#binder-spread .bs-page');
+		assert.equal(await page.locator('#binder-title').textContent(), 'Jigglypuff');
+
+		doc = await localDoc(page);
+
+		const binder = doc.binders[0];
+
+		assert.deepEqual(binder.rule, {order: 'set', source: {id: goal.id, kind: 'goal'}});
+		assert.equal(binder.snapshot.keys.length, 54);
+		assert.equal(binder.snapshot.keys[0], 'ja|PMCG2-035', 'the oldest print first');
+		assert.deepEqual(Object.keys(binder.snapshot.shown).sort(), ['international|base2-54', 'international|sm12-165', 'international|sv03.5-039', 'international|xy1-87', 'ja|SV2a-039']);
+
+		const pocket = (key) => `#bs-spread .pocket[data-position="${(binder.snapshot.keys.indexOf(key) % 9) + 1}"]`;
+
+		// Page 1: Jungle's Jigglypuff (owned) and a placeholder beside it.
+		assert.ok(binder.snapshot.keys.indexOf('international|base2-54') < 9, 'Jungle on page 1');
+		await page.waitForFunction((sel) => document.querySelector(sel)?.dataset.kind === 'card', pocket('international|base2-54'), {timeout: 15000});
+		await page.waitForFunction(() => document.querySelector('#bs-spread .bs-page[data-page="1"] .pocket[data-position="1"]')?.dataset.kind === 'want', null, {timeout: 15000});
+
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// One goal per Pokémon: once kept, the control opens it, from any flag
+	// and after a reload, and never makes a second.
+	test('a Pokémon with a goal already kept opens it', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const kept = {catalog: null, created_at: AT, deleted_at: null, id: 'goal-39', kind: 'pokemon', languages: ['en'], level: null, name: 'Puff', target: '39', updated_at: AT};
+
+		await seedLocal(page, documentWith(OWNED, [kept]));
+		await page.goto(url('pokemon/39/ja'));
+		await page.waitForSelector('#pc-goal-link');
+		assert.equal(await page.locator('#pc-make-goal').count(), 0);
+		assert.equal(await page.locator('#pc-goal-link').textContent(), 'Your goal: Every card in EN');
+		await page.click('#pc-flag-pt');
+		assert.equal(await page.locator('#pc-goal-link').getAttribute('href'), `${BASE}goals/goal-39`);
+		await page.click('#pc-goal-link');
+		await page.waitForURL(`**${BASE}goals/goal-39`);
+		await page.waitForFunction(() => document.getElementById('goal-title')?.textContent === 'Puff');
+
+		// Another Pokémon has no goal.
+		await page.goto(url('pokemon/35/pt'));
+		await page.waitForSelector('#pc-make-goal');
+
+		// A German flag starts the sheet on Any language: German has no
+		// catalog of its own, so a list cannot name it.
+		await page.goto(url('pokemon/35/de'));
+		await page.click('#pc-make-goal');
+		await page.waitForSelector('#pc-goal-sheet[open]');
+		assert.deepEqual(await checkedLanguages(page), ['any']);
+		await page.uncheck('#pc-goal-any');
+		await page.click('#pc-goal-create');
+		assert.equal(await page.locator('#pc-goal-error').textContent(), 'Pick at least one language, or Any language.');
+		await page.click('#pc-goal-sheet .button-row button:has-text("Cancel")');
+		await page.waitForSelector('#pc-goal-sheet', {state: 'detached'});
+
+		assert.equal((await localDoc(page)).goals.length, 1, 'nothing made');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

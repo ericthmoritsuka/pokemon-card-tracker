@@ -1,12 +1,15 @@
-// Set and artist goals (DESIGN.md section 11, "Goals"): a goal over the
-// cards of one set, at one of three levels, or over every card by one
-// illustrator, counted from the owned cards.
+// Set, artist, and Pokémon goals (DESIGN.md section 11, "Goals"): a goal
+// over the cards of one set, at one of three levels, over every card by one
+// illustrator, or over every print of one Pokémon, counted from the owned
+// cards.
 //
 // A goal is an entry in the person's goals list, beside the checklists
 // (js/checklists.js), saved and merged the same way (field by field, with
 // stampEntry):
 //   {id, kind: 'set', catalog, target: <set id>, level, name, languages?}
 //   {id, kind: 'artist', target: <illustrator>, name, languages?}
+//   {id, kind: 'pokemon', target: <National Dex number, as text>, name,
+//    languages?}
 // level is numbered (every card up to cardCount.official), secrets (every
 // card in the set, cardCount.total), or master (every card in every
 // finish: normal, holo, reverse, the ball patterns, and stamps). Only the
@@ -18,24 +21,43 @@
 // international catalog, plus the Japanese, Korean, or Chinese one when its
 // languages name that language.
 //
+// A Pokémon goal (Eric, 2026-11-09) is made from the Pokémon screen
+// (js/pokemon-cards-view.js) in the languages he picks, and holds the prints
+// that screen shows: every print whose dexId includes the number, TAG TEAM
+// cards included, from the catalogs of its languages only (the
+// international one for an Any language goal, as an artist goal). A copy
+// counts in one of its languages, or with no language recorded, as on the
+// screen's flags (js/pokemon-cards.js flagLanguages).
+//
+// Older phones (v70 and before) know only the set and artist kinds: isGoal
+// there is false for a Pokémon goal, so every goal screen, the Lists tab,
+// Edit order, and the binder form pass it over, and the merge, which is by
+// id and field and never by kind, keeps it whole (tests/
+// pokemon-goal-v70-browser.test.mjs).
+//
 // Where the cards come from: a set goal reads the set the Sets tab reads
 // (setDetail, for its name, counts, and card list) and the set's cards with
 // their finishes through one GraphQL request (js/catalog.js setCards); an
 // artist goal reads every card by the illustrator through GraphQL
-// (illustratorCards), dated with the set index js/pokemon-cards.js keeps.
+// (illustratorCards), dated with the set index js/pokemon-cards.js keeps; a
+// Pokémon goal reads what the Pokémon screen reads (js/pokemon-cards.js
+// loadInternational and loadAsian), one catalog per language picked.
 // Each is kept on the phone, so a goal's missing list opens offline.
 //
 // The pure parts take plain data, so Node can test them (tests/goals.test.mjs).
 
 import {artistKey, catalogLanguage, compareNumbers, illustratorCards, savedCardRecords, setCards, setDetail} from './catalog.js';
-import {changeGoal, getGoalEntry, listLanguages, namesLanguages, saveNewGoal} from './checklists.js';
+import {changeGoal, dexLabel, getGoalEntry, listLanguages, namesLanguages, saveNewGoal, validDex} from './checklists.js';
 import {byCreated, sortByOrder} from './reorder.js';
 import {isLive, loadDocument, newId, nowIso} from './collection.js';
-import {catalogsFor, copiesByPrint, internationalSets, isPocket, printKey} from './pokemon-cards.js';
+import {cleanListLanguages, languageChip, listLanguagesToSave} from './languages.js';
+import {catalogsFor, copiesByPrint, internationalSets, isPocket, loadAsian, loadInternational, newestFirst, printKey} from './pokemon-cards.js';
 
 export {artistKey};
 
-export const GOAL_KINDS = ['set', 'artist'];
+// A new kind is added at the end: an older phone's isGoal is false for it
+// (above).
+export const GOAL_KINDS = ['set', 'artist', 'pokemon'];
 
 export const SET_LEVELS = [
 	{hint: 'Every card up to the set\'s number', label: 'Numbered', value: 'numbered'},
@@ -44,6 +66,15 @@ export const SET_LEVELS = [
 ];
 
 export const isGoal = (goal) => Boolean(goal) && GOAL_KINDS.includes(goal.kind);
+
+export const isPokemonGoal = (goal) => Boolean(goal) && goal.kind === 'pokemon';
+
+// A Pokémon goal's National Dex number, or null.
+export function goalDex(goal) {
+	const n = Number(goal && goal.target);
+
+	return isPokemonGoal(goal) && validDex(n) ? n : null;
+}
 
 export const levelLabel = (level) => (SET_LEVELS.find((item) => item.value === level) || {label: 'Set'}).label;
 
@@ -62,18 +93,35 @@ export function goalCatalogs(goal) {
 	return namesLanguages(goal) ? catalogsFor(listLanguages(goal)) : ['international'];
 }
 
-// The live goal of this kind over the same set or illustrator, or null.
+const sameTarget = (goal, kind, target, catalog) => {
+	if (kind === 'artist') {
+		return artistKey(goal.target) === artistKey(target);
+	}
+
+	if (kind === 'pokemon') {
+		return Number(goal.target) === Number(target);
+	}
+
+	return goal.target === target && (goal.catalog || 'international') === catalog;
+};
+
+// The live goal of this kind over the same set, illustrator, or Pokémon, or
+// null.
 export function findGoal(goals, {catalog = 'international', kind, target}) {
-	return (goals || []).find((goal) => isLive(goal) && goal.kind === kind && (kind === 'artist'
-		? artistKey(goal.target) === artistKey(target)
-		: goal.target === target && (goal.catalog || 'international') === catalog)) || null;
+	return (goals || []).find((goal) => isLive(goal) && goal.kind === kind && sameTarget(goal, kind, target, catalog)) || null;
 }
 
-// What the goal is, for its tile and its screen: "Master set" or
-// "Every card by this artist".
+// What the goal is, for its tile and its screen: "Master set", "Every card
+// by this artist", or "Every card in PT, JA". A Pokémon goal's name is the
+// Pokémon's, so its languages are said here, from the field, and stay true
+// when they are changed on its screen.
 export function describeGoal(goal) {
 	if (!goal) {
 		return '';
+	}
+
+	if (goal.kind === 'pokemon') {
+		return namesLanguages(goal) ? `Every card in ${listLanguages(goal).map(languageChip).join(', ')}` : 'Every card, any language';
 	}
 
 	return goal.kind === 'set' ? levelLabel(goal.level) : 'Every card by this artist';
@@ -294,11 +342,40 @@ export function artistGoalCards({lists = [], sets = {}}) {
 	});
 }
 
+// Every print of a Pokémon in a goal's catalogs. results: [{catalog,
+// prints}] from js/pokemon-cards.js loadInternational and loadAsian (TCG
+// Pocket already left out there). Newest first, as the Pokémon screen lists
+// them.
+export function pokemonGoalCards(results = []) {
+	const prints = (results || []).flatMap((result) => (result && result.prints) || []);
+
+	return newestFirst(prints).map((print) => ({
+		cardId: print.cardId,
+		catalog: print.catalog,
+		finishes: null,
+		image: print.image || null,
+		localId: print.localId || null,
+		name: print.name || null,
+		rarity: print.rarity || null,
+		releaseDate: print.releaseDate || null,
+		setId: print.setId || null,
+		setName: print.setName || null,
+	}));
+}
+
 // ------------------------------------------------------------- counting
 
 // The copies a goal counts, by printKey: those in its languages, or every
-// copy when it names none.
-export const goalCopies = (goal, entries) => copiesByPrint(entries, namesLanguages(goal) ? listLanguages(goal) : null);
+// copy when it names none. A Pokémon goal also counts a copy with no
+// language recorded, as the Pokémon screen counts it on every flag of its
+// catalog (Eric, 2026-11-09).
+export function goalCopies(goal, entries) {
+	if (!namesLanguages(goal)) {
+		return copiesByPrint(entries, null);
+	}
+
+	return copiesByPrint(entries, isPokemonGoal(goal) ? [...listLanguages(goal), null] : listLanguages(goal));
+}
 
 // Each card's counts. master counts each finish; the other levels and
 // artist goals count a card once, owned in any finish. recordFor(card)
@@ -391,22 +468,30 @@ export async function getGoal(id) {
 	return isGoal(goal) ? goal : null;
 }
 
-// {kind: 'set', catalog, target, level, name} or {kind: 'artist', target,
-// name}. A goal already kept for the same set or illustrator is returned
-// as it is (its level changes on its own screen).
-export async function createGoal({catalog = 'international', kind, level = null, name = '', target}) {
+// {kind: 'set', catalog, target, level, name}, {kind: 'artist', target,
+// name}, or {kind: 'pokemon', target: <dex>, name, languages}. A goal
+// already kept for the same set, illustrator, or Pokémon is returned as it
+// is (its level and languages change on its own screen). A Pokémon goal's
+// languages: the codes picked, or null for Any language; every list
+// language picked is saved as Any language, as a list's are
+// (js/languages.js listLanguagesToSave).
+export async function createGoal({catalog = 'international', kind, languages = null, level = null, name = '', target}) {
 	if (!GOAL_KINDS.includes(kind)) {
 		throw new Error(`Unknown goal kind ${kind}.`);
 	}
 
-	const clean = String(target || '').trim();
+	const clean = kind === 'pokemon' && validDex(Number(target)) ? String(Number(target)) : String(kind === 'pokemon' ? '' : target || '').trim();
 
 	if (!clean) {
-		throw new Error(kind === 'artist' ? 'Type an illustrator\'s name.' : 'Pick a set.');
+		throw new Error({artist: 'Type an illustrator\'s name.', pokemon: 'Pick a Pokémon.'}[kind] || 'Pick a set.');
 	}
 
 	if (kind === 'set' && !isLevel(level)) {
 		throw new Error(`Unknown level ${level}.`);
+	}
+
+	if (kind === 'pokemon' && languages !== null && !cleanListLanguages(languages).length) {
+		throw new Error('Pick at least one language.');
 	}
 
 	const existing = findGoal(await listGoals(), {catalog, kind, target: clean});
@@ -416,6 +501,7 @@ export async function createGoal({catalog = 'international', kind, level = null,
 	}
 
 	const at = nowIso();
+	const saved = kind === 'pokemon' ? listLanguagesToSave(languages) : null;
 
 	return saveNewGoal({
 		catalog: kind === 'set' ? catalog : null,
@@ -423,8 +509,9 @@ export async function createGoal({catalog = 'international', kind, level = null,
 		deleted_at: null,
 		id: newId(),
 		kind,
+		...(saved ? {languages: saved} : {}),
 		level: kind === 'set' ? level : null,
-		name: String(name || '').trim() || clean,
+		name: String(name || '').trim() || (kind === 'pokemon' ? `Pokémon ${dexLabel(Number(clean))}` : clean),
 		target: clean,
 		updated_at: at,
 	}, isGoal);
@@ -440,10 +527,39 @@ export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {
 
 // ------------------------------------------------------------- loading
 
+// A Pokémon goal's cards: each catalog its languages need, as the Pokémon
+// screen loads it (cache first, kept on the phone). missingList when no
+// catalog's card list is on the phone.
+async function loadPokemonGoalCards(goal) {
+	const n = goalDex(goal);
+
+	if (!n) {
+		return {cards: [], error: new Error('This goal names no Pokémon.'), missingList: true, set: null};
+	}
+
+	const results = await Promise.all(goalCatalogs(goal).map((catalog) => (catalog === 'international' ? loadInternational(n) : loadAsian(catalog, n)).then(
+		(result) => ({...result, catalog}),
+		(error) => ({catalog, error, missingList: true, prints: []})
+	)));
+	const error = (results.find((result) => result.error) || {}).error || null;
+	const read = results.filter((result) => !result.missingList);
+
+	if (!read.length) {
+		return {cards: [], error, missingList: true, set: null};
+	}
+
+	return {cards: pokemonGoalCards(read), error, missingList: false, set: null};
+}
+
 // A goal's cards: {cards, set, error, missingList}. missingList when
-// nothing about the set or the illustrator is on the phone (offline before
-// the first visit, or TCGdex failing); error is the first failure.
+// nothing about the set, the illustrator, or the Pokémon is on the phone
+// (offline before the first visit, or TCGdex failing); error is the first
+// failure.
 export async function loadGoalCards(goal) {
+	if (goal.kind === 'pokemon') {
+		return loadPokemonGoalCards(goal);
+	}
+
 	if (goal.kind === 'set') {
 		const catalog = goal.catalog || 'international';
 		const [set, details] = await Promise.all([

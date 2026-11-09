@@ -8,8 +8,10 @@
 //               checklist screen ticks it (js/checklists.js resolveOwned and
 //               listByDex; Eric, 2026-11-05)
 //   collection  one pocket per card the collection holds; its copies there
-//   goal        one pocket per card of the set or artist goal, owned or not;
-//               the copies the goal counts (js/goals.js computeGoal)
+//   goal        one pocket per card of the set, artist, or Pokémon goal,
+//               owned or not; the copies the goal counts (js/goals.js
+//               computeGoal), so a card not owned yet is a placeholder that
+//               a refresh fills once a copy is
 //   filter      one pocket per owned card that fits the filter (the rule
 //               collections' matching, js/collections.js); the copies that
 //               fit, so a language filter keeps only that language's copies
@@ -38,14 +40,20 @@ export const kindLabel = (kind) => KIND_WORDS[kind] || kind;
 // ------------------------------------------------------------- choices
 
 // The lists a binder can be made from, in the person's order:
-// {checklist: [{id, name}], collection: [...], goal: [...]}.
+// {checklist: [{id, name}], collection: [...], goal: [...]}. A goal may
+// carry the order its binder starts on: a Pokémon goal's prints go oldest
+// set first ('set'), as a binder of one Pokémon is filled, and new prints
+// then join at the end rather than move every pocket after the first page
+// (Eric, 2026-11-09).
+export const POKEMON_GOAL_ORDER = 'set';
+
 export function sourceChoices(doc) {
 	const goals = (doc.goals || []).filter((goal) => goal && isLive(goal));
 
 	return {
 		checklist: sortChecklists(goals.filter(isChecklist)).map((goal) => ({id: goal.id, name: goal.name})),
 		collection: sortCollections(doc.collections).map((item) => ({id: item.id, name: item.name})),
-		goal: sortGoals(goals.filter(isGoal)).map((goal) => ({id: goal.id, name: `${goal.name} (${describeGoal(goal)})`})),
+		goal: sortGoals(goals.filter(isGoal)).map((goal) => ({id: goal.id, name: `${goal.name} (${describeGoal(goal)})`, ...(goal.kind === 'pokemon' ? {order: POKEMON_GOAL_ORDER} : {})})),
 	};
 }
 

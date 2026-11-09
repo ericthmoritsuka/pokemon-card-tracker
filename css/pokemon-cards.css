@@ -136,6 +136,38 @@
 	display: none;
 }
 
+/* Make this a goal under the flags, or the link to the goal kept
+   (js/pokemon-cards-view.js goalControl): a 48 px target, as wide as its
+   words. */
+.pc-goal:not(:empty) {
+	margin: 0 0 var(--space-2);
+}
+
+.pc-goal button,
+.pc-goal .button {
+	align-items: center;
+	display: inline-flex;
+	justify-content: center;
+	max-width: 100%;
+	min-height: 48px;
+	text-align: center;
+	text-decoration: none;
+}
+
+/* Its sheet: the languages to pick, as the list's languages editor shows
+   them, scrolling inside the sheet at large text. */
+.pc-goal-sheet {
+	overflow-y: auto;
+}
+
+.pc-goal-about {
+	margin-top: 0;
+}
+
+.pc-goal-languages {
+	margin: var(--space-2) 0 0;
+}
+
 /* The filter and the finish switch. */
 .pc-controls {
 	display: flex;

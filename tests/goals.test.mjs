@@ -317,3 +317,196 @@ describe('saving', () => {
 		await assert.rejects(goals.createGoal({kind: 'artist', target: ' '}), /illustrator/);
 	});
 });
+
+// ------------------------------------------------------- Pokémon goals
+//
+// A Pokémon goal (Eric, 2026-11-09) holds what the Pokémon screen shows,
+// in the languages he picked: the real Jigglypuff (dex 39) answers recorded
+// in tests/pokemon-cards-fixtures.mjs, served by a fetch that records what
+// was asked, so the test can say which catalogs were read.
+
+describe('Pokémon goals', async () => {
+	const {FIXTURES} = await import('./pokemon-cards-fixtures.mjs');
+	const {loadRuleItems} = await import('../js/binder-sources.js');
+	const {planRefresh} = await import('../js/binder-rules.js');
+	const {pokemonGoalCards} = goals;
+	const asked = [];
+	const body = (data) => ({json: async () => data, ok: true, status: 200});
+
+	const answer = async (url, init) => {
+		const path = String(url).replace('https://api.tcgdex.net/v2/', '');
+
+		asked.push(path === 'graphql' ? `graphql ${JSON.parse(init.body).query}` : path);
+
+		if (path === 'graphql') {
+			const {query} = JSON.parse(init.body);
+
+			if (query === '{ cards { id dexId } }') {
+				return body({data: {cards: FIXTURES.bulk}});
+			}
+
+			if (/^\{ sets /.test(query)) {
+				return body({data: {sets: FIXTURES.sets}});
+			}
+
+			if (/dexId: 39/.test(query)) {
+				return body({data: {cards: FIXTURES.dexCards}});
+			}
+		}
+
+		const list = /^([a-z-]+)\/cards\?dexId=eq:39$/.exec(path);
+
+		if (list) {
+			return body(FIXTURES.asian[list[1]] || []);
+		}
+
+		const set = /^ja\/sets\/(.+)$/.exec(path);
+
+		if (set && FIXTURES.jaSets[decodeURIComponent(set[1])]) {
+			return body(FIXTURES.jaSets[decodeURIComponent(set[1])]);
+		}
+
+		return {json: async () => ({}), ok: false, status: 404};
+	};
+
+	const jigglypuff = (languages) => ({id: 'p39', kind: 'pokemon', name: 'Jigglypuff', target: '39', ...(languages ? {languages} : {})});
+
+	test('it reads the catalogs of its languages only, and Any language reads the international one', () => {
+		assert.deepEqual(goalCatalogs(jigglypuff(['pt', 'ja'])), ['international', 'ja']);
+		assert.deepEqual(goalCatalogs(jigglypuff(['ja'])), ['ja'], 'Japanese alone needs no international list');
+		assert.deepEqual(goalCatalogs(jigglypuff(['en', 'fr'])), ['international']);
+		assert.deepEqual(goalCatalogs(jigglypuff(null)), ['international']);
+	});
+
+	test('it says its languages; it is named for the Pokémon and found by number', () => {
+		assert.equal(goals.describeGoal(jigglypuff(['pt', 'en', 'ja'])), 'Every card in PT, EN, JA');
+		assert.equal(goals.describeGoal(jigglypuff(['zh-tw', 'pt'])), 'Every card in PT, CHT', 'in the table\'s order');
+		assert.equal(goals.describeGoal(jigglypuff(null)), 'Every card, any language');
+		assert.equal(goals.isGoal(jigglypuff(['pt'])), true);
+
+		const list = [
+			{id: 's1', kind: 'set', target: '39'},
+			{deleted_at: '2026-09-01T00:00:00.000Z', id: 'p-old', kind: 'pokemon', target: '39'},
+			jigglypuff(['pt']),
+		];
+
+		assert.equal(findGoal(list, {kind: 'pokemon', target: 39}).id, 'p39', 'a number or its text, never a set with that id, never a deleted one');
+		assert.equal(findGoal(list, {kind: 'pokemon', target: '25'}), null);
+	});
+
+	test('a copy counts in one of its languages, or with no language recorded, as on the Pokémon screen\'s flags', () => {
+		const cards = [
+			{cardId: 'xy1-87', catalog: 'international'},
+			{cardId: 'swsh3-67', catalog: 'international'},
+			{cardId: 'SV2a-039', catalog: 'ja'},
+		];
+		const entries = [
+			copy('xy1-87', null),
+			copy('swsh3-67', 'en'),
+			copy('SV2a-039', 'ja', {catalog: 'ja'}),
+		];
+		const states = goalStates({cards, copies: goalCopies(jigglypuff(['pt', 'ja']), entries)});
+
+		assert.deepEqual(states.map((state) => state.owned), [1, 0, 1]);
+		// A set goal that names languages still leaves a copy with no
+		// language out (unchanged).
+		assert.equal(goalCopies(setGoal('numbered', ['pt']), [copy('tev-001', null)]).size, 0);
+	});
+
+	test('its cards are the Pokémon screen\'s prints, newest first, TAG TEAM cards and rarity included', () => {
+		const cards = pokemonGoalCards([
+			{catalog: 'international', prints: [
+				{cardId: 'base2-54', catalog: 'international', localId: '54', name: 'Jigglypuff', rarity: 'Common', releaseDate: '1999-06-16', setId: 'base2', setName: 'Jungle'},
+				{cardId: 'sm12-165', catalog: 'international', localId: '165', name: 'Mega Lopunny & Jigglypuff GX', rarity: 'Ultra Rare', releaseDate: '2019-11-01', setId: 'sm12', setName: 'Cosmic Eclipse'},
+			]},
+			{catalog: 'ja', prints: [{cardId: 'SV2a-039', catalog: 'ja', localId: '039', name: 'プリン', releaseDate: '2023-06-16', setId: 'SV2a', setName: 'ポケモンカード151'}]},
+		]);
+
+		assert.deepEqual(cards.map((card) => card.cardId), ['SV2a-039', 'sm12-165', 'base2-54']);
+		assert.deepEqual(cards[1], {
+			cardId: 'sm12-165',
+			catalog: 'international',
+			finishes: null,
+			image: null,
+			localId: '165',
+			name: 'Mega Lopunny & Jigglypuff GX',
+			rarity: 'Ultra Rare',
+			releaseDate: '2019-11-01',
+			setId: 'sm12',
+			setName: 'Cosmic Eclipse',
+		});
+	});
+
+	test('it is saved once per Pokémon with the languages picked, and checked', async () => {
+		const made = await goals.createGoal({kind: 'pokemon', languages: ['ja', 'pt', 'xx'], name: 'Jigglypuff', target: 39});
+
+		assert.equal(made.kind, 'pokemon');
+		assert.equal(made.target, '39');
+		assert.equal(made.name, 'Jigglypuff');
+		assert.deepEqual(made.languages, ['pt', 'ja'], 'list languages only, in the table\'s order');
+		assert.equal(made.level, null);
+		assert.equal(made.catalog, null);
+
+		const again = await goals.createGoal({kind: 'pokemon', languages: ['en'], target: '39'});
+
+		assert.equal(again.id, made.id, 'the same Pokémon gives the goal already kept');
+		assert.deepEqual(again.languages, ['pt', 'ja']);
+
+		const any = await goals.createGoal({kind: 'pokemon', languages: null, target: 35});
+
+		assert.equal(Object.hasOwn(any, 'languages'), false, 'Any language saves no field');
+		assert.equal(any.name, 'Pokémon #035', 'a name is never the bare number');
+		assert.ok((await goals.listGoals()).some((goal) => goal.id === made.id));
+		assert.equal((await goals.getGoal(made.id)).kind, 'pokemon');
+		await assert.rejects(goals.createGoal({kind: 'pokemon', languages: [], target: 25}), /at least one language/);
+		await assert.rejects(goals.createGoal({kind: 'pokemon', languages: ['pt'], target: 0}), /Pick a Pokémon/);
+		await assert.rejects(goals.createGoal({kind: 'pokemon', languages: ['pt'], target: 'pikachu'}), /Pick a Pokémon/);
+	});
+
+	test('a binder made from it has a pocket per print, oldest set first, and a missing print fills once owned', async () => {
+		asked.length = 0;
+		globalThis.fetch = answer;
+
+		try {
+			const goal = jigglypuff(['pt', 'ja']);
+			const cards = [
+				copy('sv03.5-039', 'pt'),
+				copy('xy1-87', null),
+				copy('swsh3-67', 'en'),
+				copy('SV2a-039', 'ja', {catalog: 'ja'}),
+			];
+			const doc = {binders: [], cards, collections: [], goals: [goal]};
+			const rule = {order: 'set', source: {id: goal.id, kind: 'goal'}};
+			const loaded = await loadRuleItems(rule, doc, {index: new Map()});
+
+			assert.equal(loaded.gone, false);
+			assert.equal(loaded.partial, false);
+			assert.equal(loaded.items.length, 37 + 17, 'the 37 international prints and the 17 Japanese ones, as the Pokémon screen counts them');
+			assert.deepEqual(loaded.items.filter((item) => item.copies.length).map((item) => item.key).sort(), ['international|sv03.5-039', 'international|xy1-87', 'ja|SV2a-039']);
+
+			const dates = loaded.items.map((item) => item.releaseDate).filter(Boolean);
+
+			assert.deepEqual(dates, [...dates].sort(), 'oldest set first');
+			assert.equal(loaded.items[0].key, 'ja|PMCG2-035', 'the Japanese Jungle of 1997 first');
+			assert.equal(loaded.items.find((item) => item.catalog === 'international').key, 'international|base2-54', 'Jungle the first international pocket');
+			assert.ok(!asked.some((path) => /^(ko|zh-cn|zh-tw|en)\//.test(path)), `only the international and Japanese catalogs: ${asked.join(', ')}`);
+
+			const first = planRefresh({cols: 3, rows: 3, rule}, loaded.items, {at: '2026-11-09T00:00:00.000Z', rankOf: () => ({})});
+
+			assert.equal(first.snapshot.keys.length, 54);
+			assert.equal(Object.keys(first.snapshot.shown).length, 3, 'the other 51 pockets are placeholders');
+
+			// A Portuguese Jungle copy bought later fills its placeholder.
+			const later = await loadRuleItems(rule, {...doc, cards: [...cards, copy('base2-54', 'pt')]}, {index: new Map()});
+			const next = planRefresh({cols: 3, rows: 3, rule, snapshot: first.snapshot}, later.items, {at: '2026-11-10T00:00:00.000Z', rankOf: () => ({})});
+
+			assert.deepEqual(next.filled, ['international|base2-54']);
+			assert.deepEqual(next.snapshot.keys, first.snapshot.keys, 'no pocket moves');
+		}
+		finally {
+			globalThis.fetch = async (url) => {
+				throw new Error(`No requests in this test (${url}).`);
+			};
+		}
+	});
+});
