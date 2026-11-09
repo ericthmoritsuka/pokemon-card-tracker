@@ -25,7 +25,7 @@ import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
 import {cardImage, savedCardRecords, setList, viewingLanguage} from './catalog.js';
 import {mainName, namesFor, tileNames} from './catalog-views.js';
-import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal} from './checklists.js';
+import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal, speciesNames} from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -50,10 +50,12 @@ import {
 	createGoal,
 	describeGoal,
 	findGoal,
+	gapText,
 	getGoal,
 	isGoal,
 	levelLabel,
 	listGoals,
+	nameFromSpecies,
 	passesGoalFilter,
 	setGoalLevel,
 	sortGoals,
@@ -66,6 +68,9 @@ const FILTERS = [
 ];
 
 const FILTER_KEY = 'cardTracker.goalFilter';
+
+// The Rarity choice for the cards with none in the catalog (itemOf).
+export const NO_RARITY = 'Rarity not listed';
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
 
@@ -152,7 +157,9 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 		// Each ring once its cards are read, from the phone when kept.
 		for (const item of tiles) {
 			computeGoal(item.goal, entries || []).then((result) => {
-				if (mine === run && !result.missingList) {
+				// A goal read only in part has no ring: "5 of 37" would hide
+				// the prints of the catalog not read. Its screen says which.
+				if (mine === run && !result.missingList && !result.incomplete) {
 					item.ring.replaceChildren(progressRing(item.goal, result.tally));
 				}
 			}).catch(() => {
@@ -330,7 +337,10 @@ function goalScreen(root, source, id) {
 		return namesFor({lang: catalogLanguage(card.catalog), name: card.name || ''}, redraw);
 	}
 
-	// One filter bar item per card.
+	// One filter bar item per card. A card whose rarity the catalog does not
+	// give (a Japanese, Korean, or Chinese print: their card lists carry
+	// none) is offered under NO_RARITY rather than left out of the Rarity
+	// choices, so picking a rarity says what it leaves out.
 	function itemOf(state) {
 		const {card} = state;
 		const names = namesOf(card);
@@ -339,7 +349,7 @@ function goalScreen(root, source, id) {
 			key: printKey(card.catalog, card.cardId),
 			name: mainName(names) || card.name || card.cardId,
 			number: card.localId,
-			rarity: card.rarity,
+			rarity: card.rarity || NO_RARITY,
 			releaseDate: card.releaseDate,
 			search: [names.english, names.original, names.reading, card.name, card.setName, card.localId, card.cardId].filter(Boolean).map(searchKey).join('\n'),
 			setKey: `${card.catalog}|${card.setId}`,
@@ -430,8 +440,18 @@ function goalScreen(root, source, id) {
 					? `The cards did not load (${errorText(result.error)}).`
 					: 'These cards are not on this phone yet. Open this goal once with a connection, and it works offline after that.');
 			}
+			else if (result.incomplete) {
+				// Which part is missing, so the count and Try again say
+				// something (js/goals.js gapText).
+				parts.push(`${gapText(result.gaps, {online: navigator.onLine})} ${navigator.onLine
+					? `The count is of the cards read so far${result.error ? ` (${errorText(result.error)})` : ''}.`
+					: 'The count is of the cards read so far; open this goal with a connection to read the rest.'}`);
+			}
 			else if (result.error && !navigator.onLine) {
 				parts.push('Some of this goal is not on this phone yet, so it may be incomplete until the next visit with a connection.');
+			}
+			else if (result.error) {
+				parts.push(`Some of this goal could not be checked for new cards (${errorText(result.error)}).`);
 			}
 
 			if (result.tally && result.tally.unknown && goal.level === 'master') {
@@ -448,7 +468,7 @@ function goalScreen(root, source, id) {
 
 		status.textContent = parts.join(' ');
 
-		if (result && result.error && navigator.onLine) {
+		if (result && (result.error || result.incomplete) && navigator.onLine) {
 			status.append(' ', h('button', {class: 'small', id: 'goal-retry', onclick: () => load(), type: 'button'}, 'Try again'));
 		}
 	}
@@ -731,6 +751,12 @@ function goalScreen(root, source, id) {
 
 		if (languages) {
 			languages.update(goal);
+		}
+
+		// A Pokémon goal made offline before the species' names were read
+		// is named by its number; it takes the name once they are here.
+		if (goal.kind === 'pokemon' && !source.readOnly) {
+			speciesNames().then((tables) => nameFromSpecies(goal, tables && tables.en)).catch(() => {});
 		}
 
 		drawLevel();

@@ -196,15 +196,18 @@ export const cleanListLanguages = (codes) => sortLanguages(new Set((Array.isArra
 // What a list stores for a choice of languages: null (no field, any
 // language) when every one is chosen, since that must count German,
 // Spanish, Italian, and copies with no language too, which no set of codes
-// can say; else the chosen codes.
-export function listLanguagesToSave(codes) {
+// can say; else the chosen codes. exact keeps every one chosen as the
+// codes: a Pokémon goal (js/goals.js), whose Any language reads only the
+// Western prints, so ticking every language must not become it (Eric,
+// 2026-11-09: "languages I pick").
+export function listLanguagesToSave(codes, {exact = false} = {}) {
 	if (codes === null) {
 		return null;
 	}
 
 	const list = cleanListLanguages(codes);
 
-	return list.length === LIST_LANGUAGE_CODES.length ? null : list;
+	return !exact && list.length === LIST_LANGUAGE_CODES.length ? null : list;
 }
 
 // Whether a list names its own languages (a list with none counts any).

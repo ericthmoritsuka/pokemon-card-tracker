@@ -10,6 +10,7 @@ import {formatCount, plural} from './format.js';
 import {LANGUAGES, languageLabel} from './catalog.js';
 import {FILTER_FIELDS, cleanBinderRule, checkBinderRule, checkFits, ordersFor, pagesFor} from './binder-rules.js';
 import {filterItems, loadRuleItems, sourceChoices, sourceEntry} from './binder-sources.js';
+import {gapText} from './goals.js';
 
 const KINDS = [
 	{label: 'Checklist', value: 'checklist'},
@@ -195,6 +196,15 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 
 		const n = counted.items.length;
 		const owned = counted.items.filter((item) => item.copies.length).length;
+
+		// Part of the list read: its count would be short, and the binder
+		// waits for the whole list (js/binders-view.js checkWholeList).
+		if (counted.incomplete) {
+			count.className = 'form-error';
+			count.textContent = `${gapText(counted.gaps, {online: navigator.onLine})} Open the list with a connection, then make the binder.`;
+
+			return;
+		}
 
 		try {
 			checkFits(n, rows, cols);

@@ -364,13 +364,15 @@ export function listLanguages(goal) {
 // languages null (Any language) removes the field, so the list counts a
 // copy in any language again, German, Spanish, Italian, and copies with no
 // language recorded included, which no set of the codes above can say.
-// Every list language chosen means the same, and is saved the same way.
+// Every list language chosen means the same, and is saved the same way,
+// except on a Pokémon goal, which keeps the languages ticked as they are
+// (js/languages.js listLanguagesToSave exact).
 export const setListLanguages = (id, languages) => changeChecklist(id, (goal) => {
 	if (languages !== null && !cleanListLanguages(languages).length) {
 		throw new Error('Pick at least one language.');
 	}
 
-	const list = listLanguagesToSave(languages);
+	const list = listLanguagesToSave(languages, {exact: goal.kind === 'pokemon'});
 
 	if (list === null) {
 		delete goal.languages;

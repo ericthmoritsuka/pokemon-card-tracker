@@ -328,7 +328,8 @@ describe('saving', () => {
 describe('Pokémon goals', async () => {
 	const {FIXTURES} = await import('./pokemon-cards-fixtures.mjs');
 	const {loadRuleItems} = await import('../js/binder-sources.js');
-	const {planRefresh} = await import('../js/binder-rules.js');
+	const {planRefresh, sortRuleItems} = await import('../js/binder-rules.js');
+	const {database} = await import('../js/idb.js');
 	const {pokemonGoalCards} = goals;
 	const asked = [];
 	const body = (data) => ({json: async () => data, ok: true, status: 200});
@@ -371,6 +372,36 @@ describe('Pokémon goals', async () => {
 
 	const jigglypuff = (languages) => ({id: 'p39', kind: 'pokemon', name: 'Jigglypuff', target: '39', ...(languages ? {languages} : {})});
 
+	const noRequests = async (url) => {
+		throw new Error(`No requests in this test (${url}).`);
+	};
+
+	// Forgets what an earlier test read into the phone's caches (js/idb.js),
+	// so a test can start without a list on the phone.
+	const forget = (name, store, key) => database(name, [store]).run(store, 'readwrite', (box) => box.delete(key));
+
+	// Node's navigator, set offline for one test and put back.
+	const NAVIGATOR = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+
+	function setOnline(on) {
+		if (on) {
+			if (NAVIGATOR) {
+				Object.defineProperty(globalThis, 'navigator', NAVIGATOR);
+			}
+			else {
+				delete globalThis.navigator;
+			}
+
+			return;
+		}
+
+		Object.defineProperty(globalThis, 'navigator', {configurable: true, value: {onLine: false}});
+	}
+
+	// The card index of a phone that owns these copies: each card's Pokédex
+	// numbers, which the index has for owned cards only.
+	const indexOf = (entries) => new Map(entries.map((entry) => [`${entry.catalog || 'international'}|${entry.card_id}`, {dex_ids: [39]}]));
+
 	test('it reads the catalogs of its languages only, and Any language reads the international one', () => {
 		assert.deepEqual(goalCatalogs(jigglypuff(['pt', 'ja'])), ['international', 'ja']);
 		assert.deepEqual(goalCatalogs(jigglypuff(['ja'])), ['ja'], 'Japanese alone needs no international list');
@@ -381,7 +412,7 @@ describe('Pokémon goals', async () => {
 	test('it says its languages; it is named for the Pokémon and found by number', () => {
 		assert.equal(goals.describeGoal(jigglypuff(['pt', 'en', 'ja'])), 'Every card in PT, EN, JA');
 		assert.equal(goals.describeGoal(jigglypuff(['zh-tw', 'pt'])), 'Every card in PT, CHT', 'in the table\'s order');
-		assert.equal(goals.describeGoal(jigglypuff(null)), 'Every card, any language');
+		assert.equal(goals.describeGoal(jigglypuff(null)), 'Western prints, any language', 'Any language reads the international prints alone, and says so');
 		assert.equal(goals.isGoal(jigglypuff(['pt'])), true);
 
 		const list = [
@@ -484,8 +515,9 @@ describe('Pokémon goals', async () => {
 			assert.equal(loaded.items.length, 37 + 17, 'the 37 international prints and the 17 Japanese ones, as the Pokémon screen counts them');
 			assert.deepEqual(loaded.items.filter((item) => item.copies.length).map((item) => item.key).sort(), ['international|sv03.5-039', 'international|xy1-87', 'ja|SV2a-039']);
 
-			const dates = loaded.items.map((item) => item.releaseDate).filter(Boolean);
+			const dates = loaded.items.map((item) => item.releaseDate);
 
+			assert.ok(dates.every(Boolean), 'every print dated, so none sorts last for want of a date');
 			assert.deepEqual(dates, [...dates].sort(), 'oldest set first');
 			assert.equal(loaded.items[0].key, 'ja|PMCG2-035', 'the Japanese Jungle of 1997 first');
 			assert.equal(loaded.items.find((item) => item.catalog === 'international').key, 'international|base2-54', 'Jungle the first international pocket');
@@ -501,12 +533,157 @@ describe('Pokémon goals', async () => {
 			const next = planRefresh({cols: 3, rows: 3, rule, snapshot: first.snapshot}, later.items, {at: '2026-11-10T00:00:00.000Z', rankOf: () => ({})});
 
 			assert.deepEqual(next.filled, ['international|base2-54']);
-			assert.deepEqual(next.snapshot.keys, first.snapshot.keys, 'no pocket moves');
 		}
 		finally {
-			globalThis.fetch = async (url) => {
-				throw new Error(`No requests in this test (${url}).`);
-			};
+			globalThis.fetch = noRequests;
+		}
+	});
+
+	// Eric, 2026-11-09: "languages I pick". Ticking all seven keeps all
+	// seven, with their catalogs; Any language is the Western prints.
+	test('every language ticked is kept as ticked and reads every catalog; Any language says it is the Western prints', async () => {
+		const checklists = await import('../js/checklists.js');
+		const all = ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr'];
+		const made = await goals.createGoal({kind: 'pokemon', languages: [...all].reverse(), name: 'Pikachu', target: 25});
+
+		assert.deepEqual(made.languages, all);
+		assert.deepEqual(goalCatalogs(made), ['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
+		assert.equal(goals.describeGoal(made), 'Every card in PT, EN, JA, KO, CHS, CHT, FR');
+
+		// On the goal's screen too (the languages control).
+		await checklists.setListLanguages(made.id, ['pt']);
+		assert.deepEqual((await checklists.setListLanguages(made.id, all)).languages, all);
+
+		const any = await checklists.setListLanguages(made.id, null);
+
+		assert.equal(Object.hasOwn(any, 'languages'), false);
+		assert.deepEqual(goalCatalogs(any), ['international']);
+		assert.equal(goals.describeGoal(any), 'Western prints, any language');
+
+		// A set goal (and a checklist) still saves every language as Any
+		// language.
+		const set = await goals.createGoal({catalog: 'international', kind: 'set', level: 'numbered', target: 'tev-all'});
+
+		assert.equal(Object.hasOwn(await checklists.setListLanguages(set.id, all), 'languages'), false);
+	});
+
+	test('a Korean goal reads the Japanese prints Korean copies are saved on, and counts the Korean copies', async () => {
+		assert.deepEqual(goalCatalogs(jigglypuff(['ko'])), ['ja', 'ko']);
+
+		const counted = goalCopies(jigglypuff(['ko']), [copy('SV2a-039', 'ko', {catalog: 'ja'}), copy('SV2a-039', 'ja', {catalog: 'ja'})]);
+
+		assert.deepEqual(counted.get('ja|SV2a-039').map((entry) => entry.language), ['ko'], 'the Korean copy, not the Japanese one');
+		globalThis.fetch = answer;
+
+		try {
+			const loaded = await goals.loadGoalCards(jigglypuff(['ko']));
+
+			assert.equal(loaded.cards.length, 17, 'the 17 Japanese prints');
+			assert.equal(loaded.incomplete, false);
+		}
+		finally {
+			globalThis.fetch = noRequests;
+		}
+	});
+
+	// The reviewer's two cases (2026-11-09): a PT and JA goal whose Japanese
+	// list is not on the phone, offline; and one Japanese set's details that
+	// cannot be read. Either way the cards are not the whole list, and the
+	// binder must be told (js/binders-view.js keeps its pages then:
+	// tests/pokemon-cards-browser.test.mjs).
+	test('a goal read only in part says which part, and its binder\'s list is incomplete', async () => {
+		const goal = jigglypuff(['pt', 'ja']);
+		const doc = {binders: [], cards: [copy('SV2a-039', 'ja', {catalog: 'ja'})], collections: [], goals: [goal]};
+		const rule = {order: 'set', source: {id: goal.id, kind: 'goal'}};
+
+		globalThis.fetch = answer;
+
+		try {
+			const whole = await loadRuleItems(rule, doc, {index: new Map()});
+
+			assert.equal(whole.items.length, 54);
+			assert.equal(whole.incomplete, false);
+			assert.deepEqual(whole.gaps, []);
+
+			await forget('card-tracker-pokemon-cards', 'cache', 'dex:ja:39');
+			setOnline(false);
+
+			const offline = await loadRuleItems(rule, doc, {index: new Map()});
+
+			assert.equal(offline.items.length, 37, 'the international prints alone');
+			assert.equal(offline.incomplete, true);
+			assert.equal(offline.partial, true);
+			assert.deepEqual(offline.gaps, [{catalog: 'ja', kind: 'list'}]);
+			assert.equal(goals.gapText(offline.gaps, {online: false}), 'The Japanese prints are not on this phone yet.');
+			assert.equal(goals.gapText(offline.gaps, {online: true}), 'The Japanese prints did not load.');
+			setOnline(true);
+
+			// Online, with one Japanese set's details refused.
+			await forget('card-tracker-catalog', 'responses', 'set:ja:SV2a');
+			globalThis.fetch = (url, init) => (/\/ja\/sets\/SV2a$/.test(String(url)) ? Promise.resolve({json: async () => ({}), ok: false, status: 403}) : answer(url, init));
+
+			const unread = await loadRuleItems(rule, doc, {index: new Map()});
+
+			assert.equal(unread.items.length, 54, 'every print, one set\'s undated');
+			assert.equal(unread.items.find((item) => item.key === 'ja|SV2a-039').releaseDate, null);
+			assert.equal(unread.incomplete, true);
+			assert.deepEqual(unread.gaps, [{catalog: 'ja', count: 1, kind: 'sets'}]);
+			assert.equal(goals.gapText(unread.gaps), '1 set of Japanese prints could not be read, so their cards have no set name or date yet.');
+		}
+		finally {
+			setOnline(true);
+			globalThis.fetch = noRequests;
+		}
+	});
+
+	test('a binder from it keeps its pockets: new prints join at the end, and buying one moves none, in set or Pokédex order', async () => {
+		globalThis.fetch = answer;
+
+		try {
+			const goal = jigglypuff(['pt', 'ja']);
+			const owned = [copy('SV2a-039', 'ja', {catalog: 'ja'}), copy('sm12-165', 'pt')];
+			const doc = {binders: [], cards: owned, collections: [], goals: [goal]};
+			const when = '2026-11-09T00:00:00.000Z';
+			const later = '2026-11-10T00:00:00.000Z';
+			const rankOf = () => ({});
+
+			// Set and number: a promo TCGdex adds later, dated 2023, and a
+			// Japanese set from 1996 it adds late.
+			const rule = {order: 'set', source: {id: goal.id, kind: 'goal'}};
+			const loaded = await loadRuleItems(rule, doc, {index: indexOf(owned)});
+			const first = planRefresh({cols: 3, rows: 3, rule}, loaded.items, {at: when, keepOrder: loaded.keepOrder, rankOf});
+			const fresh = (key, releaseDate, setId) => ({cardId: key.split('|')[1], catalog: key.split('|')[0], copies: [], dex: null, dexIds: [39], key, kind: 'card', name: 'Jigglypuff', number: '1', releaseDate, setId});
+			const promo = fresh('international|svp-999', '2023-03-31', 'svp');
+			const oldSet = fresh('ja|PMCG1-001', '1996-10-20', 'PMCG1');
+			const grown = sortRuleItems([...loaded.items, promo, oldSet], 'set');
+
+			assert.equal(loaded.keepOrder, true, 'a Pokémon goal in set order keeps its pockets');
+			assert.equal(grown[0].key, oldSet.key, 'by date, the old set would go first');
+			assert.ok(grown.findIndex((item) => item.key === promo.key) < 50, 'and the promo into the middle');
+
+			const next = planRefresh({cols: 3, rows: 3, rule, snapshot: first.snapshot}, grown, {at: later, keepOrder: loaded.keepOrder, rankOf});
+
+			assert.deepEqual(next.snapshot.keys, [...first.snapshot.keys, oldSet.key, promo.key], 'every pocket where it was, the new prints at the end');
+			assert.deepEqual(next.added, [oldSet.key, promo.key]);
+			assert.notDeepEqual(planRefresh({cols: 3, rows: 3, rule, snapshot: first.snapshot}, grown, {at: later, rankOf}).snapshot.keys.slice(0, 54), first.snapshot.keys, 'without keepOrder they would move');
+
+			// Pokédex order: every print carries its numbers owned or not, so
+			// buying one moves nothing; a TAG TEAM card carries both.
+			const dexRule = {order: 'dex', source: {id: goal.id, kind: 'goal'}};
+			const before = await loadRuleItems(dexRule, doc, {index: indexOf(owned)});
+			const dexFirst = planRefresh({cols: 3, rows: 3, rule: dexRule}, before.items, {at: when, rankOf});
+			const bought = [...owned, copy('base2-54', 'pt')];
+			const after = await loadRuleItems(dexRule, {...doc, cards: bought}, {index: indexOf(bought)});
+			const dexNext = planRefresh({cols: 3, rows: 3, rule: dexRule, snapshot: dexFirst.snapshot}, after.items, {at: later, rankOf});
+
+			assert.equal(before.keepOrder, false);
+			assert.deepEqual(after.items.find((item) => item.key === 'international|sm12-165').dexIds, [39, 428]);
+			assert.deepEqual(after.items.find((item) => item.key === 'ja|SV2a-039').dexIds, [39]);
+			assert.deepEqual(dexNext.filled, ['international|base2-54']);
+			assert.deepEqual(dexNext.snapshot.keys, dexFirst.snapshot.keys, 'buying a print moves no pocket');
+		}
+		finally {
+			globalThis.fetch = noRequests;
 		}
 	});
 });

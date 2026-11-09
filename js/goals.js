@@ -24,10 +24,15 @@
 // A Pokémon goal (Eric, 2026-11-09) is made from the Pokémon screen
 // (js/pokemon-cards-view.js) in the languages he picks, and holds the prints
 // that screen shows: every print whose dexId includes the number, TAG TEAM
-// cards included, from the catalogs of its languages only (the
-// international one for an Any language goal, as an artist goal). A copy
-// counts in one of its languages, or with no language recorded, as on the
-// screen's flags (js/pokemon-cards.js flagLanguages).
+// cards included, from the catalogs of its languages only (Korean also
+// reads the Japanese one, where its copies are saved: js/pokemon-cards.js
+// catalogsFor). Its languages are kept exactly as ticked, every one of them
+// too (js/languages.js listLanguagesToSave exact); Any language, no field,
+// reads the international catalog alone, as an artist goal, so it is named
+// for what it holds: the Western prints, a copy in any language counting
+// (ANY_POKEMON_LANGUAGE). A copy counts in one of its languages, or with no
+// language recorded, as on the screen's flags (js/pokemon-cards.js
+// flagLanguages).
 //
 // Older phones (v70 and before) know only the set and artist kinds: isGoal
 // there is false for a Pokémon goal, so every goal screen, the Lists tab,
@@ -47,10 +52,10 @@
 // The pure parts take plain data, so Node can test them (tests/goals.test.mjs).
 
 import {artistKey, catalogLanguage, compareNumbers, illustratorCards, savedCardRecords, setCards, setDetail} from './catalog.js';
-import {changeGoal, dexLabel, getGoalEntry, listLanguages, namesLanguages, saveNewGoal, validDex} from './checklists.js';
+import {changeGoal, dexLabel, getGoalEntry, listLanguages, namesLanguages, renameChecklist, saveNewGoal, validDex} from './checklists.js';
 import {byCreated, sortByOrder} from './reorder.js';
 import {isLive, loadDocument, newId, nowIso} from './collection.js';
-import {cleanListLanguages, languageChip, listLanguagesToSave} from './languages.js';
+import {cleanListLanguages, languageChip, languageLabel, listLanguagesToSave} from './languages.js';
 import {catalogsFor, copiesByPrint, internationalSets, isPocket, loadAsian, loadInternational, newestFirst, printKey} from './pokemon-cards.js';
 
 export {artistKey};
@@ -111,6 +116,13 @@ export function findGoal(goals, {catalog = 'international', kind, target}) {
 	return (goals || []).find((goal) => isLive(goal) && goal.kind === kind && sameTarget(goal, kind, target, catalog)) || null;
 }
 
+// A Pokémon goal's Any language, said for what it holds: the international
+// prints, which every Western language shares, with a copy in any language
+// counting (German, Italian, and Spanish too). It reads no Japanese, Korean,
+// or Chinese catalog, so "Every card, any language" would promise prints it
+// leaves out.
+export const ANY_POKEMON_LANGUAGE = 'Western prints, any language';
+
 // What the goal is, for its tile and its screen: "Master set", "Every card
 // by this artist", or "Every card in PT, JA". A Pokémon goal's name is the
 // Pokémon's, so its languages are said here, from the field, and stay true
@@ -121,7 +133,7 @@ export function describeGoal(goal) {
 	}
 
 	if (goal.kind === 'pokemon') {
-		return namesLanguages(goal) ? `Every card in ${listLanguages(goal).map(languageChip).join(', ')}` : 'Every card, any language';
+		return namesLanguages(goal) ? `Every card in ${listLanguages(goal).map(languageChip).join(', ')}` : ANY_POKEMON_LANGUAGE;
 	}
 
 	return goal.kind === 'set' ? levelLabel(goal.level) : 'Every card by this artist';
@@ -345,13 +357,16 @@ export function artistGoalCards({lists = [], sets = {}}) {
 // Every print of a Pokémon in a goal's catalogs. results: [{catalog,
 // prints}] from js/pokemon-cards.js loadInternational and loadAsian (TCG
 // Pocket already left out there). Newest first, as the Pokémon screen lists
-// them.
-export function pokemonGoalCards(results = []) {
+// them. dexIds: the print's Pokédex numbers from the bulk map, else [n]
+// (an Asian print, whose card list names none), so a binder in Pokédex
+// order places a print the same owned or not.
+export function pokemonGoalCards(results = [], n = null) {
 	const prints = (results || []).flatMap((result) => (result && result.prints) || []);
 
 	return newestFirst(prints).map((print) => ({
 		cardId: print.cardId,
 		catalog: print.catalog,
+		...(Array.isArray(print.dexIds) && print.dexIds.length ? {dexIds: print.dexIds} : validDex(Number(n)) ? {dexIds: [Number(n)]} : {}),
 		finishes: null,
 		image: print.image || null,
 		localId: print.localId || null,
@@ -472,9 +487,8 @@ export async function getGoal(id) {
 // name}, or {kind: 'pokemon', target: <dex>, name, languages}. A goal
 // already kept for the same set, illustrator, or Pokémon is returned as it
 // is (its level and languages change on its own screen). A Pokémon goal's
-// languages: the codes picked, or null for Any language; every list
-// language picked is saved as Any language, as a list's are
-// (js/languages.js listLanguagesToSave).
+// languages: the codes picked, every one of them too, or null for Any
+// language (ANY_POKEMON_LANGUAGE).
 export async function createGoal({catalog = 'international', kind, languages = null, level = null, name = '', target}) {
 	if (!GOAL_KINDS.includes(kind)) {
 		throw new Error(`Unknown goal kind ${kind}.`);
@@ -501,7 +515,7 @@ export async function createGoal({catalog = 'international', kind, languages = n
 	}
 
 	const at = nowIso();
-	const saved = kind === 'pokemon' ? listLanguagesToSave(languages) : null;
+	const saved = kind === 'pokemon' ? listLanguagesToSave(languages, {exact: true}) : null;
 
 	return saveNewGoal({
 		catalog: kind === 'set' ? catalog : null,
@@ -511,10 +525,32 @@ export async function createGoal({catalog = 'international', kind, languages = n
 		kind,
 		...(saved ? {languages: saved} : {}),
 		level: kind === 'set' ? level : null,
-		name: String(name || '').trim() || (kind === 'pokemon' ? `Pokémon ${dexLabel(Number(clean))}` : clean),
+		name: String(name || '').trim() || (kind === 'pokemon' ? numberName(Number(clean)) : clean),
 		target: clean,
 		updated_at: at,
 	}, isGoal);
+}
+
+// The name a Pokémon goal gets when the species' name is not on the phone
+// (made offline before the names were ever read), as js/checklists.js
+// nameOf names a Pokémon then.
+export const numberName = (n) => `Pokémon ${dexLabel(n)}`;
+
+// The species' name for a Pokémon goal still named by its number, once
+// names (speciesNames().en) has it; else null. A name the person typed is
+// never replaced.
+export function speciesRename(goal, names) {
+	const n = goalDex(goal);
+
+	return n && goal.name === numberName(n) && names && names[n] ? names[n] : null;
+}
+
+// Renames such a goal, and resolves the goal as saved, or null when it
+// keeps its name.
+export async function nameFromSpecies(goal, names) {
+	const name = speciesRename(goal, names);
+
+	return name ? renameChecklist(goal.id, name) : null;
 }
 
 export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {
@@ -527,14 +563,44 @@ export const setGoalLevel = (id, level) => changeGoal(id, (goal) => {
 
 // ------------------------------------------------------------- loading
 
+// What a goal could not read, as gaps: {kind: 'list', catalog} for a
+// catalog whose card list is not on the phone (offline before its first
+// visit, or its download failed), {kind: 'sets', catalog, count} for sets
+// whose details could not be read, and {kind: 'index', catalog:
+// 'international'} for the set index. With a gap the cards are not all
+// there or not all dated, so a binder keeps its pages as they were
+// (js/binder-sources.js loadRuleItems incomplete) and the goal's screen says
+// which (gapText).
+const printsName = (catalog) => (catalog === 'international' ? 'international prints' : `${languageLabel(catalog)} prints`);
+
+// The gaps in words: "The Japanese prints are not on this phone yet."
+// online: whether the phone is online, which turns "not on this phone yet"
+// into "did not load".
+export function gapText(gaps, {online = true} = {}) {
+	return (gaps || []).map((gap) => {
+		const name = printsName(gap.catalog);
+
+		if (gap.kind === 'sets') {
+			return `${gap.count === 1 ? '1 set' : `${gap.count} sets`} of ${name} could not be read, so their cards have no set name or date yet.`;
+		}
+
+		if (gap.kind === 'index') {
+			return `The list of sets is not on this phone yet, so the ${name} have no set name or date yet.`;
+		}
+
+		return online ? `The ${name} did not load.` : `The ${name} are not on this phone yet.`;
+	}).join(' ');
+}
+
 // A Pokémon goal's cards: each catalog its languages need, as the Pokémon
 // screen loads it (cache first, kept on the phone). missingList when no
-// catalog's card list is on the phone.
+// catalog's card list is on the phone; incomplete, with its gaps, when any
+// catalog's list, set, or the set index is not.
 async function loadPokemonGoalCards(goal) {
 	const n = goalDex(goal);
 
 	if (!n) {
-		return {cards: [], error: new Error('This goal names no Pokémon.'), missingList: true, set: null};
+		return {cards: [], error: new Error('This goal names no Pokémon.'), gaps: [], incomplete: true, missingList: true, set: null};
 	}
 
 	const results = await Promise.all(goalCatalogs(goal).map((catalog) => (catalog === 'international' ? loadInternational(n) : loadAsian(catalog, n)).then(
@@ -543,18 +609,30 @@ async function loadPokemonGoalCards(goal) {
 	)));
 	const error = (results.find((result) => result.error) || {}).error || null;
 	const read = results.filter((result) => !result.missingList);
+	const gaps = results.flatMap((result) => {
+		if (result.missingList) {
+			return [{catalog: result.catalog, kind: 'list'}];
+		}
+
+		return [
+			...(result.unreadSets ? [{catalog: result.catalog, count: result.unreadSets, kind: 'sets'}] : []),
+			...(result.setIndexMissing ? [{catalog: result.catalog, kind: 'index'}] : []),
+		];
+	});
 
 	if (!read.length) {
-		return {cards: [], error, missingList: true, set: null};
+		return {cards: [], error, gaps, incomplete: true, missingList: true, set: null};
 	}
 
-	return {cards: pokemonGoalCards(read), error, missingList: false, set: null};
+	return {cards: pokemonGoalCards(read, n), error, gaps, incomplete: gaps.length > 0, missingList: false, set: null};
 }
 
-// A goal's cards: {cards, set, error, missingList}. missingList when
-// nothing about the set, the illustrator, or the Pokémon is on the phone
-// (offline before the first visit, or TCGdex failing); error is the first
-// failure.
+// A goal's cards: {cards, set, error, missingList, incomplete, gaps}.
+// missingList when nothing about the set, the illustrator, or the Pokémon is
+// on the phone (offline before the first visit, or TCGdex failing); error is
+// the first failure. incomplete, with gaps (gapText), when an artist or
+// Pokémon goal could read some of its catalogs and not others, or could not
+// date its cards: its cards are not the whole list yet.
 export async function loadGoalCards(goal) {
 	if (goal.kind === 'pokemon') {
 		return loadPokemonGoalCards(goal);
@@ -569,12 +647,14 @@ export async function loadGoalCards(goal) {
 		const error = set.error || details.error;
 
 		if (!set.data && !details.data) {
-			return {cards: [], error, missingList: true, set: null};
+			return {cards: [], error, gaps: [], incomplete: true, missingList: true, set: null};
 		}
 
 		return {
 			cards: setLevelCards({catalog, details: details.data, level: goal.level, set: set.data, setId: goal.target}),
 			error,
+			gaps: [],
+			incomplete: false,
 			missingList: false,
 			set: set.data,
 		};
@@ -590,12 +670,16 @@ export async function loadGoalCards(goal) {
 	]);
 	const error = (lists.find((list) => list.error) || {}).error || null;
 	const read = lists.filter((list) => list.cards);
+	const gaps = [
+		...lists.filter((list) => !list.cards).map((list) => ({catalog: list.catalog, kind: 'list'})),
+		...(read.some((list) => list.catalog === 'international') && !(sets && sets.data) ? [{catalog: 'international', kind: 'index'}] : []),
+	];
 
 	if (!read.length) {
-		return {cards: [], error, missingList: true, set: null};
+		return {cards: [], error, gaps, incomplete: true, missingList: true, set: null};
 	}
 
-	return {cards: artistGoalCards({lists: read, sets: (sets && sets.data) || {}}), error, missingList: false, set: null};
+	return {cards: artistGoalCards({lists: read, sets: (sets && sets.data) || {}}), error, gaps, incomplete: gaps.length > 0, missingList: false, set: null};
 }
 
 // Everything a goal's screen and tile show: {cards, states, tally, set,

@@ -550,6 +550,12 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 //
 // edits: the binder's list_edits (listEditsOf), applied after the order.
 //
+// keepOrder: the stored pockets keep their places and keys new to the list
+// go at the end (keptOrder), when the stored layout was made for this rule;
+// a Pokémon goal in set order (js/binder-sources.js POKEMON_GOAL_ORDER).
+// An older phone does not know that goal, so languageOnly and editsOnly,
+// which are about what an older phone saves, are not worked out for it.
+//
 // Returns {snapshot, page_count, added, removed, filled, emptied, updated,
 // changed, languageOnly, editsOnly, languages}:
 //   added, removed  keys that joined or left the list
@@ -565,12 +571,14 @@ export function shownCopy(item, {pick = null, rankOf, stored = null} = {}) {
 //                   it: the screen leaves it alone on opening, as for
 //                   languageOnly (DESIGN.md, "Left out and moved")
 //   languages       as given, for saveRefresh to record on the binder
-export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
+export function planRefresh(binder, items, {anyItems = null, at, edits = listEditsOf(binder), keepOrder = false, languages = undefined, liveIds = null, partial = false, picks = new Map(), rankOf} = {}) {
 	const before = isObject(binder.snapshot) ? binder.snapshot : {};
 	const oldKeys = Array.isArray(before.keys) ? before.keys : [];
 	const oldShown = isObject(before.shown) ? before.shown : {};
 	const oldSet = new Set(oldKeys);
-	const keys = applyListEdits(items.map((item) => item.key), edits);
+	const listOrder = items.map((item) => item.key);
+	const kept = keepOrder && oldKeys.length > 0 && before.rule_key === ruleKey(binder.rule);
+	const keys = applyListEdits(kept ? keptOrder(listOrder, oldKeys, new Set(listEditEntries(binder).map((edit) => edit.key))) : listOrder, edits);
 	const newSet = new Set(keys);
 	const shown = {};
 	const filled = [];
@@ -624,11 +632,11 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 
 	// What an older phone saves: the list's own order, without the edits it
 	// does not know (v57 to v64), and from any language (v56).
-	if (changed && edits.length) {
+	if (changed && edits.length && !keepOrder) {
 		editsOnly = !planRefresh(binder, items, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
 	}
 
-	if (changed && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
+	if (changed && !keepOrder && Array.isArray(anyItems) && typeof languages === 'string' && binder.list_languages === languages) {
 		languageOnly = !planRefresh(binder, anyItems, {at, edits: [], liveIds, partial, picks, rankOf}).changed;
 	}
 
@@ -645,6 +653,47 @@ export function planRefresh(binder, items, {anyItems = null, at, edits = listEdi
 		snapshot,
 		updated,
 	};
+}
+
+// The list's order for a binder that keeps its pockets in place, before
+// its edits (applyListEdits) apply. listOrder: the keys in the rule's
+// order; stored: the last layout's keys; edited: every key the binder has
+// an edit for, a taken-away one (none) too.
+//   - a stored key still in the list keeps its place among the others
+//   - a key not stored that has an edit (left out, a gap, or Put back, Undo)
+//     takes its list place: after the nearest key before it in the rule's
+//     order, so a gap stays where its pocket is and Put back returns a card
+//     where it was
+//   - any other key is new to the list and goes at the end, in the rule's
+//     order
+// A stored empty key (a gap's pocket) is not carried: the gap's own edit
+// makes it again at its key's place.
+export function keptOrder(listOrder, stored, edited = new Set()) {
+	const live = new Set(listOrder);
+	const out = stored.filter((key) => key && live.has(key));
+	const placed = new Set(out);
+
+	listOrder.forEach((key, i) => {
+		if (placed.has(key) || !edited.has(key)) {
+			return;
+		}
+
+		let at = 0;
+
+		for (let j = i - 1; j >= 0; j--) {
+			const there = out.indexOf(listOrder[j]);
+
+			if (there >= 0) {
+				at = there + 1;
+				break;
+			}
+		}
+
+		out.splice(at, 0, key);
+		placed.add(key);
+	});
+
+	return [...out, ...listOrder.filter((key) => !placed.has(key))];
 }
 
 function sameShown(a, b) {

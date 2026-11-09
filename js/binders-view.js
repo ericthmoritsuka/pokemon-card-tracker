@@ -58,7 +58,9 @@ import {fillPanel} from './fill-view.js';
 import {applyListEdits, indexAt, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
-import {dexLabel, pokemonNames, spriteUrl} from './checklists.js';
+import {dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
+import {gapText} from './goals.js';
+import {wishLanguage} from './pokemon-cards.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
@@ -709,9 +711,18 @@ const itemCopies = (items) => items.flatMap((item) => item.copies);
 // (languageOnly), ranked over every copy as a v56 phone ranks them.
 async function planLayout(binderLike, loaded, {liveIds = null, picks = new Map()} = {}) {
 	const rankOf = await rankerFor(itemCopies(loaded.anyItems || loaded.items));
-	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf});
+	const plan = planRefresh(binderLike, loaded.items, {anyItems: loaded.anyItems, at: nowIso(), keepOrder: Boolean(loaded.keepOrder), languages: loaded.languages, liveIds, partial: loaded.partial, picks, rankOf});
 
 	return {plan, rankOf};
+}
+
+// Throws, for a binder form, when the list was read only in part
+// (js/binder-sources.js loadRuleItems incomplete): a layout from it would
+// leave out the cards not read, or put undated ones last.
+function checkWholeList(loaded) {
+	if (loaded.incomplete) {
+		throw new Error(`${gapText(loaded.gaps, {online: navigator.onLine})} The binder can be laid out once the whole list is read: open the list with a connection, then try again.`);
+	}
 }
 
 // The form for a new binder made from a list: the binder form with the
@@ -727,6 +738,8 @@ async function listForm({onCancel, start = {}}) {
 			if (loaded.gone) {
 				throw new Error('That list was deleted. Choose another.');
 			}
+
+			checkWholeList(loaded);
 
 			const rule = section.rule();
 			const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
@@ -1924,6 +1937,28 @@ function binderScreen(root, source, id, pageParam) {
 				return;
 			}
 
+			// Part of the list read (a goal's catalog or sets not on the
+			// phone): a layout from it would remove the pockets of the cards
+			// not read and move the rest, so the pages stay as stored, on
+			// opening and on Refresh, and nothing is saved until the whole
+			// list is read. The pockets read show their copies now.
+			if (loaded.incomplete) {
+				gen.items = new Map(loaded.items.map((item) => [item.key, item]));
+				gen.loaded = null;
+				gen.partial = true;
+				gen.held = null;
+				gen.rankOf = await rankerFor(itemCopies(loaded.items));
+
+				if (!alive || binder.id !== binderId) {
+					return;
+				}
+
+				showListNote(`${gapText(loaded.gaps, {online: navigator.onLine})} The pages stay as they were until the whole list can be read${navigator.onLine ? '' : ' with a connection'}.`);
+				draw();
+
+				return;
+			}
+
 			const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
 			// Against the binder as saved, not a layout shown in its place.
 			const stored = liveBinders(doc.binders).find((item) => item.id === binderId) || binder;
@@ -2002,7 +2037,9 @@ function binderScreen(root, source, id, pageParam) {
 			}
 
 			const {item, key, shown} = state;
-			const copies = gen.items && gen.items.get(key) ? [...gen.items.get(key).copies] : [];
+			// A pocket the list could not read this time (incomplete) shows
+			// its stored copy, which is still owned, as its own.
+			const copies = gen.items && gen.items.get(key) ? [...gen.items.get(key).copies] : shown ? [shown.entry] : [];
 			const parts = [];
 
 			sheet.querySelector('#sheet-title').textContent = item.kind === 'pokemon' ? `${item.number} ${item.name}` : item.name;
@@ -2064,15 +2101,20 @@ function binderScreen(root, source, id, pageParam) {
 					h('p', {id: 'list-sheet-missing'}, 'You do not own this yet.')));
 
 				if (item.kind === 'card') {
+					// In the goal's language for the card's catalog, as the goal's
+					// own screen wishes (js/goals-view.js wishButton).
+					const list = binder.rule.source.kind === 'goal' ? sourceEntry(binder.rule, data.doc || {}) : null;
+					const wish = list && namesLanguages(list) ? wishLanguage(listLanguages(list), item.catalog) : null;
+
 					actions.push(h('button', {class: 'primary', id: 'list-wish', onclick: async (event) => {
 						const button = event.currentTarget;
 
 						button.disabled = true;
 
 						try {
-							await addToWishlist(item.cardId, {catalog: item.catalog});
+							await addToWishlist(item.cardId, {catalog: item.catalog, language: wish});
 							button.textContent = 'On your wishlist';
-							toast(`${item.name} is on your wishlist.`);
+							toast(`${item.name} is on your wishlist${wish ? ` (${languageLabel(wish)})` : ''}.`);
 						}
 						catch (err) {
 							button.disabled = false;
@@ -2135,7 +2177,7 @@ function binderScreen(root, source, id, pageParam) {
 		if (gen.loaded && gen.items) {
 			const entries = changes.reduce(withListEdit, listEditEntries(binder));
 
-			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf});
+			return planRefresh({...binder, list_edits: entries}, gen.loaded.items, {at: nowIso(), keepOrder: Boolean(gen.loaded.keepOrder), languages: gen.loaded.languages, liveIds, partial: gen.loaded.partial, picks, rankOf: gen.rankOf});
 		}
 
 		if (!edit || edit.kind === 'none') {
@@ -2311,6 +2353,8 @@ function binderScreen(root, source, id, pageParam) {
 					if (loaded.gone) {
 						throw new Error('That list was deleted. Choose another.');
 					}
+
+					checkWholeList(loaded);
 
 					const liveIds = new Set([...entriesById.values()].filter(isLive).map((entry) => entry.id));
 					const draft = {...editing, cols: fields.cols, rows: fields.rows, rule};

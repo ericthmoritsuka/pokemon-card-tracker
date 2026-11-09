@@ -111,6 +111,12 @@ describe('selecting the prints', () => {
 		assert.equal(prints[1].setId, 'tk-xy-w');
 	});
 
+	test('with the bulk map, a print carries its Pokédex numbers, a TAG TEAM card both', () => {
+		const prints = internationalPrints({cards: dexCards, dexMap: bulkMap, ids: ['sm12-165', 'base2-54'], sets: setsIndex});
+
+		assert.deepEqual(prints.map((print) => print.dexIds), [[39, 428], [39]]);
+	});
+
 	test('Japanese prints come from the dexId list and each set\'s details', () => {
 		const sets = new Map(Object.entries(FIXTURES.jaSets));
 		const prints = asianPrints({briefs: FIXTURES.asian.ja, catalog: 'ja', sets});
@@ -177,6 +183,13 @@ describe('languages and ownership', () => {
 		assert.deepEqual(catalogsFor(['pt', 'en', 'fr']), ['international']);
 		assert.deepEqual(catalogsFor(['ja']), ['ja']);
 		assert.deepEqual(catalogsFor(['zh-tw', 'pt', 'ja']), ['international', 'ja', 'zh-tw']);
+		// Korean copies are saved on the Japanese records Korea prints under
+		// (js/languages.js fallback), so Korean reads those prints too.
+		assert.deepEqual(catalogsFor(['ko']), ['ja', 'ko']);
+		assert.deepEqual(catalogsFor(['pt', 'ko']), ['international', 'ja', 'ko']);
+		assert.equal(cards.onlyFallback(['ko'], 'ja'), true);
+		assert.equal(cards.onlyFallback(['ko', 'ja'], 'ja'), false);
+		assert.equal(cards.onlyFallback(['ko'], 'ko'), false);
 	});
 
 	test('a card counts only for a live copy in one of the list\'s languages', () => {
@@ -230,6 +243,9 @@ describe('languages and ownership', () => {
 		assert.equal(wishLanguage(['pt', 'ja'], 'ja'), 'ja');
 		assert.equal(wishLanguage(['pt', 'ja'], 'international'), 'pt');
 		assert.equal(wishLanguage(['pt'], 'ja'), null);
+		assert.equal(wishLanguage(['ko'], 'ja'), 'ko', 'a Japanese print on a Korean list is wished in Korean');
+		assert.equal(wishLanguage(['ja', 'ko'], 'ja'), 'ja', 'its own language first');
+		assert.equal(wishLanguage(['ko'], 'international'), null);
 	});
 });
 
@@ -405,9 +421,13 @@ describe('without a checklist', () => {
 
 		assert.equal(cards.flagCount('pt', loaded), 3);
 		assert.equal(cards.flagCount('es', loaded), 3, 'Western languages share the international prints');
-		assert.equal(cards.flagCount('ko', loaded), 0, 'loaded, with none');
+		assert.equal(cards.flagCount('ko', loaded), null, 'the Japanese prints Korean copies sit on are not loaded yet');
 		assert.equal(cards.flagCount('ja', loaded), null, 'not loaded');
 		assert.equal(cards.flagCount('zh-tw', loaded), null, 'its card list is not on the phone');
+
+		loaded.set('ja', {missingList: false, prints: [{}, {}]});
+		assert.equal(cards.flagCount('ja', loaded), 2);
+		assert.equal(cards.flagCount('ko', loaded), 2, 'the Japanese prints, and the Korean catalog\'s none');
 	});
 
 	test('a card\'s Pokédex numbers', () => {

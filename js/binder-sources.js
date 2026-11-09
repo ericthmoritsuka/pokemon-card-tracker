@@ -42,9 +42,12 @@ export const kindLabel = (kind) => KIND_WORDS[kind] || kind;
 // The lists a binder can be made from, in the person's order:
 // {checklist: [{id, name}], collection: [...], goal: [...]}. A goal may
 // carry the order its binder starts on: a Pokémon goal's prints go oldest
-// set first ('set'), as a binder of one Pokémon is filled, and new prints
-// then join at the end rather than move every pocket after the first page
-// (Eric, 2026-11-09).
+// set first ('set'), as a binder of one Pokémon is filled (Eric,
+// 2026-11-09). In that order the binder then keeps its pockets where they
+// are and adds a print new to the list at the end (loadRuleItems keepOrder,
+// js/binder-rules.js planRefresh), whatever its date: a new promo dated
+// years back, or a Japanese set TCGdex adds late, would otherwise sort into
+// the middle and move every pocket after it.
 export const POKEMON_GOAL_ORDER = 'set';
 
 export function sourceChoices(doc) {
@@ -183,12 +186,17 @@ export function cardItems(copies, index) {
 }
 
 // An item for one card key, from the card index, else the facts given (a
-// goal's card), else the copy itself (a hand-made card).
+// goal's card), else the copy itself (a hand-made card). Pokédex numbers the
+// facts carry (a Pokémon goal's print, js/goals.js pokemonGoalCards) come
+// first: the card index has them only for owned cards, so a print would
+// otherwise sort last in Pokédex order until bought, then jump ahead.
 export function cardItem(key, index, {copies = [], facts = null} = {}) {
 	const parsed = parseKey(key) || {cardId: key, catalog: 'international'};
 	const record = index.get(key) || (copies[0] ? customRecord(copies[0]) : null);
 	const local = display(record, copies[0] || null);
-	const dexIds = (record && Array.isArray(record.dex_ids) ? record.dex_ids : []);
+	const dexIds = facts && Array.isArray(facts.dexIds) && facts.dexIds.length
+		? facts.dexIds
+		: (record && Array.isArray(record.dex_ids) ? record.dex_ids : []);
 
 	return {
 		cardId: parsed.cardId,
@@ -253,8 +261,14 @@ export function listLanguagesKey(goal) {
 // and for a checklist, anyItems and languages (checklistAnyItems,
 // listLanguagesKey). gone: the list was deleted. partial: some copies could not be told
 // (Pokédex numbers still unknown, or a goal's card list not on the phone),
-// so a refresh keeps what it cannot check. force asks again what a failed
-// download put off (Refresh).
+// so a refresh keeps what it cannot check. incomplete, with gaps
+// (js/goals.js gapText): a goal read only part of its cards, or could not
+// date them, so the items are not the whole list and a layout from them
+// would drop or move pockets; the binder keeps its pages as they were
+// (DESIGN.md, "Binders from a list"). keepOrder: a Pokémon goal in set
+// order, whose refresh keeps the stored pockets in place and adds new ones
+// at the end (POKEMON_GOAL_ORDER). force asks again what a failed download
+// put off (Refresh).
 export async function loadRuleItems(rule, doc, {force = false, index = null, isAlive = () => true} = {}) {
 	const clean = cleanBinderRule(rule);
 
@@ -270,6 +284,9 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 	let error = null;
 	let anyItems = null;
 	let languages;
+	let incomplete = false;
+	let gaps = [];
+	let keepOrder = false;
 
 	if (kind === 'checklist') {
 		const goal = sourceEntry(clean, doc);
@@ -309,7 +326,10 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 		const result = await computeGoal(goal, cards);
 
 		error = result.error || null;
-		partial = Boolean(result.missingList);
+		incomplete = Boolean(result.incomplete);
+		gaps = result.gaps || [];
+		partial = Boolean(result.missingList) || incomplete;
+		keepOrder = goal.kind === 'pokemon' && clean.order === POKEMON_GOAL_ORDER;
 		items = result.states.map((state) => cardItem(cardKey(state.card.catalog, state.card.cardId), known, {copies: state.copies, facts: state.card}));
 	}
 	else {
@@ -324,9 +344,12 @@ export async function loadRuleItems(rule, doc, {force = false, index = null, isA
 	return {
 		anyItems: anyItems && sortRuleItems(anyItems, clean.order),
 		error,
+		gaps,
 		gone: false,
+		incomplete,
 		index: known,
 		items: sortRuleItems(items, clean.order),
+		keepOrder,
 		languages,
 		partial,
 	};

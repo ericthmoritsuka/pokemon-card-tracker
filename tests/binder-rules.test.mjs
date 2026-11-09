@@ -20,6 +20,7 @@ import {
 	defaultCopy,
 	indexAt,
 	isGenerated,
+	keptOrder,
 	ordersFor,
 	pagesFor,
 	parseKey,
@@ -288,6 +289,44 @@ describe('refresh', () => {
 		assert.equal(plan.changed, true);
 		assert.equal(plan.snapshot.rule_key, 'checklist:list-1|name');
 		assert.equal(planRefresh({...generated('b1'), rows: 1, cols: 1}, [item(1, [copy('c1', 'p1')]), item(4), item(7)], {at: at(10), rankOf: () => ({})}).page_count, 3);
+	});
+});
+
+// A Pokémon goal in set order keeps its pockets in place (keepOrder,
+// js/binder-sources.js POKEMON_GOAL_ORDER): new cards at the end, and a
+// card left out, kept as a gap, or put back where its list place is.
+describe('keeping the pockets in place', () => {
+	const cards = (...ids) => ids.map((id) => ({copies: [], key: `international|${id}`, kind: 'card', name: id, number: id.split('-')[1], releaseDate: `20${id.split('-')[1]}-01-01`, setId: id.split('-')[0]}));
+	const keys = (...ids) => ids.map((id) => (id ? `international|${id}` : ''));
+	const rule = {order: 'set', source: {id: 'g1', kind: 'goal'}};
+	const binder = (stored, edits = []) => generated('b1', {list_edits: edits, rule, snapshot: {at: at(0), keys: keys(...stored), rule_key: 'goal:g1|set', shown: {}}});
+	const plan = (stored, list, edits = []) => planRefresh(binder(stored, edits), cards(...list), {at: at(10), keepOrder: true, rankOf: () => ({})}).snapshot.keys;
+
+	test('keptOrder: the stored keys keep their places, edited ones take their list places, new ones go last', () => {
+		assert.deepEqual(keptOrder(['a', 'b', 'c', 'd'], ['c', 'a', 'b']), ['c', 'a', 'b', 'd']);
+		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', '', 'c'], new Set(['b'])), ['a', 'b', 'c'], 'a gap\'s key goes back to its place');
+		assert.deepEqual(keptOrder(['a', 'b', 'c'], ['a', 'c'], new Set()), ['a', 'c', 'b'], 'a key never edited is new');
+		assert.deepEqual(keptOrder(['a', 'c'], ['a', 'b', 'c']), ['a', 'c'], 'a key that left the list leaves');
+	});
+
+	test('a card new to the list joins at the end, whatever its date', () => {
+		assert.deepEqual(plan(['s-10', 's-20', 's-30'], ['s-05', 's-10', 's-20', 's-25', 's-30']), keys('s-10', 's-20', 's-30', 's-05', 's-25'));
+	});
+
+	test('a gap stays where it is, a card left out stays out, Put back returns a card to its place, and a move to the end stays last', () => {
+		const gap = {at: at(1), key: 'international|s-20', kind: 'gap'};
+
+		assert.deepEqual(plan(['s-10', '', 's-30'], ['s-10', 's-20', 's-30', 's-40'], [gap]), keys('s-10', '', 's-30', 's-40'));
+		assert.deepEqual(plan(['s-10', 's-30'], ['s-10', 's-20', 's-30', 's-40'], [{...gap, kind: 'out'}]), keys('s-10', 's-30', 's-40'));
+		assert.deepEqual(plan(['s-10', 's-30'], ['s-10', 's-20', 's-30', 's-40'], [{...gap, at: at(2), kind: 'none'}]), keys('s-10', 's-20', 's-30', 's-40'));
+		assert.deepEqual(plan(['s-20', 's-30', 's-10'], ['s-10', 's-20', 's-30', 's-40'], [{at: at(1), key: 'international|s-10', kind: 'end'}]), keys('s-20', 's-30', 's-40', 's-10'));
+	});
+
+	test('a new rule lays the list out in its own order', () => {
+		const other = planRefresh({...binder(['s-30', 's-10']), rule: {order: 'release', source: {id: 'g1', kind: 'goal'}}}, cards('s-10', 's-30'), {at: at(10), keepOrder: true, rankOf: () => ({})});
+
+		assert.deepEqual(other.snapshot.keys, keys('s-10', 's-30'), 'not the stored s-30, s-10');
+		assert.deepEqual(planRefresh(binder([]), cards('s-30', 's-10'), {at: at(10), keepOrder: true, rankOf: () => ({})}).snapshot.keys, keys('s-30', 's-10'), 'a first layout is the list\'s order');
 	});
 });
 

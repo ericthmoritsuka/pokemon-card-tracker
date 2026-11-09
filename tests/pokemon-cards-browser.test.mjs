@@ -817,11 +817,16 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		assert.equal(requests(counts), loaded, 'switching back asks for nothing');
 		assert.equal((await flag(page, 'ja'))[2], '17');
 
-		// Korean has no prints of Jigglypuff: 0 once loaded.
+		// Korean: the Korean catalog has no prints of Jigglypuff, and Korean
+		// copies are saved on the Japanese prints Korea prints under, so its
+		// flag shows those too, with a line saying why.
 		await page.click('#pc-flag-ko');
 		await page.waitForSelector('.pc-section[data-catalog="ko"] .pc-none');
-		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '0', 'Korean, 0 cards']);
+		await waitForTitle(page, 'Jigglypuff, 0 of 17 cards');
+		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '17', 'Korean, 17 cards']);
 		assert.equal(await page.locator('.pc-section[data-catalog="ko"] .pc-none').textContent(), 'The Korean catalog has no cards of Jigglypuff yet.');
+		assert.equal((await cellIds(page, 'ja')).length, 17);
+		assert.equal(await page.locator('.pc-section[data-catalog="ja"] .pc-fallback-note').textContent(), 'Korea prints many sets under the Japanese set codes, so a Korean copy is saved on its Japanese print.');
 		assert.deepEqual(counts.asian, {ja: 1, ko: 1});
 
 		// Portuguese: the same prints as English, with the Portuguese copies
@@ -995,7 +1000,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
 		await page.click('#pc-flag-ko');
 		await page.waitForFunction(() => /no cards of Jigglypuff/.test((document.querySelector('.pc-section[data-catalog="ko"] .pc-none') || {}).textContent || ''));
-		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '0', 'Korean, 0 cards']);
+		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '17', 'Korean, 17 cards'], 'the Japanese prints its copies sit on');
 		assert.equal(await page.locator('#pc-retry').count(), 0);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
@@ -1275,6 +1280,39 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 // wishlist, and a binder from it with a pocket per print.
 describe('a Pokémon goal from the Pokémon screen', () => {
 	const checkedLanguages = (page) => page.locator('#pc-goal-languages input:checked').evaluateAll((boxes) => boxes.map((box) => box.value));
+
+	// Opens a binder page in the zoom sheet (tests/binder-rules.test.mjs).
+	async function openBinderPage(page, pg) {
+		await page.click(`.bs-open[data-open="${pg}"]`);
+		await page.waitForFunction((wanted) => document.getElementById('binder-spread')?.dataset.zoom === wanted, String(pg), {timeout: 10000});
+	}
+
+	// Removes one cached answer from the phone's IndexedDB, as if it had
+	// never been read: dex:ja:39 in the Pokémon screen's cache, or a set's
+	// details in the catalog's.
+	const forget = (page, name, store, key) => page.evaluate(({name: db, store: box, key: id}) => new Promise((resolve, reject) => {
+		const open = indexedDB.open(db);
+
+		open.onsuccess = () => {
+			const tx = open.result.transaction(box, 'readwrite');
+
+			tx.objectStore(box).delete(id);
+			tx.oncomplete = () => {
+				open.result.close();
+				resolve();
+			};
+			tx.onerror = () => reject(tx.error);
+		};
+		open.onerror = () => reject(open.error);
+	}), {key, name, store});
+
+	// Moves in the app, as a tapped link does, with no page load (offline,
+	// the page could not load).
+	const goInApp = (page, route) => page.evaluate(async (target) => (await import('/pokemon-card-tracker/js/dom.js')).go(target), route);
+
+	const binderOf = async (page, id) => (await localDoc(page)).binders.find((item) => item.id === id);
+
+	const noteText = (page) => page.locator('#binder-list-note').textContent();
 	// Plus a copy with no language recorded, which counts as on the flags.
 	const OWNED = [...CARDS, entry('c8', {card_id: 'xy1-87', catalog: 'international', language: null})];
 
@@ -1336,6 +1374,18 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		doc = await localDoc(page);
 		assert.deepEqual(doc.wishlist.map((wish) => [wish.card_id, wish.catalog, wish.language]), [['swsh3-67', 'international', 'pt']]);
 
+		// Rarity: the Japanese card lists carry none, so their prints are
+		// offered as their own choice rather than hidden by every rarity.
+		await page.click('#goal-filters');
+		await page.waitForSelector('#goal-sheet[open]');
+		assert.ok((await page.locator('#goal-f-rarity option').allTextContents()).includes('Rarity not listed (17)'));
+		await page.selectOption('#goal-f-rarity', 'Rarity not listed');
+		await page.click('#goal-sheet .fb-show');
+		await page.waitForFunction(() => document.querySelectorAll('#goal-grid .pc-cell').length === 17, null, {timeout: 10000});
+		assert.ok((await page.locator('#goal-grid .pc-cell').evaluateAll((cells) => cells.map((cell) => cell.dataset.catalog))).every((catalog) => catalog === 'ja'));
+		await page.click('.fb-chip');
+		await page.waitForFunction(() => document.querySelectorAll('#goal-grid .pc-cell').length === 54, null, {timeout: 10000});
+
 		// In Lists, with the set and artist goals' tile and ring.
 		await page.goto(url('lists'));
 		await page.waitForSelector(`.goal-tile[data-goal="${goal.id}"] .goal-ring`, {timeout: 20000});
@@ -1373,6 +1423,29 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		await page.waitForFunction((sel) => document.querySelector(sel)?.dataset.kind === 'card', pocket('international|base2-54'), {timeout: 15000});
 		await page.waitForFunction(() => document.querySelector('#bs-spread .bs-page[data-page="1"] .pocket[data-position="1"]')?.dataset.kind === 'want', null, {timeout: 15000});
 
+		// A placeholder's Add to wishlist wishes in the goal's language for
+		// the card's catalog, as the goal's screen does: Japanese for the
+		// Japanese Jungle, Portuguese for an international print.
+		const westernWant = binder.snapshot.keys.slice(0, 9).find((key) => key.startsWith('international|') && !binder.snapshot.shown[key]);
+
+		await openBinderPage(page, 1);
+
+		for (const key of ['ja|PMCG2-035', westernWant]) {
+			await page.click(`#bs-zoom-sheet .pocket[data-position="${binder.snapshot.keys.indexOf(key) + 1}"]`);
+			await page.click('#list-wish');
+			await page.waitForFunction(() => (document.getElementById('list-wish') || {}).textContent === 'On your wishlist', null, {timeout: 10000});
+			await page.click('#sheet-close');
+			await page.waitForFunction(() => !document.querySelector('#pocket-sheet[open]'));
+			await page.waitForTimeout(300);
+		}
+
+		doc = await localDoc(page);
+		assert.deepEqual(doc.wishlist.filter((wish) => !wish.deleted_at).map((wish) => [`${wish.catalog}|${wish.card_id}`, wish.language]).sort(), [
+			[`${westernWant}`, 'pt'],
+			['international|swsh3-67', 'pt'],
+			['ja|PMCG2-035', 'ja'],
+		].sort());
+
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();
@@ -1407,11 +1480,241 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		assert.deepEqual(await checkedLanguages(page), ['any']);
 		await page.uncheck('#pc-goal-any');
 		await page.click('#pc-goal-create');
-		assert.equal(await page.locator('#pc-goal-error').textContent(), 'Pick at least one language, or Any language.');
+		assert.equal(await page.locator('#pc-goal-error').textContent(), 'Pick at least one language, or tick Western prints, any language.');
 		await page.click('#pc-goal-sheet .button-row button:has-text("Cancel")');
 		await page.waitForSelector('#pc-goal-sheet', {state: 'detached'});
 
 		assert.equal((await localDoc(page)).goals.length, 1, 'nothing made');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+	// Eric, 2026-11-09: "languages I pick". Every language ticked stays
+	// ticked, with its catalogs; the sheet says what Any language holds, and
+	// each box is named once for a screen reader.
+	test('every language ticked is kept, and the sheet names Western prints, any language for what it holds', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, counts, errors, page} = await device(null, 'phone');
+		const all = ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr'];
+
+		await seedLocal(page, documentWith(OWNED, []));
+		await page.goto(url('pokemon/39/pt'));
+		await waitForTitle(page, 'Jigglypuff, 4 of 37 cards');
+		await page.click('#pc-make-goal');
+		await page.waitForSelector('#pc-goal-sheet[open]');
+		assert.equal(await page.locator('label:has(#pc-goal-any)').textContent(), 'Western prints, any language');
+		assert.equal(await page.locator('#pc-goal-any-hint').textContent(), 'The international prints; a copy in any language counts, German, Italian, and Spanish too.');
+
+		for (const code of all) {
+			const label = await page.locator(`#pc-goal-languages input[value="${code}"]`).evaluate((box) => box.closest('label').querySelector('span:last-child').textContent);
+
+			assert.equal(await page.getByRole('checkbox', {exact: true, name: label}).count(), 1, `${label} is named once`);
+			await page.check(`#pc-goal-languages input[value="${code}"]`);
+		}
+
+		assert.deepEqual(await checkedLanguages(page), all);
+		await page.click('#pc-goal-create');
+		await page.waitForSelector('#pc-goal-link');
+		assert.equal(await page.locator('#pc-goal-link').textContent(), 'Your goal: Every card in PT, EN, JA, KO, CHS, CHT, FR');
+
+		const goal = (await localDoc(page)).goals[0];
+
+		assert.deepEqual(goal.languages, all, 'saved as ticked, not as Any language');
+
+		// Its screen reads every catalog the languages name.
+		await page.goto(url(`goals/${goal.id}`));
+		await page.waitForFunction(() => /^\d+ of \d+ cards owned/.test((document.getElementById('goal-summary') || {}).textContent), null, {timeout: 30000});
+		assert.deepEqual(Object.keys(counts.asian).sort(), ['ja', 'ko', 'zh-cn', 'zh-tw']);
+		assert.equal(await page.locator('.pc-cell[data-catalog="ja"]').count(), 17);
+
+		// Its languages editor names Any language for what it holds too, and
+		// keeps all seven when they are saved again.
+		await page.click('#list-languages-edit');
+		assert.equal(await page.locator('label:has(#list-languages-any)').textContent(), 'Western prints, any language');
+		assert.equal(await page.getByRole('checkbox', {exact: true, name: 'Portuguese'}).count(), 1);
+		await page.click('#list-languages-save');
+		await page.waitForSelector('#list-languages-edit');
+		assert.deepEqual((await localDoc(page)).goals[0].languages, all);
+		await page.click('#list-languages-edit');
+		await page.check('#list-languages-any');
+		await page.click('#list-languages-save');
+		await page.waitForFunction(() => /^Western prints, any language/.test(document.getElementById('goal-meta')?.textContent || ''));
+		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Western prints, any language');
+		assert.equal(Object.hasOwn((await localDoc(page)).goals[0], 'languages'), false);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// The reviewer's two cases (2026-11-09): a PT and JA goal's binder opened
+	// with the Japanese list not on the phone, offline, removed 17 pockets
+	// and moved the rest; with one Japanese set's details unreadable, the
+	// undated prints moved 53 of 54 pockets. Now the pages stay as stored
+	// and nothing is saved, on opening and on Refresh, and the goal's screen
+	// says which part is missing.
+	test('a binder keeps its pages, and saves nothing, while part of its goal cannot be read', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, net, page} = await device(null, 'phone');
+		const goal = {catalog: null, created_at: AT, deleted_at: null, id: 'goal-39', kind: 'pokemon', languages: ['pt', 'ja'], level: null, name: 'Jigglypuff', target: '39', updated_at: AT};
+
+		await seedLocal(page, documentWith(OWNED, [goal]));
+
+		// Online first: the goal's lists are read and kept, and a binder made.
+		await page.goto(url(`goals/${goal.id}`));
+		await page.waitForFunction(() => /^5 of 54 cards owned/.test((document.getElementById('goal-summary') || {}).textContent), null, {timeout: 30000});
+
+		const made = await page.evaluate(async (goalId) => {
+			const {loadRuleItems} = await import('/pokemon-card-tracker/js/binder-sources.js');
+			const {planRefresh} = await import('/pokemon-card-tracker/js/binder-rules.js');
+			const {createGeneratedBinder} = await import('/pokemon-card-tracker/js/binders.js');
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+			const rule = {order: 'set', source: {id: goalId, kind: 'goal'}};
+			const loaded = await loadRuleItems(rule, await loadDocument());
+			const plan = planRefresh({cols: 3, rows: 3, rule}, loaded.items, {at: new Date().toISOString(), keepOrder: loaded.keepOrder, rankOf: () => ({})});
+
+			return (await createGeneratedBinder({cols: 3, name: 'Jigglypuff', rows: 3}, rule, plan.snapshot)).id;
+		}, goal.id);
+
+		await goInApp(page, `binders/${made}`);
+		await page.waitForSelector('#binder-refresh:not([hidden])');
+		await page.click('#binder-refresh');
+		await page.waitForFunction(() => /^(Up to date\.|.*another copy by default\.)$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000});
+
+		const stored = await binderOf(page, made);
+
+		assert.equal(stored.snapshot.keys.length, 54);
+		assert.equal(stored.page_count, 6);
+		assert.ok(stored.snapshot.shown['ja|SV2a-039'], 'the Japanese 151 copy is shown');
+
+		// Offline, with the Japanese list gone from the phone.
+		await forget(page, 'card-tracker-pokemon-cards', 'cache', 'dex:ja:39');
+		net.offline = true;
+		await context.setOffline(true);
+		await goInApp(page, 'binders');
+		await page.waitForSelector('#new-binder');
+		await goInApp(page, `binders/${made}`);
+		await page.waitForFunction(() => /^The Japanese prints are not on this phone yet\. The pages stay as they were until the whole list can be read with a connection\.$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
+		});
+		await page.waitForTimeout(500);
+		assert.deepEqual(await binderOf(page, made), stored, 'nothing saved on opening');
+		await page.waitForFunction(() => document.querySelectorAll('#bs-spread .pocket').length > 0);
+		await page.click('#binder-refresh');
+		await page.waitForTimeout(800);
+		assert.match(await noteText(page), /^The Japanese prints are not on this phone yet\./);
+		assert.deepEqual(await binderOf(page, made), stored, 'nor on Refresh');
+
+		// The stored Japanese pocket still shows its copy.
+		const sv2a = stored.snapshot.keys.indexOf('ja|SV2a-039');
+
+		await openBinderPage(page, Math.floor(sv2a / 9) + 1);
+		await page.waitForFunction((position) => document.querySelector(`#bs-zoom-sheet .pocket[data-position="${position}"]`)?.dataset.kind === 'card', (sv2a % 9) + 1, {timeout: 10000});
+		await page.click('#bs-zoom-sheet .sheet-head button, #bs-zoom-close').catch(() => {});
+
+		// The goal's screen says what is missing.
+		await goInApp(page, `goals/${goal.id}`);
+		await page.waitForFunction(() => /The Japanese prints are not on this phone yet\./.test(document.getElementById('goal-status')?.textContent || ''), null, {timeout: 20000});
+		assert.equal(await page.locator('#goal-status').textContent(), 'The Japanese prints are not on this phone yet. The count is of the cards read so far; open this goal with a connection to read the rest.');
+		assert.equal(await page.locator('#goal-summary').textContent(), '4 of 37 cards owned, 33 missing.');
+
+		// Online, with one Japanese set's details refused.
+		net.offline = false;
+		await context.setOffline(false);
+		await forget(page, 'card-tracker-catalog', 'responses', 'set:ja:SV2a');
+
+		const refuse = (route) => route.fulfill({body: '{}', contentType: 'application/json', status: 403});
+
+		await context.route((target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname), refuse);
+		await goInApp(page, `binders/${made}`);
+		await page.waitForFunction(() => /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The pages stay as they were until the whole list can be read\.$/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
+		});
+		await page.waitForTimeout(500);
+		assert.deepEqual(await binderOf(page, made), stored, 'nothing saved with a set unread');
+
+		await goInApp(page, `goals/${goal.id}`);
+		await page.waitForSelector('#goal-retry', {timeout: 20000});
+		assert.match(await page.locator('#goal-status').textContent(), /^1 set of Japanese prints could not be read, so their cards have no set name or date yet\. The count is of the cards read so far \(.+\)\. Try again$/);
+
+		// The set readable again: the whole list, the same pockets.
+		await context.unroute((target) => /\/v2\/ja\/sets\/SV2a$/.test(target.pathname), refuse);
+		await goInApp(page, `binders/${made}`);
+		await page.waitForSelector('#binder-refresh:not([hidden])');
+		await page.click('#binder-refresh');
+		await page.waitForFunction(() => document.getElementById('binder-list-note')?.textContent === 'Up to date.', null, {timeout: 20000}).catch(async (err) => {
+			throw new Error(`Note: "${await noteText(page)}". ${err.message}`);
+		});
+		assert.deepEqual((await binderOf(page, made)).snapshot.keys, stored.snapshot.keys);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Made offline before the species' names were ever read, the goal is
+	// named by its number, and takes the name once they load.
+	test('a goal made before the names are on the phone takes the name once they load', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, net, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(OWNED, []));
+		net.offline = true;
+		await page.goto(url('pokemon/39/pt'));
+		await page.waitForSelector('#pc-make-goal');
+		await page.waitForFunction(() => /^Pokémon #039/.test(document.getElementById('pc-title')?.textContent || ''));
+		await page.click('#pc-make-goal');
+		await page.waitForSelector('#pc-goal-sheet[open]');
+		await page.click('#pc-goal-create');
+		await page.waitForSelector('#pc-goal-link');
+		assert.equal((await localDoc(page)).goals[0].name, 'Pokémon #039');
+
+		net.offline = false;
+		await page.reload();
+		await waitForTitle(page, 'Jigglypuff, 4 of 37 cards');
+		await page.waitForFunction(async () => true);
+		await untilInPage(page, async () => (await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument()).goals[0].name === 'Jigglypuff', {timeout: 20000});
+		assert.equal(await page.locator('#pc-goal-link').textContent(), 'Your goal: Every card in PT');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// A goal another phone made after the control was drawn: Make goal says
+	// so and opens it, and saves nothing over it. Two phones offline can
+	// each make one; both show, and the control opens the first.
+	test('a goal made elsewhere meanwhile is said and opened, and two goals for one Pokémon both show', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(OWNED, []));
+		await page.goto(url('pokemon/39/pt'));
+		await waitForTitle(page, 'Jigglypuff, 4 of 37 cards');
+		await page.click('#pc-make-goal');
+		await page.waitForSelector('#pc-goal-sheet[open]');
+		await page.check('#pc-goal-languages input[value="ja"]');
+
+		// Meanwhile, saved as another phone's sync would save it.
+		const elsewhere = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/goals.js')).createGoal({kind: 'pokemon', languages: ['en'], name: 'Puff', target: 39}));
+
+		await page.click('#pc-goal-create');
+		await page.waitForSelector('#pc-goal-open');
+		assert.equal(await page.locator('#pc-goal-error').textContent(), 'Puff is already a goal (Every card in EN), so nothing new was made. Change its languages on its screen.');
+		assert.equal(await page.locator('#toasts .toast-text:has-text("is a goal in Lists")').count(), 0, 'no toast says it was made');
+
+		const goals = (await localDoc(page)).goals;
+
+		assert.equal(goals.length, 1);
+		assert.deepEqual(goals[0].languages, ['en'], 'its languages as they were');
+		await page.click('#pc-goal-open');
+		await page.waitForURL(`**${BASE}goals/${elsewhere.id}`);
+
+		// Two goals for Jigglypuff, as two phones offline would make them.
+		const second = {...elsewhere, created_at: '2026-11-09T12:00:00.000Z', id: 'goal-39-b', languages: ['ja'], name: 'Purin', updated_at: '2026-11-09T12:00:00.000Z'};
+
+		await seedLocal(page, documentWith(OWNED, [{...elsewhere, created_at: AT}, second]));
+		await page.goto(url('lists'));
+		await page.waitForSelector('.goal-tile[data-goal="goal-39-b"]', {timeout: 20000});
+		assert.deepEqual(await page.locator('#goals-list .list-name').allTextContents(), ['Puff', 'Purin']);
+		await page.goto(url('pokemon/39/pt'));
+		await page.waitForSelector('#pc-goal-link');
+		assert.equal(await page.locator('#pc-goal-link').getAttribute('href'), `${BASE}goals/${elsewhere.id}`, 'the first');
+		await page.goto(url('goals/goal-39-b'));
+		await page.waitForFunction(() => document.getElementById('goal-title')?.textContent === 'Purin');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

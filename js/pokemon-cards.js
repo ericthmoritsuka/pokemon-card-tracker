@@ -32,7 +32,7 @@ import {compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {ASIAN_LANGUAGES, CATALOGS, LANGUAGE_CODES, catalogFor, catalogLanguage, isKnownLanguage, languageLabel} from './languages.js';
+import {ASIAN_LANGUAGES, CATALOGS, LANGUAGE_CODES, catalogFor, catalogLanguage, catalogsOf, isKnownLanguage, languageLabel} from './languages.js';
 import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
@@ -46,18 +46,35 @@ export const POCKET_SERIES = 'tcgp';
 
 // The catalogs a list's languages need, in screen order: a Portuguese and
 // Japanese list shows the international prints, then the Japanese ones.
+// A language's copies may also sit on the catalog it falls back to
+// (js/languages.js catalogsOf): Korea prints many sets under the Japanese
+// codes and its copies are saved on those records, while the Korean catalog
+// held no cards on 2026-10-01, so Korean also reads the Japanese one.
 export function catalogsFor(languages) {
-	const wanted = new Set((languages || []).map(catalogFor));
+	const wanted = new Set((languages || []).flatMap(catalogsOf));
 
 	return CATALOG_ORDER.filter((catalog) => wanted.has(catalog));
 }
 
-// The language a missing card goes on the wishlist in: the list's language
-// for that card's catalog when the list names exactly one, else any.
-export function wishLanguage(languages, catalog) {
-	const fits = [...new Set(languages || [])].filter((code) => catalogFor(code) === catalog);
+// Whether a catalog is shown for these languages only as another's fallback
+// (the Japanese prints of a Korean list), not for one of its own.
+export const onlyFallback = (languages, catalog) => !(languages || []).some((code) => catalogFor(code) === catalog);
 
-	return fits.length === 1 ? fits[0] : null;
+// The language a missing card goes on the wishlist in: the list's language
+// for that card's catalog when the list names exactly one, else the one
+// language whose copies fall back to that catalog (Korean, on a Japanese
+// print of a Korean list), else any.
+export function wishLanguage(languages, catalog) {
+	const codes = [...new Set(languages || [])];
+	const own = codes.filter((code) => catalogFor(code) === catalog);
+
+	if (own.length) {
+		return own.length === 1 ? own[0] : null;
+	}
+
+	const fallback = codes.filter((code) => catalogsOf(code).includes(catalog));
+
+	return fallback.length === 1 ? fallback[0] : null;
 }
 
 // ------------------------------------------------------ selecting prints
@@ -125,8 +142,10 @@ export function dexCardsFrom(json) {
 // set index ({setId: {...}}); cards this Pokémon's names and images, either
 // may be empty. A print: {catalog, cardId, setId, localId, name, image,
 // rarity, setName, releaseDate}; rarity, from this Pokémon's GraphQL cards,
-// is for a Pokémon goal's rarity filter (js/goals.js).
-export function internationalPrints({cards = {}, ids, sets = {}}) {
+// is for a Pokémon goal's rarity filter (js/goals.js). With dexMap (the bulk
+// map), a print also carries dexIds, every Pokédex number on the card, so a
+// binder from a Pokémon goal orders a print the same owned or not.
+export function internationalPrints({cards = {}, dexMap = null, ids, sets = {}}) {
 	const known = new Map(Object.entries(sets || {}));
 	const prints = [];
 
@@ -142,6 +161,7 @@ export function internationalPrints({cards = {}, ids, sets = {}}) {
 		prints.push({
 			cardId,
 			catalog: 'international',
+			...(dexMap && Array.isArray(dexMap[cardId]) ? {dexIds: [...dexMap[cardId]]} : {}),
 			image: card.image || null,
 			localId: card.localId || localIdOf(cardId, setId),
 			name: card.name || null,
@@ -437,9 +457,11 @@ const beforeCounts = (index) => Object.values(index || {}).some((set) => !set ||
 export const internationalSets = ({force = false, maxAge = REFETCH_AFTER_MS, stale = undefined} = {}) =>
 	kept(SETS_KEY, () => loadSetIndex(), {force, maxAge, outdated: beforeCounts, stale});
 
-// The international prints of Pokémon n. {prints, error, missingList}:
-// missingList when the bulk list is not on the phone (offline before the
-// first visit, or its download failed); error is the first failure.
+// The international prints of Pokémon n. {prints, error, missingList,
+// setIndexMissing}: missingList when the bulk list is not on the phone
+// (offline before the first visit, or its download failed); setIndexMissing
+// when the set index is not, so the prints have no set name or date; error
+// is the first failure.
 export async function loadInternational(n, {force = false, onProgress = () => {}} = {}) {
 	const bulk = await internationalDexMap({force, onProgress});
 	const ids = bulk.map ? cardIdsForDex(bulk.map, n) : [];
@@ -457,13 +479,14 @@ export async function loadInternational(n, {force = false, onProgress = () => {}
 	// (and without this Pokémon's images, which say it too) nothing is
 	// listed rather than Pocket cards with the rest.
 	if (!bulk.map || (!sets.data && !cards.data)) {
-		return {error: bulk.error || sets.error || cards.error || null, missingList: true, prints: []};
+		return {error: bulk.error || sets.error || cards.error || null, missingList: true, prints: [], setIndexMissing: !sets.data};
 	}
 
 	return {
 		error: bulk.error || sets.error || cards.error || null,
 		missingList: false,
-		prints: internationalPrints({cards: cards.data || {}, ids, sets: sets.data || {}}),
+		prints: internationalPrints({cards: cards.data || {}, dexMap: bulk.map, ids, sets: sets.data || {}}),
+		setIndexMissing: !sets.data,
 	};
 }
 
@@ -602,14 +625,15 @@ export const pokemonCardsRoute = (n, lang = null) => (isKnownLanguage(lang) ? `p
 // counts only on the flags of the catalog it is saved on).
 export const flagLanguages = (code) => [code, null];
 
-// What a flag counts: the prints of its language's catalog once that has
-// loaded (0 for a language with none), else null. catalogs: catalog -> the
-// loaded result ({prints, missingList}); a catalog whose card list is not on
-// the phone counts nothing yet.
+// What a flag counts: the prints of its language's catalogs (catalogsFor:
+// Korean's are the Japanese ones too) once they have loaded (0 for a
+// language with none), else null. catalogs: catalog -> the loaded result
+// ({prints, missingList}); a catalog whose card list is not on the phone
+// counts nothing yet.
 export function flagCount(code, catalogs) {
-	const result = catalogs.get(catalogFor(code));
+	const results = catalogsFor([code]).map((catalog) => catalogs.get(catalog));
 
-	return result && !result.missingList ? result.prints.length : null;
+	return results.every((result) => result && !result.missingList) ? results.reduce((sum, result) => sum + result.prints.length, 0) : null;
 }
 
 // Whether a catalog's result still needs a load: none yet, its card list not

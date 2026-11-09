@@ -39,7 +39,7 @@ import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge, flagSrc, flagText} from './flags.js';
 import {formatCount, plural} from './format.js';
-import {createGoal, describeGoal, findGoal, listGoals} from './goals.js';
+import {ANY_POKEMON_LANGUAGE, createGoal, describeGoal, findGoal, listGoals, nameFromSpecies} from './goals.js';
 import {ASIAN_LANGUAGES, LIST_LANGUAGE_CODES, NAME_TABLES, catalogFor, catalogLanguage, htmlLang, isCatalogLanguage, languageLabel} from './languages.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
@@ -54,6 +54,7 @@ import {
 	flagLanguages,
 	knownRecord,
 	loadAsian,
+	onlyFallback,
 	loadInternational,
 	needsLoad,
 	newestFirst,
@@ -155,6 +156,17 @@ function familySource(userId) {
 
 // --------------------------------------------------- list languages
 
+// A language's flag beside its visible name in a checkbox's label: hidden
+// from screen readers, which would read the name twice ("Portuguese
+// Portuguese") from the flag group's own label.
+function hiddenFlag(code) {
+	const flag = flagBadge([code], {className: 'flags-inline', prefix: null});
+
+	flag.setAttribute('aria-hidden', 'true');
+
+	return flag;
+}
+
 // The list's languages as flags, with Edit opening checkboxes. Returns
 // {element, update(goal)}; update redraws the flags unless the editor is
 // open. readOnly shows the flags alone.
@@ -164,12 +176,16 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 	const element = h('div', {class: 'pc-languages', id: 'list-languages'});
 
+	// A Pokémon goal's Any language reads only the Western prints, and says
+	// so (js/goals.js ANY_POKEMON_LANGUAGE); a checklist's shows them all.
+	const pokemonGoal = () => Boolean(goal) && goal.kind === 'pokemon';
+
 	// A list that names no languages counts a copy in any language, as its
 	// ticks do, and says so rather than showing every flag.
 	function drawFlags() {
 		const all = !namesLanguages(goal);
 		const languages = listLanguages(goal);
-		const names = all ? 'Counts copies in any language' : languages.map(languageLabel).join(', ');
+		const names = all ? (pokemonGoal() ? ANY_POKEMON_LANGUAGE : 'Counts copies in any language') : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
 			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
 			class: 'small',
@@ -181,7 +197,7 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		element.replaceChildren(
 			h('span', {class: 'pc-languages-label'}, 'Languages'),
 			all
-				? h('span', {class: 'pc-languages-all', id: 'list-languages-all'}, 'All')
+				? h('span', {class: 'pc-languages-all', id: 'list-languages-all'}, pokemonGoal() ? 'Any' : 'All')
 				: flagBadge(languages, {className: 'flags-inline', prefix: 'Counts copies in'}),
 			h('span', {class: 'pc-languages-names muted'}, names),
 			// replaceChildren prints a null argument as "null".
@@ -191,6 +207,8 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 	function openEditor() {
 		editing = true;
+
+		const anyLabel = pokemonGoal() ? ANY_POKEMON_LANGUAGE : 'Any language';
 
 		// Any language is its own choice, ticked for a list that names none:
 		// it counts every copy, German, Spanish, Italian, and copies with no
@@ -216,7 +234,7 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 			return h('label', {class: 'pc-language-choice'},
 				box,
-				flagBadge([code], {className: 'flags-inline', prefix: null}),
+				hiddenFlag(code),
 				h('span', null, languageLabel(code))
 			);
 		});
@@ -243,7 +261,7 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 		save.addEventListener('click', async () => {
 			if (!any && !chosen.size) {
-				error.textContent = 'Pick at least one language, or Any language.';
+				error.textContent = pokemonGoal() ? `Pick at least one language, or tick ${anyLabel}.` : 'Pick at least one language, or Any language.';
 
 				return;
 			}
@@ -251,9 +269,10 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 			save.disabled = true;
 
 			try {
-				// Every box ticked saves as Any language (js/languages.js), so
-				// it counts every copy rather than dropping the languages no box
-				// names.
+				// Every box ticked saves as Any language on a checklist
+				// (js/languages.js), so it counts every copy rather than
+				// dropping the languages no box names; a Pokémon goal keeps
+				// them as ticked (js/checklists.js setListLanguages).
 				const saved = await setListLanguages(listId, any ? null : [...chosen]);
 
 				goal = saved;
@@ -272,9 +291,11 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 
 		element.replaceChildren(h('fieldset', {class: 'pc-language-editor', id: 'list-languages-editor'},
 			h('legend', null, 'Languages this list counts'),
-			h('p', {class: 'muted'}, 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
+			h('p', {class: 'muted'}, pokemonGoal()
+				? `A card counts as owned only for a copy in one of these, and only their prints are shown. ${ANY_POKEMON_LANGUAGE}: the international prints, a copy in any language counting.`
+				: 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
 			h('div', {class: 'pc-language-choices'},
-				h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
+				h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, anyLabel)),
 				boxes
 			),
 			error,
@@ -303,13 +324,18 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 // and a toast offers to open it. One goal per Pokémon: once one is kept,
 // the control is a link to it ("Your goal: Every card in PT, JA"), as the
 // set page's is, so the tap that would make a second one opens the first,
-// and the languages are changed on the goal's own screen.
+// and the languages are changed on the goal's own screen. A goal made on
+// another phone since the control was drawn is found when Make goal is
+// tapped: the sheet says so and opens it, and the languages just ticked
+// are not saved over the ones it has (the goal's own screen changes them).
+// Two phones offline can each make one; both show in Lists, and the
+// control opens the first in the person's order. Nothing merges them.
 
 const goalPath = (id) => `goals/${encodeURIComponent(id)}`;
 
 // {element, refresh()}: refresh reads the goals again (a goal made or
 // deleted on another phone). language() is the flag shown; name() the
-// species' name.
+// species' name as the screen has it.
 export function goalControl({language, n, name}) {
 	const element = h('div', {class: 'pc-goal', id: 'pc-goal'});
 	let kept = null;
@@ -321,6 +347,9 @@ export function goalControl({language, n, name}) {
 			: h('button', {'aria-haspopup': 'dialog', class: 'small', id: 'pc-make-goal', onclick: openSheet, type: 'button'}, 'Make this a goal'));
 	}
 
+	// The goal kept for this Pokémon, the first in the person's order.
+	const keptIn = (goals) => findGoal(goals, {kind: 'pokemon', target: n});
+
 	async function refresh() {
 		const mine = ++run;
 
@@ -328,8 +357,20 @@ export function goalControl({language, n, name}) {
 			const goals = await listGoals();
 
 			if (mine === run) {
-				kept = findGoal(goals, {kind: 'pokemon', target: n});
+				kept = keptIn(goals);
 				draw();
+			}
+
+			// A goal made offline before the names were read is named by its
+			// number; it takes the species' name once they are here.
+			if (kept) {
+				const tables = await speciesNames().catch(() => null);
+				const renamed = await nameFromSpecies(kept, tables && tables.en);
+
+				if (renamed && mine === run) {
+					kept = renamed;
+					draw();
+				}
 			}
 		}
 		catch {
@@ -373,6 +414,7 @@ export function goalControl({language, n, name}) {
 		});
 
 		const create = h('button', {class: 'primary', id: 'pc-goal-create', type: 'button'}, 'Make goal');
+		const buttons = h('div', {class: 'button-row pc-goal-buttons'}, h('button', {onclick: () => dialog.close(), type: 'button'}, 'Cancel'), create);
 		const dialog = h('dialog', {'aria-labelledby': `${id}-title`, class: 'sheet pc-goal-sheet', id},
 			h('div', {class: 'sheet-head'},
 				h('h2', {id: `${id}-title`}, `Make ${species} a goal`),
@@ -385,22 +427,39 @@ export function goalControl({language, n, name}) {
 				h('fieldset', {class: 'pc-language-editor pc-goal-languages', id: 'pc-goal-languages'},
 					h('legend', null, 'Languages'),
 					h('div', {class: 'pc-language-choices'},
-						h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
+						h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, ANY_POKEMON_LANGUAGE)),
+						h('p', {class: 'muted pc-goal-any-hint', id: 'pc-goal-any-hint'}, 'The international prints; a copy in any language counts, German, Italian, and Spanish too.'),
 						boxes.map((box) => h('label', {class: 'pc-language-choice'},
 							box,
-							flagBadge([box.value], {className: 'flags-inline', prefix: null}),
+							hiddenFlag(box.value),
 							h('span', null, languageLabel(box.value))
 						))
 					)
 				),
 				error
 			),
-			h('div', {class: 'button-row pc-goal-buttons'}, h('button', {onclick: () => dialog.close(), type: 'button'}, 'Cancel'), create)
+			buttons
 		);
+
+		anyBox.setAttribute('aria-describedby', 'pc-goal-any-hint');
+
+		// The goal another phone made since this control was drawn: said,
+		// with Open goal in place of Make goal.
+		function showExisting(goal) {
+			kept = goal;
+			draw();
+			error.textContent = `${goal.name} is already a goal (${describeGoal(goal)}), so nothing new was made. Change its languages on its screen.`;
+			buttons.replaceChildren(
+				h('button', {onclick: () => dialog.close(), type: 'button'}, 'Close'),
+				h('button', {class: 'primary', id: 'pc-goal-open', onclick: () => {
+					dialog.close();
+					go(goalPath(goal.id));
+				}, type: 'button'}, 'Open goal'));
+		}
 
 		create.addEventListener('click', async () => {
 			if (!any && !chosen.size) {
-				error.textContent = 'Pick at least one language, or Any language.';
+				error.textContent = `Pick at least one language, or tick ${ANY_POKEMON_LANGUAGE}.`;
 
 				return;
 			}
@@ -408,7 +467,20 @@ export function goalControl({language, n, name}) {
 			create.disabled = true;
 
 			try {
-				const goal = await createGoal({kind: 'pokemon', languages: any ? null : [...chosen], name: species, target: n});
+				const existing = keptIn(await listGoals());
+
+				if (existing) {
+					showExisting(existing);
+
+					return;
+				}
+
+				// The species' name as the phone keeps it, read now rather
+				// than when the sheet opened: the screen may not have the
+				// names yet. Without them it is "Pokémon #039", renamed once
+				// they load (refresh).
+				const tables = await speciesNames().catch(() => null);
+				const goal = await createGoal({kind: 'pokemon', languages: any ? null : [...chosen], name: nameOf(tables && tables.en, n), target: n});
 
 				kept = goal;
 				draw();
@@ -974,9 +1046,13 @@ function screen(root, source, listId, dexParam, langParam = null) {
 		for (const catalog of shown) {
 			const result = catalogs.get(catalog);
 			const heading = shown.length > 1 || catalog !== 'international' ? h('h3', {class: 'pc-heading'}, CATALOG_HEADINGS[catalog]) : null;
+			// The Japanese prints on a Korean flag or list: why they are here.
+			const why = onlyFallback(shownLanguages(), catalog)
+				? h('p', {class: 'muted pc-fallback-note'}, `Korea prints many sets under the Japanese set codes, so a Korean copy is saved on its ${languageLabel(catalog)} print.`)
+				: null;
 
 			if (!result) {
-				blocks.push(h('section', {class: 'pc-section', 'data-catalog': catalog}, heading, h('p', {class: 'muted'}, 'Loading...')));
+				blocks.push(h('section', {class: 'pc-section', 'data-catalog': catalog}, heading, why, h('p', {class: 'muted'}, 'Loading...')));
 				continue;
 			}
 
@@ -1003,7 +1079,7 @@ function screen(root, source, listId, dexParam, langParam = null) {
 				body = h('div', {class: 'card-grid pc-grid', id: `pc-grid-${catalog}`}, cells.map((item) => item.cell));
 			}
 
-			blocks.push(h('section', {class: 'pc-section', 'data-catalog': catalog}, heading, body));
+			blocks.push(h('section', {class: 'pc-section', 'data-catalog': catalog}, heading, why, body));
 		}
 
 		// A list not on the phone has no count to give: "0 of 0 cards" would

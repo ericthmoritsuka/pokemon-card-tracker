@@ -169,6 +169,12 @@ describe('list languages', () => {
 		assert.deepEqual(listLanguagesToSave(LIST_LANGUAGE_CODES.slice(1)), LIST_LANGUAGE_CODES.slice(1));
 	});
 
+	test('exact keeps every language ticked as ticked, for a Pokémon goal', () => {
+		assert.deepEqual(listLanguagesToSave([...LIST_LANGUAGE_CODES].reverse(), {exact: true}), LIST_LANGUAGE_CODES);
+		assert.equal(listLanguagesToSave(null, {exact: true}), null, 'Any language is still no field');
+		assert.deepEqual(listLanguagesToSave(['ja', 'de'], {exact: true}), ['ja']);
+	});
+
 	test('a new list starts with Portuguese', () => {
 		assert.deepEqual(NEW_LIST_LANGUAGES, ['pt']);
 	});
