@@ -775,7 +775,6 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		}), 'several flags in sight at once, each as wide as its flag and count');
 		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the row scrolls, the page does not');
 		assert.ok(await page.locator('#pc-flags').evaluate((row) => row.scrollWidth > row.clientWidth), 'ten flags overflow a 360 px row');
-		assert.equal(await page.evaluate(() => Object.keys(localStorage).filter((key) => /pokemonLanguages/.test(key)).length), 0, 'no languages kept on the phone');
 		await page.screenshot({path: `${SHOTS}-flags-en.png`});
 
 		// Owned and Missing, within English.
@@ -833,12 +832,17 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		assert.equal(counts.asian['zh-cn'], undefined, 'never asked for behind the scenes');
 		assert.equal(counts.asian['zh-tw'], undefined);
 
-		// A tile opens the card page with this grid as its swipe context;
-		// Back returns to the screen on the flag left pressed.
+		// A tile opens the card page in the flag's language, with this grid as
+		// its swipe context, and that page's Pokémon link comes back to this
+		// flag. TCGdex has no Portuguese record of it here, so the page shows
+		// the English one. Back returns to the screen on the flag left pressed.
 		await page.click('.pc-cell[data-card="me02-076"] a.tile');
-		await page.waitForURL(`**${BASE}cards/en/me02-076`);
+		await page.waitForURL(`**${BASE}cards/pt/me02-076`);
 		await page.waitForSelector('#card-position');
 		assert.equal(await page.locator('#card-position').textContent(), '1 of 37');
+		await page.waitForSelector('#card-pokemon-39');
+		assert.equal(await page.locator('#card-pokemon-39').getAttribute('href'), `${BASE}pokemon/39/pt`, 'back to the Portuguese flag');
+		assert.equal(await page.locator('.card-detail .notice[role="alert"]').count(), 0, 'the English record, not a failure');
 		await page.goBack();
 		await page.waitForURL(`**${BASE}pokemon/39/pt`);
 		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
@@ -876,6 +880,11 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 
 		await seedLocal(page, documentWith(CARDS, []));
 
+		// The flag lives in the route alone: one chosen on an earlier visit is
+		// not where a visit with no language opens.
+		await page.goto(url('pokemon/39/en'));
+		await waitForTitle(page, 'Jigglypuff, 2 of 37 cards');
+
 		for (const path of ['pokemon/39', 'pokemon/39/xx']) {
 			await page.goto(url(path));
 			await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
@@ -904,7 +913,203 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 
 			return box.left >= row.left && box.right <= row.right;
 		}), 'the pressed flag is in sight');
+		// Spanish has no card pages of its own: a tile opens the English one.
+		assert.equal(await page.locator('.pc-cell[data-card="me02-076"] a.tile').getAttribute('data-link'), 'cards/en/me02-076');
 
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// A copy saved with no language (an import, a scan) counts on every flag
+	// of its catalog, with a "?" in the tile's corner (Eric, 2026-11-09).
+	test('a copy with no language counts on every flag of its catalog', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith([...CARDS, entry('c8', {card_id: 'xy1-87', catalog: 'international', language: null})], []));
+		await page.goto(url('pokemon/39/de'));
+		await waitForTitle(page, 'Jigglypuff, 1 of 37 cards');
+
+		const cell = page.locator('.pc-cell[data-card="xy1-87"]');
+
+		assert.equal(await cell.getAttribute('class'), 'pc-cell pc-owned');
+		assert.equal(await cell.locator('.pc-wish').count(), 0, 'no Add to wishlist on an owned card');
+		assert.equal(await cell.locator('.badge-lang .flag-unset').textContent(), '?');
+		assert.equal(await cell.locator('.badge-lang').getAttribute('aria-label'), 'Owned in language not set');
+		await page.screenshot({path: `${SHOTS}-no-language.png`});
+
+		// English: its own two, and the one with no language beside them.
+		await page.click('#pc-flag-en');
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+		assert.equal(await cell.getAttribute('class'), 'pc-cell pc-owned');
+
+		// A copy on an international record is not a Japanese print's.
+		await page.click('#pc-flag-ja');
+		await waitForTitle(page, 'Jigglypuff, 1 of 17 cards');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Offline, a flag whose list was never downloaded says not loaded, offers
+	// Try again, and loads by itself when the connection comes back; a tap
+	// on a flag whose list failed loads it again.
+	test('a flag whose first load fails loads later without leaving the screen', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, counts, errors, net, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('pokemon/39/pt'));
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+
+		net.offline = true;
+		await context.setOffline(true);
+		await page.click('#pc-flag-ja');
+		await page.waitForSelector('.pc-section[data-catalog="ja"] .pc-none');
+		assert.equal(await page.locator('.pc-section[data-catalog="ja"] .pc-none').textContent(), 'Not on this phone yet.');
+		assert.deepEqual(await flag(page, 'ja'), ['ja', 'true', '', 'Japanese, not loaded']);
+		assert.match(await page.locator('#pc-status').textContent(), /Japanese prints are not on this phone yet/);
+		assert.equal(await page.locator('#pc-retry').count(), 1, 'Try again');
+		await page.screenshot({path: `${SHOTS}-offline-flag.png`});
+		assert.equal(counts.asian.ja, undefined);
+
+		net.offline = false;
+		await context.setOffline(false);
+		await waitForTitle(page, 'Jigglypuff, 1 of 17 cards');
+		assert.deepEqual(await flag(page, 'ja'), ['ja', 'true', '17', 'Japanese, 17 cards']);
+		assert.equal(await page.locator('#pc-retry').count(), 0);
+		assert.equal(new URL(page.url()).pathname, `${BASE}pokemon/39/ja`);
+		await page.screenshot({path: `${SHOTS}-offline-flag-back.png`});
+
+		// Online, Korean's request fails: Try again, and a tap on its flag,
+		// pressed or not, asks again.
+		let fail = true;
+
+		await context.route((target) => /\/v2\/ko\/cards$/.test(target.pathname), (route) => (fail ? route.abort('failed') : route.fallback()));
+		await page.click('#pc-flag-ko');
+		await page.waitForSelector('#pc-retry', {timeout: 30000});
+		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '', 'Korean, not loaded']);
+		assert.match(await page.locator('#pc-status').textContent(), /Korean prints did not load/);
+		fail = false;
+		await page.click('#pc-flag-pt');
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+		await page.click('#pc-flag-ko');
+		await page.waitForFunction(() => /no cards of Jigglypuff/.test((document.querySelector('.pc-section[data-catalog="ko"] .pc-none') || {}).textContent || ''));
+		assert.deepEqual(await flag(page, 'ko'), ['ko', 'true', '0', 'Korean, 0 cards']);
+		assert.equal(await page.locator('#pc-retry').count(), 0);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// The status line speaks for the flag pressed: the international list
+	// downloading, or the finishes being read under Portuguese, are not
+	// Japanese's or Korean's.
+	test('the status line shows only the pressed flag\'s progress', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const gates = {};
+		const gate = (name) => {
+			let open;
+
+			gates[name] = {held: new Promise((resolve) => {
+				open = resolve;
+			})};
+			gates[name].open = open;
+		};
+
+		gate('bulk');
+		gate('records');
+		gate('ko');
+		await context.route('https://api.tcgdex.net/v2/graphql', async (route) => {
+			if (JSON.parse(route.request().postData() || '{}').query === '{ cards { id dexId } }') {
+				await gates.bulk.held;
+			}
+
+			await route.fallback();
+		});
+		await context.route((target) => /\/v2\/en\/cards\/./.test(target.pathname), async (route) => {
+			await gates.records.held;
+			await route.fallback();
+		});
+		await context.route((target) => /\/v2\/ko\/cards$/.test(target.pathname), async (route) => {
+			await gates.ko.held;
+			await route.fallback();
+		});
+		await seedLocal(page, documentWith(CARDS, []));
+		await page.goto(url('pokemon/39/pt'));
+		await page.waitForFunction(() => /Downloading the card list/.test(document.getElementById('pc-status').textContent));
+		assert.equal((await flag(page, 'pt'))[3], 'Portuguese, loading');
+
+		await page.click('#pc-flag-ja');
+		await waitForTitle(page, 'Jigglypuff, 1 of 17 cards');
+		await page.waitForTimeout(200);
+		assert.doesNotMatch(await page.locator('#pc-status').textContent(), /Downloading/, 'the international download is not Japanese\'s');
+
+		gates.bulk.open();
+		await page.click('#pc-flag-pt');
+		await waitForTitle(page, 'Jigglypuff, 3 of 37 cards');
+
+		await page.click('label[for="pc-finishes"]');
+		await page.waitForFunction(() => /Reading finishes: 0 of 37 cards/.test(document.getElementById('pc-status').textContent));
+		await page.click('#pc-flag-ko');
+		await page.waitForSelector('.pc-section[data-catalog="ko"]');
+		await page.waitForTimeout(200);
+		assert.doesNotMatch(await page.locator('#pc-status').textContent(), /of 37 cards/, 'Portuguese\'s finishes are not Korean\'s');
+		gates.ko.open();
+		await page.waitForSelector('.pc-section[data-catalog="ko"] .pc-none');
+		assert.doesNotMatch(await page.locator('#pc-status').textContent(), /of 37 cards/);
+		gates.records.open();
+		await page.click('label[for="pc-finishes"]');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// A Pokémon with no international prints: the empty line names the flag's
+	// language, not English.
+	test('the empty line names the pressed flag\'s language', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const others = FIXTURES.bulk.filter((card) => !(card.dexId || []).includes(39));
+
+		await context.route('https://api.tcgdex.net/v2/graphql', (route) => (JSON.parse(route.request().postData() || '{}').query === '{ cards { id dexId } }'
+			? route.fulfill({body: JSON.stringify({data: {cards: others}}), contentType: 'application/json', status: 200})
+			: route.fallback()));
+		await seedLocal(page, documentWith([], []));
+
+		for (const [code, name] of [['de', 'German'], ['pt', 'Portuguese']]) {
+			await page.goto(url(`pokemon/39/${code}`));
+			await page.waitForSelector('.pc-section[data-catalog="international"] .pc-none');
+			assert.equal(await page.locator('.pc-none').textContent(), `The ${name} catalog has no cards of Jigglypuff yet.`);
+		}
+
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// The flags draw before the person's cards are read: a flag tapped in
+	// that moment shows pressed at once.
+	test('a flag tapped before the cards are read shows pressed', {timeout: TEST_TIMEOUT}, async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(CARDS, []));
+		// The collection's listCards waits for the test.
+		await context.route(`${harness.origin}${BASE}js/collection.js`, async (route) => {
+			const response = await route.fetch();
+			const body = (await response.text()).replace('export async function listCards() {', 'export async function listCards() {\n\tawait (globalThis.holdCards || null);');
+
+			await route.fulfill({body, contentType: 'text/javascript', response});
+		});
+		await page.addInitScript(() => {
+			globalThis.holdCards = new Promise((resolve) => {
+				globalThis.releaseCards = resolve;
+			});
+		});
+		await page.goto(url('pokemon/39/pt'));
+		await page.waitForSelector('#pc-flag-ja');
+		await page.click('#pc-flag-ja');
+		assert.deepEqual((await flagStates(page)).filter(([, pressed]) => pressed === 'true').map(([lang]) => lang), ['ja']);
+		await page.evaluate(() => globalThis.releaseCards());
+		await waitForTitle(page, 'Jigglypuff, 1 of 17 cards');
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

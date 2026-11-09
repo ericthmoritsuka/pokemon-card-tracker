@@ -364,18 +364,35 @@ describe('without a checklist', () => {
 		assert.equal(cards.flagLanguageFrom('xx'), 'pt');
 	});
 
-	test('one flag shows its catalog\'s prints and counts only its own copies', () => {
+	test('one flag shows its catalog\'s prints and counts its own copies and those with no language', () => {
 		assert.deepEqual(catalogsFor(['ja']), ['ja']);
 		assert.deepEqual(catalogsFor(['de']), ['international']);
+		assert.deepEqual(cards.flagLanguages('de'), ['de', null]);
 
-		const owned = cards.copiesByPrint([
+		const entries = [
 			copy('a', {card_id: 'x-1', language: 'de'}),
 			copy('b', {card_id: 'x-2', language: 'en'}),
 			copy('c', {card_id: 'x-3', language: null}),
-		], ['de']);
+			copy('d', {card_id: 'x-4'}),
+			copy('e', {card_id: 'J-1', catalog: 'ja', language: null}),
+			copy('f', {card_id: 'J-2', catalog: 'ja', language: 'ja'}),
+		];
 
-		assert.deepEqual([...owned.keys()], ['international|x-1']);
+		// A copy with no language recorded (an import, a scan) counts on every
+		// flag of the catalog it is saved on, and on no other.
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('de')).keys()], ['international|x-1', 'international|x-3', 'international|x-4', 'ja|J-1']);
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('pt')).keys()], ['international|x-3', 'international|x-4', 'ja|J-1']);
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('ja')).keys()], ['international|x-3', 'international|x-4', 'ja|J-1', 'ja|J-2']);
+		// A list that names its languages still counts only copies in them.
+		assert.deepEqual([...cards.copiesByPrint(entries, ['de']).keys()], ['international|x-1']);
 		assert.equal(wishLanguage(['de'], 'international'), 'de');
+	});
+
+	test('a catalog that did not load loads again', () => {
+		assert.equal(cards.needsLoad(undefined), true, 'never loaded');
+		assert.equal(cards.needsLoad({error: null, missingList: true, prints: []}), true, 'offline, not on the phone');
+		assert.equal(cards.needsLoad({error: new Error('500'), missingList: false, prints: [{}]}), true, 'a request failed');
+		assert.equal(cards.needsLoad({error: null, missingList: false, prints: []}), false, 'loaded, with none');
 	});
 
 	test('a flag counts once its catalog has loaded', () => {

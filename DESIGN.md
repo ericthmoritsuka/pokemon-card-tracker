@@ -2108,7 +2108,9 @@ language at a time, loaded on tap, to save data and space; opens on the card's l
 the title: one flag per language the app knows, in the table's order, scrolling sideways on a narrow
 phone rather than wrapping, each a 48 px button in a group labelled Languages, `aria-pressed` on the
 one shown. The screen shows one language: its prints, and only copies in it count, as on a list
-with that one language. A language's prints load the first time its flag is tapped and then stay
+with that one language. A copy with no language recorded (an import or a scan can save one) counts
+on every flag of the catalog it is saved on, with a "?" in its tile's flag corner, so a card owned
+only that way never shows missing (Eric, 2026-11-09). A language's prints load the first time its flag is tapped and then stay
 (the catalogs are kept in IndexedDB as before); the other languages are never loaded behind the
 scenes, so opening from an English card asks for no Japanese, Korean, or Chinese catalog. The
 Western languages share the international records (section 5), so their flags load together and

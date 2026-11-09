@@ -1879,6 +1879,24 @@ export function cardView(root, {lang, cardId}) {
 		};
 	}
 
+	// A Western print TCGdex has no record of in this language (a 404:
+	// Portuguese and French list fewer sets than English), or whose record in
+	// it is not on the phone, shows the English record it shares, as the set
+	// page does: the Pokémon screen opens a card on its flag's language
+	// (DESIGN.md section 11).
+	async function englishRecord(err) {
+		if (!FALLS_BACK_TO_ENGLISH.has(lang) || !(err instanceof NotOnPhoneError || (err && err.status === 404))) {
+			return null;
+		}
+
+		try {
+			return (await cardDetail('en', cardId)).data || null;
+		}
+		catch {
+			return null;
+		}
+	}
+
 	async function load() {
 		try {
 			const {data} = await cardDetail(lang, cardId, (fresh) => alive && draw(fresh));
@@ -1889,6 +1907,18 @@ export function cardView(root, {lang, cardId}) {
 		}
 		catch (err) {
 			if (!alive) {
+				return;
+			}
+
+			const english = await englishRecord(err);
+
+			if (!alive) {
+				return;
+			}
+
+			if (english) {
+				draw(english);
+
 				return;
 			}
 
