@@ -14,13 +14,13 @@ import {
 	setViewingLanguage,
 	viewingLanguage,
 } from './catalog.js';
-import {regionTag, speciesNames} from './checklists.js';
+import {nameOf, regionTag, speciesNames} from './checklists.js';
 import {parseCardQuery, searchOnline, searchSaved} from './card-search.js';
 import {graphql} from './tcgdex.js';
 import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
-import {cardPosition, cardSwipe, offerCardList} from './card-swipe.js';
+import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
@@ -41,6 +41,7 @@ import {addToWishlist, listWishlist, sparesFor} from './wishlist.js';
 import {isCustomId} from './custom-card.js';
 import {customCardView} from './custom-card-view.js';
 import {artistLink, setGoalControl} from './goals-view.js';
+import {cardDexIds, pokemonCardsRoute} from './pokemon-cards.js';
 import {addToBinderButton} from './binder-hand.js';
 import {cardHistory, historyLine, setPendingMove} from './moves.js';
 
@@ -1038,6 +1039,9 @@ export function cardView(root, {lang, cardId}) {
 	// Opened from a list, the card keeps it: a position line, edge arrows,
 	// and swiping move through it (js/card-swipe.js).
 	const route = routeTo('cards', lang, cardId);
+
+	restoreCardList();
+
 	const position = cardPosition(route);
 	const swipe = cardSwipe(root, route);
 	// A family member's card is read only and shows their copies: no copy
@@ -1074,8 +1078,62 @@ export function cardView(root, {lang, cardId}) {
 		}
 	});
 
-	function row(label, value) {
-		return value ? [h('dt', null, label), h('dd', null, value)] : [];
+	// One fact, its label over its value, in a div of its own (dl allows
+	// it) so the short ones can sit side by side: pair marks Number and
+	// Rarity, which share a line where the column is wide enough.
+	function row(label, value, {pair = false} = {}) {
+		return value ? h('div', {class: pair ? 'fact fact-pair' : 'fact'}, h('dt', null, label), h('dd', null, value)) : null;
+	}
+
+	// The set's name, opening the set's page in this card's catalog and
+	// language, as Back and the Sets tab open it.
+	function setLink(set, setName) {
+		if (!setName || !set.id) {
+			return setName;
+		}
+
+		return link(routeTo('sets', lang, set.id), {class: 'fact-link', id: 'card-set-link'}, setName);
+	}
+
+	// Every card of each Pokémon the card shows (Eric, 2026-11-09), one link
+	// per Pokédex number, so a TAG TEAM card has two, on a line of their own
+	// across the foot of the hero, under the art and the facts: in the facts
+	// column they pushed Ver na Liga below the first screen at 360 x 740
+	// (Q-04). The link says what it opens, so it needs no label. It opens
+	// the screen on this card's language, whose flag is pressed there
+	// (pokemon/<dex>/<language>). Each names the Pokémon as that screen's
+	// title does (nameOf): the species' English name from the names the
+	// phone keeps (js/checklists.js speciesNames, read once per device),
+	// else "Pokémon #039", while they load or when they never come. Their
+	// arrival rewrites the links' text alone, not the page. Your own card
+	// page only: the screen shows your own cards, so it ends a family
+	// member's lens, and Back would then show this card with your copies
+	// rather than theirs.
+	let pokemonShown = [];
+
+	const pokemonLabel = (n) => `Every ${nameOf(speciesTables && speciesTables.en, n)} card`;
+
+	function relabelPokemon() {
+		if (alive) {
+			pokemonShown.forEach(({anchor, n}) => {
+				anchor.textContent = pokemonLabel(n);
+			});
+		}
+	}
+
+	function pokemonLinks(card) {
+		const numbers = member ? [] : cardDexIds(card);
+
+		pokemonShown = numbers.map((n) => ({anchor: link(pokemonCardsRoute(n, lang), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}), n}));
+
+		if (!numbers.length) {
+			return null;
+		}
+
+		loadedSpeciesNames(relabelPokemon);
+		relabelPokemon();
+
+		return h('div', {class: 'hero-pokemon', id: 'card-pokemon'}, pokemonShown.map(({anchor}) => anchor));
 	}
 
 	// The names the source gave the owner's copies, when every copy of this
@@ -1151,16 +1209,20 @@ export function cardView(root, {lang, cardId}) {
 				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high'), twins})),
 				h('div', {class: 'hero-facts'},
 					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name,
-						region ? h('span', {class: 'name-region', lang: 'en'}, ` (${region})`) : null),
+						// The space before the region stays outside it, so a long
+						// name wraps there rather than carry its last word ("GX")
+						// onto a line of its own.
+						region ? [' ', h('span', {class: 'name-region', lang: 'en'}, `(${region})`)] : null),
 					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
 					h('dl', {class: 'facts'},
-						row('Set', setName),
-						row('Number', number),
-						row('Rarity', card.rarity),
+						row('Set', setLink(set, setName)),
+						row('Number', number, {pair: true}),
+						row('Rarity', card.rarity, {pair: true}),
 						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
 						row('Catalog', languageLabel(lang))
 					)
-				)
+				),
+				pokemonLinks(card)
 			),
 			twin.element,
 			copies,
@@ -1817,6 +1879,24 @@ export function cardView(root, {lang, cardId}) {
 		};
 	}
 
+	// A Western print TCGdex has no record of in this language (a 404:
+	// Portuguese and French list fewer sets than English), or whose record in
+	// it is not on the phone, shows the English record it shares, as the set
+	// page does: the Pokémon screen opens a card on its flag's language
+	// (DESIGN.md section 11).
+	async function englishRecord(err) {
+		if (!FALLS_BACK_TO_ENGLISH.has(lang) || !(err instanceof NotOnPhoneError || (err && err.status === 404))) {
+			return null;
+		}
+
+		try {
+			return (await cardDetail('en', cardId)).data || null;
+		}
+		catch {
+			return null;
+		}
+	}
+
 	async function load() {
 		try {
 			const {data} = await cardDetail(lang, cardId, (fresh) => alive && draw(fresh));
@@ -1827,6 +1907,18 @@ export function cardView(root, {lang, cardId}) {
 		}
 		catch (err) {
 			if (!alive) {
+				return;
+			}
+
+			const english = await englishRecord(err);
+
+			if (!alive) {
+				return;
+			}
+
+			if (english) {
+				draw(english);
+
 				return;
 			}
 

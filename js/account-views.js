@@ -12,6 +12,7 @@ import {
 	changePassword,
 	currentUser,
 	googleEnabled,
+	googleSetting,
 	isAccountNameEmail,
 	MIN_PASSWORD_LENGTH,
 	onSession,
@@ -63,8 +64,13 @@ export {memberName};
 
 // The email link form and, when the project turns it on, Google, with a
 // way to the name and password form. Returns {element, stop}; Profile shows
-// it at the top when signed out (onIntent: Google is looked up when the
-// email field is first focused), and the signin route shows it alone.
+// it at the top when signed out, and the signin route shows it alone.
+// Profile (onIntent) shows Continue with Google at once and asks the project
+// whether Google is on only when it is tapped, so browsing Profile signed
+// out contacts no one; until v68 the button waited for the email field to be
+// focused, which hid it from anyone who came to sign in with Google (Eric,
+// 2026-11-09). The signin route asks as it opens and shows the button only
+// when Google is on.
 function signInPanel({onIntent = false} = {}) {
 	let alive = true;
 	let lastSent = 0;
@@ -100,8 +106,8 @@ function signInPanel({onIntent = false} = {}) {
 			value: sentTo,
 		});
 		const send = h('button', {class: 'primary', type: 'submit'}, 'Send link');
-		const google = h('button', {hidden: true, id: 'signin-google', onclick: withGoogle, type: 'button'}, 'Continue with Google');
-		const or = h('p', {class: 'muted or', hidden: true}, 'or');
+		const google = h('button', {hidden: !onIntent, id: 'signin-google', onclick: withGoogle, type: 'button'}, 'Continue with Google');
+		const or = h('p', {class: 'muted or', hidden: !onIntent}, 'or');
 		const error = h('p', {class: 'form-error', role: 'alert'});
 		const withPassword = h('button', {class: 'link-button', id: 'signin-use-password', onclick: passwordForm, type: 'button'}, 'Sign in with a name and password');
 
@@ -140,6 +146,33 @@ function signInPanel({onIntent = false} = {}) {
 			error.textContent = '';
 			google.disabled = true;
 
+			// Shown before the project was asked: ask now, and say so
+			// rather than leave for an error page when Google is off. When
+			// the project cannot be asked (offline, a server error), the
+			// button stays for another try.
+			if (onIntent) {
+				const setting = await googleSetting();
+
+				if (!alive) {
+					return;
+				}
+
+				if (setting === 'off') {
+					error.textContent = 'Google sign-in is not available. Use your email instead.';
+					google.hidden = true;
+					or.hidden = true;
+
+					return;
+				}
+
+				if (setting === 'unknown') {
+					error.textContent = navigator.onLine ? 'Could not reach the server. Try again in a moment.' : signInErrorText(null);
+					google.disabled = false;
+
+					return;
+				}
+			}
+
 			try {
 				// Leaves the page for Google, then comes back with ?code=.
 				await signInWithGoogle();
@@ -172,13 +205,7 @@ function signInPanel({onIntent = false} = {}) {
 			}
 		});
 
-		// In Profile, the project is asked about Google only once the person
-		// starts to sign in, so browsing Profile signed out never contacts
-		// Supabase. The button appears below the field being filled in.
-		if (onIntent) {
-			email.addEventListener('focus', showGoogle, {once: true});
-		}
-		else {
+		if (!onIntent) {
 			showGoogle();
 		}
 	}

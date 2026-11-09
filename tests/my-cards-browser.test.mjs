@@ -707,9 +707,14 @@ describe('layout', () => {
 				await selectsFit(page, 'the bar');
 				await metaFits(page, 'My Cards');
 
-				const row = await page.evaluate(() => [...document.querySelector('.fb-row').children].map((element) => Math.round(element.getBoundingClientRect().top)));
+				// Two even lines since the View select joined the row
+				// (css/card-views.css): Sort and Filters, then View and Value.
+				const row = await page.evaluate(() => Object.fromEntries([...document.querySelector('.fb-row').children].map((element) => [element.querySelector('select') ? element.querySelector('select').id : element.id, Math.round(element.getBoundingClientRect().top)])));
 
-				assert.equal(new Set(row).size, 1, `sort, Filters, and Value share one line (${row})`);
+				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-view', 'cards-value'], 'the row\'s controls, in order');
+				assert.equal(row['cards-sort'], row['cards-filters'], `Sort and Filters share a line (${JSON.stringify(row)})`);
+				assert.equal(row['cards-view'], row['cards-value'], `View and Value share a line (${JSON.stringify(row)})`);
+				assert.ok(row['cards-view'] > row['cards-sort'], 'View and Value are the second line');
 
 				await openFilters(page);
 				await page.selectOption('#cards-f-set', 'ja|TSJ1');

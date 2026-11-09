@@ -2946,18 +2946,72 @@ progress {
 	overflow-wrap: anywhere;
 }
 
+/* The facts, each label over its value, each on a line of its own. Number
+   and Rarity share one only where both fit whole: a flex line takes the
+   pair at their widths unwrapped, and wraps Rarity under Number when they
+   do not fit ("Special Illustration Rare" on a small phone, or any rarity
+   at large text), so neither value ever breaks to make room. No word is
+   broken either: a value wraps between words, and splits one only when
+   that word alone is wider than the column. The row gap is the space
+   above each label, so the first one adds none. */
 .card-detail .facts {
-	display: block;
+	column-gap: var(--space-3);
+	display: flex;
+	flex-wrap: wrap;
 	font: var(--type-small);
-	margin: 0 0 var(--space-3);
+	margin: 0;
+	row-gap: var(--space-1);
+}
+
+.card-detail .facts .fact {
+	flex: 1 1 100%;
+	min-width: 0;
+}
+
+.card-detail .facts .fact-pair {
+	flex: 1 1 auto;
 }
 
 .card-detail .facts dt {
 	font: var(--type-label);
-	margin-top: var(--space-1);
 }
 
 .card-detail .facts dd {
+	overflow-wrap: break-word;
+}
+
+/* The set as a link to its cards. The padding reaches the 48 px target and
+   the margin takes it back, so the facts keep their spacing. Positioned,
+   the band lies over the rows beside it, which would otherwise take a tap
+   on its outer edges. */
+.card-detail .fact-link {
+	display: inline-block;
+	margin: -14px 0;
+	padding: 14px 0;
+	position: relative;
+}
+
+/* Every card of the Pokémon: one line across the foot of the hero, under
+   the art and the facts, so Ver na Liga stays on the first screen at
+   360 x 740. Each link is its own 48 px band, and a TAG TEAM card's links
+   sit side by side, or one band under the other where they wrap, never
+   overlapping, so a tap low on Jigglypuff cannot open Lopunny. The top
+   margin takes back the hero's row gap, so the band starts where Add photo
+   ends and never covers it; the bottom one takes back the hero's own
+   margin, so it ends where Your copies begins. */
+.card-hero .hero-pokemon {
+	column-gap: var(--space-5);
+	display: flex;
+	flex-wrap: wrap;
+	font: var(--type-small);
+	grid-column: 1 / -1;
+	margin: calc(-1 * var(--space-3)) 0 calc(-1 * var(--space-4));
+	min-width: 0;
+}
+
+.card-hero .hero-pokemon .fact-link {
+	margin: 0;
+	max-width: 100%;
 	overflow-wrap: anywhere;
 }
 

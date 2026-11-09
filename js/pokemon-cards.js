@@ -32,7 +32,7 @@ import {compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, languageLabel} from './languages.js';
+import {ASIAN_LANGUAGES, CATALOGS, LANGUAGE_CODES, catalogFor, catalogLanguage, isKnownLanguage, languageLabel} from './languages.js';
 import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
@@ -214,13 +214,14 @@ export const printKey = (catalog, cardId) => `${catalog}|${cardId}`;
 // The live copies that count for a list, by printKey: those in one of the
 // list's languages. A Portuguese-only list counts a card only for a
 // Portuguese copy; null languages (a list that names none) count every
-// copy, as its checklist does.
+// copy, as its checklist does. A null among the languages counts the copies
+// with no language recorded (a flag: js/pokemon-cards-view.js).
 export function copiesByPrint(entries, languages) {
 	const allowed = languages ? new Set(languages) : null;
 	const out = new Map();
 
 	for (const entry of entries || []) {
-		if (!entry || !isLive(entry) || !entry.card_id || (allowed && !allowed.has(entry.language))) {
+		if (!entry || !isLive(entry) || !entry.card_id || (allowed && !allowed.has(entry.language || null))) {
 			continue;
 		}
 
@@ -564,3 +565,65 @@ export const dexFromParam = (value) => {
 
 	return validDex(n) && String(n) === String(value).replace(/^0+(?=\d)/, '') ? n : null;
 };
+
+// ------------------------------------------------- without a checklist
+//
+// Every card of a Pokémon opened from the card page (pokemon/<dex>; Eric,
+// 2026-11-09) has no list, so no list languages. It shows one language at a
+// time instead, chosen from a row of flags (Eric, 2026-11-09): that
+// language's prints, and a card counts as owned only for a copy in it, as on
+// a list with that one language, or for a copy with no language recorded,
+// which counts on every flag of its catalog (Eric, 2026-11-09: an import or
+// a scan can save one, and it was owned under "any language" before the
+// flags). Western languages share the international
+// records, so their flags show the same prints and differ in the copies
+// that count. The language is the route's last part
+// (pokemon/<dex>/<language>), so Back, a reload, and a card page's link all
+// open on a flag.
+
+// Every language the app knows, in the table's order, one flag each.
+export const FLAG_LANGUAGES = LANGUAGE_CODES;
+
+// The flag a visit with no language, or one the app does not know, opens on:
+// Portuguese, the app's first language.
+export const DEFAULT_FLAG_LANGUAGE = LANGUAGE_CODES[0];
+
+// The flag a route's language part opens on.
+export const flagLanguageFrom = (raw) => (isKnownLanguage(raw) ? raw : DEFAULT_FLAG_LANGUAGE);
+
+// The route of a Pokémon's cards without a list, on a language's flag, or
+// with no language part when lang is not one the app knows.
+export const pokemonCardsRoute = (n, lang = null) => (isKnownLanguage(lang) ? `pokemon/${Number(n)}/${lang}` : `pokemon/${Number(n)}`);
+
+// The copies a flag counts: its language's, and those with no language
+// recorded (copiesByPrint keys them by catalog, so a copy with no language
+// counts only on the flags of the catalog it is saved on).
+export const flagLanguages = (code) => [code, null];
+
+// What a flag counts: the prints of its language's catalog once that has
+// loaded (0 for a language with none), else null. catalogs: catalog -> the
+// loaded result ({prints, missingList}); a catalog whose card list is not on
+// the phone counts nothing yet.
+export function flagCount(code, catalogs) {
+	const result = catalogs.get(catalogFor(code));
+
+	return result && !result.missingList ? result.prints.length : null;
+}
+
+// Whether a catalog's result still needs a load: none yet, its card list not
+// on the phone, or a request failed. A later tap, Try again, or the
+// connection coming back loads it again.
+export const needsLoad = (result) => !result || Boolean(result.missingList || result.error);
+
+// A card record's Pokédex numbers, once each and valid, in the record's
+// order: TCGdex sends an array (several on a TAG TEAM card), an older saved
+// record may hold one number. A Trainer or Energy card has none.
+export function cardDexIds(card) {
+	if (!card || card.category === 'Trainer' || card.category === 'Energy') {
+		return [];
+	}
+
+	const raw = Array.isArray(card.dexId) ? card.dexId : [card.dexId];
+
+	return [...new Set(raw.map(Number).filter(validDex))];
+}

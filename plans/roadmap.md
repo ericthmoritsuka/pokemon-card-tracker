@@ -393,6 +393,12 @@ v35 was never tried on the phone (Eric's second session ran v34). v36 rebuilt ho
   `card-photos-notes`, Part 1): deleting copies no longer drops photos or notes. Before deleting
   cards to start over, reload every phone onto v48 and run `supabase/card-photos-keep.sql`; the
   import still skips the deleted copies' `import_key`s until Match this file (Part 2) ships.
+  **Shelved (Eric, 2026-11-09):** Eric ran Start over (live since v51) instead, so Match this file
+  (`match-this-file-v49`, `b140035`) and the Start over edge-case fixes (`start-over-v52`,
+  `dd90869`: an old phone reviving a run, Undo after refilling a placeholder, a preview stuck on a
+  dead network) stay unpublished and unreviewed. Revive them only if Eric imports from monprice
+  again; each needs a rebase across about 150 commits (Match this file conflicts with v51's
+  `importEntries`), a fresh review, and the full suite.
 - **Offer to delete photos once the catalog has an image (Eric, 2026-10-22):** the official image
   already becomes a card's main picture when TCGdex adds one (gallerySlides order), unless the photo
   was pinned as the main image. Add a notice when the catalog refresh finds cards that gained an

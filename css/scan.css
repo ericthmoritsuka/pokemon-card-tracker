@@ -21,6 +21,10 @@
 	--scan-gold: #f5b82e;
 	--scan-gold-glow: rgba(245, 184, 46, 0.55);
 	--scan-rising: #7ee2a8;
+	/* A card already owned (js/scan/tile.js, the capture notice): always
+	   with a tick and words, never colour alone. */
+	--scan-owned: #4fd68e;
+	--scan-on-owned: #04210f;
 
 	background: var(--scan-bg);
 	color: var(--scan-text);
@@ -62,9 +66,13 @@ html.scan-open body {
 
 /* ------------------------------------------------------------ the camera */
 
+/* The camera takes the height the bottom panel leaves, never less than
+   200 px. Under that the panel gives way instead and scrolls, its controls
+   pinned (.scan-controls). A cap on the panel (45 %, until v68) cut Close,
+   the shutter, and Done off a 360 x 660 Realme once the zoom row showed. */
 .scan-stage {
-	flex: 1 1 auto;
-	min-height: 0;
+	flex: 1 1 0;
+	min-height: 200px;
 	overflow: hidden;
 	position: relative;
 }
@@ -189,6 +197,37 @@ html.scan-open body {
 	padding: 2px 10px;
 }
 
+/* A card already owned (view.js tellOwned): green, with a tick and the
+   count, or outlined when it is owned only in other languages. */
+/* Two lines at the most, so a narrow phone or large text never cuts the
+   count or the language off (a long name is what gets cut). */
+.scan-owned-note {
+	-webkit-box-orient: vertical;
+	animation: scan-rise 200ms ease-out;
+	background: var(--scan-owned);
+	border-radius: 16px;
+	color: var(--scan-on-owned);
+	display: -webkit-box;
+	font-size: 15px;
+	font-weight: 700;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	line-height: 20px;
+	margin: 0;
+	max-width: 100%;
+	overflow: hidden;
+	padding: 6px 14px;
+	text-align: center;
+}
+
+.scan-owned-note.is-elsewhere {
+	background: rgba(0, 0, 0, 0.8);
+	border: 1px dashed var(--scan-owned);
+	color: var(--scan-owned);
+	font-weight: 600;
+}
+
+.scan-owned-note[hidden],
 .scan-top-status[hidden],
 .scan-run-count[hidden] {
 	display: none;
@@ -297,8 +336,10 @@ html.scan-open body {
 
 .scan-bottom {
 	background: linear-gradient(to bottom, rgba(0, 0, 0, 0.82), #000000 24px);
-	flex: 0 0 auto;
-	max-height: 45%;
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	padding: 4px 16px calc(8px + env(safe-area-inset-bottom, 0px));
 }
 
@@ -440,6 +481,38 @@ html.scan-open body {
 	overflow: hidden;
 	position: relative;
 	width: 72px;
+}
+
+.scan-tile.is-owned .scan-tile-art {
+	border-color: var(--scan-owned);
+}
+
+/* Across the art just under the top corner badges (3 to 23 px inside the
+   art's 2 px border) and above the remove disc (39 px down the tile, 37
+   inside the art), so it covers neither. */
+.scan-tile-have {
+	background: var(--scan-owned);
+	top: 23px;
+	color: var(--scan-on-owned);
+	font-size: 11px;
+	font-weight: 700;
+	left: 0;
+	line-height: 14px;
+	overflow: hidden;
+	position: absolute;
+	right: 0;
+	text-align: center;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.scan-tile-have.is-elsewhere {
+	background: rgba(0, 0, 0, 0.78);
+	border-block: 1px dashed var(--scan-owned);
+	/* The same 14 px in all, borders included. */
+	line-height: 12px;
+	color: var(--scan-owned);
+	font-weight: 600;
 }
 
 .scan-tile.is-look .scan-tile-art {
@@ -676,16 +749,39 @@ html.scan-open body {
 	position: absolute;
 }
 
+/* The two chips at the camera's foot keep to their shares, so they never
+   overlap; a label too long for its share takes two lines. Large text on a
+   324 px wide Realme put Hand-held (auto) over Settings (2026-11-09).
+   Settings is the short label, so it takes 40 %. */
+.scan-chip.scan-settings-open,
+.scan-chip.scan-holder {
+	box-sizing: border-box;
+	justify-content: center;
+	text-align: center;
+}
+
+.scan-chip.scan-settings-open {
+	max-width: calc(40% - 12px);
+}
+
+.scan-chip.scan-holder {
+	max-width: calc(60% - 12px);
+}
+
 .scan-zoom[hidden] {
 	display: none;
 }
 
 .scan-controls {
 	align-items: center;
+	background: #000000;
+	bottom: 0;
 	display: grid;
 	gap: 8px;
 	grid-template-columns: 1fr 1fr 72px 1fr 1fr;
 	padding-top: 4px;
+	position: sticky;
+	z-index: 1;
 }
 
 .scan-control {

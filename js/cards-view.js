@@ -27,22 +27,24 @@ import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
+import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
 import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
 import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
+import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
-import {languageChip} from './languages.js';
+import {languageChip, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
-import {manualPrice, savedRates, tileValue} from './prices.js';
+import {extractPrices, finishOf, formatBrlCompact, manualPrice, savedRates, tileValue} from './prices.js';
 import {readChoice} from './settings.js';
 import {memberDocument} from './sync.js';
 import {pool} from './tcgdex.js';
 import {cardArt, cardTile, groupFinish} from './tile.js';
 // Its own line: tests/photos-harness.mjs checks the line above as it is.
-import {noPrice} from './tile.js';
+import {FINISHES, entryFinish, noPrice} from './tile.js';
 import {imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 import {openValueSheet, priceState} from './value-sheet.js';
@@ -352,6 +354,7 @@ export function myCardsView(root) {
 		load: listCards,
 		loadBinders: listBinders,
 		tradeRoute: 'trade',
+		viewKey: CARDS_VIEW_KEY,
 		watch: (reload) => onChange(reload),
 	});
 }
@@ -407,7 +410,8 @@ export function familyCardsView(root, {userId}) {
 // tile's meta, emptyNode draws instead of "No cards yet", toolbar adds
 // buttons beside Value, and offered limits the filters. wishlistRoute adds a
 // Wishlist link beside Spares (a member's wishlist, one tap from their
-// cards).
+// cards). viewKey offers the View switch (js/card-view-mode.js), its choice
+// kept under that key; without it the cards are always the Grid.
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -425,6 +429,7 @@ export function cardsScreen(root, {
 	title = 'My Cards',
 	toolbar = [],
 	tradeRoute = null,
+	viewKey = null,
 	watch = null,
 	wishlistRoute = null,
 }) {
@@ -446,7 +451,11 @@ export function cardsScreen(root, {
 
 	const viewing = viewingLanguage();
 	const summary = h('p', {class: 'muted', id: 'cards-summary'});
-	const grid = h('div', {class: 'card-grid'});
+	// Large, Grid, Mini, or List: a new view draws the same cards again,
+	// as many as were shown.
+	const views = viewKey ? viewSwitch({id: 'cards', key: viewKey, onChange: () => ready && draw()}) : null;
+	const shownView = () => (views ? views.view : 'grid');
+	const grid = h('div', {class: 'card-grid', 'data-view': shownView()});
 	const more = h('button', {hidden: true, onclick: () => {
 		shown += PAGE;
 		rememberInHistory({shown});
@@ -472,7 +481,7 @@ export function cardsScreen(root, {
 	const valueButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-value', id: 'cards-value', onclick: () => openValue(), type: 'button'}, 'Value');
 
 	const bar = filterBar({
-		extra: [valueButton, ...toolbar],
+		extra: [views ? views.element : null, valueButton, ...toolbar].filter(Boolean),
 		filters: offered,
 		id: 'cards',
 		legacy: storageKey === CHOICE_KEY ? legacyChoice : null,
@@ -778,7 +787,126 @@ export function cardsScreen(root, {
 		return group.noPrice ? noPrice() : null;
 	}
 
+	// The number as printed, "025 / 120", or "025" when the set's count is
+	// not known.
+	const printedNumber = (record) => {
+		const number = record && record.collector_number;
+
+		if (!number) {
+			return null;
+		}
+
+		return record.official ? `${number} / ${record.official}` : number;
+	};
+
+	const isFavorite = (group) => group.entries.some((entry) => entry.is_favorite === true);
+
+	// What the copies are, in words, for a List row: each finish once
+	// ("Normal, Reverse holo"), by the saved record's printings when the
+	// phone has it, else the finish the copy was saved or imported with.
+	// Null when no copy's finish is known.
+	function finishText(group) {
+		let finishes = [];
+
+		try {
+			finishes = extractPrices(saved.get(group.recordKey) || group.record);
+		}
+		catch {
+			// Only the copies' own finishes then.
+		}
+
+		const labels = new Set();
+
+		for (const entry of group.entries) {
+			const found = finishOf(entry, finishes);
+			const code = entryFinish(entry);
+			const label = found ? found.label : code ? FINISHES[code].label : entry.finish_raw ? finishLabel(entry.finish_raw) : null;
+
+			if (label) {
+				labels.add(label);
+			}
+		}
+
+		return [...labels].join(', ') || null;
+	}
+
+	// The value a List row says to a screen reader: the tile's price in
+	// words, "No price" when the card has none, and nothing while it is
+	// still unknown.
+	function valueText(group) {
+		const value = tileValue(group.entries, saved.get(group.recordKey) || group.record, {rates});
+
+		if (!value) {
+			return group.priceDone && group.noPrice ? 'no price' : null;
+		}
+
+		const text = formatBrlCompact(value.brl);
+
+		return value.kind === 'liga' ? text : `about ${text}, US market estimate`;
+	}
+
+	// The accessible name of a Mini tile, whose caption is gone, and of a
+	// List row, read as one: "Pikachu, 25 of 120, Test Beta, Portuguese,
+	// 2 copies" (plans/design-review.md section 5), with the finish and
+	// value on a row.
+	function cardLabel(group, {finish = null, value = null} = {}) {
+		const {record} = group;
+		const number = record && record.collector_number;
+		const official = record && record.official;
+
+		return [
+			group.name,
+			number ? (official ? `${number} of ${official}` : `number ${number}`) : null,
+			group.setName,
+			languageLabel(group.language),
+			finish,
+			plural(group.entries.length, 'copy', 'copies'),
+			isFavorite(group) ? 'favorite' : null,
+			value,
+		].filter(Boolean).join(', ');
+	}
+
+	// A List row's language fact: the flag and chip, or for a copy with no
+	// language saved the words its accessible name says (js/languages.js
+	// languageLabel), never "NULL".
+	const rowLanguage = (code) => (code
+		? h('span', {class: 'row-lang'}, flagBadge([code], {prefix: ''}), languageChip(code))
+		: languageLabel(code));
+
+	// A List row's facts: language, finish, and copies. ×N follows the
+	// badge rule, never ×1.
+	function rowFacts(group, finish) {
+		const count = group.entries.length;
+
+		return [
+			rowLanguage(group.language),
+			finish,
+			count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
+			isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
+		];
+	}
+
+	// A List row (js/card-view-mode.js cardRow): the thumbnail, name and
+	// value, set and number, then the facts. The accessible name always
+	// counts the copies.
+	function listRow(group, info, src) {
+		const finish = finishText(group);
+		// First, as it works out whether the card has a price at all.
+		const price = priceNode(group);
+
+		return cardRow({
+			art: {info, src},
+			facts: rowFacts(group, finish),
+			label: cardLabel(group, {finish, value: valueText(group)}),
+			meta: [group.setName, printedNumber(group.record)].filter(Boolean).join(' · '),
+			names: tileNames(group.names, group.nameLang),
+			price,
+			route: routeOf(group),
+		});
+	}
+
 	function tile(group) {
+		const view = shownView();
 		const {local, record} = group;
 		const info = {
 			name: group.name,
@@ -787,8 +915,22 @@ export function cardsScreen(root, {
 		};
 		const catalogSrc = local ? cardImage(local.image, 'low') : null;
 
+		if (view === 'list') {
+			const src = tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins});
+
+			return withMainPhoto(listRow(group, info, src), group.entries, catalogSrc, (art) => cardArt(info, art, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});
+		}
+
+		// Mini: the art and its corners alone, named for a screen reader.
+		const mini = view === 'mini';
+		// Large: the name, the number as printed, and the value.
+		const meta = view === 'large'
+			? [printedNumber(record), metaFor ? metaFor(group) : null]
+			: [info.number ? `#${info.number}` : null, info.setName, metaFor ? metaFor(group) : null];
+
 		return withMainPhoto(cardTile({
-			price: priceNode(group),
+			attrs: mini ? {'aria-label': cardLabel(group)} : {},
+			price: mini ? null : priceNode(group),
 			art: {
 				count: group.entries.length,
 				favorite: group.entries.some((entry) => entry.is_favorite === true),
@@ -798,20 +940,23 @@ export function cardsScreen(root, {
 				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),
 				viewing,
 			},
-			meta: [info.number ? `#${info.number}` : null, info.setName, metaFor ? metaFor(group) : null].filter(Boolean).join(' · '),
-			names: tileNames(group.names, group.nameLang),
+			meta: mini ? null : meta.filter(Boolean).join(' · '),
+			names: mini ? [] : tileNames(group.names, group.nameLang),
 			route: routeOf(group),
 		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});
 	}
 
-	// The price line of a drawn tile, put right after a price arrives.
+	// The price line of a drawn tile, put right after a price arrives, in
+	// place: a tile or row drawn again would lose the focus a keyboard or
+	// screen reader left on it, and shimmer again while its photo is read.
 	function patchPrice(group) {
 		const element = tiles.get(group.key);
 
-		if (!element || !element.isConnected) {
+		if (!element || !element.isConnected || shownView() === 'mini') {
 			return;
 		}
 
+		const list = shownView() === 'list';
 		const node = priceNode(group);
 		const slot = element.querySelector('.tile-price');
 
@@ -824,7 +969,24 @@ export function cardsScreen(root, {
 			slot.replaceChildren(node);
 		}
 		else {
-			element.append(h('span', {class: 'tile-price'}, node));
+			((list && element.querySelector('.row-head')) || element).append(h('span', {class: 'tile-price'}, node));
+		}
+
+		if (!list) {
+			return;
+		}
+
+		// A List row says its value in its name too, and the record that
+		// brought the price may name its finish.
+		const finish = finishText(group);
+		const facts = cardRowFacts(rowFacts(group, finish));
+		const oldFacts = element.querySelector('.row-facts');
+
+		element.setAttribute('aria-label', cardLabel(group, {finish, value: valueText(group)}));
+
+		// The language fact is always there, so a row always has the line.
+		if (oldFacts && facts) {
+			oldFacts.replaceWith(facts);
 		}
 	}
 
@@ -874,6 +1036,7 @@ export function cardsScreen(root, {
 		tiles.clear();
 		// The search the grid shows, for the tests to wait on.
 		grid.dataset.query = query;
+		grid.dataset.view = shownView();
 
 		if (!visible.length) {
 			drawnKeys = [];

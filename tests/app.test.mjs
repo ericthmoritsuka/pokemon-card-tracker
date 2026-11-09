@@ -356,16 +356,27 @@ describe('sign in', () => {
 		assert.equal(await page.locator('h2').textContent(), 'Profile');
 		assert.equal(await page.locator('#profile-signin h3').textContent(), 'Sign in');
 
-		// Profile asks the project about Google once the person starts to
-		// sign in, not on opening.
+		// Continue with Google shows at once, nothing focused (Eric,
+		// 2026-11-09: it only showed once the email field was tapped), yet
+		// opening Profile contacts no one: the project is asked on the tap.
+		assert.ok(await page.locator('#signin-google').isVisible(), 'Google shows without a tap on the email field');
 		await page.waitForTimeout(200);
 		assert.equal(fake.log.filter((entry) => entry.path === '/auth/v1/settings').length, 0, 'opening Profile contacts no one');
-		await page.focus('#signin-email');
 
-		// Google stays hidden: the settings say it is off.
-		await page.waitForFunction(() => performance.getEntriesByType('resource').some((entry) => entry.name.endsWith('/auth/v1/settings')));
-		await page.waitForTimeout(200);
+		// The project cannot be asked (the request fails): the tap says so,
+		// and the button stays for another try, not "not available".
+		await page.route('**/auth/v1/settings', (route) => route.abort());
+		await page.click('#signin-google');
+		await page.waitForSelector('.form-error:has-text("Could not reach the server")');
+		assert.ok(await page.locator('#signin-google').isVisible());
+		assert.ok(await page.locator('#signin-google').isEnabled());
+		await page.unroute('**/auth/v1/settings');
+
+		// Here the settings say Google is off: the tap says so and hides it.
+		await page.click('#signin-google');
+		await page.waitForSelector('.form-error:has-text("Google sign-in is not available")');
 		assert.ok(await page.locator('#signin-google').isHidden());
+		assert.ok(!page.url().includes('authorize'), 'never leaves for an error page');
 
 		const text = (await page.locator('main').textContent()).toLowerCase();
 
@@ -454,6 +465,11 @@ describe('sign in', () => {
 		fake.googleUser = owner;
 
 		const {context, errors, page} = await device(fake, 'phone');
+
+		// Profile signed out shows it straight away, with nothing focused.
+		await page.goto(url('profile'));
+		await page.waitForSelector('#signin-google:not([hidden])');
+		assert.notEqual(await page.evaluate(() => document.activeElement && document.activeElement.id), 'signin-email');
 
 		await page.goto(url('signin'));
 		await page.waitForSelector('#signin-google:not([hidden])');

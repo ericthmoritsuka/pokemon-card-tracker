@@ -156,8 +156,10 @@ describe('prices in the app', () => {
 			return order;
 		}), ['copies', 'card-liga', 'copies-collect-row', 'card-price'], 'the slot follows Your copies, Ver na Liga, and Add to collection');
 		assert.equal(await page.locator('#card-liga a:has-text("Ver na Liga")').count(), 1);
-		// Ver na Liga is not among the facts; the illustrator's goal link is.
-		assert.equal(await page.locator('.hero-facts a:not(.illustrator-goal), .hero-facts .liga-none').count(), 0);
+		// Ver na Liga is not in the hero: its only links are the set's page,
+		// every card of the Pokémon, and the illustrator's goal.
+		assert.equal(await page.locator('.card-hero .liga-link, .card-hero .liga-none, .card-hero a[href*="ligapokemon"]').count(), 0);
+		assert.deepEqual(await page.locator('.card-hero a').evaluateAll((links) => links.map((a) => a.id).filter((id) => !/^(card-set-link|card-artist-goal|card-pokemon-\d+)$/.test(id))), []);
 
 		const slot = await page.evaluate(() => {
 			const rect = (selector) => document.querySelector(selector).getBoundingClientRect();

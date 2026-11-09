@@ -74,7 +74,8 @@ after(async () => {
 const url = (path = '') => `${server.origin}${BASE}${path}`;
 
 // tcgdex.status, when set, answers every TCGdex request with it.
-async function phone({viewport = PHONE} = {}) {
+// records adds TCGdex records, by path, to the ones every test has.
+async function phone({records: extra = {}, viewport = PHONE} = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport});
 	const seen = {liga: [], supabase: []};
 	const tcgdex = {status: null};
@@ -83,6 +84,7 @@ async function phone({viewport = PHONE} = {}) {
 		'ja/cards/tst1-020': JAPANESE,
 		'pt/cards/sv08.5-001': pt,
 		'pt/cards/tst1-007': LABELED,
+		...extra,
 	};
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -125,7 +127,7 @@ async function phone({viewport = PHONE} = {}) {
 			status: response.status(),
 		});
 	});
-	await fakePokeApi(context);
+	await fakePokeApi(context, {english: {39: 'Jigglypuff', 428: 'Lopunny'}});
 
 	const page = await context.newPage();
 	const errors = [];
@@ -145,6 +147,58 @@ async function phone({viewport = PHONE} = {}) {
 
 	return {context, done, page, tcgdex};
 }
+
+// The card page's facts: words broken across two lines in a value, whether
+// Number and Rarity share a line, and each value's number of lines.
+const factsLayout = (page) => page.evaluate(() => {
+	const facts = [...document.querySelectorAll('.card-detail .facts .fact')];
+	const fact = (label) => facts.find((item) => item.querySelector('dt').textContent === label);
+	const split = [];
+	const lines = {};
+
+	for (const item of facts) {
+		const dd = item.querySelector('dd');
+		const walker = document.createTreeWalker(dd, NodeFilter.SHOW_TEXT);
+
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			for (const match of node.textContent.matchAll(/\S+/g)) {
+				const range = document.createRange();
+
+				range.setStart(node, match.index);
+				range.setEnd(node, match.index + match[0].length);
+
+				if (new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top))).size > 1) {
+					split.push(match[0]);
+				}
+			}
+		}
+
+		const range = document.createRange();
+
+		range.selectNodeContents(dd);
+		lines[item.querySelector('dt').textContent] = new Set([...range.getClientRects()].filter((rect) => rect.width > 0).map((rect) => Math.round(rect.top))).size;
+	}
+
+	return {lines, sideBySide: Math.abs(fact('Number').getBoundingClientRect().top - fact('Rarity').getBoundingClientRect().top) < 1, split};
+});
+
+// Every element's text made factor times larger: computed font sizes and px
+// line heights, all read before any is set, so none compounds.
+const scaleText = (page, factor) => page.evaluate((by) => {
+	const read = [document.documentElement, ...document.querySelectorAll('body, body *')].map((el) => {
+		const style = getComputedStyle(el);
+
+		return [el, parseFloat(style.fontSize), style.lineHeight.endsWith('px') ? parseFloat(style.lineHeight) : null];
+	});
+
+	for (const [el, size, line] of read) {
+		el.style.setProperty('font-size', `${size * by}px`, 'important');
+
+		if (line !== null) {
+			el.style.setProperty('line-height', `${line * by}px`, 'important');
+		}
+	}
+}, factor);
 
 const addCard = (page, fields) => page.evaluate(async (card) => (await import('/pokemon-card-tracker/js/collection.js')).addCard(card), fields);
 
@@ -476,6 +530,121 @@ describe('card detail layout', () => {
 		});
 	}
 
+	// A TAG TEAM card has a link to every card of each of its Pokémon, each
+	// its own 48 px band, and a name that takes four lines in the facts
+	// column: Ver na Liga still makes the first screen of a small phone.
+	test('a TAG TEAM card\'s Pokémon links keep Ver na Liga on the first screen at 360 x 740', async () => {
+		const tagTeam = {...pt, dexId: [39, 428], name: 'Lopunny & Jigglypuff-GX'};
+		const {done, page} = await phone({records: {'pt/cards/sv08.5-001': tagTeam}});
+
+		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
+		await addCard(page, {card_id: pt.id, catalog: 'international', condition: 'Near Mint', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Reverse')});
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('#card-liga-link');
+		await page.waitForSelector('#card-price .price');
+		await page.waitForFunction(() => document.getElementById('card-pokemon-428')?.textContent === 'Every Lopunny card');
+
+		for (const selector of ['.hero-facts h2', '#card-pokemon-39', '#card-pokemon-428', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish']) {
+			assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);
+		}
+
+		for (const id of ['card-pokemon-39', 'card-pokemon-428', 'card-set-link']) {
+			assert.ok((await page.locator(`#${id}`).boundingBox()).height >= 48, `#${id} is a 48 px target`);
+		}
+
+		// The links' line, under the art, leaves Add photo whole: a tap at
+		// its foot is still Add photo.
+		assert.equal(await page.locator('.hero-art .ph-add').evaluate((button) => {
+			const box = button.getBoundingClientRect();
+
+			return box.height > 0 && document.elementFromPoint(box.left + box.width / 2, box.bottom - 1)?.closest('button') === button;
+		}), true, 'a tap at the bottom of Add photo');
+
+		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
+		await page.screenshot({path: '/tmp/copies-first-screen-tag-team-360.png'});
+		await done();
+	});
+
+	// Number and Rarity share a line only where both fit whole, and no word
+	// in the facts breaks in two: at 800 px a grid of 4.75 em tracks put a
+	// long rarity in one track, word by word beside two empty ones, and at
+	// 324 px a paired column could split "Illustration" (2026-11-09).
+	const LONG_RARITY = 'Special Illustration Rare';
+	const SHOTS = '/tmp/copies-facts';
+
+	test('Number and Rarity share a line only when both fit, and no word breaks', async () => {
+		for (const [viewport, rarity, together] of [
+			[{height: 900, width: 800}, LONG_RARITY, true],
+			[{height: 720, width: 324}, LONG_RARITY, false],
+			[{height: 720, width: 324}, 'Comum', true],
+			[{height: 740, width: 360}, 'Comum', true],
+		]) {
+			const {done, page} = await phone({records: {'pt/cards/sv08.5-001': {...pt, rarity}}, viewport});
+			const where = `${viewport.width} px, ${rarity}`;
+
+			await page.goto(url(`cards/pt/${pt.id}`));
+			await page.waitForSelector('#card-liga-link');
+
+			const layout = await factsLayout(page);
+
+			assert.deepEqual(layout.split, [], `no word broken at ${where}`);
+			assert.equal(layout.sideBySide, together, `Number and Rarity ${together ? 'side by side' : 'stacked'} at ${where}`);
+			assert.equal(layout.lines.Number, 1, `the number on one line at ${where}`);
+			// Beside the number, the rarity is whole on its line; under it, a
+			// long one may wrap between its words.
+			if (together) {
+				assert.equal(layout.lines.Rarity, 1, `the rarity on one line at ${where}`);
+			}
+			assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `no sideways scroll at ${where}`);
+
+			if (rarity === LONG_RARITY) {
+				await page.screenshot({path: `${SHOTS}-card-${viewport.width}-long-rarity.png`});
+			}
+
+			await done();
+		}
+	});
+
+	// Text at 1.3 times its size, as a phone's larger text setting makes it:
+	// every element's computed font size and px line height, read first,
+	// then set 1.3 times larger. Ver na Liga cannot make the first screen of
+	// a 324 x 720 phone (measured 2026-11-09: with two copies it ends 48 px
+	// below the tab bar at normal text, as with the facts grid before, and
+	// about 300 px below at 1.3 times, where the hero alone ends at 590 of
+	// 655 px), so its place is reported, not asserted.
+	test('at 324 x 720, normal and 1.3 times larger text, no word breaks', async (t) => {
+		const viewport = {height: 720, width: 324};
+
+		for (const [scale, name] of [[1, 'normal'], [1.3, 'text-1.3']]) {
+			const {done, page} = await phone({records: {'pt/cards/sv08.5-001': {...pt, rarity: LONG_RARITY}}, viewport});
+
+			await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
+			await addCard(page, {card_id: pt.id, catalog: 'international', condition: 'Near Mint', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Reverse')});
+			await page.goto(url(`cards/pt/${pt.id}`));
+			await page.waitForSelector('#card-liga-link');
+			await page.waitForSelector('#card-price .price');
+			await page.waitForSelector('.copies li:nth-child(2)');
+
+			if (scale !== 1) {
+				await scaleText(page, scale);
+			}
+
+			const liga = await page.locator('#card-liga-link').evaluate((link) => {
+				const tabs = document.querySelector('.tabs');
+
+				return {bottom: Math.round(link.getBoundingClientRect().bottom), floor: Math.round(tabs ? tabs.getBoundingClientRect().top : window.innerHeight)};
+			});
+			const layout = await factsLayout(page);
+
+			await page.screenshot({path: `${SHOTS}-card-324-${name}.png`});
+			t.diagnostic(`text x${scale}: Ver na Liga ends at ${liga.bottom} px, the tab bar starts at ${liga.floor} px`);
+			assert.deepEqual(layout.split, [], `no word broken, text x${scale}`);
+			assert.equal(layout.lines.Number, 1, `the number on one line, text x${scale}`);
+			assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `no sideways scroll, text x${scale}`);
+			await done();
+		}
+	});
+
 	test('Portuguese variants are named as on English pages', async () => {
 		const {done, page} = await phone();
 
@@ -500,7 +669,7 @@ describe('card detail layout', () => {
 		await page.goto(url('cards/ja/tst1-020'));
 		await page.waitForSelector('#card-liga-none');
 		await page.waitForTimeout(300);
-		assert.equal(await page.locator('.hero-facts h2 .name-region').textContent(), ' (Kanto I)', 'Dex 6 is a Kanto, generation I Pokemon');
+		assert.equal(await page.locator('.hero-facts h2 .name-region').textContent(), '(Kanto I)', 'Dex 6 is a Kanto, generation I Pokemon');
 		assert.equal(await page.locator('#card-liga-none').textContent(), 'No Liga link for Korean prints.');
 		assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 0);
 		await page.waitForSelector('#card-price section.price');

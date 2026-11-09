@@ -260,7 +260,7 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 
 	// Card records by "<lang>/<id>". Anything else is a 404.
 	const RECORDS = {
-		'en/tst1-020': {id: 'tst1-020', illustrator: 'Someone', localId: '020', name: 'Charizard GX', rarity: 'Rare', set: SET, variants_detailed: []},
+		'en/tst1-020': {category: 'Pokemon', dexId: [6], id: 'tst1-020', illustrator: 'Someone', localId: '020', name: 'Charizard GX', rarity: 'Rare', set: SET, variants_detailed: []},
 		'ja/tst1-020': {category: 'Pokemon', dexId: [6], id: 'tst1-020', localId: '020', name: 'リザードンGX', set: {...SET, name: 'テストセット'}, variants_detailed: []},
 		// A Japanese Trainer: no English name is guessed, so no button.
 		'ja/tst1-021': {category: 'Trainer', id: 'tst1-021', localId: '021', name: 'テストのくすり', set: {...SET, name: 'テストセット'}, variants_detailed: []},
@@ -328,10 +328,14 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 		assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
 		assert.equal(await page.locator('#card-liga .liga-link .copies-sr').textContent(), ' (opens Liga Pokémon)');
 		assert.equal(await page.locator(linkSelector).count(), 1, 'one Ver na Liga, under Your copies');
-		assert.equal(await page.locator('.hero-facts a:not(.illustrator-goal)').count(), 0, 'none in the hero facts but the artist goal link');
+		// Not in the hero either: its only links are the set's page, every
+		// card of the Pokémon (v70), and the artist goal, none to Liga.
+		await page.waitForSelector('#card-pokemon-6');
+		assert.deepEqual(await page.locator('.card-hero a').evaluateAll((links) => links.map((a) => a.id).sort()), ['card-artist-goal', 'card-pokemon-6', 'card-set-link']);
+		assert.equal(await page.locator('.card-hero a[href*="ligapokemon"]').count(), 0);
 
 		// The rest of card detail is still there.
-		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX');
+		assert.equal(await page.locator('.card-detail h2').textContent(), 'Charizard GX (Kanto I)');
 		assert.match(await page.locator('.facts').textContent(), /Number020 \/ 147/);
 		assert.match(await page.locator('.facts').textContent(), /RarityRare/);
 		await done();

@@ -92,6 +92,50 @@
 	width: 22px;
 }
 
+/* The screen without a list: a row of flags under the title, one per
+   language, the shown one pressed. On a narrow phone the row scrolls
+   sideways rather than wrap. The padding keeps a focused flag's outline
+   inside the row, which clips what overflows; positioned, the row is what
+   a flag's offsetLeft is measured from when the screen scrolls it into
+   sight. */
+.pc-flags {
+	display: flex;
+	gap: var(--space-2);
+	margin: var(--space-2) -5px var(--space-1);
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	padding: 5px;
+	position: relative;
+	scrollbar-width: thin;
+}
+
+.pc-flag {
+	border-radius: 999px;
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	gap: 6px;
+	min-height: 48px;
+	min-width: 56px;
+	padding: 0 var(--space-3);
+	width: auto;
+}
+
+.pc-flag .flag {
+	display: block;
+	flex: none;
+}
+
+/* Pressed is filled, not only colored. */
+.pc-flag[aria-pressed="true"] {
+	background: var(--selected-bg);
+	border-color: var(--selected-bg);
+	color: var(--selected-text);
+}
+
+.pc-flag-count:empty {
+	display: none;
+}
+
 /* The filter and the finish switch. */
 .pc-controls {
 	display: flex;

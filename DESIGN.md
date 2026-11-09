@@ -254,11 +254,36 @@ A prompt per card would break the rhythm of batch scanning. A tray card that is 
 or scanned twice in the session, shows the quantity badge below, and the duplicate decision is
 made once when the session is saved.
 
+**A card already owned is said at the scan, not only counted** *(Eric, 2026-11-09: "a clearer hint
+that I already have that card"; v68)*. The `×N` corner alone was too easy to miss in a fast run.
+As the card is matched, a green notice over the camera says "✓ Pikachu: you have 2" for 3.5 s,
+spoken with the Added line; owned only in other languages, an outlined "Pikachu: you have it in
+Portuguese". Its tray tile carries a strip across the art under the top badges, "✓ Have 2" with
+a green rim, or an outlined "Have PT". Still no prompt and no buzz, so the rhythm holds. In a
+trade, only a card coming in is told: every card going out is owned. Tick and words with the
+colour, never colour alone.
+
 **Quantity is a corner badge, not a trailing counter.**
 monprice's `xN` beside the card is easy to miss. Any card image standing for a card owned more
 than once (in that language) carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
 the scan tray. When the viewing language differs from the copy's language, a language chip
 (`PT`) sits in the opposite corner.
+
+**Card views: Large, Grid, Mini, and List** *(Eric, 2026-11-09: ways to see his cards in different
+sizes and layouts)*. My Cards has a View select beside Sort and Filters ("View: Grid"), kept on the
+phone (`cardTracker.cardsView`), Grid by default. **Large** is two a row on a phone, the art big
+with the name, the number as printed (`025 / 120`), and the value under it, for looking at the
+cards themselves. **Grid** is the tile as everywhere else. **Mini** is five or six a row at 384 px,
+the art alone with its `×N` and language corners and no caption, a binder page's overview; each
+tile is named for a screen reader instead. **List** is a row per card (a thumbnail, the name and
+value, set and number, language, finish, and `×N`), for reading facts down a column; the row is
+one link to the card page with one accessible name. Each view's minimum width grows with the text
+size, as Grid's does, so large text gives fewer columns and List rows wrap, never a sideways
+scroll. Only My Cards offers it for now; `js/card-view-mode.js` holds the select, the stored
+choice, and the List row, so another screen can take it with its own key. A select rather than four
+buttons, because the bar already uses selects for such choices and four segments do not fit beside
+Sort at 324 px. The views keep the low-resolution images, so Large adds no downloads and no
+second copy of each image to the phone's cache.
 
 **Set tiles show owned progress across every language.**
 Keep monprice's `2 / 122` ring on each set tile, but count a card as owned whatever language the
@@ -2066,6 +2091,42 @@ thumbnail carries language flags in its top-left corner: the languages the perso
 Portuguese copy shows Brazil, both show Brazil and the United States), and none on a missing card.
 *(Languages per list by Eric, 2026-10-01.)*
 *(Planned 2026-10-01, a block after the shell.)*
+
+**Set and Pokémon links on the card page** (Eric, 2026-11-09: "I generally open the pokedex
+project so I can look at all the cards for that specific pokemon ... We should have a way to see
+the cards from that set and the cards from that specific pokemon too"). Rather than link the
+Pokédex app, which stays a separate app (section 1), card detail's **Set** value opens that set's
+page in the card's catalog and language, as Back does, and a line across the foot of the hero,
+under the art and the facts, links "Every Jigglypuff card" to the same screen a checklist row
+opens, without a list (`pokemon/<dex>`). A TAG TEAM card has one link per Pokédex number, side by
+side, each its own 48 px band; a Trainer or Energy card has no line. In the facts column the links
+pushed Ver na Liga below the first screen at 360 x 740 (Q-04), so they sit under it, and Number and
+Rarity share a line where the column fits both (they stack again at large text). The name is
+the species' English name, as the screen's title says it, from the names the phone keeps. With no
+list there are no list languages. **A row of flags** (Eric, 2026-11-09: a top row of flags, one
+language at a time, loaded on tap, to save data and space; opens on the card's language) sits under
+the title: one flag per language the app knows, in the table's order, scrolling sideways on a narrow
+phone rather than wrapping, each a 48 px button in a group labelled Languages, `aria-pressed` on the
+one shown. The screen shows one language: its prints, and only copies in it count, as on a list
+with that one language. A copy with no language recorded (an import or a scan can save one) counts
+on every flag of the catalog it is saved on, with a "?" in its tile's flag corner, so a card owned
+only that way never shows missing (Eric, 2026-11-09). A language's prints load the first time its flag is tapped and then stay
+(the catalogs are kept in IndexedDB as before); the other languages are never loaded behind the
+scenes, so opening from an English card asks for no Japanese, Korean, or Chinese catalog. The
+Western languages share the international records (section 5), so their flags load together and
+show the same count, differing in the copies that count. A loaded flag shows its number of prints
+("🇯🇵 17", named "Japanese, 17 cards"), 0 for a language with none; a flag not loaded yet shows no
+count ("Japanese, not loaded"). The screen opens on the language of the card it was opened from:
+the language is the route's last part (`pokemon/<dex>/<language>`), and a flag tapped replaces it
+in place, so Back to the screen and a reload open on the flag left pressed while Back from it
+still leaves. A visit with no language, or one the app does not know, opens on Portuguese, the
+app's first language: no choice is kept on the phone, because the route already carries it
+everywhere a visit comes from inside the app. The checklist routes keep their list's languages
+control unchanged. The rest is the list screen's own, within the language shown: All, Owned, and
+Missing, the owned marks and flags, missing cards dimmed with one tap to the wishlist (in the
+language shown), Count every finish, and the grid as the card page's swipe context. Owned always means your own cards, so the Pokémon link shows on your
+own card page only: following it from a family member's card would end their lens. The Set link
+shows on theirs too, and keeps it.
 
 A set or artist goal counts ownership in any language unless it names languages, the same rule
 as the set tile rings. Prismatic Evolutions shows

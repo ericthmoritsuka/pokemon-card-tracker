@@ -12,6 +12,40 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-09
+
+- **v70:** from a card's page, open its set or every card of its Pokémon, one language at a time. `8f68302`
+  - A card's **Set** opens that set's page, in the card's catalog and language.
+  - Under the card, "Every Jigglypuff card" opens every print of that Pokémon, the same screen a
+    checklist row opens but with no checklist, with All, Owned, and Missing, the owned marks, and
+    one tap to the wishlist. A TAG TEAM card has a link per Pokémon; a Trainer or Energy card has
+    none. On a family member's card page only the Set link shows.
+  - That screen has a row of flags at the top and shows one language at a time, starting with the
+    card's own. A language loads only when its flag is first tapped (so a tap never pulls every
+    Asian catalog over mobile data), and its flag then shows its count.
+  - The card page keeps **Ver na Liga** on a small phone's first screen: Number and Rarity share a
+    line, and a long name with its region wraps instead of running off the edge.
+
+- **v69:** four ways to see your cards on My Cards. `a4234d6`
+  - A **View** menu under Sort and Filters offers **Large** (two a row, the art big with the name,
+    the number as printed, and the value), **Grid** (the tile as before, and the default),
+    **Mini** (the art alone, a binder page's worth at a glance), and **List** (a row per card).
+  - The choice is kept on the phone, so My Cards opens the way you left it.
+  - A List row shows a thumbnail, the name and value, the set and number, then the language
+    ("Language not set" when a copy has none), the finish, and ×N for more than one copy.
+  - With large text on a narrow phone, each view gives fewer columns and List rows wrap, never a
+    sideways scroll.
+
+- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens. `db8d46f`
+  - As a card is matched, a green note over the camera says "✓ Pikachu: you have 2" for a few
+    seconds, and its tray card gets a "✓ Have 2" strip and a green rim. Owned only in another
+    language, both say which ("Have PT"). In a trade, only cards coming in are told.
+  - On a shorter screen (a Realme at 360 x 660 with the zoom row showing), Close, the shutter, and
+    Done fell below the screen. The camera now gives up the space instead, down to 200 px; under
+    that the panel scrolls with those buttons pinned. With large text on a narrow phone, the
+    Settings and Hand-held chips over the camera no longer overlap.
+  - Profile shows **Continue with Google** straight away, not only after tapping the email field.
+
 ### 2026-11-07
 
 - **v67:** design polish across the scanner, trades, and binders. `f0493bf`

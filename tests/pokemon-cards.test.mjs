@@ -343,6 +343,86 @@ describe('parsing', () => {
 	});
 });
 
+describe('without a checklist', () => {
+	test('one flag per language the app knows, in its order', () => {
+		assert.deepEqual(cards.FLAG_LANGUAGES, ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr', 'de', 'it', 'es']);
+		assert.equal(cards.DEFAULT_FLAG_LANGUAGE, 'pt');
+	});
+
+	test('the route carries the flag\'s language', () => {
+		assert.equal(cards.pokemonCardsRoute(39, 'en'), 'pokemon/39/en');
+		assert.equal(cards.pokemonCardsRoute('039', 'zh-tw'), 'pokemon/39/zh-tw');
+		assert.equal(cards.pokemonCardsRoute(39), 'pokemon/39');
+		assert.equal(cards.pokemonCardsRoute(39, 'xx'), 'pokemon/39', 'a language the app does not know is left out');
+	});
+
+	test('a visit with no language, or an unknown one, opens on Portuguese', () => {
+		assert.equal(cards.flagLanguageFrom('ja'), 'ja');
+		assert.equal(cards.flagLanguageFrom('de'), 'de');
+		assert.equal(cards.flagLanguageFrom(undefined), 'pt');
+		assert.equal(cards.flagLanguageFrom(null), 'pt');
+		assert.equal(cards.flagLanguageFrom('xx'), 'pt');
+	});
+
+	test('one flag shows its catalog\'s prints and counts its own copies and those with no language', () => {
+		assert.deepEqual(catalogsFor(['ja']), ['ja']);
+		assert.deepEqual(catalogsFor(['de']), ['international']);
+		assert.deepEqual(cards.flagLanguages('de'), ['de', null]);
+
+		const entries = [
+			copy('a', {card_id: 'x-1', language: 'de'}),
+			copy('b', {card_id: 'x-2', language: 'en'}),
+			copy('c', {card_id: 'x-3', language: null}),
+			copy('d', {card_id: 'x-4'}),
+			copy('e', {card_id: 'J-1', catalog: 'ja', language: null}),
+			copy('f', {card_id: 'J-2', catalog: 'ja', language: 'ja'}),
+		];
+
+		// A copy with no language recorded (an import, a scan) counts on every
+		// flag of the catalog it is saved on, and on no other.
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('de')).keys()], ['international|x-1', 'international|x-3', 'international|x-4', 'ja|J-1']);
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('pt')).keys()], ['international|x-3', 'international|x-4', 'ja|J-1']);
+		assert.deepEqual([...cards.copiesByPrint(entries, cards.flagLanguages('ja')).keys()], ['international|x-3', 'international|x-4', 'ja|J-1', 'ja|J-2']);
+		// A list that names its languages still counts only copies in them.
+		assert.deepEqual([...cards.copiesByPrint(entries, ['de']).keys()], ['international|x-1']);
+		assert.equal(wishLanguage(['de'], 'international'), 'de');
+	});
+
+	test('a catalog that did not load loads again', () => {
+		assert.equal(cards.needsLoad(undefined), true, 'never loaded');
+		assert.equal(cards.needsLoad({error: null, missingList: true, prints: []}), true, 'offline, not on the phone');
+		assert.equal(cards.needsLoad({error: new Error('500'), missingList: false, prints: [{}]}), true, 'a request failed');
+		assert.equal(cards.needsLoad({error: null, missingList: false, prints: []}), false, 'loaded, with none');
+	});
+
+	test('a flag counts once its catalog has loaded', () => {
+		const loaded = new Map([
+			['international', {missingList: false, prints: [{}, {}, {}]}],
+			['ko', {missingList: false, prints: []}],
+			['zh-tw', {missingList: true, prints: []}],
+		]);
+
+		assert.equal(cards.flagCount('pt', loaded), 3);
+		assert.equal(cards.flagCount('es', loaded), 3, 'Western languages share the international prints');
+		assert.equal(cards.flagCount('ko', loaded), 0, 'loaded, with none');
+		assert.equal(cards.flagCount('ja', loaded), null, 'not loaded');
+		assert.equal(cards.flagCount('zh-tw', loaded), null, 'its card list is not on the phone');
+	});
+
+	test('a card\'s Pokédex numbers', () => {
+		const tagTeam = record('en/cards/sm12-165');
+
+		assert.deepEqual(cards.cardDexIds(record('en/cards/sv03.5-039')), [39]);
+		assert.deepEqual(cards.cardDexIds(tagTeam), [39, 428], 'a TAG TEAM card, in its order');
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon', dexId: 39}), [39], 'one number, not in a list');
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon', dexId: [39, 39, 0, 2000, null]}), [39]);
+		assert.deepEqual(cards.cardDexIds({category: 'Pokemon'}), []);
+		assert.deepEqual(cards.cardDexIds({category: 'Trainer', dexId: [39]}), [], 'a Trainer gets no link');
+		assert.deepEqual(cards.cardDexIds({category: 'Energy'}), []);
+		assert.deepEqual(cards.cardDexIds(null), []);
+	});
+});
+
 describe('the integration', () => {
 	test('app.js, index.html, sw.js, and js/checklists-view.js carry the screen\'s lines', async () => {
 		await checkIntegration();
