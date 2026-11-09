@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
+- **v69:** four ways to see your cards on My Cards.
+  - A **View** menu under Sort and Filters offers **Large** (two a row, the art big with the name,
+    the number as printed, and the value), **Grid** (the tile as before, and the default),
+    **Mini** (the art alone, a binder page's worth at a glance), and **List** (a row per card).
+  - The choice is kept on the phone, so My Cards opens the way you left it.
+  - A List row shows a thumbnail, the name and value, the set and number, then the language
+    ("Language not set" when a copy has none), the finish, and ×N for more than one copy.
+  - With large text on a narrow phone, each view gives fewer columns and List rows wrap, never a
+    sideways scroll.
+
 - **v68:** a clearer hint for cards you already have, and the scanner on shorter screens.
   - As a card is matched, a green note over the camera says "✓ Pikachu: you have 2" for a few
     seconds, and its tray card gets a "✓ Have 2" strip and a green rim. Owned only in another
