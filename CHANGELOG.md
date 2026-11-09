@@ -24,7 +24,7 @@ are Recife time. Each line ends with its commit.
   - With large text on a narrow phone, each view gives fewer columns and List rows wrap, never a
     sideways scroll.
 
-- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens.
+- **v68:** a clearer hint for cards you already have, and the scanner on shorter screens. `db8d46f`
   - As a card is matched, a green note over the camera says "✓ Pikachu: you have 2" for a few
     seconds, and its tray card gets a "✓ Have 2" strip and a green rim. Owned only in another
     language, both say which ("Have PT"). In a trade, only cards coming in are told.
