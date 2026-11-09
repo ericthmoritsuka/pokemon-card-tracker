@@ -2180,26 +2180,60 @@ artist goals, `{kind: 'pokemon', target: <dex number as text>, name, languages}`
 Pokémon screen without a list (`pokemon/<dex>/<flag>`): **Make this a goal**, under the flags, opens a
 sheet to pick the languages it covers, one or several, **chosen by Eric** (Eric, 2026-11-09), with the
 flag shown ticked; German, Italian, and Spanish have no catalog a list can name, so their flag starts
-the sheet on **Any language**. The goal is named for the Pokémon ("Jigglypuff", renamed on its
-screen like any goal), and its tile and screen say the languages ("Every card in PT, JA"), read from
-the field, so they stay true when the languages are changed on its screen; a name with the languages
-in it would go stale then. Once made, a toast offers to open it, and the control becomes a link to it
-("Your goal: Every card in PT, JA"), as the set page's does: one goal per Pokémon, so the tap that
-would make a second one opens the first, rather than a sheet that can only say it exists. It holds
-the prints the Pokémon screen shows (every print whose `dexId` includes the number, TAG TEAM cards
-included, TCG Pocket left out), read the way that screen reads them and from the catalogs of its
-languages only (the international one for Western languages, which share its records, and a
-Japanese, Korean, or Chinese one only when picked; an Any language goal reads the international one,
-as an artist goal does), each kept on the phone. A copy counts in one of its languages, or with no
-language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring, All,
-Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
-goal's language for that catalog when it names one), its languages edited on its screen, and **Make a
-binder**. **To be turned into binders:** New binder from a list offers it with the other goals, one
+the sheet on **Western prints, any language**. The languages are kept exactly as ticked, all seven
+too: on a checklist every language ticked is saved as Any language, but a Pokémon goal's Any
+language reads only the international catalog, so saving seven ticks that way would drop the
+Japanese, Korean, and Chinese prints Eric picked (`js/languages.js` `listLanguagesToSave` `exact`).
+That choice is labelled **Western prints, any language** (the tile and screen say the same; the
+flag row's chip says "Any"), with a line under it in the sheet: the international prints, a copy in
+any language counting, German, Italian, and Spanish too. "Any language" alone promised the Asian
+prints it leaves out. The flag beside each language's name in both choosers is hidden from screen
+readers, which would otherwise read the name twice. The goal is named for the Pokémon in English
+("Jigglypuff", from the species names on the phone when Make goal is tapped, renamed on its screen
+like any goal); made offline before the names were ever read, it is "Pokémon #039" and takes the
+species' name once they load (on the Pokémon screen or the goal's), never replacing a name the
+person typed. Its tile and screen say the languages ("Every card in PT, JA"), read from the field, so
+they stay true when the languages are changed on its screen; a name with the languages in it would
+go stale then. Once made, a toast offers to open it, and the control becomes a link to it ("Your
+goal: Every card in PT, JA"), as the set page's does: one goal per Pokémon, so the tap that would
+make a second one opens the first, rather than a sheet that can only say it exists. A goal another
+phone made after the control was drawn is found when Make goal is tapped: the sheet says it is
+already a goal, offers **Open goal**, and saves nothing, so the languages just ticked never overwrite
+the ones it has. Two phones offline can still each make one; both show in Lists, the control opens
+the first in the person's order, and nothing merges them. It holds the prints the Pokémon screen
+shows (every print whose `dexId` includes the number, TAG TEAM cards included, TCG Pocket left out),
+read the way that screen reads them and from the catalogs of its languages only (the international
+one for Western languages, which share its records, and a Japanese, Korean, or Chinese one only when
+picked; Western prints, any language reads the international one, as an artist goal does), each
+kept on the phone. **Korean also reads the Japanese catalog**: Korea prints many sets under the
+Japanese set codes and its copies are saved on those records (section 5), and TCGdex's Korean
+catalog lacks most of them (none of Jigglypuff), so a Korean goal, checklist, or flag on the Pokémon
+screen shows the Japanese prints too, with a line saying why; without Japanese among its languages,
+its wishes from them are in Korean (`js/pokemon-cards.js` `catalogsFor`, `wishLanguage`). A copy counts in one of its languages, or with
+no language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring,
+All, Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
+goal's language for that catalog when it names one, from a binder's placeholder too), its languages
+edited on its screen, and **Make a binder**. The Japanese, Korean, and Chinese card lists carry no
+rarity, so their prints are offered under **Rarity not listed** in the rarity choice rather than
+hidden by every rarity picked. When a catalog the goal needs is not on the phone, or some of its
+sets or the set index cannot be read, the goal's status names the part missing ("The Japanese prints
+are not on this phone yet.") beside the count of the cards read and Try again, and Lists shows no
+ring for it, since a count of the part read would hide the rest. A catalog counts as missing only
+when its download failed and no copy of its list is on the phone; a stale list kept on the phone is
+read as usual. **To be turned into binders:** New binder from a list offers it with the other goals, one
 pocket per print, owned copies filling theirs and the rest placeholders that fill once a copy is
 owned (Binders from a list), and it starts on **Set and number**, oldest set first: a Pokémon's
-prints are collected and kept in a binder in release order, and new prints then join at the end
-instead of moving every pocket after the first page down by one, as newest first would. Pokédex
-order would put TAG TEAM cards first, by their lowest number. An older phone (v70 and before) knows
+prints are collected and kept in a binder in release order. In that order the binder then keeps its
+pockets where they are and adds a print new to the list **at the end**, whatever its date
+(`js/binder-rules.js` `planRefresh` `keepOrder`, `keptOrder`): a promo dated years back, or a
+Japanese set TCGdex adds late, would otherwise sort into the middle and move every pocket after it,
+in a real binder a reshuffle of every sleeve from there on. A pocket left out or emptied on purpose
+keeps its place. Pokédex order sorts a print by the lowest number it carries, so a TAG TEAM card
+whose partner has a lower number (Pikachu with Jigglypuff) comes before the rest, and one whose
+partner has a higher number sorts with them. Every print carries its numbers, from the bulk map for
+an international print and the goal's own number for a Japanese, Korean, or Chinese one (their card
+lists name none, so an Asian TAG TEAM print sorts with the rest), so a print is placed the same owned
+or not; before, a print not owned had no number and sorted last, then jumped ahead once bought. An older phone (v70 and before) knows
 only set and artist goals: it leaves a Pokémon goal out of Lists, Edit order, and the binder form,
 says "This goal is not here" at its address, shows a binder made from it as made from a deleted list
 (its pages stay, nothing is saved), and its merge, by id and field, keeps the goal and the binder
@@ -2573,10 +2607,21 @@ chosen, for a "Make a binder" button on those screens.
   list does not count, is "1 pocket emptied: no copy you own fits it now (Pikachu)."). The Refresh
   button does the same and also asks again what a failed download put off. Opening reads only what
   the list's own screen reads and keeps (the Pokédex numbers of owned cards, a goal's card list),
-  so after the first time it is cheap and works offline. When part of the list cannot be read, a
-  pocket keeps a stored copy that is still owned, and when none of it can be read the pages stay as
-  they were. A list deleted since leaves the pages as they were, with a line saying to choose
-  another in Edit binder.
+  so after the first time it is cheap and works offline. When some copies cannot be told (Pokédex
+  numbers still unknown), a pocket keeps a stored copy that is still owned, and when none of the list
+  can be read the pages stay as they were. **A goal read only in part** (one of its catalogs not on
+  the phone, or some of its sets or the set index unreadable, so its cards are not all there or not
+  all dated) holds the binder too: the pages stay exactly as stored, on opening and on Refresh, and
+  nothing is saved until the whole list is read; the pockets read show their copies, a stored copy
+  still shows in the rest, and a line names the part missing ("The Japanese prints are not on this
+  phone yet. The pages stay as they were until the whole list can be read with a connection.").
+  Laying out the part read would remove the pockets of every print not read (17 for a PT and JA
+  Jigglypuff goal offline without the Japanese list) or move undated prints to the end (53 of 54
+  pockets moved with one Japanese set unreadable), and the next full read would put them all back,
+  each time a save and a sync. New binder and Edit binder refuse to lay out such a list and say why:
+  open the list with a connection, then make the binder (`js/binders-view.js` `checkWholeList`). A
+  list deleted since leaves the pages as they were, with a line saying to choose another in Edit
+  binder.
 - **A list's languages and a v56 phone** (built 2026-11-05, after a review found the flip-flop). A
   v56 phone fills a checklist's binder from copies in any language, this version only from the
   list's languages, and each saves its own layout on opening, so with both in the family the
