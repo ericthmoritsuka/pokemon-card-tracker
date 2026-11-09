@@ -2103,12 +2103,26 @@ side, each its own 48 px band; a Trainer or Energy card has no line. In the fact
 pushed Ver na Liga below the first screen at 360 x 740 (Q-04), so they sit under it, and Number and
 Rarity share a line where the column fits both (they stack again at large text). The name is
 the species' English name, as the screen's title says it, from the names the phone keeps. With no
-list there are no list languages, so the screen's languages are kept on the phone
-(`cardTracker.pokemonLanguages`) and default to **every language**: every catalog's prints, and a
-copy in any language counts, as a list with no `languages` field does. Changing them never makes
-or changes a list. The rest is the list screen's own: All, Owned, and Missing, the owned marks and
-flags, missing cards dimmed with one tap to the wishlist, Count every finish, and the grid as the
-card page's swipe context. Owned always means your own cards, so the Pokémon link shows on your
+list there are no list languages. **A row of flags** (Eric, 2026-11-09: a top row of flags, one
+language at a time, loaded on tap, to save data and space; opens on the card's language) sits under
+the title: one flag per language the app knows, in the table's order, scrolling sideways on a narrow
+phone rather than wrapping, each a 48 px button in a group labelled Languages, `aria-pressed` on the
+one shown. The screen shows one language: its prints, and only copies in it count, as on a list
+with that one language. A language's prints load the first time its flag is tapped and then stay
+(the catalogs are kept in IndexedDB as before); the other languages are never loaded behind the
+scenes, so opening from an English card asks for no Japanese, Korean, or Chinese catalog. The
+Western languages share the international records (section 5), so their flags load together and
+show the same count, differing in the copies that count. A loaded flag shows its number of prints
+("🇯🇵 17", named "Japanese, 17 cards"), 0 for a language with none; a flag not loaded yet shows no
+count ("Japanese, not loaded"). The screen opens on the language of the card it was opened from:
+the language is the route's last part (`pokemon/<dex>/<language>`), and a flag tapped replaces it
+in place, so Back to the screen and a reload open on the flag left pressed while Back from it
+still leaves. A visit with no language, or one the app does not know, opens on Portuguese, the
+app's first language: no choice is kept on the phone, because the route already carries it
+everywhere a visit comes from inside the app. The checklist routes keep their list's languages
+control unchanged. The rest is the list screen's own, within the language shown: All, Owned, and
+Missing, the owned marks and flags, missing cards dimmed with one tap to the wishlist (in the
+language shown), Count every finish, and the grid as the card page's swipe context. Owned always means your own cards, so the Pokémon link shows on your
 own card page only: following it from a family member's card would end their lens. The Set link
 shows on theirs too, and keeps it.
 

@@ -32,7 +32,7 @@ import {compareNumbers, importApi} from './catalog.js';
 import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
-import {ASIAN_LANGUAGES, CATALOGS, catalogFor, catalogLanguage, cleanListLanguages, languageLabel, listLanguagesToSave} from './languages.js';
+import {ASIAN_LANGUAGES, CATALOGS, LANGUAGE_CODES, catalogFor, catalogLanguage, isKnownLanguage, languageLabel} from './languages.js';
 import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
@@ -568,75 +568,38 @@ export const dexFromParam = (value) => {
 // ------------------------------------------------- without a checklist
 //
 // Every card of a Pokémon opened from the card page (pokemon/<dex>; Eric,
-// 2026-11-09) has no list, so no list languages. The languages it shows and
-// counts are kept on this phone instead, as the list's field would be: no
-// value (the default) is any language, every catalog's prints and a copy in
-// any language counting, the same as a list with no languages field; else
-// the chosen codes, comma-joined.
+// 2026-11-09) has no list, so no list languages. It shows one language at a
+// time instead, chosen from a row of flags (Eric, 2026-11-09): that
+// language's prints, and a card counts as owned only for a copy in it, as on
+// a list with that one language. Western languages share the international
+// records, so their flags show the same prints and differ in the copies
+// that count. The language is the route's last part
+// (pokemon/<dex>/<language>), so Back, a reload, and a card page's link all
+// open on a flag.
 
-export const PHONE_LANGUAGES_KEY = 'cardTracker.pokemonLanguages';
+// Every language the app knows, in the table's order, one flag each.
+export const FLAG_LANGUAGES = LANGUAGE_CODES;
 
-// The route of a Pokémon's cards without a list.
-export const pokemonCardsRoute = (n) => `pokemon/${Number(n)}`;
+// The flag a visit with no language, or one the app does not know, opens on:
+// Portuguese, the app's first language.
+export const DEFAULT_FLAG_LANGUAGE = LANGUAGE_CODES[0];
 
-// A stored value -> null (any language) or the list languages it names.
-export function phoneLanguagesFrom(raw) {
-	const codes = cleanListLanguages(String(raw || '').split(','));
+// The flag a route's language part opens on.
+export const flagLanguageFrom = (raw) => (isKnownLanguage(raw) ? raw : DEFAULT_FLAG_LANGUAGE);
 
-	return codes.length ? listLanguagesToSave(codes) : null;
+// The route of a Pokémon's cards without a list, on a language's flag, or
+// with no language part when lang is not one the app knows.
+export const pokemonCardsRoute = (n, lang = null) => (isKnownLanguage(lang) ? `pokemon/${Number(n)}/${lang}` : `pokemon/${Number(n)}`);
+
+// What a flag counts: the prints of its language's catalog once that has
+// loaded (0 for a language with none), else null. catalogs: catalog -> the
+// loaded result ({prints, missingList}); a catalog whose card list is not on
+// the phone counts nothing yet.
+export function flagCount(code, catalogs) {
+	const result = catalogs.get(catalogFor(code));
+
+	return result && !result.missingList ? result.prints.length : null;
 }
-
-// Languages (null for any) -> the value stored: '' for any language, and
-// for every language ticked, which counts the same.
-export function phoneLanguagesValue(codes) {
-	const list = listLanguagesToSave(codes);
-
-	return list ? list.join(',') : '';
-}
-
-// The phone's localStorage, read inside the callers' try: where site data
-// is blocked, reading window.localStorage itself throws.
-const phoneStorage = (storage) => (storage === undefined ? globalThis.localStorage : storage);
-
-// The languages kept on this phone, null (any) when none are kept or
-// storage is off.
-export function readPhoneLanguages(storage) {
-	try {
-		return phoneLanguagesFrom(phoneStorage(storage).getItem(PHONE_LANGUAGES_KEY));
-	}
-	catch {
-		return null;
-	}
-}
-
-// Keeps the languages on this phone and returns what now counts (null for
-// any). With storage off the choice lasts for this visit only, so the
-// caller holds on to the answer.
-export function savePhoneLanguages(codes, storage) {
-	if (codes !== null && !cleanListLanguages(codes).length) {
-		throw new Error('Pick at least one language.');
-	}
-
-	const value = phoneLanguagesValue(codes);
-
-	try {
-		if (value) {
-			phoneStorage(storage).setItem(PHONE_LANGUAGES_KEY, value);
-		}
-		else {
-			phoneStorage(storage).removeItem(PHONE_LANGUAGES_KEY);
-		}
-	}
-	catch {
-		// Private mode or storage off.
-	}
-
-	return phoneLanguagesFrom(value);
-}
-
-// The goal-shaped stand-in for a list the screen reads its languages from:
-// {} counts any language, as a list with no field does.
-export const phoneGoal = (languages) => (languages ? {languages: [...languages]} : {});
 
 // A card record's Pokédex numbers, once each and valid, in the record's
 // order: TCGdex sends an array (several on a TAG TEAM card), an older saved

@@ -11,8 +11,9 @@
 //   scan                      Scan (js/scan/routes.js)
 //   binders[/...]             Binders (js/binders-view.js)
 //   lists, lists/<id>         Lists: Pokémon checklists, and one checklist
-//   pokemon/<dex>             Every card of a Pokémon, from the card page,
-//                             without a list (js/pokemon-cards-view.js)
+//   pokemon/<dex>/<language>  Every card of a Pokémon, from the card page,
+//                             without a list, one language's flag at a
+//                             time (js/pokemon-cards-view.js)
 //   wishlist[/<userId>]       Lists: the wishlist (js/wishlist-view.js)
 //   profile, signin           Profile, and its sign-in panel on its own
 //   import, check, camera, storage  Opened from Profile: Import from

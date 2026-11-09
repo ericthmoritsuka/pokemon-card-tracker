@@ -344,124 +344,52 @@ describe('parsing', () => {
 });
 
 describe('without a checklist', () => {
-	// A phone's localStorage: a Map behind the three methods the screen uses.
-	function storage(initial = {}) {
-		const map = new Map(Object.entries(initial));
-
-		return {
-			getItem: (key) => (map.has(key) ? map.get(key) : null),
-			map,
-			removeItem: (key) => map.delete(key),
-			setItem: (key, value) => map.set(key, String(value)),
-		};
-	}
-
-	// Storage that is off (private mode, site data blocked).
-	const blocked = {
-		getItem() {
-			throw new Error('SecurityError');
-		},
-		removeItem() {
-			throw new Error('SecurityError');
-		},
-		setItem() {
-			throw new Error('QuotaExceededError');
-		},
-	};
-
-	const ALL = checklists.ALL_LIST_LANGUAGES;
-
-	test('the route and the key', () => {
-		assert.equal(cards.pokemonCardsRoute(39), 'pokemon/39');
-		assert.equal(cards.pokemonCardsRoute('039'), 'pokemon/39');
-		assert.match(cards.PHONE_LANGUAGES_KEY, /^cardTracker\./);
+	test('one flag per language the app knows, in its order', () => {
+		assert.deepEqual(cards.FLAG_LANGUAGES, ['pt', 'en', 'ja', 'ko', 'zh-cn', 'zh-tw', 'fr', 'de', 'it', 'es']);
+		assert.equal(cards.DEFAULT_FLAG_LANGUAGE, 'pt');
 	});
 
-	test('nothing kept is any language: every catalog, every copy', () => {
-		const phone = storage();
-		const languages = cards.readPhoneLanguages(phone);
-		const goal = cards.phoneGoal(languages);
+	test('the route carries the flag\'s language', () => {
+		assert.equal(cards.pokemonCardsRoute(39, 'en'), 'pokemon/39/en');
+		assert.equal(cards.pokemonCardsRoute('039', 'zh-tw'), 'pokemon/39/zh-tw');
+		assert.equal(cards.pokemonCardsRoute(39), 'pokemon/39');
+		assert.equal(cards.pokemonCardsRoute(39, 'xx'), 'pokemon/39', 'a language the app does not know is left out');
+	});
 
-		assert.equal(languages, null);
-		assert.deepEqual(goal, {});
-		assert.equal(checklists.namesLanguages(goal), false, 'counts a copy in any language, as a list with no field');
-		assert.deepEqual(catalogsFor(checklists.listLanguages(goal)), ['international', 'ja', 'ko', 'zh-cn', 'zh-tw']);
+	test('a visit with no language, or an unknown one, opens on Portuguese', () => {
+		assert.equal(cards.flagLanguageFrom('ja'), 'ja');
+		assert.equal(cards.flagLanguageFrom('de'), 'de');
+		assert.equal(cards.flagLanguageFrom(undefined), 'pt');
+		assert.equal(cards.flagLanguageFrom(null), 'pt');
+		assert.equal(cards.flagLanguageFrom('xx'), 'pt');
+	});
 
-		// German, Spanish, and a copy with no language all count.
+	test('one flag shows its catalog\'s prints and counts only its own copies', () => {
+		assert.deepEqual(catalogsFor(['ja']), ['ja']);
+		assert.deepEqual(catalogsFor(['de']), ['international']);
+
 		const owned = cards.copiesByPrint([
 			copy('a', {card_id: 'x-1', language: 'de'}),
-			copy('b', {card_id: 'x-2', language: 'es'}),
+			copy('b', {card_id: 'x-2', language: 'en'}),
 			copy('c', {card_id: 'x-3', language: null}),
-		], checklists.namesLanguages(goal) ? checklists.listLanguages(goal) : null);
+		], ['de']);
 
-		assert.equal(owned.size, 3);
+		assert.deepEqual([...owned.keys()], ['international|x-1']);
+		assert.equal(wishLanguage(['de'], 'international'), 'de');
 	});
 
-	test('a choice is kept, read back, and narrows the prints and the copies', () => {
-		const phone = storage();
+	test('a flag counts once its catalog has loaded', () => {
+		const loaded = new Map([
+			['international', {missingList: false, prints: [{}, {}, {}]}],
+			['ko', {missingList: false, prints: []}],
+			['zh-tw', {missingList: true, prints: []}],
+		]);
 
-		assert.deepEqual(cards.savePhoneLanguages(['ja', 'pt'], phone), ['pt', 'ja'], 'in the table\'s order');
-		assert.equal(phone.getItem(cards.PHONE_LANGUAGES_KEY), 'pt,ja');
-		assert.deepEqual(cards.readPhoneLanguages(phone), ['pt', 'ja']);
-
-		const goal = cards.phoneGoal(cards.readPhoneLanguages(phone));
-
-		assert.ok(checklists.namesLanguages(goal));
-		assert.deepEqual(catalogsFor(checklists.listLanguages(goal)), ['international', 'ja']);
-		assert.equal(wishLanguage(checklists.listLanguages(goal), 'international'), 'pt');
-	});
-
-	test('any language, or every language ticked, removes the key', () => {
-		const phone = storage({[cards.PHONE_LANGUAGES_KEY]: 'pt'});
-
-		assert.equal(cards.savePhoneLanguages(null, phone), null);
-		assert.equal(phone.map.has(cards.PHONE_LANGUAGES_KEY), false);
-		cards.savePhoneLanguages(['en'], phone);
-		assert.equal(cards.savePhoneLanguages([...ALL], phone), null);
-		assert.equal(phone.map.has(cards.PHONE_LANGUAGES_KEY), false);
-		assert.equal(cards.phoneLanguagesValue([...ALL]), '');
-		assert.equal(cards.phoneLanguagesFrom(ALL.join(',')), null, 'a stored list of every language reads as any');
-	});
-
-	test('nothing chosen is refused, and junk reads as any language', () => {
-		assert.throws(() => cards.savePhoneLanguages([], storage()), /Pick at least one language/);
-		assert.throws(() => cards.savePhoneLanguages(['xx'], storage()), /Pick at least one language/);
-		assert.equal(cards.phoneLanguagesFrom('xx,,'), null);
-		assert.deepEqual(cards.phoneLanguagesFrom('en,xx,en'), ['en']);
-	});
-
-	test('storage off: any language to read, and a save still answers', () => {
-		assert.equal(cards.readPhoneLanguages(blocked), null);
-		assert.deepEqual(cards.savePhoneLanguages(['pt'], blocked), ['pt']);
-		assert.equal(cards.savePhoneLanguages(null, blocked), null);
-		// No localStorage at all (Node).
-		assert.equal(cards.readPhoneLanguages(undefined), null);
-	});
-
-	test('storage off where reading window.localStorage itself throws', () => {
-		// Site data blocked: the property read throws, before any method.
-		const own = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-
-		Object.defineProperty(globalThis, 'localStorage', {
-			configurable: true,
-			get() {
-				throw new Error('SecurityError: access is denied for this document');
-			},
-		});
-
-		try {
-			assert.equal(cards.readPhoneLanguages(), null);
-			assert.deepEqual(cards.savePhoneLanguages(['pt']), ['pt']);
-			assert.equal(cards.savePhoneLanguages(null), null);
-		}
-		finally {
-			if (own) {
-				Object.defineProperty(globalThis, 'localStorage', own);
-			}
-			else {
-				delete globalThis.localStorage;
-			}
-		}
+		assert.equal(cards.flagCount('pt', loaded), 3);
+		assert.equal(cards.flagCount('es', loaded), 3, 'Western languages share the international prints');
+		assert.equal(cards.flagCount('ko', loaded), 0, 'loaded, with none');
+		assert.equal(cards.flagCount('ja', loaded), null, 'not loaded');
+		assert.equal(cards.flagCount('zh-tw', loaded), null, 'its card list is not on the phone');
 	});
 
 	test('a card\'s Pokédex numbers', () => {

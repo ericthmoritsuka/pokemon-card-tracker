@@ -1095,18 +1095,20 @@ export function cardView(root, {lang, cardId}) {
 		return link(routeTo('sets', lang, set.id), {class: 'fact-link', id: 'card-set-link'}, setName);
 	}
 
-	// Every card of each Pokémon the card shows (pokemon/<dex>; Eric,
-	// 2026-11-09), one link per Pokédex number, so a TAG TEAM card has two,
-	// on a line of their own across the foot of the hero, under the art and
-	// the facts: in the facts column they pushed Ver na Liga below the first
-	// screen at 360 x 740 (Q-04). The link says what it opens, so it needs
-	// no label. Each names the Pokémon as that screen's title does (nameOf): the
-	// species' English name from the names the phone keeps (js/checklists.js
-	// speciesNames, read once per device), else "Pokémon #039", while they
-	// load or when they never come. Their arrival rewrites the links' text
-	// alone, not the page. Your own card page only: the screen shows your
-	// own cards, so it ends a family member's lens, and Back would then show
-	// this card with your copies rather than theirs.
+	// Every card of each Pokémon the card shows (Eric, 2026-11-09), one link
+	// per Pokédex number, so a TAG TEAM card has two, on a line of their own
+	// across the foot of the hero, under the art and the facts: in the facts
+	// column they pushed Ver na Liga below the first screen at 360 x 740
+	// (Q-04). The link says what it opens, so it needs no label. It opens
+	// the screen on this card's language, whose flag is pressed there
+	// (pokemon/<dex>/<language>). Each names the Pokémon as that screen's
+	// title does (nameOf): the species' English name from the names the
+	// phone keeps (js/checklists.js speciesNames, read once per device),
+	// else "Pokémon #039", while they load or when they never come. Their
+	// arrival rewrites the links' text alone, not the page. Your own card
+	// page only: the screen shows your own cards, so it ends a family
+	// member's lens, and Back would then show this card with your copies
+	// rather than theirs.
 	let pokemonShown = [];
 
 	const pokemonLabel = (n) => `Every ${nameOf(speciesTables && speciesTables.en, n)} card`;
@@ -1122,7 +1124,7 @@ export function cardView(root, {lang, cardId}) {
 	function pokemonLinks(card) {
 		const numbers = member ? [] : cardDexIds(card);
 
-		pokemonShown = numbers.map((n) => ({anchor: link(pokemonCardsRoute(n), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}), n}));
+		pokemonShown = numbers.map((n) => ({anchor: link(pokemonCardsRoute(n, lang), {class: 'fact-link', 'data-dex': n, id: `card-pokemon-${n}`}), n}));
 
 		if (!numbers.length) {
 			return null;

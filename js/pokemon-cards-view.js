@@ -2,9 +2,9 @@
 // row, or from the card page without a list:
 //   lists/<listId>/pokemon/<dex>                  the person's own list
 //   family/<userId>/lists/<listId>/pokemon/<dex>  a family member's, view only
-//   pokemon/<dex>                                 no list: the languages are
-//                                                 kept on this phone, any
-//                                                 language until changed
+//   pokemon/<dex>/<language>                      no list, from the card
+//                                                 page: one language at a
+//                                                 time, from a row of flags
 //
 // "Jigglypuff, 9 of 48 cards": every print in the list's languages, newest
 // first, as the shared tiles (js/tile.js). An owned card carries the owned
@@ -15,8 +15,10 @@
 // (js/card-swipe.js). The data is js/pokemon-cards.js.
 //
 // languagesControl() is the list's languages setting (flags and an edit
-// control); the checklist screen shows it too, and the screen without a
-// list uses it for the languages kept on the phone.
+// control); the checklist screen shows it too. The screen without a list
+// has a row of flags instead (drawFlags): a flag per language, one shown at
+// a time, each language's prints loaded the first time its flag is tapped
+// (Eric, 2026-11-09).
 
 import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
@@ -34,9 +36,9 @@ import {
 } from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {BASE, errorText, h, segmentCounts} from './dom.js';
-import {flagBadge} from './flags.js';
+import {flagBadge, flagSrc, flagText} from './flags.js';
 import {formatCount, plural} from './format.js';
-import {ASIAN_LANGUAGES, LIST_LANGUAGE_CODES, NAME_TABLES, catalogLanguage, htmlLang, languageLabel} from './languages.js';
+import {ASIAN_LANGUAGES, LIST_LANGUAGE_CODES, NAME_TABLES, catalogFor, catalogLanguage, htmlLang, languageLabel} from './languages.js';
 import {cardNames, hasOwnNames, romanizeKorean} from './names.js';
 import {
 	CATALOG_HEADINGS,
@@ -44,6 +46,9 @@ import {
 	cardFinishes,
 	copiesByPrintOnce,
 	dexFromParam,
+	FLAG_LANGUAGES,
+	flagCount,
+	flagLanguageFrom,
 	knownRecord,
 	loadAsian,
 	loadInternational,
@@ -51,11 +56,9 @@ import {
 	ownedFinishes,
 	passesFilter,
 	printCounts,
+	pokemonCardsRoute,
 	printKey,
-	phoneGoal,
 	printRecord,
-	readPhoneLanguages,
-	savePhoneLanguages,
 	tally,
 	wishLanguage,
 } from './pokemon-cards.js';
@@ -98,27 +101,15 @@ const MINE = {
 };
 
 // No list, opened from the card page: the person's own cards and wishlist,
-// counted in the languages kept on this phone (any language by default).
-// The goal is a stand-in that holds only those languages. The last choice
-// is also held here, so it lasts the visit when storage is off.
-let phoneChoice;
-
+// in the language of the flag chosen. There is no list, so the goal is an
+// empty stand-in the flags take the place of.
 const CATALOG = {
 	base: null,
-	languages: {
-		editLabel: 'Change the languages shown',
-		help: 'Only their prints are shown, and a card counts as owned only for a copy in one of them. Any language counts every copy. Kept on this phone.',
-		legend: 'Languages to show',
-		save: async (languages) => {
-			phoneChoice = savePhoneLanguages(languages);
-
-			return phoneGoal(phoneChoice);
-		},
-	},
+	flags: true,
 	load: async () => {
 		const [entries, wishlist] = await Promise.all([listCards(), listWishlist()]);
 
-		return {entries, goal: phoneGoal(phoneChoice === undefined ? readPhoneLanguages() : phoneChoice), wishlist};
+		return {entries, goal: {}, wishlist};
 	},
 	readOnly: false,
 	watch: (reload) => onChange(reload),
@@ -161,10 +152,8 @@ function familySource(userId) {
 
 // The list's languages as flags, with Edit opening checkboxes. Returns
 // {element, update(goal)}; update redraws the flags unless the editor is
-// open. readOnly shows the flags alone. save (languages, null for any ->
-// the goal as saved) stores them somewhere other than the list, with the
-// editor's wording in editLabel, legend, and help.
-export function languagesControl({editLabel = 'Change the list\'s languages', help = null, legend = 'Languages this list counts', listId, onSaved = null, readOnly = false, save: store = null}) {
+// open. readOnly shows the flags alone.
+export function languagesControl({listId, readOnly = false, onSaved = null}) {
 	let goal = null;
 	let editing = false;
 
@@ -177,7 +166,7 @@ export function languagesControl({editLabel = 'Change the list\'s languages', he
 		const languages = listLanguages(goal);
 		const names = all ? 'Counts copies in any language' : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
-			'aria-label': `${editLabel} (${all ? 'any language' : names})`,
+			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
 			class: 'small',
 			id: 'list-languages-edit',
 			onclick: openEditor,
@@ -260,7 +249,7 @@ export function languagesControl({editLabel = 'Change the list\'s languages', he
 				// Every box ticked saves as Any language (js/languages.js), so
 				// it counts every copy rather than dropping the languages no box
 				// names.
-				const saved = await (store ? store(any ? null : [...chosen]) : setListLanguages(listId, any ? null : [...chosen]));
+				const saved = await setListLanguages(listId, any ? null : [...chosen]);
 
 				goal = saved;
 				editing = false;
@@ -277,8 +266,8 @@ export function languagesControl({editLabel = 'Change the list\'s languages', he
 		});
 
 		element.replaceChildren(h('fieldset', {class: 'pc-language-editor', id: 'list-languages-editor'},
-			h('legend', null, legend),
-			h('p', {class: 'muted'}, help || 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
+			h('legend', null, 'Languages this list counts'),
+			h('p', {class: 'muted'}, 'A card counts as owned only for a copy in one of these, and only their prints are shown. Any language counts every copy.'),
 			h('div', {class: 'pc-language-choices'},
 				h('label', {class: 'pc-language-choice pc-language-any'}, anyBox, h('span', null, 'Any language')),
 				boxes
@@ -370,22 +359,28 @@ export const pokemonCardsView = (root, {dex, id}) => screen(root, MINE, id, dex)
 
 export const familyPokemonCardsView = (root, {dex, id, userId}) => screen(root, familySource(userId), id, dex);
 
-export const catalogPokemonCardsView = (root, {dex}) => screen(root, CATALOG, null, dex);
+// The route's language part is "flag", not "lang", which app.js holds to
+// the catalog languages: an unknown one opens on Portuguese rather than My
+// Cards. With no language part, app.js passes the string "undefined".
+export const catalogPokemonCardsView = (root, {dex, flag}) => screen(root, CATALOG, null, dex, flag);
 
 // For app.js ROUTES, after the checklist routes. The one without a list
 // shows your own cards, so it does not keep a family member's lens.
 export const pokemonCardsRoutes = [
 	{keys: ['id', 'dex'], pattern: /^lists\/([^/]+)\/pokemon\/(\d+)$/, render: pokemonCardsView, tab: 'lists', title: 'Pokémon cards | Card Tracker'},
 	{keys: ['userId', 'id', 'dex'], pattern: /^family\/([^/]+)\/lists\/([^/]+)\/pokemon\/(\d+)$/, render: familyPokemonCardsView, tab: 'lists', title: 'Family Pokémon cards | Card Tracker'},
-	{keys: ['dex'], pattern: /^pokemon\/(\d+)$/, render: catalogPokemonCardsView, tab: 'lists', title: 'Pokémon cards | Card Tracker'},
+	{keys: ['dex', 'flag'], pattern: /^pokemon\/(\d+)(?:\/([a-z]{2}(?:-[a-z]{2})?))?$/, render: catalogPokemonCardsView, tab: 'lists', title: 'Pokémon cards | Card Tracker'},
 ];
 
 // For app.js ACCOUNT_ROUTES: each depends on who is signed in.
 export const pokemonCardsAccountViews = [pokemonCardsView, familyPokemonCardsView, catalogPokemonCardsView];
 
-function screen(root, source, listId, dexParam) {
+function screen(root, source, listId, dexParam, langParam = null) {
 	const n = dexFromParam(dexParam);
 	let alive = true;
+	// Without a list, the one language shown, its flag pressed: the route's,
+	// else Portuguese.
+	let chosen = source.flags ? flagLanguageFrom(langParam) : null;
 	let goal = null;
 	let entries = [];
 	// A family member's card records, whose photos and pin their tiles
@@ -417,19 +412,9 @@ function screen(root, source, listId, dexParam) {
 	const title = h('h2', {id: 'pc-title'});
 	const originals = h('div', {class: 'pc-originals', id: 'pc-originals'});
 	// A list's languages are saved to the list, whose change loads the
-	// screen again; the phone's are not, so the screen takes them here.
-	const languages = languagesControl({
-		...source.languages,
-		listId,
-		onSaved: source.base ? null : (saved) => {
-			if (alive) {
-				goal = saved;
-				draw();
-				loadCatalogs();
-			}
-		},
-		readOnly: source.readOnly,
-	});
+	// screen again. Without a list, the flags choose one language.
+	const languages = source.flags ? null : languagesControl({listId, readOnly: source.readOnly});
+	const flags = source.flags ? h('div', {'aria-label': 'Languages', class: 'pc-flags', id: 'pc-flags', role: 'group'}) : null;
 
 	if (!source.base) {
 		back.addEventListener('click', (event) => {
@@ -480,8 +465,15 @@ function screen(root, source, listId, dexParam) {
 
 	// ------------------------------------------------------- state
 
+	// The languages whose prints are shown: the flag chosen, or the list's.
+	const shownLanguages = () => (chosen ? [chosen] : listLanguages(goal));
+
+	// The languages a copy must be in to count, null for any: the flag
+	// chosen, or the list's when it names some.
+	const countedLanguages = () => (chosen ? [chosen] : namesLanguages(goal) ? listLanguages(goal) : null);
+
 	function shownPrints() {
-		return catalogsFor(listLanguages(goal)).flatMap((catalog) => (catalogs.get(catalog) || {prints: []}).prints);
+		return catalogsFor(shownLanguages()).flatMap((catalog) => (catalogs.get(catalog) || {prints: []}).prints);
 	}
 
 	function stateOf(print, owned) {
@@ -512,7 +504,7 @@ function screen(root, source, listId, dexParam) {
 		}
 
 		document.title = `${name} | Card Tracker`;
-		originals.replaceChildren(...originalNames(tables, n, listLanguages(goal)).map((item) =>
+		originals.replaceChildren(...originalNames(tables, n, shownLanguages()).map((item) =>
 			h('p', {class: 'pc-original', lang: item.lang}, item.text)));
 	}
 
@@ -524,7 +516,11 @@ function screen(root, source, listId, dexParam) {
 			parts.push(progressText(step));
 		}
 
-		for (const [catalog, result] of catalogs) {
+		const shown = catalogsFor(shownLanguages());
+
+		// Only the catalogs on screen: a flag left keeps its prints, and its
+		// troubles are not this language's.
+		for (const [catalog, result] of [...catalogs].filter(([catalog]) => shown.includes(catalog))) {
 			if (!result) {
 				continue;
 			}
@@ -545,10 +541,102 @@ function screen(root, source, listId, dexParam) {
 
 		status.textContent = parts.filter(Boolean).join(' ');
 
-		const failed = [...catalogs.values()].some((result) => result && result.error);
+		const failed = shown.some((catalog) => catalogs.get(catalog) && catalogs.get(catalog).error);
 
-		if (failed && navigator.onLine && !pending.size) {
+		if (failed && navigator.onLine && !shown.some((catalog) => pending.has(catalog))) {
 			status.append(' ', h('button', {class: 'small', id: 'pc-retry', onclick: () => load({force: true}), type: 'button'}, 'Try again'));
+		}
+	}
+
+	// The flag row: one button per language the app knows, in the table's
+	// order, the shown one pressed. A flag whose language has loaded shows
+	// its prints' count, 0 for none; the others show none. Western languages
+	// share the international prints, so they load and count together.
+	const flagButtons = new Map();
+
+	function flagButton(code) {
+		const src = flagSrc(code);
+		const button = h('button', {
+			class: 'pc-flag',
+			'data-lang': code,
+			id: `pc-flag-${code}`,
+			onclick: () => choose(code),
+			title: languageLabel(code),
+			type: 'button',
+		},
+		src
+			? h('img', {alt: '', 'aria-hidden': 'true', class: 'flag', decoding: 'async', height: 16, src, width: 21})
+			: h('span', {'aria-hidden': 'true', class: 'flag-text'}, flagText(code)),
+		h('span', {'aria-hidden': 'true', class: 'pc-flag-count'}));
+
+		flagButtons.set(code, button);
+
+		return button;
+	}
+
+	// Whether the pressed flag is wholly in the row's sight.
+	function pressedInSight() {
+		const button = flagButtons.get(chosen);
+
+		return button.offsetLeft >= flags.scrollLeft && button.offsetLeft + button.offsetWidth <= flags.scrollLeft + flags.clientWidth;
+	}
+
+	// Scrolls the row so the pressed flag sits in its middle, or as near as
+	// the row's ends allow (Spanish, at the far end).
+	function showPressed() {
+		const button = flagButtons.get(chosen);
+
+		flags.scrollLeft = Math.max(0, button.offsetLeft - (flags.clientWidth - button.offsetWidth) / 2);
+	}
+
+	function drawFlags() {
+		if (!flags) {
+			return;
+		}
+
+		if (!flagButtons.size) {
+			flags.append(...FLAG_LANGUAGES.map(flagButton));
+		}
+
+		// Counts arriving widen the flags before the pressed one; one that
+		// was in sight stays in sight.
+		const inSight = pressedInSight();
+
+		for (const [code, button] of flagButtons) {
+			const count = flagCount(code, catalogs);
+			const loading = count === null && (code === chosen || pending.has(catalogFor(code)));
+
+			button.setAttribute('aria-pressed', String(code === chosen));
+			button.setAttribute('aria-label', `${languageLabel(code)}, ${count !== null ? plural(count, 'card', 'cards') : loading ? 'loading' : 'not loaded'}`);
+			button.querySelector('.pc-flag-count').textContent = count !== null ? formatCount(count) : '';
+		}
+
+		if (inSight && !pressedInSight()) {
+			showPressed();
+		}
+	}
+
+	// A flag tapped: its language's prints, loaded the first time, and the
+	// route says it, so Back to this screen and a reload open on it. The
+	// history entry is replaced, not added: Back still leaves the screen.
+	function choose(code) {
+		if (code === chosen) {
+			return;
+		}
+
+		chosen = code;
+		history.replaceState(history.state, '', BASE + pokemonCardsRoute(n, code));
+		draw();
+
+		const wanted = catalogsFor([code]);
+
+		if (wanted.every((catalog) => catalogs.has(catalog))) {
+			if (everyFinish) {
+				loadFinishes();
+			}
+		}
+		else {
+			loadCatalogs();
 		}
 	}
 
@@ -560,7 +648,7 @@ function screen(root, source, listId, dexParam) {
 			return h('span', {class: 'pc-wished', id: `pc-wished-${print.cardId}`}, 'On your wishlist');
 		}
 
-		const language = wishLanguage(listLanguages(goal), print.catalog);
+		const language = wishLanguage(shownLanguages(), print.catalog);
 		const button = h('button', {
 			'aria-label': `Add ${print.name || speciesName()} #${print.localId} to your wishlist${language ? ` in ${languageLabel(language)}` : ''}`,
 			class: 'small pc-wish',
@@ -675,8 +763,8 @@ function screen(root, source, listId, dexParam) {
 			return;
 		}
 
-		const owned = copiesByPrintOnce(entries, namesLanguages(goal) ? listLanguages(goal) : null);
-		const shown = catalogsFor(listLanguages(goal));
+		const owned = copiesByPrintOnce(entries, countedLanguages());
+		const shown = catalogsFor(shownLanguages());
 		const allStates = [];
 		const routes = [];
 		const blocks = [];
@@ -720,6 +808,7 @@ function screen(root, source, listId, dexParam) {
 		const counts = loaded ? tally(allStates, everyFinish) : null;
 
 		drawHead(counts);
+		drawFlags();
 		drawStatus(counts);
 		segmentCounts(filterControl, loaded ? Object.fromEntries(FILTERS.map(({value}) => [value, allStates.filter((state) => passesFilter(state, value, everyFinish)).length])) : null);
 		sections.replaceChildren(...blocks);
@@ -780,13 +869,15 @@ function screen(root, source, listId, dexParam) {
 		}
 	}
 
-	// Loads each catalog the list's languages need and is not loaded or
-	// loading yet; force loads them all again (Try again).
+	// Loads each catalog the languages shown need and is not loaded or
+	// loading yet; force loads them again (Try again). A list drops the
+	// catalogs its languages no longer need; the flags keep every catalog
+	// loaded, so going back to a flag needs no request and it keeps its count.
 	async function loadCatalogs({force = false} = {}) {
-		const wanted = catalogsFor(listLanguages(goal));
+		const wanted = catalogsFor(shownLanguages());
 
 		for (const catalog of [...catalogs.keys()]) {
-			if (force || !wanted.includes(catalog)) {
+			if ((force && wanted.includes(catalog)) || (!chosen && !wanted.includes(catalog))) {
 				catalogs.delete(catalog);
 			}
 		}
@@ -885,7 +976,10 @@ function screen(root, source, listId, dexParam) {
 			back.textContent = `‹ ${goal.name}`;
 		}
 
-		languages.update(goal);
+		if (languages) {
+			languages.update(goal);
+		}
+
 		draw();
 		await loadCatalogs({force});
 	}
@@ -905,13 +999,29 @@ function screen(root, source, listId, dexParam) {
 
 	content.append(
 		h('div', {class: 'pc-head'}, sprite(n), h('div', {class: 'pc-head-text'}, title, originals)),
-		languages.element,
+		flags || languages.element,
 		h('div', {class: 'pc-controls'}, filterControl, finishControl),
 		status,
 		sections
 	);
 	root.append(back, notice, content);
 	drawHead(null);
+
+	if (flags) {
+		// A visit with no language, or one the app does not know, says the
+		// one it opened on.
+		if (langParam !== chosen) {
+			history.replaceState(history.state, '', BASE + pokemonCardsRoute(n, chosen));
+		}
+
+		drawFlags();
+
+		// A flag far along the row (Spanish) is scrolled into sight.
+		if (!pressedInSight()) {
+			showPressed();
+		}
+	}
+
 	load();
 
 	return () => {
