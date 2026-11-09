@@ -27,7 +27,7 @@ import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
-import {CARDS_VIEW_KEY, cardRow, viewSwitch} from './card-view-mode.js';
+import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
 import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
@@ -946,7 +946,9 @@ export function cardsScreen(root, {
 		}), group.entries, catalogSrc, (src) => cardArt(info, src, {decorative: true}), {family: !readOnly, records: loadRecords(), twins: group.twins});
 	}
 
-	// The price line of a drawn tile, put right after a price arrives.
+	// The price line of a drawn tile, put right after a price arrives, in
+	// place: a tile or row drawn again would lose the focus a keyboard or
+	// screen reader left on it, and shimmer again while its photo is read.
 	function patchPrice(group) {
 		const element = tiles.get(group.key);
 
@@ -954,13 +956,7 @@ export function cardsScreen(root, {
 			return;
 		}
 
-		// A List row says its value in its name too, so it is drawn again.
-		if (shownView() === 'list') {
-			replaceTile(group);
-
-			return;
-		}
-
+		const list = shownView() === 'list';
 		const node = priceNode(group);
 		const slot = element.querySelector('.tile-price');
 
@@ -973,7 +969,24 @@ export function cardsScreen(root, {
 			slot.replaceChildren(node);
 		}
 		else {
-			element.append(h('span', {class: 'tile-price'}, node));
+			((list && element.querySelector('.row-head')) || element).append(h('span', {class: 'tile-price'}, node));
+		}
+
+		if (!list) {
+			return;
+		}
+
+		// A List row says its value in its name too, and the record that
+		// brought the price may name its finish.
+		const finish = finishText(group);
+		const facts = cardRowFacts(rowFacts(group, finish));
+		const oldFacts = element.querySelector('.row-facts');
+
+		element.setAttribute('aria-label', cardLabel(group, {finish, value: valueText(group)}));
+
+		// The language fact is always there, so a row always has the line.
+		if (oldFacts && facts) {
+			oldFacts.replaceWith(facts);
 		}
 	}
 

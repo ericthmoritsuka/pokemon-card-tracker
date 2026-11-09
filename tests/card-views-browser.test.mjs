@@ -279,6 +279,59 @@ describe('the View switch', () => {
 		}
 	});
 
+	test('a List row keeps its element and the focus when its price arrives', async () => {
+		const {context, errors, page} = await phone();
+		// Charizard's price waits until released, after the row is drawn
+		// and focused. Routed after phone()'s, so it answers first.
+		let release;
+		let asked;
+		const gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const requested = new Promise((resolve) => {
+			asked = resolve;
+		});
+
+		await context.route('https://api.tcgdex.net/**', async (route) => {
+			if (/\/cards\/tsa1-006$/.test(new URL(route.request().url()).pathname)) {
+				asked();
+				await gate;
+			}
+
+			return route.fallback();
+		});
+
+		try {
+			await open(page, 'list');
+			await requested;
+
+			const row = page.locator('.card-grid > .card-row[href$="cards/en/tsa1-006"]');
+
+			await row.waitFor(TIMEOUT);
+
+			const element = await row.elementHandle();
+
+			await element.focus();
+			assert.equal(await row.locator('.tile-price').count(), 0, 'no price yet');
+			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['EN']);
+			assert.doesNotMatch(await row.getAttribute('aria-label'), /estimate/);
+
+			release();
+			await row.locator('.tile-price').waitFor(TIMEOUT);
+
+			assert.ok(await element.evaluate((one) => one.isConnected), 'the same row, not one drawn again');
+			assert.ok(await element.evaluate((one) => document.activeElement === one), 'the focus stays on it');
+			assert.match(plain(await row.locator('.row-head .tile-price').textContent()), /^~R\$ 150/);
+			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['EN', 'Normal'], 'the finish its record names');
+			assert.match(await row.getAttribute('aria-label'), /^Charizard ex, 006 of 160, .+, English, Normal, 1 copy, about .+, US market estimate$/);
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			release();
+			await context.close();
+		}
+	});
+
 	test('the choice survives a reload', async () => {
 		const {context, errors, page} = await phone();
 
