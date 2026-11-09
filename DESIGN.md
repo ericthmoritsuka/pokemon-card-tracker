@@ -2096,9 +2096,12 @@ Portuguese copy shows Brazil, both show Brazil and the United States), and none 
 project so I can look at all the cards for that specific pokemon ... We should have a way to see
 the cards from that set and the cards from that specific pokemon too"). Rather than link the
 Pokédex app, which stays a separate app (section 1), card detail's **Set** value opens that set's
-page in the card's catalog and language, as Back does, and a **Pokémon** row links "Every
-Jigglypuff card" to the same screen a checklist row opens, without a list (`pokemon/<dex>`). A
-TAG TEAM card has one link per Pokédex number; a Trainer or Energy card has no row. The name is
+page in the card's catalog and language, as Back does, and a line across the foot of the hero,
+under the art and the facts, links "Every Jigglypuff card" to the same screen a checklist row
+opens, without a list (`pokemon/<dex>`). A TAG TEAM card has one link per Pokédex number, side by
+side, each its own 48 px band; a Trainer or Energy card has no line. In the facts column the links
+pushed Ver na Liga below the first screen at 360 x 740 (Q-04), so they sit under it, and Number and
+Rarity share a line where the column fits both (they stack again at large text). The name is
 the species' English name, as the screen's title says it, from the names the phone keeps. With no
 list there are no list languages, so the screen's languages are kept on the phone
 (`cardTracker.pokemonLanguages`) and default to **every language**: every catalog's prints, and a

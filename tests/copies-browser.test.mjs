@@ -74,7 +74,8 @@ after(async () => {
 const url = (path = '') => `${server.origin}${BASE}${path}`;
 
 // tcgdex.status, when set, answers every TCGdex request with it.
-async function phone({viewport = PHONE} = {}) {
+// records adds TCGdex records, by path, to the ones every test has.
+async function phone({records: extra = {}, viewport = PHONE} = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport});
 	const seen = {liga: [], supabase: []};
 	const tcgdex = {status: null};
@@ -83,6 +84,7 @@ async function phone({viewport = PHONE} = {}) {
 		'ja/cards/tst1-020': JAPANESE,
 		'pt/cards/sv08.5-001': pt,
 		'pt/cards/tst1-007': LABELED,
+		...extra,
 	};
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -125,7 +127,7 @@ async function phone({viewport = PHONE} = {}) {
 			status: response.status(),
 		});
 	});
-	await fakePokeApi(context);
+	await fakePokeApi(context, {english: {39: 'Jigglypuff', 428: 'Lopunny'}});
 
 	const page = await context.newPage();
 	const errors = [];
@@ -476,6 +478,41 @@ describe('card detail layout', () => {
 		});
 	}
 
+	// A TAG TEAM card has a link to every card of each of its Pokémon, each
+	// its own 48 px band, and a name that takes four lines in the facts
+	// column: Ver na Liga still makes the first screen of a small phone.
+	test('a TAG TEAM card\'s Pokémon links keep Ver na Liga on the first screen at 360 x 740', async () => {
+		const tagTeam = {...pt, dexId: [39, 428], name: 'Lopunny & Jigglypuff-GX'};
+		const {done, page} = await phone({records: {'pt/cards/sv08.5-001': tagTeam}});
+
+		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
+		await addCard(page, {card_id: pt.id, catalog: 'international', condition: 'Near Mint', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Reverse')});
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('#card-liga-link');
+		await page.waitForSelector('#card-price .price');
+		await page.waitForFunction(() => document.getElementById('card-pokemon-428')?.textContent === 'Every Lopunny card');
+
+		for (const selector of ['.hero-facts h2', '#card-pokemon-39', '#card-pokemon-428', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish']) {
+			assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);
+		}
+
+		for (const id of ['card-pokemon-39', 'card-pokemon-428', 'card-set-link']) {
+			assert.ok((await page.locator(`#${id}`).boundingBox()).height >= 48, `#${id} is a 48 px target`);
+		}
+
+		// The links' line, under the art, leaves Add photo whole: a tap at
+		// its foot is still Add photo.
+		assert.equal(await page.locator('.hero-art .ph-add').evaluate((button) => {
+			const box = button.getBoundingClientRect();
+
+			return box.height > 0 && document.elementFromPoint(box.left + box.width / 2, box.bottom - 1)?.closest('button') === button;
+		}), true, 'a tap at the bottom of Add photo');
+
+		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
+		await page.screenshot({path: '/tmp/copies-first-screen-tag-team-360.png'});
+		await done();
+	});
+
 	test('Portuguese variants are named as on English pages', async () => {
 		const {done, page} = await phone();
 
@@ -500,7 +537,7 @@ describe('card detail layout', () => {
 		await page.goto(url('cards/ja/tst1-020'));
 		await page.waitForSelector('#card-liga-none');
 		await page.waitForTimeout(300);
-		assert.equal(await page.locator('.hero-facts h2 .name-region').textContent(), ' (Kanto I)', 'Dex 6 is a Kanto, generation I Pokemon');
+		assert.equal(await page.locator('.hero-facts h2 .name-region').textContent(), '(Kanto I)', 'Dex 6 is a Kanto, generation I Pokemon');
 		assert.equal(await page.locator('#card-liga-none').textContent(), 'No Liga link for Korean prints.');
 		assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 0);
 		await page.waitForSelector('#card-price section.price');

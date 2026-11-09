@@ -457,11 +457,14 @@ button.step-more {
 }
 
 /* The region and generation after the name on card detail ("Bulbasaur
-   (Kanto I)"), quieter than the name itself. */
+   (Kanto I)"), quieter than the name itself. An inline block keeps it on
+   one line where it fits, and lets it wrap rather than run past the
+   column where it does not ("(Kanto I, Sinnoh IV)" at large text). */
 .hero-facts .name-region {
 	color: var(--muted);
+	display: inline-block;
 	font-weight: 400;
-	white-space: nowrap;
+	max-width: 100%;
 }
 
 /* Trade or sale beside Remove (js/copy-sheet.js). */

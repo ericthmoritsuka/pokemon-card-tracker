@@ -2946,29 +2946,40 @@ progress {
 	overflow-wrap: anywhere;
 }
 
+/* The facts, each label over its value. Number and Rarity, short, share a
+   line where the column fits two of them at 4.75 em each, as on a phone
+   wider than about 320 px at normal text size; larger text stacks them
+   again rather than break "001 / 131" in two. The grid's row gap is the
+   space above each label, so the first one adds none. */
 .card-detail .facts {
-	display: block;
+	display: grid;
 	font: var(--type-small);
-	margin: 0 0 var(--space-3);
+	gap: var(--space-1) var(--space-3);
+	grid-template-columns: repeat(auto-fill, minmax(4.75em, 1fr));
+	margin: 0;
+}
+
+.card-detail .facts .fact {
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+
+.card-detail .facts .fact-pair {
+	grid-column: auto;
 }
 
 .card-detail .facts dt {
 	font: var(--type-label);
-	margin-top: var(--space-1);
 }
 
 .card-detail .facts dd {
 	overflow-wrap: anywhere;
 }
 
-/* The set and the Pokémon as links to their cards. The padding reaches the
-   48 px target and the margin takes it back, so the facts keep their
-   spacing. Several Pokémon (a TAG TEAM card) are one per line, each line
-   the link's whole 48 px band, edge to edge: lines closer than that let
-   the later link's padding cover the bottom of the earlier one, so a tap
-   low on Jigglypuff opened Lopunny. Only the outer edges take the padding
-   back. Positioned, the band lies over the rows beside it, which would
-   otherwise take a tap on its outer edges. */
+/* The set as a link to its cards. The padding reaches the 48 px target and
+   the margin takes it back, so the facts keep their spacing. Positioned,
+   the band lies over the rows beside it, which would otherwise take a tap
+   on its outer edges. */
 .card-detail .fact-link {
 	display: inline-block;
 	margin: -14px 0;
@@ -2976,20 +2987,28 @@ progress {
 	position: relative;
 }
 
-.card-detail .fact-line {
-	display: block;
+/* Every card of the Pokémon: one line across the foot of the hero, under
+   the art and the facts, so Ver na Liga stays on the first screen at
+   360 x 740. Each link is its own 48 px band, and a TAG TEAM card's links
+   sit side by side, or one band under the other where they wrap, never
+   overlapping, so a tap low on Jigglypuff cannot open Lopunny. The top
+   margin takes back the hero's row gap, so the band starts where Add photo
+   ends and never covers it; the bottom one takes back the hero's own
+   margin, so it ends where Your copies begins. */
+.card-hero .hero-pokemon {
+	column-gap: var(--space-5);
+	display: flex;
+	flex-wrap: wrap;
+	font: var(--type-small);
+	grid-column: 1 / -1;
+	margin: calc(-1 * var(--space-3)) 0 calc(-1 * var(--space-4));
+	min-width: 0;
 }
 
-.card-detail .fact-line .fact-link {
+.card-hero .hero-pokemon .fact-link {
 	margin: 0;
-}
-
-.card-detail .fact-line:first-child .fact-link {
-	margin-top: -14px;
-}
-
-.card-detail .fact-line:last-child .fact-link {
-	margin-bottom: -14px;
+	max-width: 100%;
+	overflow-wrap: anywhere;
 }
 
 .card-detail .copies,

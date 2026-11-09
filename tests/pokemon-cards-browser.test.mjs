@@ -665,7 +665,7 @@ describe('every card of a Pokémon', () => {
 		// link to it.
 		await page.waitForSelector('#card-set-link');
 		assert.equal(await page.locator('#card-set-link').getAttribute('href'), `${BASE}sets/en/sv03.5`);
-		assert.equal(await page.locator('.facts a[id^="card-pokemon-"]').count(), 0);
+		assert.equal(await page.locator('.card-hero a[id^="card-pokemon-"]').count(), 0);
 
 		// Viewing changed nothing on this phone.
 		const doc = await localDoc(page);
@@ -792,7 +792,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await page.goto(url('cards/en/sm12-165'));
 		await page.waitForSelector('#card-pokemon-428');
 		await page.waitForFunction(() => document.getElementById('card-pokemon-428').textContent === 'Every Lopunny card');
-		assert.deepEqual(await page.locator('.facts a[id^="card-pokemon-"]').allTextContents(), ['Every Jigglypuff card', 'Every Lopunny card']);
+		assert.deepEqual(await page.locator('.card-hero a[id^="card-pokemon-"]').allTextContents(), ['Every Jigglypuff card', 'Every Lopunny card']);
 		assert.equal(await page.locator('#card-pokemon-428').getAttribute('href'), `${BASE}pokemon/428`);
 		await page.screenshot({path: `${SHOTS}-card-tag-team.png`});
 
@@ -801,7 +801,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		// opened Lopunny when the second link's padding covered the first).
 		await page.locator('#card-pokemon-39').evaluate((anchor) => anchor.scrollIntoView({block: 'center'}));
 
-		const bands = await page.locator('.facts a[id^="card-pokemon-"]').evaluateAll((anchors) => anchors.map((anchor) => {
+		const bands = await page.locator('.card-hero a[id^="card-pokemon-"]').evaluateAll((anchors) => anchors.map((anchor) => {
 			const box = anchor.getBoundingClientRect();
 			const x = box.left + Math.min(box.width / 2, 24);
 			const hit = (y) => (document.elementFromPoint(x, y)?.closest('a') || {}).id || null;
@@ -819,7 +819,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await page.waitForSelector('.facts');
 		await page.waitForSelector('#card-set-link');
 		assert.deepEqual(await page.locator('.facts dt').allTextContents(), ['Set', 'Number', 'Rarity', 'Illustrator', 'Catalog']);
-		assert.equal(await page.locator('.facts a[id^="card-pokemon-"]').count(), 0);
+		assert.equal(await page.locator('.card-hero a[id^="card-pokemon-"]').count(), 0);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);
 		await context.close();

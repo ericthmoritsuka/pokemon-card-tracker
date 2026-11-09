@@ -1078,8 +1078,11 @@ export function cardView(root, {lang, cardId}) {
 		}
 	});
 
-	function row(label, value) {
-		return value ? [h('dt', null, label), h('dd', null, value)] : [];
+	// One fact, its label over its value, in a div of its own (dl allows
+	// it) so the short ones can sit side by side: pair marks Number and
+	// Rarity, which share a line where the column is wide enough.
+	function row(label, value, {pair = false} = {}) {
+		return value ? h('div', {class: pair ? 'fact fact-pair' : 'fact'}, h('dt', null, label), h('dd', null, value)) : null;
 	}
 
 	// The set's name, opening the set's page in this card's catalog and
@@ -1093,8 +1096,11 @@ export function cardView(root, {lang, cardId}) {
 	}
 
 	// Every card of each Pokémon the card shows (pokemon/<dex>; Eric,
-	// 2026-11-09), one link per Pokédex number, so a TAG TEAM card has two.
-	// Each names the Pokémon as that screen's title does (nameOf): the
+	// 2026-11-09), one link per Pokédex number, so a TAG TEAM card has two,
+	// on a line of their own across the foot of the hero, under the art and
+	// the facts: in the facts column they pushed Ver na Liga below the first
+	// screen at 360 x 740 (Q-04). The link says what it opens, so it needs
+	// no label. Each names the Pokémon as that screen's title does (nameOf): the
 	// species' English name from the names the phone keeps (js/checklists.js
 	// speciesNames, read once per device), else "Pokémon #039", while they
 	// load or when they never come. Their arrival rewrites the links' text
@@ -1125,7 +1131,7 @@ export function cardView(root, {lang, cardId}) {
 		loadedSpeciesNames(relabelPokemon);
 		relabelPokemon();
 
-		return pokemonShown.map(({anchor}) => h('span', {class: 'fact-line'}, anchor));
+		return h('div', {class: 'hero-pokemon', id: 'card-pokemon'}, pokemonShown.map(({anchor}) => anchor));
 	}
 
 	// The names the source gave the owner's copies, when every copy of this
@@ -1201,17 +1207,20 @@ export function cardView(root, {lang, cardId}) {
 				h('div', {class: 'hero-art'}, photos.show({art: cardArt, info, official: cardImage(card.image, 'high'), twins})),
 				h('div', {class: 'hero-facts'},
 					h('h2', {lang: names.english ? null : htmlLang(nameLang())}, name,
-						region ? h('span', {class: 'name-region', lang: 'en'}, ` (${region})`) : null),
+						// The space before the region stays outside it, so a long
+						// name wraps there rather than carry its last word ("GX")
+						// onto a line of its own.
+						region ? [' ', h('span', {class: 'name-region', lang: 'en'}, `(${region})`)] : null),
 					below ? h('p', {class: 'name-original', lang: htmlLang(nameLang())}, below) : null,
 					h('dl', {class: 'facts'},
 						row('Set', setLink(set, setName)),
-						row('Number', number),
-						row('Rarity', card.rarity),
-						row('Pokémon', pokemonLinks(card)),
+						row('Number', number, {pair: true}),
+						row('Rarity', card.rarity, {pair: true}),
 						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
 						row('Catalog', languageLabel(lang))
 					)
-				)
+				),
+				pokemonLinks(card)
 			),
 			twin.element,
 			copies,
