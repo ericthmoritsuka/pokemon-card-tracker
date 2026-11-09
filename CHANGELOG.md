@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
-- **v71:** a Pokémon's cards as a goal, and from there a binder.
+- **v71:** a Pokémon's cards as a goal, and from there a binder. `0fdc2f6`
   - On "Every Pikachu card", **Make this a goal** asks which languages to include, starting with the
     one shown. Once the goal exists, the same spot links to it ("Your goal: Every card in PT, JA").
   - The goal sits in Lists with the set and artist goals: how many you own, what is missing, set and
