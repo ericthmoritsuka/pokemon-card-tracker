@@ -17,14 +17,20 @@
 // scans at a share of the guide's height.
 //
 // Run: PLAYWRIGHT=/path/to/node_modules/playwright node --test tests/scan-log-browser.test.mjs
+//
+// Made to hold on a busy machine (2026-11-09): every wait is for the state
+// it checks, in the page where a round trip from here could miss it, and
+// "nothing more happens" is counted in the scanner's own looks, not in
+// wall-clock time. Each test has TEST_MS: a hang fails in minutes, not in
+// the 8 hours an overnight run once stalled here.
 
 import assert from 'node:assert/strict';
 import {readFile, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {after, before, describe, test} from 'node:test';
+import {after, afterEach, before, describe, test} from 'node:test';
 
 import {untilInPage} from './poll.mjs';
-import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
+import {cardImage, countLooks, LOOK_MS, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -34,18 +40,35 @@ const CARD = 'me01-001';
 const CARD_B = 'sv03.5-025';
 const FRAME = {height: 3840, width: 2160};
 
+// The most one test may take. The slowest takes about 75 s on a quiet
+// machine and a few minutes on a busy one; past this it is stuck, not slow.
+const TEST_MS = 10 * 60 * 1000;
+
 let harness;
 let browser;
+
+// The contexts still open. A test that fails leaves its page scanning
+// (frame loop, picture worker, OCR) until the file ends, which loaded the
+// machine for every test after it: each is closed after its test, whatever
+// happened.
+const contexts = new Set();
 
 before(async () => {
 	harness = await startScanHarness();
 	browser = await chromium.launch();
-});
+}, {timeout: TEST_MS});
+
+afterEach(async () => {
+	const left = [...contexts];
+
+	contexts.clear();
+	await Promise.all(left.map((context) => context.close().catch(() => {})));
+}, {timeout: 60000});
 
 after(async () => {
 	await browser.close();
 	await harness.close();
-});
+}, {timeout: 60000});
 
 // In the page before any script: getUserMedia answers with a portrait
 // canvas stream showing window.scene ({kind: 'table' | 'paper' | 'card',
@@ -134,12 +157,14 @@ function portraitCamera({height, width}) {
 async function open({record = false, slowPhotos = 0, viewport = {height: 780, width: 384}} = {}) {
 	const context = await browser.newContext({acceptDownloads: true, deviceScaleFactor: 2.8125, viewport});
 
+	contexts.add(context);
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await routeTcgdex(context);
 	await context.route('**/__test-card.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(CARD)}));
 	await context.route('**/__test-card-b.webp', async (route) => route.fulfill({contentType: 'image/webp', path: await cardImage(CARD_B)}));
 	await context.addInitScript(portraitCamera, FRAME);
+	await context.addInitScript(countLooks, LOOK_MS);
 
 	if (record) {
 		await context.addInitScript(() => localStorage.setItem('card-tracker:scan-log', 'on'));
@@ -180,15 +205,22 @@ const setScene = (page, scene) => page.evaluate((next) => {
 const captures = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.captures);
 
 // Waits until the scanner has taken at least `count` pictures since the
-// page loaded.
-async function capturesReach(page, count, timeout = 10000) {
-	const until = Date.now() + timeout;
+// page loaded. Ten seconds was too few on a busy machine, where each look
+// runs late; a card that is never taken still fails.
+const capturesReach = (page, count, timeout = 60000) => untilInPage(page, `${count} captures`, async (want) => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.captures >= want, {arg: count, timeout});
 
-	while (await captures(page) < count) {
-		assert.ok(Date.now() < until, `${count} captures within ${timeout} ms`);
-		await page.waitForTimeout(100);
-	}
+// Lets the scanner look at the camera `count` more times (LOOK_MS each
+// when the machine keeps up), for checking that nothing more is taken: a
+// fixed wait gave a busy machine fewer looks, and so fewer chances to get
+// it wrong.
+async function looksPass(page, count) {
+	const from = await page.evaluate(() => window.looks);
+
+	await page.waitForFunction((target) => window.looks >= target, from + count, {polling: 50, timeout: 120000});
 }
+
+// The scanner's looks in `ms` of a machine that keeps up.
+const looksIn = (ms) => Math.ceil(ms / LOOK_MS);
 
 const tiles = (page) => page.locator('#scan-tray .scan-tile').count();
 
@@ -223,14 +255,61 @@ async function trayIs(page, check, what, timeout = 60000) {
 
 const logEntries = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/log.js')).listEntries());
 
-// The card leaves the guide for a moment, then `card` is held in it.
+// The card leaves the guide until the scanner has seen it gone, then `card`
+// is held in it. Auto capture takes the same card again only after a look
+// that finds no card (steady.js createAutoCapture), and the frame loop
+// marks each look on the guide (is-seen, on while a card is seen), so the
+// mark is set here with the table and the card comes back once a look has
+// cleared it. A fixed 700 ms let a busy machine miss the empty table, and
+// the card held on was never taken again.
 async function holdAgain(page, card) {
-	await setScene(page, {kind: 'table'});
-	await page.waitForTimeout(700);
+	await page.evaluate(() => {
+		window.scene = {kind: 'table'};
+		sessionStorage.setItem('test-scene', JSON.stringify(window.scene));
+		document.getElementById('scan-guide').classList.add('is-seen');
+	});
+	await page.waitForFunction(() => !document.getElementById('scan-guide').classList.contains('is-seen'), null, {polling: 50, timeout: 60000});
 	await setScene(page, {card, kind: 'card', size: 0.95});
 }
 
 const barOpen = (page) => page.locator('#scan-repeat-add').count();
+
+// Waits in the page for the repeat bar and, with `tap` ('add' or 'no'),
+// answers it the moment it opens, as a finger would: the bar closes as No
+// by itself 8 s after it opens (view.js REPEAT_ASK_MS), and on a busy
+// machine a round trip to see it and another to tap it took longer than
+// that. The button tapped is the one on top at its middle. Answers what
+// the bar showed, or null when it did not open within `timeout` ms.
+const whenBarOpens = (page, {tap = null, timeout = 60000} = {}) => page.evaluate(async ({tap: which, timeout: ms}) => {
+	const until = Date.now() + ms;
+
+	while (!document.getElementById('scan-repeat-add')) {
+		if (Date.now() > until) {
+			return null;
+		}
+
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+
+	const box = (id) => document.querySelector(id).getBoundingClientRect();
+	const button = which && document.getElementById(`scan-repeat-${which}`);
+	const at = button ? button.getBoundingClientRect() : null;
+	const tapped = at ? document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2) : null;
+	const seen = {
+		bar: box('#scan-repeat'),
+		confirm: document.querySelectorAll('#scan-confirm').length,
+		heights: {'#scan-repeat-add': box('#scan-repeat-add').height, '#scan-repeat-no': box('#scan-repeat-no').height},
+		shutter: box('#scan-shutter'),
+		tapped: Boolean(tapped && button.contains(tapped)),
+		text: document.getElementById('scan-repeat-text').textContent,
+	};
+
+	if (seen.tapped) {
+		tapped.click();
+	}
+
+	return seen;
+}, {tap, timeout});
 
 async function waitUntil(check, what, timeout = 30000) {
 	const end = Date.now() + timeout;
@@ -242,13 +321,13 @@ async function waitUntil(check, what, timeout = 30000) {
 }
 
 describe('continuous scanning (Eric, 2026-10-09)', () => {
-	test('a card held still is taken once, a card swapped straight for another is taken, and no sheet opens', async () => {
+	test('a card held still is taken once, a card swapped straight for another is taken, and no sheet opens', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open();
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 		await trayIs(page, (items) => items.length === 1 && items[0].card === CARD, 'card A taken');
 		await settled(page);
-		await page.waitForTimeout(2500);
+		await looksPass(page, looksIn(2500));
 		assert.equal(await captures(page), 1, 'card A held still: one capture');
 		assert.equal(await page.locator('#scan-confirm').count(), 0, 'no sheet opened by itself');
 		assert.equal(await page.locator('#scan-run-count').textContent(), 'Add · 1 card');
@@ -259,7 +338,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await capturesReach(page, 2);
 		await trayIs(page, (items) => items.length === 2 && items[1].card === CARD_B, 'card B taken');
 		await settled(page);
-		await page.waitForTimeout(2000);
+		await looksPass(page, looksIn(2000));
 		assert.equal(await captures(page), 2, 'card B held still: one capture');
 		assert.equal(await page.locator('#scan-run-count').textContent(), 'Add · 2 cards');
 		assert.equal(await page.locator('#scan-confirm').count(), 0);
@@ -268,42 +347,22 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await context.close();
 	});
 
-	test('the same card again by auto capture asks Add a copy or Mistake; no answer is Mistake', async () => {
+	test('the same card again by auto capture asks Add a copy or Mistake; no answer is Mistake', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open({record: true});
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 		await trayIs(page, (items) => items.length === 1 && items[0].status === 'ready', 'card A ready');
 
 		// Mistake: nothing added. The bar is read and answered in one step in
-		// the page: it closes as No by itself 8 s after it opens
-		// (REPEAT_ASK_MS), and on a busy machine a round trip per check plus
-		// a screenshot took longer than that, so Mistake was never clicked.
-		// The button tapped is the one on top at its middle, as a finger
-		// would reach it.
+		// the page (whenBarOpens): it closes as No by itself 8 s after it
+		// opens (REPEAT_ASK_MS), and on a busy machine a round trip per check
+		// plus a screenshot took longer than that, so Mistake was never
+		// clicked.
 		await holdAgain(page, 'a');
-		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
 
-		const seen = await page.evaluate(() => {
-			const box = (id) => document.querySelector(id).getBoundingClientRect();
-			const no = document.getElementById('scan-repeat-no');
-			const {height, left, top, width} = no.getBoundingClientRect();
-			const tapped = document.elementFromPoint(left + width / 2, top + height / 2);
-			const answer = {
-				bar: box('#scan-repeat'),
-				confirm: document.querySelectorAll('#scan-confirm').length,
-				heights: {'#scan-repeat-add': box('#scan-repeat-add').height, '#scan-repeat-no': height},
-				shutter: box('#scan-shutter'),
-				tapped: Boolean(tapped && no.contains(tapped)),
-				text: document.getElementById('scan-repeat-text').textContent,
-			};
+		const seen = await whenBarOpens(page, {tap: 'no'});
 
-			if (answer.tapped) {
-				tapped.click();
-			}
-
-			return answer;
-		});
-
+		assert.ok(seen, 'the bar opens');
 		assert.equal(seen.text, 'Same card as the last one.');
 		assert.equal(seen.confirm, 0, 'a bar, not a sheet');
 		assert.ok(seen.bar.y + seen.bar.height <= seen.shutter.y, 'the bar is clear of the shutter');
@@ -319,34 +378,37 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		// No answer: the same as Mistake, after about 8 s. The bar's picture
 		// is taken here, where nothing has to be tapped before it closes.
 		await holdAgain(page, 'a');
-		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
+		assert.ok(await whenBarOpens(page), 'the bar opens again');
 		await page.screenshot({path: '/tmp/scan-repeat-bar.png'});
-		await page.waitForSelector('#scan-repeat-add', {state: 'detached', timeout: 12000});
+		// Closed by its own timer in the page; the deadline here only has to
+		// outlast a busy machine's late timers.
+		await page.waitForSelector('#scan-repeat-add', {state: 'detached', timeout: 30000});
 		await trayIs(page, (items) => items.length === 1 && items[0].copies === 1, 'no answer adds nothing');
 
-		// Add a copy: the tile stands for two.
+		// Add a copy: the tile stands for two. Tapped in the page the moment
+		// the bar opens, for the same reason as Mistake.
 		const before = (await page.evaluate(() => window.buzzes)).length;
 
 		await holdAgain(page, 'a');
-		await page.waitForSelector('#scan-repeat-add', {timeout: 30000});
-		await page.click('#scan-repeat-add');
+
+		const added = await whenBarOpens(page, {tap: 'add'});
+
+		assert.ok(added, 'the bar opens a third time');
+		assert.ok(added.tapped, 'Add a copy is on top where it is tapped');
 		await trayIs(page, (items) => items.length === 1 && items[0].copies === 2, 'Add a copy');
 		assert.equal(await barOpen(page), 0);
 		assert.ok((await page.evaluate(() => window.buzzes)).slice(before).includes(40), 'Add a copy buzzes');
 		await page.waitForFunction(() => document.querySelector('#scan-tray .scan-tile-copies') && document.querySelector('#scan-tray .scan-tile-copies').textContent === '×2');
 		assert.equal(await page.locator('#scan-tray .scan-qty').count(), 0, 'the quantity badge is for copies beyond this card\'s own');
 
-		let outcomes = [];
+		// The log is written behind the screen: wait until every scan after
+		// the first has its outcome, then check them all.
+		const outcomes = await untilInPage(page, 'an outcome for every scan after the first', async () => {
+			const entries = await (await import('/pokemon-card-tracker/js/scan/log.js')).listEntries();
+			const list = entries.map((entry) => entry.outcome && `${entry.outcome.kind}${entry.outcome.why ? ` ${entry.outcome.why}` : ''}`);
 
-		for (let i = 0; i < 50; i++) {
-			outcomes = (await logEntries(page)).map((entry) => entry.outcome && `${entry.outcome.kind}${entry.outcome.why ? ` ${entry.outcome.why}` : ''}`);
-
-			if (outcomes.length === 4 && outcomes[3]) {
-				break;
-			}
-
-			await page.waitForTimeout(100);
-		}
+			return list.length >= 4 && list.slice(1).every(Boolean) ? list : null;
+		}, {timeout: 30000});
 
 		assert.deepEqual(outcomes, [null, 'dropped repeat', 'dropped repeat', 'added-copy']);
 		assert.deepEqual(errors, []);
@@ -364,7 +426,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 	// saved photo itself: on a busy machine the test's own clock ran
 	// seconds behind the scanner, and a 4 s window measured from it failed
 	// on v47 and v48 alike.
-	test('the same card again by auto capture 2.6 s later, while the first one\'s photo is still being saved, asks Add a copy or Mistake', async () => {
+	test('the same card again by auto capture 2.6 s later, while the first one\'s photo is still being saved, asks Add a copy or Mistake', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open({record: true, slowPhotos: 8000});
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
@@ -379,7 +441,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		const firstSaved = await page.evaluate(async (id) => {
 			const {scanStats} = await import('/pokemon-card-tracker/js/scan/view.js');
 			const {loadPhoto} = await import('/pokemon-card-tracker/js/scan/draft.js');
-			const until = Date.now() + 15000;
+			const until = Date.now() + 60000;
 
 			while (scanStats.captures < 2) {
 				if (Date.now() > until) {
@@ -392,19 +454,16 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 			return Boolean(await loadPhoto(id));
 		}, firstId);
 
-		assert.notEqual(firstSaved, null, '2 captures within 15000 ms');
+		assert.notEqual(firstSaved, null, '2 captures within 60000 ms');
 		assert.equal(firstSaved, false, 'taken again before the first photo was saved');
 
 		// Read and answered in one step, as in the test above: the bar closes
 		// as No by itself 8 s after it opens.
-		await page.waitForSelector('#scan-repeat-add', {timeout: 60000});
-		assert.equal(await page.evaluate(() => {
-			const text = document.getElementById('scan-repeat-text').textContent;
+		const seen = await whenBarOpens(page, {tap: 'no'});
 
-			document.getElementById('scan-repeat-no').click();
-
-			return text;
-		}), 'Same card as the last one.');
+		assert.ok(seen, 'the bar opens');
+		assert.equal(seen.text, 'Same card as the last one.');
+		assert.ok(seen.tapped, 'Mistake is on top where it is tapped');
 		assert.equal(await barOpen(page), 0);
 
 		const items = await trayIs(page, (list) => list.length === 1 && list[0].status === 'ready', 'one tile');
@@ -414,7 +473,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await context.close();
 	});
 
-	test('A, B, A by auto capture gives three tiles and no bar; the shutter on A adds a fourth; the tile x removes one, and Undo brings it back', async () => {
+	test('A, B, A by auto capture gives three tiles and no bar; the shutter on A adds a fourth; the tile x removes one, and Undo brings it back', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open({record: true});
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
@@ -464,7 +523,7 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await context.close();
 	});
 
-	test('the Copies stepper: 3 copies are kept through a reload, saved as 3, and Undo session takes all 3 back; the log records it', async () => {
+	test('the Copies stepper: 3 copies are kept through a reload, saved as 3, and Undo session takes all 3 back; the log records it', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open({record: true});
 		const liveCards = () => page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).length);
 
@@ -495,12 +554,14 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		assert.equal(await page.locator('#scan-saved-line').textContent(), 'Saved 3 cards');
 		assert.equal(await liveCards(), 3);
 
-		let entry = null;
+		// The log is written behind the screen. Five seconds of polling, with
+		// nothing said when they ran out, was too few on a busy machine.
+		const entryOf = (what, done) => untilInPage(page, what, async ({id, done: check}) => {
+			const found = (await (await import('/pokemon-card-tracker/js/scan/log.js')).listEntries()).find((one) => one.id === id);
 
-		for (let i = 0; i < 50 && !(entry && entry.outcome); i++) {
-			entry = (await logEntries(page)).find((one) => one.id === item.id);
-			await page.waitForTimeout(100);
-		}
+			return found && found.outcome && (check !== 'undone' || found.outcome.undone) ? found : null;
+		}, {arg: {done, id: item.id}, timeout: 30000});
+		let entry = await entryOf('the scan\'s logged outcome', 'outcome');
 
 		assert.equal(entry.source, 'camera');
 		assert.equal(entry.how, 'auto');
@@ -514,17 +575,13 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await page.click('#scan-undo-session');
 		await untilInPage(page, 'Undo to leave no cards in the collection', async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).length === 0, {timeout: 30000});
 
-		for (let i = 0; i < 50 && !entry.outcome.undone; i++) {
-			entry = (await logEntries(page)).find((one) => one.id === item.id);
-			await page.waitForTimeout(100);
-		}
-
+		entry = await entryOf('the logged outcome marked undone', 'undone');
 		assert.equal(entry.outcome.undone, true);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
 
-	test('Phone check: the log switches, its size, one file to download, and Clear log with a confirmation', async () => {
+	test('Phone check: the log switches, its size, one file to download, and Clear log with a confirmation', {timeout: TEST_MS}, async () => {
 		const {context, errors, page} = await open({record: true});
 
 		await setScene(page, {card: 'a', kind: 'card', size: 0.95});
@@ -573,14 +630,27 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		// Share hands over a file made ahead, so the sheet opens within the
 		// tap's few seconds, as plain text with the same JSON inside.
 		await page.waitForSelector('#scan-log-share:not([hidden])');
+		//
+		// A tap answers in the status line once it is done: Shared., or, when
+		// the file was not made yet, Ready. Tap Share again. The line was read
+		// right after the tap, while the share was still under way and the
+		// line still held the download's message, and the test then tapped
+		// again: two shares, and a wait for exactly one that never ended.
+		const statusAfter = async (...before) => {
+			await page.waitForFunction((was) => !was.includes(document.getElementById('scan-log-status').textContent), before, {polling: 50, timeout: 60000});
+
+			return page.locator('#scan-log-status').textContent();
+		};
+		const savedSaid = await page.locator('#scan-log-status').textContent();
+
 		await page.click('#scan-log-share');
 
-		if ((await page.locator('#scan-log-status').textContent()) !== 'Shared.') {
-			await page.waitForFunction(() => /Tap Share again|Shared\./.test(document.getElementById('scan-log-status').textContent));
+		if (await statusAfter(savedSaid, 'Getting the file ready...') === 'Ready. Tap Share again.') {
 			await page.click('#scan-log-share');
+			await statusAfter('Ready. Tap Share again.');
 		}
 
-		await page.waitForFunction(() => window.shared.length === 1);
+		assert.equal(await page.evaluate(() => window.shared.length), 1, 'shared once');
 
 		const shared = await page.evaluate(() => window.shared[0]);
 
@@ -605,13 +675,19 @@ describe('continuous scanning (Eric, 2026-10-09)', () => {
 		await context.close();
 	});
 
-	test('the running count sits over the camera, above the guide and clear of the shutter, at 360 and 384 px wide', async () => {
+	test('the running count sits over the camera, above the guide and clear of the shutter, at 360 and 384 px wide', {timeout: TEST_MS}, async () => {
 		for (const width of [360, 384]) {
 			const {context, errors, page} = await open({viewport: {height: 780, width}});
 
 			await setScene(page, {card: 'a', kind: 'card', size: 0.95});
 			await trayIs(page, (items) => items.length === 1 && items[0].status === 'ready', 'card A ready');
-			await page.waitForTimeout(300);
+			// Measured at rest: the count shown, and the capture flash, which
+			// scales the guide, over. A fixed 300 ms was not always enough.
+			await page.waitForFunction(() => {
+				const guide = document.getElementById('scan-guide');
+
+				return !document.getElementById('scan-run-count').hidden && !guide.getAnimations().some((animation) => animation instanceof CSSAnimation);
+			}, null, {polling: 50, timeout: 30000});
 
 			const count = await page.locator('#scan-run-count').boundingBox();
 			const guide = await page.locator('#scan-guide').boundingBox();
