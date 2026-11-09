@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-09',
 		items: [
+			'On a Pokémon\'s cards (Every Pikachu card), tap Make this a goal and tick the languages you want.',
+			'The goal shows in Lists with how many you own, what is missing, and one tap to add a missing card to your wishlist.',
+			'New binder, From a list, then the goal: a binder with a pocket for every card, the ones you own in place and the rest waiting for you to find them.',
+		],
+		version: 'v71',
+	},
+	{
+		date: '2026-11-09',
+		items: [
 			'On a card\'s page, tap its Set to open that set\'s page.',
 			'Tap Every Jigglypuff card, or whichever Pokémon it is, to see every print of that Pokémon with Owned and Missing, no checklist needed.',
 			'A row of flags at the top shows one language at a time, starting with the card\'s own; a language loads only when you tap its flag.',

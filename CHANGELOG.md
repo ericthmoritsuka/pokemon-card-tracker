@@ -14,6 +14,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-09
 
+- **v71:** a Pokémon's cards as a goal, and from there a binder.
+  - On "Every Pikachu card", **Make this a goal** asks which languages to include, starting with the
+    one shown. Once the goal exists, the same spot links to it ("Your goal: Every card in PT, JA").
+  - The goal sits in Lists with the set and artist goals: how many you own, what is missing, set and
+    rarity filters, and one tap to put a missing card on your wishlist. Copies with no language count.
+  - **New binder**, **From a list**, then the goal gives one pocket per card, oldest set first: the
+    cards you own in place, the rest as placeholders that fill when you get them.
+  - A family phone still on version 70 hides the goal and keeps it, and its binder, untouched.
+
 - **v70:** from a card's page, open its set or every card of its Pokémon, one language at a time. `8f68302`
   - A card's **Set** opens that set's page, in the card's catalog and language.
   - Under the card, "Every Jigglypuff card" opens every print of that Pokémon, the same screen a
