@@ -866,23 +866,37 @@ export function cardsScreen(root, {
 		].filter(Boolean).join(', ');
 	}
 
+	// A List row's language fact: the flag and chip, or for a copy with no
+	// language saved the words its accessible name says (js/languages.js
+	// languageLabel), never "NULL".
+	const rowLanguage = (code) => (code
+		? h('span', {class: 'row-lang'}, flagBadge([code], {prefix: ''}), languageChip(code))
+		: languageLabel(code));
+
+	// A List row's facts: language, finish, and copies. ×N follows the
+	// badge rule, never ×1.
+	function rowFacts(group, finish) {
+		const count = group.entries.length;
+
+		return [
+			rowLanguage(group.language),
+			finish,
+			count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
+			isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
+		];
+	}
+
 	// A List row (js/card-view-mode.js cardRow): the thumbnail, name and
-	// value, set and number, then language, finish, and copies. ×N follows
-	// the badge rule, never ×1; the accessible name always counts.
+	// value, set and number, then the facts. The accessible name always
+	// counts the copies.
 	function listRow(group, info, src) {
 		const finish = finishText(group);
-		const count = group.entries.length;
 		// First, as it works out whether the card has a price at all.
 		const price = priceNode(group);
 
 		return cardRow({
 			art: {info, src},
-			facts: [
-				h('span', {class: 'row-lang'}, flagBadge([group.language], {prefix: ''}), languageChip(group.language)),
-				finish,
-				count > 1 ? h('span', {class: 'row-qty'}, `×${count}`) : null,
-				isFavorite(group) ? h('span', {class: 'row-fav'}, '★') : null,
-			],
+			facts: rowFacts(group, finish),
 			label: cardLabel(group, {finish, value: valueText(group)}),
 			meta: [group.setName, printedNumber(group.record)].filter(Boolean).join(' · '),
 			names: tileNames(group.names, group.nameLang),

@@ -90,11 +90,11 @@ async function phone(viewport = PHONE) {
 }
 
 // The collection, with Pikachu's full record saved so its finish is known.
-async function open(page, view = null) {
+async function open(page, view = null, {copies = COPIES_TWO} = {}) {
 	const pikachu = CARDS.find((card) => card.id === 'tsb2-025');
 
 	await seed(page, server.origin, {
-		copies: COPIES_TWO,
+		copies,
 		index: indexWithImages(),
 		local: view ? {[VIEW_KEY]: view} : {},
 		records: {[`card:en:${pikachu.id}`]: {at: Date.now(), data: fullRecord(pikachu)}},
@@ -242,6 +242,36 @@ describe('the View switch', () => {
 
 			await row.click();
 			await page.waitForURL(/\/cards\/en\/tsb2-025$/, TIMEOUT);
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			await context.close();
+		}
+	});
+
+	test('a copy with no language says "Language not set" in its List row, never "NULL", and in no view shows "NULL"', async () => {
+		const {context, errors, page} = await phone();
+		// Sprigatito saved with no language, as an old import can leave it.
+		const copies = COPIES_TWO.map((copy) => (copy.id === 'c-08' ? {...copy, language: null} : copy));
+
+		try {
+			await open(page, 'list', {copies});
+
+			const row = page.locator('.card-grid > .card-row[href$="cards/en/tsb2-090"]');
+
+			await row.waitFor(TIMEOUT);
+			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['Language not set']);
+			assert.equal(await row.locator('.flags').count(), 0, 'no empty flag group');
+			assert.match(await row.getAttribute('aria-label'), /^Sprigatito, 090 of 120, Test Beta, Language not set, 1 copy/);
+
+			for (const view of VIEWS) {
+				await choose(page, view);
+
+				const tile = page.locator('.card-grid > .tile[href$="cards/en/tsb2-090"]');
+
+				assert.doesNotMatch(await tile.evaluate((element) => `${element.textContent} ${element.getAttribute('aria-label') || ''}`), /null/i, `no "NULL" in ${view}`);
+			}
+
 			assert.deepEqual(errors, []);
 		}
 		finally {
