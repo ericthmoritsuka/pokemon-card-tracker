@@ -1,0 +1,246 @@
+/* The views of a card grid (js/card-view-mode.js): Large, Grid, Mini, and
+   List, chosen by the grid's data-view. Grid is style.css's .card-grid as it
+   is. Every minimum grows with the text size, as Grid's does, so large text
+   gives fewer columns, never squeezed tiles or a sideways scroll. */
+
+/* The View select joins Sort, Filters, and Value in the bar's row. Where
+   the bar is wide enough for its text, the row is two even rows, the
+   selects left and the buttons right (Sort | Filters, View | Value), and
+   one row on a wide screen; narrower, as at large text on a small phone,
+   the row wraps as it always has, before any text is cut. */
+.fb-view-wrap {
+	flex: 1 1 7rem;
+	min-width: 7rem;
+}
+
+.fb:has(.fb-view-wrap) {
+	container-type: inline-size;
+}
+
+@container (min-width: 18rem) {
+	.fb-row:has(> .fb-view-wrap) {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+	}
+
+	.fb-row:has(> .fb-view-wrap) > * {
+		min-width: 0;
+	}
+}
+
+@container (min-width: 36rem) {
+	.fb-row:has(> .fb-view-wrap) {
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+	}
+}
+
+/* ------------------------------------------------------------- Large */
+
+/* Two a row on a phone (352 px of a 384 px screen holds two of 140 px, not
+   three); one at 200% text. */
+.card-grid[data-view="large"] {
+	gap: var(--space-3);
+	grid-template-columns: repeat(auto-fill, minmax(max(140px, 6.5rem), 1fr));
+}
+
+.card-grid[data-view="large"] .tile-name {
+	font-size: 1rem;
+}
+
+.card-grid[data-view="large"] .tile-original,
+.card-grid[data-view="large"] .tile > .tile-meta {
+	font-size: 0.875rem;
+}
+
+.card-grid[data-view="large"] .price-tile {
+	font-size: 1rem;
+}
+
+/* -------------------------------------------------------------- Mini */
+
+/* Five or six a row on a phone, like a binder page: the art and its
+   corners, no caption. Each tile is still a 48 px target and more. */
+.card-grid[data-view="mini"] {
+	gap: var(--space-1);
+	grid-template-columns: repeat(auto-fill, minmax(max(52px, 3.2rem), 1fr));
+}
+
+/* The "Photo by" and "English image" lines are captions too. */
+.card-grid[data-view="mini"] .tile > :not(.art-wrap) {
+	display: none;
+}
+
+/* Smaller corners, so the language chip and the count both fit the top of
+   a 52 px card. The language chip shows here although the tile is under
+   88 px: Mini keeps the chips a Grid tile shows (Eric, 2026-11-09). */
+.card-grid[data-view="mini"] .badge {
+	font-size: 0.625rem;
+	height: 16px;
+	min-width: 16px;
+	padding: 0 2px;
+}
+
+.card-grid[data-view="mini"] .badge-lang,
+.card-grid[data-view="mini"] .badge-finish {
+	left: 2px;
+}
+
+.card-grid[data-view="mini"] .badge-lang,
+.card-grid[data-view="mini"] .badge-qty {
+	top: 2px;
+}
+
+.card-grid[data-view="mini"] .badge-qty,
+.card-grid[data-view="mini"] .badge-status,
+.card-grid[data-view="mini"] .badge-fav {
+	right: 2px;
+}
+
+.card-grid[data-view="mini"] .badge-status,
+.card-grid[data-view="mini"] .badge-fav,
+.card-grid[data-view="mini"] .badge-finish {
+	bottom: 2px;
+}
+
+.card-grid[data-view="mini"] .badge-status {
+	width: 16px;
+}
+
+.card-grid[data-view="mini"] .badge-lang .flag {
+	height: 10px;
+	width: 14px;
+}
+
+@container (max-width: 87px) {
+	.card-grid[data-view="mini"] .badge-lang {
+		display: inline-flex;
+	}
+}
+
+/* A card with no image keeps only its name on the back. */
+.card-grid[data-view="mini"] .card-back {
+	border-width: 2px;
+	font-size: 0.625rem;
+	hyphens: auto;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	padding: 2px;
+}
+
+.card-grid[data-view="mini"] .card-back > :not(.card-back-name) {
+	display: none;
+}
+
+.card-grid[data-view="mini"] .card-back-name {
+	font-size: inherit;
+	max-width: 100%;
+}
+
+/* -------------------------------------------------------------- List */
+
+.card-grid[data-view="list"] {
+	gap: 0;
+	grid-template-columns: minmax(0, 1fr);
+}
+
+/* A row: the thumbnail, then its lines beside it. Every line wraps rather
+   than clips at large text. */
+.card-row {
+	border-bottom: 1px solid var(--border);
+	column-gap: var(--space-3);
+	display: grid;
+	grid-template-columns: max(48px, 3rem) minmax(0, 1fr);
+	padding: var(--space-2) 0;
+}
+
+.card-row > * {
+	grid-column: 2;
+	min-width: 0;
+}
+
+.card-row > .art-wrap {
+	align-self: start;
+	grid-column: 1;
+	grid-row: 1 / span 6;
+}
+
+/* The thumbnail says nothing in text: the row's lines do. */
+.card-row .card-back {
+	border-width: 2px;
+	padding: 0;
+}
+
+.card-row .card-back > * {
+	display: none;
+}
+
+/* The name, and the value at the end of its line or under it. */
+.row-head {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-2);
+	justify-content: space-between;
+}
+
+.card-row .tile-name {
+	flex: 1 1 6rem;
+	font-size: 1rem;
+	margin-top: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.card-row .tile-price {
+	flex: none;
+	margin: 0 0 0 auto;
+}
+
+.card-row .tile-original {
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.card-row > .tile-meta {
+	display: block;
+	font-size: 0.875rem;
+	line-height: 1.3;
+	overflow: visible;
+	overflow-wrap: anywhere;
+}
+
+/* Language, finish, and copies. */
+.row-facts {
+	align-items: center;
+	color: var(--muted);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.875rem;
+	gap: 2px var(--space-2);
+	line-height: 1.3;
+	margin-top: 2px;
+}
+
+.row-fact {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.row-lang {
+	align-items: center;
+	display: inline-flex;
+	font-weight: 600;
+	gap: var(--space-1);
+}
+
+.row-lang .flag {
+	height: 12px;
+	width: 16px;
+}
+
+.row-qty {
+	color: var(--text);
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+}
