@@ -14,7 +14,7 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-11
 
-- **v72:** save a card's picture from its page.
+- **v72:** save a card's picture from its page. `f7b4177`
   - Right-click the picture on a computer for the browser's own **Save image as**, on the card page
     and full screen.
   - **Save image** under the picture saves the one on screen as a PNG named after the card, such as
