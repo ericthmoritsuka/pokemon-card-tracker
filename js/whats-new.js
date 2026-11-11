@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-11',
+		items: [
+			'Save image under a card\'s picture saves it as a file named after the card, such as "Pikachu - Surging Sparks 057 (EN).png".',
+			'On a computer, right-click the card\'s picture for Save image as; on the phone, press and hold it. This works full screen too.',
+			'Your own photo of a card saves the same way, at its sharpest copy.',
+		],
+		version: 'v72',
+	},
+	{
 		date: '2026-11-09',
 		items: [
 			'On a Pokémon\'s cards (Every Pikachu card), tap Make this a goal and tick the languages you want.',
