@@ -140,7 +140,7 @@ async function device(fake, user, net) {
 		// kept by the HTTP cache, so each read sees the mode of the moment.
 		const headers = {'access-control-allow-origin': net.mode === 'nocors' ? '*, *' : '*', 'cache-control': 'no-store'};
 
-		return route.fulfill({body: PNG, contentType: png ? 'image/png' : 'image/webp', headers});
+		return route.fulfill({body: !png && net.webp ? net.webp : PNG, contentType: png ? 'image/png' : 'image/webp', headers});
 	});
 
 	const session = fake.session(user);
@@ -301,9 +301,23 @@ describe('saving a card\'s picture', () => {
 		assert.deepEqual(net.requests.filter((url) => url.endsWith('.png')), [`${IMAGE}/high.png`], 'one read for two taps');
 	});
 
-	test('with no PNG (a 404), the WebP is saved instead', async () => {
+	test('with no PNG to read, the WebP is read and saved as a PNG', async () => {
 		const {page} = phone;
 
+		// Real WebP bytes, so the PNG below comes from decoding and
+		// re-encoding rather than from the stub.
+		net.webp = Buffer.from(await page.evaluate(async () => {
+			const canvas = document.createElement('canvas');
+
+			canvas.width = 60;
+			canvas.height = 84;
+			canvas.getContext('2d').fillRect(0, 0, 30, 42);
+
+			const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp'));
+
+			return [...new Uint8Array(await blob.arrayBuffer())];
+		}));
+		assert.equal(net.webp.subarray(8, 12).toString(), 'WEBP');
 		net.mode = 'nopng';
 
 		const download = page.waitForEvent('download');
@@ -311,9 +325,12 @@ describe('saving a card\'s picture', () => {
 		await page.click('.ph-save-image');
 
 		const file = await download;
+		const bytes = await readFile(await file.path());
 
-		assert.equal(file.suggestedFilename(), 'Test Bulbasaur - Test set 001 (EN).webp');
+		assert.equal(file.suggestedFilename(), 'Test Bulbasaur - Test set 001 (EN).png');
+		assert.deepEqual([...bytes.subarray(0, 4)], [0x89, 0x50, 0x4e, 0x47], 'the file really is a PNG');
 		net.mode = 'ok';
+		net.webp = null;
 	});
 
 	test('when the cors read fails, the PNG opens in a new tab and a toast says to save it there', async () => {

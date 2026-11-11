@@ -22,9 +22,9 @@ export const RELEASES = [
 	{
 		date: '2026-11-11',
 		items: [
-			'Save image under a card\'s picture saves it as a file named after the card, such as "Pikachu - Surging Sparks 057 (EN).png".',
-			'On a computer, right-click the card\'s picture for Save image as; on the phone, press and hold it. This works full screen too.',
-			'Your own photo of a card saves the same way, at its sharpest copy.',
+			'On a computer, right-click a card\'s picture for Save image as, on its page or full screen.',
+			'Save image under the picture saves it as a PNG named after the card, such as "Pikachu - Surging Sparks 057 (EN).png". Your own photos save too.',
+			'The catalog\'s image server refuses most pictures to the app. Those open in a new tab, where you save them yourself.',
 		],
 		version: 'v72',
 	},

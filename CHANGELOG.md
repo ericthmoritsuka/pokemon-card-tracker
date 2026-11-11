@@ -14,13 +14,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-11
 
-- **v72:** save a card's picture straight from its page.
-  - **Save image** under the picture saves the one on screen as a file named after the card, such as
-    "Pikachu - Surging Sparks 057 (EN).png". Your own photo saves too, at its sharpest copy.
-  - Right-click the picture on a computer, or press and hold it on the phone, for the browser's own
-    **Save image as**, on the card page and full screen.
-  - When the catalog's image server will not hand the picture over, it opens in a new tab to save
-    from there. Offline, it says it needs a connection.
+- **v72:** save a card's picture from its page.
+  - Right-click the picture on a computer for the browser's own **Save image as**, on the card page
+    and full screen.
+  - **Save image** under the picture saves the one on screen as a PNG named after the card, such as
+    "Pikachu - Surging Sparks 057 (EN).png", and your own photos the same way.
+  - The catalog's image server refuses most pictures to the app. Those open in a new tab, where you
+    save them yourself. Offline, Save image says it needs a connection.
 
 ### 2026-11-09
 

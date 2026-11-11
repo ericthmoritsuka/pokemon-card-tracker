@@ -9,7 +9,10 @@
 // sends Access-Control-Allow-Origin twice on some images (js/image-folders.js),
 // which fails that read whatever the code does, and so does a 404, which it
 // sends with no CORS header. The WebP the carousel shows is tried next (the
-// service worker may have it kept, even offline); when both fail, the PNG
+// service worker may have it kept, even offline) and saved as a PNG (toPng).
+// On 2026-11-11, 32 of 48 sampled images failed both reads, from the CDN's
+// copies as the browser gets them, and a cache-busting request failed every
+// time; that is the TCGdex origin, so trying again does not help. When both fail, the PNG
 // opens in a new tab, where the browser's own menu saves it. A photo
 // (yours, or a family member's) is read the way the carousel reads it
 // (store.js: from the phone, else from the bucket), its detail copy when
@@ -123,6 +126,28 @@ async function readImage(url, fetchImpl) {
 	}
 }
 
+// The WebP as a PNG, so the file opens in any video or photo editor (some
+// do not take WebP). A cors read does not taint the canvas. When the browser
+// cannot decode or encode it, the WebP itself is kept.
+export async function toPng(blob) {
+	try {
+		const bitmap = await createImageBitmap(blob);
+		const canvas = document.createElement('canvas');
+
+		canvas.width = bitmap.width;
+		canvas.height = bitmap.height;
+		canvas.getContext('2d').drawImage(bitmap, 0, 0);
+		bitmap.close();
+
+		const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+
+		return png || blob;
+	}
+	catch {
+		return blob;
+	}
+}
+
 // Saves `slide` as a download. Resolves with what happened, for the tests
 // and the carousel: {outcome: 'saved', name} | {outcome: 'tab', url} |
 // {outcome: 'blocked', url} | {outcome: 'offline'} | {outcome: 'missing'}.
@@ -167,11 +192,12 @@ export async function saveSlideImage(slide, {
 		return {outcome: 'missing'};
 	}
 
-	for (const [url, ext] of [[urls.png, 'png'], [urls.webp, 'webp']]) {
-		const blob = await readImage(url, fetchImpl);
+	for (const url of [urls.png, urls.webp]) {
+		const read = await readImage(url, fetchImpl);
+		const blob = read && url === urls.webp ? await toPng(read) : read;
 
 		if (blob) {
-			const name = `${stem}.${ext}`;
+			const name = `${stem}.${blob.type === 'image/webp' ? 'webp' : 'png'}`;
 
 			download(blob, name);
 
