@@ -47,12 +47,17 @@ describe('file names', () => {
 	});
 });
 
-// What saveSlideImage did, with fetch, the download, the tab, and the toast
-// faked.
-function run(slide, {online = true, opens = true, reads = {}} = {}) {
+// What saveSlideImage did, with fetch, the relay, the download, the tab, and
+// the toast faked.
+function run(slide, {online = true, opens = true, reads = {}, relays = {}} = {}) {
 	const did = {downloads: [], fetched: [], notices: [], tabs: []};
 
 	const done = saveSlideImage(slide, {
+		relay(url) {
+			did.fetched.push(`relay ${url}`);
+
+			return Promise.resolve(relays[url] || null);
+		},
 		download: (blob, name) => did.downloads.push(name),
 		async fetchImpl(url, init) {
 			did.fetched.push(`${init && init.mode} ${url}`);
@@ -89,10 +94,21 @@ describe('saving', () => {
 		assert.deepEqual(did.notices, []);
 	});
 
-	test('when neither file can be read, the PNG opens in a tab and a toast says so', async () => {
+	test('when the PNG cannot be read, the relay\'s PNG is saved, before any WebP', async () => {
+		const did = await run(OFFICIAL, {
+			reads: {[`${BASE}/high.webp`]: new Blob(['webp'], {type: 'image/webp'})},
+			relays: {[`${BASE}/high.png`]: new Blob(['png'], {type: 'image/png'})},
+		});
+
+		assert.deepEqual(did.fetched, [`cors ${BASE}/high.png`, `relay ${BASE}/high.png`]);
+		assert.deepEqual(did.downloads, ['Pikachu ex - Surging Sparks 057 (EN).png']);
+		assert.deepEqual(did.tabs, []);
+	});
+
+	test('when nothing can be read, the PNG opens in a tab and a toast says so', async () => {
 		const did = await run(OFFICIAL);
 
-		assert.deepEqual(did.fetched, [`cors ${BASE}/high.png`, `cors ${BASE}/high.webp`]);
+		assert.deepEqual(did.fetched, [`cors ${BASE}/high.png`, `relay ${BASE}/high.png`, `cors ${BASE}/high.webp`]);
 		assert.deepEqual(did.tabs, [`${BASE}/high.png`]);
 		assert.deepEqual(did.notices.map((notice) => notice.message), ['Opened the image in a new tab. Save it from there.']);
 		assert.equal(did.result.outcome, 'tab');

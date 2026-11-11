@@ -923,6 +923,19 @@ print"), then the owner's own photos (several allowed, front and back). Each ima
 source label. "Use as main image" pins any one of them as what tiles show; without a pin, the
 first available image in that order is used. Tapping opens the image full screen.
 
+**Save image** (Eric, 2026-11-11; v72). He needed card pictures for a video and the page offered
+only to save the page. A right-click (computer) on the image, in the carousel and full screen,
+opens the browser's own image menu. **Save image** under the carousel saves the slide on screen
+as a PNG named after the card (`<Name> - <Set> <number> (<LANG>).png`), and an own photo from its
+detail copy when it has one (`js/photos/save.js`). TCGdex sends `Access-Control-Allow-Origin` twice on
+most pictures (32 of 48 sampled on 2026-11-11 failed for both PNG and WebP, and a request past the
+CDN's copies failed every time), so after the app's own read, the PNG is asked of an Edge Function
+(`supabase/functions/tcgdex-image`, README.md "Save Image Relay") that fetches only TCGdex card
+pictures, only for a signed-in person, and sends the header once. This is the first Edge Function;
+it holds no secret and needs no paid plan. After it, the WebP (the service worker may have it
+offline) is converted to a PNG in the browser, and last the PNG opens in a new tab. Long-press on
+Android is untested.
+
 The main image rule applies on every screen that draws a card, not only My Cards (Eric,
 2026-10-31; v54): binder pockets, placeholders, Gone pockets, list pockets and their copy picker,
 the card in hand, the tray and its Add cards picker, the owned-card picker, Not in a binder, Sets

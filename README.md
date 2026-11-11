@@ -95,6 +95,25 @@ New sign-ups stay off, so Google signs in only people who already have an accoun
 invited members, by the same email address. In a tab that is already open, the button can take
 up to ten minutes to appear, because the tab keeps the settings answer that long.
 
+### Save Image Relay
+
+**Save image** on a card's page saves the catalog picture as a file named after the card. TCGdex
+sends a doubled `Access-Control-Allow-Origin` header on most of its pictures, which stops the app
+from reading them, so the app asks a small Edge Function, `tcgdex-image`, to fetch the picture for
+it. Without the function, those pictures open in a new tab instead. It fetches only TCGdex card
+pictures, and only for a signed-in person, and fits the free plan.
+
+1. In the Supabase dashboard, open **Edge Functions**, deploy a new function from the editor, name
+   it `tcgdex-image`, replace the sample code with all of `supabase/functions/tcgdex-image/index.ts`,
+   and deploy it.
+
+1. In the function's settings, turn off JWT verification and save. The function checks the
+   person's sign-in itself, with Supabase Auth: the gateway's check does not accept the project's
+   publishable key.
+
+To check it, open a card in the live app while signed in and tap **Save image**: the PNG
+downloads with no new tab. Changing the function later means pasting the file again and deploying.
+
 ## Accounts and Sync
 
 - **One document per person.** The phone keeps the person's document in IndexedDB as before, and

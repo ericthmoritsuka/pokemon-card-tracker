@@ -358,6 +358,46 @@ describe('saving a card\'s picture', () => {
 		net.mode = 'ok';
 	});
 
+	test('when the cors read fails, the relay hands over the PNG, asked with the person\'s session', async () => {
+		const {context, page} = phone;
+		const asked = [];
+		let opened = false;
+		const onPage = () => {
+			opened = true;
+		};
+
+		await page.route('**/functions/v1/tcgdex-image?**', (route) => {
+			const request = route.request();
+
+			asked.push({
+				apikey: request.headers().apikey,
+				authorization: request.headers().authorization,
+				path: new URL(request.url()).searchParams.get('path'),
+			});
+
+			return route.fulfill({body: PNG, contentType: 'image/png', headers: {'access-control-allow-origin': '*'}});
+		});
+		net.mode = 'nocors';
+		context.on('page', onPage);
+
+		const download = page.waitForEvent('download');
+
+		await page.click('.ph-save-image');
+
+		const file = await download;
+
+		assert.equal(file.suggestedFilename(), 'Test Bulbasaur - Test set 001 (EN).png');
+		assert.deepEqual(await readFile(await file.path()), PNG);
+		assert.equal(asked.length, 1);
+		assert.equal(asked[0].path, new URL(`${IMAGE}/high.png`).pathname.slice(1));
+		assert.match(asked[0].authorization, /^Bearer \S+$/);
+		assert.ok(asked[0].apikey, 'the publishable key goes along');
+		assert.equal(opened, false, 'no tab');
+		context.off('page', onPage);
+		await page.unroute('**/functions/v1/tcgdex-image?**');
+		net.mode = 'ok';
+	});
+
 	test('offline, it says saving needs a connection and opens no tab', async () => {
 		const {context, page} = phone;
 		let opened = false;

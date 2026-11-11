@@ -19,8 +19,8 @@ are Recife time. Each line ends with its commit.
     and full screen.
   - **Save image** under the picture saves the one on screen as a PNG named after the card, such as
     "Pikachu - Surging Sparks 057 (EN).png", and your own photos the same way.
-  - The catalog's image server refuses most pictures to the app. Those open in a new tab, where you
-    save them yourself. Offline, Save image says it needs a connection.
+  - The catalog's image server refuses most pictures to the app, so a small Supabase function
+    fetches them for anyone signed in. Offline, Save image says it needs a connection.
 
 ### 2026-11-09
 

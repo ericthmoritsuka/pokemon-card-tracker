@@ -8,12 +8,15 @@
 // read in cors mode so it can be handed over as a named download. TCGdex
 // sends Access-Control-Allow-Origin twice on some images (js/image-folders.js),
 // which fails that read whatever the code does, and so does a 404, which it
-// sends with no CORS header. The WebP the carousel shows is tried next (the
-// service worker may have it kept, even offline) and saved as a PNG (toPng).
-// On 2026-11-11, 32 of 48 sampled images failed both reads, from the CDN's
-// copies as the browser gets them, and a cache-busting request failed every
-// time; that is the TCGdex origin, so trying again does not help. When both fail, the PNG
-// opens in a new tab, where the browser's own menu saves it. A photo
+// sends with no CORS header. On 2026-11-11, 32 of 48 sampled images failed
+// for both their PNG and their WebP, from the CDN's copies as the browser
+// gets them, and a request past those copies failed every time, so trying
+// again does not help. So the PNG is asked next of the project's relay
+// (supabase/functions/tcgdex-image), which fetches it server side and sends
+// the header once, for a signed-in person. Then the WebP the carousel shows
+// (the service worker may have it kept, even offline), saved as a PNG
+// (toPng). When all of them fail, the PNG opens in a new tab, where the
+// browser's own menu saves it. A photo
 // (yours, or a family member's) is read the way the carousel reads it
 // (store.js: from the phone, else from the bucket), its detail copy when
 // there is one, since that is the sharpest.
@@ -126,6 +129,42 @@ async function readImage(url, fetchImpl) {
 	}
 }
 
+// The relay waits this long at most, so the new tab that may follow still
+// counts as the tap's (Chrome lets a tap open a tab for about five seconds;
+// past that, the toast's Open image button is the new tap).
+const RELAY_TIMEOUT_MS = 4000;
+
+// A TCGdex picture through the project's relay (supabase/functions/
+// tcgdex-image), or null: signed out, offline, too slow, or the function not
+// deployed. auth.js is loaded only here, so the Node tests of this file do
+// not load supabase-js.
+export async function relayRead(url, fetchImpl = (...args) => fetch(...args)) {
+	try {
+		const {SUPABASE_KEY, SUPABASE_URL, getClient} = await import('../auth.js');
+		const client = await getClient();
+		const {data} = await client.auth.getSession();
+		const token = data && data.session && data.session.access_token;
+
+		if (!token) {
+			return null;
+		}
+
+		const path = new URL(url).pathname.slice(1);
+		const response = await fetchImpl(`${SUPABASE_URL}/functions/v1/tcgdex-image?path=${encodeURIComponent(path)}`, {
+			credentials: 'omit',
+			headers: {apikey: SUPABASE_KEY, authorization: `Bearer ${token}`},
+			mode: 'cors',
+			signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
+		});
+		const blob = response.ok ? await response.blob() : null;
+
+		return blob && /^image\/(?:png|webp)$/.test(blob.type) ? blob : null;
+	}
+	catch {
+		return null;
+	}
+}
+
 // The WebP as a PNG, so the file opens in any video or photo editor (some
 // do not take WebP). A cors read does not taint the canvas. When the browser
 // cannot decode or encode it, the WebP itself is kept.
@@ -159,6 +198,7 @@ export async function saveSlideImage(slide, {
 	notify = () => {},
 	online = () => navigator.onLine !== false,
 	open = openTab,
+	relay = relayRead,
 	resolveDetail = () => Promise.resolve(null),
 	resolveSrc = () => Promise.resolve(null),
 	slides = [],
@@ -192,9 +232,18 @@ export async function saveSlideImage(slide, {
 		return {outcome: 'missing'};
 	}
 
-	for (const url of [urls.png, urls.webp]) {
-		const read = await readImage(url, fetchImpl);
-		const blob = read && url === urls.webp ? await toPng(read) : read;
+	const reads = [
+		() => readImage(urls.png, fetchImpl),
+		() => relay(urls.png),
+		async () => {
+			const webp = await readImage(urls.webp, fetchImpl);
+
+			return webp ? toPng(webp) : null;
+		},
+	];
+
+	for (const read of reads) {
+		const blob = await read();
 
 		if (blob) {
 			const name = `${stem}.${blob.type === 'image/webp' ? 'webp' : 'png'}`;
