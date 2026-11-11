@@ -14,6 +14,18 @@
 	gap: 8px;
 }
 
+/* Save image and Add photo, side by side at equal widths; in the narrow
+   art column of a small phone each label wraps to two lines. */
+.ph-card-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.ph-card-actions > button {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
 .ph-viewport {
 	border-radius: 4.75% / 3.4%;
 	cursor: zoom-in;
@@ -47,9 +59,11 @@
 	position: relative;
 }
 
+/* The image takes pointer events, so a right-click or a long-press opens
+   the browser's image menu (Save image as); the events still bubble to the
+   carousel's swipe and tap handlers. Native drag stays off (carousel.js). */
 .ph-art img {
 	-webkit-user-drag: none;
-	pointer-events: none;
 }
 
 /* The source label: bottom centre, clear of the four corner badges. */
@@ -145,7 +159,8 @@ button.ph-dot[aria-current="true"]::after {
    overflow. */
 .ph-card button.ph-add,
 .ph-carousel button.ph-use-main,
-.ph-carousel button.ph-adjust-open {
+.ph-carousel button.ph-adjust-open,
+.ph-card button.ph-save-image {
 	font-size: 0.875rem;
 	line-height: 1.25;
 	padding: 8px 10px;
@@ -334,10 +349,10 @@ button.ph-full-close {
 	width: 100%;
 }
 
+/* Pointer events on, for the browser's image menu, as in the carousel. */
 .ph-full-img {
 	display: block;
 	height: 100%;
-	pointer-events: none;
 	user-select: none;
 	-webkit-user-drag: none;
 	width: 100%;

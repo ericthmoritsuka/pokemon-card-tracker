@@ -85,6 +85,7 @@ export const INTEGRATION = {
 			'\t\'js/photos/geometry.js\',',
 			'\t\'js/photos/index.js\',',
 			'\t\'js/photos/model.js\',',
+			'\t\'js/photos/save.js\',',
 			'\t\'js/photos/store.js\',',
 			'\t\'js/vision/camera.js\',',
 			'\t\'js/vision/pipeline.js\',',

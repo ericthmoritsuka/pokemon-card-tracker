@@ -575,7 +575,7 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   node --test --test-timeout=300000 tests/<name>.test.mjs` for `merge`, `names`, `liga`, `themes`,
   `wishlist`, `binders`, `checklists`, `app`, `live-sync`, `themes-app`, `wishlist-browser`,
   `shell`, `scan`, `scan-browser`, `photos`, `photos-browser`, `photos-viewer`,
-  `photos-viewer-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
+  `photos-viewer-browser`, `photos-save`, `photos-save-browser`, `prices`, `prices-browser`, `prices-app`, `binder-spread`,
   `binder-spread-browser`, `pokemon-cards`, `pokemon-cards-browser`, `twins`, `twins-browser`, `card-search`, `sets-card-search-browser`,
   `account-password`, `import`, `sheets-browser`, `copies-browser`, `filter-bar`,
   `my-cards-browser`, `family-browser`, `scan-guide-browser`, `trade-browser`, `favorites-browser`, `custom-cards`, `custom-cards-browser`, `collections`, `collections-browser`, `goals`, `goals-browser`, `scan-placeholder-browser`, `tcgdex`, `whats-new`, `clock-browser`, `scan-frames-browser`, `scan-log-browser`, `storage`, `storage-browser`, `reorder`, `binder-rules`, `scan-find`, `scan-holder-browser`, `scan-review-browser`, `scan-drop`; `scan-holder-browser` runs in real time and failed under the full run's load once while passing alone twice (2026-10-10);

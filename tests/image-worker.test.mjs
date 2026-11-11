@@ -349,3 +349,20 @@ describe('errors are not the doubled header', () => {
 		assert.deepEqual(storage.urls(CORS_CACHE), [pt(4)]);
 	});
 });
+
+describe('a card\'s PNG, read by Save image (js/photos/save.js)', () => {
+	test('is left to the browser: no fetch, nothing kept, nothing remembered', async () => {
+		const storage = makeStorage();
+		const net = tcgdex({doubled: ['https://assets.tcgdex.net/pt/me/me01/001/high.png']});
+		const worker = startWorker(storage, net.fetch);
+
+		assert.equal(await worker.show('https://assets.tcgdex.net/pt/me/me01/001/high.png'), null, 'no respondWith');
+		assert.deepEqual(worker.log, []);
+		assert.deepEqual(storage.urls(CORS_CACHE), []);
+		assert.deepEqual(storage.urls(OPAQUE_CACHE), []);
+
+		// The WebP beside it is still the worker's.
+		await worker.show(pt(1));
+		assert.deepEqual(storage.urls(CORS_CACHE), [pt(1)]);
+	});
+});

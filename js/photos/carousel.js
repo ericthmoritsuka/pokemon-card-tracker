@@ -170,11 +170,18 @@ export function settleIndex(index, count, dx, velocity, width) {
 //   onAdjust(slide) the Adjust button under one of the owner's own photos
 //                   (never a family member's photo), DESIGN.md section 5,
 //                   "Adjust a photo"
+//   onSave(slide, {slides}) the Save image button, on every slide and on a
+//                   family member's card too, since saving a picture
+//                   changes nothing (save.js). The button stays busy until
+//                   the promise settles, so a double tap saves once. It is
+//                   the returned saveButton, under the carousel until a
+//                   caller places it (cardPhotos puts it beside Add photo).
 export function photoCarousel({
 	art = plainArt,
 	mainId = null,
 	onAdjust = null,
 	onRemove = null,
+	onSave = null,
 	onSwipeConsumed = null,
 	onUseAsMain = null,
 	pending = new Set(),
@@ -198,6 +205,7 @@ export function photoCarousel({
 	const dots = h('div', {class: 'ph-dots'});
 	const useMain = h('button', {class: 'ph-use-main', type: 'button'}, 'Use as main image');
 	const adjust = h('button', {class: 'ph-adjust-open', hidden: true, type: 'button'}, 'Adjust');
+	const saveImage = h('button', {class: 'ph-save-image', hidden: true, type: 'button'}, 'Save image');
 	const live = h('p', {'aria-live': 'polite', class: 'ph-live'});
 	const element = h('div', {
 		'aria-roledescription': 'carousel',
@@ -205,12 +213,27 @@ export function photoCarousel({
 		'data-swipe-own': true,
 		'data-swipe-owner': OWNER,
 		role: 'region',
-	}, viewport, dots, useMain, adjust, live);
+	}, viewport, dots, useMain, adjust, saveImage, live);
 
 	element.setAttribute('aria-label', 'Card images');
 	contain(element);
 
 	const width = () => viewport.clientWidth || 1;
+
+	// The images take pointer events, so a right-click or a long-press opens
+	// the browser's own image menu (Save image as) rather than the page's.
+	// Dragging one would carry the image off instead of swiping, so native
+	// drag is off: -webkit-user-drag in css/photos.css for Chrome, and
+	// draggable plus this for Firefox.
+	viewport.addEventListener('dragstart', (event) => event.preventDefault());
+
+	const undraggable = (node) => {
+		for (const img of node.querySelectorAll('img')) {
+			img.draggable = false;
+		}
+
+		return node;
+	};
 
 	function place(dx = 0, animate = true) {
 		track.classList.toggle('ph-animate', animate);
@@ -236,12 +259,12 @@ export function photoCarousel({
 			node.setAttribute('aria-roledescription', 'slide');
 
 			if (slide.src) {
-				holder.append(art(slide.src, {eager: i === 0}));
+				holder.append(undraggable(art(slide.src, {eager: i === 0})));
 			}
 			else {
 				holder.append(h('div', {class: 'art loading'}));
 				resolveSrc(slide).then((url) => {
-					holder.replaceChildren(art(url, {eager: true}));
+					holder.replaceChildren(undraggable(art(url, {eager: true})));
 					node.dataset.src = url ? 'ready' : 'missing';
 				});
 			}
@@ -289,6 +312,7 @@ export function photoCarousel({
 		useMain.textContent = isMain ? 'Main image' : 'Use as main image';
 		useMain.setAttribute('aria-pressed', isMain ? 'true' : 'false');
 		adjust.hidden = readOnly || !onAdjust || !slide || slide.kind !== 'photo';
+		saveImage.hidden = !onSave || !slide;
 	}
 
 	function render() {
@@ -390,6 +414,32 @@ export function photoCarousel({
 		}
 	});
 
+	let saving = false;
+
+	saveImage.addEventListener('click', async () => {
+		const slide = state.slides[index];
+
+		if (!slide || !onSave || saving || destroyed) {
+			return;
+		}
+
+		saving = true;
+		saveImage.disabled = true;
+		saveImage.textContent = 'Saving…';
+
+		try {
+			await onSave(slide, {slides: state.slides});
+		}
+		catch {
+			// onSave says what went wrong itself.
+		}
+		finally {
+			saving = false;
+			saveImage.disabled = false;
+			saveImage.textContent = 'Save image';
+		}
+	});
+
 	let viewer = null;
 	let destroyed = false;
 
@@ -417,6 +467,7 @@ export function photoCarousel({
 
 	return {
 		current: () => state.slides[index] || null,
+		saveButton: saveImage,
 		// Closes the viewer (the screen is going); after it, a late save or
 		// photo download changes nothing.
 		destroy() {

@@ -2,7 +2,8 @@
 // (js/catalog-views.js) and the tiles (js/cards-view.js) import.
 //
 //   cardPhotos({cardId, catalog})   card detail's image block: the carousel
-//                                   with "Use as main image" and "Add photo"
+//                                   with "Use as main image", "Save image"
+//                                   (save.js), and "Add photo"
 //   photoCarousel(...)              the carousel alone (carousel.js)
 //   addPhotoButton(...)             the Add photo button alone
 //   mainImage(entry, catalogImage)  what a tile should draw (model.js)
@@ -59,6 +60,7 @@ import {
 	putPixels,
 } from './encode.js';
 import {gallerySlides, mainImage, mainSlideId, newPhoto, photoPath, pinnedImage} from './model.js';
+import {saveSlideImage} from './save.js';
 import {
 	addPhotoToCard,
 	cachedPhotoUrl,
@@ -338,6 +340,15 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 		art: (src, opts) => art(info, src, opts),
 		onAdjust: readOnly ? null : (slide) => adjust(slide),
 		onRemove: readOnly ? null : (slide) => removePhotoFromEntry(slide.entry, slide.id),
+		// Saving a picture changes nothing, so a family member's card has it
+		// too. The file is named from the page's info (name, set, number).
+		onSave: (slide, {slides}) => saveSlideImage(slide, {
+			info,
+			notify: toast,
+			resolveDetail: (item) => detailUrl(item.photo),
+			resolveSrc: (item) => photoUrl(item.photo),
+			slides,
+		}),
 		onUseAsMain: readOnly ? null : (slide) => useAsMain(slide.id),
 		readOnly,
 		resolveDetail: (slide) => detailUrl(slide.photo),
@@ -355,7 +366,11 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 		},
 	});
 	const add = addControl ? addControl.button : null;
-	const element = h('div', {class: 'ph-card'}, carousel.element, add);
+	// Save image and Add photo share a row, so the art column grows by one
+	// button rather than two and Ver na Liga stays on the first screen at
+	// 360 x 740 (plans/design-review.md, Q-04). One of them alone (a family
+	// member's card, a card with no copy) takes the whole row.
+	const element = h('div', {class: 'ph-card'}, carousel.element, h('div', {class: 'ph-card-actions'}, carousel.saveButton, add));
 	let adjustSheet = null;
 
 	// Adjust on one of the owner's photos: the sheet, then the adjusted

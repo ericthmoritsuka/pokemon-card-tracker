@@ -185,6 +185,7 @@ const SHELL = [
 	'js/photos/geometry.js',
 	'js/photos/index.js',
 	'js/photos/model.js',
+	'js/photos/save.js',
 	'js/photos/store.js',
 	'js/photos/viewer.js',
 	'js/photos/zoom.js',
@@ -706,6 +707,13 @@ self.addEventListener('fetch', (event) => {
 	// Card images, and the PokeAPI sprites the checklists show, so a list
 	// opened once still has its pictures offline in a store.
 	const isSprite = url.hostname === 'raw.githubusercontent.com' && url.pathname.startsWith('/PokeAPI/sprites/');
+
+	// A card's PNG is never shown, only read by Save image on card detail
+	// (js/photos/save.js), which needs the real cors answer: kept here, a
+	// failed read would leave a padded opaque copy of a 330 KB file behind.
+	if (url.hostname === IMAGE_HOST && url.pathname.endsWith('.png')) {
+		return;
+	}
 
 	if (url.hostname === IMAGE_HOST || isSprite) {
 		event.respondWith(imageResponse(event));
