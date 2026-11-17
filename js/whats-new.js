@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-17',
+		items: [
+			'A copy\'s sheet saves what you changed when you close it, however you close it: Close, Back, or a tap outside. Save still works.',
+			'The toast after a save has Undo, which puts the copy back as it was.',
+			'Remove copy still saves nothing you changed before tapping it.',
+		],
+		version: 'v73',
+	},
+	{
 		date: '2026-11-11',
 		items: [
 			'On a computer, right-click a card\'s picture for Save image as, on its page or full screen.',
