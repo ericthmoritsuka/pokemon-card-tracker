@@ -12,6 +12,14 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-17
+
+- **v73:** a copy's sheet saves your changes when you close it. `d3fcdde`
+  - Close, Back, Escape, a tap outside, or leaving the card saves what you changed, as Save does.
+    Before, only Save kept a change such as a finish set to reverse holo.
+  - The "Copy saved." toast has Undo, which puts the copy back as it was.
+  - Remove copy still saves nothing you changed before tapping it.
+
 ### 2026-11-11
 
 - **v72:** save a card's picture from its page. `f7b4177`
