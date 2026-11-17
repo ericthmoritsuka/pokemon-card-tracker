@@ -458,6 +458,9 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	remove.addEventListener('click', async () => {
 		let chosen = targets();
 
+		// Removing is not an edit: the sheet closes without saving.
+		settled = true;
+
 		// One copy from a row where every copy is in a pocket or has photos:
 		// ask which.
 		if (scope === 'one') {
@@ -510,10 +513,18 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		h('button', {class: 'primary', id: 'copy-save', type: 'submit'}, 'Save')
 	);
 
-	form.addEventListener('submit', async (event) => {
-		event.preventDefault();
-		error.textContent = '';
+	// Closing saves (Eric, 2026-11-17: copies changed to reverse holo after
+	// a scan were lost when he closed this sheet without Save, and the
+	// scanner's own sheet keeps a finish as soon as it is tapped). Close,
+	// Back, Escape, a tap outside, and leaving the card all save what
+	// changed, as Save does; only Remove closes without saving. The toast
+	// offers Undo, which puts the fields back as they were.
+	let settled = false;
+	let open = true;
 
+	// What the fields would change, read as they are now; null when
+	// nothing would.
+	function pending() {
 		const patches = targets().map((entry) => ({id: entry.id, patch: changes(entry, catalog, {
 			condition: condition.value || null,
 			language: language.value,
@@ -521,31 +532,109 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 			[finishKey(catalog)]: finish.value || null,
 		})})).filter((item) => Object.keys(item.patch).length);
 		const typed = notes.value.trim().slice(0, notesMax);
-		const noteChanged = notes.value !== cardNotes && typed !== ((cardInfoOf(noteSource) || {}).notes || '');
+		const notesBefore = (cardInfoOf(noteSource) || {}).notes || '';
+		const noteChanged = notes.value !== cardNotes && typed !== notesBefore;
+
+		if (!patches.length && !noteChanged) {
+			return null;
+		}
+
+		// Undo's patches, taken before the write: saving changes the
+		// entries in place.
+		const back = patches.map(({id, patch}) => {
+			const entry = entries.find((item) => item.id === id);
+
+			return {id, patch: Object.fromEntries(Object.keys(patch).map((key) => [key, key === 'fallback' ? Boolean(entry.fallback) : entry[key] ?? null]))};
+		});
+
+		return {back, noteChanged, notesBefore, noteSource, patches, typed};
+	}
+
+	async function write({noteChanged, noteSource: source, patches, typed}) {
+		if (noteChanged) {
+			await setCardNotes(source, typed);
+		}
+
+		if (patches.length === 1) {
+			await updateCard(patches[0].id, patches[0].patch);
+		}
+		else if (patches.length) {
+			await updateCards(patches);
+		}
+	}
+
+	// Each changed field back to what the copy had when the sheet opened.
+	async function unwrite({back, noteChanged, notesBefore, noteSource: source}) {
+		if (back.length) {
+			await updateCards(back);
+		}
+
+		if (noteChanged) {
+			await setCardNotes(source, notesBefore);
+		}
+	}
+
+	function saved(change) {
+		const n = change.patches.length;
+
+		toast(n ? (n === 1 ? 'Copy saved.' : `${n} copies saved.`) : 'Notes saved.', {
+			action: () => unwrite(change).catch((err) => toast(`Could not undo. ${errorText(err)}`)),
+			actionLabel: 'Undo',
+			timeout: UNDO_MS,
+		});
+	}
+
+	// The sheet closed, however it closed.
+	function closed() {
+		open = false;
+
+		if (settled) {
+			return;
+		}
+
+		settled = true;
+
+		const change = pending();
+
+		if (change) {
+			write(change).then(() => saved(change), (err) => toast(`Not saved. ${errorText(err)}`));
+		}
+	}
+
+	form.addEventListener('submit', async (event) => {
+		event.preventDefault();
+
+		if (settled) {
+			return;
+		}
+
+		error.textContent = '';
+		settled = true;
+
+		const change = pending();
 
 		try {
-			if (noteChanged) {
-				await setCardNotes(noteSource, typed);
-			}
-
-			if (patches.length === 1) {
-				await updateCard(patches[0].id, patches[0].patch);
-			}
-			else if (patches.length) {
-				await updateCards(patches);
-			}
-
-			close();
-
-			if (patches.length) {
-				toast(patches.length === 1 ? 'Copy saved.' : `${patches.length} copies saved.`);
-			}
-			else if (noteChanged) {
-				toast('Notes saved.');
+			if (change) {
+				await write(change);
 			}
 		}
 		catch (err) {
-			error.textContent = `Not saved. ${errorText(err)}`;
+			settled = false;
+
+			if (open) {
+				error.textContent = `Not saved. ${errorText(err)}`;
+			}
+			else {
+				toast(`Not saved. ${errorText(err)}`);
+			}
+
+			return;
+		}
+
+		close();
+
+		if (change) {
+			saved(change);
 		}
 	});
 
@@ -558,7 +647,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 		h('div', {class: 'copy-danger'}, h('div', {class: 'copy-danger-row'}, move, remove), leaves)
 	);
 
-	return show(sheet);
+	return show(sheet, closed);
 }
 
 // Only what changed, so an untouched field is never stamped as edited and

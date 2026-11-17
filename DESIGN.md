@@ -647,6 +647,16 @@ from its folded name, so the same place typed on two phones is one entry. Older 
 along: `storage` has been an entry field since the first import, and every app merges an unknown
 top-level list entry by entry and saves it back.
 
+**Closing the copy sheet saves** (Eric, 2026-11-17). After a scan session, Eric changed some
+copies to reverse holo in their sheets and closed them with Close instead of Save; the changes
+were lost, and he undid the session and scanned again. The scanner's own card sheet keeps a
+finish the moment it is tapped, so the two sheets taught opposite habits. Eric chose save on close
+over asking "Save changes?" on close. The copy sheet now saves what changed however it closes
+(Close, Back, Escape, a tap outside, leaving the card), as Save does, and the "Copy saved." toast
+carries Undo, which writes back the fields the save changed. Remove copy closes the sheet without
+saving, since removing is not an edit. The Add sheet is unchanged: closing it adds nothing, as
+before.
+
 ## 5. Catalog: TCGdex Coverage
 
 Checked against `https://api.tcgdex.net/v2/<language>/sets` on 2026-10-01.

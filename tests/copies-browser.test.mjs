@@ -288,6 +288,63 @@ describe('copies on card detail', () => {
 		await done();
 	});
 
+	test('closing the edit sheet saves what changed, with Undo; Remove saves nothing', async () => {
+		const {done, page} = await phone();
+		const normal = variantOf(pt, 'Normal');
+		const reverse = variantOf(pt, 'Reverse');
+
+		await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: normal});
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('.copies .copy-row');
+
+		// Close with nothing changed writes nothing and says nothing.
+		const stamp = (await entries(page))[0].updated_at;
+
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.click('#copy-sheet-close');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		assert.equal((await entries(page))[0].updated_at, stamp);
+		assert.equal(await page.locator('.toast', {hasText: 'saved'}).count(), 0);
+
+		// The finish changed, then Close rather than Save: it is kept.
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.selectOption('#copy-finish', reverse);
+		await page.click('#copy-sheet-close');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await page.waitForSelector('.copies .copy-text:has-text("Reverse holo")');
+		assert.equal((await entries(page))[0].variant_id, reverse);
+
+		// Undo on the toast puts it back.
+		const toast = page.locator('.toast', {hasText: 'Copy saved.'});
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await page.waitForSelector('.copies .copy-text:text-is("Normal")');
+		assert.equal((await entries(page))[0].variant_id, normal);
+
+		// Escape saves too.
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.selectOption('#copy-condition', 'Near Mint');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await page.waitForSelector('.copies .copy-text:has-text("Near Mint")');
+		assert.equal((await entries(page))[0].condition, 'Near Mint');
+
+		// A field changed and then Remove: the copy goes as it was, and Undo
+		// brings it back unedited.
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.selectOption('#copy-finish', reverse);
+		await page.click('#copy-remove');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await page.locator('.toast', {hasText: 'copy removed'}).locator('button', {hasText: 'Undo'}).click();
+		await page.waitForSelector('.copies .copy-row');
+		assert.equal((await entries(page))[0].variant_id, normal);
+		await done();
+	});
+
 	test('the notes box follows the language picked, and never writes one language\'s notes over another\'s', async () => {
 		const {done, page} = await phone();
 
