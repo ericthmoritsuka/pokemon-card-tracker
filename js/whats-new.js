@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-18',
 		items: [
+			'Under the hood: tidier code for the card page\'s prices, checklists, collections, and family wishlists. Nothing changes on screen.',
+			'The tests no longer reach the real exchange-rate site.',
+		],
+		version: 'v75',
+	},
+	{
+		date: '2026-11-18',
+		items: [
 			'On a small phone or with larger text, All, Owned, and Missing put each number under its word when they do not fit, instead of one wrapping alone.',
 			'A card page picture with no image keeps its text clear of the Official label.',
 			'Wanting a family member\'s Korean copies of a Japanese card asks for Korean.',
