@@ -100,13 +100,59 @@ export function h(tag, attrs, ...children) {
 // The All, Owned, and Missing segments with their counts ("All 207",
 // "Owned 9", "Missing 198"): each segment's text is its label, then its
 // number from counts ({all, owned, missing}). The label is kept in
-// data-label, so a redraw never stacks a second number.
+// data-label, so a redraw never stacks a second number. The number is its
+// own element: when any segment's label and number do not fit side by side
+// (a 324 px phone, larger system text, a four-digit count), every segment
+// puts its number under its label (segments-stacked, style.css), rather
+// than one segment wrapping alone (v74). Checked again when the control's
+// width changes, as on turning the phone.
 export function segmentCounts(control, counts) {
 	for (const span of control.querySelectorAll('span[data-label]')) {
 		const n = counts && counts[span.closest('label').querySelector('input').value];
 
-		span.textContent = typeof n === 'number' ? `${span.dataset.label} ${n.toLocaleString('en-US')}` : span.dataset.label;
+		if (typeof n === 'number') {
+			span.replaceChildren(`${span.dataset.label} `, h('span', {class: 'segment-count'}, n.toLocaleString('en-US')));
+		}
+		else {
+			span.textContent = span.dataset.label;
+		}
 	}
+
+	fitSegments(control);
+
+	if (!fitWatched.has(control) && typeof ResizeObserver === 'function') {
+		let width = control.clientWidth;
+
+		fitWatched.add(control);
+		// Stacking changes the control's height, so it waits for the next
+		// frame: changed inside the observer's own callback, Chrome reports a
+		// "ResizeObserver loop" error, which the app shows as an error.
+		new ResizeObserver(() => requestAnimationFrame(() => {
+			if (control.clientWidth !== width) {
+				width = control.clientWidth;
+				fitSegments(control);
+			}
+		})).observe(control);
+	}
+}
+
+const fitWatched = new WeakSet();
+
+function fitSegments(control) {
+	control.classList.remove('segments-stacked');
+
+	const spans = [...control.querySelectorAll('span[data-label]')];
+
+	// Not laid out yet (hidden, or not in the page): the observer checks
+	// once it has a width.
+	if (!control.clientWidth) {
+		return;
+	}
+
+	// A segment too narrow for its words widens its column (1fr keeps the
+	// words' width as its least), so the control overflows rather than the
+	// segment.
+	control.classList.toggle('segments-stacked', control.scrollWidth > control.clientWidth || spans.some((span) => span.scrollWidth > span.clientWidth));
 }
 
 export function namedError(name, message) {
