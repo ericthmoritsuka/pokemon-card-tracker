@@ -14,6 +14,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-18
 
+- **v76:** the scanner names its matches with no download, and skips reads that cannot help. `2104052`
+  - The cards a picture matches are named from a table shipped with the app (every card the
+    scanner knows by picture), not from TCGdex's set records, so a card shows sooner, and much
+    sooner on a set the phone has not seen. In Eric's 18 November report this step took about
+    0.9 s on a typical card and up to 10 s on a weak match.
+  - When the number does not read on the side most of the candidates print it, the other side is
+    read only if one of them prints its number there. In that report the other side was read 28
+    times, about 2.5 s each, and never gave a number.
+  - On the lab benchmark, the same cards come out right (174 of 174) in about a third less time.
+
 - **v75:** a tidy-up behind the scenes; nothing changes on screen. `4acd1e3`
   - The card page's price panel no longer draws a Ver na Liga that was then hidden.
   - Checklists drop the drawing for hand ticks, retired since v30.
