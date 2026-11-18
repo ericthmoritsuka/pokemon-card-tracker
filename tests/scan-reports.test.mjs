@@ -904,6 +904,14 @@ describe('one scan in words', () => {
 		assert.deepEqual(sectionOf(drop, 'What was read'), []);
 	});
 
+	test('the number strip\'s sharpness and the waits behind other cards are listed', () => {
+		const base = entry(2);
+		const view = scanView({...base, report: {...base.report, queue: {picture: 40, pictureMs: 900, text: 2100}, sharpness: {side: 'left', value: 812}}}, 0, 1);
+
+		assert.ok(sectionOf(view, 'What was read').includes('Number strip sharpness: 812 (left)'));
+		assert.ok(sectionOf(view, 'Timings').some((line) => /^Waited: 40 ms for the picture worker, 2,?100 ms for the text reader$/.test(line)), sectionOf(view, 'Timings').join(' | '));
+	});
+
 	test('a field this screen does not know is still shown', () => {
 		const view = scanView(entry(1, {newThing: {a: 1}}), 0, 1);
 

@@ -73,6 +73,45 @@ export const REGIONS = {
 // Japanese and Korean names need the pixels.
 export const NUMBER_PX = 24;
 
+// How sharp a crop is: the variance of the Laplacian of its luma (a blurred
+// strip has little edge detail, so a low value). Recorded in the scan report
+// for the likelier number strip, at NUMBER_PX scale and unsharpened, so a
+// blur gate before OCR can be measured on the phone's own crops (on the
+// report's JPEG copies, a cut near 600 skipped a third of the reads that
+// found no number and lost none that found one, 2026-11-18).
+export function stripSharpness(img) {
+	const {data, height: h, width: w} = img;
+
+	if (w < 3 || h < 3) {
+		return null;
+	}
+
+	const luma = new Float32Array(w * h);
+
+	for (let i = 0; i < w * h; i++) {
+		luma[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+	}
+
+	let sum = 0;
+	let squares = 0;
+	let n = 0;
+
+	for (let y = 1; y < h - 1; y++) {
+		for (let x = 1; x < w - 1; x++) {
+			const i = y * w + x;
+			const l = 4 * luma[i] - luma[i - 1] - luma[i + 1] - luma[i - w] - luma[i + w];
+
+			sum += l;
+			squares += l * l;
+			n++;
+		}
+	}
+
+	const mean = sum / n;
+
+	return Math.round(squares / n - mean * mean);
+}
+
 export const OCR_SETTINGS = {
 	attacks: {psm: '11', whitelist: ''},
 	hp: {psm: '7', whitelist: '0123456789HPSVK '},
@@ -1286,6 +1325,8 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 
 	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
 	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
+	// The likelier strip's sharpness, for the scan report (stripSharpness).
+	const sharpness = {side: sideOf(first), value: stripSharpness(prepareRegion(card, regionRect(card, REGIONS[first]), scaleFor(card, REGIONS[first], numberPx)))};
 	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
 	// A full-art card: its ringed digits first, and the strip's lines only
 	// when they give no sure number.
@@ -1365,6 +1406,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		partial,
 		raw,
 		setCodeBox,
+		sharpness,
 		timings,
 		wizards: mentionsWizards(raw.numberLeft.text, raw.numberRight.text),
 	};

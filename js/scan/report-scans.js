@@ -80,6 +80,10 @@ function readLines(report) {
 
 	lines.push(`Copyright year: ${report.copyrightYear || 'unread'}${report.wizards ? '; Wizards of the Coast' : ''}`);
 
+	if (report.sharpness) {
+		lines.push(`Number strip sharpness: ${report.sharpness.value} (${report.sharpness.side})`);
+	}
+
 	if (report.attackText) {
 		lines.push(`Attack names: "${oneLine(report.attackText)}"`);
 	}
@@ -246,6 +250,12 @@ function timingLines(entry) {
 
 	if (report) {
 		lines.push(`Capture ${ms(report.captureMs)}; edges and straightening ${ms(report.rectify && report.rectify.ms)}; total from capture to read ${ms(report.totalMs)}`);
+
+		// How long the capture waited behind other cards (js/scan/view.js
+		// queueWaits): for the picture worker, and for the text reader.
+		if (report.queue) {
+			lines.push(`Waited: ${ms(report.queue.picture)} for the picture worker${report.queue.text !== undefined && report.queue.text !== null ? `, ${ms(report.queue.text)} for the text reader` : ''}`);
+		}
 	}
 
 	if (t) {
