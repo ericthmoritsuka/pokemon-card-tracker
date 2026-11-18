@@ -1122,9 +1122,11 @@ export function openPlacesSheet({onClose = null} = {}) {
 }
 
 // Stores many copies in one place at once: My Cards' "Set storage for
-// these N copies". entries are the copies; the field starts on their
-// place when they share one. Undo on a toast puts every copy back.
-export function openStoreSheet({entries}) {
+// these N copies", and its bulk select's Stored in. entries are the copies;
+// the field starts on their place when they share one. sub is the line
+// under the title, saying which copies these are. Undo on a toast puts
+// every copy back.
+export function openStoreSheet({entries, sub = null}) {
 	const sheet = dialog('store-sheet', 'Stored in');
 	const close = () => sheet.close();
 	const n = entries.length;
@@ -1169,7 +1171,7 @@ export function openStoreSheet({entries}) {
 			h('h2', {id: 'store-sheet-title'}, 'Stored in'),
 			h('button', {class: 'small', id: 'store-close', onclick: close, type: 'button'}, 'Close')
 		),
-		h('p', {class: 'muted copy-sub', id: 'store-sub'}, `${plural(n, 'copy', 'copies')}: the ones My Cards shows now. Not set clears their place.`),
+		h('p', {class: 'muted copy-sub', id: 'store-sub'}, sub || `${plural(n, 'copy', 'copies')}: the ones My Cards shows now. Not set clears their place.`),
 		form
 	);
 
