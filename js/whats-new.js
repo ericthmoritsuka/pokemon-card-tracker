@@ -22,6 +22,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-18',
 		items: [
+			'The scanner names the cards a picture matches straight from the app, with no download, so most cards show up about half a second sooner, and much sooner on a set the phone has not seen.',
+			'A card whose number does not read no longer waits for the other side of the card to be read when none of the cards it could be prints its number there.',
+			'Measured on your report of 18 November: 136 scans on versions 72 and 73.',
+		],
+		version: 'v76',
+	},
+	{
+		date: '2026-11-18',
+		items: [
 			'Under the hood: tidier code for the card page\'s prices, checklists, collections, and family wishlists. Nothing changes on screen.',
 			'The tests no longer reach the real exchange-rate site.',
 		],
