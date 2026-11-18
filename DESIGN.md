@@ -1070,7 +1070,9 @@ card; the tray shows its card back with name and number, since it has no catalog
 on four real cards with five kinds of capture (exact, scaled, blurred, darker, shifted): a print
 scored within about 3 of the catalog's own entry for the card, and every other card was 35 to 65
 away, so a card the catalog lacks leads clearly by its photo. Cards the index holds are left out,
-so a photo never competes with a catalog picture.
+so a photo never competes with a catalog picture. Family members' front photos count too (v79,
+`js/photos/model.js` `familyPhotoRecords`, from their shared photo lists), and the scan picker
+shows the photo of such a card rather than its card back.
 
 **The stack's print of a reprinted artwork** (2026-11-18). When at least three of the last five
 cards are from one set and exactly one card of the picture's first group (the prints that share
@@ -1246,7 +1248,10 @@ frame with four clean edges. Decided:
   reads nothing, the other strip is read only when a card of the picture's top five groups prints
   its number there (v76, `js/scan/identify.js` `numberSides`): it was read 28 times there and
   never gave a number. The likelier strip's sparse pass stays, since leaving it out made two
-  benchmark JPEG captures unsure.
+  benchmark JPEG captures unsure. Since v79 the number strips and the label row are read at 24 px
+  text height rather than 32 (`read.js` `NUMBER_PX`): on the benchmark every crop at 24 px kept the
+  right card first on 240 of 240, none wrong but sure, with OCR 21 % quicker (43 % on blurred
+  captures); the name strip keeps 32 px for Japanese and Korean names.
 - **Names as Western cards print them** (`js/scan/local-names.json`, 79 KB, 36 KB gzipped, built by
   `lab/names/build.mjs`): every species in English, French, and German from PokeAPI (BSD-3-Clause;
   PokeAPI has no Portuguese, and Portuguese cards print the English names), the other spellings
