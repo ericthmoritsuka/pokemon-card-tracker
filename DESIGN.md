@@ -1871,6 +1871,9 @@ here and the same, and deleted on this phone.
   is matched to the copy holding it, so no re-import makes two of one copy.
 - A copy deleted on this phone stays deleted unless the person ticks "Bring back", which restores
   it the way Undo does (`restored_at`), so the merge keeps it over the tombstone.
+- A copy with no language recorded exports an empty `language` cell, and a re-import reads an empty
+  cell, or the `NULL` that exports before v74 wrote, as no language rather than refusing the row
+  (2026-11-18, a follow-up from the v71 review).
 - The export gained the columns a re-import needs, after the old ones so older files still read:
   `condition`, `notes`, `name_local`, `set_name_local`, `finish_raw`, `fallback`, `import_key`,
   `number_local`, `set_code`. An older export leaves those fields alone. A hand-made card's row
