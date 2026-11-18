@@ -548,6 +548,35 @@ describe('a family member\'s Sets and cards', () => {
 		await context.close();
 	});
 
+	test('Member A\'s Korean copies on a Japanese record make Add to wishlist ask for Korean', async () => {
+		const fake = new FakeSupabase();
+		const korean = {catalog: 'ja', card_id: 'tst2-007', fallback: true, language: 'ko'};
+		const people = family(fake, {memberCards: [
+			entry('m-1', korean),
+			entry('m-2', korean),
+			entry('m-3', {catalog: 'ja', card_id: 'tst2-007', language: 'ja'}),
+		]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#family-strip');
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('cards/ja/tst2-007'));
+		await page.waitForFunction(() => (document.getElementById('copies-title') || {}).textContent === 'Member A\'s copies (3)');
+		await page.click('#card-wish');
+		await page.waitForSelector('#card-wished');
+		assert.equal(await page.locator('.toast-text', {hasText: 'wishlist'}).textContent(), 'Added to your wishlist (Korean).');
+
+		const mine = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/wishlist.js')).listWishlist());
+
+		assert.deepEqual(mine.map((item) => [item.card_id, item.catalog, item.language]), [['tst2-007', 'ja', 'ko']]);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('offline, Sets says Member A\'s cards could not be read rather than showing rings', async () => {
 		const fake = new FakeSupabase();
 		const people = family(fake, {memberCards: [entry('m-1', {card_id: 'tst2-001'})]});

@@ -23,7 +23,7 @@ import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAdd
 import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
 import {BASE, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
-import {CATALOG_LANGUAGES, catalogFor, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
+import {CATALOG_LANGUAGES, catalogFor, catalogsOf, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
@@ -1398,10 +1398,10 @@ export function cardView(root, {lang, cardId}) {
 
 	// The language a new wish asks for: the catalog's on your own card. On a
 	// member's card, the language most of their copies are in, so wanting
-	// what they hold asks for that print; only the catalog's own languages
-	// count here (their Korean copies on a Japanese record ask for Japanese,
-	// though the wishlist takes a Korean wish on one, js/wishlist.js
-	// languagesFor).
+	// what they hold asks for that print. The languages counted are the ones
+	// the wishlist takes on this catalog (js/wishlist.js languagesFor), so
+	// their Korean copies on a Japanese record ask for Korean (v74; Japanese
+	// before).
 	function wishLanguage() {
 		if (!readOnly) {
 			return lang;
@@ -1410,7 +1410,7 @@ export function cardView(root, {lang, cardId}) {
 		const counts = new Map();
 
 		for (const entry of owned) {
-			if (entry.language && catalogFor(entry.language) === catalogFor(lang)) {
+			if (entry.language && catalogsOf(entry.language).includes(catalogFor(lang))) {
 				counts.set(entry.language, (counts.get(entry.language) || 0) + 1);
 			}
 		}
