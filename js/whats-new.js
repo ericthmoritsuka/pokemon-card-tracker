@@ -23,7 +23,7 @@ export const RELEASES = [
 		date: '2026-11-18',
 		items: [
 			'My Cards has a Pictures filter: No photo, No catalog picture, or Needs a photo (neither), the cards to photograph so the scanner learns them.',
-			'A photo you add while Scan is open counts at once, and the scan report shows how sharp each number was and how long each card waited.',
+			'Behind the scenes: the scanner decides once per card whether the stack helps, and checks your photos less often while you scan.',
 		],
 		version: 'v80',
 	},
