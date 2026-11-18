@@ -9,6 +9,8 @@ import {cardArt} from '../catalog-views.js';
 import {openCustomCardSheet} from '../custom-card-view.js';
 import {h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
+import {catalogFor} from '../languages.js';
+import {mainArt} from '../photos/index.js';
 import {plural} from '../format.js';
 import {formatBrl} from '../prices.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
@@ -68,6 +70,20 @@ function sheetHeader(title, onClose, id) {
 }
 
 // ------------------------------------------------------------ the confirm sheet
+
+// A candidate's picture: the catalog's (a pinned photo never replaces it
+// here), or, for a card the catalog has no picture of (one the scanner found
+// by the family's photo, js/scan/photo-prints.js), the photo, arriving
+// later when it is not on the phone yet (js/photos mainArt).
+function candidateArt(candidate) {
+	const info = {name: candidate.name, number: candidate.localId, setName: candidate.setName};
+
+	if (candidate.image) {
+		return cardArt(info, cardImage(candidate.image, 'low'));
+	}
+
+	return mainArt({card_id: candidate.id, catalog: catalogFor(candidate.lang)}, null, (src) => cardArt(info, src), (src) => cardArt(info, src));
+}
 
 export function confirmSheet(ctx, itemId) {
 	const titleId = 'scan-confirm-title';
@@ -197,7 +213,7 @@ export function confirmSheet(ctx, itemId) {
 			onclick: () => ctx.chooseCard(itemId, candidate),
 			type: 'button',
 		},
-		cardArt({name: candidate.name, number: candidate.localId, setName: candidate.setName}, cardImage(candidate.image, 'low')),
+		candidateArt(candidate),
 		h('span', {class: 'scan-candidate-set'}, candidate.setCode || candidate.setName || candidate.setId));
 	}
 
