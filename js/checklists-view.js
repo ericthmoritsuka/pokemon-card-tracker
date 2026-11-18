@@ -30,7 +30,6 @@ import {
 	createChecklist,
 	deleteChecklist,
 	dexLabel,
-	handTicks,
 	isChecklist,
 	listByDex,
 	listChecklists,
@@ -112,13 +111,12 @@ function familySource(userId) {
 // ----------------------------------------------------- shared pieces
 
 // The ring always comes with its "12 / 151" text, never alone.
-function progressBadge({ticked, total, byHand}) {
-	const percent = total ? Math.min(100, Math.round((ticked / total) * 100)) : 0;
-	const label = `${ticked} of ${total} ticked${byHand ? `, ${byHand} of them by hand` : ''}`;
+function progressBadge({owned, total}) {
+	const percent = total ? Math.min(100, Math.round((owned / total) * 100)) : 0;
 
-	return h('span', {'aria-label': label, class: ticked ? 'owned-count owned' : 'owned-count', role: 'img'},
+	return h('span', {'aria-label': `${owned} of ${total} ticked`, class: owned ? 'owned-count owned' : 'owned-count', role: 'img'},
 		h('span', {'aria-hidden': 'true', class: 'ring', style: `--p: ${percent}`}),
-		h('span', {'aria-hidden': 'true'}, `${ticked} / ${total}`)
+		h('span', {'aria-hidden': 'true'}, `${owned} / ${total}`)
 	);
 }
 
@@ -624,15 +622,10 @@ function checklistScreen(root, source, id) {
 	);
 
 
-	// hand: handTicks(goal), built once per draw rather than once per row.
-	function state(n, hand) {
+	function state(n) {
 		const owned = result && ownedByDex().get(n);
 
-		if (owned) {
-			return {entries: owned, kind: 'owned'};
-		}
-
-		return {entries: [], kind: hand.has(n) ? 'hand' : 'missing'};
+		return owned ? {entries: owned, kind: 'owned'} : {entries: [], kind: 'missing'};
 	}
 
 	// The resolved copies by number that count on this list: those in its
@@ -648,7 +641,6 @@ function checklistScreen(root, source, id) {
 		names,
 		result,
 		show,
-		ticks: Object.keys(goal.hand_ticks || {}).sort().join(','),
 	});
 
 	const sameKey = (a, b) => Boolean(a && b) && Object.keys(a).every((key) => a[key] === b[key]);
@@ -660,14 +652,9 @@ function checklistScreen(root, source, id) {
 		document.title = `${goal.name} | Card Tracker`;
 		meta.replaceChildren(describe(goal), ' ', progressBadge(counts));
 
-		const parts = [`${formatCount(counts.owned)} owned`];
+		const parts = [`${formatCount(counts.owned)} owned`, `${formatCount(counts.missing)} missing`];
 
-		if (counts.byHand) {
-			parts.push(`${formatCount(counts.byHand)} marked by hand`);
-		}
-
-		parts.push(`${formatCount(counts.missing)} missing`);
-		segmentCounts(filter, {all: counts.total, missing: counts.missing, owned: counts.ticked});
+		segmentCounts(filter, {all: counts.total, missing: counts.missing, owned: counts.owned});
 		summary.textContent = `${parts.join(', ')}.`;
 	}
 
@@ -721,13 +708,6 @@ function checklistScreen(root, source, id) {
 			);
 		}
 
-		if (kind === 'hand') {
-			return h('span', {class: 'dex-mark'},
-				h('span', {'aria-hidden': 'true', class: 'tick tick-hand'}),
-				h('span', {class: 'dex-mark-text'}, 'marked by hand')
-			);
-		}
-
 		return h('span', {class: 'dex-mark'},
 			h('span', {'aria-hidden': 'true', class: 'tick tick-missing'}),
 			h('span', {class: 'dex-mark-text muted'}, 'missing')
@@ -736,8 +716,8 @@ function checklistScreen(root, source, id) {
 
 	// A row opens every card of its Pokémon (js/pokemon-cards-view.js), where
 	// a missing one can be added; the mark on the right only shows the state.
-	function row(n, hand) {
-		const {entries, kind} = state(n, hand);
+	function row(n) {
+		const {entries, kind} = state(n);
 		const name = nameOf(names, n);
 		const entry = link(pokemonRoute(source.base, id, n), {class: 'dex-entry dex-link'},
 			sprite(n, name),
@@ -757,10 +737,9 @@ function checklistScreen(root, source, id) {
 	}
 
 	function drawList() {
-		const hand = handTicks(goal);
-		const numbers = checklistDex(goal).filter((n) => shows(state(n, hand).kind));
+		const numbers = checklistDex(goal).filter((n) => shows(state(n).kind));
 
-		list.replaceChildren(...numbers.map((n) => row(n, hand)));
+		list.replaceChildren(...numbers.map((n) => row(n)));
 		drawEmpty(numbers.length);
 		drawn = listKey();
 	}

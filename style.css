@@ -2014,16 +2014,11 @@ progress {
 	background: var(--accent);
 }
 
-.tick-hand {
-	border: 2px dashed var(--accent-strong);
-}
-
 .tick-missing {
 	border: 2px solid var(--border);
 }
 
-.tick-owned::after,
-.tick-hand::after {
+.tick-owned::after {
 	border-bottom: 3px solid var(--on-accent);
 	border-right: 3px solid var(--on-accent);
 	content: "";
@@ -2033,14 +2028,6 @@ progress {
 	top: 45%;
 	transform: translate(-50%, -50%) rotate(45deg);
 	width: 6px;
-}
-
-.tick-hand::after {
-	border-color: var(--accent-strong);
-}
-
-.dex-row.hand .dex-mark-text {
-	color: var(--link);
 }
 
 /* Missing on this list, owned in a language it does not count: that

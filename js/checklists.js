@@ -106,32 +106,15 @@ export function checklistDex(goal) {
 	return [];
 }
 
-// Hand ticks as a Set of numbers: always empty now that they are retired
-// (see the top of this file), so an old tick never counts as owned.
-export function handTicks() {
-	return new Set();
-}
-
 export const dexLabel = (n) => `#${String(n).padStart(3, '0')}`;
 
-// owned and hand-ticked counts for one checklist. A number owned and also
-// ticked by hand counts once, as owned.
+// Owned and missing counts for one checklist. Old hand ticks never count
+// (see the top of this file).
 export function progress(goal, byDex) {
 	const dex = checklistDex(goal);
-	const hand = handTicks(goal);
-	let owned = 0;
-	let byHand = 0;
+	const owned = dex.filter((n) => byDex.has(n)).length;
 
-	for (const n of dex) {
-		if (byDex.has(n)) {
-			owned++;
-		}
-		else if (hand.has(n)) {
-			byHand++;
-		}
-	}
-
-	return {byHand, missing: dex.length - owned - byHand, owned, ticked: owned + byHand, total: dex.length};
+	return {missing: dex.length - owned, owned, total: dex.length};
 }
 
 // ------------------------------------------------------------- saving
