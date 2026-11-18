@@ -1306,6 +1306,23 @@ function binderScreen(root, source, id, pageParam) {
 						{page: Number(to.dataset.page), position: Number(to.dataset.position)}
 					),
 					onLift: () => shown.cancelSwipe(),
+					// The tray takes a card dragged out of its pocket, as To the
+					// tray does; while a card is lifted the tray shows, even
+					// empty, to drop it on.
+					zone: tray ? {
+						drop: (pocket) => moveToTray(binder.id, Number(pocket.dataset.page), Number(pocket.dataset.position))
+							.catch((err) => toast(err.message || `Could not move the card to the tray. ${errorText(err)}`)),
+						element: () => tray,
+						hide: () => {
+							tray.classList.remove('bt-drop-zone');
+							tray.hidden = !trayIds().length || Boolean(hand);
+						},
+						show: () => {
+							tray.classList.add('bt-drop-zone');
+							tray.hidden = false;
+						},
+						takes: (pocket) => pocket.querySelector('.pocket')?.dataset.kind === 'card',
+					} : null,
 				});
 			}
 

@@ -199,6 +199,44 @@ describe('moving pockets in a hand-made binder', () => {
 		await done();
 	});
 
+	test('a card dragged onto the tray leaves its pocket for the tray, which shows while the card is lifted', async () => {
+		const {done, page} = await open();
+		const {binder, copies} = await seed(page);
+
+		await openBinder(page, binder);
+		assert.equal(await page.locator('#binder-tray').isHidden(), true, 'no card in the tray yet');
+
+		// Press and hold to lift, then find the tray it shows, then move there.
+		const from = await centerOf(page, 2, 1);
+		const cdp = await page.context().newCDPSession(page);
+
+		await cdp.send('Input.dispatchTouchEvent', {touchPoints: [{x: from.x, y: from.y}], type: 'touchStart'});
+		await page.waitForTimeout(600);
+		await cdp.send('Input.dispatchTouchEvent', {touchPoints: [{x: from.x + 2, y: from.y + 2}], type: 'touchMove'});
+		await page.waitForSelector('#binder-tray.bt-drop-zone:not([hidden])');
+		assert.match(await page.locator('#binder-tray').evaluate((tray) => getComputedStyle(tray.querySelector('.bt-strip'), '::before').content), /Drop here/);
+
+		const box = await page.locator('#binder-tray').boundingBox();
+		const to = {x: box.x + (box.width / 2), y: box.y + (box.height / 2)};
+
+		for (let i = 1; i <= 10; i++) {
+			await cdp.send('Input.dispatchTouchEvent', {touchPoints: [{x: from.x + ((to.x - from.x) * i) / 10, y: from.y + ((to.y - from.y) * i) / 10}], type: 'touchMove'});
+		}
+
+		assert.equal(await page.locator('#binder-tray.pd-zone-over').count(), 1, 'the tray is outlined under the card');
+		await cdp.send('Input.dispatchTouchEvent', {touchPoints: [], type: 'touchEnd'});
+		await cdp.detach();
+
+		await waitKind(page, 2, 1, 'open');
+		await page.waitForSelector(`#bt-strip [data-entry="${copies[0]}"]`);
+		assert.equal(await where(page, copies[0]), null, 'in no pocket');
+		assert.equal(await page.locator('#binder-tray.bt-drop-zone').count(), 0, 'the drop zone look is gone');
+
+		// A placeholder is not offered the tray: lifting it leaves the tray hidden.
+		await touchDrag(page, await centerOf(page, 3, 5), await centerOf(page, 3, 6));
+		await done();
+	});
+
 	test('Move to pocket in the sheet: a chosen pocket, and the next free one', async () => {
 		const {done, page} = await open();
 		const {binder, copies} = await seed(page);

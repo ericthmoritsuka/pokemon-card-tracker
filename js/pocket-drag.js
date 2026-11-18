@@ -6,14 +6,18 @@
 // the drag own the gesture (onLift, so the spread forgets the swipe); a press
 // that moves first is left alone, so a swipe still turns the page. Lifting
 // over another pocket calls onDrop(from, to) with the two .bs-pocket
-// elements; lifting anywhere else does nothing.
+// elements. A drop zone outside the spread (zone: the binder's tray, Eric
+// 2026-11-18: dragging a card onto the tray did nothing) is shown while a
+// pocket it takes is lifted, outlined under the pointer, and lifting over it
+// calls zone.drop(pocket). Lifting anywhere else does nothing.
 
 export const HOLD_MS = 400;
 const SLOP = 8;
 
 // element: the spread's root. canLift(pocket): whether this .bs-pocket may be
-// lifted now. Returns {destroy}.
-export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
+// lifted now. zone: {element(), takes(pocket), show(), hide(), drop(pocket)},
+// or null. Returns {destroy}.
+export function pocketDrag(element, {canLift, onDrop, onLift = () => {}, zone = null}) {
 	let press = null;
 	let clickBlock = 0;
 
@@ -22,6 +26,22 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 		const pocket = hit && hit.closest && hit.closest('.bs-pocket');
 
 		return pocket && element.contains(pocket) && !pocket.closest('[inert]') ? pocket : null;
+	};
+
+	// The zone's element under the point, when the lifted pocket may go there.
+	const zoneAt = (x, y) => {
+		const box = press && press.zone ? zone.element() : null;
+		const hit = box ? document.elementFromPoint(x, y) : null;
+
+		return Boolean(box && hit && box.contains(hit));
+	};
+
+	const markZone = (over) => {
+		const box = press && press.zone ? zone.element() : null;
+
+		if (box) {
+			box.classList.toggle('pd-zone-over', over);
+		}
 	};
 
 	const mark = (over) => {
@@ -60,6 +80,11 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 			press.over.classList.remove('bt-over');
 		}
 
+		if (press.zone) {
+			markZone(false);
+			zone.hide();
+		}
+
 		press = null;
 	};
 
@@ -88,6 +113,11 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 		press.pocket.classList.add('pd-lifted');
 		place();
 		onLift();
+
+		if (zone && zone.takes(press.pocket)) {
+			press.zone = true;
+			zone.show();
+		}
 
 		try {
 			element.setPointerCapture(press.pointerId);
@@ -119,7 +149,7 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 			return;
 		}
 
-		press = {ghost: null, over: null, pocket, pointerId: event.pointerId, sx: event.clientX, sy: event.clientY, timer: 0, x: event.clientX, y: event.clientY};
+		press = {ghost: null, over: null, pocket, pointerId: event.pointerId, sx: event.clientX, sy: event.clientY, timer: 0, x: event.clientX, y: event.clientY, zone: false};
 		press.timer = setTimeout(lift, HOLD_MS);
 	};
 
@@ -142,6 +172,7 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 		event.preventDefault();
 		place();
 		mark(pocketAt(press.x, press.y));
+		markZone(zoneAt(press.x, press.y));
 	};
 
 	const onUp = (event) => {
@@ -151,6 +182,7 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 
 		const {ghost, pocket} = press;
 		const target = ghost ? pocketAt(event.clientX, event.clientY) : null;
+		const toZone = ghost && !target && zoneAt(event.clientX, event.clientY);
 
 		end();
 
@@ -160,6 +192,9 @@ export function pocketDrag(element, {canLift, onDrop, onLift = () => {}}) {
 
 			if (target && target !== pocket) {
 				onDrop(pocket, target);
+			}
+			else if (toZone) {
+				zone.drop(pocket);
 			}
 		}
 	};

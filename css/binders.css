@@ -704,6 +704,26 @@ button.bt-fill {
 	z-index: 3;
 }
 
+/* While a card is lifted out of its pocket, the tray shows as a place to
+   drop it (js/pocket-drag.js zone), empty or not, and is outlined when the
+   card is over it. */
+.bt.bt-drop-zone {
+	min-height: 72px;
+	outline: 2px dashed var(--border);
+	outline-offset: 2px;
+}
+
+.bt.bt-drop-zone .bt-strip:empty::before {
+	color: var(--muted);
+	content: "Drop here to move the card to the tray";
+	display: block;
+	padding: var(--space-3);
+}
+
+.bt.pd-zone-over {
+	outline: 3px solid var(--accent);
+}
+
 /* With a card picked, the pockets it can go in are outlined. */
 .bs[data-placing="true"] .bs-grid:not([inert]) .pocket-open {
 	border-color: var(--text);
