@@ -12,6 +12,17 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-19
+
+- **v78:** the scanner reads a stack's reprints without their number, and learns cards from your photos. `5829b33`
+  - When at least three of the last five cards are from one set and the picture finds a group of
+    prints sharing one artwork (30th Celebration reprints older art), the stack's print is the card,
+    sure, with no number read; a number read that names another print still wins. In Eric's
+    18 November report this rule applied 33 times and was right every time.
+  - Cards the catalog has no picture of (all MEP Black Star Promos, 30th Classic Collection, many
+    Korean prints) are recognised by the owner's front photos of them, fingerprinted on the phone
+    and matched beside the catalog's pictures. Cards the catalog has a picture of are left alone.
+
 ### 2026-11-18
 
 - **v77:** a Portuguese or English card that reads no number no longer waits for its name. `59d661f`
