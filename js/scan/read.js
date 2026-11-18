@@ -62,6 +62,15 @@ export const REGIONS = {
 	name: {h: 0.12, text: 0.027, w: 0.66, x: 0.03, y: 0.015},
 };
 
+// The text height the number strips are scaled to before OCR, below the
+// TEXT_PX the other crops use (v79): digits and a slash read as well at 24
+// px, and Tesseract's time follows the pixels. On the lab benchmark (40
+// cards, six captures each) every crop at 24 px kept the right card first on
+// 240 of 240 and the sure ones at 205 (204), none wrong but sure, with OCR
+// 21 % quicker (43 % on blurred captures). The name strip and the label row
+// keep TEXT_PX: Japanese and Korean names need the pixels.
+export const NUMBER_PX = 24;
+
 export const OCR_SETTINGS = {
 	attacks: {psm: '11', whitelist: ''},
 	hp: {psm: '7', whitelist: '0123456789HPSVK '},
@@ -1173,7 +1182,7 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 // cjk, scoreLatin, scoreName, modelState, prepareModel: as readCard, for a
 // name in Japanese or Korean (readName), with the label row, when it is
 // read, as latinLabel.
-export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
+export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, numberPx = NUMBER_PX, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
@@ -1195,7 +1204,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	};
 
 	const prepare = (key) => {
-		crops[key] = prepareRegion(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], textPx), {sharpen: SHARPEN});
+		crops[key] = prepareRegion(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], numberPx), {sharpen: SHARPEN});
 
 		return crops[key];
 	};
@@ -1205,7 +1214,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	// The `count` most text-like lines of a strip, read side by side.
 	const readLines = async (key, count) => {
 		const strip = crops[key] || prepare(key);
-		const found = findTextLines(strip, textPx, count);
+		const found = findTextLines(strip, numberPx, count);
 		const results = await Promise.all(found.map((line, index) => {
 			crops[`${key}Line${index + 1}`] = cropRows(strip, line);
 
@@ -1224,7 +1233,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	// box: the set code box is not looked for from it), or null; what was
 	// read joins the strip's text, for the misread and partial numbers.
 	const ringedRead = async (key) => {
-		const runs = ringedNumbers(whitestCrop(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], textPx)), textPx);
+		const runs = ringedNumbers(whitestCrop(card, regionRect(card, REGIONS[key]), scaleFor(card, REGIONS[key], numberPx)), numberPx);
 		const results = await Promise.all(runs.map((run, index) => {
 			crops[`${key}Ring${index + 1}`] = run;
 
@@ -1322,7 +1331,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	let setCodeBox = {langCode: null, run: '', setCode: null, text: ''};
 
 	if (setCode && number && number.side === 'left' && number.box) {
-		const rect = setCodeRect(card, regionRect(card, REGIONS.numberLeft), number.box, scaleFor(card, REGIONS.numberLeft, textPx));
+		const rect = setCodeRect(card, regionRect(card, REGIONS.numberLeft), number.box, scaleFor(card, REGIONS.numberLeft, numberPx));
 
 		crops.setCode = prepareCrop(card, rect, 72 / rect.h, SET_CODE_PREP);
 		raw.setCode = await recognise('setCode', crops.setCode, OCR_SETTINGS.setCode);
