@@ -10,10 +10,13 @@
 //   {built, index, count, sets: {"<catalog>|<set>": [name, official, releaseDate]},
 //    cards: {"<catalog>|<set>": {"<card id>": name}}}
 //
-// `index` is the index's own `built` stamp: js/scan/picture.js uses the
-// table only for an index built at that time, so a rebuilt index never
-// meets a table written for an older one. A card the set's record does not
-// list is left out, and the scanner asks TCGdex for its set, as before.
+// `index` is the index's own `built` stamp, for reference: nothing at run
+// time checks it. Naming stays right whatever the pair (names are keyed by
+// card id), but the scanner also uses the table to tell which cards the
+// index holds (js/scan/photo-prints-app.js), so rebuild it with the index;
+// tests/index-names.test.mjs fails when the shipped table misses a card of
+// the shipped index. A card the set's record does not list is left out, and
+// the scanner asks TCGdex for its set, as before.
 //
 // FP_CACHE=<dir> is where the answers are kept (default
 // ~/.cache/pokemon-card-tracker-fingerprints, the index builder's cache);

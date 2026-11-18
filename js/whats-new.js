@@ -20,16 +20,17 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
-		date: '2026-11-19',
+		date: '2026-11-18',
 		items: [
 			'The scanner learns cards from your family\'s photos as well as yours: a card your family photographed is recognised on your phone too.',
 			'A card found by a photo shows that photo when the scanner asks you to pick, not a card back.',
-			'Numbers are read from a smaller copy of the card\'s corner, which is quicker and just as accurate.',
+			'Numbers are read from a smaller copy of the card\'s corner, quicker and just as accurate, and the reader starts behind your first card.',
+			'Fixed: in a stack of one set, a card the catalog has no picture of (such as an MEP promo) could be taken as a card of that set. The stack now helps only when the picture clearly found the artwork.',
 		],
 		version: 'v79',
 	},
 	{
-		date: '2026-11-19',
+		date: '2026-11-18',
 		items: [
 			'Scanning a stack from one set: a reprint whose artwork is shared with an older card (30th Celebration) is taken as the stack\'s print straight away, without reading its number.',
 			'The scanner learns cards the catalog has no picture of (MEP promos, 30th Classic Collection, many Korean prints) from your photos: photograph one on its card page and it is recognised by picture from then on.',

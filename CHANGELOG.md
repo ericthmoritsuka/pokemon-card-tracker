@@ -12,7 +12,7 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
-### 2026-11-19
+### 2026-11-18 (evening)
 
 - **v78:** the scanner reads a stack's reprints without their number, and learns cards from your photos. `5829b33`
   - When at least three of the last five cards are from one set and the picture finds a group of
