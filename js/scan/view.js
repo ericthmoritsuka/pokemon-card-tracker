@@ -31,7 +31,7 @@ import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startC
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
@@ -415,6 +415,9 @@ export function scanView(root) {
 	// quick picture answer.
 	let knownIndex = null;
 	let alive = true;
+	// Whether the text reader has been started ahead of need this visit
+	// (warmTextSoon).
+	let textWarmTimer = 0;
 	let wakeLock = null;
 	let engineState = 'idle';
 	const photoUrls = new Map();
@@ -2936,8 +2939,32 @@ export function scanView(root) {
 	// A picture answer onto the card: the match, the language a settled card
 	// starts in, the scan report, and, behind it, the print in that language
 	// and the label row read.
+	// The text reader (the OCR engine, js/scan/identify.js warmEngine) loads
+	// when a card first needs text, so Scan opens without it; but about a
+	// third of cards need it (Eric's 2026-11-18 report), and the first of
+	// them waited for the load. Once the first card is on the tray it starts
+	// behind it, unless it already has; closing Scan lets it go as before
+	// (releaseEngineSoon).
+	const TEXT_WARM_MS = 1500;
+
+	function warmTextSoon() {
+		if (textWarmTimer || engineStarted()) {
+			return;
+		}
+
+		textWarmTimer = setTimeout(() => {
+			if (alive && !engineStarted()) {
+				warmEngine().catch(() => {
+					// Started again by the first card that needs it.
+				});
+			}
+		}, TEXT_WARM_MS);
+	}
+
 	function showPicture(id, found, {fullMs = null, indexMs = null, language, ms}) {
 		const current = S.findItem(session, id);
+
+		warmTextSoon();
 
 		current.confirmed = false;
 		current.timings = {...current.timings, match: ms};
@@ -4633,6 +4660,7 @@ export function scanView(root) {
 		// tray as it is, marked to check: never lost on leaving.
 		flushRetry('left');
 		alive = false;
+		clearTimeout(textWarmTimer);
 
 		if (repeat) {
 			clearTimeout(repeat.timer);
