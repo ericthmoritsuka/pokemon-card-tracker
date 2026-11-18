@@ -1653,6 +1653,23 @@ select {
 	overflow: hidden;
 }
 
+/* All, Owned, Missing with their counts (js/dom.js segmentCounts). Where
+   one segment's label and number do not fit side by side, every segment
+   puts its number under its label, rather than one wrapping alone (v74). */
+.segmented.segments-stacked span[data-label] {
+	flex-direction: column;
+	line-height: 1.15;
+	padding: var(--space-1) 2px;
+}
+
+/* The flex row drops the space after the label, so the gap stands in. The
+   side padding makes a segment whose words touch its edges count as too
+   narrow, so the control stacks. */
+.segmented span[data-label] {
+	gap: 0 0.3em;
+	padding: 0 var(--space-2);
+}
+
 .segmented label {
 	position: relative;
 }

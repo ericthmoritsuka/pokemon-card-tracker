@@ -21,6 +21,10 @@ const REGIONS = MONPRICE_REGIONS;
 // file edited by hand may give the stored code ("zh-cn") instead.
 const ownLanguage = (raw) => monpriceLanguage(raw) || (isKnownLanguage(String(raw).toLowerCase()) ? String(raw).toLowerCase() : undefined);
 
+// A copy with no language recorded: an empty cell, or the "NULL" exports
+// before v74 wrote for it.
+const NO_LANGUAGE = /^(null)?$/i;
+
 export const FINISHES = {
 	FIRST_EDITION: '1st Edition',
 	HOLOFOIL: 'Holo',
@@ -225,7 +229,8 @@ export function parseOwnCsv(text) {
 		const id = cell('entry_id').toLowerCase();
 		const catalog = cell('catalog');
 		const languageRaw = cell('language');
-		const language = ownLanguage(languageRaw);
+		const unset = NO_LANGUAGE.test(languageRaw);
+		const language = unset ? null : ownLanguage(languageRaw);
 		const problems = [];
 
 		if (!ENTRY_ID.test(id)) {
@@ -243,7 +248,7 @@ export function parseOwnCsv(text) {
 			problems.push(`catalog "${catalog}" is not one the app knows`);
 		}
 
-		if (!language) {
+		if (!unset && !language) {
 			problems.push(`language "${languageRaw}" is not one the app knows`);
 		}
 

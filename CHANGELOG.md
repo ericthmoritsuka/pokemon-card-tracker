@@ -12,6 +12,16 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-18
+
+- **v74:** small fixes from the v71 review. `01fb542`
+  - All, Owned, and Missing put each number under its word when they do not fit side by side, on
+    a small phone, with larger text, or with a four-digit count, instead of one wrapping alone.
+  - A card page picture with no image keeps its text clear of the Official label.
+  - Wanting a family member's Korean copies of a Japanese card asks for Korean, not Japanese.
+  - Export CSV leaves the language empty for a copy with none, and such a file (or an older one
+    with NULL) imports back.
+
 ### 2026-11-17
 
 - **v73:** a copy's sheet saves your changes when you close it. `d3fcdde`

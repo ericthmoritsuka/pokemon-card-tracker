@@ -104,7 +104,7 @@ function cardBack({name, number, setName}, missing) {
 	return h('div', {class: 'card-back'},
 		h('span', {class: 'card-back-name'}, name),
 		number ? h('span', null, `#${number}`) : null,
-		setName ? h('span', null, setName) : null,
+		setName ? h('span', {class: 'card-back-set'}, setName) : null,
 		h('span', {class: 'card-back-status'}, imageStatus(missing))
 	);
 }

@@ -129,7 +129,9 @@ export function collectionCsv(entries, index, notesOf = null) {
 			asText(record.collector_number),
 			// Names are always quoted: plenty of card names hold commas.
 			`"${String(source.name || shown.name || '').replace(/"/g, '""')}"`,
-			languageChip(entry.language),
+			// A copy with no language recorded leaves the cell empty (it
+			// read "NULL" before v74); a re-import reads it back as none.
+			entry.language ? languageChip(entry.language) : '',
 			entry.variant_id,
 			finish ? finishLabel(finish) : '',
 			entry.variant_id ? 'Yes' : 'No',

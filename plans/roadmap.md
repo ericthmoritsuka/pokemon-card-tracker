@@ -534,8 +534,14 @@ graded cards are deprioritized, and a Portuguese UI is not wanted.
   running off the frame; held low, right card first 11 to 27 of 40 on the guide's capture, and
   slanted in the whole frame 21 to 36).
 - **Small gaps:** done in v37 (tile meta clamp, Add cards to the tray, twins on set tiles); the
-  Japanese promo Liga rule was already done (edecc19). Left: a long Japanese set name is cut off in
-  My Cards' Filters set select at 360 px (Q-05 selects part).
+  Japanese promo Liga rule was already done (edecc19). The long Japanese set name in My Cards'
+  Filters set select (Q-05 selects part) has shown in full since `ed886c8` (2026-10-15; checked
+  2026-11-18).
+- **v71 review follow-ups (2026-11-18):** done in v74: the CSV's empty language, a member's Korean
+  copies wished in Korean, All/Owned/Missing stacking when its counts do not fit, and the card
+  back clear of the Official label. No change needed: the wish editor widening a Korean wish on a
+  Japanese card happens only on a phone still on v70 (today's editor offers Korean there), and Ver
+  na Liga below the first screen at 324 x 720 is a known limit (360 x 740 holds).
 
 ## Open Decisions for Eric
 

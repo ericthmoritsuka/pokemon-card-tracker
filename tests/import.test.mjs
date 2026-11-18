@@ -331,6 +331,22 @@ describe('parseOwnCsv', () => {
 		assert.match(errors[5].reason, /needs a name/);
 	});
 
+	test('a copy with no language comes back with none, from an empty cell or the NULL older exports wrote', () => {
+		const {errors, rows} = parseOwnCsv(ownCsv(ownLine(1, {language: ''}), ownLine(2, {language: 'NULL'})));
+
+		assert.deepEqual(errors, []);
+		assert.deepEqual(rows.map((row) => row.language), [null, null]);
+
+		const {cards, counts} = planOwnImport([], rows, {now: OWN_NOW});
+
+		assert.equal(counts.added, 2);
+		assert.equal('language' in cards[0], false, 'a new copy carries no language field');
+
+		const again = planOwnImport(cards, rows, {now: OWN_NOW});
+
+		assert.equal(again.counts.unchanged, 2, 'the same file again changes nothing');
+	});
+
 	test('an export from before the newer columns leaves those fields alone, and reads its finish label back', () => {
 		const old = OWN_HEADER.split(';').slice(0, 19);
 		const line = ownLine(1, {finish: 'Reverse holo', finish_matched: 'No', variant_id: ''}).split(';').slice(0, 19);

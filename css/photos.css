@@ -66,6 +66,35 @@
 	-webkit-user-drag: none;
 }
 
+/* A slide with no image shows the card back (js/tile.js). Its text keeps
+   clear of the source label: the bottom band the label takes (8 px up, a
+   0.75rem line at 1.4, 2 px padding above and below) is left empty. The
+   facts beside the art already give the name and the set, so here the set
+   is left out and a long name stops at two lines, and no line is squeezed
+   to make room. Before v74, a long name or larger text ran under
+   "Official" on a 324 px phone. */
+.ph-slide .card-back {
+	justify-content: safe center;
+	overflow: hidden;
+	padding-bottom: calc(var(--space-2) + 12px + 1.05rem);
+}
+
+.ph-slide .card-back > * {
+	flex-shrink: 0;
+}
+
+.ph-slide .card-back-set {
+	display: none;
+}
+
+.ph-slide .card-back-name {
+	-webkit-box-orient: vertical;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	overflow: hidden;
+}
+
 /* The source label: bottom centre, clear of the four corner badges. */
 .ph-source {
 	background: rgba(0, 0, 0, 0.72);
