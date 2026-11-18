@@ -13,6 +13,9 @@ import {setPhotoPrints} from './identify.js';
 import {photoPrintEntries} from './photo-prints.js';
 import {loadIndexNames} from './picture.js';
 
+// The cache before its key had a version, removed once.
+const OLD_PRINTS_KEY = 'card-tracker:photo-prints';
+
 // {photoId: print} on this phone: a photo is decoded once. The version in
 // the key goes up whenever js/scan/photo-prints.js describeCard (or the
 // fingerprint it uses) changes, so no print made the old way is matched
@@ -32,6 +35,7 @@ function readCache() {
 
 function writeCache(cache, live) {
 	try {
+		localStorage.removeItem(OLD_PRINTS_KEY);
 		// Only the prints of photos still in use are kept.
 		localStorage.setItem(PRINTS_KEY, JSON.stringify(Object.fromEntries(Object.entries(cache).filter(([id]) => live.has(id)))));
 	}
@@ -64,6 +68,19 @@ async function pixelsOf(photo) {
 
 let running = null;
 let following = false;
+let soonTimer = 0;
+// The photo ids last handed to the matcher, so an unchanged set is not
+// sent to the picture worker again.
+let lastIds = null;
+
+// The photo store notifies often (every upload flush, going on or off
+// line): changes a few seconds apart make one refresh.
+const SOON_MS = 3000;
+
+function refreshSoon() {
+	clearTimeout(soonTimer);
+	soonTimer = setTimeout(() => refreshPhotoPrints(), SOON_MS);
+}
 // The index's cards as "<catalog>|<id>", made once per names table.
 let heldFor = null;
 let held = null;
@@ -88,10 +105,10 @@ const FAMILY_WAIT_MS = 3000;
 export function refreshPhotoPrints() {
 	if (!following) {
 		following = true;
-		onSharedPhotosChange(() => refreshPhotoPrints());
-		// A photo the owner adds or removes while Scan is open counts at once
-		// (the photo store's own changes, not every save of a scanned card).
-		onPhotosChange(() => refreshPhotoPrints());
+		onSharedPhotosChange(refreshSoon);
+		// A photo the owner adds or removes while Scan is open counts (the
+		// photo store's own changes, not every save of a scanned card).
+		onPhotosChange(refreshSoon);
 	}
 
 	running = (running || Promise.resolve()).then(async () => {
@@ -112,8 +129,14 @@ export function refreshPhotoPrints() {
 		const inIndex = (catalog, id) => indexed.has(`${catalog}|${id}`) || (catalog === 'en' && indexed.has(`pt|${id}`));
 		const {cache, entries} = await photoPrintEntries({cache: readCache(), imageOf: pixelsOf, inIndex, records: [...cardInfoList(), ...sharedPhotoRecords()]});
 
+		const ids = entries.map((entry) => entry.photoId).sort().join(',');
+
 		writeCache(cache, new Set(entries.map((entry) => entry.photoId)));
-		setPhotoPrints(entries);
+
+		if (ids !== lastIds) {
+			lastIds = ids;
+			setPhotoPrints(entries);
+		}
 
 		return entries.length;
 	}).catch(() => 0);

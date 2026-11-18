@@ -485,6 +485,8 @@ export function applyMatch(session, id, {candidates = [], names = [], partial = 
 	item.readSetName = setName || null;
 	item.partial = partial;
 	item.sure = judged.sure;
+	// Settled by the text route, not by the stack.
+	item.stacked = false;
 	item.why = judged.why;
 	item.status = 'ready';
 	item.waitingFor = null;

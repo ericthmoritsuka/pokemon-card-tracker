@@ -418,6 +418,8 @@ export function scanView(root) {
 	// Whether the text reader has been started ahead of need this visit
 	// (warmTextSoon).
 	let textWarmTimer = 0;
+	// The stack each card was read with (session.js stackSet), decided once.
+	const stackOf = new Map();
 	let wakeLock = null;
 	let engineState = 'idle';
 	const photoUrls = new Map();
@@ -2451,7 +2453,11 @@ export function scanView(root) {
 
 				// The stack's print of a shared artwork needs no number read
 				// (picture.js stackPick): the text queue is left free.
-				result = seen.needsText && !stackPick(seen.picture, S.stackSet(session, id)) ? await identifyText(seen, {readOptions}) : seen;
+				// The stack is decided once per card, here, and pictureItemNow
+				// reuses it, so skipping the number read and picking the print
+				// always agree.
+				stackOf.set(id, S.stackSet(session, id));
+				result = seen.needsText && !stackPick(seen.picture, stackOf.get(id)) ? await identifyText(seen, {readOptions}) : seen;
 
 				// Only a card that went to the text reader waited for it (a stack
 				// pick skips it).
@@ -2870,7 +2876,7 @@ export function scanView(root) {
 		// set list and record has been fetched (Eric's phone, version 25: 0.6
 		// to 2 s to show, 1.8 to 6.9 s for the full records).
 		// The set the cards before this one are from (session.js stackSet).
-		const stack = S.stackSet(session, id);
+		const stack = stackOf.has(id) ? stackOf.get(id) : S.stackSet(session, id);
 		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {

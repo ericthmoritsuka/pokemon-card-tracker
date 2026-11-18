@@ -2205,7 +2205,9 @@ as the set tile rings. Prismatic Evolutions shows
 why the levels matter: 131 official cards, 180 in total, and TCGdex counts 268 reverse-holo variants
 including the ball patterns.
 
-Each goal shows a progress ring and a **missing list**. The missing list is sortable like any
+Each goal shows a progress ring and a **missing list**. While a set the goal needs is not on the
+phone yet, the ring on Lists is hidden rather than showing a count that could be wrong, and the
+goal's screen says why (Eric, 2026-11-18: keep it hidden). The missing list is sortable like any
 other view, can be opened offline in a card shop, and sends any card to the wishlist in one tap.
 A missing Pokémon is not a card, so the Every Pokémon goal sends that Pokémon's cheapest card by
 default, and a long press picks another.
