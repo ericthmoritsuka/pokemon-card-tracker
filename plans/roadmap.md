@@ -161,11 +161,10 @@ the audit below to confirm or drop:
     pipeline, match, and rectify code moved to `js/vision/` (E-33). Also in v31: Q-19 (no-card
     frames dropped, Move closer), Q-20 (no repeat add for 10 s), Q-30, Q-38, and the clock warning.
     **Wave 2, done in v38:** the single language table (E-31, which also fixes E-05
-    and E-12, and unblocks the list-languages decision; a Portuguese UI is not wanted, Eric 2026-10-09). Still left after
-    that (the corner editor and the wishlist/settings fetches were done in v37): the rest
-    of E-34 (`stamp.js`, readChoice and saveChoice, pool, validDex, plural helpers in `js/scan/`);
-    `js/wishlist.js`, `js/settings.js`, and `lab/js/match.js` still fetch on their own; one test
-    still calls api.frankfurter.dev; the `lab/README.md` paths; purging old tombstones.
+    and E-12, and unblocks the list-languages decision; a Portuguese UI is not wanted, Eric 2026-10-09). Checked
+    against the code on 2026-11-18 and finished in v75 (`plans/audit.md` Status has the list):
+    the shared helpers, the TCGdex fetches, the tests' exchange rates, and the `lab/README.md`
+    paths. Left on purpose: purging old tombstones, and the hand-rolled localStorage readers.
    - **Want on a member's card:** a member's card page hides Want with every other edit
      button (`wishControl` returns null when `readOnly`), yet it writes only to the viewer's
      own wishlist. Show it there, default the language to the member's copy, and say "N has
