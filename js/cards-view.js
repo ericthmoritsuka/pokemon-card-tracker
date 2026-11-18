@@ -32,7 +32,7 @@ import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, stor
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
-import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
+import {activeFilters, applyFilters, FILTERS, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
@@ -484,7 +484,9 @@ export function cardsScreen(root, {
 
 	const bar = filterBar({
 		extra: [views ? views.element : null, valueButton, ...toolbar].filter(Boolean),
-		filters: offered,
+		// Every filter, Pictures included: these items carry photo and
+		// catalogPicture (makeGroup).
+		filters: offered || FILTERS,
 		id: 'cards',
 		legacy: storageKey === CHOICE_KEY ? legacyChoice : null,
 		placeholder,
@@ -569,6 +571,26 @@ export function cardsScreen(root, {
 		return true;
 	}
 
+	// The cards with a live front photo ("<catalog>|<card id>", any language),
+	// for the Pictures filter: the person's records, or the member's on a
+	// family member's cards. Made again whenever the list of records is a
+	// new one, so a photo taken since the tiles were made counts.
+	let photoKeysFor = null;
+	let photoKeys = new Set();
+
+	function photographed() {
+		const records = loadRecords() || cardInfoList();
+
+		if (records !== photoKeysFor) {
+			photoKeysFor = records;
+			photoKeys = new Set((records || [])
+				.filter((record) => record && !record.deleted_at && (record.photos || []).some((photo) => photo && !photo.deleted_at && photo.side !== 'back'))
+				.map((record) => `${record.catalog || 'international'}|${record.card_id}`));
+		}
+
+		return photoKeys;
+	}
+
 	function makeGroup(group) {
 		const first = group.entries[0];
 		// A hand-made card's own fields stand in for a catalog record,
@@ -620,6 +642,12 @@ export function cardsScreen(root, {
 			setName: (source && source.setName) || (local && local.set_name) || null,
 			sourceName: source && source.name,
 			favorite: group.entries.some((entry) => entry.is_favorite === true),
+			// For the Pictures filter: whether the catalog has a picture of the
+			// card (in any language), and whether a front photo of it is kept.
+			catalogPicture: Boolean(record && Object.values(record.localizations || {}).some((one) => one && one.image)),
+			get photo() {
+				return photographed().has(`${first.catalog}|${first.card_id}`);
+			},
 			twinItem: {card_id: first.card_id, catalog: first.catalog},
 			types: (record && record.types) || [],
 			unplaced: group.entries.some((entry) => !placed.has(entry.id)),

@@ -192,3 +192,36 @@ describe('the sorts', () => {
 		]);
 	});
 });
+
+describe('the Pictures filter', () => {
+	// Pikachu has both, Charizard a photo only, Test Ball a catalog picture
+	// only, Tag Team neither: the one to photograph.
+	const pictured = () => {
+		const [pikachu, charizard, ball, tag] = ITEMS();
+
+		return [
+			{...pikachu, catalogPicture: true, photo: true},
+			{...charizard, catalogPicture: false, photo: true},
+			{...ball, catalogPicture: true, photo: false},
+			{...tag, catalogPicture: false, photo: false},
+		];
+	};
+	const only = (value) => names(fb.applyFilters(pictured(), {filters: {...fb.emptyFilters(), picture: value}}));
+
+	test('No photo, No catalog picture, and Needs a photo (neither)', () => {
+		assert.deepEqual(only('nophoto'), ['Test Ball', 'Tag Team']);
+		assert.deepEqual(only('nocatalog'), ['Charizard', 'Tag Team']);
+		assert.deepEqual(only('needsphoto'), ['Tag Team']);
+		assert.deepEqual(only(''), ['Pikachu', 'Charizard', 'Test Ball', 'Tag Team']);
+	});
+
+	test('each choice counts its cards, and stays listed at 0', () => {
+		assert.deepEqual(fb.filterOptions(pictured()).picture.map((option) => `${option.label} ${option.count}`), ['No photo 2', 'No catalog picture 2', 'Needs a photo 1']);
+		assert.deepEqual(fb.filterOptions(pictured().slice(0, 1)).picture.map((option) => option.count), [0, 0, 0]);
+	});
+
+	test('a screen gets Pictures only when it asks for it, since its items must say what they have', () => {
+		assert.ok(fb.FILTERS.includes('picture'));
+		assert.equal(fb.emptyFilters().picture, '');
+	});
+});

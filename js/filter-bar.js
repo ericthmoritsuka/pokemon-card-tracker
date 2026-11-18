@@ -27,6 +27,8 @@
 //   unstored     how many copies are stored nowhere
 //   favorite     true when a copy is a favorite
 //   priced       false when a copy has no price
+//   catalogPicture  false when the catalog has no picture of the card
+//   photo        false when no front photo of the card is kept
 //   price        the tile's value in reais, or null
 //   newest, oldest  ISO times the copies were added
 //
@@ -56,6 +58,13 @@ export const PRICE_STATES = [
 	{label: 'No price', value: 'unpriced'},
 ];
 
+// The Pictures filter's choices (Eric, 2026-11-18).
+export const PICTURE_STATES = [
+	{label: 'No photo', value: 'nophoto'},
+	{label: 'No catalog picture', value: 'nocatalog'},
+	{label: 'Needs a photo', value: 'needsphoto'},
+];
+
 // Short labels, so the sort fits beside the buttons at 360 px untruncated.
 export const SORTS = [
 	{label: 'Newest', long: 'Newest added first', value: 'newest'},
@@ -75,12 +84,12 @@ const DEFAULT_SORTS = SORTS.map((option) => option.value).filter((value) => valu
 
 // Every filter the bar knows, in the order the sheet shows them. dex is a
 // Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist', 'price', 'storage', 'unplaced', 'favorite'];
+export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite'];
 
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
 
-export const emptyFilters = () => ({artist: '', category: '', dex: '', favorite: false, language: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
+export const emptyFilters = () => ({artist: '', category: '', dex: '', favorite: false, language: '', picture: '', price: '', rarity: '', region: '', set: '', storage: '', type: '', unplaced: false});
 
 // The Stored in filter's values: "place:<name>" for a place, matched
 // whatever its case, and NOT_STORED for copies stored nowhere.
@@ -231,6 +240,13 @@ const matchers = {
 	},
 	language: (item, value) => item.language === value,
 	price: (item, value) => (value === 'unpriced' ? item.priced === false : item.priced === true),
+	// Pictures (Eric, 2026-11-18): no photo of yours; no catalog picture; or
+	// both, the cards to photograph so the scanner learns them
+	// (js/scan/photo-prints.js).
+	picture: (item, value) => (value === 'nophoto' ? item.photo === false
+		: value === 'nocatalog' ? item.catalogPicture === false
+			: value === 'needsphoto' ? item.photo === false && item.catalogPicture === false
+				: true),
 	rarity: (item, value) => item.rarity === value,
 	region: (item, value) => regionsOf(item.dexIds).includes(value),
 	set: (item, value) => item.setKey === value,
@@ -316,6 +332,9 @@ export function filterOptions(items, {places = []} = {}) {
 	let favorite = 0;
 	let unpriced = 0;
 	let priced = 0;
+	let noPhoto = 0;
+	let noCatalog = 0;
+	let needsPhoto = 0;
 
 	for (const item of items) {
 		for (const id of regionsOf(item.dexIds)) {
@@ -342,6 +361,12 @@ export function filterOptions(items, {places = []} = {}) {
 		favorite += item.favorite === true ? 1 : 0;
 		unpriced += item.priced === false ? 1 : 0;
 		priced += item.priced === true ? 1 : 0;
+
+		const photo = item.photo;
+
+		noPhoto += photo === false ? 1 : 0;
+		noCatalog += item.catalogPicture === false ? 1 : 0;
+		needsPhoto += photo === false && item.catalogPicture === false ? 1 : 0;
 	}
 
 	const inOrder = (map, order) => order.filter((option) => map.has(option.value)).map((option) => ({...map.get(option.value), label: option.label}));
@@ -350,6 +375,9 @@ export function filterOptions(items, {places = []} = {}) {
 		artist: [...maps.artist.values()].sort((a, b) => collator.compare(a.label, b.label)),
 		category: inOrder(maps.category, CATEGORIES),
 		language: [...maps.language.values()].sort((a, b) => b.count - a.count),
+		// Every choice stays listed, at 0 too: "Needs a photo" at 0 says the
+		// scanner can learn every card.
+		picture: PICTURE_STATES.map((option) => ({...option, count: {needsphoto: needsPhoto, nocatalog: noCatalog, nophoto: noPhoto}[option.value]})),
 		price: [{count: priced, label: 'Priced', value: 'priced'}, {count: unpriced, label: 'No price', value: 'unpriced'}].filter((option) => option.count),
 		rarity: [...maps.rarity.values()].sort((a, b) => collator.compare(a.label, b.label)),
 		region: inOrder(maps.region, REGION_OPTIONS.map((region) => ({label: region.label, value: region.id}))),
@@ -449,7 +477,9 @@ let barCount = 0;
 export function filterBar({
 	countShown = null,
 	extra = [],
-	filters: offered = FILTERS,
+	// Pictures needs items that say whether they have a photo and a catalog
+	// picture (js/cards-view.js does), so a screen asks for it by name.
+	filters: offered = FILTERS.filter((kind) => kind !== 'picture'),
 	id = `fb${++barCount}`,
 	legacy = null,
 	narrowed: outsideNarrowed = () => false,
@@ -562,6 +592,10 @@ export function filterBar({
 
 		if (kind === 'price') {
 			return (PRICE_STATES.find((option) => option.value === value) || {label: value}).label;
+		}
+
+		if (kind === 'picture') {
+			return (PICTURE_STATES.find((option) => option.value === value) || {label: value}).label;
 		}
 
 		if (kind === 'language') {
@@ -782,6 +816,10 @@ export function filterBar({
 
 		if (kind === 'price') {
 			return select('price', 'Price', 'Priced or not', options.price);
+		}
+
+		if (kind === 'picture') {
+			return select('picture', 'Pictures', 'Any', options.picture);
 		}
 
 		if (kind === 'storage') {
