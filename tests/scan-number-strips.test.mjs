@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {asianSession, numberSide, numberSides} from '../js/scan/identify.js';
+import {asianSession, numberSide, numberSides, otherStripFor} from '../js/scan/identify.js';
 import {readNumber, stripSharpness} from '../js/scan/read.js';
 
 // A white card: nothing reads on either strip, so the fallback runs.
@@ -27,6 +27,15 @@ describe('the number strips a picture match reads', () => {
 		assert.deepEqual(numberSides(picture('base1-4', 'neo1-9')), {left: false, right: true});
 		assert.deepEqual(numberSides(null), {left: true, right: true}, 'no picture: both, as before');
 		assert.equal(numberSide(picture('base1-4', 'neo1-9')), 'right');
+	});
+
+	test('the other strip is skipped only for a picture close enough for its candidates\' era to count', () => {
+		const modern = picture('sv01-001', 'swsh3-102', 'sm4-19');
+
+		assert.equal(otherStripFor(modern), false, 'all five print on the left, and the picture is close (40 to 44)');
+		assert.equal(otherStripFor({...modern, groups: modern.groups.map((g) => ({...g, score: g.score + 30}))}), true, 'past 60: a card the index lacks, or a bad crop');
+		assert.equal(otherStripFor(picture('sv01-001', 'xy1-5')), true, 'one candidate prints on the right');
+		assert.equal(otherStripFor(null), true);
 	});
 
 	test('the name strip is read only while Japanese or Korean cards are scanned', () => {

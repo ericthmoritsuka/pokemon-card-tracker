@@ -25,7 +25,7 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {blobImage, imageBlob} from './image.js';
-import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
+import {CLEAR_DISTANCE, compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
@@ -949,8 +949,15 @@ async function readCard(card, ocr, options) {
 export const asianSession = (cjk) => Boolean(cjk && (cjk.language || cjk.lean));
 
 // Whether the strip numberSide did not pick is worth reading when the picked
-// one gives no number: some candidate prints its number there.
-const otherStripFor = (picture) => numberSides(picture)[numberSide(picture) === 'right' ? 'left' : 'right'];
+// one gives no number: some candidate prints its number there, or the
+// picture is too far from every candidate (past CLEAR_DISTANCE: a card the
+// index lacks, or a bad crop) for their era to say anything (v79; found in
+// review).
+export const otherStripFor = (picture) => {
+	const lead = picture && picture.groups && picture.groups[0];
+
+	return !lead || lead.score > CLEAR_DISTANCE || numberSides(picture)[numberSide(picture) === 'right' ? 'left' : 'right'];
+};
 
 async function readNumberOnly(card, ocr, options) {
 	const {readNumber} = await import('./read.js');

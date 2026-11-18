@@ -2453,7 +2453,9 @@ export function scanView(root) {
 				// (picture.js stackPick): the text queue is left free.
 				result = seen.needsText && !stackPick(seen.picture, S.stackSet(session, id)) ? await identifyText(seen, {readOptions}) : seen;
 
-				if (seen.needsText) {
+				// Only a card that went to the text reader waited for it (a stack
+				// pick skips it).
+				if (result !== seen) {
 					queueWaits.set(id, {...queueWaits.get(id), text: Math.max(0, Math.round(performance.now() - textAsked - ((result.timings.total || 0) - (seen.timings.total || 0))))});
 				}
 			}

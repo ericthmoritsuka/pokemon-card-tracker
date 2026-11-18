@@ -8,13 +8,16 @@
 
 import {cardInfoList} from '../collection.js';
 import {onSharedPhotosChange, sharedPhotoRecords, sharedReady} from '../photos/shared.js';
-import {photoUrl} from '../photos/store.js';
+import {onPhotosChange, photoUrl} from '../photos/store.js';
 import {setPhotoPrints} from './identify.js';
 import {photoPrintEntries} from './photo-prints.js';
 import {loadIndexNames} from './picture.js';
 
-// {photoId: print} on this phone: a photo is decoded once.
-const PRINTS_KEY = 'card-tracker:photo-prints';
+// {photoId: print} on this phone: a photo is decoded once. The version in
+// the key goes up whenever js/scan/photo-prints.js describeCard (or the
+// fingerprint it uses) changes, so no print made the old way is matched
+// against queries made the new way.
+const PRINTS_KEY = 'card-tracker:photo-prints:v1';
 
 function readCache() {
 	try {
@@ -61,6 +64,18 @@ async function pixelsOf(photo) {
 
 let running = null;
 let following = false;
+// The index's cards as "<catalog>|<id>", made once per names table.
+let heldFor = null;
+let held = null;
+
+function heldCards(table) {
+	if (heldFor !== table) {
+		heldFor = table;
+		held = new Set(Object.entries(table.cards).flatMap(([key, cards]) => Object.keys(cards).map((id) => `${key.split('|')[0]}|${id}`)));
+	}
+
+	return held;
+}
 
 // How long a refresh waits for the family's photo lists to load from the
 // phone before going on with the owner's photos alone.
@@ -74,16 +89,27 @@ export function refreshPhotoPrints() {
 	if (!following) {
 		following = true;
 		onSharedPhotosChange(() => refreshPhotoPrints());
+		// A photo the owner adds or removes while Scan is open counts at once
+		// (the photo store's own changes, not every save of a scanned card).
+		onPhotosChange(() => refreshPhotoPrints());
 	}
 
 	running = (running || Promise.resolve()).then(async () => {
 		await Promise.race([sharedReady().catch(() => {}), new Promise((resolve) => setTimeout(resolve, FAMILY_WAIT_MS))]);
 
 		const table = await loadIndexNames();
-		// The index's cards as "<catalog>|<id>". With no names table, every
-		// card counts as in the index: no photo is taken for a card it may hold.
-		const held = table ? new Set(Object.entries(table.cards).flatMap(([key, cards]) => Object.keys(cards).map((id) => `${key.split('|')[0]}|${id}`))) : null;
-		const inIndex = (catalog, id) => !held || held.has(`${catalog}|${id}`);
+
+		// Without the names table it cannot be told which cards the index
+		// holds: the prints already set, and those kept on the phone, stay.
+		if (!table) {
+			return null;
+		}
+
+		// A Western print is in the index under its English record or, for the
+		// few the index holds as Portuguese (sm3.5), its Portuguese one: either
+		// way it is not learned from a photo, which would only stand beside it.
+		const indexed = heldCards(table);
+		const inIndex = (catalog, id) => indexed.has(`${catalog}|${id}`) || (catalog === 'en' && indexed.has(`pt|${id}`));
 		const {cache, entries} = await photoPrintEntries({cache: readCache(), imageOf: pixelsOf, inIndex, records: [...cardInfoList(), ...sharedPhotoRecords()]});
 
 		writeCache(cache, new Set(entries.map((entry) => entry.photoId)));
