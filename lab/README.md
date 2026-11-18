@@ -106,8 +106,8 @@ fixed seed from TCGdex: 26 modern English (`sv01`, `sv03`, `sv06`, `sv08`, `swsh
 `swsh9`, `me01`), 24 WotC-era English (`base1`, `base2`, `base3`, `base5`, `neo1`, `neo2`,
 `neo3`), and 14 Japanese (`SV1S`, `SV1V`, `SV2a`, `SV4a`, `SV5K`, `SV7`). Their `high.webp`
 images (600 x 825) were downloaded server-side and served same-origin, and a Playwright harness
-ran this lab's own `pipeline.js`, `rectify.js`, `match.js`, and vendored Tesseract in headless
-Chromium 153, matching against the live TCGdex API. The harness stays outside the repo
+ran this lab's own `pipeline.js`, `rectify.js`, `match.js` (since moved to `js/vision/`), and
+vendored Tesseract in headless Chromium 153, matching against the live TCGdex API. The harness stays outside the repo
 (`/tmp/scanlab` on the machine that ran it), and no card image is committed.
 
 Two passes:
