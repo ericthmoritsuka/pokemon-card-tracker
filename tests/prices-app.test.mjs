@@ -205,7 +205,7 @@ describe('prices in the app', () => {
 		assert.equal(plain(await page.locator('.copies .copy-price').textContent()), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30');
 		assert.equal(plain(await page.locator('#card-price .price-liga-text').textContent()), 'Liga, 19 Sep 2026: lowest NM R$ 45,90 · average R$ 52,30');
 		assert.equal(await page.locator('#card-price form, #card-price input').count(), 0, 'no Liga price form');
-		assert.ok(await page.locator('#card-price .price-liga-link').isHidden(), 'Ver na Liga stays the one above');
+		assert.equal(await page.locator('#card-price .price-liga-link, #card-price .price-liga-none, #card-price .price-actions').count(), 0, 'Ver na Liga stays the one above: the price panel draws none of its own');
 		await page.click('#card-price .price-remove');
 		await page.waitForSelector('#card-price .price-liga', {state: 'detached'});
 		await page.waitForSelector('.copies .copy-price', {state: 'detached'});

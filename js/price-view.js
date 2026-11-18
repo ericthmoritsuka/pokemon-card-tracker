@@ -151,7 +151,9 @@ function rateText({eur, eurShown, usd, usdShown}) {
 //                   brought back
 //   toast           (message, {action, actionLabel, timeout}) => void, for
 //                   Undo; defaults to js/shell.js toast
-export function priceSection({card, entries = [], eurRates = undefined, language = null, ligaHref, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, toast = null, variantId = null} = {}) {
+//   withLiga        false leaves out the section's own Ver na Liga, for card
+//                   detail, where a button above the section stands for it
+export function priceSection({card, entries = [], eurRates = undefined, language = null, ligaHref, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, toast = null, variantId = null, withLiga = true} = {}) {
 	const id = `price-${++sectionCount}`;
 	const finishes = extractPrices(card);
 	const section = h('section', {'aria-labelledby': `${id}-title`, class: 'price'});
@@ -460,7 +462,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 			rateLine ? h('p', {class: 'price-meta price-rate'}, rateLine) : null,
 			foreign ? h('p', {class: 'price-meta price-language'}, `Market prices for English cards, not for ${languageLabel(language)} prints.`) : null,
 			ligaLines(),
-			h('div', {class: 'price-actions'}, ligaLink()),
+			withLiga ? h('div', {class: 'price-actions'}, ligaLink()) : null,
 		].filter(Boolean));
 
 		const row = section.querySelector('.price-finishes');

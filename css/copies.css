@@ -250,18 +250,6 @@ button.step-more {
 	color: var(--selected-text);
 }
 
-/* The price section draws a Ver na Liga of its own; on card detail the
-   button above stands for it, so the price panel starts with the market
-   prices. */
-.card-detail .price-slot .price-liga-link,
-.card-detail .price-slot .price-liga-none {
-	display: none;
-}
-
-.card-detail .price-slot .price-actions:not(:has(.price-edit)) {
-	display: none;
-}
-
 /* The catalog is down: one short line, the reason small under it, and Try
    again beside them, so Your copies still shows on the first screen. */
 .card-unreachable {

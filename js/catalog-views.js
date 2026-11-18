@@ -1300,8 +1300,8 @@ export function cardView(root, {lang, cardId}) {
 
 	// The price, full width under Ver na Liga (js/price-view.js): the Liga
 	// price the person typed in and its form, then the US and EU references.
-	// The section draws its own Ver na Liga too; css/copies.css hides that
-	// one on card detail, where the button above stands for it.
+	// The section's own Ver na Liga is left out (withLiga), since the button
+	// above stands for it.
 	const priceSlot = h('div', {class: 'price-slot', id: 'card-price'});
 	// The person's live copies of this card, and the Ver na Liga link once
 	// known (null for none).
@@ -1360,6 +1360,7 @@ export function cardView(root, {lang, cardId}) {
 				priceKey = [current, ligaHref, copiesKey(owned)];
 			},
 			recordLanguage: lang,
+			withLiga: false,
 			// Nothing of a family member's is ever saved from here.
 			save: readOnly ? () => Promise.reject(new Error('A family member\'s cards are view only.')) : undefined,
 		});
