@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
 const require = createRequire(import.meta.url);
@@ -37,6 +38,7 @@ after(async () => {
 async function controls(width, counts, {scale = 1} = {}) {
 	const context = await browser.newContext({viewport: {height: 700, width}});
 
+	await fakeRates(context);
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await context.route(`${server.origin}${BASE}segments-test.html`, (route) => route.fulfill({
 		body: `<!doctype html><html style="font-size: ${scale * 100}%"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="stylesheet" href="style.css"></head><body><div id="errors"></div><main></main></body></html>`,
