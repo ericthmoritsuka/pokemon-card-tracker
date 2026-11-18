@@ -1022,10 +1022,12 @@ function variantText(variant) {
 	return parts.join(', ');
 }
 
-// The finish select's options for a card: each variant TCGdex gives an ID.
+// The finish select's options for a card: each variant TCGdex gives an ID,
+// with the variant itself, so the sheet can tell which plain finishes the
+// list lacks (js/copy-sheet.js finishOptions).
 export const finishChoices = (variants) => variants
 	.filter((variant) => variant && variant.variantId)
-	.map((variant) => ({label: variantText(variant), value: variant.variantId}));
+	.map((variant) => ({label: variantText(variant), value: variant.variantId, variant}));
 
 export function cardView(root, {lang, cardId}) {
 	// A hand-made card has no catalog record: its own page
@@ -1574,9 +1576,18 @@ export function cardView(root, {lang, cardId}) {
 			return 'Finish (catalog offline)';
 		}
 
-		return entry.finish_raw
+		if (!entry.finish_raw) {
+			return 'Finish not set';
+		}
+
+		// The word monprice gave, never matched; or a finish picked in the
+		// sheet that the catalog does not list (Eric, 2026-11-18), named as
+		// the sheet names it. The import key keeps monprice's word.
+		const imported = String(entry.import_key || '').split('|')[3];
+
+		return entry.import_key && imported === entry.finish_raw
 			? `${finishLabel(entry.finish_raw)} (from monprice, finish not matched)`
-			: 'Finish not set';
+			: `${finishLabel(entry.finish_raw)} (not listed)`;
 	}
 
 	// The name and number the sheets show under their title.

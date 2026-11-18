@@ -327,6 +327,18 @@ button.step-more {
 	margin: 0;
 }
 
+/* Change: This copy or All N, named like the fields under it, since it
+   decides what every field changes. */
+.copy-scope-label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: var(--space-1);
+}
+
+.copy-scope-hint {
+	margin: var(--space-1) 0 0;
+}
+
 .copy-danger {
 	border-top: 1px solid var(--border);
 	margin-top: var(--space-4);
