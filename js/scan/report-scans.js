@@ -112,7 +112,7 @@ function textRouteLines(report) {
 	const match = report.match;
 
 	if (match) {
-		lines.push(`Catalog lookup: ${ms(match.ms)}; routes ${match.routes && match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}`);
+		lines.push(`Catalog lookup: ${ms(match.ms)}; routes ${match.routes && match.routes.length ? match.routes.join(', ') : 'none'}; searched for ${match.language || 'an unknown language'}${match.partial ? '; some sets were out of reach' : ''}${match.stack ? '; picked by the set of the cards before it, no number read' : ''}`);
 
 		if (match.setName) {
 			lines.push(`The name strip read a set's name ("${match.setName}"), so it was not used as a name.`);

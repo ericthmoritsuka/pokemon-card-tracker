@@ -129,6 +129,29 @@ const touch = (session, now = nowIso()) => {
 
 export const findItem = (session, id) => session.items.find((item) => item.id === id) || null;
 
+// The set a stack of cards is from: the set of at least STACK_LEAST of the
+// last STACK_LOOK cards added before this one, or null. A picture that finds
+// a reprint's artwork (30th Celebration reprints older art) takes the stack's
+// print of it rather than reading its number (js/scan/picture.js
+// stackPick, v78). In Eric's 2026-11-18 report the rule applied 33 times and
+// named the card he kept every time.
+export const STACK_LOOK = 5;
+export const STACK_LEAST = 3;
+
+export function stackSet(session, id) {
+	const at = session.items.findIndex((item) => item.id === id);
+	const before = (at < 0 ? session.items : session.items.slice(0, at)).filter((item) => item.card && item.card.setId).slice(-STACK_LOOK);
+	const counts = new Map();
+
+	for (const item of before) {
+		counts.set(item.card.setId, (counts.get(item.card.setId) || 0) + 1);
+	}
+
+	const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+
+	return best && best[1] >= STACK_LEAST ? best[0] : null;
+}
+
 function mustFind(session, id) {
 	const item = findItem(session, id);
 
@@ -1598,6 +1621,8 @@ export function reportOfMatch(found, {fullMs = null, indexMs = null, language = 
 		routes: found.routes || [],
 		searched: (found.searched || []).slice(0, 12),
 		setName: found.setName || null,
+		// Picked by the set of the cards before it (picture.js stackPick).
+		...(found.stack ? {stack: true} : {}),
 	};
 }
 

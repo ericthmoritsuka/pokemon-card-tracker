@@ -294,6 +294,18 @@ export function pictureVerdict(picture) {
 // with a clear lead.
 export const needsText = (picture) => !pictureVerdict(picture).sure;
 
+// The card of the picture's first group (the cards that share its artwork)
+// from the set the stack is from (js/scan/session.js stackSet), when exactly
+// one is, or null. It is the card, with no number read: a reprint and its
+// original share artwork, and the cards before it say which print this
+// stack holds (v78; Eric: "in the 30th case, there's the 30th logo there").
+export function stackPick(picture, set) {
+	const lead = set && picture && picture.groups && picture.groups[0];
+	const inSet = lead ? lead.cards.filter((card) => card.set === set) : [];
+
+	return inSet.length === 1 ? inSet[0] : null;
+}
+
 // Past this distance the closest artwork is no match at all (Q-19). Real
 // cards that the picture or the number settles are at most CLEAR_DISTANCE
 // away; a real card with a wrong crop was 63 to 76 away, but its outline
@@ -687,7 +699,11 @@ function misreadSettled(read, described, lead, verdict) {
 // (knownFrom). The scanner first asks with a short wait, to show the card
 // at once from what is on the phone, then again in full behind it
 // (js/scan/view.js pictureItemNow).
-export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
+//
+// stack: the set the cards before this one are from (session.js stackSet),
+// or null. When exactly one card of the first group is from it, that card is
+// the answer, sure, unless a number read names another (stackPick).
+export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	// The language read or picked (`said`), or for a card with no Latin label
 	// the last Asian pick, to order by.
@@ -721,6 +737,13 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	const asianKnown = ASIAN.includes(language);
 	const western = (c) => (asianKnown || ASIAN.includes(c.lang) ? 0 : 1);
 	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (western(b) - western(a)) || a.score - b.score);
+
+	// The stack's print of this artwork: the card, with no number needed.
+	const stacked = stack ? lead.filter((c) => c.setId === stack) : [];
+
+	if (stacked.length === 1 && (!number || numberFits(stacked[0], number))) {
+		return done({candidates: [stacked[0], ...order(lead).filter((c) => c !== stacked[0]), ...others], card: stacked[0], stack: true, sure: true});
+	}
 
 	if (verdict.clear) {
 		const ordered = order(lead);

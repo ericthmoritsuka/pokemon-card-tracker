@@ -36,7 +36,7 @@ import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
-import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
+import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
@@ -2445,7 +2445,9 @@ export function scanView(root) {
 
 				const textAsked = performance.now();
 
-				result = seen.needsText ? await identifyText(seen, {readOptions}) : seen;
+				// The stack's print of a shared artwork needs no number read
+				// (picture.js stackPick): the text queue is left free.
+				result = seen.needsText && !stackPick(seen.picture, S.stackSet(session, id)) ? await identifyText(seen, {readOptions}) : seen;
 
 				if (seen.needsText) {
 					queueWaits.set(id, {...queueWaits.get(id), text: Math.max(0, Math.round(performance.now() - textAsked - ((result.timings.total || 0) - (seen.timings.total || 0))))});
@@ -2861,7 +2863,9 @@ export function scanView(root) {
 		// names none of the five) is shown at once rather than after every
 		// set list and record has been fetched (Eric's phone, version 25: 0.6
 		// to 2 s to show, 1.8 to 6.9 s for the full records).
-		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
+		// The set the cards before this one are from (session.js stackSet).
+		const stack = S.stackSet(session, id);
+		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -2884,7 +2888,7 @@ export function scanView(root) {
 			loadVariants(id);
 		}
 
-		const full = await pictureMatch(item.picture, item.read, language, {asian, known, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+		const full = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
