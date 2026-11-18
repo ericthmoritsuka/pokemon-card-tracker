@@ -1059,6 +1059,18 @@ straightens the card, fingerprints it (`js/vision/`), and matches it against the
   them promotes it, and a number that names none falls back to the text lookup.
 - The picture and a number read disagree: the card needs a look, never a save.
 
+**Naming the matches with no request** (2026-11-18, v76). The index holds fingerprints, set ids,
+and numbers, not names, so the picture route read each candidate's set record from TCGdex the
+first time it saw that set. In Eric's 2026-11-06 report that "catalog lookup" took about 0.7 s on a
+sure scan and 2 to 8.4 s on a weak one, whose five candidates spread over several sets and
+catalogs. `js/vision/index-names.json` (built by `lab/fingerprints/build-names.mjs` from the index
+and one set record per catalog and set, 180 KB gzipped, precached beside the index) now gives every
+index card's name and each set's name, official count, and release date, so `js/scan/picture.js`
+`describe` names them at once and offline. It is keyed by card id: a table older or newer than the
+index only leaves a card out, and a card it lacks is named from its set record as before.
+`tests/index-names.test.mjs` fails when the shipped table misses a card of the shipped index, so
+rebuild it whenever the index is rebuilt.
+
 Tesseract now loads only when a card needs text, so Scan opens without its 7 MB. The straightened
 crop is snapped to a card's 63 by 88 shape (crops that came out 0.733 to 0.740 wide for their
 height missed the read boxes), and when the box was too wide the fingerprint also tries it with

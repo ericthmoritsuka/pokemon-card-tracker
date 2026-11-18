@@ -24,6 +24,10 @@
 //    images.
 // 3. Artwork groups: cards whose art box is the same picture.
 // 4. The packed index (pack.js), by default js/vision/index.bin.
+//
+// Then rebuild the names table the scanner names matches from:
+// node lab/fingerprints/build-names.mjs (tests/index-names.test.mjs fails
+// until it covers every card of the new index).
 
 import {mkdir, readFile, stat, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
