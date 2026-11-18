@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-18',
+		items: [
+			'On a small phone or with larger text, All, Owned, and Missing put each number under its word when they do not fit, instead of one wrapping alone.',
+			'A card page picture with no image keeps its text clear of the Official label.',
+			'Wanting a family member\'s Korean copies of a Japanese card asks for Korean.',
+			'Export CSV leaves the language empty for a copy with none, and such a file imports back.',
+		],
+		version: 'v74',
+	},
+	{
 		date: '2026-11-17',
 		items: [
 			'A copy\'s sheet saves what you changed when you close it, however you close it: Close, Back, or a tap outside. Save still works.',
