@@ -279,11 +279,17 @@ else {
 			let r;
 
 			try {
+				let itemOptions = options;
+
 				if (hiding) {
-					await page.evaluate(([it, o]) => window.bench.photoPrint(it, o), [item, {hideOnly: hiding === 'hide'}]);
+					const print = await page.evaluate(([it, o]) => window.bench.photoPrint(it, o), [item, {hideOnly: hiding === 'hide'}]);
+
+					if (hiding === 'hide') {
+						itemOptions = {...options, stackSet: print.set};
+					}
 				}
 
-				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), options, pass}]));
+				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), options: itemOptions, pass}]));
 			}
 			catch (err) {
 				console.error(item.id, pass, err.message);
@@ -411,6 +417,15 @@ if (hiding === 'hide') {
 		const scores = list.map((r) => r.hidden.score ?? 999);
 		const gaps = list.map((r) => (Number.isFinite(r.hidden.gap) ? r.hidden.gap : 999));
 		const under = (g) => list.filter((r) => (r.hidden.score ?? 999) <= 60 && r.hidden.gap >= g).length;
+
+		const picks = list.filter((r) => r.new.stack && r.new.stack.pick);
+		const strict = picks.filter((r) => (r.hidden.score ?? 999) <= 45 && r.hidden.gap >= 15);
+
+		console.log(`${pass} stack rule (stack = the hidden card's set): picks ${picks.length}, with score <= 45 and gap >= 15 ${strict.length}; clear pictures ${list.filter((r) => r.new.stack && r.new.stack.clear).length}`);
+
+		if (pass === 'all') {
+			picks.slice(0, 10).forEach((r) => console.log(`  ${r.pass} ${r.truth} -> ${r.new.stack.pick} score ${r.hidden.score} gap ${r.hidden.gap}`));
+		}
 
 		console.log(`${pass} hidden: n ${list.length}; score min/p10/p25/median/p75 ${dist(scores)}; gap ${dist(gaps)}; first group one card ${list.filter((r) => r.hidden.firstCards === 1).length}, same set ${list.filter((r) => r.hidden.sameSet).length}; score <= 60 and gap >= 5 ${under(5)}, >= 8 ${under(8)}, >= 10 ${under(10)}; sure ${list.filter((r) => r.new.sure).length} (all wrong)`);
 	}

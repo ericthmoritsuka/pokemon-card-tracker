@@ -107,7 +107,9 @@ blurred 0.6 px, JPEG at 0.85), `describeCard` fingerprints it, and it is set as 
 The card is hidden from the main index (`picture.js` `setPhotoPrints` `hide`, which the app never
 passes), so only the photo can find it. Each pass prints the right card first, in the top three,
 sure, and wrong but sure, with the median lead and first-group score and the OCR count.
-`--hide-only` hides the card with no print, a card nobody photographed, and prints the spread of the
+`--hide-only` hides the card's whole artwork group (its reprints and Asian twins, under every
+catalog) with no print, a card nobody photographed, prints what the stack rule (`stackPick`) would
+take from a stack of the card's own set, and prints the spread of the
 first group's score and lead, so a sure threshold can be checked against cards that cannot be right.
 
 ## What It Prints

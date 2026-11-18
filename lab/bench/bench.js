@@ -19,7 +19,7 @@ import {readCard, readNumber} from '/pokemon-card-tracker/js/scan/read.js';
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
 import {identify, setPhotoPrints} from '/pokemon-card-tracker/js/scan/identify.js';
-import {loadFingerprints, pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
+import {loadFingerprints, pictureMatch, pictureVerdict, stackPick} from '/pokemon-card-tracker/js/scan/picture.js';
 import {describeCard} from '/pokemon-card-tracker/js/scan/photo-prints.js';
 import {rectQuad} from '/pokemon-card-tracker/js/scan/rectify.js';
 
@@ -425,7 +425,7 @@ const small = (cands) => cands.map((c) => ({conf: c.confidence ?? null, id: c.id
 // --picture): js/scan/identify.js (rectify, fingerprint and match, a
 // number-only read when the picture needs one), then js/scan/picture.js
 // pictureMatch, with the text route behind it, as js/scan/view.js does.
-async function measurePicture(image, {crops = false} = {}) {
+async function measurePicture(image, {crops = false, stackSet = null} = {}) {
 	const t0 = performance.now();
 	// The outlines found in the whole frame (--frame), as view.js passes them.
 	const result = await identify(image, {quads: image.quads || []});
@@ -457,6 +457,15 @@ async function measurePicture(image, {crops = false} = {}) {
 		why: found.why,
 	};
 
+	// --hide-only: what the stack rule (picture.js stackPick) would take
+	// from a stack of the hidden card's own set, and the picture's verdict.
+	if (stackSet && result.picture) {
+		const pick = stackPick(result.picture, stackSet);
+		const verdict = pictureVerdict(result.picture);
+
+		out.stack = {clear: verdict.clear, pick: pick ? pick.id : null, set: stackSet};
+	}
+
 	if (crops) {
 		out.crops = {card: await imageUrl(result.card)};
 	}
@@ -482,17 +491,26 @@ async function ownerPhoto(bitmap) {
 	return out.getImageData(0, 0, 600, 840);
 }
 
-// Every index card by id, for a print's catalog and set as the index has them.
+// Every index card by id, for a print's catalog and set as the index has them,
+// and every id by artwork group (pack.js group), for --hide-only.
 let indexCards = null;
+let groupIds = null;
+let groupsOf = null;
 
 async function indexCardOf(id, lang) {
 	if (!indexCards) {
 		const index = await loadFingerprints();
 
 		indexCards = new Map();
+		groupIds = new Map();
+		groupsOf = new Map();
 
 		for (let i = 0; i < index.count; i++) {
 			const card = index.card(i);
+			const g = index.group[i];
+
+			groupIds.set(g, [...(groupIds.get(g) || []), card.id]);
+			groupsOf.set(card.id, [...(groupsOf.get(card.id) || []), g]);
 
 			indexCards.set(`${card.catalog}|${card.id}`, card);
 
@@ -507,7 +525,7 @@ async function indexCardOf(id, lang) {
 
 async function measure(image, {crops = false, options = {}} = {}) {
 	if (options.pictureFirst) {
-		return measurePicture(image, {crops});
+		return measurePicture(image, {crops, stackSet: options.stackSet || null});
 	}
 
 	const t0 = performance.now();
@@ -649,10 +667,19 @@ window.bench = {
 
 		const known = await indexCardOf(item.id, item.lang);
 
+		// The card's whole artwork group, under every catalog: reprints and
+		// Asian twins share its picture, so hiding its id alone is not
+		// hiding the card.
 		if (hideOnly) {
-			setPhotoPrints([], {hide: [item.id]});
+			const hide = new Set([item.id]);
 
-			return {catalog: known && known.catalog, set: known && known.set};
+			for (const g of groupsOf.get(item.id) || []) {
+				groupIds.get(g).forEach((id) => hide.add(id));
+			}
+
+			setPhotoPrints([], {hide: [...hide]});
+
+			return {catalog: known && known.catalog, hidden: hide.size, set: known ? known.set : item.set};
 		}
 
 		const print = describeCard(await ownerPhoto(await bitmapOf(item.file)));
