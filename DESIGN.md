@@ -1219,6 +1219,14 @@ frame with four clean edges. Decided:
 - **The name when the picture and the number both fail**: `readNumber` then reads the name strip
   too, and `js/scan/picture.js` `pictureMatch` puts the card of the picture's five that bears the
   name first, or offers the cards the name route finds before them. A name never makes a card sure.
+  Since v77 (2026-11-18) only while Japanese or Korean cards are being scanned (the card's language,
+  or the last language picked in Scan), whose name route needs it: for Latin cards it was read 16
+  times in Eric's 18 November report, about 2.2 s each on his phone, and never led to the card he
+  kept, and on the lab benchmark leaving it out changed no card. When the likelier number strip
+  reads nothing, the other strip is read only when a card of the picture's top five groups prints
+  its number there (v76, `js/scan/identify.js` `numberSides`): it was read 28 times there and
+  never gave a number. The likelier strip's sparse pass stays, since leaving it out made two
+  benchmark JPEG captures unsure.
 - **Names as Western cards print them** (`js/scan/local-names.json`, 79 KB, 36 KB gzipped, built by
   `lab/names/build.mjs`): every species in English, French, and German from PokeAPI (BSD-3-Clause;
   PokeAPI has no Portuguese, and Portuguese cards print the English names), the other spellings
