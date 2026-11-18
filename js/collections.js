@@ -48,6 +48,7 @@ import {applyFilters, dexRange, emptyFilters} from './filter-bar.js';
 import {nextStamp, restoreEntry, stampEntry} from './merge.js';
 import {stampMs} from './stamp.js';
 import {orderForNew, sortByOrder, withOrders} from './reorder.js';
+import {pool} from './tcgdex.js';
 
 export const KINDS = ['hand', 'rule'];
 
@@ -436,15 +437,12 @@ export const sortCollections = (collections) => sortByOrder(liveCollections(coll
 export async function fillDetails(cards, index, isAlive = () => true) {
 	const sets = setsNeedingDetails((cards || []).filter(isLive), index);
 	const records = [];
-	let next = 0;
 
-	await Promise.all(Array.from({length: Math.min(2, sets.length)}, async () => {
-		while (next < sets.length && isAlive()) {
-			const set = sets[next++];
-
+	await pool(sets, 2, async (set) => {
+		if (isAlive()) {
 			records.push(...detailRecords(set, await setDetails(set).catch(() => null)));
 		}
-	}));
+	});
 
 	return records.length && isAlive() ? saveToCardIndex(records) : null;
 }

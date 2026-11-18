@@ -26,7 +26,7 @@ import {
 	signOut,
 } from './auth.js';
 import {canShareFiles, exportCollection} from './cards-view.js';
-import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl} from './checklists.js';
+import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl, validDex} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
 import {memberName} from './family.js';
 import {chooseTheme, currentTheme, favoritePokemon, fillPlaceholdersOn, onSettings, setFavoritePokemon, setFillPlaceholders, suggestedThemeFor} from './settings.js';
@@ -1200,7 +1200,7 @@ function favoriteCard() {
 		if (/^\d+$/.test(text)) {
 			const n = Number(text);
 
-			return n >= 1 && n <= MAX_DEX ? [n] : [];
+			return validDex(n) ? [n] : [];
 		}
 
 		const starts = [];

@@ -26,7 +26,7 @@ import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.
 import {database, timedCache} from './idb.js';
 import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, catalogsOf, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
-import {fetchJson} from './tcgdex.js';
+import {fetchJson, pool} from './tcgdex.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
 
@@ -611,21 +611,14 @@ async function warmCards(members) {
 		}
 	}
 
-	const list = [...cards.values()].slice(0, WARM_LIMIT);
-	let next = 0;
-
-	await Promise.all(Array.from({length: Math.min(4, list.length)}, async () => {
-		while (next < list.length) {
-			const {cardId, catalog, lang} = list[next++];
-
-			try {
-				await cardRecord(cardId, lang, catalog);
-			}
-			catch {
-				// Shown with its card ID until a visit with a connection.
-			}
+	await pool([...cards.values()].slice(0, WARM_LIMIT), 4, async ({cardId, catalog, lang}) => {
+		try {
+			await cardRecord(cardId, lang, catalog);
 		}
-	}));
+		catch {
+			// Shown with its card ID until a visit with a connection.
+		}
+	});
 }
 
 let refreshing = null;
