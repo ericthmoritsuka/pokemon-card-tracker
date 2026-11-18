@@ -416,6 +416,20 @@ export function familyPhotoIndex(members) {
 	return byCard;
 }
 
+// Every member's indexed photos as card records, {card_id, catalog,
+// photos: [{id, path, side}]}, for the scanner to learn from
+// (js/scan/photo-prints-app.js). The index holds uploaded fronts only;
+// only paths in the member's own folder count, as in familyPhotos.
+export function familyPhotoRecords(members) {
+	return (Array.isArray(members) ? members : []).flatMap((member) => (Array.isArray(member && member.index) ? member.index : [])
+		.filter((item) => item && isLive(item) && item.card_id && Array.isArray(item.photos))
+		.map((item) => ({
+			card_id: item.card_id,
+			catalog: catalogOf(item),
+			photos: item.photos.filter((photo) => photo && photo.id && photo.path && pathOwner(photo.path) === member.user_id).map((photo) => ({id: photo.id, path: photo.path, side: 'front'})),
+		})));
+}
+
 // A family member's photos of a card, for gallerySlides and mainImage:
 // [{name, photo: {id, path}, user_id}]. members is [{name, user_id, index}],
 // index being that member's photo_index; card is {catalog, card_id,

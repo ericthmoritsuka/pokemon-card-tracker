@@ -10,7 +10,7 @@ import {describe, test} from 'node:test';
 
 import {moveToCardInfo} from '../js/card-info.js';
 import {mergeDocuments, syncDelta, stamps} from '../js/merge.js';
-import {PHOTO_INDEX, familyPhotoIndex, familyPhotos, gallerySlides, mainImage, photoIndexKey, refreshPhotoIndex} from '../js/photos/model.js';
+import {PHOTO_INDEX, familyPhotoIndex, familyPhotoRecords, familyPhotos, gallerySlides, mainImage, photoIndexKey, refreshPhotoIndex} from '../js/photos/model.js';
 
 import * as v21 from './merge-v21.mjs';
 
@@ -167,5 +167,24 @@ describe('choosing a family photo', () => {
 		assert.equal(asked, 0);
 		assert.equal(mainImage([entry('c1')], null, {family}).by, 'Member B');
 		assert.equal(asked, 1);
+	});
+});
+
+describe('the family\'s photos for the scanner', () => {
+	test('familyPhotoRecords gives every member\'s live entries as card records, with only the photos in that member\'s folder', () => {
+		const members = [
+			{index: [
+				{card_id: 'mep-037', id: 'international~mep-037~pt', language: 'pt', photos: [{id: 'a1', path: 'uid-a/e1/a1.webp'}, {id: 'x9', path: 'uid-b/e9/x9.webp'}]},
+				{card_id: 'M6-012', catalog: 'ko', id: 'ko~M6-012~ko', photos: [{id: 'a2', path: 'uid-a/e2/a2.webp'}]},
+				{card_id: 'sv01-001', deleted_at: '2026-11-01T00:00:00Z', id: 'gone', photos: [{id: 'a3', path: 'uid-a/e3/a3.webp'}]},
+			], name: 'Member A', user_id: 'uid-a'},
+			{index: null, name: 'Member B', user_id: 'uid-b'},
+		];
+
+		assert.deepEqual(familyPhotoRecords(members), [
+			{card_id: 'mep-037', catalog: 'international', photos: [{id: 'a1', path: 'uid-a/e1/a1.webp', side: 'front'}]},
+			{card_id: 'M6-012', catalog: 'ko', photos: [{id: 'a2', path: 'uid-a/e2/a2.webp', side: 'front'}]},
+		]);
+		assert.deepEqual(familyPhotoRecords(null), []);
 	});
 });

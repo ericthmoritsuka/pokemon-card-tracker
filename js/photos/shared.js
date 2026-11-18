@@ -19,7 +19,7 @@ import {familyMembers} from '../family.js';
 import {database, timedCache} from '../idb.js';
 import {memberPhotoIndexes} from '../sync.js';
 
-import {familyPhotoIndex, familyPhotos} from './model.js';
+import {familyPhotoIndex, familyPhotoRecords, familyPhotos} from './model.js';
 
 const REFRESH_AFTER_MS = 10 * 60 * 1000;
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -152,6 +152,12 @@ export const sharedSettled = () => refreshing || Promise.resolve();
 // same language first, from what is loaded now. userId: that member's
 // alone, picked before familyPhotos' cap.
 export const sharedPhotosFor = (card, {userId = null} = {}) => (currentUser() ? familyPhotos(members, card, {byCard, userId}) : []);
+
+// Every member's indexed photos as card records, {card_id, catalog,
+// photos: [{id, path, side}]}, for the scanner to learn from
+// (js/scan/photo-prints-app.js). The index holds uploaded fronts only, and
+// only paths in the member's own folder count, as familyPhotos counts them.
+export const sharedPhotoRecords = () => (currentUser() ? familyPhotoRecords(members) : []);
 
 export function onSharedPhotosChange(listener) {
 	listeners.add(listener);

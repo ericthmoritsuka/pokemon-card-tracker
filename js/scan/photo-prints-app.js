@@ -1,11 +1,13 @@
 // The app's side of js/scan/photo-prints.js: reads the owner's card records
-// and their photos, keeps each photo's print on the phone, and hands the
-// prints to the picture matcher (js/scan/identify.js setPhotoPrints). Scan
+// and the family's shared photo lists (js/photos/shared.js) with their
+// photos, keeps each photo's print on the phone, and hands the prints to
+// the picture matcher (js/scan/identify.js setPhotoPrints). Scan
 // calls refreshPhotoPrints once its picture index is in (js/scan/view.js
 // startEngine), so opening Scan never waits for it: until it is done, the
 // capture is matched against the index alone, as before.
 
 import {cardInfoList} from '../collection.js';
+import {onSharedPhotosChange, sharedPhotoRecords, sharedReady} from '../photos/shared.js';
 import {photoUrl} from '../photos/store.js';
 import {setPhotoPrints} from './identify.js';
 import {photoPrintEntries} from './photo-prints.js';
@@ -58,17 +60,31 @@ async function pixelsOf(photo) {
 }
 
 let running = null;
+let following = false;
 
-// Collects the prints and hands them to the matcher; a call while one is
-// running waits for it. Resolves with how many prints were handed over.
+// How long a refresh waits for the family's photo lists to load from the
+// phone before going on with the owner's photos alone.
+const FAMILY_WAIT_MS = 3000;
+
+// Collects the prints, of the owner's photos and the family's, and hands
+// them to the matcher; a call while one is running waits for it. After the
+// first call, a change to the family's photo lists collects them again.
+// Resolves with how many prints were handed over.
 export function refreshPhotoPrints() {
+	if (!following) {
+		following = true;
+		onSharedPhotosChange(() => refreshPhotoPrints());
+	}
+
 	running = (running || Promise.resolve()).then(async () => {
+		await Promise.race([sharedReady().catch(() => {}), new Promise((resolve) => setTimeout(resolve, FAMILY_WAIT_MS))]);
+
 		const table = await loadIndexNames();
 		// The index's cards as "<catalog>|<id>". With no names table, every
 		// card counts as in the index: no photo is taken for a card it may hold.
 		const held = table ? new Set(Object.entries(table.cards).flatMap(([key, cards]) => Object.keys(cards).map((id) => `${key.split('|')[0]}|${id}`))) : null;
 		const inIndex = (catalog, id) => !held || held.has(`${catalog}|${id}`);
-		const {cache, entries} = await photoPrintEntries({cache: readCache(), imageOf: pixelsOf, inIndex, records: cardInfoList()});
+		const {cache, entries} = await photoPrintEntries({cache: readCache(), imageOf: pixelsOf, inIndex, records: [...cardInfoList(), ...sharedPhotoRecords()]});
 
 		writeCache(cache, new Set(entries.map((entry) => entry.photoId)));
 		setPhotoPrints(entries);
