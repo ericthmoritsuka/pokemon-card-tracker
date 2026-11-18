@@ -1159,7 +1159,9 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 //
 // prefer: 'left' (Sun & Moon and later: the number at the bottom left) or
 // 'right' (XY and older); setCode and label: whether to read the set code
-// box and the label row (beside the number). Returns readCard's shape, with
+// box and the label row (beside the number). otherStrip: false when no card
+// the picture offers prints its number on the other strip, so that strip is
+// never read (identify.js numberSides). Returns readCard's shape, with
 // name and hp null, label null when it was not read, and the language from
 // the set code box and the label ({code: null} when neither was read).
 //
@@ -1171,7 +1173,7 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 // cjk, scoreLatin, scoreName, modelState, prepareModel: as readCard, for a
 // name in Japanese or Korean (readName), with the label row, when it is
 // read, as latinLabel.
-export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
+export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
@@ -1287,8 +1289,12 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	}
 
 	// No number on the likelier strip: its sparse pass and the other strip's
-	// lines side by side, then the other strip's sparse pass.
-	if (!number) {
+	// lines side by side, then the other strip's sparse pass; only the
+	// sparse pass when no candidate prints its number on the other strip.
+	if (!number && !otherStrip) {
+		number = await sparse(first);
+	}
+	else if (!number) {
 		const [again, other] = await Promise.all([sparse(first), readLines(second, lineCount(second))]);
 
 		number = again || other;

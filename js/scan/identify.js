@@ -804,7 +804,7 @@ async function readText(seen, {readOptions = {}} = {}) {
 		const options = {...readOptions, modelState: engine.asianState || null, prepareModel: engine.prepare || null};
 
 		read = picture
-			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, prefer: numberSide(picture), setCode: several})
+			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, otherStrip: otherStripFor(picture), prefer: numberSide(picture), setCode: several})
 			: await readCard(card, engine.ocr, options);
 		read.script = null;
 		workers = engine.size;
@@ -921,6 +921,10 @@ async function readCard(card, ocr, options) {
 	return read(card, ocr, options);
 }
 
+// Whether the strip numberSide did not pick is worth reading when the picked
+// one gives no number: some candidate prints its number there.
+const otherStripFor = (picture) => numberSides(picture)[numberSide(picture) === 'right' ? 'left' : 'right'];
+
 async function readNumberOnly(card, ocr, options) {
 	const {readNumber} = await import('./read.js');
 
@@ -949,4 +953,22 @@ export function numberSide(picture) {
 	const right = cards.filter((card) => RIGHT_SIDE_SETS.test(card.id)).length;
 
 	return right * 2 > cards.length ? 'right' : 'left';
+}
+
+// Which strips any card of the picture's top five groups prints its number
+// on, as {left, right}; both when the picture has no cards. A strip no
+// candidate prints on is not read when the likelier one gives no number
+// (read.js readNumber otherStrip): in Eric's 2026-11-18 report the other
+// strip was read 28 times, about 2.5 s each on his phone, and never gave a
+// number (v76).
+export function numberSides(picture) {
+	const cards = ((picture && picture.groups) || []).slice(0, 5).flatMap((group) => group.cards);
+
+	if (!cards.length) {
+		return {left: true, right: true};
+	}
+
+	const right = cards.some((card) => RIGHT_SIDE_SETS.test(card.id));
+
+	return {left: cards.some((card) => !RIGHT_SIDE_SETS.test(card.id)), right};
 }
