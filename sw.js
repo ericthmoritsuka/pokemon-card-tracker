@@ -267,6 +267,8 @@ const SHELL = [
 	'js/filter-bar.js',
 	'js/card-view-mode.js',
 	'js/value-sheet.js',
+	'js/value-history.js',
+	'js/value-history-view.js',
 	'js/whats-new.js',
 	'js/twins-view.js',
 	'js/twins.js',
