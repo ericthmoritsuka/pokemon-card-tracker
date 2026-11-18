@@ -95,7 +95,7 @@ describe('All, Owned, and Missing with their counts', () => {
 		assert.equal(control.stacked, true);
 		assert.equal(control.under, true);
 		assert.equal(control.overflows, false);
-		assert.ok(await page.$eval('#seg-0 .segment-count', (count) => getComputedStyle(count).minHeight === '0px' && getComputedStyle(count).backgroundColor === 'rgba(0, 0, 0, 0)'), 'the number is not drawn as a segment of its own');
+		assert.equal(await page.locator('#seg-0 span').count(), 3, 'one span per segment: the number is not a span of its own');
 		await page.screenshot({path: '/tmp/segments-stacked.png'});
 		assert.deepEqual(errors, []);
 		assert.equal(await page.locator('#errors').textContent(), '', 'no error shown');

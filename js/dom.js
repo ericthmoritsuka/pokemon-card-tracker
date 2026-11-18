@@ -101,8 +101,9 @@ export function h(tag, attrs, ...children) {
 // "Owned 9", "Missing 198"): each segment's text is its label, then its
 // number from counts ({all, owned, missing}). The label is kept in
 // data-label, so a redraw never stacks a second number. The number is its
-// own element: when any segment's label and number do not fit side by side
-// (a 324 px phone, larger system text, a four-digit count), every segment
+// own element, a data element so the segment's span stays its only span:
+// when any segment's label and number do not fit side by side (a 324 px
+// phone, larger system text, a four-digit count), every segment
 // puts its number under its label (segments-stacked, style.css), rather
 // than one segment wrapping alone (v74). Checked again when the control's
 // width changes, as on turning the phone.
@@ -111,7 +112,7 @@ export function segmentCounts(control, counts) {
 		const n = counts && counts[span.closest('label').querySelector('input').value];
 
 		if (typeof n === 'number') {
-			span.replaceChildren(`${span.dataset.label} `, h('span', {class: 'segment-count'}, n.toLocaleString('en-US')));
+			span.replaceChildren(`${span.dataset.label} `, h('data', {class: 'segment-count', value: String(n)}, n.toLocaleString('en-US')));
 		}
 		else {
 			span.textContent = span.dataset.label;

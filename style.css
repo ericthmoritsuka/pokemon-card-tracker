@@ -1670,15 +1670,6 @@ select {
 	padding: 0 var(--space-2);
 }
 
-/* The number inside a segment: not a segment itself. */
-.segmented span.segment-count {
-	background: none;
-	border: 0;
-	cursor: inherit;
-	display: inline;
-	min-height: 0;
-}
-
 .segmented label {
 	position: relative;
 }
