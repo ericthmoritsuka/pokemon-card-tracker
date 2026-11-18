@@ -400,19 +400,33 @@ const savedCatalog = (catalog) => (ASIAN_LANGUAGES.includes(catalog) ? catalog :
 // several sets waited seconds for them (8.4 s in Eric's 2026-11-06 report).
 // Keyed by id, a table older or newer than the index can only leave a card
 // out, never name it wrongly; a card it lacks is named from its set record,
-// as before. Loaded once, or null when it cannot be read.
+// as before. Loaded once a visit; a load that fails (offline before the
+// service worker kept it) is tried again by the next scan.
 let namesLoading = null;
 
 export function loadIndexNames() {
 	if (!namesLoading) {
-		namesLoading = fetch(new URL('../vision/index-names.json', import.meta.url))
+		const loading = fetch(new URL('../vision/index-names.json', import.meta.url))
 			.then((response) => (response.ok ? response.json() : null))
 			.then((table) => (table && table.sets && table.cards ? table : null))
 			.catch(() => null);
+
+		namesLoading = loading;
+		loading.then((table) => {
+			if (!table && namesLoading === loading) {
+				namesLoading = null;
+			}
+		});
 	}
 
 	return namesLoading;
 }
+
+// How long a scan waits for the names table before naming its cards from
+// set records: it comes from the service worker's cache in well under this,
+// and a first download still under way is left to finish for the next scan,
+// rather than adding its wait to the set records'.
+const NAMES_WAIT_MS = 2000;
 
 // A card's name and set from the table, or null when it lacks either.
 function tableEntry(table, card) {
@@ -446,7 +460,7 @@ export function knownFrom(index) {
 // within `wait` ms leaves its cards named from `known` (knownFrom), or by
 // their number in their set.
 async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
-	const table = api.indexNames ? await within(Promise.resolve().then(() => api.indexNames()).catch(() => null), wait, null) : null;
+	const table = api.indexNames ? await within(Promise.resolve().then(() => api.indexNames()).catch(() => null), Math.min(wait, NAMES_WAIT_MS), null) : null;
 	const sets = new Map();
 
 	for (const card of cards) {
