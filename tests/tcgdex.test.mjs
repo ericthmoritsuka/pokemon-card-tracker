@@ -149,7 +149,7 @@ describe('one network layer', () => {
 			const source = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
 			assert.doesNotMatch(source, /api\.tcgdex\.net/, `${path} has no TCGdex address of its own`);
-			assert.match(source, new RegExp(`import \\{${helper}\\} from './tcgdex\\.js';`), `${path} imports ${helper}`);
+			assert.match(source, new RegExp(`import \\{[^}]*\\b${helper}\\b[^}]*\\} from './tcgdex\\.js';`), `${path} imports ${helper}`);
 			assert.match(source, new RegExp(`${helper}\\([^;]*\\{attempts: 1\\}\\)`), `${path} tries once, as before`);
 		}
 	});
