@@ -804,7 +804,7 @@ async function readText(seen, {readOptions = {}} = {}) {
 		const options = {...readOptions, modelState: engine.asianState || null, prepareModel: engine.prepare || null};
 
 		read = picture
-			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear, otherStrip: otherStripFor(picture), prefer: numberSide(picture), setCode: several})
+			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear && asianSession(options.cjk), otherStrip: otherStripFor(picture), prefer: numberSide(picture), setCode: several})
 			: await readCard(card, engine.ocr, options);
 		read.script = null;
 		workers = engine.size;
@@ -920,6 +920,16 @@ async function readCard(card, ocr, options) {
 
 	return read(card, ocr, options);
 }
+
+// Whether the name strip is read when the picture is not clear and no number
+// reads: only while Japanese or Korean cards are being scanned (the card's
+// language, or the last language picked in Scan), for their name route
+// (js/scan/cjk.js), since a Korean print with no catalog image has a weak
+// picture and often no other clue. For a Latin card it is not read (v77):
+// in Eric's 2026-11-18 report it was read 16 times there, about 2.2 s each,
+// and never led to the card he kept, and on the lab benchmark leaving it
+// out changed no card (the no-number pass included).
+export const asianSession = (cjk) => Boolean(cjk && (cjk.language || cjk.lean));
 
 // Whether the strip numberSide did not pick is worth reading when the picked
 // one gives no number: some candidate prints its number there.

@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {numberSide, numberSides} from '../js/scan/identify.js';
+import {asianSession, numberSide, numberSides} from '../js/scan/identify.js';
 import {readNumber} from '../js/scan/read.js';
 
 // A white card: nothing reads on either strip, so the fallback runs.
@@ -27,6 +27,13 @@ describe('the number strips a picture match reads', () => {
 		assert.deepEqual(numberSides(picture('base1-4', 'neo1-9')), {left: false, right: true});
 		assert.deepEqual(numberSides(null), {left: true, right: true}, 'no picture: both, as before');
 		assert.equal(numberSide(picture('base1-4', 'neo1-9')), 'right');
+	});
+
+	test('the name strip is read only while Japanese or Korean cards are scanned', () => {
+		assert.equal(asianSession({guess: 'ko', language: null, lean: false}), false, 'a Latin session: the last Asian pick alone does not count');
+		assert.equal(asianSession({guess: 'ko', language: 'ko', lean: false}), true, 'the card is Korean');
+		assert.equal(asianSession({guess: 'ja', language: null, lean: true}), true, 'the last pick in Scan was Japanese or Korean');
+		assert.equal(asianSession(null), false);
 	});
 
 	test('with otherStrip false, a strip that reads nothing leaves the other strip unread', async () => {
