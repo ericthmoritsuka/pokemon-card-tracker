@@ -657,6 +657,27 @@ carries Undo, which writes back the fields the save changed. Remove copy closes 
 saving, since removing is not an edit. The Add sheet is unchanged: closing it adds nothing, as
 before.
 
+**A finish the catalog does not list can be picked** (Eric, 2026-11-18: "Sometimes they appear as
+a certain collection or as normal or as 1st edition, but they are normal, or reverse holo, or
+holo, or not 1st edition"; "Sometimes I have a holo and a non holo copy"). The Finish select in
+the copy sheet and the Add sheet offered only the card's TCGdex printings, so where TCGdex lists
+only a 1st Edition or a stamped print (and an import matched a plain copy to it as the card's only
+printing), a plain copy could never be said to be plain. The select now also offers Normal, Holo,
+and Reverse holo, each marked "(not listed)", whenever the list has no plain print of that kind
+(no stamp, no special foil, the standard size, no subtype but Unlimited). Picking one stores
+monprice's word in `finish_raw` (`NORMAL`, `HOLOFOIL`, `REVERSE_HOLOFOIL`) with no `variant_id`,
+exactly as an unmatched import stores it, so prices, tile corners, the finish chips, the scanner
+tray, and the CSV treat it as they already treat one; picking a printing stores its `variant_id`
+and clears the word. No new price rule: a word that fits a listed printing (a Holo on a card
+listed only as a holo with a set logo stamp) takes that printing's price, and any other borrows
+another finish's price with its "for Normal; your copy is Holo" note (section 10). The copy's row
+names it as the sheet does ("Holo (not listed)"), keeping "from monprice, finish not matched" for
+a word still as the import gave it, and the copy's own word now decides its tile corner over the
+word its import key keeps, so a 1st Edition import set to Holo loses its "1st". In a row of alike
+copies the This copy / All N choice comes first, labeled Change, with the line "Change one copy
+to give it its own finish. It then shows as its own row." The changed copy moves to a row of its
+own, since a row holds copies alike in finish.
+
 ## 5. Catalog: TCGdex Coverage
 
 Checked against `https://api.tcgdex.net/v2/<language>/sets` on 2026-10-01.
