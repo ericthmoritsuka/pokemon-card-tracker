@@ -391,6 +391,38 @@ const describeMs = () => (typeof navigator !== 'undefined' && navigator.onLine =
 // catalogFor): Western prints share the international one.
 const savedCatalog = (catalog) => (ASIAN_LANGUAGES.includes(catalog) ? catalog : 'international');
 
+// The names table built beside the index (lab/fingerprints/build-names.mjs,
+// js/vision/index-names.json, precached with js/vision/index.bin): every
+// index card's name, and each set's name, official card count, and release
+// date, keyed by "<catalog>|<set>" and by card id, so a picture match is
+// named with no request (v76). Before it, each candidate's set record came
+// from TCGdex the first time it was seen, and a weak match spread over
+// several sets waited seconds for them (8.4 s in Eric's 2026-11-06 report).
+// Keyed by id, a table older or newer than the index can only leave a card
+// out, never name it wrongly; a card it lacks is named from its set record,
+// as before. Loaded once, or null when it cannot be read.
+let namesLoading = null;
+
+export function loadIndexNames() {
+	if (!namesLoading) {
+		namesLoading = fetch(new URL('../vision/index-names.json', import.meta.url))
+			.then((response) => (response.ok ? response.json() : null))
+			.then((table) => (table && table.sets && table.cards ? table : null))
+			.catch(() => null);
+	}
+
+	return namesLoading;
+}
+
+// A card's name and set from the table, or null when it lacks either.
+function tableEntry(table, card) {
+	const key = `${langOf(card.catalog)}|${card.set}`;
+	const set = table && table.sets[key];
+	const name = table && table.cards[key] && table.cards[key][card.id];
+
+	return set && name ? {name, official: set[1], releaseDate: set[2], setName: set[0]} : null;
+}
+
 // What the phone already knows about some index cards, with no request: the
 // card index (js/catalog.js cardIndex, every card the family owns or this
 // phone imported), as a Map of "<catalog>|<id>" to its record. Returns a
@@ -414,10 +446,16 @@ export function knownFrom(index) {
 // within `wait` ms leaves its cards named from `known` (knownFrom), or by
 // their number in their set.
 async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
+	const table = api.indexNames ? await within(Promise.resolve().then(() => api.indexNames()).catch(() => null), wait, null) : null;
 	const sets = new Map();
 
 	for (const card of cards) {
 		const key = `${langOf(card.catalog)}|${card.set}`;
+
+		// Named by the table: no set record needed.
+		if (tableEntry(table, card)) {
+			continue;
+		}
 
 		if (!sets.has(key)) {
 			sets.set(key, within(Promise.resolve().then(() => api.setDetail(langOf(card.catalog), card.set)).catch(() => null), wait, null));
@@ -433,6 +471,30 @@ async function describe(cards, api, {known = null, wait = describeMs()} = {}) {
 	}));
 
 	return cards.map((card) => {
+		const entry = tableEntry(table, card);
+
+		if (entry) {
+			return {
+				agree: [],
+				conflicts: [],
+				...(card.full ? {full: true} : {}),
+				id: card.id,
+				image: card.image,
+				lang: langOf(card.catalog),
+				localId: localIdOf(card),
+				name: entry.name,
+				named: true,
+				official: entry.official || null,
+				picture: card.score,
+				reasons: ['picture'],
+				releaseDate: entry.releaseDate || '',
+				score: card.score,
+				setCode: null,
+				setId: card.set,
+				setName: entry.setName,
+			};
+		}
+
 		const set = details.get(`${langOf(card.catalog)}|${card.set}`);
 		const record = set && (set.cards || []).find((c) => c.id === card.id);
 		const localId = (record && record.localId) || localIdOf(card);
@@ -611,7 +673,7 @@ function misreadSettled(read, described, lead, verdict) {
 // (knownFrom). The scanner first asks with a short wait, to show the card
 // at once from what is on the phone, then again in full behind it
 // (js/scan/view.js pictureItemNow).
-export async function pictureMatch(picture, read, said, {api = {setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
+export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	// The language read or picked (`said`), or for a card with no Latin label
 	// the last Asian pick, to order by.

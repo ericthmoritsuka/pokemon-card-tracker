@@ -1598,6 +1598,43 @@ describe('picture first (Eric, 2026-10-03)', () => {
 	const card = (id, catalog, set, score) => ({catalog, id, image: `https://assets/${id}`, score, set});
 	const number = (n, total, confidence = 0.9) => ({number: {confidence, number: n, numberPrinted: n, side: 'left', total, totalPrinted: total}});
 
+	test('the names table names the picture\'s cards with no set record, and only a card it lacks asks for its set', async () => {
+		const table = {
+			cards: {'en|me04': {'me04-090': 'Ampharos'}, 'en|sv01': {}},
+			sets: {'en|me04': ['Chaos Rising', 86, '2026-01-30'], 'en|sv01': ['Scarlet & Violet', 198, '2023-03-31']},
+		};
+		const asked = [];
+		const counting = {indexNames: async () => table, setDetail: async (lang, set) => {
+			asked.push(`${lang}|${set}`);
+
+			return sets[`${lang}|${set}`] || null;
+		}};
+		const picture = {gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
+		const found = await pictureMatch(picture, null, null, {api: counting});
+
+		assert.equal(found.card.id, 'me04-090');
+		assert.equal(found.card.name, 'Ampharos');
+		assert.equal(found.card.setName, 'Chaos Rising');
+		assert.equal(found.card.official, 86);
+		assert.equal(found.card.releaseDate, '2026-01-30');
+		assert.equal(found.card.localId, '090');
+		assert.equal(found.sure, true);
+		assert.deepEqual(asked, ['en|sv01'], 'only the set of the card the table lacks (sv01-089) is asked for');
+		assert.equal(found.candidates.find((c) => c.id === 'sv01-089').name, 'Drifloon', 'and that card is named from its set record, as before');
+	});
+
+	test('with no names table (not readable), the picture\'s cards are named from their set records, as before', async () => {
+		const asked = [];
+		const found = await pictureMatch({gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}]}, null, null, {api: {indexNames: async () => null, setDetail: async (lang, set) => {
+			asked.push(`${lang}|${set}`);
+
+			return sets[`${lang}|${set}`] || null;
+		}}});
+
+		assert.equal(found.card.name, 'Ampharos');
+		assert.deepEqual(asked, ['en|me04']);
+	});
+
 	test('one card well ahead is the card, with no text read', async () => {
 		const picture = {gap: 40, groups: [{cards: [card('me04-090', 'en', 'me04', 9)], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
 

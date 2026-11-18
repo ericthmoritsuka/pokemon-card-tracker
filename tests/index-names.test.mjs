@@ -1,0 +1,47 @@
+// The names table beside the fingerprint index (js/vision/index-names.json,
+// lab/fingerprints/build-names.mjs) must name every card the index holds:
+// a card it lacks makes the scanner ask TCGdex for that card's set, which on
+// a phone with mobile data costs seconds (js/scan/picture.js describe). A
+// rebuilt index without a rebuilt table fails here. Node only.
+//
+// Run: node --test tests/index-names.test.mjs
+
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {describe, test} from 'node:test';
+
+import {unpackIndex} from '../js/vision/pack.js';
+
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url));
+
+describe('the index names table', () => {
+	test('names every card in js/vision/index.bin, with its set\'s name and official count', async () => {
+		const bytes = await read('js/vision/index.bin');
+		const index = unpackIndex(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+		const table = JSON.parse(await read('js/vision/index-names.json'));
+		const missing = [];
+		const setsMissing = new Set();
+
+		for (let i = 0; i < index.count; i++) {
+			const card = index.card(i);
+			const key = `${card.catalog}|${card.set}`;
+
+			if (!table.sets[key] || !table.sets[key][0]) {
+				setsMissing.add(key);
+			}
+
+			if (!(table.cards[key] && table.cards[key][card.id])) {
+				missing.push(`${key} ${card.id}`);
+			}
+		}
+
+		assert.deepEqual([...setsMissing], [], 'every set has a name (rebuild with node lab/fingerprints/build-names.mjs)');
+		assert.deepEqual(missing.slice(0, 20), [], `${missing.length} index cards have no name (rebuild with node lab/fingerprints/build-names.mjs)`);
+	});
+
+	test('the service worker precaches it beside the index', async () => {
+		const sw = String(await read('sw.js'));
+
+		assert.match(sw, /'js\/vision\/index\.bin',[\s\S]{0,200}'js\/vision\/index-names\.json',/);
+	});
+});
