@@ -165,15 +165,17 @@ let worker = null;
 let workerFailed = typeof Worker === 'undefined';
 // The family's photo prints (js/scan/photo-prints.js), sent to every
 // picture worker as it starts, and kept here for a match done on this
-// thread.
+// thread. `hide`: picture.js setPhotoPrints, for the lab benchmark only.
 let photoPrints = [];
+let hide = [];
 
-export function setPhotoPrints(entries) {
+export function setPhotoPrints(entries, options = {}) {
 	photoPrints = Array.isArray(entries) ? entries : [];
-	setPicturePrints(photoPrints);
+	hide = options.hide || [];
+	setPicturePrints(photoPrints, {hide});
 
 	if (worker) {
-		worker.postMessage({photoPrints});
+		worker.postMessage({hide, photoPrints});
 	}
 }
 let workerWarm = null;
@@ -254,8 +256,8 @@ function dropWorker(why) {
 function startWorker() {
 	const next = new Worker(new URL('./see-worker.js', import.meta.url), {type: 'module'});
 
-	if (photoPrints.length) {
-		next.postMessage({photoPrints});
+	if (photoPrints.length || hide.length) {
+		next.postMessage({hide, photoPrints});
 	}
 
 	heardAt = clock();

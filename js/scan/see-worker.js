@@ -27,7 +27,7 @@ self.addEventListener('message', async ({data}) => {
 	// The family's photo prints (js/scan/photo-prints.js), matched beside
 	// the index from the next capture on.
 	if (data && data.photoPrints) {
-		setPhotoPrints(data.photoPrints);
+		setPhotoPrints(data.photoPrints, {hide: data.hide});
 
 		return;
 	}

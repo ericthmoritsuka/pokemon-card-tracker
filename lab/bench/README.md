@@ -27,6 +27,7 @@ A full run takes about ten minutes. Useful options:
 | `--crops <dir>` | Saves the straightened card and every OCR crop as PNG files. |
 | `--frame` | The whole-frame path instead of the guide's capture (below). |
 | `--geometry` | Straightens only, and says how far the box cut lies from the card (below). No text is read, so a run takes a minute or two a pass. |
+| `--photo-prints` | With `--picture`: each card hidden from the index and found through a photo print of it alone (below). `--hide-only` hides it with no print. |
 
 `REPO=<path>` measures another checkout of the app with the same benchmark, for a before and after:
 for example `git worktree add --detach /tmp/base <commit>`, then `REPO=/tmp/base node
@@ -96,6 +97,18 @@ reads every name as a card picked as Japanese. A tree from before the Japanese a
 PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --dataset asian.json \
   --passes clean,blur,glare,tilt,jpeg,nonumber
 ```
+
+## Cards the Index Lacks
+
+`--picture --photo-prints` measures how well a card missing from the fingerprint index is found
+through the owner's photo of it (`js/scan/photo-prints.js`). Before each card's captures, the card's
+catalog image becomes a photo as the app saves one (600 x 840, a little warmer, brightness 0.92,
+blurred 0.6 px, JPEG at 0.85), `describeCard` fingerprints it, and it is set as the only photo print.
+The card is hidden from the main index (`picture.js` `setPhotoPrints` `hide`, which the app never
+passes), so only the photo can find it. Each pass prints the right card first, in the top three,
+sure, and wrong but sure, with the median lead and first-group score and the OCR count.
+`--hide-only` hides the card with no print, a card nobody photographed, and prints the spread of the
+first group's score and lead, so a sure threshold can be checked against cards that cannot be right.
 
 ## What It Prints
 

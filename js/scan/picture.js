@@ -25,7 +25,7 @@ import {cjkSimilarity, hasCjk} from './cjk.js';
 import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
 import {queryFingerprints, thumbnail, turnImage, turnThumb, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
-import {buildPhotoIndex, mergePhotoMatches} from './photo-prints.js';
+import {buildPhotoIndex, hideCards, mergePhotoMatches} from './photo-prints.js';
 
 export {AUTO_GAP};
 
@@ -80,13 +80,17 @@ export const fingerprintsLoaded = () => Boolean(indexPromise);
 // (js/scan/photo-prints.js), matched beside the index by matchCrops. Set by
 // js/scan/identify.js setPhotoPrints, here and in the picture worker; the
 // small index they make is built at the first match after, with the main
-// index's weights.
+// index's weights. `hide` (ids) drops those cards from the main index's
+// answer: for the lab benchmark alone (lab/bench run.mjs --photo-prints),
+// so a card the index has can play one it lacks. Off unless given.
 let photoPrints = [];
 let photoIndex = null;
+let hidden = null;
 
-export function setPhotoPrints(entries) {
+export function setPhotoPrints(entries, {hide = []} = {}) {
 	photoPrints = Array.isArray(entries) ? entries : [];
 	photoIndex = null;
+	hidden = hide && hide.length ? new Set(hide) : null;
 }
 
 function photoIndexFor(index) {
@@ -153,7 +157,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	const scoreOf = (result) => (result.groups[0] ? result.groups[0].score : Infinity);
 	// The index and the family's photo prints, together.
 	const photos = photoIndexFor(index);
-	const search = (queries, options) => mergePhotoMatches(matchFingerprints(index, queries, options), photos && matchFingerprints(photos, queries));
+	const search = (queries, options) => mergePhotoMatches(hideCards(matchFingerprints(index, queries, options), hidden), photos && matchFingerprints(photos, queries));
 
 	crops.forEach((crop, i) => {
 		const at = performance.now();

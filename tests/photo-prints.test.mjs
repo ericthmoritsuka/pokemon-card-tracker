@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {buildPhotoIndex, decodePrint, describeCard, encodePrint, mergePhotoMatches, photoPrintEntries} from '../js/scan/photo-prints.js';
+import {buildPhotoIndex, decodePrint, describeCard, encodePrint, hideCards, mergePhotoMatches, photoPrintEntries} from '../js/scan/photo-prints.js';
 import {queryFingerprints, thumbnail} from '../js/vision/fingerprint.js';
 import {matchFingerprints} from '../js/vision/matcher.js';
 
@@ -115,5 +115,17 @@ describe('the prints of the family\'s photos', () => {
 
 		assert.equal(again.entries.length, 2);
 		assert.deepEqual(decoded, ['p-gone'], 'kept prints are not decoded again');
+	});
+});
+
+describe('hideCards', () => {
+	test('drops the hidden cards and the groups they leave empty, and keeps the rest', () => {
+		const main = {gap: 3, groups: [{cards: [{id: 'a-1'}], score: 40}, {cards: [{id: 'b-2'}, {id: 'a-1'}], score: 50}, {cards: [{id: 'c-3'}], score: 60}]};
+		const out = hideCards(main, new Set(['a-1']));
+
+		assert.deepEqual(out.groups.map((group) => group.cards.map((card) => card.id)), [['b-2'], ['c-3']]);
+		assert.equal(out.gap, 3);
+		assert.equal(hideCards(main, null), main);
+		assert.equal(hideCards(main, new Set()), main);
 	});
 });

@@ -111,6 +111,20 @@ export function mergePhotoMatches(main, photos, top = 5) {
 	return {...main, groups: [...main.groups, ...fromPhotos].sort((a, b) => a.score - b.score).slice(0, top)};
 }
 
+// The main index's answer without the cards whose ids are in `hidden` (a
+// Set), and without a group they leave empty. Only the lab benchmark hides
+// cards (lab/bench run.mjs --photo-prints and --hide-only: a card the index
+// lacks, played by a card it has); the app never passes any.
+export function hideCards(result, hidden) {
+	if (!hidden || !hidden.size || !result || !result.groups) {
+		return result;
+	}
+
+	const groups = result.groups.map((group) => ({...group, cards: group.cards.filter((card) => !hidden.has(card.id))})).filter((group) => group.cards.length);
+
+	return {...result, groups};
+}
+
 // The catalog an index entry is in, for a card record's catalog
 // (js/catalog.js catalogFor: Western prints share the international one).
 const indexCatalog = (catalog) => (catalog === 'international' ? 'en' : catalog);

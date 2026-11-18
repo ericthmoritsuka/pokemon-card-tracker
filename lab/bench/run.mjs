@@ -6,7 +6,7 @@
 //   [--throttle 4] [--workers 2] [--out results.json] [--crops <dir>]
 //   [--photo <file> --box x,y,w,h [--framings name:fit:angle:size,...] [--stills <dir>]]
 //   [--dataset fullart.json] [--numbers [--options '{"fullArt":true}']]
-//   [--frame] [--geometry]
+//   [--frame] [--geometry] [--picture [--photo-prints | --hide-only]]
 //
 // REPO=<tree> measures another checkout of the app (default: this repo).
 // BENCH_CACHE=<dir> is where card images, recorded TCGdex answers, and
@@ -65,6 +65,15 @@ const options = args.options ? JSON.parse(args.options) : {};
 if (args.picture) {
 	options.pictureFirst = true;
 }
+// --photo-prints (with --picture): each card hidden from the index and
+// found through a photo print of it alone (bench.js photoPrint);
+// --hide-only: hidden with no print, a card the scanner cannot know.
+const hiding = args['photo-prints'] ? 'photo' : args['hide-only'] ? 'hide' : null;
+
+if (hiding && !args.picture) {
+	throw new Error('--photo-prints and --hide-only need --picture.');
+}
+
 const throttle = (rate) => cdp.send('Emulation.setCPUThrottlingRate', {rate});
 
 // With --throttle, a warm run at full speed first, so TCGdex answers are in
@@ -270,6 +279,10 @@ else {
 			let r;
 
 			try {
+				if (hiding) {
+					await page.evaluate(([it, o]) => window.bench.photoPrint(it, o), [item, {hideOnly: hiding === 'hide'}]);
+				}
+
 				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), options, pass}]));
 			}
 			catch (err) {
@@ -286,6 +299,20 @@ else {
 
 			r.nameRight = Boolean(top && (item.dex ? top.dex === item.dex : (top.spelling || top.name) === item.name));
 			r.wrongSure = Boolean(r.new.sure && (r.new.candidates[0] || {}).id !== item.id);
+
+			if (hiding) {
+				const first = (r.new.picture && r.new.picture.first) || null;
+				const setOf = (id) => id.slice(0, id.lastIndexOf('-'));
+
+				r.hidden = {
+					firstCards: first ? first.cards.length : 0,
+					gap: r.new.picture ? r.new.picture.gap : null,
+					score: first ? first.score : null,
+					sameSet: Boolean(first && first.cards.some((id) => setOf(id) === setOf(item.id))),
+					truthFirst: Boolean(first && first.cards.includes(item.id)),
+				};
+			}
+
 			rows.push(r);
 			console.log(`${pass} ${item.id} num:${rank(r.new.numberOnly, item.id)} name:${rank(r.new.noArt, item.id)} full:${rank(r.new.candidates, item.id)} | n=${r.new.number} name="${r.new.name && r.new.name.text}"${r.nameRight ? ' (right)' : ''} hp=${r.new.hp && r.new.hp.value} calls ${r.new.calls} ${r.new.timings.total}ms (ocr ${r.new.timings.ocr})${r.wrongSure ? ' WRONG BUT SURE' : ''}`);
 		}
@@ -336,6 +363,13 @@ else {
 			const ocr = list.filter((r) => r.new.ocr);
 
 			console.log(`${pass}: OCR ran for ${ocr.length}/${list.length}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.new.sure && (r.new.candidates[0] || {}).id !== r.truth).length}); rectify ${median(times.map((t) => t.rectify))} ms, fingerprint ${median(times.map((t) => t.fingerprint))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms; without OCR ${median(list.filter((r) => !r.new.ocr).map((r) => r.new.timings.total))} ms, with OCR ${median(ocr.map((r) => r.new.timings.total))} ms`);
+			if (hiding === 'photo') {
+				const right = (n) => list.filter((r) => { const i = r.new.candidates.findIndex((c) => c.id === r.truth); return i >= 0 && i < n; }).length;
+				const ocrMs = median(ocr.map((r) => r.new.timings.ocr));
+
+				console.log(`${pass} photo prints: right first ${right(1)}/${list.length}, top 3 ${right(3)}, sure ${list.filter((r) => r.new.sure).length}, wrong but sure ${list.filter((r) => r.wrongSure).length}; picture first group holds the truth ${list.filter((r) => r.hidden.truthFirst).length}; median gap ${median(list.map((r) => (Number.isFinite(r.hidden.gap) ? r.hidden.gap : 999)))}, first-group score ${median(list.map((r) => r.hidden.score ?? 999))}; OCR ${ocr.length}, median ${ocrMs} ms`);
+			}
+
 			continue;
 		}
 
@@ -360,6 +394,25 @@ else {
 		const switches = loads.filter((load) => load.switched).map((load) => load.ms).sort((a, b) => a - b);
 
 		console.log(`Japanese and Korean models: first load ${first.map((load) => `${load.lang} ${load.ms} ms`).join(', ') || 'none'}; ${switches.length} switches between them, median ${median(switches)} ms`);
+	}
+}
+
+// --hide-only: what the picture route answers for a card it cannot know.
+if (hiding === 'hide') {
+	const pct = (list, p) => {
+		const sorted = [...list].sort((a, b) => a - b);
+
+		return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : null;
+	};
+	const dist = (list) => [0, 0.1, 0.25, 0.5, 0.75].map((p) => pct(list, p)).join(' / ');
+
+	for (const pass of [...passes, 'all']) {
+		const list = rows.filter((r) => r.hidden && (pass === 'all' || r.pass === pass));
+		const scores = list.map((r) => r.hidden.score ?? 999);
+		const gaps = list.map((r) => (Number.isFinite(r.hidden.gap) ? r.hidden.gap : 999));
+		const under = (g) => list.filter((r) => (r.hidden.score ?? 999) <= 60 && r.hidden.gap >= g).length;
+
+		console.log(`${pass} hidden: n ${list.length}; score min/p10/p25/median/p75 ${dist(scores)}; gap ${dist(gaps)}; first group one card ${list.filter((r) => r.hidden.firstCards === 1).length}, same set ${list.filter((r) => r.hidden.sameSet).length}; score <= 60 and gap >= 5 ${under(5)}, >= 8 ${under(8)}, >= 10 ${under(10)}; sure ${list.filter((r) => r.new.sure).length} (all wrong)`);
 	}
 }
 

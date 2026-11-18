@@ -18,8 +18,9 @@ import {createPool} from '/pokemon-card-tracker/js/scan/ocr.js';
 import {readCard, readNumber} from '/pokemon-card-tracker/js/scan/read.js';
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
-import {identify} from '/pokemon-card-tracker/js/scan/identify.js';
-import {pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
+import {identify, setPhotoPrints} from '/pokemon-card-tracker/js/scan/identify.js';
+import {loadFingerprints, pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
+import {describeCard} from '/pokemon-card-tracker/js/scan/photo-prints.js';
 import {rectQuad} from '/pokemon-card-tracker/js/scan/rectify.js';
 
 // The whole-frame path (--frame): the camera's guide laid out on a phone
@@ -449,7 +450,7 @@ async function measurePicture(image, {crops = false} = {}) {
 		number: read && read.number ? `${read.number.number}/${read.number.total}` : null,
 		numberOnly: candidates,
 		ocr: result.ocr,
-		picture: result.picture ? {gap: result.picture.gap, how: result.picture.how, top: result.picture.groups.map((g) => `${g.cards.map((c) => c.id).join('+')} ${g.score}`)} : null,
+		picture: result.picture ? {first: result.picture.groups[0] ? {cards: result.picture.groups[0].cards.map((c) => c.id), score: result.picture.groups[0].score} : null, gap: result.picture.gap, how: result.picture.how, top: result.picture.groups.map((g) => `${g.cards.map((c) => c.id).join('+')} ${g.score}`)} : null,
 		ratio: result.ratio,
 		sure: found.sure,
 		timings: {fingerprint: result.timings.fingerprint, match: Math.round(t2 - t1) + (result.timings.match || 0), ocr: result.timings.ocr || 0, rectify: result.timings.rectify, total: Math.round(t2 - t0)},
@@ -461,6 +462,47 @@ async function measurePicture(image, {crops = false} = {}) {
 	}
 
 	return out;
+}
+
+// The owner's photo of a card (run.mjs --photo-prints): its catalog image
+// as the app saves a photo, 600 x 840, a little warmer and darker, softly
+// blurred and saved as JPEG at 0.85, unlike every capture pass.
+async function ownerPhoto(bitmap) {
+	const canvas = new OffscreenCanvas(600, 840);
+	const ctx = canvas.getContext('2d');
+
+	ctx.filter = 'sepia(0.12) saturate(1.1) brightness(0.92) blur(0.6px)';
+	ctx.drawImage(bitmap, 0, 0, 600, 840);
+
+	const jpeg = await createImageBitmap(await canvas.convertToBlob({quality: 0.85, type: 'image/jpeg'}));
+	const out = new OffscreenCanvas(600, 840).getContext('2d');
+
+	out.drawImage(jpeg, 0, 0);
+
+	return out.getImageData(0, 0, 600, 840);
+}
+
+// Every index card by id, for a print's catalog and set as the index has them.
+let indexCards = null;
+
+async function indexCardOf(id, lang) {
+	if (!indexCards) {
+		const index = await loadFingerprints();
+
+		indexCards = new Map();
+
+		for (let i = 0; i < index.count; i++) {
+			const card = index.card(i);
+
+			indexCards.set(`${card.catalog}|${card.id}`, card);
+
+			if (!indexCards.has(card.id)) {
+				indexCards.set(card.id, card);
+			}
+		}
+	}
+
+	return indexCards.get(`${lang}|${id}`) || indexCards.get(id) || null;
 }
 
 async function measure(image, {crops = false, options = {}} = {}) {
@@ -593,6 +635,32 @@ window.bench = {
 		}
 
 		return {id: item.id, new: out, pass};
+	},
+	// run.mjs --photo-prints: the card hidden from the index, and the
+	// owner's photo of it (ownerPhoto) the only photo print; with
+	// hideOnly, hidden and no print (a card nobody has photographed).
+	// null clears both.
+	async photoPrint(item, {hideOnly = false} = {}) {
+		if (!item) {
+			setPhotoPrints([]);
+
+			return null;
+		}
+
+		const known = await indexCardOf(item.id, item.lang);
+
+		if (hideOnly) {
+			setPhotoPrints([], {hide: [item.id]});
+
+			return {catalog: known && known.catalog, set: known && known.set};
+		}
+
+		const print = describeCard(await ownerPhoto(await bitmapOf(item.file)));
+		const entry = {...print, catalog: known ? known.catalog : item.lang, id: item.id, set: known ? known.set : item.set};
+
+		setPhotoPrints([entry], {hide: [item.id]});
+
+		return {catalog: entry.catalog, set: entry.set};
 	},
 	// One card's collector number alone, through one pass.
 	async number(item, {crops = false, options = {}, pass = 'clean'} = {}) {
