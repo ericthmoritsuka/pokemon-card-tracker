@@ -20,6 +20,14 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-19',
+		items: [
+			'Scanning a stack from one set: a reprint whose artwork is shared with an older card (30th Celebration) is taken as the stack\'s print straight away, without reading its number.',
+			'The scanner learns cards the catalog has no picture of (MEP promos, 30th Classic Collection, many Korean prints) from your photos: photograph one on its card page and it is recognised by picture from then on.',
+		],
+		version: 'v78',
+	},
+	{
 		date: '2026-11-18',
 		items: [
 			'A Portuguese or English card whose picture and number are both unclear no longer waits for its name to be read: in your scans that took about 2 seconds and never found the card.',
