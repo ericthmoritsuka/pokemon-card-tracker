@@ -14,6 +14,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-18 (evening)
 
+- **v79:** the scanner learns from the family's photos too, reads numbers quicker, and a stack fix. `edca715`
+  - A family member's front photos of a card the catalog has no picture of teach the scanner on
+    every phone of the group, and the scan picker shows the photo of such a card.
+  - The number strips and the label row are read from a smaller copy (24 px text rather than
+    32): on the lab benchmark OCR was 21 % quicker with no card lost. The text reader starts
+    behind the first scanned card, so the first card that needs text does not wait for it.
+  - Fixed (found in an independent review): v78's stack hint could take a card the catalog has no
+    picture of (an MEP promo among 30th Celebration cards) as a card of the stack's set, sure. It
+    now helps only when the picture clearly found the artwork, and counts only cards settled
+    without it. Also: photos are not learned for cards the catalog holds under its Portuguese
+    entries, the other number strip is read when the picture is far from every candidate, and the
+    scan report shows the number strip's sharpness and how long each card waited.
+
 - **v78:** the scanner reads a stack's reprints without their number, and learns cards from your photos. `5829b33`
   - When at least three of the last five cards are from one set and the picture finds a group of
     prints sharing one artwork (30th Celebration reprints older art), the stack's print is the card,
