@@ -1059,6 +1059,26 @@ straightens the card, fingerprints it (`js/vision/`), and matches it against the
   them promotes it, and a number that names none falls back to the text lookup.
 - The picture and a number read disagree: the card needs a look, never a save.
 
+**The scanner learns from the family's photos** (Eric, 2026-11-18). TCGdex has no picture of
+any of the 112 MEP Black Star Promos (the 30th starters among them), of 30th Classic Collection,
+or of most Korean prints, in any language, so they are not in the index and every scan of them
+read text. `js/scan/photo-prints.js` fingerprints the owner's front photos of cards the index lacks
+(a saved photo is the straightened card) exactly as `build-index.mjs` fingerprints a catalog image,
+keeps each print on the phone, and `js/scan/picture.js` `matchCrops` matches the capture against
+those prints beside the index, merging the groups by score. A card with several photos is one
+card; the tray shows its card back with name and number, since it has no catalog picture. Checked
+on four real cards with five kinds of capture (exact, scaled, blurred, darker, shifted): a print
+scored within about 3 of the catalog's own entry for the card, and every other card was 35 to 65
+away, so a card the catalog lacks leads clearly by its photo. Cards the index holds are left out,
+so a photo never competes with a catalog picture.
+
+**The stack's print of a reprinted artwork** (2026-11-18). When at least three of the last five
+cards are from one set and exactly one card of the picture's first group (the prints that share
+its artwork) is from it, that print is the card, sure, with no number read (`session.js`
+`stackSet`, `picture.js` `stackPick`); a number read that names another print wins. In Eric's
+18 November report the rule applied 33 times (13 of them scans that read their number for about
+9 s) and named the card he kept every time.
+
 **Naming the matches with no request** (2026-11-18, v76). The index holds fingerprints, set ids,
 and numbers, not names, so the picture route read each candidate's set record from TCGdex the
 first time it saw that set. In Eric's 2026-11-06 report that "catalog lookup" took about 0.7 s on a

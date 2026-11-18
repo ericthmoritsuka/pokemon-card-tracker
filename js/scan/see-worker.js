@@ -21,9 +21,17 @@
 // transferred, not copied, as does the straightened card's.
 
 import {identifyPicture} from './identify.js';
-import {loadFingerprints} from './picture.js';
+import {loadFingerprints, setPhotoPrints} from './picture.js';
 
 self.addEventListener('message', async ({data}) => {
+	// The family's photo prints (js/scan/photo-prints.js), matched beside
+	// the index from the next capture on.
+	if (data && data.photoPrints) {
+		setPhotoPrints(data.photoPrints);
+
+		return;
+	}
+
 	if (data && data.warm) {
 		try {
 			await loadFingerprints();

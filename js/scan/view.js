@@ -32,6 +32,7 @@ import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmPicture} from './identify.js';
+import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {asianNameScore, latinNameScore} from './local-names.js';
@@ -3356,6 +3357,9 @@ export function scanView(root) {
 		warmPicture().then(() => {
 			engineState = 'ready';
 			drawStatus();
+			// The family's photos of cards the index lacks, matched beside it
+			// once their prints are made (js/scan/photo-prints-app.js).
+			refreshPhotoPrints();
 		}).catch(() => {
 			engineState = 'unavailable';
 			drawStatus();

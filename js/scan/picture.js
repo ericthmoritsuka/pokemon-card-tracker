@@ -25,6 +25,7 @@ import {cjkSimilarity, hasCjk} from './cjk.js';
 import {fold, nameKey, nameSimilarity, SUFFIXES} from './evidence.js';
 import {queryFingerprints, thumbnail, turnImage, turnThumb, WIDE_SHIFTS} from '../vision/fingerprint.js';
 import {AUTO_GAP, loadIndex, matchFingerprints} from '../vision/matcher.js';
+import {buildPhotoIndex, mergePhotoMatches} from './photo-prints.js';
 
 export {AUTO_GAP};
 
@@ -74,6 +75,31 @@ export function loadFingerprints({url = INDEX_URL, fetchImpl = (...args) => fetc
 }
 
 export const fingerprintsLoaded = () => Boolean(indexPromise);
+
+// The prints of the family's photos of cards the index lacks
+// (js/scan/photo-prints.js), matched beside the index by matchCrops. Set by
+// js/scan/identify.js setPhotoPrints, here and in the picture worker; the
+// small index they make is built at the first match after, with the main
+// index's weights.
+let photoPrints = [];
+let photoIndex = null;
+
+export function setPhotoPrints(entries) {
+	photoPrints = Array.isArray(entries) ? entries : [];
+	photoIndex = null;
+}
+
+function photoIndexFor(index) {
+	if (!photoPrints.length) {
+		return null;
+	}
+
+	if (!photoIndex) {
+		photoIndex = buildPhotoIndex(photoPrints, {weights: index.header.weights});
+	}
+
+	return photoIndex;
+}
 
 // The straightened card, and any other crops of it (rectify.js `others`:
 // the same box trimmed another way), against the index. Each crop is
@@ -125,6 +151,9 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	let fingerprintMs = 0;
 	const gapOf = (groups) => (groups.length > 1 ? groups[1].score - groups[0].score : groups.length ? Infinity : 0);
 	const scoreOf = (result) => (result.groups[0] ? result.groups[0].score : Infinity);
+	// The index and the family's photo prints, together.
+	const photos = photoIndexFor(index);
+	const search = (queries, options) => mergePhotoMatches(matchFingerprints(index, queries, options), photos && matchFingerprints(photos, queries));
 
 	crops.forEach((crop, i) => {
 		const at = performance.now();
@@ -133,7 +162,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 
 		fingerprintMs += performance.now() - at;
 
-		const result = matchFingerprints(index, queries, {screen: screen.base});
+		const result = search(queries, {screen: screen.base});
 
 		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
@@ -167,7 +196,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 
 				fingerprintMs += performance.now() - at;
 
-				const result = matchFingerprints(index, queries, {screen: screen.base});
+				const result = search(queries, {screen: screen.base});
 
 				turned.push({crop: one.crop, queries, result, score: scoreOf(result), thumb, turn});
 			}
@@ -201,7 +230,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 
 			fingerprintMs += performance.now() - at;
 
-			const result = matchFingerprints(index, [...one.queries, ...more], {screen: screen.wide});
+			const result = search([...one.queries, ...more], {screen: screen.wide});
 			const score = scoreOf(result);
 
 			if (one === unwidened) {

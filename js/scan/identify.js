@@ -25,7 +25,7 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {blobImage, imageBlob} from './image.js';
-import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, SURE_DISTANCE} from './picture.js';
+import {compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
@@ -163,6 +163,19 @@ export function identifyPicture(image, options = {}) {
 // answer's card.
 let worker = null;
 let workerFailed = typeof Worker === 'undefined';
+// The family's photo prints (js/scan/photo-prints.js), sent to every
+// picture worker as it starts, and kept here for a match done on this
+// thread.
+let photoPrints = [];
+
+export function setPhotoPrints(entries) {
+	photoPrints = Array.isArray(entries) ? entries : [];
+	setPicturePrints(photoPrints);
+
+	if (worker) {
+		worker.postMessage({photoPrints});
+	}
+}
 let workerWarm = null;
 // The warm-up waiting on the worker, told to load here instead if the
 // worker fails before it answers.
@@ -240,6 +253,10 @@ function dropWorker(why) {
 
 function startWorker() {
 	const next = new Worker(new URL('./see-worker.js', import.meta.url), {type: 'module'});
+
+	if (photoPrints.length) {
+		next.postMessage({photoPrints});
+	}
 
 	heardAt = clock();
 	workerReady = false;

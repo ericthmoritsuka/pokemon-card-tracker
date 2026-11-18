@@ -197,6 +197,8 @@ const SHELL = [
 	'js/scan/read.js',
 	'js/scan/rectify.js',
 	'js/scan/picture.js',
+	'js/scan/photo-prints.js',
+	'js/scan/photo-prints-app.js',
 	'js/vision/fingerprint.js',
 	'js/vision/matcher.js',
 	'js/vision/pack.js',
