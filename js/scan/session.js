@@ -140,7 +140,11 @@ export const STACK_LEAST = 3;
 
 export function stackSet(session, id) {
 	const at = session.items.findIndex((item) => item.id === id);
-	const before = (at < 0 ? session.items : session.items.slice(0, at)).filter((item) => item.card && item.card.setId).slice(-STACK_LOOK);
+	// Only cards settled without the stack count: sure by themselves, or
+	// confirmed by the person; never an unsure guess, and never a card the
+	// stack picked, so one wrong pick cannot keep the stack going (v79).
+	const settled = (item) => item.card && item.card.setId && ((item.sure && !item.stacked) || item.confirmed);
+	const before = (at < 0 ? session.items : session.items.slice(0, at)).filter(settled).slice(-STACK_LOOK);
 	const counts = new Map();
 
 	for (const item of before) {
@@ -505,6 +509,8 @@ export function applyPicture(session, id, found, now = nowIso()) {
 	item.readSetName = null;
 	item.partial = false;
 	item.sure = Boolean(found.sure && found.card);
+	// Picked by the stack (picture.js stackPick), not settled by itself.
+	item.stacked = Boolean(found.stack);
 	item.why = found.why || null;
 	item.disagree = Boolean(found.disagree);
 	item.hand = found.hand || null;

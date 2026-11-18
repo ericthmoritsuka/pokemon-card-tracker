@@ -328,9 +328,20 @@ export const needsText = (picture) => !pictureVerdict(picture).sure;
 // one is, or null. It is the card, with no number read: a reprint and its
 // original share artwork, and the cards before it say which print this
 // stack holds (v78; Eric: "in the 30th case, there's the 30th logo there").
+// Only when the picture clearly found that artwork (pictureVerdict clear:
+// close enough, and ahead of the next artwork by AUTO_GAP): a card the index
+// lacks (an MEP promo among 30th Celebration cards) has some unrelated
+// nearest group, often one card of the stack's set, which must not come out
+// sure (v79; found in review). In Eric's 2026-11-18 report this kept 25 of
+// the rule's 33 picks, all right.
 export function stackPick(picture, set) {
 	const lead = set && picture && picture.groups && picture.groups[0];
-	const inSet = lead ? lead.cards.filter((card) => card.set === set) : [];
+
+	if (!lead || !pictureVerdict(picture).clear) {
+		return null;
+	}
+
+	const inSet = lead.cards.filter((card) => card.set === set);
 
 	return inSet.length === 1 ? inSet[0] : null;
 }
@@ -767,11 +778,13 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	const western = (c) => (asianKnown || ASIAN.includes(c.lang) ? 0 : 1);
 	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (western(b) - western(a)) || a.score - b.score);
 
-	// The stack's print of this artwork: the card, with no number needed.
-	const stacked = stack ? lead.filter((c) => c.setId === stack) : [];
+	// The stack's print of this artwork: the card, with no number needed
+	// (stackPick: the same test view.js skips the number read on).
+	const picked = stackPick(picture, stack);
+	const stacked = picked ? lead.find((c) => c.id === picked.id) : null;
 
-	if (stacked.length === 1 && (!number || numberFits(stacked[0], number))) {
-		return done({candidates: [stacked[0], ...order(lead).filter((c) => c !== stacked[0]), ...others], card: stacked[0], stack: true, sure: true});
+	if (stacked && (!number || numberFits(stacked, number))) {
+		return done({candidates: [stacked, ...order(lead).filter((c) => c !== stacked), ...others], card: stacked, stack: true, sure: true});
 	}
 
 	if (verdict.clear) {

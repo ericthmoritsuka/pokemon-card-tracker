@@ -14,12 +14,12 @@ import {describe, test} from 'node:test';
 import {pictureMatch, stackPick} from '../js/scan/picture.js';
 import {stackSet} from '../js/scan/session.js';
 
-const item = (id, setId) => ({card: setId ? {id: `${setId}-1`, setId} : null, id});
+const item = (id, setId, fields = {}) => ({card: setId ? {id: `${setId}-1`, setId} : null, id, sure: true, ...fields});
 const session = (...sets) => ({items: sets.map((set, i) => item(`i${i}`, set))});
 
 // Charizard's artwork, in Base Set and reprinted in 30th Celebration.
 const card = (id, set, score) => ({catalog: 'en', id, image: `https://assets/${id}`, score, set});
-const shared = {gap: 2, groups: [{cards: [card('base1-4', 'base1', 20), card('30th-4', '30th', 21)], score: 20}, {cards: [card('sv01-089', 'sv01', 60)], score: 60}]};
+const shared = {gap: 40, groups: [{cards: [card('base1-4', 'base1', 20), card('30th-4', '30th', 21)], score: 20}, {cards: [card('sv01-089', 'sv01', 60)], score: 60}]};
 const table = {
 	cards: {'en|30th': {'30th-4': 'Charizard'}, 'en|base1': {'base1-4': 'Charizard'}, 'en|sv01': {'sv01-089': 'Drifloon'}},
 	sets: {'en|30th': ['30th Celebration', 128, '2026-02-27'], 'en|base1': ['Base', 102, '1999-01-09'], 'en|sv01': ['Scarlet & Violet', 198, '2023-03-31']},
@@ -36,12 +36,21 @@ describe('the stack a card is scanned from', () => {
 		assert.equal(stackSet({items: []}, 'x'), null);
 	});
 
+	test('only cards settled without the stack count: not unsure guesses, not the stack\'s own picks', () => {
+		const items = [item('a', '30th'), item('b', '30th', {sure: false}), item('c', '30th', {stacked: true}), item('d', '30th', {confirmed: true, sure: false}), item('e', null)];
+
+		assert.equal(stackSet({items}, 'e'), null, 'two settled 30th cards (a, d): no stack');
+		assert.equal(stackSet({items: [...items.slice(0, 4), item('f', '30th'), item('g', null)]}, 'g'), '30th');
+	});
+
 	test('stackPick takes the one print of the first group from the stack\'s set', () => {
 		assert.equal(stackPick(shared, '30th').id, '30th-4');
 		assert.equal(stackPick(shared, 'base1').id, 'base1-4');
 		assert.equal(stackPick(shared, 'sv01'), null, 'a set only in a later group does not count');
 		assert.equal(stackPick(shared, null), null);
-		assert.equal(stackPick({gap: 2, groups: [{cards: [card('30th-4', '30th', 20), card('30th-4a', '30th', 21)], score: 20}]}, '30th'), null, 'two prints from the set: not settled');
+		assert.equal(stackPick({gap: 40, groups: [{cards: [card('30th-4', '30th', 20), card('30th-4a', '30th', 21)], score: 20}]}, '30th'), null, 'two prints from the set: not settled');
+		assert.equal(stackPick({...shared, gap: 4}, '30th'), null, 'a picture that is not clear: a card the index lacks finds some unrelated nearest group');
+		assert.equal(stackPick({gap: 40, groups: [{cards: [card('30th-9', '30th', 62)], score: 62}]}, '30th'), null, 'too far to be this artwork');
 	});
 
 	test('pictureMatch with a stack makes the stack\'s print the card, sure, with no number read', async () => {
@@ -59,6 +68,14 @@ describe('the stack a card is scanned from', () => {
 
 		assert.equal(found.stack, undefined);
 		assert.equal(found.card.id, 'base1-4');
+	});
+
+	test('a card the index lacks, near nothing, is not taken from the stack', async () => {
+		const unknown = {gap: 3, groups: [{cards: [card('30th-50', '30th', 52)], score: 52}, {cards: [card('sv01-089', 'sv01', 55)], score: 55}]};
+		const found = await pictureMatch(unknown, null, 'pt', {api, stack: '30th'});
+
+		assert.equal(found.stack, undefined);
+		assert.equal(found.sure, false);
 	});
 
 	test('without a stack the shared artwork is not settled by the picture', async () => {
