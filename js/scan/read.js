@@ -62,13 +62,15 @@ export const REGIONS = {
 	name: {h: 0.12, text: 0.027, w: 0.66, x: 0.03, y: 0.015},
 };
 
-// The text height the number strips are scaled to before OCR, below the
-// TEXT_PX the other crops use (v79): digits and a slash read as well at 24
-// px, and Tesseract's time follows the pixels. On the lab benchmark (40
-// cards, six captures each) every crop at 24 px kept the right card first on
-// 240 of 240 and the sure ones at 205 (204), none wrong but sure, with OCR
-// 21 % quicker (43 % on blurred captures). The name strip and the label row
-// keep TEXT_PX: Japanese and Korean names need the pixels.
+// The text height the number strips and the label row (Latin text only:
+// numbers, set codes, language codes) are scaled to before OCR in a
+// picture-first read, below the TEXT_PX the name strip keeps (v79): they read
+// as well at 24 px, and Tesseract's time follows the pixels. On the lab
+// benchmark (40 cards, six captures each) every crop at 24 px kept the right
+// card first on 240 of 240 and the sure ones at 205 (204), none wrong but
+// sure, with OCR 21 % quicker (43 % on blurred captures); the number strips
+// alone at 24 px gave 240 of 240 and 206 sure. The name strip keeps TEXT_PX:
+// Japanese and Korean names need the pixels.
 export const NUMBER_PX = 24;
 
 export const OCR_SETTINGS = {
@@ -1266,8 +1268,8 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 
 	// The label row, beside the number strip, when asked for.
 	const labelRead = !withLabel ? Promise.resolve(null) : (async () => {
-		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, textPx), {sharpen: SHARPEN});
-		const found = findTextLines(band, textPx, 2);
+		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN});
+		const found = findTextLines(band, numberPx, 2);
 		const results = await Promise.all(found.map((line) => recognise('label', cropRows(band, line), OCR_SETTINGS.label)));
 
 		crops.label = band;
