@@ -1,7 +1,7 @@
 // Builds the fingerprint index from TCGdex images.
 //
 // node lab/fingerprints/build-index.mjs [--catalogs en,pt,ja,zh-tw] [--out <file>]
-//   [--concurrency 4] [--describe-only] [--extend zh-tw]
+//   [--concurrency 4] [--describe-only] [--extend zh-tw] [--update]
 //
 // --extend <catalogs> adds those catalogs to the index already at --out
 // (js/vision/index.bin) without the images of the cards it holds: their
@@ -9,6 +9,15 @@
 // are downloaded and described, and the artwork groups are made again over
 // all of them. A card added this way is full art when a card it shares its
 // artwork with is.
+//
+// --update adds to the index at --out every card TCGdex now lists with an
+// image that the index does not hold (by catalog and id), for the catalogs
+// its header lists and under the same rules as a fresh build: a new set, or
+// a straggler in a set the index has. Only those cards' images are
+// downloaded and described; every card already in the index keeps its
+// descriptors and flags. The artwork groups are made again over all cards,
+// and a new card is full art when a card it shares its artwork with is, as
+// with --extend.
 //
 // FP_CACHE=<dir> is where TCGdex answers, images, and descriptors are kept
 // (default ~/.cache/pokemon-card-tracker-fingerprints); it must be outside
@@ -250,18 +259,29 @@ export function fromIndex(index) {
 	return {cards, records};
 }
 
-export async function extend(out, add) {
+// Adds cards to the index at `out`: `pick(listed, base)` chooses, from the
+// cards of `catalogs` that TCGdex lists with images, the ones to add. The
+// index's cards keep their descriptors; only the added cards are
+// downloaded and described, and the artwork groups are made again.
+async function addToIndex(out, catalogs, pick) {
 	const t0 = Date.now();
 	const base = fromIndex(unpackIndex(new Uint8Array(await readFile(out))));
-	const listed = (await catalogCards(CACHE, add)).filter((c) => add.includes(c.catalog) && !base.cards.some((b) => b.catalog === c.catalog));
+	const listed = pick(await catalogCards(CACHE, catalogs), base);
+	const counts = (list) => catalogs.map((c) => `${c} ${list.filter((x) => x.catalog === c).length}`).join(', ');
 
-	console.log(`${base.cards.length} cards in the index; adding ${listed.length} with images: ${add.map((c) => `${c} ${listed.filter((x) => x.catalog === c).length}`).join(', ')}`);
+	console.log(`${base.cards.length} cards in the index; adding ${listed.length} with images: ${counts(listed)}`);
 
 	const dl = await downloadImages(CACHE, listed, {concurrency: Number(args.concurrency || 4), log: console.log});
 
 	console.log(`images: ${dl.fetched} fetched (${(dl.bytes / 1e6).toFixed(0)} MB) in ${dl.seconds} s, ${dl.kept} already kept, ${dl.missing} missing on TCGdex`);
 
 	const added = await describeAll(listed);
+	const fresh = new Set(added.cards);
+
+	if (added.cards.length < listed.length) {
+		console.log(`not added (no image or no descriptor): ${listed.filter((c) => !fresh.has(c)).map((c) => `${c.catalog}:${c.id}`).join(', ')}`);
+	}
+
 	const all = [...base.cards.map((c, i) => ({c, from: base.records, i})), ...added.cards.map((c, i) => ({c, from: added.records, i}))]
 		.sort((a, b) => indexOrder(a.c, b.c));
 	const cards = all.map((entry) => entry.c);
@@ -273,7 +293,7 @@ export async function extend(out, add) {
 	const fullGroups = new Set(cards.flatMap((c, i) => (c.full ? [groups[i]] : [])));
 
 	cards.forEach((c, i) => {
-		if (add.includes(c.catalog) && fullGroups.has(groups[i])) {
+		if (fresh.has(c) && fullGroups.has(groups[i])) {
 			c.full = true;
 		}
 	});
@@ -281,10 +301,30 @@ export async function extend(out, add) {
 	const index = buildIndex(cards, records, groups);
 
 	await writeFile(out, index);
+	console.log(`added: ${counts(added.cards)}; groups: ${new Set(groups).size}`);
 	console.log(`index: ${out} ${cards.length} cards, ${(index.length / 1024).toFixed(0)} KB, gzipped ${(gzipSync(index).length / 1024).toFixed(0)} KB, in ${Math.round((Date.now() - t0) / 1000)} s`);
 }
 
+// New catalogs, whole.
+export const extend = (out, add) => addToIndex(out, add,
+	(listed, base) => listed.filter((c) => add.includes(c.catalog) && !base.cards.some((b) => b.catalog === c.catalog)));
+
+// The cards of the index's catalogs it does not hold yet.
+export async function update(out) {
+	const {header} = unpackIndex(new Uint8Array(await readFile(out)));
+
+	return addToIndex(out, header.catalogs, (listed, base) => {
+		const held = new Set(base.cards.map((c) => `${c.catalog}:${c.id}`));
+
+		return listed.filter((c) => !held.has(`${c.catalog}:${c.id}`)).sort(indexOrder);
+	});
+}
+
 async function main() {
+	if (args.update) {
+		return update(resolve(String(args.out || join(REPO, 'js/vision/index.bin'))));
+	}
+
 	if (args.extend) {
 		return extend(resolve(String(args.out || join(REPO, 'js/vision/index.bin'))), String(args.extend).split(','));
 	}
