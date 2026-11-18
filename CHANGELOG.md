@@ -14,6 +14,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-18
 
+- **v77:** a Portuguese or English card that reads no number no longer waits for its name. `59d661f`
+  - When the picture is not clear and the number does not read, the name strip is read only while
+    Japanese or Korean cards are scanned, whose name route needs it. For Latin cards it was read
+    16 times in Eric's 18 November report, about 2 s each, and never led to the card he kept; on
+    the lab benchmark leaving it out changed no card.
+
 - **v76:** the scanner names its matches with no download, and skips reads that cannot help. `2104052`
   - The cards a picture matches are named from a table shipped with the app (every card the
     scanner knows by picture), not from TCGdex's set records, so a card shows sooner, and much
