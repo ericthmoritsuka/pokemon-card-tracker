@@ -14,6 +14,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-18
 
+- **v75:** a tidy-up behind the scenes; nothing changes on screen. `4acd1e3`
+  - The card page's price panel no longer draws a Ver na Liga that was then hidden.
+  - Checklists drop the drawing for hand ticks, retired since v30.
+  - Collections and family wishlists use the app's shared helpers for their catalog requests.
+  - Every test fakes the exchange-rate site, and a check fails any test that does not.
+
 - **v74:** small fixes from the v71 review. `01fb542`
   - All, Owned, and Missing put each number under its word when they do not fit side by side, on
     a small phone, with larger text, or with a four-digit count, instead of one wrapping alone.
