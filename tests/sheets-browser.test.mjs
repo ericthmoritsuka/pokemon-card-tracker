@@ -21,6 +21,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
 const require = createRequire(import.meta.url);
@@ -187,6 +188,7 @@ function cameraProbe() {
 
 async function device() {
 	const context = await browser.newContext({hasTouch: true, serviceWorkers: 'block', viewport: VIEWPORT});
+	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: server.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

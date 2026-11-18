@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {cardImage, countLooks, LOOK_MS, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 import {sceneCamera} from './scan-scene.mjs';
 
@@ -51,6 +52,7 @@ after(async () => {
 // test pauses it), for a test that steps the scanner's waits itself.
 async function open({clock = false, holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 900, width: 384}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport});
+	await fakeRates(context);
 
 	if (clock) {
 		await context.clock.install();

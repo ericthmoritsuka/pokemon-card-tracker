@@ -15,6 +15,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
@@ -193,6 +194,7 @@ async function fakeServices(context, counts, net) {
 
 async function device(fake, name, {serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
+	await fakeRates(context);
 	const counts = {asian: 0, dexCards: 0, graphql: 0, names: 0, sets: 0, single: 0};
 	const net = {offline: false};
 

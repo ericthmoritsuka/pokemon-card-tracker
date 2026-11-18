@@ -53,6 +53,7 @@ import {
 	validGrid,
 } from '../js/binders.js';
 import {mergeDocuments, nextStamp} from '../js/merge.js';
+import {fakeRates} from './fake-rates.mjs';
 import {untilInPage} from './poll.mjs';
 
 const at = (minute) => `2026-10-01T10:${String(minute).padStart(2, '0')}:00.000Z`;
@@ -898,6 +899,7 @@ async function fakeServices(context, counts, net) {
 
 async function device(fake, name, {pointer = 'coarse', serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
+	await fakeRates(context);
 	const counts = {search: 0, single: 0};
 	const net = {offline: false};
 
@@ -1520,6 +1522,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 	test('held sideways, the spread opens whole above the tab bar and clear of the Scan button', async () => {
 		for (const viewport of [{height: 390, width: 844}, {height: 412, width: 915}]) {
 			const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
+			await fakeRates(context);
 
 			await fakeServices(context, {search: 0, single: 0}, {offline: false});
 			await context.route('https://*.supabase.co/**', (route) => route.abort());
@@ -1594,6 +1597,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		for (const staged of [[], ['c2', 'c3']]) {
 			for (const viewport of sizes) {
 				const context = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport});
+				await fakeRates(context);
 
 				await fakeServices(context, {search: 0, single: 0}, {offline: false});
 				await context.route('https://*.supabase.co/**', (route) => route.abort());
@@ -2282,6 +2286,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 
 		// A laptop with a mouse.
 		const desk = await browser.newContext({serviceWorkers: 'block', viewport: {height: 800, width: 1280}});
+		await fakeRates(desk);
 
 		await fakeServices(desk, {search: 0, single: 0}, {offline: false});
 		await desk.route('https://*.supabase.co/**', (route) => route.abort());
@@ -2313,6 +2318,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// A phone held sideways: the tray is a column beside the spread, and
 		// the spread still clears the tab bar and the Scan disc.
 		const side = await browser.newContext({hasTouch: true, isMobile: true, serviceWorkers: 'block', viewport: {height: 390, width: 844}});
+		await fakeRates(side);
 
 		await fakeServices(side, {search: 0, single: 0}, {offline: false});
 		await side.route('https://*.supabase.co/**', (route) => route.abort());

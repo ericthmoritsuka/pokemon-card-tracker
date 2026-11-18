@@ -15,6 +15,7 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
@@ -42,6 +43,7 @@ const url = (path = '') => `${server.origin}${BASE}${path}`;
 
 async function device({serviceWorkers = 'block'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
+	await fakeRates(context);
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 	await context.route('https://api.tcgdex.net/**', (route) => route.fulfill({body: '[]', contentType: 'application/json', status: 200}));

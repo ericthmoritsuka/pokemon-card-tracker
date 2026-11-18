@@ -19,6 +19,7 @@ import {after, before, describe, test} from 'node:test';
 import {stamps} from '../js/merge.js';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {replayTcgdex} from './tcgdex-replay.mjs';
@@ -111,6 +112,7 @@ async function blockFonts(context) {
 
 async function device(fake, name, {serviceWorkers = 'block', tcgdex = 'fake'} = {}) {
 	const context = await browser.newContext({serviceWorkers, viewport: VIEWPORT});
+	await fakeRates(context);
 
 	await blockFonts(context);
 	await fakePokeApi(context);

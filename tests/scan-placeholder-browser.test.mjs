@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -74,6 +75,7 @@ async function until(check, timeout = 30000, what = 'a condition') {
 // scan tray, each ready to save.
 async function openWith(binders, copies) {
 	const context = await browser.newContext({viewport: VIEWPORT});
+	await fakeRates(context);
 	const supabase = [];
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

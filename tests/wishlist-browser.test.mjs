@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase, SUPABASE_ORIGIN} from './fake-supabase.mjs';
 import {untilInPage} from './poll.mjs';
 import {checkIntegration, startHarness} from './wishlist-harness.mjs';
@@ -131,6 +132,7 @@ function tcgdex(pathname, search) {
 
 async function device(fake, name) {
 	const context = await browser.newContext({serviceWorkers: 'allow', viewport: VIEWPORT});
+	await fakeRates(context);
 	const counts = {cards: 0, search: 0};
 	const net = {offline: false};
 

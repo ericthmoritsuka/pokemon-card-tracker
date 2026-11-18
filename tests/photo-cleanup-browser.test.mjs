@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {HARNESS_PATH, routeHarness, startHarness} from './photos-harness.mjs';
 
@@ -64,6 +65,7 @@ test('the notice, Not now, Review, Delete, and Undo', async () => {
 	const fake = new FakeStorageSupabase();
 	const user = fake.addUser('owner@example.test');
 	const context = await browser.newContext({viewport: {height: 740, width: 360}});
+	await fakeRates(context);
 	const errors = [];
 
 	await fake.attach(context, 'phone');

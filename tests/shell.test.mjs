@@ -16,6 +16,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
@@ -129,6 +130,7 @@ async function fakeTcgdex(context, net) {
 
 async function device(fake, name, {colorScheme = 'light', reducedMotion = 'no-preference', serviceWorkers = 'block', viewport = VIEWPORT} = {}) {
 	const context = await browser.newContext({colorScheme, hasTouch: true, reducedMotion, serviceWorkers, viewport});
+	await fakeRates(context);
 	const net = {offline: false};
 
 	// Offline for the page and for the faked catalog alike.

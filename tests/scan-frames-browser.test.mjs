@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -130,6 +131,7 @@ function portraitCamera({height, width}) {
 
 async function open({record = false, viewport = {height: 780, width: 384}} = {}) {
 	const context = await browser.newContext({acceptDownloads: true, deviceScaleFactor: 2.8125, viewport});
+	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

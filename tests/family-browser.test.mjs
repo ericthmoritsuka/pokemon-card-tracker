@@ -14,6 +14,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {startPagesServer} from './pages-server.mjs';
@@ -132,6 +133,7 @@ async function fakeNetwork(context, {sprites = null} = {}) {
 
 async function device(fake, name, options = {}) {
 	const context = await browser.newContext({hasTouch: true, serviceWorkers: 'block', viewport: VIEWPORT});
+	await fakeRates(context);
 
 	await fakePokeApi(context);
 	await fakeNetwork(context, options);

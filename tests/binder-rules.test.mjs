@@ -37,6 +37,7 @@ import {
 } from '../js/binder-rules.js';
 import {placeholderList, placements, resizedBinder, setPocket, unplaced} from '../js/binders.js';
 import {mergeDocuments, mergeEntries, stampEntry} from '../js/merge.js';
+import {fakeRates} from './fake-rates.mjs';
 
 const at = (minute) => `2026-10-05T10:${String(minute).padStart(2, '0')}:00.000Z`;
 
@@ -611,6 +612,7 @@ async function fakeServices(context, net) {
 
 async function device(fake, name, {viewport = {height: 740, width: 360}} = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport});
+	await fakeRates(context);
 	const net = {offline: false};
 
 	await fakeServices(context, net);

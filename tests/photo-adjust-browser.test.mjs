@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {HARNESS_PATH, routeHarness, startHarness} from './photos-harness.mjs';
 
@@ -41,6 +42,7 @@ after(async () => {
 
 async function device(fake, user, {offline}) {
 	const context = await browser.newContext({viewport: VIEWPORT});
+	await fakeRates(context);
 	const errors = [];
 
 	await fake.attach(context, 'phone');

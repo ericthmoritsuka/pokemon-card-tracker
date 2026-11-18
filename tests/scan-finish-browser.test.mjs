@@ -18,6 +18,7 @@ import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -84,6 +85,7 @@ async function makePhoto(page) {
 
 async function open() {
 	const context = await browser.newContext({viewport: VIEWPORT});
+	await fakeRates(context);
 	const supabase = [];
 
 	await context.addInitScript(() => localStorage.setItem('card-tracker:scan-log', 'on'));
@@ -140,6 +142,8 @@ describe('the default finish', () => {
 		browser = await chromium.launch();
 
 		const scratch = await browser.newPage();
+
+		await fakeRates(scratch.context());
 
 		photo = await makePhoto(scratch);
 		await scratch.close();

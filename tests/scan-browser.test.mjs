@@ -24,6 +24,7 @@ import {createRequire} from 'node:module';
 import {join} from 'node:path';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {cardImage, cardVideo, fakeCameraArgs, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
@@ -116,6 +117,7 @@ async function launch(profile, card, {fake = null, serviceWorkers = 'block', net
 		serviceWorkers,
 		viewport: VIEWPORT,
 	});
+	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
@@ -635,6 +637,7 @@ describe('scanner', () => {
 
 	test('camera off: offers the search and the phone check, and a searched card saves', async () => {
 		const context = await (await chromium.launch()).newContext({viewport: VIEWPORT});
+		await fakeRates(context);
 
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 		await routeTcgdex(context);
@@ -675,6 +678,7 @@ describe('scanner', () => {
 	test('a photo picked from the gallery is read like a capture, and its scan report copies as text', async () => {
 		const browser = await chromium.launch();
 		const context = await browser.newContext({viewport: VIEWPORT});
+		await fakeRates(context);
 
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
 		await routeTcgdex(context);

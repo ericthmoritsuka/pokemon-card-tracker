@@ -29,6 +29,7 @@ import {readFile, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, afterEach, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {untilInPage} from './poll.mjs';
 import {cardImage, countLooks, LOOK_MS, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
@@ -156,6 +157,7 @@ function portraitCamera({height, width}) {
 
 async function open({record = false, slowPhotos = 0, viewport = {height: 780, width: 384}} = {}) {
 	const context = await browser.newContext({acceptDownloads: true, deviceScaleFactor: 2.8125, viewport});
+	await fakeRates(context);
 
 	contexts.add(context);
 	await context.grantPermissions(['camera'], {origin: harness.origin});

@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 import {sceneCamera} from './scan-scene.mjs';
 
@@ -46,6 +47,7 @@ after(async () => {
 // tests/scan-holder-browser.test.mjs open).
 async function open({holder = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 900, width: 384}});
+	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

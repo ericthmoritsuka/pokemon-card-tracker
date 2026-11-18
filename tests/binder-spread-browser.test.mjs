@@ -18,6 +18,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {HARNESS_PATH, routeHarness, startHarness} from './binder-spread-harness.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 
 const require = createRequire(import.meta.url);
@@ -62,6 +63,7 @@ const standIn = (n) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" widt
 
 async function device(fake, {reducedMotion = 'no-preference', user = null, viewport = PORTRAIT} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2, hasTouch: true, isMobile: true, reducedMotion, viewport});
+	await fakeRates(context);
 	const errors = [];
 
 	await fake.attach(context, 'phone');
@@ -489,6 +491,7 @@ describe('spreads on a phone held upright', () => {
 
 	test('the sideways hint shows a few times, then never; Got it ends it', async () => {
 		const context = await browser.newContext({hasTouch: true, isMobile: true, viewport: PORTRAIT});
+		await fakeRates(context);
 
 		await fake.attach(context, 'hint');
 		await routeHarness(context, harness.origin);

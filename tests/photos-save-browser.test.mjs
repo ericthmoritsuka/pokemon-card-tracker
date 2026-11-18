@@ -19,6 +19,7 @@ import {after, before, describe, test} from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {deflateSync} from 'node:zlib';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {HARNESS_PATH, routeHarness, startHarness} from './photos-harness.mjs';
 
@@ -112,6 +113,7 @@ after(async () => {
 
 async function device(fake, user, net) {
 	const context = await browser.newContext({acceptDownloads: true, viewport: VIEWPORT});
+	await fakeRates(context);
 	const errors = [];
 
 	await fake.attach(context, 'phone');

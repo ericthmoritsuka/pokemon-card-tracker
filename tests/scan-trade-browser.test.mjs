@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {untilInPage} from './poll.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 import {sceneCamera} from './scan-scene.mjs';
@@ -63,6 +64,7 @@ after(async () => {
 // sideways.
 async function open({drafts = null, owned = [], via = null, viewport = {height: 800, width: 360}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 3, viewport});
+	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

@@ -17,6 +17,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {palette, themeById} from '../js/themes.js';
 import {fakePokeApi as fakeSpeciesNames} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {replayTcgdex} from './tcgdex-replay.mjs';
@@ -77,6 +78,7 @@ async function fakePokeApi(context, log) {
 
 async function device(fake, name, {colorScheme = 'light', tcgdex = 'fake', viewport = VIEWPORT} = {}) {
 	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport});
+	await fakeRates(context);
 	const pokeapi = [];
 
 	await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

@@ -19,6 +19,7 @@ import {moveToCardInfo} from '../js/card-info.js';
 import {refreshPhotoIndex} from '../js/photos/model.js';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
@@ -135,6 +136,7 @@ async function fakeNetwork(context, {sprites = null} = {}) {
 
 async function device(fake, name, options = {}) {
 	const context = await browser.newContext({hasTouch: true, serviceWorkers: 'block', viewport: VIEWPORT});
+	await fakeRates(context);
 
 	await fakePokeApi(context);
 	await fakeNetwork(context, options);

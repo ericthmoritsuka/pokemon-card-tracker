@@ -13,6 +13,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {isPromoSet, ligaName, ligaQuery, ligaUrl} from '../js/liga.js';
+import {fakeRates} from './fake-rates.mjs';
 
 const SEARCH = 'https://www.ligapokemon.com.br/?view=cards/search&card=';
 
@@ -277,6 +278,7 @@ describe('Ver na Liga on card detail', {skip: playwright ? false : 'Playwright n
 
 	async function open(path) {
 		const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 740, width: 360}});
+		await fakeRates(context);
 		const liga = [];
 
 		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());

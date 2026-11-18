@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {HARNESS_PATH, pendingIntegration, routeHarness, startHarness} from './photos-harness.mjs';
 
@@ -64,6 +65,7 @@ const BIG_QUAD = [{x: 640, y: 480}, {x: 1830, y: 580}, {x: 1990, y: 2620}, {x: 4
 
 async function device(fake, user, viewport) {
 	const context = await browser.newContext({hasTouch: true, viewport});
+	await fakeRates(context);
 	const errors = [];
 
 	await fake.attach(context, 'phone');

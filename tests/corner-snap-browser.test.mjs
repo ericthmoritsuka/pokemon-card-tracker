@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
+import {fakeRates} from './fake-rates.mjs';
 import {startPagesServer} from './pages-server.mjs';
 
 const require = createRequire(import.meta.url);
@@ -67,6 +68,7 @@ before(async () => {
 	server.setOverride((pathname) => (pathname === PAGE ? HTML : null));
 	browser = await chromium.launch();
 	page = await browser.newPage({viewport: {height: 740, width: 360}});
+	await fakeRates(page.context());
 	await page.goto(`${server.origin}${PAGE}`);
 	await page.waitForFunction(() => window.ready === true);
 });

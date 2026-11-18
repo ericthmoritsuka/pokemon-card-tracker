@@ -23,6 +23,8 @@ import {createServer} from 'node:http';
 import {extname, join, normalize, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
+import {fakeRates} from './fake-rates.mjs';
+
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const BASE = '/pokemon-card-tracker/';
 
@@ -472,6 +474,9 @@ export async function cardVideo(browser, cardId, {angle = 0.8, fill = 0.97, heig
 
 	const webp = (await readFile(await cardImage(cardId))).toString('base64');
 	const page = await browser.newPage();
+
+	await fakeRates(page.context());
+
 	const rgba = Buffer.from(await page.evaluate(async ({angle, fill, height, hideNumber, screen, webp, width}) => {
 		const img = new Image();
 
