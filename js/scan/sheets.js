@@ -1019,6 +1019,7 @@ export function settingsSheet(ctx) {
 		const lastRise = ctx.lastWorth.rise;
 
 		body.replaceChildren(
+			pageField(ctx),
 			h('div', {class: 'scan-field'},
 				h('p', {class: 'scan-label', id: 'scan-finish-default-label'}, 'Default finish'),
 				h('p', {class: 'scan-muted', id: 'scan-finish-default-help'}, 'Each card you scan starts on this finish when it has it; a card without it starts on its plain print. Ask leaves a card with more than one finish for you to pick. A card\'s sheet still changes it.'),
@@ -1052,4 +1053,22 @@ export function settingsSheet(ctx) {
 	refresh();
 
 	return {el, refresh};
+}
+
+// ------------------------------------------------------------ a binder page
+
+// A whole binder page from one still photo (js/scan/page.js), at the head of
+// the scanner's settings: one line on how to take it, and the two ways in,
+// the camera or the gallery. Kept apart from single-card scanning, and off
+// the camera's screen, whose tray row has no room for another button on a
+// phone.
+function pageField(ctx) {
+	const busy = ctx.pageBusy;
+
+	return h('div', {class: 'scan-field scan-page-field', id: 'scan-page'},
+		h('p', {class: 'scan-label', id: 'scan-page-label'}, 'Binder page'),
+		h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo: one page, upright, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
+		h('div', {'aria-labelledby': 'scan-page-label', class: 'scan-chips', role: 'group'},
+			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-take', onclick: () => ctx.pagePhoto('camera'), type: 'button'}, 'Take a photo'),
+			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-pick', onclick: () => ctx.pagePhoto('gallery'), type: 'button'}, 'Choose a photo')));
 }
