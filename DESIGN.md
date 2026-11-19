@@ -3164,7 +3164,7 @@ in a new synced list, `moves`, merged entry by entry like the other lists:
 ```
 "moves": [{ "id", "kind", "date", "who", "price", "currency", "money", "note",
             "out": [entry_id, ...], "past": [entry_id, ...], "in": [entry_id, ...],
-            "undo", "created_at", "updated_at", "deleted_at" }]
+            "in_prices": {entry_id: amount}, "undo", "created_at", "updated_at", "deleted_at" }]
 ```
 
 - **kind:** sold, bought, traded, or gift (given, received, or both). A trade has both cards out and
@@ -3176,8 +3176,9 @@ in a new synced list, `moves`, merged entry by entry like the other lists:
   rule (`planAfterAdding`, js/placeholder-fill.js): they fill the binder placeholders waiting for
   them when "Fill binder placeholders automatically" is on, and move the wishes they fit to Got it.
 - **price:** one amount for the whole move (sold for R$ 30, bought for R$ 20, cash added to a trade),
-  optional, in BRL, USD, or EUR. Prices only: no cost per copy and no profit, by Eric's choice
-  (2026-10-31). It is typed the Brazilian or the English way (js/moves.js `parsePrice`): with a
+  optional, in BRL, USD, or EUR. No profit, by Eric's choice (2026-10-31). His choice then of no
+  cost per copy holds for sales, trades, and gifts; a purchase may now price each card (Eric,
+  2026-11-19, below), and then this is the sum of its card prices. It is typed the Brazilian or the English way (js/moves.js `parsePrice`): with a
   comma, the dots group thousands and the comma is the decimal point ("1.500,00" is 1500, "30,50"
   is 30.5); without one, a dot followed by exactly three digits groups thousands ("1.500" is 1500),
   and any other dot is the decimal point ("30.5"). Anything else is refused with the expected form,
@@ -3206,6 +3207,50 @@ Start over's Undo is refused the other way round, while a later move counts its 
 7). A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
 share one step for it (js/start-over.js `planSwap`).
 
+**A purchase: where from, and what each card cost** (Eric, 2026-11-19; `js/moves.js`
+`purchaseSources`, `ownPrices`, `pricedCards`; `js/moves-view.js`).
+
+- **From.** A purchase's `who` is where it came from, so its field reads **From** (it read "Bought
+  from"), with the hint "A store, site, event, or person" under it, and it offers the places of
+  earlier live purchases as he types (a `<datalist>`): each place once whatever its capitals, as
+  typed last, newest purchase first; an undone purchase offers nothing. The other kinds keep their
+  labels and offer nothing. No new field: `who` stays the storage, so a purchase logged before
+  keeps its value and an older phone shows it as before.
+- **One total or each card's price.** A purchase keeps today's single price, **Paid**, by default.
+  The switch **Price each card** under it (the Pokémon list's switch, 48 px) gives each card in
+  Coming in a price field of its own, typed and read back as Paid is (`parsePrice`, "Saved as R$
+  12,00"), all in the move's one currency. The price row then reads **Total** and shows their sum,
+  not typed ("Saved as R$ 23,00, the sum of the card prices"), and that sum is what is saved as
+  `price`, so History's title and its money per month read the purchase as before. A card left
+  blank is allowed: it counts 0 toward the total and has no price of its own. A card price the
+  form cannot read is refused on Save with the expected form, its field focused, and counts
+  nothing in the total meanwhile. Turning the switch off with no total typed puts the sum in Paid
+  rather than lose it; the card prices stay typed for turning it on again. This reverses Eric's
+  2026-10-31 "prices only, no cost per copy" for purchases only.
+- **Stored per copy.** `in_prices` on the move maps each incoming copy's entry id to its amount,
+  written by `planMove` when it creates the copies, and only when at least one card has a price,
+  so a purchase with one total is saved exactly as before. A card added with Copies N is N
+  entries, and **each of them takes the card's price** (the field reads "Price each", read back as
+  "R$ 5,50 each, R$ 11,00 for 2"): a shop or Liga prices a card per copy, so that is what he reads
+  off the receipt, each copy's page can then say what that copy cost, and splitting one amount
+  over N copies would give odd cents. A copy with no price has no key. Only `bought` writes it.
+- **Where it shows.** A copy with its own price says so on its card's page: "Came in: bought from
+  Liga for R$ 12,00, 12 Nov", "for R$ 5,50 each" when the line stands for several copies at that
+  price, one line per price, and no price for a copy that has none (the total is the other cards').
+  History's sheet lists the cards with their prices ("Charmander (2 copies), R$ 5,50 each",
+  "Charizard ex, no price"). Copies of a purchase with one total read as before ("bought for R$
+  20,00 from Liga").
+- **From the scanner.** The scanner's Trade or sale hands a purchase over as any other (kind
+  `bought`, its cards in Coming in, `tradeHandoff`), so the form it opens has From with its
+  suggestions and Price each card, with every scanned card as a row and its price under its
+  name. The scanner itself is unchanged.
+- **Card prices count only while they add up.** `ownPrices` reads `in_prices` only on a purchase
+  and only while their sum equals `price`. Every save and Edit of this app keeps the two together;
+  an older phone cannot (below). When they no longer add up, the card prices are kept on the move
+  but not shown or counted, and the price stands for the whole purchase as it did before. Edit then
+  opens with the switch off and the total as saved, and turning it on fills each card with the
+  price it had.
+
 **Edit a logged move** (Eric, 2026-11-05; built 2026-11-05). A move's sheet in History has
 **Edit** for its date, who, price (with its currency, and for a trade which way the cash went: "I
 paid it" or "I got it", as the log form asks), and note. The price is typed and read back as the
@@ -3223,6 +3268,14 @@ comes out as a price with no currency or way. The form shows the price the Brazi
 `in`, `past`, `undo`, `after_run`, `kind`, and `created_at` stay as they were, so Undo works the
 same after an edit. An undone move is a tombstone and cannot be edited, and an edit made on
 another phone before it heard of the Undo does not bring the move back (the delete sticks).
+A purchase's Edit (Eric, 2026-11-19) has From with its suggestions and Price each card, on when
+the purchase has card prices that add up: one row per card, language, and price, each copy of a
+row taking the row's price. The card prices join the money unit: when the price, currency,
+money, or any card price changes, all four are saved as the form shows them with one stamp, and
+the total is recomputed as their sum, so a merge never puts one phone's card prices under another
+phone's total. With the switch off the price is one total and the card prices go (a price given
+without card prices is one total). A card price for a copy the purchase did not bring is not kept.
+Only a purchase stamps `in_prices`, so a sale's edit stamps what it stamped before.
 History's months and money and the card page's lines follow the edit. A v55 or v56 phone shows
 the edited move, with no Edit; older ones merge it entry by entry and keep it whole.
 
@@ -3363,7 +3416,14 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
 
 **Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
 (js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's
-`patch_document` writes any list. A merge copies every field of a copy, and an edit changes a copy
+`patch_document` writes any list. **`in_prices` survives them** (checked against js/merge.js and
+the frozen v47 and v21 rules in tests/moves.test.mjs): a field-by-field merge takes every
+top-level field of an entry by its stamp, unknown ones included, and the older whole-entry merge
+keeps the winner whole; their Edit and Undo copy the move with every field. What an older phone
+(v84 and before) does with it: it shows the purchase's total and no card prices, and its Edit
+changes the total alone and leaves `in_prices` as it was. The card prices then no longer add up,
+so this app stops showing them and the total stands, as above; nothing is lost, and Edit here can
+set them again. A merge copies every field of a copy, and an edit changes a copy
 in place, so `left_via` and `came_via` survive an older phone's save; it shows the copies as any
 other. A copy an older phone changed after it came in counts as changed, so Undo keeps it.
 
