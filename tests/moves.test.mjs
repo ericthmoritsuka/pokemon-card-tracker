@@ -4,7 +4,9 @@
 // deleting a move (after another phone edited an incoming copy, and after a
 // sync), Edit of a logged move (its fields, two phones' edits, Undo after
 // it, and an undone move), the money per month, two phones logging moves,
-// and older phones that do not know `moves`, `left_via`, or `came_via`. Plain Node over an in-memory
+// older phones that do not know `moves`, `left_via`, or `came_via`, and a
+// purchase priced card by card (Eric, 2026-11-19: `in_prices`, its Edit
+// unit, its merge, and older phones). Plain Node over an in-memory
 // IndexedDB; invented data only, and nothing is requested.
 //
 // Run: node --test tests/moves.test.mjs
@@ -71,7 +73,7 @@ const collection = await import('../js/collection.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const v47 = await import('./v47/merge.js');
 const v21 = await import('./merge-v21.mjs');
-const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, startOverBlockedText, undoMove} = await import('../js/moves.js');
+const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, pricedCards, purchaseSources, startOverBlockedText, sumPrices, undoMove} = await import('../js/moves.js');
 const {importEntries} = await import('../js/monprice.js');
 const {planStartOver, planUndo, startOverIds} = await import('../js/start-over.js');
 
@@ -874,6 +876,218 @@ describe('Edit a logged move', () => {
 			assert.ok(merged.moves[0].deleted_at, 'the delete sticks');
 			assert.ok(!byId(merged, 'a1').deleted_at, 'and the copy stays back');
 		}
+	});
+});
+
+// A purchase priced card by card (Eric, 2026-11-19): Pikachu at R$ 12,00,
+// two Eevees at R$ 5,50 each (Copies 2 stands for two copies), and a
+// Bulbasaur with no price of its own, from Liga.
+const PIKACHU = {...IN_CARD, card_id: 'tst1-006', condition: undefined};
+const EEVEE = {...IN_CARD, card_id: 'tst1-007', condition: undefined};
+const BULBASAUR = {...IN_CARD, card_id: 'tst1-008', condition: undefined};
+const purchase = (doc = startDoc(), extra = {}) => planMove(doc, {
+	currency: 'BRL', date: '2026-11-12', in: [PIKACHU, EEVEE, EEVEE, BULBASAUR], in_prices: ['12', '5,50', '5,50', ''], kind: 'bought', price: '999', who: 'Liga', ...extra,
+}, {id: 'p1', now: NOW});
+const AFTER = new Date('2026-11-19T12:00:00');
+
+// What a phone from before card prices does in Edit: the price, currency,
+// and money, stamped as one, and every other field copied as it was.
+function olderEdit(doc, id, price, when) {
+	const next = structuredClone(doc);
+	const i = next.moves.findIndex((move) => move.id === id);
+	const at = new Date(when).toISOString();
+	const edited = stampEntry(next.moves[i], {...next.moves[i], price, updated_at: at});
+
+	for (const key of ['price', 'currency', 'money']) {
+		edited.field_stamps[key] = at;
+	}
+
+	next.moves[i] = edited;
+
+	return next;
+}
+
+describe('a purchase priced card by card', () => {
+	test('each copy\'s price is kept by its entry id, Copies 2 gives both copies the price, a blank one has none, and the price saved is their sum', () => {
+		const {doc, move} = purchase();
+		const [pikachu, eevee1, eevee2, bulbasaur] = move.in;
+
+		assert.deepEqual(move.in_prices, {[eevee1]: 5.5, [eevee2]: 5.5, [pikachu]: 12});
+		assert.equal(move.in_prices[bulbasaur], undefined, 'a card with no price of its own has no key');
+		assert.deepEqual([move.price, move.currency, move.money], [23, 'BRL', 'out'], 'the typed total is not read: the card prices make it');
+		assert.deepEqual(move.in.map((id) => byId(doc, id).card_id), ['tst1-006', 'tst1-007', 'tst1-007', 'tst1-008']);
+		assert.deepEqual(ownPrices(move), move.in_prices);
+		assert.deepEqual(monthTotals(doc.moves)[0].out, {BRL: 23});
+		assert.equal(moveTitle(move), 'Bought for R$ 23,00 from Liga');
+
+		// Cents add up exactly.
+		assert.equal(purchase(startDoc(), {in: [PIKACHU, EEVEE], in_prices: ['0,10', '0.2']}).move.price, 0.3);
+		assert.equal(sumPrices(['0,10', '0.2', '', null]), 0.3);
+
+		// Every card blank: no price at all, as with an empty Paid.
+		const blank = purchase(startDoc(), {in_prices: ['', '', '', '']}).move;
+
+		assert.deepEqual([blank.price, blank.currency, blank.money, 'in_prices' in blank], [null, null, null, false]);
+
+		// One total, the way it always was: no in_prices key at all.
+		const total = planMove(startDoc(), {in: [PIKACHU], kind: 'bought', price: '20', who: 'Liga'}, {id: 'p2', now: NOW}).move;
+
+		assert.deepEqual([total.price, 'in_prices' in total, ownPrices(total)], [20, false, null]);
+
+		// Only a purchase prices its cards.
+		const traded = planMove(startDoc(), {in: [PIKACHU], in_prices: ['12'], kind: 'traded', money: 'out', out: ['a1'], price: '3'}, {id: 't1', now: NOW}).move;
+
+		assert.deepEqual([traded.price, 'in_prices' in traded], [3, false]);
+	});
+
+	test('the card page says what each copy cost, "each" for several, and nothing for a copy with no price of its own; History lists the cards with their prices', () => {
+		const {doc, move} = purchase();
+		const line = (cardId) => cardHistory(doc, {card_id: cardId}).map((row) => historyLine(row, {now: AFTER}));
+
+		assert.deepEqual(line('tst1-006'), ['Came in: bought from Liga for R$ 12,00, 12 Nov']);
+		assert.deepEqual(line('tst1-007'), ['Came in: bought from Liga for R$ 5,50 each, 12 Nov']);
+		assert.deepEqual(line('tst1-008'), ['Came in: bought from Liga, 12 Nov']);
+		assert.deepEqual(cardHistory(doc, {card_id: 'tst1-007'})[0].entries.length, 2);
+
+		// The same card at two prices: one line each.
+		const two = purchase(startDoc(), {in: [EEVEE, EEVEE], in_prices: ['5', '7']});
+
+		assert.deepEqual(cardHistory(two.doc, {card_id: 'tst1-007'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought from Liga for R$ 5,00, 12 Nov', 'Came in: bought from Liga for R$ 7,00, 12 Nov']);
+
+		const rows = pricedCards(move, doc.cards);
+
+		assert.deepEqual(rows.map((row) => [row.entries.map((entry) => entry.card_id), row.price]), [[['tst1-006'], 12], [['tst1-007', 'tst1-007'], 5.5], [['tst1-008'], null]]);
+		assert.equal(pricedCards(trade().move, trade().doc.cards), null, 'a move with no card prices lists none');
+
+		// A purchase with one total reads as before.
+		const total = planMove(startDoc(), {date: '2026-11-12', in: [PIKACHU], kind: 'bought', price: '20', who: 'Liga'}, {id: 'p2', now: NOW});
+
+		assert.deepEqual(cardHistory(total.doc, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought for R$ 20,00 from Liga, 12 Nov']);
+	});
+
+	test('From suggests where earlier purchases came from: newest first, each place once, live purchases only', () => {
+		let doc = startDoc();
+		const add = (fields, id, now) => {
+			doc = planMove(doc, {in: [PIKACHU], kind: 'bought', ...fields}, {id, now}).doc;
+		};
+
+		add({date: '2026-11-01', who: 'Liga'}, 'b1', NOW);
+		add({date: '2026-11-03', who: '  Feira   de domingo '}, 'b2', NOW + 1);
+		add({date: '2026-11-02', who: 'liga'}, 'b3', NOW + 2);
+		add({date: '2026-11-04', who: ''}, 'b4', NOW + 3);
+		add({date: '2026-11-05', who: 'Old shop'}, 'b5', NOW + 4);
+		doc = planMove(doc, {date: '2026-11-06', kind: 'sold', out: ['a1'], who: 'Ana'}, {id: 's1', now: NOW + 5}).doc;
+		doc = planUndoMove(doc, 'b5', {now: NOW + 6}).doc;
+
+		assert.deepEqual(purchaseSources(doc), ['Feira de domingo', 'liga'], 'the newest spelling of Liga, no sale, and not the undone purchase');
+		assert.deepEqual(purchaseSources({}), []);
+	});
+
+	test('Edit changes the card prices and the total follows; a price typed without them is one total; all of it is one unit with one stamp', () => {
+		const {doc, move} = purchase();
+		const [pikachu, eevee1, eevee2, bulbasaur] = move.in;
+		const priced = planEditMove(doc, 'p1', {in_prices: {[bulbasaur]: '3', [eevee1]: '5,50', [eevee2]: '6', [pikachu]: '12'}, price: '23,00'}, {now: LATER});
+
+		assert.deepEqual(priced.changed.sort(), ['in_prices', 'price']);
+		assert.deepEqual(priced.move.in_prices, {[bulbasaur]: 3, [eevee1]: 5.5, [eevee2]: 6, [pikachu]: 12});
+		assert.equal(priced.move.price, 26.5, 'the total is the new sum, not the total the form sent');
+		assert.deepEqual(['price', 'currency', 'money', 'in_prices'].map((key) => priced.move.field_stamps[key]), Array(4).fill(new Date(LATER).toISOString()), 'the four take one stamp');
+		assert.deepEqual([priced.move.in, priced.move.out, priced.move.undo], [move.in, move.out, move.undo], 'the cards and what Undo needs stay');
+		assert.throws(() => planEditMove(doc, 'p1', {in_prices: {[pikachu]: '1,2,3'}}, {now: LATER}), /Type the price as 30,50/);
+
+		// A card price for a copy the purchase did not bring is not kept.
+		assert.deepEqual(planEditMove(doc, 'p1', {in_prices: {a1: '50', [pikachu]: '10'}}, {now: LATER}).move.in_prices, {[pikachu]: 10});
+
+		// Price each card turned off: one total, and the card prices go.
+		const total = planEditMove(doc, 'p1', {in_prices: null, price: '30'}, {now: LATER}).move;
+
+		assert.deepEqual([total.price, 'in_prices' in total, total.field_stamps.in_prices], [30, false, new Date(LATER).toISOString()]);
+		assert.deepEqual(planEditMove(doc, 'p1', {price: '30'}, {now: LATER}).move.in_prices, undefined, 'a price given alone is one total too');
+
+		// The currency alone: the card prices stay, now in that currency.
+		const euro = planEditMove(doc, 'p1', {currency: 'EUR'}, {now: LATER}).move;
+
+		assert.deepEqual([euro.price, euro.currency, euro.in_prices], [23, 'EUR', move.in_prices]);
+		assert.deepEqual(cardHistory({...doc, moves: [euro]}, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought from Liga for € 12,00, 12 Nov']);
+
+		// Every card cleared: no price at all.
+		const none = planEditMove(doc, 'p1', {in_prices: {}}, {now: LATER}).move;
+
+		assert.deepEqual([none.price, none.currency, none.money, 'in_prices' in none], [null, null, null, false]);
+
+		// A form that changed only the note leaves the unit unstamped.
+		const opened = structuredClone(move);
+		const form = {currency: 'BRL', date: move.date, in_prices: {[eevee1]: '5,50', [eevee2]: '5,50', [pikachu]: '12,00'}, note: 'Paid by card', price: '23,00', who: 'Liga'};
+		const noted = planEditMove(doc, 'p1', form, {base: opened, now: LATER});
+
+		assert.deepEqual(noted.changed, ['note']);
+		assert.deepEqual(Object.keys(noted.move.field_stamps).filter((key) => key !== 'at' && key !== 'since'), ['note']);
+	});
+
+	test('two phones editing the money: the later phone\'s whole unit wins, never card prices under another phone\'s total', () => {
+		const {doc, move} = purchase();
+		const [pikachu] = move.in;
+		const repriced = (when) => planEditMove(doc, 'p1', {in_prices: {...move.in_prices, [pikachu]: '20'}}, {now: when}).doc;
+		const total = (when) => planEditMove(doc, 'p1', {in_prices: null, price: '40'}, {now: when}).doc;
+
+		for (const [a, b, expected] of [[repriced(LATER), total(LATER + 60000), 'total'], [total(LATER), repriced(LATER + 60000), 'each']]) {
+			for (const merged of [mergeDocuments(a, b), mergeDocuments(b, a)]) {
+				const one = merged.moves[0];
+
+				if (expected === 'total') {
+					assert.deepEqual([one.price, 'in_prices' in one, ownPrices(one)], [40, false, null]);
+				}
+				else {
+					assert.deepEqual([one.price, one.in_prices[pikachu], ownPrices(one)[pikachu]], [31, 20, 20]);
+				}
+			}
+		}
+
+		// A note on one phone and card prices on another both stay.
+		const noted = planEditMove(doc, 'p1', {note: 'Fair'}, {now: LATER}).doc;
+		const priced = repriced(LATER + 60000);
+
+		for (const merged of [mergeDocuments(noted, priced), mergeDocuments(priced, noted)]) {
+			assert.deepEqual([merged.moves[0].note, merged.moves[0].price, merged.moves[0].in_prices[pikachu]], ['Fair', 31, 20]);
+		}
+	});
+
+	// The phones from before card prices: v84 and older run js/merge.js's
+	// rules as they were (in_prices is a field like any other to them), and
+	// tests/v47/merge.js and tests/merge-v21.mjs are frozen older rules.
+	for (const [name, old] of [['v47', v47], ['v21', v21], ['current', {mergeDocuments}]]) {
+		test(`a ${name} phone keeps the card prices when it merges, and its Edit of the total makes this app stop showing them`, () => {
+			const server = purchase().doc;
+			const merged = old.mergeDocuments(startDoc(), JSON.parse(JSON.stringify(server)));
+
+			assert.deepEqual(merged.moves[0].in_prices, server.moves[0].in_prices, 'a field it does not know is kept');
+
+			// Its Edit changes the total alone; the card prices stay on the
+			// move, and no longer add up, so they are not shown or counted.
+			const edited = olderEdit(merged, 'p1', 50, LATER);
+			const back = mergeDocuments(server, JSON.parse(JSON.stringify(edited)));
+			const move = back.moves[0];
+
+			assert.deepEqual([move.price, move.in_prices], [50, server.moves[0].in_prices]);
+			assert.equal(ownPrices(move), null);
+			assert.equal(pricedCards(move, back.cards), null);
+			assert.deepEqual(cardHistory(back, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought for R$ 50,00 from Liga, 12 Nov'], 'the total, as before card prices');
+
+			// An Edit here of the note only leaves them be; turning Price
+			// each card on again saves them with a total that adds up.
+			assert.deepEqual(planEditMove(back, 'p1', {note: 'x'}, {base: structuredClone(move), now: LATER + 1000}).changed, ['note']);
+			assert.equal(planEditMove(back, 'p1', {in_prices: move.in_prices}, {base: structuredClone(move), now: LATER + 1000}).move.price, 23);
+		});
+	}
+
+	test('Undo of a purchase priced card by card removes the copies as any other', () => {
+		const {doc} = purchase();
+		const undone = planUndoMove(doc, 'p1', {now: LATER});
+
+		assert.equal(undone.stale, false);
+		assert.equal(undone.counts.added, 4);
+		assert.ok(undone.doc.moves[0].deleted_at);
+		assert.deepEqual(purchaseSources(undone.doc), []);
 	});
 });
 

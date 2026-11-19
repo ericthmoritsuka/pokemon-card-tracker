@@ -238,3 +238,78 @@
 .move-price-read:empty {
 	display: none;
 }
+
+/* A purchase (Eric, 2026-11-19): From's hint under the field, and Price
+   each card under the price, a 48 px row like the Pokémon list's switch. */
+.move-who-hint {
+	font-size: 14px;
+	margin: var(--space-1) 0 0;
+}
+
+.move-each {
+	margin-top: var(--space-2);
+}
+
+/* With Price each card on, the total where Paid is typed: the sum of the
+   card prices, shown in the field's frame but not typed. */
+.move-price-total {
+	align-items: center;
+	border: 1px dashed var(--border);
+	border-radius: var(--radius-control);
+	display: flex;
+	flex: 1;
+	font-weight: 700;
+	min-height: 48px;
+	min-width: 0;
+	padding: var(--space-2) var(--space-4);
+}
+
+/* A card's own price, under its name in a row or under its tile. */
+.move-card-price {
+	display: grid;
+	gap: var(--space-1);
+	margin: var(--space-1) 0 var(--space-2);
+	min-width: 0;
+}
+
+.move-card-price label {
+	color: var(--muted);
+	font-size: 14px;
+}
+
+.move-card-price .move-price-read {
+	font-size: 14px;
+	margin: 0;
+}
+
+/* Edit's card prices: one block per card, under the switch. */
+.move-edit-cards {
+	display: grid;
+	margin: var(--space-2) 0 0;
+}
+
+.move-edit-card {
+	border-top: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	padding: var(--space-2) 0 0;
+}
+
+.move-edit-card .move-row-name {
+	white-space: normal;
+}
+
+/* History's sheet: a purchase's cards with their prices, one a line. */
+.move-priced {
+	margin: 0;
+	padding-left: var(--space-4);
+}
+
+/* History's heading at 360 px: Scan a trade or sale and Log a trade or sale
+   do not fit on one line beside each other, so they wrap rather than run
+   off the screen. */
+.view-head-links:has(#moves-new) {
+	flex: 0 1 auto;
+	flex-wrap: wrap;
+}

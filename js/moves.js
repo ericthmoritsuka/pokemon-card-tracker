@@ -4,14 +4,16 @@
 // lists (js/merge.js mergeDocuments merges every top-level list, so phones
 // from v21 on keep the list and its entries whole):
 //
-//   {id, kind, date, who, price, currency, money, note, out, past, in, undo,
-//    after_run, created_at, updated_at, deleted_at}
+//   {id, kind, date, who, price, currency, money, note, out, past, in,
+//    in_prices, undo, after_run, created_at, updated_at, deleted_at}
 //
 //   kind      sold, bought, traded, or gift (given, received, or both)
 //   date      the day it happened, YYYY-MM-DD
-//   who       who with, free text, or null
+//   who       who with, free text, or null; for a purchase, where it came
+//             from (a store, site, event, or person; Eric, 2026-11-19)
 //   price     one amount for the whole move, or null; currency BRL, USD, or
-//             EUR. Prices only: no cost per copy and no profit (Eric).
+//             EUR. No profit (Eric, 2026-10-31). A purchase priced card by
+//             card saves the sum of its card prices here.
 //   money     which way the price went, 'in' or 'out': a sale's comes in, a
 //             purchase's goes out, a trade names it (cash added), a gift has
 //             none
@@ -20,7 +22,14 @@
 //   past      the part of out that was removed by hand before the move was
 //             logged (Log a past sale): linked, never deleted by the move
 //   in        the copies that came (entry ids), each carrying came_via
-//   undo      what Undo needs from the save (js/start-over.js planSwap), so
+//   in_prices a purchase's own price for each copy that came, {entry id:
+//             amount}, in the move's currency, present only when he priced
+//             the cards one by one (Eric, 2026-11-19, which reverses "no
+//             cost per copy" for purchases only). A card with no price of
+//             its own has no key. They count only while they add up to
+//             price (ownPrices): an older phone's Edit changes price alone
+//             and keeps them as they were, and then they no longer tell
+//   undo     what Undo needs from the save (js/start-over.js planSwap), so
 //             any phone can undo the move later: the in copies' hashes,
 //             pockets, trays, picks, collections, fills, and wishes
 //   after_run the id of the document's latest Start over mark when the move
@@ -41,8 +50,9 @@
 // on, say): that move is undone first, or the copy would come back with
 // nothing that brought it.
 // Edit (Eric, 2026-11-05) changes a logged move's date, who, price, and
-// note, stamped field by field (the price, currency, and money as one
-// unit), and never its cards, undo, or after_run, so Undo works the same
+// note, stamped field by field (the price, currency, money, and a
+// purchase's card prices as one unit; Eric, 2026-11-19), and never its
+// cards, undo, or after_run, so Undo works the same
 // after it; an undone move cannot be edited. The form sends only what was
 // changed in it, so it never puts back what another phone changed.
 // Photos and notes live on the card records (card_info), which a move never
@@ -51,12 +61,14 @@
 // Older phones (v54 and before) know nothing of moves: they merge the list
 // entry by entry, carry left_via and came_via on copies (a merge copies
 // every field, and an edit changes a copy in place), and show the copies as
-// any other.
+// any other. Phones from before in_prices keep it the same way: their merge
+// takes every field of a move, by its stamp or with the newer version
+// whole, and their Edit and Undo copy the move with every field it has.
 //
 // The plans are pure, so Node tests them (tests/moves.test.mjs).
 
 import {isLive, loadDocument, newCopies, newId, saveCopy} from './collection.js';
-import {nextStamp, stampEntry} from './merge.js';
+import {nextStamp, stableJson, stampEntry} from './merge.js';
 import {autoFillOn, keptStartOver} from './placeholder-fill.js';
 import {formatMoney, shortDate} from './prices.js';
 import {copyHash, latestRun, planSwap, removedByStartOver, undoSwap} from './start-over.js';
@@ -118,6 +130,50 @@ export function cleanPrice(value) {
 	}
 
 	return Number.isFinite(value) && value > 0 ? Math.round(value * 100) / 100 : null;
+}
+
+// A purchase's card prices as a move keeps them (Eric, 2026-11-19): {entry
+// id: amount}, a positive amount to the cent for each copy that has one,
+// typed (parsePrice) or a number; a blank or unreadable one is left out, as
+// a card with no price of its own. ids, when given, are the copies that may
+// carry one (the move's in). null when none is left.
+export function cleanInPrices(value, ids = null) {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		return null;
+	}
+
+	const allowed = ids ? new Set(ids) : null;
+	const out = {};
+
+	for (const [id, amount] of Object.entries(value)) {
+		const clean = cleanPrice(amount);
+
+		if (clean && (!allowed || allowed.has(id))) {
+			out[id] = clean;
+		}
+	}
+
+	return Object.keys(out).length ? out : null;
+}
+
+// Amounts added to the cent, in whole cents, so 0.1 and 0.2 make 0.3 and
+// the sum reads back as the same number cleanPrice gives. A blank counts 0.
+export const sumPrices = (amounts) => Math.round((amounts || []).reduce((sum, amount) => sum + Math.round((cleanPrice(amount) || 0) * 100), 0)) / 100;
+
+// A purchase's own card prices while they still tell, or null: only on a
+// purchase, and only while they add up to its price. Every save and Edit of
+// this app keeps the two together; an older phone's Edit changes the price
+// alone, and from then on the card prices are kept but not shown or
+// counted, and the price stands for the whole purchase as it did before
+// (DESIGN.md, "Trades and Sales").
+export function ownPrices(move) {
+	if (!move || move.kind !== 'bought') {
+		return null;
+	}
+
+	const prices = cleanInPrices(move.in_prices, Array.isArray(move.in) ? move.in : []);
+
+	return prices && sumPrices(Object.values(prices)) === cleanPrice(move.price) ? prices : null;
 }
 
 // Which way a move's price went: {amount, currency, way: 'in' | 'out'}, or
@@ -290,9 +346,35 @@ const text = (value) => {
 	return clean || null;
 };
 
+// Where earlier purchases came from, for the From field's suggestions
+// (Eric, 2026-11-19): the who of each live purchase, newest first, each
+// place once whatever its capitals, as it was typed last. An undone
+// purchase suggests nothing.
+export function purchaseSources(doc) {
+	const seen = new Set();
+	const out = [];
+
+	for (const move of liveMoves(doc).filter((item) => item.kind === 'bought').sort(newestFirst)) {
+		const name = text(move.who);
+		const key = name && name.toLocaleLowerCase();
+
+		if (name && !seen.has(key)) {
+			seen.add(key);
+			out.push(name);
+		}
+	}
+
+	return out;
+}
+
 // What a move does to `doc`. fields: {kind, date, who, price, currency,
 // money, note, out: [live copy ids], past: [ids from pastCandidates], in:
-// [copy fields, as addCards takes]}. Returns {counts, doc, move}; `doc`
+// [copy fields, as addCards takes], in_prices}. in_prices, for a purchase
+// priced card by card (Eric, 2026-11-19): one price per copy in `in`, in
+// the same order, typed or a number, blank for a card with no price of its
+// own; given, the move's price is their sum and fields.price is not read,
+// so the total saved is always what the card prices add up to, and each
+// new copy's id keys its price on the move. Returns {counts, doc, move}; `doc`
 // itself is not changed. fill: whether the in copies fill placeholders (the
 // Profile setting); fillUndo: the kept Start over undo (placeholder
 // languages). Throws when the move would move no card.
@@ -338,7 +420,9 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 
 	const swap = planSwap(doc, next, removed, added, {fill, fillUndo, now});
 	const at = new Date(now).toISOString();
-	const price = cleanPrice(fields.price);
+	const each = fields.kind === 'bought' && Array.isArray(fields.in_prices) ? fields.in_prices : null;
+	const inPrices = each ? cleanInPrices(Object.fromEntries(added.map((entry, i) => [entry.id, each[i]]))) : null;
+	const price = each ? cleanPrice(sumPrices(Object.values(inPrices || {}))) : cleanPrice(fields.price);
 	const run = latestRun(doc);
 	const move = {
 		after_run: run && run.id ? run.id : null,
@@ -362,6 +446,12 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 	if (move.kind === 'gift') {
 		move.currency = null;
 		move.money = null;
+	}
+
+	// Only when a card has a price of its own, so a purchase with one total
+	// is saved exactly as before.
+	if (inPrices) {
+		move.in_prices = inPrices;
 	}
 
 	next.moves = [...list(next), move];
@@ -483,35 +573,66 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 
 // Edit a logged move (Eric, 2026-11-05): the fields a move can change after
 // it is logged. The cards are not among them: changing which cards went out
-// or came in is Undo this move and logging it again.
-export const EDIT_FIELDS = ['date', 'who', 'price', 'currency', 'money', 'note'];
+// or came in is Undo this move and logging it again. A purchase's card
+// prices are (Eric, 2026-11-19): they price the cards, they do not change
+// which cards came.
+export const EDIT_FIELDS = ['date', 'who', 'price', 'currency', 'money', 'in_prices', 'note'];
 
 export const UNDONE_EDIT_TEXT = 'This trade or sale was undone, on this phone or another, so it cannot be edited. Nothing was changed.';
 
-// The price, its currency, and which way the money went, as a move keeps
-// them: all null without a price or for a gift; a sale's money comes in, a
-// purchase's goes out, and a trade's goes the way given, if any. price is a
-// number already read (cleanPrice).
-function moneyFields(kind, price, currency, way) {
-	if (kind === 'gift' || !price) {
-		return {currency: null, money: null, price: null};
+// The price, its currency, which way the money went, and a purchase's card
+// prices, as a move keeps them: all null without a price or for a gift; a
+// sale's money comes in, a purchase's goes out, and a trade's goes the way
+// given, if any. price is a number already read (cleanPrice); inPrices, a
+// purchase's card prices already read (cleanInPrices) or null for one total.
+// With card prices, the price is their sum, whatever price says, so the two
+// never disagree.
+function moneyFields(kind, price, currency, way, inPrices = null) {
+	const each = kind === 'bought' && inPrices ? inPrices : null;
+	const amount = each ? cleanPrice(sumPrices(Object.values(each))) : price;
+
+	if (kind === 'gift' || !amount) {
+		return {currency: null, in_prices: null, money: null, price: null};
 	}
 
 	return {
 		currency: CURRENCIES.includes(currency) ? currency : 'BRL',
+		in_prices: each,
 		money: kind === 'sold' ? 'in' : kind === 'bought' ? 'out' : way === 'in' || way === 'out' ? way : null,
-		price,
+		price: amount,
 	};
 }
 
-const MONEY_FIELDS = ['price', 'currency', 'money'];
+// The money unit: what Edit saves together, with one stamp.
+const MONEY_FIELDS = ['price', 'currency', 'money', 'in_prices'];
+
+// Only a purchase has card prices, so only a purchase stamps them: a sale's
+// edit leaves its stamps as they were before card prices existed.
+const unitOf = (kind) => (kind === 'bought' ? MONEY_FIELDS : MONEY_FIELDS.filter((key) => key !== 'in_prices'));
+
+const same = (a, b) => stableJson(a ?? null) === stableJson(b ?? null);
+
+// The card prices an edit means: those given (an object, every card blank
+// being {}, which is no price at all); one total when given as null, or
+// when a price is given without them; else the move's own, while they
+// still tell (ownPrices).
+function editedPrices(has, fields, move) {
+	if (has('in_prices')) {
+		const given = fields.in_prices;
+
+		return given && typeof given === 'object' ? cleanInPrices(given, Array.isArray(move.in) ? move.in : []) || {} : null;
+	}
+
+	return has('price') ? null : ownPrices(move);
+}
 
 // The fields of an Edit form that differ from what the form opened with
 // (base, the move it was filled from): a field left as it was is not sent,
 // so a change another phone made to it while the form was open stays. The
-// price, currency, and money count as one: when any of them differs, all
-// three go as the form shows them, so a price is never saved with a
-// currency the person did not see beside it.
+// price, currency, money, and card prices count as one: when any of them
+// differs, all of them go as the form shows them, so a price is never saved
+// with a currency the person did not see beside it, nor a card price with
+// a total it does not add up to.
 function editedSince(kind, fields, base) {
 	const has = (key) => Object.prototype.hasOwnProperty.call(fields, key);
 	const out = {};
@@ -527,10 +648,10 @@ function editedSince(kind, fields, base) {
 	}
 
 	if (MONEY_FIELDS.some(has)) {
-		const opened = moneyFields(kind, cleanPrice(base.price), base.currency, base.money);
-		const shown = moneyFields(kind, has('price') ? cleanPrice(fields.price) : opened.price, has('currency') ? fields.currency : base.currency, has('money') ? fields.money : base.money);
+		const opened = moneyFields(kind, cleanPrice(base.price), base.currency, base.money, ownPrices({...base, kind}));
+		const shown = moneyFields(kind, has('price') ? cleanPrice(fields.price) : opened.price, has('currency') ? fields.currency : base.currency, has('money') ? fields.money : base.money, editedPrices(has, fields, {...base, kind}));
 
-		if (MONEY_FIELDS.some((key) => shown[key] !== opened[key])) {
+		if (MONEY_FIELDS.some((key) => !same(shown[key], opened[key]))) {
 			Object.assign(out, shown);
 		}
 	}
@@ -539,10 +660,16 @@ function editedSince(kind, fields, base) {
 }
 
 // What an edit does to `doc`: the move's date, who, price (with its currency
-// and which way the money went), and note, from the fields given (a field
-// left out stays as it is), read as planMove reads them. Nothing else on
-// the move changes (kind, out, in, past, undo, after_run, created_at), and
-// no copy is touched, so Undo of the move works as before.
+// and which way the money went, and a purchase's card prices), and note,
+// from the fields given (a field left out stays as it is), read as planMove
+// reads them. Nothing else on the move changes (kind, out, in, past, undo,
+// after_run, created_at), and no copy is touched, so Undo of the move works
+// as before.
+//
+// in_prices, on a purchase (Eric, 2026-11-19): {entry id: typed or number}
+// for each card's own price, the price then being their sum, or null for
+// one total. A price given without in_prices is one total, so the card
+// prices go; left out with the price too, the card prices stay.
 //
 // base: the move as the Edit form opened with it. Given, only the fields
 // whose value differs from base are applied (editedSince), so the form,
@@ -551,15 +678,16 @@ function editedSince(kind, fields, base) {
 //
 // The move is stamped field by field (js/merge.js stampEntry), only where a
 // value changed, so two phones editing different fields both keep their
-// change. The price, currency, and money are one unit: when any of them
-// changes, all three take the same stamp, so the merge takes all three from
-// the same phone (a price cleared on one phone and changed on another never
-// comes out as a price with no currency or way).
+// change. The price, currency, money, and card prices are one unit: when
+// any of them changes, all of them take the same stamp, so the merge takes
+// all of them from the same phone (a price cleared on one phone and changed
+// on another never comes out as a price with no currency or way, and card
+// prices from one phone never sit under a total from another).
 //
 // Returns {changed: [field, ...], doc, move, stale}; `doc` itself is not
 // changed. stale is true, and nothing changes, when the move is gone or
-// undone (a tombstone cannot be edited). A price neither form reads is
-// refused with PRICE_FORM_TEXT.
+// undone (a tombstone cannot be edited). A price or card price neither
+// form reads is refused with PRICE_FORM_TEXT.
 export function planEditMove(doc, moveId, fields = {}, {base = null, now = Date.now()} = {}) {
 	const move = moveById(doc, moveId);
 
@@ -567,7 +695,13 @@ export function planEditMove(doc, moveId, fields = {}, {base = null, now = Date.
 		return {changed: [], doc: structuredClone(doc), move: null, stale: true};
 	}
 
-	if (Object.prototype.hasOwnProperty.call(fields, 'price') && typeof fields.price !== 'number' && parsePrice(fields.price).error) {
+	const unreadable = (value) => typeof value !== 'number' && Boolean(parsePrice(value).error);
+
+	if (Object.prototype.hasOwnProperty.call(fields, 'price') && unreadable(fields.price)) {
+		throw new Error(PRICE_FORM_TEXT);
+	}
+
+	if (fields.in_prices && typeof fields.in_prices === 'object' && Object.values(fields.in_prices).some(unreadable)) {
 		throw new Error(PRICE_FORM_TEXT);
 	}
 
@@ -590,10 +724,15 @@ export function planEditMove(doc, moveId, fields = {}, {base = null, now = Date.
 	if (move.kind === 'gift' || MONEY_FIELDS.some(has)) {
 		const price = has('price') ? cleanPrice(wanted.price) : cleanPrice(move.price);
 
-		Object.assign(next, moneyFields(move.kind, price, has('currency') ? wanted.currency : move.currency, has('money') ? wanted.money : move.money));
+		Object.assign(next, moneyFields(move.kind, price, has('currency') ? wanted.currency : move.currency, has('money') ? wanted.money : move.money, editedPrices(has, wanted, move)));
+
+		// Absent rather than null, as planMove leaves a move with one total.
+		if (!next.in_prices) {
+			delete next.in_prices;
+		}
 	}
 
-	const changed = EDIT_FIELDS.filter((key) => (next[key] ?? null) !== (move[key] ?? null));
+	const changed = EDIT_FIELDS.filter((key) => !same(next[key], move[key]));
 
 	if (!changed.length) {
 		return {changed, doc: structuredClone(doc), move, stale: false};
@@ -601,9 +740,10 @@ export function planEditMove(doc, moveId, fields = {}, {base = null, now = Date.
 
 	const at = nextStamp(move.updated_at, now);
 	const edited = stampEntry(move, {...next, updated_at: at});
+	const unit = unitOf(move.kind);
 
-	if (MONEY_FIELDS.some((key) => changed.includes(key))) {
-		for (const key of MONEY_FIELDS) {
+	if (unit.some((key) => changed.includes(key))) {
+		for (const key of unit) {
 			edited.field_stamps[key] = at;
 		}
 	}
@@ -630,11 +770,15 @@ export function priceForInput(value) {
 }
 
 // How each copy of a card came and went, for its page: [{side: 'in' |
-// 'out', move, entries}], one row per move and side, newest move first.
-// side 'in' is a live copy that came with a live move; 'out' a copy that
-// left with one (a removed copy).
+// 'out', move, entries, price}], one row per move and side, newest move
+// first. side 'in' is a live copy that came with a live move; 'out' a copy
+// that left with one (a removed copy). On a purchase priced card by card,
+// copies that came are one row per price of their own (Eric, 2026-11-19),
+// price being that amount, or null for a copy with none; price is
+// undefined on every other row.
 export function cardHistory(doc, {card_id: cardId, catalog = 'international'}) {
 	const moves = new Map(liveMoves(doc).map((move) => [move.id, move]));
+	const own = new Map();
 	const rows = new Map();
 
 	for (const entry of (doc && doc.cards) || []) {
@@ -649,14 +793,21 @@ export function cardHistory(doc, {card_id: cardId, catalog = 'international'}) {
 		}
 
 		const move = moves.get(side === 'in' ? entry.came_via : entry.left_via);
-		const key = `${move.id}|${side}`;
-		const row = rows.get(key) || {entries: [], move, side};
+
+		if (!own.has(move.id)) {
+			own.set(move.id, ownPrices(move));
+		}
+
+		const prices = side === 'in' ? own.get(move.id) : null;
+		const price = prices ? prices[entry.id] || null : undefined;
+		const key = `${move.id}|${side}|${price ?? ''}`;
+		const row = rows.get(key) || {entries: [], move, price, side};
 
 		row.entries.push(entry);
 		rows.set(key, row);
 	}
 
-	return [...rows.values()].sort((a, b) => newestFirst(a.move, b.move) || a.side.localeCompare(b.side));
+	return [...rows.values()].sort((a, b) => newestFirst(a.move, b.move) || a.side.localeCompare(b.side) || (a.price || 0) - (b.price || 0));
 }
 
 // The price as text, "R$ 30,50", or null.
@@ -703,12 +854,60 @@ export function moveTitle(move) {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+// What one copy of a purchase priced card by card cost, in words: "bought
+// from Liga for R$ 12,00", "for R$ 12,00 each" when the row stands for
+// several copies, and no price for a copy with none of its own (the total
+// is for the other cards; Eric, 2026-11-19).
+function ownPriceWords(row) {
+	const who = text(row.move.who);
+	const money = moneyOf(row.move);
+	const price = row.price && money ? formatMoney(row.price, money.currency) : null;
+
+	return `bought${who ? ` from ${who}` : ''}${price ? ` for ${price}${row.entries.length > 1 ? ' each' : ''}` : ''}`;
+}
+
 // A card page's line for one row of cardHistory: "Left: sold for R$ 30,50
-// to Ana, 3 Nov"; "Came in: traded with Bruno, 4 Nov".
+// to Ana, 3 Nov"; "Came in: traded with Bruno, 4 Nov"; "Came in: bought
+// from Liga for R$ 12,00, 12 Nov" for a copy with its own price.
 export function historyLine(row, {now = new Date()} = {}) {
 	const date = shortDate(row.move.date, {now});
+	const words = row.price !== undefined ? ownPriceWords(row) : moveWords(row.move, row.side);
 
-	return `${row.side === 'in' ? 'Came in' : 'Left'}: ${moveWords(row.move, row.side)}${date ? `, ${date}` : ''}`;
+	return `${row.side === 'in' ? 'Came in' : 'Left'}: ${words}${date ? `, ${date}` : ''}`;
+}
+
+// A purchase's cards with their own prices, for History's sheet (Eric,
+// 2026-11-19): [{entries, price}] in the order they came, copies with the
+// same card, language, and price as one row; price null for a copy with
+// none. cards: the document's copies, removed ones included, since a copy
+// that left since still cost what it cost. prices: the card prices to
+// group by, by default the move's own while they tell (ownPrices); Edit
+// passes the ones kept on the move even when an older phone's Edit of the
+// total left them behind. Null when there are none.
+export function pricedCards(move, cards, prices = ownPrices(move)) {
+	if (!prices) {
+		return null;
+	}
+
+	const byId = new Map((cards || []).filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+	const rows = new Map();
+
+	for (const id of move.in) {
+		const entry = byId.get(id);
+
+		if (!entry) {
+			continue;
+		}
+
+		const price = prices[id] || null;
+		const key = `${entry.catalog || 'international'}|${entry.card_id}|${entry.language || ''}|${price ?? ''}`;
+		const row = rows.get(key) || {entries: [], price};
+
+		row.entries.push(entry);
+		rows.set(key, row);
+	}
+
+	return [...rows.values()];
 }
 
 // ------------------------------------------------------------- saved

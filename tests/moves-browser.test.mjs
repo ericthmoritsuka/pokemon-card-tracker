@@ -2,9 +2,13 @@
 // section 11, "Trades and Sales"): a sale of one copy logged from its card
 // page, seen in History and on the card page, then undone; a trade with one
 // card out and one in; Log a past sale, which links a copy removed by hand
-// two days ago; and Edit of a logged move's price, seen in History and on
-// the card page, with Undo working after it. Headless Chromium against tests/pages-server.mjs,
-// signed out, at 390 x 844.
+// two days ago; Edit of a logged move's price, seen in History and on
+// the card page, with Undo working after it; and a purchase (Eric,
+// 2026-11-19): From with the places of earlier purchases, Price each card
+// on the cards the scanner hands over and on cards added by hand, the
+// total as their sum, the card page's line and History's sheet, and Edit
+// of the card prices. Headless Chromium against tests/pages-server.mjs,
+// signed out, at 390 x 844, the purchase at 360 x 740.
 //
 // Every outside service is faked: TCGdex and the exchange rates by
 // tests/my-cards-fixtures.mjs, PokeAPI by tests/fake-pokeapi.mjs. Supabase
@@ -46,8 +50,8 @@ const url = (path = '') => `${server.origin}${BASE}${path}`;
 
 // A phone with the fixture copies (Bulbasaur c-01 in the binder's pocket 1)
 // and, when asked, a Pikachu copy removed by hand two days ago.
-async function phone({removed = false} = {}) {
-	const context = await browser.newContext({serviceWorkers: 'block', viewport: PHONE});
+async function phone({removed = false, viewport = PHONE} = {}) {
+	const context = await browser.newContext({serviceWorkers: 'block', viewport});
 	const log = await fakeServices(context);
 
 	await fakePokeApi(context);
@@ -435,5 +439,228 @@ test('Edit saves only what was changed in the form: who changed on another phone
 	});
 
 	assert.deepEqual([saved.who, saved.price, saved.currency, saved.money], ['Bia', 1500, 'USD', 'in'], 'who stays as the other phone left it, and the price as it was');
+	await done();
+});
+
+// A purchase (Eric, 2026-11-19), at the narrowest phone the app is made for.
+const NARROW = {height: 740, width: 360};
+const card = (cardId, language = 'en') => ({card_id: cardId, catalog: 'international', language, language_source: 'scan', variant_id: null});
+
+// Nothing wider than the screen, and every control at least 44 px tall.
+async function fitsNarrow(page, selector) {
+	assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll at 360 px');
+
+	for (const box of await page.locator(selector).evaluateAll((els) => els.filter((el) => el.offsetParent).map((el) => ({height: el.getBoundingClientRect().height, id: el.id || el.className})))) {
+		assert.ok(box.height >= 44, `${box.id} is ${box.height} px tall`);
+	}
+}
+
+test('a purchase from the scanner: From offers earlier places, Price each card prices every scanned card, the total is their sum, and the card page and History say what each cost', async () => {
+	const {done, page} = await phone({viewport: NARROW});
+
+	await page.waitForSelector('#cards-moves');
+	// Two earlier purchases, Liga the newer, and a sale to Ana, which is not
+	// a place a purchase came from.
+	await page.evaluate(async () => {
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+		const spare = {card_id: 'tsb2-090', catalog: 'international', language: 'en', language_source: 'manual', variant_id: null};
+
+		await applyMove({date: '2026-11-01', in: [spare], kind: 'bought', price: '10', who: 'Feira de domingo'});
+		await applyMove({date: '2026-11-05', in: [spare], kind: 'bought', price: '8', who: 'Liga'});
+		await applyMove({date: '2026-11-06', kind: 'sold', out: ['c-05'], price: '3', who: 'Ana'});
+	});
+
+	// The scanner hands its tray over as a purchase: Bulbasaur, two
+	// Charmanders (Copies 2), and a Charizard ex.
+	await page.evaluate(async (cards) => {
+		const {setPendingMove} = await import('/pokemon-card-tracker/js/moves.js');
+		const {go} = await import('/pokemon-card-tracker/js/dom.js');
+
+		setPendingMove({alternatives: ['gift'], from: 'scan', in: cards, items: {in: ['t1', 't2', 't3'], out: []}, kind: 'bought', out: []});
+		go('trades/new');
+	}, [
+		{fields: card('tsa1-001'), info: {image: null, name: 'Bulbasaur', number: '001', setName: 'Test Alpha'}, n: 1},
+		{fields: card('tsa1-004'), info: {image: null, name: 'Charmander', number: '004', setName: 'Test Alpha'}, n: 2},
+		{fields: card('tsa1-006'), info: {image: null, name: 'Charizard ex', number: '006', setName: 'Test Alpha'}, n: 1},
+	]);
+	await page.waitForSelector('#move-form');
+	await page.waitForFunction(() => document.getElementById('move-scanned').textContent.length > 0);
+	assert.equal(await page.locator('#move-kind-bought').isChecked(), true);
+	assert.equal(await page.textContent('label[for="move-who"]'), 'From');
+	assert.equal(await page.textContent('#move-who-hint'), 'A store, site, event, or person');
+	assert.equal(await page.getAttribute('#move-who', 'list'), 'move-who-sources');
+	await page.waitForFunction(() => document.querySelectorAll('#move-who-sources option').length === 2);
+	assert.deepEqual(await page.$$eval('#move-who-sources option', (options) => options.map((option) => option.value)), ['Liga', 'Feira de domingo'], 'earlier places, newest first, no sale');
+	assert.deepEqual(await page.$$eval('#move-in-list .move-row', (rows) => rows.map((row) => row.dataset.card)), ['tsa1-001', 'tsa1-004', 'tsa1-006'], 'every scanned card is a row');
+	assert.ok(await page.locator('#move-each').isVisible() || await page.locator('label[for="move-each"]').isVisible(), 'Price each card is offered');
+	assert.equal(await page.locator('.move-card-price').count(), 0, 'one total by default');
+	assert.ok(await page.locator('#move-price').isVisible());
+	await page.screenshot({path: `${SHOTS}/moves-purchase-scan-360.png`});
+
+	// Price each card: a price under every card, the total read-only.
+	await page.locator('label[for="move-each"]').click();
+	assert.equal(await page.locator('#move-in-list .move-card-price').count(), 3);
+	assert.ok(await page.locator('#move-price').isHidden(), 'the total is not typed');
+	assert.equal(await page.textContent('label[for="move-price-total"]'), 'Total');
+	assert.equal(await page.textContent('#move-price-total'), '0,00');
+	await page.locator('#move-price-total').scrollIntoViewIfNeeded();
+	await page.screenshot({path: `${SHOTS}/moves-purchase-switch-360.png`});
+
+	const inputs = page.locator('#move-in-list .move-card-price-input');
+
+	await inputs.nth(0).fill('12');
+	await inputs.nth(1).fill('5,50');
+	assert.match(await page.locator('#move-in-list .move-card-price .move-price-read').nth(1).textContent(), /^Saved as R\$\s5,50 each, R\$\s11,00 for 2$/);
+	await inputs.nth(2).fill('1,2,3');
+	assert.equal(await page.locator('#move-in-list .move-card-price .move-price-read').nth(2).textContent(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
+	assert.equal(await page.textContent('#move-price-total'), '23,00', 'a card price it cannot read counts nothing');
+	await page.click('#move-save');
+	assert.equal(await page.locator('#move-error').textContent(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
+	assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#move-in-list .move-card-price-input')[2]), true, 'the card price it cannot read has the focus');
+	assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`, 'not saved');
+	await inputs.nth(2).fill('');
+	assert.match(await page.textContent('#move-price-read'), /^Saved as R\$\s23,00, the sum of the card prices$/);
+	await page.fill('#move-who', 'Liga');
+	await page.locator('#move-in-list').scrollIntoViewIfNeeded();
+	await page.screenshot({path: `${SHOTS}/moves-purchase-each-360.png`});
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-purchase-each-360-full.png`});
+	await fitsNarrow(page, '#move-form input:not([type="radio"]):not([type="checkbox"]), #move-form select, #move-save, #move-add-in, .move-row-remove, label[for="move-each"]');
+
+	// Save: the move keeps each copy's price by its id, and the total.
+	await page.click('#move-save');
+	await page.waitForSelector('.moves-row');
+	assert.match(await page.locator('.moves-title').first().textContent(), /^Bought for R\$\s23,00 from Liga$/);
+
+	const saved = await untilInPage(page, 'the purchase', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const doc = await loadDocument();
+		const move = (doc.moves || []).find((item) => item.who === 'Liga' && item.in.length === 4);
+
+		return move ? {cards: move.in.map((id) => doc.cards.find((entry) => entry.id === id).card_id), in: move.in, in_prices: move.in_prices, price: move.price} : null;
+	});
+
+	assert.deepEqual(saved.cards, ['tsa1-001', 'tsa1-004', 'tsa1-004', 'tsa1-006']);
+	assert.deepEqual(saved.in_prices, {[saved.in[0]]: 12, [saved.in[1]]: 5.5, [saved.in[2]]: 5.5}, 'Charizard ex has no price of its own');
+	assert.equal(saved.price, 23);
+
+	// History's sheet lists the cards with their prices.
+	await page.locator('.moves-row').first().click();
+	await page.waitForSelector('#move-sheet-in li');
+	assert.deepEqual((await page.locator('#move-sheet-in li').allTextContents()).map((line) => line.replace(/\s/g, ' ')), ['Bulbasaur, R$ 12,00', 'Charmander (2 copies), R$ 5,50 each', 'Charizard ex, no price']);
+	await page.screenshot({path: `${SHOTS}/moves-purchase-sheet-360.png`});
+
+	// Edit: Price each card is on with the saved prices; a new price for
+	// Bulbasaur makes the total 26,00.
+	await page.click('#move-edit');
+	await page.waitForSelector('#move-edit-form');
+	assert.equal(await page.textContent('label[for="move-edit-who"]'), 'From');
+	assert.equal(await page.getAttribute('#move-edit-who', 'list'), 'move-edit-who-sources');
+	assert.deepEqual(await page.$$eval('#move-edit-who-sources option', (options) => options.map((option) => option.value)), ['Liga', 'Feira de domingo']);
+	assert.equal(await page.locator('#move-edit-each').isChecked(), true);
+	assert.deepEqual(await page.locator('#move-edit-cards .move-card-price-input').evaluateAll((els) => els.map((el) => el.value)), ['12,00', '5,50', '']);
+	await page.locator('#move-edit-cards .move-card-price-input').first().fill('15');
+	assert.equal(await page.textContent('#move-edit-price-total'), '26,00');
+	await page.screenshot({path: `${SHOTS}/moves-purchase-edit-360.png`});
+	await page.locator('#move-edit-cards .move-card-price-input').last().scrollIntoViewIfNeeded();
+	await page.screenshot({path: `${SHOTS}/moves-purchase-edit-cards-360.png`});
+	await fitsNarrow(page, '#move-edit-form input:not([type="checkbox"]), #move-edit-form select, #move-edit-save, #move-edit-cancel, label[for="move-edit-each"]');
+	await page.click('#move-edit-save');
+	await page.waitForFunction(() => /26,00/.test(document.querySelector('.moves-title')?.textContent || ''));
+
+	const edited = await untilInPage(page, 'the edited purchase', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const move = ((await loadDocument()).moves || []).find((item) => item.who === 'Liga' && item.in.length === 4);
+
+		return move && move.price === 26 ? move : null;
+	});
+
+	assert.deepEqual(edited.in_prices, {[saved.in[0]]: 15, [saved.in[1]]: 5.5, [saved.in[2]]: 5.5});
+	assert.deepEqual(['price', 'currency', 'money', 'in_prices'].map((key) => edited.field_stamps[key]), Array(4).fill(edited.updated_at), 'one unit, one stamp');
+
+	// The card pages say what each copy cost.
+	await page.goto(url('cards/en/tsa1-001'));
+	await page.waitForSelector('#card-moves .card-move-in');
+	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: bought from Liga for R\$\s15,00, \d+ \w{3}( \d{4})? \(English\)$/);
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-purchase-card-page-360.png`});
+	await page.goto(url('cards/en/tsa1-004'));
+	await page.waitForSelector('#card-moves .card-move-in');
+	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: bought from Liga for R\$\s5,50 each, \d+ \w{3}( \d{4})? \(2 copies, English\)$/);
+	await page.goto(url('cards/en/tsa1-006'));
+	await page.waitForSelector('#card-moves .card-move-in');
+	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: bought from Liga, \d+ \w{3}( \d{4})? \(English\)$/, 'no price of its own');
+
+	// Edit with Price each card off: one total, and the card prices go.
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	await page.locator('.moves-row').first().click();
+	await page.click('#move-edit');
+	await page.waitForSelector('#move-edit-form');
+	await page.locator('label[for="move-edit-each"]').click();
+	assert.ok(await page.locator('#move-edit-cards').isHidden());
+	await page.fill('#move-edit-price', '30');
+	await page.click('#move-edit-save');
+
+	const total = await untilInPage(page, 'one total', async () => {
+		const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+		const move = ((await loadDocument()).moves || []).find((item) => item.who === 'Liga' && item.in.length === 4);
+
+		return move && move.price === 30 ? move : null;
+	});
+
+	assert.equal('in_prices' in total, false);
+	await page.goto(url('cards/en/tsa1-001'));
+	await page.waitForSelector('#card-moves .card-move-in');
+	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: bought for R\$\s30,00 from Liga, /);
+	await done();
+});
+
+test('From and Price each card are a purchase\'s only: a card added by hand gets its price under its tile, and other kinds keep their labels', async () => {
+	const {done, page} = await phone({viewport: NARROW});
+
+	await page.goto(url('trades/new'));
+	await page.waitForSelector('#move-form');
+	assert.equal(await page.textContent('label[for="move-who"]'), 'Sold to');
+	assert.ok(await page.locator('#move-who-hint').isHidden());
+	assert.equal(await page.getAttribute('#move-who', 'list'), null, 'no suggestions on a sale');
+	assert.ok(await page.locator('label[for="move-each"]').isHidden());
+
+	await pickKind(page, 'bought');
+	assert.equal(await page.textContent('label[for="move-who"]'), 'From');
+	assert.ok(await page.locator('#move-who-hint').isVisible());
+	assert.equal(await page.getAttribute('#move-who', 'list'), 'move-who-sources');
+
+	await page.click('#move-add-in');
+	await page.fill('#move-in-search', 'tsb2-090');
+	await page.click('#move-in-go');
+	await page.waitForSelector('#move-in-results [data-card="tsb2-090"]');
+	await page.click('#move-in-results [data-card="tsb2-090"]');
+	await page.waitForSelector('#move-in-add');
+	await page.fill('#move-in-count', '3');
+	await page.click('#move-in-add');
+	await page.waitForSelector('#move-in-list [data-card="tsb2-090"]');
+
+	await page.locator('label[for="move-each"]').click();
+	await page.waitForSelector('#move-in-list .pick-cell .move-card-price');
+	assert.equal(await page.textContent('#move-in-list .move-card-price label'), 'Price each');
+	await page.locator('#move-in-list .move-card-price-input').fill('4');
+	assert.equal(await page.textContent('#move-price-total'), '12,00', 'three copies at 4,00 each');
+	await page.locator('#move-in-list .move-card-price-input').scrollIntoViewIfNeeded();
+	await page.screenshot({path: `${SHOTS}/moves-purchase-hand-360.png`});
+	await fitsNarrow(page, '#move-form input:not([type="radio"]):not([type="checkbox"]), #move-form select, #move-save, #move-add-in, label[for="move-each"]');
+
+	// Other kinds: their own labels, no switch, no card prices.
+	await pickKind(page, 'traded');
+	assert.equal(await page.textContent('label[for="move-who"]'), 'Traded with');
+	assert.ok(await page.locator('label[for="move-each"]').isHidden());
+	assert.equal(await page.locator('#move-in-list .move-card-price').count(), 0);
+	assert.ok(await page.locator('#move-price').isVisible());
+	assert.equal(await page.textContent('label[for="move-price"]'), 'Cash added (optional)');
+
+	// Back to Bought: the switch and the typed price are as they were.
+	await pickKind(page, 'bought');
+	assert.equal(await page.inputValue('#move-in-list .move-card-price-input'), '4');
+	await page.click('#move-save');
+	await page.waitForSelector('.moves-row');
+	assert.match(await page.locator('.moves-title').first().textContent(), /^Bought for R\$\s12,00$/);
 	await done();
 });
