@@ -164,7 +164,11 @@ export function finishPlan(tiles, label, choicesOf) {
 			missing++;
 		}
 		else {
-			patches.push(...fieldPatches(tile.entries, {[finishField(tile.catalog)]: choice.value}));
+			// A catalog printing is its variant ID with no word, as
+			// js/copy-sheet.js finishFields sets it for one copy: a word left
+			// from an import or a "(not listed)" pick would keep its corner on
+			// the tile (review, 2026-11-19).
+			patches.push(...fieldPatches(tile.entries, tile.catalog === 'custom' ? {finish_raw: choice.value} : {finish_raw: null, variant_id: choice.value}));
 		}
 	}
 

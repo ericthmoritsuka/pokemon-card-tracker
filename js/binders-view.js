@@ -1304,6 +1304,8 @@ function binderScreen(root, source, id, pageParam) {
 			// pocket. Binders made from a list fill themselves, so not there.
 			if (!source.readOnly) {
 				const shown = spread;
+				// The copy in the pocket when it was lifted (zone.takes).
+				let lifted = null;
 
 				pocketDrag(shown.element, {
 					canLift: (pocket) => !listMode && pocketsLive() && ['card', 'gone', 'want'].includes(pocket.querySelector('.pocket')?.dataset.kind),
@@ -1315,9 +1317,17 @@ function binderScreen(root, source, id, pageParam) {
 					// The tray takes a card dragged out of its pocket, as To the
 					// tray does; while a card is lifted the tray shows, even
 					// empty, to drop it on.
+					// The copy lifted is the one that goes, as To the tray passes
+					// it: a sync during the drag may have put another card in
+					// the pocket (review, 2026-11-19).
 					zone: tray ? {
-						drop: (pocket) => moveToTray(binder.id, Number(pocket.dataset.page), Number(pocket.dataset.position))
-							.catch((err) => toast(err.message || `Could not move the card to the tray. ${errorText(err)}`)),
+						drop: (pocket) => {
+							const page = Number(pocket.dataset.page);
+							const position = Number(pocket.dataset.position);
+
+							return moveToTray(binder.id, page, position, lifted)
+								.catch((err) => toast(err.message || `Could not move the card to the tray. ${errorText(err)}`));
+						},
 						element: () => tray,
 						hide: () => {
 							tray.classList.remove('bt-drop-zone');
@@ -1327,7 +1337,13 @@ function binderScreen(root, source, id, pageParam) {
 							tray.classList.add('bt-drop-zone');
 							tray.hidden = false;
 						},
-						takes: (pocket) => pocket.querySelector('.pocket')?.dataset.kind === 'card',
+						takes: (pocket) => {
+							const slot = slotsOn(Number(pocket.dataset.page)).get(Number(pocket.dataset.position));
+
+							lifted = slot && slot.entry_id ? slot.entry_id : null;
+
+							return pocket.querySelector('.pocket')?.dataset.kind === 'card';
+						},
 					} : null,
 				});
 			}

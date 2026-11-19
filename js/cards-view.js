@@ -895,6 +895,18 @@ export function cardsScreen(root, {
 	// ("Normal, Reverse holo"), by the saved record's printings when the
 	// phone has it, else the finish the copy was saved or imported with.
 	// Null when no copy's finish is known.
+	// The card's printings when the phone has its full record, so a tile
+	// names a copy by the printing it holds now rather than by the word
+	// its import key keeps: a 1st Edition import set to the listed Holo
+	// loses its "1st" corner (review, 2026-11-19; Eric, 2026-11-18: "they
+	// appear as ... 1st edition, but they are normal, or reverse holo, or
+	// holo"). Null when it has not, and the words decide as before.
+	function variantsOf(group) {
+		const record = saved.get(group.recordKey) || group.record;
+
+		return record && Array.isArray(record.variants_detailed) ? record.variants_detailed : null;
+	}
+
 	function finishText(group) {
 		let finishes = [];
 
@@ -1028,7 +1040,7 @@ export function cardsScreen(root, {
 			art: {
 				count: group.entries.length,
 				favorite: group.entries.some((entry) => entry.is_favorite === true),
-				finish: groupFinish(group.entries),
+				finish: groupFinish(group.entries, variantsOf(group)),
 				info,
 				languages: [group.language],
 				src: tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins}),
@@ -1353,6 +1365,8 @@ export function cardsScreen(root, {
 		const due = await pricesDue(order);
 		const arrived = new Set();
 		let failures = 0;
+		// Every failed read in the pass, never reset.
+		let missed = 0;
 		let timer = null;
 
 		const show = () => {
@@ -1410,6 +1424,7 @@ export function cardsScreen(root, {
 			catch {
 				// Offline, or TCGdex failing: three in a row end the pass.
 				failures++;
+				missed++;
 			}
 		});
 
@@ -1419,9 +1434,10 @@ export function cardsScreen(root, {
 		}
 
 		// Every record due was read: the day's value can be kept. A pass cut
-		// short (offline, TCGdex failing) keeps nothing, so a missing price
-		// never shows as a fall.
-		if (alive && failures < 3) {
+		// short (offline, TCGdex failing), or one where any read failed,
+		// keeps nothing, so a missing price never shows as a fall (review,
+		// 2026-11-19: scattered failures reset the run of three).
+		if (alive && failures < 3 && missed === 0) {
 			await noteValue();
 		}
 	}
