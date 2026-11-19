@@ -1637,12 +1637,21 @@ export function findCards(grey, width, height, {count = 90, max = 12, overlap = 
 // nearly as well as the best drawn (a box a pocket or two short of the
 // page is drawn as well as the page), the largest is the first page, and
 // the next largest clear of it, at least `twin` of its size, the second.
-// Returns up to `max` pages, each {corners, ratio, sides, upright}: corners
-// top left first, clockwise, as the page stands (a lying page's top left
+// With cardArea (a card's area on the copy), only boxes of about `pockets`
+// cards' area are taken, when there are any. Returns up to `max` pages,
+// each {corners, ratio, sides, upright}: corners top left first, clockwise,
+// as the page stands (a lying page's top left
 // is the corner that comes there once it is turned a quarter clockwise).
-export function findPages(grey, width, height, {count = 60, max = 2, minArea = 0.08, shape, sideMin = 0.55, slack = 0.12, twin = 0.6} = {}) {
+export function findPages(grey, width, height, {cardArea = null, count = 60, max = 2, minArea = 0.08, pockets = 9, shape, sideMin = 0.55, slack = 0.12, twin = 0.6} = {}) {
 	const {boxes, short} = outlines(grey, width, height, {count, meanMin: Math.max(sideMin, 0.65), runsOn: false, shape, sideMin, slack});
-	const big = distinct(boxes.filter((box) => box.area >= width * height * minArea), short, 400);
+	const large = boxes.filter((box) => box.area >= width * height * minArea);
+	// The page's size from its cards' (cardArea: a card's area on the copy,
+	// from findCards), when known: a page is its pockets' cards and the gaps
+	// between them, about 1.07 times their area for 3 x 3. A box a row short
+	// (closed by the line that runs along a row's art boxes) or round the
+	// whole spread is left out.
+	const sized = cardArea ? large.filter((box) => box.area >= cardArea * pockets * 0.75 && box.area <= cardArea * pockets * 1.45) : [];
+	const big = distinct(sized.length ? sized : large, short, 400);
 	const apart = (a, b) => shareIn(a, b) <= 0.12 && shareIn(b, a) <= 0.12;
 	const spread = (box) => {
 		const inside = big.filter((other) => other !== box && other.area >= box.area / 4 && other.area < box.area * 0.7 && contains(box, other));
