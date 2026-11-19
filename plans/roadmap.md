@@ -18,9 +18,8 @@ spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
   on the phone has shipped (`scan-trade`, `holder-retry`, `design-polish`, `eric-decisions`), and
   so have the Backlog's trades and sales log (`js/moves-view.js`), the offer to delete photos once
   the catalog has an image (`js/photo-cleanup.js`), and card search in the Sets tab
-  (`js/card-search.js`). Import "Match this file" was never built: Start over with this file
-  (`DESIGN.md` section 7) covers the same full rescan, so it is likely superseded. Eric to confirm
-  before it is dropped.
+  (`js/card-search.js`). Import "Match this file" was dropped (Eric, 2026-11-19): Start over with
+  this file (`DESIGN.md` section 7) covers the same full rescan.
 - **Left open on purpose:** the tombstone purge, about 12 hand-rolled `localStorage` readers, and
   `sync.js` `stampMs` (all left in v75); finding 6 of the v82 review (a catalog that cannot be
   reached offers "not listed" finishes), because Japanese cards without variants look the same.

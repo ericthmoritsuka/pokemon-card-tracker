@@ -970,7 +970,8 @@ over from removed copies onto the kept or added copies of the same card as far a
 allows. A binder pocket whose copy is removed takes another copy of that card, or becomes that
 card's placeholder when none is left. Nothing is applied before a preview ("+12 copies, -5 copies,
 3 photos kept, 2 pockets became placeholders"), and the result offers Undo. *(Decided 2026-10-22;
-not built.)*
+not built. Dropped 2026-11-19: Start over with this file, section 7, covers the full rescan it
+was for.)*
 
 **Image carousel per card** (Eric, 2026-10-01). Card detail shows every image of the card in a
 swipeable carousel with dots underneath, shown only when there is more than one. Order, which is
