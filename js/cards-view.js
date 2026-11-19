@@ -38,7 +38,7 @@ import {formatCount, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
-import {extractPrices, finishOf, formatBrlCompact, manualPrice, savedRates, tileValue} from './prices.js';
+import {extractPrices, finishOf, formatBrlCompact, listStats, manualPrice, savedRates, tileValue} from './prices.js';
 import {readChoice} from './settings.js';
 import {memberDocument} from './sync.js';
 import {pool} from './tcgdex.js';
@@ -48,6 +48,7 @@ import {FINISHES, entryFinish, noPrice} from './tile.js';
 import {imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
 import {loadTwins, onTwinsChange, refreshTwins, twinName, twinSlides} from './twins.js';
 import {openValueSheet, priceState} from './value-sheet.js';
+import {readValueHistory, recordValue, snapshotOf} from './value-history.js';
 import {customRecord, customRoute, isCustom} from './custom-card.js';
 import {openCustomCardSheet} from './custom-card-view.js';
 import {offerPhotoCleanup} from './photo-cleanup-view.js';
@@ -356,6 +357,7 @@ export function myCardsView(root) {
 		load: listCards,
 		loadBinders: listBinders,
 		tradeRoute: 'trade',
+		valueHistory: true,
 		viewKey: CARDS_VIEW_KEY,
 		watch: (reload) => onChange(reload),
 	});
@@ -414,6 +416,9 @@ export function familyCardsView(root, {userId}) {
 // Wishlist link beside Spares (a member's wishlist, one tap from their
 // cards). viewKey offers the View switch (js/card-view-mode.js), its choice
 // kept under that key; without it the cards are always the Grid.
+// valueHistory keeps the collection's value once a day and shows it in the
+// Value sheet (js/value-history.js): the person's own My Cards only, never
+// the Trade spares or a family member's cards.
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -431,6 +436,7 @@ export function cardsScreen(root, {
 	title = 'My Cards',
 	toolbar = [],
 	tradeRoute = null,
+	valueHistory = false,
 	viewKey = null,
 	watch = null,
 	wishlistRoute = null,
@@ -499,12 +505,39 @@ export function cardsScreen(root, {
 		storageKey,
 	});
 
+	// The account the collection belongs to, so a phone that signs into
+	// another account keeps each one's values apart.
+	const person = () => {
+		const user = currentUser();
+
+		return (user && user.id) || 'local';
+	};
+
+	// Today's value of the whole collection (js/value-history.js), with the
+	// records and the dollar rate on the phone now. Called only with fresh
+	// prices: when the background pass has read every record due, or when
+	// the sheet opens with no pass running. Resolves to the snapshots kept,
+	// or null when nothing was.
+	function noteValue() {
+		const now = savedRates();
+
+		if (!valueHistory || readOnly || !now || !entries.length) {
+			return Promise.resolve(null);
+		}
+
+		return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
+	}
+
 	function openValue() {
 		ensurePrices(groups);
+
+		const noted = background ? Promise.resolve(null) : noteValue();
+
 		openValueSheet({
 			cardsById: new Map([...index, ...saved]),
 			entries,
 			filling: Boolean(background),
+			history: valueHistory && !readOnly ? noted.then(() => readValueHistory(person())) : null,
 			label,
 			onShowUnpriced: () => bar.setFilter('price', 'unpriced'),
 			rates,
@@ -1346,6 +1379,13 @@ export function cardsScreen(root, {
 		if (timer) {
 			clearTimeout(timer);
 			show();
+		}
+
+		// Every record due was read: the day's value can be kept. A pass cut
+		// short (offline, TCGdex failing) keeps nothing, so a missing price
+		// never shows as a fall.
+		if (alive && failures < 3) {
+			await noteValue();
 		}
 	}
 

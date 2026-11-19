@@ -19,6 +19,7 @@ import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {
 	LIGA_SOURCE,
+	cardmarketAverages,
 	cardmarketTrend,
 	euroRates,
 	eurToBrl,
@@ -40,6 +41,8 @@ import {
 	tileValue,
 	usdToBrl,
 } from './prices.js';
+import {cardSeries, readCardHistory} from './value-history.js';
+import {cardHistory} from './value-history-view.js';
 
 let sectionCount = 0;
 
@@ -256,14 +259,15 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 	// The prices a market row shows, and the note that says whose they are
 	// when they are not the shown finish's own: {prices, note} or null when
-	// the card has no price in that market for any finish.
+	// the card has no price in that market for any finish. label names the
+	// finish whose prices they are.
 	function pick(market, has) {
 		const own = selected ? selected[market] : null;
 		const mine = copyFinish();
 
 		if (own && has(own)) {
 			// The copies' finish is not listed: say the price is another's.
-			return {note: mine && mine !== selected.label ? `for ${selected.label}; your copy is ${mine}` : null, prices: own};
+			return {label: selected.label, note: mine && mine !== selected.label ? `for ${selected.label}; your copy is ${mine}` : null, prices: own};
 		}
 
 		const other = asian ? null : fallbackPrice(card, market, finishes);
@@ -274,7 +278,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 		const why = mine === other.label ? null : mine ? `your copy is ${mine}` : selected ? `none listed for ${selected.label}` : null;
 
-		return {note: why ? `for ${other.label}; ${why}` : `for ${other.label}`, prices: other.prices};
+		return {label: other.label, note: why ? `for ${other.label}; ${why}` : `for ${other.label}`, prices: other.prices};
 	}
 
 	// One market's row: its name and the reais, then the original amount,
@@ -316,6 +320,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				original: [brl !== null ? `${usd}, ` : '', 'TCGplayer market', date ? ', ' : null, date ? day(date) : null],
 				value: brl !== null ? h('span', {class: 'price-us-value'}, about(brl)) : h('span', {class: 'price-us-value-usd'}, usd),
 			}),
+			label: found.label,
 			shown: true,
 		};
 	}
@@ -358,14 +363,50 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				extra: [
 					rise.rising ? h('p', {class: 'price-meta price-rising', id: `${id}-rising`}, h('span', {'aria-hidden': 'true', class: 'price-rising-mark'}, '▲ '), `Up ${rise.percent}% in 30 days (Cardmarket)`) : null,
 					cm.shared && cm.shared.length && !found.note ? h('p', {class: 'price-meta price-shared'}, `Cardmarket prices this together with ${cm.shared.join(' and ')}.`) : null,
+					averagesLine(cm),
 				].filter(Boolean),
 				name: 'Cardmarket',
 				note: found.note,
 				original: [brl !== null ? `${eur}, ` : '', 'Cardmarket trend', date ? ', ' : null, date ? day(date) : null],
 				value: [brl !== null ? h('span', {class: 'price-eu-value'}, about(brl)) : h('span', {class: 'price-eu-value-eur'}, eur), trendMark ? ' ' : null, trendMark].filter(Boolean),
 			}),
+			label: found.label,
 			shown: true,
 		};
+	}
+
+	// "Last 30 days, average sale: ≈ R$ 4.793,34 over 30 days · ≈ R$ 9.962,27
+	// over 7 days · ≈ R$ 1.058,65 over 1 day": Cardmarket's averages of sold
+	// prices, which every record carries, so the card has a trend from the
+	// first day (Eric, 2026-11-18). In euros when no euro rate is saved.
+	function averagesLine(cm) {
+		const averages = cardmarketAverages(cm, {rates: euroRate});
+
+		if (!averages.length) {
+			return null;
+		}
+
+		const parts = averages.flatMap((item, i) => [
+			i ? ' · ' : null,
+			h('span', {class: 'price-nowrap'}, item.brl !== null ? about(item.brl) : formatMoney(item.eur, 'EUR'), ` over ${plural(item.days, 'day')}`),
+		]);
+
+		return h('p', {class: 'price-meta price-averages'}, h('span', {class: 'price-averages-label'}, 'Last 30 days, average sale: '), parts);
+	}
+
+	// The card's weekly prices kept on this phone (js/value-history.js),
+	// read once when the panel is made; drawn once there are two for the
+	// finish a row shows.
+	let points = [];
+
+	function historyPart(us, eu) {
+		if (asian || points.length < 2) {
+			return null;
+		}
+
+		const series = cardSeries(points, {euLabel: eu.shown ? eu.label : null, euroRates: euroRate, rates: rate, usLabel: us.shown ? us.label : null});
+
+		return series ? cardHistory(series) : null;
 	}
 
 	// The Liga prices kept on copies, one line for each different one, with
@@ -461,6 +502,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 			h('ul', {'aria-label': 'Market prices', class: 'price-markets'}, us.node, eu.node),
 			rateLine ? h('p', {class: 'price-meta price-rate'}, rateLine) : null,
 			foreign ? h('p', {class: 'price-meta price-language'}, `Market prices for English cards, not for ${languageLabel(language)} prints.`) : null,
+			historyPart(us, eu),
 			ligaLines(),
 			withLiga ? h('div', {class: 'price-actions'}, ligaLink()) : null,
 		].filter(Boolean));
@@ -507,6 +549,17 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	}
 
 	draw();
+
+	if (card && card.id && !asian) {
+		readCardHistory(card.id).then((found) => {
+			if (found.length >= 2) {
+				points = found;
+				redraw();
+			}
+		}).catch(() => {
+			// No history; the panel stays as it is.
+		});
+	}
 
 	if (eurRates === undefined) {
 		euroRates().then((fresh) => {

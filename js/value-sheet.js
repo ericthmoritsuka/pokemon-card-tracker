@@ -11,6 +11,7 @@ import {formatCount} from './format.js';
 import {ASIAN_LANGUAGES} from './languages.js';
 import {statsBar} from './price-view.js';
 import {copyValue, listStats, savedRates, valueLabel} from './prices.js';
+import {collectionHistory} from './value-history-view.js';
 
 const ASIAN = new Set(ASIAN_LANGUAGES);
 
@@ -74,8 +75,11 @@ let sheetCount = 0;
 //   onShowUnpriced  when given, a link filters the screen to the copies
 //                   without a price; the sheet closes first
 //   filling         true while the background pass is still reading prices
+//   history         My Cards only: a promise of the collection's daily
+//                   values (js/value-history.js), drawn as a line under the
+//                   statistics
 // Returns the dialog, already open; it removes itself when closed.
-export function openValueSheet({cardsById, entries, filling = false, label = 'these cards', onShowUnpriced = null, rates = savedRates(), saved}) {
+export function openValueSheet({cardsById, entries, filling = false, history = null, label = 'these cards', onShowUnpriced = null, rates = savedRates(), saved}) {
 	const id = `value-sheet-${++sheetCount}`;
 	const coverage = priceCoverage(entries, saved, rates);
 	const unpriced = coverage.count - coverage.priced;
@@ -111,7 +115,8 @@ export function openValueSheet({cardsById, entries, filling = false, label = 'th
 				onShowUnpriced();
 			}, type: 'button'}, `Show the ${copies(unpriced)} without a price`) : null,
 			h('h3', {class: 'vs-of'}, coverage.priced === coverage.count ? 'All copies are priced' : 'Of the priced copies'),
-			statsBar({cardsById, entries, label, rates})
+			statsBar({cardsById, entries, label, rates}),
+			history ? collectionHistory(history) : null
 		)
 	);
 

@@ -7,6 +7,7 @@
 import {database, timedCache} from './idb.js';
 import {ASIAN_LANGUAGES, CATALOG_LANGUAGES, catalogFor, catalogLanguage, isCatalogLanguage, languageLabel} from './languages.js';
 import {API, fetchJson, graphql} from './tcgdex.js';
+import {recordCardPrices} from './value-history.js';
 
 // The languages come from js/languages.js. These names stay exported here
 // for the modules that still import them from the catalog.
@@ -52,6 +53,24 @@ const REVALIDATE_AFTER_MS = 60 * 60 * 1000;
 const cacheDb = database(DB_NAME, [STORE]);
 const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
 
+// Saves a response just fetched from TCGdex. A full card record
+// ("card:<lang>:<card id>") also leaves a weekly point of its prices on the
+// phone (js/value-history.js), whichever screen read it: card detail, the
+// import, or My Cards' background pass. Japanese, Korean, and Chinese
+// records are left out, since their prices are not known to be theirs
+// (DESIGN.md section 10, "The language gap").
+async function putFetched(key, data) {
+	await cachePut(key, data);
+
+	const [kind, lang, cardId] = String(key).split(':');
+
+	if (kind === 'card' && cardId && data && data.id && !ASIAN_LANGUAGES.includes(lang)) {
+		recordCardPrices(cardId, data).catch(() => {
+			// Only a gap in the card's history.
+		});
+	}
+}
+
 // ------------------------------------------------------------- fetching
 
 export class NotOnPhoneError extends Error {
@@ -74,7 +93,7 @@ async function cached(key, load, onUpdate, {revalidate = true} = {}) {
 	const refresh = async () => {
 		const data = await load();
 
-		await cachePut(key, data);
+		await putFetched(key, data);
 
 		return data;
 	};
@@ -222,7 +241,7 @@ async function readOnce(key, path) {
 	try {
 		const data = await getJson(path, 4);
 
-		await cachePut(key, data);
+		await putFetched(key, data);
 
 		return data;
 	}
@@ -730,7 +749,7 @@ export async function readPriceRecord({cardId, langs = ['en']}) {
 			const record = await getJson(`${lang}/cards/${encodeURIComponent(cardId)}`, 2);
 
 			if (record && record.id) {
-				await cachePut(`card:${lang}:${cardId}`, record);
+				await putFetched(`card:${lang}:${cardId}`, record);
 
 				return record;
 			}

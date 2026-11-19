@@ -382,6 +382,23 @@ export function cardmarketTrend(cardmarket, {rates = null} = {}) {
 	return {avg30, change, direction, recent, recentField};
 }
 
+// Cardmarket's average sold prices for one finish (extractPrices'
+// cardmarket), longest window first, for the card page's "Last 30 days"
+// line (Eric, 2026-11-18): [{days, eur, brl}] for 30, 7, and 1 days, each
+// left out when TCGdex gives none. brl is unrounded, null with no euro rate.
+// TCGdex carries these with every record, so a card has a trend on the day
+// it is first opened, before the phone has kept any history of its own.
+export function cardmarketAverages(cardmarket, {rates = null} = {}) {
+	if (!cardmarket || typeof cardmarket !== 'object') {
+		return [];
+	}
+
+	return [[30, 'avg30'], [7, 'avg7'], [1, 'avg1']]
+		.map(([days, field]) => ({days, eur: price(cardmarket[field])}))
+		.filter((item) => item.eur !== null)
+		.map((item) => ({...item, brl: eurToBrl(item.eur, rates)}));
+}
+
 // The card-level finish words, for a record with no variants_detailed.
 const KEY_FINISHES = {
 	'1st-edition': {stamp: ['1st-edition'], type: 'normal'},
