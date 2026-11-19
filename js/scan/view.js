@@ -39,6 +39,7 @@ import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
+import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
@@ -2265,7 +2266,7 @@ export function scanView(root) {
 				const seen = new Promise((resolve) => {
 					pictured = resolve;
 				});
-				const read = readItem(id, pocket.image, {fullSaved, onPicture: () => pictured(), page: true, quads: pocket.quads});
+				const read = readItem(id, pocket.image, {fullSaved, onPicture: () => pictured(), page: true, pocketCard: pocket.card || null, quads: pocket.quads});
 
 				reads.push(read);
 				await Promise.race([seen, read]);
@@ -2561,7 +2562,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, onPicture = null, page = false, photo = false, quads = [], seen = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, onPicture = null, page = false, photo = false, pocketCard = null, quads = [], seen = null, straight = false} = {}) {
 		let result;
 		let readDone = () => {};
 
@@ -2606,7 +2607,12 @@ export function scanView(root) {
 				picturing++;
 
 				try {
-					seen = await identifyPictureAway(frame, options);
+					// A binder pocket's number is read from its card cut to its own
+					// edges (js/scan/pocket.js): the crop that wins the picture is
+					// often a few percent off the card, which puts the number strip
+					// on the sleeve (Eric's page photos, 2026-11-19: one number read
+					// in 97 pockets).
+					seen = withPocketCard(await identifyPictureAway(frame, options), pocketCard);
 				}
 				finally {
 					picturing--;
