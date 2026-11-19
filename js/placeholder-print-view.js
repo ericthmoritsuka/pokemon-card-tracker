@@ -157,9 +157,14 @@ export function openPlaceholderPrint({binderName, cards, shownPages}) {
 		clearTimeout(timer);
 		status.textContent = '';
 		printing = false;
-		print.disabled = false;
 
-		if (view.isConnected) {
+		// The choices may have changed while the pictures loaded (draw):
+		// print what is on the sheets now, and nothing when none is chosen.
+		const any = Boolean(sheets.querySelector('.pp-card'));
+
+		print.disabled = !any;
+
+		if (any && view.isConnected) {
 			window.print();
 		}
 	}
