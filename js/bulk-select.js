@@ -493,6 +493,9 @@ export function bulkSelect({fullRecord, grid, groups, tiles, visible}) {
 							}
 						}
 
+						// The redraw after Undo's save came first, so its tiles
+						// were drawn unticked: paint them for the keys back.
+						repaint();
 						shown();
 					}});
 				}

@@ -3,7 +3,10 @@
 // action saves every copy of the ticked tiles at once with Undo. Stored in
 // on two tiles and its Undo, Remove copies with its Undo bringing the copies
 // back into their pocket, Finish skipping a card that does not come in it,
-// and Select all shown ticking only what a filter shows. Headless Chromium
+// Language moving the ticked tiles to their new keys and Undo ticking them
+// again, Condition leaving a copy that already has it, Add to binder leaving
+// a copy already in a pocket or a tray, and Select all shown ticking only
+// what a filter shows. Headless Chromium
 // at 360 x 740 against tests/pages-server.mjs, signed out.
 //
 // Every outside service is faked (tests/my-cards-fixtures.mjs and
@@ -20,7 +23,7 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {fakeRates} from './fake-rates.mjs';
-import {BASE, CARDS, fakeServices, fullRecord, linkNewStyles, seed} from './my-cards-fixtures.mjs';
+import {BASE, BINDERS, CARDS, COPIES, fakeServices, fullRecord, linkNewStyles, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
 
@@ -85,6 +88,19 @@ const count = (page) => page.locator('#bulk-count').textContent();
 const cards = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument().then((doc) => doc.cards));
 
 const byId = async (page) => new Map((await cards(page)).map((entry) => [entry.id, entry]));
+
+// The binders as saved: each one's pockets and tray, as id lists.
+const binders = (page) => page.evaluate(async () => {
+	const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+	return doc.binders.map((binder) => ({id: binder.id, slots: binder.slots.map((slot) => slot.entry_id), staged: binder.staged || []}));
+});
+
+// Every copy's fields a bulk action may change, a field a copy never had read
+// as null: the shape Undo writes back, so before and after compare equal.
+const FIELDS = ['condition', 'fallback', 'language', 'language_source', 'storage'];
+
+const fieldsOf = async (page) => Object.fromEntries((await cards(page)).map((entry) => [entry.id, Object.fromEntries(FIELDS.map((key) => [key, key === 'fallback' ? Boolean(entry[key]) : entry[key] ?? null]))]));
 
 async function open(page, options = {}) {
 	await seed(page, server.origin, options);
@@ -269,6 +285,155 @@ describe('bulk select on My Cards', () => {
 		});
 		after = await byId(page);
 		assert.equal(after.get('c-01').variant_id, null, 'Undo puts the finish back');
+		await done();
+	});
+
+	test('Language sets a language on the cards that can be in it, leaves the rest, and Undo puts every copy back', async () => {
+		const {done, page} = await phone();
+		const PIKACHU_JA = 'ja|TSJ1-025|ja';
+
+		await open(page);
+
+		const before = await fieldsOf(page);
+
+		await selecting(page);
+		await tile(page, BULBASAUR).click();
+		await tile(page, CHARIZARD).click();
+		await tile(page, PIKACHU_JA).click();
+		await action(page, 'bulk-language');
+		await page.locator('#bulk-language-select').waitFor();
+		assert.equal(await page.locator('#bulk-note').textContent(), 'A language with a count fits only some of the cards: the others stay as they are.');
+		assert.ok((await page.locator('#bulk-language-select option').allTextContents()).includes('Portuguese (2 of 3)'));
+		await page.selectOption('#bulk-language-select', 'pt');
+		await page.click('#bulk-save');
+
+		const toast = page.locator('.toast', {hasText: 'Portuguese set'});
+
+		await toast.waitFor(TIMEOUT);
+		assert.equal(await toast.locator('.toast-text').textContent(), 'Portuguese set on 2 copies. 1 card was left as it was: it cannot be in Portuguese.');
+
+		let after = await fieldsOf(page);
+
+		for (const id of ['c-01', 'c-04']) {
+			assert.equal(after[id].language, 'pt', `${id} is Portuguese`);
+			assert.equal(after[id].language_source, 'manual');
+			assert.equal(after[id].fallback, false, 'Portuguese belongs to the international catalog');
+		}
+
+		assert.deepEqual(after['c-09'], before['c-09'], 'the Japanese card cannot be in Portuguese and is left as it was');
+		assert.deepEqual(Object.keys(after).filter((id) => after[id].language !== before[id].language).sort(), ['c-01', 'c-04'], 'no other copy changed');
+
+		// The tiles took new keys, and the selection followed them.
+		const moved = ['international|tsa1-001|pt', 'international|tsa1-006|pt', PIKACHU_JA].sort();
+
+		await tile(page, 'international|tsa1-001|pt').waitFor(TIMEOUT);
+		assert.deepEqual(await checked(page), moved);
+		assert.equal(await count(page), '3 selected');
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await untilInPage(page, 'Undo to put the language back', async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return doc.cards.find((entry) => entry.id === 'c-01').language === 'en' && doc.cards.find((entry) => entry.id === 'c-04').language === 'en';
+		});
+		await tile(page, BULBASAUR).waitFor(TIMEOUT);
+		after = await fieldsOf(page);
+		assert.deepEqual(after, before, 'every copy is back as it was');
+		assert.deepEqual(await checked(page), [BULBASAUR, CHARIZARD, PIKACHU_JA].sort(), 'the tiles are ticked again under their old keys');
+		await done();
+	});
+
+	test('Condition is set on the copies that differ, and Undo puts back each copy\'s own condition', async () => {
+		const {done, page} = await phone();
+		const copies = COPIES.map((copy) => {
+			if (copy.id === 'c-02') {
+				return {...copy, condition: 'Lightly Played'};
+			}
+
+			return copy.id === 'c-05' ? {...copy, condition: 'Near Mint'} : copy;
+		});
+
+		await open(page, {copies});
+
+		const before = await fieldsOf(page);
+
+		assert.equal(before['c-01'].condition, null);
+		await selecting(page);
+		await tile(page, BULBASAUR).click();
+		await tile(page, CHARMANDER).click();
+		await tile(page, TEST_BALL_PT).click();
+		await action(page, 'bulk-condition');
+		await page.locator('#bulk-condition-select').waitFor();
+		await page.selectOption('#bulk-condition-select', 'Near Mint');
+		await page.click('#bulk-save');
+
+		const toast = page.locator('.toast', {hasText: 'Condition set'});
+
+		await toast.waitFor(TIMEOUT);
+		assert.equal(await toast.locator('.toast-text').textContent(), 'Condition set to Near Mint on 2 copies.', 'the Test Ball is Near Mint already');
+
+		let after = await fieldsOf(page);
+
+		assert.equal(after['c-01'].condition, 'Near Mint');
+		assert.equal(after['c-02'].condition, 'Near Mint');
+		assert.deepEqual(Object.keys(after).filter((id) => after[id].condition !== before[id].condition).sort(), ['c-01', 'c-02'], 'no other copy changed');
+		assert.equal(await count(page), '3 selected');
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await untilInPage(page, 'Undo to put the conditions back', async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return doc.cards.find((entry) => entry.id === 'c-02').condition === 'Lightly Played';
+		});
+		after = await fieldsOf(page);
+		assert.deepEqual(after, before, 'every copy is back as it was');
+		await done();
+	});
+
+	test('Add to binder puts the loose copies in the tray, leaves copies already in a pocket or tray, and Undo takes them out', async () => {
+		const {done, page} = await phone();
+		// Bulbasaur (c-01) sits in Test binder's pocket, and Charizard ex (c-04)
+		// in the tray of Other binder.
+		const other = {...BINDERS[0], id: 'b-2', name: 'Other binder', slots: [], staged: ['c-04']};
+
+		await open(page, {binders: [BINDERS[0], other]});
+
+		const before = await binders(page);
+		const cardsBefore = await fieldsOf(page);
+
+		await selecting(page);
+		await tile(page, BULBASAUR).click();
+		await tile(page, CHARMANDER).click();
+		await tile(page, CHARIZARD).click();
+		await tile(page, TEST_BALL_PT).click();
+		await action(page, 'bulk-binder');
+		await page.locator('#bulk-binder-list').waitFor();
+		assert.equal(await page.locator('#bulk-binder-intro').textContent(), 'Choose a binder for 2 copies. They wait in its tray until you place them. Binders made from a list are not shown.');
+		assert.equal(await page.locator('#bulk-binder-kept').textContent(), '2 copies already in a pocket or a tray stay where they are.');
+		await page.click('#bulk-binder-list [data-binder="b-1"]');
+
+		const toast = page.locator('.toast', {hasText: 'added to the tray'});
+
+		await toast.waitFor(TIMEOUT);
+		assert.equal(await toast.locator('.toast-text').textContent(), '2 copies added to the tray of Test binder.');
+
+		let after = await binders(page);
+		const binder = (list, id) => list.find((item) => item.id === id);
+
+		assert.deepEqual(binder(after, 'b-1').staged.slice().sort(), ['c-02', 'c-05'], 'the two loose copies are in the tray');
+		assert.deepEqual(binder(after, 'b-1').slots, ['c-01'], 'Bulbasaur stays in its pocket');
+		assert.deepEqual(binder(after, 'b-2').staged, ['c-04'], 'Charizard ex stays in the other binder\'s tray');
+		assert.deepEqual(binder(after, 'b-2').slots, []);
+		assert.deepEqual(await fieldsOf(page), cardsBefore, 'no copy itself changed');
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await untilInPage(page, 'Undo to take the copies out of the tray', async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return !(doc.binders.find((item) => item.id === 'b-1').staged || []).length;
+		});
+		after = await binders(page);
+		assert.deepEqual(after, before, 'every binder is back as it was');
 		await done();
 	});
 
