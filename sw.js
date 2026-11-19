@@ -139,6 +139,7 @@ const SHELL = [
 	'app.js',
 	'js/account-views.js',
 	'js/binders-view.js',
+	'js/binder-convert.js',
 	'js/binder-cover.js',
 	'js/binder-hand.js',
 	'js/binder-layout.js',
