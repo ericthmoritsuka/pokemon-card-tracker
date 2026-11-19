@@ -359,6 +359,7 @@ export function myCardsView(root) {
 		loadBinders: listBinders,
 		// Bulk select: your own cards only, never a family member's.
 		selectable: true,
+		statsRoute: 'stats',
 		tradeRoute: 'trade',
 		valueHistory: true,
 		viewKey: CARDS_VIEW_KEY,
@@ -406,6 +407,7 @@ export function familyCardsView(root, {userId}) {
 		loadBinders: () => binders,
 		loadRecords: () => records,
 		readOnly: true,
+		statsRoute: `family/${encodeURIComponent(userId)}/stats`,
 		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
 		tradeRoute: `family/${encodeURIComponent(userId)}/trade`,
@@ -422,7 +424,8 @@ export function familyCardsView(root, {userId}) {
 // valueHistory keeps the collection's value once a day and shows it in the
 // Value sheet (js/value-history.js): the person's own My Cards only, never
 // the Trade spares or a family member's cards. selectable offers bulk
-// select (js/bulk-select.js), on your own My Cards.
+// select (js/bulk-select.js), on your own My Cards. statsRoute adds a Stats
+// link beside Value (js/stats-view.js), on My Cards and a member's.
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -437,6 +440,7 @@ export function cardsScreen(root, {
 	placeholder = undefined,
 	readOnly = false,
 	selectable = false,
+	statsRoute = null,
 	storageKey = CHOICE_KEY,
 	title = 'My Cards',
 	toolbar = [],
@@ -509,9 +513,16 @@ export function cardsScreen(root, {
 	// The whole collection's value is on demand only, never a headline
 	// total (DESIGN.md section 10): a small button opens the Value sheet.
 	const valueButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-value', id: 'cards-value', onclick: () => openValue(), type: 'button'}, 'Value');
+	// Stats for the whole collection (Eric, 2026-11-19, from a survey of
+	// other trackers), a screen of its own (js/stats-view.js), as a link
+	// beside Value: both are about the whole collection. Together they take
+	// the View switch's row, where the heading would wrap a third button
+	// onto a line of its own.
+	const statsLink = statsRoute ? h('a', {class: 'button small fb-stats', 'data-link': statsRoute, href: BASE + statsRoute, id: 'cards-stats-link'}, 'Stats') : null;
+	const valueTools = statsLink ? h('span', {class: 'fb-value-pair', id: 'cards-value-stats'}, valueButton, statsLink) : valueButton;
 
 	const bar = filterBar({
-		extra: [views ? views.element : null, valueButton, ...toolbar].filter(Boolean),
+		extra: [views ? views.element : null, valueTools, ...toolbar].filter(Boolean),
 		// Every filter, Pictures included: these items carry photo and
 		// catalogPicture (makeGroup).
 		filters: offered || FILTERS,

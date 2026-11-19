@@ -1,0 +1,191 @@
+/* The Stats screen (js/stats-view.js) and the Stats link beside Value in
+   My Cards' filter bar. The bars are plain boxes in the theme's link
+   color, the color the value line in the Value sheet is drawn in, so each
+   theme and dark mode carry them; every number is text beside its bar. */
+
+/* Value and Stats side by side in My Cards' filter bar (js/cards-view.js),
+   one cell of its grid beside the View switch (css/card-views.css). */
+.fb-value-pair {
+	align-self: stretch;
+	display: flex;
+	flex: none;
+	gap: var(--space-2);
+}
+
+.fb-value-pair > * {
+	flex: none;
+	min-height: var(--target);
+}
+
+/* A link styled as Value is: style.css gives button.small its padding, not
+   a link, which would stand 2 px taller and push the row out of line. */
+a.fb-stats {
+	padding: 6px 12px;
+	width: auto;
+}
+
+.stats-section h3 {
+	margin: 0 0 var(--space-3);
+}
+
+.stats-section > :last-child {
+	margin-bottom: 0;
+}
+
+/* Copies, cards, sets, and languages: two by two on a phone. */
+.stats-totals {
+	display: grid;
+	gap: var(--space-3) var(--space-4);
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	margin-top: 0;
+}
+
+.stats-total {
+	display: flex;
+	flex-direction: column-reverse;
+	gap: 2px;
+	min-width: 0;
+}
+
+.stats-total dt {
+	color: var(--muted);
+	font: var(--type-small);
+	font-weight: 600;
+}
+
+.stats-total dd {
+	font: var(--type-display);
+	font-variant-numeric: tabular-nums;
+	margin: 0;
+}
+
+/* One row per value: the label and its count on a line, the bar under
+   them across the row, so a long set name wraps instead of squeezing it. */
+.stats-bars {
+	display: grid;
+	gap: var(--space-3);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.stats-bar-row {
+	align-items: baseline;
+	display: grid;
+	gap: var(--space-1) var(--space-3);
+	grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.stats-bar-label {
+	overflow-wrap: anywhere;
+}
+
+.stats-bar-value {
+	color: var(--muted);
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	text-align: right;
+	white-space: nowrap;
+}
+
+.stats-bar-track {
+	background: var(--skeleton);
+	border-radius: var(--radius-pill);
+	display: block;
+	grid-column: 1 / -1;
+	height: 8px;
+	overflow: hidden;
+}
+
+.stats-bar-fill {
+	background: var(--link);
+	border-radius: inherit;
+	display: block;
+	height: 100%;
+}
+
+/* High contrast settings draw no backgrounds: the bar keeps an outline. */
+@media (forced-colors: active) {
+	.stats-bar-track {
+		border: 1px solid CanvasText;
+	}
+
+	.stats-bar-fill {
+		background: CanvasText;
+	}
+}
+
+.stats-more,
+.stats-note {
+	margin: var(--space-3) 0 0;
+}
+
+/* The most valuable cards, each row a link to the card's page. */
+.stats-valuable {
+	display: grid;
+	gap: var(--space-1);
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.stats-valuable-row {
+	align-items: center;
+	border-radius: var(--radius-control);
+	color: inherit;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: space-between;
+	min-height: var(--target);
+	padding: var(--space-1) 0;
+	text-decoration: none;
+}
+
+a.stats-valuable-row:hover .stats-valuable-name {
+	text-decoration: underline;
+}
+
+.stats-valuable-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.stats-valuable-name {
+	color: var(--link);
+	font-weight: 600;
+	overflow-wrap: anywhere;
+}
+
+.stats-valuable-facts {
+	color: var(--muted);
+	font: var(--type-small);
+	overflow-wrap: anywhere;
+}
+
+.stats-valuable-price {
+	flex: none;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	white-space: nowrap;
+}
+
+.stats-unpriced {
+	font-weight: 600;
+	margin: 0;
+}
+
+.stats-reasons {
+	color: var(--muted);
+	margin: var(--space-2) 0 0;
+	padding-left: 1.25em;
+}
+
+.stats-reasons li + li {
+	margin-top: var(--space-1);
+}
+
+/* The Value sheet's Over time part, in a panel of its own here. */
+.stats-section .vh-collection > h3 {
+	margin-top: 0;
+}

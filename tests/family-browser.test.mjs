@@ -769,3 +769,43 @@ describe('photos the server refused', () => {
 		await context.close();
 	});
 });
+
+// Stats for a family member's cards (js/stats-view.js, 2026-11-19): from
+// Stats beside Value on their cards, view only, counting their copies and
+// not yours, and without Over time, which is kept for your own only.
+describe('a family member\'s Stats', () => {
+	test('their cards open their Stats, view only, with their numbers', async () => {
+		const fake = new FakeSupabase();
+		const people = family(fake, {memberCards: [
+			entry('m-1', {card_id: 'tst2-001', condition: 'Near Mint'}),
+			entry('m-2', {card_id: 'tst2-002', language: 'pt'}),
+			entry('m-3', {card_id: 'tst3-001'}),
+		]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith([entry('o-1', {card_id: 'tst1-001'})]));
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('.tile');
+		await page.click('#cards-stats-link');
+		await page.waitForSelector('#stats-totals');
+		assert.equal(path(page), `${BASE}family/${people.member.id}/stats`);
+		assert.match(await page.locator('#family-strip').textContent(), /^Member A's cards, view only/);
+		await page.waitForFunction(() => document.querySelector('.view-head h2').textContent === 'Member A\'s stats');
+
+		const totals = await page.locator('#stats-totals dd').allTextContents();
+
+		assert.deepEqual(totals, ['3', '3', '2', '2'], 'their copies, cards, sets, and languages');
+		assert.equal(await page.locator('.vh-collection').count(), 0, 'no Over time for their cards');
+		assert.equal(await page.locator('#stats-back').textContent(), '‹ Member A\'s cards');
+		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');
+
+		await page.click('#stats-back');
+		await page.waitForFunction((id) => window.location.pathname.endsWith(`/family/${id}`), people.member.id);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

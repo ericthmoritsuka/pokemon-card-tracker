@@ -710,12 +710,15 @@ describe('layout', () => {
 				await metaFits(page, 'My Cards');
 
 				// Two even lines since the View select joined the row
-				// (css/card-views.css): Sort and Filters, then View and Value.
+				// (css/card-views.css): Sort and Filters, then View, and Value
+				// with Stats beside it (js/stats-view.js, 2026-11-19).
 				const row = await page.evaluate(() => Object.fromEntries([...document.querySelector('.fb-row').children].map((element) => [element.querySelector('select') ? element.querySelector('select').id : element.id, Math.round(element.getBoundingClientRect().top)])));
+				const pair = await page.evaluate(() => ['cards-value', 'cards-stats-link'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().top)));
 
-				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-view', 'cards-value'], 'the row\'s controls, in order');
+				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-view', 'cards-value-stats'], 'the row\'s controls, in order');
 				assert.equal(row['cards-sort'], row['cards-filters'], `Sort and Filters share a line (${JSON.stringify(row)})`);
-				assert.equal(row['cards-view'], row['cards-value'], `View and Value share a line (${JSON.stringify(row)})`);
+				assert.equal(row['cards-view'], row['cards-value-stats'], `View, Value, and Stats share a line (${JSON.stringify(row)})`);
+				assert.equal(pair[0], pair[1], 'Value and Stats side by side');
 				assert.ok(row['cards-view'] > row['cards-sort'], 'View and Value are the second line');
 
 				await openFilters(page);
