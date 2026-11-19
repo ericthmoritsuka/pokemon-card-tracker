@@ -14,6 +14,14 @@
 //
 // It is a js/sheet.js sheet: Back closes it instead of leaving the binder,
 // Tab stays inside, focus goes to its first action and back to the pocket.
+//
+// A pocket holding several cards (a binder from a list, where every copy
+// that fits stacks in one pocket) shows them one after another: a sideways
+// swipe at zoom 1, the arrow keys, or the two arrow buttons move between
+// them, and "Show this one here" puts the one in view on top and slides it
+// back into the pocket (Eric, 2026-11-18: "once I click on the photo, I
+// would be able to see the others in a carrousel ... instead of having to
+// click edit pocket").
 
 import {BASE, h} from './dom.js';
 import {openSheet} from './sheet.js';
@@ -25,6 +33,11 @@ const OPEN_MS = 420;
 const CLOSE_MS = 320;
 const FADE_MS = 160;
 const KEY_ZOOM = 1.6;
+
+// A swipe this far (CSS px), or this fast (px per ms), moves to the next
+// card in a pocket of several.
+const SWIPE_STEP = 64;
+const SWIPE_SPEED = 0.45;
 
 // A pull down this far (CSS px), or this fast (px per ms), puts it back.
 const PULL_CLOSE = 96;
@@ -48,15 +61,25 @@ const finished = (animation) => (animation && animation.finished ? animation.fin
 //   outward          1 when the pocket opens to the right (a right-hand
 //                    page), -1 to the left
 //   actions          [{id, label, run}] or [{id, label, route}], in order
-export function openPocketViewer({actions = [], art, origin = () => null, outward = 1, slide, subtitle = '', title}) {
+//   stack            for a pocket of several cards, {cards: [{art, slide,
+//                    subtitle, title}], onPick(i)}: cards[0] is the one on
+//                    top, whose art, slide, subtitle, and title these
+//                    replace; onPick puts card i on top (null when the
+//                    pocket cannot change, read only)
+export function openPocketViewer({actions = [], art: topArt, origin = () => null, outward = 1, slide: topSlide, stack = null, subtitle: topSubtitle = '', title: topTitle}) {
 	let handle = null;
 	let pulled = 0;
 	let gone = false;
 
+	const cards = stack && stack.cards && stack.cards.length > 1 ? stack.cards : [{art: topArt, slide: topSlide, subtitle: topSubtitle, title: topTitle}];
+	const several = cards.length > 1;
+	let at = 0;
+	const {slide, subtitle, title} = cards[0];
+
 	const first = origin();
 	const closeButton = h('button', {'aria-label': 'Put the card back', class: 'pv-close', id: 'pv-close', type: 'button'}, '×');
 	const pane = zoomPane({
-		art,
+		art: (src, options) => cards[at].art(src, options),
 		pull: {
 			allowed: () => !gone,
 			drag(dy) {
@@ -84,14 +107,43 @@ export function openPocketViewer({actions = [], art, origin = () => null, outwar
 		},
 		resolveDetail: slideDetail,
 		resolveSrc: slideSrc,
+		swipe: several ? {
+			allowed: () => !gone,
+			drag(dx) {
+				// Past the first or the last card it gives, as at an edge.
+				const edge = (dx > 0 && at === 0) || (dx < 0 && at === cards.length - 1);
+
+				lift.style.transform = `translate3d(${edge ? dx * 0.3 : dx}px, 0, 0)`;
+			},
+			end(dx, speed) {
+				const step = dx < -SWIPE_STEP || speed < -SWIPE_SPEED ? 1 : dx > SWIPE_STEP || speed > SWIPE_SPEED ? -1 : 0;
+				const from = lift.style.transform;
+
+				lift.style.transform = '';
+
+				if (step && go(at + step)) {
+					return;
+				}
+
+				if (canAnimate(lift) && from) {
+					lift.animate([{transform: from}, {transform: 'none'}], {duration: 180, easing: 'ease-out'});
+				}
+			},
+		} : null,
 	});
 	const lift = h('div', {class: 'pv-lift', id: 'pv-lift'}, pane.element);
-	const buttons = actions.map((action) => (action.route
+	const pickButton = several && stack.onPick ? h('button', {class: 'primary', id: 'pv-pick', type: 'button'}, 'Show this one here') : null;
+	const buttons = [pickButton, ...actions.map((action) => (action.route
 		? h('a', {class: 'button', 'data-link': action.route, href: BASE + action.route, id: action.id}, action.label)
-		: h('button', {class: action.primary ? 'primary' : '', id: action.id, type: 'button'}, action.label)));
+		: h('button', {class: action.primary ? 'primary' : '', id: action.id, type: 'button'}, action.label)))].filter(Boolean);
+	const actionButtons = pickButton ? buttons.slice(1) : buttons;
 	const name = h('h3', {class: 'pv-name', id: 'pv-name'}, title);
 	const meta = h('p', {class: 'pv-meta', id: 'pv-meta'}, subtitle);
-	const foot = h('div', {class: 'pv-foot'}, name, subtitle ? meta : null, h('div', {class: 'pv-actions', id: 'pv-actions'}, buttons));
+	const prev = several ? h('button', {'aria-label': 'Previous card in this pocket', class: 'pv-step', id: 'pv-prev', type: 'button'}, '‹') : null;
+	const next = several ? h('button', {'aria-label': 'Next card in this pocket', class: 'pv-step', id: 'pv-next', type: 'button'}, '›') : null;
+	const count = several ? h('span', {'aria-live': 'polite', class: 'pv-count', id: 'pv-count'}) : null;
+	const steps = several ? h('div', {class: 'pv-steps'}, prev, count, next) : null;
+	const foot = h('div', {class: 'pv-foot'}, steps, name, subtitle || several ? meta : null, h('div', {class: 'pv-actions', id: 'pv-actions'}, buttons));
 	const shade = h('div', {'aria-hidden': 'true', class: 'pv-shade'});
 	const dialog = h('div', {
 		'aria-describedby': 'pv-help',
@@ -109,7 +161,9 @@ export function openPocketViewer({actions = [], art, origin = () => null, outwar
 	},
 	shade,
 	h('div', {class: 'pv-stage'}, lift, foot),
-	h('p', {class: 'pv-help', id: 'pv-help'}, 'Pinch or double-tap the card to zoom. Swipe down or tap outside it to put it back.'),
+	h('p', {class: 'pv-help', id: 'pv-help'}, several
+		? 'Swipe sideways for the other cards in this pocket. Pinch or double-tap the card to zoom. Swipe down or tap outside it to put it back.'
+		: 'Pinch or double-tap the card to zoom. Swipe down or tap outside it to put it back.'),
 	closeButton);
 
 	// Pointer events stay in the viewer, as in the inspection viewer, so the
@@ -138,13 +192,68 @@ export function openPocketViewer({actions = [], art, origin = () => null, outwar
 			event.preventDefault();
 			pane.reset();
 		}
+		else if (several && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+			event.preventDefault();
+			go(at + (event.key === 'ArrowRight' ? 1 : -1));
+		}
 	});
+
+	// Shows card i of the pocket's stack. Returns whether it moved.
+	function go(i) {
+		if (!several || gone || i < 0 || i >= cards.length || i === at) {
+			return false;
+		}
+
+		at = i;
+		pane.reset();
+		drawCard();
+
+		return true;
+	}
+
+	function drawCard() {
+		const card = cards[at];
+
+		name.textContent = card.title;
+		meta.textContent = card.subtitle || '';
+		dialog.dataset.card = String(at);
+
+		if (several) {
+			count.textContent = `${at + 1} of ${cards.length} in this pocket`;
+			prev.disabled = at === 0;
+			next.disabled = at === cards.length - 1;
+		}
+
+		if (pickButton) {
+			// The card on top already shows here.
+			pickButton.disabled = at === 0;
+			pickButton.textContent = at === 0 ? 'Shown here' : 'Show this one here';
+		}
+
+		pane.show({...card.slide, label: `${card.title}: ${card.slide.label}`});
+	}
+
+	if (several) {
+		prev.addEventListener('click', () => go(at - 1));
+		next.addEventListener('click', () => go(at + 1));
+	}
+
+	if (pickButton) {
+		pickButton.addEventListener('click', () => {
+			const picked = at;
+
+			// Back into the pocket, which draws the picked card on top once
+			// the pick is saved.
+			done('pick');
+			stack.onPick(picked);
+		});
+	}
 
 	shade.addEventListener('click', () => done('outside'));
 	closeButton.addEventListener('click', () => done('close'));
 
 	actions.forEach((action, i) => {
-		buttons[i].addEventListener('click', () => {
+		actionButtons[i].addEventListener('click', () => {
 			if (action.route) {
 				// The router changes the screen, which closes the viewer.
 				return;
@@ -280,8 +389,8 @@ export function openPocketViewer({actions = [], art, origin = () => null, outwar
 		remove: false,
 	});
 
-	pane.show({...slide, label: `${title}: ${slide.label}`});
-	(buttons[0] || closeButton).focus({preventScroll: true});
+	drawCard();
+	(actionButtons[0] || buttons[0] || closeButton).focus({preventScroll: true});
 	requestAnimationFrame(open);
 
 	return {close: () => done('close'), element: dialog};

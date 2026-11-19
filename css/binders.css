@@ -1276,6 +1276,38 @@ button.atb-binder {
 	width: 44px;
 }
 
+/* A pocket of several cards: the arrows and "2 of 5 in this pocket". */
+.pv-steps {
+	align-items: center;
+	display: flex;
+	gap: var(--space-3);
+	justify-content: center;
+}
+
+.pv-count {
+	color: rgba(255, 255, 255, 0.78);
+	font-size: 0.9rem;
+	min-width: 9rem;
+}
+
+.pv button.pv-step {
+	background: rgba(255, 255, 255, 0.14);
+	border: 1px solid rgba(255, 255, 255, 0.4);
+	border-radius: 50%;
+	color: #ffffff;
+	font-size: 1.5rem;
+	height: 44px;
+	line-height: 1;
+	margin: 0;
+	min-height: 44px;
+	padding: 0;
+	width: 44px;
+}
+
+.pv button.pv-step:disabled {
+	opacity: 0.35;
+}
+
 .pv-help {
 	clip: rect(0 0 0 0);
 	height: 1px;

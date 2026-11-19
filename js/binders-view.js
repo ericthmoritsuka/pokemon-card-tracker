@@ -3617,19 +3617,27 @@ function binderScreen(root, source, id, pageParam) {
 		};
 	}
 
-	function showCard({actions, entry, info, pg, position, tapped}) {
+	// One card as the viewer shows it: its art, main image, name, and line.
+	function viewerCard(entry, info, line) {
 		const records = recordsShown();
 
+		return {
+			art: (src) => cardArt(info, src, {eager: true}),
+			slide: mainSlide(entry, info.full || info.image, records ? {family: false, records} : {}),
+			subtitle: line,
+			title: info.name,
+		};
+	}
+
+	function showCard({actions, entry, info, pg, position, stack = null, tapped}) {
 		openPocketViewer({
 			actions,
-			art: (src) => cardArt(info, src, {eager: true}),
 			origin: pocketOrigin(pg, position, tapped),
 			// Pockets open on the page's outer edge: right on a right-hand
 			// (odd) page, left on a left-hand one.
 			outward: pg % 2 === 1 ? 1 : -1,
-			slide: mainSlide(entry, info.full || info.image, records ? {family: false, records} : {}),
-			subtitle: `${languageLabel(entry.language)} · Page ${pg}, pocket ${position}`,
-			title: info.name,
+			stack,
+			...viewerCard(entry, info, `${languageLabel(entry.language)} · Page ${pg}, pocket ${position}`),
 		});
 	}
 
@@ -3677,6 +3685,7 @@ function binderScreen(root, source, id, pageParam) {
 
 		const {entry} = state.shown;
 		const info = entryInfo(entry, index, viewing);
+		const stack = listStack(state, pg, position);
 		const actions = source.readOnly ? [] : [
 			{id: 'pv-details', label: 'Edit pocket', run: () => openListSheet(pg, position)},
 			{id: 'pv-move', label: 'Move to…', run: () => openListSheet(pg, position, {move: true})},
@@ -3687,7 +3696,33 @@ function binderScreen(root, source, id, pageParam) {
 			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
 		}
 
-		showCard({actions, entry, info, pg, position, tapped});
+		showCard({actions, entry, info, pg, position, stack, tapped});
+	}
+
+	// The cards stacked in a list pocket, for the viewer to swipe through:
+	// the one on top first, then the rest newest first, as Edit pocket
+	// lists them (Eric, 2026-11-18). Null for a pocket of one card.
+	function listStack(state, pg, position) {
+		const {key, shown} = state;
+		const held = gen.items && gen.items.get(key) ? gen.items.get(key).copies : [];
+
+		if (held.length < 2) {
+			return null;
+		}
+
+		const rest = held.filter((entry) => entry.id !== shown.entry.id)
+			.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+		const line = (entry) => [languageLabel(entry.language), entry.condition, `Page ${pg}, pocket ${position}`].filter(Boolean).join(' · ');
+		const binderId = binder.id;
+
+		return {
+			cards: [shown.entry, ...rest].map((entry) => viewerCard(entry, entryInfo(entry, index, viewing), line(entry))),
+			onPick: source.readOnly ? null : (i) => {
+				const entry = [shown.entry, ...rest][i];
+
+				setPocketPick(binderId, key, entry.id).catch((err) => toast(err.message || `Could not pick the copy. ${errorText(err)}`));
+			},
+		};
 	}
 
 	// ------------------------------------------- lay out from a list
