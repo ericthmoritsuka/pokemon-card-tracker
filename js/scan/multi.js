@@ -1,8 +1,9 @@
 // Several cards in one frame (lab/multi, Eric, 2026-11-18): a binder page
 // taken whole, its pockets cut into a grid, or a few cards lying apart on a
-// table. Nothing in the app calls this yet: lab/multi measures it first.
-// The searches themselves are in js/scan/steady.js (findCards, findPage),
-// beside findCard, whose helpers they share.
+// table. The scanner's Binder page (js/scan/page.js) reads one upright page
+// with it; lab/multi measures the rest. The searches themselves are in
+// js/scan/steady.js (findCards, findPage), beside findCard, whose helpers
+// they share.
 
 // The gap between two pockets' cards, as a share of a card's width: a
 // 9-pocket sheet's welds are 2 to 4 mm against a card's 63 mm.
