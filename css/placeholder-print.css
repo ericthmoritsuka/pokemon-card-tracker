@@ -1,0 +1,230 @@
+/* Print placeholders (js/placeholder-print-view.js, DESIGN.md section 11,
+   Binders): paper cards at the real card size, 63 x 88 mm, nine to a
+   sheet. On screen it is a page laid over the binder with the choices and
+   a preview shrunk to the screen's width; on paper only the sheets print. */
+
+.pp-view {
+	background: var(--bg);
+	box-sizing: border-box;
+	inset: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+	position: fixed;
+	z-index: 1000;
+}
+
+.pp-bar {
+	margin: 0 auto var(--space-4);
+	max-width: 640px;
+}
+
+.pp-lead,
+.pp-tip {
+	margin: 0 0 var(--space-3);
+}
+
+.pp-choice {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-2);
+}
+
+.pp-choice label,
+.pp-check {
+	align-items: center;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	box-sizing: border-box;
+	display: flex;
+	font-weight: 600;
+	gap: 10px;
+	min-height: var(--target);
+	padding: 0 var(--space-3);
+}
+
+.pp-choice label:has(input:checked) {
+	border: 2px solid var(--text);
+}
+
+.pp-choice input,
+.pp-check input {
+	flex: none;
+	height: 20px;
+	margin: 0;
+	width: 20px;
+}
+
+.pp-summary {
+	font-weight: 600;
+	margin: var(--space-3) 0 var(--space-1);
+}
+
+.pp-status:empty {
+	display: none;
+}
+
+.pp-buttons {
+	display: grid;
+	gap: var(--space-2);
+	grid-template-columns: 1fr 1fr;
+}
+
+/* The preview: real millimetres, shrunk by --pp-zoom (set from the
+   screen's width) so a 189 mm sheet fits a 360 px phone. */
+.pp-sheets {
+	display: grid;
+	gap: var(--space-4);
+	justify-content: center;
+	zoom: var(--pp-zoom, 1);
+}
+
+/* A sheet: 3 x 3 cards with no gap, so one cut along each line parts two
+   cards. 189 x 264 mm fits A4 (210 x 297) and US Letter (216 x 279) inside
+   the 6 mm margins below. */
+.pp-sheet {
+	background: #ffffff;
+	box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+	color: #1b1b1f;
+	display: grid;
+	grid-auto-rows: 88mm;
+	grid-template-columns: repeat(3, 63mm);
+	width: 189mm;
+}
+
+/* The thin cut line is each card's own border, inside its 63 x 88 mm. */
+.pp-card {
+	border: 0.2mm solid #8a8a94;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	font-family: inherit;
+	height: 88mm;
+	overflow: hidden;
+	padding: 3mm;
+	width: 63mm;
+}
+
+.pp-top {
+	display: flex;
+	font-size: 7pt;
+	gap: 2mm;
+	justify-content: space-between;
+	line-height: 1.2;
+}
+
+.pp-dex {
+	font-size: 9pt;
+	font-weight: 700;
+}
+
+.pp-where {
+	color: #44444c;
+	text-align: right;
+}
+
+.pp-art {
+	align-items: center;
+	display: flex;
+	flex: 1 1 auto;
+	justify-content: center;
+	margin: 2mm 0;
+	min-height: 0;
+}
+
+/* Fills the box either way: the 96 px sprite (when the artwork is
+   missing) grows to the card's width instead of printing 2.5 cm wide. */
+.pp-art img {
+	height: 100%;
+	object-fit: contain;
+	width: 100%;
+}
+
+/* No picture: the number large, in grey, where the picture would be. */
+.pp-art-text {
+	border: 0.3mm dashed #b4b4bc;
+	border-radius: 2mm;
+}
+
+.pp-art-dex {
+	color: #8a8a94;
+	font-size: 26pt;
+	font-weight: 700;
+}
+
+.pp-name {
+	font-size: 11pt;
+	font-weight: 700;
+	line-height: 1.15;
+	margin: 0;
+	overflow-wrap: anywhere;
+	text-align: center;
+}
+
+.pp-detail,
+.pp-binder {
+	color: #44444c;
+	font-size: 7pt;
+	line-height: 1.2;
+	margin: 1mm 0 0;
+	overflow: hidden;
+	text-align: center;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pp-binder {
+	color: #6b6b74;
+}
+
+/* Paper. Margins 6 mm on every sheet: Letter's 279 mm less 12 still holds
+   the 264 mm grid. No size, so the paper chosen in the print dialog
+   stands. */
+@page {
+	margin: 6mm;
+}
+
+@media print {
+	body.pp-open {
+		background: #ffffff;
+		min-height: 0;
+		overflow: visible !important;
+		padding: 0;
+	}
+
+	body.pp-open > :not(.pp-view) {
+		display: none !important;
+	}
+
+	body.pp-open .pp-view {
+		background: none;
+		overflow: visible;
+		padding: 0;
+		position: static;
+	}
+
+	body.pp-open .pp-bar {
+		display: none;
+	}
+
+	body.pp-open .pp-sheets {
+		display: block;
+		zoom: 1;
+	}
+
+	body.pp-open .pp-sheet {
+		break-after: page;
+		box-shadow: none;
+		margin: 0 auto;
+		print-color-adjust: exact;
+	}
+
+	body.pp-open .pp-sheet:last-child {
+		break-after: auto;
+	}
+
+	.pp-card {
+		break-inside: avoid;
+	}
+}
