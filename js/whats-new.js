@@ -22,9 +22,9 @@ export const RELEASES = [
 	{
 		date: '2026-11-19',
 		items: [
-			'Scan a whole binder page from one photo: in Scan, open Settings, then Binder page. Take or choose a photo of one page, upright and filling the photo.',
+			'Scan a whole binder page from one photo: in Scan, open Settings, then Binder page. Take or choose a photo of one page, or of two pages open side by side, filling the photo.',
 			'Each card on the page joins the tray; the ones the scanner is not sure of ask you to check them, and empty pockets are skipped.',
-			'Two pages open side by side are not read yet: take one page at a time.',
+			'Also: bulk Finish, Undo after a bulk Language change, and Needs a photo are fixed, a Trade can bring in a finish the catalog does not list, and a card dragged to the tray is always the one you lifted.',
 		],
 		version: 'v82',
 	},
