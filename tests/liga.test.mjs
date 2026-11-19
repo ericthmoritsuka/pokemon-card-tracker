@@ -166,6 +166,8 @@ describe('numbering rules checked on 2026-10-05', () => {
 		assert.equal(ligaQuery({localId: '012', name: 'Dondozo', setId: 'svp', setName: 'SVP Black Star Promos'}), 'Dondozo (012/∞)');
 		assert.equal(ligaQuery({localId: '12', name: 'Dondozo', official: 0, setId: 'svp'}), 'Dondozo (012/∞)', 'padded to three digits');
 		assert.equal(ligaUrl({localId: '012', name: 'Dondozo', setId: 'svp'}), `${SEARCH}Dondozo%20(012%2F%E2%88%9E)`);
+		assert.equal(ligaQuery({localId: '020', name: 'Sneasel', setId: 'mep', setName: 'MEP Black Star Promos'}), 'Sneasel (020/∞)', 'Mega Evolution promos too (Eric, 2026-11-18)');
+		assert.equal(ligaQuery({localId: '20', name: 'Sneasel', setId: 'mep'}), 'Sneasel (020/∞)');
 		assert.equal(ligaQuery({catalog: 'ja', localId: '001', name: 'Pikachu', setId: 'SV-P'}), 'Pikachu (001)', 'Japanese SV-P is unchanged');
 	});
 

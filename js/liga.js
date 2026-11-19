@@ -60,9 +60,12 @@ const pad3 = (text) => (/^\d+$/.test(text) ? text.padStart(3, '0') : text);
 // "Charizard-GX (20/147)": the English name, then TCGdex's localId over the
 // set's cardCount.official, written the way the card prints it. Promos take
 // the number alone, "Charizard-V (SWSH050)" and "Celebi (XY111)", except
-// Scarlet & Violet promos (svp), which Liga writes over an infinity sign:
-// "Dondozo (012/∞)". Null when any part is missing, so no wrong query is
-// ever built.
+// Scarlet & Violet promos (svp) and Mega Evolution promos (mep), which Liga
+// writes over an infinity sign: "Dondozo (012/∞)", "Sneasel (020/∞)" (Eric,
+// 2026-11-18: "Sneasel (020)" found nothing). Null when any part is missing,
+// so no wrong query is ever built.
+const INFINITY_PROMOS = ['svp', 'mep'];
+
 export function ligaQuery({catalog, localId, name, official, setId, setName} = {}) {
 	if (typeof name !== 'string' || !name.trim()) {
 		return null;
@@ -74,7 +77,7 @@ export function ligaQuery({catalog, localId, name, official, setId, setName} = {
 
 	const liga = ligaName(name);
 
-	if (catalog !== 'ja' && setId === 'svp') {
+	if (catalog !== 'ja' && INFINITY_PROMOS.includes(setId)) {
 		return `${liga} (${pad3(localId)}/∞)`;
 	}
 
