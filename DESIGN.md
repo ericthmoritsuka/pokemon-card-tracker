@@ -3299,6 +3299,50 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
 in place, so `left_via` and `came_via` survive an older phone's save; it shows the copies as any
 other. A copy an older phone changed after it came in counts as changed, so Undo keeps it.
 
+### Stats
+
+**A Stats screen for the collection** (2026-11-19, from a survey of other trackers). `stats` shows
+what your cards hold, worked out once per visit from what the phone already has: the copies, the
+card index, and the full records saved on the phone (`js/stats.js` for the numbers, which Node
+tests; `js/stats-view.js` for the screen). It asks nothing of TCGdex or Liga: My Cards' background
+pass fills in prices, rarities, and types, and Stats says "Not known yet fills in as card details
+download while My Cards is open" where some are missing. Counting about 2,500 copies is one pass
+over them, well under the 1 s the unit test allows.
+
+- **Where it opens.** A **Stats** link beside **Value** in My Cards' filter bar, the two sharing
+  one cell of the bar's grid beside the View switch. Both are about the whole collection, so they
+  sit together; the heading was the other candidate, but Spares, Trades, and Add by hand already
+  fill its row at 360 px, and a fourth button wrapped Add by hand onto a line of its own. Profile
+  was ruled out because Stats is about the cards, and the Cards tab is where they are. "‹ My Cards"
+  goes back.
+- **What it shows.** Totals (copies, cards, sets, languages); bars by language, by set (the top
+  10, then "And N more sets, M copies"), by rarity, by type (a card of two types counts under
+  both, and a Trainer or Energy under its category), by finish (Normal, Holo, Reverse holo, 1st
+  Edition, Poké Ball pattern, Master Ball pattern, read from the printing the copy's full record
+  lists for it, else the word it was saved or imported with), and by condition (the copy sheet's
+  five, then Not set); the 10 most valuable copies; the copies with no price and why; the copies
+  added in each of the last 12 months, oldest first, with "N added before then"; and, on your own
+  Stats, the Value sheet's **Over time** part.
+- **Most valuable** takes each copy's value exactly as the Value sheet sums it (`js/prices.js`
+  `copyValue`: the kept Liga price, else the US estimate at the saved rate, written "~"), so the
+  rows add up to the sheet's total. Copies of one card in one language with the same value are one
+  row with "×N". Each row links to the card's page, and the ten are offered as the swipe order.
+- **No headline total.** The collection's total stays in the Value sheet (section 10): Stats has
+  no total of its own; Over time is the sheet's part, as far down the screen as it is in the
+  sheet.
+- **Bars are text first.** Each row is its label, then its count and share ("412 · 16%", "less
+  than 1%" for a sliver, so a row never reads 0% beside a count); the bar under it is
+  `aria-hidden`, as long as its share of the largest row, in the theme's link color (the color of
+  the Over time line), on the skeleton color, with an outline under forced colors. No chart
+  library.
+- **Imported cards** count in the month they were imported, as their `created_at` says; the screen
+  says so under the months.
+- **Family.** A member's My Cards has its own Stats link, to `family/<id>/stats`, view only: their
+  document read from the server as their cards are, priced with the records and rate on this
+  phone, and without Over time, which is kept for your own collection only.
+- **Left out:** checklist and goal progress, which need the Pokédex map and each goal's card list
+  (network or a large cache read); they stay on Lists.
+
 ## 12. Open Questions
 
 - **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
