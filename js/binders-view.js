@@ -56,6 +56,8 @@ import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
 import {addToBinder, undoAddToBinder} from './placeholder-fill.js';
 import {fillPanel} from './fill-view.js';
+import {artworkUrl, handPocketStatus, listPocketStatus, printablePockets} from './placeholder-print.js';
+import {openPlaceholderPrint} from './placeholder-print-view.js';
 import {applyListEdits, indexAt, layoutWaits, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
@@ -1102,6 +1104,8 @@ function binderScreen(root, source, id, pageParam) {
 	// A new binder from a list that keeps this one's cards as hand picks
 	// (openConvert); hand-made only.
 	const convertButton = source.readOnly ? null : h('button', {id: 'binder-convert', onclick: () => openConvert(), type: 'button'}, 'Make a list binder from this');
+	// Paper cards for the pockets still to fill (openPrint); any binder.
+	const printButton = source.readOnly ? null : h('button', {id: 'binder-print', onclick: () => openPrint(), type: 'button'}, 'Print placeholders');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1513,6 +1517,7 @@ function binderScreen(root, source, id, pageParam) {
 						addTrayButton,
 						layoutButton,
 						convertButton,
+						printButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
@@ -3929,6 +3934,87 @@ function binderScreen(root, source, id, pageParam) {
 		else {
 			cancel.focus();
 		}
+	}
+
+	// ------------------------------------------------ print placeholders
+	//
+	// Paper cards for the pockets still to fill, to slip into the real
+	// binder (js/placeholder-print.js picks them, js/placeholder-print-view.js
+	// prints them; from a survey of other binder apps, 2026-11-19). Each
+	// pocket is described here, where its slot or list state is known: the
+	// Pokédex number, the name, a line for a specific card, and the pictures
+	// to try (the card's large image, then the official artwork, then the
+	// sprite).
+
+	function paperCard(where, what) {
+		if (what.kind === 'pokemon') {
+			return {
+				...where,
+				detail: null,
+				dex: what.dex,
+				images: [artworkUrl(what.dex), spriteUrl(what.dex)],
+				name: what.name || `Pokémon ${dexLabel(what.dex)}`,
+			};
+		}
+
+		const catalog = what.catalog || 'international';
+		const record = what.cardId ? index.get(indexKey(catalog, what.cardId)) || null : null;
+		const local = display(record, [catalogFor(viewing) === catalog ? viewing : null, what.language || null, catalogLanguage(catalog)]);
+		const info = what.entry ? entryInfo(what.entry, index, viewing) : null;
+		const dex = (record && Array.isArray(record.dex_ids) && record.dex_ids[0]) || what.dex || null;
+		const base = (local && local.image) || what.image || null;
+
+		return {
+			...where,
+			detail: [(info && info.setName) || (local && local.set_name), (info && info.number) || (record && record.collector_number)].filter(Boolean).join(' · ') || null,
+			dex,
+			images: [(info && info.full) || cardImage(base, 'high'), dex ? artworkUrl(dex) : null, dex ? spriteUrl(dex) : null],
+			name: (info && info.name) || (local && local.name) || what.name || what.cardId || 'A card',
+		};
+	}
+
+	const entryCard = (entry) => ({catalog: entry.catalog, cardId: entry.card_id, entry, kind: 'card', language: entry.language});
+
+	// One pocket with something to print, as a paper card.
+	function printCard(pocket) {
+		const where = {page: pocket.page, position: pocket.position, status: pocket.status};
+
+		if (listMode) {
+			const {item} = listState(indexAt(pocket.page, pocket.position, binder.rows, binder.cols));
+
+			return paperCard(where, item.kind === 'pokemon'
+				? {dex: item.dex, kind: 'pokemon', name: item.name}
+				: {catalog: item.catalog, cardId: item.cardId, dex: item.dexIds && item.dexIds[0], image: item.image, kind: 'card', name: item.name});
+		}
+
+		const slot = slotsOn(pocket.page).get(pocket.position);
+
+		if (slot.entry_id) {
+			const entry = entriesById.get(slot.entry_id);
+
+			return entry ? paperCard(where, entryCard(entry)) : paperCard(where, {kind: 'card', name: 'A card no longer owned'});
+		}
+
+		return isPokemonWant(slot.want)
+			? paperCard(where, {dex: slot.want.dex, kind: 'pokemon', name: slot.want.name})
+			: paperCard(where, {catalog: slot.want.catalog, cardId: slot.want.card_id, dex: slot.want.dex, image: slot.want.image, kind: 'card', name: slot.want.name});
+	}
+
+	function openPrint() {
+		const statusAt = listMode
+			? (page, position) => {
+				const i = indexAt(page, position, binder.rows, binder.cols);
+				const key = listKeys()[i];
+
+				return listPocketStatus(key, key ? listState(i).shown : null);
+			}
+			: (page, position) => handPocketStatus(slotsOn(page).get(position), (entryId) => Boolean(liveEntry(entryId)));
+
+		openPlaceholderPrint({
+			binderName: binder.name,
+			cards: printablePockets(binder, statusAt).map(printCard),
+			shownPages: spread.pages(),
+		});
 	}
 
 	// ------------------------------------- make a list binder from this
