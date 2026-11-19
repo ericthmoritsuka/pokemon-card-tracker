@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {STAGE_CROPS, stageCrop, stageLanguage} from '../js/scan/read.js';
-import {addCapture, applyPicture, applyStage, defaultLanguage, newSession, setLanguage} from '../js/scan/session.js';
+import {addCapture, applyPicture, applyStage, defaultLanguage, newSession, setForAll, setLanguage} from '../js/scan/session.js';
 
 describe('the language a stage label names (stageLanguage)', () => {
 	test('reads Portuguese from BÁSICO, ESTÁGIO, Pokémon Básico, and Evolui de, however the OCR garbles them', () => {
@@ -93,6 +93,23 @@ describe('a binder pocket takes its stage label\'s language (applyStage)', () =>
 		assert.equal(item.language, 'en');
 		assert.equal(item.languageBy, 'stage');
 		assert.equal(item.stageCheck.text, 'Evolves from Squirtle', 'kept for the scan log');
+	});
+
+	test('the page\'s language row (setForAll, onlyDefault) leaves a language read off the stage label', () => {
+		const read = pocket(english);
+		const unread = pocket(english, {page: 7});
+
+		applyStage(read.session, read.item.id, {code: 'pt', text: 'BASICO'});
+		read.item.languageBy = 'stage';
+
+		const session = read.session;
+
+		session.items.push(unread.item);
+		assert.equal(unread.item.language, 'pt', 'a default to start with');
+		setForAll(session, 'language', 'en', {ids: [read.item.id, unread.item.id], onlyDefault: true});
+		assert.equal(read.item.language, 'pt', 'the stage read stays');
+		assert.equal(read.item.languageBy, 'stage');
+		assert.equal(unread.item.language, 'en', 'the default takes the row\'s');
 	});
 
 	test('no answer, a language picked by hand, a card not from a page, or a Japanese record is left alone', () => {
