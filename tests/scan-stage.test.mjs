@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {STAGE_CROPS, stageCrop, stageLanguage} from '../js/scan/read.js';
+import {STAGE_CROPS, stageCrop, stageLanguage, textLanguage} from '../js/scan/read.js';
 import {addCapture, applyPicture, applyStage, defaultLanguage, newSession, setForAll, setLanguage} from '../js/scan/session.js';
 
 describe('the language a stage label names (stageLanguage)', () => {
@@ -36,6 +36,20 @@ describe('the language a stage label names (stageLanguage)', () => {
 
 	test('a vote three times the other wins', () => {
 		assert.equal(stageLanguage('BASICO BASICO BASICO STAGE').code, 'pt');
+	});
+});
+
+describe('the language of a card\'s attack text (textLanguage)', () => {
+	test('counts common Portuguese and English words, accents ignored', () => {
+		assert.equal(textLanguage('Jogue uma moeda. Se sair cara, este ataque causa 30 pontos de dano.').code, 'pt');
+		assert.equal(textLanguage('Flip a coin. If heads, this attack does 30 more damage.').code, 'en');
+		assert.equal(textLanguage('Ataque Surpresa. Não há efeito para o Pokémon Defensor.').code, 'pt');
+	});
+
+	test('names nothing without two words more of one language than the other', () => {
+		assert.equal(textLanguage('Take Down 30').code, null);
+		assert.equal(textLanguage('Raichu 130 de').code, null);
+		assert.deepEqual(textLanguage('the de').votes, {en: 1, pt: 1});
 	});
 });
 
@@ -110,6 +124,15 @@ describe('a binder pocket takes its stage label\'s language (applyStage)', () =>
 		assert.equal(read.item.language, 'pt', 'the stage read stays');
 		assert.equal(read.item.languageBy, 'stage');
 		assert.equal(unread.item.language, 'en', 'the default takes the row\'s');
+	});
+
+	test('a read of its attack text is kept as such, for the scan log', () => {
+		const {item, session} = pocket(english);
+
+		assert.equal(applyStage(session, item.id, {code: 'en', text: 'Flip a coin', votes: {en: 3, pt: 0}}, undefined, {by: 'text'}), true);
+		assert.equal(item.languageBy, 'text');
+		assert.deepEqual(item.textCheck.votes, {en: 3, pt: 0});
+		assert.equal(item.stageCheck, undefined);
 	});
 
 	test('no answer, a language picked by hand, a card not from a page, or a Japanese record is left alone', () => {

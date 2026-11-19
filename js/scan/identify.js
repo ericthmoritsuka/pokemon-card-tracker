@@ -953,6 +953,28 @@ export function readStageLabel(card) {
 	return run;
 }
 
+// The attack text's language (read.js readTextLanguage) of a binder pocket's
+// card, the read that names English against Portuguese most often; queued
+// with the label checks like readStageLabel. Returns its {code, votes, text,
+// reads} and ms.
+export function readTextLabel(card) {
+	const run = labelQueue.then(async () => {
+		const engine = await warmEngine();
+
+		await textIdle();
+
+		const started = performance.now();
+		const {readTextLanguage} = await import('./read.js');
+		const text = await readTextLanguage(card, (image, settings) => engine.ocr(image, {...settings, background: true}));
+
+		return {...text, ms: Math.round(performance.now() - started)};
+	});
+
+	labelQueue = run.catch(() => {});
+
+	return run;
+}
+
 // read.js, imported with the engine: it is only needed when text is read.
 async function readCard(card, ocr, options) {
 	const {readCard: read} = await import('./read.js');

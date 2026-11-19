@@ -849,15 +849,17 @@ export function applyLabel(session, id, label, now = nowIso(), {asian = null, ca
 	return changed;
 }
 
-// A binder pocket's stage label read (read.js readStage, view.js
-// checkLabelLater): English or Portuguese, set on a pocket whose language was
-// a default or never set, when its record holds that language's print (the
-// two share one Western record, so the card itself never changes). The read
-// is kept for the scan log. Returns whether the language changed.
-export function applyStage(session, id, stage, now = nowIso()) {
+// A binder pocket's language read off its text (view.js checkLabelLater):
+// by 'text', its attack text (read.js readTextLanguage), or by 'stage', its
+// stage label (read.js readStage). English or Portuguese, set on a pocket
+// whose language was a default or never set, when its record holds that
+// language's print (the two share one Western record, so the card itself
+// never changes). The read is kept for the scan log, as textCheck or
+// stageCheck. Returns whether the language changed.
+export function applyStage(session, id, stage, now = nowIso(), {by = 'stage'} = {}) {
 	const item = mustFind(session, id);
 
-	item.stageCheck = stage ? {code: stage.code || null, ms: stage.ms ?? null, text: stage.text || '', votes: stage.votes || null} : null;
+	item[by === 'text' ? 'textCheck' : 'stageCheck'] = stage ? {code: stage.code || null, ms: stage.ms ?? null, text: stage.text || '', votes: stage.votes || null} : null;
 
 	const open = item.languageBy === 'default' || (!item.languageBy && !item.language);
 
@@ -870,7 +872,7 @@ export function applyStage(session, id, stage, now = nowIso()) {
 	const changed = item.language !== stage.code;
 
 	item.language = stage.code;
-	item.languageBy = 'stage';
+	item.languageBy = by;
 	item.languageHint = stage.code;
 	touch(session, now);
 
@@ -1776,7 +1778,7 @@ export function languageSource(item) {
 		return 'no Latin label was read; pick it';
 	}
 
-	return {all: 'set for all', hand: 'picked by you', read: 'read from the card', stage: `read from its stage label${item.stageCheck && item.stageCheck.text ? ` ("${item.stageCheck.text.slice(0, 40)}")` : ''}`}[item.languageBy] || 'not set';
+	return {all: 'set for all', hand: 'picked by you', read: 'read from the card', stage: `read from its stage label${item.stageCheck && item.stageCheck.text ? ` ("${item.stageCheck.text.slice(0, 40)}")` : ''}`, text: `read from its attack text${item.textCheck && item.textCheck.votes ? ` (${item.textCheck.votes.pt} Portuguese, ${item.textCheck.votes.en} English words)` : ''}`}[item.languageBy] || 'not set';
 }
 
 // The report as text. device: {userAgent, cores, memory, screen, camera,
