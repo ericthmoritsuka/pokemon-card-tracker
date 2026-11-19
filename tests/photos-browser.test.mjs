@@ -267,6 +267,11 @@ describe('own photos and the carousel', () => {
 		assert.deepEqual(after[0], before[0], 'the other corners stay');
 		await shot(page, '3-editor-dragged');
 
+		// Whole picture frames the photo edge to edge, for a picture that
+		// already is the card.
+		await page.click('.ph-whole');
+		assert.deepEqual(await corners(page), [{x: 0, y: 0}, {x: 1200, y: 0}, {x: 1200, y: 1600}, {x: 0, y: 1600}]);
+
 		// Back to the detected corners, then save.
 		await page.click('.ph-reset');
 		assert.deepEqual(await corners(page), before);

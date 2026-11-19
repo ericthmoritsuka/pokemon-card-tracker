@@ -290,3 +290,9 @@ export function fitWithin(width, height, max) {
 
 	return {height: Math.max(1, Math.round(height * scale)), scale, width: Math.max(1, Math.round(width * scale))};
 }
+
+// The four corners of a whole width x height picture, top-left first and
+// clockwise: the frame for a picture that already is the card.
+export function wholePicture(width, height) {
+	return [{x: 0, y: 0}, {x: width, y: 0}, {x: width, y: height}, {x: 0, y: height}];
+}

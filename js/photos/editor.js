@@ -31,7 +31,7 @@ import {
 	putPixels,
 	straighten,
 } from './encode.js';
-import {fitWithin, rotateCorners, scaleCorners, warp} from './geometry.js';
+import {fitWithin, rotateCorners, scaleCorners, warp, wholePicture} from './geometry.js';
 import {SIDES} from './model.js';
 
 // The live preview: a small straightened card, warped from a copy of the
@@ -348,6 +348,11 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 		const saveButton = h('button', {class: 'primary ph-save', type: 'button'}, 'Save');
 		const rotate = h('button', {class: 'ph-rotate', type: 'button'}, 'Rotate');
 		const reset = h('button', {class: 'ph-reset', type: 'button'}, 'Reset corners');
+		// A picture that already is the card, edge to edge (one saved from a
+		// shop's page), where detection stops at the inner border line (Eric,
+		// 2026-11-18: "an option to expand the frame ... instead of dragging the
+		// four corners all the time").
+		const whole = h('button', {class: 'ph-whole', type: 'button'}, 'Whole picture');
 		const retake = h('button', {class: 'ph-retake', type: 'button'}, 'Retake');
 
 		// When the card's outline was faint or not found (js/photos/detect.js).
@@ -360,7 +365,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 			stage,
 			h('div', {class: 'ph-review'},
 				preview,
-				h('div', {class: 'ph-review-actions'}, saveButton, rotate, reset, editor.snapToggle, retake)
+				h('div', {class: 'ph-review-actions'}, saveButton, rotate, reset, whole, editor.snapToggle, retake)
 			),
 			status,
 			tip,
@@ -368,6 +373,7 @@ export function openAddPhoto({describe = describeCopy, entries, keepDetail = fal
 
 		rotate.addEventListener('click', () => editor.setCorners(rotateCorners(editor.corners, 1)));
 		reset.addEventListener('click', () => editor.setCorners(detected));
+		whole.addEventListener('click', () => editor.setCorners(wholePicture(source.width, source.height)));
 		retake.addEventListener('click', () => start());
 		saveButton.addEventListener('click', async () => {
 			if (closed) {
