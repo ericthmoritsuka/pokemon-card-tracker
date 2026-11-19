@@ -10,7 +10,9 @@
 // camera (the scanner opens with the camera off). The page is drawn here
 // from the TCGdex scans the other scan tests use (Bulbasaur me01-001,
 // Pikachu sv03.5-025, swsh3-102), seven cards and two empty pockets on a
-// dark sheet over a table, turned a little. TCGdex answers are replayed from
+// dark sheet over a table, turned a little; and a spread of two such pages
+// side by side, taken with the phone turned as Eric takes his binder (the
+// photo standing, the cards' tops to its right). TCGdex answers are replayed from
 // the harness cache; Supabase and ligapokemon.com.br are refused and must
 // never be asked.
 //
@@ -37,10 +39,13 @@ const PHOTOS = '/tmp/scan-page-photos';
 const CARDS = {a: 'me01-001', b: 'sv03.5-025', c: 'swsh3-102'};
 // The page, row by row: a card's key, or null for an empty pocket.
 const LAYOUT = ['a', 'b', 'c', 'b', null, 'a', 'c', 'a', null];
+// The spread's right page; its left page is LAYOUT.
+const RIGHT = ['c', 'a', 'b', null, 'c', 'b', 'b', 'c', 'a'];
 
 let harness;
 let browser;
 let pagePhoto;
+let spreadPhoto;
 let tablePhoto;
 
 const url = (path = '') => `${harness.origin}${BASE}${path}`;
@@ -132,6 +137,100 @@ async function makePhoto(page, {empty = false} = {}) {
 	return file;
 }
 
+// A binder lying open as a JPEG: LAYOUT's page on the left and RIGHT's on
+// the right, cards 300 pixels wide, the pages 70 pixels apart over the
+// binder's dark cover, on a wood table; the whole taken with the phone
+// turned, so the photo stands and the cards' tops point to its right.
+async function makeSpread(page) {
+	const images = {};
+
+	for (const [key, id] of Object.entries(CARDS)) {
+		images[key] = (await readFile(await cardImage(id))).toString('base64');
+	}
+
+	const jpeg = await page.evaluate(async ({images, layouts}) => {
+		const decoded = {};
+
+		for (const [key, data] of Object.entries(images)) {
+			const img = new Image();
+
+			img.src = `data:image/webp;base64,${data}`;
+			await img.decode();
+			decoded[key] = img;
+		}
+
+		const cw = 300;
+		const ch = (cw * 88) / 63;
+		const gap = cw * 0.05;
+		const margin = 24;
+		const pw = cw * 3 + gap * 2 + margin * 2;
+		const ph = ch * 3 + gap * 2 + margin * 2;
+		const spine = 70;
+		// The spread as it lies, before the phone's turn.
+		const wide = document.createElement('canvas');
+
+		wide.width = 2400;
+		wide.height = 1700;
+
+		const ctx = wide.getContext('2d');
+
+		ctx.fillStyle = '#7a6250';
+		ctx.fillRect(0, 0, wide.width, wide.height);
+
+		for (let i = 0; i < 4000; i++) {
+			ctx.fillStyle = i % 2 ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.05)';
+			ctx.fillRect((i * 7919) % wide.width, (i * 104729) % wide.height, 40, 2);
+		}
+
+		ctx.translate(wide.width / 2, wide.height / 2);
+		ctx.rotate((1 * Math.PI) / 180);
+		// The binder's cover, round both pages.
+		ctx.fillStyle = '#0b0b0d';
+		ctx.fillRect(-pw - spine / 2 - 20, -ph / 2 - 20, pw * 2 + spine + 40, ph + 40);
+
+		layouts.forEach((layout, side) => {
+			const left = side ? spine / 2 : -spine / 2 - pw;
+
+			ctx.fillStyle = '#141416';
+			ctx.fillRect(left, -ph / 2, pw, ph);
+
+			layout.forEach((key, i) => {
+				const row = Math.floor(i / 3);
+				const col = i % 3;
+				const x = left + margin + col * (cw + gap) + ((i * 37 + side * 11) % 5) - 2;
+				const y = -ph / 2 + margin + row * (ch + gap) + ((i * 53 + side * 7) % 5) - 2;
+
+				ctx.fillStyle = '#1d1d21';
+				ctx.fillRect(x - 5, y - 5, cw + 10, ch + 10);
+
+				if (key) {
+					ctx.drawImage(decoded[key], x, y, cw, ch);
+				}
+			});
+		});
+
+		// Turned a quarter clockwise: the spread's top to the photo's right.
+		const photo = document.createElement('canvas');
+
+		photo.width = wide.height;
+		photo.height = wide.width;
+
+		const turn = photo.getContext('2d');
+
+		turn.translate(photo.width, 0);
+		turn.rotate(Math.PI / 2);
+		turn.drawImage(wide, 0, 0);
+
+		return photo.toDataURL('image/jpeg', 0.9).split(',')[1];
+	}, {images, layouts: [LAYOUT, RIGHT]});
+	const file = join(PHOTOS, `spread-${randomUUID()}.jpg`);
+
+	await mkdir(PHOTOS, {recursive: true});
+	await writeFile(file, Buffer.from(jpeg, 'base64'));
+
+	return file;
+}
+
 async function open() {
 	const context = await browser.newContext({viewport: VIEWPORT});
 	const refused = [];
@@ -200,6 +299,7 @@ describe('a binder page from one photo', () => {
 
 		await fakeRates(scratch.context());
 		pagePhoto = await makePhoto(scratch);
+		spreadPhoto = await makeSpread(scratch);
 		tablePhoto = await makePhoto(scratch, {empty: true});
 		await scratch.close();
 	});
@@ -222,7 +322,7 @@ describe('a binder page from one photo', () => {
 		await page.waitForSelector('#scan-settings #scan-page');
 		assert.equal(await page.$eval('#scan-settings .scan-sheet-body > .scan-field', (field) => field.id), 'scan-page', 'first in the settings');
 		assert.equal(await text(page, '#scan-page-label'), 'Binder page');
-		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo: one page, upright, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.');
+		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.');
 		assert.equal(await text(page, '#scan-page-take'), 'Take a photo');
 		assert.equal(await text(page, '#scan-page-pick'), 'Choose a photo');
 		assert.equal(await page.getAttribute('#scan-page-camera', 'capture'), 'environment', 'Take a photo opens the camera');
@@ -288,6 +388,46 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	test('two pages side by side, taken with the phone turned, are both read, the left page first', async () => {
+		const app = await open();
+		const {page} = app;
+		const notes = new Set();
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, spreadPhoto);
+
+		await until(async () => {
+			const note = await text(page, '#scan-note');
+
+			notes.add(note);
+
+			return /^(Both pages read|One page read|Page read|The page could not|That looks)/.test(note);
+		}, 300000, 'the spread read');
+
+		assert.ok([...notes].some((note) => /^Reading pocket \d+ of 18\.$/.test(note)), `progress counts both pages' pockets (${[...notes].join(' | ')})`);
+		assert.match(await text(page, '#scan-note'), /^Both pages read: 15 cards added(, \d+ to check)?\. 3 empty pockets skipped\.$/);
+
+		const items = await trayItems(page);
+		const want = [...LAYOUT, ...RIGHT].map((key, i) => (key ? {id: CARDS[key], page: i + 1} : null)).filter(Boolean);
+
+		assert.deepEqual(items.map((item) => item.page), want.map((one) => one.page), 'in reading order, the left page first, the empty pockets skipped');
+
+		for (const [i, item] of items.entries()) {
+			if (item.sure) {
+				assert.equal(item.card, want[i].id, `pocket ${item.page} is sure only of the right card`);
+			}
+			else {
+				assert.ok(item.card === want[i].id || item.candidates.includes(want[i].id), `pocket ${item.page} offers ${want[i].id} (${item.card}; ${item.candidates.join(' ')})`);
+			}
+		}
+
+		assert.ok(items.filter((item) => item.sure).length >= 6, `most clean cards are sure (${items.filter((item) => item.sure).length})`);
+		await page.screenshot({path: `${SHOTS}/scan-page-spread.png`});
+
+		await close(app);
+	});
+
 	test('a photo with no page in it says so, asks for another, and adds nothing', async () => {
 		const app = await open();
 		const {page} = app;
@@ -297,7 +437,7 @@ describe('a binder page from one photo', () => {
 		await choose(page, tablePhoto);
 
 		await until(async () => /could not be found/.test(await text(page, '#scan-note')), 120000, 'the page not found');
-		assert.equal(await text(page, '#scan-note'), 'The page could not be found in that photo. Take it again: one page, upright, filling the photo.');
+		assert.equal(await text(page, '#scan-note'), 'The page could not be found in that photo. Take it again with the page filling the photo.');
 		assert.deepEqual(await trayItems(page), [], 'nothing added');
 		await page.click('#scan-settings-open');
 		assert.equal(await page.getAttribute('#scan-page-pick', 'disabled'), null, 'Binder page can be tried again');

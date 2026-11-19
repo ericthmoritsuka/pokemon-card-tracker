@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {fitHomography, fitPage, pageCells, pageShape, quadPoint, splitSpread} from '../js/scan/multi.js';
+import {cardsLie, darkBand, fitGrid, fitHomography, fitPage, pageCells, pageShape, quadPoint, spineAt, splitSpread, twoPages} from '../js/scan/multi.js';
 import {findCard, findCards, findPage, findPages} from '../js/scan/steady.js';
 
 const W = 202;
@@ -275,5 +275,97 @@ describe('a page set right by its cards (fitHomography, fitPage, splitSpread)', 
 		// The first half's first corner is the lower end of its left side.
 		assert.deepEqual(halves[0][1], truth[0]);
 		assert.equal(splitSpread(truth, cards), null);
+	});
+});
+
+describe('two pages side by side (fitGrid, cardsLie, twoPages, spineAt, darkBand)', () => {
+	const truth = [{x: 30, y: 40}, {x: 330, y: 50}, {x: 340, y: 470}, {x: 20, y: 460}];
+	const cards = pageCells(truth, 3, 3, {pad: 0}).map((cell) => ({corners: cell.card, upright: true}));
+	const off = (a, b) => Math.max(...a.map((p, i) => Math.hypot(p.x - b[i].x, p.y - b[i].y)));
+	const shifted = (list, dx) => list.map((card) => ({...card, corners: card.corners.map((p) => ({x: p.x + dx, y: p.y}))}));
+
+	test('a page is fitted from its cards alone, with no outline, and a false box among them is left out', () => {
+		// Pockets 2 and 6 empty; a pocket's sleeve taken for a card, larger
+		// and off its card; and a card's art box, half its size.
+		const found = cards.filter((_, i) => i !== 2 && i !== 6);
+		const sleeve = {corners: cards[4].corners.map((p, i) => ({x: p.x + (i === 1 || i === 2 ? 30 : -4), y: p.y + 12})), upright: true};
+		const artBox = {corners: cards[0].corners.map((p) => ({x: 60 + (p.x - 60) * 0.5, y: 90 + (p.y - 90) * 0.5})), upright: true};
+		const fitted = fitGrid([sleeve, ...found, artBox], 3, 3);
+
+		assert.ok(fitted, 'fitted');
+		assert.equal(fitted.cards, 7);
+		assert.ok(off(fitted.corners, truth) < 1, `off by ${off(fitted.corners, truth).toFixed(2)} px`);
+	});
+
+	test('cards in one column, or too few, fit no page', () => {
+		assert.equal(fitGrid([cards[0], cards[3], cards[6]], 3, 3), null);
+		assert.equal(fitGrid(cards.slice(0, 2), 3, 3), null);
+		assert.equal(fitGrid(cards.map((card) => ({...card, upright: false})), 3, 3), null, 'lying cards are not a standing page');
+	});
+
+	test('a page that would run out of the frame loses to one inside it', () => {
+		// Two columns found: the page could hold them in its left two
+		// columns or its right two; the frame ends just right of them.
+		const two = cards.filter((_, i) => i % 3 !== 2);
+		const fitted = fitGrid(two, 3, 3, {height: 520, width: 240});
+
+		assert.ok(fitted, 'fitted');
+		assert.ok(fitted.corners[1].x < 240 + 20, `the page ends at ${fitted.corners[1].x.toFixed(0)}`);
+	});
+
+	test('cards lying, most of them, mean the phone was turned', () => {
+		const lying = cards.map((card) => ({...card, upright: false}));
+
+		assert.equal(cardsLie(lying), true);
+		assert.equal(cardsLie(cards), false);
+		assert.equal(cardsLie([...lying.slice(0, 3), ...cards.slice(0, 2)]), false, 'three in five is not most');
+		assert.equal(cardsLie(lying.slice(0, 2)), false, 'two cards say nothing');
+	});
+
+	test('cards over two pages spread wider than one page holds', () => {
+		assert.equal(twoPages(cards), false);
+		assert.equal(twoPages([...cards, ...shifted(cards, 360)]), true);
+		assert.equal(twoPages([...cards.slice(0, 3), ...shifted(cards.slice(6), 360)]), true, 'one row of each page');
+	});
+
+	test('the spine is the dark band between two pages, not a weld between pockets', () => {
+		const W = 400;
+		const H = 160;
+		const grey = new Uint8Array(W * H);
+
+		// Two pages of three columns, 50 pixels wide with welds of 4, and a
+		// spine 14 wide at 205.
+		for (let y = 0; y < H; y++) {
+			for (let x = 0; x < W; x++) {
+				const inPage = (from) => x >= from && x < from + 158 && (x - from) % 54 < 50;
+
+				grey[y * W + x] = inPage(40) || inPage(212) ? 170 + ((x * 31 + y * 17) % 40) : 30;
+			}
+		}
+
+		const spine = spineAt(grey, W, H);
+
+		assert.ok(spine > 198 && spine < 212, `spine at ${spine}`);
+	});
+
+	test('a spread taken turned has a dark band across its middle; a page of cards does not', () => {
+		const W = 160;
+		const H = 400;
+		// Rows of cards 60 tall with welds of 4: as one page, or two pages
+		// one above the other with a spine 16 tall between them.
+		const draw = (dark) => {
+			const grey = new Uint8Array(W * H);
+
+			for (let y = 0; y < H; y++) {
+				for (let x = 0; x < W; x++) {
+					grey[y * W + x] = dark(y) || (y % 64) >= 60 ? 30 : 160 + ((x * 13 + y * 7) % 50);
+				}
+			}
+
+			return grey;
+		};
+
+		assert.ok(darkBand(draw((y) => y >= 192 && y < 208), W, H) < 0.6, 'a spine across the middle');
+		assert.ok(darkBand(draw(() => false), W, H) > 0.6, 'welds between rows of cards');
 	});
 });

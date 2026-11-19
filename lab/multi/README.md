@@ -5,8 +5,9 @@ A lab prototype (Eric, 2026-11-18): recognise several cards in one camera frame,
 measures two ways of finding the cards, each card then matched by the app's own picture route
 (`js/scan/identify.js` `identifyPicture`: straighten, fingerprint, match; `js/scan/picture.js`
 `pictureVerdict` for sure), so recognition per card is the single-card scanner's. The scanner's
-Binder page (`js/scan/page.js`, under its settings) now reads one upright page by the page path;
-the free path and spreads stay here.
+Binder page (`js/scan/page.js`, under its settings) now reads one upright page by the page path,
+and two pages side by side (a spread) as described under Two Pages Side by Side; the free path stays
+here.
 
 - **Page path** (`js/scan/steady.js` `findPages`, `js/scan/multi.js` `fitPage`, `pageCells`): find
   the page's outline (or a spread's two), set it right by the cards found in it, cut it into rows x
@@ -115,13 +116,80 @@ species. **Sure was never wrong** on any photo, by either path.
 - The 3840 copies help a little overall; the finding itself runs on a 360 px copy, so resolution
   mostly helps the match and a future number read.
 
+## Two Pages Side by Side
+
+Eric takes a spread with the phone turned (2026-11-19): the photo stands, the two pages lie one
+above the other, and the cards' tops point to the photo's right. The lab's spread path above
+failed on them for two reasons this measured: a lying page was cut as if its cards' tops pointed
+left, so every pocket was upside down; and on the 360 px copy two lying cards one above the other
+make a standing card's shape, so `1000182575` was fitted as one page of nine such pairs and read as
+nine wrong cards. The scanner now reads a spread this way (`js/scan/page.js` `readPagePixels`):
+
+1. **Tell the turn on a 720 px copy.** `findCards` there found 9 to 14 of Eric's spreads' 9 to 14
+   boxes lying, and none to two of his single pages' 7 to 9 (on the 360 px copy, a spread's boxes
+   were as often standing pairs). More lying than standing (`multi.js` `cardsLie`, half or more)
+   turns the copy a quarter. So does a dark band of rows across the photo's middle (`darkBand`,
+   under 0.6 of the median row: 0.29 to 0.44 on Eric's spreads, 0.14 on the test's synthetic one,
+   0.74 to 0.88 on his single pages), the spine, which catches clean prints whose art box splits
+   each lying card into two standing boxes (the synthetic spread found 3 of 7 lying). A single
+   upright page whose outline its cards set right is read as before only when neither says the
+   phone was turned.
+2. **Split at the spine.** Cards spread wider than one page's three columns (`twoPages`) are two
+   pages; the spine is the darkest band of columns in the middle 30 to 70 % (`spineAt`: 34 to 62
+   grey on Eric's spreads, against 73 to 109 for the welds between pockets), and each half is cut
+   1.5 % of the width past it.
+3. **Fit each page from its cards alone** (`multi.js` `fitGrid`): no outline, which was the
+   failing step. The cards found at 360, 420, 480, and 300 px (until 8 fit) are merged, each tried
+   in each pocket, and the page that puts most of the others in pockets is fitted to them all. On
+   the halves this fitted 3 to 9 cards a page; the outline path fitted 0 to 9, and none on 10 of 16
+   halves.
+4. **Tell which way up from the faces** (`edgeBalance`, `upsideDown`): a card's artwork half is
+   busier than its text half on 84 % of Eric's pockets and 33 of the bench's 40 catalog images, so
+   the most pockets decide. Each of Eric's spreads voted 13 or more of 18 the right way, and the
+   same photos turned half round were turned back.
+
+Pockets are numbered across both pages, the left page's first (1 to 18).
+
+Measured in the app itself (Binder page, a photo from the gallery, headless Chromium on this
+laptop, picture and number read as the scanner runs them), judged by the Pokémon's name and by its
+pocket (the binder holds the Kanto Pokédex in order). Before is the scanner at v81 plus binder page
+scanning (commit `009430e`).
+
+| Photo | Pages | Before: added, right, sure | After: added, right (in its pocket), sure | Seconds after |
+| --- | --- | --- | --- | --- |
+| `1000182573` | 8 + 9 | refused | 18, 12 (12), 4 | 14.0 |
+| `1000182574` | 6 + 7 | refused | 18, 13 (13), 2 | 16.7 |
+| `1000182575` | 4 + 5 | 9, 0, 0 (taken as one page) | 17, 16 (16), 5 | 17.0 |
+| `s25-1` | 4 + 5 | 9, 7, 3 (taken as one page) | 18, 16 (16), 5 | 12.7 |
+| `s25-2` | 8 + 9 | refused | 17, 12 (12), 4 | 14.0 |
+| `s25-4` | 6 + 7 | refused | 18, 14 (14), 3 | 13.2 |
+| WhatsApp `page-3` | 2 + 3 | 9, 4, 0 (taken as one page) | 18, 17 (17), 7 | 11.9 |
+| WhatsApp `page-4` | 6 + 7 | refused | 18, 13 (12), 3 | 13.2 |
+| `1000182576` | 3 | 9, 7, 2 | 9, 7, 2 | 9.1 |
+| `1000182577` | 2 | 9, 9, 4 | 9, 9, 4 | 8.4 |
+| `1000182578` | 1 | 9, 9, 3 | 9, 9, 3 | 8.2 |
+| `s25-3` | 3 | 9, 4, 2 (edges unclear) | 9, 8, 2 | 6.9 |
+| WhatsApp `page-1` | 4 | not found | 9, 8, 0 | 8.1 |
+| WhatsApp `page-2` | 5 | 9, 5, 3 | 9, 5, 3 | 6.2 |
+| WhatsApp `page-5` | 1 | 9, 7, 3 | 9, 7, 3 | 6.4 |
+
+- **Spreads**: 113 of 144 cards named right (78 %), all but one in their pockets, 33 sure,
+  **none sure and wrong**. The misses are the picture's (glare, holos), not the cut: the pockets
+  cut on four of the spreads were checked by eye.
+- **Single pages**: none worse; the two whose outline was not set right (`s25-3`, `page-1`) are now
+  fitted from their cards. Finding a page took 0.7 to 1.1 s here (the 720 px copy that tells the
+  turn is part of it), finding a spread 2.9 to 3.9 s.
+- The same spreads turned half round (cards' tops to the left): `1000182574`, `s25-1` 16 of 18 each,
+  `s25-2` 8, and `s25-4` one page only (6). A single upright page taken upside down is still read
+  upside down, as before: its outline fits, so it never reaches the vote.
+
 ## Recommendation
 
 **Build the page path first, for one upright page per shot, with the cards found by the free path
 setting the page right**: find the cards first (`findCards`), take the page whose size is about
 nine of them (`findPages` `cardArea`), fit it to them (`fitPage`), then match the nine pockets.
-Ask for one page, upright, filling the frame (a spread taken sideways is the case that fails now:
-add it after real photos pass). Keep the result a review list, never a silent save: every pocket
+Ask for one page, upright, filling the frame (spreads were added later: see Two Pages Side by
+Side). Keep the result a review list, never a silent save: every pocket
 not sure goes to the tray as today's unsure card, and sure was never wrong on the real photos.
 
 **Speed.** A page takes 3.6 s on this laptop and about 15 s with the CPU slowed four times (p90 24
@@ -155,5 +223,5 @@ outline fitted, so the floor is lower than the number read's.
 
 Run `--photos` on Eric's binder photos (kept outside the repo), one upright single page per shot at
 full resolution and at 1920 px: every pocket's first candidate should name the card in it, empty
-pockets none, and no sure answer may be wrong. Then the same pages as WhatsApp copies, and a spread
-or two, to see whether spreads can be added.
+pockets none, and no sure answer may be wrong. Then the same pages as WhatsApp copies, and the
+spreads, which must never be read as one page.

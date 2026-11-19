@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {isEmptyPocket, locatePage, ownFits, pageSummary, pageTrouble, pocketPlan, pocketProgress, pocketQuads} from '../js/scan/page.js';
+import {edgeBalance, halfRound, isEmptyPocket, locatePage, mergeCards, ownFits, pageSummary, pageTrouble, pocketPlan, pocketProgress, pocketQuads, turnCard, turnPoint, unturnPoint, upsideDown} from '../js/scan/page.js';
 import {addCapture, applyPicture, doubtPocket, newSession, POCKET_ASIAN_WHY} from '../js/scan/session.js';
 import {COLOURLESS} from '../js/scan/steady.js';
 
@@ -129,7 +129,7 @@ describe('where the page lies (locatePage)', () => {
 		}
 	});
 
-	test('a spread taken with the phone turned, two lying pages, is refused as a spread', () => {
+	test('a spread taken with the phone turned, two lying pages, is not taken for one page', () => {
 		const size = 60;
 		const down = (size * 63) / 88;
 		const gap = down * 0.05;
@@ -144,6 +144,78 @@ describe('where the page lies (locatePage)', () => {
 		}
 
 		assert.equal(locatePage(view(cards), W, H).status, 'spread');
+	});
+
+	test('an upright page\'s cards stand', () => {
+		assert.equal(locatePage(view(page()), W, H).lie, false);
+	});
+});
+
+describe('two pages, and which way up (turnPoint, turnCard, halfRound, mergeCards, edgeBalance, upsideDown)', () => {
+	test('a point turned a quarter counterclockwise comes back where it was', () => {
+		// A frame 300 wide: its top right comes to the top left.
+		assert.deepEqual(turnPoint({x: 300, y: 0}, 300), {x: 0, y: 0});
+		assert.deepEqual(turnPoint({x: 0, y: 0}, 300), {x: 0, y: 300});
+
+		const p = {x: 37, y: 112};
+
+		assert.deepEqual(unturnPoint(turnPoint(p, 300), 300), p);
+	});
+
+	test('a lying card stands once its frame is turned, its width kept', () => {
+		const lying = {corners: [{x: 10, y: 60}, {x: 10, y: 10}, {x: 98, y: 10}, {x: 98, y: 60}], upright: false};
+		const turned = turnCard(lying, 300);
+		const xs = turned.corners.map((p) => p.x);
+		const ys = turned.corners.map((p) => p.y);
+
+		assert.equal(turned.upright, true);
+		assert.equal(Math.max(...xs) - Math.min(...xs), 50, 'as wide as the card was tall on its side');
+		assert.equal(Math.max(...ys) - Math.min(...ys), 88);
+	});
+
+	test('a page turned half round starts at its bottom right', () => {
+		const [tl, tr, br, bl] = [{x: 0, y: 0}, {x: 1, y: 0}, {x: 1, y: 1}, {x: 0, y: 1}];
+
+		assert.deepEqual(halfRound([tl, tr, br, bl]), [br, bl, tl, tr]);
+	});
+
+	test('cards found at two sides are one list, scaled back, each card once', () => {
+		const card = (x, y, k) => ({corners: [{x: x * k, y: y * k}, {x: (x + 63) * k, y: y * k}, {x: (x + 63) * k, y: (y + 88) * k}, {x: x * k, y: (y + 88) * k}], upright: true});
+		const merged = mergeCards([{cards: [card(0, 0, 0.5), card(70, 0, 0.5)], scale: 0.5}, {cards: [card(2, 3, 0.75), card(0, 95, 0.75)], scale: 0.75}]);
+
+		assert.equal(merged.length, 3, 'the card found at both sides is kept once');
+		assert.deepEqual(merged[0].corners[2], {x: 63, y: 88}, 'in the source\'s pixels');
+	});
+
+	test('a card\'s artwork half is busier than its text half', () => {
+		// A 64 x 88 card: a checkered art box above, plain lines of text below.
+		const rgba = new Uint8ClampedArray(64 * 88 * 4).fill(255);
+
+		for (let y = 0; y < 88; y++) {
+			for (let x = 0; x < 64; x++) {
+				const p = (y * 64 + x) * 4;
+				const v = y < 40 ? ((x >> 1) + (y >> 1)) % 2 ? 40 : 220 : y > 50 && y % 6 === 0 && x > 10 && x < 50 ? 60 : 230;
+
+				rgba[p] = rgba[p + 1] = rgba[p + 2] = v;
+			}
+		}
+
+		const upside = new Uint8ClampedArray(rgba.length);
+
+		for (let i = 0; i < 64 * 88; i++) {
+			upside.set(rgba.subarray(i * 4, i * 4 + 4), (64 * 88 - 1 - i) * 4);
+		}
+
+		assert.ok(edgeBalance(rgba) > 0, 'standing');
+		assert.ok(edgeBalance(upside) < 0, 'upside down');
+	});
+
+	test('the most cards say which way up a turned photo stands; one taken upright needs three in four', () => {
+		assert.equal(upsideDown([5, 3, -1, 4, -2]), false);
+		assert.equal(upsideDown([-5, -3, 1, -4, 2]), true);
+		assert.equal(upsideDown([-5, -3, 1, -4, 2], {turned: false}), false, 'three in five is not enough to turn an upright photo round');
+		assert.equal(upsideDown([-5, -3, -1, -4, 2, -6, -2, -3, -1], {turned: false}), true);
+		assert.equal(upsideDown([], {turned: true}), false);
 	});
 });
 
@@ -211,9 +283,15 @@ describe('what Eric reads (pocketProgress, pageSummary, pageTrouble)', () => {
 		assert.equal(pageSummary({added: 0, empty: 9, look: 0}), 'Every pocket on that page looked empty.');
 	});
 
+	test('two pages read together say so, and a page of a spread not found asks for it on its own', () => {
+		assert.equal(pageSummary({added: 17, empty: 1, look: 9, pages: 2}), 'Both pages read: 17 cards added, 9 to check. 1 empty pocket skipped.');
+		assert.equal(pageSummary({added: 9, empty: 0, look: 4, missed: 1, pages: 1}), 'One page read: 9 cards added, 4 to check. The other page could not be found, so take it on its own.');
+		assert.equal(pageSummary({added: 0, empty: 18, look: 0, pages: 2}), 'Every pocket on those pages looked empty.');
+	});
+
 	test('a page not read says why and asks for the photo again', () => {
 		assert.match(pageTrouble('none'), /^The page could not be found in that photo\. Take it again/);
-		assert.match(pageTrouble('spread'), /two pages\. Take one page at a time/);
+		assert.match(pageTrouble('spread'), /two pages, but their pockets could not be found\. Take it again/);
 		assert.match(pageTrouble('unreadable'), /could not be opened/);
 
 		for (const status of ['none', 'spread', 'unreadable']) {

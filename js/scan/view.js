@@ -2179,7 +2179,8 @@ export function scanView(root) {
 	// capture is (readItem: the picture, and the number when the picture
 	// wants it), so a sure match is a sure card and anything else asks for a
 	// look, as an unsure scan does. Empty pockets are skipped. A page that
-	// cannot be found is said so, and nothing is added.
+	// cannot be found is said so, and nothing is added. Two pages side by
+	// side are read as one page of 18 pockets, the left page's first.
 	async function readPage(file) {
 		if (pageBusy) {
 			return;
@@ -2223,7 +2224,7 @@ export function scanView(root) {
 			const empty = found.pockets.length - pockets.length;
 
 			if (!pockets.length) {
-				setNote(pageSummary({added: 0, empty, look: 0}));
+				setNote(pageSummary({added: 0, empty, look: 0, pages: found.pages}));
 
 				return;
 			}
@@ -2286,7 +2287,7 @@ export function scanView(root) {
 			}
 
 			const look = items.filter((item) => !(item.card && (item.sure || item.confirmed))).length;
-			const summary = pageSummary({added: items.length, empty, look, rough: !found.fitted});
+			const summary = pageSummary({added: items.length, empty, look, missed: found.missed, pages: found.pages, rough: !found.fitted});
 
 			setNote(summary);
 			announce(summary);
