@@ -10,6 +10,8 @@
 // (tests/page-place.test.mjs); js/scan/sheets.js pageSheet shows it and
 // js/scan/view.js places it (js/binders.js placePage).
 
+import {placements, slotKind} from '../binders.js';
+
 // A page read's pockets per binder page; a spread's pockets 10 to 18 are the
 // right page's.
 export const PER_PAGE = 9;
@@ -139,4 +141,100 @@ export function placeSummary(items, matches) {
 	}
 
 	return out;
+}
+
+// ------------------------------------------------- the binder page it goes to
+//
+// Placing must never empty a page silently (design review, 2026-11-19: it
+// defaulted to a full page 1 and moved its nine cards out with no word and
+// no Undo). So the page offered first is a free one, each page says what it
+// holds, a page with cards says they will come out, and what placing changed
+// is kept to undo it.
+
+// What a binder pocket holds, as js/binders.js setPocket takes it back, or
+// null for an open pocket.
+export function pocketContent(slot) {
+	const kind = slot && !slot.cleared ? slotKind(slot) : null;
+
+	if (kind === 'card') {
+		return {entry_id: slot.entry_id};
+	}
+
+	if (kind === 'want') {
+		return {want: slot.want};
+	}
+
+	if (kind === 'art') {
+		return {art: slot.art};
+	}
+
+	return kind === 'empty' ? {empty: true} : null;
+}
+
+// How many pockets of each page hold something: Map page -> count.
+export function pagesInUse(binder) {
+	const out = new Map();
+
+	for (const slot of (binder && binder.slots) || []) {
+		if (pocketContent(slot)) {
+			out.set(slot.page, (out.get(slot.page) || 0) + 1);
+		}
+	}
+
+	return out;
+}
+
+// The first page where `pages` pages in a row are free, else the new page
+// after the last.
+export function freePage(binder, pages = 1) {
+	const used = pagesInUse(binder);
+
+	for (let page = 1; page + pages - 1 <= binder.page_count; page++) {
+		if (Array.from({length: pages}, (_, i) => used.get(page + i) || 0).every((count) => !count)) {
+			return page;
+		}
+	}
+
+	return binder.page_count + 1;
+}
+
+// What placing `pockets` ([{page, position, content}], pagePockets) on
+// binder `binderId` will change, from the binders as they are now: loose,
+// the copies taken out of those pockets that are not placed again (they
+// become loose); replaced, the placeholders, art, and pockets left empty on
+// purpose written over; and undo, what puts it all back: target, those
+// pockets' contents before, and moved, the pockets elsewhere the placed
+// copies are taken from, with them in it. A new binder (binderId null) has
+// nothing to take out.
+export function placePlan(binders, {binderId, pockets}) {
+	const target = binderId ? (binders || []).find((binder) => binder.id === binderId && !binder.deleted_at) : null;
+	const placing = new Set(pockets.map(({content}) => content.entry_id).filter(Boolean));
+	const placed = placements(binders || []);
+	const undo = {moved: [], target: []};
+	let loose = 0;
+	let replaced = 0;
+
+	for (const {page, position} of pockets) {
+		const slot = target ? (target.slots || []).find((one) => one.page === page && one.position === position && pocketContent(one)) : null;
+		const before = pocketContent(slot);
+
+		undo.target.push({content: before, page, position});
+
+		if (before && before.entry_id && !placing.has(before.entry_id)) {
+			loose++;
+		}
+		else if (before && !before.entry_id) {
+			replaced++;
+		}
+	}
+
+	for (const {content, page, position} of pockets) {
+		const at = content.entry_id ? placed.get(content.entry_id) : null;
+
+		if (at && !(target && at.binder.id === target.id && at.slot.page === page && at.slot.position === position)) {
+			undo.moved.push({binderId: at.binder.id, content: {entry_id: content.entry_id}, page: at.slot.page, position: at.slot.position});
+		}
+	}
+
+	return {loose, replaced, undo};
 }

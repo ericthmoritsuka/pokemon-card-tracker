@@ -568,6 +568,10 @@ html.scan-open body {
    pockets, three across, each as wide as its column. */
 .scan-page-grid {
 	display: grid;
+	/* Its own stacking context: the tiles' remove buttons stay under the
+	   sheet's sticky header when the grid scrolls (design review,
+	   2026-11-19: one sat on Close). */
+	isolation: isolate;
 	gap: 10px;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	list-style: none;

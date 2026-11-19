@@ -2976,7 +2976,14 @@ other), an empty pocket marked Empty. Two modes, chosen at its top:
   the grid a page photo has, and **A new binder** with a name; a binder's page, or a new page at the
   end (a spread takes that page and the next). **Place** writes the whole page in one save
   (`js/binders.js` `placePage`, setPocket's rules: a copy filed elsewhere leaves its old pocket),
-  and offers **Open the binder**. Why the copy rather than the scan's language: his copies already
+  and offers **Open the binder** and **Undo**. Placing never empties a page silently (design review,
+  2026-11-19: it defaulted to a full page 1 and moved its nine cards out with no word): the page
+  offered first is the first free one (both free, for a spread), else a new page at the end; each
+  page says what it holds ("Page 1, 2 in use"); a page with cards says how many come out of their
+  pockets and become loose, and the button reads "Replace 1 card on page 1"; the result says how many
+  became loose. Undo puts every pocket it wrote back as it was (deleting a binder it made), returns
+  the copies it took from other pockets, and brings the page back to place again
+  (`js/scan/page-place.js` `placePlan`). Why the copy rather than the scan's language: his copies already
   carry the language, finish, and condition he set, which a pocket photo cannot read.
 
 ### Themes

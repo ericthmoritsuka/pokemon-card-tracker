@@ -41,7 +41,7 @@ import {
 	wishLine,
 	wishMarks,
 } from './session.js';
-import {matchPage, placeSummary, whereText} from './page-place.js';
+import {freePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from './page-place.js';
 import {cleanThreshold, risePercent} from './worth.js';
 
 const ordinal = (n) => {
@@ -1134,6 +1134,15 @@ export function pageSheet(ctx) {
 			body.replaceChildren(
 				h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-place-done'}, placed.text),
 				h('button', {class: 'scan-button scan-wide', id: 'scan-place-open', onclick: () => ctx.openBinder(placed.binderId), type: 'button'}, 'Open the binder'),
+				h('button', {class: 'scan-button scan-wide', id: 'scan-place-undo', onclick: async () => {
+					const undo = placed.undo;
+
+					placed = null;
+					target = null;
+					targetPage = null;
+					await ctx.undoPlace(undo);
+					refresh();
+				}, type: 'button'}, 'Undo'),
 				h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'));
 
 			return;
@@ -1238,9 +1247,14 @@ export function pageSheet(ctx) {
 			target = 'new';
 		}
 
+		// A free page first (design review, 2026-11-19), never one with
+		// cards on it unless he picks it.
 		if (binder && (targetPage === null || targetPage > binder.page_count + 1)) {
-			targetPage = 1;
+			targetPage = freePage(binder, pages);
 		}
+
+		const used = binder ? pagesInUse(binder) : new Map();
+		const plan = binder ? placePlan(owned.binders, {binderId: binder.id, pockets: pagePockets(items, matches, targetPage)}) : {loose: 0, replaced: 0};
 
 		const cell = (item, pocket) => {
 			if (!item) {
@@ -1250,7 +1264,7 @@ export function pageSheet(ctx) {
 			const match = matches.get(item.id);
 			const entry = match && match.entry;
 			const src = ctx.photoUrl(item.id) || (item.card && item.card.image ? cardImage(item.card.image, 'low') : null);
-			const where = entry ? whereText(match.where) : 'Not yours: placeholder';
+			const where = entry ? whereText(match.where) : 'No copy left: placeholder';
 
 			return h('li', {class: 'scan-tray-item'},
 				h('button', {
@@ -1306,9 +1320,11 @@ export function pageSheet(ctx) {
 
 		const where = binder
 			? h('select', {class: 'scan-select', id: 'scan-place-page', onchange: (event) => {
+				// What that page holds changes the warning and the button.
 				targetPage = Number(event.target.value);
+				refresh();
 			}},
-			...Array.from({length: binder.page_count}, (_, i) => h('option', {selected: targetPage === i + 1, value: i + 1}, `Page ${i + 1}`)),
+			...Array.from({length: binder.page_count}, (_, i) => h('option', {selected: targetPage === i + 1, value: i + 1}, `Page ${i + 1}, ${used.get(i + 1) ? `${used.get(i + 1)} in use` : 'empty'}`)),
 			h('option', {selected: targetPage === binder.page_count + 1, value: binder.page_count + 1}, `A new page at the end (page ${binder.page_count + 1})`))
 			: h('input', {autocomplete: 'off', class: 'scan-select', id: 'scan-place-name', maxlength: 60, oninput: (event) => {
 				newName = event.target.value;
@@ -1319,6 +1335,11 @@ export function pageSheet(ctx) {
 			binderSelect,
 			binder ? h('label', {class: 'scan-label', for: 'scan-place-page'}, pages > 1 ? 'Left page goes on' : 'On') : h('label', {class: 'scan-label', for: 'scan-place-name'}, 'Name'),
 			where,
+			plan.loose || plan.replaced ? h('p', {class: 'scan-preview', id: 'scan-place-warning', role: 'note'}, [
+				plan.loose ? `${plural(plan.loose, 'card')} on that page will come out of ${plan.loose === 1 ? 'its pocket' : 'their pockets'} and be loose.` : null,
+				plan.replaced ? `${plural(plan.replaced, 'placeholder or mark', 'placeholders or marks')} there will be replaced.` : null,
+				'Undo puts it back.',
+			].filter(Boolean).join(' ')) : null,
 			binder && binders.length < sortBinders(handBinders(owned.binders)).length ? h('p', {class: 'scan-muted'}, 'Only binders of 3 by 3 pockets are listed, as a page photo has.') : null,
 			placeError ? h('p', {class: 'scan-muted form-error', role: 'alert'}, placeError) : null,
 			h('button', {class: 'scan-button scan-primary scan-wide', disabled: placing || !items.length, id: 'scan-place-go', onclick: async () => {
@@ -1343,7 +1364,11 @@ export function pageSheet(ctx) {
 					placing = false;
 					refresh();
 				}
-			}, type: 'button'}, placing ? 'Placing…' : `Place ${plural(summary.copies + summary.placeholders, 'card')}`)));
+			}, type: 'button'}, placing
+				? 'Placing…'
+				: plan.loose
+					? `Replace ${plural(plan.loose, 'card')} on page ${targetPage}`
+					: `Place ${[summary.copies ? plural(summary.copies, 'card') : null, summary.placeholders ? plural(summary.placeholders, 'placeholder') : null].filter(Boolean).join(' and ') || 'the page'}`)));
 
 		return parts;
 	}
