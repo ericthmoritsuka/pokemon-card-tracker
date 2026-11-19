@@ -313,4 +313,79 @@ describe('make a list binder from this', () => {
 		assert.deepEqual(doc.binders.find((binder) => binder.id === 'kanto'), handBefore);
 		await done();
 	});
+
+	test('a pocket of several cards swipes through them and puts the one in view on top', async () => {
+		const {done, page} = await open(PHONE);
+
+		await seed(page, DOC);
+		await page.goto(url('binders/kanto'));
+		await page.waitForSelector('#binder-convert:not([hidden])');
+		await page.click('#binder-convert');
+		await page.waitForFunction(() => /^3 pockets show/.test((document.getElementById('convert-preview') || {}).textContent), null, {timeout: 15000});
+		await page.click('#binder-save');
+		await page.waitForFunction(() => document.getElementById('binder-title')?.textContent === 'Kanto (list)', null, {timeout: 15000});
+
+		const made = (await localDoc(page)).binders.find((binder) => binder.id !== 'kanto');
+
+		await openPage(page, 1);
+		await waitForPocket(page, zoomPocket(1), {label: 'Test Sprout Alt, .*3 copies fit'});
+
+		// Bulbasaur's pocket holds three copies: the one on top first, then
+		// the rest newest first (Eric, 2026-11-18).
+		await page.click(zoomPocket(1));
+		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
+		assert.equal(await page.textContent('#pv-count'), '1 of 3 in this pocket');
+		assert.equal(await page.textContent('#pv-name'), 'Test Sprout Alt');
+		assert.equal(await page.isDisabled('#pv-prev'), true);
+		assert.equal(await page.isDisabled('#pv-pick'), true, 'the card on top already shows here');
+		assert.equal(await page.textContent('#pv-pick'), 'Shown here');
+		assert.equal(await page.locator('#pv-details').isVisible(), true, 'Edit pocket is still offered');
+
+		await page.click('#pv-next');
+		assert.equal(await page.textContent('#pv-count'), '2 of 3 in this pocket');
+		assert.equal(await page.textContent('#pv-name'), 'Test Sprout');
+		assert.equal(await page.isDisabled('#pv-pick'), false);
+		assert.equal(await page.textContent('#pv-pick'), 'Show this one here');
+
+		// The arrow keys move too, and stop at the last card.
+		await page.keyboard.press('ArrowRight');
+		assert.equal(await page.textContent('#pv-count'), '3 of 3 in this pocket');
+		assert.equal(await page.isDisabled('#pv-next'), true);
+		await page.keyboard.press('ArrowRight');
+		assert.equal(await page.textContent('#pv-count'), '3 of 3 in this pocket');
+
+		// A sideways swipe at zoom 1 goes back one.
+		const box = await page.locator('#pv-lift').boundingBox();
+		const y = box.y + box.height / 2;
+
+		await page.mouse.move(box.x + box.width * 0.25, y);
+		await page.mouse.down();
+
+		for (let i = 1; i <= 8; i++) {
+			await page.mouse.move(box.x + box.width * 0.25 + i * 20, y);
+		}
+
+		await page.mouse.up();
+		await page.waitForFunction(() => document.getElementById('pv-count')?.textContent === '2 of 3 in this pocket');
+		await page.screenshot({path: `${SHOTS}/stack-viewer-360.png`});
+
+		// The card and every action fit on a 360 x 740 screen.
+		const lift = await page.locator('#pv-lift').boundingBox();
+		const last = await page.locator('#pv-actions > :last-child').boundingBox();
+
+		assert.ok(lift.y >= 0, `the card starts on screen: ${lift.y}`);
+		assert.ok(last.y + last.height <= PHONE.height, `the last action ends on screen: ${last.y + last.height}`);
+
+		// Show this one here: the viewer closes and the pocket shows it.
+		await page.click('#pv-pick');
+		await page.waitForSelector('#pocket-viewer', {state: 'detached'});
+		await page.waitForFunction(async (id) => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+			const pick = (doc.binder_picks || []).find((one) => one.id === id);
+
+			return Boolean(pick) && pick.entry_id === 'c1-priced';
+		}, `${made.id}|dex:1`, {timeout: 10000});
+		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*3 copies fit, picked by hand', picked: 'true'});
+		await done();
+	});
 });

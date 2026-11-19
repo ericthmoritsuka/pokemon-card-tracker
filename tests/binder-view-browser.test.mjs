@@ -233,10 +233,15 @@ describe('a card out of its pocket', () => {
 		assert.equal(await page.evaluate(() => document.activeElement.id), 'pv-details', 'focus moves into the dialog');
 		assert.equal(await page.locator(`${zoomed(1)}.pv-out`).count(), 1, 'the pocket shows empty while its card is out');
 
-		// Large: most of the phone's width.
+		// Large, as large as the screen leaves above the name and the four
+		// rows of actions, and all of it on screen (at full width it ran
+		// about 50 px past a 740 px screen).
 		const box = await page.locator('#pv-lift').boundingBox();
+		const last = await page.locator('#pv-actions > :last-child').boundingBox();
 
-		assert.ok(box.width >= 300, `the card is ${box.width} px wide`);
+		assert.ok(box.width >= 280, `the card is ${box.width} px wide`);
+		assert.ok(box.y >= 0, `the card starts on screen: ${box.y}`);
+		assert.ok(last.y + last.height <= PHONE.height, `the last action ends on screen: ${last.y + last.height}`);
 		await page.screenshot({path: `${SHOTS}/viewer-360.png`});
 
 		// Tab stays inside.

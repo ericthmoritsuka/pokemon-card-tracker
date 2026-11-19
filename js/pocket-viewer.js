@@ -145,6 +145,7 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 	const steps = several ? h('div', {class: 'pv-steps'}, prev, count, next) : null;
 	const foot = h('div', {class: 'pv-foot'}, steps, name, subtitle || several ? meta : null, h('div', {class: 'pv-actions', id: 'pv-actions'}, buttons));
 	const shade = h('div', {'aria-hidden': 'true', class: 'pv-shade'});
+	const stage = h('div', {class: 'pv-stage'}, lift, foot);
 	const dialog = h('div', {
 		'aria-describedby': 'pv-help',
 		'aria-labelledby': 'pv-name',
@@ -160,7 +161,7 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 		tabindex: '-1',
 	},
 	shade,
-	h('div', {class: 'pv-stage'}, lift, foot),
+	stage,
 	h('p', {class: 'pv-help', id: 'pv-help'}, several
 		? 'Swipe sideways for the other cards in this pocket. Pinch or double-tap the card to zoom. Swipe down or tap outside it to put it back.'
 		: 'Pinch or double-tap the card to zoom. Swipe down or tap outside it to put it back.'),
@@ -264,6 +265,19 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 		});
 	});
 
+	// The card's width caps at what the screen leaves above the name and
+	// the actions, which wrap to more rows with more of them (a pocket of
+	// several cards adds the arrows and Show this one here), so the card
+	// never starts above the screen and the last action never ends below it.
+	function fit() {
+		const style = getComputedStyle(stage);
+		const room = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) - parseFloat(style.rowGap || style.gap || 0) - foot.offsetHeight;
+
+		lift.style.maxWidth = room > 0 ? `${Math.max(120, Math.floor(room * 63 / 88))}px` : '';
+	}
+
+	window.addEventListener('resize', fit);
+
 	const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => pane.resize()) : null;
 
 	if (observer) {
@@ -351,6 +365,8 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 			observer.disconnect();
 		}
 
+		window.removeEventListener('resize', fit);
+
 		const rect = reason === 'route' || reason === 'action' ? null : pocketRect();
 
 		if (canAnimate(lift)) {
@@ -390,6 +406,7 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 	});
 
 	drawCard();
+	fit();
 	(actionButtons[0] || buttons[0] || closeButton).focus({preventScroll: true});
 	requestAnimationFrame(open);
 
