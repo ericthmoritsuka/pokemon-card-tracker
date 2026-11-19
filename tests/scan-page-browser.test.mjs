@@ -311,14 +311,13 @@ describe('a binder page from one photo', () => {
 		await harness.close();
 	});
 
-	test('Page in the How row opens Binder page: how to take the photo, and the camera or the gallery', async () => {
+	test('Page beside the shutter opens Binder page: how to take the photo, and the camera or the gallery', async () => {
 		const app = await open();
 		const {page} = app;
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
-		assert.equal(await page.getAttribute('#scan-how-card', 'aria-pressed'), 'false', 'with the camera off, Card is not pressed');
-		assert.equal(await text(page, '#scan-photo-open'), 'Photo', 'the single-card photo is the How row\'s Photo');
+		assert.equal(await text(page, '#scan-photo-open'), 'Photo', 'the single-card photo is the shutter row\'s Photo');
 		assert.equal(await text(page, '#scan-page-open'), 'Page');
 		assert.equal(await page.getAttribute('#scan-page-open', 'aria-label'), 'Page: a whole binder page from a photo');
 		assert.equal(await page.getAttribute('#scan-page-open', 'aria-haspopup'), 'dialog');

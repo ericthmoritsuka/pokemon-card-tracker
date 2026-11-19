@@ -160,7 +160,8 @@ describe('the default finish', () => {
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
-		assert.equal(await text(page, '#scan-settings-open'), 'Settings');
+		// A gear with no word (design review, 2026-11-19); its name says what it holds.
+		assert.equal(await page.locator('#scan-settings-open > svg[aria-hidden="true"]').count(), 1);
 		assert.match(await page.getAttribute('#scan-settings-open', 'aria-label'), /^Scanner settings: default finish Normal, valuable cards from R\$\s50,00$/, 'Normal until one is picked');
 
 		await page.click('#scan-settings-open');

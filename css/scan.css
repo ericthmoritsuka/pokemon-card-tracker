@@ -464,7 +464,9 @@ html.scan-open body {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 4px;
-	min-height: 44px;
+	/* 48 px, as the Add / Trade or sale switch was: the camera keeps exactly
+	   its v84 height, which the detection tests' scenes are tuned to. */
+	min-height: 48px;
 }
 
 .scan-count {
@@ -911,32 +913,49 @@ html.scan-open body {
 	content: "\2713";
 }
 
-/* The scanner's settings: a chip at the foot of the camera on the left,
-   the holder switch's twin. */
-.scan-chip.scan-settings-open {
-	background: rgba(0, 0, 0, 0.6);
+/* The scanner's settings and the torch: round icons at the foot of the
+   camera on the left (design review, 2026-11-19: the word Settings covered
+   the corner where a card's number strip is), the holder switch's twins. */
+.scan-foot-left {
 	bottom: 8px;
+	display: flex;
+	gap: 8px;
 	left: 8px;
 	position: absolute;
 }
 
-/* The two chips at the camera's foot keep to their shares, so they never
-   overlap; a label too long for its share takes two lines. Large text on a
-   324 px wide Realme put Hand-held (auto) over Settings (2026-11-09).
-   Settings is the short label, so it takes 40 %. */
-.scan-chip.scan-settings-open,
+.scan-chip.scan-icon-chip {
+	align-items: center;
+	background: rgba(0, 0, 0, 0.6);
+	height: 44px;
+	justify-content: center;
+	min-height: 44px;
+	padding: 0;
+	width: 44px;
+}
+
+.scan-chip.scan-icon-chip[hidden] {
+	display: none;
+}
+
+.scan-chip.scan-icon-chip[aria-pressed="true"] {
+	background: var(--scan-text);
+	color: #000000;
+}
+
+.scan-chip.scan-icon-chip .scan-icon {
+	height: 22px;
+	width: 22px;
+}
+
+/* The holder chip keeps clear of the icons on the left; a label too long
+   for its share takes two lines (large text on a 324 px wide Realme,
+   2026-11-09). */
 .scan-chip.scan-holder {
 	box-sizing: border-box;
 	justify-content: center;
+	max-width: calc(100% - 128px);
 	text-align: center;
-}
-
-.scan-chip.scan-settings-open {
-	max-width: calc(40% - 12px);
-}
-
-.scan-chip.scan-holder {
-	max-width: calc(60% - 12px);
 }
 
 .scan-zoom[hidden] {
@@ -949,7 +968,7 @@ html.scan-open body {
 	bottom: 0;
 	display: grid;
 	gap: 8px;
-	grid-template-columns: 1fr 1fr 72px 1fr 1fr;
+	grid-template-columns: 1fr 1fr 1fr 72px 1.5fr;
 	padding-top: 4px;
 	position: sticky;
 	z-index: 1;
@@ -984,8 +1003,52 @@ html.scan-open body {
 	grid-column: 1;
 }
 
-#scan-torch {
+#scan-photo-open {
 	grid-column: 2;
+}
+
+#scan-page-open {
+	grid-column: 3;
+}
+
+/* Close, Photo, and Page in the shutter's row: the icon over its word. */
+.scan-control.scan-icon-control {
+	align-items: center;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	justify-content: center;
+	min-width: 0;
+	padding: 4px 2px;
+}
+
+.scan-icon-control .scan-icon-word {
+	font-size: 14px;
+	line-height: 16px;
+}
+
+/* Done as Log 3 in Buy: filled, the main action (Trade or sale's is teal). */
+.scan-done-button.is-log:not(:disabled) {
+	background: var(--scan-primary);
+	border-color: var(--scan-primary);
+	color: var(--scan-on-primary);
+}
+
+.scan-tray-menu {
+	margin-left: auto;
+}
+
+/* Under 400 px the For row's word gives the tray's menu its room on the
+   row; the buttons, and the group's name to a screen reader, say what the
+   row is. */
+@media (max-width: 399px) {
+	.scan .scan-head-label {
+		display: none;
+	}
+}
+
+.scan-tray-menu[hidden] {
+	display: none;
 }
 
 .scan-shutter {
@@ -994,7 +1057,7 @@ html.scan-open body {
 	border-radius: 50%;
 	box-shadow: 0 0 0 2px var(--scan-shutter);
 	cursor: pointer;
-	grid-column: 3;
+	grid-column: 4;
 	height: 72px;
 	padding: 0;
 	width: 72px;
@@ -1005,7 +1068,8 @@ html.scan-open body {
 }
 
 .scan-done-button {
-	grid-column: 4 / span 2;
+	grid-column: 5;
+	min-width: 0;
 }
 
 /* ------------------------------------------------------------ sheets */
@@ -2145,15 +2209,16 @@ html.scan-open body {
 		grid-row: 1;
 	}
 
-	/* Torch takes Close's place on a second row only when the camera has
-	   one, so the shutter stays in the middle. */
-	#scan-torch {
+	/* Photo and Page on a second row, either side of the shutter, so it
+	   stays in the middle. */
+	#scan-photo-open {
 		grid-column: 1;
 		grid-row: 2;
 	}
 
-	#scan-torch[hidden] {
-		display: none;
+	#scan-page-open {
+		grid-column: 3;
+		grid-row: 2;
 	}
 
 	.scan-shutter {

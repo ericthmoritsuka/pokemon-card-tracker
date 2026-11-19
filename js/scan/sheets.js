@@ -1004,6 +1004,25 @@ export function setAllSheet(ctx, field) {
 
 // ------------------------------------------------------------ the scanner's settings
 
+// The tray's menu (design review, 2026-11-19): Set for all, and Clear,
+// which throws the whole tray away, kept apart from the controls that bring
+// cards in. Set for all is for the Add tray of two cards or more.
+export function trayMenuSheet(ctx) {
+	const titleId = 'scan-tray-menu-title';
+	const count = ctx.session.items.length;
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-tray-menu-sheet', id: 'scan-tray-menu-sheet', role: 'dialog'},
+		sheetHeader('The tray', () => ctx.closeSheet(), titleId),
+		h('div', {class: 'scan-sheet-body'},
+			h('p', {class: 'scan-muted'}, `${plural(count, 'card')} in the tray.`),
+			!ctx.trade && count > 1 ? h('button', {class: 'scan-button scan-wide', id: 'scan-setall-open', onclick: () => ctx.openSetAll('language'), type: 'button'}, 'Set for all') : null,
+			h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-button scan-danger scan-wide', id: 'scan-clear', onclick: () => {
+				ctx.closeSheet();
+				ctx.discard();
+			}, type: 'button'}, 'Clear the tray')));
+
+	return {el, refresh: () => {}};
+}
+
 // The scanner's settings, kept on this phone by the view: the default finish
 // (Eric, 2026-10-15: the finish each scanned card starts on when it lists
 // it; the cards already in the tray stay as they are, Set for all changes

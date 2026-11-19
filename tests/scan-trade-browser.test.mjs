@@ -240,7 +240,7 @@ describe('Trade or sale', () => {
 		assert.equal(await page.textContent('#scan-mode [aria-pressed="true"]'), 'Trade or sale');
 		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept on the phone');
 		assert.ok(await page.locator('#scan.is-trade').count(), 'the screen shows the mode');
-		assert.equal(await page.textContent('#scan-done-open'), 'Log cards', 'the button counts the tray, as Done does');
+		assert.equal(await page.textContent('#scan-done-open'), 'Log ›', 'the button counts the tray, as Done does');
 		assert.equal(await page.getAttribute('#scan-side-out', 'aria-pressed'), 'true', 'scans start on Going out');
 		// The next scans' column has a filled head; the other says to tap it,
 		// and each empty column says what it is for.
@@ -257,7 +257,8 @@ describe('Trade or sale', () => {
 		await setScene(page, {cards: first});
 		await until(async () => (await captures(page)) === 1, 'the first card taken', 15000);
 		await readAll(page, 'trade', 1);
-		assert.equal(await page.textContent('#scan-done-open'), 'Log 1 card');
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 1 ›');
+		assert.equal(await page.getAttribute('#scan-done-open', 'aria-label'), 'Log 1 card as a trade or sale');
 		await handTo(page, first, second);
 		await until(async () => (await captures(page)) === 2, 'the second card taken', 15000);
 		await readAll(page, 'trade', 2);
@@ -274,7 +275,7 @@ describe('Trade or sale', () => {
 
 		const scanned = (await trays(page)).trade;
 
-		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 cards');
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 ›');
 		assert.equal(await page.textContent('#scan-side-out .scan-trade-next'), 'Tap to scan here', 'the head of the column not scanning into says to tap it');
 
 		assert.deepEqual(scanned.map((item) => [item.card, item.side]), [[CARDS.a, 'out'], [CARDS.b, 'out'], [CARDS.c, 'in']]);
@@ -673,13 +674,13 @@ describe('Trade or sale', () => {
 
 		const stage = await onScreen(page, '#scan-stage');
 
-		for (const selector of ['#scan-how', '#scan-mode', '#scan-side-out', '#scan-side-in', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+		for (const selector of ['#scan-page-open', '#scan-mode', '#scan-side-out', '#scan-side-in', '#scan-close', '#scan-shutter', '#scan-done-open']) {
 			const box = await onScreen(page, selector);
 
 			assert.ok(box.x >= stage.x + stage.width, `${selector} is beside the camera`);
 		}
 
-		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 cards');
+		assert.equal(await page.textContent('#scan-done-open'), 'Log 3 ›');
 		await onScreen(page, '#scan-trade-out .scan-trade-pick');
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-trade-sideways-780x360.png`});
@@ -693,7 +694,7 @@ describe('Trade or sale', () => {
 		await add.page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
 		assert.equal(await add.page.textContent('#scan-done-open'), 'Done 2');
 
-		for (const selector of ['#scan-how', '#scan-mode', '#scan-tray .scan-tray-item', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+		for (const selector of ['#scan-page-open', '#scan-mode', '#scan-tray .scan-tray-item', '#scan-close', '#scan-shutter', '#scan-done-open']) {
 			await onScreen(add.page, selector);
 		}
 

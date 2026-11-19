@@ -1,17 +1,17 @@
-// The two rows of icon buttons at the head of the scanner's tray, under the
-// camera (Eric, 2026-11-19; DESIGN.md section 11, "How and For"), in place
-// of the Add / Trade or sale switch:
+// The scanner's icon controls (Eric, 2026-11-19; DESIGN.md section 11, "How
+// and For"). For is a row at the head of the tray, under the camera:
 //
-//   How: [#] Card  [img] Photo  [:::] Page
-//   For: [+] Add   [$] Buy      [<>] Trade or sale
+//   For: [+] Add   [$] Buy   [<>] Trade or sale
 //
-// How is the way the cards come in: Card is the camera, the scanner's own
-// way, and shows pressed while the camera shows the picture; Photo (one card
-// from the gallery) and Page (a whole binder page) are actions that open a
-// picker, so they are plain buttons and never pressed. For is what the
-// cards are for, a mode remembered on the phone (js/scan/trade.js
-// storedMode), the one in use pressed. Each button is an icon and one short
-// word, at least 44 px tall, and both rows fit 360 px wide.
+// what the cards are for, a mode remembered on the phone (js/scan/trade.js
+// storedMode), the one in use pressed. How the cards come in sits in the
+// shutter's row instead, where a camera app keeps its gallery button
+// (design review, 2026-11-19: a second row of icons cost the camera 44 px):
+//
+//   [x Close] [Photo] [Page]  (shutter)  [Done]
+//
+// The camera itself is the card way in, so it needs no button. Each button
+// is an icon and one short word, at least 44 px tall, and fits 360 px wide.
 // js/scan/view.js runs them.
 
 import {h} from '../dom.js';
@@ -47,6 +47,25 @@ const ICONS = {
 	],
 	add: [
 		['path', {d: 'M12 5v14M5 12h14'}],
+	],
+	close: [
+		['path', {d: 'M6 6l12 12M18 6 6 18'}],
+	],
+	// Three dots: the tray's menu (Set for all, Clear).
+	more: [
+		['circle', {cx: 5, cy: 12, r: 1.4}],
+		['circle', {cx: 12, cy: 12, r: 1.4}],
+		['circle', {cx: 19, cy: 12, r: 1.4}],
+	],
+	// A cog of eight teeth round a hole: the scanner's settings.
+	settings: [
+		['path', {d: 'M19.03 10.46 L21.51 10.68 L21.51 13.32 L19.03 13.54 L18.06 15.88 L19.65 17.79 L17.79 19.65 L15.88 18.06 L13.54 19.03 L13.32 21.51 L10.68 21.51 L10.46 19.03 L8.12 18.06 L6.21 19.65 L4.35 17.79 L5.94 15.88 L4.97 13.54 L2.49 13.32 L2.49 10.68 L4.97 10.46 L5.94 8.12 L4.35 6.21 L6.21 4.35 L8.12 5.94 L10.46 4.97 L10.68 2.49 L13.32 2.49 L13.54 4.97 L15.88 5.94 L17.79 4.35 L19.65 6.21 L18.06 8.12Z'}],
+		['circle', {cx: 12, cy: 12, r: 3}],
+	],
+	// A torch: its head, body, and a ray.
+	torch: [
+		['path', {d: 'M8 3h8l-1.5 5h-5zM9.5 8h5v12a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1z'}],
+		['path', {d: 'M12 12.5v3'}],
 	],
 	// A dollar sign, Eric's mockup's [$]: money paid.
 	buy: [
@@ -85,10 +104,18 @@ export function icon(name) {
 // running count over the camera, and in what is announced on a switch.
 export const MODE_NAMES = {add: 'Add', buy: 'Buy', trade: 'Trade or sale'};
 
-// Buy's Done: "Log purchase 3", counting the tray as Done counts the Add
-// tray ("Done 3"), so the button says the cards go to the trades log, not
-// into the collection (Eric, 2026-11-19).
+// Done in Buy and in Trade or sale: "Log 3 ›" (design review, 2026-11-19:
+// "Log purchase 3" took two lines at 360 px). The pressed For button and
+// the count over the camera already name the mode; the arrow says another
+// screen follows and nothing is saved yet. The full words are its name for a
+// screen reader (logAria).
+// The Done sheet's button that hands the Add tray over as a purchase:
+// "Log purchase 3", a full-width button with room for it.
 export const purchaseLabel = (count) => (count ? `Log purchase ${count}` : 'Log purchase');
+
+export const logButtonText = (count) => (count ? `Log ${count} ›` : 'Log ›');
+
+export const logAria = (count, mode) => `Log ${count === 1 ? '1 card' : `${count} cards`} as ${mode === 'buy' ? 'a purchase' : 'a trade or sale'}`;
 
 // A button of either row: the icon and its word, the icon hidden from a
 // screen reader, so the word is the button's name unless `label` gives a
@@ -105,26 +132,16 @@ function row({id, labelText, word, buttons}) {
 		...buttons);
 }
 
-// How: Card, Photo, and Page. onCard runs when Card is tapped (the camera
-// again, when it is off); onPhoto and onPage open their pickers, and must
-// click a file input within the tap, as a browser asks.
-export function howRow({onCard, onPhoto, onPage}) {
-	return row({
-		buttons: [
-			iconButton({'aria-pressed': 'true', id: 'scan-how-card', label: 'Card: scan with the camera', name: 'card', onclick: onCard, word: 'Card'}),
-			iconButton({id: 'scan-photo-open', label: 'Photo: pick a photo of one card', name: 'photo', onclick: onPhoto, word: 'Photo'}),
-			iconButton({'aria-haspopup': 'dialog', id: 'scan-page-open', label: 'Page: a whole binder page from a photo', name: 'page', onclick: onPage, word: 'Page'}),
-		],
-		id: 'scan-how',
-		labelText: 'How to scan',
-		word: 'How',
-	});
+// A button of the shutter's row: its icon over its word (Close, Photo,
+// Page), so three fit beside the shutter and Done at 360 px.
+export function controlButton({id, label = null, name, onclick, word, ...rest}) {
+	return h('button', {'aria-label': label, class: 'scan-control scan-icon-control', id, onclick, type: 'button', ...rest}, icon(name), h('span', {class: 'scan-icon-word'}, word));
 }
 
-// Card is pressed while the camera shows the picture: that is the scanning
-// in use. With the camera off (no permission, no camera), nothing is.
-export function drawHow(el, {camera}) {
-	el.querySelector('#scan-how-card').setAttribute('aria-pressed', String(Boolean(camera)));
+// A round icon chip over the camera's foot (Settings, the torch): no word,
+// so its name is `label`.
+export function iconChip({id, label, name, onclick, ...rest}) {
+	return h('button', {'aria-label': label, class: 'scan-chip scan-icon-chip', id, onclick, type: 'button', ...rest}, icon(name));
 }
 
 // For: Add, Buy, and Trade or sale, the one in use pressed (teal for Trade

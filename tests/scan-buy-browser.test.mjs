@@ -1,17 +1,19 @@
-// Browser test for the How and For rows at the head of the scanner's tray
-// and its Buy mode (js/scan/modes.js, js/scan/view.js logPurchase; Eric,
-// 2026-11-19; DESIGN.md section 11, "How and For" and "Scan a purchase"),
+// Browser test for the scanner's controls, the For row at the head of its
+// tray and Close, Photo, and Page in the shutter's row, and its Buy mode
+// (js/scan/modes.js, js/scan/view.js logPurchase; Eric, 2026-11-19; design
+// review, 2026-11-19; DESIGN.md section 11, "How and For" and "Scan a
+// purchase"),
 // in headless Chromium against tests/scan-harness.mjs (Supabase is never
 // reached; TCGdex answers are replayed from the harness cache), with the
 // canvas camera of tests/scan-scene.mjs showing an empty table:
 //
-// - the two rows: How (Card pressed while the camera shows the picture,
-//   Photo and Page plain buttons) and For (Add pressed by default, a group
-//   with a label), each button an icon and a word, 44 px tall, both rows
-//   on one line each at 360 and 412 px with no sideways scroll; pressing
-//   Buy presses it, renames Done and the running count, and is remembered
-//   on the phone; Page opens the binder page choice;
-// - in Buy, Log purchase hands the tray to the trades log's form as a
+// - the controls: For (Add pressed by default, a group with a label) and
+//   Close, Photo, and Page beside the shutter, each an icon and a word, 44
+//   px tall, on one line each at 360 and 412 px with no sideways scroll, and
+//   the camera as tall as it was before them; pressing Buy presses it,
+//   makes Done "Log 2 ›", renames the running count, and is remembered on
+//   the phone; Page opens the binder page choice;
+// - in Buy, Log hands the tray to the trades log's form as a
 //   purchase (Bought, today, every tray card coming in with its copies),
 //   nothing is added before the form's Save, and the save adds the copies
 //   and takes the cards handed over out of the tray, keeping one scanned
@@ -139,43 +141,44 @@ const today = (page) => page.evaluate(() => {
 	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 });
 
-describe('How and For', () => {
+describe('the controls, and For', () => {
 	for (const viewport of [{height: 740, width: 360}, {height: 915, width: 412}]) {
-		test(`at ${viewport.width} px: two rows of icon buttons, Card and Add pressed, Buy remembered, and Page opens the binder page choice`, async () => {
+		test(`at ${viewport.width} px: For, and Close, Photo, Page by the shutter, the camera at full height, Buy remembered, and Page opens the binder page choice`, async () => {
 			const {context, errors, page} = await open({tray: addTray([item('a1', CARDS.a, 'First card'), item('a2', CARDS.b, 'Second card')]), viewport});
 
 			await page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
 
-			// The rows' groups and names.
-			assert.equal(await page.getAttribute('#scan-how', 'role'), 'group');
-			assert.equal(await page.getAttribute('#scan-how', 'aria-label'), 'How to scan');
+			// The For row's group and names, and Close, Photo, and Page in the
+			// shutter's row; no How row (design review, 2026-11-19).
+			assert.equal(await page.locator('#scan-how').count(), 0);
 			assert.equal(await page.getAttribute('#scan-mode', 'role'), 'group');
 			assert.equal(await page.getAttribute('#scan-mode', 'aria-label'), 'What the cards are for');
-			assert.deepEqual(await page.$$eval('#scan-how button, #scan-mode button', (buttons) => buttons.map((button) => [button.id, button.textContent, button.getAttribute('aria-label')])), [
-				['scan-how-card', 'Card', 'Card: scan with the camera'],
-				['scan-photo-open', 'Photo', 'Photo: pick a photo of one card'],
-				['scan-page-open', 'Page', 'Page: a whole binder page from a photo'],
+			assert.deepEqual(await page.$$eval('#scan-mode button, .scan-controls .scan-icon-control', (buttons) => buttons.map((button) => [button.id, button.textContent, button.getAttribute('aria-label')])), [
 				['scan-mode-add', 'Add', null],
 				['scan-mode-buy', 'Buy', null],
 				['scan-mode-trade', 'Trade or sale', null],
+				['scan-close', 'Close', null],
+				['scan-photo-open', 'Photo', 'Photo: pick a photo of one card'],
+				['scan-page-open', 'Page', 'Page: a whole binder page from a photo'],
 			]);
 			// Each an icon, hidden from a screen reader, and its word.
-			assert.equal(await page.locator('#scan-how button > svg[aria-hidden="true"], #scan-mode button > svg[aria-hidden="true"]').count(), 6);
+			assert.equal(await page.locator('#scan-mode button > svg[aria-hidden="true"], .scan-controls .scan-icon-control > svg[aria-hidden="true"]').count(), 6);
 
-			// Card is the scanning in use; Photo and Page open a picker and are
-			// never pressed. Add is the default mode.
-			await untilInPage(page, 'Card pressed', () => document.getElementById('scan-how-card').getAttribute('aria-pressed') === 'true');
+			// Photo and Page open a picker and are never pressed. Add is the
+			// default mode.
 			assert.equal(await pressed(page, '#scan-photo-open'), null);
 			assert.equal(await pressed(page, '#scan-page-open'), null);
 			assert.deepEqual(await page.$$eval('#scan-mode button', (buttons) => buttons.map((button) => button.getAttribute('aria-pressed'))), ['true', 'false', 'false']);
 			assert.equal(await text(page, '#scan-done-open'), 'Done 2');
 
-			// 44 px tall, each row on one line, no sideways scroll, and Clear
-			// beside the How row's buttons.
-			const boxes = await page.$$eval('#scan-how button, #scan-mode button, #scan-clear', (buttons) => buttons.map((button) => {
+			await page.screenshot({path: `${SHOTS}/scan-rows-add-${viewport.width}x${viewport.height}.png`});
+
+			// 44 px tall, inside the gutter, each row on one line, no sideways
+			// scroll.
+			const boxes = await page.$$eval('#scan-mode button, .scan-controls > button:not([hidden]), #scan-tray-menu', (buttons) => buttons.map((button) => {
 				const box = button.getBoundingClientRect();
 
-				return {bottom: box.bottom, height: box.height, id: button.id, right: box.right, top: box.top};
+				return {height: box.height, id: button.id, middle: box.top + (box.height / 2), right: box.right};
 			}));
 
 			for (const box of boxes) {
@@ -183,27 +186,42 @@ describe('How and For', () => {
 				assert.ok(box.right <= viewport.width - 16 + 0.5, `${box.id} is inside the gutter: ${box.right}`);
 			}
 
-			const rowTop = (ids) => [...new Set(boxes.filter((box) => ids.includes(box.id)).map((box) => Math.round(box.top)))];
+			const oneLine = (ids) => {
+				const middles = boxes.filter((box) => ids.includes(box.id)).map((box) => box.middle);
 
-			assert.equal(rowTop(['scan-how-card', 'scan-photo-open', 'scan-page-open', 'scan-clear']).length, 1, 'How and Clear on one line');
-			assert.equal(rowTop(['scan-mode-add', 'scan-mode-buy', 'scan-mode-trade']).length, 1, 'For on one line');
+				return Math.max(...middles) - Math.min(...middles) < 4;
+			};
+
+			assert.ok(oneLine(['scan-mode-add', 'scan-mode-buy', 'scan-mode-trade', 'scan-tray-menu']), 'For and the tray menu on one line');
+			assert.ok(oneLine(['scan-close', 'scan-photo-open', 'scan-page-open', 'scan-shutter', 'scan-done-open']), 'the shutter\'s row on one line');
 			assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), viewport.width, 'no sideways scroll');
 			assert.equal(await page.$eval('#scan-mode-trade', (button) => button.scrollWidth <= button.clientWidth), true, 'Trade or sale whole');
-			// The rows are under the camera, never over it.
+
+			// The camera as tall as before the controls (476 px at 360 x 740
+			// and 651 at 412 x 915 on v84): a second row of icons cost it 44.
 			const stage = await page.locator('#scan-stage').boundingBox();
 
-			assert.ok((await page.locator('#scan-how').boundingBox()).y >= stage.y + stage.height - 0.5, 'How is under the camera');
-			await page.screenshot({path: `${SHOTS}/scan-rows-add-${viewport.width}x${viewport.height}.png`});
+			assert.ok(stage.height >= (viewport.width === 360 ? 470 : 645), `the camera keeps its height: ${stage.height}`);
+			assert.ok((await page.locator('#scan-mode').boundingBox()).y >= stage.y + stage.height - 0.5, 'For is under the camera');
 
+			// The settings gear over the camera's foot, on the left, its name
+			// saying what it holds.
+			const gear = await page.locator('#scan-settings-open').boundingBox();
+
+			assert.match(await page.getAttribute('#scan-settings-open', 'aria-label'), /^Scanner settings: default finish /);
+			assert.ok(gear.width >= 44 && gear.height >= 44, 'the gear is 44 px');
+			assert.ok(gear.x < stage.x + 24 && gear.y + gear.height > stage.y + stage.height - 60, 'the gear is at the camera\'s foot on the left');
 			// Buy: pressed, Done and the running count say so, and the tray is
 			// the same.
 			await page.click('#scan-mode-buy');
 			assert.deepEqual(await page.$$eval('#scan-mode button', (buttons) => buttons.map((button) => button.getAttribute('aria-pressed'))), ['false', 'true', 'false']);
 			assert.equal(await page.getAttribute('#scan-mode', 'data-mode'), 'buy');
-			assert.equal(await text(page, '#scan-done-open'), 'Log purchase 2');
+			assert.equal(await text(page, '#scan-done-open'), 'Log 2 ›');
+			assert.equal(await page.getAttribute('#scan-done-open', 'aria-label'), 'Log 2 cards as a purchase');
+			assert.ok(await page.locator('#scan-done-open.is-log').count(), 'filled, the main action');
 			assert.match(await text(page, '#scan-run-count'), /^Buy · 2 cards/);
 			// Said to a screen reader a moment after (view.js announce).
-			await untilInPage(page, 'Buy announced', () => /^Buy\. Log purchase opens Trades and sales/.test(document.getElementById('scan-live').textContent));
+			await untilInPage(page, 'Buy announced', () => /^Buy\. Log opens Trades and sales/.test(document.getElementById('scan-live').textContent));
 			assert.equal(await page.locator('#scan-tray .scan-tray-item').count(), 2, 'Buy scans into the Add tray');
 			assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'buy', 'the mode is kept on the phone');
 			await page.screenshot({path: `${SHOTS}/scan-rows-buy-${viewport.width}x${viewport.height}.png`});
@@ -220,7 +238,7 @@ describe('How and For', () => {
 			await page.reload();
 			await scanReady(page);
 			assert.equal(await pressed(page, '#scan-mode-buy'), 'true', 'Buy remembered');
-			assert.equal(await text(page, '#scan-done-open'), 'Log purchase 2');
+			assert.equal(await text(page, '#scan-done-open'), 'Log 2 ›');
 
 			// Page: the binder page choice, its tip, and the camera or the
 			// gallery.
@@ -252,7 +270,7 @@ describe('Buy', () => {
 		const {context, errors, page} = await open({mode: 'buy', tray: addTray([item('a1', CARDS.a, 'First card', {copies: 2}), item('a2', CARDS.c, 'Third card', {condition: 'Played'})])});
 
 		await page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
-		assert.equal(await text(page, '#scan-done-open'), 'Log purchase 2', 'counting the tray as Done does');
+		assert.equal(await text(page, '#scan-done-open'), 'Log 2 ›', 'counting the tray as Done does');
 		await page.screenshot({path: `${SHOTS}/scan-buy-tray.png`});
 
 		const before = await liveCards(page);
@@ -299,7 +317,7 @@ describe('Buy', () => {
 		assert.equal(await pressed(page, '#scan-mode-buy'), 'true');
 		await page.waitForSelector('#scan-tray .scan-tray-item');
 		assert.equal(await page.locator('#scan-tray .scan-tray-item').count(), 1);
-		assert.equal(await text(page, '#scan-done-open'), 'Log purchase 1');
+		assert.equal(await text(page, '#scan-done-open'), 'Log 1 ›');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

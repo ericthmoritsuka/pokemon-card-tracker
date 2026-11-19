@@ -42,12 +42,12 @@ import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict,
 import {matchPage, pagePockets, PER_PAGE, placePlan, placeSummary} from './page-place.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
-import {drawFor, drawHow, forRow, howRow, MODE_NAMES, purchaseLabel} from './modes.js';
-import {confirmSheet, doneSheet, pageChoiceSheet, pageSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
+import {controlButton, drawFor, forRow, icon, iconChip, logAria, logButtonText, MODE_NAMES} from './modes.js';
+import {confirmSheet, doneSheet, pageChoiceSheet, pageSheet, reportSheet, setAllSheet, settingsSheet, trayMenuSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
-import {copyPicker, langName, leaveTradeSheet, logLabel, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
+import {copyPicker, langName, leaveTradeSheet, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -539,7 +539,6 @@ export function scanView(root) {
 		h('span', {class: 'scan-page-bar'}, pageBarFill));
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
 	const count = h('p', {class: 'scan-count', id: 'scan-count'});
-	const setAllButton = h('button', {class: 'scan-text-button', id: 'scan-setall-open', onclick: () => openSetAll('language'), type: 'button'}, 'Set for all');
 	// A photo from the gallery, read the way a capture is.
 	const photoInput = h('input', {accept: 'image/*', class: 'scan-photo-input', hidden: true, id: 'scan-photo-input', onchange: () => {
 		const [file] = photoInput.files || [];
@@ -566,7 +565,10 @@ export function scanView(root) {
 	const pageCamera = pageInput('scan-page-camera', 'environment');
 	const pageGallery = pageInput('scan-page-gallery', null);
 	// Empties the tray in one tap, with Undo, as Discard session does.
-	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
+	// The tray's menu: Set for all and Clear, away from the controls that bring
+	// cards in (design review, 2026-11-19: Clear, which throws the whole tray
+	// away, sat beside Page in a row of ways in).
+	const trayMenuButton = h('button', {'aria-haspopup': 'dialog', 'aria-label': 'The tray: set for all, or clear it', class: 'scan-icon-button scan-tray-menu', hidden: true, id: 'scan-tray-menu', onclick: () => showSheet(trayMenuSheet(ctx)), type: 'button'}, icon('more'));
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
 	const zoomRow = h('div', {class: 'scan-zoom', hidden: true, id: 'scan-zoom', role: 'group', 'aria-label': 'Zoom'});
 	// The scanning mode: a chip that shows the mode in use ("Holder (auto)",
@@ -583,18 +585,22 @@ export function scanView(root) {
 	// prices, the chime), a chip at the foot of the camera on the left,
 	// opening their sheet (settingsSheet).
 	const settingsLabel = () => `Scanner settings: default finish ${finishLabel(defaultFinish)}, ${worth.min === null ? 'valuable cards not highlighted' : `valuable cards from ${formatBrl(worth.min)}`}`;
-	const finishButton = h('button', {
-		'aria-haspopup': 'dialog',
-		'aria-label': settingsLabel(),
-		class: 'scan-chip scan-settings-open',
-		id: 'scan-settings-open',
-		onclick: () => showSheet(settingsSheet(ctx)),
-		type: 'button',
-	}, 'Settings');
-	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
-	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
+	// A gear over the camera's foot, on the left (design review, 2026-11-19:
+	// the word Settings covered the corner where a card's number strip is,
+	// the strip Eric aims by). Its name says the default finish and the
+	// valuable threshold, as the chip's did.
+	const finishButton = iconChip({'aria-haspopup': 'dialog', id: 'scan-settings-open', label: settingsLabel(), name: 'settings', onclick: () => showSheet(settingsSheet(ctx))});
+	// The shutter's row: Close, then the other ways in, Photo (one card from
+	// the gallery) and Page (a whole binder page), where a camera app keeps
+	// its gallery button (design review, 2026-11-19: a How row of their own
+	// cost the camera 44 px). The camera is the card way in itself.
+	const closeButton = controlButton({id: 'scan-close', name: 'close', onclick: close, word: 'Close'});
+	const photoButton = controlButton({id: 'scan-photo-open', label: 'Photo: pick a photo of one card', name: 'photo', onclick: () => photoInput.click(), word: 'Photo'});
+	const pageButton = controlButton({'aria-haspopup': 'dialog', id: 'scan-page-open', label: 'Page: a whole binder page from a photo', name: 'page', onclick: () => showSheet(pageChoiceSheet(ctx)), word: 'Page'});
+	// The torch beside the gear, shown when the camera has one.
+	const torchButton = iconChip({'aria-pressed': 'false', hidden: true, id: 'scan-torch', label: 'Torch', name: 'torch', onclick: toggleTorch});
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
-	// Done; Log N cards in Trade or sale, Log purchase N in Buy.
+	// Done; Log N › in Trade or sale and in Buy (js/scan/modes.js logButtonText).
 	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => (T.isTrade(session) ? logIt() : buying() ? logPurchase() : openDone()), type: 'button'}, 'Done');
 	const live = h('p', {'aria-live': 'polite', class: 'scan-live', id: 'scan-live'});
 	const sheetLayer = h('div', {class: 'scan-sheet-layer', hidden: true, id: 'scan-sheet-layer', onclick: (event) => {
@@ -618,39 +624,22 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	// The How and For rows (js/scan/modes.js; Eric, 2026-11-19), at the head
-	// of the tray under the camera: always in view, never over the picture
-	// (Eric aims by the card's number strip) or under the repeat bar, nor in
-	// the camera's band over the guide, which holds the running count. How:
-	// Card (the camera; tapped with the camera off, it tries again), Photo
-	// (one card from the gallery), and Page (a whole binder page). For: Add,
-	// Buy, or Trade or sale.
-	const howBar = howRow({
-		onCard: () => {
-			if (camera) {
-				announce('Scanning with the camera.');
-			}
-			else {
-				openCamera();
-			}
-		},
-		onPage: () => showSheet(pageChoiceSheet(ctx)),
-		onPhoto: () => photoInput.click(),
-	});
+	// The For row (js/scan/modes.js; Eric, 2026-11-19) at the head of the
+	// tray under the camera: always in view, never over the picture or under
+	// the repeat bar. Add, Buy, or Trade or sale.
 	const modeBar = forRow((next) => chooseMode(next));
 	const stageTop = h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip);
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, stageTop, finishButton, holderSwitch, repeatBar, cameraOff, pagePanel);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, stageTop, h('div', {class: 'scan-foot-left'}, finishButton, torchButton), holderSwitch, repeatBar, cameraOff, pagePanel);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
 			h('div', {class: 'scan-tray-head'},
-				h('div', {class: 'scan-head-line'}, howBar, h('div', {class: 'scan-tray-actions'}, clearButton, setAllButton)),
-				h('div', {class: 'scan-head-line'}, modeBar, count),
+				h('div', {class: 'scan-head-line'}, modeBar, count, trayMenuButton),
 				photoInput, pageCamera, pageGallery),
 			tray,
 			zoomRow,
-			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
+			h('div', {class: 'scan-controls'}, closeButton, photoButton, pageButton, shutter, doneButton)
 		),
 		sheetLayer,
 		live
@@ -1075,10 +1064,17 @@ export function scanView(root) {
 		}
 
 		runCount.hidden = false;
-		setAllButton.hidden = items.length < 2;
-		clearButton.hidden = !items.length;
+		trayMenuButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
-		doneButton.textContent = buying() ? purchaseLabel(items.length) : items.length ? `Done ${items.length}` : 'Done';
+		doneButton.textContent = buying() ? logButtonText(items.length) : items.length ? `Done ${items.length}` : 'Done';
+		doneButton.classList.toggle('is-log', buying());
+
+		if (buying() && items.length) {
+			doneButton.setAttribute('aria-label', logAria(items.length, 'buy'));
+		}
+		else {
+			doneButton.removeAttribute('aria-label');
+		}
 
 		if (T.isTrade(session)) {
 			drawTrade();
@@ -1162,10 +1158,13 @@ export function scanView(root) {
 
 		tray.replaceChildren(...tradeColumns({photoUrl: (id) => photoUrls.get(id) || null, results: outResults, session, where}));
 		count.textContent = parts.join(' · ');
-		// Room in the head for the mode's longer name.
-		setAllButton.hidden = true;
 		doneButton.disabled = !session.items.length;
-		doneButton.textContent = logLabel(session.items.length);
+		doneButton.textContent = logButtonText(session.items.length);
+		doneButton.classList.add('is-log');
+
+		if (session.items.length) {
+			doneButton.setAttribute('aria-label', logAria(session.items.length, 'trade'));
+		}
 	}
 
 	// Whether Done hands the Add tray over as a purchase: Buy, while the
@@ -1261,7 +1260,7 @@ export function scanView(root) {
 			case 'trade':
 				return 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log them.';
 			case 'buy':
-				return 'Buy. Log purchase opens Trades and sales with the cards you scan. Nothing changes in your cards until you save it there.';
+				return 'Buy. Log opens Trades and sales with the cards you scan, as a purchase. Nothing changes in your cards until you save it there.';
 			default:
 				return 'Add. Cards you scan are added to your cards when you save.';
 		}
@@ -3928,7 +3927,6 @@ export function scanView(root) {
 
 	function showCameraOff(err) {
 		cameraOff.hidden = false;
-		drawHow(howBar, {camera: false});
 		guide.hidden = true;
 		shutter.disabled = true;
 		cameraOff.replaceChildren(
@@ -4002,7 +4000,6 @@ export function scanView(root) {
 		sinceOpen.clear();
 
 		cameraOff.hidden = true;
-		drawHow(howBar, {camera: true});
 		shutter.disabled = false;
 		placeGuide();
 		drawCameraControls();
@@ -4101,7 +4098,6 @@ export function scanView(root) {
 			camera = null;
 		}
 
-		drawHow(howBar, {camera: false});
 		geometry = null;
 
 		shutter.disabled = true;

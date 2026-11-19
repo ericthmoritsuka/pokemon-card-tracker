@@ -1,7 +1,7 @@
 // Browser tests for the scanner (js/scan/*), in headless Chromium at
-// 360 x 784 (VIEWPORT says why), against tests/scan-harness.mjs: the Pages
-// imitation serving the app with the scanner's integration lines added to
-// its copies of app.js, index.html, and sw.js.
+// 360 x 740, against tests/scan-harness.mjs: the Pages imitation serving the
+// app with the scanner's integration lines added to its copies of app.js,
+// index.html, and sw.js.
 //
 // The camera is Chrome's fake capture device, fed a still of a TCGdex
 // English high.webp scan inside the guide frame (the harness builds it).
@@ -32,10 +32,7 @@ const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = '/pokemon-card-tracker/';
-// 44 px taller than the phone these scenes were tuned at, so the camera keeps
-// that height under the How and For rows (Eric, 2026-11-19), which made the
-// tray head 44 px taller: the test is of what the camera sees, not the rows.
-const VIEWPORT = {height: 784, width: 360};
+const VIEWPORT = {height: 740, width: 360};
 const SHOTS = process.env.SHOTS || '/tmp';
 const PROFILES = '/tmp/scan-browser-profiles';
 
@@ -776,19 +773,21 @@ describe('scanner', () => {
 		await page.click('#scan-report-back');
 		await page.waitForSelector('#scan-confirm');
 
-		// Clear, beside Pick a photo, empties the tray in one tap, and Undo
-		// brings the card back (Eric, 2026-10-03).
+		// Clear, in the tray's menu (design review, 2026-11-19: away from the
+		// controls that bring cards in), empties the tray, and Undo brings the
+		// card back (Eric, 2026-10-03).
 		await page.mouse.click(180, 8);
 		await page.waitForSelector('#scan-sheet-layer', {state: 'hidden'});
-		assert.equal(await text(page, '#scan-clear'), 'Clear');
+		await page.click('#scan-tray-menu');
+		assert.equal(await text(page, '#scan-clear'), 'Clear the tray');
 		await page.screenshot({path: `${SHOTS}/scan-clear.png`});
 		await page.click('#scan-clear');
 		await page.waitForSelector('#scan-undo-discard');
 		assert.equal((await tiles(page)).length, 0);
-		assert.ok(await page.locator('#scan-clear').isHidden(), 'nothing left to clear');
+		assert.ok(await page.locator('#scan-tray-menu').isHidden(), 'nothing left to clear');
 		await page.click('#scan-undo-discard');
 		await until(async () => (await tiles(page)).length === 1, 5000, 'the card back');
-		assert.ok(await page.locator('#scan-clear').isVisible());
+		assert.ok(await page.locator('#scan-tray-menu').isVisible());
 
 		await browser.close();
 		await rm(photo, {force: true});
@@ -812,6 +811,7 @@ describe('scanner', () => {
 		await until(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller)), 20000, 'the service worker');
 		await page.goto(url('scan'));
 		await waitForTray(page, 1, 'Pikachu, online');
+		await page.click('#scan-tray-menu');
 		await page.click('#scan-clear');
 		await page.waitForSelector('#scan-undo-discard');
 
