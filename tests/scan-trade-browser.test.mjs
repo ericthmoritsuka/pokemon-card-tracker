@@ -133,9 +133,10 @@ async function repaint(page) {
 	});
 }
 
-// The scanning mode the switch shows: 'add' or 'trade'.
+// The scanning mode the For row shows: 'add', 'buy', or 'trade'.
 const modeOf = (page) => page.getAttribute('#scan-mode', 'data-mode');
-// Presses the segment of the mode not in use, as a thumb on the switch does.
+// Presses Add or Trade or sale in the For row, whichever is not in use, as
+// a thumb does.
 const switchMode = async (page) => page.click((await modeOf(page)) === 'trade' ? '#scan-mode-add' : '#scan-mode-trade');
 
 const captures = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/scan/view.js')).scanStats.captures);
@@ -378,7 +379,7 @@ describe('Trade or sale', () => {
 		assert.equal(new URL(page.url()).pathname, `${BASE}scan`);
 		assert.equal(await modeOf(page), 'trade', 'opened in Trade or sale');
 		assert.equal(await page.textContent('#scan-mode [aria-pressed="true"]'), 'Trade or sale');
-		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept, as the switch keeps it');
+		assert.equal(await page.evaluate(() => localStorage.getItem('card-tracker:scan-mode')), 'trade', 'the mode is kept, as the For row keeps it');
 		await page.waitForSelector('#scan-trade-out [data-row="t1"]');
 		assert.deepEqual((await trays(page)).trade.map((one) => one.card), [CARDS.c], 'the trade tray kept its card');
 		assert.deepEqual((await trays(page)).add.map((one) => one.card), [CARDS.c], 'the Add tray is left as it was');
@@ -648,7 +649,7 @@ describe('Trade or sale', () => {
 	// Design polish, 2026-11-06: at 780 x 360 the controls fell below the
 	// screen and the trade tray cut Pick a copy. Held sideways the controls
 	// are a column beside the camera, all on screen, in both modes.
-	test('held sideways, the mode switch, the tray, Pick a copy, Close, the shutter, and Log or Done are all on screen beside the camera', async () => {
+	test('held sideways, the How and For rows, the tray, Pick a copy, Close, the shutter, and Log or Done are all on screen beside the camera', async () => {
 		const sideways = {height: 360, width: 780};
 		const at = '2026-11-06T10:00:00.000Z';
 		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
@@ -672,7 +673,7 @@ describe('Trade or sale', () => {
 
 		const stage = await onScreen(page, '#scan-stage');
 
-		for (const selector of ['#scan-mode', '#scan-side-out', '#scan-side-in', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+		for (const selector of ['#scan-how', '#scan-mode', '#scan-side-out', '#scan-side-in', '#scan-close', '#scan-shutter', '#scan-done-open']) {
 			const box = await onScreen(page, selector);
 
 			assert.ok(box.x >= stage.x + stage.width, `${selector} is beside the camera`);
@@ -692,7 +693,7 @@ describe('Trade or sale', () => {
 		await add.page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
 		assert.equal(await add.page.textContent('#scan-done-open'), 'Done 2');
 
-		for (const selector of ['#scan-mode', '#scan-tray .scan-tray-item', '#scan-close', '#scan-shutter', '#scan-done-open']) {
+		for (const selector of ['#scan-how', '#scan-mode', '#scan-tray .scan-tray-item', '#scan-close', '#scan-shutter', '#scan-done-open']) {
 			await onScreen(add.page, selector);
 		}
 

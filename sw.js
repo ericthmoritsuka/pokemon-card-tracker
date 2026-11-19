@@ -232,6 +232,8 @@ const SHELL = [
 	'js/scan/drop.js',
 	'js/scan/see-worker.js',
 	'js/scan/match.js',
+	// The How and For rows at the head of the tray (Eric, 2026-11-19).
+	'js/scan/modes.js',
 	// A whole binder page from one still photo (Eric, 2026-11-18): the page
 	// path, its worker, and the page fitting it shares with lab/multi.
 	'js/scan/multi.js',

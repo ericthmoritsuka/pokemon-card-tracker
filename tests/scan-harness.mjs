@@ -64,6 +64,8 @@ export const INTEGRATION = {
 			'\t\'js/scan/local-names.json\',',
 			'\t\'js/scan/log.js\',',
 			'\t\'js/scan/match.js\',',
+			// The How and For rows (Eric, 2026-11-19).
+			'\t\'js/scan/modes.js\',',
 			'\t\'js/scan/ocr.js\',',
 			'\t\'js/scan/read.js\',',
 			'\t\'js/scan/picture.js\',',

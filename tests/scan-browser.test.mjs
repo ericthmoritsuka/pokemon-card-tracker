@@ -1,7 +1,7 @@
 // Browser tests for the scanner (js/scan/*), in headless Chromium at
-// 360 x 740, against tests/scan-harness.mjs: the Pages imitation serving the
-// app with the scanner's integration lines added to its copies of app.js,
-// index.html, and sw.js.
+// 360 x 784 (VIEWPORT says why), against tests/scan-harness.mjs: the Pages
+// imitation serving the app with the scanner's integration lines added to
+// its copies of app.js, index.html, and sw.js.
 //
 // The camera is Chrome's fake capture device, fed a still of a TCGdex
 // English high.webp scan inside the guide frame (the harness builds it).
@@ -32,7 +32,10 @@ const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
 
 const BASE = '/pokemon-card-tracker/';
-const VIEWPORT = {height: 740, width: 360};
+// 44 px taller than the phone these scenes were tuned at, so the camera keeps
+// that height under the How and For rows (Eric, 2026-11-19), which made the
+// tray head 44 px taller: the test is of what the camera sees, not the rows.
+const VIEWPORT = {height: 784, width: 360};
 const SHOTS = process.env.SHOTS || '/tmp';
 const PROFILES = '/tmp/scan-browser-profiles';
 

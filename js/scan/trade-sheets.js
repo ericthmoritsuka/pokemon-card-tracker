@@ -1,9 +1,10 @@
 // What the scanner's Trade or sale mode draws (js/scan/trade.js; Eric,
-// 2026-11-06): the mode switch over the camera, the two-sided tray, the
-// line a card's sheet shows about its side and copy, the copy picker, and
-// the question asked before the trade tray is thrown away. js/scan/view.js
-// runs them; each sheet is {el, itemId, refresh}, as js/scan/sheets.js
-// builds them, so the view redraws it after every change.
+// 2026-11-06): the two-sided tray, the line a card's sheet shows about its
+// side and copy, the copy picker, and the question asked before the trade
+// tray is thrown away. The For row that picks the mode is js/scan/modes.js
+// (Eric, 2026-11-19). js/scan/view.js runs them; each sheet is {el, itemId,
+// refresh}, as js/scan/sheets.js builds them, so the view redraws it after
+// every change.
 
 import {cardImage, languageLabel} from '../catalog.js';
 import {h} from '../dom.js';
@@ -40,30 +41,6 @@ function sheetHeader(title, onClose, id) {
 		h('h2', {class: 'scan-sheet-title', id}, title),
 		h('button', {class: 'scan-control scan-sheet-close', id: 'scan-sheet-close', onclick: onClose, type: 'button'}, 'Close')
 	);
-}
-
-// ------------------------------------------------------------ the mode switch
-
-// The scanning mode, at the head of the tray under the camera: two
-// segments, Add and Trade or sale, the one in use pressed (teal for Trade
-// or sale), so the mode is always in sight and never over the picture
-// (design review, 2026-11-06). Pressing the other segment asks to switch;
-// the view may refuse, and draws the switch again either way. The count
-// beside it gives way when the row is short.
-export function modeSwitch(onChoose) {
-	const segment = (mode, label) => h('button', {'aria-pressed': 'false', class: 'scan-mode-segment', 'data-mode-to': mode, id: `scan-mode-${mode}`, onclick: () => onChoose(mode), type: 'button'}, label);
-
-	return h('div', {'aria-label': 'Scan mode', class: 'scan-mode', 'data-mode': 'add', id: 'scan-mode', role: 'group'},
-		segment('add', 'Add'),
-		segment('trade', 'Trade or sale'));
-}
-
-export function drawModeSwitch(el, mode) {
-	el.dataset.mode = mode === 'trade' ? 'trade' : 'add';
-
-	for (const button of el.querySelectorAll('[data-mode-to]')) {
-		button.setAttribute('aria-pressed', String(button.dataset.modeTo === el.dataset.mode));
-	}
 }
 
 // ------------------------------------------------------------ the tray

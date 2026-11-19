@@ -4,8 +4,10 @@
 // only, no DOM, so Node tests them (tests/scan-trade.test.mjs); the tray and
 // the copy picker are js/scan/trade-sheets.js, and js/scan/view.js runs both.
 //
-// Scan has two modes, Add (what it always did, the default) and Trade or
-// sale, remembered on the phone. In Trade or sale the tray is a session of
+// Scan has three modes (Eric, 2026-11-19, the For row, js/scan/modes.js):
+// Add (what it always did, the default), Buy, and Trade or sale, remembered
+// on the phone. Buy scans into the Add tray and hands it over as a purchase
+// (purchaseHandoff) instead of adding it. In Trade or sale the tray is a session of
 // its own (session.mode 'trade', kept in the draft under its own key, so the
 // Add tray waits untouched), with two sides: each card carries side 'out'
 // (Going out) or 'in' (Coming in), from the side chosen when it was scanned
@@ -34,10 +36,15 @@ import {blocker, copiesOf, entriesToSave, newSession} from './session.js';
 
 export const MODE_KEY = 'card-tracker:scan-mode';
 
-// The scanning mode remembered on this phone: 'add' (the default) or 'trade'.
+export const MODES = ['add', 'buy', 'trade'];
+
+// The scanning mode remembered on this phone: 'add' (the default), 'buy',
+// or 'trade'. Anything else, as an older or a newer app may leave, is Add.
 export function storedMode() {
 	try {
-		return localStorage.getItem(MODE_KEY) === 'trade' ? 'trade' : 'add';
+		const kept = localStorage.getItem(MODE_KEY);
+
+		return MODES.includes(kept) ? kept : 'add';
 	}
 	catch {
 		return 'add';
@@ -46,7 +53,7 @@ export function storedMode() {
 
 export function rememberMode(mode) {
 	try {
-		localStorage.setItem(MODE_KEY, mode === 'trade' ? 'trade' : 'add');
+		localStorage.setItem(MODE_KEY, MODES.includes(mode) ? mode : 'add');
 	}
 	catch {
 		// Not kept; Scan opens in Add next time.
@@ -473,6 +480,32 @@ export function tradeHandoff(session, results, owned = new Map()) {
 	const items = {in: ins.map((item) => item.id), out: session.items.filter((item) => sideOf(item) === 'out').map((item) => item.id)};
 
 	return {alternatives, in: incoming, items, kind, out, records, session: session.id};
+}
+
+// ------------------------------------------------------------ a purchase
+
+// Buy, and Log as a purchase on Add's Done sheet (Eric, 2026-11-19): the
+// Add tray as a trade with every card coming in, so a purchase is read,
+// checked, and handed over by the same steps as a trade's cards coming in,
+// with no second copy of them. The tray itself is not changed.
+const asPurchase = (session) => ({...session, items: session.items.map((item) => ({...item, side: 'in'}))});
+
+// How the Add tray stands as a purchase (tradeSummary's shape): look, busy
+// (a card still read, looked up, or waiting for signal, which a purchase
+// cannot leave behind as Add's save does), and loggable.
+export const purchaseSummary = (session) => tradeSummary(asPurchase(session), new Map());
+
+// The phone's own day, YYYY-MM-DD, as the trades log's form writes it.
+export function localDay(now = new Date()) {
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// What Buy hands the trades log's form: tradeHandoff's shape with kind
+// 'bought' (Gift the other choice), every tray card coming in, nothing
+// going out, items.in the tray's card ids now (the save takes out only
+// these, draft.js clearPurchase), and today's date.
+export function purchaseHandoff(session, owned = new Map(), now = new Date()) {
+	return {...tradeHandoff(asPurchase(session), new Map(), owned), date: localDay(now)};
 }
 
 // One line under a card going out, saying which copy goes or why none does.

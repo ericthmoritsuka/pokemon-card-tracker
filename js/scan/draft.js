@@ -130,6 +130,24 @@ export async function clearTrade(sessionId, sides = {in: true, out: true}, hande
 	}
 }
 
+// Takes the cards a logged purchase saved out of the Add tray (Buy, or Log
+// as a purchase; Eric, 2026-11-19): only the cards handed over (the item
+// ids the tray held when it was handed over, js/scan/trade.js
+// purchaseHandoff), so a card scanned since stays, and nothing when a newer
+// tray has taken its place (sessionId names the one handed over). The
+// photos of the cards taken out go at the next prune.
+export async function clearPurchase(sessionId, handed = []) {
+	await saving;
+
+	const kept = await run(SESSION, 'readonly', (store) => store.get(CURRENT)).catch(() => null);
+
+	if (kept && kept.id === sessionId) {
+		const gone = new Set(handed);
+
+		await saveSession({...kept, items: kept.items.filter((item) => !gone.has(item.id)), updated_at: new Date().toISOString()});
+	}
+}
+
 // Deletes every photo whose item is in neither tray: `keepIds` (the tray on
 // the screen, which may be ahead of its draft) and both trays kept here.
 export async function prunePhotos(keepIds) {

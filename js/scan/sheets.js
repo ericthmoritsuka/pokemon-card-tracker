@@ -16,6 +16,7 @@ import {formatBrl} from '../prices.js';
 import {SearchHint, searchCards, variantLabel} from '../wishlist.js';
 import {cluesOf, rankCards} from './evidence.js';
 import {DEFAULT_FINISHES, findVariant, finishOptions} from './finish.js';
+import {purchaseLabel} from './modes.js';
 import {
 	ASIAN_LANGUAGES,
 	blocker,
@@ -546,11 +547,15 @@ export function confirmSheet(ctx, itemId) {
 			// trades log (the tray's own button, js/scan/trade-sheets.js logLabel).
 			: ctx.trade
 				? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-log-it', onclick: () => ctx.logIt(), type: 'button'}, `Log ${plural(total, 'card')}`)
-				: single
+				// Buy adds nothing itself either: Log purchase hands the tray
+				// to the trades log (Eric, 2026-11-19).
+				: ctx.buy
+					? h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-log-purchase', onclick: () => ctx.logPurchase(), type: 'button'}, purchaseLabel(total))
+					: single
 					? h('button', {class: 'scan-button scan-primary scan-wide', disabled: saveBlocked, id: 'scan-save', onclick: () => ctx.save(), type: 'button'}, 'Save')
 					: h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-review-done', onclick: () => ctx.openDone(), type: 'button'}, `Done · ${plural(summary.total, 'card')}`);
 
-		const blockedText = single && saveBlocked && !ctx.trade
+		const blockedText = single && saveBlocked && !ctx.trade && !ctx.buy
 			? h('p', {class: 'scan-muted', id: 'scan-save-why'}, reason === 'unsure' ? 'Tap the right card before saving.' : reason === 'language' ? 'Pick the language before saving.' : reason === 'finish' ? 'Pick the finish before saving.' : reason === 'unmatched' ? 'Find the card before saving.' : reason === 'waiting' ? 'Saving waits until this card is looked up.' : 'Still working on this card.')
 			: null;
 
@@ -876,6 +881,19 @@ export function doneSheet(ctx) {
 
 		rows.push(...collectionRow());
 
+		// The tray as it stands, bought rather than added (Eric, 2026-11-19):
+		// the trades log's form opens with every card coming in, and nothing
+		// is added until it is saved there, so Skip them and the collection
+		// above do not apply to it. It waits as Buy's Log purchase does: off
+		// while a card is still read or waits for signal, and cards that need
+		// a look open Review first. Above the sticky Discard and Save, which
+		// stay the sheet's foot.
+		if (ctx.logPurchase) {
+			rows.push(h('div', {class: 'scan-done-purchase'},
+				h('button', {class: 'scan-button scan-wide', disabled: saveRunning || summary.busy > 0 || summary.waiting > 0, id: 'scan-log-as-purchase', onclick: () => ctx.logPurchase(), type: 'button'}, 'Log as a purchase'),
+				h('p', {class: 'scan-muted', id: 'scan-log-as-purchase-help'}, 'Opens Trades and sales with these cards coming in. They are added when you save it there.')));
+		}
+
 		const ready = canSave(summary) && saving > 0;
 		const label = summary.look || summary.busy
 			? `Save ${summary.savableCopies}, ${summary.look ? `${summary.look} to check` : `${summary.busy} still reading`}`
@@ -886,6 +904,7 @@ export function doneSheet(ctx) {
 			// Blocked by cards that need a look, Save starts the Review run
 			// through them (version 36) rather than doing nothing.
 			h('button', {'aria-busy': saveRunning ? 'true' : null, class: 'scan-button scan-primary scan-wide', disabled: saveRunning || (!ready && !(summary.look && ctx.openReview)), id: 'scan-save-session', onclick: () => (!ready && summary.look && ctx.openReview ? ctx.openReview() : saveSession()), type: 'button'}, saveRunning ? `Saving ${plural(saving, 'card')}…` : label)));
+
 
 		body.replaceChildren(...rows);
 	}
@@ -1019,7 +1038,6 @@ export function settingsSheet(ctx) {
 		const lastRise = ctx.lastWorth.rise;
 
 		body.replaceChildren(
-			pageField(ctx),
 			h('div', {class: 'scan-field'},
 				h('p', {class: 'scan-label', id: 'scan-finish-default-label'}, 'Default finish'),
 				h('p', {class: 'scan-muted', id: 'scan-finish-default-help'}, 'Each card you scan starts on this finish when it has it; a card without it starts on its plain print. Ask leaves a card with more than one finish for you to pick. A card\'s sheet still changes it.'),
@@ -1057,18 +1075,31 @@ export function settingsSheet(ctx) {
 
 // ------------------------------------------------------------ a binder page
 
-// A whole binder page from one still photo (js/scan/page.js), at the head of
-// the scanner's settings: one line on how to take it, and the two ways in,
-// the camera or the gallery. Kept apart from single-card scanning, and off
-// the camera's screen, whose tray row has no room for another button on a
-// phone.
-function pageField(ctx) {
-	const busy = ctx.pageBusy;
+// A whole binder page from one still photo (js/scan/page.js), from the How
+// row's Page (Eric, 2026-11-19: moved out of the scanner's settings into
+// a button of its own beside Card and Photo): one line on how to take
+// it, and the two ways in, the camera app or the gallery. ctx.pagePhoto
+// clicks the file input within the tap, as a browser asks. While a page is
+// read, both wait and the line says so.
+export function pageSheet(ctx) {
+	const titleId = 'scan-page-label';
+	const body = h('div', {class: 'scan-sheet-body'});
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-page-sheet', id: 'scan-page', role: 'dialog'},
+		sheetHeader('Binder page', () => ctx.closeSheet(), titleId),
+		body
+	);
 
-	return h('div', {class: 'scan-field scan-page-field', id: 'scan-page'},
-		h('p', {class: 'scan-label', id: 'scan-page-label'}, 'Binder page'),
-		h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
-		h('div', {'aria-labelledby': 'scan-page-label', class: 'scan-chips', role: 'group'},
-			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-take', onclick: () => ctx.pagePhoto('camera'), type: 'button'}, 'Take a photo'),
-			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-pick', onclick: () => ctx.pagePhoto('gallery'), type: 'button'}, 'Choose a photo')));
+	function refresh() {
+		const busy = ctx.pageBusy;
+
+		body.replaceChildren(
+			h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
+			h('div', {'aria-labelledby': titleId, class: 'scan-row', role: 'group'},
+				h('button', {class: 'scan-button', disabled: busy, id: 'scan-page-take', onclick: () => ctx.pagePhoto('camera'), type: 'button'}, 'Take a photo'),
+				h('button', {class: 'scan-button scan-primary', disabled: busy, id: 'scan-page-pick', onclick: () => ctx.pagePhoto('gallery'), type: 'button'}, 'Choose a photo')));
+	}
+
+	refresh();
+
+	return {el, itemId: null, refresh};
 }
