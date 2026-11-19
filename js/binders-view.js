@@ -1102,6 +1102,12 @@ function binderScreen(root, source, id, pageParam) {
 	// A new binder from a list that keeps this one's cards as hand picks
 	// (openConvert); hand-made only.
 	const convertButton = source.readOnly ? null : h('button', {id: 'binder-convert', onclick: () => openConvert(), type: 'button'}, 'Make a list binder from this');
+	// Share page (2026-11-19, from a survey of other collection apps: Eric
+	// sends cards to his family on WhatsApp): a picture of the open page, or
+	// both pages of the spread, as they look, with the binder's name and the
+	// page numbers (js/share-image.js, read only when tapped). First of the
+	// binder's buttons, and alone on a family member's binder.
+	const shareButton = h('button', {class: source.readOnly ? 'wide' : null, id: 'binder-share', onclick: () => sharePage(), type: 'button'}, 'Share page');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1506,8 +1512,9 @@ function binderScreen(root, source, id, pageParam) {
 				emptyHint,
 				unplacedLink,
 				source.readOnly
-					? null
+					? h('div', {class: 'actions'}, shareButton)
 					: h('div', {class: 'actions'},
+						shareButton,
 						refreshButton,
 						fill.button,
 						addTrayButton,
@@ -1526,6 +1533,62 @@ function binderScreen(root, source, id, pageParam) {
 
 		if (listMode) {
 			startList();
+		}
+	}
+
+	// One pocket of the open page as the picture draws it, read from the
+	// pocket on screen, whose art has already loaded (a photo filled in
+	// late, a family member's photo, an English stand-in): its kind, the
+	// card's name for a card back, and its image when one shows. A page
+	// both in the spread and zoomed is drawn twice; either copy will do.
+	function pocketShown(pg, position) {
+		const nodes = [...spread.element.querySelectorAll(`.pocket[data-page="${pg}"][data-position="${position}"]`)];
+		const shown = (node) => {
+			const img = node.querySelector('img:not(.flag)');
+
+			return img && img.complete && img.naturalWidth > 0 ? img : null;
+		};
+		const node = nodes.find(shown) || nodes[0] || null;
+
+		if (!node) {
+			return {kind: 'open', name: '', src: null};
+		}
+
+		const img = shown(node);
+		const back = node.querySelector('.card-back-name');
+
+		return {
+			kind: node.dataset.kind || 'open',
+			name: back ? back.textContent : (img && img.alt) || '',
+			src: img ? img.currentSrc || img.src : null,
+		};
+	}
+
+	async function sharePage() {
+		if (!spread || !binder || shareButton.disabled) {
+			return;
+		}
+
+		const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
+		const pages = spread.pages().map((pg) => ({
+			page: pg,
+			pockets: Array.from({length: binder.rows * binder.cols}, (_, i) => pocketShown(pg, i + 1)),
+		}));
+
+		shareButton.disabled = true;
+		shareButton.textContent = 'Making the image';
+
+		try {
+			const share = await import('./share-image.js');
+
+			await share.sharePages({cols: binder.cols, color, name: binder.name, rows: binder.rows, textColor: coverTextColor(color)}, pages, {notify: toast});
+		}
+		catch (err) {
+			toast(`The image was not made. ${errorText(err)}`);
+		}
+		finally {
+			shareButton.disabled = false;
+			shareButton.textContent = 'Share page';
 		}
 	}
 
