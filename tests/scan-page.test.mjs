@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {edgeBalance, halfRound, isEmptyPocket, locatePage, mergeCards, ownFits, pageSummary, pageTrouble, pocketPlan, pocketProgress, pocketQuads, turnCard, turnPoint, unturnPoint, upsideDown} from '../js/scan/page.js';
-import {addCapture, applyPicture, doubtPocket, newSession, POCKET_ASIAN_WHY} from '../js/scan/session.js';
+import {addCapture, applyLabel, applyPicture, applyRead, defaultLanguage, doubtPocket, newSession, POCKET_ASIAN_WHY} from '../js/scan/session.js';
 import {COLOURLESS} from '../js/scan/steady.js';
 
 const W = 202;
@@ -341,5 +341,72 @@ describe('a pocket\'s sure answer its label cannot back (doubtPocket)', () => {
 		delete single.item.page;
 		assert.equal(doubtPocket(single.session, single.item.id), false);
 		assert.equal(single.item.sure, true, 'a single scan keeps its own rules');
+	});
+});
+
+// A pocket's label row reads no Latin text whatever the card (Eric's page
+// photos, 2026-11-19: all of a Portuguese page, and a Portuguese Charizard ex
+// left with no language), so on a page that reading is no evidence.
+describe('a pocket\'s label row that reads no Latin text', () => {
+	const japanese = {catalog: 'ja', id: 'SV3-109', lang: 'ja', localId: '109', name: 'リザードンex', official: '108', setId: 'SV3'};
+	const english = {catalog: 'international', id: 'sv03-125', lang: 'en', localId: '125', name: 'Charizard ex', official: '197', setId: 'sv03'};
+
+	function capture({page = 6} = {}) {
+		const session = newSession();
+		const item = addCapture(session);
+
+		if (page) {
+			item.page = page;
+		}
+
+		return {item, session};
+	}
+
+	test('gives a pocket no "non-latin" hint, so it never orders the Japanese print first; a single scan keeps it', () => {
+		const pocket = capture();
+
+		applyRead(pocket.session, pocket.item.id, {language: {code: 'non-latin', confidence: 0.5}});
+		assert.equal(pocket.item.languageHint, null);
+		assert.equal(pocket.item.language, null);
+
+		const single = capture({page: null});
+
+		applyRead(single.session, single.item.id, {language: {code: 'non-latin', confidence: 0.5}});
+		assert.equal(single.item.languageHint, 'non-latin');
+	});
+
+	test('leaves a language a pocket read clearly as it was', () => {
+		const pocket = capture();
+
+		applyRead(pocket.session, pocket.item.id, {language: {code: 'en', confidence: 1}});
+		assert.equal(pocket.item.language, 'en');
+		assert.equal(pocket.item.languageBy, 'read');
+	});
+
+	test('the label check keeps a pocket\'s Western pick, and gives one to a pocket with none', () => {
+		const kept = capture();
+
+		applyPicture(kept.session, kept.item.id, {candidates: [english, japanese], card: english, groupLangs: ['en', 'ja'], sure: true});
+		assert.equal(defaultLanguage(kept.session, kept.item.id, 'pt'), true);
+		applyLabel(kept.session, kept.item.id, {code: 'non-latin', confidence: 0.5}, undefined, {asian: 'ko', western: 'pt'});
+		assert.equal(kept.item.language, 'pt');
+		assert.equal(kept.item.languageBy, 'default');
+		assert.ok(kept.item.labelIgnored, 'says why the label was not taken');
+
+		const none = capture();
+
+		applyPicture(none.session, none.item.id, {candidates: [english, japanese], card: english, groupLangs: ['en', 'ja'], sure: true});
+		assert.equal(applyLabel(none.session, none.item.id, {code: 'non-latin', confidence: 0.5}, undefined, {asian: 'ko', western: 'pt'}), true);
+		assert.equal(none.item.language, 'pt', 'never left with no language');
+	});
+
+	test('a single scan still takes a label with no Latin text as a sign of an Asian print', () => {
+		const single = capture({page: null});
+
+		applyPicture(single.session, single.item.id, {candidates: [english, japanese], card: english, groupLangs: ['en', 'ja'], sure: true});
+		defaultLanguage(single.session, single.item.id, 'pt');
+		applyLabel(single.session, single.item.id, {code: 'non-latin', confidence: 0.5}, undefined, {asian: 'ko', western: 'pt'});
+		assert.notEqual(single.item.language, 'pt');
+		assert.equal(single.item.languageHint, 'non-latin');
 	});
 });

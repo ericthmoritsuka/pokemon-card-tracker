@@ -297,6 +297,14 @@ export function searchPrefill(item) {
 // preselected and languageHint orders the chips after Portuguese and
 // English (Japanese, Korean, and Chinese next for "non-latin"). A language
 // already set by hand or by Set for all is kept.
+//
+// A binder page's pocket (item.page) takes no "non-latin" hint: its label
+// row, cut from a photo of the whole page under the sleeve, reads no Latin
+// text whatever the card, and the hint made the last Asian pick order the
+// picture's prints, so the Japanese print of a Western card's artwork came
+// first (Eric's page photos, 2026-11-19: his Portuguese Caterpie, Metapod,
+// and Pidgey came out as Japanese prints). Japanese, Korean, or Chinese
+// text actually read still counts.
 export function applyRead(session, id, read, now = nowIso()) {
 	const item = mustFind(session, id);
 	const summary = summariseRead(read);
@@ -315,7 +323,7 @@ export function applyRead(session, id, read, now = nowIso()) {
 		}
 		else {
 			item.language = null;
-			item.languageHint = code || null;
+			item.languageHint = item.page && code === 'non-latin' ? null : code || null;
 		}
 	}
 
@@ -782,7 +790,10 @@ export function applyLabel(session, id, label, now = nowIso(), {asian = null, ca
 	const open = item.languageBy === 'default' || (!item.languageBy && !item.language && Boolean(item.card));
 
 	if (open && noLatinText(label) && !ASIAN_LANGUAGES.includes(item.language)) {
-		const evidence = asianEvidence(item);
+		// A pocket's label row reads no Latin text whatever the card (applyRead):
+		// no evidence, so the Western pick stands (Eric's Portuguese Charizard ex
+		// on his page photo, 2026-11-19, was left with no language at all).
+		const evidence = item.page ? {level: null, why: 'a binder pocket\'s label row, cut from a page photo, often reads no Latin text'} : asianEvidence(item);
 
 		if (!evidence.level) {
 			// A missing label alone is no evidence: the Western pick stands, or

@@ -218,6 +218,14 @@ outline fitted, so the floor is lower than the number read's.
 - **Cards touching** (loose): two cards side by side make a lying card's shape and stay one box.
 - **Reprints and language twins**: the picture names the artwork; the print needs the number or the
   label row read, which these runs left out.
+- **A pocket's language** (in the app, 2026-11-19): on Eric's three upright pages run through Binder
+  page, no Western pocket read its language (every one took the default), and the label row read
+  "no Latin text" on Portuguese cards. That reading counted as Asian, so the last Asian pick ordered
+  the prints and four Western cards came out as their Japanese twins (Caterpie, Metapod, Pidgey,
+  Sandshrew), and a Portuguese Charizard ex was left with no language. On a pocket it no longer
+  counts (`js/scan/session.js` `applyRead`, `applyLabel`): all four come out Western, still asking for
+  a look, and the Charizard takes the Western default. Japanese, Korean, or Chinese text actually
+  read still counts. English against Portuguese stays unsettled on a pocket.
 
 ## Checking With Real Photos
 
