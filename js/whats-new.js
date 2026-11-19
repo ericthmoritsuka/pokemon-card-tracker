@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-19',
 		items: [
+			'Binder page scan: a Portuguese or English card no longer comes out as the Japanese print of the same picture. It still asks you to check it.',
+			'Every card from a binder page now gets a language; one could be left with none.',
+		],
+		version: 'v84',
+	},
+	{
+		date: '2026-11-19',
+		items: [
 			'Stats: in My Cards, Stats (beside Value) shows your copies by language, set, rarity, type, finish, and condition, the ten most valuable, and what you added each month.',
 			'Share a card or a binder page as a picture: Share on a card page, or Share page in a binder, sends it through the phone\'s share sheet, to WhatsApp for example.',
 			'Print placeholders: in your binder, print real-size paper cards for the pockets you still need, to slip into the real binder until the card arrives.',
