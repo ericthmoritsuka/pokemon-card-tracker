@@ -948,13 +948,15 @@ html.scan-open body {
 	width: 22px;
 }
 
-/* The holder chip keeps clear of the icons on the left; a label too long
-   for its share takes two lines (large text on a 324 px wide Realme,
-   2026-11-09). */
+/* The holder chip keeps to 60 % of the camera's width, as in v84, clear of
+   the icons on the left; a label too long for it takes two lines (large
+   text on a 324 px wide Realme, 2026-11-09). Wider, holder mode's scenes in
+   tests/scan-holder-browser.test.mjs took a passing hand for a card
+   (2026-11-19), so it stays as it was. */
 .scan-chip.scan-holder {
 	box-sizing: border-box;
 	justify-content: center;
-	max-width: calc(100% - 128px);
+	max-width: calc(60% - 12px);
 	text-align: center;
 }
 
