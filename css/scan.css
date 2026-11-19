@@ -332,6 +332,98 @@ html.scan-open body {
 	display: none;
 }
 
+/* A binder page being read (view.js showPageBusy): over the camera, as the
+   camera-off panel sits, until the last pocket is read. */
+.scan-page-busy {
+	align-items: center;
+	background: var(--scan-surface);
+	border-radius: 20px;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+	color: var(--scan-text);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	left: 16px;
+	padding: 24px 16px;
+	position: absolute;
+	right: 16px;
+	text-align: center;
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 1;
+}
+
+.scan-page-busy[hidden] {
+	display: none;
+}
+
+.scan-stage.is-reading-page .scan-camera-off {
+	visibility: hidden;
+}
+
+.scan-page-title {
+	font-size: 18px;
+	font-weight: 700;
+	line-height: 24px;
+	margin: 0;
+}
+
+.scan-page-step {
+	color: var(--scan-muted);
+	font-size: 15px;
+	line-height: 22px;
+	margin: 0;
+	min-height: 44px;
+}
+
+.scan-spinner {
+	animation: scan-spin 0.9s linear infinite;
+	border: 4px solid var(--scan-border);
+	border-radius: 50%;
+	border-top-color: var(--scan-primary);
+	height: 40px;
+	width: 40px;
+}
+
+.scan-page-bar {
+	background: var(--scan-border);
+	border-radius: 4px;
+	display: block;
+	height: 8px;
+	overflow: hidden;
+	width: 100%;
+}
+
+.scan-page-bar-fill {
+	background: var(--scan-primary);
+	display: block;
+	height: 100%;
+	transition: width 0.3s ease-out;
+	width: 0;
+}
+
+/* While the page is found there is no count: a short bar runs across. */
+.scan-page-busy.is-finding .scan-page-bar-fill {
+	animation: scan-bar-run 1.4s ease-in-out infinite;
+	width: 30%;
+}
+
+@keyframes scan-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes scan-bar-run {
+	from {
+		transform: translateX(-100%);
+	}
+
+	to {
+		transform: translateX(340%);
+	}
+}
+
 /* ------------------------------------------------------------ the bottom */
 
 .scan-bottom {
@@ -1323,6 +1415,16 @@ html.scan-open body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.scan-spinner {
+		animation: none;
+	}
+
+	.scan-page-busy.is-finding .scan-page-bar-fill {
+		animation: none;
+		opacity: 0.5;
+		width: 100%;
+	}
+
 	.scan-guide.is-flash {
 		animation: none;
 		border-color: #ffffff;
