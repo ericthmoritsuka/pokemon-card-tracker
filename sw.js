@@ -150,6 +150,8 @@ const SHELL = [
 	'js/binders.js',
 	'js/pocket-drag.js',
 	'js/auth.js',
+	'js/bulk-edit.js',
+	'js/bulk-select.js',
 	'js/card-info.js',
 	'js/card-search.js',
 	'js/card-swipe.js',
