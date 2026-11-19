@@ -1,7 +1,9 @@
 // A whole binder page from one still photo (js/scan/page.js): where the page
 // lies in a grey copy of the photo, on synthetic copies like
 // tests/scan-multi.test.mjs draws; how it is cut into pockets; which pocket
-// is empty; and the lines Eric reads.
+// is empty; the lines Eric reads; and a pocket's sure answer that its label
+// cannot back (js/scan/session.js doubtPocket). The pixels and the tray are
+// covered by tests/scan-page-browser.test.mjs.
 //
 // Run: node --test tests/scan-page.test.mjs
 
@@ -9,6 +11,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {isEmptyPocket, locatePage, ownFits, pageSummary, pageTrouble, pocketPlan, pocketProgress, pocketQuads} from '../js/scan/page.js';
+import {addCapture, applyPicture, doubtPocket, newSession, POCKET_ASIAN_WHY} from '../js/scan/session.js';
 import {COLOURLESS} from '../js/scan/steady.js';
 
 const W = 202;
@@ -216,5 +219,49 @@ describe('what Eric reads (pocketProgress, pageSummary, pageTrouble)', () => {
 		for (const status of ['none', 'spread', 'unreadable']) {
 			assert.ok(!/\u2014/.test(pageTrouble(status)), 'no em dash');
 		}
+	});
+});
+
+describe('a pocket\'s sure answer its label cannot back (doubtPocket)', () => {
+	const japanese = {catalog: 'ja', id: 'SV2a-018', lang: 'ja', localId: '018', name: 'ピジョット', official: '165', setId: 'SV2a'};
+	const english = {catalog: 'international', id: 'sv03.5-018', lang: 'en', localId: '018', name: 'Pidgeot', official: '165', setId: 'sv03.5'};
+
+	function pocket(card, {page = 9, read = null} = {}) {
+		const session = newSession();
+		const item = addCapture(session);
+
+		item.page = page;
+		item.read = read;
+		applyPicture(session, item.id, {candidates: [card], card, sure: true});
+
+		return {item, session};
+	}
+
+	test('a Japanese print made sure by its number alone, its label reading no Latin text, asks for a look', () => {
+		const {item, session} = pocket(japanese, {read: {language: {code: 'non-latin', confidence: 0.5}, number: {number: '18', total: '165'}}});
+
+		assert.equal(doubtPocket(session, item.id), true);
+		assert.equal(item.sure, false);
+		assert.equal(item.why, POCKET_ASIAN_WHY);
+	});
+
+	test('a Japanese print whose Japanese text was read stays sure', () => {
+		const {item, session} = pocket(japanese, {read: {language: {code: 'non-latin'}, name: {script: 'ja', text: 'ピジョット'}, script: 'ja'}});
+
+		assert.equal(doubtPocket(session, item.id), false);
+		assert.equal(item.sure, true);
+	});
+
+	test('a Western print, or a card not from a page, is left alone', () => {
+		const western = pocket(english, {read: {language: {code: 'non-latin'}}});
+
+		assert.equal(doubtPocket(western.session, western.item.id), false);
+		assert.equal(western.item.sure, true);
+
+		const single = pocket(japanese, {page: undefined});
+
+		delete single.item.page;
+		assert.equal(doubtPocket(single.session, single.item.id), false);
+		assert.equal(single.item.sure, true, 'a single scan keeps its own rules');
 	});
 });
