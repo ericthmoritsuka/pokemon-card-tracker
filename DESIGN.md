@@ -230,6 +230,21 @@ else (the tray, the repeat bar, Review) is the same flow. Details in section 6. 
 scanning the cards; its own two-sided tray and Log N cards into the trades log are in section 11,
 "Scan a trade or a sale". Add stays the default and works as before.
 
+**Controls by the shutter, the camera at full height** (design review, 2026-11-19, which supersedes
+the How row below). The How row cost the camera 44 px (476 to 432 at 360 x 740) and the detection
+tests' scenes needed the old height. Now Close, Photo, and Page sit in the shutter's row (`Close ·
+Photo · Page · shutter · Done`), each an icon over its word, where a camera app keeps its gallery
+button; the camera itself is the card way in, with no button. Settings is a gear, with the torch
+beside it, at the camera's foot on the left (the word covered the corner where a card's number strip
+is); Hand-held stays on the right. Clear and Set for all are in the tray's menu (three dots) at the
+end of the For row, away from the controls that bring cards in; under 400 px the row's word For is
+hidden to give the menu its room. The For row is 48 px, as the old switch was, so the camera is
+exactly its v84 height. In Buy and Trade or sale, Done reads "Log 3 ›", filled ("Log purchase 3" took
+two lines), its name to a screen reader "Log 3 cards as a purchase". The designer's other idea, the
+buttons in the camera's top band, was not taken: the guide keeps below what that band holds, so it
+would have shrunk by about 24 px. Collapsing the empty tray was not taken either: the camera would
+shrink by about 120 px when the first card lands, moving the guide under the aim.
+
 **How and For: two rows of icon buttons pick the way in and the mode** (Eric, 2026-11-19). Under
 the camera, Card, Photo, and Page say how the cards come in, and Add, Buy, and Trade or sale what
 they are for; Buy scans as Add does and hands the tray to the trades log as a purchase. Both are in
