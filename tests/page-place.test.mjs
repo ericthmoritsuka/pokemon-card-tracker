@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {placePage, placements} from '../js/binders.js';
-import {copyChoices, matchPage, pagePockets, placeSummary, whereText} from '../js/scan/page-place.js';
+import {copyChoices, freePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from '../js/scan/page-place.js';
 
 const AT = '2026-11-19T12:00:00.000Z';
 const card = (id, name) => ({catalog: 'international', id, image: `https://assets.tcgdex.net/en/x/${id}`, name});
@@ -100,5 +100,45 @@ describe('placing a page in one save (placePage)', () => {
 		const binders = [binder('list', 'From a list', [], {rule: {order: 'dex', source: {id: 'kanto', kind: 'checklist'}}})];
 
 		assert.throws(() => placePage(binders, {at: AT, binderId: 'list', pockets: [{content: {entry_id: 'p1'}, page: 1, position: 1}]}), /made from a list/);
+	});
+});
+
+describe('the page it goes to (pagesInUse, freePage, placePlan)', () => {
+	const full = binder('full', 'Binder A', [
+		{entry_id: 'x1', page: 1, position: 1},
+		{page: 1, position: 2, want: {card_id: 'base1-4', catalog: 'international', name: 'Charizard'}},
+		{cleared: true, page: 2, position: 1},
+		{entry_id: 'x2', page: 3, position: 9},
+	], {page_count: 3});
+
+	test('counts what each page holds, a cleared pocket as open, and offers the first free page or pages', () => {
+		assert.deepEqual([...pagesInUse(full)], [[1, 2], [3, 1]]);
+		assert.equal(freePage(full, 1), 2);
+		assert.equal(freePage(full, 2), 4, 'no two free pages in a row: a new page at the end');
+	});
+
+	test('says which copies come out loose and which marks are written over, and how to put them back', () => {
+		const binders = [full, binder('other', 'Binder B', [{entry_id: 'p1', page: 1, position: 4}])];
+		const pockets = [
+			{content: {entry_id: 'p1'}, page: 1, position: 1},
+			{content: {entry_id: 'x1'}, page: 1, position: 2},
+		];
+		const plan = placePlan(binders, {binderId: 'full', pockets});
+
+		assert.equal(plan.loose, 0, 'x1 is placed again, in pocket 2');
+		assert.equal(plan.replaced, 1, 'the Charizard placeholder is written over');
+		assert.deepEqual(plan.undo.target, [
+			{content: {entry_id: 'x1'}, page: 1, position: 1},
+			{content: {want: {card_id: 'base1-4', catalog: 'international', name: 'Charizard'}}, page: 1, position: 2},
+		]);
+		assert.deepEqual(plan.undo.moved, [
+			{binderId: 'other', content: {entry_id: 'p1'}, page: 1, position: 4},
+			{binderId: 'full', content: {entry_id: 'x1'}, page: 1, position: 1},
+		]);
+
+		const over = placePlan(binders, {binderId: 'full', pockets: [{content: {entry_id: 'p1'}, page: 1, position: 1}]});
+
+		assert.equal(over.loose, 1, 'x1 leaves its pocket and is placed nowhere');
+		assert.deepEqual(placePlan(binders, {binderId: null, pockets}).undo.target.map((one) => one.content), [null, null], 'a new binder has nothing to take out');
 	});
 });

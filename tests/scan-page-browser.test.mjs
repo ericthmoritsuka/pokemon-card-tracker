@@ -412,12 +412,15 @@ describe('a binder page from one photo', () => {
 			const collection = await import('/pokemon-card-tracker/js/collection.js');
 			const binders = await import('/pokemon-card-tracker/js/binders.js');
 			const copy = (id) => ({card_id: id, catalog: 'international', language: 'en', language_source: 'manual'});
-			const [a1, a2, b1] = await collection.addCards([copy(cards.a), copy(cards.a), copy(cards.b)]);
+			const [a1, a2, b1, other] = await collection.addCards([copy(cards.a), copy(cards.a), copy(cards.b), copy('base1-58')]);
 			const old = await binders.createBinder({cols: 3, name: 'Binder A', page_count: 1, rows: 3});
 
 			await binders.placeCard(old.id, 1, 5, b1.id);
+			// A card not on the scanned page, in the pocket the page's first
+			// card would take: placing on page 1 must say it comes out.
+			await binders.placeCard(old.id, 1, 1, other.id);
 
-			return {a1: a1.id, a2: a2.id, b1: b1.id, old: old.id};
+			return {a1: a1.id, a2: a2.id, b1: b1.id, old: old.id, other: other.id};
 		}, CARDS);
 
 		await choose(page, pagePhoto);
@@ -434,7 +437,7 @@ describe('a binder page from one photo', () => {
 
 		const wheres = await page.$$eval('#scan-page-grid-1 > li', (nodes) => nodes.map((node) => (node.classList.contains('scan-page-empty') ? 'empty' : node.querySelector('.scan-page-where').textContent)));
 
-		assert.deepEqual(wheres, ['Loose', 'Binder A, p. 1', 'Not yours: placeholder', 'Not yours: placeholder', 'empty', 'Loose', 'Not yours: placeholder', 'Not yours: placeholder', 'empty']);
+		assert.deepEqual(wheres, ['Loose', 'Binder A, p. 1', 'No copy left: placeholder', 'No copy left: placeholder', 'empty', 'Loose', 'No copy left: placeholder', 'No copy left: placeholder', 'empty']);
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-page-mine.png`});
 
@@ -466,6 +469,39 @@ describe('a binder page from one photo', () => {
 
 		assert.deepEqual(after.made, [[1, 'a1'], [2, 'b1'], [3, `want ${CARDS.c}`], [4, `want ${CARDS.b}`], [6, 'a2'], [7, `want ${CARDS.c}`], [8, `want ${CARDS.a}`]]);
 		assert.equal(after.oldHolds, 0, 'the copy left Binder A');
+
+		// Undo: the new binder goes, the copy goes back to Binder A, and the
+		// page is back to place again.
+		const pocketsOf = (ids) => page.evaluate(async (ids) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const all = await binders.listBinders();
+			const name = (id) => Object.keys(ids).find((key) => ids[key] === id) || id;
+
+			return {
+				kanto: all.filter((one) => one.name === 'Kanto page').length,
+				old: all.find((one) => one.id === ids.old).slots.filter((slot) => !slot.cleared).map((slot) => [slot.page, slot.position, slot.entry_id ? name(slot.entry_id) : `want ${slot.want.card_id}`]),
+			};
+		}, ids);
+
+		await page.click('#scan-place-undo');
+		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read after Undo');
+		assert.deepEqual(await pocketsOf(seeded), {kanto: 0, old: [[1, 1, 'other'], [1, 5, 'b1']]});
+
+		// Binder A: a free page is offered first; page 1 holds a card the
+		// page does not, so it warns and the button says Replace.
+		await page.selectOption('#scan-place-binder', seeded.old);
+		assert.equal(await page.$eval('#scan-place-page', (select) => select.selectedOptions[0].textContent), 'A new page at the end (page 2)');
+		assert.equal(await page.$eval('#scan-place-page option[value="1"]', (option) => option.textContent), 'Page 1, 2 in use');
+		await page.selectOption('#scan-place-page', '1');
+		assert.equal(await text(page, '#scan-place-warning'), '1 card on that page will come out of its pocket and be loose. Undo puts it back.');
+		assert.equal(await text(page, '#scan-place-go'), 'Replace 1 card on page 1');
+		await page.click('#scan-place-go');
+		await page.waitForSelector('#scan-place-done');
+		assert.equal(await text(page, '#scan-place-done'), 'Placed on page 1 of Binder A: 3 cards and 4 placeholders. 1 card that was there is loose now.');
+		await page.click('#scan-place-undo');
+		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
+		assert.deepEqual((await pocketsOf(seeded)).old, [[1, 1, 'other'], [1, 5, 'b1']], 'Undo put Binder A back');
 		assert.deepEqual(app.errors, []);
 		await close(app);
 	});
@@ -497,7 +533,7 @@ describe('a binder page from one photo', () => {
 		}, 300000, 'the page read');
 
 		assert.ok([...notes].some((note) => /^Reading pocket [1-9] of 9\.$/.test(note)), `progress shown (${[...notes].join(' | ')})`);
-		assert.ok(panels.has('finding: Finding the page and its pockets. A large photo takes a few seconds.'), `the panel while the page is found (${[...panels].join(' | ')})`);
+		assert.ok(panels.has('finding: Finding the page and its pockets. A large photo can take about a minute.'), `the panel while the page is found (${[...panels].join(' | ')})`);
 		assert.ok([...panels].some((panel) => /^pockets: Reading pocket [1-9] of 9\.$/.test(panel)), `the panel counts pockets (${[...panels].join(' | ')})`);
 		assert.ok(await page.$eval('#scan-page-busy', (panel) => panel.hidden), 'the panel goes once the page is read');
 		assert.equal(await page.$eval('#scan-page-busy', (panel) => panel.getAttribute('aria-hidden')), 'true', '#scan-note speaks for it');

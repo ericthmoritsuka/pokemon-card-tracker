@@ -16,7 +16,7 @@
 // camera says how many are in the tray. With Record every scan on (Phone
 // check), each scan is kept in the scan log (js/scan/log.js).
 
-import {createBinder, handBinders, listBinders, placements, placeOnPage, updateBinder, waitingPlaceholderList} from '../binders.js';
+import {createBinder, deleteBinder, handBinders, listBinders, placements, placeOnPage, updateBinder, waitingPlaceholderList} from '../binders.js';
 import {afterAdding, undoAdding} from '../placeholder-fill.js';
 import {setPendingMove} from '../moves.js';
 import {addCards, deleteCard, listCards, onChange} from '../collection.js';
@@ -39,7 +39,7 @@ import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
-import {matchPage, pagePockets, PER_PAGE, placeSummary} from './page-place.js';
+import {matchPage, pagePockets, PER_PAGE, placePlan, placeSummary} from './page-place.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
 import {drawFor, drawHow, forRow, howRow, MODE_NAMES, purchaseLabel} from './modes.js';
@@ -695,6 +695,7 @@ export function scanView(root) {
 			}
 		},
 		placePage: (target) => placePageNow(target),
+		undoPlace: (undo) => undoPlaceNow(undo),
 		openBinder: (id) => closeSheet().then(() => go(`binders/${encodeURIComponent(id)}`)),
 		setPageMine,
 		pagePreview: (code) => S.setForAllPreview(session, 'language', code, {ids: pageIds(), onlyDefault: true}),
@@ -1916,10 +1917,19 @@ export function scanView(root) {
 			first = 1;
 		}
 
-		await placeOnPage(binder.id, pagePockets(items, matches, first));
+		const pockets = pagePockets(items, matches, first);
+		// From the binders as they are now, not as they were when the page
+		// turned to Already mine: what comes out, and how to put it back.
+		const plan = placePlan(await listBinders(), {binderId: binderId ? binder.id : null, pockets});
+
+		await placeOnPage(binder.id, pockets);
 
 		const done = placeSummary(items, matches);
-		const text = `Placed on ${pages > 1 ? `pages ${first} and ${first + 1}` : `page ${first}`} of ${binder.name}: ${plural(done.copies, 'card')}${done.placeholders ? ` and ${plural(done.placeholders, 'placeholder')}` : ''}.`;
+		const text = [
+			`Placed on ${pages > 1 ? `pages ${first} and ${first + 1}` : `page ${first}`} of ${binder.name}: ${plural(done.copies, 'card')}${done.placeholders ? ` and ${plural(done.placeholders, 'placeholder')}` : ''}.`,
+			plan.loose ? `${plural(plan.loose, 'card')} that ${plan.loose === 1 ? 'was' : 'were'} there ${plan.loose === 1 ? 'is' : 'are'} loose now.` : null,
+		].filter(Boolean).join(' ');
+		const runBefore = JSON.parse(JSON.stringify(run));
 
 		change(() => {
 			delete session.pageRun;
@@ -1928,7 +1938,40 @@ export function scanView(root) {
 		setNote(text);
 		announce(text);
 
-		return {binderId: binder.id, text};
+		return {binderId: binder.id, text, undo: {...plan.undo, binderId: binder.id, created: !binderId, run: runBefore}};
+	}
+
+	// Undo of a placed page: the pockets it wrote get back what they held
+	// (a new binder it made is deleted), the copies it took from other
+	// pockets go back there, and the page comes back to the scan, still
+	// "Already mine", to place again.
+	async function undoPlaceNow(undo) {
+		if (undo.created) {
+			await deleteBinder(undo.binderId);
+		}
+		else {
+			await placeOnPage(undo.binderId, undo.target);
+		}
+
+		const byBinder = new Map();
+
+		for (const {binderId, ...pocket} of undo.moved) {
+			byBinder.set(binderId, [...(byBinder.get(binderId) || []), pocket]);
+		}
+
+		for (const [binderId, pockets] of byBinder) {
+			await placeOnPage(binderId, pockets);
+		}
+
+		change(() => {
+			session.pageRun = undo.run;
+		});
+		loadPageOwned();
+
+		const text = 'Undone: the binder pages are as they were.';
+
+		setNote(text);
+		announce(text);
 	}
 
 	// The cards of the binder page just read, still in the tray.
@@ -2530,7 +2573,7 @@ export function scanView(root) {
 
 		pageBusy = true;
 		setNote('Finding the page.');
-		showPageBusy('Finding the page and its pockets. A large photo takes a few seconds.');
+		showPageBusy('Finding the page and its pockets. A large photo can take about a minute.');
 
 		try {
 			const found = await readPagePhoto(file);
