@@ -32,6 +32,7 @@ import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
 import {cardPhotos, imageCardKey, onImagesChange, tileSrc, withMainPhoto} from './photos/index.js';
+import {cardFileStem} from './photos/save.js';
 import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from './twins.js';
 import {twinConfirm} from './twins-view.js';
 import {plainVariantId} from './scan/finish.js';
@@ -317,6 +318,7 @@ function memberPhotos(cardId, catalog, language) {
 
 	return {
 		destroy: () => block.destroy(),
+		mainPicture: () => block.mainPicture(),
 		// True when the copies changed and the block was made again.
 		setEntries(entries, records = []) {
 			const mine = recordsOfCard(records, {card_id: cardId, catalog});
@@ -1188,6 +1190,7 @@ export function cardView(root, {lang, cardId}) {
 		const twins = twinSlides(twinItem);
 
 		twinDrawn = twinShown();
+		shareInfo = {name, number, setName, stem: cardFileStem(info)};
 		document.title = `${name} | Card Tracker`;
 
 		if (set.id) {
@@ -1293,6 +1296,58 @@ export function cardView(root, {lang, cardId}) {
 			setPendingMove(live.length === 1 ? {out: [live[0].id]} : {card: {card_id: cardId, catalog: catalogFor(lang)}});
 			go('trades/new');
 		}, type: 'button'}, 'Trade or sale');
+	}
+
+	// Share (2026-11-19, from a survey of other collection apps: Eric sends
+	// cards to his family on WhatsApp): a picture of the card, its main
+	// image with its name, set, number, and the copies in each language and
+	// finish, handed to the phone's share sheet, or downloaded on a computer
+	// (js/share-image.js, read only when tapped). On every card page, a
+	// family member's and one with no copy too, at the end of the row under
+	// Ver na Liga.
+	let shareInfo = null;
+
+	function shareButton() {
+		return h('button', {class: 'small share-open', id: 'card-share', onclick: (event) => shareCard(event.currentTarget), type: 'button'}, 'Share');
+	}
+
+	// What one copy's finish says on the picture: nothing when it is not set.
+	function shareFinish(entry, variants) {
+		const text = finishName(entry, variants);
+
+		return text === 'Finish not set' || text === 'Finish (catalog offline)' ? null : text;
+	}
+
+	async function shareCard(button) {
+		if (!current || !shareInfo || button.disabled) {
+			return;
+		}
+
+		const variants = Array.isArray(current.variants_detailed) ? current.variants_detailed : [];
+		const count = owned.length;
+
+		button.disabled = true;
+		button.textContent = 'Making the image';
+
+		try {
+			const share = await import('./share-image.js');
+
+			await share.shareCard({
+				copies: share.copyLines(owned.map((entry) => ({finish: shareFinish(entry, variants), language: languageName(entry.language)}))),
+				copiesTitle: count ? `${member ? `${memberLabel(member)}'s` : 'My'} ${count === 1 ? 'copy' : `copies (${count})`}` : null,
+				// At zero copies, the catalog's language stands in for theirs.
+				details: [[shareInfo.setName, shareInfo.number].filter(Boolean).join(' · '), count ? null : languageLabel(lang)],
+				name: shareInfo.name,
+				stem: shareInfo.stem,
+			}, {notify: toast, picture: () => photos.mainPicture()});
+		}
+		catch (err) {
+			toast(`The image was not made. ${errorText(err)}`);
+		}
+		finally {
+			button.disabled = false;
+			button.textContent = 'Share';
+		}
 	}
 
 	// Ver na Liga, or why there is none, right under Your copies, with Add
@@ -1704,6 +1759,11 @@ export function cardView(root, {lang, cardId}) {
 		drawMoves().catch(() => {});
 
 		if (!live.length) {
+			// Share alone under Ver na Liga: with no copy, the rest of that
+			// row has nothing to act on.
+			collectSlot.replaceChildren(shareButton());
+			collectSlot.hidden = false;
+
 			// A member's card says so; yours offers Add.
 			copies.hidden = false;
 			copies.replaceChildren(h('div', {class: 'copies-head'},
@@ -1809,12 +1869,13 @@ export function cardView(root, {lang, cardId}) {
 		// first screen.
 		// Add to binder beside it: a binder to pick, then a pocket there
 		// (js/binder-hand.js). Never on a family member's card.
+		// Share last, on a family member's card too.
 		collectSlot.replaceChildren(...(readOnly ? [] : [
 			collectButton(live, shownName),
 			addToBinderButton({cardId, catalog: catalogFor(lang), name: shownName, toast}),
 			moveButton(live),
-		]));
-		collectSlot.hidden = readOnly;
+		]), shareButton());
+		collectSlot.hidden = false;
 
 		if (focusRow && focusClass) {
 			const row = [...copies.querySelectorAll('[data-alike]')].find((item) => item.dataset.alike === focusRow);
