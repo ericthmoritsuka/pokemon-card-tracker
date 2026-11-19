@@ -781,7 +781,18 @@ export async function readPagePhoto(file, {fineSide = POCKET_MAX_SIDE, maxSide =
 		fine = await fineBitmap(file, fineSide, bitmap);
 	}
 
-	const pixels = photoPixels(bitmap, maxSide);
+	let pixels;
+
+	try {
+		pixels = photoPixels(bitmap, maxSide);
+	}
+	catch (err) {
+		if (fine) {
+			fine.close();
+		}
+
+		throw err;
+	}
 
 	if (bitmap.close) {
 		bitmap.close();
