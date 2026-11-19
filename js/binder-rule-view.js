@@ -51,7 +51,9 @@ export function filterLabels(doc, index) {
 //   ready()    resolves the source's items for the rule now ({items, ...},
 //              js/binder-sources.js loadRuleItems)
 //   nameHint() the list's name, for a binder left unnamed
-// start: {binder} to edit, or {kind, id} to preselect a list.
+// start: {binder} to edit, or {kind, id} to preselect a list, and rows and
+// cols for the pocket size to start on (Make a list binder from this starts
+// on the hand-made binder's own grid).
 export function ruleSection({binder = null, doc, index, onChange = () => {}, start = {}}) {
 	const rule = binder ? cleanBinderRule(binder.rule) : null;
 	const choices = sourceChoices(doc);
@@ -83,8 +85,8 @@ export function ruleSection({binder = null, doc, index, onChange = () => {}, sta
 	// js/binder-sources.js sourceChoices), else the first.
 	let orderPicked = false;
 
-	rowsSelect.value = String(binder ? binder.rows : 3);
-	colsSelect.value = String(binder ? binder.cols : 3);
+	rowsSelect.value = String(binder ? binder.rows : start.rows || 3);
+	colsSelect.value = String(binder ? binder.cols : start.cols || 3);
 
 	if (rule && rule.source.kind === 'filter') {
 		for (const field of OFFERED) {

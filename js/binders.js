@@ -1191,8 +1191,11 @@ function recordLanguages(next, languages) {
 
 // A new binder made from a list: fields as for createBinder (the pages are
 // worked out), rule {source, order}, and the first snapshot. languages: the
-// plan's (planRefresh), recorded as list_languages.
-export function createGeneratedBinder(fields, rule, snapshot, {languages} = {}) {
+// plan's (planRefresh), recorded as list_languages. picks: hand picks to
+// start with, [{key, entryId}] (Make a list binder from this,
+// js/binder-convert.js handPicks), saved in the same write as the binder,
+// so the binder never shows without them.
+export function createGeneratedBinder(fields, rule, snapshot, {languages, picks = []} = {}) {
 	const clean = generatedFields(fields, snapshot);
 	const checked = checkBinderRule(rule);
 	const at = nowIso();
@@ -1214,9 +1217,19 @@ export function createGeneratedBinder(fields, rule, snapshot, {languages} = {}) 
 
 		recordLanguages(made, languages);
 
-		const [binder] = await saveBinders([made]);
+		if (!picks.length) {
+			const [binder] = await saveBinders([made]);
 
-		return binder;
+			return binder;
+		}
+
+		await mergeIntoLocal({
+			binder_picks: picks.map((pick) => pickEntry({at, binderId: made.id, entryId: pick.entryId, key: pick.key})),
+			binders: [made],
+		});
+		schedulePush();
+
+		return made;
 	});
 }
 

@@ -49,7 +49,8 @@ import {whenMemberName} from './family.js';
 import {memberDocument} from './sync.js';
 import {imageCardKey, mainArt, mainSlide, onImagesChange} from './photos/index.js';
 import {openPocketViewer} from './pocket-viewer.js';
-import {addPagesText, applyLayout, doneText, previewLayout, previewLines, readList, undoLayout, undoText} from './binder-layout.js';
+import {addPagesText, applyLayout, cardDexFrom, doneText, previewLayout, previewLines, readList, undoLayout, undoText} from './binder-layout.js';
+import {convertDoneText, convertPreview, guessChecklist, handDex, handPicks, listBinderName} from './binder-convert.js';
 import {cardArt, cardTile, entryFinish, groupFinish, tileArt} from './tile.js';
 import {showTotal, valueButton} from './value-sheet.js';
 import {SearchHint, addToWishlist, searchCards} from './wishlist.js';
@@ -58,7 +59,7 @@ import {fillPanel} from './fill-view.js';
 import {applyListEdits, indexAt, layoutWaits, listEditEntries, listEditsOf, moveEdit, pagesFor, parseKey, picksOf, planRefresh, refreshText, ruleKey, shownCopy, withListEdit} from './binder-rules.js';
 import {filterLabels, ruleSection} from './binder-rule-view.js';
 import {cardItem, loadRuleItems, pokemonItem, rankerFor, sourceChoices, sourceEntry, sourceText, trayFromChoices, trayFromIds} from './binder-sources.js';
-import {dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
+import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spriteUrl} from './checklists.js';
 import {gapText} from './goals.js';
 import {wishLanguage} from './pokemon-cards.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
@@ -508,8 +509,10 @@ const resizeMatters = (binder, plan) => slotsOf(binder).length > 0
 // rule: a binder made from a list (js/binder-rule-view.js ruleSection) puts
 // its section, which chooses the cards, the order, and the pocket size, in
 // place of the grid and pages, and onSubmit gets (fields, section).
-function binderForm({binder = null, onCancel, onSubmit, placed = undefined, rule = null, title = null}) {
-	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3};
+// initial: the name, notes, and cover color a new binder starts with.
+// below: more of the form, under the list section.
+function binderForm({below = null, binder = null, initial = {}, onCancel, onSubmit, placed = undefined, rule = null, title = null}) {
+	const start = binder || {cols: 3, cover_color: DEFAULT_COVER, name: '', notes: '', page_count: 40, rows: 3, ...initial};
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
 	const notes = h('textarea', {class: 'search binder-notes-input', id: 'binder-notes', maxlength: 500, rows: 2});
@@ -641,7 +644,7 @@ function binderForm({binder = null, onCancel, onSubmit, placed = undefined, rule
 		h('span', {class: 'field-label'}, 'Cover color'),
 		swatches,
 		...(rule
-			? [rule.element]
+			? [rule.element, below]
 			: [
 				h('span', {class: 'field-label'}, 'Size'),
 				presets.element,
@@ -1096,6 +1099,9 @@ function binderScreen(root, source, id, pageParam) {
 	const fill = source.readOnly ? null : fillPanel({binderId: id});
 	// A checklist's Pokémon as placeholders (openLayout); hand-made only.
 	const layoutButton = source.readOnly ? null : h('button', {id: 'binder-layout-list', onclick: () => openLayout(), type: 'button'}, 'Lay out from a list');
+	// A new binder from a list that keeps this one's cards as hand picks
+	// (openConvert); hand-made only.
+	const convertButton = source.readOnly ? null : h('button', {id: 'binder-convert', onclick: () => openConvert(), type: 'button'}, 'Make a list binder from this');
 	const editor = h('div', {id: 'binder-editor'});
 	const body = h('div', {id: 'binder-body'});
 	const sheet = source.readOnly ? null : h('dialog', {'aria-labelledby': 'sheet-title', class: 'pocket-sheet', id: 'pocket-sheet'});
@@ -1424,6 +1430,7 @@ function binderScreen(root, source, id, pageParam) {
 			unplacedLink.hidden = listMode;
 			addTrayButton.hidden = listMode;
 			layoutButton.hidden = listMode;
+			convertButton.hidden = listMode;
 			refreshButton.hidden = !listMode;
 			fill.show(listMode ? 0 : binderStats(binder, placed).wanted);
 		}
@@ -1488,6 +1495,7 @@ function binderScreen(root, source, id, pageParam) {
 						fill.button,
 						addTrayButton,
 						layoutButton,
+						convertButton,
 						h('button', {id: 'edit-binder', onclick: openEditor, type: 'button'}, 'Edit binder'),
 						h('button', {id: 'binder-cover-image', onclick: () => pickCoverImage({binder}), type: 'button'}, 'Cover image'),
 						h('button', {class: 'danger', id: 'delete-binder', onclick: remove, type: 'button'}, 'Delete binder')
@@ -3869,6 +3877,113 @@ function binderScreen(root, source, id, pageParam) {
 		else {
 			cancel.focus();
 		}
+	}
+
+	// ------------------------------------- make a list binder from this
+	//
+	// A hand-made binder shows one copy per pocket; a binder from a list
+	// shows a Pokémon (or a card) per pocket and every copy of it on a tap.
+	// This makes a NEW binder from a list with the From a list form,
+	// prefilled, and a hand pick for every pocket whose Pokémon or card this
+	// binder holds, naming the copy that sits here (js/binder-convert.js;
+	// Eric, 2026-11-18). This binder is never changed.
+
+	// The hand-made binder's pockets and the live copies, read fresh, so a
+	// card placed on another phone while the form was open counts.
+	async function handNow(binderId) {
+		const doc = await loadDocument();
+		const hand = liveBinders(doc.binders).find((item) => item.id === binderId && !isGenerated(item));
+
+		if (!hand) {
+			throw new Error('This binder is not on this phone any more.');
+		}
+
+		return {doc, hand, liveIds: new Set((doc.cards || []).filter(isLive).map((entry) => entry.id)), slots: slotsOf(hand, placements(doc.binders))};
+	}
+
+	async function openConvert() {
+		let now;
+
+		try {
+			now = await handNow(binder.id);
+		}
+		catch (err) {
+			showError('Could not open the lists.', err);
+
+			return;
+		}
+
+		if (!alive || !binder || listMode) {
+			return;
+		}
+
+		const {doc, hand} = now;
+		// The list it was laid out from is not recorded, so the checklist
+		// that matches its Pokémon best starts chosen (guessChecklist).
+		const cardDex = cardDexFrom(index);
+		const entries = new Map((doc.cards || []).map((entry) => [entry.id, entry]));
+		const dex = handDex(now.slots, {
+			cardDex,
+			copyDex: (entryId) => {
+				const entry = entries.get(entryId);
+
+				return entry ? cardDex(entry.catalog || 'international', entry.card_id) : [];
+			},
+		});
+		const lists = sourceChoices(doc).checklist.map((item) => ({dex: checklistDex(sourceEntry({source: {id: item.id, kind: 'checklist'}}, doc)), id: item.id}));
+		const guess = guessChecklist(lists, dex) || (lists[0] ? lists[0].id : null);
+		const preview = h('p', {'aria-live': 'polite', class: 'muted', id: 'convert-preview'});
+		let section = null;
+		let asked = 0;
+
+		// What the picks will be for the list chosen now; the latest wins.
+		function drawPreview() {
+			const ticket = ++asked;
+
+			if (!section) {
+				return;
+			}
+
+			preview.textContent = '';
+			section.ready().then((loaded) => {
+				if (ticket === asked && loaded && !loaded.gone) {
+					preview.textContent = convertPreview(handPicks(now.slots, loaded.items, {liveIds: now.liveIds}), hand.name);
+				}
+			}).catch(() => {
+				// The list section says what went wrong.
+			});
+		}
+
+		section = ruleSection({doc, index, onChange: drawPreview, start: {cols: hand.cols, rows: hand.rows, ...(guess ? {id: guess, kind: 'checklist'} : {})}});
+		drawPreview();
+
+		editor.replaceChildren(binderForm({
+			below: preview,
+			initial: {cover_color: hand.cover_color, name: listBinderName(hand.name), notes: hand.notes || ''},
+			onCancel: () => editor.replaceChildren(),
+			onSubmit: async (fields, form) => {
+				const loaded = await form.ready();
+
+				if (loaded.gone) {
+					throw new Error('That list was deleted. Choose another.');
+				}
+
+				checkWholeList(loaded);
+
+				const rule = form.rule();
+				const {plan} = await planLayout({cols: fields.cols, rows: fields.rows, rule}, loaded);
+				const fresh = await handNow(hand.id);
+				const result = handPicks(fresh.slots, loaded.items, {keys: plan.snapshot.keys, liveIds: fresh.liveIds});
+				const made = await createGeneratedBinder(fields, rule, plan.snapshot, {languages: plan.languages, picks: result.picks});
+
+				go(`binders/${encodeURIComponent(made.id)}`);
+				// Long enough to read; the × closes it sooner.
+				toast(convertDoneText({...result, name: made.name}, fresh.hand.name), {timeout: 12000});
+			},
+			rule: section,
+			title: `Make a list binder from ${hand.name}`,
+		}));
+		editor.scrollIntoView({block: 'start'});
 	}
 
 	// ------------------------------------------------- the pocket sheet
