@@ -20,6 +20,15 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-19',
+		items: [
+			'Scan a whole binder page from one photo: in Scan, open Settings, then Binder page. Take or choose a photo of one page, upright and filling the photo.',
+			'Each card on the page joins the tray; the ones the scanner is not sure of ask you to check them, and empty pockets are skipped.',
+			'Two pages open side by side are not read yet: take one page at a time.',
+		],
+		version: 'v82',
+	},
+	{
 		date: '2026-11-18',
 		items: [
 			'Select many cards in My Cards at once, then change where they are stored, their language, finish, or condition, add them to a binder, or remove them, with Undo.',
