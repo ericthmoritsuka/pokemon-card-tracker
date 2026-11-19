@@ -7,11 +7,24 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-11-19)
 
-- v83, ready on branch `scan-local-lookups`: Stats, Share as a picture, Print placeholders,
-  forgiving search, and binder page numbers. Published after a phone check of the binder page
-  scan's memory.
+- Scan icons (how: Card, Photo, Page; for: Add, Buy, Trade or sale) and purchases logged from a
+  scan, with where they came from and a total or each card's price.
 
 ## Live
+
+### 2026-11-19 (morning)
+
+- **v83:** Stats, sharing as a picture, printed placeholders, forgiving search, and a sharper binder page scan. `433be30`
+  - My Cards, **Stats** (beside Value): copies by language, set, rarity, type, finish, and condition, the ten most
+    valuable, the copies with no price and why, and the copies added each month. A family member's cards have their own.
+  - **Share** on a card page and **Share page** in a binder make a picture for the phone's share sheet (a download on a
+    computer).
+  - **Print placeholders** in a binder: real-size paper cards for the pockets still to fill, nine to a sheet.
+  - Search forgives a typo when nothing matches as typed ("charzard" finds Charizard), in My Cards and the Sets search.
+  - Binder page scan: each card is cut to its own edges and its number read from a larger copy of the photo (on Eric's
+    three pages, sure cards went from 9 to 18 of 27), and a panel over the camera shows the read's progress.
+  - Fixed (review): a shared picture's decoded images are let go once drawn; Print waits for a card still chosen; the
+    page scan's larger copy is let go if the photo cannot be read.
 
 ### 2026-11-19 (early morning)
 
