@@ -25,6 +25,9 @@
 // never marked); and check, true for one added blurred because another card
 // landed or the scanner left before it was seen sharp: it needs a look
 // until confirmed, however sure (never added silently).
+// page, the pocket (1 to 9, row by row) of a binder page photo the card was
+// cut from (js/scan/page.js; js/scan/view.js readPage), absent for any other
+// capture.
 //
 // languageBy: 'read' (off the card), 'hand', 'all' (Set for all),
 // 'default' (the last language picked, for a card the picture settled), or
@@ -540,6 +543,36 @@ export function applyPicture(session, id, found, now = nowIso()) {
 	touch(session, now);
 
 	return item;
+}
+
+// A binder page's pocket (item.page, js/scan/page.js) taken for sure on a
+// Japanese or Chinese record when no Japanese, Korean, or Chinese text was
+// read off it: it is made unsure, so it asks for a look. A pocket is cut
+// from a photo of the whole page, smaller than a card held up alone and
+// under the sleeve's glare, and its label row often reads no Latin text
+// whatever the card: on Eric's page photo (2026-11-18) his Latin-printed
+// 151 Pidgeot, its number read 018/165, came out sure as the Japanese twin
+// that shares the number. Returns true when it made the card unsure.
+export const POCKET_ASIAN_WHY = 'The page photo did not show the card\'s language. Check the print.';
+
+export function doubtPocket(session, id) {
+	const item = mustFind(session, id);
+
+	if (!item.page || !item.sure || !item.card || !['ja', 'zh-tw', 'zh-cn'].includes(item.card.lang)) {
+		return false;
+	}
+
+	const read = item.read || {};
+	const asian = (code) => ASIAN_LANGUAGES.includes(code);
+
+	if (asian(read.script) || (read.name && asian(read.name.script)) || (read.language && asian(read.language.code)) || (item.labelCheck && asian(item.labelCheck.code))) {
+		return false;
+	}
+
+	item.sure = false;
+	item.why = POCKET_ASIAN_WHY;
+
+	return true;
 }
 
 // A card whose set the catalog has not got yet, added by hand from its set
@@ -1514,9 +1547,10 @@ function wordConfidence(result) {
 }
 
 // What the read left for the report: result is js/scan/identify.js's
-// answer. captureMs: how long the capture took; source: 'camera' or
-// 'photo'; frame: the image's size, "width x height"; geometry: where the
-// guide and the capture were (js/scan/view.js geometryReport: the camera's
+// answer. captureMs: how long the capture took; source: 'camera', 'photo',
+// or 'page' (a pocket of a binder page photo, js/scan/page.js); frame: the
+// image's size, "width x height"; geometry: where the guide and the capture
+// were (js/scan/view.js geometryReport: the camera's
 // frame, the stage, the guide on the screen, the guide and the capture in
 // the frame, and how the capture was taken), or null.
 export function reportOfRead(result, {captureMs = null, frame = null, geometry = null, source = 'camera'} = {}) {
@@ -1705,7 +1739,7 @@ export function reportText(item, {at = nowIso(), device = {}} = {}) {
 	lines.push(`- Online: ${device.online === false ? 'no' : 'yes'}${device.version ? `; app ${device.version}` : ''}; OCR workers: ${report.workers ?? '?'}`);
 
 	lines.push('', 'Steps');
-	lines.push(`- Source: ${report.source === 'photo' ? 'a photo picked from the gallery' : 'the camera'}${report.frame ? `, ${report.frame}` : ''}`);
+	lines.push(`- Source: ${report.source === 'photo' ? 'a photo picked from the gallery' : report.source === 'page' ? `a binder page photo${item.page ? `, pocket ${item.page}` : ''}` : 'the camera'}${report.frame ? `, ${report.frame}` : ''}`);
 	lines.push(`- Capture: ${ms(report.captureMs)}${report.geometry && report.geometry.how ? ` (${report.geometry.how === 'auto' ? 'taken automatically' : 'shutter'})` : ''}`);
 
 	if (report.geometry) {

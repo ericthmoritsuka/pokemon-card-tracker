@@ -230,6 +230,11 @@ const SHELL = [
 	'js/scan/drop.js',
 	'js/scan/see-worker.js',
 	'js/scan/match.js',
+	// A whole binder page from one still photo (Eric, 2026-11-18): the page
+	// path, its worker, and the page fitting it shares with lab/multi.
+	'js/scan/multi.js',
+	'js/scan/page.js',
+	'js/scan/page-worker.js',
 	'js/scan/routes.js',
 	'js/scan/session.js',
 	'js/scan/sheets.js',

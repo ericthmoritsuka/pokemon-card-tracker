@@ -1270,6 +1270,43 @@ function gapOf(a, b) {
 // many straight lines were looked at. debug: an object that receives every
 // box considered and every line, for working on the finder.
 export function findCard(grey, width, height, {debug = null} = {}) {
+	const {boxes, cut, lines, margin, minSide, short, touching} = outlines(grey, width, height);
+	const none = {angle: 0, lines: lines.length, others: [], quad: null, ratio: null, score: 0, sides: null, touching: false, upright: true};
+
+	// Duplicates (the same box from lines a pixel apart), then nested boxes:
+	// the card's own edge round its inner border, and a card inside
+	// something card-shaped.
+	boxes.sort((a, b) => b.score - a.score);
+
+	const kept = [];
+	const near = short * 0.02;
+
+	for (const box of boxes) {
+		if (kept.length >= 40) {
+			break;
+		}
+
+		if (!kept.some((other) => box.corners.every((c, k) => Math.abs(c.x - other.corners[k].x) < near && Math.abs(c.y - other.corners[k].y) < near))) {
+			kept.push(box);
+		}
+	}
+
+	return pickCard(grey, width, height, {cut, debug, kept, lines, margin, minSide, none, short, touching});
+}
+
+// Every closed box with a given shape in a grey copy of the frame, and the
+// card-shaped outlines running off it (findCard's search, which the
+// multi-card lab, lab/multi, also runs with a page's shape or with more
+// lines). Options: count, the straight lines looked at (findCard: 40, a
+// card's four sides and its inner border's); shape, the width over the
+// height looked for, and slack, how far from it a box may be; sideMin and
+// meanMin, how much of each side, and of the four together, must be drawn;
+// runsOn, whether a box whose sides run on past its corners is left out
+// (true, findCard: a card's side and a line inside it), kept and marked
+// (each box's `runs`: 'mark'), or kept (false): the cards of a binder page
+// lie in rows, so each card's sides run on into its neighbours'.
+// Returns {boxes, cut, lines, margin, minSide, short, touching}.
+export function outlines(grey, width, height, {count = 40, meanMin = FIND_MEAN_MIN, runsOn: runsOnCheck = true, shape = CARD_SHAPE, sideMin = FIND_SIDE_MIN, slack = FIND_RATIO} = {}) {
 	const steps = gradients(grey, width, height);
 	const {mag} = steps;
 	const floor = edgeFloor(mag);
@@ -1277,10 +1314,9 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 	const short = Math.min(width, height);
 	const minSide = short * 0.18;
 	const margin = Math.max(2, short * 0.015);
-	const peaks = houghLines(mag, dir, floor, width, height, {minVotes: Math.max(8, Math.round(minSide * 0.45))});
+	const peaks = houghLines(mag, dir, floor, width, height, {count, minVotes: Math.max(8, Math.round(minSide * 0.45))});
 	const lines = peaks.map((peak) => traceLine(peak, mag, dir, floor, width, height));
-	const none = {angle: 0, lines: lines.length, others: [], quad: null, ratio: null, score: 0, sides: null, touching: false, upright: true};
-	const offShape = (ratio) => Math.abs(ratio / CARD_SHAPE - 1);
+	const offShape = (ratio) => Math.abs(ratio / shape - 1);
 
 	// Near-parallel pairs, far enough apart to be a card's opposite sides.
 	const pairs = [];
@@ -1314,7 +1350,7 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 			}
 
 			// The shape first: it is cheap, and rules most pairs out.
-			if (offShape(Math.min(one.gap, two.gap) / Math.max(one.gap, two.gap)) > FIND_RATIO * 1.4) {
+			if (offShape(Math.min(one.gap, two.gap) / Math.max(one.gap, two.gap)) > slack * 1.4) {
 				continue;
 			}
 
@@ -1329,7 +1365,7 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 			const box = boxShape(corners, width, height, margin);
 			const off = offShape(box.ratio);
 
-			if (off > FIND_RATIO || box.skew < 0.8 || box.across < minSide) {
+			if (off > slack || box.skew < 0.8 || box.across < minSide) {
 				continue;
 			}
 
@@ -1365,7 +1401,13 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 			const least = Math.min(...shares);
 			const mean = shares.reduce((sum, s) => sum + s, 0) / 4;
 
-			if (least < FIND_SIDE_MIN || mean < FIND_MEAN_MIN || runsOn(own, corners) || interiorDetail(grey, width, height, corners) < CARD_DETAIL) {
+			if (least < sideMin || mean < meanMin || interiorDetail(grey, width, height, corners) < CARD_DETAIL) {
+				continue;
+			}
+
+			const runs = runsOn(own, corners);
+
+			if (runs && runsOnCheck === true) {
 				continue;
 			}
 
@@ -1383,29 +1425,18 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 				ratio: Math.round(box.ratio * 1000) / 1000,
 				quality,
 				score: quality - centre * 0.6 + size * 0.6,
+				runs,
 				sides: shares.map((s) => Math.round(s * 100) / 100),
 				upright,
 			});
 		}
 	}
 
-	// Duplicates (the same box from lines a pixel apart), then nested boxes:
-	// the card's own edge round its inner border, and a card inside
-	// something card-shaped.
-	boxes.sort((a, b) => b.score - a.score);
+	return {boxes, cut, lines, margin, minSide, short, touching};
+}
 
-	const kept = [];
-	const near = short * 0.02;
-
-	for (const box of boxes) {
-		if (kept.length >= 40) {
-			break;
-		}
-
-		if (!kept.some((other) => box.corners.every((c, k) => Math.abs(c.x - other.corners[k].x) < near && Math.abs(c.y - other.corners[k].y) < near))) {
-			kept.push(box);
-		}
-	}
+// findCard's choice among the boxes kept, after outlines.
+function pickCard(grey, width, height, {cut, debug, kept, lines, margin, minSide, none, short, touching}) {
 	let best = kept[0] || null;
 	let within = null;
 
@@ -1495,6 +1526,164 @@ export function findCard(grey, width, height, {debug = null} = {}) {
 		touching: false,
 		upright: best.upright,
 	};
+}
+
+// ------------------------------------------------- several cards (lab only)
+
+// Several cards in one frame (lab/multi, Eric, 2026-11-18: a binder page
+// or a few cards on a table added in one shot). Nothing in the app calls
+// these yet: lab/multi measures them first.
+
+// The share of box `inner` (a 5 x 5 grid of points over it) that lies in
+// box `outer`.
+function shareIn(outer, inner) {
+	const [tl, tr, br, bl] = inner.corners;
+	let n = 0;
+
+	for (let j = 0; j < 5; j++) {
+		for (let i = 0; i < 5; i++) {
+			const u = 0.1 + (0.8 * i) / 4;
+			const v = 0.1 + (0.8 * j) / 4;
+			const p = {x: (1 - v) * ((1 - u) * tl.x + u * tr.x) + v * ((1 - u) * bl.x + u * br.x), y: (1 - v) * ((1 - u) * tl.y + u * tr.y) + v * ((1 - u) * bl.y + u * br.y)};
+
+			n += pointIn(p, outer.corners) ? 1 : 0;
+		}
+	}
+
+	return n / 25;
+}
+
+// The deduplicated boxes of `boxes`, best scored first, at most `limit`.
+function distinct(boxes, short, limit) {
+	const kept = [];
+	const near = short * 0.02;
+
+	for (const box of [...boxes].sort((a, b) => b.score - a.score)) {
+		if (kept.length >= limit) {
+			break;
+		}
+
+		if (!kept.some((other) => box.corners.every((c, k) => Math.abs(c.x - other.corners[k].x) < near && Math.abs(c.y - other.corners[k].y) < near))) {
+			kept.push(box);
+		}
+	}
+
+	return kept;
+}
+
+// Every card in a grey copy of the frame, each clear of the others: the
+// boxes findCard's search finds (outlines, with `count` lines: four sides
+// and an inner border for each of several cards), less the ones that are
+// not a card:
+//
+// - a box whose sides run on past its corners (findCard leaves it out: a
+//   card's sides and a line across it, such as its art box's foot, make a
+//   lying card's shape), unless it is part of a group (below): cards side
+//   by side, or in a binder's rows, carry each other's sides on;
+// - a group: a box holding two parts that lie apart from each other, each
+//   a twelfth of it or more. A part is a box that does not run on, or one
+//   that runs on but stands the same way as the box round it and is a third
+//   of it at most: the cards of a 3 x 3 page stand as the page does, while
+//   the two halves of one card, split by its art box's foot, lie across it
+//   (a card cut in half is two lying cards). Two cards side by side, which
+//   make a lying card's shape and run on into each other, are not told from
+//   one card's halves this way, so they stay one box: the lab counts them
+//   as a failure;
+// - a card's inner border or art box: a box inside a larger one (not a
+//   group) whose ring round it is a card's border or busy with print, as
+//   findCard's `grow` asks;
+// - a box overlapping one already taken (more than `overlap` of either lies
+//   in the other), the better scored taken first.
+//
+// Returns [{angle, corners, ratio, score, upright}], best scored first, at
+// most `max`.
+export function findCards(grey, width, height, {count = 90, max = 12, overlap = 0.12} = {}) {
+	const {boxes, short} = outlines(grey, width, height, {count, runsOn: 'mark'});
+	const kept = distinct(boxes, short, 800);
+	const apart = (a, b) => shareIn(a, b) <= overlap && shareIn(b, a) <= overlap;
+	const partsOf = (box) => kept.filter((other) => other !== box && other.area >= box.area / 12 && other.area < box.area * 0.7 && contains(box, other) && (!other.runs || (other.upright === box.upright && other.area <= box.area / 3)));
+	const groups = new Set(kept.filter((box) => {
+		const inside = partsOf(box);
+
+		return inside.some((a, i) => inside.slice(i + 1).some((b) => apart(a, b)));
+	}));
+	const grouped = new Set([...groups].flatMap(partsOf));
+	const single = kept.filter((box) => !groups.has(box) && (!box.runs || grouped.has(box)));
+	const inner = (box) => single.some((outer) => outer !== box && outer.area > box.area && outer.quality >= box.quality - 0.3 && contains(outer, box) && (borderGaps(outer, box) || ringDetail(grey, width, height, outer, box) >= RING_BUSY));
+	const taken = [];
+
+	for (const box of single.filter((one) => !inner(one))) {
+		if (taken.length >= max) {
+			break;
+		}
+
+		if (taken.every((other) => apart(other, box))) {
+			taken.push(box);
+		}
+	}
+
+	return taken.map((box) => ({angle: Math.round(box.angle * 10) / 10, corners: box.corners, ratio: box.ratio, score: Math.round(box.score * 100) / 100, upright: box.upright}));
+}
+
+// The pages of a binder in a grey copy of the frame: the outline round
+// each page's rows x cols cards (their outer edges, which line up), `shape`
+// its width over its height (js/scan/multi.js pageShape). A page standing
+// or lying (a binder open as a spread, taken with the phone turned, shows
+// two pages, each lying), `minArea` of the frame or more, with each side
+// drawn along `sideMin` of it at least: less than a card's, since an empty
+// pocket at the page's edge leaves a gap in two sides. A box holding two
+// pages apart (each a quarter of it or more: the spread's outline, which
+// for 3 x 3 pages has a page's shape too) is left out; of the rest, drawn
+// nearly as well as the best drawn (a box a pocket or two short of the
+// page is drawn as well as the page), the largest is the first page, and
+// the next largest clear of it, at least `twin` of its size, the second.
+// With cardArea (a card's area on the copy), only boxes of about `pockets`
+// cards' area are taken, when there are any. Returns up to `max` pages,
+// each {corners, ratio, sides, upright}: corners top left first, clockwise,
+// as the page stands (a lying page's top left
+// is the corner that comes there once it is turned a quarter clockwise).
+export function findPages(grey, width, height, {cardArea = null, count = 60, max = 2, minArea = 0.08, pockets = 9, shape, sideMin = 0.55, slack = 0.12, twin = 0.6} = {}) {
+	const {boxes, short} = outlines(grey, width, height, {count, meanMin: Math.max(sideMin, 0.65), runsOn: false, shape, sideMin, slack});
+	const large = boxes.filter((box) => box.area >= width * height * minArea);
+	// The page's size from its cards' (cardArea: a card's area on the copy,
+	// from findCards), when known: a page is its pockets' cards and the gaps
+	// between them, about 1.07 times their area for 3 x 3. A box a row short
+	// (closed by the line that runs along a row's art boxes) or round the
+	// whole spread is left out.
+	const sized = cardArea ? large.filter((box) => box.area >= cardArea * pockets * 0.75 && box.area <= cardArea * pockets * 1.45) : [];
+	const big = distinct(sized.length ? sized : large, short, 400);
+	const apart = (a, b) => shareIn(a, b) <= 0.12 && shareIn(b, a) <= 0.12;
+	const spread = (box) => {
+		const inside = big.filter((other) => other !== box && other.area >= box.area / 4 && other.area < box.area * 0.7 && contains(box, other));
+
+		return inside.some((a, i) => inside.slice(i + 1).some((b) => apart(a, b)));
+	};
+	const pages = big.filter((box) => !spread(box));
+
+	if (!pages.length) {
+		return [];
+	}
+
+	const best = Math.max(...pages.map((box) => box.quality));
+	const ranked = pages.filter((box) => box.quality >= best - 0.25).sort((a, b) => b.area - a.area);
+	const taken = [];
+
+	for (const box of ranked) {
+		if (taken.length >= max) {
+			break;
+		}
+
+		if (taken.every((other) => apart(other, box)) && (!taken.length || box.area >= taken[0].area * twin)) {
+			taken.push(box);
+		}
+	}
+
+	return taken.map((box) => ({corners: box.corners, ratio: box.ratio, sides: box.sides, upright: box.upright}));
+}
+
+// The one page (findPages), or null.
+export function findPage(grey, width, height, options = {}) {
+	return findPages(grey, width, height, {...options, max: 1})[0] || null;
 }
 
 // A card cut by the frame's edge shows three of its sides at most: two

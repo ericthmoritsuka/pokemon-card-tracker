@@ -35,6 +35,10 @@ function sourceText(entry) {
 		return 'a photo picked from the gallery';
 	}
 
+	if (entry.source === 'page') {
+		return `a binder page photo${entry.pocket ? `, pocket ${entry.pocket}` : ''}`;
+	}
+
 	const how = {auto: 'taken automatically', shutter: 'the shutter'}[entry.how] || null;
 
 	return `the camera${how ? `, ${how}` : ''}`;

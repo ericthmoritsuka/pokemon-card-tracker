@@ -37,6 +37,7 @@ import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
+import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
@@ -383,6 +384,10 @@ export function scanView(root) {
 	let ownState = 'loading';
 	// Gallery photos being opened, which join the tray once they are.
 	let photosOpening = 0;
+	// A binder page being read (readPage): one at a time, and the camera's
+	// frame loop rests meanwhile, so the page in front of it is not taken
+	// as a card as well.
+	let pageBusy = false;
 	let where = new Map();
 	let spareIds = new Set();
 	let outResults = new Map();
@@ -528,6 +533,21 @@ export function scanView(root) {
 		}
 	}, type: 'file'});
 	const photoButton = h('button', {class: 'scan-text-button', id: 'scan-photo-open', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo');
+	// A whole binder page from one still photo (js/scan/page.js), from the
+	// camera app or the gallery: kept apart from the single-card flow, at the
+	// head of the scanner's settings (sheets.js pageField).
+	const pageInput = (id, capture) => h('input', {accept: 'image/*', capture, class: 'scan-photo-input', hidden: true, id, onchange: (event) => {
+		const input = event.target;
+		const [file] = input.files || [];
+
+		input.value = '';
+
+		if (file) {
+			readPage(file);
+		}
+	}, type: 'file'});
+	const pageCamera = pageInput('scan-page-camera', 'environment');
+	const pageGallery = pageInput('scan-page-gallery', null);
 	// Empties the tray in one tap, with Undo, as Discard session does.
 	const clearButton = h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-text-button', hidden: true, id: 'scan-clear', onclick: () => discard(), type: 'button'}, 'Clear');
 	const tray = h('ul', {'aria-label': 'Cards in this session', class: 'scan-tray', id: 'scan-tray'});
@@ -590,7 +610,7 @@ export function scanView(root) {
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, modeBar, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput),
+			h('div', {class: 'scan-tray-head'}, modeBar, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput, pageCamera, pageGallery),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -688,6 +708,16 @@ export function scanView(root) {
 		openDone,
 		openItem,
 		openReport,
+		// The binder page's two ways in (sheets.js pageField): the camera app
+		// or the gallery. The input is clicked within the tap, as a file input
+		// must be. pageBusy: a page is being read.
+		get pageBusy() {
+			return pageBusy;
+		},
+		pagePhoto: (how) => {
+			(how === 'camera' ? pageCamera : pageGallery).click();
+			closeSheet();
+		},
 		openReview,
 		review: (id) => reviewState(id),
 		reviewNext: () => reviewNext(),
@@ -1073,7 +1103,7 @@ export function scanView(root) {
 		// A holder drop held for a sharper frame (pendingDrop), or a blurred
 		// capture waiting for a sharper look (retry), is a card being taken
 		// too: it goes to the tray of the mode it was dropped in.
-		if (capturing > 0 || shutterBusy || photosOpening > 0 || pendingDrop || retry || session.items.some((item) => working.has(item.id))) {
+		if (capturing > 0 || shutterBusy || photosOpening > 0 || pageBusy || pendingDrop || retry || session.items.some((item) => working.has(item.id))) {
 			drawMode();
 			setNote('A card is still being taken or read. Switch once it is in the tray.');
 
@@ -2143,6 +2173,134 @@ export function scanView(root) {
 		await readItem(item.id, frame, {captureMs, fullSaved, photo: true});
 	}
 
+	// A binder page from one still photo (js/scan/page.js): the page found
+	// and cut into its pockets off the main thread, then every pocket with a
+	// card in it joins the tray at once, in reading order, and is read as a
+	// capture is (readItem: the picture, and the number when the picture
+	// wants it), so a sure match is a sure card and anything else asks for a
+	// look, as an unsure scan does. Empty pockets are skipped. A page that
+	// cannot be found is said so, and nothing is added.
+	async function readPage(file) {
+		if (pageBusy) {
+			return;
+		}
+
+		const target = session;
+
+		pageBusy = true;
+		setNote('Finding the page.');
+
+		try {
+			const found = await readPagePhoto(file);
+
+			if (!alive) {
+				return;
+			}
+
+			if (found.status !== 'page') {
+				setNote(pageTrouble(found.status));
+				announce(pageTrouble(found.status));
+
+				return;
+			}
+
+			if (session !== target) {
+				setNote('The mode changed while the page was read, so it was not added. Take it again.');
+
+				return;
+			}
+
+			if (discarded) {
+				discarded = null;
+				draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+			}
+
+			const pockets = found.pockets.filter((pocket) => !pocket.empty);
+			const empty = found.pockets.length - pockets.length;
+
+			if (!pockets.length) {
+				setNote(pageSummary({added: 0, empty, look: 0}));
+
+				return;
+			}
+
+			// Every card joins the tray first, its pocket kept as its full
+			// capture, so a read cut short by the app closing starts again
+			// next time (resume).
+			const joined = pockets.map((pocket) => {
+				const item = S.addCapture(session);
+
+				item.page = pocket.index + 1;
+				scanLog.startEntry(item.id, {at: item.captured_at, how: null, phone: deviceInfo(), pocket: item.page, source: 'page'});
+
+				const fullSaved = imageBlob(pocket.image, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
+
+				return {fullSaved, id: item.id, pocket};
+			});
+
+			persist();
+			draw();
+
+			// One pocket's picture at a time; its number read, when wanted,
+			// runs behind the next pocket's picture.
+			const reads = [];
+
+			for (const {fullSaved, id, pocket} of joined) {
+				if (!alive) {
+					return;
+				}
+
+				if (!S.findItem(session, id)) {
+					continue;
+				}
+
+				setNote(pocketProgress(pocket.index + 1, found.pockets.length));
+
+				let pictured = () => {};
+				const seen = new Promise((resolve) => {
+					pictured = resolve;
+				});
+				const read = readItem(id, pocket.image, {fullSaved, onPicture: () => pictured(), page: true, quads: pocket.quads});
+
+				reads.push(read);
+				await Promise.race([seen, read]);
+			}
+
+			await Promise.all(reads);
+
+			if (!alive) {
+				return;
+			}
+
+			const items = joined.map(({id}) => S.findItem(session, id)).filter(Boolean);
+
+			// Every one taken out meanwhile (removed, or the tray cleared).
+			if (!items.length) {
+				setNote(null);
+
+				return;
+			}
+
+			const look = items.filter((item) => !(item.card && (item.sure || item.confirmed))).length;
+			const summary = pageSummary({added: items.length, empty, look, rough: !found.fitted});
+
+			setNote(summary);
+			announce(summary);
+		}
+		catch (err) {
+			if (alive) {
+				setNote(`The page could not be read. ${err && err.message ? err.message : ''}`.trim());
+			}
+		}
+		finally {
+			pageBusy = false;
+
+			if (sheet && sheet.refresh) {
+				sheet.refresh();
+			}
+		}
+	}
+
 	// The full-resolution capture of `region` (frame pixels): a bitmap whose
 	// pixels the picture worker reads (camera.js grabBitmap), where it can,
 	// else the pixels read here (grabFrame, 380 to 550 ms of the main thread
@@ -2398,7 +2556,7 @@ export function scanView(root) {
 		}
 	}
 
-	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, photo = false, quads = [], seen = null, straight = false} = {}) {
+	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, onPicture = null, page = false, photo = false, quads = [], seen = null, straight = false} = {}) {
 		let result;
 		let readDone = () => {};
 
@@ -2427,6 +2585,10 @@ export function scanView(root) {
 
 			if (textFirst()) {
 				result = await identify(frame, {...options, pictureFirst: false});
+
+				if (onPicture) {
+					onPicture();
+				}
 			}
 			else {
 				// The picture in its own queue (in a worker, off the frame loop),
@@ -2443,6 +2605,12 @@ export function scanView(root) {
 				}
 				finally {
 					picturing--;
+
+					// A binder page's next pocket goes to the picture worker now
+					// (readPage).
+					if (onPicture) {
+						onPicture();
+					}
 				}
 
 				queueWaits.set(id, {picture: Math.max(0, Math.round(performance.now() - asked - (seen.timings.total || 0))), pictureMs: Math.round(performance.now() - asked)});
@@ -2456,7 +2624,9 @@ export function scanView(root) {
 				// The stack is decided once per card, here, and pictureItemNow
 				// reuses it, so skipping the number read and picking the print
 				// always agree.
-				stackOf.set(id, S.stackSet(session, id));
+				// A binder page's pockets take no stack: a page is not a pile from
+				// one set.
+				stackOf.set(id, page ? null : S.stackSet(session, id));
 				result = seen.needsText && !stackPick(seen.picture, stackOf.get(id)) ? await identifyText(seen, {readOptions}) : seen;
 
 				// Only a card that went to the text reader waited for it (a stack
@@ -2523,7 +2693,7 @@ export function scanView(root) {
 		// An automatic capture with no card edges and no number read was not a
 		// card (a hand, the table): it leaves the tray. A shutter capture
 		// always stays, because the person meant it.
-		const report = () => ({...S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : 'camera'}), queue: queueWaits.get(id) || null});
+		const report = () => ({...S.reportOfRead(result, {captureMs, frame: `${frame.width} x ${frame.height}`, geometry: area, source: photo ? 'photo' : page ? 'page' : 'camera'}), queue: queueWaits.get(id) || null});
 
 		if (auto && !result.found && !(result.read && result.read.number) && !(result.picture && pictureVerdict(result.picture).sure)) {
 			await drop(id, 'not a card', {fullSaved, report: report(), result});
@@ -2581,7 +2751,7 @@ export function scanView(root) {
 		// Any other card taken: the open question is answered No.
 		answerRepeat(false);
 
-		if (!photo && !straight) {
+		if (!photo && !straight && !page) {
 			const key = pictureKey(result.picture);
 
 			if (key) {
@@ -2661,15 +2831,15 @@ export function scanView(root) {
 	}
 
 	// The camera's capture just before card `id` in the tray, or null:
-	// photos picked from the gallery and cards added from the search are
-	// passed over. One still being read has no picture yet, so it repeats
-	// nothing.
+	// photos picked from the gallery, a binder page's pockets, and cards
+	// added from the search are passed over. One still being read has no
+	// picture yet, so it repeats nothing.
 	function previousCapture(id) {
 		const index = session.items.findIndex((item) => item.id === id);
 
 		for (let i = index - 1; i >= 0; i--) {
 			const item = session.items[i];
-			const fromPhoto = openWhenMatched.has(item.id) || (item.report && item.report.source === 'photo');
+			const fromPhoto = openWhenMatched.has(item.id) || Boolean(item.page) || (item.report && item.report.source === 'photo');
 			const fromSearch = !item.report && !item.picture && !item.read && item.status !== 'reading';
 
 			if (!fromPhoto && !fromSearch) {
@@ -2876,7 +3046,7 @@ export function scanView(root) {
 		// set list and record has been fetched (Eric's phone, version 25: 0.6
 		// to 2 s to show, 1.8 to 6.9 s for the full records).
 		// The set the cards before this one are from (session.js stackSet).
-		const stack = stackOf.has(id) ? stackOf.get(id) : S.stackSet(session, id);
+		const stack = stackOf.has(id) ? stackOf.get(id) : item.page ? null : S.stackSet(session, id);
 		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
@@ -2983,6 +3153,9 @@ export function scanView(root) {
 
 		scannerChange(id, () => {
 			S.applyPicture(session, id, found);
+			// A binder page's pocket is not sure of a Japanese or Chinese print
+			// its label did not show (session.js doubtPocket).
+			S.doubtPocket(session, id);
 
 			if (found.card) {
 				S.defaultLanguage(session, id, lastLanguage(), undefined, {asian: lastAsianLanguage()});
@@ -4307,7 +4480,7 @@ export function scanView(root) {
 	function startLoop() {
 		clearInterval(loop);
 		loop = setInterval(() => {
-			if (!camera || document.hidden || shutterBusy) {
+			if (!camera || document.hidden || shutterBusy || pageBusy) {
 				return;
 			}
 
