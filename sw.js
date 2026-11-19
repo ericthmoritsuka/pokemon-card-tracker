@@ -249,6 +249,7 @@ const SHELL = [
 	'js/scan/worth.js',
 	'js/search-match.js',
 	'js/settings.js',
+	'js/share-image.js',
 	'js/sheet.js',
 	'js/photos/shared.js',
 	'js/shell.js',

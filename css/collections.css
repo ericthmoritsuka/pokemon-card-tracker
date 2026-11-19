@@ -278,6 +278,14 @@
 	margin: var(--space-2) 0 0;
 }
 
+/* Share ends the row (js/catalog-views.js), alone on a family member's card
+   or one with no copy, so the row lays out as a wrapping row then too. */
+.copies-collect-row:has(.share-open) {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
 /* Done sheet in the scanner: the collection chooser's new-name field. */
 .scan-collection-new {
 	display: flex;

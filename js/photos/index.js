@@ -327,6 +327,8 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 	let alive = true;
 	let wantSlide = null;
 	let shown = false;
+	// The main image's slide as last drawn, for Share (mainPicture).
+	let mainShown = null;
 
 	const withFamily = !readOnly && !given;
 
@@ -437,6 +439,8 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 		const slides = gallerySlides({entries: holders, family, official, twins});
 		const mainId = mainSlideId(slides, pinnedImage(holders));
 
+		mainShown = slides.find((slide) => slide.id === mainId) || null;
+
 		carousel.update({mainId, pending: pendingUploads(), problems: uploadProblems(), slides, waitingText: waitingText()});
 
 		if (wantSlide && slides.some((slide) => slide.id === wantSlide)) {
@@ -496,6 +500,24 @@ export function cardPhotos({cardId, catalog, describe = describeLanguage, entrie
 			}
 		},
 		element,
+		// The URL of the main image, the one tiles show, for card detail's
+		// Share (js/share-image.js): the official image or twin as shown, a
+		// photo's detail copy when there is one (the sharpest), else its
+		// normal copy. Null when there is no image or the photo cannot be
+		// read right now.
+		async mainPicture() {
+			const slide = mainShown;
+
+			if (!slide) {
+				return null;
+			}
+
+			if (!slide.photo) {
+				return slide.src || null;
+			}
+
+			return await detailUrl(slide.photo).catch(() => null) || photoUrl(slide.photo).catch(() => null);
+		},
 		refresh: load,
 		show(next = {}) {
 			shown = true;
