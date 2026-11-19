@@ -880,11 +880,11 @@ export function historyLine(row, {now = new Date()} = {}) {
 // 2026-11-19): [{entries, price}] in the order they came, copies with the
 // same card, language, and price as one row; price null for a copy with
 // none. cards: the document's copies, removed ones included, since a copy
-// that left since still cost what it cost. Null when the move has no card
-// prices (ownPrices).
-export function pricedCards(move, cards) {
-	const prices = ownPrices(move);
-
+// that left since still cost what it cost. prices: the card prices to
+// group by, by default the move's own while they tell (ownPrices); Edit
+// passes the ones kept on the move even when an older phone's Edit of the
+// total left them behind. Null when there are none.
+export function pricedCards(move, cards, prices = ownPrices(move)) {
 	if (!prices) {
 		return null;
 	}

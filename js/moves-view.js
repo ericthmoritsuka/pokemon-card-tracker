@@ -10,7 +10,10 @@
 //                you removed in the last 30 days: Log a past sale) and the
 //                cards in (picked from the catalog with language, finish,
 //                and condition, as Add a copy asks). Saving shows Undo on a
-//                toast.
+//                toast. A purchase says where it came from (From, with the
+//                places of earlier purchases offered) and is priced with
+//                one total or card by card (Price each card; Eric,
+//                2026-11-19).
 //
 // Reached from the Trades button beside Spares on My Cards, "Trades and
 // sales" in Profile, and Trade or sale on a copy sheet and a card's page,
@@ -25,7 +28,7 @@ import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, l
 import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, applyMove, editMove, liveMoves, monthTotals, moveTitle, parsePrice, pastCandidates, priceForInput, priceText, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, undoMove} from './moves.js';
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {plainVariantId} from './scan/finish.js';
@@ -114,12 +117,77 @@ function scanIcon() {
 
 // A compact row for a card the scanner handed over (design review,
 // 2026-11-06): its picture, its name, its language and condition, and an x
-// that takes it out of the move.
-function chosenRow(attrs, art, name, meta, onRemove) {
+// that takes it out of the move. extra goes under the meta: the card's own
+// price on a purchase priced card by card.
+function chosenRow(attrs, art, name, meta, onRemove, extra = null) {
 	return h('div', {...attrs, class: 'move-row'},
 		h('span', {class: 'move-row-thumb'}, art),
-		h('span', {class: 'move-row-text'}, h('span', {class: 'move-row-name'}, name), h('span', {class: 'move-row-meta'}, meta)),
+		h('div', {class: 'move-row-text'}, h('span', {class: 'move-row-name'}, name), h('span', {class: 'move-row-meta'}, meta), extra),
 		h('button', {'aria-label': `Take ${name} out of the list`, class: 'move-row-remove move-unpick', onclick: onRemove, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
+}
+
+// "Price each card" (Eric, 2026-11-19): the switch on a purchase that
+// gives each card coming in a price of its own, the total being their sum.
+// The Pokémon list's switch (css/pokemon-cards.css), so the app has one.
+function eachSwitch(id) {
+	const box = h('input', {id, role: 'switch', type: 'checkbox'});
+	const row = h('label', {class: 'pc-switch move-each', for: id}, box, h('span', {class: 'pc-switch-track', 'aria-hidden': 'true'}), h('span', null, 'Price each card'));
+
+	return {box, row};
+}
+
+// One card's own price: typed and read back as Paid is (js/moves.js
+// parsePrice, "Saved as R$ 12,00"), in the move's one currency. n copies
+// each cost it (a card added with Copies 3 is three copies at one price),
+// so the read-back says so. Blank is allowed: the card has no price of its
+// own and counts 0 toward the total.
+function cardPriceField(id, name, {currency, n = 1, onInput = () => {}, value = ''}) {
+	const input = h('input', {'aria-label': `Price of ${name}${n > 1 ? `, each of ${n} copies` : ''}`, autocomplete: 'off', class: 'search move-card-price-input', id, inputmode: 'decimal', placeholder: '0,00', type: 'text', value});
+	const read = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: `${id}-read`});
+	const box = h('div', {class: 'move-card-price'}, h('label', {for: id}, n > 1 ? 'Price each' : 'Price'), input, read);
+
+	function refresh() {
+		const {error: wrong, value: amount} = parsePrice(input.value);
+
+		read.classList.toggle('form-error', Boolean(wrong));
+		read.textContent = wrong || (amount ? `Saved as ${formatMoney(amount, currency())}${n > 1 ? ` each, ${formatMoney(sumPrices(Array(n).fill(amount)), currency())} for ${n}` : ''}` : '');
+	}
+
+	input.addEventListener('input', () => {
+		refresh();
+		onInput();
+	});
+	refresh();
+
+	return {box, input, n, refresh};
+}
+
+// The total of the card prices, shown where Paid is typed, not typed itself.
+const totalBox = (id) => h('output', {'aria-live': 'polite', class: 'move-price-total', id});
+
+// The first card price that cannot be read, focused with its message in
+// error, or false when every one reads (blank included).
+function badCardPrice(fields, error) {
+	const bad = fields.find((field) => parsePrice(field.input.value).error);
+
+	if (!bad) {
+		return false;
+	}
+
+	bad.refresh();
+	error.textContent = parsePrice(bad.input.value).error;
+	bad.input.focus();
+
+	return true;
+}
+
+// The From field's hint and suggestions on a purchase (Eric, 2026-11-19):
+// where earlier purchases came from, newest first (js/moves.js
+// purchaseSources), as a datalist, so the phone offers them as he types.
+const WHO_HINT = 'A store, site, event, or person';
+
+function sourcesList(id, doc) {
+	return h('datalist', {id}, purchaseSources(doc).map((name) => h('option', {value: name})));
 }
 
 // ------------------------------------------------------------- History
@@ -130,6 +198,9 @@ export function historyView(root) {
 	const sheet = sheetDialog('move-sheet', 'Trade or sale');
 	// The names of a move's cards, from the last draw, for Cancel in Edit.
 	let cardNames = () => [];
+	// The document and card names of the last draw, for a purchase's card
+	// prices in its sheet and in Edit, and the From suggestions.
+	let drawn = {doc: {}, info: () => ({name: ''})};
 	const outNames = (move) => cardNames(move.out);
 	const inNames = (move) => cardNames(move.in);
 
@@ -147,6 +218,7 @@ export function historyView(root) {
 		const names = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean).map((entry) => entryInfo(entry, index, viewing).name);
 
 		cardNames = names;
+		drawn = {doc, info: (entry) => entryInfo(entry, index, viewing)};
 
 		if (!months.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
@@ -200,6 +272,18 @@ export function historyView(root) {
 			confirm.hidden = false;
 		}, type: 'button'}, 'Undo this trade or sale');
 		const edit = h('button', {id: 'move-edit', onclick: () => editMoveForm(move), type: 'button'}, 'Edit');
+		// A purchase priced card by card lists its cards with their prices
+		// (Eric, 2026-11-19); a copy with none says so.
+		const priced = pricedCards(move, drawn.doc.cards);
+		const currency = CURRENCIES.includes(move.currency) ? move.currency : 'BRL';
+		const cameIn = priced
+			? h('dd', {id: 'move-sheet-in'}, h('ul', {class: 'move-priced'}, priced.map((row) => {
+				const n = row.entries.length;
+				const name = drawn.info(row.entries[0]).name;
+
+				return h('li', null, `${name}${n > 1 ? ` (${n} copies)` : ''}, ${row.price ? `${formatMoney(row.price, currency)}${n > 1 ? ' each' : ''}` : 'no price'}`);
+			})))
+			: h('dd', {id: 'move-sheet-in'}, came.join(', '));
 
 		sheet.replaceChildren(
 			h('div', {class: 'sheet-head'},
@@ -210,11 +294,11 @@ export function historyView(root) {
 				h('dt', null, 'Date'), h('dd', null, shortDate(move.date, {year: true}) || move.date),
 				...(priceText(move) ? [h('dt', null, 'Money'), h('dd', null, `${priceText(move)} ${move.money === 'in' ? 'in' : 'out'}`)] : []),
 				...(out.length ? [h('dt', null, 'Going out'), h('dd', {id: 'move-sheet-out'}, out.join(', '))] : []),
-				...(came.length ? [h('dt', null, 'Coming in'), h('dd', {id: 'move-sheet-in'}, came.join(', '))] : []),
+				...(came.length ? [h('dt', null, 'Coming in'), cameIn] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
 			h('div', {class: 'button-row move-sheet-actions'}, edit),
-			h('p', {class: 'muted move-edit-hint'}, 'Edit changes the date, who, price, and note. To change the cards, undo this trade or sale and log it again.'),
+			h('p', {class: 'muted move-edit-hint'}, `Edit changes the date, ${move.kind === 'bought' ? 'where from, the prices' : 'who, price'}, and note. To change the cards, undo this trade or sale and log it again.`),
 			h('div', {class: 'copy-danger'}, undo, confirm)
 		);
 		showSheet(sheet);
@@ -224,13 +308,16 @@ export function historyView(root) {
 	// currency and which way it went, and the note, in the same sheet. The
 	// cards stay as they are (js/moves.js planEditMove). The form keeps the
 	// move it was filled from and saves only what was changed in it, so a
-	// change another phone made while it was open stays.
+	// change another phone made while it was open stays. A purchase has From
+	// with its suggestions and Price each card, as the log form does (Eric,
+	// 2026-11-19); its card prices are saved with the total as one unit.
 	function editMoveForm(move) {
 		const opened = structuredClone(move);
 		const close = () => sheet.close();
 		const [whoWords, priceWords] = KIND_WORDS[move.kind] || KIND_WORDS.gift;
+		const bought = move.kind === 'bought';
 		const date = h('input', {class: 'search', id: 'move-edit-date', name: 'move-edit-date', type: 'date', value: move.date || today()});
-		const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-edit-who', maxlength: 80, name: 'move-edit-who', type: 'text', value: move.who || ''});
+		const who = h('input', {'aria-describedby': bought ? 'move-edit-who-hint' : null, autocomplete: 'off', class: 'search', id: 'move-edit-who', list: bought ? 'move-edit-who-sources' : null, maxlength: 80, name: 'move-edit-who', type: 'text', value: move.who || ''});
 		const price = h('input', {class: 'search', id: 'move-edit-price', inputmode: 'decimal', name: 'move-edit-price', placeholder: '0,00', type: 'text', value: priceForInput(move.price)});
 		const currency = sheetSelect('move-edit-currency', CURRENCIES.map((code) => ({label: code, value: code})), CURRENCIES.includes(move.currency) ? move.currency : 'BRL');
 		const money = sheetSelect('move-edit-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], move.money === 'in' ? 'in' : 'out');
@@ -239,28 +326,91 @@ export function historyView(root) {
 		const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'move-edit-error'});
 		const save = h('button', {class: 'primary', id: 'move-edit-save', type: 'submit'}, 'Save');
 		const cancel = h('button', {id: 'move-edit-cancel', onclick: () => openMove(move, outNames(move), inNames(move)), type: 'button'}, 'Cancel');
+		const priceLabel = h('label', {for: 'move-edit-price'}, priceWords);
+		const total = totalBox('move-edit-price-total');
+		// A purchase's cards, one row per card, language, and price, each
+		// with its price: the prices it has, even ones an older phone's Edit
+		// of the total left behind, so turning the switch on brings them back.
+		const cards = bought && Array.isArray(move.in) && move.in.length ? pricedCards(move, drawn.doc.cards, cleanInPrices(move.in_prices, move.in) || {}) : null;
+		const each = cards && cards.length ? eachSwitch('move-edit-each') : null;
+		const fields = (cards || []).map((row, i) => {
+			const name = drawn.info(row.entries[0]).name;
+			const field = cardPriceField(`move-edit-card-price-${i}`, name, {currency: () => currency.value, n: row.entries.length, onInput: readPrice, value: priceForInput(row.price)});
+
+			return {...field, name, row};
+		});
+		const cardList = h('div', {class: 'move-edit-cards', hidden: true, id: 'move-edit-cards'}, fields.map(({box, name, row}) => h('div', {class: 'move-edit-card', 'data-card': row.entries[0].card_id},
+			h('span', {class: 'move-row-name'}, name),
+			h('span', {class: 'move-row-meta'}, [row.entries.length > 1 ? `${row.entries.length} copies` : null, languageName(row.entries[0].language), row.entries[0].condition].filter(Boolean).join(' · ')),
+			box)));
+		const eachOn = () => Boolean(each && each.box.checked);
+		const cardSum = () => sumPrices(fields.flatMap((field) => Array(field.n).fill(field.input.value)));
 
 		note.value = move.note || '';
 
-		// The price as it will be saved, as the log form shows it.
+		if (each) {
+			each.box.checked = Boolean(ownPrices(move));
+		}
+
+		// The price as it will be saved, as the log form shows it: with Price
+		// each card on, the sum of the card prices.
 		function readPrice() {
+			if (eachOn()) {
+				const sum = cardSum();
+
+				priceRead.classList.remove('form-error');
+				total.textContent = priceForInput(sum) || '0,00';
+				priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'No card has a price yet.';
+
+				return;
+			}
+
 			const {error: wrong, value} = parsePrice(price.value);
 
 			priceRead.classList.toggle('form-error', Boolean(wrong));
 			priceRead.textContent = wrong || (value ? `Saved as ${formatMoney(value, currency.value)}` : '');
 		}
 
+		function drawEach() {
+			const on = eachOn();
+
+			price.hidden = on;
+			total.hidden = !on;
+			cardList.hidden = !on;
+			priceLabel.textContent = on ? 'Total' : priceWords;
+			priceLabel.setAttribute('for', on ? 'move-edit-price-total' : 'move-edit-price');
+			readPrice();
+		}
+
 		price.addEventListener('input', () => {
 			error.textContent = '';
 			readPrice();
 		});
-		currency.addEventListener('change', readPrice);
-		readPrice();
+		currency.addEventListener('change', () => {
+			readPrice();
+			fields.forEach((field) => field.refresh());
+		});
+
+		if (each) {
+			each.box.addEventListener('change', () => {
+				// Turned off with no total typed: the card prices' sum is kept
+				// as the total rather than lost.
+				if (!each.box.checked && !price.value.trim() && cardSum()) {
+					price.value = priceForInput(cardSum());
+				}
+
+				error.textContent = '';
+				drawEach();
+			});
+		}
+
+		drawEach();
 
 		const form = h('form', {class: 'copy-form move-form', id: 'move-edit-form', novalidate: true},
 			sheetField('Date', 'move-edit-date', date),
-			h('div', {class: 'copy-field'}, h('label', {for: 'move-edit-who'}, whoWords), who),
-			...(priceWords ? [h('div', {class: 'copy-field move-price-row'}, h('label', {for: 'move-edit-price'}, priceWords), h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)), priceRead)] : []),
+			h('div', {class: 'copy-field'}, h('label', {for: 'move-edit-who'}, whoWords), who,
+				...(bought ? [h('p', {class: 'muted move-who-hint', id: 'move-edit-who-hint'}, WHO_HINT), sourcesList('move-edit-who-sources', drawn.doc)] : [])),
+			...(priceWords ? [h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, total, h('span', {class: 'select-wrap'}, currency)), priceRead, ...(each ? [each.row, cardList] : []))] : []),
 			...(move.kind === 'traded' ? [h('div', {class: 'copy-field'}, h('label', {for: 'move-edit-money'}, 'The cash'), h('span', {class: 'select-wrap'}, money))] : []),
 			sheetField('Note', 'move-edit-note', note),
 			error,
@@ -271,7 +421,11 @@ export function historyView(root) {
 			event.preventDefault();
 			error.textContent = '';
 
-			if (priceWords && parsePrice(price.value).error) {
+			if (eachOn() && badCardPrice(fields, error)) {
+				return;
+			}
+
+			if (!eachOn() && priceWords && parsePrice(price.value).error) {
 				readPrice();
 				error.textContent = parsePrice(price.value).error;
 				price.focus();
@@ -279,20 +433,27 @@ export function historyView(root) {
 				return;
 			}
 
-			const fields = {date: date.value || move.date, note: note.value, who: who.value};
+			const sent = {date: date.value || move.date, note: note.value, who: who.value};
 
 			if (priceWords) {
-				Object.assign(fields, {currency: currency.value, price: price.value});
+				Object.assign(sent, {currency: currency.value, price: eachOn() ? priceForInput(cardSum()) : price.value});
+			}
+
+			// The card prices go with the total as one unit (js/moves.js
+			// planEditMove): each copy of a row takes its row's price, and
+			// with the switch off they are none, the total standing alone.
+			if (each) {
+				sent.in_prices = eachOn() ? Object.fromEntries(fields.flatMap((field) => field.row.entries.map((entry) => [entry.id, field.input.value]))) : null;
 			}
 
 			if (move.kind === 'traded') {
-				fields.money = money.value;
+				sent.money = money.value;
 			}
 
 			save.disabled = true;
 
 			try {
-				const {changed} = await editMove(move.id, fields, {base: opened});
+				const {changed} = await editMove(move.id, sent, {base: opened});
 
 				close();
 				toast(changed.length ? 'Saved your changes to the trade or sale.' : 'Nothing changed.');
@@ -346,9 +507,11 @@ export function historyView(root) {
 // ------------------------------------------------------------ Log a trade or sale
 
 // The labels of who and the price for each kind: [who, price], with no
-// price for a gift. The log form and Edit share them.
+// price for a gift. The log form and Edit share them. A purchase's who is
+// where it came from, a store, site, event, or person, so it reads From
+// (Eric, 2026-11-19; it read "Bought from").
 const KIND_WORDS = {
-	bought: ['Bought from', 'Paid (optional)'],
+	bought: ['From', 'Paid (optional)'],
 	gift: ['Who', null],
 	sold: ['Sold to', 'Sold for (optional)'],
 	traded: ['Traded with', 'Cash added (optional)'],
@@ -414,6 +577,10 @@ export function newMoveView(root) {
 	const date = h('input', {class: 'search', id: 'move-date', name: 'move-date', type: 'date', value: today()});
 	const who = h('input', {autocomplete: 'off', class: 'search', id: 'move-who', maxlength: 80, name: 'move-who', type: 'text'});
 	const whoLabel = h('label', {for: 'move-who'}, 'Sold to');
+	// On a purchase: the hint, and the places of earlier purchases to pick
+	// from, filled once his moves are read.
+	const whoHint = h('p', {class: 'muted move-who-hint', hidden: true, id: 'move-who-hint'}, WHO_HINT);
+	let sources = h('datalist', {id: 'move-who-sources'});
 	const price = h('input', {class: 'search', id: 'move-price', inputmode: 'decimal', name: 'move-price', placeholder: '0,00', type: 'text'});
 	const priceLabel = h('label', {for: 'move-price'}, 'Sold for (optional)');
 	const currency = sheetSelect('move-currency', CURRENCIES.map((code) => ({label: code, value: code})), 'BRL');
@@ -422,9 +589,39 @@ export function newMoveView(root) {
 	// The price as it will be saved, under the field as he types, so "1.500"
 	// reads back as R$ 1.500,00 before he saves (js/moves.js parsePrice).
 	const priceRead = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: 'move-price-read'});
-	const priceRow = h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, h('span', {class: 'select-wrap'}, currency)), priceRead);
+	// Price each card, on a purchase (Eric, 2026-11-19): off, one total as
+	// before; on, each card coming in has a price of its own, and the total
+	// shows here, not typed, as their sum.
+	const each = eachSwitch('move-each');
+	const total = totalBox('move-price-total');
+	const priceRow = h('div', {class: 'copy-field move-price-row'}, priceLabel, h('div', {class: 'move-price-inputs'}, price, total, h('span', {class: 'select-wrap'}, currency)), priceRead, each.row);
+	const eachOn = () => kind === 'bought' && each.box.checked;
+	let priceSeq = 0;
+
+	// A card coming in's own price field, made once and kept on the card, so
+	// a redraw of the list keeps what was typed and where the cursor is.
+	function priceFieldOf(item) {
+		if (!item.price) {
+			item.price = cardPriceField(`move-card-price-${priceSeq++}`, item.info.name, {currency: () => currency.value, n: item.n, onInput: readPrice});
+		}
+
+		return item.price;
+	}
+
+	const cardPrices = () => ins.map(priceFieldOf);
+	const cardSum = () => sumPrices(ins.flatMap((item) => Array(item.n).fill(priceFieldOf(item).input.value)));
 
 	function readPrice() {
+		if (eachOn()) {
+			const sum = cardSum();
+
+			priceRead.classList.remove('form-error');
+			total.textContent = priceForInput(sum) || '0,00';
+			priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'Type each card\'s price under Coming in. A card left blank has no price.';
+
+			return;
+		}
+
 		const {error: wrong, value} = parsePrice(price.value);
 
 		priceRead.classList.toggle('form-error', Boolean(wrong));
@@ -432,7 +629,21 @@ export function newMoveView(root) {
 	}
 
 	price.addEventListener('input', readPrice);
-	currency.addEventListener('change', readPrice);
+	currency.addEventListener('change', () => {
+		readPrice();
+		ins.forEach((item) => item.price && item.price.refresh());
+	});
+	each.box.addEventListener('change', () => {
+		// Turned off with no total typed: the card prices' sum is kept as the
+		// total rather than lost. The card prices stay typed for turning it
+		// on again.
+		if (!each.box.checked && !price.value.trim() && cardSum()) {
+			price.value = priceForInput(cardSum());
+		}
+
+		error.textContent = '';
+		drawKind();
+	});
 	const note = h('textarea', {class: 'copy-notes', id: 'move-note', maxlength: 500, name: 'move-note', rows: 2});
 	const listClass = compact ? 'move-rows' : 'pick-grid move-chosen';
 	const outList = h('div', {class: listClass, id: 'move-out-list'});
@@ -465,10 +676,29 @@ export function newMoveView(root) {
 	function drawKind() {
 		const side = shows();
 		const words = KIND_WORDS[kind];
+		const bought = kind === 'bought';
+		const on = eachOn();
 
 		whoLabel.textContent = words[0];
+		whoHint.hidden = !bought;
+
+		for (const [key, value] of [['list', 'move-who-sources'], ['aria-describedby', 'move-who-hint']]) {
+			if (bought) {
+				who.setAttribute(key, value);
+			}
+			else {
+				who.removeAttribute(key);
+			}
+		}
+
 		priceRow.hidden = !words[1];
-		priceLabel.textContent = words[1] || '';
+		priceLabel.textContent = on ? 'Total' : words[1] || '';
+		priceLabel.setAttribute('for', on ? 'move-price-total' : 'move-price');
+		price.hidden = on;
+		total.hidden = !on;
+		each.row.hidden = !bought;
+		readPrice();
+		drawIn();
 		moneyRow.hidden = kind !== 'traded';
 		outSection.hidden = !side.out;
 		inSection.hidden = !side.in;
@@ -482,6 +712,13 @@ export function newMoveView(root) {
 	}
 
 	function drawChosen() {
+		drawOut();
+		drawIn();
+	}
+
+	const none = () => [h('p', {class: 'muted'}, 'None yet.')];
+
+	function drawOut() {
 		if (!doc) {
 			return;
 		}
@@ -492,13 +729,8 @@ export function newMoveView(root) {
 		const dropOut = (id) => {
 			outIds.delete(id);
 			pastIds.delete(id);
-			drawChosen();
+			drawOut();
 		};
-		const dropIn = (i) => {
-			ins.splice(i, 1);
-			drawChosen();
-		};
-		const none = () => [h('p', {class: 'muted'}, 'None yet.')];
 
 		if (compact) {
 			outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => chosenRow({'data-entry': item.entry.id},
@@ -506,39 +738,53 @@ export function newMoveView(root) {
 				item.info.name,
 				copyMeta(item.entry, pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null),
 				() => dropOut(item.entry.id))) : none()));
-			inList.replaceChildren(...(ins.length ? ins.map((item, i) => chosenRow({'data-card': item.fields.card_id},
-				cardArt(item.info, item.info.image, {decorative: true}),
-				item.info.name,
-				[item.n > 1 ? `${item.n} copies` : null, languageName(item.fields.language), item.fields.condition].filter(Boolean).join(' · '),
-				() => dropIn(i))) : none()));
 		}
 		else {
-		outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => h('div', {class: 'pick-cell', 'data-entry': item.entry.id},
-			h('div', {class: 'pick'}, ...copyTile(item, {extra: pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null})),
-			h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => {
-				outIds.delete(item.entry.id);
-				pastIds.delete(item.entry.id);
-				drawChosen();
-			}, type: 'button'}, 'Remove'))) : [h('p', {class: 'muted'}, 'None yet.')]));
-		inList.replaceChildren(...(ins.length ? ins.map((item, i) => h('div', {class: 'pick-cell', 'data-card': item.fields.card_id},
-			h('div', {class: 'pick'},
-				h('div', {class: 'art-wrap'}, cardArt(item.info, item.info.image)),
-				h('span', {class: 'tile-name'}, item.info.name),
-				h('span', {class: 'tile-meta'}, [item.n > 1 ? `${item.n} copies` : null, languageName(item.fields.language), item.fields.condition].filter(Boolean).join(' · '))),
-			h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => {
-				ins.splice(i, 1);
-				drawChosen();
-			}, type: 'button'}, 'Remove'))) : [h('p', {class: 'muted'}, 'None yet.')]));
+			outList.replaceChildren(...(out.length ? described(out, index, viewing).map((item) => h('div', {class: 'pick-cell', 'data-entry': item.entry.id},
+				h('div', {class: 'pick'}, ...copyTile(item, {extra: pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null})),
+				h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => dropOut(item.entry.id), type: 'button'}, 'Remove'))) : none()));
 		}
 
+		// Only the cards going out are read again: the cards coming in keep
+		// their price fields, and the cursor in one, while records arrive.
 		fillRecords(out.map((entry) => ({cardId: entry.card_id, catalog: entry.catalog})), index, () => alive)
 			.then((filled) => {
 				if (filled && alive) {
 					index = filled;
-					drawChosen();
+					drawOut();
 				}
 			})
 			.catch(() => {});
+	}
+
+	// The cards coming in, each with its own price under it while Price each
+	// card is on.
+	function drawIn() {
+		const dropIn = (i) => {
+			ins.splice(i, 1);
+			drawIn();
+			readPrice();
+		};
+		const priced = (item) => (eachOn() ? priceFieldOf(item).box : null);
+		const meta = (item) => [item.n > 1 ? `${item.n} copies` : null, languageName(item.fields.language), item.fields.condition].filter(Boolean).join(' · ');
+
+		if (compact) {
+			inList.replaceChildren(...(ins.length ? ins.map((item, i) => chosenRow({'data-card': item.fields.card_id},
+				cardArt(item.info, item.info.image, {decorative: true}),
+				item.info.name,
+				meta(item),
+				() => dropIn(i),
+				priced(item))) : none()));
+		}
+		else {
+			inList.replaceChildren(...(ins.length ? ins.map((item, i) => h('div', {class: 'pick-cell', 'data-card': item.fields.card_id},
+				h('div', {class: 'pick'},
+					h('div', {class: 'art-wrap'}, cardArt(item.info, item.info.image)),
+					h('span', {class: 'tile-name'}, item.info.name),
+					h('span', {class: 'tile-meta'}, meta(item))),
+				priced(item),
+				h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => dropIn(i), type: 'button'}, 'Remove'))) : none()));
+		}
 	}
 
 	// ---------------------------------------------------- the cards out
@@ -729,6 +975,7 @@ export function newMoveView(root) {
 				}
 
 				ins.push({fields, info, n});
+				readPrice();
 
 				// Its name and set for the tiles, from the search or the record.
 				if (full && full.set) {
@@ -823,7 +1070,7 @@ export function newMoveView(root) {
 		kinds,
 		...(scanned ? [scanned, leftOut] : []),
 		sheetField('Date', 'move-date', date),
-		h('div', {class: 'copy-field'}, whoLabel, who),
+		h('div', {class: 'copy-field'}, whoLabel, who, whoHint, sources),
 		priceRow,
 		moneyRow,
 		sheetField('Note', 'move-note', note),
@@ -861,7 +1108,11 @@ export function newMoveView(root) {
 			return;
 		}
 
-		if (!priceRow.hidden && parsePrice(price.value).error) {
+		if (eachOn() && badCardPrice(cardPrices(), error)) {
+			return;
+		}
+
+		if (!priceRow.hidden && !eachOn() && parsePrice(price.value).error) {
 			readPrice();
 			error.textContent = parsePrice(price.value).error;
 			price.focus();
@@ -883,8 +1134,11 @@ export function newMoveView(root) {
 				note: note.value,
 				out,
 				past,
-				price: priceRow.hidden ? null : price.value,
+				price: priceRow.hidden || eachOn() ? null : price.value,
 				who: who.value,
+				// One price per copy, in the order of `in`: a card added with
+				// Copies 3 gives its price to each of its three copies.
+				...(eachOn() ? {in_prices: ins.flatMap((item) => Array(item.n).fill(priceFieldOf(item).input.value))} : {}),
 			});
 		}
 		catch (err) {
@@ -931,6 +1185,11 @@ export function newMoveView(root) {
 		if (!alive) {
 			return;
 		}
+
+		const filled = sourcesList('move-who-sources', doc);
+
+		sources.replaceWith(filled);
+		sources = filled;
 
 		// Copies handed over that are gone by now are dropped, and the
 		// scanner's line counts what is left.
