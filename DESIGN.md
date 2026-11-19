@@ -2801,6 +2801,39 @@ chosen, for a "Make a binder" button on those screens.
   along as an unknown list. A card an older app places in one of its pockets is ignored here, which
   leaves that copy "Not in a binder".
 
+**Make a list binder from this** (Eric, 2026-11-18: in a region binder one card is on top of a
+pocket, and tapping it should show all his other cards of that Pokémon; built 2026-11-18),
+`js/binder-convert.js`. His region binders are hand-made, one copy per pocket, so a tap shows that
+copy alone; a binder from a list already does what he wants. A hand-made binder's actions offer
+**Make a list binder from this**, which makes a NEW binder from a list and leaves the hand-made one
+untouched:
+
+- **The form** is New binder > From a list, prefilled: the name is the hand-made binder's plus
+  " (list)", its notes and cover color are kept, the pocket size is its own grid, the order is
+  Pokédex number (a Pokémon goal still suggests its own), and the list is the checklist that
+  matches its Pokémon best. Lay out from a list records no list, so it is a guess: the share of the
+  checklist and the binder's Pokémon together that both hold (copies, Pokémon placeholders, and
+  card placeholders count), so a Kanto binder with a Johto card picks Kanto over a list of every
+  Pokémon; a tie goes to the smaller list, then the person's order. Any checklist, collection, or
+  goal can be chosen instead. A line under the count says what the picks will be ("41 pockets show
+  the card you chose in Kanto. 1 card shares a pocket with an earlier card and is not used. 2 cards
+  are not on this list.").
+- **The picks.** The new binder gets a hand pick (`binder_picks`) for every pocket whose Pokémon
+  or card the hand-made binder holds a copy of, naming that exact copy, so each pocket shows the
+  card he chose. A copy picks the pocket whose copies include it, so the pick always fits. Two
+  copies for one pocket: the first in pocket order is the pick, and the rest are counted. A copy
+  that fits several pockets (a TAG TEAM card) goes after the copies that fit one, in the first of
+  its pockets still free, so a card of Zekrom alone keeps Zekrom's pocket. Placeholders, art, empty
+  pockets, and Gone copies give no pick. The binder and its picks are one save.
+- **After.** The new binder opens, and a toast (12 seconds, with a close button) says what was
+  made, how many pockets kept his card (and how many cards shared a pocket), and that the old
+  binder is unchanged and can be deleted when he is happy. Nothing is moved or deleted for him.
+- **Refresh, picks, and older phones** work as for any binder from a list: a pick follows its key
+  through refreshes, changes of order and size, and Show the default again; picks merge entry by
+  entry, and every app since the first sync keeps the `binder_picks` list it does not know
+  (checked with the frozen v21 and v47 merges, `tests/binder-convert.test.mjs`). The hand-made
+  binder keeps placing its copies, so they stay "In Kanto, p3" until he deletes it.
+
 ### Themes
 
 A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:
