@@ -1067,7 +1067,7 @@ function pageField(ctx) {
 
 	return h('div', {class: 'scan-field scan-page-field', id: 'scan-page'},
 		h('p', {class: 'scan-label', id: 'scan-page-label'}, 'Binder page'),
-		h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo: one page, upright, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
+		h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
 		h('div', {'aria-labelledby': 'scan-page-label', class: 'scan-chips', role: 'group'},
 			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-take', onclick: () => ctx.pagePhoto('camera'), type: 'button'}, 'Take a photo'),
 			h('button', {class: 'scan-chip', disabled: busy, id: 'scan-page-pick', onclick: () => ctx.pagePhoto('gallery'), type: 'button'}, 'Choose a photo')));

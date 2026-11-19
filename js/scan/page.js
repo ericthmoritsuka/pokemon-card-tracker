@@ -7,14 +7,19 @@
 // outline and no colour. Each pocket then joins the tray and is read as a
 // single capture is (js/scan/view.js readPage).
 //
-// Two pages taken as one (a spread, the phone turned) are not read: lab/multi
-// found them too often cut wrong. The photo is asked for again instead.
+// Two pages side by side (a spread, as Eric takes his binder: the phone
+// turned, the photo standing, the pages one above the other) are read too
+// (Eric, 2026-11-19): the photo is turned so the cards stand, split at the
+// binder's spine (js/scan/multi.js spineAt), and each page fitted from its
+// cards alone (fitGrid), its pockets numbered after the left page's. Which
+// way up the cards stand is told by their faces (upsideDown): the artwork's
+// half of a card is busier than its text's.
 //
 // No DOM at import, so js/scan/page-worker.js runs it off the main thread;
 // readPagePixels draws on an OffscreenCanvas, or a canvas element where
 // there is none. The helpers above it are pure, for Node's tests.
 
-import {fitPage, pageCells, pageShape, splitSpread} from './multi.js';
+import {cardsLie, darkBand, fitGrid, fitPage, pageCells, pageShape, SPINE_BAND, spineAt, splitSpread, twoPages} from './multi.js';
 import {warpQuad} from './rectify.js';
 import {colourfulness, COLOURLESS, FIND_SIDE_CAPTURE, findCard, findCards, findPages, toGrey} from './steady.js';
 
@@ -72,15 +77,20 @@ const middleOf = (q) => ({x: q.reduce((sum, p) => sum + p.x, 0) / 4, y: q.reduce
 //   fitted how many cards set it right (0 when the fit failed and the
 //   outline is as found: the sheet's edge or the binder's, often a little
 //   off).
+//
+// lie: most of the cards found lie on their side (js/scan/multi.js
+// cardsLie), so the photo was taken with the phone turned, and whatever
+// the outline says, it is not one upright page.
 export function locatePage(grey, width, height, {cols = PAGE_COLS, rows = PAGE_ROWS} = {}) {
 	const cards = findCards(grey, width, height);
 	const areas = cards.map((card) => area(card.corners)).sort((a, b) => a - b);
 	const cardArea = areas.length >= 3 ? areas[Math.floor(areas.length / 2)] : null;
 	const pages = findPages(grey, width, height, {cardArea, max: 2, pockets: rows * cols, shape: pageShape(rows, cols)});
 	const [page] = pages;
+	const lie = cardsLie(cards);
 
 	if (!page) {
-		return {cards: cards.length, corners: null, fitted: 0, status: 'none'};
+		return {cards: cards.length, corners: null, fitted: 0, lie, status: 'none'};
 	}
 
 	// Two pages found apart, or one standing outline whose cards lie across
@@ -88,7 +98,7 @@ export function locatePage(grey, width, height, {cols = PAGE_COLS, rows = PAGE_R
 	// shape too). A lone page taken sideways lies with its cards, and is
 	// read.
 	if (pages.length > 1 || (page.upright !== false && splitSpread(page.corners, cards))) {
-		return {cards: cards.length, corners: page.corners, fitted: 0, status: 'spread'};
+		return {cards: cards.length, corners: page.corners, fitted: 0, lie, status: 'spread'};
 	}
 
 	const fitted = fitPage(page.corners, cards, rows, cols);
@@ -102,11 +112,11 @@ export function locatePage(grey, width, height, {cols = PAGE_COLS, rows = PAGE_R
 		const within = cards.filter((card) => inside(page.corners, middleOf(card.corners))).map((card) => area(card.corners) / whole);
 
 		if (within.some((share) => share > ONE_CARD_SHARE) || !within.some((share) => share >= POCKET_SHARE * 0.6 && share <= POCKET_SHARE * 1.4)) {
-			return {cards: cards.length, corners: null, fitted: 0, status: 'none'};
+			return {cards: cards.length, corners: null, fitted: 0, lie, status: 'none'};
 		}
 	}
 
-	return {cards: cards.length, corners: fitted ? fitted.corners : page.corners, fitted: fitted ? fitted.cards : 0, status: 'page'};
+	return {cards: cards.length, corners: fitted ? fitted.corners : page.corners, fitted: fitted ? fitted.cards : 0, lie, status: 'page'};
 }
 
 // The pockets of a page whose corners were found on a copy `scale` times
@@ -157,6 +167,76 @@ export function pocketQuads(own, inner) {
 	return own ? [{corners: own.corners, ratio: own.ratio ?? CARD, upright: true}, place] : [place];
 }
 
+// ------------------------------------------------------------ two pages, and which way up
+
+// The sides a page's grey copy is searched at for its cards, in turn, until
+// most of its pockets are fitted (fitGrid): one side finds some cards and
+// another others, as the lines run (on Eric's spreads, 360 alone fitted 3
+// to 8 of a page's 9; with 420 and 480, 4 to 9).
+export const GRID_SIDES = [360, 420, 480, 300];
+// How many cards fitted are enough to stop looking at further sides.
+const GRID_ENOUGH = 8;
+// How far past the spine each page's half is cut, as a share of the
+// spread's width, so the cards beside the spine lie clear of the cut's edge
+// (findCards leaves out a box touching the frame's edge).
+export const SPINE_PAD = 0.015;
+// The longer side of the copy a spread is turned and split on.
+const WORK_SIDE = 1280;
+// The longer side of the copy the cards of a whole spread are found on.
+const SPREAD_FIND_SIDE = 720;
+
+// Cards found at several sides as one list: each card scaled back by its
+// copy's `scale`, a card already found at another side (its middle within
+// a third of its height) left out.
+export function mergeCards(found) {
+	const kept = [];
+
+	for (const {cards, scale} of found) {
+		for (const card of cards) {
+			const corners = card.corners.map((p) => ({x: p.x / scale, y: p.y / scale}));
+			const at = middleOf(corners);
+			const tall = Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y);
+
+			if (!kept.some((other) => {
+				const there = middleOf(other.corners);
+
+				return Math.hypot(at.x - there.x, at.y - there.y) < tall / 3;
+			})) {
+				kept.push({...card, corners});
+			}
+		}
+	}
+
+	return kept;
+}
+
+// A point of a frame width wide, turned a quarter counterclockwise (the
+// frame's top right comes to its top left), and back.
+export const turnPoint = (p, width) => ({x: p.y, y: width - p.x});
+export const unturnPoint = (p, width) => ({x: width - p.y, y: p.x});
+
+// A card found on a frame `width` wide, as it lies once the frame is turned
+// (turnPoint): its middle and width kept, standing where it lay.
+export const turnCard = (card, width) => ({...card, corners: card.corners.map((p) => turnPoint(p, width)), upright: card.upright === false});
+
+// A page's corners for the page turned half round (its bottom right its
+// top left).
+export const halfRound = ([tl, tr, br, bl]) => [br, bl, tl, tr];
+
+// Whether the cards stand upside down, from each card's balance: how much
+// busier the upper half of its middle is than the lower (edgeBalance), the
+// artwork's against the attacks' text. On Eric's photos 84 % of cards have
+// the artwork busier, and every page and spread said which way it stood
+// by 13 or more of 18. A photo turned here (turned) has no way up of its
+// own, so the most cards decide; one that stood as taken is turned round
+// only when three in four of its cards and three at least say so.
+export function upsideDown(balances, {turned = true} = {}) {
+	const down = balances.filter((b) => b < 0).length;
+	const up = balances.filter((b) => b > 0).length;
+
+	return turned ? down > up : down >= 3 && down >= (up + down) * 0.75;
+}
+
 // ------------------------------------------------------------ what Eric reads
 
 // The progress line while pocket `n` (1 to `of`) is read.
@@ -167,12 +247,16 @@ const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // The line once a page is read: how many cards joined the tray, how many
 // of those need a look, and how many pockets were empty. rough: the page's
 // outline was not set right by its cards, so the pockets may be off.
-export function pageSummary({added, empty, look, rough = false}) {
+// pages: how many pages were read (2 for a spread), and missed how many of
+// a spread's could not be found.
+export function pageSummary({added, empty, look, missed = 0, pages = 1, rough = false}) {
+	const which = pages > 1 ? 'Both pages' : missed ? 'One page' : 'Page';
+
 	if (!added) {
-		return empty ? 'Every pocket on that page looked empty.' : 'No cards were found on that page.';
+		return empty ? `Every pocket on ${pages > 1 ? 'those pages' : 'that page'} looked empty.` : `No cards were found on ${pages > 1 ? 'those pages' : 'that page'}.`;
 	}
 
-	const parts = [`Page read: ${count(added, 'card', 'cards')} added`];
+	const parts = [`${which} read: ${count(added, 'card', 'cards')} added`];
 
 	if (look) {
 		parts.push(`${look} to check`);
@@ -182,6 +266,10 @@ export function pageSummary({added, empty, look, rough = false}) {
 
 	if (empty) {
 		text += ` ${count(empty, 'empty pocket', 'empty pockets')} skipped.`;
+	}
+
+	if (missed) {
+		text += ' The other page could not be found, so take it on its own.';
 	}
 
 	if (rough) {
@@ -194,14 +282,14 @@ export function pageSummary({added, empty, look, rough = false}) {
 // Why a page was not read, as plain advice to take it again.
 export function pageTrouble(status) {
 	if (status === 'spread') {
-		return 'That looks like two pages. Take one page at a time, upright.';
+		return 'That looks like two pages, but their pockets could not be found. Take it again with the binder filling the photo, or one page at a time.';
 	}
 
 	if (status === 'unreadable') {
 		return 'That photo could not be opened. Try another one.';
 	}
 
-	return 'The page could not be found in that photo. Take it again: one page, upright, filling the photo.';
+	return 'The page could not be found in that photo. Take it again with the page filling the photo.';
 }
 
 // ------------------------------------------------------------ the pixels
@@ -281,12 +369,191 @@ export function photoPixels(bitmap, maxSide = PAGE_MAX_SIDE) {
 	return shrink(bitmap, width, height, 'high');
 }
 
+// `source` (a canvas) from (sx, sy), sw x sh of it, drawn at width x height.
+function shrinkPart(source, sx, sy, sw, sh, width, height) {
+	const canvas = canvasOf(width, height);
+	const ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = 'medium';
+	ctx.drawImage(source, sx, sy, sw, sh, 0, 0, width, height);
+
+	return ctx.getImageData(0, 0, width, height);
+}
+
+// An ImageData turned a quarter counterclockwise (turnPoint).
+function turnImage(image) {
+	const {height, width} = image;
+	const from = new Uint32Array(image.data.buffer, image.data.byteOffset, width * height);
+	const out = new ImageData(height, width);
+	const to = new Uint32Array(out.data.buffer);
+
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			to[(width - 1 - x) * height + y] = from[y * width + x];
+		}
+	}
+
+	return out;
+}
+
+// How much busier the upper half of a card's middle is than its lower half
+// (the mean step between neighbouring pixels, rows 15 to 45 % against 55 to
+// 85 %, the outer eighth of each side left out), on a 64 x 88 copy:
+// positive for a card standing up, its artwork above its text.
+export function edgeBalance(rgba, width = 64, height = 88) {
+	const busy = (from, to) => {
+		let sum = 0;
+		let n = 0;
+
+		for (let y = Math.round(height * from); y < Math.round(height * to); y++) {
+			for (let x = Math.round(width * 0.12); x < Math.round(width * 0.88); x++) {
+				const p = (y * width + x) * 4;
+
+				sum += Math.abs(rgba[p + 4] - rgba[p]) + Math.abs(rgba[p + width * 4] - rgba[p]);
+				n++;
+			}
+		}
+
+		return sum / Math.max(1, n);
+	};
+
+	return busy(0.15, 0.45) - busy(0.55, 0.85);
+}
+
+// The page in the stretch x0..x1 of `source` (a canvas width x height
+// pixels): its cards found at each of GRID_SIDES in turn (findCards on a
+// grey copy that long), merged (mergeCards), and the page fitted from
+// them (fitGrid), until GRID_ENOUGH are fitted. Returns {corners, cards}
+// in the source's pixels, or null.
+function gridIn(source, x0, x1, height, {cols, rows}) {
+	const width = x1 - x0;
+	const found = [];
+	let grid = null;
+
+	for (const side of GRID_SIDES) {
+		const scale = Math.min(1, side / Math.max(width, height));
+		const w = Math.max(1, Math.round(width * scale));
+		const h = Math.max(1, Math.round(height * scale));
+		const small = shrinkPart(source, x0, 0, width, height, w, h);
+
+		found.push({cards: findCards(toGrey(small.data, w, h), w, h), scale: w / width});
+
+		const fitted = fitGrid(mergeCards(found), rows, cols, {height, width});
+
+		if (fitted && (!grid || fitted.cards > grid.cards)) {
+			grid = fitted;
+		}
+
+		if (grid && grid.cards >= GRID_ENOUGH) {
+			break;
+		}
+	}
+
+	return grid && {cards: grid.cards, corners: grid.corners.map((p) => ({x: p.x + x0, y: p.y}))};
+}
+
+// A copy of the photo at most WORK_SIDE on its longer side, and the cards
+// found on a grey copy of it SPREAD_FIND_SIDE long (findCards, up to 24:
+// a spread's 18 and some false boxes). Returns {work, cards, grey, w, h,
+// k}: k the grey copy's scale against the work copy.
+function lookWhole(image) {
+	const scale = Math.min(1, WORK_SIDE / Math.max(image.width, image.height));
+	const work = shrink(canvasHolding(image), Math.max(1, Math.round(image.width * scale)), Math.max(1, Math.round(image.height * scale)), 'medium');
+	const k = Math.min(1, SPREAD_FIND_SIDE / Math.max(work.width, work.height));
+	const w = Math.max(1, Math.round(work.width * k));
+	const h = Math.max(1, Math.round(work.height * k));
+	const grey = toGrey(shrink(canvasHolding(work), w, h, 'medium').data, w, h);
+
+	return {cards: findCards(grey, w, h, {max: 24}), grey, h, k: w / work.width, w, work};
+}
+
+// The pages in a photo that is not one upright page as taken (lookWhole's
+// copy and cards): the copy turned a quarter when the cards lie (turned);
+// two pages when they spread wider than one page's (twoPages), split at the
+// spine (spineAt) a little past it each way; each page fitted from its
+// cards (gridIn); a band across the middle (band), turned, is taken for
+// the spine whatever the cards say. Returns {pages, spread, turned}: pages each {corners,
+// fitted}, corners in the photo's pixels as the page stands (which way up
+// not yet told), left page first.
+function framePages(image, {cards, grey, h, k, w, work}, {band = false, cols, rows, turned}) {
+	const frame = turned ? turnImage(work) : work;
+	const seen = turned ? cards.map((card) => turnCard(card, w)) : cards;
+	const spread = (turned && band) || twoPages(seen);
+	const canvas = canvasHolding(frame);
+	let halves = [[0, frame.width]];
+
+	if (spread) {
+		const [gw, gh] = turned ? [h, w] : [w, h];
+		const g = turned ? toGrey(shrink(canvas, gw, gh, 'medium').data, gw, gh) : grey;
+		const spine = spineAt(g, gw, gh, seen) / k;
+		const pad = frame.width * SPINE_PAD;
+
+		halves = [[0, Math.min(frame.width, Math.round(spine + pad))], [Math.max(0, Math.round(spine - pad)), frame.width]];
+	}
+
+	const kx = work.width / image.width;
+	const ky = work.height / image.height;
+	const pages = [];
+
+	for (const [x0, x1] of halves) {
+		const grid = gridIn(canvas, x0, x1, frame.height, {cols, rows});
+
+		if (grid) {
+			const back = turned ? grid.corners.map((p) => unturnPoint(p, work.width)) : grid.corners;
+
+			pages.push({corners: back.map((p) => ({x: p.x / kx, y: p.y / ky})), fitted: grid.cards});
+		}
+	}
+
+	return {pages, spread, turned};
+}
+
+// Each pocket's balance (edgeBalance) over the pages found, on a 64 x 88
+// copy of its cut (cut at 128 x 176 and halved, so the steps are the
+// card's, not the sampling's).
+function balancesOf(image, pages, {cols, rows}) {
+	const out = [];
+
+	for (const {corners} of pages) {
+		for (const plan of pocketPlan(corners, 1, {cols, rows})) {
+			const raw = warpQuad(image, plan.cut, 128, 176);
+			const half = new Uint8ClampedArray(64 * 88 * 4);
+
+			for (let y = 0; y < 88; y++) {
+				for (let x = 0; x < 64; x++) {
+					for (let c = 0; c < 3; c++) {
+						const p = (y * 2 * 128 + x * 2) * 4 + c;
+
+						half[(y * 64 + x) * 4 + c] = (raw.data[p] + raw.data[p + 4] + raw.data[p + 512] + raw.data[p + 516]) / 4;
+					}
+				}
+			}
+
+			out.push(edgeBalance(half, 64, 88));
+		}
+	}
+
+	return out;
+}
+
 // The page in a photo's pixels (ImageData), cut into its pockets. Returns
-// {status, fitted, cards, findMs, ms, size, pockets}: status as locatePage's;
-// pockets, for a page, row by row, each {index, row, col, empty} and, for a
-// pocket that is not empty, image (its cut, card-shaped ImageData) and
-// quads (pocketQuads, in the cut's pixels). Pauses between pockets, so on
-// the main thread the page keeps answering.
+// {status, fitted, cards, findMs, ms, size, pages, missed, turned,
+// flipped, pockets}: status as locatePage's ('page' whenever a page was
+// read, one or both of a spread's); pages how many were read and missed
+// how many of a spread's were not found; pockets, row by row, the left
+// page's first, each {index, row, col, empty} and, for a pocket that is
+// not empty, image (its cut, card-shaped ImageData) and quads (pocketQuads,
+// in the cut's pixels). Pauses between pockets, so on the main thread the
+// page keeps answering.
+//
+// One upright page whose outline the cards set right, its cards standing,
+// is read as before. Anything else (an outline they did not set right,
+// cards lying, two pages, no page found) is looked at whole (framePages):
+// an upright page there is fitted from its cards alone, and a spread taken
+// for one page (1000182575, read as nine wrong cards before) is told by its
+// cards, found on a larger copy, lying or spreading over two pages. Which
+// way up the cards stand is then told by their faces (upsideDown).
 export async function readPagePixels(image, {cols = PAGE_COLS, rows = PAGE_ROWS, side = PAGE_SIDE} = {}) {
 	const started = performance.now();
 	const scale = Math.min(1, side / Math.max(image.width, image.height));
@@ -294,33 +561,71 @@ export async function readPagePixels(image, {cols = PAGE_COLS, rows = PAGE_ROWS,
 	const h = Math.max(1, Math.round(image.height * scale));
 	const small = shrink(canvasHolding(image), w, h, 'medium');
 	const where = locatePage(toGrey(small.data, w, h), w, h, {cols, rows});
-	const findMs = Math.round(performance.now() - started);
-	const out = {cards: where.cards, findMs, fitted: where.fitted, ms: 0, pockets: [], size: `${image.width} x ${image.height}`, status: where.status};
+	// The copy's scale against the photo, from the sizes as drawn.
+	const copyScale = w / image.width;
+	// The cards on a larger copy say whether the phone was turned: on the
+	// 360 copy two lying cards one above the other make a standing box
+	// often enough that a spread's outline was fitted to them as one page
+	// (1000182575), while on a 720 copy Eric's spreads showed 9 to 14 of 9
+	// to 14 boxes lying and his single pages two at most of 7 to 9.
+	// A dark band across the photo's middle (darkBand) is the spine of a
+	// spread taken turned, where the cards found may not say so: a clean
+	// print's art box splits a lying card into two standing boxes (the
+	// synthetic spread in tests/scan-page-browser.test.mjs found 3 of 7
+	// lying). Turned on the band alone and finding no page, the photo is
+	// looked at as taken: an empty middle row of pockets makes a band too.
+	const whole = lookWhole(image);
+	const lie = where.lie || cardsLie(whole.cards, {share: 0.5});
+	const band = darkBand(whole.grey, whole.w, whole.h) < SPINE_BAND;
+	let pages = [];
+	let found = {spread: false, turned: false};
+	let flipped = false;
 
-	if (where.status !== 'page') {
+	if (where.status === 'page' && where.fitted && !lie && !band) {
+		pages = [{corners: where.corners.map((p) => ({x: p.x / copyScale, y: p.y / copyScale})), fitted: where.fitted}];
+	}
+	else {
+		found = framePages(image, whole, {band, cols, rows, turned: lie || band});
+
+		if (!found.pages.length && band && !lie) {
+			found = framePages(image, whole, {cols, rows, turned: false});
+		}
+
+		pages = found.pages;
+
+		if (pages.length && upsideDown(balancesOf(image, pages, {cols, rows}), {turned: found.turned})) {
+			flipped = true;
+			pages = pages.map((page) => ({...page, corners: halfRound(page.corners)})).reverse();
+		}
+	}
+
+	const findMs = Math.round(performance.now() - started);
+	const status = pages.length ? 'page' : found.spread || where.status === 'spread' ? 'spread' : 'none';
+	const out = {cards: where.cards, findMs, fitted: pages.length ? Math.min(...pages.map((page) => page.fitted)) : 0, flipped, missed: found.spread ? 2 - pages.length : 0, ms: 0, pages: pages.length, pockets: [], size: `${image.width} x ${image.height}`, status, turned: found.turned};
+
+	if (status !== 'page') {
 		out.ms = Math.round(performance.now() - started);
 
 		return out;
 	}
 
-	// The copy's scale against the photo, from the sizes as drawn.
-	const copyScale = w / image.width;
+	for (const [p, page] of pages.entries()) {
+		for (const plan of pocketPlan(page.corners, 1, {cols, rows})) {
+			await pause();
 
-	for (const plan of pocketPlan(where.corners, copyScale, {cols, rows})) {
-		await pause();
+			const raw = warpQuad(image, plan.cut, plan.width, plan.height);
+			const cut = new ImageData(raw.data, plan.width, plan.height);
+			const own = ownOutline(cut, plan.inner);
+			const empty = isEmptyPocket({colour: colourOf(cut), own});
+			const pocket = {col: plan.col, empty, index: p * rows * cols + plan.index, row: plan.row};
 
-		const raw = warpQuad(image, plan.cut, plan.width, plan.height);
-		const cut = new ImageData(raw.data, plan.width, plan.height);
-		const own = ownOutline(cut, plan.inner);
-		const empty = isEmptyPocket({colour: colourOf(cut), own});
-		const pocket = {col: plan.col, empty, index: plan.index, row: plan.row};
+			if (!empty) {
+				pocket.image = cut;
+				pocket.quads = pocketQuads(own, plan.inner);
+			}
 
-		if (!empty) {
-			pocket.image = cut;
-			pocket.quads = pocketQuads(own, plan.inner);
+			out.pockets.push(pocket);
 		}
-
-		out.pockets.push(pocket);
 	}
 
 	out.ms = Math.round(performance.now() - started);
