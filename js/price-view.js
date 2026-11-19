@@ -375,8 +375,8 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		};
 	}
 
-	// "Last 30 days: average ≈ R$ 2.423,00 over 30 days · ≈ R$ 3.977,00 over
-	// 7 days · ≈ R$ 1.076,00 over 1 day": Cardmarket's averages of sold
+	// "Last 30 days, average sale: ≈ R$ 4.793,34 over 30 days · ≈ R$ 9.962,27
+	// over 7 days · ≈ R$ 1.058,65 over 1 day": Cardmarket's averages of sold
 	// prices, which every record carries, so the card has a trend from the
 	// first day (Eric, 2026-11-18). In euros when no euro rate is saved.
 	function averagesLine(cm) {
@@ -386,12 +386,12 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 			return null;
 		}
 
-		const parts = averages.map((item, i) => [
+		const parts = averages.flatMap((item, i) => [
 			i ? ' · ' : null,
 			h('span', {class: 'price-nowrap'}, item.brl !== null ? about(item.brl) : formatMoney(item.eur, 'EUR'), ` over ${plural(item.days, 'day')}`),
 		]);
 
-		return h('p', {class: 'price-meta price-averages'}, h('span', {class: 'price-averages-label'}, 'Last 30 days: '), 'average ', parts);
+		return h('p', {class: 'price-meta price-averages'}, h('span', {class: 'price-averages-label'}, 'Last 30 days, average sale: '), parts);
 	}
 
 	// The card's weekly prices kept on this phone (js/value-history.js),

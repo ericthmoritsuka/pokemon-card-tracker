@@ -51,7 +51,9 @@ function percentText(percent) {
 // direction, so it never rests on color.
 function changeWords(change) {
 	const direction = change.brl > 0 ? 'up' : change.brl < 0 ? 'down' : 'steady';
-	const percent = percentText(change.percent);
+	// From the values, not change.percent, which is already rounded to a
+	// tenth: 22.49% must read 22%, not 23%.
+	const percent = percentText(change.first.brl > 0 ? (change.latest.brl / change.first.brl - 1) * 100 : null);
 
 	if (direction === 'steady') {
 		return {direction, shape: '→', text: 'No change'};
@@ -73,9 +75,11 @@ function summary(points, what) {
 	const highest = points.reduce((best, item) => (item.brl > best.brl ? item : best), first);
 	const lowest = points.reduce((best, item) => (item.brl < best.brl ? item : best), first);
 	const date = (item) => shortDate(item.date, {year: true});
+	// "Up R$ 120,00" as "up R$ 120,00": only the first letter, so "R$" stays.
+	const words = changeWords(change).text;
 
 	return `Line chart of ${what}, ${plural(points.length, 'reading')} from ${date(first)} to ${date(latest)}: `
-		+ `${formatBrl(first.brl)} to ${formatBrl(latest.brl)}, ${changeWords(change).text.toLowerCase()}. `
+		+ `${formatBrl(first.brl)} to ${formatBrl(latest.brl)}, ${words.charAt(0).toLowerCase()}${words.slice(1)}. `
 		+ `Highest ${formatBrl(highest.brl)} on ${date(highest)}, lowest ${formatBrl(lowest.brl)} on ${date(lowest)}.`;
 }
 
@@ -87,7 +91,8 @@ export function historyChart(points, {what = 'the value'} = {}) {
 	const ys = points.map((item) => item.brl);
 	const [x0, x1] = [Math.min(...xs), Math.max(...xs)];
 	const [y0, y1] = [Math.min(...ys), Math.max(...ys)];
-	const x = (value) => (x1 === x0 ? WIDTH / 2 : ((value - x0) / (x1 - x0)) * WIDTH);
+	// Padded on every side, so the end dots are never cut in half.
+	const x = (value) => (x1 === x0 ? WIDTH / 2 : PAD + ((value - x0) / (x1 - x0)) * (WIDTH - 2 * PAD));
 	// A flat line sits in the middle rather than on the floor.
 	const y = (value) => (y1 === y0 ? HEIGHT / 2 : PAD + (1 - (value - y0) / (y1 - y0)) * (HEIGHT - 2 * PAD));
 	const path = points.map((item, i) => `${i ? 'L' : 'M'}${x(xs[i]).toFixed(1)} ${y(item.brl).toFixed(1)}`).join(' ');
@@ -120,7 +125,8 @@ function changeLine(points, className) {
 
 	return h('p', {class: `${className} vh-change vh-change-${words.direction}`, 'data-direction': words.direction},
 		h('span', {'aria-hidden': 'true', class: 'vh-change-shape'}, `${words.shape} `),
-		`${words.text} since ${shortDate(change.first.date)}`
+		`${words.text} since `,
+		h('span', {class: 'price-nowrap'}, shortDate(change.first.date))
 	);
 }
 
@@ -143,10 +149,11 @@ export function collectionHistory(history) {
 		if (list.length < 2) {
 			const only = list[0];
 
-			part.replaceChildren(title,
+			// replaceChildren writes a null as the word, so none is passed.
+			part.replaceChildren(...[title,
 				only ? h('p', {class: 'vh-today'}, `${shortDate(only.date)}: ${formatBrl(only.brl)} for ${plural(only.priced, 'priced copy', 'priced copies')}.`) : null,
-				h('p', {class: 'muted vh-empty'}, 'The chart fills in as days pass. This phone notes your collection\'s value once a day, when My Cards has fresh prices.')
-			);
+				h('p', {class: 'muted vh-empty'}, 'The chart fills in as days pass. This phone notes your collection\'s value once a day, when My Cards has fresh prices.'),
+			].filter(Boolean));
 
 			return;
 		}
@@ -155,12 +162,12 @@ export function collectionHistory(history) {
 		const latest = list[list.length - 1];
 		const moved = first.priced !== latest.priced || first.copies !== latest.copies;
 
-		part.replaceChildren(title,
+		part.replaceChildren(...[title,
 			changeLine(list, 'vh-collection-change'),
 			historyChart(list, {what: 'your collection\'s value'}),
 			moved ? h('p', {class: 'muted vh-coverage'}, `${formatCount(latest.priced)} of ${copies(latest.copies)} priced now, ${formatCount(first.priced)} of ${copies(first.copies)} on ${shortDate(first.date)}, so cards added or newly priced move the line too.`) : null,
-			h('p', {class: 'muted vh-note'}, 'One value a day, worked out on this phone from the US market estimates and any Liga prices kept, converted at that day\'s rate. Copies without a price are left out.')
-		);
+			h('p', {class: 'muted vh-note'}, 'One value a day, worked out on this phone from the US market estimates and any Liga prices kept, converted at that day\'s rate. Copies without a price are left out.'),
+		].filter(Boolean));
 	};
 
 	Promise.resolve(history).then(fill, () => fill([]));
