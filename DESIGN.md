@@ -2881,6 +2881,40 @@ untouched:
   (checked with the frozen v21 and v47 merges, `tests/binder-convert.test.mjs`). The hand-made
   binder keeps placing its copies, so they stay "In Kanto, p3" until he deletes it.
 
+**Print placeholders** (from a survey of other binder apps, 2026-11-19), `js/placeholder-print.js`
+(the pure part) and `js/placeholder-print-view.js`, `css/placeholder-print.css`. Paper cards for the
+pockets still to fill, so Eric can slip one into each pocket of the real binder until the card
+arrives. **Print placeholders** on any binder of his own (hand-made or from a list) opens a page over
+the binder:
+
+- **Which pockets.** A placeholder (a card's or a Pokémon's), a Gone pocket (its copy was deleted or
+  traded, so the real pocket is empty), and in a binder from a list a Pokémon or card not owned yet.
+  Pockets with nothing in them, left empty on purpose, or holding art have nothing to print and are
+  skipped. Two choices: the pages on screen ("Page 1", "Pages 2 and 3") or All pages, and **Include
+  pockets already filled** (off). Order is the binder's, page by page, pocket by pocket.
+- **Each card** is the real card size, 63 x 88 mm (not the 67 x 96 mm Michi insert: a placeholder
+  stands in for a card), with the Pokédex number, the name, "Page 3, pocket 4", the binder's name,
+  and for a specific card its set and number. The picture is the card's large image for a specific
+  card, else PokeAPI's official artwork (`sprites/pokemon/other/official-artwork/<n>.png`, larger
+  than the sprite the checklists show, and in the same folder the service worker keeps), else the
+  sprite; with none, the number in large grey type, so a card prints offline too.
+- **The sheet** is 3 x 3 with no gap, 189 x 264 mm, each card's own 0.2 mm border the cut line, so
+  one cut parts two cards. `@page` sets 6 mm margins and no size, so the paper chosen in the print
+  dialog stands: the grid fits A4 (210 x 297) and US Letter (216 x 279, which leaves 3.4 mm to
+  spare in height). The page says to print at 100% scale. The 6 mm margin applies to any page of
+  the app printed, which nothing else does.
+- **Print** waits for every picture (a failed one falls through to the next, then to text; at most
+  20 seconds), then calls `window.print()`. Images load eagerly, since a lazy image off screen is
+  not fetched before the printer asks.
+- **Why a page over the binder, not a new window** (decided 2026-11-19). A window opened from the
+  installed app on a phone leaves the app, and a blank window has none of the app's styles or
+  modules; a sheet (`js/sheet.js`) keeps Back and Escape closing it and leaves the binder as it was.
+  While it is open `body.pp-open` hides the rest of the app from the printer, so even the browser's
+  own Print prints only the sheets. On screen the preview is the same millimetres shrunk with CSS
+  `zoom` to the screen's width; the print stylesheet sets no zoom.
+- **Not offered** on a family member's binder, which is read only (the actions row it lives in is
+  not drawn there).
+
 ### Themes
 
 A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:
