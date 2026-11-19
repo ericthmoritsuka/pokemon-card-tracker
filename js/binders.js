@@ -457,6 +457,25 @@ export function setPocket(binders, {at = nowIso(), binderId, content, page, posi
 	return stamped([...changed.values()]);
 }
 
+// A whole binder page's pockets at once (js/scan/page-place.js pagePockets:
+// "I already have these cards", 2026-11-19): pockets [{page, position,
+// content}], each as setPocket puts it, so a copy placed leaves any other
+// pocket or tray, in one save. Returns the binders changed.
+export function placePage(binders, {at = nowIso(), binderId, pockets}) {
+	const changed = new Map();
+	let current = binders;
+
+	for (const {content, page, position} of pockets) {
+		for (const binder of setPocket(current, {at, binderId, content, page, position})) {
+			changed.set(binder.id, binder);
+		}
+
+		current = binders.map((binder) => changed.get(binder.id) || binder);
+	}
+
+	return [...changed.values()];
+}
+
 // Moves what is in one pocket of a hand-made binder to another pocket of
 // it: into an empty pocket, or swapping with what is there (a card, a
 // placeholder, a pocket left empty on purpose, or art). from and to are
@@ -1406,6 +1425,9 @@ const pocketChange = (binderId, page, position, content) => serial(async () => s
 
 // Places one owned copy, taking it out of any other pocket first.
 export const placeCard = (binderId, page, position, entryId) => pocketChange(binderId, page, position, {entry_id: entryId});
+
+// A whole page from a scan (placePage), in one save.
+export const placeOnPage = (binderId, pockets) => serial(async () => saveBinders(placePage(await allBinders(), {binderId, pockets})));
 
 // want: {card_id, catalog, variant_id, name, image}
 export const placePlaceholder = (binderId, page, position, want) => pocketChange(binderId, page, position, {
