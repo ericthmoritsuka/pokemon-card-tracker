@@ -2204,7 +2204,11 @@ export function scanView(root) {
 				return;
 			}
 
-			if (session !== target) {
+			// Clear or Done starts a new session of the same mode while the
+			// page is found: the pockets go to it. Only a change between
+			// adding and a trade, or a trade's side, drops the page (review,
+			// 2026-11-19).
+			if (T.isTrade(session) !== T.isTrade(target) || (T.isTrade(target) && session.side !== target.side)) {
 				setNote('The mode changed while the page was read, so it was not added. Take it again.');
 
 				return;
@@ -3002,7 +3006,12 @@ export function scanView(root) {
 			current.report = {...current.report, match: S.reportOfMatch(found, {language, ms: current.timings.match})};
 		}
 
-		scannerChange(id, () => S.applyMatch(session, id, found));
+		scannerChange(id, () => {
+			S.applyMatch(session, id, found);
+			// As on the picture route: a pocket settled by its number alone is
+			// not sure of a Japanese or Chinese print (review, 2026-11-19).
+			S.doubtPocket(session, id);
+		});
 
 		const last = scanStats.reads[scanStats.reads.length - 1];
 
@@ -3340,7 +3349,9 @@ export function scanView(root) {
 				if (blob) {
 					const frame = await blobImage(blob);
 
-					await readItem(item.id, frame);
+					// A binder page's pocket keeps its page guards (no stack) when
+					// it is picked up again (review, 2026-11-19).
+					await readItem(item.id, frame, item.page ? {page: true} : {});
 				}
 				else {
 					scannerChange(item.id, () => S.markLost(session, item.id));
