@@ -2097,6 +2097,45 @@ read after the pages draw, again when a pocket or a copy's Liga price changes, w
 (it may have read a new rate), and on coming back to the app; a later read wins. The binder screen
 asks for no prices or rates itself. Sets and checklists keep their small Value button.
 
+**Value over time** (Eric, 2026-11-18: "value over time"). Two histories, both kept on the phone
+(IndexedDB, `card-tracker-history`, js/value-history.js), never in the synced document:
+
+- **The collection's value.** My Cards keeps one snapshot a day, `{date, brl, copies, priced}`
+  for the person's whole collection (the Value sheet's own listStats sum, with the records and
+  dollar rate on the phone), when the background pass has read every record due, or when the
+  sheet opens with no pass running. A pass cut short (offline, TCGdex failing) keeps nothing, so a
+  missing price never shows as a fall; a later reading the same day replaces the day's. The last
+  90 days keep one a day and older days the last of each week, at most 400 (about six years),
+  thinned from the newest snapshot so the same list always thins the same way. Kept per account
+  (the signed-in id, or "local"); the Trade spares and a family member's cards keep none. The
+  Value sheet for My Cards ends with **Over time**: the change since the first snapshot as an
+  arrow and words ("↑ Up R$ 120,00 (8%) since 1 Nov"), a one-line inline SVG chart (no library)
+  spaced by date, the first and latest values as text under it, a line when the copies or priced
+  copies changed between them (so cards added are not read as a rise), and a note that each value
+  is worked out on this phone from US estimates and any kept Liga prices at that day's rate. The
+  SVG is `role="img"` with a sentence naming the span, the first and latest values, the change,
+  and the highest and lowest. Before two snapshots it says "The chart fills in as days pass".
+- **A card's prices.** Every full card record that arrives from TCGdex (card detail, the import,
+  the background pass; not Japanese, Korean, or Chinese records) leaves one point a week:
+  each finish's TCGplayer market and Cardmarket trend in their own currencies, with the rates
+  saved then, dated by TCGdex's own price date, at most 104 points a card (two years). The card's
+  price panel draws them under the market prices once there are two for the finish a row shows:
+  TCGplayer's line in reais when it has two points, else Cardmarket's, each point at its own
+  week's rate.
+- **Last 30 days, from day one.** The Cardmarket row adds Cardmarket's 30, 7, and 1 day averages
+  of sold prices (the record's `avg30`, `avg7`, `avg1`, or their `-holo` versions for a reverse),
+  in reais at the euro rate ("Last 30 days, average sale: ≈ R$ 4.793,34 over 30 days · ≈ R$ 9.962,27
+  over 7 days · ≈ R$ 1.058,65 over 1 day"), so a card
+  shows a trend before the phone has any history of its own.
+
+Why the phone and not the document: the document's lists merge as a union by id
+(js/merge.js mergeEntries), so a snapshot one phone thins away comes back from any other phone or
+the server unless it stays as a tombstone, and tombstones are never dropped. Each snapshot would
+also show as a change waiting to sync, and thinning removes entries the server holds, which turns
+the small patch save into a whole-document upload (syncDelta). The values come from each phone's
+own saved records and rates, so two phones would write different values for the same day anyway.
+The cost: a new phone starts its history afresh.
+
 Three ways to handle it, and they can coexist:
 
 1. Show the market price, clearly labeled with the market it comes from.
