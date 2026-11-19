@@ -12,6 +12,23 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-18 (night)
+
+- **v81:** bulk select, any finish, a pocket's stack as a carousel, and value over time. `d79cf0d`
+  - My Cards, **Select**: tick many cards, then set Stored in, Language, Finish, or Condition, add
+    them to a binder, mark favorites, or remove them, each with Undo.
+  - Any copy can be Normal, Holo, or Reverse holo even when the catalog does not list that finish
+    (shown as "not listed"), and one copy of a pile can change on its own.
+  - Binders: in a binder from a list, a pocket with several cards swipes through them, and Show
+    this one here puts the one in view on top. A hand-made binder offers Make a list binder from
+    this, which keeps the cards in its pockets as picks. The card out of its pocket now fits above
+    its actions on a phone screen. A card can be dragged from a pocket onto the tray.
+  - Value: the Value sheet shows the collection's value over time, and a card page its recent
+    Cardmarket averages (30, 7, and 1 day).
+  - Photos: Whole picture frames a photo edge to edge, for a picture saved already cropped.
+  - Fixed: Liga links for MEP promos search "(020/∞)", as Liga writes them. Needs a photo leaves
+    out cards shown with their international print's picture. The scanner knows Delta Reign (me06).
+
 ### 2026-11-18 (evening)
 
 - **v80:** a Pictures filter in My Cards. `0f90734`
