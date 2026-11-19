@@ -270,7 +270,7 @@ export function historyView(root) {
 		const undo = h('button', {class: 'danger', id: 'move-undo', onclick: () => {
 			undo.hidden = true;
 			confirm.hidden = false;
-		}, type: 'button'}, 'Undo this trade or sale');
+		}, type: 'button'}, move.kind === 'bought' ? 'Undo this purchase' : 'Undo this trade or sale');
 		const edit = h('button', {id: 'move-edit', onclick: () => editMoveForm(move), type: 'button'}, 'Edit');
 		// A purchase priced card by card lists its cards with their prices
 		// (Eric, 2026-11-19); a copy with none says so.
@@ -554,6 +554,8 @@ export function leftOutText(kind, {in: inCount = 0, out: outCount = 0}) {
 
 export function newMoveView(root) {
 	let alive = true;
+	// The form's title, which drawKind names for the kind picked.
+	const heading = h('h2', null, 'Log a trade or sale');
 	const handed = takePendingMove() || {};
 	const outIds = new Set(handed.out || []);
 	// What the scanner handed over, so the left-out line counts only its cards.
@@ -678,6 +680,9 @@ export function newMoveView(root) {
 		const words = KIND_WORDS[kind];
 		const bought = kind === 'bought';
 		const on = eachOn();
+
+		// The title names a purchase as one (design review, 2026-11-19).
+		heading.textContent = bought ? 'Log a purchase' : 'Log a trade or sale';
 
 		whoLabel.textContent = words[0];
 		whoHint.hidden = !bought;
@@ -1168,7 +1173,7 @@ export function newMoveView(root) {
 
 	root.append(
 		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, '‹ Trades and sales'),
-		h('div', {class: 'view-head'}, h('h2', null, 'Log a trade or sale')),
+		h('div', {class: 'view-head'}, heading),
 		formElement
 	);
 	drawKind();

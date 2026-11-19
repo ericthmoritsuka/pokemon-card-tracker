@@ -486,6 +486,7 @@ test('a purchase from the scanner: From offers earlier places, Price each card p
 	await page.waitForSelector('#move-form');
 	await page.waitForFunction(() => document.getElementById('move-scanned').textContent.length > 0);
 	assert.equal(await page.locator('#move-kind-bought').isChecked(), true);
+	assert.equal(await page.textContent('.view-head h2'), 'Log a purchase', 'the title names a purchase');
 	assert.equal(await page.textContent('label[for="move-who"]'), 'From');
 	assert.equal(await page.textContent('#move-who-hint'), 'A store, site, event, or person');
 	assert.equal(await page.getAttribute('#move-who', 'list'), 'move-who-sources');
@@ -547,6 +548,7 @@ test('a purchase from the scanner: From offers earlier places, Price each card p
 	await page.locator('.moves-row').first().click();
 	await page.waitForSelector('#move-sheet-in li');
 	assert.deepEqual((await page.locator('#move-sheet-in li').allTextContents()).map((line) => line.replace(/\s/g, ' ')), ['Bulbasaur, R$ 12,00', 'Charmander (2 copies), R$ 5,50 each', 'Charizard ex, no price']);
+	assert.equal(await page.textContent('#move-undo'), 'Undo this purchase');
 	await page.screenshot({path: `${SHOTS}/moves-purchase-sheet-360.png`});
 
 	// Edit: Price each card is on with the saved prices; a new price for
