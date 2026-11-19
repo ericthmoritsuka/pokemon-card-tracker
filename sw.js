@@ -235,6 +235,8 @@ const SHELL = [
 	'js/scan/multi.js',
 	'js/scan/page.js',
 	'js/scan/page-worker.js',
+	// A pocket's card cut to its own edges for its number (2026-11-19).
+	'js/scan/pocket.js',
 	'js/scan/routes.js',
 	'js/scan/session.js',
 	'js/scan/sheets.js',
