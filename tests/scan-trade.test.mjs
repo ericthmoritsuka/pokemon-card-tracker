@@ -6,7 +6,8 @@
 // never twice, a hand pick), the side a capture joins, what the tray can log, and
 // what Log cards hands the trades log's form (the kind guessed from the sides,
 // the cards in as Add would save them), saved through js/moves.js planMove
-// as the form saves it. Plain Node; invented data only.
+// as the form saves it, and what Buy hands over: the Add tray as a purchase
+// (Eric, 2026-11-19). Plain Node; invented data only.
 //
 // Run: node --test tests/scan-trade.test.mjs
 
@@ -467,5 +468,85 @@ describe('Log cards', () => {
 
 		T.pickCopies(session, 't1', ['s2'], AT);
 		assert.equal(T.tradeSummary(session, T.outCopies(session, cards)).loggable, true);
+	});
+});
+
+// Buy, and Log as a purchase on Add's Done sheet (Eric, 2026-11-19): the
+// Add tray handed over as a trade with every card coming in.
+describe('a purchase from the Add tray', () => {
+	// An Add tray (no mode, no sides) with cards read and settled.
+	function addTray(cards) {
+		const session = S.newSession(AT, 'a1');
+
+		cards.forEach((one, i) => {
+			const item = S.addCapture(session, {at: AT, id: `a${i + 1}`});
+
+			Object.assign(item, {card: one.card || CARD, confirmed: true, language: one.language || 'pt', languageBy: 'hand', status: one.status || 'ready', sure: true, variantId: 'holo', variants: []});
+
+			if (one.copies) {
+				S.setCopies(session, item.id, one.copies, AT);
+			}
+		});
+
+		return session;
+	}
+
+	test('hands every tray card over as Bought, coming in, with today, and leaves the tray as it was', () => {
+		const session = addTray([{copies: 2}, {card: OTHER, language: 'en'}]);
+		const before = JSON.stringify(session);
+		const handoff = T.purchaseHandoff(session, new Map(), new Date(2026, 10, 19, 23, 30));
+
+		assert.equal(handoff.kind, 'bought');
+		assert.deepEqual(handoff.alternatives, ['gift']);
+		assert.equal(handoff.date, '2026-11-19', 'the phone\'s own day');
+		assert.deepEqual(handoff.out, []);
+		assert.deepEqual(handoff.items, {in: ['a1', 'a2'], out: []});
+		assert.equal(handoff.session, 'a1');
+		assert.deepEqual(handoff.in.map((row) => [row.fields.card_id, row.fields.language, row.n]), [['tst1-001', 'pt', 2], ['tst1-002', 'en', 1]]);
+		// The same rows a trade's cards coming in hand over.
+		assert.deepEqual(handoff.in, T.tradeHandoff({...session, items: session.items.map((item) => ({...item, side: 'in'}))}, new Map()).in);
+		assert.equal(JSON.stringify(session), before, 'no side is written on the Add tray');
+		assert.equal(JSON.stringify(handoff).includes('"side"'), false);
+	});
+
+	test('waits for a card still read and a card that needs a look, as Log cards does', () => {
+		assert.equal(T.purchaseSummary(addTray([{}, {}])).loggable, true);
+
+		const reading = T.purchaseSummary(addTray([{}, {status: 'reading'}]));
+
+		assert.deepEqual([reading.busy, reading.loggable], [1, false]);
+
+		const unsure = addTray([{}]);
+
+		unsure.items[0].sure = false;
+		unsure.items[0].confirmed = false;
+
+		const look = T.purchaseSummary(unsure);
+
+		assert.deepEqual([look.look, look.busy, look.loggable], [1, 0, false]);
+	});
+
+	test('the mode kept on the phone is Add, Buy, or Trade or sale, and anything else is Add', () => {
+		const kept = new Map();
+
+		globalThis.localStorage = {getItem: (key) => (kept.has(key) ? kept.get(key) : null), setItem: (key, value) => kept.set(key, String(value))};
+
+		try {
+			assert.equal(T.storedMode(), 'add');
+
+			for (const mode of ['buy', 'trade', 'add']) {
+				T.rememberMode(mode);
+				assert.equal(kept.get(T.MODE_KEY), mode);
+				assert.equal(T.storedMode(), mode);
+			}
+
+			kept.set(T.MODE_KEY, 'sell');
+			assert.equal(T.storedMode(), 'add');
+			T.rememberMode('sell');
+			assert.equal(kept.get(T.MODE_KEY), 'add');
+		}
+		finally {
+			delete globalThis.localStorage;
+		}
 	});
 });

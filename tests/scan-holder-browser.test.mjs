@@ -50,7 +50,12 @@ after(async () => {
 //
 // clock: the page runs on Playwright's clock (ticking in real time until a
 // test pauses it), for a test that steps the scanner's waits itself.
-async function open({clock = false, holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 900, width: 384}} = {}) {
+//
+// viewport: 44 px taller than the phone these scenes were tuned at, so the
+// camera keeps that height under the How and For rows (Eric, 2026-11-19),
+// which made the tray head 44 px taller: the test is of what the camera
+// sees, not the rows.
+async function open({clock = false, holder = true, record = true, scene = holder ? {background: 'box', cards: []} : {kind: 'table'}, viewport = {height: 944, width: 384}} = {}) {
 	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport});
 	await fakeRates(context);
 

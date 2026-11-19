@@ -37,7 +37,11 @@ export const CAPTURE_PAD = 0.1;
 // object-fit: cover. The guide is the largest 63:88 box that fits the part
 // of the drawn video that shows (the drawn video and the stage overlap)
 // with `margin` around it, never larger than the lab's guide (`fill` of the
-// frame), centred in that part.
+// frame), centred in that part. With `top`, it never starts above that many
+// stage pixels: it moves down, and grows smaller when it would otherwise
+// pass the margin at the foot. The view passes the band the running count
+// sits in (Eric, 2026-11-19: the How and For rows under the camera took 44
+// px of its height, and a centred guide rose under the count).
 //
 // Returns {screen, guide, capture, scale, visible, view}: screen is the
 // guide in stage pixels {x, y, w, h}; guide and capture are frame pixels
@@ -45,7 +49,7 @@ export const CAPTURE_PAD = 0.1;
 // frame; scale is the frame-to-stage scale, visible the part of the stage
 // the video shows {x, y, w, h}, and view that same part in frame pixels:
 // where the card is looked for (steady.js findCard).
-export function layoutGuide(frame, stage, {fill = GUIDE_FILL, margin = GUIDE_MARGIN_PX, pad = CAPTURE_PAD} = {}) {
+export function layoutGuide(frame, stage, {fill = GUIDE_FILL, margin = GUIDE_MARGIN_PX, pad = CAPTURE_PAD, top = 0} = {}) {
 	const scale = Math.max(stage.width / frame.width, stage.height / frame.height);
 	const drawnW = frame.width * scale;
 	const drawnH = frame.height * scale;
@@ -66,7 +70,20 @@ export function layoutGuide(frame, stage, {fill = GUIDE_FILL, margin = GUIDE_MAR
 		h = w / CARD_RATIO;
 	}
 
-	const screen = {h, w, x: visible.x + (visible.w - w) / 2, y: visible.y + (visible.h - h) / 2};
+	let y = visible.y + (visible.h - h) / 2;
+
+	if (y < top) {
+		const below = visible.y + visible.h - m - top;
+
+		if (h > below) {
+			h = Math.max(1, below);
+			w = h * CARD_RATIO;
+		}
+
+		y = Math.max(top, visible.y + (visible.h - h) / 2);
+	}
+
+	const screen = {h, w, x: visible.x + (visible.w - w) / 2, y};
 	const guide = {
 		h: Math.round(h / scale),
 		w: Math.round(w / scale),

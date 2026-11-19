@@ -1,7 +1,8 @@
 // Browser tests for the scanner's Binder page (js/scan/page.js,
 // js/scan/view.js readPage): a whole 3 x 3 binder page from one still
-// photo. Binder page heads the scanner's settings sheet; a photo chosen
-// there is found and cut into pockets off the main thread, and each pocket
+// photo. Page, in the How row at the head of the tray (Eric, 2026-11-19),
+// opens the Binder page sheet; a photo chosen there is found and cut into
+// pockets off the main thread, and each pocket
 // with a card joins the tray as a capture does, sure or asking for a look,
 // while empty pockets are skipped. Each pocket's own card is cut to its
 // edges from a larger copy of the photo, for its number. A photo with no
@@ -281,10 +282,10 @@ const trayItems = (page) => page.evaluate(async () => {
 	}));
 });
 
-// Chooses `file` through Binder page's Choose a photo, as a tap does.
+// Chooses `file` through Page's Choose a photo, as a tap does.
 async function choose(page, file) {
-	await page.click('#scan-settings-open');
-	await page.waitForSelector('#scan-settings #scan-page');
+	await page.click('#scan-page-open');
+	await page.waitForSelector('#scan-page');
 
 	const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#scan-page-pick')]);
 
@@ -310,18 +311,30 @@ describe('a binder page from one photo', () => {
 		await harness.close();
 	});
 
-	test('Binder page heads the settings: how to take the photo, and the camera or the gallery', async () => {
+	test('Page in the How row opens Binder page: how to take the photo, and the camera or the gallery', async () => {
 		const app = await open();
 		const {page} = app;
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
-		assert.equal(await text(page, '#scan-photo-open'), 'Pick a photo', 'the single-card photo stays as it was');
-		assert.equal(await page.locator('.scan-tray-head #scan-page-take, .scan-tray-head #scan-page-pick').count(), 0, 'nothing added to the tray row');
+		assert.equal(await page.getAttribute('#scan-how-card', 'aria-pressed'), 'false', 'with the camera off, Card is not pressed');
+		assert.equal(await text(page, '#scan-photo-open'), 'Photo', 'the single-card photo is the How row\'s Photo');
+		assert.equal(await text(page, '#scan-page-open'), 'Page');
+		assert.equal(await page.getAttribute('#scan-page-open', 'aria-label'), 'Page: a whole binder page from a photo');
+		assert.equal(await page.getAttribute('#scan-page-open', 'aria-haspopup'), 'dialog');
+		assert.equal(await page.getAttribute('#scan-page-open', 'aria-pressed'), null, 'an action, never pressed');
+		assert.equal(await page.locator('.scan-tray-head #scan-page-take, .scan-tray-head #scan-page-pick').count(), 0, 'its two choices are on its sheet, not in the tray row');
 
+		// No longer in the scanner's settings.
 		await page.click('#scan-settings-open');
-		await page.waitForSelector('#scan-settings #scan-page');
-		assert.equal(await page.$eval('#scan-settings .scan-sheet-body > .scan-field', (field) => field.id), 'scan-page', 'first in the settings');
+		await page.waitForSelector('#scan-settings');
+		assert.equal(await page.locator('#scan-settings #scan-page, #scan-settings #scan-page-pick').count(), 0, 'not in the settings any more');
+		await page.click('#scan-sheet-close');
+		await page.waitForSelector('#scan-settings', {state: 'detached'});
+
+		await page.click('#scan-page-open');
+		await page.waitForSelector('#scan-page');
+		assert.equal(await page.getAttribute('#scan-page', 'role'), 'dialog');
 		assert.equal(await text(page, '#scan-page-label'), 'Binder page');
 		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.');
 		assert.equal(await text(page, '#scan-page-take'), 'Take a photo');
@@ -331,7 +344,7 @@ describe('a binder page from one photo', () => {
 		await page.screenshot({path: `${SHOTS}/scan-page-sheet.png`});
 
 		await page.click('#scan-sheet-close');
-		await page.waitForSelector('#scan-settings', {state: 'detached'});
+		await page.waitForSelector('#scan-page', {state: 'detached'});
 
 		await close(app);
 	});
@@ -612,7 +625,7 @@ describe('a binder page from one photo', () => {
 		await until(async () => /could not be found/.test(await text(page, '#scan-note')), 120000, 'the page not found');
 		assert.equal(await text(page, '#scan-note'), 'The page could not be found in that photo. Take it again with the page filling the photo.');
 		assert.deepEqual(await trayItems(page), [], 'nothing added');
-		await page.click('#scan-settings-open');
+		await page.click('#scan-page-open');
 		assert.equal(await page.getAttribute('#scan-page-pick', 'disabled'), null, 'Binder page can be tried again');
 
 		await close(app);

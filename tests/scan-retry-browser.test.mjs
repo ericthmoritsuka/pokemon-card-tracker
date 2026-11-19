@@ -68,7 +68,10 @@ after(async () => {
 // the first frame (tests/scan-holder-browser.test.mjs open says why). trade:
 // Scan opens in Trade or sale, with `drafts` (trays) written first.
 async function open({drafts = null, trade = false} = {}) {
-	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 900, width: 384}});
+	// 44 px taller than the phone these scenes were tuned at, so the camera keeps
+	// that height under the How and For rows (Eric, 2026-11-19), which made the
+	// tray head 44 px taller: the test is of what the camera sees, not the rows.
+	const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 944, width: 384}});
 	await fakeRates(context);
 
 	await context.grantPermissions(['camera'], {origin: harness.origin});

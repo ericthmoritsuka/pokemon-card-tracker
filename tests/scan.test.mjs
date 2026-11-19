@@ -1788,6 +1788,26 @@ describe('the guide on the screen and the capture around it (Eric, 2026-10-03)',
 		assert.ok(tall.screen.h > 455 && tall.screen.h < 462, `${tall.screen.h}`);
 	});
 
+	// The running count's band (Eric, 2026-11-19: the How and For rows took
+	// 44 px of the camera, and a centred guide rose under the count).
+	test('with a top band, the guide starts under it, moved down or made smaller, and is unchanged where it already clears it', () => {
+		const roomy = layoutGuide(frame, {height: 560, width: 384}, {top: 26});
+
+		assert.deepEqual(roomy, layoutGuide(frame, {height: 560, width: 384}), 'clear of the band: as before');
+
+		for (const height of [380, 432, 472]) {
+			const plain = layoutGuide(frame, {height, width: 360});
+			const banded = layoutGuide(frame, {height, width: 360}, {top: 26});
+
+			assert.ok(plain.screen.y < 26, `${height}: the plain guide rises into the band (${plain.screen.y})`);
+			assert.ok(banded.screen.y >= 26 - 0.001, `${height}: under the band (${banded.screen.y})`);
+			assert.ok(banded.screen.y + banded.screen.h <= height - 13.9, `${height}: the margin at the foot`);
+			assert.ok(Math.abs(banded.screen.w / banded.screen.h - 63 / 88) < 0.001);
+			assert.ok(banded.screen.h <= plain.screen.h);
+			assert.ok(Math.abs(banded.guide.y * banded.scale + (height - frame.height * banded.scale) / 2 - banded.screen.y) < 1, `${height}: maps back`);
+		}
+	});
+
 	test('a landscape camera in a portrait stage keeps the guide on the drawn video', () => {
 		const {screen, visible} = layoutGuide({height: 1080, width: 1920}, {height: 450, width: 360});
 

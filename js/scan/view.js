@@ -42,11 +42,12 @@ import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict,
 import {matchPage, pagePockets, PER_PAGE, placeSummary} from './page-place.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
-import {confirmSheet, doneSheet, pageSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
+import {drawFor, drawHow, forRow, howRow, MODE_NAMES, purchaseLabel} from './modes.js';
+import {confirmSheet, doneSheet, pageChoiceSheet, pageSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
-import {copyPicker, drawModeSwitch, langName, leaveTradeSheet, logLabel, modeSwitch, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
+import {copyPicker, langName, leaveTradeSheet, logLabel, picksSheet, tradeBlock, tradeColumns} from './trade-sheets.js';
 import {playChime, playShutter, saveShutterSound, shutterSoundOn, unlockChime} from './chime.js';
 import {saveWorthSetting, scanWorth, WORTH_DEFAULTS, worthSettings} from './worth.js';
 
@@ -373,8 +374,9 @@ function grabHere() {
 
 export function scanView(root) {
 	let session = null;
-	// Add or Trade or sale (js/scan/trade.js), remembered on the phone, and
-	// the other mode's tray, kept as it was while this one shows.
+	// Add, Buy, or Trade or sale (js/scan/trade.js), remembered on the
+	// phone, and the other tray, kept as it was while this one shows. Add
+	// and Buy share the Add tray; Trade or sale has its own.
 	let mode = T.storedMode();
 	let parked = null;
 	// For Trade or sale: the person's live copies, where each is in the
@@ -548,10 +550,9 @@ export function scanView(root) {
 			readPhoto(file);
 		}
 	}, type: 'file'});
-	const photoButton = h('button', {class: 'scan-text-button', id: 'scan-photo-open', onclick: () => photoInput.click(), type: 'button'}, 'Pick a photo');
 	// A whole binder page from one still photo (js/scan/page.js), from the
-	// camera app or the gallery: kept apart from the single-card flow, at the
-	// head of the scanner's settings (sheets.js pageField).
+	// camera app or the gallery: kept apart from the single-card flow, behind
+	// the How row's Page (sheets.js pageChoiceSheet).
 	const pageInput = (id, capture) => h('input', {accept: 'image/*', capture, class: 'scan-photo-input', hidden: true, id, onchange: (event) => {
 		const input = event.target;
 		const [file] = input.files || [];
@@ -593,7 +594,8 @@ export function scanView(root) {
 	const closeButton = h('button', {class: 'scan-control', id: 'scan-close', onclick: close, type: 'button'}, 'Close');
 	const torchButton = h('button', {'aria-pressed': 'false', class: 'scan-control', hidden: true, id: 'scan-torch', onclick: toggleTorch, type: 'button'}, 'Torch');
 	const shutter = h('button', {'aria-label': 'Take the picture', class: 'scan-shutter', disabled: true, id: 'scan-shutter', onclick: () => capture('shutter'), type: 'button'}, h('span', {'aria-hidden': 'true'}));
-	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => (T.isTrade(session) ? logIt() : openDone()), type: 'button'}, 'Done');
+	// Done; Log N cards in Trade or sale, Log purchase N in Buy.
+	const doneButton = h('button', {class: 'scan-control scan-done-button', disabled: true, id: 'scan-done-open', onclick: () => (T.isTrade(session) ? logIt() : buying() ? logPurchase() : openDone()), type: 'button'}, 'Done');
 	const live = h('p', {'aria-live': 'polite', class: 'scan-live', id: 'scan-live'});
 	const sheetLayer = h('div', {class: 'scan-sheet-layer', hidden: true, id: 'scan-sheet-layer', onclick: (event) => {
 		if (event.target === sheetLayer) {
@@ -616,17 +618,36 @@ export function scanView(root) {
 			rememberTipDismissed();
 			drawTip();
 		}, type: 'button'}, h('span', {'aria-hidden': 'true'}, '×')));
-	// Add or Trade or sale, at the head of the tray under the camera: always
-	// in view, never over the picture (Eric aims by the card's number strip)
-	// or under the repeat bar, and taking no height from the camera, whose
-	// band over the guide holds the running count.
-	const modeBar = modeSwitch((next) => chooseMode(next));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip), finishButton, holderSwitch, repeatBar, cameraOff, pagePanel);
+	// The How and For rows (js/scan/modes.js; Eric, 2026-11-19), at the head
+	// of the tray under the camera: always in view, never over the picture
+	// (Eric aims by the card's number strip) or under the repeat bar, nor in
+	// the camera's band over the guide, which holds the running count. How:
+	// Card (the camera; tapped with the camera off, it tries again), Photo
+	// (one card from the gallery), and Page (a whole binder page). For: Add,
+	// Buy, or Trade or sale.
+	const howBar = howRow({
+		onCard: () => {
+			if (camera) {
+				announce('Scanning with the camera.');
+			}
+			else {
+				openCamera();
+			}
+		},
+		onPage: () => showSheet(pageChoiceSheet(ctx)),
+		onPhoto: () => photoInput.click(),
+	});
+	const modeBar = forRow((next) => chooseMode(next));
+	const stageTop = h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, stageTop, finishButton, holderSwitch, repeatBar, cameraOff, pagePanel);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
 			note,
-			h('div', {class: 'scan-tray-head'}, modeBar, count, h('div', {class: 'scan-tray-actions'}, photoButton, clearButton, setAllButton), photoInput, pageCamera, pageGallery),
+			h('div', {class: 'scan-tray-head'},
+				h('div', {class: 'scan-head-line'}, howBar, h('div', {class: 'scan-tray-actions'}, clearButton, setAllButton)),
+				h('div', {class: 'scan-head-line'}, modeBar, count),
+				photoInput, pageCamera, pageGallery),
 			tray,
 			zoomRow,
 			h('div', {class: 'scan-controls'}, closeButton, torchButton, shutter, doneButton)
@@ -694,6 +715,12 @@ export function scanView(root) {
 			return T.isTrade(session);
 		},
 		logIt: () => logIt(),
+		// Buy (Eric, 2026-11-19): the Add tray, logged as a purchase instead
+		// of added. logPurchase is also Log as a purchase on Add's Done sheet.
+		get buy() {
+			return buying();
+		},
+		logPurchase: () => logPurchase(),
 		tradeBlock: (id) => {
 			const item = T.isTrade(session) ? S.findItem(session, id) : null;
 
@@ -783,10 +810,11 @@ export function scanView(root) {
 			return owned;
 		},
 		photoUrl: (id) => photoUrls.get(id) || null,
-		// The trade tray fills no placeholder by its own choice: a move's cards
-		// in fill them as the trades log decides (js/moves.js planMove).
+		// The trade tray, and the tray in Buy, fill no placeholder by their own
+		// choice: a move's cards in fill them as the trades log decides
+		// (js/moves.js planMove).
 		get placeholders() {
-			return T.isTrade(session) ? [] : placeholders;
+			return T.isTrade(session) || buying() ? [] : placeholders;
 		},
 		remove,
 		reportText: (id) => S.reportText(S.findItem(session, id), {device: deviceInfo()}),
@@ -1034,8 +1062,9 @@ export function scanView(root) {
 		count.textContent = parts.join(' · ');
 
 		// The mode first, so it is in sight over the picture: "Add · 2 cards",
-		// "Trade or sale · 3 cards · 1 to check", or the mode alone.
-		const modeName = T.isTrade(session) ? 'Trade or sale' : 'Add';
+		// "Buy · 1 card", "Trade or sale · 3 cards · 1 to check", or the mode
+		// alone.
+		const modeName = MODE_NAMES[T.isTrade(session) ? 'trade' : buying() ? 'buy' : 'add'];
 		const counted = [modeName, items.length ? plural(items.length, 'card') : null].filter(Boolean).join(' · ');
 		const running = `${counted}${summary.look ? ` · ${summary.look} to check` : ''}`;
 
@@ -1048,15 +1077,14 @@ export function scanView(root) {
 		setAllButton.hidden = items.length < 2;
 		clearButton.hidden = !items.length;
 		doneButton.disabled = !items.length;
-		doneButton.textContent = items.length ? `Done ${items.length}` : 'Done';
+		doneButton.textContent = buying() ? purchaseLabel(items.length) : items.length ? `Done ${items.length}` : 'Done';
 
 		if (T.isTrade(session)) {
 			drawTrade();
 		}
 
-		// The count beside the mode switch shows only when it fits whole: a
-		// cut "Sess…" says nothing the running count over the camera does
-		// not.
+		// The count beside the For row shows only when it fits whole: a cut
+		// "Sess…" says nothing the running count over the camera does not.
 		count.style.visibility = '';
 		count.style.visibility = count.scrollWidth > count.clientWidth + 1 ? 'hidden' : '';
 
@@ -1139,20 +1167,39 @@ export function scanView(root) {
 		doneButton.textContent = logLabel(session.items.length);
 	}
 
+	// Whether Done hands the Add tray over as a purchase: Buy, while the
+	// tray on the screen is the Add tray.
+	function buying() {
+		return mode === 'buy' && !T.isTrade(session);
+	}
+
 	function drawMode() {
 		const trade = mode === 'trade';
 
-		drawModeSwitch(modeBar, mode);
+		drawFor(modeBar, mode);
 		screen.classList.toggle('is-trade', trade);
 		tray.classList.toggle('is-trade', trade);
 		tray.setAttribute('aria-label', trade ? 'Trade or sale: cards going out and coming in' : 'Cards in this session');
 	}
 
-	// Add or Trade or sale, from the switch over the camera. Leaving Trade or
-	// sale with cards in its tray asks first; the Add tray is kept as it is.
+	// Add, Buy, or Trade or sale, from the For row. Leaving Trade or sale
+	// with cards in its tray asks first; the Add tray is kept as it is.
 	function chooseMode(next) {
 		if (!session || next === mode) {
 			drawMode();
+
+			return;
+		}
+
+		// Add and Buy share the Add tray, so between them only Done changes:
+		// nothing waits for a card being taken, which joins the same tray
+		// either way.
+		if (next !== 'trade' && mode !== 'trade') {
+			mode = next;
+			T.rememberMode(next);
+			drawMode();
+			draw();
+			announce(modeWords(next));
 
 			return;
 		}
@@ -1170,7 +1217,7 @@ export function scanView(root) {
 
 		if (T.isTrade(session) && session.items.length) {
 			drawMode();
-			showSheet(leaveTradeSheet(ctx, {action: 'Discard and switch to Add', count: session.items.length, onLeave: () => {
+			showSheet(leaveTradeSheet(ctx, {action: `Discard and switch to ${MODE_NAMES[next]}`, count: session.items.length, onLeave: () => {
 				discardTrade();
 				closeSheet();
 				switchMode(next);
@@ -1203,10 +1250,20 @@ export function scanView(root) {
 
 		drawMode();
 		draw();
-		announce(next === 'trade'
-			? 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log them.'
-			: 'Add. Cards you scan are added to your cards when you save.');
+		announce(modeWords(next));
 		resume().catch(() => {});
+	}
+
+	// What a switch to each mode announces.
+	function modeWords(next) {
+		switch (next) {
+			case 'trade':
+				return 'Trade or sale. Cards you scan go to Going out. Nothing changes in your cards until you log them.';
+			case 'buy':
+				return 'Buy. Log purchase opens Trades and sales with the cards you scan. Nothing changes in your cards until you save it there.';
+			default:
+				return 'Add. Cards you scan are added to your cards when you save.';
+		}
 	}
 
 	// Throws the trade tray away (asked first by leaveTradeSheet). Nothing in
@@ -1303,6 +1360,53 @@ export function scanView(root) {
 
 		saveToCardIndex(handoff.records).catch(() => {});
 		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => draft.clearTrade(sessionId, sides, handoff.items)});
+		persist();
+		closeSheet().then(() => go('trades/new'));
+	}
+
+	// Buy's Log purchase, and Log as a purchase on Add's Done sheet (Eric,
+	// 2026-11-19): the trades log's form, filled with every tray card coming
+	// in as a purchase (Bought, today), the way Log it hands over a trade's
+	// cards coming in (js/scan/trade.js purchaseHandoff). Nothing is added
+	// here: the form's save adds the copies (js/moves.js applyMove), and only
+	// then do the cards handed over leave the tray. It waits as Log it does:
+	// for a card still being taken, read, or looked up, and cards that need
+	// a look open Review first.
+	function logPurchase() {
+		if (T.isTrade(session) || !session.items.length) {
+			return;
+		}
+
+		if (stillTaking()) {
+			return;
+		}
+
+		const sum = T.purchaseSummary(session);
+
+		if (sum.look) {
+			openReview();
+
+			return;
+		}
+
+		if (sum.busy) {
+			closeSheet();
+			setNote(`Wait a moment: ${plural(sum.busy, 'card is', 'cards are')} still being read or looked up.`);
+
+			return;
+		}
+
+		if (!sum.loggable) {
+			return;
+		}
+
+		const handoff = T.purchaseHandoff(session, owned);
+		const sessionId = session.id;
+
+		saveToCardIndex(handoff.records).catch(() => {});
+		// The form saves the cards coming in for every kind but Sold (which it
+		// refuses with nothing going out); sides.in says they were saved.
+		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => (sides.in ? draft.clearPurchase(sessionId, handoff.items.in) : null)});
 		persist();
 		closeSheet().then(() => go('trades/new'));
 	}
@@ -1594,9 +1698,9 @@ export function scanView(root) {
 	}
 
 	function openDone() {
-		// The trade tray has Log it, never Done's Save (Set for all comes back
-		// here).
-		if (T.isTrade(session)) {
+		// The trade tray has Log it, and Buy Log purchase, never Done's Save
+		// (Set for all comes back here).
+		if (T.isTrade(session) || buying()) {
 			closeSheet();
 
 			return;
@@ -1916,6 +2020,13 @@ export function scanView(root) {
 		// The trade tray never adds cards by itself: they go through Log it.
 		if (T.isTrade(session)) {
 			logIt();
+
+			return;
+		}
+
+		// Nor does Buy: its cards go through Log purchase.
+		if (buying()) {
+			logPurchase();
 
 			return;
 		}
@@ -3691,7 +3802,7 @@ export function scanView(root) {
 
 		const before = geometry && geometry.capture;
 
-		geometry = {...layoutGuide(camera.frame, box), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
+		geometry = {...layoutGuide(camera.frame, box, {top: countBand()}), frame: {...camera.frame}, stage: {height: Math.round(box.height), width: Math.round(box.width)}};
 
 		if (before && ['x', 'y', 'w', 'h'].some((key) => before[key] !== geometry.capture[key])) {
 			detector.reframe();
@@ -3704,6 +3815,15 @@ export function scanView(root) {
 		guide.style.width = `${place.w}px`;
 		guide.style.height = `${place.h}px`;
 		guide.hidden = false;
+	}
+
+	// The band at the top of the camera the running count sits in, which the
+	// guide stays under (camera.js layoutGuide top): the count's line, 20 px
+	// before it first shows, below the safe area, and 2 px to spare. The How
+	// and For rows (Eric, 2026-11-19) made the camera 44 px shorter, and a
+	// guide centred in it rose under the count.
+	function countBand() {
+		return stageTop.offsetTop + (runCount.offsetHeight || 20) + 2;
 	}
 
 	// The layout for the camera's frame as it is now (a phone turned, or the
@@ -3765,6 +3885,7 @@ export function scanView(root) {
 
 	function showCameraOff(err) {
 		cameraOff.hidden = false;
+		drawHow(howBar, {camera: false});
 		guide.hidden = true;
 		shutter.disabled = true;
 		cameraOff.replaceChildren(
@@ -3838,6 +3959,7 @@ export function scanView(root) {
 		sinceOpen.clear();
 
 		cameraOff.hidden = true;
+		drawHow(howBar, {camera: true});
 		shutter.disabled = false;
 		placeGuide();
 		drawCameraControls();
@@ -3936,6 +4058,7 @@ export function scanView(root) {
 			camera = null;
 		}
 
+		drawHow(howBar, {camera: false});
 		geometry = null;
 
 		shutter.disabled = true;
@@ -5086,12 +5209,12 @@ export function scanView(root) {
 	(async () => {
 		try {
 			// Both trays: the one for the mode in use, and the other kept as it
-			// is for a switch.
+			// is for a switch. Buy scans into the Add tray.
 			const [add, trade] = await Promise.all([draft.loadSession('add'), draft.loadSession('trade').catch(() => null)]);
 			const both = {add: add || S.newSession(), trade: T.isTrade(trade) ? trade : T.newTradeSession()};
 
-			session = both[mode];
-			parked = both[mode === 'trade' ? 'add' : 'trade'];
+			session = mode === 'trade' ? both.trade : both.add;
+			parked = mode === 'trade' ? both.add : both.trade;
 		}
 		catch {
 			session = mode === 'trade' ? T.newTradeSession() : S.newSession();

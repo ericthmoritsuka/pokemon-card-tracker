@@ -187,8 +187,9 @@ html.scan-open body {
 	text-align: center;
 }
 
-/* Short enough to sit in the band above the guide (14 px at the least,
-   camera.js GUIDE_MARGIN_PX, and 27 px on a 384 x 780 screen). */
+/* Short enough to sit in the band above the guide, which the guide keeps
+   clear of (view.js countBand, camera.js layoutGuide top; Eric,
+   2026-11-19). */
 .scan-run-count {
 	font-size: 13px;
 	font-variant-numeric: tabular-nums;
@@ -450,11 +451,20 @@ html.scan-open body {
 }
 
 .scan-tray-head {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+/* The How row with the tray's actions at its right, and the For row with
+   the tray's count. A larger text size wraps a row rather than scrolling
+   sideways. */
+.scan-head-line {
 	align-items: center;
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: space-between;
-	min-height: 32px;
+	gap: 4px;
+	min-height: 44px;
 }
 
 .scan-count {
@@ -481,6 +491,8 @@ html.scan-open body {
 
 .scan-tray-head .scan-text-button {
 	flex: 0 0 auto;
+	min-height: 44px;
+	padding: 0 4px;
 	white-space: nowrap;
 }
 
@@ -1460,6 +1472,19 @@ html.scan-open body {
 	justify-content: space-between;
 }
 
+/* Log as a purchase on Add's Done sheet (Eric, 2026-11-19), with its one
+   line on what it does. */
+.scan-done-purchase {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 12px 0 4px;
+}
+
+.scan-done-purchase .scan-muted {
+	margin: 0;
+}
+
 .scan-done-owned p,
 .scan-preview {
 	font-size: 14px;
@@ -1618,52 +1643,77 @@ html.scan-open body {
 	color: var(--scan-rising);
 }
 
-/* ------------------------------------------------------------ Trade or sale */
+/* ------------------------------------------------------------ How and For */
 
-/* Trade or sale mode (js/scan/trade-sheets.js; Eric, 2026-11-06). The mode
-   switch leads the tray head under the camera, in both modes, never over
-   the picture or the repeat bar and taking no height from the camera; in
-   Trade or sale a teal frame round the camera and the teal switch keep the
-   mode in sight, so a card meant for a sale is never added by mistake. */
-.scan {
-	--scan-trade: #4fd1c5;
-	--scan-on-trade: #06201d;
-}
-
-/* Two segments, Add and Trade or sale, 48 px tall: the one in use is
-   filled (teal for Trade or sale), the other outlined, each a button with
-   aria-pressed (design review, 2026-11-06). */
-.scan .scan-mode {
-	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
-	border-radius: 999px;
-	display: inline-flex;
+/* The two rows of icon buttons at the head of the tray (js/scan/modes.js;
+   Eric, 2026-11-19), in place of the Add / Trade or sale switch. Each
+   button is an icon and one short word, 44 px tall, and both rows fit
+   360 px wide with their row word. Pressed is filled: Card while the
+   camera shows the picture, and the mode in use (teal for Trade or sale).
+   Photo and Page open a picker, so they are never filled. */
+.scan .scan-head-group {
+	align-items: center;
+	display: flex;
 	flex: 0 0 auto;
-	margin-right: 4px;
-	padding: 2px;
+	gap: 4px;
 }
 
-.scan .scan-mode-segment {
+.scan .scan-head-label {
+	color: var(--scan-muted);
+	font-size: 13px;
+	font-weight: 600;
+	min-width: 30px;
+}
+
+.scan .scan-icon-button {
+	align-items: center;
 	background: transparent;
-	border: 0;
-	border-radius: 999px;
+	border: 1px solid var(--scan-border);
+	border-radius: 12px;
 	color: var(--scan-text);
 	cursor: pointer;
+	display: inline-flex;
 	font-size: 14px;
 	font-weight: 600;
-	min-height: 42px;
-	padding: 0 10px;
+	gap: 3px;
+	min-height: 44px;
+	padding: 0 7px 0 5px;
 	white-space: nowrap;
 }
 
-.scan .scan-mode-segment[aria-pressed="true"] {
+.scan .scan-icon {
+	fill: none;
+	flex: none;
+	height: 18px;
+	stroke: currentColor;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-width: 1.8;
+	width: 18px;
+}
+
+.scan .scan-icon-button[aria-pressed="true"] {
 	background: var(--scan-text);
+	border-color: var(--scan-text);
 	color: var(--scan-bg);
 }
 
-.scan .scan-mode-segment[data-mode-to="trade"][aria-pressed="true"] {
+.scan .scan-icon-button[data-mode-to="trade"][aria-pressed="true"] {
 	background: var(--scan-trade);
+	border-color: var(--scan-trade);
 	color: var(--scan-on-trade);
+}
+
+/* ------------------------------------------------------------ Trade or sale */
+
+/* Trade or sale mode (js/scan/trade-sheets.js; Eric, 2026-11-06). The For
+   row leads the tray head under the camera, in every mode, never over the
+   picture or the repeat bar; in Trade or sale a teal frame round the camera
+   and the teal button keep the mode in sight, so a card meant for a sale is
+   never added by mistake. */
+.scan {
+	--scan-trade: #4fd1c5;
+	--scan-on-trade: #06201d;
 }
 
 /* The running count over the camera names the mode too, teal in Trade or
@@ -1677,19 +1727,12 @@ html.scan-open body {
 	color: inherit;
 }
 
-/* The count beside the switch gives way, on one line, when the head is
-   short. On a phone under 400 px the actions keep the switch's row: a long
-   label takes two lines in its 48 px, and Set for all, which Done's sheet
-   also has, is left out. Only a larger text size puts them under the
-   switch, at the right. */
-@media (max-width: 399px) {
-	.scan-tray-head .scan-text-button {
-		line-height: 18px;
-		max-width: 76px;
-		padding: 0 6px;
-		white-space: normal;
-	}
-
+/* The count beside the For row gives way, on one line, when the row is
+   short. On a phone Clear keeps the How row, and Set for all, which Done's
+   sheet also has, is left out: beside the How row's three buttons there is
+   room for one (Eric, 2026-11-19). Only a larger text size puts Clear under
+   them, at the right. */
+@media (max-width: 479px) {
 	.scan-tray-head #scan-setall-open {
 		display: none;
 	}
@@ -1698,6 +1741,7 @@ html.scan-open body {
 .scan-tray-head .scan-count {
 	flex: 1 1 0;
 	overflow: hidden;
+	text-align: right;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -2042,8 +2086,8 @@ html.scan-open body {
 /* ------------------------------------------------------------ held sideways */
 
 /* A phone held sideways (360 to 500 px tall): the camera on the left and
-   every control in a column on the right, mode switch and tray actions at
-   its head, the tray in the middle taking what is left, and Close, the
+   every control in a column on the right, the How and For rows at its
+   head, the tray in the middle taking what is left, and Close, the
    shutter, and Done or Log at its foot, all on screen. Under the camera the
    controls fell below the screen at 780 x 360, and the trade tray cut Pick a
    copy (design polish, 2026-11-06). Sheets still rise over both. */
@@ -2084,11 +2128,6 @@ html.scan-open body {
 
 	.scan-tray.is-trade {
 		height: auto;
-	}
-
-	/* The actions under the switch, at the right, when the head is short. */
-	.scan-tray-head {
-		row-gap: 0;
 	}
 
 	/* At the column's foot, where the thumb is. */
