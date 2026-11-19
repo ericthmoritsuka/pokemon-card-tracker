@@ -782,15 +782,20 @@ export function cardsScreen(root, {
 
 		moved.forEach(withTwin);
 
-		if (bar.state.sort === 'name' || bar.state.query) {
+		// A twin's picture takes a card out of Needs a photo (twinPicture):
+		// with the Pictures filter on, the list is filtered again, and an
+		// open Filters sheet counts again (2026-11-19). Only here, where a
+		// twin did change.
+		if (bar.state.sort === 'name' || bar.state.query || bar.state.filters.picture) {
 			draw();
-
-			return;
+		}
+		else {
+			for (const group of moved) {
+				replaceTile(group);
+			}
 		}
 
-		for (const group of moved) {
-			replaceTile(group);
-		}
+		bar.refresh();
 	}
 
 	function replaceTile(group) {
