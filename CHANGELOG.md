@@ -7,12 +7,20 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-11-19)
 
-- Scan icons (how: Card, Photo, Page; for: Add, Buy, Trade or sale) and purchases logged from a
-  scan, with where they came from and a total or each card's price.
+- A binder pocket's language from its stage label (BÁSICO, ESTÁGIO 1 against BASIC, STAGE 1), then
+  the page grid (each card in its pocket, a tap or one for the page sets the language), then scan
+  icons and purchases logged from a scan.
 
 ## Live
 
 ### 2026-11-19 (morning)
+
+- **v84:** a binder page's Portuguese or English cards keep their own print and a language. `082dd17`
+  - A pocket's label row, cut from a page photo, reads no Latin text whatever the card, and that reading counted as a
+    Japanese or Korean card: the Japanese print of the same picture came first. It no longer counts on a page. On Eric's
+    three pages, Caterpie, Metapod, Pidgey, and Sandshrew now come out as their Western prints (still asking for a look),
+    and a Portuguese Charizard ex, left with no language, takes the default.
+  - English against Portuguese is still the default on a pocket; the stage label reader comes next.
 
 - **v83:** Stats, sharing as a picture, printed placeholders, forgiving search, and a sharper binder page scan. `433be30`
   - My Cards, **Stats** (beside Value): copies by language, set, rarity, type, finish, and condition, the ten most
