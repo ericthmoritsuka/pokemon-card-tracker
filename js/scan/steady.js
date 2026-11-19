@@ -1625,26 +1625,56 @@ export function findCards(grey, width, height, {count = 90, max = 12, overlap = 
 	return taken.map((box) => ({angle: Math.round(box.angle * 10) / 10, corners: box.corners, ratio: box.ratio, score: Math.round(box.score * 100) / 100, upright: box.upright}));
 }
 
-// The page of a binder in a grey copy of the frame: the outline round its
-// rows x cols cards (their outer edges, which line up), `shape` its width
-// over its height (js/scan/multi.js pageShape). The largest box of that
-// shape a fifth of the frame or more, with each side drawn along `sideMin`
-// of it at least: less than a card's, since an empty pocket at the page's
-// edge leaves a gap in two sides. Returns {corners, ratio, sides} or null.
-export function findPage(grey, width, height, {count = 60, shape, sideMin = 0.55, slack = 0.12} = {}) {
-	const {boxes} = outlines(grey, width, height, {count, meanMin: Math.max(sideMin, 0.65), runsOn: false, shape, sideMin, slack});
-	const big = boxes.filter((box) => box.area >= width * height * 0.2 && box.upright);
+// The pages of a binder in a grey copy of the frame: the outline round
+// each page's rows x cols cards (their outer edges, which line up), `shape`
+// its width over its height (js/scan/multi.js pageShape). A page standing
+// or lying (a binder open as a spread, taken with the phone turned, shows
+// two pages, each lying), `minArea` of the frame or more, with each side
+// drawn along `sideMin` of it at least: less than a card's, since an empty
+// pocket at the page's edge leaves a gap in two sides. A box holding two
+// pages apart (each a quarter of it or more: the spread's outline, which
+// for 3 x 3 pages has a page's shape too) is left out; of the rest, drawn
+// nearly as well as the best drawn (a box a pocket or two short of the
+// page is drawn as well as the page), the largest is the first page, and
+// the next largest clear of it, at least `twin` of its size, the second.
+// Returns up to `max` pages, each {corners, ratio, sides, upright}: corners
+// top left first, clockwise, as the page stands (a lying page's top left
+// is the corner that comes there once it is turned a quarter clockwise).
+export function findPages(grey, width, height, {count = 60, max = 2, minArea = 0.08, shape, sideMin = 0.55, slack = 0.12, twin = 0.6} = {}) {
+	const {boxes, short} = outlines(grey, width, height, {count, meanMin: Math.max(sideMin, 0.65), runsOn: false, shape, sideMin, slack});
+	const big = distinct(boxes.filter((box) => box.area >= width * height * minArea), short, 400);
+	const apart = (a, b) => shareIn(a, b) <= 0.12 && shareIn(b, a) <= 0.12;
+	const spread = (box) => {
+		const inside = big.filter((other) => other !== box && other.area >= box.area / 4 && other.area < box.area * 0.7 && contains(box, other));
 
-	if (!big.length) {
-		return null;
+		return inside.some((a, i) => inside.slice(i + 1).some((b) => apart(a, b)));
+	};
+	const pages = big.filter((box) => !spread(box));
+
+	if (!pages.length) {
+		return [];
 	}
 
-	// The largest, among those drawn nearly as well as the best drawn: a
-	// box a pocket or two short of the page is drawn as well as the page.
-	const best = Math.max(...big.map((box) => box.quality));
-	const page = big.filter((box) => box.quality >= best - 0.25).sort((a, b) => b.area - a.area)[0];
+	const best = Math.max(...pages.map((box) => box.quality));
+	const ranked = pages.filter((box) => box.quality >= best - 0.25).sort((a, b) => b.area - a.area);
+	const taken = [];
 
-	return {corners: page.corners, ratio: page.ratio, sides: page.sides};
+	for (const box of ranked) {
+		if (taken.length >= max) {
+			break;
+		}
+
+		if (taken.every((other) => apart(other, box)) && (!taken.length || box.area >= taken[0].area * twin)) {
+			taken.push(box);
+		}
+	}
+
+	return taken.map((box) => ({corners: box.corners, ratio: box.ratio, sides: box.sides, upright: box.upright}));
+}
+
+// The one page (findPages), or null.
+export function findPage(grey, width, height, options = {}) {
+	return findPages(grey, width, height, {...options, max: 1})[0] || null;
 }
 
 // A card cut by the frame's edge shows three of its sides at most: two

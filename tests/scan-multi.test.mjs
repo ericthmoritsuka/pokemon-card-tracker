@@ -10,8 +10,8 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {pageCells, pageShape, quadPoint} from '../js/scan/multi.js';
-import {findCard, findCards, findPage} from '../js/scan/steady.js';
+import {fitHomography, fitPage, pageCells, pageShape, quadPoint, splitSpread} from '../js/scan/multi.js';
+import {findCard, findCards, findPage, findPages} from '../js/scan/steady.js';
 
 const W = 202;
 const H = 360;
@@ -179,6 +179,36 @@ describe('a binder page (findPage, findCards, pageCells)', () => {
 	});
 });
 
+describe('a binder open as a spread, the phone turned (findPages)', () => {
+	test('two lying pages are found as two, each by its own outline, not the spread as one page', () => {
+		// Cards lying (turned a quarter), 60 px long, in two 3 x 3 grids one
+		// above the other, as a spread taken with the phone turned shows them.
+		const size = 60;
+		const across = size;
+		const down = (size * 63) / 88;
+		const gap = down * 0.05;
+		const cards = [];
+		const middles = [H / 2 - (down * 3 + gap * 2) / 2 - 12, H / 2 + (down * 3 + gap * 2) / 2 + 12];
+
+		middles.forEach((cy, p) => {
+			for (let row = 0; row < 3; row++) {
+				for (let col = 0; col < 3; col++) {
+					cards.push({angle: 90, cx: W / 2 + (col - 1) * (across + gap), cy: cy + (row - 1) * (down + gap), seed: p * 9 + row * 3 + col + 1, size});
+				}
+			}
+		});
+
+		const pages = findPages(view(cards), W, H, {shape: pageShape(3, 3)});
+
+		assert.equal(pages.length, 2, `found ${pages.length}`);
+
+		const found = pages.map((one) => middle(one.corners).y).sort((a, b) => a - b);
+
+		found.forEach((y, i) => assert.ok(Math.abs(y - middles[i]) < 10, `page ${i} at ${y.toFixed(0)} against ${middles[i].toFixed(0)}`));
+		pages.forEach((one) => assert.equal(one.upright, false));
+	});
+});
+
 describe('the page\'s grid (pageShape, quadPoint, pageCells)', () => {
 	test('a 3 x 3 page has nearly a card\'s shape, and a 3 x 4 page a narrower one', () => {
 		assert.ok(Math.abs(pageShape(3, 3) / (63 / 88) - 1) < 0.02);
@@ -199,5 +229,51 @@ describe('the page\'s grid (pageShape, quadPoint, pageCells)', () => {
 
 		assert.ok(tall(cells[0]) < tall(cells[6]), `${tall(cells[0]).toFixed(1)} against ${tall(cells[6]).toFixed(1)}`);
 		assert.ok(cells[4].cut[0].x < cells[4].card[0].x && cells[4].cut[2].y > cells[4].card[2].y, 'the cut is larger than the card');
+	});
+});
+
+describe('a page set right by its cards (fitHomography, fitPage, splitSpread)', () => {
+	// A true page: its corners, and each pocket's card as pageCells puts it.
+	const truth = [{x: 30, y: 40}, {x: 330, y: 50}, {x: 340, y: 470}, {x: 20, y: 460}];
+	const cards = pageCells(truth, 3, 3, {pad: 0}).map((cell) => ({corners: cell.card, upright: true}));
+	const off = (a, b) => Math.max(...a.map((p, i) => Math.hypot(p.x - b[i].x, p.y - b[i].y)));
+
+	test('four exact pairs give the map through them', () => {
+		const unit = [{x: 0, y: 0}, {x: 1, y: 0}, {x: 1, y: 1}, {x: 0, y: 1}];
+		const h = fitHomography(unit.map((p, i) => ({from: p, to: truth[i]})));
+
+		assert.ok(off(unit.map((p) => quadPoint(truth, p.x, p.y)), unit.map((p) => {
+			const w = h[6] * p.x + h[7] * p.y + h[8];
+
+			return {x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w};
+		})) < 1e-6);
+	});
+
+	test('an outline found round the sheet, 8 % too large, is pulled onto the cards', () => {
+		const middle = {x: 180, y: 255};
+		const rough = truth.map((p) => ({x: middle.x + (p.x - middle.x) * 1.08, y: middle.y + (p.y - middle.y) * 1.08}));
+		const fitted = fitPage(rough, cards.filter((_, i) => i !== 4 && i !== 8), 3, 3);
+
+		assert.ok(fitted, 'fitted');
+		assert.equal(fitted.cards, 7);
+		assert.ok(off(fitted.corners, truth) < 1, `off by ${off(fitted.corners, truth).toFixed(2)} px`);
+	});
+
+	test('cards in one row only, or a card in the wrong pocket, leave the outline as found', () => {
+		assert.equal(fitPage(truth, cards.slice(0, 3), 3, 3), null);
+
+		const wrong = cards.map((card, i) => (i === 0 ? {...card, corners: card.corners.map((p) => ({x: p.x + 60, y: p.y + 10}))} : card)).slice(0, 4);
+
+		assert.equal(fitPage(truth, wrong, 3, 3), null);
+	});
+
+	test('an outline round a spread, its cards lying across it, is cut into two lying pages', () => {
+		const lying = cards.map((card) => ({...card, upright: false}));
+		const halves = splitSpread(truth, lying);
+
+		assert.equal(halves.length, 2);
+		// The first half's first corner is the lower end of its left side.
+		assert.deepEqual(halves[0][1], truth[0]);
+		assert.equal(splitSpread(truth, cards), null);
 	});
 });
