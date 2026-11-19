@@ -611,8 +611,18 @@ export async function shareCard(card, {notify = () => {}, picture = () => null, 
 		notify('The card\'s picture could not be added, so the image shows its name.');
 	}
 
-	const canvas = drawCard(card, bitmap);
-	const blob = await canvasPng(canvas);
+	let blob;
+
+	try {
+		blob = await canvasPng(drawCard(card, bitmap));
+	}
+	finally {
+		// A decoded card picture is large: let it go once drawn.
+		if (bitmap && bitmap.close) {
+			bitmap.close();
+		}
+	}
+
 	const file = new File([blob], pngName(card.stem || card.name || 'Card'), {type: 'image/png'});
 
 	return share(file, {notify, title: card.name || ''});
@@ -635,8 +645,16 @@ export async function sharePages(binder, pages, {notify = () => {}, read = readP
 	}
 
 	const label = pagesLabel(pages.map((item) => item.page));
-	const canvas = drawPages(binder, pages, bitmaps);
-	const blob = await canvasPng(canvas);
+	let blob;
+
+	try {
+		blob = await canvasPng(drawPages(binder, pages, bitmaps));
+	}
+	finally {
+		// Up to 18 decoded pictures on a spread: let them go once drawn.
+		bitmaps.forEach((bitmap) => bitmap.close && bitmap.close());
+	}
+
 	const file = new File([blob], pngName(`${binder.name || 'Binder'} - ${label}`), {type: 'image/png'});
 
 	return share(file, {notify, title: `${binder.name || 'Binder'}, ${label.toLowerCase()}`});
