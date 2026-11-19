@@ -227,12 +227,18 @@ else (the tray, the repeat bar, Review) is the same flow. Details in section 6. 
 2026-10-09.)*
 
 **Scan has a Trade or sale mode beside Add.** Eric, 2026-11-06, asked to log trades and sales by
-scanning the cards; the mode switch, its own two-sided tray, and Log N cards into the trades log
-are in section 11, "Scan a trade or a sale". Add stays the default and works as before.
+scanning the cards; its own two-sided tray and Log N cards into the trades log are in section 11,
+"Scan a trade or a sale". Add stays the default and works as before.
+
+**How and For: two rows of icon buttons pick the way in and the mode** (Eric, 2026-11-19). Under
+the camera, Card, Photo, and Page say how the cards come in, and Add, Buy, and Trade or sale what
+they are for; Buy scans as Add does and hands the tray to the trades log as a purchase. Both are in
+section 11, "How and For" and "Scan a purchase".
 
 **Held sideways, the scanner's controls are a column beside the camera** (design polish,
 2026-11-06). A phone sideways (500 px tall or less) shows the camera on the left and, in a column
-on the right, the mode switch and the tray's buttons at its head, the tray in the middle taking the
+on the right, the How and For rows at its head (the mode switch's place until 2026-11-19), the
+tray in the middle taking the
 height left (the trade tray's columns scroll down), and Close, the shutter, and Done or Log N cards
 at its foot, all on screen at 740 x 360, in both modes. Under the camera they fell below the screen
 at 780 x 360, and the trade tray cut Pick a copy. The small print of the same pass: the holder
@@ -3258,21 +3264,16 @@ trades/sales too instead of registering them just manually. Maybe we could have 
 could scan the cards and select a trade/sell/giveaway option so the system could make the
 adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade-sheets.js`).
 
-- **Two modes.** Scan has a mode switch at the head of the tray, under the camera: two segments,
-  **Add** (what Scan always did, the default) and **Trade or sale**, 48 px tall, the one in use
-  pressed (`aria-pressed`). It is never over the picture (Eric aims by the card's number strip) or
-  under the repeat bar, and it takes no height from the camera, whose band over the guide holds the
-  running count; the count beside it shows only when it fits whole. Under 400 px wide the tray
-  head's own buttons keep the switch's row: Pick a photo takes two lines in its 48 px, and Set for
-  all, which Done's sheet also has, is left out of the head. The running count names the
-  mode first ("Add · 2 cards", "Trade or sale · 3 cards", or the mode alone with no cards). The
-  choice is remembered on the phone (`card-tracker:scan-mode`). In Trade or sale the pressed
-  segment and the running count are teal, a 6 px teal frame runs round the camera, and Done reads
-  **Log 3 cards** ("Log 1 card", counting the tray as Done counts the Add tray), so a card meant for a sale is never added by mistake. *(Design review, 2026-11-06: one
-  button that named the mode and switched to the other read as a label, not a switch, and the
-  4 px frame was easy to miss.)* The
-  mode does not change while a card is being taken or read, or a gallery photo opened: the switch
-  says to wait, and a card is never put in the other mode's tray.
+- **Its mode.** Trade or sale is one of the For row's modes at the head of the tray, under the
+  camera (see "How and For" below; until 2026-11-19 a two-segment switch, Add and Trade or sale).
+  The running count names the mode first ("Add · 2 cards", "Trade or sale · 3 cards", or the mode
+  alone with no cards). In Trade or sale the pressed button and the running count are teal, a 6 px
+  teal frame runs round the camera, and Done reads **Log 3 cards** ("Log 1 card", counting the
+  tray as Done counts the Add tray), so a card meant for a sale is never added by mistake.
+  *(Design review, 2026-11-06: one button that named the mode and switched to the other read as a
+  label, not a switch, and the 4 px frame was easy to miss.)* The mode does not change to or from
+  Trade or sale while a card is being taken or read, or a gallery photo opened: the scanner says
+  to wait, and a card is never put in the other mode's tray.
 - **Its own tray, two sides.** Trade or sale keeps a tray of its own (the draft's `trade` key), so
   the Add tray waits untouched while it is used. It has two columns, **Going out** and **Coming
   in**; tapping a column's head sends the next scans there, and it starts on Going out. Each head
@@ -3358,8 +3359,82 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   log a trade or sale by hand." over **Log a trade or sale** and a full-width **Scan a trade or
   sale** (design review, 2026-11-06; the head's "Scan a trade" and "Log a move" took the one name
   in the design polish of 2026-11-06). It sets the remembered mode, as the
-  scanner's own switch does, so the trade tray opens as it was left, cards and all, and the Add tray
+  scanner's own For row does, so the trade tray opens as it was left, cards and all, and the Add tray
   waits untouched.
+
+**How and For** (Eric, 2026-11-19, from his mockup `How: [#] Card [img] Photo [:::] Page` over
+`For: [+] Add [$] Buy [<>] Trade/sale`; `js/scan/modes.js`). Two rows of icon buttons at the head
+of the tray, under the camera, replace the Add / Trade or sale switch and the Pick a photo text
+button, and take the binder page out of Settings:
+
+- **Each button is an icon and one short word**, 44 px tall (Eric's floor; the switch's segments
+  were 48), its icon drawn inline in the tab bar's line style (a 24 px box, round ends, no fill, in
+  the text's colour), with no icon library and no emoji: the Scan tab's card in corners for Card, a
+  picture for Photo, nine pockets for Page, a plus for Add, a dollar sign for Buy, and two arrows
+  passing for Trade or sale. Trade or sale keeps its whole name on its button, the app's one name
+  for a move ("One name" above), rather than the mockup's "Trade/sale", since it fits. The icon is
+  hidden from a screen reader. How's buttons have names that start with their word ("Card: scan
+  with the camera", "Photo: pick a photo of one card", "Page: a whole binder page from a photo").
+  Each row is a group with a label, "How to scan" and "What the cards are for"; its visible word
+  ("How", "For") is hidden from a screen reader, which hears the label.
+- **How is the way in. Card is a state; Photo and Page are actions.** Card is the camera, the
+  scanner's own way: it shows pressed (`aria-pressed`, filled) while the camera shows the picture,
+  and with the camera off (no permission, no camera) it is not pressed and a tap tries the camera
+  again. Photo (one card from the gallery, the old Pick a photo) and Page (a whole binder page)
+  open a picker and come back to the camera, so they are plain buttons, never pressed: a pressed
+  Photo would claim a state that ends when the picker closes. Page opens a small sheet,
+  **Binder page**, with the one-line tip and **Take a photo** (the camera app) or **Choose a
+  photo** (the gallery), until 2026-11-19 a block at the head of the scanner's Settings; while a
+  page is read both wait and the line says so.
+  Settings keeps the default finish, the sound, valuable cards, and rising prices.
+- **For is the mode**: Add (the default), Buy, or Trade or sale, the one in use pressed
+  (`aria-pressed`, filled; teal for Trade or sale), remembered on the phone as before
+  (`card-tracker:scan-mode`: `add`, `buy`, or `trade`; any other value reads as Add, so an older
+  app that finds `buy` opens in Add). Between Add and Buy only Done changes, so that switch never
+  waits for a card being read.
+- **Where and how wide.** The rows are where the switch was: never over the picture (Eric aims by
+  the card's number strip) or the running count, never under the repeat bar. Both fit 360 px wide
+  with no wrap and no sideways scroll, checked at 360 and 412 px (`tests/scan-buy-browser.test.mjs`).
+  Clear keeps the How row's right end, and Set for all, which Done's sheet also has, is left out of
+  the head under 480 px (it was under 400): beside the three buttons there is room for one text
+  button. The tray's count shows beside the For row only when it fits whole, as it did beside the
+  switch. A larger text size wraps a row rather than scrolling. The second row costs the camera
+  44 px (476 to 432 px tall at 360 x 740 in Add), the price of the mockup's two rows. On the
+  shorter camera a centred guide rose under the running count, so the guide now never starts
+  above the count's band (`layoutGuide`'s `top`, js/scan/camera.js): it moves down, and on a short
+  camera grows a little smaller, keeping its margin at the foot; where it already cleared the
+  band, as on a tall phone, it is where it was. Held sideways, the rows head the control column
+  beside the camera.
+
+**Scan a purchase** (Eric, 2026-11-19: a Buy mode that scans as Add does and logs the cards as a
+purchase, and Log as a purchase on Add's Done sheet; `logPurchase` in `js/scan/view.js`,
+`purchaseHandoff` in `js/scan/trade.js`).
+
+- **Buy scans as Add does.** The same tray (the Add tray, kept as it is between Add and Buy), the
+  same reading, Review, Copies, and Set for all. Only Done differs: it reads **Log purchase 3**
+  (counting the tray as Done does; on a 360 px phone it takes two lines) and hands the tray to the
+  trades log's form (`trades/new`) as a purchase: kind Bought (with Gift named as the other
+  choice), today's date, and every tray card a card coming in with its copies. These are the rows a
+  scanned trade's cards coming in hand over: `purchaseHandoff` is `tradeHandoff` with every card on
+  the Coming in side, not a copy of it, and the tray itself is not changed.
+- **Nothing is added before Save.** The form's save (`applyMove`) adds the copies with `came_via`,
+  fills placeholders and moves wishes by the trades log's rule, and only then do the cards handed
+  over leave the Add tray (`draft.clearPurchase`), never a card scanned after the hand over and
+  never a newer tray. Leaving the form without saving keeps the tray as it was. In Buy a card's
+  sheet has Log purchase in place of Save, the tray offers no "Place it there" (the trades log
+  decides the placeholders), and Done's sheet does not open.
+- **It waits as Log N cards does.** A card still being taken is waited for, a card that needs a
+  look opens Review first, and a card still read, looked up, or waiting for signal holds the hand
+  over ("Wait a moment: 1 card is still being read or looked up."): a purchase cannot leave such a
+  card behind in the tray as Add's save does.
+- **No frame of its own.** A purchase logged by mistake is only a filled form until Save, unlike a
+  card added by mistake, so Buy has no teal frame: the pressed Buy, the running count ("Buy · 2
+  cards"), and Done's label say the mode.
+- **Log as a purchase** on Add's Done sheet does the same with the tray as it stands, without
+  changing the mode, for a run that turns out to be a purchase. It sits above the sheet's Discard
+  and Save with its line, "Opens Trades and sales with these cards coming in. They are added when
+  you save it there.", and is off while a card is still read or waiting for signal; Skip them and
+  Add all to a collection do not apply to it.
 
 **Older phones.** Every app from v21 on merges a top-level list it does not know entry by entry
 (js/merge.js `mergeDocuments`), so v54 and older keep `moves` whole, and the server's
