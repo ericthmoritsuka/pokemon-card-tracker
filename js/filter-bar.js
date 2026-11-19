@@ -41,6 +41,7 @@ import {REGIONS} from './checklists.js';
 import {cleanPlace, placeFold} from './collection.js';
 import {htmlLang, isAsian, languageLabel} from './languages.js';
 import {searchKey} from './names.js';
+import {closest, makeMatcher} from './search-match.js';
 import {ENERGIES} from './themes.js';
 
 // ------------------------------------------------------------- choices
@@ -194,7 +195,10 @@ export const regionsOf = (dexIds) => [...new Set((dexIds || []).map((n) => regio
 
 // Every text a tile can be found by, folded once when the list is built so
 // a keystroke over 1,600 tiles is a few string searches each.
-export const searchTextOf = (texts) => [...new Set(texts.filter(Boolean).map(searchKey))].filter(Boolean).join('\n');
+// Each text's words are kept as lines of their own too, so a typo can be
+// forgiven word by word (js/search-match.js); a word is a substring of its
+// text, so exact matches are the same as before.
+export const searchTextOf = (texts) => [...new Set(texts.filter(Boolean).flatMap((text) => [text, ...String(text).split(/\s+/)]).map(searchKey))].filter(Boolean).join('\n');
 
 // A query in parts: {words, dex}. "#25", "#025", and "#1-151" are Pokédex
 // numbers and ranges (dex, as {from, to}); every other word is folded the
@@ -229,7 +233,30 @@ export const queryWords = (text) => parseQuery(text).words;
 
 export const matchesWords = (item, words) => words.every((word) => (item.search || '').includes(word));
 
+// An item's letters-only search lines, split once per search text.
+const tokenCache = new WeakMap();
+
+function tokensOfItem(item) {
+	const search = item.search || '';
+	const held = tokenCache.get(item);
+
+	if (held && held.search === search) {
+		return held.tokens;
+	}
+
+	const tokens = search.split('\n').filter((line) => /^[a-z]+$/.test(line));
+
+	tokenCache.set(item, {search, tokens});
+
+	return tokens;
+}
+
 export const matchesQuery = (item, {dex, words}) => matchesWords(item, words) && dex.every((range) => inDexRange(item, range));
+
+// The edits that make an item match with typos forgiven (js/search-match.js).
+const queryEdits = (item, {dex}, matcher) => (dex.every((range) => inDexRange(item, range))
+	? matcher.edits(item.search || '', tokensOfItem(item))
+	: Infinity);
 
 // --------------------------------------------------------- filter, sort
 
@@ -268,7 +295,18 @@ export function applyFilters(items, {filters = emptyFilters(), query = ''} = {})
 	const searching = parsed.words.length || parsed.dex.length;
 	const active = FILTERS.filter((kind) => filters[kind]);
 
-	return items.filter((item) => active.every((kind) => matchers[kind](item, filters[kind])) && (!searching || matchesQuery(item, parsed)));
+	const filtered = items.filter((item) => active.every((kind) => matchers[kind](item, filters[kind])));
+	const found = searching ? filtered.filter((item) => matchesQuery(item, parsed)) : filtered;
+
+	// Typos forgiven only when nothing matches as typed (js/search-match.js),
+	// so a search that works never gains surprise extras.
+	if (found.length || !parsed.words.length) {
+		return found;
+	}
+
+	const matcher = makeMatcher(parsed.words);
+
+	return matcher.forgiving ? closest(filtered, (item) => queryEdits(item, parsed, matcher)) : found;
 }
 
 const collator = new Intl.Collator('en', {numeric: true, sensitivity: 'base'});
