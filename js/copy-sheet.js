@@ -37,7 +37,7 @@ import {
 import {errorText, go, h} from './dom.js';
 import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
-import {FINISHES} from './monprice.js';
+import {FINISHES, finishLabel} from './monprice.js';
 import {setPendingMove} from './moves.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
@@ -352,14 +352,71 @@ const NOT_SET = '';
 
 const conditionOptions = () => [{label: 'Not set', value: NOT_SET}, ...CONDITIONS.map((condition) => ({label: condition, value: condition}))];
 
-// finishes: [{value: variantId, label}] from the card's variants_detailed.
-// current: a copy's variant_id the list does not know (the catalog is not
-// answering, or TCGdex renamed it), kept as it is.
-function finishOptions(finishes, current) {
-	const options = [{label: 'Not set', value: NOT_SET}, ...finishes];
+// A finish no catalog printing stands for, as the select tells it from a
+// variant ID: "raw:" and monprice's word (js/monprice.js FINISHES).
+const RAW = 'raw:';
 
-	if (current && !finishes.some((option) => option.value === current)) {
-		options.push({label: 'Current finish (not in the catalog list)', value: current});
+// The finishes every card may be in, offered with the catalog's printings
+// whenever the list has no plain print of that kind (Eric, 2026-11-18:
+// "Sometimes they appear as 1st edition, but they are normal, or reverse
+// holo, or holo"). TCGdex may list only a stamped print, so without them a
+// plain copy could never be said to be plain.
+const GENERIC = [['NORMAL', 'normal'], ['HOLOFOIL', 'holo'], ['REVERSE_HOLOFOIL', 'reverse']];
+
+// The subtypes that still make a plain print: none, or Unlimited (the plain
+// print of a set that also has a Shadowless or 1st Edition one), as
+// js/monprice.js resolveFinish prefers them.
+const PLAIN_SUBTYPES = new Set(['', 'unlimited']);
+
+// TCGdex writes a Portuguese record's standard size as "Padrão"
+// (js/catalog-views.js TCGDEX_WORDS).
+const STANDARD = /^(standard|padr[aã]o)$/i;
+
+// The kind of plain print a variants_detailed entry is ('normal', 'holo',
+// or 'reverse'), or null for anything with a stamp, a special foil, another
+// size, or a subtype such as Shadowless.
+export function plainKind(variant) {
+	if (!variant || variant.foil || (variant.stamp || []).length || (variant.size && !STANDARD.test(String(variant.size).trim()))) {
+		return null;
+	}
+
+	if (!PLAIN_SUBTYPES.has(String(variant.subtype || '').trim().toLowerCase())) {
+		return null;
+	}
+
+	const type = String(variant.type || '').trim().toLowerCase();
+
+	return GENERIC.some(([, kind]) => kind === type) ? type : null;
+}
+
+// What a monprice word is called where it is not one of the catalog's
+// printings: short, so the select stays one line at 360 px.
+const notListed = (word) => `${finishLabel(word)} (not listed)`;
+
+// The finish select's options.
+//   finishes  [{value: variantId, label, variant}] from the card's
+//             variants_detailed (js/catalog-views.js finishChoices), or
+//             monprice's words for a hand-made card (rawFinishes)
+//   current   the select's value for the copy (finishValue): a variant ID
+//             the list does not know (the catalog is not answering, or
+//             TCGdex renamed it) or a word not offered is kept as it is
+//   catalog   'custom' for a hand-made card, whose list already holds
+//             every word
+export function finishOptions(finishes, current = null, catalog = null) {
+	const options = [{label: 'Not set', value: NOT_SET}, ...finishes.map(({label, value}) => ({label, value}))];
+
+	if (catalog !== 'custom') {
+		const plain = new Set(finishes.map((option) => plainKind(option.variant)).filter(Boolean));
+
+		for (const [word, kind] of GENERIC) {
+			if (!plain.has(kind)) {
+				options.push({label: notListed(word), value: RAW + word});
+			}
+		}
+	}
+
+	if (current && !options.some((option) => option.value === current)) {
+		options.push({label: current.startsWith(RAW) ? notListed(current.slice(RAW.length)) : 'Current finish (not in the catalog list)', value: current});
 	}
 
 	return options;
@@ -369,7 +426,32 @@ function finishOptions(finishes, current) {
 // monprice's words, kept in finish_raw like an unmatched import's.
 export const rawFinishes = () => Object.entries(FINISHES).map(([value, label]) => ({label, value}));
 
-const finishKey = (catalog) => (catalog === 'custom' ? 'finish_raw' : 'variant_id');
+// The finish select's value for a copy: its variant ID, else its monprice
+// word (an unmatched import, or a finish picked that the catalog does not
+// list). A hand-made card's select holds the bare words.
+export function finishValue(entry, catalog) {
+	if (catalog === 'custom') {
+		return entry.finish_raw || NOT_SET;
+	}
+
+	return entry.variant_id || (entry.finish_raw ? RAW + entry.finish_raw : NOT_SET);
+}
+
+// The fields a finish picked in the select sets. A catalog printing is its
+// variant ID with no word, and a finish the catalog does not list is the
+// word with no variant ID, as an unmatched monprice import stores it, so
+// prices, tiles, the scanner tray, and the CSV treat both alike.
+export function finishFields(value, catalog) {
+	if (catalog === 'custom') {
+		return {finish_raw: value || null};
+	}
+
+	if (value && value.startsWith(RAW)) {
+		return {finish_raw: value.slice(RAW.length), variant_id: null};
+	}
+
+	return {finish_raw: null, variant_id: value || null};
+}
 
 function head(title, close) {
 	return h('div', {class: 'sheet-head'},
@@ -393,7 +475,10 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'copy-error'});
 
 	const language = select('copy-language', copyLanguages(catalog, first.language).map(({code, label}) => ({label, value: code})), first.language);
-	const finish = select('copy-finish', finishOptions(finishes, first[finishKey(catalog)]), first[finishKey(catalog)] || NOT_SET);
+	// The finish the copies have now, so a sheet only opened and closed
+	// never rewrites it (a copy may carry a stale word beside its variant).
+	const startFinish = finishValue(first, catalog);
+	const finish = select('copy-finish', finishOptions(finishes, startFinish, catalog), startFinish);
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	// Notes belong to the card in the copy's language, shared by every copy
 	// of it (js/card-info.js). Notes joined from several copies may run
@@ -422,17 +507,24 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	const storage = placePicker({id: 'copy-storage', value: first.storage});
 
 	// A row of alike copies changes one of them, or all of them. One of
-	// them is the copy a minus would take (removalPlan).
+	// them is the copy a minus would take (removalPlan). The choice sits
+	// first, named and explained, because a holo among normal copies is
+	// told apart by changing one copy (Eric, 2026-11-18: "Sometimes I have
+	// a holo and a non holo copy"); that copy then has its own row.
 	let scope = 'one';
 	const scopeChoice = many
-		? h('div', {'aria-label': 'Change', class: 'segmented copy-scope', role: 'radiogroup'},
-			[['one', 'This copy'], ['all', `All ${entries.length}`]].map(([value, label]) => h('label', null,
-				h('input', {checked: value === scope, name: 'copy-scope', onchange: () => {
-					scope = value;
-					drawRemove();
-				}, type: 'radio', value}),
-				h('span', null, label)
-			)))
+		? h('div', {class: 'copy-field copy-scope-field'},
+			h('span', {class: 'copy-scope-label', id: 'copy-scope-label'}, 'Change'),
+			h('div', {'aria-describedby': 'copy-scope-hint', 'aria-labelledby': 'copy-scope-label', class: 'segmented copy-scope', role: 'radiogroup'},
+				[['one', 'This copy'], ['all', `All ${entries.length}`]].map(([value, label]) => h('label', null,
+					h('input', {checked: value === scope, name: 'copy-scope', onchange: () => {
+						scope = value;
+						drawRemove();
+					}, type: 'radio', value}),
+					h('span', null, label)
+				))),
+			h('p', {class: 'muted copy-scope-hint', id: 'copy-scope-hint'}, 'Change one copy to give it its own finish. It then shows as its own row.')
+		)
 		: null;
 	const one = () => {
 		const plan = removalPlan(entries, 1, {places});
@@ -529,7 +621,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 			condition: condition.value || null,
 			language: language.value,
 			storage: storage.value(),
-			[finishKey(catalog)]: finish.value || null,
+			...(finish.value === startFinish ? {} : finishFields(finish.value, catalog)),
 		})})).filter((item) => Object.keys(item.patch).length);
 		const typed = notes.value.trim().slice(0, notesMax);
 		const notesBefore = (cardInfoOf(noteSource) || {}).notes || '';
@@ -709,7 +801,7 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'copy-error'});
 
 	const language = select('copy-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang) ? lang : languages[0].code);
-	const finish = select('copy-finish', finishOptions(finishes, null), plain && finishes.some((option) => option.value === plain) ? plain : NOT_SET);
+	const finish = select('copy-finish', finishOptions(finishes, null, catalog), plain && finishes.some((option) => option.value === plain) ? plain : NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), NOT_SET);
 	const storage = placePicker({id: 'copy-storage'});
 	const count = h('input', {class: 'search copy-count', id: 'copy-count', inputmode: 'numeric', max: MAX_ADD, min: 1, name: 'copy-count', step: 1, type: 'number', value: 1});
@@ -751,10 +843,11 @@ export function openAddSheet({card, catalog, extra = null, finishes, lang, plain
 			return;
 		}
 
-		const fields = {...extra, card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: catalog === 'custom' ? null : finish.value || null};
+		const chosen = finishFields(finish.value, catalog);
+		const fields = {...extra, card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: chosen.variant_id || null};
 
-		if (catalog === 'custom' && finish.value) {
-			fields.finish_raw = finish.value;
+		if (chosen.finish_raw) {
+			fields.finish_raw = chosen.finish_raw;
 		}
 
 		if (catalog !== 'custom' && catalogFor(language.value) !== catalog) {

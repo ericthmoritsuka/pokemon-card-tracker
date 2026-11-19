@@ -38,7 +38,7 @@ import {formatCount, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
 import {finishLabel} from './monprice.js';
 import {tilePrice} from './price-view.js';
-import {extractPrices, finishOf, formatBrlCompact, listStats, manualPrice, savedRates, tileValue} from './prices.js';
+import {extractPrices, finishFits, finishOf, formatBrlCompact, listStats, manualPrice, savedRates, tileValue} from './prices.js';
 import {readChoice} from './settings.js';
 import {memberDocument} from './sync.js';
 import {pool} from './tcgdex.js';
@@ -886,7 +886,11 @@ export function cardsScreen(root, {
 		const labels = new Set();
 
 		for (const entry of group.entries) {
-			const found = finishOf(entry, finishes);
+			// A card's only printing is taken for any copy (finishOf), but a
+			// copy whose word says otherwise, such as a Holo on a card listed
+			// only as 1st Edition, is named by its word, as its price is.
+			const matched = finishOf(entry, finishes);
+			const found = matched && finishFits(entry, matched) ? matched : null;
 			const code = entryFinish(entry);
 			const label = found ? found.label : code ? FINISHES[code].label : entry.finish_raw ? finishLabel(entry.finish_raw) : null;
 

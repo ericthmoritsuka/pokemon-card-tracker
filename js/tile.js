@@ -223,9 +223,14 @@ export function entryFinish(entry, variants = null) {
 		return entry.finish;
 	}
 
-	const words = [entry.finish_raw, ...String(entry.import_key || '').split('|')];
+	// The copy's own word decides when it has one: a finish picked in the
+	// sheet (Eric, 2026-11-18) stands over the word its import key keeps, so
+	// a 1st Edition import set to plain Holo loses its "1st" corner.
+	if (entry.finish_raw) {
+		return MONPRICE_FINISHES[entry.finish_raw] || null;
+	}
 
-	for (const word of words) {
+	for (const word of String(entry.import_key || '').split('|')) {
 		if (word && MONPRICE_FINISHES[word]) {
 			return MONPRICE_FINISHES[word];
 		}

@@ -252,7 +252,9 @@ describe('copies on card detail', () => {
 		assert.equal(await page.locator('#copy-language').inputValue(), 'pt');
 		assert.deepEqual(await page.locator('#copy-language option').allTextContents(), ['Portuguese', 'English', 'French', 'German', 'Italian', 'Spanish']);
 		// Finish names as on English pages: no "Padrão", no Portuguese foils.
-		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Reverse holo, Master Ball pattern']);
+		// The card lists no plain holo, so Holo is offered as not listed
+		// (Eric, 2026-11-18).
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', 'Normal', 'Reverse holo', 'Reverse holo, Poké Ball pattern', 'Reverse holo, Master Ball pattern', 'Holo (not listed)']);
 		assert.equal(await page.locator('#copy-remove').textContent(), 'Remove copy');
 		assert.ok(await page.locator('#copy-leaves').isHidden(), 'no binder to leave');
 		await page.screenshot({path: '/tmp/copies-edit-sheet.png'});
