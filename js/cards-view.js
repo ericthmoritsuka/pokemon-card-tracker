@@ -681,6 +681,11 @@ export function cardsScreen(root, {
 			get photo() {
 				return photographed().has(`${first.catalog}|${first.card_id}`);
 			},
+			// Whether the international twin's picture stands in on the tile
+			// (js/twins.js), so the card needs no photo to be pictured.
+			get twinPicture() {
+				return twinSlides({card_id: first.card_id, catalog: first.catalog}, {size: 'low'}).length > 0;
+			},
 			twinItem: {card_id: first.card_id, catalog: first.catalog},
 			types: (record && record.types) || [],
 			unplaced: group.entries.some((entry) => !placed.has(entry.id)),

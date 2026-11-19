@@ -208,6 +208,14 @@ describe('the Pictures filter', () => {
 	};
 	const only = (value) => names(fb.applyFilters(pictured(), {filters: {...fb.emptyFilters(), picture: value}}));
 
+	test('Needs a photo leaves out a card its twin\'s picture stands in for', () => {
+		const items = pictured().map((item) => (item.name === 'Tag Team' ? {...item, twinPicture: true} : item));
+		const shown = names(fb.applyFilters(items, {filters: {...fb.emptyFilters(), picture: 'needsphoto'}}));
+
+		assert.deepEqual(shown, []);
+		assert.deepEqual(names(fb.applyFilters(items, {filters: {...fb.emptyFilters(), picture: 'nocatalog'}})), ['Charizard', 'Tag Team'], 'No catalog picture still lists it');
+	});
+
 	test('No photo, No catalog picture, and Needs a photo (neither)', () => {
 		assert.deepEqual(only('nophoto'), ['Test Ball', 'Tag Team']);
 		assert.deepEqual(only('nocatalog'), ['Charizard', 'Tag Team']);

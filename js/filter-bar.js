@@ -58,6 +58,10 @@ export const PRICE_STATES = [
 	{label: 'No price', value: 'unpriced'},
 ];
 
+// Whether a card has no picture at all: no photo, no catalog picture, and
+// no international twin's picture standing in.
+const pictureless = (item) => item.photo === false && item.catalogPicture === false && item.twinPicture !== true;
+
 // The Pictures filter's choices (Eric, 2026-11-18).
 export const PICTURE_STATES = [
 	{label: 'No photo', value: 'nophoto'},
@@ -241,11 +245,13 @@ const matchers = {
 	language: (item, value) => item.language === value,
 	price: (item, value) => (value === 'unpriced' ? item.priced === false : item.priced === true),
 	// Pictures (Eric, 2026-11-18): no photo of yours; no catalog picture; or
-	// both, the cards to photograph so the scanner learns them
-	// (js/scan/photo-prints.js).
+	// no picture at all, the cards to photograph so the scanner learns them
+	// (js/scan/photo-prints.js). A card shown with its international twin's
+	// picture has one: a Korean Nitro Fire Energy shows the English print's
+	// (Eric, 2026-11-18: "showing in the needs a photo but they have photos").
 	picture: (item, value) => (value === 'nophoto' ? item.photo === false
 		: value === 'nocatalog' ? item.catalogPicture === false
-			: value === 'needsphoto' ? item.photo === false && item.catalogPicture === false
+			: value === 'needsphoto' ? pictureless(item)
 				: true),
 	rarity: (item, value) => item.rarity === value,
 	region: (item, value) => regionsOf(item.dexIds).includes(value),
@@ -366,7 +372,7 @@ export function filterOptions(items, {places = []} = {}) {
 
 		noPhoto += photo === false ? 1 : 0;
 		noCatalog += item.catalogPicture === false ? 1 : 0;
-		needsPhoto += photo === false && item.catalogPicture === false ? 1 : 0;
+		needsPhoto += pictureless(item) ? 1 : 0;
 	}
 
 	const inOrder = (map, order) => order.filter((option) => map.has(option.value)).map((option) => ({...map.get(option.value), label: option.label}));
