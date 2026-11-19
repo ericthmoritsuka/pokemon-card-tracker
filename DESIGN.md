@@ -2949,6 +2949,36 @@ the binder:
 - **Not offered** on a family member's binder, which is read only (the actions row it lives in is
   not drawn there).
 
+**A binder page scanned, as a page** (Eric, 2026-11-19: "maybe i could see the cards in a binder
+page? and then tap them to select the language and other attributes ... we could have two modes
+for this binder/bulk scanning. One: I already have the cards, they are just organized in a binder
+now ... If I'm bulk scanning cards and want to add them... Then, I would need to be able to go
+through them and select information"; "instead of adding the cards to the tray, shouldn't the page
+be 'replicated' and the cards positioned in the right pockets?"). When Scan's Binder page has read a
+page, **The page** opens over the camera (`js/scan/sheets.js` `pageSheet`): the page's cards in
+their pockets, three across as the photo has them (a spread's left and right pages one under the
+other), an empty pocket marked Empty. Two modes, chosen at its top:
+
+- **New to my cards** (the default): the cards stay in the tray, to be added by Done as any scan.
+  Each pocket is the tray's own tile and opens the card's sheet, which has **Back to the page**. A
+  row of languages (Portuguese, English, Japanese, Korean) above the grid sets in one tap the
+  language of the page's cards whose language was not read (a default, or set by that row), and
+  leaves the ones read off the card or picked by hand: a binder pocket rarely shows its language
+  (on Eric's three pages, English against Portuguese on none), and a page is mostly one language.
+  The row sits above the grid because three rows of cards fill a phone's sheet.
+- **Already mine**: the page's cards leave the tray, so Done can never add them as new copies, and
+  come back if he turns to New to my cards. Each pocket takes one of his live copies of its card
+  (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
+  language and finish the scan read (only when read, never a default), then the oldest; one copy
+  is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".
+  A card he has no copy left of gets its placeholder. Each pocket says where its copy is now
+  ("Loose", "Binder A, p. 3"). **Place this page in** lists his hand-made binders of 3 x 3 pockets,
+  the grid a page photo has, and **A new binder** with a name; a binder's page, or a new page at the
+  end (a spread takes that page and the next). **Place** writes the whole page in one save
+  (`js/binders.js` `placePage`, setPocket's rules: a copy filed elsewhere leaves its old pocket),
+  and offers **Open the binder**. Why the copy rather than the scan's language: his copies already
+  carry the language, finish, and condition he set, which a pocket photo cannot read.
+
 ### Themes
 
 A theme picker in settings offers one theme per Pokémon **TCG energy type**, plus the default:

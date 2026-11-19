@@ -1351,10 +1351,16 @@ function plannedChange(item, field, value) {
 // What Set for all would do: {total, changes, hand, skipped}. hand counts
 // the cards among the changes that were set by hand; skipped, for a finish,
 // the cards with no such printing (or no card yet).
-export function setForAllPreview(session, field, value) {
-	const out = {changes: 0, hand: 0, skipped: 0, total: session.items.length};
+export function setForAllPreview(session, field, value, {ids = null, onlyDefault = false} = {}) {
+	const items = scopeOf(session, {ids, onlyDefault});
+	const out = {changes: 0, hand: 0, skipped: 0, total: items.length};
 
-	for (const item of session.items) {
+	// A page's row says how many of its cards it leaves as they are.
+	if (ids || onlyDefault) {
+		out.kept = (ids ? ids.length : session.items.length) - items.length;
+	}
+
+	for (const item of items) {
 		const change = plannedChange(item, field, value);
 
 		if (!change) {
@@ -1376,14 +1382,26 @@ export function setForAllPreview(session, field, value) {
 	return out;
 }
 
-// Applies Set for all. keepHand leaves the cards set by hand alone. Returns
-// {changed: [ids], rematch: [ids]}: rematch lists the cards whose new
-// language lives in another catalog, so they must be looked up again.
-export function setForAll(session, field, value, {keepHand = false} = {}, now = nowIso()) {
+// The cards Set for all reaches: every card in the tray, or only `ids` (a
+// binder page's, js/scan/sheets.js pageSheet); with onlyDefault, only those
+// whose language is a default, not set, or set for all (the row itself
+// sets it so, and a second tap must reach it), so a language read off the
+// card or picked by hand stays as it is (the page's language row).
+function scopeOf(session, {ids = null, onlyDefault = false} = {}) {
+	const wanted = ids ? new Set(ids) : null;
+
+	return session.items.filter((item) => (!wanted || wanted.has(item.id)) && (!onlyDefault || !item.languageBy || item.languageBy === 'default' || item.languageBy === 'all'));
+}
+
+// Applies Set for all. keepHand leaves the cards set by hand alone; ids and
+// onlyDefault narrow it as scopeOf says. Returns {changed: [ids], rematch:
+// [ids]}: rematch lists the cards whose new language lives in another
+// catalog, so they must be looked up again.
+export function setForAll(session, field, value, {ids = null, keepHand = false, onlyDefault = false} = {}, now = nowIso()) {
 	const changed = [];
 	const rematch = [];
 
-	for (const item of session.items) {
+	for (const item of scopeOf(session, {ids, onlyDefault})) {
 		const change = plannedChange(item, field, value);
 
 		if (!change || change.skip || (keepHand && change.by === 'hand')) {

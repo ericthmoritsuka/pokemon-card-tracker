@@ -336,6 +336,127 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// The page as the photo has it (Eric, 2026-11-19: "maybe i could see the
+	// cards in a binder page? and then tap them to select the language").
+	test('the page opens as a grid, its cards in their pockets; one tap sets the language of those not read; a card goes back to the page', async () => {
+		const app = await open();
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+
+		const cells = await page.$$eval('#scan-page-grid-1 > li', (nodes) => nodes.map((node) => (node.classList.contains('scan-page-empty') ? `empty:${node.textContent}` : node.querySelector('[data-item]').dataset.item)));
+		const pageOf = new Map(await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.map((item) => [item.id, item.page])));
+
+		assert.equal(cells.length, 9, 'nine pockets');
+		assert.deepEqual(cells.map((cell, i) => (cell.startsWith('empty:') ? cell : pageOf.get(cell) === i + 1 ? 'in its pocket' : `pocket ${pageOf.get(cell)} in cell ${i + 1}`)),
+			LAYOUT.map((key) => (key ? 'in its pocket' : 'empty:Empty')));
+		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/scan-page-grid.png`});
+
+		// Label checks still running in the background may settle a card's
+		// language meanwhile, so the end state is what is checked: the cards
+		// the row set are English and as many as it says, and none whose
+		// language was a default is left in another one.
+		await page.click('#scan-pagegrid-lang-en');
+		await page.waitForSelector('#scan-pagegrid-told');
+		assert.equal(await page.getAttribute('#scan-pagegrid-lang-en', 'aria-pressed'), 'true');
+
+		const told = await text(page, '#scan-pagegrid-told');
+		const after = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.map((item) => ({by: item.languageBy || null, language: item.language || null})));
+		const set = after.filter((item) => item.by === 'all');
+
+		assert.ok(set.every((item) => item.language === 'en'), JSON.stringify(after));
+		assert.ok(!after.some((item) => item.by === 'default' && item.language !== 'en'), JSON.stringify(after));
+		assert.equal(told, set.length ? `${set.length} card${set.length === 1 ? '' : 's'} set to English.` : 'No card changed: every one is English already.');
+		assert.ok(after.filter((item) => item.by === 'read').every((item) => item.language === 'en'), 'read languages stay (the synthetic cards are English)');
+
+		const first = cells.find((cell) => !cell.startsWith('empty:'));
+
+		await page.click(`#scan-page-grid-1 [data-item="${first}"]`);
+		await page.waitForSelector('#scan-confirm #scan-page-back');
+		await page.click('#scan-page-back');
+		await page.waitForSelector('#scan-pagegrid');
+		assert.deepEqual(app.errors, []);
+		await close(app);
+	});
+
+	// "I already have these cards" (Eric, 2026-11-19): the page's cards leave
+	// the tray, each pocket takes one of his copies (one copy never twice; a
+	// copy filed elsewhere moves), and the page is placed in a new binder.
+	test('Already mine matches the pockets to his copies and places the page in a new binder; New to my cards puts them back', async () => {
+		const app = await open();
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+
+		const seeded = await page.evaluate(async (cards) => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const copy = (id) => ({card_id: id, catalog: 'international', language: 'en', language_source: 'manual'});
+			const [a1, a2, b1] = await collection.addCards([copy(cards.a), copy(cards.a), copy(cards.b)]);
+			const old = await binders.createBinder({cols: 3, name: 'Binder A', page_count: 1, rows: 3});
+
+			await binders.placeCard(old.id, 1, 5, b1.id);
+
+			return {a1: a1.id, a2: a2.id, b1: b1.id, old: old.id};
+		}, CARDS);
+
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.click('#scan-page-mine');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
+
+		const tray = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.length);
+
+		assert.equal(tray, 0, 'the page\'s cards left the tray, so Done cannot add them');
+		assert.equal(await page.getAttribute('#scan-page-mine', 'aria-pressed'), 'true');
+		assert.equal(await text(page, '#scan-place-line'), '3 cards from your cards, 1 of them taken from the pocket it is in now; 4 placeholders for cards you have none left of. Tap a card to pick another copy.');
+
+		const wheres = await page.$$eval('#scan-page-grid-1 > li', (nodes) => nodes.map((node) => (node.classList.contains('scan-page-empty') ? 'empty' : node.querySelector('.scan-page-where').textContent)));
+
+		assert.deepEqual(wheres, ['Loose', 'Binder A, p. 1', 'Not yours: placeholder', 'Not yours: placeholder', 'empty', 'Loose', 'Not yours: placeholder', 'Not yours: placeholder', 'empty']);
+		await page.waitForTimeout(400);
+		await page.screenshot({path: `${SHOTS}/scan-page-mine.png`});
+
+		// New to my cards and back: the cards return to the tray, then leave it again.
+		await page.click('#scan-page-new');
+		assert.equal(await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.length), 7);
+		await page.click('#scan-page-mine');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read again');
+
+		await page.selectOption('#scan-place-binder', 'new');
+		await page.click('#scan-place-go');
+		assert.equal(await text(page, '#scan-pagegrid [role="alert"]'), 'Give the new binder a name.');
+		await page.fill('#scan-place-name', 'Kanto page');
+		await page.click('#scan-place-go');
+		await page.waitForSelector('#scan-place-done');
+		assert.equal(await text(page, '#scan-place-done'), 'Placed on page 1 of Kanto page: 3 cards and 4 placeholders.');
+
+		const after = await page.evaluate(async (ids) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const all = await binders.listBinders();
+			const made = all.find((one) => one.name === 'Kanto page');
+			const old = all.find((one) => one.id === ids.old);
+
+			return {
+				made: made.slots.filter((slot) => !slot.cleared).map((slot) => [slot.position, slot.entry_id ? (slot.entry_id === ids.a1 ? 'a1' : slot.entry_id === ids.a2 ? 'a2' : slot.entry_id === ids.b1 ? 'b1' : '?') : `want ${slot.want.card_id}`]),
+				oldHolds: old.slots.filter((slot) => slot.entry_id === ids.b1).length,
+			};
+		}, seeded);
+
+		assert.deepEqual(after.made, [[1, 'a1'], [2, 'b1'], [3, `want ${CARDS.c}`], [4, `want ${CARDS.b}`], [6, 'a2'], [7, `want ${CARDS.c}`], [8, `want ${CARDS.a}`]]);
+		assert.equal(after.oldHolds, 0, 'the copy left Binder A');
+		assert.deepEqual(app.errors, []);
+		await close(app);
+	});
+
 	test('each pocket with a card joins the tray, sure or asking for a look, and empty pockets are skipped', async () => {
 		const app = await open();
 		const {page} = app;
