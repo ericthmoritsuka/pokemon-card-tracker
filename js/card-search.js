@@ -10,6 +10,7 @@
 
 import {catalogFor} from './languages.js';
 import {NAME_LANGUAGE, cardNames, cardSearchTerms, searchKey, stripSuffix} from './names.js';
+import {closest, makeMatcher, splitTerms, tokensOf} from './search-match.js';
 
 // The most tiles one search shows; a wider search says to narrow it.
 export const MAX_RESULTS = 60;
@@ -107,33 +108,51 @@ const isPromo = (card) => /promo|プロモ|프로모/i.test(card.setName || '') 
 // official, rarity, serie, setId, setName}. tables: the species names
 // (js/checklists.js speciesNames) or null, for the English name of an Asian
 // print. A rarity kind on a card whose rarity is not known does not match.
-export function cardMatches(card, query, tables = null) {
+// With a matcher (js/search-match.js makeMatcher), the name forgives typos
+// and the answer is the edits it took (0 when it matched as typed), or
+// Infinity; without one, true or false.
+export function cardMatches(card, query, tables = null, matcher = null) {
+	if (!matcher) {
+		return cardEdits(card, query, tables, null) === 0;
+	}
+
+	return cardEdits(card, query, tables, matcher);
+}
+
+function cardEdits(card, query, tables, matcher) {
+	const no = Infinity;
+	let nameEdits = 0;
+
 	if (card.serie === POCKET_SERIE) {
-		return false;
+		return no;
 	}
 
 	if (query.number !== null && numberKey(card.localId) !== numberKey(query.number)) {
-		return false;
+		return no;
 	}
 
 	if (query.total && card.official && numberKey(card.official) !== numberKey(query.total)) {
-		return false;
+		return no;
 	}
 
 	if (query.setId && String(card.setId).toLowerCase() !== query.setId.toLowerCase()) {
-		return false;
+		return no;
 	}
 
 	if (query.name) {
 		const wanted = searchKey(query.name);
-		const terms = cardSearchTerms(cardNames({lang: card.lang, name: card.name}, tables));
+		const names = cardNames({lang: card.lang, name: card.name}, tables);
+		const terms = cardSearchTerms(names);
+		nameEdits = matcher
+			? matcher.edits(terms.join('\n'), tokensOf([names.original, names.english, names.reading]))
+			: terms.some((term) => term.includes(wanted)) ? 0 : no;
 
-		if (!terms.some((term) => term.includes(wanted))) {
-			return false;
+		if (nameEdits === no) {
+			return no;
 		}
 	}
 
-	return query.kinds.every((kind) => {
+	const kinds = query.kinds.every((kind) => {
 		const rule = KINDS[kind] || {rarity: FULL_ART};
 
 		if (rule.suffix) {
@@ -146,6 +165,8 @@ export function cardMatches(card, query, tables = null) {
 
 		return Boolean(card.rarity) && rule.rarity.test(card.rarity);
 	});
+
+	return kinds ? nameEdits : no;
 }
 
 // Matching cards grouped by print, one per "<catalog>|<card id>": an
@@ -190,6 +211,7 @@ export function searchSaved(query, saved, {tables = null, viewing = 'en'} = {}) 
 	}
 
 	const found = [];
+	const candidates = [];
 
 	for (const {lang, set} of saved.sets || []) {
 		const catalog = catalogFor(lang);
@@ -212,7 +234,17 @@ export function searchSaved(query, saved, {tables = null, viewing = 'en'} = {}) 
 			if (cardMatches(candidate, query, tables)) {
 				found.push(candidate);
 			}
+			else if (!found.length) {
+				candidates.push(candidate);
+			}
 		}
+	}
+
+	// Typos forgiven only when nothing matches as typed (js/search-match.js).
+	const matcher = !found.length && query.name ? makeMatcher(splitTerms(query.name)) : null;
+
+	if (matcher && matcher.forgiving) {
+		found.push(...closest(candidates, (candidate) => cardMatches(candidate, query, tables, matcher)));
 	}
 
 	return collectResults(found, viewing);

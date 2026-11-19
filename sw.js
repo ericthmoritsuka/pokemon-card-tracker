@@ -247,6 +247,7 @@ const SHELL = [
 	'js/scan/trade-sheets.js',
 	'js/scan/view.js',
 	'js/scan/worth.js',
+	'js/search-match.js',
 	'js/settings.js',
 	'js/sheet.js',
 	'js/photos/shared.js',

@@ -2950,6 +2950,21 @@ the binder card picker, the tray, and the wishlist can reuse it:
   and the card ID. A word starting with "#" is a National Dex number or range: "#25" or "#025"
   finds every card whose `dex_ids` include 25, and "#1-151" a range. A search starts the "Show
   more" paging again at the matching tiles. No match offers the Sets catalog.
+- **Forgiving search** (competitor survey, 2026-11-19), in `js/search-match.js`, shared by My Cards
+  and the offline card search in the Sets tab: case, accents, and spaces never matter ("pokemon"
+  finds "Pokémon"), and each word is its own term ("eevee 133"). The rule is **exact first, typos
+  only as a fallback**: a search matches folded substrings, so prefixes count, and only when that
+  finds nothing does it try again forgiving one edit (a wrong, missing, extra, or swapped letter)
+  in a word of 4 to 7 letters and two in a word of 8 or more, against each name's words or their
+  starts. Of those, only the closest spellings show, in the list's own sort: "charzard" is one edit
+  from Charizard and two from Charmander, so it shows Charizard alone. Words under 4 letters, words
+  with a digit (collector numbers such as "025" or "25/102"), and Japanese or Korean text are
+  never forgiven. Why a fallback rather than fuzzy extras under the exact matches: a search that
+  works never gains surprise tiles, and the sorts (which already order the list) keep their
+  meaning, so results stay predictable. The online TCGdex card search is not forgiving (the
+  server matches the name); its offline pass is. Cost: each distinct name is checked once per
+  search, only within two letters of the diagonal; about 20 ms over 30,000 names on a laptop,
+  and only when nothing matched as typed.
 - **Filters,** in a bottom sheet with the count of active ones on its button, each also shown as a
   clearable chip: region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
   "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone means
