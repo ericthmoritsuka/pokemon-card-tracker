@@ -91,9 +91,12 @@ export function openPlaceholderPrint({binderName, cards, shownPages}) {
 	const choiceRow = (name, value, text, checked) => h('label', null,
 		h('input', {checked, name, type: 'radio', value}),
 		h('span', null, text));
+	// All pages first when the pages on screen have nothing to fill (design
+	// review, 2026-11-19: it opened on a full page, its Print off).
+	const startAll = !choosePockets(cards, {pages: shownPages}).length && choosePockets(cards).length > 0;
 	const pages = h('div', {'aria-label': 'Which pages', class: 'pp-choice', role: 'radiogroup'},
-		choiceRow('pp-pages', 'shown', pagesText(shownPages), true),
-		choiceRow('pp-pages', 'all', 'All pages', false));
+		choiceRow('pp-pages', 'shown', pagesText(shownPages), !startAll),
+		choiceRow('pp-pages', 'all', 'All pages', startAll));
 	const filled = h('input', {id: 'pp-filled', type: 'checkbox'});
 	const summary = h('p', {'aria-live': 'polite', class: 'pp-summary', id: 'pp-summary'});
 	const status = h('p', {'aria-live': 'polite', class: 'muted pp-status', id: 'pp-status'});
