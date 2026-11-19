@@ -3,8 +3,9 @@
 // photo. Binder page heads the scanner's settings sheet; a photo chosen
 // there is found and cut into pockets off the main thread, and each pocket
 // with a card joins the tray as a capture does, sure or asking for a look,
-// while empty pockets are skipped. A photo with no page in it says so and
-// adds nothing.
+// while empty pockets are skipped. Each pocket's own card is cut to its
+// edges from a larger copy of the photo, for its number. A photo with no
+// page in it says so and adds nothing.
 //
 // Headless Chromium at 360 x 740 against tests/scan-harness.mjs, with no
 // camera (the scanner opens with the camera off). The page is drawn here
@@ -284,6 +285,44 @@ describe('a binder page from one photo', () => {
 		const unsure = items.filter((item) => !item.sure).length;
 
 		assert.equal(await page.locator('#scan-tray .scan-tile[data-status="unsure"]').count(), unsure, 'the unsure pockets ask for a look');
+
+		await close(app);
+	});
+
+	test('each pocket\'s own card is cut to its edges from a larger copy of the photo, for its number', async () => {
+		const app = await open();
+		const {page} = app;
+		const photo = (await readFile(pagePhoto)).toString('base64');
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+
+		// The page read at 1200 pixels, its pockets' cards cut from the
+		// photo as taken (2300 tall), as a 12000 x 5400 still is read at 3840
+		// and cut from 7680.
+		const pockets = await page.evaluate(async (data) => {
+			const {readPagePhoto} = await import('/pokemon-card-tracker/js/scan/page.js');
+			const blob = await (await fetch(`data:image/jpeg;base64,${data}`)).blob();
+			const found = await readPagePhoto(blob, {fineSide: 4000, maxSide: 1200});
+
+			return found.pockets.filter((pocket) => !pocket.empty).map((pocket) => ({
+				card: pocket.card ? {height: pocket.card.height, width: pocket.card.width} : null,
+				cut: pocket.image.height,
+				first: pocket.quads[0].corners.map((p) => [Math.round(p.x), Math.round(p.y)]),
+				quads: pocket.quads.length,
+			}));
+		}, photo);
+
+		assert.equal(pockets.length, 7, 'seven cards');
+
+		for (const pocket of pockets) {
+			assert.ok(pocket.card, 'its own card cut');
+			// The cards are 615 pixels tall in the photo, about 330 in the
+			// page's copy.
+			assert.ok(pocket.card.height > pocket.cut * 1.5, `cut from the larger copy (${pocket.card.height} against a ${pocket.cut} pocket)`);
+			assert.ok(Math.abs(pocket.card.width / pocket.card.height - 63 / 88) < 0.01, 'card-shaped');
+			assert.ok(pocket.quads >= 2, 'its own outline offered to the picture before the others');
+		}
 
 		await close(app);
 	});
