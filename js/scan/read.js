@@ -114,6 +114,8 @@ export function stripSharpness(img) {
 
 export const OCR_SETTINGS = {
 	attacks: {psm: '11', whitelist: ''},
+	// The attack and rules text as one block (readTextLanguage).
+	attacksBlock: {psm: '6', whitelist: ''},
 	hp: {psm: '7', whitelist: '0123456789HPSVK '},
 	label: {psm: '7', whitelist: ''},
 	name: {psm: '7', whitelist: ''},
@@ -1038,7 +1040,9 @@ export function stageLanguage(text) {
 // One stage crop as the OCR reads it: `rect` of `card` resampled by `scale`
 // (bilinear), grey, and stretched so its 3rd and 97th percentiles of
 // brightness span black to white, as the measurement above prepared them.
-export function stageCrop(card, rect, scale) {
+// stretch false keeps the grey as it is, and invert turns it light on dark
+// round (readTextLanguage).
+export function stageCrop(card, rect, scale, {invert = false, stretch = true} = {}) {
 	const width = Math.max(1, Math.round(rect.w * scale));
 	const height = Math.max(1, Math.round(rect.h * scale));
 	const src = card.data;
@@ -1065,13 +1069,14 @@ export function stageCrop(card, rect, scale) {
 		}
 	}
 
-	const sorted = Float32Array.from(lum).sort();
-	const lo = sorted[Math.floor(sorted.length * 0.03)];
-	const hi = sorted[Math.floor(sorted.length * 0.97)];
+	const sorted = stretch ? Float32Array.from(lum).sort() : null;
+	const lo = stretch ? sorted[Math.floor(sorted.length * 0.03)] : 0;
+	const hi = stretch ? sorted[Math.floor(sorted.length * 0.97)] : 255;
 	const data = new Uint8ClampedArray(width * height * 4);
 
 	for (let i = 0; i < lum.length; i++) {
-		const v = ((lum[i] - lo) / Math.max(1, hi - lo)) * 255;
+		const level = ((lum[i] - lo) / Math.max(1, hi - lo)) * 255;
+		const v = invert ? 255 - level : level;
 
 		data[i * 4] = v;
 		data[i * 4 + 1] = v;
@@ -1093,6 +1098,82 @@ export async function readStage(card, ocr) {
 	const text = texts.join('\n');
 
 	return {...stageLanguage(text), text: text.replace(/\s+/g, ' ').trim().slice(0, 200)};
+}
+
+// ------------------------------------------------------------ the text's language
+
+// The language of a card's attack and rules text (from a review of the
+// scanner, 2026-11-19): the block from 52 to 80 % of the card's height,
+// the biggest Latin text on it, with dozens of words where the label row and
+// the number have a handful at 13 px on a binder pocket. Common Portuguese
+// and English words are counted, a list written before it was measured.
+// On Eric's three binder pages (27 pocket cards, 23 Portuguese and 4
+// English) one read named 18 right and none wrong; with a sparse read and
+// both read again light on dark (a Charizard ex's white text on dark), 23
+// right, none wrong, 4 undecided.
+export const TEXT_BLOCK = {h: 0.28, w: 0.92, x: 0.04, y: 0.52};
+
+// The block is read at 1.6 times a 1240 px tall card, as measured.
+const TEXT_BLOCK_HEIGHT = 1240 * 1.6;
+
+const TEXT_WORDS = {
+	en: new Set('the of this your damage opponent opponents attack coin heads tails bench for each to if on does more flip energy active defending during turn next you hand deck cards card discard pokemons from all its weakness resistance retreat evolves length weight'.split(' ')),
+	pt: new Set('de do da dos das o os um uma seu sua seus suas dano danos pontos ponto este esta ataque moeda moedas cara coroa oponente banco para cada com se no na em que nao ativo energia jogue descarte cause causa todos todas cartas carta turno defensor proximo durante voce mao baralho altura peso evolui fraqueza resistencia recuo'.split(' ')),
+};
+
+// The language some card text is in: {code ('en', 'pt', or null), votes:
+// {en, pt}}, a language named only when its words outnumber the other's by
+// two or more.
+export function textLanguage(text) {
+	const words = String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().match(/[a-z]+/g) || [];
+	const votes = {en: 0, pt: 0};
+
+	for (const word of words) {
+		if (TEXT_WORDS.pt.has(word)) {
+			votes.pt++;
+		}
+
+		if (TEXT_WORDS.en.has(word)) {
+			votes.en++;
+		}
+	}
+
+	const code = votes.pt >= votes.en + 2 ? 'pt' : votes.en >= votes.pt + 2 ? 'en' : null;
+
+	return {code, votes};
+}
+
+// Reads the text block of a straightened card with `ocr` until its language
+// is named: as it is (a block of text), then sparse, then both light on
+// dark, each read added to the ones before. Most cards settle on the first
+// read, so most cost one OCR call. Returns {code, votes, text, reads}.
+export async function readTextLanguage(card, ocr) {
+	const rect = {h: TEXT_BLOCK.h * card.height, w: TEXT_BLOCK.w * card.width, x: TEXT_BLOCK.x * card.width, y: TEXT_BLOCK.y * card.height};
+	const scale = Math.min(3, Math.max(0.5, TEXT_BLOCK_HEIGHT / card.height));
+	const plain = stageCrop(card, rect, scale, {stretch: false});
+	let inverted = null;
+	const passes = [
+		() => [plain, OCR_SETTINGS.attacksBlock],
+		() => [plain, OCR_SETTINGS.sparse],
+		() => [inverted || (inverted = stageCrop(card, rect, scale, {invert: true, stretch: false})), OCR_SETTINGS.attacksBlock],
+		() => [inverted, OCR_SETTINGS.sparse],
+	];
+	const texts = [];
+	let answer = {code: null, votes: {en: 0, pt: 0}};
+
+	for (const pass of passes) {
+		const [image, settings] = pass();
+		const result = await ocr(image, settings).catch(() => ({text: ''}));
+
+		texts.push(result.text || '');
+		answer = textLanguage(texts.join('\n'));
+
+		if (answer.code) {
+			break;
+		}
+	}
+
+	return {...answer, reads: texts.length, text: texts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 200)};
 }
 
 // ------------------------------------------------------------ the whole read

@@ -203,6 +203,10 @@ function answerLines(entry) {
 		lines.push(`Status: ${first.status}`);
 	}
 
+	if (first.textCheck) {
+		lines.push(`Attack text read in the background: ${first.textCheck.code || 'no language'}${first.textCheck.votes ? ` (${first.textCheck.votes.pt} pt, ${first.textCheck.votes.en} en words)` : ''}`);
+	}
+
 	if (first.stageCheck) {
 		lines.push(`Stage label read in the background: ${first.stageCheck.code || 'no language'}${first.stageCheck.text ? `: "${oneLine(first.stageCheck.text)}"` : ''}`);
 	}

@@ -31,7 +31,7 @@ import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startC
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
@@ -865,6 +865,7 @@ export function scanView(root) {
 			worth: item.worth ? {brl: item.worth.brl, change: item.worth.change, min: worth.min, rise: worth.rise, rising: item.worth.rising, source: item.worth.source, valuable: item.worth.valuable} : null,
 			labelCheck: item.labelCheck || null,
 			stageCheck: item.stageCheck || null,
+			textCheck: item.textCheck || null,
 			language: item.language || null,
 			languageBy: item.languageBy || null,
 			languageSource: S.languageSource(item),
@@ -3270,26 +3271,35 @@ export function scanView(root) {
 		setTimeout(async () => {
 			// A binder pocket's stage label first (read.js readStage): the only
 			// thing on a pocket that tells English from Portuguese.
+			// A binder pocket's language from its own text (a review of the
+			// scanner, 2026-11-19): its attack text first, which names English
+			// against Portuguese on most pockets, then its stage label.
 			if (pageCardId) {
-				const stage = await readStageLabel(image).catch(() => null);
-				const card = alive && S.findItem(session, id);
+				for (const [by, reader] of [['text', readTextLabel], ['stage', readStageLabel]]) {
+					const answer = await reader(image).catch(() => null);
+					const card = alive && S.findItem(session, id);
 
-				if (!card || (card.card && card.card.id) !== pageCardId) {
-					return;
-				}
+					if (!card || (card.card && card.card.id) !== pageCardId) {
+						return;
+					}
 
-				const languageBefore = card.language;
+					const languageBefore = card.language;
 
-				scannerChange(id, () => S.applyStage(session, id, stage));
+					scannerChange(id, () => S.applyStage(session, id, answer, undefined, {by}));
 
-				if (S.findItem(session, id).language !== languageBefore) {
-					retellOwned(id, {lookAgain: false});
+					if (S.findItem(session, id).language !== languageBefore) {
+						retellOwned(id, {lookAgain: false});
+					}
+
+					if (S.findItem(session, id).languageBy === by) {
+						return;
+					}
 				}
 
 				const after = S.findItem(session, id);
 
-				// Settled, or its label row was read with the card already.
-				if (after.languageBy === 'stage' || (after.read && after.read.language && after.read.language.source === 'label')) {
+				// Its label row was read with the card already.
+				if (after.read && after.read.language && after.read.language.source === 'label') {
 					return;
 				}
 			}

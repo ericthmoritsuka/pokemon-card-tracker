@@ -354,6 +354,8 @@ export function confirmSheet(ctx, itemId) {
 			? 'read from the card'
 			: item.languageBy === 'stage'
 				? 'read from its stage label'
+			: item.languageBy === 'text'
+				? 'read from its attack text'
 			: item.languageBy === 'hand'
 				? 'picked by you'
 				: item.languageBy === 'all'

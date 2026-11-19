@@ -233,6 +233,11 @@ outline fitted, so the floor is lower than the number read's.
   sparse). On Eric's three pages (23 Portuguese, 4 English cards) it answered 8 pockets, all right,
   and the pages' languages went from 24 to 26 of 27 right; the English Rattata's small modern pill
   still reads nothing. Chosen on these same 27 cards, so it needs checking on pages it has not seen.
+- **The attack text first** (2026-11-19, from a review of the scanner): the block from 52 to 80 % of
+  the card, read until common Portuguese or English words outnumber the other language's by two
+  (`js/scan/read.js` `readTextLanguage`, one to four OCR calls; a word list written before it was
+  measured). Run before the stage label, in the app on the same three pages: 21 pockets named, all
+  right, and every language right (27 of 27; the 5 unnamed were Portuguese, the default).
 
 ## Checking With Real Photos
 
