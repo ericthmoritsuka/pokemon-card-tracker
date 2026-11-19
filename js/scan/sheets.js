@@ -4,6 +4,7 @@
 // (js/scan/view.js) and returns {el, refresh}; the view calls refresh after
 // every change, so a sheet always shows the session as it is.
 
+import {handBinders, sortBinders} from '../binders.js';
 import {cardImage, languageLabel} from '../catalog.js';
 import {cardArt} from '../catalog-views.js';
 import {openCustomCardSheet} from '../custom-card-view.js';
@@ -40,6 +41,7 @@ import {
 	wishLine,
 	wishMarks,
 } from './session.js';
+import {matchPage, placeSummary, whereText} from './page-place.js';
 import {cleanThreshold, risePercent} from './worth.js';
 
 const ordinal = (n) => {
@@ -1080,8 +1082,34 @@ export function pageSheet(ctx) {
 		body);
 	let told = null;
 	let picked = null;
+	// "Already mine": the pocket whose copies are listed, the binder and
+	// page chosen, the new binder's name, and the placing's outcome.
+	let selected = null;
+	let target = null;
+	let targetPage = null;
+	let newName = '';
+	let placing = false;
+	let placed = null;
+	let placeError = null;
 
 	body.addEventListener('click', (event) => {
+		const mineCell = event.target.closest('[data-mine-item]');
+
+		if (mineCell) {
+			selected = selected === mineCell.dataset.mineItem ? null : mineCell.dataset.mineItem;
+			refresh();
+
+			return;
+		}
+
+		const copy = event.target.closest('[data-pick-copy]');
+
+		if (copy) {
+			ctx.pickPageCopy(copy.dataset.forItem, copy.dataset.pickCopy || null);
+
+			return;
+		}
+
 		const x = event.target.closest('[data-remove]');
 
 		if (x) {
@@ -1101,8 +1129,28 @@ export function pageSheet(ctx) {
 	function refresh() {
 		const run = ctx.pageRun;
 
+		// Placed: the page has left the scan, so this comes before the read.
+		if (placed) {
+			body.replaceChildren(
+				h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-place-done'}, placed.text),
+				h('button', {class: 'scan-button scan-wide', id: 'scan-place-open', onclick: () => ctx.openBinder(placed.binderId), type: 'button'}, 'Open the binder'),
+				h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'));
+
+			return;
+		}
+
 		if (!run) {
 			body.replaceChildren(h('p', {class: 'scan-muted'}, 'No binder page has been read in this session.'));
+
+			return;
+		}
+
+		const mode = h('div', {'aria-label': 'These cards are', class: 'scan-chips scan-page-mode', role: 'group'},
+			chip({id: 'scan-page-new', label: 'New to my cards', onclick: () => ctx.setPageMine(false), pressed: !run.mine}),
+			chip({id: 'scan-page-mine', label: 'Already mine', onclick: () => ctx.setPageMine(true), pressed: Boolean(run.mine)}));
+
+		if (run.mine) {
+			body.replaceChildren(mode, ...mineParts(run));
 
 			return;
 		}
@@ -1128,6 +1176,7 @@ export function pageSheet(ctx) {
 		const scoped = ctx.pagePreview ? ctx.pagePreview(picked || 'pt') : null;
 
 		body.replaceChildren(
+			mode,
 			h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
 				? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. Tap a card to check it or change it.`
 				: 'Every card of this page was taken out of the tray.'),
@@ -1157,6 +1206,146 @@ export function pageSheet(ctx) {
 				told ? h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-pagegrid-told'}, told) : null) : null,
 			...grids,
 			h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'));
+	}
+
+	// "Already mine" (js/scan/page-place.js): each pocket as the copy of his
+	// it will be, where that copy is now, and the binder page it goes to.
+	function mineParts(run) {
+		const owned = ctx.pageOwned;
+
+		if (!owned || owned === 'loading') {
+			return [h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-place-line'}, 'Finding your copies…')];
+		}
+
+		if (owned === 'failed') {
+			return [h('p', {class: 'scan-muted', id: 'scan-place-line', role: 'alert'}, 'Your cards could not be read. Turn to New to my cards and back to try again.')];
+		}
+
+		const items = ctx.pageItems();
+		const matches = matchPage(items, owned.entries, owned.placed, new Map(Object.entries(run.picks || {})));
+		const byPocket = new Map(items.map((item) => [item.page, item]));
+		const pages = Math.max(1, Math.ceil(run.pockets / 9));
+		const binders = sortBinders(handBinders(owned.binders)).filter((binder) => binder.rows === 3 && binder.cols === 3);
+		const summary = placeSummary(items, matches);
+
+		if (target === null) {
+			target = binders.length ? binders[0].id : 'new';
+		}
+
+		const binder = binders.find((one) => one.id === target) || null;
+
+		if (!binder && target !== 'new') {
+			target = 'new';
+		}
+
+		if (binder && (targetPage === null || targetPage > binder.page_count + 1)) {
+			targetPage = 1;
+		}
+
+		const cell = (item, pocket) => {
+			if (!item) {
+				return h('li', {'aria-label': `Pocket ${pocket}: ${run.empty.includes(pocket) ? 'empty' : 'taken out'}`, class: 'scan-page-empty'}, run.empty.includes(pocket) ? 'Empty' : '');
+			}
+
+			const match = matches.get(item.id);
+			const entry = match && match.entry;
+			const src = ctx.photoUrl(item.id) || (item.card && item.card.image ? cardImage(item.card.image, 'low') : null);
+			const where = entry ? whereText(match.where) : 'Not yours: placeholder';
+
+			return h('li', {class: 'scan-tray-item'},
+				h('button', {
+					'aria-label': `Pocket ${pocket}: ${item.card ? item.card.name : 'Unknown card'}, ${entry ? `your ${langName(entry.language)} copy, ${where}` : 'not in your cards, a placeholder'}`,
+					'aria-pressed': String(selected === item.id),
+					class: `scan-tile scan-page-mine-cell${entry ? '' : ' is-placeholder'}`,
+					'data-mine-item': item.id,
+					type: 'button',
+				},
+				h('span', {class: 'scan-tile-art'},
+					src ? h('img', {alt: '', class: 'scan-tile-photo', decoding: 'async', src}) : h('span', {class: 'scan-tile-blank'}),
+					entry && entry.language ? flagBadge([entry.language], {className: 'scan-badge scan-badge-tl'}) : null),
+				h('span', {class: 'scan-tile-caption'}, item.card ? item.card.name : 'Unknown card'),
+				h('span', {class: 'scan-page-where'}, where)));
+		};
+
+		const parts = [
+			h('p', {class: 'scan-muted', id: 'scan-place-line'}, `${plural(summary.copies, 'card')} from your cards${summary.moved ? `, ${summary.moved} of them taken from the pocket ${summary.moved === 1 ? 'it is' : 'they are'} in now` : ''}${summary.placeholders ? `; ${plural(summary.placeholders, 'placeholder')} for cards you have none left of` : ''}. Tap a card to pick another copy.`),
+			...Array.from({length: pages}, (_, p) => h('section', {class: 'scan-page-side'},
+				pages > 1 ? h('h3', {class: 'scan-label'}, p ? 'Right page' : 'Left page') : null,
+				h('ul', {'aria-label': pages > 1 ? (p ? 'Right page' : 'Left page') : 'The page\'s pockets', class: 'scan-page-grid', id: `scan-page-grid-${p + 1}`},
+					...Array.from({length: 9}, (__, k) => cell(byPocket.get((p * 9) + k + 1), (p * 9) + k + 1))))),
+		];
+
+		const chosen = selected && items.find((item) => item.id === selected);
+
+		if (chosen) {
+			const match = matches.get(chosen.id);
+			const current = match && match.entry ? match.entry.id : null;
+
+			parts.push(h('div', {class: 'scan-field', id: 'scan-place-copies'},
+				h('p', {class: 'scan-label'}, `Pocket ${chosen.page}: ${chosen.card ? chosen.card.name : 'Unknown card'}`),
+				match && match.choices.length
+					? h('div', {class: 'scan-chips', role: 'group'},
+						...match.choices.map(({entry, where}) => h('button', {
+							'aria-pressed': String(entry.id === current),
+							class: 'scan-chip',
+							'data-for-item': chosen.id,
+							'data-pick-copy': entry.id,
+							type: 'button',
+						}, entry.language ? flagBadge([entry.language], {prefix: ''}) : null, [langName(entry.language) || 'Language not set', entry.condition || null, whereText(where)].filter(Boolean).join(' · '))),
+						h('button', {'aria-pressed': String(current === null), class: 'scan-chip', 'data-for-item': chosen.id, 'data-pick-copy': '', type: 'button'}, 'None of these: a placeholder'))
+					: h('p', {class: 'scan-muted'}, 'You have no copy of this card, so its pocket gets a placeholder.')));
+		}
+
+		const binderSelect = h('select', {class: 'scan-select', id: 'scan-place-binder', onchange: (event) => {
+			target = event.target.value;
+			targetPage = null;
+			refresh();
+		}},
+		...binders.map((one) => h('option', {selected: one.id === target, value: one.id}, one.name)),
+		h('option', {selected: target === 'new', value: 'new'}, 'A new binder'));
+
+		const where = binder
+			? h('select', {class: 'scan-select', id: 'scan-place-page', onchange: (event) => {
+				targetPage = Number(event.target.value);
+			}},
+			...Array.from({length: binder.page_count}, (_, i) => h('option', {selected: targetPage === i + 1, value: i + 1}, `Page ${i + 1}`)),
+			h('option', {selected: targetPage === binder.page_count + 1, value: binder.page_count + 1}, `A new page at the end (page ${binder.page_count + 1})`))
+			: h('input', {autocomplete: 'off', class: 'scan-select', id: 'scan-place-name', maxlength: 60, oninput: (event) => {
+				newName = event.target.value;
+			}, placeholder: 'Name of the new binder', type: 'text', value: newName});
+
+		parts.push(h('div', {class: 'scan-field', id: 'scan-place'},
+			h('label', {class: 'scan-label', for: 'scan-place-binder'}, 'Place this page in'),
+			binderSelect,
+			binder ? h('label', {class: 'scan-label', for: 'scan-place-page'}, pages > 1 ? 'Left page goes on' : 'On') : h('label', {class: 'scan-label', for: 'scan-place-name'}, 'Name'),
+			where,
+			binder && binders.length < sortBinders(handBinders(owned.binders)).length ? h('p', {class: 'scan-muted'}, 'Only binders of 3 by 3 pockets are listed, as a page photo has.') : null,
+			placeError ? h('p', {class: 'scan-muted form-error', role: 'alert'}, placeError) : null,
+			h('button', {class: 'scan-button scan-primary scan-wide', disabled: placing || !items.length, id: 'scan-place-go', onclick: async () => {
+				if (!binder && !newName.trim()) {
+					placeError = 'Give the new binder a name.';
+					refresh();
+
+					return;
+				}
+
+				placing = true;
+				placeError = null;
+				refresh();
+
+				try {
+					placed = await ctx.placePage({binderId: binder ? binder.id : null, name: newName.trim(), page: binder ? targetPage || 1 : 1});
+				}
+				catch (err) {
+					placeError = `Not placed. ${err && err.message ? err.message : ''}`.trim();
+				}
+				finally {
+					placing = false;
+					refresh();
+				}
+			}, type: 'button'}, placing ? 'Placing…' : `Place ${plural(summary.copies + summary.placeholders, 'card')}`)));
+
+		return parts;
 	}
 
 	refresh();

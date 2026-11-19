@@ -236,6 +236,7 @@ const SHELL = [
 	// path, its worker, and the page fitting it shares with lab/multi.
 	'js/scan/multi.js',
 	'js/scan/page.js',
+	'js/scan/page-place.js',
 	'js/scan/page-worker.js',
 	// A pocket's card cut to its own edges for its number (2026-11-19).
 	'js/scan/pocket.js',

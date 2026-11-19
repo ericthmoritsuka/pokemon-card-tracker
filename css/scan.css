@@ -596,6 +596,31 @@ html.scan-open body {
 	margin: 8px 0 0;
 }
 
+/* "Already mine" (sheets.js pageSheet): where each copy is now, the
+   pocket whose copies are listed, and the pockets that get a placeholder. */
+.scan-page-mode {
+	margin: 4px 0 8px;
+}
+
+.scan-page-where {
+	color: var(--scan-muted);
+	font-size: 12px;
+	line-height: 16px;
+}
+
+.scan-page-mine-cell[aria-pressed='true'] .scan-tile-art {
+	border-color: var(--scan-primary);
+}
+
+.scan-page-mine-cell.is-placeholder .scan-tile-art {
+	opacity: 0.5;
+}
+
+#scan-place .scan-select {
+	margin-bottom: 8px;
+	width: 100%;
+}
+
 .scan-page-back {
 	align-self: flex-start;
 	margin: 0 0 4px;

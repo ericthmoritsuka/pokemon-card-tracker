@@ -16,7 +16,7 @@
 // camera says how many are in the tray. With Record every scan on (Phone
 // check), each scan is kept in the scan log (js/scan/log.js).
 
-import {listBinders, waitingPlaceholderList} from '../binders.js';
+import {createBinder, handBinders, listBinders, placements, placeOnPage, updateBinder, waitingPlaceholderList} from '../binders.js';
 import {afterAdding, undoAdding} from '../placeholder-fill.js';
 import {setPendingMove} from '../moves.js';
 import {addCards, deleteCard, listCards, onChange} from '../collection.js';
@@ -39,6 +39,7 @@ import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js';
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
+import {matchPage, pagePockets, PER_PAGE, placeSummary} from './page-place.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
 import {confirmSheet, doneSheet, pageSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
@@ -657,6 +658,24 @@ export function scanView(root) {
 			return Boolean(item && item.pageRun && session.pageRun && item.pageRun === session.pageRun.id);
 		},
 		openPage,
+		// "I already have these cards" (js/scan/page-place.js): the page's
+		// cards out of the tray, matched to his copies, placed in a binder.
+		get pageOwned() {
+			return pageOwned;
+		},
+		pageItems: () => pageItemsOf(),
+		pickPageCopy: (itemId, entryId) => {
+			const run = session.pageRun;
+
+			if (run && run.mine) {
+				run.picks = {...(run.picks || {}), [itemId]: entryId};
+				persist();
+				draw();
+			}
+		},
+		placePage: (target) => placePageNow(target),
+		openBinder: (id) => closeSheet().then(() => go(`binders/${encodeURIComponent(id)}`)),
+		setPageMine,
 		pagePreview: (code) => S.setForAllPreview(session, 'language', code, {ids: pageIds(), onlyDefault: true}),
 		removeTile,
 		tile: (item) => trayTile(item, {
@@ -1692,6 +1711,118 @@ export function scanView(root) {
 		draft.deletePhoto(`${id}:full`).catch(() => {});
 		dropPhoto(id);
 		drawNote();
+	}
+
+	// The binder page's cards: in the tray, or, once he said they are his
+	// already, held on the page read itself (setPageMine).
+	function pageItemsOf() {
+		const run = session && session.pageRun;
+
+		if (!run) {
+			return [];
+		}
+
+		return run.mine ? run.held || [] : session.items.filter((item) => item.pageRun === run.id);
+	}
+
+	// His copies and binders, read when the page turns to "Already mine":
+	// null, 'loading', 'failed', or {binders, entries, placed}.
+	let pageOwned = null;
+
+	async function loadPageOwned() {
+		pageOwned = 'loading';
+
+		try {
+			const [entries, binders] = await Promise.all([listCards(), listBinders()]);
+
+			pageOwned = {binders, entries, placed: placements(binders)};
+		}
+		catch {
+			pageOwned = 'failed';
+		}
+
+		if (alive) {
+			draw();
+		}
+	}
+
+	// "Already mine" takes the page's cards out of the tray, so Done never
+	// adds them as new copies (they are his already); "New to my cards"
+	// puts them back where they were.
+	function setPageMine(mine) {
+		const run = session && session.pageRun;
+
+		if (!run || Boolean(run.mine) === mine) {
+			return;
+		}
+
+		change(() => {
+			if (mine) {
+				run.held = session.items.filter((item) => item.pageRun === run.id);
+				session.items = session.items.filter((item) => item.pageRun !== run.id);
+				run.picks = run.picks || {};
+			}
+			else {
+				session.items.push(...(run.held || []));
+				delete run.held;
+			}
+
+			run.mine = mine;
+		});
+
+		if (mine) {
+			loadPageOwned();
+		}
+	}
+
+	// Places the page "Already mine" on page `page` of binder `binderId`, or
+	// of a new binder named `name` (3 x 3, as a page read is), adding pages
+	// the binder lacks. The page's cards then leave the scan: they were never
+	// in the tray to save. Returns {binderId, text}.
+	async function placePageNow({binderId = null, name = '', page = 1} = {}) {
+		const run = session && session.pageRun;
+
+		if (!run || !run.mine || !pageOwned || typeof pageOwned !== 'object') {
+			throw new Error('Your cards are still being read.');
+		}
+
+		const items = run.held || [];
+		const matches = matchPage(items, pageOwned.entries, pageOwned.placed, new Map(Object.entries(run.picks || {})));
+		const pages = Math.max(1, Math.ceil(run.pockets / PER_PAGE));
+		let binder;
+		let first = page;
+
+		if (binderId) {
+			binder = handBinders(pageOwned.binders).find((one) => one.id === binderId);
+
+			if (!binder) {
+				throw new Error('That binder is not on this phone any more.');
+			}
+
+			const needed = first + pages - 1;
+
+			if (needed > binder.page_count) {
+				binder = await updateBinder(binder.id, {cols: binder.cols, cover_color: binder.cover_color, name: binder.name, notes: binder.notes, page_count: needed, preset: binder.preset, rows: binder.rows});
+			}
+		}
+		else {
+			binder = await createBinder({cols: 3, name, page_count: pages, rows: 3});
+			first = 1;
+		}
+
+		await placeOnPage(binder.id, pagePockets(items, matches, first));
+
+		const done = placeSummary(items, matches);
+		const text = `Placed on ${pages > 1 ? `pages ${first} and ${first + 1}` : `page ${first}`} of ${binder.name}: ${plural(done.copies, 'card')}${done.placeholders ? ` and ${plural(done.placeholders, 'placeholder')}` : ''}.`;
+
+		change(() => {
+			delete session.pageRun;
+		});
+		pageOwned = null;
+		setNote(text);
+		announce(text);
+
+		return {binderId: binder.id, text};
 	}
 
 	// The cards of the binder page just read, still in the tray.
