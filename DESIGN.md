@@ -285,6 +285,32 @@ buttons, because the bar already uses selects for such choices and four segments
 Sort at 324 px. The views keep the low-resolution images, so Large adds no downloads and no
 second copy of each image to the phone's cache.
 
+**Bulk select on My Cards** *(Eric, 2026-11-18: change many cards at once instead of opening
+each one)*. A **Select** button ends the summary line ("10 copies in 10 tiles"), not the bar's
+row, which is already two even rows at phone width with its selects sized to fit. In selection
+mode a tap, Enter, or Space on a tile ticks it instead of opening the card: the tile is a
+checkbox to a screen reader, and a circle over the middle of its art (clear of the corner badges)
+shows a tick, with a ring round the tile, so the state never rests on colour. A bar docked above
+the tab bar says "N selected" (and how many of them the filters hide), with **Select all shown**
+(every tile the search and filters show, past Show more too), **Clear**, **Done**, and
+**Actions**, a sheet of the changes: Stored in (the copy sheets' place picker), Add to binder (the
+binder list from a card's page; the copies go to the tray, or to placeholders waiting for them as
+"Add cards to the tray" does, and copies already in a pocket or a tray stay put, so Undo takes
+each one back to where it was), Language (each language some card's catalog holds, as the copy
+sheet offers; a card whose catalog cannot hold it is left as it was), Finish (by name across the
+cards' TCGdex printings; set only on cards that come in it), Condition, Mark as a favorite or
+Remove from favorites, and Remove copies (asked first, naming the copies and the pockets they
+leave). A tile is one card in one language, and every action applies to every copy of each ticked
+tile. Each saves the batch in one write (`updateCards`, `setStorage`, `deleteCards`, `addToTray`;
+Add to binder writes twice only when it also fills placeholders, as "Add cards to the tray" does) and toasts
+what changed, how many cards were left as they were and why, and Undo, which puts every copy back
+as it was; Remove's Undo restores the same copies, back in their pockets, as Remove copy on a card
+page does. The ticked tiles are kept by key while the screen is open, so a save, a sync, or a new
+filter keeps them (a Language change moves them to the tiles the copies land on); Done or leaving
+the screen ends it. Only your own My Cards offers it: never a family member's cards, which are
+read only, the Trade view, a collection, or the binder pickers. `js/bulk-select.js` draws it and
+`js/bulk-edit.js` works out each change without the page.
+
 **Set tiles show owned progress across every language.**
 Keep monprice's `2 / 122` ring on each set tile, but count a card as owned whatever language the
 copy is in, so the ring matches what the collection really holds.
