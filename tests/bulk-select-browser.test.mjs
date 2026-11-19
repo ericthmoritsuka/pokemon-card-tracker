@@ -343,6 +343,41 @@ describe('bulk select on My Cards', () => {
 		await done();
 	});
 
+	// Eric never ticked the Portuguese Charmander: after Undo it is not
+	// left ticked although the English one merged into it (2026-11-19).
+	test('a Language change that merges two tiles leaves after Undo exactly the ticks from before', async () => {
+		const {done, page} = await phone();
+
+		await open(page);
+		await selecting(page);
+		await tile(page, CHARMANDER).click();
+		await tile(page, BULBASAUR).click();
+		assert.deepEqual(await checked(page), [BULBASAUR, CHARMANDER].sort());
+		await action(page, 'bulk-language');
+		await page.locator('#bulk-language-select').waitFor();
+		await page.selectOption('#bulk-language-select', 'pt');
+		await page.click('#bulk-save');
+
+		const toast = page.locator('.toast', {hasText: 'Portuguese set'});
+
+		await toast.waitFor(TIMEOUT);
+		await tile(page, 'international|tsa1-001|pt').waitFor(TIMEOUT);
+		assert.equal(await tile(page, CHARMANDER).count(), 0, 'the English Charmander merged into the Portuguese one');
+		assert.deepEqual(await checked(page), ['international|tsa1-001|pt', CHARMANDER_PT].sort());
+
+		await toast.locator('button', {hasText: 'Undo'}).click();
+		await untilInPage(page, 'Undo to put the language back', async () => {
+			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
+
+			return doc.cards.find((entry) => entry.id === 'c-02').language === 'en';
+		});
+		await tile(page, CHARMANDER).waitFor(TIMEOUT);
+		await tile(page, BULBASAUR).waitFor(TIMEOUT);
+		assert.deepEqual(await checked(page), [BULBASAUR, CHARMANDER].sort(), 'the Portuguese Charmander is not ticked');
+		assert.equal(await count(page), '2 selected');
+		await done();
+	});
+
 	test('Condition is set on the copies that differ, and Undo puts back each copy\'s own condition', async () => {
 		const {done, page} = await phone();
 		const copies = COPIES.map((copy) => {

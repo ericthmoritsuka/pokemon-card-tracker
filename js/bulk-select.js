@@ -481,16 +481,18 @@ export function bulkSelect({fullRecord, grid, groups, tiles, visible}) {
 					return;
 				}
 
-				// Back to the keys the tiles had, ticked again after Undo.
-				const before = [...plan.keys].map(([from, to]) => [to, from]);
+				// After Undo the ticks are exactly the ones from before: a
+				// tile the change merged into (English Charmander set to
+				// Portuguese beside a Portuguese one) was never picked, so it
+				// is not left ticked (2026-11-19).
+				const before = [...selected];
 				const release = follow(plan.keys);
 
 				try {
 					await save(plan.patches, sentences(`${label} set on ${plural(plan.patches.length, 'copy', 'copies')}.`, left), {afterUndo: () => {
-						for (const [, from] of before) {
-							if (selecting) {
-								selected.add(from);
-							}
+						if (selecting) {
+							selected.clear();
+							before.forEach((key) => selected.add(key));
 						}
 
 						// The redraw after Undo's save came first, so its tiles

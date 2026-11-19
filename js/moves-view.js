@@ -21,7 +21,7 @@ import {cardImage, cardIndex, catalogFor, saveToCardIndex, viewingLanguage} from
 import {artOf, entryInfo, fillRecords, recordFrom} from './binders-view.js';
 import {finishChoices} from './catalog-views.js';
 import {isLive, loadDocument, onChange} from './collection.js';
-import {MAX_ADD, conditionOptions, copyLanguages, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
+import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
 import {BASE, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
@@ -694,7 +694,7 @@ export function newMoveView(root) {
 			const plain = plainVariantId(variants);
 			const languages = copyLanguages(catalog);
 			const language = sheetSelect('move-in-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang.value) ? lang.value : languages[0].code);
-			const finish = sheetSelect('move-in-finish', [{label: 'Not set', value: ''}, ...finishes], plain && finishes.some((option) => option.value === plain) ? plain : '');
+			const finish = sheetSelect('move-in-finish', finishOptions(finishes, null, catalog), plain && finishes.some((option) => option.value === plain) ? plain : '');
 			const condition = sheetSelect('move-in-condition', conditionOptions(), '');
 			const count = h('input', {class: 'search copy-count', id: 'move-in-count', inputmode: 'numeric', max: MAX_ADD, min: 1, step: 1, type: 'number', value: 1});
 			const info = {image: cardImage(card.image, 'low'), name: card.name, number: card.localId, setName: card.setName};
@@ -711,7 +711,14 @@ export function newMoveView(root) {
 					return;
 				}
 
-				const fields = {card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: finish.value || null};
+				// The same finishes as the copy sheet's Add, a print the
+				// catalog does not list kept as its word (2026-11-19).
+				const chosen = finishFields(finish.value, catalog);
+				const fields = {card_id: card.id, catalog, language: language.value, language_source: 'manual', variant_id: chosen.variant_id || null};
+
+				if (chosen.finish_raw) {
+					fields.finish_raw = chosen.finish_raw;
+				}
 
 				if (catalogFor(language.value) !== catalog) {
 					fields.fallback = true;

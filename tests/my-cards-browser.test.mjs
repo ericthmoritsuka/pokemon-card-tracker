@@ -536,6 +536,30 @@ describe('filters and sorts', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	// A twin found after the first draw takes its card out of Needs a photo
+	// at once, and the open sheet counts it again (2026-11-19).
+	test('Needs a photo drops a card when its international twin\'s picture arrives', async () => {
+		const {context, errors, page} = await phone();
+
+		await seed(page, server.origin, {local: {'cardTracker.cardsChoice': JSON.stringify({filters: {picture: 'needsphoto'}, sort: 'newest'})}});
+		await page.locator('.tile').first().waitFor(TIMEOUT);
+		assert.equal(await page.locator('.tile').count(), 10, 'no card has a picture yet');
+		await openFilters(page);
+		assert.equal(await page.locator('#cards-f-picture option[value="needsphoto"]').textContent(), 'Needs a photo (10)');
+
+		await page.evaluate(async () => {
+			const twins = await import('/pokemon-card-tracker/js/twins.js');
+
+			await twins.setDecision({card_id: 'TSJ1-025', catalog: 'ja'}, {choice: 'confirmed', twin: {category: 'Pokemon', id: 'tsb2-025', image: 'https://assets.tcgdex.net/en/tsb2/tsb2/025', localId: '025', name: 'Pikachu', setId: 'tsb2', setName: 'Test Beta'}});
+		});
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 9, null, TIMEOUT);
+		assert.equal(await page.locator('.card-grid [data-link*="TSJ1-025"]').count(), 0, 'the Japanese Pikachu shows its twin\'s picture');
+		assert.equal(await page.locator('#cards-f-picture option[value="needsphoto"]').textContent(), 'Needs a photo (9)');
+		await closeFilters(page);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 
 describe('background details and prices', () => {

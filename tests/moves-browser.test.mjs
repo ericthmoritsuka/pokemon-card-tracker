@@ -79,7 +79,7 @@ const state = (page) => page.evaluate(async () => {
 	const pocket = doc.binders[0].slots.find((slot) => slot.page === 1 && slot.position === 1 && !slot.cleared);
 
 	return {
-		cards: Object.fromEntries(doc.cards.map((entry) => [entry.id, {came_via: entry.came_via || null, card_id: entry.card_id, deleted_at: entry.deleted_at || null, left_via: entry.left_via || null}])),
+		cards: Object.fromEntries(doc.cards.map((entry) => [entry.id, {came_via: entry.came_via || null, card_id: entry.card_id, deleted_at: entry.deleted_at || null, finish_raw: entry.finish_raw || null, left_via: entry.left_via || null, variant_id: entry.variant_id || null}])),
 		moves: (doc.moves || []).map((move) => ({deleted: Boolean(move.deleted_at), id: move.id, in: move.in, kind: move.kind, out: move.out, past: move.past, price: move.price, who: move.who})),
 		pocket: pocket ? (pocket.entry_id || `want:${pocket.want && pocket.want.card_id}`) : null,
 	};
@@ -191,6 +191,10 @@ test('a trade with one card out and one card in', async () => {
 	await page.click('#move-in-results [data-card="tsb2-090"]');
 	await page.waitForSelector('#move-in-add');
 	await page.selectOption('#move-in-condition', 'Near Mint');
+	// The same finishes as the copy sheet's Add: this record lists no
+	// printings, so all three plain ones are offered as not listed.
+	assert.deepEqual(await page.locator('#move-in-finish option').allTextContents(), ['Not set', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
+	await page.selectOption('#move-in-finish', {label: 'Holo (not listed)'});
 	await page.click('#move-in-add');
 	await page.waitForSelector('#move-in-list [data-card="tsb2-090"]');
 	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-trade-form.png`});
@@ -211,6 +215,8 @@ test('a trade with one card out and one card in', async () => {
 	assert.equal(now.cards[added].came_via, move.id);
 	assert.equal(now.cards[added].card_id, 'tsb2-090');
 	assert.equal(now.cards[added].deleted_at, null);
+	assert.equal(now.cards[added].finish_raw, 'HOLOFOIL', 'a finish not listed is kept as its word');
+	assert.equal(now.cards[added].variant_id, null);
 
 	// The incoming copy's page says how it came.
 	await page.goto(url('cards/en/tsb2-090'));
