@@ -12,6 +12,19 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-19 (early morning)
+
+- **v82:** scan a whole binder page, or two pages side by side, from one photo, and fixes from a review of v81. `cf50c4f`
+  - Scan, Settings, **Binder page**: take or choose a photo of one page or an open binder. Every card joins the tray, in
+    pocket order; the ones not sure ask for a check; empty pockets are skipped. On Eric's photos: single pages 7, 9 and 9
+    of 9 right, spreads 113 of 144 right, and no sure answer wrong. A pocket of a Japanese or Chinese print is never sure
+    without Asian text read off it.
+  - Fixed (independent review): bulk Finish left the old finish word, so the old corner stayed; a matched 1st Edition
+    import set to the listed Holo kept its "1st" corner on My Cards; a card dragged to the tray could be another one if a
+    sync changed the pocket meanwhile; a day's collection value could dip when a few price reads failed.
+  - Fixed: Undo after a bulk Language change ticks exactly the cards ticked before; Needs a photo updates as soon as an
+    English print's picture arrives; a Trade can bring in a finish the catalog does not list.
+
 ### 2026-11-18 (night)
 
 - **v81:** bulk select, any finish, a pocket's stack as a carousel, and value over time. `d79cf0d`
