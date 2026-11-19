@@ -564,6 +564,44 @@ html.scan-open body {
 	width: 72px;
 }
 
+/* The page read (sheets.js pageSheet): the tray's tiles in the page's
+   pockets, three across, each as wide as its column. */
+.scan-page-grid {
+	display: grid;
+	gap: 10px;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	list-style: none;
+	margin: 8px 0 16px;
+	padding: 0;
+}
+
+.scan-page-grid .scan-tray-item,
+.scan-page-grid .scan-tile,
+.scan-page-grid .scan-tile-art {
+	width: 100%;
+}
+
+.scan-page-empty {
+	align-items: center;
+	aspect-ratio: 63 / 88;
+	border: 2px dashed var(--scan-border);
+	border-radius: 5%;
+	color: var(--scan-muted);
+	display: flex;
+	font-size: 14px;
+	justify-content: center;
+}
+
+.scan-page-side h3 {
+	margin: 8px 0 0;
+}
+
+.scan-page-back {
+	align-self: flex-start;
+	margin: 0 0 4px;
+	min-height: 44px;
+}
+
 .scan-tile-art {
 	aspect-ratio: 63 / 88;
 	background: #24376f;

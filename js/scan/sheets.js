@@ -112,6 +112,9 @@ export function confirmSheet(ctx, itemId) {
 
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-confirm', id: 'scan-confirm', role: 'dialog'},
 		sheetHeader('Check this card', () => ctx.closeSheet(), titleId),
+		// A card from the binder page just read goes back to the page
+		// (pageSheet), where it was opened from.
+		ctx.onPage && ctx.onPage(itemId) ? h('button', {class: 'scan-text-button scan-page-back', id: 'scan-page-back', onclick: () => ctx.openPage(), type: 'button'}, '‹ Back to the page') : null,
 		body,
 		searchPanel
 	);
@@ -1048,6 +1051,112 @@ export function settingsSheet(ctx) {
 					toggle({id: 'scan-rise-on', label: 'Mark rising prices', on: worth.rise !== null, onclick: () => ctx.setWorthSetting('rise', worth.rise === null ? lastRise : null)})),
 				numberField({disabled: worth.rise === null, id: 'scan-worth-rise', label: 'Up at least (%)', max: 1000, onchange: (value) => ctx.setWorthSetting('rise', value), value: worth.rise ?? lastRise}))
 		);
+	}
+
+	refresh();
+
+	return {el, refresh};
+}
+
+// ------------------------------------------------------------ the page read
+
+// The binder page just read (Eric, 2026-11-19: "maybe i could see the cards
+// in a binder page? and then tap them to select the language and other
+// attributes"): its cards in their pockets, as the photo has them, each the
+// tray's own tile, which opens its card (and the card goes back here) or is
+// removed with its x. An empty pocket says so; a card taken out of the tray
+// leaves its pocket blank. Under the grid, one tap sets the language of the
+// page's cards whose language could not be read: a binder page's pockets
+// rarely show it (on Eric's pages, English against Portuguese on none), and
+// a page is mostly one language. A language read off a card, or picked by
+// hand, stays. Opens by itself when a page has been read (view.js readPage).
+const PAGE_LANGUAGES = ['pt', 'en', 'ja', 'ko'];
+
+export function pageSheet(ctx) {
+	const titleId = 'scan-pagegrid-title';
+	const body = h('div', {class: 'scan-sheet-body'});
+	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-pagegrid', id: 'scan-pagegrid', role: 'dialog'},
+		sheetHeader('The page', () => ctx.closeSheet(), titleId),
+		body);
+	let told = null;
+	let picked = null;
+
+	body.addEventListener('click', (event) => {
+		const x = event.target.closest('[data-remove]');
+
+		if (x) {
+			ctx.removeTile(x.dataset.remove);
+			refresh();
+
+			return;
+		}
+
+		const tile = event.target.closest('[data-item]');
+
+		if (tile) {
+			ctx.openItem(tile.dataset.item);
+		}
+	});
+
+	function refresh() {
+		const run = ctx.pageRun;
+
+		if (!run) {
+			body.replaceChildren(h('p', {class: 'scan-muted'}, 'No binder page has been read in this session.'));
+
+			return;
+		}
+
+		const items = ctx.session.items.filter((item) => item.pageRun === run.id);
+		const byPocket = new Map(items.map((item) => [item.page, item]));
+		const pages = Math.max(1, Math.ceil(run.pockets / 9));
+		const look = items.filter((item) => needsLook(item)).length;
+		const grids = Array.from({length: pages}, (_, p) => h('section', {class: 'scan-page-side'},
+			pages > 1 ? h('h3', {class: 'scan-label'}, p ? 'Right page' : 'Left page') : null,
+			h('ul', {'aria-label': pages > 1 ? (p ? 'Right page' : 'Left page') : 'The page\'s pockets', class: 'scan-page-grid', id: `scan-page-grid-${p + 1}`},
+				...Array.from({length: 9}, (__, k) => {
+					const pocket = (p * 9) + k + 1;
+					const item = byPocket.get(pocket);
+
+					if (item) {
+						return ctx.tile(item);
+					}
+
+					return h('li', {'aria-label': `Pocket ${pocket}: ${run.empty.includes(pocket) ? 'empty' : 'taken out of the tray'}`, class: 'scan-page-empty', 'data-pocket': pocket},
+						run.empty.includes(pocket) ? 'Empty' : '');
+				}))));
+		const scoped = ctx.pagePreview ? ctx.pagePreview(picked || 'pt') : null;
+
+		body.replaceChildren(
+			h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
+				? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. Tap a card to check it or change it.`
+				: 'Every card of this page was taken out of the tray.'),
+			// The language row first, in sight without scrolling: the grid of
+			// three rows fills a phone's sheet.
+			items.length ? h('div', {class: 'scan-field', id: 'scan-pagegrid-language'},
+				h('p', {class: 'scan-label', id: 'scan-pagegrid-language-label'}, 'Language of the cards it could not read'),
+				h('p', {class: 'scan-muted'}, scoped && scoped.kept
+					? `${plural(scoped.kept, 'card')} whose language was read off the card or picked by you ${scoped.kept === 1 ? 'stays' : 'stay'} as ${scoped.kept === 1 ? 'it is' : 'they are'}.`
+					: 'A language read off a card, or picked by you, stays.'),
+				h('div', {'aria-labelledby': 'scan-pagegrid-language-label', class: 'scan-chips', role: 'group'},
+					...PAGE_LANGUAGES.map((code) => chip({
+						extra: flagBadge([code], {prefix: ''}),
+						id: `scan-pagegrid-lang-${code}`,
+						label: langName(code),
+						onclick: () => {
+							const done = ctx.applyPageLanguage(code);
+
+							picked = code;
+							told = done.changed
+								? `${plural(done.changed, 'card')} set to ${langName(code)}.`
+								: `No card changed: every one ${done.kept ? 'whose language was not read ' : ''}is ${langName(code)} already.`;
+							refresh();
+						},
+						pressed: picked === code,
+					}))),
+				told ? h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-pagegrid-told'}, told) : null) : null,
+			...grids,
+			h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'));
 	}
 
 	refresh();

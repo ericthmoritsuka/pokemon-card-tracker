@@ -41,7 +41,7 @@ import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js
 import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
-import {confirmSheet, doneSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
+import {confirmSheet, doneSheet, pageSheet, reportSheet, setAllSheet, settingsSheet} from './sheets.js';
 import {coarse, COLOURLESS, createAutoCapture, createHolderCapture, createStance, difference, FIND_SIDE, FIND_SIDE_CAPTURE, findCard, presence, STILL, THUMB_H, THUMB_W} from './steady.js';
 import {trayTile} from './tile.js';
 import * as T from './trade.js';
@@ -644,6 +644,28 @@ export function scanView(root) {
 	const ctx = {
 		addByHand,
 		applySetAll,
+		// The binder page just read (sheets.js pageSheet): the read, a card's
+		// tile as the tray draws it, whether a card is from it, and the
+		// language row for its cards whose language was not read.
+		get pageRun() {
+			return session && session.pageRun ? session.pageRun : null;
+		},
+		applyPageLanguage,
+		onPage: (id) => {
+			const item = S.findItem(session, id);
+
+			return Boolean(item && item.pageRun && session.pageRun && item.pageRun === session.pageRun.id);
+		},
+		openPage,
+		pagePreview: (code) => S.setForAllPreview(session, 'language', code, {ids: pageIds(), onlyDefault: true}),
+		removeTile,
+		tile: (item) => trayTile(item, {
+			marks: S.wishMarks(item, family),
+			owned: S.ownedFor(item, owned),
+			photoUrl: photoUrls.get(item.id) || null,
+			progress: progress.get(item.id) ?? null,
+			quantity: S.quantity(session, item, owned),
+		}),
 		chooseCard,
 		closeSheet,
 		discard,
@@ -1672,6 +1694,46 @@ export function scanView(root) {
 		drawNote();
 	}
 
+	// The cards of the binder page just read, still in the tray.
+	function pageIds() {
+		const run = session && session.pageRun;
+
+		return run ? session.items.filter((item) => item.pageRun === run.id).map((item) => item.id) : [];
+	}
+
+	function openPage() {
+		if (session && session.pageRun) {
+			endReview();
+			showSheet(pageSheet(ctx));
+		}
+	}
+
+	// The page's language row: `code` for its cards whose language was not
+	// read (a default, or set for all), as Set for all sets it, without
+	// opening Done after. Returns {changed, kept}.
+	function applyPageLanguage(code) {
+		const ids = pageIds();
+		const preview = S.setForAllPreview(session, 'language', code, {ids, onlyDefault: true});
+		const {changed, rematch} = change(() => S.setForAll(session, 'language', code, {ids, onlyDefault: true}));
+
+		rememberLanguage(code);
+
+		for (const id of changed) {
+			scanLog.lockFirst(id);
+		}
+
+		for (const id of changed.filter((other) => !rematch.includes(other))) {
+			localiseLater(id);
+			worthOf(id);
+		}
+
+		for (const id of rematch) {
+			rematchItem(id);
+		}
+
+		return {changed: changed.length, kept: preview.kept || 0};
+	}
+
 	function applySetAll(field, value, options) {
 		const {changed, rematch} = change(() => S.setForAll(session, field, value, options));
 
@@ -2264,6 +2326,12 @@ export function scanView(root) {
 				return;
 			}
 
+			// The read, for the page sheet (sheets.js pageSheet): its pockets in
+			// order, which were empty, and which cards came from it.
+			const run = {empty: found.pockets.filter((pocket) => pocket.empty).map((pocket) => pocket.index + 1), id: `page-${Date.now().toString(36)}`, pockets: found.pockets.length};
+
+			session.pageRun = run;
+
 			// Every card joins the tray first, its pocket kept as its full
 			// capture, so a read cut short by the app closing starts again
 			// next time (resume).
@@ -2271,6 +2339,7 @@ export function scanView(root) {
 				const item = S.addCapture(session);
 
 				item.page = pocket.index + 1;
+				item.pageRun = run.id;
 				scanLog.startEntry(item.id, {at: item.captured_at, how: null, phone: deviceInfo(), pocket: item.page, source: 'page'});
 
 				const fullSaved = imageBlob(pocket.image, {quality: 0.92}).then((blob) => draft.savePhoto(`${item.id}:full`, blob)).catch(() => {});
@@ -2328,6 +2397,12 @@ export function scanView(root) {
 
 			setNote(summary);
 			announce(summary);
+
+			// The page as the photo has it, to check and set its language
+			// (Eric, 2026-11-19), unless a sheet is open meanwhile.
+			if (!sheet) {
+				openPage();
+			}
 		}
 		catch (err) {
 			if (alive) {
