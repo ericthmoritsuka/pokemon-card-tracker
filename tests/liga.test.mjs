@@ -140,12 +140,12 @@ describe('more checked rules', () => {
 	});
 
 	test('a promo uses its number alone, with or without an official count', () => {
-		for (const setId of ['swshp', 'smp', 'xyp', 'bwp', 'mep']) {
+		for (const setId of ['swshp', 'smp', 'xyp', 'bwp']) {
 			assert.equal(ligaQuery({localId: 'SWSH050', name: 'Charizard V', setId}), 'Charizard-V (SWSH050)', setId);
 		}
 
 		assert.equal(ligaQuery({localId: 'SWSH050', name: 'Charizard V', official: 307, setId: 'swshp', setName: 'SWSH Black Star Promos'}), 'Charizard-V (SWSH050)');
-		assert.equal(ligaQuery({localId: '023', name: 'Mega Charizard X ex', official: 0, setId: 'mep', setName: 'MEP Black Star Promos'}), 'Mega Charizard X ex (023)');
+		assert.equal(ligaQuery({localId: '023', name: 'Mega Charizard X ex', official: 0, setId: 'mep', setName: 'MEP Black Star Promos'}), 'Mega Charizard X ex (023/∞)', 'Mega Evolution promos, as Liga writes them (Eric, 2026-11-18)');
 		assert.equal(ligaQuery({localId: '5', name: 'Pikachu', setId: 'P-A', setName: 'Promos-A'}), 'Pikachu (5)', 'a set named Promo');
 		assert.equal(isPromoSet('swsh9', 'Brilliant Stars'), false);
 		assert.equal(isPromoSet('sv03.5', '151'), false);
