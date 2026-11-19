@@ -92,6 +92,21 @@ function coverThumb(binder) {
 	return node;
 }
 
+// The binders to choose from, each with its cover and how full it is. Also
+// My Cards' bulk Add to binder (js/bulk-select.js).
+export function binderList({binders, choose, id, liveIds, placed}) {
+	return h('ul', {'aria-label': 'Binders', class: 'atb-list', id}, binders.map((binder) => {
+		const stats = binderStats(binder, placed, liveIds);
+
+		return h('li', null, h('button', {class: 'atb-binder', 'data-binder': binder.id, onclick: () => choose(binder), type: 'button'},
+			coverThumb(binder),
+			h('span', {class: 'atb-text'},
+				h('span', {class: 'atb-name'}, binder.name),
+				h('span', {class: 'atb-fill muted'}, `${formatCount(stats.filled)} of ${formatCount(stats.total)} pockets`))
+		));
+	}));
+}
+
 // The sheet on card detail. card: {cardId, catalog, name}.
 export async function openAddToBinder({cardId, catalog, name = 'this card'}) {
 	const id = 'add-binder-sheet';
@@ -134,16 +149,7 @@ export async function openAddToBinder({cardId, catalog, name = 'this card'}) {
 	else {
 		body = [
 			h('p', {class: 'muted'}, `Choose a binder, then a pocket for ${loose.length === 1 ? 'the copy' : 'one copy'}. Binders made from a list are not shown.`),
-			h('ul', {'aria-label': 'Binders', class: 'atb-list', id: 'add-binder-list'}, binders.map((binder) => {
-				const stats = binderStats(binder, placed, liveIds);
-
-				return h('li', null, h('button', {class: 'atb-binder', 'data-binder': binder.id, onclick: () => choose(binder), type: 'button'},
-					coverThumb(binder),
-					h('span', {class: 'atb-text'},
-						h('span', {class: 'atb-name'}, binder.name),
-						h('span', {class: 'atb-fill muted'}, `${formatCount(stats.filled)} of ${formatCount(stats.total)} pockets`))
-				));
-			})),
+			binderList({binders, choose, id: 'add-binder-list', liveIds, placed}),
 		];
 	}
 

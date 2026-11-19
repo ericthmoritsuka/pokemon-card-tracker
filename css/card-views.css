@@ -244,3 +244,145 @@
 	font-variant-numeric: tabular-nums;
 	font-weight: 700;
 }
+
+/* -------------------------------------------------------- Bulk select */
+
+/* My Cards' bulk select (js/bulk-select.js). Select ends the summary line
+   and wraps under it before the summary's words would be squeezed. */
+.cards-summary-row {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0 var(--space-2);
+	justify-content: space-between;
+}
+
+.cards-summary-row > #cards-summary {
+	flex: 1 1 12rem;
+	min-width: 0;
+}
+
+.cards-summary-row > .cards-select {
+	flex: none;
+	min-height: var(--target);
+}
+
+/* A tile while selecting is a checkbox: a circle over the middle of its
+   art, clear of the corner badges, empty or ticked, with a ring round the
+   ticked tile, so the state never rests on colour alone. The circle scales
+   with the art, from a List row's thumbnail to a Large tile. */
+.bulk-check {
+	align-items: center;
+	aspect-ratio: 1;
+	background: var(--surface);
+	border: 2px solid var(--text);
+	border-radius: var(--radius-pill);
+	box-shadow: var(--elevation-2);
+	color: var(--on-accent);
+	display: flex;
+	font-size: clamp(14px, 22cqi, 24px);
+	font-weight: 700;
+	justify-content: center;
+	left: 50%;
+	line-height: 1;
+	pointer-events: none;
+	position: absolute;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: clamp(22px, 34cqi, 40px);
+	z-index: 2;
+}
+
+.bulk-on .bulk-check {
+	background: var(--accent);
+	border-color: var(--on-accent);
+}
+
+.tile.bulk-on {
+	border-radius: var(--radius-badge);
+	outline: 3px solid var(--accent);
+	outline-offset: 2px;
+}
+
+.bulk-on .art-wrap > .art {
+	opacity: 0.8;
+}
+
+@media (forced-colors: active) {
+	.tile.bulk-on {
+		outline-color: Highlight;
+	}
+
+	.bulk-on .bulk-check {
+		background: Highlight;
+		color: HighlightText;
+	}
+}
+
+/* The bar, docked above the tab bar like the binder's card in hand
+   (css/binders.css .bh), its buttons clear of the raised Scan disc. */
+.bulk-bar {
+	background: var(--surface);
+	border-top: 1px solid var(--border);
+	bottom: calc(var(--tab-height) + env(safe-area-inset-bottom, 0px));
+	box-shadow: var(--elevation-2);
+	display: grid;
+	gap: var(--space-2);
+	margin: var(--space-3) calc(-1 * var(--space-4)) 0;
+	padding: var(--space-2) var(--space-4) calc(var(--space-2) + 28px);
+	position: sticky;
+	z-index: 8;
+}
+
+.bulk-bar[hidden] {
+	display: none;
+}
+
+.bulk-row {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+}
+
+.bulk-count {
+	flex: 1 1 8rem;
+	font-weight: 600;
+	margin: 0;
+	min-width: 0;
+}
+
+.bulk-bar button.small {
+	flex: none;
+	min-height: var(--target);
+}
+
+.bulk-bar button.bulk-all {
+	flex: 1 1 auto;
+}
+
+/* The Actions sheet: one full-width button per change. */
+.bulk-sheet {
+	overflow-y: auto;
+}
+
+.bulk-menu {
+	display: grid;
+	gap: var(--space-2);
+}
+
+.bulk-menu button {
+	min-height: var(--target);
+}
+
+.bulk-menu button.danger {
+	margin-top: var(--space-2);
+}
+
+.bulk-note {
+	margin: 0;
+}
+
+.bulk-remove-row {
+	margin-top: var(--space-3);
+}

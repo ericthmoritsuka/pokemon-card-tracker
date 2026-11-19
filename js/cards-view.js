@@ -27,6 +27,7 @@ import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
+import {bulkSelect} from './bulk-select.js';
 import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
 import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
@@ -356,6 +357,8 @@ export function myCardsView(root) {
 	return cardsScreen(root, {
 		load: listCards,
 		loadBinders: listBinders,
+		// Bulk select: your own cards only, never a family member's.
+		selectable: true,
 		tradeRoute: 'trade',
 		valueHistory: true,
 		viewKey: CARDS_VIEW_KEY,
@@ -418,7 +421,8 @@ export function familyCardsView(root, {userId}) {
 // kept under that key; without it the cards are always the Grid.
 // valueHistory keeps the collection's value once a day and shows it in the
 // Value sheet (js/value-history.js): the person's own My Cards only, never
-// the Trade spares or a family member's cards.
+// the Trade spares or a family member's cards. selectable offers bulk
+// select (js/bulk-select.js), on your own My Cards.
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
@@ -432,6 +436,7 @@ export function cardsScreen(root, {
 	offered = undefined,
 	placeholder = undefined,
 	readOnly = false,
+	selectable = false,
 	storageKey = CHOICE_KEY,
 	title = 'My Cards',
 	toolbar = [],
@@ -476,6 +481,23 @@ export function cardsScreen(root, {
 	const storeButton = readOnly ? null : h('button', {'aria-haspopup': 'dialog', class: 'small cards-store', hidden: true, id: 'cards-store', onclick: () => openStoreSheet({entries: narrowedCopies}), type: 'button'});
 	// The saved storage places, by name, for the Stored in filter.
 	let placeNames = [];
+	// The tiles the search and filters show, every page of them, as last
+	// drawn: what bulk select's Select all shown ticks.
+	let lastVisible = [];
+	const bulk = selectable && !readOnly
+		? bulkSelect({
+			fullRecord: (group) => saved.get(group.recordKey) || null,
+			grid,
+			groups: () => groups,
+			tiles: () => tiles,
+			visible: () => lastVisible,
+		})
+		: null;
+	// Select sits at the end of the summary line: the bar's row above is
+	// already two even rows at phone width, its selects sized to fit.
+	const summaryRow = bulk ? h('div', {class: 'cards-summary-row'}, summary, bulk.button) : summary;
+	// A tile as drawn, dressed as a checkbox while bulk select is on.
+	const shownTile = (group) => (bulk ? bulk.mark(tile(group), group.key) : tile(group));
 
 	function setPlaces(names) {
 		if (names.join('\n') !== placeNames.join('\n')) {
@@ -775,7 +797,7 @@ export function cardsScreen(root, {
 		const old = tiles.get(group.key);
 
 		if (old && old.isConnected) {
-			const next = tile(group);
+			const next = shownTile(group);
 
 			tiles.set(group.key, next);
 			old.replaceWith(next);
@@ -1121,7 +1143,7 @@ export function cardsScreen(root, {
 		else {
 			drawnKeys = visible.slice(0, shown).map((group) => group.key);
 			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
-				const element = tile(group);
+				const element = shownTile(group);
 
 				tiles.set(group.key, element);
 
@@ -1137,6 +1159,12 @@ export function cardsScreen(root, {
 		const shownCopies = visible.flatMap((group) => storedEntries(group.entries, filters.storage));
 		const copies = shownCopies.length;
 		const narrowed = Boolean(query.trim()) || activeFilters(filters).length > 0;
+
+		lastVisible = visible;
+
+		if (bulk) {
+			bulk.shown(visible);
+		}
 
 		if (storeButton) {
 			narrowedCopies = narrowed ? shownCopies : [];
@@ -1487,7 +1515,7 @@ export function cardsScreen(root, {
 		}
 
 		if (!body.contains(grid)) {
-			body.replaceChildren(...[bar.element, summary, storeButton, grid, more].filter(Boolean));
+			body.replaceChildren(...[bar.element, summaryRow, storeButton, grid, more, bulk ? bulk.bar : null].filter(Boolean));
 		}
 
 		ready = true;
@@ -1669,6 +1697,11 @@ export function cardsScreen(root, {
 		stopTwins();
 		stopImages();
 		bar.destroy();
+
+		if (bulk) {
+			bulk.destroy();
+		}
+
 		clearTimeout(twinTimer);
 	};
 }
