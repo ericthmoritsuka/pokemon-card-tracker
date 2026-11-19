@@ -4,8 +4,9 @@ A lab prototype (Eric, 2026-11-18): recognise several cards in one camera frame,
 3 x 3 pockets in sleeves or a few cards lying on a table, so a whole page is added in one shot. It
 measures two ways of finding the cards, each card then matched by the app's own picture route
 (`js/scan/identify.js` `identifyPicture`: straighten, fingerprint, match; `js/scan/picture.js`
-`pictureVerdict` for sure), so recognition per card is the single-card scanner's. Nothing in the
-app calls this yet: the scanner (`js/scan/view.js`) is unchanged.
+`pictureVerdict` for sure), so recognition per card is the single-card scanner's. The scanner's
+Binder page (`js/scan/page.js`, under its settings) now reads one upright page by the page path;
+the free path and spreads stay here.
 
 - **Page path** (`js/scan/steady.js` `findPages`, `js/scan/multi.js` `fitPage`, `pageCells`): find
   the page's outline (or a spread's two), set it right by the cards found in it, cut it into rows x
