@@ -25,7 +25,7 @@ export const RELEASES = [
 			'Stats: in My Cards, Stats (beside Value) shows your copies by language, set, rarity, type, finish, and condition, the ten most valuable, and what you added each month.',
 			'Share a card or a binder page as a picture: Share on a card page, or Share page in a binder, sends it through the phone\'s share sheet, to WhatsApp for example.',
 			'Print placeholders: in your binder, print real-size paper cards for the pockets you still need, to slip into the real binder until the card arrives.',
-			'Search forgives a typo when nothing matches as typed ("charzard" finds Charizard), and a binder page scan is sure of more cards.',
+			'Search forgives a typo when nothing matches as typed ("charzard" finds Charizard), and a binder page scan is sure of more cards and shows its progress while it reads.',
 		],
 		version: 'v83',
 	},
