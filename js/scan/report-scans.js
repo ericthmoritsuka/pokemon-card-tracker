@@ -203,6 +203,10 @@ function answerLines(entry) {
 		lines.push(`Status: ${first.status}`);
 	}
 
+	if (first.stageCheck) {
+		lines.push(`Stage label read in the background: ${first.stageCheck.code || 'no language'}${first.stageCheck.text ? `: "${oneLine(first.stageCheck.text)}"` : ''}`);
+	}
+
 	if (first.labelCheck) {
 		lines.push(`Label row read in the background: ${first.labelCheck.code ? `${first.labelCheck.code} (${pct(first.labelCheck.confidence)})` : 'no language'}${first.labelCheck.text ? `: "${oneLine(first.labelCheck.text)}"` : ''}`);
 	}

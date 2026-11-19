@@ -352,6 +352,8 @@ export function confirmSheet(ctx, itemId) {
 
 		const source = item.languageBy === 'read'
 			? 'read from the card'
+			: item.languageBy === 'stage'
+				? 'read from its stage label'
 			: item.languageBy === 'hand'
 				? 'picked by you'
 				: item.languageBy === 'all'

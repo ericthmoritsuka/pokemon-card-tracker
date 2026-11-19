@@ -946,6 +946,155 @@ export async function readLabel(card, ocr, {textPx = TEXT_PX} = {}) {
 	return {...label, text: text.trim().slice(0, 200)};
 }
 
+// ------------------------------------------------------------ the stage label
+
+// The stage label (Eric, 2026-11-19: "brazilian cards read 'Basico' at the
+// top left corner. English cards read Stage 1 or Basic"): "BÁSICO",
+// "ESTÁGIO 1", "Pokémon Básico", "Evolui de" on a Portuguese print against
+// "BASIC", "STAGE 1", "Basic Pokémon", "Evolves from" on an English one. It
+// tells the two apart where nothing else does: a binder pocket, cut from a
+// photo of the whole page, whose label row and number rarely read, and whose
+// English and Portuguese prints share one record and one picture.
+//
+// Three crops of the straightened card, as fractions of it, each scaled so
+// its text is textPx tall: the old cards' line over the name, and the modern
+// stage pill at two heights, since a pocket's cut may start a little above
+// the card. Chosen on Eric's three binder pages (27 cards cut from the 7680
+// copy, about 890 x 1240; 23 Portuguese, 4 English) from six crops at two
+// sizes: these three read 12 right, none wrong, 15 nothing.
+export const STAGE_CROPS = [
+	{h: 0.06, text: 0.018, textPx: 64, w: 0.62, x: 0.04, y: 0.03},
+	{h: 0.045, text: 0.013, textPx: 40, w: 0.22, x: 0, y: 0.01},
+	{h: 0.045, text: 0.013, textPx: 40, w: 0.22, x: 0, y: 0.04},
+];
+
+// The words a stage label is matched against, and the language each names.
+// STAGIO is ESTÁGIO with its first letter lost, which the OCR often does.
+const STAGE_WORDS = [['BASICO', 'pt'], ['ESTAGIO', 'pt'], ['STAGIO', 'pt'], ['EVOLUI', 'pt'], ['BASIC', 'en'], ['STAGE', 'en'], ['EVOLVES', 'en']];
+
+function editDistance(a, b) {
+	let previous = Array.from({length: b.length + 1}, (_, j) => j);
+
+	for (let i = 1; i <= a.length; i++) {
+		const row = [i];
+
+		for (let j = 1; j <= b.length; j++) {
+			row.push(Math.min(previous[j] + 1, row[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)));
+		}
+
+		previous = row;
+	}
+
+	return previous[b.length];
+}
+
+// The language some stage label text names: {code ('en', 'pt', or null),
+// votes: {en, pt}, words}. Each word of four letters or more votes for the
+// stage word it is nearest, when it is within two letters of one of six or
+// more (one of a shorter one) and nearer it than any other, so "BASICO" and
+// "BASIC" never vote for each other. "STAG" not followed by an E is ESTÁGIO
+// with its E and accent lost (read "STAGO", "STAGKO", "STAG"), never STAGE: on Eric's
+// pages the two Portuguese cards it misled were the only wrong answers until
+// this rule. A split vote is no answer unless one side has three times the
+// other's votes.
+export function stageLanguage(text) {
+	const votes = {en: 0, pt: 0};
+	const words = [];
+	const plain = String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ');
+
+	for (const raw of plain.split(/\s+/)) {
+		const word = /^\d+$/.test(raw) ? raw : raw.replace(/0/g, 'O').replace(/1/g, 'I');
+
+		if (word.length < 4) {
+			continue;
+		}
+
+		if (/^E?STAG/.test(word)) {
+			const code = /^E?STAGE/.test(word) ? (/^STAGE(I|S)?$/.test(word) ? 'en' : null) : 'pt';
+
+			if (code) {
+				votes[code]++;
+				words.push(word);
+			}
+
+			continue;
+		}
+
+		const ranked = STAGE_WORDS.map(([stage, code]) => ({code, distance: editDistance(word, stage), stage})).sort((a, b) => a.distance - b.distance);
+		const [best, next] = ranked;
+
+		if (best.distance <= (best.stage.length >= 6 ? 2 : 1) && next.distance > best.distance) {
+			votes[best.code]++;
+			words.push(word);
+		}
+	}
+
+	const {en, pt} = votes;
+	const code = !en && !pt ? null : en && pt && Math.min(en, pt) * 3 > Math.max(en, pt) ? null : en > pt ? 'en' : 'pt';
+
+	return {code, votes, words};
+}
+
+// One stage crop as the OCR reads it: `rect` of `card` resampled by `scale`
+// (bilinear), grey, and stretched so its 3rd and 97th percentiles of
+// brightness span black to white, as the measurement above prepared them.
+export function stageCrop(card, rect, scale) {
+	const width = Math.max(1, Math.round(rect.w * scale));
+	const height = Math.max(1, Math.round(rect.h * scale));
+	const src = card.data;
+	const lum = new Float32Array(width * height);
+
+	for (let y = 0; y < height; y++) {
+		const sy = Math.min(card.height - 1, Math.max(0, rect.y + ((y + 0.5) / scale) - 0.5));
+		const y0 = Math.floor(sy);
+		const y1 = Math.min(card.height - 1, y0 + 1);
+		const fy = sy - y0;
+
+		for (let x = 0; x < width; x++) {
+			const sx = Math.min(card.width - 1, Math.max(0, rect.x + ((x + 0.5) / scale) - 0.5));
+			const x0 = Math.floor(sx);
+			const x1 = Math.min(card.width - 1, x0 + 1);
+			const fx = sx - x0;
+			const at = (px, py) => {
+				const i = (py * card.width + px) * 4;
+
+				return (0.299 * src[i]) + (0.587 * src[i + 1]) + (0.114 * src[i + 2]);
+			};
+
+			lum[y * width + x] = ((at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy)) + ((at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy);
+		}
+	}
+
+	const sorted = Float32Array.from(lum).sort();
+	const lo = sorted[Math.floor(sorted.length * 0.03)];
+	const hi = sorted[Math.floor(sorted.length * 0.97)];
+	const data = new Uint8ClampedArray(width * height * 4);
+
+	for (let i = 0; i < lum.length; i++) {
+		const v = ((lum[i] - lo) / Math.max(1, hi - lo)) * 255;
+
+		data[i * 4] = v;
+		data[i * 4 + 1] = v;
+		data[i * 4 + 2] = v;
+		data[i * 4 + 3] = 255;
+	}
+
+	return {data, height, width};
+}
+
+// Reads the stage label of a straightened card with `ocr`: stageLanguage's
+// answer and the text read, from three small OCR calls (STAGE_CROPS).
+export async function readStage(card, ocr) {
+	const texts = await Promise.all(STAGE_CROPS.map((crop) => {
+		const rect = {h: crop.h * card.height, w: crop.w * card.width, x: crop.x * card.width, y: crop.y * card.height};
+
+		return ocr(stageCrop(card, rect, crop.textPx / (crop.text * card.height)), OCR_SETTINGS.sparse).then((result) => result.text || '', () => '');
+	}));
+	const text = texts.join('\n');
+
+	return {...stageLanguage(text), text: text.replace(/\s+/g, ' ').trim().slice(0, 200)};
+}
+
 // ------------------------------------------------------------ the whole read
 
 // Reads one straightened card with `ocr`, an async function (image, {psm,

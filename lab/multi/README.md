@@ -227,6 +227,13 @@ outline fitted, so the floor is lower than the number read's.
   a look, and the Charizard takes the Western default. Japanese, Korean, or Chinese text actually
   read still counts. English against Portuguese stays unsettled on a pocket.
 
+- **English against Portuguese** (2026-11-19, Eric's idea): a pocket's stage label ("BÁSICO",
+  "ESTÁGIO 1", "Pokémon Básico", "Evolui de" against "BASIC", "STAGE 1", "Basic Pokémon",
+  "Evolves from") is read in the background (`js/scan/read.js` `readStage`, three crops, OCR'd
+  sparse). On Eric's three pages (23 Portuguese, 4 English cards) it answered 8 pockets, all right,
+  and the pages' languages went from 24 to 26 of 27 right; the English Rattata's small modern pill
+  still reads nothing. Chosen on these same 27 cards, so it needs checking on pages it has not seen.
+
 ## Checking With Real Photos
 
 Run `--photos` on Eric's binder photos (kept outside the repo), one upright single page per shot at

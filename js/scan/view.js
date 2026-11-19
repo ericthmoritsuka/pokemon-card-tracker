@@ -31,7 +31,7 @@ import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startC
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
@@ -864,6 +864,7 @@ export function scanView(root) {
 			finishBy: item.finishBy || null,
 			worth: item.worth ? {brl: item.worth.brl, change: item.worth.change, min: worth.min, rise: worth.rise, rising: item.worth.rising, source: item.worth.source, valuable: item.worth.valuable} : null,
 			labelCheck: item.labelCheck || null,
+			stageCheck: item.stageCheck || null,
 			language: item.language || null,
 			languageBy: item.languageBy || null,
 			languageSource: S.languageSource(item),
@@ -2731,8 +2732,9 @@ export function scanView(root) {
 
 		// A card the picture settled with no text read, or with its number
 		// alone (identify.js): its straightened image is kept until its label
-		// row has been read in the background.
-		if (result.picture && (!result.read || !result.read.label)) {
+		// row has been read in the background. A binder pocket's always is,
+		// for its stage label (checkLabelLater), which nothing else reads.
+		if (result.picture && (page || !result.read || !result.read.label)) {
 			cardImages.set(id, result.card);
 		}
 
@@ -3262,7 +3264,36 @@ export function scanView(root) {
 		}
 
 		cardImages.delete(id);
+
+		const pageCardId = item.page && item.card ? item.card.id : null;
+
 		setTimeout(async () => {
+			// A binder pocket's stage label first (read.js readStage): the only
+			// thing on a pocket that tells English from Portuguese.
+			if (pageCardId) {
+				const stage = await readStageLabel(image).catch(() => null);
+				const card = alive && S.findItem(session, id);
+
+				if (!card || (card.card && card.card.id) !== pageCardId) {
+					return;
+				}
+
+				const languageBefore = card.language;
+
+				scannerChange(id, () => S.applyStage(session, id, stage));
+
+				if (S.findItem(session, id).language !== languageBefore) {
+					retellOwned(id, {lookAgain: false});
+				}
+
+				const after = S.findItem(session, id);
+
+				// Settled, or its label row was read with the card already.
+				if (after.languageBy === 'stage' || (after.read && after.read.language && after.read.language.source === 'label')) {
+					return;
+				}
+			}
+
 			let label = null;
 
 			try {

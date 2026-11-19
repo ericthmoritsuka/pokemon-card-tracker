@@ -931,6 +931,28 @@ export function readLanguageLabel(card) {
 	return run;
 }
 
+// The stage label alone (read.js readStage) of a binder pocket's card, for
+// English against Portuguese, which nothing else on a pocket tells apart.
+// Queued with the label checks, so it never holds a card's own read up.
+// Returns readStage's {code, votes, words, text} and ms.
+export function readStageLabel(card) {
+	const run = labelQueue.then(async () => {
+		const engine = await warmEngine();
+
+		await textIdle();
+
+		const started = performance.now();
+		const {readStage} = await import('./read.js');
+		const stage = await readStage(card, (image, settings) => engine.ocr(image, {...settings, background: true}));
+
+		return {...stage, ms: Math.round(performance.now() - started)};
+	});
+
+	labelQueue = run.catch(() => {});
+
+	return run;
+}
+
 // read.js, imported with the engine: it is only needed when text is read.
 async function readCard(card, ocr, options) {
 	const {readCard: read} = await import('./read.js');
