@@ -14,6 +14,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-18 (evening)
 
+- **v80:** a Pictures filter in My Cards. `0f90734`
+  - Filters, **Pictures**: No photo, No catalog picture, or Needs a photo (neither): the cards to
+    photograph so the scanner learns them, such as the MEP promos.
+  - Behind the scenes: the stack a card is read with is decided once per card, a card the text
+    route settles loses its stack mark, and photo changes a few seconds apart make one refresh.
+
 - **v79:** the scanner learns from the family's photos too, reads numbers quicker, and a stack fix. `edca715`
   - A family member's front photos of a card the catalog has no picture of teach the scanner on
     every phone of the group, and the scan picker shows the photo of such a card.
