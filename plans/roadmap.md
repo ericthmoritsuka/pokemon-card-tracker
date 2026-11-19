@@ -5,25 +5,39 @@ so the next session can continue without the old conversation. Read this first, 
 (requirements and decisions, with their reasons). `plans/design-review.md` is the approved UI
 spec; `plans/product-plan.md` and `plans/ux-plan.md` are the earlier plans.
 
-## State Right Now
+## State Right Now (2026-11-19)
 
-- **Live:** version **v47** at https://ericthmoritsuka.github.io/pokemon-card-tracker/ (v47 `d8aa100` adds region and generation on the card page and the binder page slider; v46 `a64f549` added share-sheet import, Add to binder, shared family photos, drag between pockets, picker tiles and Filters with Artist, and a bigger binder on wide screens; v43 `b838d12` added English-name search in the binder pickers and an always-there Clear all; v42 `cd1e464` added From a box or list in Add cards to the tray, the Snap toggle, and cover Rotate; v41 `46addf1` added smarter photo corners and snapping; v40 `8d3edbb` added the content check for new cards, automatic holder mode, the wider picture search, and read safety; v39 `18f355f` added scanner settings (default finish, shutter sound, valuable and rising marks), four rotations, capture in the worker, an instant Save; v38 `60f28c6` added the single language table, lighter sync with an optional `supabase/patch-document.sql`, full-art number reads, translated names, and small fixes; `supabase/min-client.sql` and `supabase/patch-document.sql` were run by Eric on 2026-10-15; v37 `c8101df` added Add cards to the tray, two-line tile meta, twins on set tiles, one corner editor; v36 `0f05d47` rebuilt holder scanning from Eric's videos: drops by change, crops from the change, worker matching, Review from any card; benchmarks and replay tools in `lab/holder/`; v35 `1e57220` added the card found anywhere in view, holder mode, Review runs, faster unsure reads, and the repeat fix; v34 `55419b0` added binders from a list; v33 `3a625cc` added Stored in, Edit order with delete Undo, leaving cards out of rule collections, and automatic prices; v32 `cc8d063` added continuous scanning, the tray x, copies per scanned card, the repeat bar, and the scan log; v31 is block H's first wave, see below, with scanner Q-19 and Q-20, What's new with the version, the finish and language on a typed Liga price, and a clock warning; v30 `acb42f7` added Want on a family member's card, the Value button on sets, checklists, and binders, the binder placeholder notice at scan, the Liga link fixes, and retires checklist hand ticks; v29 `31e9329` added collections and set and artist goals; v28 added the Trade view, favorites, hand-made cards, and own-CSV restore; v27 added scanner round 4; earlier commit
-  `adc0e7b`, with block C's key-by-key sync merge; `supabase/min-client.sql` is optional, for Eric to run only after every family phone has reloaded v26 or later; v25 fixed the guide, capture margin, and language on real phones): the scanner recognises cards by their picture first (js/vision/, lab/fingerprints/RESULTS.md), after the second round of audit fixes in v23 (see `CHANGELOG.md` and the status in
-  `plans/audit.md`). Tabs Cards, Sets, Scan, Binders, Lists; Profile behind the header avatar. Includes
-  the monprice import, sign-in and live sync, the family group, checklists, wishlists, the
-  scanner (v17), own photos with the carousel, the zoom and compare viewer, the twelve TCG energy
-  themes, Brazil-first prices, (v16) name-and-password sign-in for a family member without an
-  email (`@family.invalid` accounts Eric creates in the dashboard; `supabase/reset-password.sql`
-  resets one), (v18) binder spreads, (v19) every card of a Pokémon from a checklist, and (v20)
-  international twins on card pages and My Cards, and (v21) binder pages that turn on the middle of
-  the spine. Every built module is now wired in.
+- **Live:** v82 (master `cf50c4f`). `CHANGELOG.md` lists every release with its commit and is the
+  record of what is live; this file no longer repeats it.
+- **Ready, not published:** v83 on branch `scan-local-lookups` (`60743f6`): Stats, Share a card or
+  a binder page as a picture, Print placeholders, forgiving search, and binder page numbers read
+  from each card cut to its edges, plus three fixes from a review of those. It waits on Eric's
+  phone check of the binder page scan's memory (the 7680-pixel copy holds about 106 MB on his
+  photos), then the merge to master and a `CHANGELOG.md` entry with the master commit.
+- **The sections below are history.** Everything they list as built on a branch or still to check
+  on the phone has shipped (`scan-trade`, `holder-retry`, `design-polish`, `eric-decisions`), and
+  so have the Backlog's trades and sales log (`js/moves-view.js`), the offer to delete photos once
+  the catalog has an image (`js/photo-cleanup.js`), and card search in the Sets tab
+  (`js/card-search.js`). Import "Match this file" was never built: Start over with this file
+  (`DESIGN.md` section 7) covers the same full rescan, so it is likely superseded. Eric to confirm
+  before it is dropped.
+- **Left open on purpose:** the tombstone purge, about 12 hand-rolled `localStorage` readers, and
+  `sync.js` `stampMs` (all left in v75); finding 6 of the v82 review (a catalog that cannot be
+  reached offers "not listed" finishes), because Japanese cards without variants look the same.
+- **Known scanner gaps:** TCGdex has no pictures for McDonald's Collection 2021 (0 of 25, checked
+  2026-11-19), so its cards cannot join the picture index; a photo of one's own (photo prints) is
+  the way in. On Eric's page photos its Charmander (9/25) was read, sure, as Burning Shadows
+  `sm3-18`: the right name, the wrong print.
+- **Suites:** each file under its own `timeout 900`. With the Playwright under How We Work (1.63),
+  `scan-frames-browser`'s "a card held too far away" fails on that Chromium even on v82; it passes
+  on Playwright 1.55.1.
 - **A family member's name-and-password account:** confirmed working on 2026-10-06: the
   dashboard accepted the `.invalid` address, a password reset with `supabase/reset-password.sql`
   worked, and the member signed in on v30.
 - **Supabase is fully set up:** `setup.sql`, `realtime.sql`, and `photos.sql` have all been run
   (checked: realtime ready, photo bucket and its four policies present). Sign-ups are closed,
   Google sign-in works, Eric is the owner, and two family members are invited.
-- **Scanner v17 is live** (`b7a6145` for v15, `c2e76d2` for v17): parallel reads of name, HP,
+- **History, scanner v17 (2026-10-02):** (`b7a6145` for v15, `c2e76d2` for v17): parallel reads of name, HP,
   attack, number, total, label, and copyright; a name route; an artwork tiebreak; slant
   correction; edges that must close at the card's bottom corners (so screen UI and headings stay
   out); auto capture when the card fills the guide's height; nothing preselected unless sure or

@@ -5,10 +5,11 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-10-09)
+## In Progress (2026-11-19)
 
-- Shared modules, wave 2: one language table (on hold). Then the kept items in
-  `plans/roadmap.md`.
+- v83, ready on branch `scan-local-lookups`: Stats, Share as a picture, Print placeholders,
+  forgiving search, and binder page numbers. Published after a phone check of the binder page
+  scan's memory.
 
 ## Live
 
