@@ -22,6 +22,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-19',
 		items: [
+			'Stats: in My Cards, Stats (beside Value) shows your copies by language, set, rarity, type, finish, and condition, the ten most valuable, and what you added each month.',
+			'Share a card or a binder page as a picture: Share on a card page, or Share page in a binder, sends it through the phone\'s share sheet, to WhatsApp for example.',
+			'Print placeholders: in your binder, print real-size paper cards for the pockets you still need, to slip into the real binder until the card arrives.',
+			'Search forgives a typo when nothing matches as typed ("charzard" finds Charizard), and a binder page scan is sure of more cards.',
+		],
+		version: 'v83',
+	},
+	{
+		date: '2026-11-19',
+		items: [
 			'Scan a whole binder page from one photo: in Scan, open Settings, then Binder page. Take or choose a photo of one page, or of two pages open side by side, filling the photo.',
 			'Each card on the page joins the tray; the ones the scanner is not sure of ask you to check them, and empty pockets are skipped.',
 			'Also: bulk Finish, Undo after a bulk Language change, and Needs a photo are fixed, a Trade can bring in a finish the catalog does not list, and a card dragged to the tray is always the one you lifted.',
