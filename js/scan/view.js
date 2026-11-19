@@ -520,6 +520,20 @@ export function scanView(root) {
 	// out.
 	const repeatBar = h('div', {'aria-live': 'polite', class: 'scan-repeat', id: 'scan-repeat', role: 'group', 'aria-label': 'Same card again'});
 	const cameraOff = h('div', {class: 'scan-camera-off', hidden: true, id: 'scan-camera-off'});
+	// A binder page being read (Eric, 2026-11-19: "there was no indication
+	// of something working. I had to wait and the cards appeared at the
+	// bottom"): a panel over the camera for the whole read, with a spinner,
+	// the step, and a bar that moves while the page is found (a large photo
+	// takes several seconds before any pocket shows) and fills as the
+	// pockets are read. #scan-note says the same words to a screen reader,
+	// so the panel is hidden from one.
+	const pageBarFill = h('span', {class: 'scan-page-bar-fill', id: 'scan-page-bar-fill'});
+	const pageStep = h('p', {class: 'scan-page-step', id: 'scan-page-step'});
+	const pagePanel = h('div', {'aria-hidden': 'true', class: 'scan-page-busy', hidden: true, id: 'scan-page-busy'},
+		h('span', {class: 'scan-spinner'}),
+		h('p', {class: 'scan-page-title'}, 'Reading the binder page'),
+		pageStep,
+		h('span', {class: 'scan-page-bar'}, pageBarFill));
 	const note = h('div', {'aria-live': 'polite', class: 'scan-note', id: 'scan-note'});
 	const count = h('p', {class: 'scan-count', id: 'scan-count'});
 	const setAllButton = h('button', {class: 'scan-text-button', id: 'scan-setall-open', onclick: () => openSetAll('language'), type: 'button'}, 'Set for all');
@@ -606,7 +620,7 @@ export function scanView(root) {
 	// or under the repeat bar, and taking no height from the camera, whose
 	// band over the guide holds the running count.
 	const modeBar = modeSwitch((next) => chooseMode(next));
-	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip), finishButton, holderSwitch, repeatBar, cameraOff);
+	const stage = h('div', {class: 'scan-stage', id: 'scan-stage'}, video, guide, h('div', {class: 'scan-stage-top'}, status, runCount, ownedNote, tip), finishButton, holderSwitch, repeatBar, cameraOff, pagePanel);
 	const screen = h('section', {'aria-label': 'Scan cards', class: 'scan', id: 'scan'},
 		stage,
 		h('div', {class: 'scan-bottom'},
@@ -1255,6 +1269,25 @@ export function scanView(root) {
 	function setNote(text) {
 		noteText = text;
 		drawNote();
+	}
+
+	// The binder page panel: `step` in words, and `done` pockets of `of`
+	// read, or no count while the page is still being found. null hides it.
+	function showPageBusy(step, {done = null, of = null} = {}) {
+		pagePanel.hidden = step === null;
+		// The camera-off panel would show round its edges (no camera, a
+		// photo picked from the gallery): the read is all that matters then.
+		stage.classList.toggle('is-reading-page', step !== null);
+
+		if (step === null) {
+			return;
+		}
+
+		const finding = of === null;
+
+		pageStep.textContent = step;
+		pagePanel.classList.toggle('is-finding', finding);
+		pageBarFill.style.width = finding ? '' : `${Math.round((Math.min(done, of) / Math.max(1, of)) * 100)}%`;
 	}
 
 	function drawNote() {
@@ -2191,6 +2224,7 @@ export function scanView(root) {
 
 		pageBusy = true;
 		setNote('Finding the page.');
+		showPageBusy('Finding the page and its pockets. A large photo takes a few seconds.');
 
 		try {
 			const found = await readPagePhoto(file);
@@ -2261,6 +2295,7 @@ export function scanView(root) {
 				}
 
 				setNote(pocketProgress(pocket.index + 1, found.pockets.length));
+				showPageBusy(pocketProgress(pocket.index + 1, found.pockets.length), {done: reads.length, of: joined.length});
 
 				let pictured = () => {};
 				const seen = new Promise((resolve) => {
@@ -2272,6 +2307,7 @@ export function scanView(root) {
 				await Promise.race([seen, read]);
 			}
 
+			showPageBusy('Finishing the last cards.', {done: joined.length - 1, of: joined.length});
 			await Promise.all(reads);
 
 			if (!alive) {
@@ -2300,6 +2336,7 @@ export function scanView(root) {
 		}
 		finally {
 			pageBusy = false;
+			showPageBusy(null);
 
 			if (sheet && sheet.refresh) {
 				sheet.refresh();

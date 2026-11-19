@@ -340,20 +340,33 @@ describe('a binder page from one photo', () => {
 		const app = await open();
 		const {page} = app;
 		const notes = new Set();
+		// The panel over the camera while the page is read (Eric,
+		// 2026-11-19: no sign of anything working): what it said, and
+		// whether its bar ran (finding) or filled (pockets).
+		const panels = new Set();
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		assert.ok(await page.$eval('#scan-page-busy', (panel) => panel.hidden), 'no panel before a page');
 		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-page-busy:not([hidden])', {timeout: 10000});
+		await page.screenshot({path: `${SHOTS}/scan-page-busy.png`});
 
 		await until(async () => {
 			const note = await text(page, '#scan-note');
+			const panel = await page.$eval('#scan-page-busy', (node) => (node.hidden ? 'hidden' : `${node.classList.contains('is-finding') ? 'finding' : 'pockets'}: ${node.querySelector('#scan-page-step').textContent}`));
 
 			notes.add(note);
+			panels.add(panel);
 
 			return /^Page read/.test(note);
 		}, 300000, 'the page read');
 
 		assert.ok([...notes].some((note) => /^Reading pocket [1-9] of 9\.$/.test(note)), `progress shown (${[...notes].join(' | ')})`);
+		assert.ok(panels.has('finding: Finding the page and its pockets. A large photo takes a few seconds.'), `the panel while the page is found (${[...panels].join(' | ')})`);
+		assert.ok([...panels].some((panel) => /^pockets: Reading pocket [1-9] of 9\.$/.test(panel)), `the panel counts pockets (${[...panels].join(' | ')})`);
+		assert.ok(await page.$eval('#scan-page-busy', (panel) => panel.hidden), 'the panel goes once the page is read');
+		assert.equal(await page.$eval('#scan-page-busy', (panel) => panel.getAttribute('aria-hidden')), 'true', '#scan-note speaks for it');
 		assert.match(await text(page, '#scan-note'), /^Page read: 7 cards added(, \d to check)?\. 2 empty pockets skipped\.$/);
 		assert.ok(app.workers.some((worker) => worker.endsWith('/js/scan/page-worker.js')), 'the page was read in its worker');
 
