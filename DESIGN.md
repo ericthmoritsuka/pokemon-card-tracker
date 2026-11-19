@@ -993,6 +993,37 @@ it holds no secret and needs no paid plan. After it, the WebP (the service worke
 offline) is converted to a PNG in the browser, and last the PNG opens in a new tab. Long-press on
 Android is untested.
 
+**Share as a picture** (2026-11-19, from a survey of other collection apps; Eric sends cards to his
+family on WhatsApp). **Share**, last in the row under Ver na Liga on every card page (a family
+member's and a card with no copy too), makes a PNG of the card: its main image (the one tiles show:
+the official image, the twin, or a photo, a photo's detail copy when it has one), the name, set and
+number, and the copies, one line per language and finish with a count ("English · Reverse holo
+×2"), under "My copies (3)" or "Ana's copies (3)"; at zero copies, the catalog's language instead.
+**Share page**, first of a binder's buttons and alone on a family member's binder, makes a PNG of
+the page open, or both pages of the spread, as they look: the cover color around them, the
+binder's name and "Pages 2 and 3" across the top, each pocket's art (placeholders and Gone cards
+dimmed and tagged), and the folio under each page. Flags and finish corners are left out. The PNG
+goes to the phone's share sheet (`navigator.share` with `files`); where files cannot be shared (a
+computer) it downloads. Making it can take long enough that the phone no longer counts the tap
+(`NotAllowedError`), so a toast then offers Share as a fresh tap with the file kept.
+`js/share-image.js` does it all and is loaded only when Share is tapped; no new dependency.
+- **No tainted canvas.** The app's card images carry no `crossorigin` attribute (`js/tile.js`:
+  TCGdex's doubled header fails a cors request outright), so drawing an `<img>` from the page would
+  taint the canvas and `toBlob` would refuse. Every picture is instead read as a file and decoded
+  with `createImageBitmap`: own and family photos are object URLs of files read from the phone or
+  through `storage.download` (`js/photos/store.js`; the brief said signed URLs, but the code uses
+  none), so they read as they are; a TCGdex picture is read in cors mode (the service worker answers
+  from its cors cache when it has the image), then through the Save image relay as its high WebP,
+  the only kind the relay hands out. A binder page reads four at a time and stops asking the relay
+  after 8 seconds. A picture that cannot be read leaves a card back with the name, and a toast says
+  so; the share still happens. A canvas that refuses anyway is reported as "A picture here could
+  not be used, so no image was made." rather than thrown.
+- **The pockets are read from the screen.** Share page takes each pocket's kind, name, and image
+  from the pockets already drawn, so a photo filled in late, a family member's photo, and an
+  English stand-in appear as on screen, and nothing is worked out a second time.
+- **Sizes.** The card picture is 720 units wide drawn at 1.5x (1080 px), about 1,600 px tall; a
+  pocket is at most 200 px wide, smaller on a wide spread so the picture stays within 1,600 px.
+
 The main image rule applies on every screen that draws a card, not only My Cards (Eric,
 2026-10-31; v54): binder pockets, placeholders, Gone pockets, list pockets and their copy picker,
 the card in hand, the tray and its Add cards picker, the owned-card picker, Not in a binder, Sets
@@ -2455,6 +2486,8 @@ times and then never again; rotating switches to the full spread at once, and th
 landscape, so a phone with rotation locked keeps the overview. *(Eric, 2026-10-01.)* Spreads are
 also where Michi art can cross facing pages, which settles that open question. *(Planned
 2026-10-01, a block after the shell.)*
+
+**Share page** sends the open page or spread as a picture; section 5, "Share as a picture".
 
 **Held sideways, the bar under the book** is one 34 px row either side of the Scan disc: the page
 slider on its left, the page menu on its right. The slider's thumb is drawn 24 px wide on a 4 px
