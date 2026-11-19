@@ -252,3 +252,255 @@ export function splitSpread(corners, cards, {least = 3} = {}) {
 
 	return [[ml, tl, tr, mr], [bl, ml, mr, br]];
 }
+
+// ------------------------------------------------- a page fitted from its cards alone
+
+const quadArea = (q) => Math.abs(q.reduce((sum, p, i) => sum + p.x * q[(i + 1) % 4].y - q[(i + 1) % 4].x * p.y, 0)) / 2;
+const tallOf = (c) => Math.hypot(c[3].x - c[0].x, c[3].y - c[0].y);
+
+// How far a card's corners land from pocket `place`'s under map `h`, as a
+// share of the card's height.
+function missBy(h, place, corners) {
+	return Math.max(...place.map((p, j) => {
+		const at = applyHomography(h, p);
+
+		return Math.hypot(at.x - corners[j].x, at.y - corners[j].y);
+	})) / tallOf(corners);
+}
+
+// Each card given the pocket map `h` puts nearest it, within `slack`; one
+// card a pocket, the nearer kept.
+function pocketsFor(h, places, cards, slack) {
+	const by = new Map();
+
+	for (const card of cards) {
+		let index = -1;
+		let miss = Infinity;
+
+		places.forEach((place, i) => {
+			const off = missBy(h, place, card.corners);
+
+			if (off < miss) {
+				miss = off;
+				index = i;
+			}
+		});
+
+		if (miss <= slack && (!by.has(index) || by.get(index).miss > miss)) {
+			by.set(index, {card, miss});
+		}
+	}
+
+	return [...by].map(([index, {card, miss}]) => ({card, index, miss}));
+}
+
+// A page's outline from the cards found in it alone, with no outline to
+// start from (Eric, 2026-11-19: two pages side by side, where the outline
+// search finds the binder's edge, a row short, or a page lying across the
+// other more often than the page): each card standing, about the size of
+// the others, is tried in each pocket in turn; the page that puts most of
+// the other cards in pockets, within `slack` of a card's height, is fitted
+// to all of them (fitHomography), twice over. Needs `least` cards over two
+// rows and two columns; a page running out of the width x height frame
+// counts against it. Returns {corners, cards} as fitPage does, or null.
+export function fitGrid(cards, rows, cols, {gap = POCKET_GAP, height = Infinity, least = 3, slack = 0.15, width = Infinity} = {}) {
+	const places = unitCards(rows, cols, gap);
+	const standing = cards.filter((card) => card.upright !== false);
+
+	if (standing.length < least) {
+		return null;
+	}
+
+	const areas = standing.map((card) => quadArea(card.corners)).sort((a, b) => a - b);
+	const usual = areas[Math.floor(areas.length / 2)];
+	const pool = standing.filter((card) => quadArea(card.corners) >= usual * 0.6 && quadArea(card.corners) <= usual * 1.5);
+	let best = null;
+
+	for (const anchor of pool) {
+		for (const place of places) {
+			let h = fitHomography(place.map((p, j) => ({from: p, to: anchor.corners[j]})));
+
+			if (!h) {
+				continue;
+			}
+
+			// The first guess, from one card, is loose far from it.
+			let used = pocketsFor(h, places, pool, slack * 2);
+
+			for (let round = 0; round < 2 && used.length >= least; round++) {
+				const fitted = fitHomography(used.flatMap(({card, index}) => places[index].map((p, j) => ({from: p, to: card.corners[j]}))));
+
+				if (!fitted) {
+					break;
+				}
+
+				h = fitted;
+				used = pocketsFor(h, places, pool, slack);
+			}
+
+			const rowsUsed = new Set(used.map(({index}) => Math.floor(index / cols)));
+			const colsUsed = new Set(used.map(({index}) => index % cols));
+
+			if (used.length < least || rowsUsed.size < 2 || colsUsed.size < 2) {
+				continue;
+			}
+
+			const corners = UNIT.map((p) => applyHomography(h, p));
+			const out = corners.reduce((sum, p) => sum + Math.max(0, -p.x, p.x - width) / width + Math.max(0, -p.y, p.y - height) / height, 0);
+			const score = used.length - out * 4 - used.reduce((sum, {miss}) => sum + miss, 0) / used.length;
+
+			if (!best || score > best.score) {
+				best = {cards: used.length, corners, score};
+			}
+		}
+	}
+
+	return best && {cards: best.cards, corners: best.corners};
+}
+
+// ------------------------------------------------- two pages side by side
+
+// Whether `share` of the cards found or more lie on their side (`least` of
+// them at least): a binder taken with the phone turned, as Eric takes a
+// spread (2026-11-19: the photo stands, the two pages one above the other).
+// Two lying cards one above the other make a standing card's shape, so on
+// a spread a third or more of the boxes found may stand.
+export function cardsLie(cards, {least = 3, share = 2 / 3} = {}) {
+	const lying = cards.filter((card) => card.upright === false).length;
+
+	return lying >= least && lying >= cards.length * share;
+}
+
+const midX = (card) => card.corners.reduce((sum, p) => sum + p.x, 0) / 4;
+const wideOf = (c) => Math.hypot(c[1].x - c[0].x, c[1].y - c[0].y);
+
+// Whether the standing cards found lie over two pages side by side: their
+// middles spread wider than one page's three columns allow (3.5 cards'
+// widths, where one page's outer middles are 2.1 apart).
+export function twoPages(cards, {least = 4} = {}) {
+	const standing = cards.filter((card) => card.upright !== false);
+
+	if (standing.length < least) {
+		return false;
+	}
+
+	const wides = standing.map((card) => wideOf(card.corners)).sort((a, b) => a - b);
+	const wide = wides[Math.floor(wides.length / 2)];
+	const xs = standing.map(midX);
+
+	return Math.max(...xs) - Math.min(...xs) > wide * 3.5;
+}
+
+// Where the binder's spine runs between two pages side by side, as x in a
+// grey copy (width x height) of the spread standing: the darkest stretch of
+// columns (each column's mean over the middle rows, smoothed over a fiftieth
+// of the width) in the middle 30 to 70 % of the width, where the binder's
+// dark cover shows between the pages, wider than the welds between pockets.
+// When a standing card's middle lies on it, the middle of the widest gap
+// between the cards' middles there is taken instead.
+export function spineAt(grey, width, height, cards = []) {
+	const column = new Float64Array(width);
+	const top = Math.floor(height * 0.2);
+	const bottom = Math.ceil(height * 0.8);
+
+	for (let x = 0; x < width; x++) {
+		let sum = 0;
+
+		for (let y = top; y < bottom; y++) {
+			sum += grey[y * width + x];
+		}
+
+		column[x] = sum / (bottom - top);
+	}
+
+	const reach = Math.max(1, Math.round(width * 0.02));
+	let spine = -1;
+	let darkest = Infinity;
+
+	for (let x = Math.floor(width * 0.3); x < width * 0.7; x++) {
+		let sum = 0;
+		let n = 0;
+
+		for (let d = -reach; d <= reach; d++) {
+			if (x + d >= 0 && x + d < width) {
+				sum += column[x + d];
+				n++;
+			}
+		}
+
+		if (sum / n < darkest) {
+			darkest = sum / n;
+			spine = x;
+		}
+	}
+
+	const standing = cards.filter((card) => card.upright !== false);
+	const onIt = standing.some((card) => Math.abs(midX(card) - spine) < wideOf(card.corners) * 0.35);
+	const xs = standing.map(midX).filter((x) => x >= width * 0.25 && x <= width * 0.75).sort((a, b) => a - b);
+
+	if (onIt && xs.length >= 2) {
+		let widest = 0;
+
+		for (let i = 1; i < xs.length; i++) {
+			if (xs[i] - xs[i - 1] > widest) {
+				widest = xs[i] - xs[i - 1];
+				spine = (xs[i] + xs[i - 1]) / 2;
+			}
+		}
+	}
+
+	return spine;
+}
+
+// How dark the darkest band of rows across the middle of a grey copy is
+// against the rest: each row's mean over the middle 60 % of the width,
+// smoothed over a fiftieth of the height, the darkest in the middle 30 to
+// 70 % of the height over the median there. A spread taken with the phone
+// turned has the binder's spine across its middle: 0.14 to 0.44 on Eric's
+// spreads and a synthetic one, against 0.74 to 0.88 on his single pages,
+// whose middle rows hold cards. It tells the turn where the cards found
+// do not: clean prints whose art box splits each lying card into two
+// standing boxes (SPINE_BAND below).
+export const SPINE_BAND = 0.6;
+
+export function darkBand(grey, width, height) {
+	const left = Math.floor(width * 0.2);
+	const right = Math.ceil(width * 0.8);
+	const row = new Float64Array(height);
+
+	for (let y = 0; y < height; y++) {
+		let sum = 0;
+
+		for (let x = left; x < right; x++) {
+			sum += grey[y * width + x];
+		}
+
+		row[y] = sum / (right - left);
+	}
+
+	const reach = Math.max(1, Math.round(height * 0.02));
+	const bands = [];
+
+	for (let y = Math.floor(height * 0.3); y < height * 0.7; y++) {
+		let sum = 0;
+		let n = 0;
+
+		for (let d = -reach; d <= reach; d++) {
+			if (y + d >= 0 && y + d < height) {
+				sum += row[y + d];
+				n++;
+			}
+		}
+
+		bands.push(sum / n);
+	}
+
+	if (!bands.length) {
+		return 1;
+	}
+
+	const sorted = bands.sort((a, b) => a - b);
+	const median = sorted[Math.floor(sorted.length / 2)];
+
+	return median > 0 ? sorted[0] / median : 1;
+}
