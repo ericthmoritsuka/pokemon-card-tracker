@@ -22,6 +22,17 @@ export const RELEASES = [
 	{
 		date: '2026-11-18',
 		items: [
+			'Select many cards in My Cards at once, then change where they are stored, their language, finish, or condition, add them to a binder, or remove them, with Undo.',
+			'Any copy can be Normal, Holo, or Reverse holo, even when the catalog does not list that finish, and one copy of a pile can change on its own.',
+			'In a binder made from a list, tap a pocket with several cards and swipe through them; Show this one here puts that card on top. A hand-made binder can become a list binder that keeps your picks.',
+			'The Value sheet shows your collection\'s value over time, and a card page shows its recent Cardmarket prices.',
+			'Whole picture frames a photo edge to edge, for a picture that already is the card; a card can be dragged from a pocket onto the tray; Liga links for MEP promos find the card; the scanner knows the newest Mega Evolution set; and Needs a photo leaves out cards already shown with the English print\'s picture.',
+		],
+		version: 'v81',
+	},
+	{
+		date: '2026-11-18',
+		items: [
 			'My Cards has a Pictures filter: No photo, No catalog picture, or Needs a photo (neither), the cards to photograph so the scanner learns them.',
 			'Behind the scenes: the scanner decides once per card whether the stack helps, and checks your photos less often while you scan.',
 		],
