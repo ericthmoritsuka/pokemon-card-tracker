@@ -784,7 +784,8 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await openPage(page, 1);
 		await page.click(zoomPocket(1));
 		await page.waitForFunction(() => document.getElementById('pocket-viewer')?.dataset.state === 'open');
-		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-details', 'pv-move', 'pv-remove', 'pv-card-page']);
+		// Several copies fit, so Show this one here leads (js/pocket-viewer.js).
+		assert.deepEqual(await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => node.id)), ['pv-pick', 'pv-details', 'pv-move', 'pv-remove', 'pv-card-page']);
 		await page.click('#pv-details');
 		await page.waitForSelector('#list-copies .list-copy[data-entry="c3"]');
 		assert.equal(await page.locator('#list-copies .list-copy').count(), 3);

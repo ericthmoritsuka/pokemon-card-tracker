@@ -379,12 +379,13 @@ describe('make a list binder from this', () => {
 		// Show this one here: the viewer closes and the pocket shows it.
 		await page.click('#pv-pick');
 		await page.waitForSelector('#pocket-viewer', {state: 'detached'});
-		await page.waitForFunction(async (id) => {
-			const doc = await (await import('/pokemon-card-tracker/js/collection.js')).loadDocument();
-			const pick = (doc.binder_picks || []).find((one) => one.id === id);
+		const pickOf = async () => ((await localDoc(page)).binder_picks || []).find((one) => one.id === `${made.id}|dex:1`);
 
-			return Boolean(pick) && pick.entry_id === 'c1-priced';
-		}, `${made.id}|dex:1`, {timeout: 10000});
+		for (let tries = 0; tries < 50 && (await pickOf())?.entry_id !== 'c1-priced'; tries++) {
+			await page.waitForTimeout(200);
+		}
+
+		assert.equal((await pickOf())?.entry_id, 'c1-priced', 'the pick is saved');
 		await waitForPocket(page, zoomPocket(1), {label: 'Bulbasaur: Test Sprout, .*3 copies fit, picked by hand', picked: 'true'});
 		await done();
 	});
