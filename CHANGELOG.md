@@ -13,6 +13,15 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v88:** a set's ring is the same on every phone, and a card's picture falls back to another language. `b598881`
+  - A copy that came by sync, which this phone's card index has not read yet, now counts in its set's ring by its card
+    ID's set (as a family member's cards already did). On Eric's Realme the 30th Celebration ring read 57 of 161 while
+    the M53 read 147, with the same 2,208 copies.
+  - My Cards reads a set's saved card list again when it lacks cards owned from it (a new set saved before TCGdex listed
+    all its cards), at most once per set per visit; the index then gets their names and pictures.
+  - A binder pocket or My Cards tile whose chosen language was saved with no picture shows the card's picture from
+    another language, as the card page does (a Kanto binder's Arcanine on the computer).
+
 - **v87:** tile prices without the US mark, and Lists' Progress. `443014e`
   - Tile prices drop the "US" chip ("~" marks an estimate); a price typed from Liga carries a small "Liga" tag. The card
     page's price lines are unchanged.
