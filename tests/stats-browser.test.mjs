@@ -19,7 +19,7 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
-import {extractPrices, formatBrl, roundCents} from '../js/prices.js';
+import {extractPrices, formatBrl, formatBrlCompact, roundCents} from '../js/prices.js';
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {FAKE_RATE, fakeRates} from './fake-rates.mjs';
 import {startPagesServer} from './pages-server.mjs';
@@ -132,7 +132,18 @@ async function noSideways(page, where) {
 
 // Every element of the screen inside the 360 px viewport.
 async function fitsWidth(page, where) {
+	// A line that scrolls sideways on purpose (My Cards' tools) is checked
+	// as a whole: what it holds may run past the edge.
 	const over = await page.evaluate((width) => [...document.querySelectorAll('#view *')]
+		.filter((el) => {
+			for (let up = el.parentElement; up; up = up.parentElement) {
+				if (['auto', 'scroll'].includes(getComputedStyle(up).overflowX)) {
+					return false;
+				}
+			}
+
+			return true;
+		})
 		.filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > width + 0.5)
 		.map((el) => `${el.tagName.toLowerCase()}.${el.className}`), VIEWPORT.width);
 
@@ -195,7 +206,17 @@ describe('Stats', () => {
 
 			const totals = await page.locator('#stats-totals .stats-total').evaluateAll((items) => items.map((item) => [item.querySelector('dt').textContent, item.querySelector('dd').textContent]));
 
-			assert.deepEqual(totals, [['Copies', '4'], ['Cards', '3'], ['Sets', '3'], ['Languages', '2']]);
+			// The value takes the Languages tile, which By language says in
+			// full (design review 2, 2026-11-20); its sum is checked below.
+			assert.deepEqual(totals.map(([label]) => label), ['Copies', 'Cards', 'Sets', 'Value']);
+			assert.deepEqual(totals.slice(0, 3), [['Copies', '4'], ['Cards', '3'], ['Sets', '3']]);
+
+			// The summary, Lists (not counted yet here), Most valuable, By
+			// language, and By set lead; the rest follow.
+			const sections = await page.locator('#stats-body > .stats-section > h3').allTextContents();
+
+			assert.deepEqual(sections.slice(0, 3), ['Most valuable', 'By language', 'By set']);
+			assert.equal(await page.locator('#stats-body > :first-child').getAttribute('id'), 'stats-totals');
 			assert.deepEqual(await barRows(page, 'stats-language'), [['English', '2 · 50%'], ['Portuguese', '2 · 50%']]);
 			assert.deepEqual(await barRows(page, 'stats-set'), [['Base Set', '2 · 50%'], ['Feira', '1 · 25%'], ['Prismatic Evolutions', '1 · 25%']]);
 			assert.deepEqual(await barRows(page, 'stats-finish'), [['Normal', '1 · 25%'], ['Holo', '3 · 75%']]);
@@ -223,6 +244,9 @@ describe('Stats', () => {
 				['Exeggcute', `~${plain(formatBrl(roundCents(normal * FAKE_RATE.rate)))}`, `cards/en/${exeggcute.id}`],
 			]);
 			assert.equal(await page.locator('#stats-unpriced').textContent(), 'Every copy has a price.');
+			// The summary's value is the Value sheet's sum of the same copies,
+			// in whole reais, "~" as part of it is a US estimate.
+			assert.equal(plain(totals[3][1]), `~${plain(formatBrlCompact(2 * usd * FAKE_RATE.rate + 80 + normal * FAKE_RATE.rate))}`);
 
 			// Added per month: twelve months, the oldest first.
 			const months = await barRows(page, 'stats-months');
@@ -292,6 +316,7 @@ describe('Stats', () => {
 
 		await page.waitForSelector('#stats-totals');
 		assert.deepEqual(await barRows(page, 'stats-lists'), [['Kanto', '1 of 151 · less than 1%'], ['Johto', '0 of 100 · 0%'], ['Base Set', '3 of 10 finishes · 30%']]);
+		assert.equal(await page.locator('#stats-body > :nth-child(2) #stats-lists').count(), 1, 'Lists right after the summary');
 
 		const links = await page.locator('#stats-lists a.stats-bar-label').evaluateAll((items) => items.map((item) => item.getAttribute('data-link')));
 

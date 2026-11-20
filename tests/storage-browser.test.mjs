@@ -371,7 +371,7 @@ describe('Stored in on My Cards', () => {
 		await page.click('#cards-sheet .fb-show');
 		await page.locator('#cards-sheet').waitFor({state: 'hidden'});
 		assert.equal(await page.locator('.fb-chip[data-filter="storage"]').textContent(), 'Stored in: not set×');
-		assert.match(await page.locator('#cards-summary').textContent(), /^2 copies in 2 tiles match/);
+		assert.match(await page.locator('#cards-summary').textContent(), /^2 of [\d,]+ copies · 2 cards$/);
 		assert.equal(await page.locator('#cards-store').textContent(), 'Set storage for these 2 copies');
 		await noSideways(page, 'My Cards with the bulk button');
 		await page.screenshot({path: `${SHOTS}/storage-my-cards.png`});
@@ -388,14 +388,14 @@ describe('Stored in on My Cards', () => {
 		await page.waitForSelector('#cards-none');
 
 		await page.click('.toast:has-text("2 copies stored in Shoebox.") button:has-text("Undo")');
-		await page.waitForFunction(() => /^2 copies in 2 tiles match/.test(document.getElementById('cards-summary').textContent));
+		await page.waitForFunction(() => /^2 of [\d,]+ copies · 2 cards$/.test(document.getElementById('cards-summary').textContent));
 		assert.deepEqual(await stored(page), {'c-1': 'Box A', 'c-2': 'Box A', 'c-3': null, 'c-4': null});
 
 		// A place filter counts only the copies stored there.
 		await page.click('#cards-filters');
 		await page.selectOption('#cards-f-storage', 'place:Box A');
 		await page.click('#cards-sheet .fb-show');
-		await page.waitForFunction(() => /^2 copies in 1 tile match/.test(document.getElementById('cards-summary').textContent));
+		await page.waitForFunction(() => /^2 of [\d,]+ copies · 1 card$/.test(document.getElementById('cards-summary').textContent));
 		await done();
 	});
 

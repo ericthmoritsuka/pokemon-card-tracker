@@ -797,7 +797,8 @@ describe('a family member\'s Stats', () => {
 
 		const totals = await page.locator('#stats-totals dd').allTextContents();
 
-		assert.deepEqual(totals, ['3', '3', '2', '2'], 'their copies, cards, sets, and languages');
+		assert.deepEqual(totals.slice(0, 3), ['3', '3', '2'], 'their copies, cards, and sets');
+		assert.match(totals[3], /^~?R\$\s[\d.,]+$|^Not known yet$/, 'and their value');
 		assert.equal(await page.locator('.vh-collection').count(), 0, 'no Over time for their cards');
 		assert.equal(await page.locator('#stats-back').textContent(), '‹ Member A\'s cards');
 		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no sideways scroll');

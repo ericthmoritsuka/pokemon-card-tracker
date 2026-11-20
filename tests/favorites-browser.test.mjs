@@ -130,7 +130,7 @@ describe('favorites', () => {
 
 		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
 		await page.click('#cards-trade');
-		await page.waitForFunction(() => /^6 copies in 5 tiles/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
+		await page.waitForFunction(() => /^6 copies · 5 cards$/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
 		await page.click('#cards-filters');
 		await page.locator('#cards-sheet[open]').waitFor();
 		await page.check('#cards-f-favorite');

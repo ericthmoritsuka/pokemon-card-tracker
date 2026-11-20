@@ -219,46 +219,6 @@
 	margin: 0;
 }
 
-/* My Cards' heading (design review, 2026-11-19): the title, the count of
-   copies and tiles, and Spares and Trades on one line, wrapping only where
-   they do not fit, as at large text. Add by hand and Select are in the bar
-   under it. On a phone the title is for a screen reader only: the Cards tab
-   names the screen, and its line is the count's. */
-.view-head:has(#cards-moves) {
-	flex-wrap: wrap;
-}
-
-.view-head:has(#cards-moves) h2 {
-	flex: none;
-}
-
-.view-head:has(#cards-moves) #cards-summary {
-	flex: 1 1 8rem;
-	margin: 0;
-	min-width: 0;
-}
-
-.view-head:has(#cards-moves) #cards-summary:empty {
-	display: none;
-}
-
-@media (max-width: 599px) {
-	.view-head:has(#cards-moves) h2 {
-		clip-path: inset(50%);
-		height: 1px;
-		margin: -1px;
-		overflow: hidden;
-		position: absolute;
-		white-space: nowrap;
-		width: 1px;
-	}
-}
-
-.view-head:has(#cards-moves) .view-head-link {
-	min-height: var(--target);
-	padding: 6px 12px;
-}
-
 .move-price-read {
 	margin: var(--space-1) 0 0;
 }

@@ -123,8 +123,24 @@ async function fitsWidth(page, where) {
 		const width = document.documentElement.clientWidth;
 		const out = [];
 
+		// A line that scrolls sideways on purpose (My Cards' tools) is
+		// checked as a whole: what it holds may run past the edge.
+		const scrolled = (element) => {
+			for (let up = element.parentElement; up; up = up.parentElement) {
+				if (['auto', 'scroll'].includes(getComputedStyle(up).overflowX)) {
+					return true;
+				}
+			}
+
+			return false;
+		};
+
 		for (const element of document.querySelectorAll('main, main *')) {
 			const box = element.getBoundingClientRect();
+
+			if (scrolled(element)) {
+				continue;
+			}
 
 			if (box.width && (box.right > width + 0.5 || box.left < -0.5)) {
 				out.push(`${element.tagName.toLowerCase()}.${element.className} ${Math.round(box.left)}..${Math.round(box.right)}`);
@@ -201,10 +217,46 @@ describe('the View switch', () => {
 			assert.equal(await ball.count(), 1);
 			assert.ok(await ball.locator('.badge-lang').isVisible(), 'the language chip stays');
 
+			// 18 x 13 px in the bottom-left corner, clear of the printed name
+			// (design review 2, 2026-11-20).
+			const chip = await ball.evaluate((tile) => {
+				const art = tile.querySelector('.art-wrap').getBoundingClientRect();
+				const box = tile.querySelector('.badge-lang').getBoundingClientRect();
+
+				return {bottom: Math.round(art.bottom - box.bottom), height: Math.round(box.height), left: Math.round(box.left - art.left), width: Math.round(box.width)};
+			});
+
+			assert.deepEqual(chip, {bottom: 2, height: 13, left: 2, width: 18});
+
 			await choose(page, 'list');
 			assert.equal(await columns(page), 1, 'List: one a row');
+
+			// The Japanese Pikachu's own name shows in List and Large, not
+			// in Grid, whose meta line is one line with an ellipsis (design
+			// review 2, 2026-11-20: tiles grew to three to five lines).
+			const original = page.locator('.card-grid .tile-original', {hasText: 'ピカチュウ'});
+
+			assert.ok(await original.isVisible(), 'List shows the card\'s own name');
+			await choose(page, 'large');
+			assert.ok(await original.isVisible(), 'Large shows the card\'s own name');
 			await choose(page, 'grid');
 			assert.equal(await columns(page), 3);
+			assert.equal(await original.count(), 1, 'the name stays in the page');
+			assert.ok(await original.isHidden(), 'Grid leaves it out');
+
+			const metas = await page.locator('.card-grid > .tile > .tile-meta').evaluateAll((lines) => lines.map((line) => {
+				const style = getComputedStyle(line);
+
+				return {
+					cut: line.scrollWidth > line.clientWidth ? style.textOverflow : 'fits',
+					lines: Math.round(line.getBoundingClientRect().height / parseFloat(style.lineHeight || style.fontSize)),
+					titled: line.title === line.textContent,
+				};
+			}));
+
+			assert.ok(metas.length > 0);
+			assert.ok(metas.every((meta) => meta.lines <= 1), `every Grid meta line is one line (${JSON.stringify(metas)})`);
+			assert.ok(metas.every((meta) => ['ellipsis', 'fits'].includes(meta.cut) && meta.titled), 'a long one ends in an ellipsis, its whole text in the title');
 			assert.deepEqual(errors, []);
 		}
 		finally {

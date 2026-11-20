@@ -2,11 +2,13 @@
 // and a checklist's owned cards (plans/design-review.md section 4, Badge
 // System). Each corner means one thing everywhere:
 //
-//   top-left      the language flag, only when the copy's language is not
-//                 the viewing language (js/flags.js)
 //   top-right     the quantity, ×2 and up, never ×1
-//   bottom-left   the finish, for anything but the plain print: REV, Poké
-//                 Ball, Master Ball (M), 1st
+//   bottom-left   the language flag, only when the copy's language is not
+//                 the viewing language (js/flags.js), then the finish
+//                 beside it, for anything but the plain print: REV, Poké
+//                 Ball, Master Ball (M), 1st. Both sit over the card's
+//                 illustrator and copyright strip, clear of its printed
+//                 name (design review 2, 2026-11-20: the flag covered it).
 //   bottom-right  one status, first match wins: ? (not sure), waiting (not
 //                 synced), wanted (on a wishlist), owned (catalog views only)
 //
@@ -324,9 +326,12 @@ export function tileArt({
 }) {
 	const frame = h('div', {class: 'art-wrap'}, cardArt(info, src, {decorative, eager}));
 	const flags = [...new Set(languages.filter((code) => code && code !== viewing))];
+	const flagNode = flags.length ? flagBadge(flags, {className: 'badge badge-lang'}) : null;
+	const finishNode = finishBadge(finish);
 
-	if (flags.length) {
-		frame.append(flagBadge(flags, {className: 'badge badge-lang'}));
+	// The flag and the finish share the bottom-left corner, in that order.
+	if (flagNode || finishNode) {
+		frame.append(h('span', {class: 'badge-corner'}, flagNode, finishNode));
 	}
 
 	if (count > 1) {
@@ -335,12 +340,6 @@ export function tileArt({
 
 	if (favorite) {
 		frame.append(h('span', {'aria-label': 'Favorite', class: 'badge badge-fav', role: 'img', title: 'Favorite'}, '★'));
-	}
-
-	const finishNode = finishBadge(finish);
-
-	if (finishNode) {
-		frame.append(finishNode);
 	}
 
 	const statusNode = statusBadge(status, statusLabel);

@@ -1,7 +1,8 @@
 // The Value sheet: what a list of copies is worth, opened on demand from a
-// small Value button (DESIGN.md section 10: never a headline total). It
-// leads with how much of the list has a price at all, because a total over
-// half the cards reads as the whole collection's otherwise. My Cards opens
+// small Value button (DESIGN.md section 10: never a headline total). The
+// total leads, with how much of the list has a price at all right under it,
+// because a total over half the cards reads as the whole collection's
+// otherwise. My Cards opens
 // it; the Trade view can open it for the spares the same way, and a set, a
 // list, and a binder through valueButton below.
 
@@ -107,15 +108,19 @@ export function openValueSheet({cardsById, entries, filling = false, history = n
 			h('h2', {id: `${id}-title`}, 'Value'),
 			h('button', {class: 'small', onclick: () => sheet.close(), type: 'button'}, 'Close')
 		),
+		// The total first, then how much of the list it covers, then how it
+		// is worked out behind "How this is estimated" (design review 2,
+		// 2026-11-20: the sheet opened on its coverage, the total under the
+		// fold).
 		h('div', {class: 'vs-body'},
-			h('p', {class: 'vs-coverage'}, h('strong', null, `Priced: ${formatCount(coverage.priced)} of ${copies(coverage.count)}`)),
-			lines.length ? h('ul', {class: 'vs-reasons'}, lines) : null,
-			onShowUnpriced && unpriced ? h('button', {class: 'link-button vs-unpriced', onclick: () => {
-				sheet.close();
-				onShowUnpriced();
-			}, type: 'button'}, `Show the ${copies(unpriced)} without a price`) : null,
-			h('h3', {class: 'vs-of'}, coverage.priced === coverage.count ? 'All copies are priced' : 'Of the priced copies'),
-			statsBar({cardsById, entries, label, rates}),
+			statsBar({between: [
+				h('p', {class: 'vs-coverage'}, h('strong', null, `Priced: ${formatCount(coverage.priced)} of ${copies(coverage.count)}`)),
+				lines.length ? h('ul', {class: 'vs-reasons'}, lines) : null,
+				onShowUnpriced && unpriced ? h('button', {class: 'link-button vs-unpriced', onclick: () => {
+					sheet.close();
+					onShowUnpriced();
+				}, type: 'button'}, `Show the ${copies(unpriced)} without a price`) : null,
+			].filter(Boolean), cardsById, entries, label, rates}),
 			history ? collectionHistory(history) : null
 		)
 	);

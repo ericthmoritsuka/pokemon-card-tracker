@@ -87,9 +87,11 @@ export const SORTS = [
 // label My Cards' newest-first Set already uses.
 const DEFAULT_SORTS = SORTS.map((option) => option.value).filter((value) => value !== 'setOld');
 
-// Every filter the bar knows, in the order the sheet shows them. dex is a
-// Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite'];
+// Every filter the bar knows, in the order the sheet shows them: the ones
+// reached for most first, set and language (design review 2, 2026-11-20:
+// the sheet opened on region and Pokédex number). dex is a Pokédex number
+// range, kept as "<from>-<to>" ("25-25" for one number).
+export const FILTERS = ['set', 'language', 'rarity', 'type', 'category', 'region', 'dex', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite'];
 
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
@@ -487,6 +489,20 @@ function writeChoice(storageKey, state) {
 	}
 }
 
+// My Cards' saved choice (js/cards-view.js), here so another screen can
+// open My Cards already narrowed.
+export const MY_CARDS_CHOICE = 'cardTracker.cardsChoice';
+
+// Saves filters as a screen's choice, every other filter off and the sort
+// kept, for the screen to open with: the binders' "N owned cards not in any
+// binder" opens My Cards with Not in a binder on (design review 2,
+// 2026-11-20: it opened a bare grid with no bar).
+export function presetFilters(storageKey, filters) {
+	const saved = readChoice(storageKey, null);
+
+	writeChoice(storageKey, {filters: {...emptyFilters(), ...filters}, sort: saved.sort});
+}
+
 // ------------------------------------------------------------------ bar
 
 const SEARCH_DELAY_MS = 120;
@@ -513,12 +529,22 @@ let barCount = 0;
 //   legacy      () => {filters, sort} read when nothing is saved yet
 //   query       the search text to start with (Back from a card page)
 //   extra       nodes placed after the Filters button (My Cards' Value)
+//   beside      nodes for the search's own line, after Filters, which then
+//               leaves the sort's line for the sort and extra (My Cards'
+//               Select, its sort and View on the line under it)
+//   below       nodes after the sort's line and before the chips (My
+//               Cards' tools and count)
+//   clearChip   false when the screen offers Clear all itself (My Cards, in
+//               its count line); the chips then show the filters alone
 //   placeholder the search field's hint
 //   onChange(state, reason)  reason is 'query', 'filter', or 'sort'
 // Returns {element, state, setItems(items), setPlaces(names),
 // setFilter(kind, value), clearFilters(), clearAll(), openSheet(), refresh(),
 // destroy()}.
 export function filterBar({
+	beside = null,
+	below = [],
+	clearChip = true,
 	countShown = null,
 	extra = [],
 	// Pictures needs items that say whether they have a photo and a catalog
@@ -594,16 +620,20 @@ export function filterBar({
 
 	sortSelect.value = state.sort;
 
+	// "Filters · 2" while two are on (design review 2, 2026-11-20): words on
+	// the button, not a colored disc; the button's name says "2 active".
 	const countBadge = h('span', {'aria-hidden': 'true', class: 'fb-count', hidden: true});
 	const filterButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-open', id: `${id}-filters`, onclick: () => openSheet(), type: 'button'}, 'Filters', countBadge);
 	const chips = h('div', {'aria-label': 'Active filters', class: 'fb-chips', hidden: true, role: 'group'});
-	const element = h('div', {class: 'fb'},
-		ownSearch ? search : null,
+	const top = beside && ownSearch ? h('div', {class: 'fb-top'}, search, filterButton, ...beside) : null;
+	const element = h('div', {class: top ? 'fb fb-lines' : 'fb'},
+		top || (ownSearch ? search : null),
 		h('div', {class: 'fb-row'},
 			sortValues.length ? h('span', {class: 'select-wrap fb-sort-wrap'}, sortSelect) : null,
-			filterButton,
+			top ? null : filterButton,
 			...extra
 		),
+		...below,
 		chips
 	);
 
@@ -663,12 +693,12 @@ export function filterBar({
 		const active = activeFilters(state.filters);
 
 		countBadge.hidden = !active.length;
-		countBadge.textContent = String(active.length);
+		countBadge.textContent = ` · ${active.length}`;
 		filterButton.setAttribute('aria-label', active.length ? `Filters, ${active.length} active` : 'Filters');
 		// Clear all shows whenever anything narrows the list, the search too.
 		const narrowed = active.length > 0 || state.query.trim() !== '' || Boolean(outsideNarrowed());
 
-		chips.hidden = !narrowed;
+		chips.hidden = clearChip ? !narrowed : !active.length;
 		chips.replaceChildren(...[
 			...active.map((kind) => h('button', {
 				'aria-label': `Remove filter ${labelOf(kind, state.filters[kind])}`,
@@ -677,7 +707,7 @@ export function filterBar({
 				onclick: () => setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : ''),
 				type: 'button',
 			}, h('span', null, labelOf(kind, state.filters[kind])), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
-			narrowed ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
+			narrowed && clearChip ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
 		].filter(Boolean));
 	}
 

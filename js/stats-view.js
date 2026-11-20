@@ -1,9 +1,9 @@
 // The Stats screen (DESIGN.md section 11, "Stats"): what a collection holds,
-// opened from Stats in the My Cards heading, beside Spares and Trades.
-// Totals, then simple bars by language, set, rarity, type, finish, and
-// condition, the most valuable cards, the copies with no price, and the
-// copies added each month, and, on your own Stats, your lists' progress as
-// the Lists tab last counted it. A family member's cards have their own
+// opened from Stats in My Cards' bar, beside Value, Spares, and Trades.
+// The totals and the value, then, on your own Stats, your lists' progress
+// as the Lists tab last counted it, the most valuable cards, simple bars by
+// language, set, rarity, type, finish, and condition, the copies with no
+// price, and the copies added each month. A family member's cards have their own
 // Stats, view only. The numbers are js/stats.js; styles are css/stats.css.
 //
 // Worked out once per visit from what the phone already has: the copies,
@@ -34,7 +34,7 @@ import {formatCount, plural} from './format.js';
 import {listGoals} from './goals.js';
 import {languageLabel} from './languages.js';
 import {cardStamp, readListProgress} from './list-progress.js';
-import {formatBrl, savedRates} from './prices.js';
+import {formatBrl, formatBrlCompact, listStats, savedRates} from './prices.js';
 import {NOT_KNOWN, collectionStats, listsProgress, sharePercent} from './stats.js';
 import {memberDocument} from './sync.js';
 import {readValueHistory} from './value-history.js';
@@ -92,16 +92,21 @@ function describer(index, viewing) {
 	};
 }
 
-function totalsPart(totals) {
-	const item = (value, label, id) => h('div', {class: 'stats-total', id},
+// The summary: copies, cards, sets, and the value, the Value sheet's own sum
+// (js/prices.js listStats) in whole reais from R$ 100, "~" when part of it is
+// a US estimate (design review 2, 2026-11-20: it took the Languages tile,
+// which By language says in full).
+function totalsPart(totals, value) {
+	const item = (shown, label, id) => h('div', {class: 'stats-total', id},
 		h('dt', null, label),
-		h('dd', null, formatCount(value)));
+		h('dd', null, shown));
+	const worth = value && value.priced ? `${value.estimate.count ? '~' : ''}${formatBrlCompact(value.total)}` : 'Not known yet';
 
 	return h('dl', {class: 'card stats-totals', id: 'stats-totals'},
-		item(totals.copies, totals.copies === 1 ? 'Copy' : 'Copies', 'stats-copies'),
-		item(totals.cards, totals.cards === 1 ? 'Card' : 'Cards', 'stats-cards'),
-		item(totals.sets, totals.sets === 1 ? 'Set' : 'Sets', 'stats-sets'),
-		item(totals.languages, totals.languages === 1 ? 'Language' : 'Languages', 'stats-languages')
+		item(formatCount(totals.copies), totals.copies === 1 ? 'Copy' : 'Copies', 'stats-copies'),
+		item(formatCount(totals.cards), totals.cards === 1 ? 'Card' : 'Cards', 'stats-cards'),
+		item(formatCount(totals.sets), totals.sets === 1 ? 'Set' : 'Sets', 'stats-sets'),
+		item(worth, 'Value', 'stats-value')
 	);
 }
 
@@ -200,14 +205,18 @@ async function savedLists() {
 	}
 }
 
-function draw(stats, {history, lists}) {
+// The summary, your lists, the most valuable copies, and the language and
+// set bars lead (design review 2, 2026-11-20); the rest follow.
+function draw(stats, {history, lists, value}) {
 	const total = stats.totals.copies;
 	const top = stats.sets.top;
 	const waiting = (rows) => rows.some((row) => row.label === NOT_KNOWN);
 	const later = (rows) => (waiting(rows) ? h('p', {class: 'muted stats-note'}, `${NOT_KNOWN} fills in as card details download while My Cards is open.`) : null);
 
 	return [
-		totalsPart(stats.totals),
+		totalsPart(stats.totals, value),
+		lists ? listsPart(lists) : null,
+		valuablePart(stats),
 		section('By language', bars(stats.language, total, {id: 'stats-language'})),
 		section('By set',
 			bars(top, total, {id: 'stats-set'}),
@@ -219,7 +228,6 @@ function draw(stats, {history, lists}) {
 			later(stats.type)),
 		section('By finish', bars(stats.finish, total, {id: 'stats-finish'})),
 		section('By condition', bars(stats.condition, total, {id: 'stats-condition'})),
-		valuablePart(stats),
 		unpricedPart(stats.unpriced, total),
 		section('Added per month',
 			bars(stats.months.map((row) => ({count: row.count, label: monthName(row.month)})), total, {id: 'stats-months', percent: false}),
@@ -227,7 +235,6 @@ function draw(stats, {history, lists}) {
 				stats.before ? `${copies(stats.before)} added before then. ` : '',
 				'Imported cards count in the month they were imported.',
 			].join(''))),
-		lists ? listsPart(lists) : null,
 		history ? h('div', {class: 'card stats-section'}, collectionHistory(history)) : null,
 	].filter(Boolean);
 }
@@ -270,15 +277,21 @@ function statsScreen(root, {back, backLabel, load, ownHistory = false, ownLists 
 			return;
 		}
 
+		const records = new Map([...index, ...saved]);
+		const rates = savedRates();
 		const stats = collectionStats(entries, {
 			describe: describer(index, viewingLanguage()),
-			rates: savedRates(),
-			records: new Map([...index, ...saved]),
+			rates,
+			records,
 			saved,
 		});
 		const user = currentUser();
 
-		body.replaceChildren(...draw(stats, {history: ownHistory ? readValueHistory((user && user.id) || 'local') : null, lists}));
+		body.replaceChildren(...draw(stats, {
+			history: ownHistory ? readValueHistory((user && user.id) || 'local') : null,
+			lists,
+			value: listStats(entries, records, {rates}),
+		}));
 	})().catch((err) => {
 		if (alive) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, err && err.statsText ? err.message : `Stats could not be worked out. ${errorText(err)}`)));

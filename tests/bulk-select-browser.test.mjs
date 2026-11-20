@@ -483,7 +483,7 @@ describe('bulk select on My Cards', () => {
 		assert.equal(await count(page), '2 selected');
 		assert.deepEqual(await checked(page), [CHARMANDER_PT, TEST_BALL_PT]);
 
-		await page.click('.fb-clear');
+		await page.click('#cards-clear-all');
 		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 10);
 		assert.deepEqual(await checked(page), [CHARMANDER_PT, TEST_BALL_PT], 'the English Charmander is not ticked');
 		assert.equal(await count(page), '2 selected');

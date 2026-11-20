@@ -638,7 +638,7 @@ describe('swiping between cards', () => {
 });
 
 describe('the card tile', () => {
-	test('fixed corners: flag top-left, count top-right, finish bottom-left, owned bottom-right, and no flag in the viewing language', async () => {
+	test('fixed corners: flag and finish bottom-left, count top-right, owned bottom-right, and no flag in the viewing language', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 
 		await seedLocal(page, documentWith([
@@ -674,9 +674,13 @@ describe('the card tile', () => {
 		// Inset 4 px, give or take a subpixel of grid rounding.
 		const inset = (values, where) => assert.ok(values.every((value) => Math.abs(value - 4) <= 1), `${where}: ${values.join(', ')}`);
 
-		inset([corners.lang.left, corners.lang.top], 'the flag sits top-left');
+		// The flag bottom-left, over the card's illustrator strip rather
+		// than its printed name, and the finish beside it (design review 2,
+		// 2026-11-20).
+		inset([corners.lang.left, corners.lang.bottom], 'the flag sits bottom-left');
 		inset([corners.qty.right, corners.qty.top], 'the count sits top-right');
-		inset([corners.finish.left, corners.finish.bottom], 'the finish sits bottom-left');
+		inset([corners.finish.bottom], 'the finish sits on the bottom edge');
+		assert.ok(corners.finish.left >= corners.lang.left + 20 && corners.finish.left <= corners.lang.left + 34, `the finish beside the flag (${JSON.stringify(corners)})`);
 		assert.equal(await pt.locator('.badge-qty').textContent(), '×2');
 		assert.equal(await pt.locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 		assert.equal(await pt.locator('.badge-finish').textContent(), 'REV');

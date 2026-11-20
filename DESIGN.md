@@ -299,14 +299,21 @@ colour, never colour alone.
 **Quantity is a corner badge, not a trailing counter.**
 monprice's `xN` beside the card is easy to miss. Any card image standing for a card owned more
 than once (in that language) carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
-the scan tray. When the viewing language differs from the copy's language, a language chip
-(`PT`) sits in the opposite corner.
+the scan tray. When the viewing language differs from the copy's language, a language flag
+sits in the bottom-left corner, with the finish (`REV`, a ball, `1st`) beside it, over the card's
+illustrator and copyright strip (design review 2, 2026-11-20: in the top-left corner the flag
+covered the card's printed name, on tiles and binder pockets alike). In a binder pocket and the
+Mini view the flag is 18 x 13 px and the finish as tall. A checklist's or goal's "Owned in" flags
+sit in the same corner. The scan tray keeps its own corners (`css/scan.css`).
 
 **Card views: Large, Grid, Mini, and List** *(Eric, 2026-11-09: ways to see his cards in different
 sizes and layouts)*. My Cards has a View select beside Sort and Filters ("View: Grid"), kept on the
 phone (`cardTracker.cardsView`), Grid by default. **Large** is two a row on a phone, the art big
 with the name, the number as printed (`025 / 120`), and the value under it, for looking at the
-cards themselves. **Grid** is the tile as everywhere else. **Mini** is five or six a row at 384 px,
+cards themselves. **Grid** is the tile as everywhere else, kept to the name, one meta line, and
+the price: the meta line ends in an ellipsis (its whole text in its title and for a screen reader),
+and the name in the card's own language ("リザードンex (Lizardon ex)") shows only in Large and
+List (design review 2, 2026-11-20: tiles grew to three to five lines where a set name wrapped). **Mini** is five or six a row at 384 px,
 the art alone with its `×N` and language corners and no caption, a binder page's overview; each
 tile is named for a screen reader instead. **List** is a row per card (a thumbnail, the name and
 value, set and number, language, finish, and `×N`), for reading facts down a column; the row is
@@ -319,19 +326,36 @@ Sort at 324 px. The views keep the low-resolution images, so Large adds no downl
 second copy of each image to the phone's cache.
 
 **My Cards' heading and bar** *(design review, 2026-11-19: at 360 x 740 the first card started
-455 px down, under seven lines of heading, buttons, and counts)*. Nothing was taken away; the
-same controls sit on four lines, and the first card starts at 300 px:
+455 px down, under seven lines of heading, buttons, and counts; design review 2, 2026-11-20: the
+controls still took 39% of the screen, the first card 300 px down, 420 px while searching, and
+held sideways 51 px of cards showed)*. Nothing was taken away; the same controls sit on three
+lines and a count, and the first card starts at 254 px (294 px while searching, where the count
+line wraps to two with its text buttons):
 
-- **The heading:** the count ("41 copies in 40 tiles.", or "3 copies in 3 tiles match, of 41
-  copies." while a search or filter narrows the list) beside Spares and Trades. Why copies and
-  tiles differ, one tile per card and language, is the count's tooltip rather than a second
-  sentence. On a phone the title "My Cards" is for a screen reader only: the Cards tab names the
-  screen. From 600 px it shows before the count. A family member's cards keep their title
-  ("Eric's cards") on its own, as before.
-- **The bar:** one wrapping row in this order, each control's text whole and wrapping to the next
-  line before it would be cut (as at large text): the search with **Filters** and **Select**
-  beside it; **Sort** and **View**; **Value** with **Stats**, and **Add by hand** (which was in
-  the heading).
+- **The heading** keeps only the title. On a phone "My Cards" is for a screen reader only: the
+  Cards tab names the screen, held sideways too. From 600 px wide and 500 px tall it shows. A family member's cards keep their title
+  ("Eric's cards") with Spares and Wishlist beside it, as before.
+- **The bar:** the search with **Filters** and **Select** beside it; **Sort** and **View**, 40 px
+  tall; then **Value**, **Stats**, **Spares**, **Trades**, and **Add by hand**, 44 px tall (whole
+  touch targets, as Stats was beside Value), on one line that
+  scrolls sideways rather than wrap, running to the screen's edges so the button cut at the edge
+  says there is more. The first two lines wrap before a control's text would be cut, as at large
+  text.
+- **The count** is one muted line under them, in the reader's words: "41 copies · 40 cards", or
+  "3 of 41 copies · 3 cards" while a search or filter narrows the list (design review 2,
+  2026-11-20: it read "41 copies in 40 tiles."; a card counts once per language, which is its
+  tooltip). While a search or filter narrows the
+  list, **Clear all** and **Set storage for these N copies** are text buttons at the end of the
+  same line instead of a chip and a button on lines of their own; the filter chips stay under it.
+  The Trade view and a family member's cards have the same count line under their bar.
+- **From 600 px**, as a phone held sideways, the search line and Sort and View share a line, and
+  so do the tools and the count. Held sideways (no more than 500 px tall), the app's header
+  scrolls away with the page instead of staying at the top, as on a binder.
+- **Why not 200 px:** the review asked for the first card at 200 px or less (260 px while
+  searching); the three lines are 48, 40, and 44 px under the 72 px of header and margin, so the
+  gaps and the count line put it at 254 px. Getting to 200 would take controls under the touch
+  target or dropping the count line. Held sideways the first card is at 178 px (244 before), and
+  once the header scrolls away the whole height under the bar is cards.
 
 **Bulk select on My Cards** *(Eric, 2026-11-18: change many cards at once instead of opening
 each one)*. A **Select** button sits beside Filters in the bar (it ended the summary line until
@@ -2397,10 +2421,16 @@ TCGdex's GraphQL carries no pricing (checked 2026-10-02), so this is the REST ca
 request per card. Japanese, Korean, and Chinese prints have no market price and are never asked
 for; their tiles, and cards TCGdex has no price for, show a quiet "No price", while a card whose
 price is still downloading shows nothing. The Stats toggle and panel on My Cards gave way to a
-small **Value** button that opens a bottom sheet led by coverage: "Priced: N of M copies", how many
+small **Value** button that opens a bottom sheet. It leads with the total and the average (and
+the highest and lowest), with the coverage right under them: "Priced: N of M copies", how many
 are Asian prints with no market price, how many still wait for a price, how many TCGdex has no
-price for, then the statistics bar under "Of the priced copies", and a link that filters My Cards
-to the copies without a price. The sheet takes any list of copies, so the Trade view can open it.
+price for, and a link that filters My Cards to the copies without a price. How the total is worked
+out (the copies by Liga, by US estimate, and unknown, the rate and its day, the copies taking
+another finish's price) is behind **How this is estimated**, closed until tapped *(design review 2,
+2026-11-20: the sheet opened on its coverage, with the total under the fold; it was led by
+coverage so that a total over half the cards does not read as the whole collection's, which the
+line right under the total still does)*. The sheet takes any list of copies, so the Trade view can
+open it.
 
 **A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
 is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
@@ -2771,7 +2801,11 @@ stands clear of it. The 4 px came from the "Page N of M" line and the gap above 
 the book, whose pockets stay 44 px wide at 740 x 360. *(Design polish, 2026-11-06.)*
 
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
-cards are not in any binder yet.
+cards are not in any binder yet. The binders list's "N owned cards not in any binder" opens My
+Cards with its **Not in a binder** filter on, every other filter off and the sort kept, so the
+whole bar is there to narrow them further (design review 2, 2026-11-20: it opened a bare grid of
+its own). With that filter on, My Cards' count leaves out a tile's copies that are in a binder, so
+it matches the link's number. The `binders/unplaced` screen stays for an old link.
 
 **Resizing a binder** (Eric, 2026-10-02). When a binder's grid changes:
 
@@ -3370,11 +3404,15 @@ the binder card picker, the tray, and the wishlist can reuse it:
   server matches the name); its offline pass is. Cost: each distinct name is checked once per
   search, only within two letters of the diagonal; about 20 ms over 30,000 names on a laptop,
   and only when nothing matched as typed.
-- **Filters,** in a bottom sheet with the count of active ones on its button, each also shown as a
-  clearable chip: region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
-  "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone means
-  that one number), energy type (the eleven TCG types, with the themes' colors), category
-  (Pokémon, Trainer, Energy), set, language, rarity, priced or not, and not in a binder yet. A card
+- **Filters,** in a bottom sheet with the count of active ones on its button in words ("Filters ·
+  2"), each also shown as a clearable chip, in this order (design review 2, 2026-11-20: the sheet
+  opened on region and Pokédex number, while set and language are the ones reached for most): set,
+  language, rarity, energy type (the eleven TCG types, with the themes' colors), category (Pokémon,
+  Trainer, Energy), region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
+  "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone
+  means that one number), artist, priced or not, pictures, stored in, not in a binder yet, and
+  favorites. The binder pickers keep their own order (region first), as they fill binders by
+  region. A card
   with several Dex numbers (a TAG TEAM) fits a region or range when any of them does; a card with
   none (a Trainer, an Energy, or one whose details are not read yet) never fits a Dex filter.
 - **Sorts:** newest or oldest added, name, Pokédex number, set and number, price (unknown last).
@@ -3403,10 +3441,12 @@ the binder card picker, the tray, and the wishlist can reuse it:
 
 ### Trade and Favorites
 
-**The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, route `trade` (a member's, read only:
+**The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, titled **Spares** like the button
+that opens it (design review 2, 2026-11-20: it was titled "Trade", beside a Trades button for
+the trades log), route `trade` (a member's, read only:
 `family/<id>/trade`). It is My Cards over the spares only, so it has the same bar (search,
 set, language, rarity, price sort, Favorites), the same tiles, and the Value sheet with its coverage
-line. It is reached from the Spares button beside My Cards' heading and from Profile ("Spares to
+line. It is reached from the Spares button in My Cards' bar and from Profile ("Spares to
 trade"). Trade stays a query (section 3), never a stored list.
 
 - A spare is every copy beyond the first of the same card in the same language, whatever its
@@ -3854,27 +3894,30 @@ pass fills in prices, rarities, and types, and Stats says "Not known yet fills i
 download while My Cards is open" where some are missing. Counting about 2,500 copies is one pass
 over them, well under the 1 s the unit test allows.
 
-- **Where it opens.** A **Stats** link beside **Value** in My Cards' filter bar, the two kept
-  together on one line (with Add by hand after them since the design review of 2026-11-19). Both
-  are about the whole collection, so they sit together; the heading was the other candidate, but
-  Spares and Trades with the count already fill its row at 360 px. Profile
-  was ruled out because Stats is about the cards, and the Cards tab is where they are. "‹ My Cards"
-  goes back.
-- **What it shows.** Totals (copies, cards, sets, languages); bars by language, by set (the top
-  10, then "And N more sets, M copies"), by rarity, by type (a card of two types counts under
+- **Where it opens.** A **Stats** link beside **Value** in My Cards' bar, on the tools line with
+  Spares, Trades, and Add by hand (design review 2, 2026-11-20). Both are about the whole
+  collection, so they sit together. Profile was ruled out because Stats is about the cards, and
+  the Cards tab is where they are. "‹ My Cards" goes back.
+- **What it shows,** in this order *(design review 2, 2026-11-20: what is reached for most
+  first)*: totals (copies, cards, sets, and the value); on your own Stats, your lists' progress
+  (below); the 10 most valuable copies; bars by language, by set (the top 10, then "And N more
+  sets, M copies"), by rarity, by type (a card of two types counts under
   both, and a Trainer or Energy under its category), by finish (Normal, Holo, Reverse holo, 1st
   Edition, Poké Ball pattern, Master Ball pattern, read from the printing the copy's full record
   lists for it, else the word it was saved or imported with), and by condition (the copy sheet's
-  five, then Not set); the 10 most valuable copies; the copies with no price and why; the copies
+  five, then Not set); the copies with no price and why; the copies
   added in each of the last 12 months, oldest first, with "N added before then"; and, on your own
   Stats, the Value sheet's **Over time** part.
 - **Most valuable** takes each copy's value exactly as the Value sheet sums it (`js/prices.js`
   `copyValue`: the kept Liga price, else the US estimate at the saved rate, written "~"), so the
   rows add up to the sheet's total. Copies of one card in one language with the same value are one
   row with "×N". Each row links to the card's page, and the ten are offered as the swipe order.
-- **No headline total.** The collection's total stays in the Value sheet (section 10): Stats has
-  no total of its own; Over time is the sheet's part, as far down the screen as it is in the
-  sheet.
+- **The value in the totals** *(design review 2, 2026-11-20, replacing the Languages total, which
+  By language says in full)*: the Value sheet's own sum over the same copies (`listStats`), in
+  whole reais from R$ 100 and with "~" when part of it is a US estimate, or "Not known yet". It is
+  on the Stats screen, which is opened on purpose, never on the home screen, so the "no headline
+  total" rule of section 10 still holds there. Over time is the sheet's part, last on the
+  screen.
 - **Bars are text first.** Each row is its label, then its count and share ("412 · 16%", "less
   than 1%" for a sliver, so a row never reads 0% beside a count); the bar under it is
   `aria-hidden`, as long as its share of the largest row, in the theme's link color (the color of
@@ -3889,7 +3932,7 @@ over them, well under the 1 s the unit test allows.
   itself, since that needs the Pokédex map and each goal's card list (network or a large cache
   read). The Lists tab counts them anyway, so it now leaves each count on the phone
   (`js/list-progress.js`, per account, in this browser's storage and, like the value history,
-  never synced), and your own Stats shows a **Lists** part after the months: each checklist,
+  never synced), and your own Stats shows a **Lists** part right after the totals: each checklist,
   then each goal, in the Lists tab's order and under its current name, linked to its screen, with
   "N of M" (a master set goal's in finishes), its share, and a bar as long as that share. Under
   it, "As counted on Lists on <day>" (the oldest count), how many cards a checklist could not

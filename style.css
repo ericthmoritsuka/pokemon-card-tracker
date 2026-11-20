@@ -2801,13 +2801,32 @@ progress {
 	z-index: 1;
 }
 
-/* Top-left: the language flag. */
+/* Bottom-left: the language flag, then the finish beside it, over the
+   card's illustrator and copyright strip rather than its printed name
+   (design review 2, 2026-11-20). js/tile.js puts both in .badge-corner; a
+   checklist or goal cell's "Owned in" flags sit in the same corner alone. */
+.badge-corner {
+	align-items: flex-end;
+	bottom: var(--space-1);
+	display: flex;
+	gap: 2px;
+	left: var(--space-1);
+	max-width: calc(100% - 2 * var(--space-1) - 22px);
+	position: absolute;
+	z-index: 1;
+}
+
+.badge-corner > .badge {
+	flex: none;
+	position: static;
+}
+
 .badge-lang {
 	background: var(--badge-paper);
+	bottom: var(--space-1);
 	color: var(--badge-ink);
 	left: var(--space-1);
 	padding: 0 2px;
-	top: var(--space-1);
 }
 
 .badge-lang .flag {
@@ -2828,7 +2847,7 @@ progress {
 	top: var(--space-1);
 }
 
-/* Bottom-left: the finish. */
+/* The finish, beside the flag. */
 .badge-finish {
 	background: var(--badge-paper);
 	bottom: var(--space-1);
@@ -2891,10 +2910,49 @@ progress {
 
 /* Small tiles keep only the right-hand corners. */
 @container (max-width: 87px) {
+	.badge-corner,
 	.badge-lang,
 	.badge-finish {
 		display: none;
 	}
+}
+
+/* The small corner of a binder pocket and the Mini view: an 18 x 13 px
+   flag, and the finish as tall beside it. */
+.pocket .badge-corner,
+.card-grid[data-view="mini"] .badge-corner {
+	bottom: 2px;
+	left: 2px;
+}
+
+.pocket .badge-corner > .badge,
+.card-grid[data-view="mini"] .badge-corner > .badge {
+	font-size: 0.5625rem;
+	height: 13px;
+	line-height: 11px;
+	min-width: 13px;
+	padding: 0 2px;
+}
+
+.pocket .badge-corner > .badge-lang,
+.card-grid[data-view="mini"] .badge-corner > .badge-lang {
+	gap: 1px;
+	min-width: 18px;
+	padding: 0;
+}
+
+.pocket .badge-lang .flag,
+.card-grid[data-view="mini"] .badge-lang .flag {
+	border: 0;
+	border-radius: 1px;
+	height: 11px;
+	width: 16px;
+}
+
+.pocket .badge-corner .ball,
+.card-grid[data-view="mini"] .badge-corner .ball {
+	height: 9px;
+	width: 9px;
 }
 
 /* A notice or message in a grid spans the whole row, never one column. */
