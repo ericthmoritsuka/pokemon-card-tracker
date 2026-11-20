@@ -22,7 +22,9 @@ A full run takes about ten minutes. Useful options:
 | `--only 'sv01\|base1'` | Only the cards whose ID matches the regular expression. |
 | `--limit 10` | Only the first ten cards. |
 | `--throttle 4` | Slows the page's CPU four times, as a mid-range phone, for timings. Each card is first read once at full speed, so only the scanner's own work is timed. Throttling does not fully reach the OCR workers. |
-| `--workers 2` | OCR workers in the pool (the app uses two). |
+| `--workers 2` | OCR workers in the pool (the app uses two). With `--picture`, `1` also makes the page report 2 GB of memory, so the app's own reader starts one worker, as on a phone with less (`ocr.js` `workerCount`). |
+| `--picture` | The app's picture-first route (below) instead of the full read. |
+| `--session` | With `--picture`: each pass read as one scanning session, the cards in set order (below). |
 | `--out <file>` | Where the results JSON goes (default: the cache folder). |
 | `--crops <dir>` | Saves the straightened card and every OCR crop as PNG files. |
 | `--frame` | The whole-frame path instead of the guide's capture (below). |
@@ -31,6 +33,28 @@ A full run takes about ten minutes. Useful options:
 `REPO=<path>` measures another checkout of the app with the same benchmark, for a before and after:
 for example `git worktree add --detach /tmp/base <commit>`, then `REPO=/tmp/base node
 lab/bench/run.mjs`.
+
+## The Picture Route, and Sessions
+
+`--picture` reads each capture as the scanner has since it switched to picture first (DESIGN.md
+section 6, 2026-10-03): `identify.js` `identifyPicture` (straighten, fingerprint, match), the
+number read (`identifyText`) only when the picture is not sure and the stack does not pick the
+print, then `picture.js` `pictureMatch`. Each line ends with the first group's size, distance, and
+lead (`lead 2c 9.7/55.9`), the regions read, and `stack` or `recent` when a stack picked the card.
+Each pass then prints the right card first, the OCR calls (per scan, and per scan that read text),
+how many scans read each region (`numberLeft`, `numberRight`, `label`, `setCode`, `name`), the
+stack picks, and the OCR time. These counts do not depend on how busy the machine is, so they are
+the numbers to compare when other work shares it; the times do.
+
+`--session` reads each pass as one session, the cards sorted by set, as piles from one set, and
+gives each card the ones before it, the way `view.js` gives `session.js` `stackSet` and
+`recentSets` the tray: a card the scanner was sure of counts as its own answer, any other as the
+right card picked by hand. A tree without `recentSets` (`REPO=`) is given the stack alone.
+
+```sh
+PLAYWRIGHT=/path/to/node_modules/playwright node lab/bench/run.mjs --picture --session \
+  --passes clean,blur,glare,tilt,jpeg,nonumber,slant,low,lowslant
+```
 
 ## Where the Box Lies, and the Whole Frame
 
@@ -139,6 +163,8 @@ and scaled a little, at a seeded random, so every run sees the same images.
   repo; `run.mjs` refuses a folder inside it.
 - `dataset.json` lists the 40 cards: 16 modern English, 12 modern Portuguese, and 12 Wizards-era
   English, with their set, number, and name.
+- `session.json` lists 40 Pokémon for `--session`: eight each from `sv03`, `swsh7`, and `base1`
+  in English and `sv04` and `me01` in Portuguese, picked at random with a fixed seed, in set order.
 - Nothing the benchmark writes belongs in the repo: no images, no recorded answers, no results, no
   logs.
 

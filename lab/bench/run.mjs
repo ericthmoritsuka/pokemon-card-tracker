@@ -265,12 +265,22 @@ else {
 		}
 	}
 
+	// --session (with --picture): each pass read as one scanning session,
+	// the cards in set order, as piles from one set, each card given the
+	// cards before it (bench.js measurePicture history): a card the scanner
+	// was sure of counts as its answer, any other as the right card picked
+	// by hand.
+	const setOf = (id) => String(id).replace(/-[^-]+$/, '');
+	const ordered = args.session ? [...dataset].sort((a, b) => (a.set < b.set ? -1 : a.set > b.set ? 1 : 0)) : dataset;
+
 	for (const pass of args.numbers || args.geometry ? [] : passes) {
-		for (const item of dataset) {
+		const history = [];
+
+		for (const item of ordered) {
 			let r;
 
 			try {
-				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), options, pass}]));
+				r = await measured(() => page.evaluate(([it, o]) => window.bench.run(it, o), [item, {crops: Boolean(args.crops), frame: Boolean(args.frame), history: args.session ? history : [], options, pass}]));
 			}
 			catch (err) {
 				console.error(item.id, pass, err.message);
@@ -287,7 +297,8 @@ else {
 			r.nameRight = Boolean(top && (item.dex ? top.dex === item.dex : (top.spelling || top.name) === item.name));
 			r.wrongSure = Boolean(r.new.sure && (r.new.candidates[0] || {}).id !== item.id);
 			rows.push(r);
-			console.log(`${pass} ${item.id} num:${rank(r.new.numberOnly, item.id)} name:${rank(r.new.noArt, item.id)} full:${rank(r.new.candidates, item.id)} | n=${r.new.number} name="${r.new.name && r.new.name.text}"${r.nameRight ? ' (right)' : ''} hp=${r.new.hp && r.new.hp.value} calls ${r.new.calls} ${r.new.timings.total}ms (ocr ${r.new.timings.ocr})${r.wrongSure ? ' WRONG BUT SURE' : ''}`);
+			history.push(r.new.sure ? {set: setOf((r.new.candidates[0] || {}).id || item.id), stacked: Boolean(r.new.stack), sure: true} : {confirmed: true, set: item.set || setOf(item.id)});
+			console.log(`${pass} ${item.id} num:${rank(r.new.numberOnly, item.id)} name:${rank(r.new.noArt, item.id)} full:${rank(r.new.candidates, item.id)} | n=${r.new.number} name="${r.new.name && r.new.name.text}"${r.nameRight ? ' (right)' : ''} hp=${r.new.hp && r.new.hp.value} calls ${r.new.calls} ${r.new.timings.total}ms (ocr ${r.new.timings.ocr})${args.picture ? ` lead ${r.new.lead ? `${r.new.lead.cards}c ${r.new.lead.score}/${r.new.lead.gap}` : '-'} read ${Object.keys(r.new.regions || {}).join('+') || '-'}${r.new.stackKind ? ` ${r.new.stackKind}` : ''}${r.new.sure ? ' sure' : ''}` : ''}${r.wrongSure ? ' WRONG BUT SURE' : ''}`);
 		}
 	}
 
@@ -327,13 +338,20 @@ else {
 		return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
 	};
 
-	for (const pass of args.numbers || args.geometry ? [] : passes) {
-		const list = rows.filter((r) => r.pass === pass);
+	for (const pass of args.numbers || args.geometry ? [] : args.picture ? [...passes, 'all'] : passes) {
+		const list = rows.filter((r) => pass === 'all' || r.pass === pass);
 		const times = list.map((r) => r.new.timings);
 		const totals = times.map((t) => t.total).sort((a, b) => a - b);
 
 		if (args.picture) {
 			const ocr = list.filter((r) => r.new.ocr);
+			// The OCR calls, the regions read (scans that read each), the stack
+			// picks, and the OCR time of the scans that read text.
+			const calls = list.reduce((sum, r) => sum + (r.new.calls || 0), 0);
+			const regions = ['numberLeft', 'numberRight', 'label', 'setCode', 'name'].map((key) => `${key} ${list.filter((r) => r.new.regions && key in r.new.regions).length}`).join(', ');
+			const ocrMs = ocr.map((r) => r.new.timings.ocr).sort((a, b) => a - b);
+
+			console.log(`${pass}: right first ${list.filter(at('candidates', 1)).length}/${list.length}; OCR calls ${calls} (${(calls / Math.max(1, list.length)).toFixed(2)} a scan, ${(calls / Math.max(1, ocr.length)).toFixed(2)} a scan that read text); regions read: ${regions}; stack picks ${list.filter((r) => r.new.stackKind === 'stack').length}, recent-set picks ${list.filter((r) => r.new.stackKind === 'recent').length}; OCR ms median ${median(ocrMs)}, p90 ${ocrMs[Math.max(0, Math.ceil(ocrMs.length * 0.9) - 1)] || 0}, sum ${ocrMs.reduce((a, b) => a + b, 0)}`);
 
 			console.log(`${pass}: OCR ran for ${ocr.length}/${list.length}, sure ${list.filter((r) => r.new.sure).length} (wrong ${list.filter((r) => r.new.sure && (r.new.candidates[0] || {}).id !== r.truth).length}); rectify ${median(times.map((t) => t.rectify))} ms, fingerprint ${median(times.map((t) => t.fingerprint))} ms, match ${median(times.map((t) => t.match))} ms, total median ${median(totals)} ms, p90 ${totals[Math.max(0, Math.ceil(totals.length * 0.9) - 1)] || 0} ms; without OCR ${median(list.filter((r) => !r.new.ocr).map((r) => r.new.timings.total))} ms, with OCR ${median(ocr.map((r) => r.new.timings.total))} ms`);
 			continue;

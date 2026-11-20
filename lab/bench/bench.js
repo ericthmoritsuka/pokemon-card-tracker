@@ -18,8 +18,9 @@ import {createPool} from '/pokemon-card-tracker/js/scan/ocr.js';
 import {readCard, readNumber} from '/pokemon-card-tracker/js/scan/read.js';
 import {rectify} from '/pokemon-card-tracker/js/scan/rectify.js';
 import {judgeMatch, summariseRead} from '/pokemon-card-tracker/js/scan/session.js';
-import {identify} from '/pokemon-card-tracker/js/scan/identify.js';
-import {pictureMatch} from '/pokemon-card-tracker/js/scan/picture.js';
+import * as identifying from '/pokemon-card-tracker/js/scan/identify.js';
+import {pictureMatch, stackPick} from '/pokemon-card-tracker/js/scan/picture.js';
+import * as sessions from '/pokemon-card-tracker/js/scan/session.js';
 import {rectQuad} from '/pokemon-card-tracker/js/scan/rectify.js';
 
 // The whole-frame path (--frame): the camera's guide laid out on a phone
@@ -421,27 +422,41 @@ const langOf = (read) => (read.language && read.language.code) || null;
 const small = (cands) => cands.map((c) => ({conf: c.confidence ?? null, id: c.id, reasons: c.reasons, score: c.score}));
 
 // The app's own route since the switch to picture first (run.mjs
-// --picture): js/scan/identify.js (rectify, fingerprint and match, a
-// number-only read when the picture needs one), then js/scan/picture.js
-// pictureMatch, with the text route behind it, as js/scan/view.js does.
-async function measurePicture(image, {crops = false} = {}) {
+// --picture): js/scan/identify.js identifyPicture (rectify, fingerprint and
+// match), the stack the cards before it give (session.js stackSet, and
+// recentSets with identify.js recentStack where the tree has them), a
+// number-only read (identifyText) when the picture needs one and the stack
+// does not pick the print, then js/scan/picture.js pictureMatch, with the
+// text route behind it, as js/scan/view.js does. history: the cards read
+// before this one in a session-like run (run.mjs --session), each {set,
+// sure, stacked, confirmed}; empty, no stack, as a fresh scanner.
+async function measurePicture(image, {crops = false, history = []} = {}) {
 	const t0 = performance.now();
+	const session = {items: [...history.map((h, i) => ({card: h.set ? {setId: h.set} : null, confirmed: Boolean(h.confirmed), id: `h${i}`, stacked: Boolean(h.stacked), sure: Boolean(h.sure)})), {card: null, id: 'now'}]};
+	const stackSet = sessions.stackSet ? sessions.stackSet(session, 'now') : null;
 	// The outlines found in the whole frame (--frame), as view.js passes them.
-	const result = await identify(image, {quads: image.quads || []});
-	const read = result.read ? summariseRead(result.read) : null;
+	const seen = await identifying.identifyPicture(image, {quads: image.quads || []});
+	const recent = !stackPick(seen.picture, stackSet) && identifying.recentStack && sessions.recentSets ? identifying.recentStack(seen.picture, sessions.recentSets(session, 'now')) : null;
+	const stack = recent || stackSet;
+	const result = seen.needsText && !stackPick(seen.picture, stack) ? await identifying.identifyText(seen, {}) : seen;
+	const read = result.read ? sessions.summariseRead(result.read) : null;
 	const lang = read && read.language.code ? read.language.code : null;
 	const t1 = performance.now();
-	const found = await pictureMatch(result.picture, read, lang, {textRoute: (r, l) => findCandidates(r, l, {artwork: result.artwork})});
+	const found = await pictureMatch(result.picture, read, lang, {stack, textRoute: (r, l) => findCandidates(r, l, {artwork: result.artwork})});
 	const t2 = performance.now();
 	const list = found.card ? [found.card, ...found.candidates.filter((c) => c !== found.card)] : found.candidates;
 	const candidates = small(list);
+	const timings = (result.read && result.read.timings) || {};
+	const lead = result.picture && result.picture.groups[0];
 	const out = {
 		angle: result.angle,
+		calls: timings.calls || 0,
 		candidates,
 		cardSize: `${result.card.width}x${result.card.height}`,
 		found: result.found,
 		hp: null,
 		language: read ? read.language : null,
+		lead: lead ? {cards: lead.cards.length, gap: result.picture.gap, score: lead.score} : null,
 		name: null,
 		names: [],
 		noArt: candidates,
@@ -451,6 +466,13 @@ async function measurePicture(image, {crops = false} = {}) {
 		ocr: result.ocr,
 		picture: result.picture ? {gap: result.picture.gap, how: result.picture.how, top: result.picture.groups.map((g) => `${g.cards.map((c) => c.id).join('+')} ${g.score}`)} : null,
 		ratio: result.ratio,
+		// The regions read and the OCR time in each (read.js readNumber
+		// timings), and the calls in each where the tree counts them.
+		regions: Object.fromEntries(Object.entries(timings).filter(([key]) => !['calls', 'ocr', 'reads'].includes(key))),
+		reads: timings.reads || null,
+		sharpness: result.read && result.read.sharpness ? result.read.sharpness.value : null,
+		stack: Boolean(found.stack),
+		stackKind: found.stack ? (recent ? 'recent' : 'stack') : null,
 		sure: found.sure,
 		timings: {fingerprint: result.timings.fingerprint, match: Math.round(t2 - t1) + (result.timings.match || 0), ocr: result.timings.ocr || 0, rectify: result.timings.rectify, total: Math.round(t2 - t0)},
 		why: found.why,
@@ -458,14 +480,18 @@ async function measurePicture(image, {crops = false} = {}) {
 
 	if (crops) {
 		out.crops = {card: await imageUrl(result.card)};
+
+		for (const [k, v] of Object.entries((result.read && result.read.crops) || {})) {
+			out.crops[k] = await imageUrl(v);
+		}
 	}
 
 	return out;
 }
 
-async function measure(image, {crops = false, options = {}} = {}) {
+async function measure(image, {crops = false, history = [], options = {}} = {}) {
 	if (options.pictureFirst) {
-		return measurePicture(image, {crops});
+		return measurePicture(image, {crops, history});
 	}
 
 	const t0 = performance.now();
@@ -552,6 +578,13 @@ async function measureNumber(image, {crops = false, options = {}} = {}) {
 
 window.bench = {
 	async init({workers = 2} = {}) {
+		// The app's own reader (identify.js warmEngine, ocr.js workerCount)
+		// starts one worker on a phone that reports under 4 GB, as a slow
+		// phone may: --workers 1 makes this page report 2 GB.
+		if (workers < 2) {
+			Object.defineProperty(navigator, 'deviceMemory', {configurable: true, value: 2});
+		}
+
 		if (pool) {
 			await pool.terminate();
 		}
@@ -572,11 +605,11 @@ window.bench = {
 	asianLoads: () => (pool && pool.asianLoads) || [],
 	// One card from the dataset through one pass; a card with `korean` is
 	// first given that Korean name (koreanCard).
-	async run(item, {crops = false, frame = false, options = {}, pass = 'clean'} = {}) {
+	async run(item, {crops = false, frame = false, history = [], options = {}, pass = 'clean'} = {}) {
 		const bitmap = await bitmapOf(item.file);
 		const image = await capture(item.korean ? await koreanCard(bitmap, item.korean) : bitmap, item.id, pass, {frame});
 
-		return {id: item.id, new: await measure(image, {crops, options}), pass};
+		return {id: item.id, new: await measure(image, {crops, history, options}), pass};
 	},
 	// One card through one pass, straightened only (run.mjs --geometry):
 	// where the box rectify cut lies against the card (boxError), with no

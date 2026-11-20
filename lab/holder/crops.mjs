@@ -1,7 +1,7 @@
 // Identification benchmark from scan-log crops (lab/holder/README.md).
 //
 // node lab/holder/crops.mjs <scan-log.json>... [--repo <checkout>] [--variants]
-//   [--turns] [--out <results.json>] [--only <regexp on the truth id>] [--verbose]
+//   [--turns] [--recent] [--out <results.json>] [--only <regexp on the truth id>] [--verbose]
 //
 // Each log entry's straightened card (the JPEG the scanner kept, 420 px
 // tall) goes through the app's picture match (js/scan/picture.js matchCrops,
@@ -11,7 +11,10 @@
 // (moved, zoomed, a strip of the card underneath, turned, blurred) and
 // scores each variant the same way. --turns also scores every card upside
 // down and on its side (recrop.mjs TURNS). --repo runs another checkout's matcher
-// on the same crops, for a before and after.
+// on the same crops, for a before and after. --recent also scores the
+// recent-set rule (js/scan/identify.js recentStack, v86): the unsure crops
+// it makes sure when their own card's set is a recent one, and, the worst
+// case, the wrong first places it would make sure if theirs were.
 
 import {writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
@@ -23,6 +26,7 @@ import {args as parseArgs, dataUrlBytes, decodeImage, loadFingerprintIndex, medi
 const opts = parseArgs();
 const repo = resolve(opts.repo || REPO);
 const picture = await import(pathToFileURL(join(repo, 'js/scan/picture.js')).href);
+const recentStack = opts.recent ? (await import(pathToFileURL(join(repo, 'js/scan/identify.js')).href)).recentStack : null;
 const index = loadFingerprintIndex(join(repo, 'js/vision/index.bin'));
 const only = opts.only ? new RegExp(opts.only) : null;
 const entries = readLogs(opts._).filter((e) => e.picture && e.truth && (!only || only.test(e.truth)));
@@ -47,8 +51,14 @@ function score(entry, img) {
 	// "Several": a clear lead whose group holds more than one print; the
 	// number read settles it, so it counts as right-and-clear here.
 	const clear = verdict.clear;
+	const lead = compact.groups[0];
+	const setOf = (id) => id.replace(/-[^-]+$/, '');
 
 	return {
+		...(recentStack ? {
+			recentRight: !sure && right && Boolean(recentStack(compact, new Set([setOf(entry.truth)]))),
+			recentWrong: !sure && !right && Boolean(lead && recentStack(compact, new Set(lead.cards.map((c) => c.set)))),
+		} : {}),
 		clear,
 		distance: groups[0] ? Math.round(groups[0].score * 10) / 10 : null,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
@@ -123,6 +133,12 @@ for (const app of [...new Set(entries.map((e) => e.app))]) {
 	const s = summary(rows.filter((r) => r.app === app && r.variant === variants[0].name));
 
 	console.log(`\n${app}: ${s.right}/${s.n} right first, ${s.sure} sure, ${s.unsure} unsure (${pct(s.unsure, s.n)}), ${s.wrongSure} wrong but sure`);
+}
+
+if (recentStack) {
+	const list = rows.filter((r) => !r.sure);
+
+	console.log(`\nRecent-set rule: of ${list.length} unsure crops, ${rows.filter((r) => r.recentRight).length} right ones made sure when their set is recent; ${rows.filter((r) => r.recentWrong).length} wrong first places made sure in the worst case (their own set recent)`);
 }
 
 console.log(`\nMedian match time per crop: ${table[variants[0].name].medianMs} ms (this machine)`);
