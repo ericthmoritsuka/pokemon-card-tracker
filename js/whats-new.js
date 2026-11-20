@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'A new version now takes over only when you come back after at least 5 minutes away, never while you move between screens, and a card in hand or a family member\'s view carries over.',
+			'Trades and sales warns when one card was logged leaving on two phones, on both entries, until you undo the one that did not happen.',
+			'A purchase with one total says "1 of 3 cards bought for", and editing one of several copies changes the one in the binder pocket the row names.',
+			'The Log a trade or purchase form keeps its cards through a reload; a binder page you read again is offered the page its cards are on; 025/165 finds that card; Stats counts cards as My Cards does.',
+		],
+		version: 'v95',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'The switch to a new version also waits while a form has a choice you made but did not save yet, such as a new colour or grid in Edit binder.',
 			'It waits while a message offers Undo, too, so you can still take an action back.',
 		],
