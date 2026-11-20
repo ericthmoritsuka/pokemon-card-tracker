@@ -48,7 +48,9 @@
 // Undo rules (js/start-over.js undoSwap), and the move becomes a tombstone.
 // It is refused while a later live move names one of its in copies (sold
 // on, say): that move is undone first, or the copy would come back with
-// nothing that brought it.
+// nothing that brought it. A copy two live moves both take out, logged on
+// two phones offline (QA, 2026-11-20), is marked on both in History
+// (twiceOut), and Undo of either leaves it out, handed to the other.
 // Edit (Eric, 2026-11-05) changes a logged move's date, who, price, and
 // note, stamped field by field (the price, currency, money, and a
 // purchase's card prices as one unit; Eric, 2026-11-19), and never its
@@ -195,21 +197,84 @@ export const newestFirst = (a, b) => String(b.date || '').localeCompare(String(a
 	|| String(b.created_at || '').localeCompare(String(a.created_at || ''))
 	|| String(a.id).localeCompare(String(b.id));
 
-// The live moves by month, newest first: [{month: 'YYYY-MM', moves, in, out}],
-// where in and out map each currency to the money that came in and went
-// out that month, to the cent.
+// A copy logged out twice (QA, 2026-11-20): each phone refuses a copy a
+// live move already names, but two phones offline can each log the same
+// copy leaving, a sale on one and a trade on the other, and the merge keeps
+// both moves, as it keeps every entry. Neither is dropped, since either may
+// be what happened: the log says so on both, and Undo of the one that did
+// not happen ends it. For each live move whose cards out (past included)
+// another live move also takes out: Map move id -> [{move, ids}], the
+// other moves newest first, each with the copies the two share. Read from
+// the moves alone, so every phone with the same moves shows the same.
+export function twiceOut(moves) {
+	const live = (moves || []).filter((move) => move && move.id && isLive(move)).sort(newestFirst);
+	const byCopy = new Map();
+
+	for (const move of live) {
+		for (const id of new Set(Array.isArray(move.out) ? move.out : [])) {
+			byCopy.set(id, [...(byCopy.get(id) || []), move]);
+		}
+	}
+
+	const found = new Map();
+
+	for (const move of live) {
+		const others = [];
+
+		for (const other of live) {
+			const ids = other === move ? [] : [...new Set(Array.isArray(move.out) ? move.out : [])].filter((id) => byCopy.get(id).includes(other)).sort();
+
+			if (ids.length) {
+				others.push({ids, move: other});
+			}
+		}
+
+		if (others.length) {
+			found.set(move.id, others);
+		}
+	}
+
+	return found;
+}
+
+// What a row of History and a move's sheet say about a copy logged out
+// twice: "Dipplin also left in "Traded with Lucas" on 20 Nov. Undo the one
+// that did not happen." names: the card names of copy ids, or null for
+// "This copy".
+export function twiceOutText(others, {names = null, now = new Date()} = {}) {
+	const lines = (others || []).map(({ids, move}) => {
+		const named = names ? [...new Set(names(ids))] : [];
+		const who = named.length ? named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}` : ids.length === 1 ? 'This copy' : 'These copies';
+		const date = shortDate(move.date, {now});
+
+		return `${who} also left in "${moveTitle(move)}"${date ? ` on ${date}` : ''}.`;
+	});
+
+	return lines.length ? `${lines.join(' ')} Undo the ${lines.length === 1 ? 'one' : 'ones'} that did not happen.` : '';
+}
+
+export const TWICE_MONEY_TEXT = 'Includes a copy logged out twice.';
+
+// The live moves by month, newest first: [{month: 'YYYY-MM', moves, in, out,
+// twice}], where in and out map each currency to the money that came in and
+// went out that month, to the cent, and twice is true when that money
+// counts a move whose copy another live move also took out (twiceOut): the
+// totals count every live move as logged, and the month says so until one
+// of the two is undone.
 export function monthTotals(moves) {
 	const months = new Map();
+	const twice = twiceOut(moves);
 
 	for (const move of (moves || []).filter((item) => item && item.id && isLive(item)).sort(newestFirst)) {
 		const month = /^\d{4}-\d{2}/.test(String(move.date || '')) ? move.date.slice(0, 7) : '';
-		const row = months.get(month) || {in: {}, month, moves: [], out: {}};
+		const row = months.get(month) || {in: {}, month, moves: [], out: {}, twice: false};
 		const money = moneyOf(move);
 
 		row.moves.push(move);
 
 		if (money) {
 			row[money.way][money.currency] = Math.round(((row[money.way][money.currency] || 0) + money.amount) * 100) / 100;
+			row.twice = row.twice || twice.has(move.id);
 		}
 
 		months.set(month, row);
@@ -519,7 +584,7 @@ function runSince(doc, move) {
 // names one of its in copies in its out list ('later', that move in later).
 export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 	const move = moveById(doc, moveId);
-	const counts = {added: 0, kept: 0, restored: 0, unlinked: 0};
+	const counts = {added: 0, held: 0, kept: 0, restored: 0, unlinked: 0};
 	const refuse = (reason, later = null) => ({counts, doc: structuredClone(doc), later, reason, stale: true});
 
 	if (!move || !isLive(move)) {
@@ -537,23 +602,70 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 		return refuse('later', later[0]);
 	}
 
+	// A copy another live move also takes out (logged out twice on two
+	// phones, twiceOut) stays out: that move still says it left, so Undo of
+	// this one neither brings it back nor puts it back in a pocket, a tray,
+	// a collection, or a pick. The copy is handed to the move that keeps it
+	// (the newest, when several do): its left_via names that move and, when
+	// the merge kept this move's removal, its deleted_at becomes the one
+	// that move recorded, so Undo of that move later brings the copy back
+	// (undoSwap restores only a removal it recorded). Which phone's removal
+	// the merge kept does not matter.
+	const held = new Map();
+
+	for (const {ids, move: other} of twiceOut(liveMoves(doc)).get(move.id) || []) {
+		for (const id of ids) {
+			if (!held.has(id)) {
+				const theirs = ((other.undo && other.undo.removed) || []).find((item) => item && item.id === id);
+
+				held.set(id, {at: theirs ? theirs.deleted_at : null, id: other.id});
+			}
+		}
+	}
+
+	const free = (id) => !held.has(id);
 	const kept = move.undo || {};
 	const undo = {
 		added: Array.isArray(move.in) ? move.in : [],
-		binders: kept.binders || [],
-		collections: kept.collections || [],
+		binders: (kept.binders || []).map((item) => ({
+			...item,
+			pockets: (item.pockets || []).filter((pocket) => free(pocket.entry_id)),
+			staged: item.staged ? {...item.staged, before: (item.staged.before || []).filter(free)} : item.staged,
+		})),
+		collections: (kept.collections || []).map((item) => {
+			const keep = (item.ids || []).map((id, i) => [id, (item.written || [])[i]]).filter(([id]) => free(id));
+
+			return {...item, ids: keep.map(([id]) => id), written: keep.map(([, written]) => written)};
+		}),
 		fills: kept.fills || [],
 		hashes: kept.hashes || {},
-		picks: kept.picks || [],
-		removed: kept.removed || [],
+		picks: (kept.picks || []).filter((pick) => free(pick.entry_id)),
+		removed: (kept.removed || []).filter((item) => free(item.id)),
 		wishes: kept.wishes || [],
 	};
 	const done = undoSwap(doc, undo, {drop: ['left_via'], now});
 	const next = done.doc;
 	const past = new Set(Array.isArray(move.past) ? move.past : []);
+	const out = new Set(Array.isArray(move.out) ? move.out : []);
 
 	next.cards = next.cards.map((entry) => {
-		if (!entry || !past.has(entry.id) || !entry.deleted_at || entry.left_via !== move.id) {
+		if (!entry || !entry.deleted_at || !out.has(entry.id)) {
+			return entry;
+		}
+
+		if (held.has(entry.id)) {
+			counts.held++;
+
+			if (entry.left_via !== move.id) {
+				return entry;
+			}
+
+			const keeper = held.get(entry.id);
+
+			return stampEntry(entry, {...entry, deleted_at: keeper.at || entry.deleted_at, left_via: keeper.id, updated_at: nextStamp(entry.updated_at, now)});
+		}
+
+		if (!past.has(entry.id) || entry.left_via !== move.id) {
 			return entry;
 		}
 

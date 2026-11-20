@@ -271,6 +271,58 @@ test('a month\'s money line says Received for a trade\'s cash in, and Paid for m
 	await done();
 });
 
+// QA, 2026-11-20: both of Eric's phones offline, a sale of a copy to Ana on
+// one and a trade of the same copy to Lucas on the other, then a sync. Both
+// moves stay, each row and sheet says the copy also left in the other, the
+// month says its money counts a copy logged out twice, and Undo of the sale
+// ends it with the copy still out, named by the trade.
+test('a copy logged out on two phones offline is marked on both moves until one is undone', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {loadDocument, mergeIntoLocal, saveCopy} = await import('/pokemon-card-tracker/js/collection.js');
+		const {planMove} = await import('/pokemon-card-tracker/js/moves.js');
+		const base = structuredClone(await loadDocument());
+		const date = new Date().toISOString().slice(0, 10);
+		const now = Date.now();
+		const spare = {card_id: 'tsb2-090', catalog: 'international', language: 'en', language_source: 'manual', variant_id: null};
+		const laptop = planMove(base, {date, in: [spare], kind: 'traded', out: ['c-02'], who: 'Lucas'}, {id: 'm-trade', now: now + 5000}).doc;
+
+		await saveCopy(planMove(base, {currency: 'BRL', date, kind: 'sold', out: ['c-02'], price: '10', who: 'Ana'}, {id: 'm-sale', now}).doc);
+		await mergeIntoLocal(laptop);
+	});
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+
+	const sale = page.locator('.moves-row[data-move="m-sale"]');
+	const trade = page.locator('.moves-row[data-move="m-trade"]');
+
+	assert.match(await sale.locator('.moves-twice').textContent(), /^Charmander also left in "Traded with Lucas" on \d+ \w{3}( \d{4})?\. Undo the one that did not happen\.$/);
+	assert.match(await trade.locator('.moves-twice').textContent(), /^Charmander also left in "Sold for R\$\s10,00 to Ana" on \d+ \w{3}( \d{4})?\. Undo the one that did not happen\.$/);
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Received R\$\s10,00$/, 'the money counts the sale as logged');
+	assert.equal(await page.locator('.moves-twice-money').textContent(), 'Includes a copy logged out twice.');
+	assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'the warnings fit at 390 px');
+	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-twice.png`});
+
+	await sale.click();
+	await page.waitForSelector('#move-sheet-twice');
+	assert.match(await page.locator('#move-sheet-twice').textContent(), /^Charmander also left in "Traded with Lucas"/);
+	await page.click('#move-undo');
+	await page.click('#move-undo-go');
+	await page.waitForFunction(() => document.querySelectorAll('.moves-row').length === 1);
+	assert.match(await page.locator('.toast-text').last().textContent(), /^Undone\. 0 copies are back, and 0 cards in were removed\. 1 copy stays out, as another trade or sale took it out too\.$/);
+	assert.equal(await page.locator('#moves-body .moves-twice, #moves-body .moves-twice-money').count(), 0, 'the warning is gone with the sale');
+	assert.equal(await page.locator('.moves-title').textContent(), 'Traded with Lucas');
+
+	const now = await state(page);
+
+	assert.ok(now.cards['c-02'].deleted_at, 'the copy stays out: the trade still took it');
+	assert.equal(now.cards['c-02'].left_via, 'm-trade');
+	assert.deepEqual(now.moves.map((move) => [move.id, move.deleted]).sort(), [['m-sale', true], ['m-trade', false]]);
+	await done();
+});
+
 test('Log a past sale links a copy removed by hand, and it stays removed', async () => {
 	const {done, gone, page} = await phone({removed: true});
 

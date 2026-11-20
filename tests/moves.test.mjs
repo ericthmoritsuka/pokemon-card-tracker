@@ -73,7 +73,7 @@ const collection = await import('../js/collection.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const v47 = await import('./v47/merge.js');
 const v21 = await import('./merge-v21.mjs');
-const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, pricedCards, purchaseSources, startOverBlockedText, sumPrices, undoMove} = await import('../js/moves.js');
+const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, pricedCards, purchaseSources, startOverBlockedText, sumPrices, twiceOut, twiceOutText, undoMove} = await import('../js/moves.js');
 const {importEntries} = await import('../js/monprice.js');
 const {planStartOver, planUndo, startOverIds} = await import('../js/start-over.js');
 
@@ -244,7 +244,7 @@ describe('Undo and deleting a move', () => {
 		const {counts, doc: back, stale} = planUndoMove(doc, 'm2', {now: LATER});
 
 		assert.equal(stale, false);
-		assert.deepEqual(counts, {added: 1, kept: 0, restored: 1, unlinked: 0});
+		assert.deepEqual(counts, {added: 1, held: 0, kept: 0, restored: 1, unlinked: 0});
 		assert.ok(!byId(back, 'a1').deleted_at);
 		assert.equal(byId(back, 'a1').left_via, undefined, 'a copy that comes back is no longer marked as gone');
 		assert.ok(byId(back, 'a1').field_stamps.left_via, 'and that is stamped, so the tombstone cannot give it back');
@@ -270,7 +270,7 @@ describe('Undo and deleting a move', () => {
 		const synced = mergeDocuments(doc, other);
 		const {counts, doc: back} = planUndoMove(synced, 'm2', {now: LATER});
 
-		assert.deepEqual(counts, {added: 0, kept: 1, restored: 1, unlinked: 0});
+		assert.deepEqual(counts, {added: 0, held: 0, kept: 1, restored: 1, unlinked: 0});
 		assert.ok(!byId(back, id).deleted_at);
 		assert.equal(slotAt(back, 5).entry_id, id);
 		assert.ok(back.wishlist[0].got_at, 'its wish stays Got it');
@@ -282,7 +282,7 @@ describe('Undo and deleting a move', () => {
 		const phone = mergeDocuments(startDoc(), server);
 		const {counts, doc: back} = planUndoMove(phone, 'm2', {now: LATER});
 
-		assert.deepEqual(counts, {added: 1, kept: 0, restored: 1, unlinked: 0});
+		assert.deepEqual(counts, {added: 1, held: 0, kept: 0, restored: 1, unlinked: 0});
 		assert.ok(!byId(back, 'a1').deleted_at);
 
 		// And the Undo, synced to the phone that logged the move, sticks.
@@ -390,6 +390,58 @@ describe('two phones and older versions', () => {
 		}
 
 		assert.equal(stableJson(a.moves.slice().sort((x, y) => x.id.localeCompare(y.id))), stableJson(b.moves.slice().sort((x, y) => x.id.localeCompare(y.id))));
+	});
+
+	// QA, 2026-11-20: both phones offline, a sale of copy a1 to Ana on one
+	// and a trade of the same copy to Lucas on the other. The merge keeps
+	// both, as it keeps every entry; the log marks each with the other, the
+	// same whichever way round the merge ran, and Undo of either one ends it
+	// with the copy still out, named by the move that stays.
+	test('the same copy logged out on two phones offline: both moves stay, each is marked with the other, and Undo of either ends it with the copy still out', () => {
+		const phone = planMove(startDoc(), {currency: 'BRL', date: '2026-11-03', kind: 'sold', out: ['a1'], price: '10', who: 'Ana'}, {fill: true, id: 'm1', now: NOW}).doc;
+		const laptop = planMove(startDoc(), {date: '2026-11-04', in: [IN_CARD], kind: 'traded', out: ['a1'], who: 'Lucas'}, {fill: true, id: 'm2', now: NOW + 5000}).doc;
+		const merged = [mergeDocuments(phone, laptop), mergeDocuments(laptop, phone)];
+		const now = new Date('2026-11-05T12:00:00');
+		const marks = merged.map((doc) => [...twiceOut(doc.moves)].map(([id, others]) => [id, others.map((other) => [other.move.id, other.ids])]).sort());
+
+		assert.deepEqual(marks[0], [['m1', [['m2', ['a1']]]], ['m2', [['m1', ['a1']]]]]);
+		assert.deepEqual(marks[1], marks[0], 'the same marks whichever way round the merge ran');
+
+		for (const doc of merged) {
+			const twice = twiceOut(doc.moves);
+
+			assert.equal(twiceOutText(twice.get('m1'), {names: () => ['Dipplin'], now}), 'Dipplin also left in "Traded with Lucas" on 4 Nov. Undo the one that did not happen.');
+			assert.equal(twiceOutText(twice.get('m2'), {now}), 'This copy also left in "Sold for R$\u00a010,00 to Ana" on 3 Nov. Undo the one that did not happen.');
+			assert.deepEqual(monthTotals(doc.moves).map((month) => [month.month, month.in, month.twice]), [['2026-11', {BRL: 10}, true]], 'the sale\'s money is counted, and the month says so');
+			assert.ok(byId(doc, 'a1').deleted_at);
+
+			for (const [undone, stays] of [['m1', 'm2'], ['m2', 'm1']]) {
+				const {counts, doc: back, stale} = planUndoMove(doc, undone, {now: LATER});
+
+				assert.equal(stale, false);
+				assert.equal(counts.held, 1, `Undo of ${undone} keeps the copy out`);
+				assert.equal(counts.restored, 0);
+				assert.ok(byId(back, 'a1').deleted_at, `the copy stays out after Undo of ${undone}, whichever phone's removal the merge kept`);
+				assert.equal(byId(back, 'a1').left_via, stays, 'and names the move that stays');
+				assert.ok(slotAt(back, 1).want, 'its pocket stays a placeholder');
+				assert.ok(!back.collections[0].entry_ids.a1 || back.collections[0].removed_ids.a1 >= back.collections[0].entry_ids.a1, 'and it does not go back in its collection');
+				assert.deepEqual([...twiceOut(back.moves)], [], 'the mark is gone');
+				assert.equal(monthTotals(back.moves)[0].twice, false);
+				assert.equal(cardHistory(back, {card_id: 'tst1-001'}).length, 1);
+
+				// Undo of the one left now brings the copy back.
+				const last = planUndoMove(back, stays, {now: LATER + 60000});
+
+				assert.equal(last.counts.held, 0);
+				assert.ok(!byId(last.doc, 'a1').deleted_at, 'Undo of the move that stays brings the copy back');
+			}
+		}
+
+		// The two phones' Undo and the merge agree as well.
+		const undoneA = planUndoMove(merged[0], 'm1', {now: LATER}).doc;
+		const undoneB = planUndoMove(merged[1], 'm1', {now: LATER}).doc;
+
+		assert.equal(stableJson(byId(mergeDocuments(undoneA, undoneB), 'a1')), stableJson(byId(mergeDocuments(undoneB, undoneA), 'a1')));
 	});
 
 	test('an Undo on one phone and an edit to the move\'s note on another: the delete sticks', () => {
@@ -665,7 +717,7 @@ describe('Start over and moves', () => {
 		const two = planUndoMove(one.doc, 'm2', {now: LATER + 1000});
 
 		assert.equal(two.stale, false);
-		assert.deepEqual(two.counts, {added: 1, kept: 0, restored: 1, unlinked: 0});
+		assert.deepEqual(two.counts, {added: 1, held: 0, kept: 0, restored: 1, unlinked: 0});
 		assert.deepEqual(liveIds(two.doc), ['a1', 'a2', 'a3']);
 	});
 
@@ -1171,7 +1223,7 @@ describe('saved', () => {
 
 		const back = await undoMove(move.id);
 
-		assert.deepEqual(back, {added: 0, kept: 0, restored: 1, unlinked: 0});
+		assert.deepEqual(back, {added: 0, held: 0, kept: 0, restored: 1, unlinked: 0});
 		assert.ok(!byId(await collection.loadDocument(), 'a2').deleted_at);
 		await assert.rejects(undoMove(move.id), (err) => err.stale === true);
 		await assert.rejects(editMove(move.id, {who: 'Bia'}), (err) => err.stale === true && /cannot be edited/.test(err.message));

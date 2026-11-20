@@ -28,7 +28,7 @@ import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, l
 import {BASE, backWords, errorText, go, h, rememberInHistory} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, LOGGED_TEXT, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, LOGGED_TEXT, TWICE_MONEY_TEXT, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, twiceOut, twiceOutText, undoMove} from './moves.js';
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
 import {clearPurchase, clearTrade} from './scan/draft.js';
@@ -64,6 +64,11 @@ export function undoneText(counts) {
 
 	if (counts.unlinked) {
 		parts.push(`${plural(counts.unlinked, 'removed copy is', 'removed copies are')} no longer linked to it.`);
+	}
+
+	// A copy logged out twice stays out with the other move (QA, 2026-11-20).
+	if (counts.held) {
+		parts.push(`${plural(counts.held, 'copy stays', 'copies stay')} out, as another trade or sale took ${counts.held === 1 ? 'it' : 'them'} out too.`);
 	}
 
 	return parts.join(' ');
@@ -253,12 +258,14 @@ export function historyView(root) {
 		}
 
 		const months = monthTotals(liveMoves(doc));
+		// Copies logged out twice, on two phones offline (QA, 2026-11-20).
+		const twice = twiceOut(liveMoves(doc));
 		const byId = new Map((doc.cards || []).filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
 		const viewing = viewingLanguage();
 		const names = (ids) => (ids || []).map((id) => byId.get(id)).filter(Boolean).map((entry) => entryInfo(entry, index, viewing).name);
 
 		cardNames = names;
-		drawn = {doc, info: (entry) => entryInfo(entry, index, viewing)};
+		drawn = {doc, info: (entry) => entryInfo(entry, index, viewing), twice};
 
 		if (!months.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state', id: 'moves-empty'},
@@ -283,7 +290,10 @@ export function historyView(root) {
 				h('p', {class: 'moves-money'}, [
 					Object.keys(month.in).length ? `Received ${moneyLine(month.in)}` : null,
 					Object.keys(month.out).length ? `Paid ${moneyLine(month.out)}` : null,
-				].filter(Boolean).join(' · ') || 'No money in or out')
+				].filter(Boolean).join(' · ') || 'No money in or out'),
+				// The totals count every live move as logged; a month
+				// counting a copy logged out twice says so (QA, 2026-11-20).
+				month.twice ? h('p', {class: 'moves-twice-money'}, TWICE_MONEY_TEXT) : null
 			),
 			h('ul', {class: 'moves-list'}, month.moves.map((move) => {
 				const out = names(move.out);
@@ -292,7 +302,8 @@ export function historyView(root) {
 				return h('li', null, h('button', {'aria-haspopup': 'dialog', class: 'moves-row', 'data-move': move.id, onclick: () => openMove(move, out, came), type: 'button'},
 					h('span', {class: 'moves-title'}, moveTitle(move)),
 					h('span', {class: 'moves-meta'}, [shortDate(move.date) || move.date, out.length ? `${formatCount(out.length)} out` : null, came.length ? `${formatCount(came.length)} in` : null].filter(Boolean).join(' · ')),
-					h('span', {class: 'moves-cards'}, [out.length ? `Out: ${out.join(', ')}` : null, came.length ? `In: ${came.join(', ')}` : null].filter(Boolean).join('. '))
+					h('span', {class: 'moves-cards'}, [out.length ? `Out: ${out.join(', ')}` : null, came.length ? `In: ${came.join(', ')}` : null].filter(Boolean).join('. ')),
+					twice.has(move.id) ? h('span', {class: 'moves-twice'}, twiceOutText(twice.get(move.id), {names})) : null
 				));
 			}))
 		)));
@@ -342,6 +353,7 @@ export function historyView(root) {
 				...(came.length ? [h('dt', null, 'Coming in'), cameIn] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
 			),
+			drawn.twice && drawn.twice.has(move.id) ? h('p', {class: 'moves-twice', id: 'move-sheet-twice'}, twiceOutText(drawn.twice.get(move.id), {names: cardNames})) : null,
 			h('div', {class: 'button-row move-sheet-actions'}, edit),
 			h('p', {class: 'muted move-edit-hint'}, `Edit changes the date, ${move.kind === 'bought' ? 'where from, the prices' : 'who, price'}, and note. To change the cards, undo this trade or sale and log it again.`),
 			h('div', {class: 'copy-danger'}, undo, confirm)

@@ -3928,6 +3928,37 @@ Start over's Undo is refused the other way round, while a later move counts its 
 7). A copy that leaves keeps its binder pocket as a placeholder, as Start over does, and both
 share one step for it (js/start-over.js `planSwap`).
 
+**A copy logged out twice** (QA, 2026-11-20; `js/moves.js` `twiceOut`, `twiceOutText`,
+`monthTotals`, `planUndoMove`; `js/moves-view.js`). The phone that logs a move offers only live
+copies and leaves out of Removed lately the copies a live move names, but two phones offline can
+each log the same copy leaving: a sale to Ana on one, a trade to Lucas on the other. The merge
+keeps both moves, as it keeps every entry, and neither is dropped or changed, since either may be
+the one that happened. Instead the log says so wherever it shows them:
+
+- **On both moves.** Each History row, under its cards, and its sheet, above Edit, read in the
+  error color: "Charmander also left in "Traded with Lucas" on 20 Nov. Undo the one that did not
+  happen." (one sentence per other move naming a copy it shares, "This copy" when the card has no
+  name). It is read from the live moves alone (their `out`, Log a past sale's `past` included),
+  sorted as History sorts them, so every phone with the same moves shows the same words, whichever
+  way the merge ran, and nothing new is stored, so older phones need nothing.
+- **Money.** The month's Received and Paid count every live move as logged, the sale's R$ 10
+  included: which move did not happen is his call, and a total that left one out would disagree
+  with the rows under it. A month whose money counts such a move says so under its totals,
+  "Includes a copy logged out twice.", until one of the two is undone.
+- **Undo of either ends it.** The undone move is a tombstone, so the warning goes on every phone.
+  The shared copy stays out, since the other move still says it left: Undo neither brings it back
+  nor puts it back in its pocket, tray, collection, or pick, and the toast says "1 copy stays out,
+  as another trade or sale took it out too." The copy is handed to the move that keeps it: its
+  `left_via` names that move (so its card page says how it left) and, when the merge had kept the
+  undone move's removal, its `deleted_at` becomes the removal the keeping move recorded, so Undo of
+  that move later brings the copy back as any Undo does. Which phone's removal the merge kept does
+  not matter. *(Before, Undo of the move whose removal the merge kept brought the copy back while
+  the other move still said it left.)* One case is left: both moves undone on two phones offline,
+  each while the other was still live there, leaves the copy removed with both moves undone, since
+  neither phone knew the other move was gone. The copy's entry is kept (a removal is never a
+  deletion), but nothing in the app brings it back yet; Removed lately in Log a trade or sale
+  offers it for 30 days.
+
 **A purchase: where from, and what each card cost** (Eric, 2026-11-19; `js/moves.js`
 `purchaseSources`, `ownPrices`, `pricedCards`; `js/moves-view.js`).
 
