@@ -1186,8 +1186,18 @@ export function pageSheet(ctx) {
 
 	// New to my cards or Already mine. Already mine waits while the page is
 	// read: its pockets are matched to his copies once each card is known.
-	const modeRow = (mine, reading) => h('div', {'aria-label': 'These cards are', class: 'scan-chips scan-page-mode', role: 'group'},
-		chip({id: 'scan-page-new', label: 'New to my cards', onclick: () => ctx.setPageMine(false), pressed: !mine}),
+	// While a page is found, the run is still the page before it, so neither
+	// chip is offered then (a review, 2026-11-20: New to my cards put the
+	// page before's cards back in the tray, to be added again by Done).
+	const modeRow = (mine, reading, {finding = false} = {}) => h('div', {'aria-label': 'These cards are', class: 'scan-chips scan-page-mode', role: 'group'},
+		h('button', {
+			'aria-pressed': String(!mine),
+			class: 'scan-chip',
+			disabled: finding,
+			id: 'scan-page-new',
+			onclick: () => ctx.setPageMine(false),
+			type: 'button',
+		}, 'New to my cards'),
 		h('button', {
 			'aria-pressed': String(Boolean(mine)),
 			class: 'scan-chip',
@@ -1246,7 +1256,7 @@ export function pageSheet(ctx) {
 				statusLine(reading),
 				h('ul', {'aria-hidden': 'true', class: 'scan-page-grid is-waiting'},
 					...Array.from({length: 9}, () => h('li', {class: 'scan-page-empty scan-page-waiting'}))));
-			foot.replaceChildren(modeRow(false, true));
+			foot.replaceChildren(modeRow(false, true, {finding: true}));
 
 			return;
 		}
@@ -1550,6 +1560,18 @@ export function pageChoiceSheet(ctx) {
 
 	function refresh() {
 		const busy = ctx.pageBusy;
+		const unplaced = !busy && ctx.pageUnplaced;
+
+		// The page before is Already mine and not placed: its cards are out
+		// of the tray, and a new page read would drop them (view.js
+		// unplacedPage), so it is placed, or turned back, first.
+		if (unplaced) {
+			body.replaceChildren(
+				h('p', {class: 'scan-muted', id: 'scan-page-unplaced'}, `The page before is Already mine and not placed yet: its ${plural(unplaced, 'card')} ${unplaced === 1 ? 'is' : 'are'} not in the tray. Place it, or turn it to New to my cards, then read the next page.`),
+				h('button', {class: 'scan-button scan-primary', id: 'scan-page-unplaced-open', onclick: () => ctx.openPage(), type: 'button'}, 'Open that page'));
+
+			return;
+		}
 
 		body.replaceChildren(
 			h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Set the camera to 3:4, hold the phone flat over it, no zoom, a lamp to the side.'),

@@ -794,6 +794,11 @@ export function scanView(root) {
 		get pageBusy() {
 			return pageBusy;
 		},
+		// Cards of a page "Already mine" not placed yet (unplacedPage), which
+		// a new page read would drop: Page waits until it is placed.
+		get pageUnplaced() {
+			return unplacedPage();
+		},
 		pagePhoto: (how) => {
 			(how === 'camera' ? pageCamera : pageGallery).click();
 			closeSheet();
@@ -1887,7 +1892,9 @@ export function scanView(root) {
 	function setPageMine(mine) {
 		const run = session && session.pageRun;
 
-		if (!run || Boolean(run.mine) === mine) {
+		// While a page is found or read, the run may still be the page before
+		// it, and the one being read is not known yet.
+		if (!run || Boolean(run.mine) === mine || pageBusy) {
 			return;
 		}
 
@@ -2001,6 +2008,19 @@ export function scanView(root) {
 		setNote(text);
 		announce(text);
 	}
+
+	// A page "Already mine" not placed yet: its cards are held on the page
+	// read, out of the tray, so another page read, which takes its place,
+	// would drop them from the scan. A new page waits until it is placed or
+	// turned back to New to my cards (a review, 2026-11-20). Returns how
+	// many cards it holds, or 0.
+	function unplacedPage() {
+		const run = session && session.pageRun;
+
+		return run && run.mine ? (run.held || []).length : 0;
+	}
+
+	const UNPLACED_PAGE = 'The page before is Already mine and not placed yet. Place it, or turn it to New to my cards, then read the next page.';
 
 	// The cards of the binder page just read, still in the tray.
 	function pageIds() {
@@ -2594,6 +2614,14 @@ export function scanView(root) {
 	// side are read as one page of 18 pockets, the left page's first.
 	async function readPage(file) {
 		if (pageBusy) {
+			return;
+		}
+
+		if (unplacedPage()) {
+			setNote(UNPLACED_PAGE);
+			announce(UNPLACED_PAGE);
+			openPage();
+
 			return;
 		}
 

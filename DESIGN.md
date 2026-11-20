@@ -3151,7 +3151,12 @@ foot:
   place.
 - **Already mine**: offered once every pocket is read, so no card is matched while it is still
   being read. The page's cards leave the tray, so Done can never add them as new copies, and
-  come back if he turns to New to my cards. Each pocket takes one of his live copies of its card
+  come back if he turns to New to my cards. Neither mode can be picked while a page is found or
+  read: the page read last is still the one before it then (a review, 2026-11-20: New to my cards,
+  tapped while a second page was found, put the first page's cards, Already mine, back in the tray
+  for Done to add again). A page Already mine and not placed holds its cards out of the tray, so a
+  new page, which takes its place, would drop them from the scan: Page reads no other page until
+  it is placed or turned back to New to my cards, says so, and offers **Open that page**. Each pocket takes one of his live copies of its card
   (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
   language and finish the scan read (only when read, never a default), then the oldest; one copy
   is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".
