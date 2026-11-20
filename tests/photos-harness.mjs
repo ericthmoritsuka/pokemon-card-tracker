@@ -55,7 +55,9 @@ export const INTEGRATION = {
 		// The tile.js import gains cardArt.
 		tileImport: 'import {cardArt, cardTile, groupFinish} from \'./tile.js\';',
 		// In tile(group), after const info = {...};
-		catalogSrc: '\t\tconst catalogSrc = local ? cardImage(local.image, \'low\') : null;',
+		// (group.picture: the card's picture in the first language that has
+		// one, js/catalog.js pictureOf.)
+		catalogSrc: '\t\tconst catalogSrc = cardImage(group.picture, \'low\');',
 		// return cardTile({...}) becomes
 		wrap: '\t\treturn withMainPhoto(cardTile({',
 		// art.src becomes (twins: the group's international twin slide,
