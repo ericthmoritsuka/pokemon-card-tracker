@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'A set\'s ring counts every card you own from it on every phone, including cards another phone scanned that this one has not read yet (a new set could show 57 of 161 on one phone and 147 on another).',
+			'A card whose picture was saved missing in one language shows its picture from another, in binders and My Cards.',
+		],
+		version: 'v88',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Prices on your cards drop the "US" mark, as "~" already says it is an estimate; a price you typed from Liga Pokémon carries a small "Liga" tag.',
 			'Lists: Checklists is now Progress, with your checklists and goals under their own headings, and a new list waits behind "+ New list".',
 		],
