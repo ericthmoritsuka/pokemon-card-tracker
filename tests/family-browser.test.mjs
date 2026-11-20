@@ -440,6 +440,17 @@ describe('a family member\'s Sets and cards', () => {
 		await page.waitForSelector('#card-price .price-liga');
 		// The condition is on the line under the title (language and place).
 		assert.deepEqual(await page.locator('.copy-rows .copy-text').allTextContents(), ['LP'], 'Member A\'s copy, not your NM one');
+		// The title and the condition are two words on screen, with the gap
+		// an editable row has (QA 2, 2026-11-20: "EnglishLP").
+		const words = await page.locator('.copy-rows li').first().evaluate((row) => {
+			const title = row.querySelector('.copy-title').getBoundingClientRect();
+			const text = row.querySelector('.copy-text').getBoundingClientRect();
+
+			return {gap: text.left - title.right, sameLine: Math.abs(text.top - title.top) < title.height};
+		});
+
+		assert.ok(words.sameLine, 'the condition fits beside the language');
+		assert.ok(words.gap >= 4, `a gap between the language and the condition (${words.gap} px)`);
 		assert.equal(await page.locator('#copy-add').count(), 0, 'no Add a copy');
 		assert.equal(await page.locator('#copies-binder').count(), 0, 'no Add to binder');
 		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
@@ -851,6 +862,9 @@ describe('a family member\'s Stats', () => {
 			entry('m-1', {card_id: 'tst2-001', condition: 'Near Mint'}),
 			entry('m-2', {card_id: 'tst2-002', language: 'pt'}),
 			entry('m-3', {card_id: 'tst3-001'}),
+			// The first card again in Portuguese: a second card, as My Cards
+			// counts a card once per language (QA 2, 2026-11-20).
+			entry('m-4', {card_id: 'tst2-001', language: 'pt'}),
 		]});
 		const {context, errors, page} = await device(fake, 'owner');
 
@@ -860,6 +874,12 @@ describe('a family member\'s Stats', () => {
 		people.join();
 		await page.goto(url(`family/${people.member.id}`));
 		await page.waitForSelector('.tile');
+		await page.waitForFunction(() => /copies/.test((document.querySelector('#cards-summary') || {}).textContent || ''));
+		assert.equal(await page.locator('#cards-summary').textContent(), '4 copies · 4 cards', 'My Cards: one card per language');
+		// Their cards, as their Spares says "Search their spares" (QA 2,
+		// 2026-11-20).
+		assert.equal(await page.locator('#cards-search').getAttribute('placeholder'), 'Search their cards');
+		assert.equal(await page.locator('#cards-search').getAttribute('aria-label'), 'Search their cards');
 		await page.click('#cards-stats-link');
 		await page.waitForSelector('#stats-totals');
 		assert.equal(path(page), `${BASE}family/${people.member.id}/stats`);
@@ -868,7 +888,7 @@ describe('a family member\'s Stats', () => {
 
 		const totals = await page.locator('#stats-totals dd').allTextContents();
 
-		assert.deepEqual(totals.slice(0, 3), ['3', '3', '2'], 'their copies, cards, and sets');
+		assert.deepEqual(totals.slice(0, 3), ['4', '4', '2'], 'their copies, cards as My Cards counts them, and sets');
 		assert.match(totals[3], /^~?R\$\s[\d.,]+$|^Not known yet$/, 'and their value');
 		assert.equal(await page.locator('.vh-collection').count(), 0, 'no Over time for their cards');
 		assert.equal(await page.locator('#stats-back').textContent(), '‹ Member A\'s cards');

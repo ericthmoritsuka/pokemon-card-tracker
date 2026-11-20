@@ -28,6 +28,7 @@ import {listBinders, liveBinders, placements} from './binders.js';
 import {offerCardList} from './card-swipe.js';
 import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
+import {tileKey} from './bulk-edit.js';
 import {bulkSelect} from './bulk-select.js';
 import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
 import {cardInfoList, isLive, listCards, listPlaces, loadDocument, onChange, sourceNames, storedPlaces} from './collection.js';
@@ -429,6 +430,9 @@ export function familyCardsView(root, {userId}) {
 		},
 		loadBinders: () => binders,
 		loadRecords: () => records,
+		// Their cards, as Spares says "Search their spares" (QA 2,
+		// 2026-11-20: it said "Search my cards").
+		placeholder: 'Search their cards',
 		readOnly: true,
 		statsRoute: `family/${encodeURIComponent(userId)}/stats`,
 		storageKey: `${CHOICE_KEY}.family`,
@@ -681,7 +685,7 @@ export function cardsScreen(root, {
 		const map = new Map();
 
 		for (const entry of entries) {
-			const key = `${entry.catalog}|${entry.card_id}|${entry.language}`;
+			const key = tileKey(entry);
 
 			if (!map.has(key)) {
 				map.set(key, []);

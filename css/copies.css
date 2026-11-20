@@ -80,8 +80,12 @@ button.copy-row::after {
 /* The row's title, "Portuguese · Kanto 151 p1 #6", then the finish and
    condition, or a quiet Set finish chip (design review 2, 2026-11-20): on
    the title's line where they fit, so a row is no taller than before, and
-   under it where they do not. */
-button.copy-row:has(.copy-title) {
+   under it where they do not. A family member's read-only row is the li
+   itself, a flex box too, so it takes the same gap: the space between the
+   two spans collapses between flex items (QA 2, 2026-11-20: it read
+   "PortugueseHolo (not listed)"). */
+button.copy-row:has(.copy-title),
+.copy-rows li:has(> .copy-title) {
 	column-gap: 6px;
 }
 
