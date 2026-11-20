@@ -2778,6 +2778,14 @@ progress {
 	top: -4px;
 }
 
+/* A binder page Already mine and not placed, with the tray empty: the dot
+   with no number, as round as a dot with one (it would have no height). */
+.scan-dot:empty {
+	height: 20px;
+	min-width: 20px;
+	padding: 0;
+}
+
 .tab-scan[aria-current="page"] .scan-disc {
 	outline: 3px solid var(--tab-mark);
 	outline-offset: 2px;

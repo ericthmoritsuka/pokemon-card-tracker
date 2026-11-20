@@ -69,19 +69,31 @@ export const loadSession = (mode = 'add') => run(SESSION, 'readonly', (store) =>
 // Saves are serialized, so a later state never lands before an earlier one.
 let saving = Promise.resolve();
 
-// Every save of the Add tray tells the page how many cards the draft holds,
-// as the event DRAFT_EVENT with detail {count}, so the shell can put a count
-// dot on the Scan tab (plans/design-review.md: "unsaved tray cards put a
-// count dot on the Scan tab"). The Trade or sale tray adds nothing to the
-// collection when saved, so it is not counted there.
+// Every save of the Add tray tells the page what the draft holds, as the
+// event DRAFT_EVENT with detail {count, page} (draftWaiting), so the shell
+// can put a count dot on the Scan tab (plans/design-review.md: "unsaved tray
+// cards put a count dot on the Scan tab"). The Trade or sale tray adds
+// nothing to the collection when saved, so it is not counted there.
 export const DRAFT_EVENT = 'card-tracker:scan-draft';
+
+// What waits in a tray: count, its cards; page, the cards of a binder page
+// marked Already mine and not placed yet (view.js setPageMine), which are
+// held on the page read, out of the tray (a review, 2026-11-20: the dot
+// counted the tray alone, so Scan looked empty while a page waited).
+export function draftWaiting(session) {
+	const count = session && Array.isArray(session.items) ? session.items.length : 0;
+	const run = session && session.pageRun;
+	const page = run && run.mine && Array.isArray(run.held) ? run.held.length : 0;
+
+	return {count, page};
+}
 
 export function saveSession(session) {
 	const copy = JSON.parse(JSON.stringify(session));
 	const key = keyOf(copy);
 	const next = saving.then(() => run(SESSION, 'readwrite', (store) => store.put(copy, key))).then(() => {
 		if (key === CURRENT) {
-			window.dispatchEvent(new CustomEvent(DRAFT_EVENT, {detail: {count: copy.items.length}}));
+			window.dispatchEvent(new CustomEvent(DRAFT_EVENT, {detail: draftWaiting(copy)}));
 		}
 	});
 
@@ -94,16 +106,15 @@ export function saveSession(session) {
 // reload for a new version waits for the tray's last save (js/auto-update.js).
 export const draftSaved = () => saving;
 
-// How many cards wait in the draft tray: 0 when there is none. Light to
-// import (this file loads nothing else), for the Scan tab's count dot.
+// What waits in the draft tray (draftWaiting): {count: 0, page: 0} when
+// there is none. Light to import (this file loads nothing else), for the
+// Scan tab's count dot.
 export async function draftCount() {
 	try {
-		const session = await loadSession();
-
-		return session && Array.isArray(session.items) ? session.items.length : 0;
+		return draftWaiting(await loadSession());
 	}
 	catch {
-		return 0;
+		return draftWaiting(null);
 	}
 }
 

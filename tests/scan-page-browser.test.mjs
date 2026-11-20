@@ -702,6 +702,66 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// A review, 2026-11-20: with the tray empty, Clear dropped a page
+	// Already mine and not placed with no Undo (the session had no cards to
+	// bring back), so its matching was lost and the block on reading another
+	// page was bypassed; and the Scan tab's dot, counting the tray alone,
+	// showed nothing while the page waited.
+	test('Clear with only a page Already mine offers Undo, which brings the page back to place', async () => {
+		const app = await open();
+		const {page} = app;
+		const runOf = () => page.evaluate(async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+			const run = session && session.pageRun;
+
+			return run ? {held: (run.held || []).map((item) => item.id), id: run.id, mine: Boolean(run.mine)} : null;
+		});
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		await page.click('#scan-page-mine');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
+
+		const before = await runOf();
+
+		assert.equal(before.held.length, 7, 'the page\'s cards held');
+		assert.equal((await trayItems(page)).length, 0, 'the tray is empty');
+
+		// The tab's dot says a page waits, with no number: the tray is empty.
+		await until(async () => (await page.$eval('#scan-dot', (dot) => dot.textContent).catch(() => null)) === '', 10000, 'the dot for the page');
+		assert.equal(await page.getAttribute('.tabs a[data-tab="scan"]', 'aria-label'), 'Scan, a binder page to place');
+
+		await page.click('#scan-sheet-close');
+		await page.waitForSelector('#scan-pagegrid', {state: 'detached'});
+		await page.click('#scan-tray-menu');
+		await page.waitForSelector('#scan-clear');
+		assert.equal(await text(page, '#scan-tray-menu-count'), '0 cards in the tray. And a page Already mine, not placed yet, which Clear drops too.');
+		await page.click('#scan-clear');
+		await page.waitForSelector('#scan-undo-discard', {timeout: 5000});
+		assert.equal(await text(page, '#scan-discarded-line'), 'Discarded the page not placed. Nothing saved.');
+		assert.equal(await runOf(), null, 'the page left the scan');
+
+		await page.click('#scan-undo-discard');
+		await until(async () => Boolean(await runOf()), 10000, 'the page back');
+
+		const after = await runOf();
+
+		assert.deepEqual(after, before, 'the same page, Already mine, its cards held');
+
+		// Still not placed: Page reads no other page until it is.
+		await page.click('#scan-page-open');
+		await page.waitForSelector('#scan-page-unplaced');
+		await page.click('#scan-page-unplaced-open');
+		await page.waitForSelector('#scan-pagegrid #scan-page-mine[aria-pressed="true"]');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 20000, 'his copies read after Undo');
+		assert.equal(await page.locator('#scan-place-go').count(), 1, 'the page can be placed');
+		await close(app);
+	});
+
 	test('each pocket with a card joins the tray, sure or asking for a look, and empty pockets are skipped', async () => {
 		const app = await open();
 		const {page} = app;
