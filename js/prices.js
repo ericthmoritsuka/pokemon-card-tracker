@@ -480,11 +480,29 @@ const KEY_FINISHES = {
 // Prices come from each variants_detailed entry's own pricing. A record with
 // no variants_detailed falls back to the card-level pricing, one finish per
 // TCGplayer finish word, with variantId null.
+//
+// Worked out once per record object and the same list returned after that:
+// a tile asks three to five times (its price, the finish its price is for,
+// its corner), and 1,200 tiles on a slow phone spent about 700 ms in it.
+// Nothing changes a saved record in place, and no caller changes the list.
+const extracted = new WeakMap();
+
 export function extractPrices(card) {
 	if (!card || typeof card !== 'object') {
 		return [];
 	}
 
+	let finishes = extracted.get(card);
+
+	if (!finishes) {
+		finishes = readPrices(card);
+		extracted.set(card, finishes);
+	}
+
+	return finishes;
+}
+
+function readPrices(card) {
 	const variants = (Array.isArray(card.variants_detailed) ? card.variants_detailed : []).filter(hasRealId);
 	let finishes;
 
