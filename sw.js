@@ -138,6 +138,8 @@ const SHELL = [
 	'index.html',
 	'app.js',
 	'js/account-views.js',
+	// A waiting version takes over at a quiet moment (2026-11-20).
+	'js/auto-update.js',
 	'js/binders-view.js',
 	'js/binder-convert.js',
 	'js/binder-cover.js',
@@ -362,10 +364,12 @@ self.addEventListener('install', (event) => {
 	);
 });
 
-// A new version waits until the person taps Reload, so an open page never
+// A new version waits until the page asks for it, so an open page never
 // mixes its old modules with new ones (a tab that loads on first open, such
-// as Scan, would otherwise import files from the new version). The first
-// install has nothing to wait for and takes over at once.
+// as Scan, would otherwise import files from the new version): when the
+// person taps Reload, or at a quiet moment the page picks itself
+// (js/auto-update.js), and the page reloads as the new version takes over.
+// The first install has nothing to wait for and takes over at once.
 self.addEventListener('message', (event) => {
 	if (event.data === 'skip-waiting') {
 		self.skipWaiting();

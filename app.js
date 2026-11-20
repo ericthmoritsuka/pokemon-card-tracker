@@ -32,6 +32,7 @@
 // family member's lens stays on while it is open (keepsLens).
 
 import {profileView, setSignInNotice, signInView} from './js/account-views.js';
+import {markStale, screenDrawn, startAutoUpdate} from './js/auto-update.js';
 import {binderAccountViews, binderRoutes} from './js/binders-view.js';
 import {completeInvite, completeSignIn, currentUser, onUser, restoreSession, signInErrorText, takeAuthReturn} from './js/auth.js';
 import {followCardLink} from './js/card-swipe.js';
@@ -222,6 +223,9 @@ function render() {
 	else {
 		window.scrollTo(0, 0);
 	}
+
+	// A move between screens is a moment to take a waiting version.
+	screenDrawn();
 }
 
 function navigate(route) {
@@ -286,8 +290,11 @@ async function registerServiceWorker() {
 		}
 
 		// A toast floats over the page, so nothing shifts when it shows.
-		// Reload in another tab moved this one to the new version too.
+		// Reload in another tab moved this one to the new version too: this
+		// page reloads at its next quiet moment (js/auto-update.js), or now
+		// with Reload.
 		if (hadController) {
+			markStale();
 			toast('A new version is installed.', {action: () => window.location.reload(), actionLabel: 'Reload', timeout: 0});
 		}
 		else {
@@ -296,7 +303,8 @@ async function registerServiceWorker() {
 	});
 
 	// A new version installs in the background and waits, so this page keeps
-	// running on one version's files until the person taps Reload.
+	// running on one version's files until the person taps Reload, or until
+	// a quiet moment switches it by itself (js/auto-update.js).
 	function offer(worker) {
 		if (offered || !worker || !navigator.serviceWorker.controller) {
 			return;
@@ -319,6 +327,7 @@ async function registerServiceWorker() {
 		}
 
 		offer(registration.waiting);
+		startAutoUpdate(registration, account);
 		registration.addEventListener('updatefound', () => {
 			const worker = registration.installing;
 

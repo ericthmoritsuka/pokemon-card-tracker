@@ -90,6 +90,10 @@ export function saveSession(session) {
 	return next;
 }
 
+// Settles once every save asked for so far has landed or failed, so a
+// reload for a new version waits for the tray's last save (js/auto-update.js).
+export const draftSaved = () => saving;
+
 // How many cards wait in the draft tray: 0 when there is none. Light to
 // import (this file loads nothing else), for the Scan tab's count dot.
 export async function draftCount() {

@@ -697,7 +697,8 @@ let applying = false;
 export const updateApplying = () => applying;
 
 // Reload: the waiting worker takes over, and the page loads its files. The
-// same as the update toast's Reload in app.js.
+// same as the update toast's Reload in app.js, and what the switch at a
+// quiet moment runs (js/auto-update.js), so What's new shows after either.
 export function applyUpdate(worker) {
 	if (!worker) {
 		return;

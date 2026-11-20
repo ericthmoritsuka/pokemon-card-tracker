@@ -2339,6 +2339,33 @@ Facts this rests on, checked 2026-10-01 against published sources:
 - Anything holding a secret (a vision-model API key) cannot live on GitHub Pages. It goes in a
   Supabase Edge Function.
 
+**Updates: a waiting version takes over by itself at a quiet moment** *(Eric, 2026-11-20)*. A new
+`sw.js` installs in the background and waits, so an open page never runs one version's modules
+next to another's. Until v91 only Reload (the update toast, or Profile's "vN ready") or closing
+every tab moved a page on, and Eric's computer ran v87 for hours while v90 waited, so his devices
+showed different data. Now the page switches itself (`js/auto-update.js`: the same skip-waiting
+and reload as Reload, so What's new still shows once), and Reload stays as the fallback. The rule:
+
+- **When:** the page coming back into view (`visibilitychange` to visible, a `pageshow` from the
+  back-forward cache), a move to another screen, or the app opening with a version already
+  waiting. Never while the person keeps looking at the same screen: after the moment, a 600 ms
+  settle, abandoned on any tap or key.
+- **Only when nothing can be lost:** online; no import or Start over save running (they hold it,
+  as they hold the page closing); the account started, so never during sign-in or a `?code=`
+  return; not on Scan (camera, captures, reads), the camera and storage tests, Phone check,
+  Import, Sign in, Log a trade or sale, New binder, or New goal; no sheet open (copy sheet, binder
+  and list edits, trade and purchase forms, What's new); no text typed on the screen since it was
+  drawn and no text field in focus; no push to Supabase under way. The scanner's tray and every
+  edit are already in IndexedDB, so they survive the reload: leaving Scan with cards in the tray
+  is safe once the tray's last save lands, which the switch waits for.
+- **Fully cached first:** a worker is only waiting once its install cached every shell file
+  (`cache.addAll` fails the whole install on one missing file).
+- **Never in a loop:** each automatic switch is stamped in `sessionStorage`, and none follows
+  within 10 minutes; without `sessionStorage` there is no automatic switch.
+- **Other tabs:** a tab whose worker another tab replaced reloads at its own next quiet moment.
+- **Noticing:** the page asks for an update (`registration.update()`) when it comes back into view
+  or changes screen, at most once a minute, so a tab open for hours finds a new version.
+
 **Phone test results** (the weekend-zero spike, live at
 `https://ericthmoritsuka.github.io/pokemon-card-tracker/`):
 

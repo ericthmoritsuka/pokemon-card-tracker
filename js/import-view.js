@@ -5,6 +5,7 @@
 // and what was deleted here, before anything is saved (DESIGN.md section 9).
 // An unmatched monprice row can be added by hand from its line.
 
+import {holdUpdate} from './auto-update.js';
 import {applyImport, applyOwnImport, importKeys, previewOwnImport} from './collection.js';
 import {cardIndex, importApi, indexKey, saveToCardIndex} from './catalog.js';
 import {openCustomCardSheet} from './custom-card-view.js';
@@ -122,6 +123,20 @@ async function takeSharedFile() {
 function holdPage(event) {
 	event.preventDefault();
 	event.returnValue = '';
+}
+
+// While a save runs: the browser asks before the page closes, and the app
+// does not move itself to a new version (js/auto-update.js). Returns what
+// ends the hold.
+function holdWhileSaving() {
+	const release = holdUpdate();
+
+	window.addEventListener('beforeunload', holdPage);
+
+	return () => {
+		window.removeEventListener('beforeunload', holdPage);
+		release();
+	};
 }
 
 // After an import or a restore saved its copies: the placeholders waiting
@@ -494,7 +509,7 @@ export function importView(root) {
 				go.disabled = true;
 				cancel.disabled = true;
 				save.disabled = true;
-				window.addEventListener('beforeunload', holdPage);
+				const release = holdWhileSaving();
 
 				try {
 					await saveToCardIndex(cards);
@@ -516,7 +531,7 @@ export function importView(root) {
 					startBox.append(h('p', {role: 'alert'}, `Could not start over. Nothing was changed. ${errorText(err)}`));
 				}
 				finally {
-					window.removeEventListener('beforeunload', holdPage);
+					release();
 				}
 			});
 		});
@@ -590,7 +605,7 @@ export function importView(root) {
 			// Closing or reloading the page mid-save would lose the import, so
 			// the browser asks first. Moving to another screen is safe: the
 			// save goes on.
-			window.addEventListener('beforeunload', holdPage);
+			const release = holdWhileSaving();
 
 			try {
 				await saveToCardIndex(cards);
@@ -626,7 +641,7 @@ export function importView(root) {
 				saveStatus.textContent = `Could not save. Nothing was changed. ${errorText(err)}`;
 			}
 			finally {
-				window.removeEventListener('beforeunload', holdPage);
+				release();
 			}
 		}
 	}
@@ -686,7 +701,7 @@ export function importView(root) {
 			save.disabled = true;
 			reviveBox.disabled = true;
 			saveStatus.textContent = 'Saving...';
-			window.addEventListener('beforeunload', holdPage);
+			const release = holdWhileSaving();
 
 			try {
 				const counts = await applyOwnImport(parsed.rows, {revive});
@@ -712,7 +727,7 @@ export function importView(root) {
 				saveStatus.textContent = `Could not save. Nothing was changed. ${errorText(err)}`;
 			}
 			finally {
-				window.removeEventListener('beforeunload', holdPage);
+				release();
 			}
 		});
 	}

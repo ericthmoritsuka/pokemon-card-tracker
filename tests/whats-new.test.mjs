@@ -1,6 +1,8 @@
 // Browser tests for What's new (js/whats-new.js): the version line that ends
 // Profile, the sheet of releases, "vN ready" with Reload while a newer
 // worker waits, and the sheet shown once after Reload brings a new version.
+// Also the switch to a waiting version by itself at a quiet moment
+// (js/auto-update.js), and the moments it waits out.
 // Headless Chromium at 360 x 740 against tests/pages-server.mjs. Supabase is
 // faked (tests/fake-supabase.mjs); TCGdex answers empty.
 //
@@ -115,6 +117,48 @@ const updateUntilWaiting = (page, version) => untilInPage(page, `the ${version} 
 
 	return false;
 }, {interval: 250, timeout: 30000});
+
+// Headless Chromium is always visible, so the switch tests stand in for
+// document.visibilityState: window.__visibility holds it, and setVisible()
+// changes it and fires visibilitychange, as switching tabs or apps does.
+function standInVisibility() {
+	window.__visibility = 'visible';
+	Object.defineProperty(Document.prototype, 'visibilityState', {configurable: true, get: () => window.__visibility});
+	Object.defineProperty(Document.prototype, 'hidden', {configurable: true, get: () => window.__visibility === 'hidden'});
+}
+
+const setVisible = (page, visible) => page.evaluate((state) => {
+	window.__visibility = state;
+	document.dispatchEvent(new Event('visibilitychange'));
+}, visible ? 'visible' : 'hidden');
+
+// Away and back, as reopening the app or the browser tab does.
+async function awayAndBack(page) {
+	await setVisible(page, false);
+	await page.waitForTimeout(200);
+	await setVisible(page, true);
+}
+
+// Marks this load, so a test can tell whether the page reloaded since.
+const markLoad = (page) => page.evaluate(() => {
+	window.__sameLoad = true;
+});
+
+const sameLoad = (page) => page.evaluate(() => window.__sameLoad === true);
+
+// v30 installed and in control of the page, its version recorded, so a
+// later version shows its What's new.
+async function onV30(page, path = 'cards') {
+	await serve('v30');
+	await page.goto(url(path));
+	await page.evaluate(() => navigator.serviceWorker.ready);
+	await page.waitForFunction(() => localStorage.getItem('cardTracker.whatsNewSeen') === 'v30', null, {timeout: 15000});
+	await page.reload();
+	await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+}
+
+// The version the page runs under, as Profile's line reads it.
+const runningVersion = (page) => page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/whats-new.js')).appVersions()).current);
 
 // Closing a sheet takes its history entry away with history.go(-1) on a
 // timer (js/sheet.js goBack). A page.goto made before that traversal runs is
@@ -287,6 +331,136 @@ describe('with the service worker', () => {
 			await page.getByRole('button', {name: 'Reload'}).first().click();
 			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
 			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+});
+
+describe('switching to a waiting version by itself', () => {
+	test('a version that waits while the app is open takes over when the page comes back into view', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standInVisibility);
+
+		try {
+			await onV30(page);
+			await serve('v31');
+			await updateUntilWaiting(page, 'v31');
+
+			// The toast's Reload is still offered, and nothing moves while the
+			// person is looking at the page.
+			await page.getByRole('button', {name: 'Reload'}).first().waitFor({timeout: 15000});
+			await markLoad(page);
+			await page.waitForTimeout(1500);
+			assert.ok(await sameLoad(page), 'no switch while the page stays in view');
+
+			await awayAndBack(page);
+			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
+			assert.equal(await sameLoad(page), false, 'the page reloaded');
+			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
+			assert.equal(await runningVersion(page), 'v31');
+			assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
+			assert.ok(await page.evaluate(() => Number(sessionStorage.getItem('cardTracker.autoUpdateAt')) > 0), 'the switch is stamped against a loop');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('Scan with a card in the tray waits; leaving Scan switches, and the tray is kept', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standInVisibility);
+
+		try {
+			await onV30(page);
+
+			// One card in the scanner's tray, then Scan opens.
+			await page.evaluate(async () => {
+				const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+				const S = await import('/pokemon-card-tracker/js/scan/session.js');
+				const session = S.newSession();
+
+				Object.assign(S.addCapture(session, {id: 'tray-1'}), {
+					card: {catalog: 'international', id: 'me01-001', lang: 'en', localId: '1', name: 'Bulbasaur', official: '132', setId: 'me01', setName: 'Mega Evolution'},
+					confirmed: true,
+					language: 'en',
+					languageBy: 'hand',
+					status: 'ready',
+					sure: true,
+					variantId: null,
+					variants: [],
+				});
+				await draft.saveSession(session);
+			});
+			await page.click('.tabs a[data-tab="scan"]');
+			await page.waitForFunction(() => document.getElementById('scan-dot')?.textContent === '1', null, {timeout: 15000});
+			assert.equal(new URL(page.url()).pathname, `${BASE}scan`);
+
+			await serve('v31');
+			await updateUntilWaiting(page, 'v31');
+			await markLoad(page);
+
+			// Away and back on Scan: no switch.
+			await awayAndBack(page);
+			await page.waitForTimeout(2500);
+			assert.ok(await sameLoad(page), 'no switch while Scan is open');
+			assert.equal(await page.locator('#whats-new-sheet').count(), 0);
+
+			// Leaving Scan (its Close goes back to My Cards) is the moment.
+			await page.click('#scan-close');
+			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
+			assert.equal(await sameLoad(page), false, 'the page reloaded');
+			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
+			assert.equal(await runningVersion(page), 'v31');
+			assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
+
+			const tray = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.map((item) => item.id));
+
+			assert.deepEqual(tray, ['tray-1'], 'the tray survives the switch');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('an open sheet waits; once it closes, coming back into view switches', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standInVisibility);
+
+		try {
+			await onV30(page, 'profile');
+			await page.goto(url('profile'));
+			await page.waitForFunction(() => /Card Tracker v30/.test(document.getElementById('profile-version')?.textContent || ''), null, {timeout: 15000});
+			await serve('v31');
+			await updateUntilWaiting(page, 'v31');
+			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
+
+			// Every release's What's new, open as a sheet over Profile. The
+			// update toast covers the link at this size.
+			await page.locator('#profile-whats-new').evaluate((button) => button.click());
+			await page.waitForSelector('#whats-new-sheet[open]');
+			await markLoad(page);
+			await awayAndBack(page);
+			await page.waitForTimeout(2500);
+			assert.ok(await sameLoad(page), 'no switch while a sheet is open');
+			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new');
+
+			await page.click('#whats-new-sheet-close');
+			await sheetEntryGone(page);
+			await awayAndBack(page);
+			await page.waitForFunction(() => document.getElementById('whats-new-sheet-title')?.textContent === 'What\'s new in v31', null, {timeout: 30000});
+			assert.equal(await sameLoad(page), false, 'the page reloaded');
+			assert.equal(await runningVersion(page), 'v31');
 			assert.deepEqual(errors, []);
 		}
 		finally {
