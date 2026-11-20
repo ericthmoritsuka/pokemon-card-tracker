@@ -335,7 +335,7 @@ describe('a binder page from one photo', () => {
 		await page.waitForSelector('#scan-page');
 		assert.equal(await page.getAttribute('#scan-page', 'role'), 'dialog');
 		assert.equal(await text(page, '#scan-page-label'), 'Binder page');
-		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.');
+		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Set the camera to 3:4, hold the phone flat over it, no zoom, a lamp to the side.');
 		assert.equal(await text(page, '#scan-page-take'), 'Take a photo');
 		assert.equal(await text(page, '#scan-page-pick'), 'Choose a photo');
 		assert.equal(await page.getAttribute('#scan-page-camera', 'capture'), 'environment', 'Take a photo opens the camera');

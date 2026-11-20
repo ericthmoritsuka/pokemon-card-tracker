@@ -1,8 +1,9 @@
 // The binder page read off the main thread (js/scan/page.js readPagePhoto):
 // one photo per worker, which page.js lets go once it answers.
 //
-// In: {bitmap, fine, maxSide}, the photo decoded and turned upright, and
-// fine, a larger copy each pocket's own card is cut from, or null. Out:
+// In: {bitmap, fine, limits}, the photo decoded and turned upright, and
+// fine, a larger copy each pocket's own card is cut from, or null; limits
+// what the page is read within (page.js decodeSize). Out:
 // {result}, readPagePixels' answer, each pocket's pixels transferred, not
 // copied; or {error}.
 
@@ -10,7 +11,7 @@ import {photoPixels, readPagePixels} from './page.js';
 
 self.addEventListener('message', async ({data}) => {
 	try {
-		const pixels = photoPixels(data.bitmap, data.maxSide);
+		const pixels = photoPixels(data.bitmap, data.limits);
 
 		data.bitmap.close();
 

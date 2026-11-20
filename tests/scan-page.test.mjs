@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {edgeBalance, halfRound, isEmptyPocket, locatePage, mergeCards, ownFits, pageSummary, pageTrouble, pocketPlan, pocketProgress, pocketQuads, turnCard, turnPoint, unturnPoint, upsideDown} from '../js/scan/page.js';
+import {decodeSize, edgeBalance, halfRound, isEmptyPocket, locatePage, mergeCards, ownFits, PAGE_MAX_PIXELS, pageSummary, pageTrouble, POCKET_MAX_PIXELS, pocketPlan, pocketProgress, pocketQuads, TALL_TIP, tallPhoto, turnCard, turnPoint, unturnPoint, upsideDown} from '../js/scan/page.js';
 import {addCapture, applyLabel, applyPicture, applyRead, defaultLanguage, doubtPocket, newSession, POCKET_ASIAN_WHY} from '../js/scan/session.js';
 import {COLOURLESS} from '../js/scan/steady.js';
 
@@ -289,6 +289,19 @@ describe('what Eric reads (pocketProgress, pageSummary, pageTrouble)', () => {
 		assert.equal(pageSummary({added: 0, empty: 18, look: 0, pages: 2}), 'Every pocket on those pages looked empty.');
 	});
 
+	// A scanner review, 2026-11-19: the reading expects a 3:4 photo of the
+	// page; Eric's phone takes 20:9, where the page fills less of it.
+	test('a photo taller than 3:4 ends the summary with a tip to set the camera to 3:4', () => {
+		assert.equal(pageSummary({added: 9, empty: 0, look: 2, tall: true}), `Page read: 9 cards added, 2 to check. ${TALL_TIP}`);
+		assert.match(TALL_TIP, /3:4/);
+		assert.equal(tallPhoto({height: 12000, width: 5400}), true, '20:9 standing');
+		assert.equal(tallPhoto({height: 5400, width: 12000}), true, 'and lying');
+		assert.equal(tallPhoto({height: 1920, width: 1080}), true, '9:16');
+		assert.equal(tallPhoto({height: 4000, width: 3000}), false, '3:4');
+		assert.equal(tallPhoto({height: 3000, width: 4000}), false, '4:3');
+		assert.equal(tallPhoto(null), false);
+	});
+
 	test('a page not read says why and asks for the photo again', () => {
 		assert.match(pageTrouble('none'), /^The page could not be found in that photo\. Take it again/);
 		assert.match(pageTrouble('spread'), /two pages, but their pockets could not be found\. Take it again/);
@@ -408,5 +421,27 @@ describe('a pocket\'s label row that reads no Latin text', () => {
 		applyLabel(single.session, single.item.id, {code: 'non-latin', confidence: 0.5}, undefined, {asian: 'ko', western: 'pt'});
 		assert.notEqual(single.item.language, 'pt');
 		assert.equal(single.item.languageHint, 'non-latin');
+	});
+});
+
+// The photo decoded by its pixels, not its longer side (a scanner review,
+// 2026-11-19): a 20:9 still and a 3:4 one cost the same.
+describe('how large a page photo is decoded (decodeSize)', () => {
+	test('a photo is decoded at most so many pixels, whatever its shape', () => {
+		const tall = decodeSize(5400, 12000, {maxPixels: POCKET_MAX_PIXELS});
+		const square = decodeSize(6120, 8160, {maxPixels: POCKET_MAX_PIXELS});
+
+		assert.deepEqual([tall.width, tall.height], [3456, 7680], 'Eric\'s 12000 x 5400 photo, as before');
+		assert.ok(Math.abs(square.width * square.height - POCKET_MAX_PIXELS) / POCKET_MAX_PIXELS < 0.001, `a 50 MP 3:4 photo at 26.5 MP, not 44 (${square.width} x ${square.height})`);
+		assert.ok(Math.abs(square.width / square.height - 6120 / 8160) < 0.001, 'its shape kept');
+
+		const page = decodeSize(5400, 12000, {maxPixels: PAGE_MAX_PIXELS});
+
+		assert.deepEqual([page.width, page.height], [1728, 3840], 'the page\'s copy of Eric\'s photo as before');
+	});
+
+	test('a small photo is never enlarged, and a longer side caps it too', () => {
+		assert.deepEqual(decodeSize(1000, 1500, {maxPixels: PAGE_MAX_PIXELS}), {height: 1500, scale: 1, width: 1000});
+		assert.deepEqual(decodeSize(5400, 12000, {maxPixels: PAGE_MAX_PIXELS, maxSide: 1200}), {height: 1200, scale: 0.1, width: 540});
 	});
 });

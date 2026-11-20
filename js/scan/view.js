@@ -2679,7 +2679,7 @@ export function scanView(root) {
 			}
 
 			const look = items.filter((item) => !(item.card && (item.sure || item.confirmed))).length;
-			const summary = pageSummary({added: items.length, empty, look, missed: found.missed, pages: found.pages, rough: !found.fitted});
+			const summary = pageSummary({added: items.length, empty, look, missed: found.missed, pages: found.pages, rough: !found.fitted, tall: Boolean(found.tall)});
 
 			setNote(summary);
 			announce(summary);
