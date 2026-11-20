@@ -322,9 +322,14 @@ describe('source names', () => {
 		// Card detail: every copy is Korean, so the source's names lead.
 		await page.goto(url('cards/ja/tst1-001'));
 		await page.waitForSelector('.card-detail h2:has-text("시험 카드")');
-		// The row's flag names the language; its stepper shows the count.
-		await page.waitForSelector('.copies li .flags[title="Korean"]');
-		assert.equal(await page.locator('.copies .copy-text').textContent(), 'Finish not set');
+		// The row names the language in words; its stepper shows the count.
+		await page.waitForSelector('.copies li[data-language="ko"]');
+		// Titled with its language, and a quiet Set finish rather than
+		// "Finish not set" leading the row (design review 2, 2026-11-20).
+		assert.equal(await page.locator('.copies .copy-title').textContent(), 'Korean');
+		assert.equal(await page.locator('.copies .copy-text').textContent(), 'Set finish');
+		assert.equal(await page.locator('.copies .copy-text .copy-chip').count(), 1);
+		assert.equal(await page.getAttribute('.copies .copy-row', 'aria-label'), 'Korean, finish not set');
 		assert.equal(await page.locator('.copies .step-count').inputValue(), '1');
 		assert.equal(await page.locator('.card-detail .name-original').textContent(), '(Siheom Kadeu)');
 
@@ -334,7 +339,8 @@ describe('source names', () => {
 		await page.reload();
 		await page.waitForSelector('.card-detail h2:has-text("Test card tst1 001")');
 		await page.waitForSelector('.copies li:has-text("시험 카드")');
-		assert.equal(await page.locator('.copies li:has(.flags[title="Korean"]) .copy-text').textContent(), '시험 카드 · Finish not set');
+		assert.equal(await page.locator('.copies li[data-language="ko"] .copy-title').textContent(), 'Korean · 시험 카드');
+		assert.equal(await page.locator('.copies li[data-language="ko"] .copy-text').textContent(), 'Set finish');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

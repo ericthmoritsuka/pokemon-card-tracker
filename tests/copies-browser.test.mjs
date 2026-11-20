@@ -209,7 +209,8 @@ const variantOf = (record, type, foil = undefined) => record.variants_detailed.f
 const rowTexts = (page) => page.locator('.copies .copy-text').allTextContents();
 
 // Each row's language (its flag's tooltip) and its stepper's count.
-const rowLanguages = (page) => page.locator('.copies li .flags').evaluateAll((flags) => flags.map((flag) => flag.getAttribute('title')));
+// The language each row's title names, in words.
+const rowLanguages = (page) => page.locator('.copies li[data-language] .copy-title').evaluateAll((titles) => titles.map((title) => title.textContent.split(' · ')[0]));
 
 const rowCounts = (page) => page.locator('.copies .step-count').evaluateAll((inputs) => inputs.map((input) => input.value));
 
@@ -244,7 +245,23 @@ describe('copies on card detail', () => {
 		await page.waitForSelector('.copies .copy-row');
 		assert.deepEqual(await rowTexts(page), ['Normal']);
 		assert.deepEqual(await rowLanguages(page), ['Portuguese']);
+		assert.equal(await page.locator('.copies .copy-title').textContent(), 'Portuguese', 'titled with its language');
+		assert.equal(await page.locator('.copies .copy-chip').count(), 0, 'no Set finish once a finish is set');
 		assert.equal(await page.locator('.copies-head h3').textContent(), 'Your copies (1)');
+
+		// The buttons under the copies: two equal columns (design review 2,
+		// 2026-11-20).
+		await page.waitForSelector('.copies-collect-row #card-share');
+
+		const grid = await page.locator('.copies-collect-row > *').evaluateAll((nodes) => nodes.map((node) => {
+			const rect = node.getBoundingClientRect();
+
+			return {id: node.id, left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width)};
+		}));
+
+		assert.deepEqual(grid.map((cell) => cell.id), ['copies-collect', 'copies-binder', 'card-move', 'card-share']);
+		assert.ok(grid[0].top === grid[1].top && grid[2].top === grid[3].top && grid[2].top > grid[0].top, `two rows: ${JSON.stringify(grid)}`);
+		assert.ok(grid.every((cell) => Math.abs(cell.width - grid[0].width) <= 1) && grid[0].left === grid[2].left, `equal columns: ${JSON.stringify(grid)}`);
 
 		await page.click('.copies .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
@@ -265,7 +282,7 @@ describe('copies on card detail', () => {
 		await page.fill('#copy-notes', 'From the league night');
 		await page.click('#copy-save');
 		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
-		await page.waitForSelector('.copies li .flags[title="English"]');
+		await page.waitForSelector('.copies li[data-language="en"]');
 		assert.deepEqual(await rowTexts(page), ['Reverse holo, Poké Ball pattern · Lightly Played']);
 		assert.equal(await page.locator('.copies .copy-note').textContent(), 'From the league night');
 
@@ -398,7 +415,10 @@ describe('copies on card detail', () => {
 		}, gone.id);
 		await page.goto(url(`cards/pt/${pt.id}`));
 		await page.waitForSelector('.copies .copy-place');
-		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine, page 3, pocket 5');
+		// Short in the row's title, in words for a screen reader.
+		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine p3 #5');
+		assert.match(await page.locator('.copies li:has(.copy-place) .copy-title').textContent(), /^Portuguese · Vitrine p3 #5$/);
+		assert.match(await page.getAttribute('.copies li:has(.copy-place) .copy-row', 'aria-label'), /^Portuguese, Vitrine, page 3, pocket 5, /);
 
 		await page.click('.copies li:has(.copy-place) .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');
@@ -423,7 +443,7 @@ describe('copies on card detail', () => {
 		// Undo brings the same entry back, in its pocket, past the tombstone.
 		await toast.locator('button', {hasText: 'Undo'}).click();
 		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 2);
-		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine, page 3, pocket 5', 'back in its pocket');
+		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine p3 #5', 'back in its pocket');
 		after = await entries(page);
 
 		const restored = after.find((entry) => entry.id === gone.id);
@@ -556,7 +576,7 @@ describe('copies on card detail', () => {
 
 describe('card detail layout', () => {
 	for (const viewport of [PHONE, {height: 844, width: 390}]) {
-		test(`art, facts, Your copies with Add, and Ver na Liga on the first screen at ${viewport.width} x ${viewport.height}`, async () => {
+		test(`art, facts, Your copies with Add, and Ver na Liga on the first screen at ${viewport.width} x ${viewport.height}`, async (t) => {
 			const {done, page} = await phone({viewport});
 
 			await addCard(page, {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')});
@@ -572,6 +592,11 @@ describe('card detail layout', () => {
 				.map((el) => el.id || el.className));
 
 			assert.deepEqual(order.slice(0, 5), ['card-hero', 'copies', 'card-liga', 'copies-collect-row', 'card-price']);
+
+			const rows = await page.locator('.copies li').evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().height)));
+			const liga = await page.locator('#card-liga-link').evaluate((link) => [Math.round(link.getBoundingClientRect().bottom), Math.round(document.querySelector('.tabs').getBoundingClientRect().top)]);
+
+			t.diagnostic(`rows ${rows}, Ver na Liga ends at ${liga[0]} px, the tab bar starts at ${liga[1]} px`);
 
 			for (const selector of ['.hero-art', '.hero-facts h2', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish', '#card-glance-open', '#card-glance-line']) {
 				assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);

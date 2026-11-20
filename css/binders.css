@@ -1263,14 +1263,23 @@ button.atb-binder {
 	margin: 0;
 }
 
+/* Two equal columns: Edit pocket and To the tray, Move to… and Card page,
+   then Remove from this binder on a row of its own in the danger style
+   (design review 2, 2026-11-20). A button left alone on its row, such as
+   Card page when there is nowhere to move, or on a family member's binder,
+   takes the row. */
 .pv-actions {
 	display: grid;
 	gap: var(--space-2);
-	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+	grid-template-columns: 1fr 1fr;
 }
 
-/* Remove from this binder: a row of its own, so its long label fits. */
-.pv-actions #pv-remove {
+.pv-actions #pv-remove,
+.pv-actions #pv-pick,
+.pv-actions > :only-child,
+.pv-actions:not(:has(#pv-pick)) > :nth-last-child(2):nth-child(odd):has(~ #pv-remove),
+.pv-actions:has(#pv-pick) > :nth-last-child(2):nth-child(even):has(~ #pv-remove),
+.pv-actions:not(:has(#pv-remove, #pv-pick)) > :last-child:nth-child(odd) {
 	grid-column: 1 / -1;
 }
 

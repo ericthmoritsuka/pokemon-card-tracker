@@ -748,7 +748,13 @@ for a new place; "box a" is the saved "Box A". Manage places renames a place (ev
 there follows) or removes one (its copies show Not set; asked first when copies are stored
 there), both with Undo. Copies stored in two places are two rows of Your copies, each with its
 own stepper, and + adds a copy in the row's place. A copy in a binder pocket shows its pocket and,
-when set, its place; neither is made up from the other. My Cards and Trade filter by place (copies
+when set, its place; neither is made up from the other. **A row's title is the copy's language and
+pocket**, "Portuguese · Kanto 151 p1 #6", followed by the finish and condition, smaller and muted,
+or a quiet **Set finish** chip when none is set, on the title's line where they fit (design review
+2, 2026-11-20: "Finish not set" led the rows of three copies in four); the row's name says the
+pocket in words for a screen reader. The words name the language, so the row has no flag: the room
+keeps a plain copy's row to one line at 360 px, and Ver na Liga on the first screen. The buttons
+under the copies (Add to collection, Add to binder, Trade or sale, Share) are two equal columns. My Cards and Trade filter by place (copies
 counted) or Not set, and a narrowed My Cards stores all its copies at once ("Set storage for these
 N copies", with Undo). The CSV carries a `storage` column, which the own-CSV restore reads back.
 Family view shows a member's places, read only. Sync needs no change to `js/merge.js`: `storage` is
@@ -2770,6 +2776,10 @@ it held sideways) are its name, its language and pocket, and what the pocket's s
   (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
 - a binder from a list: Edit pocket (its copies sheet, which picks the copy shown) and Card page;
 - a family member's binder, read only: Card page alone (the pocket was a link to it before).
+
+They are two equal columns, Edit pocket and To the tray, then Move to… and Card page, and Remove
+from this binder last on a row of its own in the danger style Delete binder has (design review 2,
+2026-11-20); a button alone on its row takes the row.
 
 The binder behind is dimmed to 94 percent, so its text and rings do not read through beside a card
 held sideways (it was 88; design polish, 2026-11-06).

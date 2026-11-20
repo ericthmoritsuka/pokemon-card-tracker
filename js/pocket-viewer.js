@@ -135,7 +135,7 @@ export function openPocketViewer({actions = [], art: topArt, origin = () => null
 	const pickButton = several && stack.onPick ? h('button', {class: 'primary', id: 'pv-pick', type: 'button'}, 'Show this one here') : null;
 	const buttons = [pickButton, ...actions.map((action) => (action.route
 		? h('a', {class: 'button', 'data-link': action.route, href: BASE + action.route, id: action.id}, action.label)
-		: h('button', {class: action.primary ? 'primary' : '', id: action.id, type: 'button'}, action.label)))].filter(Boolean);
+		: h('button', {class: action.primary ? 'primary' : action.danger ? 'danger' : '', id: action.id, type: 'button'}, action.label)))].filter(Boolean);
 	const actionButtons = pickButton ? buttons.slice(1) : buttons;
 	const name = h('h3', {class: 'pv-name', id: 'pv-name'}, title);
 	const meta = h('p', {class: 'pv-meta', id: 'pv-meta'}, subtitle);

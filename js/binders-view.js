@@ -3764,11 +3764,16 @@ function binderScreen(root, source, id, pageParam) {
 				actions.push({id: 'pv-move', label: 'Move to…', run: () => openSheet(pg, position, {move: true})});
 			}
 
-			actions.push({id: 'pv-remove', label: 'Remove from this binder', run: () => openSheet(pg, position, {remove: true})});
 		}
 
 		if (info.route) {
 			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
+		}
+
+		// Last, on a row of its own, in the danger style Delete binder has
+		// (design review 2, 2026-11-20).
+		if (!source.readOnly) {
+			actions.push({danger: true, id: 'pv-remove', label: 'Remove from this binder', run: () => openSheet(pg, position, {remove: true})});
 		}
 
 		showCard({actions, entry, info, pg, position, tapped});
@@ -3787,11 +3792,14 @@ function binderScreen(root, source, id, pageParam) {
 		const actions = source.readOnly ? [] : [
 			{id: 'pv-details', label: 'Edit pocket', run: () => openListSheet(pg, position)},
 			{id: 'pv-move', label: 'Move to…', run: () => openListSheet(pg, position, {move: true})},
-			{id: 'pv-remove', label: 'Remove from this binder', run: () => openListSheet(pg, position, {remove: true})},
 		];
 
 		if (info.route) {
 			actions.push({id: 'pv-card-page', label: 'Card page', route: info.route});
+		}
+
+		if (!source.readOnly) {
+			actions.push({danger: true, id: 'pv-remove', label: 'Remove from this binder', run: () => openListSheet(pg, position, {remove: true})});
 		}
 
 		showCard({actions, entry, info, pg, position, stack, tapped});
