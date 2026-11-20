@@ -1044,3 +1044,41 @@ test('phones that read deltas converge with phones that read whole rows and with
 
 	assert.ok(deltaReads > 50, `the delta path ran (${deltaReads} times)`);
 });
+
+// stableJson and stampMs were rewritten for speed (lab/perf/startup-bench.mjs):
+// the text and the times must be what the plain versions give.
+test('stableJson writes what the map-and-join version wrote, and stampMs what Date.parse gives', async () => {
+	const {stampMs} = await import('../js/stamp.js');
+	const plain = (value) => {
+		if (Array.isArray(value)) {
+			return `[${value.map(plain).join(',')}]`;
+		}
+
+		if (value && typeof value === 'object') {
+			return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${plain(value[key])}`).join(',')}}`;
+		}
+
+		return JSON.stringify(value === undefined ? null : value);
+	};
+	// eslint-disable-next-line no-sparse-arrays
+	const holey = [1, , 'two'];
+	const values = [
+		null, undefined, 0, -1.5, 'text "quoted" \n', true, [], {}, holey, [undefined, null, () => 1],
+		{b: 1, a: [2, {d: null, c: undefined}], 'é': 'ü', '': ''},
+		{nested: {deep: [[[]], {z: 1, y: [3, 2, 1]}]}, fn: () => 1, date: new Date(0)},
+		mergeDocuments({cards: [{created_at: '2026-01-01T00:00:00.000Z', id: 'a', updated_at: '2026-01-01T00:00:00.000Z'}]}, {}),
+	];
+
+	for (const value of values) {
+		assert.equal(stableJson(value), plain(value));
+	}
+
+	for (const stamp of ['2026-10-01T12:00:00.000Z', '2026-10-01T12:00:00.123456+00:00', 'not a date', '', null, undefined, 0, 1700000000000]) {
+		const want = Date.parse(stamp);
+
+		for (let i = 0; i < 2; i++) {
+			assert.equal(stampMs(stamp), Number.isNaN(want) ? -Infinity : want);
+			assert.equal(stampMs(stamp, null), Number.isNaN(want) ? null : want);
+		}
+	}
+});
