@@ -755,25 +755,38 @@ async function photoBitmap(file, limits) {
 	return createImageBitmap(file);
 }
 
-// The photo decoded within `limits` for its pockets' own cards (ownCard),
-// or null when that is no larger than `than` (the page's own copy, whose
-// pixels stay as they were decoded before, so the page and its pictures
-// are found as they were) or a phone cannot hold it that large.
-async function fineBitmap(file, limits, than) {
-	try {
-		const fine = await photoBitmap(file, limits);
+// The photo decoded once (a scanner review, 2026-11-19): within
+// `fineLimits` for its pockets' own cards (ownCard), and the page's copy,
+// within `limits`, drawn from that. Each decode of a 65 MP photo holds the
+// whole photo's pixels for a moment, whatever size it is decoded at: in
+// headless Chromium on Eric's 1000182577 the renderers went from 470 MB to
+// 820 decoding the page's copy and to 910 decoding the larger one while the
+// first was held, the read's highest. Decoded once, his three photos' reads
+// peaked 375 to 390 MB above where they started instead of 410 to 425, and
+// took 12.6 to 16.6 s instead of 15.4 to 19.3. What is left at the height
+// is that one decode. Returns {bitmap, fine}: fine null when it is no
+// larger than the page's copy, or a phone cannot decode it that large (the
+// page's copy is then decoded on its own, and the pockets' cards cut from
+// it). Throws when the photo cannot be opened at all.
+async function photoBitmaps(file, limits, fineLimits) {
+	const fine = await photoBitmap(file, fineLimits).catch(() => null);
 
-		if (fine.width > than.width) {
-			return fine;
+	if (fine) {
+		const size = decodeSize(fine.width, fine.height, limits);
+
+		if (size.scale >= 1) {
+			return {bitmap: fine, fine: null};
 		}
 
-		fine.close();
-	}
-	catch {
-		// The pockets' cards are cut from the page's copy.
+		try {
+			return {bitmap: await createImageBitmap(fine, {resizeHeight: size.height, resizeQuality: 'high', resizeWidth: size.width}), fine};
+		}
+		catch {
+			fine.close();
+		}
 	}
 
-	return null;
+	return {bitmap: await photoBitmap(file, limits), fine: null};
 }
 
 // How long the page worker may take before the page is read here instead.
@@ -793,15 +806,13 @@ export async function readPagePhoto(file, {finePixels = POCKET_MAX_PIXELS, fineS
 	let fine;
 
 	try {
-		bitmap = await photoBitmap(file, limits);
+		({bitmap, fine} = await photoBitmaps(file, limits, fineLimits));
 	}
 	catch {
 		return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', tall: false, where: 'main'};
 	}
 
 	const tall = tallPhoto(bitmap);
-
-	fine = await fineBitmap(file, fineLimits, bitmap);
 
 	if (worker && typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
 		const away = await readAway(bitmap, fine, limits);
@@ -811,13 +822,12 @@ export async function readPagePhoto(file, {finePixels = POCKET_MAX_PIXELS, fineS
 		}
 
 		// The bitmaps went to the worker: decoded again for this thread.
-		bitmap = await photoBitmap(file, limits).catch(() => null);
-
-		if (!bitmap) {
+		try {
+			({bitmap, fine} = await photoBitmaps(file, limits, fineLimits));
+		}
+		catch {
 			return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', tall, where: 'main'};
 		}
-
-		fine = await fineBitmap(file, fineLimits, bitmap);
 	}
 
 	let pixels;

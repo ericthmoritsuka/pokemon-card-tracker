@@ -649,6 +649,47 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// A scanner review, 2026-11-19: decoding a 65 MP photo holds all its
+	// pixels for a moment, and the page's copy and the larger one were each
+	// decoded from the file. Now the file is decoded once, and the page's
+	// copy drawn from the larger one (js/scan/page.js photoBitmaps).
+	test('the photo file is decoded once, and the page\'s copy drawn from its larger copy', async () => {
+		const app = await open();
+		const {page} = app;
+		const photo = (await readFile(pagePhoto)).toString('base64');
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+
+		const decoded = await page.evaluate(async (data) => {
+			const {readPagePhoto} = await import('/pokemon-card-tracker/js/scan/page.js');
+			const blob = await (await fetch(`data:image/jpeg;base64,${data}`)).blob();
+			const made = [];
+			const make = window.createImageBitmap;
+
+			window.createImageBitmap = (source, ...rest) => {
+				made.push(source instanceof Blob ? 'file' : 'bitmap');
+
+				return make(source, ...rest);
+			};
+
+			try {
+				const found = await readPagePhoto(blob, {fineSide: 4000, maxSide: 1200, worker: false});
+
+				return {made, pockets: found.pockets.filter((pocket) => !pocket.empty).length, size: found.size};
+			}
+			finally {
+				window.createImageBitmap = make;
+			}
+		}, photo);
+
+		assert.deepEqual(decoded.made, ['file', 'bitmap'], 'the file once, then the page\'s copy from that');
+		assert.equal(decoded.pockets, 7, 'and the page read as before');
+		assert.match(decoded.size, /^\d+ x 1200$|^1200 x \d+$/, `the page's copy within its limits (${decoded.size})`);
+
+		await close(app);
+	});
+
 	// A pocket's language read off its text keeps only the prints that exist
 	// in it (js/scan/picture.js pictureMatch heldIn): whether TCGdex lists a
 	// set in Portuguese is asked once and known from then on, with no signal
