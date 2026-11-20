@@ -1410,4 +1410,60 @@ describe('while the saved records are still being read', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('a background pass that ends while My Cards reads its records again keeps no value from part of them', async () => {
+		const {context, errors, page} = await heldPhone(false);
+		const stale = {at: Date.now() - 8 * DAY_MS, data: fullRecord(CARDS.find((card) => card.id === 'tsa1-006'))};
+		let arrived;
+		let release;
+		const asked = new Promise((done) => {
+			arrived = done;
+		});
+		const answer = new Promise((done) => {
+			release = done;
+		});
+
+		// Charizard ex's price is a week old, so the pass reads it again, and
+		// its answer waits until My Cards has started reading again.
+		await context.route(/\/v2\/en\/cards\/tsa1-006$/, async (route) => {
+			arrived();
+			await answer;
+			await route.fallback();
+		});
+		await seed(page, server.origin, {records: {...freshRecords(), 'card:en:tsa1-006': stale}});
+		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
+		await asked;
+
+		// Every copy taken out and put back: My Cards loads again, and its
+		// reads of the saved records, past this visit's kept ones, are held.
+		await page.evaluate(async (keys) => {
+			new BroadcastChannel('card-tracker-catalog-records').postMessage({keys});
+			window.__holdRecords = true;
+
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const ids = (await collection.listCards()).map((entry) => entry.id);
+
+			await collection.deleteCards(ids);
+
+			for (const id of ids) {
+				await collection.restoreCard(id);
+			}
+		}, CARDS.map((card) => `card:en:${card.id}`));
+		release();
+		await page.waitForTimeout(2000);
+		assert.equal(await today(page), null, 'the pass keeps no value from part of the records');
+
+		await releaseRecords(page);
+
+		const kept = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day && item.priced === 7) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(kept.copies, COPIES.length);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
+

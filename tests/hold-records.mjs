@@ -5,12 +5,14 @@
 //
 // holdRecords(context) adds an init script. Each IndexedDB transaction on
 // the catalog store notes the keys it asks for; when it completes, its
-// complete handler waits while window.__holdRecords says to hold it:
+// complete handler waits, for a read-only one, while window.__holdRecords
+// says to hold it:
 //   true            any transaction that asks for a card record (card:...)
 //                   or lists them (the key range from card:)
 //   [key, ...]      a transaction that asks for one of these keys
-// Set window.__holdRecords before the page loads with holdWith(), or in
-// the page at any time; releaseRecords(page) lets every held one finish.
+// holdRecords(context, hold) sets it for every page load; a test may set
+// it in the page at any time; releaseRecords(page) lets every held one
+// finish.
 // The requests themselves run as usual, so what a transaction reads is
 // what IndexedDB holds; only the caller learns of it later.
 
@@ -77,9 +79,10 @@ export async function holdRecords(context, hold = false) {
 					return;
 				}
 
-				// Decided when it completes, once every request is asked.
+				// Decided when it completes, once every request is asked. Only
+				// reads are held: a write the phone waits on goes through.
 				complete.set.call(this, function (event) {
-					if (holds(asked.get(this) || [])) {
+					if (this.mode === 'readonly' && holds(asked.get(this) || [])) {
 						held.then(() => handler.call(this, event));
 					}
 					else {
