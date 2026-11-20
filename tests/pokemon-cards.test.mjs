@@ -266,6 +266,13 @@ describe('counting every finish', () => {
 		]};
 
 		assert.deepEqual(cardFinishes(detail, variantFinish), ['normal', 'masterball']);
+		// A Portuguese record writes the standard size "Padrão" and a jumbo
+		// "Jumbo" (sv06-130, checked 2026-11-19).
+		assert.deepEqual(cardFinishes({variants_detailed: [
+			{size: 'Padrão', type: 'Normal', variantId: 'n'},
+			{size: 'Padrão', type: 'Reverse', variantId: 'r'},
+			{size: 'Jumbo', type: 'Holo', variantId: 'j'},
+		]}, variantFinish), ['normal', 'reverse'], 'a Portuguese record');
 		assert.deepEqual(cardFinishes({variants: {firstEdition: true, holo: true, reverse: true}}, variantFinish), ['normal', 'reverse', 'first']);
 		assert.deepEqual(cardFinishes({}, variantFinish), ['normal']);
 		assert.deepEqual(cardFinishes(null, variantFinish), ['normal']);

@@ -250,6 +250,13 @@ describe('builders', () => {
 		assert.equal(variantLabel({type: 'reverse', foil: 'pokeball'}), 'Reverse holo, Poké Ball pattern');
 		assert.equal(variantLabel({stamp: ['1st-edition'], type: 'holo'}), 'Holo, 1st Edition stamp');
 		assert.equal(variantLabel(null), 'Any finish');
+
+		for (const size of ['standard', 'Padrão', undefined]) {
+			assert.equal(variantLabel({size, type: 'holo'}), 'Holo', String(size));
+		}
+
+		assert.equal(variantLabel({size: 'jumbo', type: 'holo'}), 'Holo, Jumbo');
+		assert.equal(variantLabel({size: 'Jumbo', type: 'holo'}), 'Holo, Jumbo');
 	});
 });
 

@@ -5,6 +5,7 @@
 // harness. DESIGN.md sections 5 and 7 hold the rules applied here.
 
 import {CATALOGS, MONPRICE_REGIONS, isKnownLanguage, monpriceLanguage} from './languages.js';
+import {isStandardSize} from './prices.js';
 import {pool} from './tcgdex.js';
 
 // ---------------------------------------------------------------- parsing
@@ -534,7 +535,6 @@ export function resolveFinish(finish, variants) {
 	const subtype = (variant) => (variant.subtype ? String(variant.subtype).toLowerCase() : null);
 	const firstEdition = (variant) => (variant.stamp || []).includes('1st-edition');
 	const plain = (variant) => !variant.foil && !(variant.stamp || []).length;
-	const standard = (variant) => !variant.size || String(variant.size).toLowerCase() === 'standard';
 
 	// Each rule is a filter, then subtype preferences in order.
 	const rules = {
@@ -548,7 +548,7 @@ export function resolveFinish(finish, variants) {
 	const subtypeOrder = [null, 'unlimited'];
 
 	for (const filter of rules[finish] || []) {
-		const found = list.filter((variant) => filter(variant) && standard(variant));
+		const found = list.filter((variant) => filter(variant) && isStandardSize(variant));
 
 		for (const wanted of subtypeOrder) {
 			const hit = found.find((variant) => subtype(variant) === wanted);

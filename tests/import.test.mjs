@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {importEntryId, planImport, planOwnImport} from '../js/collection.js';
-import {LARGE_COUNT, MAX_COUNT, importEntries, isImportableFile, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv} from '../js/monprice.js';
+import {LARGE_COUNT, MAX_COUNT, importEntries, isImportableFile, isOwnCsv, parseCsv, parseExport, parseJson, parseOwnCsv, resolveFinish} from '../js/monprice.js';
 
 const HEADER = 'Name;Set;Number;Language;Finish Type;Count;ID;Release Date';
 
@@ -467,5 +467,24 @@ describe('isImportableFile', () => {
 		assert.ok(!isImportableFile('notes.csv.pdf', 'application/pdf'));
 		assert.ok(!isImportableFile('Shared file', ''));
 		assert.ok(!isImportableFile());
+	});
+});
+
+describe('resolveFinish', () => {
+	// Dragapult ex (sv06-130): a holo and a jumbo holo, the jumbo first so a
+	// rule that ignores size would take it. TCGdex writes the sizes
+	// "standard" and "jumbo" on the English record and "Padrão" and "Jumbo"
+	// on the Portuguese one (checked 2026-11-19).
+	const dragapult = (standard, jumbo) => [
+		{size: jumbo, type: 'holo', variantId: 'jumbo'},
+		{size: standard, type: 'holo', variantId: 'holo'},
+	];
+
+	test('a monprice word picks the standard size, never the jumbo, whatever the record\'s language', () => {
+		for (const [standard, jumbo] of [['standard', 'jumbo'], ['Padrão', 'Jumbo'], [undefined, 'jumbo']]) {
+			assert.deepEqual(resolveFinish('HOLOFOIL', dragapult(standard, jumbo)), {how: 'finish', variantId: 'holo'}, String(standard));
+		}
+
+		assert.equal(resolveFinish('HOLOFOIL', [{size: 'Jumbo', type: 'Holo', variantId: 'jumbo'}, {size: 'Jumbo', type: 'Normal', variantId: 'jumbo-normal'}]), null, 'only jumbos');
 	});
 });

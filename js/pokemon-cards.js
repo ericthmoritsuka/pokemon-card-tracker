@@ -33,6 +33,7 @@ import {internationalDexMap, validDex} from './checklists.js';
 import {isLive} from './collection.js';
 import {database, timedCache} from './idb.js';
 import {ASIAN_LANGUAGES, CATALOGS, LANGUAGE_CODES, catalogFor, catalogLanguage, catalogsOf, isKnownLanguage, languageLabel} from './languages.js';
+import {isStandardSize} from './prices.js';
 import {fetchJson, graphql, loadSetIndex, pool, setIndexFrom} from './tcgdex.js';
 
 export const ASIAN_CATALOGS = ASIAN_LANGUAGES;
@@ -303,7 +304,7 @@ const finishRank = (code) => {
 // standard size, and no stamp but the 1st Edition one (a prerelease or staff
 // stamp is a promo of its own).
 const isFinishVariant = (variant) => Boolean(variant)
-	&& (!variant.size || variant.size === 'standard')
+	&& isStandardSize(variant)
 	&& (variant.stamp || []).every((stamp) => stamp === '1st-edition');
 
 // The finishes a card is printed in, from its TCGdex record, as codes in

@@ -26,6 +26,7 @@ import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.
 import {database, timedCache} from './idb.js';
 import {CATALOGS as ALL_CATALOGS, CATALOG_LANGUAGES, catalogFor, catalogLanguage, catalogsOf, isCatalogLanguage} from './languages.js';
 import {nextStamp, stampEntry} from './merge.js';
+import {sizeName} from './prices.js';
 import {fetchJson, pool} from './tcgdex.js';
 
 export const PRIORITIES = ['high', 'normal', 'low'];
@@ -95,8 +96,10 @@ export function variantLabel(variant) {
 		parts.push(STAMPS[stamp] || `${sentence(stamp)} stamp`);
 	}
 
-	if (variant.size && variant.size !== 'standard') {
-		parts.push(sentence(variant.size));
+	const size = sizeName(variant);
+
+	if (size) {
+		parts.push(size);
 	}
 
 	return parts.join(', ');

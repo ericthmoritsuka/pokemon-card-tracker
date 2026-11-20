@@ -57,6 +57,7 @@ import {byCreated, sortByOrder} from './reorder.js';
 import {isLive, loadDocument, newId, nowIso} from './collection.js';
 import {cleanListLanguages, languageChip, languageLabel, listLanguagesToSave} from './languages.js';
 import {catalogsFor, copiesByPrint, internationalSets, isPocket, loadAsian, loadInternational, newestFirst, printKey} from './pokemon-cards.js';
+import {isStandardSize} from './prices.js';
 
 export {artistKey};
 
@@ -184,7 +185,7 @@ export function variantLabel(variant) {
 
 // A variant that is a printing of the card itself: the standard size (a
 // jumbo card is another product).
-const standard = (variant) => Boolean(variant) && (!variant.size || ['standard', 'padrão', 'padrao'].includes(lower(variant.size)));
+const standard = (variant) => Boolean(variant) && isStandardSize(variant);
 
 // The finishes a card is printed in, as [{key, label, foil, stamped,
 // type}], from its variants_detailed, else its variants flags; null when

@@ -28,6 +28,7 @@ import {ligaUrl} from './liga.js';
 import {finishLabel} from './monprice.js';
 import {cardNames, hasOwnNames} from './names.js';
 import {copyPriceText, priceSection} from './price-view.js';
+import {sizeName} from './prices.js';
 import {readChoice, saveChoice} from './settings.js';
 import {valueButton} from './value-sheet.js';
 import {cardArt, cardTile, forgetImage, groupFinish} from './tile.js';
@@ -979,11 +980,10 @@ const STAMPS = {'1st-edition': '1st Edition stamp'};
 // ("Padrão", "Poké Bola", "Logo da coleção") where the English record of the
 // same variantId has its English value (checked against TCGdex on
 // 2026-10-02, sv03.5-001 and sv08.5-001). Known words are read as the English
-// value, so finishes are named as on English pages; the standard size is
-// never named at all.
+// value, so finishes are named as on English pages; the size is named by
+// js/prices.js sizeName, which never names the standard size.
 const TCGDEX_WORDS = {
 	foil: {'master bola': 'masterball', 'poké bola': 'pokeball', 'poke bola': 'pokeball'},
-	size: {padrão: 'standard', padrao: 'standard'},
 	stamp: {'logo da coleção': 'set-logo', 'logo da colecao': 'set-logo'},
 };
 
@@ -1015,10 +1015,10 @@ function variantText(variant) {
 		parts.push(STAMPS[stamp] || `${sentence(stamp)} stamp`);
 	}
 
-	const size = variant.size ? inEnglish('size', variant.size) : null;
+	const size = sizeName(variant);
 
-	if (size && String(size).toLowerCase() !== 'standard') {
-		parts.push(sentence(size));
+	if (size) {
+		parts.push(size);
 	}
 
 	return parts.join(', ');

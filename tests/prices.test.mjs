@@ -21,9 +21,11 @@ import {
 	extractPrices,
 	fallbackPrice,
 	finishFits,
+	finishName,
 	finishOf,
 	formatBrl,
 	formatBrlCompact,
+	isStandardSize,
 	listStats,
 	manualPrice,
 	parseEuroRates,
@@ -34,6 +36,7 @@ import {
 	savedEuroRates,
 	savedRates,
 	shortDate,
+	sizeName,
 	tileFinish,
 	tileValue,
 	TREND_MIN_BRL,
@@ -334,6 +337,67 @@ describe('finishOf', () => {
 		assert.equal(finishOf(entry({finish_raw: 'REVERSE_HOLOFOIL'}), finishes).variantId, V.reverse);
 		assert.equal(finishOf(entry({}), finishes), null);
 		assert.equal(finishOf(entry({variant_id: 'no-such-variant'}), finishes), null);
+	});
+});
+
+// Dragapult ex (sv06-130) is printed as a holo and as a jumbo holo; TCGdex
+// writes their sizes "standard" and "jumbo" on the English record and
+// "Padrão" and "Jumbo" on the Portuguese one (checked 2026-11-19). The jumbo
+// comes first here, so a rule that ignores size would take it.
+const dragapult = (standard, jumbo, type = 'holo') => ({
+	id: 'sv06-130',
+	localId: '130',
+	name: 'Dragapult ex',
+	variants_detailed: [
+		{pricing: {tcgplayer: {[type === 'holo' ? 'holofoil' : type]: {marketPrice: 9.99, productId: 9}, unit: 'USD', updated: '2026-11-19T00:00:00Z'}}, size: jumbo, type, variantId: 'slwlv6rn87'},
+		{pricing: {tcgplayer: {[type === 'holo' ? 'holofoil' : type]: {marketPrice: 1.32, productId: 550174}, unit: 'USD', updated: '2026-11-19T00:00:00Z'}}, size: standard, type, variantId: 'jr7oetx1mqug9'},
+	],
+});
+
+describe('sizes', () => {
+	test('the standard size, in English, in Portuguese, or not given, is never named', () => {
+		for (const size of ['standard', 'Standard', ' standard ', 'Padrão', 'padrão', 'Padrao', undefined, null, '']) {
+			assert.equal(isStandardSize({size, type: 'holo'}), true, String(size));
+			assert.equal(sizeName({size, type: 'holo'}), null, String(size));
+			assert.equal(finishName({size, type: 'holo'}), 'Holo', String(size));
+		}
+
+		assert.equal(isStandardSize({type: 'holo'}), true, 'no size field at all');
+		assert.equal(isStandardSize(null), true);
+		assert.equal(sizeName(null), null);
+	});
+
+	test('a jumbo is named, from an English or a Portuguese record alike', () => {
+		for (const size of ['jumbo', 'Jumbo', 'JUMBO']) {
+			assert.equal(isStandardSize({size, type: 'holo'}), false, size);
+			assert.equal(sizeName({size, type: 'holo'}), 'Jumbo', size);
+		}
+
+		assert.equal(finishName({size: 'jumbo', type: 'holo'}), 'Holo, Jumbo');
+		assert.equal(finishName({size: 'Jumbo', type: 'Holo'}), 'Holo, Jumbo');
+		assert.equal(finishName({foil: 'Cosmos', size: 'Jumbo', type: 'Holo'}), 'Holo, Cosmos foil, Jumbo');
+		assert.equal(finishName({size: 'jumbo', stamp: ['1st-edition'], type: 'normal'}), 'Normal, 1st Edition stamp, Jumbo');
+	});
+
+	test('a card\'s holo and its jumbo holo have different names, so its finish chips differ', () => {
+		assert.deepEqual(extractPrices(dragapult('standard', 'jumbo')).map((finish) => finish.label), ['Holo, Jumbo', 'Holo']);
+		assert.deepEqual(extractPrices(dragapult('Padrão', 'Jumbo')).map((finish) => finish.label), ['Holo, Jumbo', 'Holo']);
+	});
+
+	test('a monprice word and a borrowed price never take the jumbo', () => {
+		for (const [standard, jumbo] of [['standard', 'jumbo'], ['Padrão', 'Jumbo'], [undefined, 'jumbo']]) {
+			const card = dragapult(standard, jumbo);
+			const finishes = extractPrices(card);
+
+			assert.equal(finishOf(entry({card_id: 'sv06-130', finish_raw: 'HOLOFOIL'}), finishes).variantId, 'jr7oetx1mqug9', String(standard));
+			assert.equal(finishFits(entry({finish_raw: 'HOLOFOIL'}), finishes[0]), false, 'the jumbo');
+			assert.deepEqual([fallbackPrice(card, 'tcgplayer').label, fallbackPrice(card, 'tcgplayer').prices.marketPrice], ['Holo', 1.32]);
+		}
+
+		const normals = dragapult('standard', 'jumbo', 'normal');
+		const value = copyValue(entry({card_id: 'sv06-130', finish_raw: 'REVERSE_HOLOFOIL'}), normals, {rates: RATES});
+
+		assert.deepEqual([value.usd, value.fallback], [1.32, 'Normal'], 'a copy whose finish is not listed borrows the card\'s own normal');
 	});
 });
 
