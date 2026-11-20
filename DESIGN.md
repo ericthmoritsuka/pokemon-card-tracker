@@ -3583,7 +3583,13 @@ at the foot:
   tapped while a second page was found, put the first page's cards, Already mine, back in the tray
   for Done to add again). A page Already mine and not placed holds its cards out of the tray, so a
   new page, which takes its place, would drop them from the scan: Page reads no other page until
-  it is placed or turned back to New to my cards, says so, and offers **Open that page**. Each pocket takes one of his live copies of its card
+  it is placed or turned back to New to my cards, says so, and offers **Open that page**. Clear,
+  in the tray's menu (shown for such a page even with the tray empty, and saying the page goes
+  too), drops the page with the tray, and its **Undo** brings the page back, still Already mine and
+  not placed (a review, 2026-11-20: with the tray empty, Clear dropped it with no Undo). While it
+  waits, the Scan tab's dot stays: the tray's count, or no number when the tray is empty, and the
+  tab's name to a screen reader adds "a binder page to place" (`js/scan/draft.js` `draftWaiting`;
+  the same review: the dot counted the tray alone, so Scan looked empty). Each pocket takes one of his live copies of its card
   (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
   language and finish the scan read (only when read, never a default), then the oldest; one copy
   is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".

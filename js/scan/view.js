@@ -1093,7 +1093,9 @@ export function scanView(root) {
 		}
 
 		runCount.hidden = false;
-		trayMenuButton.hidden = !items.length;
+		// Clear has something to throw away: the tray, or a page Already
+		// mine and not placed (discard).
+		trayMenuButton.hidden = !items.length && !unplacedPage();
 		doneButton.disabled = !items.length;
 		doneButton.textContent = buying() ? logButtonText(items.length) : items.length ? `Done ${items.length}` : 'Done';
 		doneButton.classList.toggle('is-log', buying());
@@ -1510,7 +1512,11 @@ export function scanView(root) {
 				h('button', {class: 'scan-text-button', id: 'scan-undo-remove', onclick: undoRemove, type: 'button'}, 'Undo'));
 		}
 		else if (discarded) {
-			children.push(h('span', null, `Discarded ${plural(discarded.items.length, 'card')}. Nothing saved.`),
+			const run = discarded.pageRun;
+			const page = run && run.mine && (run.held || []).length ? 'the page not placed' : null;
+			const what = [discarded.items.length ? plural(discarded.items.length, 'card') : null, page].filter(Boolean).join(' and ');
+
+			children.push(h('span', {id: 'scan-discarded-line'}, `Discarded ${what}. Nothing saved.`),
 				h('button', {class: 'scan-text-button', id: 'scan-undo-discard', onclick: undoDiscard, type: 'button'}, 'Undo'));
 		}
 		else if (session && session.lastSave) {
@@ -2338,12 +2344,19 @@ export function scanView(root) {
 		await refreshOwned();
 	}
 
+	// Clear, Discard, and Discard session throw away the tray, and with it
+	// the page read last: a page Already mine and not placed (unplacedPage)
+	// goes too, its cards held out of the tray. Its copies are in his cards
+	// already, but its matching and placing would be lost, so Undo brings it
+	// back even when the tray was empty (a review, 2026-11-20: an empty tray
+	// cleared dropped the page with no Undo).
 	function discard() {
 		const kept = session;
+		const page = kept.pageRun && kept.pageRun.mine ? (kept.pageRun.held || []).length : 0;
 
 		forgetRemoved();
 
-		discarded = kept.items.length ? kept : null;
+		discarded = kept.items.length || page ? kept : null;
 		forgetCard(kept.items.map((item) => item.id));
 
 		for (const item of kept.items) {
@@ -2375,12 +2388,17 @@ export function scanView(root) {
 			scanLog.setOutcome(item.id, null);
 		}
 
-		for (const item of session.items) {
+		for (const item of [...session.items, ...((session.pageRun && session.pageRun.held) || [])]) {
 			loadPhotoUrl(item.id).then(draw);
 		}
 
 		persist();
 		draw();
+
+		// A page Already mine comes back to place again (unplacedPage).
+		if (session.pageRun && session.pageRun.mine) {
+			loadPageOwned();
+		}
 	}
 
 	function announce(text) {

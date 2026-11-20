@@ -1025,7 +1025,7 @@ export function trayMenuSheet(ctx) {
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-tray-menu-sheet', id: 'scan-tray-menu-sheet', role: 'dialog'},
 		sheetHeader('The tray', () => ctx.closeSheet(), titleId),
 		h('div', {class: 'scan-sheet-body'},
-			h('p', {class: 'scan-muted'}, `${plural(count, 'card')} in the tray.`),
+			h('p', {class: 'scan-muted', id: 'scan-tray-menu-count'}, `${plural(count, 'card')} in the tray.${ctx.pageUnplaced ? ' And a page Already mine, not placed yet, which Clear drops too.' : ''}`),
 			!ctx.trade && count > 1 ? h('button', {class: 'scan-button scan-wide', id: 'scan-setall-open', onclick: () => ctx.openSetAll('language'), type: 'button'}, 'Set for all') : null,
 			h('button', {'aria-label': 'Clear the tray: discard every card in this session', class: 'scan-button scan-danger scan-wide', id: 'scan-clear', onclick: () => {
 				ctx.closeSheet();
