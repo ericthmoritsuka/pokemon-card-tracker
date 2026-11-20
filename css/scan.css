@@ -1180,14 +1180,21 @@ html.scan-open body {
 }
 
 .scan-photo figcaption,
+.scan-candidate-number,
 .scan-candidate-set {
 	color: var(--scan-muted);
 	display: block;
-	font-size: 12px;
-	line-height: 16px;
+	font-size: 14px;
+	line-height: 18px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.scan-candidate-number {
+	color: var(--scan-text);
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
 }
 
 .scan-candidate {
