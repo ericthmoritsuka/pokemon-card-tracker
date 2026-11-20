@@ -473,11 +473,7 @@ export function cardsScreen(root, {
 	const views = viewKey ? viewSwitch({id: 'cards', key: viewKey, onChange: () => ready && draw()}) : null;
 	const shownView = () => (views ? views.view : 'grid');
 	const grid = h('div', {class: 'card-grid', 'data-view': shownView()});
-	const more = h('button', {hidden: true, onclick: () => {
-		shown += PAGE;
-		rememberInHistory({shown});
-		draw();
-	}, type: 'button'}, 'Show more');
+	const more = h('button', {hidden: true, onclick: () => showMore(), type: 'button'}, 'Show more');
 	const body = h('div');
 	// The copies shown when a search or filter narrows the list, which the
 	// Stored in button sets a place for at once.
@@ -1121,8 +1117,8 @@ export function cardsScreen(root, {
 
 	const needsPrices = () => bar.state.sort === 'price' || Boolean(bar.state.filters.price);
 
-	// The tiles in the grid, in order, by key: what draw() last put there.
-	let drawnKeys = [];
+	// The tiles in the grid, in order: the groups draw() last put there.
+	let drawnGroups = [];
 
 	// After a save: when the grid would show the same tiles in the same
 	// order, only the tiles of `keys` are drawn again, and the counts above;
@@ -1137,7 +1133,7 @@ export function cardsScreen(root, {
 		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
 		const next = visible.slice(0, shown).map((group) => group.key);
 
-		if (!visible.length || next.length !== drawnKeys.length || next.some((key, i) => key !== drawnKeys[i])) {
+		if (!visible.length || next.length !== drawnGroups.length || next.some((key, i) => key !== drawnGroups[i].key)) {
 			draw(visible);
 
 			return;
@@ -1149,6 +1145,7 @@ export function cardsScreen(root, {
 			}
 		}
 
+		drawnGroups = visible.slice(0, shown);
 		drawCounts(visible);
 	}
 
@@ -1168,7 +1165,7 @@ export function cardsScreen(root, {
 		grid.dataset.view = shownView();
 
 		if (!visible.length) {
-			drawnKeys = [];
+			drawnGroups = [];
 			grid.replaceChildren(h('div', {class: 'card empty-state cards-none', id: 'cards-none'},
 				h('p', {class: 'big'}, query.trim() ? `No cards match "${query.trim()}"` : 'No cards match these filters'),
 				activeFilters(filters).length ? h('button', {class: 'button', onclick: () => bar.clearFilters(), type: 'button'}, 'Clear filters') : null,
@@ -1176,7 +1173,7 @@ export function cardsScreen(root, {
 			));
 		}
 		else {
-			drawnKeys = visible.slice(0, shown).map((group) => group.key);
+			drawnGroups = visible.slice(0, shown);
 			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
 				const element = shownTile(group);
 
@@ -1185,6 +1182,46 @@ export function cardsScreen(root, {
 				return element;
 			}));
 		}
+	}
+
+	// Show more: the next page of tiles. When the tiles already drawn are
+	// still the first of the list, drawn from the same groups, only the new
+	// page is drawn and added after them; anything else draws the grid
+	// again, as before. Drawing every shown tile again made each tap slower
+	// than the last (1,200 tiles: about 6,500 tiles drawn over nine taps).
+	function showMore() {
+		const {filters, query, sort} = bar.state;
+
+		shown += PAGE;
+		rememberInHistory({shown});
+
+		if (needsPrices()) {
+			ensurePrices(groups);
+		}
+
+		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
+
+		const kept = drawnGroups.length > 0
+			&& visible.length >= drawnGroups.length
+			&& drawnGroups.every((group, i) => visible[i] === group && tiles.has(group.key) && tiles.get(group.key).isConnected);
+
+		if (!kept) {
+			draw(visible);
+
+			return;
+		}
+
+		const added = visible.slice(drawnGroups.length, shown);
+
+		grid.append(...added.map((group) => {
+			const element = shownTile(group);
+
+			tiles.set(group.key, element);
+
+			return element;
+		}));
+		drawnGroups = visible.slice(0, shown);
+		drawCounts(visible);
 	}
 
 	// The summary line, the storage button, Show more, and the swipe order.
