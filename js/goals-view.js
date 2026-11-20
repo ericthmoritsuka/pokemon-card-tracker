@@ -108,7 +108,8 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 	let run = 0;
 
 	const list = h('div', {class: 'list-grid', id: 'goals-list'});
-	const newGoal = readOnly ? null : link('goals/new', {class: 'button small goal-new', id: 'goals-new'}, 'New goal');
+	const newGoal = readOnly ? null : link('goals/new', {class: 'button small goal-new', id: 'goals-new'},
+		h('span', {'aria-hidden': 'true', class: 'new-mark'}, '+'), 'New goal');
 	const empty = h('p', {class: 'muted', hidden: true, id: 'goals-empty'}, 'Collect a whole set, or every card by an artist you like.');
 	// Edit order (js/reorder.js): the goals as rows to drag or move, in
 	// place of the tiles while it is open.
