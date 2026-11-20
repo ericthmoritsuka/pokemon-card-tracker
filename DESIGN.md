@@ -3322,8 +3322,13 @@ one line saying what the read is doing; the page's actions sit at the sheet's fo
 scroll (design review, 2026-11-19: it opened only after the whole read, about a minute behind a
 busy panel over the camera, and then under a mode row and a language row). Closing the sheet while
 the page is read brings the panel over the camera back, and the sheet opens again when the read
-ends; a photo with no page in it closes the sheet and the note says so. Two modes, chosen at the
-foot:
+ends; a photo with no page in it closes the sheet and the note says so. Once read, the line is one
+line, "Tap a card to check or change it." ("Reading languages. Already mine waits." while the
+pockets' languages are read), the count of cards and of those to check being at the top of the
+camera; and on a phone up to 760 px tall each pocket is kept short enough that the page's three
+rows fit between that line and the foot, a card's shape centred in its column (design review,
+2026-11-20: at 360 x 740 a two-line count and the foot left room for two rows). Two modes, chosen
+at the foot:
 
 - **New to my cards** (the default): the cards stay in the tray, to be added by Done as any scan.
   Each pocket is the tray's own tile and opens the card's sheet, which has **Back to the page**. A

@@ -1296,7 +1296,6 @@ export function pageSheet(ctx) {
 
 		const items = ctx.session.items.filter((item) => item.pageRun === run.id);
 		const byPocket = new Map(items.map((item) => [item.page, item]));
-		const look = items.filter((item) => needsLook(item)).length;
 		const grids = sideGrids(run, (pocket) => {
 			const item = byPocket.get(pocket);
 
@@ -1312,11 +1311,14 @@ export function pageSheet(ctx) {
 		// (view.js pageSettling): Already mine waits for them, and says so.
 		const settling = !reading && items.length ? ctx.pageSettling || 0 : 0;
 
+		// One line over the grid, so its three rows fit at 360 x 740 (design
+		// review, 2026-11-20: two lines and the foot left room for two); the
+		// cards and those to check are counted at the top of the camera.
 		body.replaceChildren(...[
 			reading
 				? statusLine(reading)
 				: h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
-					? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. ${settling ? 'Still reading their languages, so Already mine waits.' : 'Tap a card to check it or change it.'}`
+					? settling ? 'Reading languages. Already mine waits.' : 'Tap a card to check or change it.'
 					: 'Every card of this page was taken out of the tray.'),
 			...grids,
 			scoped ? h('p', {class: 'scan-muted', id: 'scan-pagegrid-kept'}, scoped.kept

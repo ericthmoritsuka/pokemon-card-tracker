@@ -623,6 +623,34 @@ html.scan-open body {
 	width: 100%;
 }
 
+/* On a phone up to 760 px tall the pockets are kept short enough that the
+   page's three rows fit between the line over the grid and the foot (design
+   review, 2026-11-20: at 360 x 740 only two showed). The sheet is 82 % of
+   the screen; its head, the line, the foot, the captions, and the gaps take
+   325 px of it. Each pocket stays a card's shape, narrower than its column
+   and centred in it. Under Already mine only the picture narrows, so where
+   each copy is keeps the column's width. */
+@media (max-height: 760px) {
+	.scan-page-grid {
+		--pocket-width: min(100%, calc((82dvh - 325px) / 3 * 63 / 88));
+	}
+
+	.scan-page-grid > li:not(:has(.scan-page-mine-cell)),
+	.scan-page-grid > .scan-tray-item:not(:has(.scan-page-mine-cell)) {
+		justify-self: center;
+		width: var(--pocket-width);
+	}
+
+	.scan-page-grid .scan-page-mine-cell {
+		text-align: center;
+	}
+
+	.scan-page-grid .scan-page-mine-cell .scan-tile-art {
+		align-self: center;
+		width: var(--pocket-width);
+	}
+}
+
 .scan-page-empty {
 	align-items: center;
 	aspect-ratio: 63 / 88;
