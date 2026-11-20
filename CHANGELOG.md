@@ -7,12 +7,20 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-11-20)
 
-- Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone, and a few
-  product calls (the US chip on tile prices, Checklists renamed Progress, drawing only the tiles near the screen).
+- Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
 
 ## Live
 
 ### 2026-11-20 (morning)
+
+- **v87:** tile prices without the US mark, and Lists' Progress. `443014e`
+  - Tile prices drop the "US" chip ("~" marks an estimate); a price typed from Liga carries a small "Liga" tag. The card
+    page's price lines are unchanged.
+  - Lists: the first part is **Progress**, with Checklists and Goals under their own headings; Add a list folds behind
+    "+ New list", and New goal gets the same "+".
+  - Tried and dropped: laying out only the tiles near the screen made the first card 0.16 s sooner but scrolling to the
+    end slower (5.8 to 7.3 s), so it stays out (DESIGN.md section 8).
+  - Fixed (tests): the scan log test's fake camera kept the card still when a note moves the guide, as a real camera does.
 
 - **v86:** a faster start on a slow phone, roomier My Cards and binders, easier scanning, and accessibility fixes. `a4c352c`
   - Opening the app: on a phone-speed CPU the first card shows in 3.5 s instead of 6.6 s, and Show more adds the next
