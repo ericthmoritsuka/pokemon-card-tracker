@@ -946,7 +946,10 @@ export function setView(root, {lang, setId}) {
 	// "Make this a goal" (js/goals-view.js), for your own cards only.
 	const goal = member ? null : setGoalControl({lang, nameOf: () => (shown ? shown[0].name : null), setId});
 
-	root.append(...[back, title, meta, goal, stats, filter, note, problem, grid].filter(Boolean));
+	// The goal link and Value side by side (design review 2, 2026-11-20).
+	const tools = goal ? h('div', {class: 'set-tools', id: 'set-tools'}, goal, stats) : stats;
+
+	root.append(...[back, title, meta, tools, filter, note, problem, grid].filter(Boolean));
 	load();
 
 	// The twins saved on this phone load once a session; tiles drawn before

@@ -826,7 +826,10 @@ function collectionScreen(root, {id, userId = null}) {
 			openCollectionEditor({cards: data.cards, collection, index: data.index, onDeleted: () => go('collections')});
 		}
 	}, type: 'button'}, 'Edit');
-	const back = h('a', {class: 'button small', 'data-link': collectionsRoute(userId), href: BASE + collectionsRoute(userId), id: 'collection-back'}, 'Collections');
+	// The standard head (design review 2, 2026-11-20): the back link as
+	// text, the title, the rule line, then one row of the collection's
+	// buttons, as a goal's or a binder's screen has it.
+	const back = h('a', {class: 'back', 'data-link': collectionsRoute(userId), href: BASE + collectionsRoute(userId), id: 'collection-back'}, '‹ Collections');
 	// A rule collection's cards can be left out by hand, and put back.
 	const leave = readOnly ? null : h('button', {class: 'small', hidden: true, id: 'collection-leave-out', onclick: () => {
 		if (collection) {
@@ -839,13 +842,15 @@ function collectionScreen(root, {id, userId = null}) {
 		}
 	}, type: 'button'});
 	const leftLine = readOnly ? null : h('p', {class: 'muted col-left', hidden: true, id: 'collection-left'}, leftButton);
-	const actions = h('div', {class: 'col-actions'}, back, edit, leave, readOnly ? null : h('a', {class: 'button small', 'data-link': `binders/new/collection/${encodeURIComponent(id)}`, href: `${BASE}binders/new/collection/${encodeURIComponent(id)}`, id: 'make-binder'}, 'Make a binder'));
+	const actions = readOnly ? null : h('div', {class: 'col-actions'}, edit, leave, h('a', {class: 'button small', 'data-link': `binders/new/collection/${encodeURIComponent(id)}`, href: `${BASE}binders/new/collection/${encodeURIComponent(id)}`, id: 'make-binder'}, 'Make a binder'));
 	const screen = h('div', {class: 'col-screen'});
+	// The cards screen's own head (its title), moved above the rule line.
+	const headSlot = h('div', {class: 'col-head'});
 
-	root.append(...[actions, about, leftLine, screen].filter(Boolean));
+	root.append(...[back, headSlot, about, leftLine, actions, screen].filter(Boolean));
 
 	function describe() {
-		const title = screen.querySelector('.view-head h2');
+		const title = root.querySelector('.col-head .view-head h2') || screen.querySelector('.view-head h2');
 
 		if (title) {
 			title.textContent = collection ? collection.name : 'Collection';
@@ -952,6 +957,12 @@ function collectionScreen(root, {id, userId = null}) {
 			});
 		},
 	});
+
+	const head = screen.querySelector(':scope > .view-head');
+
+	if (head) {
+		headSlot.append(head);
+	}
 
 	describe();
 

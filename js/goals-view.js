@@ -27,6 +27,7 @@ import {cardImage, savedCardRecords, setList, viewingLanguage} from './catalog.j
 import {mainName, namesFor, tileNames} from './catalog-views.js';
 import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal, speciesNames} from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
+import {sheetDialog, showSheet} from './copy-sheet.js';
 import {BASE, errorText, go, h, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {applyFilters, filterBar, sortItems} from './filter-bar.js';
@@ -81,6 +82,12 @@ export const artistRoute = (name) => `goals/artist/${encodeURIComponent(name)}`;
 
 // The unit a goal counts: finishes on a master set, cards otherwise.
 const unitOf = (goal) => (goal && goal.kind === 'set' && goal.level === 'master' ? ['finish', 'finishes'] : ['card', 'cards']);
+
+// A goal whose every card is owned says so in words, beside its ring
+// (design review 2, 2026-11-20); null otherwise.
+function completeChip(tally) {
+	return tally && tally.total && tally.owned >= tally.total ? h('span', {class: 'goal-complete'}, 'Complete') : null;
+}
 
 // The ring always comes with its "N of M", never alone.
 function progressRing(goal, tally) {
@@ -163,7 +170,7 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 				// A goal read only in part has no ring: "5 of 37" would hide
 				// the prints of the catalog not read. Its screen says which.
 				if (mine === run && !result.missingList && !result.incomplete) {
-					item.ring.replaceChildren(progressRing(item.goal, result.tally));
+					item.ring.replaceChildren(...[completeChip(result.tally), progressRing(item.goal, result.tally)].filter(Boolean));
 
 					if (!readOnly) {
 						recordListProgress([{id: item.goal.id, owned: result.tally.owned, total: result.tally.total, unit: unitOf(item.goal)[1] === 'finishes' ? 'finishes' : null}], {stamp});
@@ -297,6 +304,13 @@ function goalScreen(root, source, id) {
 	const meta = h('p', {class: 'muted goal-meta', id: 'goal-meta'});
 	const levelSlot = h('div', {class: 'goal-level-slot', id: 'goal-level-slot'});
 	const languages = source.draft ? null : languagesControl({listId: id, readOnly: source.readOnly});
+	// The goal's settings as one line, "Numbered · any language · Edit ›",
+	// with Edit opening a sheet with Level and Languages (design review 2,
+	// 2026-11-20: the block of select, hint, and languages took 600 px above
+	// the cards). A family member's goal shows the line without Edit.
+	const settingsText = h('span', {id: 'goal-settings-text'});
+	const settingsEdit = source.draft || source.readOnly ? null : h('button', {'aria-haspopup': 'dialog', class: 'value-line goal-settings-edit', id: 'goal-settings-edit', onclick: () => openSettings(), type: 'button'}, 'Edit');
+	const settings = source.draft ? null : h('p', {class: 'muted goal-settings', id: 'goal-settings'}, settingsText, settingsEdit ? ' · ' : null, settingsEdit);
 	const summary = h('p', {class: 'checklist-summary', id: 'goal-summary'});
 	const status = h('p', {'aria-live': 'polite', class: 'muted', id: 'goal-status'});
 	const grid = h('div', {class: 'card-grid pc-grid', id: 'goal-grid'});
@@ -381,9 +395,17 @@ function goalScreen(root, source, id) {
 			parts.push(languageLabel(catalogLanguage(goal.catalog)));
 		}
 
+		// The level and languages are on the settings line under it.
+		if (settings) {
+			parts.shift();
+			drawSettings();
+		}
+
 		// No ring for a goal read only in part, as in Lists: "4 of 37" would
 		// hide the prints not read. The status line says which part.
-		meta.replaceChildren(parts.join(' · '), ...(result && !result.missingList && !result.incomplete ? [' ', progressRing(goal, result.tally)] : []));
+		const ring = result && !result.missingList && !result.incomplete ? [progressRing(goal, result.tally), completeChip(result.tally)].filter(Boolean) : [];
+
+		meta.replaceChildren(...[parts.join(' · '), ...ring].filter(Boolean).flatMap((node, i) => (i ? [' ', node] : [node])));
 
 		if (result && !result.missingList) {
 			const [one, many] = unitOf(goal);
@@ -393,6 +415,38 @@ function goalScreen(root, source, id) {
 		else {
 			summary.textContent = '';
 		}
+	}
+
+	// "Numbered · any language", or a Pokémon goal's own words, which name
+	// its languages.
+	function drawSettings() {
+		const words = goal.kind === 'pokemon'
+			? [describeGoal(goal)]
+			: [goal.kind === 'set' ? levelLabel(goal.level) : null, namesLanguages(goal) ? listLanguages(goal).map(languageLabel).join(', ') : 'any language'];
+		const text = words.filter(Boolean).join(' · ');
+
+		settingsText.textContent = text.charAt(0).toUpperCase() + text.slice(1);
+
+		if (settingsEdit) {
+			settingsEdit.setAttribute('aria-label', goal.kind === 'set' ? 'Edit the goal\'s level and languages' : 'Edit the goal\'s languages');
+		}
+	}
+
+	function openSettings() {
+		if (!goal) {
+			return;
+		}
+
+		const sheet = sheetDialog('goal-settings-sheet', 'Goal settings');
+
+		drawLevel();
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'goal-settings-sheet-title'}, goal.kind === 'set' ? 'Level and languages' : 'Languages'),
+				h('button', {class: 'small', id: 'goal-settings-close', onclick: () => sheet.close(), type: 'button'}, 'Close')),
+			h('div', {class: 'goal-settings-body'}, ...[levelSlot, languages && languages.element].filter(Boolean))
+		);
+		showSheet(sheet);
 	}
 
 	function drawLevel() {
@@ -824,7 +878,7 @@ function goalScreen(root, source, id) {
 	// Not kept yet: "Keep as a goal" comes first, above a long list of cards.
 	content.append(...(source.draft
 		? [title, meta, summary, actions, status, filter, barSlot, empty, grid]
-		: [title, meta, levelSlot, languages && languages.element, summary, status, filter, barSlot, empty, grid, actions]).filter(Boolean));
+		: [title, meta, settings, summary, status, filter, barSlot, empty, grid, actions]).filter(Boolean));
 	root.append(back, notice, content);
 	load();
 

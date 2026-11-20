@@ -2598,7 +2598,12 @@ Save changes there widens it to any language. A copy counts in one of its langua
 no language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring,
 All, Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
 goal's language for that catalog when it names one, from a binder's placeholder too), its languages
-edited on its screen, and **Make a binder**. The Japanese, Korean, and Chinese card lists carry no
+edited on its screen, and **Make a binder**. *(Design review 2, 2026-11-20: a goal's screen puts its
+settings as one line under its name, "Numbered · any language · Edit ›", or a Pokémon goal's own
+"Every card in PT, JA · Edit ›", and Edit opens a sheet with Level and Languages; the Level picker,
+its hint, and the languages had taken about 600 px above the cards. A goal with every card owned
+shows a **Complete** chip beside its ring, on its screen and its Lists tile. The set page's goal
+link and Value sit side by side, as a checklist's count and Value do.)* The Japanese, Korean, and Chinese card lists carry no
 rarity, so their prints are offered under **Rarity not listed** in the rarity choice rather than
 hidden by every rarity picked. When a catalog the goal needs is not on the phone, or some of its
 sets or the set index cannot be read, the goal's status names the part missing ("The Japanese prints
@@ -3372,6 +3377,9 @@ and value sum over its own copies, once each (section 3: never over memberships)
   the card. The scanner's Done sheet has "Add all to a collection" beside Set for all: choose or
   make a hand-picked collection, and the copies the save writes join it. My Cards has no
   selection mode yet, so adding several different cards at once from there waits for one.
+- **The collection's screen** (design review 2, 2026-11-20) has the standard head: "‹ Collections"
+  as a text link, the name, the rule line, then one row of Edit, Leave cards out, and Make a
+  binder; it had led with a Collections button.
 - **Family.** A member's collections open read only. A self-filling one of theirs is worked out
   with the card details this phone has, so it can be short until their cards are in the index.
 - **Leaving cards out of a rule** (Eric, 2026-10-06; built 2026-10-09). A self-filling

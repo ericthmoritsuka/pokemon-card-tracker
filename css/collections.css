@@ -101,13 +101,46 @@
 	font-weight: 400;
 }
 
-.col-actions a.button {
-	flex: none;
+/* One row of Edit, Leave cards out, and Make a binder under the rule line
+   (design review 2, 2026-11-20); a label wraps inside its button rather
+   than the row wrapping on a narrow phone. */
+.col-actions a.button,
+.col-actions button {
+	flex: 1 1 auto;
+	padding-left: var(--space-2);
+	padding-right: var(--space-2);
+	text-align: center;
+	white-space: normal;
 	width: auto;
 }
 
-.col-actions button {
-	margin-left: auto;
+.col-actions #collection-edit {
+	flex: 0 0 auto;
+}
+
+/* One height for the row, the link's. */
+.col-actions:has(#make-binder) {
+	align-items: stretch;
+}
+
+/* At 360 px the three labels fit one line each at 14 px. */
+@media (max-width: 380px) {
+	.col-actions {
+		gap: 6px;
+	}
+
+	.col-actions a.button,
+	.col-actions button {
+		font-size: 0.875rem;
+	}
+}
+
+.col-head .view-head {
+	margin-bottom: var(--space-1);
+}
+
+.col-head + #collection-about {
+	margin-top: 0;
 }
 
 .collection-sheet .search {
@@ -196,7 +229,7 @@
 }
 
 .col-actions {
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
 }
 
 /* Leave cards out, and Left out: one row per card with one button. */
