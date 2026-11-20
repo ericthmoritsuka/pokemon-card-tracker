@@ -3648,10 +3648,14 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   in, then Date, who, the price, the cash, and the note, with Save last. The cards had come last,
   under a sticky Save, so a form with no card picked looked complete. With Price each card on, each
   price sits under its card, above the total.
+- **Money in words** (design review 2, 2026-11-20): a month's line reads "Sold R$ 120,00 · Spent R$
+  57,50" (it read In and Out, the words the cards' own Out: and In: lines use), and a move's sheet
+  "Paid R$ 57,50" or "Received R$ 120,00" (it read "R$ 57,50 out").
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
 - **Scan a trade or sale** (Eric, 2026-11-06): Trades and sales has a **Scan a trade or sale**
-  button, with the Scan tab's icon, beside **Log a trade or sale**, which opens Scan already in
+  button, with the Scan tab's icon, beside **Log a trade or sale** at equal width (design review 2,
+  2026-11-20), which opens Scan already in
   Trade or sale; with no moves yet, the empty state says "Scan the cards going out and coming in, or
   log a trade or sale by hand." over **Log a trade or sale** and a full-width **Scan a trade or
   sale** (design review, 2026-11-06; the head's "Scan a trade" and "Log a move" took the one name
