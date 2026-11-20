@@ -531,6 +531,13 @@ html.scan-open body {
 	scroll-snap-align: start;
 }
 
+/* Side by side, so without the 8 px the app puts between list items
+   (style.css li + li): it made the tray 4 px taller than its 128 px once
+   two cards were in it, and the camera 4 px shorter. */
+.scan-tray > .scan-tray-item + .scan-tray-item {
+	margin-top: 0;
+}
+
 /* Remove, on the art's right edge between the corner badges: a 32 px
    target around a 22 px disc, so it never covers the quantity or status. */
 .scan-tile-remove {
