@@ -11,7 +11,9 @@
 
 import {catalogFor, copyLanguageCodes} from './languages.js';
 
-// A tile's key, as js/cards-view.js groups copies into tiles.
+// A tile's key: one card in one language. js/cards-view.js groups copies
+// into tiles by it, and js/stats.js counts cards by it, so My Cards' count
+// and Stats' Cards are one number.
 export const tileKey = (entry) => `${entry.catalog}|${entry.card_id}|${entry.language}`;
 
 // is_favorite is true or missing on most copies, and false only once a star

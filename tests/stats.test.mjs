@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {describe, test} from 'node:test';
 
+import {tileKey} from '../js/bulk-edit.js';
 import {extractPrices, listStats, roundCents} from '../js/prices.js';
 import {CONDITIONS, NOT_KNOWN, NOT_SET, collectionStats, copyFinish, finishFamily, lastMonths, listsProgress, monthKey, newestCardStamp, sharePercent} from '../js/stats.js';
 
@@ -82,10 +83,19 @@ function collection() {
 }
 
 describe('collectionStats', () => {
-	test('totals count live copies, distinct cards, sets, and languages', () => {
+	test('totals count live copies, cards once per language, sets, and languages', () => {
 		const stats = run(collection());
 
-		assert.deepEqual(stats.totals, {cards: 4, copies: 8, languages: 3, sets: 3});
+		// Charizard in English and in Portuguese is two cards, as My Cards
+		// shows two tiles and counts two (QA 2, 2026-11-20).
+		assert.deepEqual(stats.totals, {cards: 5, copies: 8, languages: 3, sets: 3});
+	});
+
+	test('Cards is My Cards\' count: one per tileKey, the key My Cards groups its tiles by', () => {
+		const entries = collection();
+		const tiles = new Set(entries.filter((entry) => !entry.deleted_at).map(tileKey));
+
+		assert.equal(run(entries).totals.cards, tiles.size);
 	});
 
 	test('breakdowns count copies, most first, with Not set and Not known yet last', () => {

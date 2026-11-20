@@ -8,6 +8,7 @@
 // TCGdex record at the saved dollar rate. Japanese, Korean, and Chinese
 // prints, and copies whose record is not on the phone yet, have none.
 
+import {tileKey} from './bulk-edit.js';
 import {ASIAN_LANGUAGES, languageLabel} from './languages.js';
 import {copyValue, extractPrices, finishFits, finishOf, roundCents} from './prices.js';
 
@@ -185,7 +186,7 @@ export function collectionStats(entries, {describe = plainDescribe, now = new Da
 
 	for (const entry of live) {
 		const key = keyOf(entry);
-		const tile = `${key}|${entry.language || ''}`;
+		const tile = tileKey(entry);
 		const record = records.get(key) || null;
 
 		if (!described.has(tile)) {
@@ -207,7 +208,9 @@ export function collectionStats(entries, {describe = plainDescribe, now = new Da
 
 		const info = described.get(tile);
 
-		cards.add(key);
+		// A card counts once per language, as My Cards' tiles and count do
+		// (QA 2, 2026-11-20: Stats said 781 cards where My Cards said 837).
+		cards.add(tile);
 		bump(languages, entry.language || '');
 
 		const setKey = info.setKey || NOT_KNOWN;

@@ -209,7 +209,9 @@ describe('Stats', () => {
 			// The value takes the Languages tile, which By language says in
 			// full (design review 2, 2026-11-20); its sum is checked below.
 			assert.deepEqual(totals.map(([label]) => label), ['Copies', 'Cards', 'Sets', 'Value']);
-			assert.deepEqual(totals.slice(0, 3), [['Copies', '4'], ['Cards', '3'], ['Sets', '3']]);
+			// Charizard in English and in Portuguese is two cards, as My
+			// Cards counts them (QA 2, 2026-11-20).
+			assert.deepEqual(totals.slice(0, 3), [['Copies', '4'], ['Cards', '4'], ['Sets', '3']]);
 
 			// The summary, Lists (not counted yet here), Most valuable, By
 			// language, and By set lead; the rest follow.

@@ -4267,7 +4267,9 @@ over them, well under the 1 s the unit test allows.
   collection, so they sit together. Profile was ruled out because Stats is about the cards, and
   the Cards tab is where they are. "‹ My Cards" goes back.
 - **What it shows,** in this order *(design review 2, 2026-11-20: what is reached for most
-  first)*: totals (copies, cards, sets, and the value); on your own Stats, your lists' progress
+  first)*: totals (copies, cards, sets, and the value; a card counts once per language, by the
+  same `tileKey` My Cards groups its tiles and its count by, so the two screens give one number:
+  QA 2, 2026-11-20, Stats said 781 cards where My Cards said 837); on your own Stats, your lists' progress
   (below); the 10 most valuable copies; bars by language, by set (the top 10, then "And N more
   sets, M copies"), by rarity, by type (a card of two types counts under
   both, and a Trainer or Energy under its category), by finish (Normal, Holo, Reverse holo, 1st
