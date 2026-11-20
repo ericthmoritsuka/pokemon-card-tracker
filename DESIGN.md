@@ -3993,7 +3993,9 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
 - **The form's order** (design review 2, 2026-11-20): what happened, then Going out and Coming
   in, then Date, who, the price, the cash, and the note, with Save last. The cards had come last,
   under a sticky Save, so a form with no card picked looked complete. With Price each card on, each
-  price sits under its card, above the total.
+  price sits under its card, above the total. A card's price field says Next on the keyboard, and
+  Enter (Go) there moves to the next field, the next card's price or the Date, rather than saving
+  the form with the details below it untouched (v86 review).
 - **Money in words** (design review 2, 2026-11-20): a month's line reads "Sold R$ 120,00 · Spent R$
   57,50" (it read In and Out, the words the cards' own Out: and In: lines use), and a move's sheet
   "Paid R$ 57,50" or "Received R$ 120,00" (it read "R$ 57,50 out").

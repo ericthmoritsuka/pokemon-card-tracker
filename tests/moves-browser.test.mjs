@@ -535,6 +535,19 @@ test('a purchase from the scanner: From offers earlier places, Price each card p
 	const inputs = page.locator('#move-in-list .move-card-price-input');
 
 	await inputs.nth(0).fill('12');
+
+	// Enter (Go on a phone's keyboard) in a card's price goes to the next
+	// field, and never saves the form with Date, From, and Note below it
+	// untouched (v86 review).
+	const focused = () => page.evaluate(() => document.activeElement.id);
+
+	assert.equal(await inputs.nth(0).getAttribute('enterkeyhint'), 'next');
+	await inputs.nth(0).press('Enter');
+	assert.equal(await focused(), await inputs.nth(1).getAttribute('id'), 'Enter goes to the next card\'s price');
+	await inputs.nth(2).press('Enter');
+	assert.equal(await focused(), 'move-date', 'from the last card\'s price to the Date');
+	assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`, 'not saved');
+	assert.equal(await page.locator('#move-error').textContent(), '');
 	await inputs.nth(1).fill('5,50');
 	assert.match(await page.locator('#move-in-list .move-card-price .move-price-read').nth(1).textContent(), /^Saved as R\$\s5,50 each, R\$\s11,00 for 2$/);
 	await inputs.nth(2).fill('1,2,3');

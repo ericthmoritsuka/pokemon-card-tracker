@@ -147,13 +147,35 @@ function currencySelect(id, value) {
 	return control;
 }
 
+// The field after `input` in its form that takes typing (a text, number,
+// or date field, a select, or a text area), focused; with none, the
+// keyboard is put away.
+function focusNextField(input) {
+	const typed = (el) => (el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['button', 'checkbox', 'hidden', 'radio', 'reset', 'submit'].includes(el.type)))
+		&& !el.disabled && el.getClientRects().length > 0;
+	const fields = input.form ? [...input.form.elements].filter((el) => el === input || typed(el)) : [];
+	const next = fields[fields.indexOf(input) + 1];
+
+	if (next) {
+		next.focus();
+	}
+	else {
+		input.blur();
+	}
+}
+
 // One card's own price: typed and read back as Paid is (js/moves.js
 // parsePrice, "Saved as R$ 12,00"), in the move's one currency. n copies
 // each cost it (a card added with Copies 3 is three copies at one price),
 // so the read-back says so. Blank is allowed: the card has no price of its
 // own and counts 0 toward the total.
+//
+// The cards come first in the form, above Date, Who, Price, and Note, so
+// Enter (Go on a phone's keyboard) in a card's price goes to the next field
+// and never saves the form (v86 review: it saved with the details below
+// still untouched); the keyboard's key says Next.
 function cardPriceField(id, name, {currency, n = 1, onInput = () => {}, value = ''}) {
-	const input = h('input', {'aria-label': `Price of ${name}${n > 1 ? `, each of ${n} copies` : ''}`, autocomplete: 'off', class: 'search move-card-price-input', id, inputmode: 'decimal', placeholder: '0,00', type: 'text', value});
+	const input = h('input', {'aria-label': `Price of ${name}${n > 1 ? `, each of ${n} copies` : ''}`, autocomplete: 'off', class: 'search move-card-price-input', enterkeyhint: 'next', id, inputmode: 'decimal', placeholder: '0,00', type: 'text', value});
 	const read = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: `${id}-read`});
 	const box = h('div', {class: 'move-card-price'}, h('label', {for: id}, n > 1 ? 'Price each' : 'Price'), input, read);
 
@@ -167,6 +189,12 @@ function cardPriceField(id, name, {currency, n = 1, onInput = () => {}, value = 
 	input.addEventListener('input', () => {
 		refresh();
 		onInput();
+	});
+	input.addEventListener('keydown', (event) => {
+		if (event.key === 'Enter' && !event.isComposing) {
+			event.preventDefault();
+			focusNextField(input);
+		}
 	});
 	refresh();
 
