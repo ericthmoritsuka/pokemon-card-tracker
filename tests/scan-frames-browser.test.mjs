@@ -22,6 +22,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakeRates} from './fake-rates.mjs';
+import {untilInPage} from './poll.mjs';
 import {cardImage, routeTcgdex, startScanHarness} from './scan-harness.mjs';
 
 const require = createRequire(import.meta.url);
@@ -237,7 +238,15 @@ describe('frames with no card, and a card held too far away (Q-19)', () => {
 		// card at 0.42 of the guide is read as surely as one filling it, and
 		// "Move closer" (said only for a card the picture did not settle)
 		// gives way to the right card.
-		const card = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items[0].card);
+		//
+		// The tray as kept on the phone (draft.js) is written a moment after
+		// the screen changes, so its card is read once it has caught up.
+		const {card} = await untilInPage(page, 'the tray on the phone to hold the card read', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+			const item = session && session.items[0];
+
+			return item && !['reading', 'matching'].includes(item.status) ? {card: item.card} : null;
+		});
 
 		assert.equal(card && card.id, CARD, 'the small card is read from its own corners');
 		assert.doesNotMatch(await noteText(page), /Move closer/);
