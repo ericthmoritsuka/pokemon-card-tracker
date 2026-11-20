@@ -10,7 +10,7 @@ import {h} from './dom.js';
 import {formatCount} from './format.js';
 import {ASIAN_LANGUAGES} from './languages.js';
 import {statsBar} from './price-view.js';
-import {copyValue, listStats, savedRates, valueLabel} from './prices.js';
+import {copyValue, listStats, savedRates, shortValueLabel, valueLabel} from './prices.js';
 import {collectionHistory} from './value-history-view.js';
 
 const ASIAN = new Set(ASIAN_LANGUAGES);
@@ -141,8 +141,9 @@ export function openValueSheet({cardsById, entries, filling = false, history = n
 // Puts the total of entries on a binder's value line (prices.js valueLabel),
 // with the same records and sums the sheet reads at a tap. index is the
 // card index the screen holds. A later call wins: an older read that ends
-// after it changes nothing.
-export async function showTotal(button, entries, {index = new Map()} = {}) {
+// after it changes nothing. short shows "≈ R$ 342" (prices.js
+// shortValueLabel), with the long words as the button's name.
+export async function showTotal(button, entries, {index = new Map(), short = false} = {}) {
 	const run = (button.totalRun || 0) + 1;
 
 	button.totalRun = run;
@@ -150,7 +151,13 @@ export async function showTotal(button, entries, {index = new Map()} = {}) {
 	const saved = await savedCardRecords(entries).catch(() => new Map());
 
 	if (button.totalRun === run) {
-		button.textContent = valueLabel(listStats(entries, new Map([...index, ...saved]), {rates: savedRates()}));
+		const stats = listStats(entries, new Map([...index, ...saved]), {rates: savedRates()});
+
+		button.textContent = short ? shortValueLabel(stats) : valueLabel(stats);
+
+		if (short) {
+			button.setAttribute('aria-label', valueLabel(stats));
+		}
 	}
 }
 

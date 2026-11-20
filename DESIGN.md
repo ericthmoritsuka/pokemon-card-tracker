@@ -2332,8 +2332,8 @@ to the copies without a price. The sheet takes any list of copies, so the Trade 
 
 **A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
 is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
-line under the binder's name and size, in the theme's link color with a chevron, that opens the
-Value sheet: "R$ 1.245 in value", "About R$ 4.952 in value" when part of it is a US estimate (it
+line in the theme's link color with a chevron, on the binder name's row since design review 2
+(below), that opens the Value sheet; its words, which the button keeps as its name: "R$ 1.245 in value", "About R$ 4.952 in value" when part of it is a US estimate (it
 read "~R$ 4.952"; "About" says it in words for a reader in a second language, design polish,
 2026-11-06; the Value sheet keeps its "~"), or
 "R$ 50,00 in value, partly priced" when some copies have no price, the Collections list's words;
@@ -2344,6 +2344,20 @@ sum over the same copies (prices.js listStats and valueLabel), in whole reais fr
 read after the pages draw, again when a pocket or a copy's Liga price changes, when the sheet closes
 (it may have read a new rate), and on coming back to the app; a later read wins. The binder screen
 asks for no prices or rates itself. Sets and checklists keep their small Value button.
+
+**The binder's head is one row** (design review 2, 2026-11-20: at 360 × 740 the page started at
+337 px and its third row of pockets sat 62 px under the tab bar and the Scan disc). The name and
+the value share a row, the value short at its end, "≈ R$ 342 ›" (prices.js shortValueLabel, "≈"
+for every total, since a market price is an estimate either way), with the long words above as
+the button's name for a screen reader; it stays 48 px tall, reaching into the space around the
+row. The grid and page count are no longer a line under the name: they are in the caption over
+the pages, "Page 1 of 20 · 3×3" and "Pages 2 and 3 of 20 · 3×3", which has ‹ and › at its ends
+on one page. A list binder keeps the line under its name for what it is made from and in what
+order. On a phone held upright at 380 px or narrower, "‹ Both pages" is a two-page icon named
+Both pages, 44 px square like every control on the binder (the review asked for 40 px), beside the
+caption on the same row; wider, the words stay and the caption joins
+them where it fits. The page now starts at 227 px at 360 × 740 and all nine pockets end above the
+Scan disc.
 
 **Value over time** (Eric, 2026-11-18: "value over time"). Two histories, both kept on the phone
 (IndexedDB, `card-tracker-history`, js/value-history.js), never in the synced document:
@@ -2658,7 +2672,7 @@ picture, cropped to the cover's shape and stored like card photos. On
 a phone in portrait the binder opens on **one page at the column's width**, its pockets taking
 taps at once, rather than the spread squeezed to half the width each page (design review,
 2026-11-19: it opened on an overview whose pages had to be tapped open first). Swiping, the arrows
-beside "‹ Both pages", the arrow keys, and the page slider step one page at a time, with no history
+at the ends of the page's caption, the arrow keys, and the page slider step one page at a time, with no history
 entry, so Back leaves the binder. The route's page opens (a link to `binders/<id>/<page>`), else
 the spread's left page, page 1 on the first. **‹ Both pages** shows the spread as an overview, where
 tapping a page opens it as before, and a URL that names a spread (`?spread=`, which the overview

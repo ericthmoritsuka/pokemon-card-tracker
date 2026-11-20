@@ -242,7 +242,8 @@ describe('prices in the app', () => {
 
 		await page.goto(url(`binders/${binderId}`));
 		await page.waitForSelector('#binder-stats #binder-value');
-		assert.ok(await page.evaluate(() => document.getElementById('binder-meta').nextElementSibling.id === 'binder-stats'), 'a line right under the binder\'s name and size');
+		// On the name's row, at its end (design review 2, 2026-11-20).
+		assert.ok(await page.evaluate(() => document.getElementById('binder-title').nextElementSibling.id === 'binder-stats'), 'on the binder name\'s row');
 		assert.equal(await page.locator('.price-stats').count(), 0, 'no inline statistics on the binder');
 		// The line carries the sheet's total, short, and stays a button a
 		// finger can hit (Eric, 2026-11-06); the total arriving moves nothing.
@@ -250,7 +251,8 @@ describe('prices in the app', () => {
 		const before = await line.evaluate((button) => button.getBoundingClientRect().height);
 
 		await page.waitForFunction(() => document.getElementById('binder-value').textContent !== 'Value');
-		assert.equal(plain(await line.textContent()), 'About R$ 4.952 in value');
+		assert.equal(plain(await line.textContent()), '≈ R$ 4.952');
+		assert.equal(plain(await line.getAttribute('aria-label')), 'About R$ 4.952 in value', 'the long words are its name');
 		assert.equal(await line.getAttribute('aria-haspopup'), 'dialog');
 
 		const box = await line.evaluate((button) => {
@@ -261,12 +263,15 @@ describe('prices in the app', () => {
 
 			text.selectNodeContents(button);
 
-			return {background: style.backgroundColor, border: style.borderTopWidth, height: rect.height, lines: text.getClientRects().length, right: rect.right};
+			const title = document.getElementById('binder-title').getBoundingClientRect();
+
+			return {background: style.backgroundColor, border: style.borderTopWidth, height: rect.height, lines: text.getClientRects().length, middle: Math.abs((rect.top + rect.bottom) / 2 - (title.top + title.bottom) / 2), right: rect.right};
 		});
 
 		assert.ok(box.height >= 44, `a tap target: ${box.height} px`);
 		assert.equal(box.height, before, 'no shift when the total arrives');
 		assert.ok(box.right <= 360 && box.lines === 1, `fits on one line at 360 px: ${JSON.stringify(box)}`);
+		assert.ok(box.middle <= 2, `level with the name: ${JSON.stringify(box)}`);
 		assert.equal(box.border, '0px', 'no box');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-binder.png'});
 		await page.screenshot({fullPage: false, path: `${SHOTS}/binder-value-light.png`});
@@ -288,8 +293,9 @@ describe('prices in the app', () => {
 
 			await binders.clearPocket(id, 1, 2);
 		}, binderId);
-		await page.waitForFunction(() => document.getElementById('binder-value').textContent.replace(/\s/g, ' ') !== 'About R$ 4.952 in value');
-		assert.match(plain(await page.locator('#binder-value').textContent()), /^(R\$ 52,30|About R\$ 4\.900) in value$/);
+		await page.waitForFunction(() => document.getElementById('binder-value').getAttribute('aria-label').replace(/\s/g, ' ') !== 'About R$ 4.952 in value');
+		assert.match(plain(await page.locator('#binder-value').getAttribute('aria-label')), /^(R\$ 52,30|About R\$ 4\.900) in value$/);
+		assert.match(plain(await page.locator('#binder-value').textContent()), /^≈ R\$ (52,30|4\.900)$/);
 
 		assert.deepEqual(device.errors.map(String), []);
 		assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');

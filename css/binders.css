@@ -191,13 +191,37 @@
 
 .binder-head {
 	border-left: 8px solid var(--cover);
-	margin: var(--space-1) 0 var(--space-3);
+	margin: 0 0 6px;
 	padding-left: var(--space-3);
 }
 
+/* The name and "≈ R$ 342 ›" on one row (design review 2, 2026-11-20); the
+   grid and page count are in the caption over the pages. A long name
+   wraps, and the value keeps its place at the row's end. The value stays
+   a whole tap target tall, reaching 8 px into the space above and below
+   the row, so the row is no taller than the name and the page's last row
+   of pockets clears the tab bar on a 360 x 740 phone. */
+.binder-title-row {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2) var(--space-3);
+	justify-content: space-between;
+	min-height: calc(var(--target) - 16px);
+}
+
+.binder-title-row button.value-line {
+	margin: -8px 0;
+}
+
 .binder-head h2 {
+	flex: 1 1 auto;
 	margin: 0;
+	min-width: 0;
 	overflow-wrap: anywhere;
+}
+
+.binder-title-row .binder-stats {
+	flex: 0 0 auto;
 }
 
 .binder-head .muted {

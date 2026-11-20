@@ -1072,7 +1072,7 @@ function binderScreen(root, source, id, pageParam) {
 	const viewing = viewingLanguage();
 	const back = link(source.base, {class: 'back'}, '‹ Binders');
 	const title = h('h2', {id: 'binder-title'}, 'Binder');
-	const meta = h('p', {class: 'muted', id: 'binder-meta'});
+	const meta = h('p', {class: 'muted', hidden: true, id: 'binder-meta'});
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
 	const spreadHolder = h('div', {id: 'binder-spread-holder'});
 	const summary = h('p', {'aria-live': 'polite', class: 'muted', id: 'binder-summary'});
@@ -1087,7 +1087,7 @@ function binderScreen(root, source, id, pageParam) {
 	// its close; prices saved by another screen, on coming back to this one.
 	const drawValue = () => {
 		if (alive && statsEntries.length) {
-			showTotal(valueOpen, statsEntries, {index}).catch(() => {});
+			showTotal(valueOpen, statsEntries, {index, short: true}).catch(() => {});
 		}
 	};
 	const valueOpen = valueButton({entries: () => statsEntries, id: 'binder-value', label: () => (binder ? binder.name : 'this binder'), onClose: drawValue});
@@ -1462,7 +1462,11 @@ function binderScreen(root, source, id, pageParam) {
 	function draw() {
 		title.textContent = binder.name;
 		document.title = `${binder.name} | Card Tracker`;
-		meta.textContent = `${gridText(binder)} · ${plural(binder.page_count, 'page', 'pages')}${listMode ? ` · ${listMeta()}` : ''}`;
+		// The grid and the page count are in the caption over the pages
+		// (js/binder-spread.js); a list binder still says what it is made
+		// from and in what order.
+		meta.textContent = listMode ? listMeta() : '';
+		meta.hidden = !listMode;
 		notes.textContent = binder.notes || '';
 		notes.hidden = !binder.notes;
 		body.style.setProperty('--cover', isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER);
@@ -1526,7 +1530,7 @@ function binderScreen(root, source, id, pageParam) {
 			// replaceChildren prints a null argument as "null", and a family
 			// member's binder leaves several parts out.
 			body.replaceChildren(...[
-				h('div', {class: 'binder-head'}, title, meta, statsSlot, notes),
+				h('div', {class: 'binder-head'}, h('div', {class: 'binder-title-row'}, title, statsSlot), meta, notes),
 				listNote,
 				spreadHolder,
 				summary,

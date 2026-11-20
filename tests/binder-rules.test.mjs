@@ -776,7 +776,9 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 
 		// Named after the list, laid out in Pokédex order, 1 page.
 		assert.equal(await page.locator('#binder-title').textContent(), 'Test starters');
-		assert.match(await page.locator('#binder-meta').textContent(), /2 × 2 · 1 page · Test starters \(checklist\), Pokédex order/);
+		assert.equal(await page.locator('#binder-meta').textContent(), 'Test starters (checklist), Pokédex order');
+		assert.equal(await page.locator('#bs-spread .bs-shape').textContent(), ' · 2×2');
+		assert.match(await page.locator('#binder-spread .bs-caption:visible').textContent(), /^Page 1 of 1 · 2×2$/);
 
 		// Pocket 1: three copies fit, the priced one shows; pocket 4 (#025)
 		// is not owned.
@@ -870,7 +872,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.match(await page.locator('#relayout-preview .pocket').first().getAttribute('aria-label'), /^Bulbasaur: Test Sprout ex/);
 		await page.screenshot({path: `${SHOTS}/relayout-360.png`});
 		await page.click('#relayout-save');
-		await page.waitForFunction(() => /3 × 3 · 1 page · Test starters \(checklist\), name order/.test((document.getElementById('binder-meta') || {}).textContent), null, {timeout: 15000});
+		await page.waitForFunction(() => (document.getElementById('binder-meta') || {}).textContent === 'Test starters (checklist), name order' && (document.querySelector('#bs-spread .bs-shape') || {}).textContent === ' · 3×3', null, {timeout: 15000});
 		// Name order: Bulbasaur, Charizard, Pikachu, Squirtle, Testmon 4.
 		await waitForPocket(page, spreadPocket(1, 3), {label: 'Pikachu: Test Spark'});
 		doc = await localDoc(page);
@@ -933,7 +935,7 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.fill('#binder-name', 'Fire cards');
 		await page.click('#binder-save');
 		await page.waitForSelector('#binder-spread .bs-page');
-		assert.match(await page.locator('#binder-meta').textContent(), /Filter: Fire, Pokédex order/);
+		assert.match(await page.locator('#binder-meta').textContent(), /^Filter: Fire, Pokédex order/);
 
 		doc = await localDoc(page);
 		assert.deepEqual(doc.binders.map((binder) => binder.rule.source.kind).sort(), ['collection', 'filter', 'goal']);
