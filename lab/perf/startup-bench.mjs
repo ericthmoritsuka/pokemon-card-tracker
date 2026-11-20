@@ -477,6 +477,18 @@ async function measure(tree, setup, {profiled = false} = {}) {
 		const tilePaint = await page.evaluate(() => window.__tilePaint);
 
 		result.coldTile = tilePaint;
+		// When the module graph was in: the last script's response, and how
+		// many scripts the first screen fetched.
+		Object.assign(result, await page.evaluate(() => {
+			const scripts = performance.getEntriesByType('resource').filter((entry) => /\.js(\?|$)/.test(entry.name) && entry.startTime < window.__tileDom);
+			const nav = performance.getEntriesByType('navigation')[0];
+
+			return {
+				coldScripts: scripts.length,
+				coldScriptsIn: Math.max(0, ...scripts.map((entry) => entry.responseEnd)),
+				coldInteractive: nav ? nav.domInteractive : null,
+			};
+		}));
 		result.coldTasks = await tasksBetween(page, 0);
 		result.coldNodes = await domNodes(page);
 
@@ -767,6 +779,9 @@ const median = (values) => {
 
 const METRICS = {
 	'cold start: first tile painted (ms)': (r) => r.coldTile,
+	'cold start: HTML parsed (ms)': (r) => r.coldInteractive,
+	'cold start: last script fetched (ms)': (r) => r.coldScriptsIn,
+	'cold start: scripts fetched': (r) => r.coldScripts,
 	'cold start: long tasks total (ms)': (r) => r.coldTasks.total,
 	'cold start: blocking time (ms)': (r) => r.coldTasks.blocking,
 	'cold start: longest task (ms)': (r) => r.coldTasks.longest,
