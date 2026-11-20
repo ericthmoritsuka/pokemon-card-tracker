@@ -192,6 +192,12 @@
 	body:has(.cards-head) .shell-top {
 		position: static;
 	}
+
+	/* Nothing to keep clear of at the top (style.css, html's
+	   scroll-padding). */
+	html:has(.cards-head) {
+		scroll-padding-top: 0;
+	}
 }
 
 /* ------------------------------------------------------------- Grid */
