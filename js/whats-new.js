@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'Phone check can show one set as this phone holds it (copies, card records, the Sets count, and the saved set list) and copy it to send, so a set that counts wrong on one phone can be looked into.',
+			'A binder page you marked Already mine keeps a dot on the Scan tab until you place it, and clearing the tray can be undone to bring it back.',
+		],
+		version: 'v93',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Card Tracker moves to a new version by itself when you come back to it or change screens, so your phones and computer stay on the same version.',
 			'It waits while you scan, type, or have a sheet open, and Reload still works as before.',
 		],
