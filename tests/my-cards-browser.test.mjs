@@ -16,6 +16,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {holdRecords, releaseRecords} from './hold-records.mjs';
 import {BASE, CARDS, COPIES, documentWith, fakeServices, fullRecord, indexRecords, linkNewStyles, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
@@ -1345,6 +1346,67 @@ describe('card images', () => {
 			: route.fulfill({status: 404})));
 		await page.goto(`${server.origin}${BASE}check`);
 		assert.deepEqual(await art(page, IMAGE.replace('{lang}', 'pt')), {back: false, fallback: 'en', note: 'English image', shown: IMAGE.replace('{lang}', 'en')});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
+// My Cards draws its first screen from that screen's saved records, and
+// reads every other record after the paint (js/cards-view.js load,
+// readRest). tests/hold-records.mjs holds those reads, so the tests act in
+// the window before they are in.
+describe('while the saved records are still being read', () => {
+	const DAY = () => {
+		const date = new Date();
+		const pad = (n) => String(n).padStart(2, '0');
+
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+	};
+	// Every international card's full record, saved today, so the
+	// background pass reads nothing and keeps the day's value at its end.
+	const freshRecords = (cards = CARDS) => Object.fromEntries(cards
+		.filter((card) => card.catalog === 'international')
+		.map((card) => [`card:en:${card.id}`, {at: Date.now(), data: fullRecord(card)}]));
+	const today = (page) => page.evaluate(async (day) => {
+		const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+		return list.find((item) => item.date === day) || null;
+	}, DAY());
+	// Copies with a price: every international card with a US market price,
+	// and the Liga-priced Pikachu; not Test Ball or the Asian prints.
+	const PRICED = 7;
+
+	async function heldPhone(hold = true) {
+		const device = await phone();
+
+		await holdRecords(device.context, hold);
+
+		return device;
+	}
+
+	test('Value tapped before the records are in waits for them, and keeps no value from part of them', async () => {
+		const {context, errors, page} = await heldPhone();
+
+		await seed(page, server.origin, {records: freshRecords()});
+		await page.locator('#cards-value').waitFor(TIMEOUT);
+		assert.equal(await page.locator('.card-grid .tile').count(), 0, 'the first screen\'s records are still being read');
+
+		await page.click('#cards-value');
+		await page.waitForTimeout(1500);
+		assert.equal(await today(page), null, 'no value kept from part of the records');
+		assert.equal(await page.locator('.value-sheet[open]').count(), 0, 'the sheet waits for every price');
+
+		await releaseRecords(page);
+		await page.locator('.value-sheet[open]').waitFor(TIMEOUT);
+
+		const kept = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(kept.priced, PRICED, 'every priced copy counted');
+		assert.equal(kept.copies, COPIES.length);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

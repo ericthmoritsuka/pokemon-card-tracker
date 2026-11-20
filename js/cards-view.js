@@ -559,11 +559,13 @@ export function cardsScreen(root, {
 	// records and the dollar rate on the phone now. Called only with fresh
 	// prices: when the background pass has read every record due, or when
 	// the sheet opens with no pass running. Resolves to the snapshots kept,
-	// or null when nothing was.
+	// or null when nothing was. Never while load is still reading the saved
+	// records (savedAll): a value from part of them would replace today's,
+	// and offline nothing would put it right.
 	function noteValue() {
 		const now = savedRates();
 
-		if (!valueHistory || readOnly || !now || !entries.length) {
+		if (!valueHistory || readOnly || !now || !entries.length || savedAll !== true) {
 			return Promise.resolve(null);
 		}
 
@@ -571,9 +573,10 @@ export function cardsScreen(root, {
 	}
 
 	function openValue() {
-		// Every price counts, so every record must be in.
-		if (ready && savedAll !== true) {
-			savedReady().then(() => alive && savedAll === true && openValue());
+		// Every price counts, so every record must be in, read by this
+		// screen's load (whenAllSaved), however far it has got.
+		if (savedAll !== true) {
+			whenAllSaved().then((all) => all && openValue());
 
 			return;
 		}
@@ -1555,6 +1558,8 @@ export function cardsScreen(root, {
 	let loadRun = 0;
 	// True once a load has drawn, so a save can patch the screen instead.
 	let ready = false;
+	// Who waits for a load to draw (whenAllSaved).
+	const readyWaiters = [];
 	// Each drawn copy's updated_at and card, by entry ID, to tell what a
 	// save changed. Kept as text, because an edit changes the entry object
 	// the screen holds in place.
@@ -1588,6 +1593,7 @@ export function cardsScreen(root, {
 				body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
 					? err.message || errorText(err)
 					: `Your cards could not be read from this phone. ${errorText(err)}`)));
+				wakeWaiters(false);
 			}
 
 			return;
@@ -1606,6 +1612,11 @@ export function cardsScreen(root, {
 
 		if (!readOnly) {
 			listPlaces().then((places) => alive && setPlaces(places.map((place) => place.name))).catch(() => {});
+		}
+
+		// No cards to draw: nothing waits for their records.
+		if (!entries.length) {
+			wakeWaiters(false);
 		}
 
 		if (!entries.length && readOnly) {
@@ -1680,6 +1691,7 @@ export function cardsScreen(root, {
 
 		ready = true;
 		draw();
+		wakeWaiters(true);
 		afterPaint(() => readRest(run));
 		fillViewingLanguage();
 		startTwins();
@@ -1750,6 +1762,30 @@ export function cardsScreen(root, {
 			});
 
 		savedAll = reading;
+	}
+
+	// Resolves true once a load has drawn the cards and every record is in
+	// saved, reading them if need be, through any load that starts again
+	// meanwhile; false when the screen closes, or a load ends with no cards
+	// to draw.
+	async function whenAllSaved() {
+		while (alive && savedAll !== true) {
+			if (ready) {
+				await savedReady();
+			}
+			else if (!await new Promise((done) => readyWaiters.push(done))) {
+				return false;
+			}
+		}
+
+		return alive;
+	}
+
+	// Called when a load draws the cards (true) or ends with none (false).
+	function wakeWaiters(drawn) {
+		for (const done of readyWaiters.splice(0)) {
+			done(drawn);
+		}
 	}
 
 	// Resolves once every record is in saved, reading them if need be.
