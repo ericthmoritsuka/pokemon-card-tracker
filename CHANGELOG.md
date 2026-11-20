@@ -5,13 +5,55 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-11-19)
+## In Progress (2026-11-20)
 
-- A binder pocket's language from its stage label (BÁSICO, ESTÁGIO 1 against BASIC, STAGE 1), then
-  the page grid (each card in its pocket, a tap or one for the page sets the language), then scan
-  icons and purchases logged from a scan.
+- Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone, and a few
+  product calls (the US chip on tile prices, Checklists renamed Progress, drawing only the tiles near the screen).
 
 ## Live
+
+### 2026-11-20 (morning)
+
+- **v86:** a faster start on a slow phone, roomier My Cards and binders, easier scanning, and accessibility fixes. `a4c352c`
+  - Opening the app: on a phone-speed CPU the first card shows in 3.5 s instead of 6.6 s, and Show more adds the next
+    tiles instead of drawing them all again (scrolling to the end 13.5 s instead of 31 s). Value waits until every
+    price is read, so a day's value is never kept from part of the cards.
+  - My Cards: the buttons take three short rows, the language flag and finish sit in the card's bottom corner instead
+    of over its name, grid tiles keep one line of set text, Filters starts with set and language and shows how many are
+    on, Value opens on the total, and Stats shows the value and your lists first. "Owned cards not in any binder" opens
+    My Cards filtered to them, without touching your saved filters.
+  - Binders: the name and value share a row and the page caption shows the grid, so all nine pockets clear the tab bar.
+    Log a trade or sale starts with the cards; a goal's settings are one line, and a finished goal says Complete; a
+    copy's row leads with its language and pocket; the wishlist searches by name first and shows each card's price.
+  - Scanning reads the collector number first and skips the set code box once the number names the card (about 10 %
+    fewer reads). A clear card a little short of sure is taken at once when its set is one of the last few scanned,
+    and its number is still read behind it: if the number names another print, it turns to check, and Save waits a few
+    seconds for those reads.
+  - Accessibility: focus never hides under the header or tab bar, the focus ring shows on the header in every theme,
+    fields have visible edges, small buttons and the tray's remove button are at least 44 px, and the scanner says when
+    it finds no card or is unsure. A binder page's grid shows all three rows at 360 px.
+  - Fixed (reviews): a cached record from another tab is read again when the page comes back into view; another tab's
+    account switch no longer keeps a value under the wrong person; Enter in a card's price no longer saves a trade;
+    totals say "partly priced" when some copies have no price.
+
+- **v85:** binder page grid and placing, Buy mode, and a clearer scanner. `931de61`
+  - Binder page scan: the page opens as a grid while it is read, a language row sets the language of the cards it could
+    not read, and **Already mine** matches a page of cards you own to your copies and places them in a binder page or a
+    new binder, with Undo. A page marked Already mine is placed before another is read, so its cards never come back as
+    new.
+  - Scan has **Buy** beside Add and Trade or sale: the cards are logged as a purchase, with where they came from and a
+    price for each. Close, Photo, and Page sit beside the shutter, Settings and the torch at the camera's foot.
+  - A card to check names the guess ("Wartortle?"), candidates show number and set, and a card that shares its picture
+    with a print the catalog has no image of (such as a McDonald's card) asks for its number; that list was narrowed from
+    819 to 495 cards by comparing pictures.
+  - A pocket's language comes from its stage label and attack text; the read language now only orders the prints, so on
+    Eric's three pages sure pockets went from 18 (one wrong) to 19 (none wrong), measured before the twin list was
+    narrowed.
+  - My Cards shows the first card higher, a card page shows its price beside the picture, a binder on an upright phone
+    opens on one page, a jumbo print is named "Holo, Jumbo" and never prices the card, Stats shows your lists' progress,
+    and the copy sheet says when the catalog is offline.
+  - Fixed: a blurred card held over the last one could be added twice; text under 14 px raised; the Scan button no
+    longer covers Save.
 
 ### 2026-11-19 (morning)
 
