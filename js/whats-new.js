@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'Card Tracker moves to a new version by itself when you come back to it or change screens, so your phones and computer stay on the same version.',
+			'It waits while you scan, type, or have a sheet open, and Reload still works as before.',
+		],
+		version: 'v92',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'A card whose small picture is missing at the catalog shows its large one, in binders and My Cards, so a pocket is no longer blank while the card page shows the picture.',
 			'A set with no logo in Portuguese (Fagulhas Impetuosas, Fogo Branco, Raio Preto) shows its English logo; a set with no logo at all still shows its name.',
 		],
