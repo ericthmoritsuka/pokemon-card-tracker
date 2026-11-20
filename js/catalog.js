@@ -51,7 +51,60 @@ const STORE = 'responses';
 const REVALIDATE_AFTER_MS = 60 * 60 * 1000;
 
 const cacheDb = database(DB_NAME, [STORE]);
-const {get: cacheGet, put: cachePut} = timedCache(cacheDb, STORE);
+const {get: cacheGet, put: storePut} = timedCache(cacheDb, STORE);
+
+// The full card records ("card:<lang>:<card id>") and their 404 marks
+// ("missing:card:..."), as stored ({at, data}, or null when none is), read
+// once per visit: savedCardRecords and pricesDue read up to two records per
+// owned card each time a screen opens, and on a slow phone reading 1,500
+// records took about 2.5 s at a cold start and again on every return to My
+// Cards. Every write here forgets its key, and so does a write in another
+// tab (BroadcastChannel), so a read never returns what IndexedDB no longer
+// holds. A read that a write of the same key overtook is not kept.
+const SAVED_CHANNEL = 'card-tracker-catalog-records';
+const memoKey = (key) => typeof key === 'string' && (key.startsWith('card:') || key.startsWith('missing:card:'));
+const savedMemo = new Map();
+// Each forgotten key's turn, so a read that began before it is not kept.
+const forgotAt = new Map();
+let memoTurn = 0;
+let savedChannel = null;
+
+function forget(key) {
+	savedMemo.delete(key);
+	forgotAt.set(key, ++memoTurn);
+}
+
+function listenForRecords() {
+	if (savedChannel || typeof BroadcastChannel !== 'function') {
+		return;
+	}
+
+	savedChannel = new BroadcastChannel(SAVED_CHANNEL);
+	savedChannel.onmessage = (event) => {
+		for (const key of (event.data && event.data.keys) || []) {
+			forget(key);
+		}
+	};
+}
+
+const keepRead = (key, value, began) => {
+	if (!(forgotAt.get(key) > began)) {
+		savedMemo.set(key, value ?? null);
+	}
+};
+
+async function cachePut(key, data) {
+	await storePut(key, data);
+
+	if (memoKey(key)) {
+		forget(key);
+		listenForRecords();
+
+		if (savedChannel) {
+			savedChannel.postMessage({keys: [key]});
+		}
+	}
+}
 
 // Saves a response just fetched from TCGdex. A full card record
 // ("card:<lang>:<card id>") also leaves a weekly point of its prices on the
@@ -316,40 +369,85 @@ export async function savedCardRecords(entries) {
 	}
 
 	const cardId = (key) => key.slice(key.indexOf('|') + 1);
-	let hits;
+	const stored = await readSaved([...wanted].flatMap(([key, langs]) => [...langs].map((lang) => `card:${lang}:${cardId(key)}`)));
+
+	if (!stored) {
+		return new Map();
+	}
+
+	const found = new Map();
+
+	// In the order the reads were asked: the English record wins, else the
+	// first language that has one.
+	for (const [key, langs] of wanted) {
+		for (const lang of langs) {
+			const hit = stored.get(`card:${lang}:${cardId(key)}`);
+			const record = hit && hit.data;
+
+			if (record && record.id && (!found.has(key) || lang === 'en')) {
+				found.set(key, record);
+			}
+		}
+	}
+
+	return found;
+}
+
+// The stored values of `keys` (card records and their 404 marks), from
+// this visit's reads where it has them and from IndexedDB in one
+// transaction otherwise: a Map of key to {at, data} or null. Null when the
+// store cannot be read.
+async function readSaved(keys) {
+	const out = new Map();
+	const asked = [];
+
+	for (const key of keys) {
+		if (savedMemo.has(key)) {
+			out.set(key, savedMemo.get(key));
+		}
+		else if (!out.has(key)) {
+			out.set(key, null);
+			asked.push(key);
+		}
+	}
+
+	if (!asked.length) {
+		return out;
+	}
+
+	listenForRecords();
+
+	const began = memoTurn;
 
 	try {
 		const db = await cacheDb.open();
 
-		hits = await new Promise((resolve, reject) => {
+		await new Promise((resolve, reject) => {
 			const tx = db.transaction(STORE, 'readonly');
 			const store = tx.objectStore(STORE);
-			const found = new Map();
 
-			for (const [key, langs] of wanted) {
-				for (const lang of langs) {
-					const request = store.get(`card:${lang}:${cardId(key)}`);
+			for (const key of asked) {
+				const request = store.get(key);
 
-					request.onsuccess = () => {
-						const record = request.result && request.result.data;
-
-						if (record && record.id && (!found.has(key) || lang === 'en')) {
-							found.set(key, record);
-						}
-					};
-				}
+				request.onsuccess = () => {
+					out.set(key, request.result ?? null);
+				};
 			}
 
-			tx.oncomplete = () => resolve(found);
+			tx.oncomplete = () => resolve();
 			tx.onerror = () => reject(tx.error);
 			tx.onabort = () => reject(tx.error);
 		});
 	}
 	catch {
-		return new Map();
+		return null;
 	}
 
-	return hits;
+	for (const key of asked) {
+		keepRead(key, out.get(key), began);
+	}
+
+	return out;
 }
 
 // The full TCGdex records saved on this phone in each copy's own language,
@@ -699,45 +797,28 @@ export async function pricesDue(entries, {now = Date.now(), maxAge = PRICE_REFRE
 		return [];
 	}
 
-	let found;
+	const stored = await readSaved([...wanted].flatMap(([cardId, langs]) => [...[...langs].map((lang) => `card:${lang}:${cardId}`), `missing:card:en:${cardId}`]));
 
-	try {
-		const db = await cacheDb.open();
-
-		found = await new Promise((resolve, reject) => {
-			const tx = db.transaction(STORE, 'readonly');
-			const store = tx.objectStore(STORE);
-			const ages = new Map();
-
-			for (const [cardId, langs] of wanted) {
-				for (const lang of langs) {
-					const request = store.get(`card:${lang}:${cardId}`);
-
-					request.onsuccess = () => {
-						const hit = request.result;
-
-						if (hit && hit.data && hit.data.id) {
-							ages.set(cardId, Math.max(ages.get(cardId) || 0, hit.at || 0));
-						}
-					};
-				}
-
-				const missing = store.get(`missing:card:en:${cardId}`);
-
-				missing.onsuccess = () => {
-					if (missing.result && now - missing.result.at < MISSING_FOR_MS && !ages.has(cardId)) {
-						ages.set(cardId, -1);
-					}
-				};
-			}
-
-			tx.oncomplete = () => resolve(ages);
-			tx.onerror = () => reject(tx.error);
-			tx.onabort = () => reject(tx.error);
-		});
-	}
-	catch {
+	if (!stored) {
 		return [];
+	}
+
+	const found = new Map();
+
+	for (const [cardId, langs] of wanted) {
+		for (const lang of langs) {
+			const hit = stored.get(`card:${lang}:${cardId}`);
+
+			if (hit && hit.data && hit.data.id) {
+				found.set(cardId, Math.max(found.get(cardId) || 0, hit.at || 0));
+			}
+		}
+
+		const missing = stored.get(`missing:card:en:${cardId}`);
+
+		if (missing && now - missing.at < MISSING_FOR_MS && !found.has(cardId)) {
+			found.set(cardId, -1);
+		}
 	}
 
 	const never = [];
