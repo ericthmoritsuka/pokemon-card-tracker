@@ -1,12 +1,15 @@
-// One tray tile: the card's photo with the four badge corners of the design
-// review's badge system (plans/design-review.md, "Badge System"): language
-// flag top left (always, in the tray), quantity top right (how many there
-// will be in all once saved, owned and other tray cards included) when it is
-// more than this card's own copies, finish
-// bottom left when it is not the plain print, and one status bottom right,
-// first match wins: ? (needs a look), waiting (cloud), wanted (heart).
-// Under the art, a caption: the card's name or what it is waiting for, and
-// the wishlist line with the member's name. A card standing for several
+// One tray tile: the card's photo with the corners of the design review's
+// badge system (plans/design-review.md, "Badge System"), cut to what tells
+// at a glance (design review, 2026-11-19: a tile carried five marks): the
+// language flag top left (always, in the tray), quantity top right (how
+// many there will be in all once saved, other tray cards included) only
+// when the card is not owned in this language already (the Have strip says
+// that), finish bottom left when it is not the plain print, and bottom
+// right a heart when someone wants it. A card to check or waiting says so
+// in its caption and its dashed rim, with no corner of its own; a card to
+// check names its guess there ("Wartortle?"). Under the art, a caption: the
+// card's name or what it is waiting for. Who wants it, like the rest, is
+// in the tile's label and its sheet. A card standing for several
 // copies (the Copies stepper) leads its caption with ×N, what this tile
 // adds. Beside the art's right edge,
 // between the top and bottom corners, an x removes the tile in one tap
@@ -51,7 +54,7 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 	const waiting = item.status === 'waiting';
 	const chip = itemFinishChip(item);
 	const wished = wishLine(marks);
-	const status = look ? 'look' : waiting ? 'waiting' : marks.length ? 'wanted' : null;
+	const wanted = marks.length > 0;
 	const option = finishOptions(item.variants).find((entry) => entry.variantId === item.variantId);
 	const copies = copiesOf(item);
 	// What the card is worth (js/scan/worth.js): a gold rim and a star for a
@@ -84,21 +87,26 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 		item.language
 			? flagBadge([item.language], {className: 'scan-badge scan-badge-tl'})
 			: h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tl scan-badge-unknown'}, '?'),
-		quantity > copies ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tr scan-qty'}, `×${quantity}`) : null,
+		quantity > copies && !have ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-tr scan-qty'}, `×${quantity}`) : null,
 		have
 			? h('span', {'aria-hidden': 'true', class: 'scan-tile-have'}, `✓ Have ${have}`)
 			: haveElsewhere.length
 				? h('span', {'aria-hidden': 'true', class: 'scan-tile-have is-elsewhere'}, `Have ${haveElsewhere.slice(0, 2).map(languageChip).join(' ')}${haveElsewhere.length > 2 ? '+' : ''}`)
 				: haveUnset ? h('span', {'aria-hidden': 'true', class: 'scan-tile-have is-elsewhere'}, 'Have ?') : null,
 		chip ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-bl scan-finish'}, chip) : null,
-		status ? h('span', {'aria-hidden': 'true', class: `scan-badge scan-badge-br scan-status-${status}`, title: status}, status === 'look' ? '?' : status === 'waiting' ? '☁' : '♥') : null,
+		wanted ? h('span', {'aria-hidden': 'true', class: 'scan-badge scan-badge-br scan-status-wanted', title: 'wanted'}, '♥') : null,
 		reason === 'reading' || reason === 'matching' || reason === 'rematch' ? h('span', {'aria-hidden': 'true', class: 'scan-tile-busy'}) : null,
 		reason === 'reading' || reason === 'matching'
 			? h('span', {'aria-hidden': 'true', class: 'scan-tile-progress'}, h('span', {style: `width: ${Math.round(Math.max(0.08, Math.min(1, reason === 'matching' ? 0.9 : progress || 0)) * 100)}%`}))
 			: null
 	);
 
-	const caption = reason && reason !== 'finishes' ? STATUS_TEXT[reason] : item.card ? item.card.name : 'Unknown card';
+	// A card to check names the scanner's guess, its ? kept when a long
+	// name is cut (design review, 2026-11-19: "Check" told nothing).
+	const guess = reason === 'unsure' && item.card;
+	const caption = guess
+		? [h('span', {class: 'scan-tile-name'}, item.card.name), h('span', {'aria-hidden': 'true', class: 'scan-tile-guess'}, '?')]
+		: [h('span', {class: 'scan-tile-name'}, reason && reason !== 'finishes' ? STATUS_TEXT[reason] : item.card ? item.card.name : 'Unknown card')];
 
 	return h('li', {class: 'scan-tray-item'},
 		h('button', {'aria-label': `Remove ${item.card ? item.card.name : 'this scan'}`, class: 'scan-tile-remove', 'data-remove': item.id, title: 'Remove', type: 'button'},
@@ -112,12 +120,11 @@ export function trayTile(item, {marks = [], owned = null, photoUrl = null, progr
 			type: 'button',
 		},
 		art,
-		h('span', {class: 'scan-tile-caption'}, copies > 1 ? h('span', {class: 'scan-tile-copies'}, `×${copies}`) : null, caption),
+		h('span', {class: 'scan-tile-caption scan-tile-line'}, copies > 1 ? h('span', {class: 'scan-tile-copies'}, `×${copies}`) : null, ...caption),
 		valuable || rising
 			? h('span', {'aria-hidden': 'true', class: 'scan-tile-worth'},
 				valuable ? h('span', {class: 'scan-tile-star'}, `★ ${formatBrl(worth.brl)}`) : null,
 				rising ? h('span', {class: 'scan-tile-rising'}, `▲${risePercent(worth.change)}%`) : null)
-			: null,
-		wished ? h('span', {class: 'scan-tile-wish'}, wished) : null)
+			: null)
 	);
 }

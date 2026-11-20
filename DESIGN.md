@@ -245,6 +245,18 @@ buttons in the camera's top band, was not taken: the guide keeps below what that
 would have shrunk by about 24 px. Collapsing the empty tray was not taken either: the camera would
 shrink by about 120 px when the first card lands, moving the guide under the aim.
 
+**The tray, the candidates, and the forms, small fixes** (design review, 2026-11-19). A tray tile
+carried five marks (flag, `×2`, "✓ Have 1", the remove x, and `?`); it keeps those that tell at a
+glance: the flag, the Have strip (and `×N` only when the card is not owned in that language, since
+the strip already counts the copies owned), the finish, a heart when someone wants it, and the x.
+A card to check or waiting for signal says so in its caption and its dashed rim, not a corner;
+who wants a card, the total once saved, and the rest are in the tile's label and its sheet. The
+caption is 14 px on one line (`Wartortle?`). The tray's tiles had the 8 px the app puts between
+list items, which made the tray 132 px once two cards were in it and the camera 471 px at 360 x 740
+instead of 476; without it the camera keeps its height whatever the tray holds. In the card's
+sheet each candidate reads its number and its set, one line each (`006/165` over `151`), where it
+read the set alone, so two printings of one card in one set read apart.
+
 **How and For: two rows of icon buttons pick the way in and the mode** (Eric, 2026-11-19). Under
 the camera, Card, Photo, and Page say how the cards come in, and Add, Buy, and Trade or sale what
 they are for; Buy scans as Add does and hands the tray to the trades log as a purchase. Both are in
@@ -271,9 +283,9 @@ detected on its own, so a session mixing Japanese, Korean, and Portuguese cards 
 correctly. Owning is the base set, so a session needs no collection at all to be saved.
 
 **In a session, duplicates are badges, not prompts.**
-A prompt per card would break the rhythm of batch scanning. A tray card that is already owned,
-or scanned twice in the session, shows the quantity badge below, and the duplicate decision is
-made once when the session is saved.
+A prompt per card would break the rhythm of batch scanning. A tray card that is already owned
+shows the Have strip below, one scanned twice in the session the quantity badge, and the duplicate
+decision is made once when the session is saved.
 
 **A card already owned is said at the scan, not only counted** *(Eric, 2026-11-09: "a clearer hint
 that I already have that card"; v68)*. The `×N` corner alone was too easy to miss in a fast run.
@@ -1111,8 +1123,9 @@ card is already owned, the duplicate prompt. One tap saves. In a batch session, 
 appear on each tray card instead, and the session is confirmed as a whole (section 3).
 
 **Wishlist alert on scan.** When a scanned card is on a family member's wishlist (matching its
-variant and language when the wishlist item names them), the confirm sheet and the tray tile show
-"<member> wants this card". It also works in the check-only scan that saves nothing, so a scan in
+variant and language when the wishlist item names them), the confirm sheet shows
+"<member> wants this card", and the tray tile a heart, with who in its label (design review,
+2026-11-19: the tile's own line of names was one mark too many). It also works in the check-only scan that saves nothing, so a scan in
 a store answers "does anyone want this?". The family's wishlists are kept on the device for
 offline use. *(Requested by Eric, 2026-10-01.)*
 
@@ -1679,7 +1692,10 @@ judged as a drop.
   says "Blurred picture, and the number did not read. Tap the right card." ("Blurred picture. Tap
   the right card." when the number read). *(Design review, 2026-11-06: one word for the check state
   everywhere: the tile caption "Check", the count "2 to check", the tray head "2 to check", Done
-  "Done 5" with no count of its own, and the sheet's button "This one".)*
+  "Done 5" with no count of its own, and the sheet's button "This one".)* The tile caption names
+  the guess since the design review of 2026-11-19, "Wartortle?" (a long name is cut before its `?`,
+  which stays), and "Check" only when no card is chosen yet; the tile has no `?` corner of its own,
+  the caption and its dashed rim say it.
 - **Never lose a card, and never add one silently** (Eric's rule after a review of the v64
   candidate, 2026-11-06). Every blurred capture added for any other reason than its wait running
   out (another card landed, Log N cards or Done, the shutter, a zoom change, the camera stopping or

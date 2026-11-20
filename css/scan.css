@@ -744,26 +744,39 @@ html.scan-open body {
 	white-space: nowrap;
 }
 
+/* A tray tile's caption, in 14 px on one line (18 px, so the tile stays
+   inside the tray's 128 px and the camera keeps its height): the name cut
+   with an ellipsis, and the ? of a guess kept after it ("Wartortle?"),
+   drawn a little tighter so a name of nine letters fits the 72 px. */
+.scan-tile-line {
+	display: flex;
+	font-size: 14px;
+	letter-spacing: -0.02em;
+	line-height: 18px;
+}
+
+.scan-tile-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.scan-tile-guess {
+	color: var(--scan-warn);
+	flex: none;
+	font-weight: 700;
+}
+
 /* What this tile adds, when it stands for several copies. */
 .scan-tile-copies {
 	background: var(--scan-primary);
 	border-radius: 4px;
 	color: var(--scan-on-primary);
 	font-weight: 700;
+	flex: none;
 	margin-right: 4px;
 	padding: 0 3px;
-}
-
-/* "Member A wants this" gets two lines rather than an ellipsis. */
-.scan-tile-wish {
-	-webkit-box-orient: vertical;
-	color: #ffc2d1;
-	display: -webkit-box;
-	font-size: 12px;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
-	line-height: 16px;
-	overflow: hidden;
 }
 
 .scan-tile-busy {
@@ -870,18 +883,6 @@ html.scan-open body {
 
 .scan-finish {
 	background: #ffffff;
-	color: #1b1b1f;
-	outline: 1px solid #1b1b1f;
-}
-
-.scan-status-look {
-	background: var(--scan-warn);
-	color: #1b1b1f;
-	outline: 1px solid #1b1b1f;
-}
-
-.scan-status-waiting {
-	background: #d5d6dd;
 	color: #1b1b1f;
 	outline: 1px solid #1b1b1f;
 }
