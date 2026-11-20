@@ -2149,12 +2149,14 @@ step before in turn, on a busier machine, so slower than the table):
 - **Saved card records are read once per visit** (`js/catalog.js` `readSaved`). My Cards, Lists,
   Stats, the Value sheet, and the background price pass each read up to two full TCGdex records per
   owned card (about 3.7 KB each) every time they opened. The records and their 404 marks are kept
-  for the visit; a write here forgets its key, and a write in another tab does too, through a
-  BroadcastChannel, so a read never returns what IndexedDB no longer holds. A read of many keys
-  lists the keys stored under `card:` and `missing:card:` first and reads only those: each read is
-  a round trip of its own, and most cards have no 404 mark and no record in a second language.
-  Back to the Cards tab: 4.1 s to 2.8 s, and the Lists tab 1.1 s to 0.8 s; listing the keys took
-  the cold start's long tasks from 3.7 s to 3.2 s on a quiet machine.
+  for the visit; a write here forgets its key, and a write in another tab of this app does too,
+  through a BroadcastChannel. A tab of an older app, or a browser with no BroadcastChannel, writes
+  without saying so; every kept read is dropped when the page comes back into view, so such a write
+  shows from then on rather than at once. A read of many keys lists the keys stored under `card:`
+  and `missing:card:` first and reads only those: each read is a round trip of its own, and most
+  cards have no 404 mark and no record in a second language. Back to the Cards tab: 4.1 s to 2.8 s,
+  and the Lists tab 1.1 s to 0.8 s; listing the keys took the cold start's long tasks from 3.7 s to
+  3.2 s on a quiet machine.
 - **My Cards reads the first screen's records first** (`load`, `readRest`). The tiles shown first
   are drawn with their prices and finishes, and every other record is read right after the paint.
   A tile drawn without its record meanwhile is drawn again with it, and the price sort, the price

@@ -1513,5 +1513,47 @@ describe('while the saved records are still being read', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('a record another tab wrote without telling is read again when the page comes back into view', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.goto(`${server.origin}${BASE}check`);
+
+		const names = await page.evaluate(async () => {
+			// As an older app's tab writes, with no BroadcastChannel message.
+			const write = (name) => new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-catalog', 1);
+
+				open.onupgradeneeded = () => open.result.createObjectStore('responses');
+				open.onsuccess = () => {
+					const tx = open.result.transaction('responses', 'readwrite');
+
+					tx.objectStore('responses').put({at: Date.now(), data: {id: 'tsa1-001', name}}, 'card:en:tsa1-001');
+					tx.oncomplete = () => {
+						open.result.close();
+						resolve();
+					};
+					tx.onerror = () => reject(tx.error);
+				};
+				open.onerror = () => reject(open.error);
+			});
+			const {savedCardRecords} = await import('/pokemon-card-tracker/js/catalog.js');
+			const read = async () => (await savedCardRecords([{card_id: 'tsa1-001', catalog: 'international', language: 'en'}])).get('international|tsa1-001').name;
+			const out = [];
+
+			await write('Before');
+			out.push(await read());
+			await write('After');
+			out.push(await read());
+			document.dispatchEvent(new Event('visibilitychange'));
+			out.push(await read());
+
+			return out;
+		});
+
+		assert.deepEqual(names, ['Before', 'Before', 'After'], 'kept for the visit, read again once back in view');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 

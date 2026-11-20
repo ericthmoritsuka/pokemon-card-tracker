@@ -59,8 +59,11 @@ const {get: cacheGet, put: storePut} = timedCache(cacheDb, STORE);
 // owned card each time a screen opens, and on a slow phone reading 1,500
 // records took about 2.5 s at a cold start and again on every return to My
 // Cards. Every write here forgets its key, and so does a write in another
-// tab (BroadcastChannel), so a read never returns what IndexedDB no longer
-// holds. A read that a write of the same key overtook is not kept.
+// tab of this app (BroadcastChannel). A tab of an older app, or a browser
+// with no BroadcastChannel, says nothing when it writes, so every kept read
+// is dropped when the page comes back into view (visibilitychange,
+// pageshow): such a write shows from then on, not at once. A read that a
+// write of the same key, or a drop, overtook is not kept.
 const SAVED_CHANNEL = 'card-tracker-catalog-records';
 // From this many keys, readSaved lists the stored keys before reading.
 const MANY_KEYS = 64;
@@ -69,15 +72,47 @@ const savedMemo = new Map();
 // Each forgotten key's turn, so a read that began before it is not kept.
 const forgotAt = new Map();
 let memoTurn = 0;
+// The turn of the last drop of every kept read.
+let droppedAt = 0;
 let savedChannel = null;
+let listening = false;
 
 function forget(key) {
 	savedMemo.delete(key);
 	forgotAt.set(key, ++memoTurn);
 }
 
+function forgetAll() {
+	savedMemo.clear();
+	forgotAt.clear();
+	droppedAt = ++memoTurn;
+}
+
 function listenForRecords() {
-	if (savedChannel || typeof BroadcastChannel !== 'function') {
+	if (listening) {
+		return;
+	}
+
+	listening = true;
+
+	if (typeof document !== 'undefined') {
+		document.addEventListener('visibilitychange', () => {
+			if (document.visibilityState === 'visible') {
+				forgetAll();
+			}
+		});
+	}
+
+	if (typeof window !== 'undefined') {
+		// Back from the browser's page cache, after any time away.
+		window.addEventListener('pageshow', (event) => {
+			if (event.persisted) {
+				forgetAll();
+			}
+		});
+	}
+
+	if (typeof BroadcastChannel !== 'function') {
 		return;
 	}
 
@@ -90,7 +125,7 @@ function listenForRecords() {
 }
 
 const keepRead = (key, value, began) => {
-	if (!(forgotAt.get(key) > began)) {
+	if (!(forgotAt.get(key) > began) && !(droppedAt > began)) {
 		savedMemo.set(key, value ?? null);
 	}
 };
