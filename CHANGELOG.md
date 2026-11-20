@@ -13,6 +13,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v92:** every device moves to a new version by itself. `d15de4d`
+  - Eric's computer ran v87 for hours while v90 sat installed and waiting, so it showed different data from his phones.
+    A waiting version now takes over when the app comes back into view or changes screen, once nothing could be lost:
+    online, no import or Start over saving, not signing in, not on Scan or a form screen, no sheet open, nothing typed,
+    sync idle. Every edit and the scan tray are already saved on the phone, so they survive the switch. What's new still
+    shows once afterwards, Reload still works, and no switch follows another within 10 minutes.
+
 - **v91:** missing small pictures and Portuguese logos fall back. `1dfe08f`
   - TCGdex has some cards' large picture only (the Kanto binder's Arcanine, sv10-028: low.webp 404, high.webp 200); a
     tile or pocket now tries the English small picture, its own large one, then the English large one.
