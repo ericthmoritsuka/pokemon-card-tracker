@@ -205,6 +205,18 @@ describe('finishes', () => {
 		assert.equal(ownedVariantKey({code: 'first', entry: {}, finishes}), 'normal|||');
 		assert.equal(cardVariants({}), null);
 	});
+
+	test('a jumbo is never a finish, in English or Portuguese, and a missing size is the standard one', () => {
+		const finishes = cardVariants({variants_detailed: [
+			{size: 'Padrão', type: 'normal'},
+			{type: 'reverse'},
+			{size: 'standard', type: 'holo'},
+			{size: 'Jumbo', type: 'holo'},
+			{size: 'jumbo', type: 'normal'},
+		]});
+
+		assert.deepEqual(finishes.map((finish) => finish.key).sort(), ['holo|||', 'normal|||', 'reverse|||']);
+	});
 });
 
 // --------------------------------------------------------------- artist

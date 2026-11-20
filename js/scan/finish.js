@@ -9,6 +9,7 @@
 // else on plainVariantId(variants). Nothing here knows which finish the
 // previous card had.
 
+import {isStandardSize, sizeName} from '../prices.js';
 import {variantLabel} from '../wishlist.js';
 
 const TYPE_RANK = {normal: 0, holo: 1, reverse: 2};
@@ -20,8 +21,6 @@ const usable = (variant) => Boolean(variant && variant.variantId);
 
 const stamps = (variant) => (Array.isArray(variant.stamp) ? variant.stamp : []);
 
-const isStandard = (variant) => !variant.size || variant.size === 'standard';
-
 // How plain a printing is: lower is plainer. Standard size, no foil pattern,
 // no stamp, then normal before holo before reverse holo, then no subtype or
 // "unlimited" before any other subtype (Base Set Charizard's plain print is
@@ -31,7 +30,7 @@ function plainness(variant) {
 	const subtype = String(variant.subtype || '').toLowerCase();
 
 	return [
-		isStandard(variant) ? 0 : 1,
+		isStandardSize(variant) ? 0 : 1,
 		variant.foil ? 1 : 0,
 		stamps(variant).length ? 1 : 0,
 		TYPE_RANK[type] ?? 3,
@@ -84,7 +83,7 @@ export function finishKey(variant) {
 		variant.foil || '',
 		stamps(variant).slice().sort().join('+'),
 		String(variant.subtype || '').toLowerCase(),
-		variant.size || 'standard',
+		(sizeName(variant) || 'standard').toLowerCase(),
 	].join('|');
 }
 
@@ -121,7 +120,7 @@ export function finishChip(variant, plainId) {
 		return 'REV';
 	}
 
-	if (!isStandard(variant)) {
+	if (!isStandardSize(variant)) {
 		return 'JUMBO';
 	}
 
@@ -139,8 +138,8 @@ export function finishOptions(variants) {
 	const plainId = plainVariantId(list);
 	const ordered = [
 		...list.filter((variant) => variant.variantId === plainId),
-		...list.filter((variant) => variant.variantId !== plainId && isStandard(variant)),
-		...list.filter((variant) => variant.variantId !== plainId && !isStandard(variant)),
+		...list.filter((variant) => variant.variantId !== plainId && isStandardSize(variant)),
+		...list.filter((variant) => variant.variantId !== plainId && !isStandardSize(variant)),
 	];
 
 	return ordered.map((variant) => ({
@@ -181,7 +180,7 @@ export function defaultVariantId(variants, finish) {
 
 	const list = (variants || []).filter((variant) => usable(variant)
 		&& String(variant.type || '').toLowerCase() === finish
-		&& isStandard(variant)
+		&& isStandardSize(variant)
 		&& !variant.foil
 		&& !stamps(variant).length);
 

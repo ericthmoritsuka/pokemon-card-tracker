@@ -42,6 +42,11 @@ const DRAGAPULT = [
 	{size: 'jumbo', type: 'holo', variantId: 'jumbo'},
 	{size: 'standard', type: 'holo', variantId: 'holo'},
 ];
+// The same card's Portuguese record (checked 2026-11-19).
+const DRAGAPULT_PT = [
+	{size: 'Jumbo', type: 'Holo', variantId: 'jumbo'},
+	{size: 'Padrão', type: 'Holo', variantId: 'holo'},
+];
 
 const NORMAL = 'endfynwn4n10gzq';
 const REVERSE = 'cm4kqul3x1bwlz1f';
@@ -286,6 +291,7 @@ describe('the finish picker', () => {
 		assert.equal(plainVariantId(PINSIR), NORMAL);
 		assert.equal(plainVariantId(CHARIZARD), 'unlimited', 'Base Set: the Unlimited holo, not Shadowless or 1st Edition');
 		assert.equal(plainVariantId(DRAGAPULT), 'holo', 'a standard size before a jumbo');
+		assert.equal(plainVariantId(DRAGAPULT_PT), 'holo', 'Padrão is the standard size');
 		assert.equal(plainVariantId([]), null);
 		assert.equal(plainVariantId([{type: 'normal'}]), null, 'a printing with no variantId is not offered');
 	});
@@ -297,6 +303,15 @@ describe('the finish picker', () => {
 		assert.deepEqual(options.map((option) => option.chip), [null, 'REV', 'PB', 'MB']);
 		assert.deepEqual(finishOptions(SPINARAK).map((option) => option.variantId), [NORMAL, REVERSE]);
 		assert.deepEqual(finishOptions(DRAGAPULT).map((option) => option.variantId), ['holo', 'jumbo']);
+
+		for (const variants of [DRAGAPULT, DRAGAPULT_PT]) {
+			const options = finishOptions(variants);
+
+			assert.deepEqual(options.map((option) => [option.label, option.chip]), [['Holo', null], ['Holo, Jumbo', 'JUMBO']]);
+			assert.deepEqual(options.map((option) => option.key.split('|').at(-1)), ['standard', 'jumbo'], 'the same key on an English and a Portuguese record');
+		}
+
+		assert.equal(defaultVariantId(DRAGAPULT_PT, 'holo'), 'holo');
 		assert.equal(finishChip(CHARIZARD[1], 'unlimited'), '1ST');
 	});
 

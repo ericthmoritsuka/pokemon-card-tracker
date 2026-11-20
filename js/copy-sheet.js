@@ -38,6 +38,7 @@ import {errorText, go, h} from './dom.js';
 import {plural} from './format.js';
 import {catalogFor, copyLanguageCodes, languageLabel} from './languages.js';
 import {FINISHES, finishLabel} from './monprice.js';
+import {isStandardSize} from './prices.js';
 import {setPendingMove} from './moves.js';
 import {CONDITIONS} from './scan/session.js';
 import {openDialogSheet} from './sheet.js';
@@ -368,15 +369,11 @@ const GENERIC = [['NORMAL', 'normal'], ['HOLOFOIL', 'holo'], ['REVERSE_HOLOFOIL'
 // js/monprice.js resolveFinish prefers them.
 const PLAIN_SUBTYPES = new Set(['', 'unlimited']);
 
-// TCGdex writes a Portuguese record's standard size as "Padrão"
-// (js/catalog-views.js TCGDEX_WORDS).
-const STANDARD = /^(standard|padr[aã]o)$/i;
-
 // The kind of plain print a variants_detailed entry is ('normal', 'holo',
 // or 'reverse'), or null for anything with a stamp, a special foil, another
 // size, or a subtype such as Shadowless.
 export function plainKind(variant) {
-	if (!variant || variant.foil || (variant.stamp || []).length || (variant.size && !STANDARD.test(String(variant.size).trim()))) {
+	if (!variant || variant.foil || (variant.stamp || []).length || !isStandardSize(variant)) {
 		return null;
 	}
 

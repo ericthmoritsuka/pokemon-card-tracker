@@ -465,6 +465,16 @@ stamp (`stamp: ["1st-edition"]`). Ball-pattern variants carry their own TCGplaye
 products and prices. A free-text variant field could not drive the master-set goal or a
 per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's variant words.)*
 
+**A jumbo print is named, and the standard size never is** (2026-11-19). `size` is `standard` or
+`jumbo` on an English record and `Padrão` or `Jumbo` on a Portuguese one (Dragapult ex,
+`sv06-130`); a variant with no size is the standard size. One pair of helpers in `js/prices.js`,
+`isStandardSize` and `sizeName`, reads every spelling, and every module asks them rather than a
+list of its own. A jumbo's finish reads "Holo, Jumbo" everywhere a finish is named, so the Price
+panel's chips, the Finish select, and the scanner's picker never show two "Holo"s for one card. A
+jumbo is another product: it never counts toward a goal or a Pokémon's finishes, a monprice word
+never matches it, the plain print is never a jumbo, and its price never stands in for a finish
+that has none.
+
 **The finish is picked by hand from the card's real finishes, with no paid AI.**
 After a card is identified, a finish picker lists only that card's own printings from
 `variants_detailed`: Spinarak from Darkness Ablaze (`swsh3-102`) offers Normal and Reverse holo;
