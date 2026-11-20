@@ -13,6 +13,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v91:** missing small pictures and Portuguese logos fall back. `1dfe08f`
+  - TCGdex has some cards' large picture only (the Kanto binder's Arcanine, sv10-028: low.webp 404, high.webp 200); a
+    tile or pocket now tries the English small picture, its own large one, then the English large one.
+  - A Western set with no logo in its language uses the English logo (Portuguese Fagulhas Impetuosas, Fogo Branco, Raio
+    Preto). Temporal Forces, My First Battle, Crown Zenith Galarian Gallery, Delta Reign, and the 30th sets have no logo
+    or symbol on TCGdex in any language, so they keep showing their names.
+
 - **v90:** a new set's Pokémon join the Pokédex lists once TCGdex numbers them. `5927a1a`
   - TCGdex listed the 30th Celebration's cards before it gave them Pokédex numbers; the checklists' card map and the
     card details saved then held 147 of Eric's Pokémon with no number, so his 30th Mew was missing from Kanto, and the
