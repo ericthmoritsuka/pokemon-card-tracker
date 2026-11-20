@@ -1249,6 +1249,77 @@ index only leaves a card out, and a card it lacks is named from its set record a
 `tests/index-names.test.mjs` fails when the shipped table misses a card of the shipped index, so
 rebuild it whenever the index is rebuilt.
 
+**Reading less when the picture is not enough** (Eric, 2026-11-18: scanning "still a bit slow";
+v86). In his 18 November report (234 scans, v72 and v73, his phone) 64 % of scans read no text
+and took 1.4 s at the median; the 36 % that read text took 9.1 s (90th percentile 13.7 s), OCR 4.1 s
+of it, and holder captures queued behind them. When the number was read, 18 of 21 kept the
+scanner's answer; with no number, 13 of 22 were picked by hand. Three changes:
+
+- **The number first, and no set code box once it names the card** (`js/scan/read.js` `readNumber`
+  `settled`, `js/scan/identify.js` `numberSettles`). A first group of several prints (a reprint, a
+  Japanese print and its Western twin) had its label row and set code box read beside the number,
+  and the label row's lines were handed to the reader first, so they took the workers ahead of the
+  number's. Now they follow the number strip's first lines, and the set code box is read only when
+  the number does not name exactly one of the cards `pictureMatch` weighs (the first group's, and
+  each other group's first) by its number and its set's official total from the names table
+  (`index-names.json`); a total a confused digit away from another card's leaves it unsettled. The
+  label row is still read in the same pass: it tells the language. Leaving it, too, to the read
+  behind the tray (`view.js` `checkLabelLater`), as for a card the picture settles, was tried first
+  and cut a fifth of the text pass's calls (which only moved the label row's), but that read then
+  ran while the next cards were dropped: in holder mode the scanner took cards twice
+  (`tests/scan-newcard-browser.test.mjs` and `scan-log-browser.test.mjs` failed in three runs of
+  three, and passed on the base), and a faint row read there made a Spinarak whose picture a
+  Japanese print shares ask for its language after it had started in the last one picked
+  (`scan-browser.test.mjs`).
+- **A strip's lines two at a time, or as many as the reader has workers** (`readNumber` `workers`,
+  `LINES_AT_ONCE`): the likeliest first, and no more once a number reads, so the left strip's third
+  line is left unread when the first two give the number. The number is the same one: the first line
+  in that order that holds one. One line at a time was tried first, for a phone with one worker, but
+  the worker then sat idle while the page cut and sent the next line: in alternating runs on the
+  benchmark's blurred captures, one worker, the page slowed four times, OCR took 28 and 60 % longer
+  than the base; two at a time came out level with it, within the machine's load swings.
+- **The sets of the last cards** (`identify.js` `recentStack`, `session.js` `recentSets`): a
+  first group of one card whose lead is clear but a notch short of sure (within 55 with a lead of
+  10, or within 60 with a lead of 15, where alone it needs 45 and 10, or 55 and 15) is taken, with
+  no number read, when its set is one of the last five cards' settled without the stack. It goes
+  through the stack's own path (`picture.js` `stackPick`), so the card is marked as stacked, never
+  counts toward the next card's stack, and a number read that names another print still wins. Not
+  for a card with an image-less twin (only the number tells those apart), and not for a group of
+  several prints, which stays with `stackSet`'s three of five, because there the set is the only
+  clue: a pile mixing Base Set and Base Set 2 would be picked wrong.
+- **Measured on the lab benchmark** (`lab/bench`, `--picture`). The machine was busy with other
+  work, so the counts, which do not depend on it, are the measure: 40 cards in six captures, 665 OCR
+  calls before and 598 after (2.77 and 2.49 a scan; 5.50 and 4.94 a scan that read text). Per
+  region, the left number strip took 302 calls and 274, the set code box 43 and 4, and the right
+  strip (114) and the label row (206) as many as before; every capture's first card, sureness, and
+  number read are unchanged (right first 240 of 240, sure 205, none wrong but sure), with one worker
+  as with two. With the slant and low captures too (360 scans), 1,042 calls and 948, every answer
+  again unchanged.
+- **Timed** with the page slowed four times (Chromium CPU throttling, which does not reach the OCR
+  workers, so a phone's OCR is slower still) on 160 captures (clean, blurred, glare, JPEG), the two
+  trees run side by side so the machine's load fell on both alike: OCR took about as long as before,
+  714 ms at the median before and 738 after with two workers, 1,461 and 1,486 with one, and the
+  whole scan 2.9 s and 2.7 s, 4.8 and 4.7. On Eric's phone a read of the left number strip took
+  about 3.4 s (his 18 November report), so a call saved there is worth far more than here, where the
+  time saved is inside the noise of a busy machine; the calls are the firmer measure.
+- **As piles** (`--session`, `session.json`: eight Pokémon each from five sets, two of them
+  Portuguese, read in set order, each card given the ones before it): 214 calls and 188, right first
+  235 of 240 either way, sure 220, none wrong but sure, the stack picking 150 either way. The
+  recent-set rule picked none there: a TCGdex scan matches its own index entry well inside sure.
+- **The recent-set rule on real captures**: on Eric's 96 holder-log crops and eleven re-crops of
+  each (`lab/holder/crops.mjs --variants --recent`, 1,152 crops), 357 were not sure, 109 of those
+  one card clear but short of sure, every one of them right. The rule makes 92 of them sure when
+  their own set is a recent one, and would make no wrong first place sure even if its set were
+  recent (the worst case).
+- **Not done: a sharpness gate.** A number strip too blurred to read could be left unread and the
+  capture waited out: on the report's JPEGs a cut near 600 skipped 8 of 22 failed reads and lost
+  none of 21 good ones. But those JPEGs are not the reader's crop, and the benchmark's scans are not
+  a phone's (its blurred captures' strips score 8 to 23 on the same measure), so neither calibrates
+  it. The report has kept the reader's own value since v79 (`read.js` `stripSharpness`); the cut
+  waits for a report with it from the phone.
+- **The scan report** now keeps each region's OCR calls (`fields.<region>.calls`) and whether the
+  number settled the card, leaving the set code box unread (`settled`), and its text says both.
+
 **Binder page accuracy (a scanner review, 2026-11-19).** Measured on Eric's three upright page
 photos (1000182576 to 1000182578, 12000 x 5400, 27 pockets, the prints and languages checked by
 eye) through Page > Choose a photo in headless Chromium, the language reads let finish:
