@@ -3795,8 +3795,14 @@ Claims in this document that were reasoned about but not checked against source:
 - That `variants_detailed` is filled in consistently across sets. Checked on two cards only
   (`sv08.5-001`, `base1-4`).
 - The Michi insert dimensions and print settings in section 11, taken from community guides.
-- Whether the rarity values in a Star rule cover every era's naming (TCGdex lists 42 rarity
-  values, including `Illustration rare` and `Special illustration rare`).
+- Whether the rarity values in a Star rule cover every era's naming. Listed on 2026-11-20 by
+  `lab/rarities/list.mjs`: 43 English values over 23,912 cards (10 of them used only by TCG
+  Pocket, which the app leaves out), and 591 cards with none. `Illustration rare` and `Special
+  illustration rare` are the only values that name an illustration rare, and every Scarlet &
+  Violet and Mega expansion uses one or both; promos read `Promo` whatever their art. Sword &
+  Shield's Trainer Gallery and Galarian Gallery cards, that era's nearest kin, carry plain values
+  (Rare, Ultra Rare, Secret Rare, Holo Rare), so no rarity value reaches them without taking every
+  other rare too; a rule on their five sets would. Whether Star should change is Eric's call.
 - Current TCGplayer API access model, only if TCGdex pricing falls short. Historically
   partner-gated rather than open signup. Do not design around having a key until confirmed.
 - Exact TCGplayer CSV column spec, if adopting it.
