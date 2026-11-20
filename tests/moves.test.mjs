@@ -122,6 +122,17 @@ const sale = (doc = startDoc(), extra = {}) => planMove(doc, {currency: 'BRL', d
 const trade = (doc = startDoc()) => planMove(doc, {date: '2026-11-04', in: [IN_CARD], kind: 'traded', money: 'out', out: ['a1'], price: 5, who: 'Bruno'}, {fill: true, id: 'm2', now: NOW});
 
 describe('planMove', () => {
+	test('a move id already logged, live or undone, is refused, so a form kept for a reload never logs its move twice (QA, 2026-11-20)', () => {
+		const {doc} = sale();
+
+		assert.throws(() => planMove(doc, {kind: 'sold', out: ['a2'], price: '1'}, {id: 'm1', now: NOW}), (err) => err.logged === true && err.message === 'This trade or sale is saved already.');
+
+		const undone = planUndoMove(doc, 'm1', {now: LATER}).doc;
+
+		assert.throws(() => planMove(undone, {kind: 'sold', out: ['a1'], price: '1'}, {id: 'm1', now: LATER + 1000}), (err) => err.logged === true);
+		assert.equal(planMove(undone, {kind: 'sold', out: ['a1'], price: '1'}, {id: 'm9', now: LATER + 1000}).move.id, 'm9', 'another id saves');
+	});
+
 	test('a sale tombstones the copy with left_via, its pocket becomes the card\'s placeholder, and the move is logged', () => {
 		const before = startDoc();
 		const {counts, doc, move} = sale(before);
@@ -965,6 +976,41 @@ describe('a purchase priced card by card', () => {
 		assert.deepEqual(cardHistory(total.doc, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought for R$ 20,00 from Liga, 12 Nov']);
 	});
 
+	test('a purchase\'s or sale\'s one total, on a card page row that is only part of it, says so; a move of one card reads as before (QA, 2026-11-20)', () => {
+		const line = (doc, cardId) => cardHistory(doc, {card_id: cardId}).map((row) => historyLine(row, {now: AFTER}));
+
+		// Bought three cards for R$ 57,50 with no card prices: each card's
+		// page names the total as the three cards', not as its own price.
+		const three = planMove(startDoc(), {date: '2026-11-12', in: [PIKACHU, EEVEE, BULBASAUR], kind: 'bought', price: '57,50', who: 'Liga Pokémon'}, {id: 'p3', now: NOW});
+
+		assert.deepEqual(line(three.doc, 'tst1-006'), ['Came in: 1 of 3 cards bought for R$\u00a057,50 from Liga Pokémon, 12 Nov']);
+		assert.deepEqual(line(three.doc, 'tst1-008'), ['Came in: 1 of 3 cards bought for R$\u00a057,50 from Liga Pokémon, 12 Nov']);
+
+		// Two copies of one card among three, and a purchase of nothing but
+		// copies of the one card.
+		const two = planMove(startDoc(), {date: '2026-11-12', in: [EEVEE, EEVEE, PIKACHU], kind: 'bought', price: '100', who: 'Liga'}, {id: 'p4', now: NOW});
+
+		assert.deepEqual(line(two.doc, 'tst1-007'), ['Came in: 2 of 3 cards bought for R$\u00a0100,00 from Liga, 12 Nov']);
+
+		const same = planMove(startDoc(), {date: '2026-11-12', in: [EEVEE, EEVEE, EEVEE], kind: 'bought', price: '30'}, {id: 'p5', now: NOW});
+
+		assert.deepEqual(line(same.doc, 'tst1-007'), ['Came in: all 3 bought for R$\u00a030,00, 12 Nov']);
+
+		// A sale of two copies for one price.
+		const sold = planMove(startDoc(), {currency: 'BRL', date: '2026-11-12', kind: 'sold', out: ['a1', 'a3'], price: '120', who: 'Ana'}, {id: 's2', now: NOW});
+
+		assert.deepEqual(line(sold.doc, 'tst1-001'), ['Left: 1 of 2 cards sold for R$\u00a0120,00 to Ana, 12 Nov']);
+
+		// One card, no price, and a trade's cash read as before.
+		const one = planMove(startDoc(), {date: '2026-11-12', in: [PIKACHU], kind: 'bought', price: '100', who: 'Liga'}, {id: 'p6', now: NOW});
+		const free = planMove(startDoc(), {date: '2026-11-12', in: [PIKACHU, EEVEE], kind: 'bought', who: 'Liga'}, {id: 'p7', now: NOW});
+
+		assert.deepEqual(line(one.doc, 'tst1-006'), ['Came in: bought for R$\u00a0100,00 from Liga, 12 Nov']);
+		assert.deepEqual(line(free.doc, 'tst1-006'), ['Came in: bought from Liga, 12 Nov']);
+		assert.deepEqual(line(sale().doc, 'tst1-001'), ['Left: sold for R$\u00a030,50 to Ana, 3 Nov']);
+		assert.match(line(trade().doc, 'tst1-003')[0], /^Came in: traded with Bruno, R\$\u00a05,00 paid, /);
+	});
+
 	test('From suggests where earlier purchases came from: newest first, each place once, live purchases only', () => {
 		let doc = startDoc();
 		const add = (fields, id, now) => {
@@ -1071,7 +1117,7 @@ describe('a purchase priced card by card', () => {
 			assert.deepEqual([move.price, move.in_prices], [50, server.moves[0].in_prices]);
 			assert.equal(ownPrices(move), null);
 			assert.equal(pricedCards(move, back.cards), null);
-			assert.deepEqual(cardHistory(back, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: bought for R$ 50,00 from Liga, 12 Nov'], 'the total, as before card prices');
+			assert.deepEqual(cardHistory(back, {card_id: 'tst1-006'}).map((row) => historyLine(row, {now: AFTER})), ['Came in: 1 of 4 cards bought for R$ 50,00 from Liga, 12 Nov'], 'the total, as before card prices, named as the four cards\' total');
 
 			// An Edit here of the note only leaves them be; turning Price
 			// each card on again saves them with a total that adds up.

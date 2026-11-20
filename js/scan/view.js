@@ -1397,7 +1397,9 @@ export function scanView(root) {
 		const sessionId = session.id;
 
 		saveToCardIndex(handoff.records).catch(() => {});
-		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => draft.clearTrade(sessionId, sides, handoff.items)});
+		// The form lets go of the tray's cards it saved (js/moves-view.js
+		// letGoOfTray, draft.js clearTrade), from what it keeps for a reload.
+		setPendingMove({...handoff, from: 'scan', session: sessionId, tray: 'trade'});
 		persist();
 		closeSheet().then(() => go('trades/new'));
 	}
@@ -1450,8 +1452,9 @@ export function scanView(root) {
 
 		saveToCardIndex(handoff.records).catch(() => {});
 		// The form saves the cards coming in for every kind but Sold (which it
-		// refuses with nothing going out); sides.in says they were saved.
-		setPendingMove({...handoff, from: 'scan', onSaved: (move, sides) => (sides.in ? draft.clearPurchase(sessionId, handoff.items.in) : null)});
+		// refuses with nothing going out), and then lets go of them
+		// (js/moves-view.js letGoOfTray, draft.js clearPurchase).
+		setPendingMove({...handoff, from: 'scan', session: sessionId, tray: 'add'});
 		persist();
 		closeSheet().then(() => go('trades/new'));
 	}

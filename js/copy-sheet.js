@@ -184,6 +184,30 @@ export function removalPlan(entries, n, {keep = null, places = new Map()} = {}) 
 	return {ask: {count: more, from: rest}, chosen: free};
 }
 
+// The copies This copy can mean in a row of alike copies (QA, 2026-11-20:
+// Set finish on a row named "Kanto 151 p9 #3" changed its copy in no
+// pocket): [{value, label, entries}], each copy in a binder pocket by its
+// pocket, in the row's order (the order its title names them), then the
+// copies in none as one choice, value LOOSE, since nothing tells them
+// apart. The first is the one the sheet opens with. Null when no copy is
+// in a pocket, where any one of them is the same.
+export const LOOSE = 'loose';
+
+export function thisCopyChoices(entries, places = new Map()) {
+	const placed = entries.filter((entry) => places.has(entry.id));
+
+	if (!placed.length) {
+		return null;
+	}
+
+	const loose = entries.filter((entry) => !places.has(entry.id));
+
+	return [
+		...placed.map((entry) => ({entries: [entry], label: placeText(places.get(entry.id)), value: entry.id})),
+		...(loose.length ? [{entries: loose, label: loose.length === 1 ? 'Not in a binder' : `One of ${loose.length} not in a binder`, value: LOOSE}] : []),
+	];
+}
+
 // The binder pockets some copies leave, as one sentence: "It leaves
 // Binder A, page 3." places holds only the placed ones. Null for none.
 export function leavesText(places) {
@@ -517,12 +541,18 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 	// Alike copies are stored in one place (alikeKey).
 	const storage = placePicker({id: 'copy-storage', value: first.storage});
 
-	// A row of alike copies changes one of them, or all of them. One of
-	// them is the copy a minus would take (removalPlan). The choice sits
-	// first, named and explained, because a holo among normal copies is
-	// told apart by changing one copy (Eric, 2026-11-18: "Sometimes I have
-	// a holo and a non holo copy"); that copy then has its own row.
+	// A row of alike copies changes one of them, or all of them. The choice
+	// sits first, named and explained, because a holo among normal copies
+	// is told apart by changing one copy (Eric, 2026-11-18: "Sometimes I
+	// have a holo and a non holo copy"); that copy then has its own row.
+	// This copy is the one in the pocket the row names, and Which copy under
+	// the choice says so and picks another (thisCopyChoices; QA,
+	// 2026-11-20); in a row with no copy in a pocket, the copy a minus
+	// would take (removalPlan).
 	let scope = 'one';
+	const choices = many ? thisCopyChoices(entries, places) : null;
+	const which = choices ? select('copy-which', choices, choices[0].value) : null;
+	const whichField = which ? field('Which copy', 'copy-which', which) : null;
 	const scopeChoice = many
 		? h('div', {class: 'copy-field copy-scope-field'},
 			h('span', {class: 'copy-scope-label', id: 'copy-scope-label'}, 'Change'),
@@ -530,17 +560,30 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 				[['one', 'This copy'], ['all', `All ${entries.length}`]].map(([value, label]) => h('label', null,
 					h('input', {checked: value === scope, name: 'copy-scope', onchange: () => {
 						scope = value;
-						drawRemove();
+						drawWhich();
 					}, type: 'radio', value}),
 					h('span', null, label)
 				))),
 			h('p', {class: 'muted copy-scope-hint', id: 'copy-scope-hint'}, 'Change one copy to give it its own finish. It then shows as its own row.')
 		)
 		: null;
-	const one = () => {
-		const plan = removalPlan(entries, 1, {places});
+	// The copy picked in Which copy: {entries, fixed}, fixed when it names
+	// one copy (one in a pocket), else the copies one is taken from.
+	const picked = () => {
+		const choice = choices && choices.find((item) => item.value === which.value);
 
-		return plan.chosen.length ? plan.chosen : [[...entries].sort(newestFirst)[0]];
+		return choice ? {entries: choice.entries, fixed: choice.value !== LOOSE} : {entries, fixed: false};
+	};
+	const one = () => {
+		const {entries: pool, fixed} = picked();
+
+		if (fixed) {
+			return pool;
+		}
+
+		const plan = removalPlan(pool, 1, {places});
+
+		return plan.chosen.length ? plan.chosen : [[...pool].sort(newestFirst)[0]];
 	};
 	const targets = () => (scope === 'all' ? entries : one());
 
@@ -556,7 +599,20 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 		leaves.hidden = !text;
 	}
 
-	drawRemove();
+	// Which copy shows only while one copy is changed.
+	function drawWhich() {
+		if (whichField) {
+			whichField.hidden = scope === 'all';
+		}
+
+		drawRemove();
+	}
+
+	if (which) {
+		which.addEventListener('change', drawRemove);
+	}
+
+	drawWhich();
 
 	remove.addEventListener('click', async () => {
 		let chosen = targets();
@@ -564,10 +620,10 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 		// Removing is not an edit: the sheet closes without saving.
 		settled = true;
 
-		// One copy from a row where every copy is in a pocket or has photos:
-		// ask which.
-		if (scope === 'one') {
-			const plan = removalPlan(entries, 1, {places});
+		// One copy from copies where every one is in a pocket or has photos,
+		// and none was picked by its pocket: ask which.
+		if (scope === 'one' && !picked().fixed) {
+			const plan = removalPlan(picked().entries, 1, {places});
 
 			if (plan.ask) {
 				close();
@@ -607,6 +663,7 @@ export function openEditSheet({card, catalog, entries, finishes, offline = false
 
 	const form = h('form', {class: 'copy-form', id: 'copy-form'},
 		scopeChoice,
+		whichField,
 		field('Language', 'copy-language', language),
 		field('Finish', 'copy-finish', finish),
 		field('Condition', 'copy-condition', condition),

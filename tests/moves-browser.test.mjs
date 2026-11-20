@@ -672,7 +672,7 @@ test('a purchase from the scanner: From offers earlier places, Price each card p
 	assert.equal('in_prices' in total, false);
 	await page.goto(url('cards/en/tsa1-001'));
 	await page.waitForSelector('#card-moves .card-move-in');
-	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: bought for R\$\s30,00 from Liga, /);
+	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: 1 of 4 cards bought for R\$\s30,00 from Liga, /, 'one total for four cards is not this card\'s price (QA, 2026-11-20)');
 	await done();
 });
 

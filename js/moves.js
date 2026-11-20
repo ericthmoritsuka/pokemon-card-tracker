@@ -383,6 +383,13 @@ export function planMove(doc, fields, {fill = false, fillUndo = null, id = newId
 		throw new Error(`Unknown kind of move: ${fields.kind}.`);
 	}
 
+	// A form kept for a reload saves under the id it was given, so saving it
+	// again (a reload while it saved, a copied tab) finds the move there,
+	// undone or not, and logs nothing (QA, 2026-11-20).
+	if (moveById(doc, id)) {
+		throw Object.assign(new Error(LOGGED_TEXT), {logged: true});
+	}
+
 	const next = structuredClone(doc);
 	const outIds = new Set(fields.out || []);
 	const pastIds = new Set(pastCandidates(doc, {kept: fillUndo, now}).map((entry) => entry.id).filter((entryId) => (fields.past || []).includes(entryId)));
@@ -866,12 +873,42 @@ function ownPriceWords(row) {
 	return `bought${who ? ` from ${who}` : ''}${price ? ` for ${price}${row.entries.length > 1 ? ' each' : ''}` : ''}`;
 }
 
+// A sale's or purchase's total, on a card page row that is only part of it
+// (QA, 2026-11-20: "bought for R$ 100,00" on each of three cards read as
+// each one's price): "1 of 3 cards bought for R$ 100,00 from Liga", "2 of
+// 3 cards sold for R$ 120,00 to Ana", "all 3 bought for R$ 100,00" when
+// the row holds every card on its side. Null when the move has no total, or
+// only one card on that side, which reads as before.
+function partOfTotalWords(row) {
+	const {move, side} = row;
+	const bought = move.kind === 'bought' && side === 'in';
+	const price = priceText(move);
+
+	if (!price || !(bought || (move.kind === 'sold' && side === 'out'))) {
+		return null;
+	}
+
+	const total = (bought ? move.in : move.out) || [];
+	const n = Array.isArray(total) ? total.length : 0;
+	const k = Array.isArray(row.entries) ? row.entries.length : 1;
+
+	if (n < 2) {
+		return null;
+	}
+
+	const who = text(move.who);
+
+	return `${k >= n ? `all ${n}` : `${k} of ${n} cards`} ${bought ? 'bought' : 'sold'} for ${price}${who ? ` ${bought ? 'from' : 'to'} ${who}` : ''}`;
+}
+
 // A card page's line for one row of cardHistory: "Left: sold for R$ 30,50
 // to Ana, 3 Nov"; "Came in: traded with Bruno, 4 Nov"; "Came in: bought
-// from Liga for R$ 12,00, 12 Nov" for a copy with its own price.
+// from Liga for R$ 12,00, 12 Nov" for a copy with its own price; "Came in:
+// 1 of 3 cards bought for R$ 100,00 from Liga, 12 Nov" for a copy of a
+// purchase with one total (partOfTotalWords).
 export function historyLine(row, {now = new Date()} = {}) {
 	const date = shortDate(row.move.date, {now});
-	const words = row.price !== undefined ? ownPriceWords(row) : moveWords(row.move, row.side);
+	const words = row.price !== undefined ? ownPriceWords(row) : partOfTotalWords(row) || moveWords(row.move, row.side);
 
 	return `${row.side === 'in' ? 'Came in' : 'Left'}: ${words}${date ? `, ${date}` : ''}`;
 }
@@ -913,10 +950,12 @@ export function pricedCards(move, cards, prices = ownPrices(move)) {
 // ------------------------------------------------------------- saved
 
 // Saved: logs a move in one save. Resolves {counts, move}; on a failed
-// write it rejects and the document on the phone is as it was.
-export async function applyMove(fields) {
+// write it rejects and the document on the phone is as it was. id, when
+// given, is the move's: a move with it already logged is refused with an
+// error whose logged is true (planMove).
+export async function applyMove(fields, {id = null} = {}) {
 	const current = await loadDocument();
-	const {counts, doc, move} = planMove(current, fields, {fill: autoFillOn(current), fillUndo: await keptStartOver(current)});
+	const {counts, doc, move} = planMove(current, fields, {fill: autoFillOn(current), fillUndo: await keptStartOver(current), ...(id ? {id} : {})});
 
 	await saveCopy(doc);
 
@@ -958,9 +997,13 @@ export async function editMove(moveId, fields, {base = null} = {}) {
 	return {changed, move};
 }
 
+export const LOGGED_TEXT = 'This trade or sale is saved already.';
+
 // The copies a move form opens with, handed over by Trade or sale (a copy
-// sheet, a card's page) when it opens the form: {out: [ids], card:
-// {card_id, catalog} | null}. Taken once.
+// sheet, a card's page) or the scanner when it opens the form: {out: [ids],
+// card: {card_id, catalog} | null}, and the scanner's cards coming in. Data
+// only, so the form can keep it for a reload and Back and Forward
+// (js/moves-view.js). Taken once.
 let pending = null;
 
 export function setPendingMove(value) {

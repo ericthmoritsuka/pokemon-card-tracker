@@ -344,6 +344,82 @@ describe('Buy', () => {
 		await context.close();
 	});
 
+	// QA, 2026-11-20: a reload, or Back then Forward, on the form Log
+	// purchase opened showed an empty Sold form, what was typed lost.
+	test('a reload, and Back then Forward, keep the purchase handed over and what was typed; Save logs it once and empties the tray', async () => {
+		const {context, errors, page} = await open({mode: 'buy', tray: addTray([item('a1', CARDS.a, 'First card', {copies: 2}), item('a2', CARDS.c, 'Third card')])});
+		const kept = () => page.evaluate(() => Object.keys(sessionStorage).filter((key) => key.startsWith('card-tracker-move-form')).sort().map((key) => [key, sessionStorage.getItem(key)]));
+		const formIs = async (where) => {
+			await page.waitForSelector('#move-form');
+			await page.waitForSelector('#move-in-list [data-card]');
+			assert.equal(new URL(page.url()).pathname, `${BASE}trades/new`, where);
+			assert.ok(await page.isChecked('#move-kind-bought'), `${where}: still a purchase`);
+			assert.equal(await text(page, '.view-head h2'), 'Log a purchase', where);
+			assert.deepEqual(await page.$$eval('#move-in-list [data-card]', (rows) => rows.map((row) => row.dataset.card)), [CARDS.a, CARDS.c], `${where}: the cards handed over`);
+			assert.equal(await page.inputValue('#move-who'), 'Liga Pokémon', `${where}: From as typed`);
+			assert.equal(await page.inputValue('#move-note'), 'A box of three', `${where}: the note as typed`);
+			assert.ok(await page.isChecked('#move-each'), `${where}: Price each card still on`);
+			assert.deepEqual(await page.locator('#move-in-list .move-card-price-input').evaluateAll((inputs) => inputs.map((input) => input.value)), ['20', '17,50'], `${where}: the card prices as typed`);
+			assert.equal(await text(page, '#move-price-total'), '57,50', where);
+		};
+
+		await page.waitForSelector('#scan-tray .scan-tray-item:nth-child(2)');
+		await page.click('#scan-done-open');
+		await page.waitForSelector('#move-form');
+		await page.fill('#move-who', 'Liga Pokémon');
+		await page.fill('#move-note', 'A box of three');
+		await page.locator('label[for="move-each"]').click();
+		await page.locator('#move-in-list .move-card-price-input').nth(0).fill('20');
+		await page.locator('#move-in-list .move-card-price-input').nth(1).fill('17,50');
+
+		await page.reload();
+		await formIs('after a reload');
+		await page.screenshot({fullPage: true, path: `${SHOTS}/scan-buy-form-reload.png`});
+
+		await page.goBack();
+		await scanReady(page);
+		assert.deepEqual(await addTrayNow(page), ['a1', 'a2'], 'the tray waits');
+		await page.goForward();
+		await formIs('after Back then Forward');
+
+		// Kept in this tab while the form is open: what a copied tab or a
+		// reload while saving would find again.
+		const before = await kept();
+
+		assert.deepEqual(before.map(([key]) => key.replace(/:.*/, ':')), ['card-tracker-move-form-last', 'card-tracker-move-form:'], 'the form, and that it is the one this tab showed last');
+
+		await page.click('#move-save');
+		await page.waitForSelector('.moves-row');
+		assert.deepEqual((await liveCards(page)).moves, [{in: 3, kind: 'bought', out: 0, who: 'Liga Pokémon'}]);
+		await untilInPage(page, 'the tray emptied', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('add');
+
+			return Boolean(session && session.items.length === 0);
+		});
+		assert.deepEqual(await kept(), [], 'nothing kept once saved');
+
+		// Back goes past the form, which the save replaced.
+		await page.goBack();
+		await scanReady(page);
+		assert.deepEqual((await liveCards(page)).moves.length, 1);
+
+		// The same form found again (a reload while it saved, a copied tab)
+		// logs nothing twice.
+		await page.evaluate((keys) => {
+			for (const [key, value] of keys) {
+				sessionStorage.setItem(key, value);
+			}
+		}, before);
+		await page.goto(`${harness.origin}${BASE}trades/new`);
+		await page.waitForSelector('.moves-row');
+		assert.equal(new URL(page.url()).pathname, `${BASE}trades`);
+		await page.locator('.toast-text', {hasText: 'This trade or sale is saved already.'}).first().waitFor({timeout: 10000});
+		assert.deepEqual((await liveCards(page)).moves, [{in: 3, kind: 'bought', out: 0, who: 'Liga Pokémon'}], 'logged once');
+		assert.deepEqual(await kept(), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a card that needs a look opens Review instead of the form', async () => {
 		const unsure = item('a2', CARDS.b, 'Unsure card', {candidates: [card(CARDS.b, 'Unsure card'), card(CARDS.c, 'Other card')], confirmed: false, status: 'unsure', sure: false});
 		const {context, errors, page} = await open({mode: 'buy', tray: addTray([item('a1', CARDS.a, 'First card'), unsure])});

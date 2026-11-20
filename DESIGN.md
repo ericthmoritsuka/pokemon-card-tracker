@@ -895,7 +895,16 @@ a word still as the import gave it, and the copy's own word now decides its tile
 word its import key keeps, so a 1st Edition import set to Holo loses its "1st". In a row of alike
 copies the This copy / All N choice comes first, labeled Change, with the line "Change one copy
 to give it its own finish. It then shows as its own row." The changed copy moves to a row of its
-own, since a row holds copies alike in finish.
+own, since a row holds copies alike in finish. **This copy is the one the row names** (QA,
+2026-11-20: on a row reading "English · Kanto 151 p9 #3" for a copy in that pocket and one in
+none, This copy changed the one in none, the copy a minus takes). When a copy of the row is in a
+binder pocket, the choice is followed by **Which copy**, a select of each copy in a pocket by its
+pocket ("Kanto 151, page 9, pocket 3"), in the order the row's title names them, and "Not in a
+binder" ("One of 2 not in a binder") for the copies in none, which nothing tells apart. It opens
+on the first pocket the row names, shows only on This copy, and every action of the sheet means
+the copy it names: the fields, Trade or sale, and Remove copy, whose line then says the pocket it
+leaves. A row with no copy in a pocket has no Which copy and keeps the copy a minus would take
+(`removalPlan`). The stepper's minus is unchanged: it still takes a copy in no pocket first.
 
 **While the catalog cannot be reached**, the card page draws what the phone saved and says so, and
 a copy's printing it cannot name reads "Finish (catalog offline)". The sheets now say the same
@@ -3950,8 +3959,14 @@ share one step for it (js/start-over.js `planSwap`).
   Liga for R$ 12,00, 12 Nov", "for R$ 5,50 each" when the line stands for several copies at that
   price, one line per price, and no price for a copy that has none (the total is the other cards').
   History's sheet lists the cards with their prices ("Charmander (2 copies), R$ 5,50 each",
-  "Charizard ex, no price"). Copies of a purchase with one total read as before ("bought for R$
-  20,00 from Liga").
+  "Charizard ex, no price"). A copy of a purchase with one total reads as before ("bought for R$
+  20,00 from Liga") when the purchase brought that one card; with more cards, the line names the
+  total as theirs, not the copy's own price: "1 of 3 cards bought for R$ 100,00 from Liga", "2 of 3
+  cards" for a line of two copies, and "all 3 bought for R$ 30,00" when every card in it is this
+  one. A sale of several cards for one price reads the same way ("Left: 1 of 2 cards sold for R$
+  120,00 to Ana"); a trade's cash keeps its words, since it is never a card's price. *(QA,
+  2026-11-20: a purchase of 3 cards edited to a total of R$ 100,00 read "bought for R$ 100,00" on
+  each of the three cards' pages.)*
 - **From the scanner.** The scanner's Trade or sale hands a purchase over as any other (kind
   `bought`, its cards in Coming in, `tradeHandoff`), so the form it opens has From with its
   suggestions and Price each card, with every scanned card as a row and its price under its
@@ -4103,6 +4118,23 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
   instead. A tray left by Log N cards without saving is there when Scan opens again.
+- **The form survives a reload and Back then Forward** (QA, 2026-11-20: a reload, or Back then
+  Forward, on the form Log N cards or Log purchase opened showed an empty Sold form, what was typed
+  lost, while the tray still held the cards). The handoff is data only (the scanner names its tray,
+  `session` and `tray: 'trade'` or `'add'`, instead of handing over a function), and the form keeps
+  it with everything typed (the kind, the cards out and in, each card's price, Price each card,
+  the date, who, price, currency, the cash's way, and the note) in sessionStorage under a token in
+  its history entry's state (js/moves-view.js `FORM_KEY`), written as it changes. Back or Forward
+  to the entry finds it by the token; a reload on GitHub Pages passes through 404.html, which loses
+  the entry's state, so a page load on the form with no state of its own takes the form this tab
+  showed last. A screen opened from a link always has state, so Log a move still opens blank. Every
+  form works this way, a copy sheet's and a card page's Trade or sale too. The form goes when it is
+  saved (the save replaces its entry, so Back skips it), when a newer form takes over the same
+  scanner tray, and past the newest eight. **Never twice:** each form carries the id its move saves
+  under, and `planMove` refuses an id already in the log, live or undone, so the same form saved
+  again (a reload while it saved, a copied tab) logs nothing, says "This trade or sale is saved
+  already.", lets the tray go of the cards that move took, and opens History. The tray lets go of
+  the saved sides from the kept handoff, so a save after a reload empties it as before.
 - **The form, from a scan** (design review, 2026-11-06): the scanned cards are compact rows of
   about 56 px (picture, name, "English · Near Mint", and an x), not full-size tiles, and Save sits in
   a sticky footer above the tab bar, so a long trade never pushes Save out of reach. Its line reads
