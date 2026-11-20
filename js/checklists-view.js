@@ -331,20 +331,47 @@ function listsScreen(root, source) {
 		label: 'Checklists',
 		onToggle: (open) => {
 			body.hidden = open;
+
+			if (newList) {
+				newList.hidden = open;
+				fold(true);
+			}
 		},
 		save: reorderGoals,
 		toast,
 	});
-	const listsHead = h('div', {class: 'lists-head', hidden: true, id: 'lists-head'},
+	const adder = source.readOnly ? null : addPanel();
+	// + New list opens the form under the heading, as New goal opens its
+	// screen (Eric, 2026-11-20: the form stood open under every list).
+	const newList = adder ? h('button', {'aria-controls': 'add-list', 'aria-expanded': 'false', class: 'button small goal-new', id: 'lists-new', onclick: () => fold(!adder.hidden), type: 'button'},
+		h('span', {'aria-hidden': 'true', class: 'new-mark'}, '+'), 'New list') : null;
+	// Your own heading always shows, so + New list is there with no list
+	// yet; a family member's shows only over their lists.
+	const listsHead = h('div', {class: 'lists-head', hidden: Boolean(source.readOnly), id: 'lists-head'},
 		h('h3', null, 'Checklists'),
-		order ? order.button : null
+		order || newList ? h('span', {class: 'goals-head-actions'}, order ? order.button : null, newList) : null
 	);
 
 	if (order) {
 		order.button.id = 'lists-order';
 		order.panel.id = 'lists-order-panel';
 	}
-	const adder = source.readOnly ? null : addPanel();
+
+	function fold(closed) {
+		if (!adder) {
+			return;
+		}
+
+		const opening = adder.hidden && !closed;
+
+		adder.hidden = closed;
+		newList.setAttribute('aria-expanded', String(!closed));
+
+		if (opening) {
+			adder.querySelector('#add-region').focus();
+		}
+	}
+
 	// Set and artist goals (js/goals-view.js).
 	const goals = goalsSection({base: source.userId ? `family/${encodeURIComponent(source.userId)}/goals` : 'goals', readOnly: source.readOnly});
 
@@ -366,7 +393,7 @@ function listsScreen(root, source) {
 	}
 
 	function draw(goals, byDex) {
-		listsHead.hidden = !goals.length;
+		listsHead.hidden = source.readOnly && !goals.length;
 
 		if (order) {
 			order.set(goals);
@@ -547,8 +574,8 @@ function listsScreen(root, source) {
 			nameInput.focus();
 		});
 
-		return h('section', {class: 'card', id: 'add-list'},
-			h('h3', null, 'Add a list'),
+		return h('section', {'aria-labelledby': 'add-list-title', class: 'card', hidden: true, id: 'add-list'},
+			h('h3', {id: 'add-list-title'}, 'New list'),
 			h('label', {for: 'add-region'}, 'A region, by National Dex number'),
 			h('span', {class: 'select-wrap'}, regionSelect),
 			h('div', {class: 'stack'}, addRegion),
@@ -565,7 +592,7 @@ function listsScreen(root, source) {
 
 	const stop = source.watch ? source.watch(() => alive && load()) : () => {};
 
-	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, listsHead, body, order ? order.panel : null, goals.element, adder].filter(Boolean));
+	root.append(...[heading, listsSwitch('checklists', source.userId || null), status, listsHead, adder, body, order ? order.panel : null, goals.element].filter(Boolean));
 	load();
 
 	return () => {

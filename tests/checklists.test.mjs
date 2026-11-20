@@ -331,11 +331,47 @@ describe('checklists', () => {
 
 		// The tab and the empty state.
 		await page.click('.tabs a[data-tab="lists"]');
-		await page.waitForSelector('#add-list');
+		await page.waitForSelector('#lists-new');
 		assert.equal(new URL(page.url()).pathname, `${BASE}lists`);
 		assert.equal(await page.locator('.tabs a[data-tab="lists"]').getAttribute('aria-current'), 'page');
 		assert.match(await page.locator('.empty-state').textContent(), /No lists yet/);
 		await page.screenshot({path: '/tmp/checklists-empty.png'});
+
+		// The segment is Progress, on the same route, one line at 360 px,
+		// over the Checklists and Goals headings (Eric, 2026-11-20).
+		assert.deepEqual(await page.locator('.lists-switch-item').allTextContents(), ['Progress', 'Wishlist', 'Collections']);
+		assert.equal(await page.locator('#lists-switch-checklists').getAttribute('aria-current'), 'page');
+		assert.equal(await page.locator('#lists-switch-checklists').getAttribute('href'), `${BASE}lists`);
+		assert.ok(await page.locator('.lists-switch').evaluate((nav) => {
+			const items = [...nav.children].map((item) => item.getBoundingClientRect());
+
+			return items.every((box) => Math.abs(box.top - items[0].top) < 1 && box.height <= items[0].height) && nav.scrollWidth <= nav.clientWidth && [...nav.children].every((item) => item.scrollWidth <= item.clientWidth);
+		}), 'the switch on one line, nothing cut off');
+		assert.deepEqual(await page.locator('#lists-head h3, #goals-section .goals-head h3').allTextContents(), ['Checklists', 'Goals']);
+
+		// The form is folded behind + New list, a button like New goal.
+		assert.ok(await page.locator('#add-list').isHidden(), 'no form standing open');
+		assert.deepEqual(await page.locator('#lists-new').evaluate((button) => [button.textContent, button.querySelector('[aria-hidden="true"]').textContent, getComputedStyle(button.querySelector('.new-mark')).marginInlineEnd !== '0px']), ['+New list', '+', true], '"+ New list", its "+" set apart and not read');
+		assert.equal(await page.getByRole('button', {name: 'New list', exact: true}).count(), 1);
+		assert.equal(await page.locator('#lists-new').getAttribute('aria-expanded'), 'false');
+		const shapes = await page.evaluate(() => ['lists-new', 'goals-new'].map((id) => {
+			const element = document.getElementById(id);
+			const style = getComputedStyle(element);
+
+			return [style.minHeight, style.fontSize, style.fontWeight, style.borderRadius, style.backgroundColor, Math.round(element.getBoundingClientRect().height)];
+		}));
+
+		assert.deepEqual(shapes[0], shapes[1], 'the same size and look as New goal');
+		await page.click('#lists-new');
+		await page.waitForSelector('#add-list');
+		assert.equal(await page.locator('#lists-new').getAttribute('aria-expanded'), 'true');
+		assert.equal(await page.evaluate(() => document.activeElement.id), 'add-region', 'the focus on the region');
+		assert.ok(await page.evaluate(() => document.getElementById('lists-head').compareDocumentPosition(document.getElementById('add-list')) & Node.DOCUMENT_POSITION_FOLLOWING), 'under the heading');
+		await page.screenshot({path: '/tmp/checklists-new-open.png'});
+		await page.click('#lists-new');
+		await page.waitForSelector('#add-list', {state: 'hidden'});
+		await page.click('#lists-new');
+		await page.waitForSelector('#add-list');
 
 		// Add Kanto.
 		await page.selectOption('#add-region', 'kanto');
@@ -506,6 +542,8 @@ describe('checklists', () => {
 		await context.setOffline(false);
 
 		// A custom list, picked by name and by number.
+		assert.ok(await page.locator('#add-list').isHidden(), 'folded again on coming back');
+		await page.click('#lists-new');
 		await page.click('#build-own');
 		await page.fill('#custom-name', 'Fire and friends');
 		await page.fill('#picker-search', 'char');
@@ -637,6 +675,7 @@ describe('checklists', () => {
 
 		// The owner makes a Kanto list; it reaches the server.
 		await ownerDevice.page.goto(url('lists'));
+		await ownerDevice.page.click('#lists-new');
 		await ownerDevice.page.selectOption('#add-region', 'kanto');
 		await ownerDevice.page.click('#add-region-button');
 		await waitForSummary(ownerDevice.page, '3 owned, 148 missing.');
@@ -665,7 +704,8 @@ describe('checklists', () => {
 		await page.waitForSelector('.view-only');
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${owner.id}/lists`);
 		assert.match(await page.locator('.view-only').textContent(), /Eric's lists, view only/);
-		assert.equal(await page.locator('#add-list').count(), 0, 'no Add in the view');
+		assert.equal(await page.locator('#add-list, #lists-new').count(), 0, 'no Add in the view');
+		assert.equal(await page.locator('#lists-switch-checklists').textContent(), 'Progress');
 		await page.waitForSelector('.list-tile .owned-count');
 		assert.match(await page.locator('.list-tile').textContent(), /Kanto.*3 \/ 151/, 'the owner\'s Portuguese copies');
 
@@ -876,6 +916,7 @@ describe('checklists in your own order (Eric, 2026-10-06)', () => {
 		await page.click('#lists-order-panel .reorder-done');
 		await page.waitForSelector('#lists-body:not([hidden])');
 		assert.deepEqual(await page.locator('#lists-body .list-name').allTextContents(), ['Hoenn', 'Johto', 'Kanto']);
+		await page.click('#lists-new');
 		await page.selectOption('#add-region', 'sinnoh');
 		await page.click('#add-region-button');
 		await page.waitForURL(/\/lists\/[^/]+$/);

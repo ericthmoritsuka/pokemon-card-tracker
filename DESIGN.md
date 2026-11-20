@@ -594,7 +594,7 @@ Fixing twenty mislabeled languages in a spreadsheet and re-importing partly remo
 a dedicated desktop bulk-edit view.
 
 **Navigation follows the staff design review.** Five tabs, Cards, Sets, Scan (raised in the
-center), Binders, and Lists (Checklists and Wishlist as two segments), with Profile behind a
+center), Binders, and Lists (Progress, Wishlist, and Collections as segments), with Profile behind a
 header avatar holding themes, favorite Pokémon, import and export, Phone check, family, and
 sign-in. Family view-only mode is entered from a "Mine" switcher in the header and never
 remembered between launches. The full spec is `plans/design-review.md`. *(Approved by Eric,
@@ -2751,6 +2751,17 @@ hand ticks show a different mark from owned ones and never count as owned anywhe
 A checklist can lay out a binder in Dex order with placeholders for the missing ones, which suits
 a "Generations 1 and 2" binder.
 
+**Progress: checklists and goals in one segment** (Eric, 2026-11-20, from design review 2). The
+Lists tab's first segment reads **Progress**, not Checklists: it always held the goals too, under
+their own heading. It shows two headings, **Checklists** and **Goals**, each with its Edit order
+and its new button, **+ New list** beside the checklists and **New goal** beside the goals, in the
+same small button style. The form to add a region list or build your own no longer stands open
+under every list: + New list opens it under the Checklists heading (and again folds it), with the
+focus on the region; with no list yet the heading and the button still show over "No lists yet.".
+The segment keeps its route, `lists` (`family/<id>/lists` for a member's), so links, history, and
+the tab's remembered place still open it; a member's lists show no button. The switch stays on one
+line at 360 px (`tests/checklists.test.mjs`).
+
 **Every card of a Pokémon** (Eric, 2026-10-01: "let me see how many cards for Jigglypuff are out
 there and which ones I already have"). In a custom or region checklist, tapping a Pokémon opens
 all of its cards, for example "Jigglypuff, 9 of 48 cards": every print across sets, newest first,
@@ -3696,7 +3707,7 @@ pages, with nothing to press.
 ### Collections
 
 **Collections are a third part of the Lists tab** (Eric, 2026-10-03), `js/collections.js` and
-`js/collections-view.js`: Checklists, Wishlist, Collections. Routes `collections` and
+`js/collections-view.js`: Progress, Wishlist, Collections. Routes `collections` and
 `collections/<id>`; a member's, read only: `family/<id>/collections[/<id>]`. Each row shows the
 name, the kind, the card count, and the value (the Value sheet's own sums, with "partly priced"
 when some copies have no price). A collection's screen is My Cards over the cards it holds, with

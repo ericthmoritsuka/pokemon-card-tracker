@@ -26,8 +26,8 @@
 	gap: var(--space-2);
 }
 
-/* The Checklists heading above the list tiles, with Edit order
-   (js/checklists-view.js). */
+/* The Checklists heading above the list tiles, with Edit order and
+   + New list, which styles as New goal (js/checklists-view.js). */
 .lists-head {
 	align-items: center;
 	display: flex;
@@ -49,6 +49,19 @@
 	min-height: 48px;
 	min-width: 96px;
 	text-decoration: none;
+}
+
+/* + New list is a button, which button.small (style.css) would make 44 px
+   with less padding: it keeps New goal's size beside it. */
+button.goal-new {
+	min-height: 48px;
+	padding: var(--space-3) var(--space-4);
+}
+
+/* Its "+", which a screen reader skips: a space's width from the words,
+   which the flex button would otherwise drop. */
+.new-mark {
+	margin-inline-end: 0.28em;
 }
 
 .goal-tile-ring {

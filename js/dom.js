@@ -48,8 +48,11 @@ export function go(route, {replace = false} = {}) {
 	window.dispatchEvent(new PopStateEvent('popstate', {state: history.state}));
 }
 
-// The Lists tab's three parts, Checklists, Wishlist, and Collections, as one segmented
-// control of links. userId shows a family member's.
+// The Lists tab's three parts, Progress, Wishlist, and Collections, as one
+// segmented control of links. userId shows a family member's. Progress holds
+// the checklists and the goals, under a heading each (Eric, 2026-11-20: the
+// segment read "Checklists" over both); its route is still `lists`, and its
+// id still `lists-switch-checklists`, so links and saved places keep working.
 export function listsSwitch(active, userId = null) {
 	const member = userId ? encodeURIComponent(userId) : null;
 	const item = (id, label, route) => h('a', {
@@ -61,7 +64,7 @@ export function listsSwitch(active, userId = null) {
 	}, label);
 
 	return h('nav', {'aria-label': 'Lists', class: 'lists-switch'},
-		item('checklists', 'Checklists', member ? `family/${member}/lists` : 'lists'),
+		item('checklists', 'Progress', member ? `family/${member}/lists` : 'lists'),
 		item('wishlist', 'Wishlist', member ? `wishlist/${member}` : 'wishlist'),
 		item('collections', 'Collections', member ? `family/${member}/collections` : 'collections')
 	);

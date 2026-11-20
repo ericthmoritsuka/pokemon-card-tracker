@@ -571,7 +571,7 @@ describe('wishlist', () => {
 		await page.click('.tabs a[data-tab="cards"]');
 		await page.waitForSelector('#cards-summary');
 		await page.click('.tabs a[data-tab="lists"]');
-		await page.waitForSelector('#add-list');
+		await page.waitForSelector('#lists-new');
 
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);

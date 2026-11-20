@@ -145,7 +145,7 @@ describe('Collections', () => {
 		await page.goto(url('lists'));
 		await page.locator('#lists-switch-collections').waitFor(TIMEOUT);
 		assert.equal(await page.locator('.lists-switch-item').count(), 3);
-		assert.deepEqual(await page.locator('.lists-switch-item').allTextContents(), ['Checklists', 'Wishlist', 'Collections']);
+		assert.deepEqual(await page.locator('.lists-switch-item').allTextContents(), ['Progress', 'Wishlist', 'Collections']);
 		await page.click('#lists-switch-collections');
 		await page.locator('#collections-empty').waitFor({state: 'visible', ...TIMEOUT});
 		assert.equal(await page.locator('#lists-switch-collections').getAttribute('aria-current'), 'page');
