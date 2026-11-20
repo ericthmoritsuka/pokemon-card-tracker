@@ -13,6 +13,11 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v94:** the version switch waits for unsaved choices and for Undo. `cc0b210`
+  - A QA pass found v92's switch throwing away an open Edit binder form with a new colour and grid, as nothing was typed
+    and it is an inline form, not a sheet. Any change to any form control now holds the switch until the screen changes,
+    and so does a message offering Undo, Undo edit, or Put back.
+
 - **v93:** one set in Phone check, and a binder page waiting to be placed stays in view. `44193e0`
   - Phone check, **A set on this phone**: copies and cards by language, the card records and the set IDs they name,
     Pokémon with no Pokédex number, the Sets ring in the viewing language and in any language, and whether the saved set
