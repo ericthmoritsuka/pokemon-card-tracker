@@ -15,7 +15,7 @@ import {describe, test} from 'node:test';
 
 import {numberSettles, recentStack} from '../js/scan/identify.js';
 import {LINES_AT_ONCE, OCR_SETTINGS, readNumber} from '../js/scan/read.js';
-import {recentSets, stackSet} from '../js/scan/session.js';
+import {asianEvidence, recentSets, stackSet} from '../js/scan/session.js';
 
 // ------------------------------------------------------------ the reads
 
@@ -187,5 +187,26 @@ describe('recentSets', () => {
 		assert.deepEqual([...recentSets(session, 'f')].sort(), ['base1', 'sv01', 'sv03']);
 		assert.deepEqual([...recentSets(session, 'b')], ['base1'], 'cards after this one do not count');
 		assert.equal(stackSet(session, 'f'), null, 'stackSet still asks three of five');
+	});
+});
+
+describe('a faint label row behind the tray', () => {
+	// Spinarak 102/189, whose picture a Japanese print shares, numbered in a
+	// set of its own.
+	const western = {catalog: 'international', id: 'swsh3-102', lang: 'en', localId: '102', official: 189, setId: 'swsh3'};
+	const japanese = {catalog: 'ja', id: 'S3-012', lang: 'ja', localId: '012', official: 100, setId: 'S3'};
+	const item = (number, extra = {}) => ({card: western, candidates: [western, japanese], groupLangs: ['en', 'ja'], read: {number}, ...extra});
+	const behind = (it) => asianEvidence(it, {number: true}).level;
+
+	test('is no sign of an Asian print when the number read is the Western print\'s alone', () => {
+		assert.equal(behind(item({number: '102', total: '189'})), null);
+		assert.equal(asianEvidence(item({number: '102', total: '189'})).level, 'strong', 'the label read with the number is weighed as before');
+	});
+
+	test('still is when no number read, when it is misread, or when an Asian print shares it', () => {
+		assert.equal(behind(item(null)), 'strong');
+		assert.equal(behind(item({misread: true, number: '102', total: '189'})), 'strong');
+		assert.equal(behind(item({number: '102', total: '189'}, {candidates: [western, {...japanese, localId: '102', official: 189}]})), 'strong', 'one number for both prints (151 and its Japanese twin)');
+		assert.equal(behind(item({number: '12', total: '100'}, {card: japanese})), 'strong', 'the Japanese print itself');
 	});
 });
