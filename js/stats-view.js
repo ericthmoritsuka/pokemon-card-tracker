@@ -1,5 +1,5 @@
 // The Stats screen (DESIGN.md section 11, "Stats"): what a collection holds,
-// opened from Stats in the My Cards heading, beside Spares and Trades.
+// opened from Stats in My Cards' bar, beside Value, Spares, and Trades.
 // Totals, then simple bars by language, set, rarity, type, finish, and
 // condition, the most valuable cards, the copies with no price, and the
 // copies added each month, and, on your own Stats, your lists' progress as

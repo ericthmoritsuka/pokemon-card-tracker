@@ -467,7 +467,10 @@ export function cardsScreen(root, {
 	let rates = savedRates();
 
 	const viewing = viewingLanguage();
-	const summary = h('p', {class: 'muted', id: 'cards-summary'});
+	// The count, and on the same line, while a search or filter narrows the
+	// list, Clear all and the storage button as text buttons (design review
+	// 2, 2026-11-20: they took two lines of their own above the cards).
+	const summary = h('span', {class: 'cards-count', id: 'cards-summary'});
 	// Large, Grid, Mini, or List: a new view draws the same cards again,
 	// as many as were shown.
 	const views = viewKey ? viewSwitch({id: 'cards', key: viewKey, onChange: () => ready && draw()}) : null;
@@ -482,7 +485,9 @@ export function cardsScreen(root, {
 	// The copies shown when a search or filter narrows the list, which the
 	// Stored in button sets a place for at once.
 	let narrowedCopies = [];
-	const storeButton = readOnly ? null : h('button', {'aria-haspopup': 'dialog', class: 'small cards-store', hidden: true, id: 'cards-store', onclick: () => openStoreSheet({entries: narrowedCopies}), type: 'button'});
+	const storeButton = readOnly ? null : h('button', {'aria-haspopup': 'dialog', class: 'link-button cards-store', hidden: true, id: 'cards-store', onclick: () => openStoreSheet({entries: narrowedCopies}), type: 'button'});
+	const clearButton = h('button', {class: 'link-button cards-clear', hidden: true, id: 'cards-clear-all', onclick: () => bar.clearAll(), type: 'button'}, 'Clear all');
+	const summaryLine = h('p', {class: 'muted cards-summary-line', id: 'cards-summary-line'}, summary, clearButton, storeButton);
 	// The saved storage places, by name, for the Stored in filter.
 	let placeNames = [];
 	// The tiles the search and filters show, every page of them, as last
@@ -497,11 +502,10 @@ export function cardsScreen(root, {
 			visible: () => lastVisible,
 		})
 		: null;
-	// Your own My Cards (design review, 2026-11-19: the first card started
-	// 455 px down a 360 x 740 screen): the summary moves up into the
-	// heading, beside Spares and Trades, and Select joins the bar beside
-	// Filters, so neither takes a line of its own.
-	const summaryRow = bulk ? null : summary;
+	// Your own My Cards (design review 2, 2026-11-20: the controls took 39%
+	// of a 360 x 740 screen) has the count line in its bar, under the tools;
+	// the Trade view's and a family member's are under the bar.
+	const summaryRow = bulk ? null : summaryLine;
 	// A tile as drawn, dressed as a checkbox while bulk select is on.
 	const shownTile = (group) => (bulk ? bulk.mark(tile(group), group.key) : tile(group));
 
@@ -517,19 +521,30 @@ export function cardsScreen(root, {
 	const valueButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-value', id: 'cards-value', onclick: () => openValue(), type: 'button'}, 'Value');
 	// Stats for the whole collection (Eric, 2026-11-19, from a survey of
 	// other trackers), a screen of its own (js/stats-view.js), as a link
-	// beside Value: both are about the whole collection. Together they take
-	// the View switch's row, where the heading would wrap a third button
-	// onto a line of its own.
+	// beside Value: both are about the whole collection.
 	const statsLink = statsRoute ? h('a', {class: 'button small fb-stats', 'data-link': statsRoute, href: BASE + statsRoute, id: 'cards-stats-link'}, 'Stats') : null;
-	const valueTools = statsLink ? h('span', {class: 'fb-value-pair', id: 'cards-value-stats'}, valueButton, statsLink) : valueButton;
-	// A card the catalog does not have is added by hand (js/custom-card-view.js),
-	// at the end of the bar rather than in the heading, which keeps Spares
-	// and Trades beside the title on a phone (design review, 2026-11-19:
-	// the first card started 455 px down a 740 px screen).
+	// A card the catalog does not have is added by hand (js/custom-card-view.js).
 	const handButton = readOnly ? null : h('button', {class: 'small fb-hand', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
+	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
+	// The trades and sales log (js/moves-view.js), beside Spares on your own
+	// My Cards.
+	const movesLink = tradeRoute && !readOnly ? h('a', {class: 'button small view-head-link', 'data-link': 'trades', href: `${BASE}trades`, id: 'cards-moves'}, 'Trades') : null;
+	// Your own My Cards (design review 2, 2026-11-20: the controls took 39%
+	// of a 360 x 740 screen, the first card 300 px down): the search with
+	// Filters and Select; Sort and View; then Value, Stats, Spares, Trades,
+	// and Add by hand on one line that scrolls sideways rather than wrap,
+	// with the count under it. The heading keeps only the title, for a
+	// screen reader on a phone.
+	const tools = bulk ? h('div', {class: 'cards-tools', id: 'cards-tools'}, valueButton, statsLink, tradeLink, movesLink, ...toolbar, handButton) : null;
+	// Elsewhere (the Trade view, a family member's cards) Value and Stats
+	// stay together in the bar's sort line.
+	const valueTools = tools || !statsLink ? valueButton : h('span', {class: 'fb-value-pair', id: 'cards-value-stats'}, valueButton, statsLink);
 
 	const bar = filterBar({
-		extra: [bulk ? bulk.button : null, views ? views.element : null, valueTools, ...toolbar, handButton].filter(Boolean),
+		beside: bulk ? [bulk.button] : null,
+		below: tools ? [tools, summaryLine] : [],
+		clearChip: false,
+		extra: (tools ? [views ? views.element : null] : [views ? views.element : null, valueTools, ...toolbar, handButton]).filter(Boolean),
 		// Every filter, Pictures included: these items carry photo and
 		// catalogPicture (makeGroup).
 		filters: offered || FILTERS,
@@ -1207,8 +1222,9 @@ export function cardsScreen(root, {
 			storeButton.textContent = copies === 1 ? 'Set storage for this copy' : `Set storage for these ${plural(copies, 'copy', 'copies')}`;
 		}
 
-		// Short enough to sit beside Spares and Trades in a phone's heading;
-		// why tiles and copies differ is its tooltip.
+		clearButton.hidden = !narrowed;
+
+		// One short line; why tiles and copies differ is its tooltip.
 		summary.textContent = narrowed
 			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
 			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}.`;
@@ -1533,13 +1549,6 @@ export function cardsScreen(root, {
 			return;
 		}
 
-		// The summary is in the heading on your own My Cards: no count
-		// stays there over an empty state, nor an empty line.
-		if (!entries.length) {
-			summary.textContent = '';
-			summary.remove();
-		}
-
 		if (!entries.length && emptyNode) {
 			body.replaceChildren(emptyNode());
 
@@ -1564,12 +1573,7 @@ export function cardsScreen(root, {
 		}
 
 		if (!body.contains(grid)) {
-			body.replaceChildren(...[bar.element, summaryRow, storeButton, grid, more, bulk ? bulk.bar : null].filter(Boolean));
-		}
-
-		// Your own My Cards: the count beside the title, once there are cards.
-		if (bulk && !summary.isConnected) {
-			heading.firstElementChild.after(summary);
+			body.replaceChildren(...[bar.element, summaryRow, grid, more, bulk ? bulk.bar : null].filter(Boolean));
 		}
 
 		ready = true;
@@ -1731,15 +1735,11 @@ export function cardsScreen(root, {
 			redraw(keys);
 		}
 	}, {twins: false});
-	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
-	// The trades and sales log (js/moves-view.js), beside Spares on your own
-	// My Cards.
-	const movesLink = tradeRoute && !readOnly ? h('a', {class: 'button small view-head-link', 'data-link': 'trades', href: `${BASE}trades`, id: 'cards-moves'}, 'Trades') : null;
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
-	const headLinks = [tradeLink, movesLink, wishLink].filter(Boolean);
+	// Spares and Trades are in the bar's tools on your own My Cards.
+	const headLinks = (tools ? [wishLink] : [tradeLink, movesLink, wishLink]).filter(Boolean);
 	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
-	// The count joins it once the cards are read (load), after the title.
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title), links);
+	const heading = h('div', {class: tools ? 'view-head cards-head' : 'view-head'}, h('h2', null, title), links);
 
 	root.append(heading, body);
 	load();

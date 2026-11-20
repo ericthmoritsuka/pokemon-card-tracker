@@ -513,12 +513,22 @@ let barCount = 0;
 //   legacy      () => {filters, sort} read when nothing is saved yet
 //   query       the search text to start with (Back from a card page)
 //   extra       nodes placed after the Filters button (My Cards' Value)
+//   beside      nodes for the search's own line, after Filters, which then
+//               leaves the sort's line for the sort and extra (My Cards'
+//               Select, its sort and View on the line under it)
+//   below       nodes after the sort's line and before the chips (My
+//               Cards' tools and count)
+//   clearChip   false when the screen offers Clear all itself (My Cards, in
+//               its count line); the chips then show the filters alone
 //   placeholder the search field's hint
 //   onChange(state, reason)  reason is 'query', 'filter', or 'sort'
 // Returns {element, state, setItems(items), setPlaces(names),
 // setFilter(kind, value), clearFilters(), clearAll(), openSheet(), refresh(),
 // destroy()}.
 export function filterBar({
+	beside = null,
+	below = [],
+	clearChip = true,
 	countShown = null,
 	extra = [],
 	// Pictures needs items that say whether they have a photo and a catalog
@@ -597,13 +607,15 @@ export function filterBar({
 	const countBadge = h('span', {'aria-hidden': 'true', class: 'fb-count', hidden: true});
 	const filterButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-open', id: `${id}-filters`, onclick: () => openSheet(), type: 'button'}, 'Filters', countBadge);
 	const chips = h('div', {'aria-label': 'Active filters', class: 'fb-chips', hidden: true, role: 'group'});
-	const element = h('div', {class: 'fb'},
-		ownSearch ? search : null,
+	const top = beside && ownSearch ? h('div', {class: 'fb-top'}, search, filterButton, ...beside) : null;
+	const element = h('div', {class: top ? 'fb fb-lines' : 'fb'},
+		top || (ownSearch ? search : null),
 		h('div', {class: 'fb-row'},
 			sortValues.length ? h('span', {class: 'select-wrap fb-sort-wrap'}, sortSelect) : null,
-			filterButton,
+			top ? null : filterButton,
 			...extra
 		),
+		...below,
 		chips
 	);
 
@@ -668,7 +680,7 @@ export function filterBar({
 		// Clear all shows whenever anything narrows the list, the search too.
 		const narrowed = active.length > 0 || state.query.trim() !== '' || Boolean(outsideNarrowed());
 
-		chips.hidden = !narrowed;
+		chips.hidden = clearChip ? !narrowed : !active.length;
 		chips.replaceChildren(...[
 			...active.map((kind) => h('button', {
 				'aria-label': `Remove filter ${labelOf(kind, state.filters[kind])}`,
@@ -677,7 +689,7 @@ export function filterBar({
 				onclick: () => setFilter(kind, BOOLEAN_FILTERS.includes(kind) ? false : ''),
 				type: 'button',
 			}, h('span', null, labelOf(kind, state.filters[kind])), h('span', {'aria-hidden': 'true', class: 'fb-chip-x'}, '×'))),
-			narrowed ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
+			narrowed && clearChip ? h('button', {class: 'chip fb-clear', onclick: clearAll, type: 'button'}, 'Clear all') : null,
 		].filter(Boolean));
 	}
 

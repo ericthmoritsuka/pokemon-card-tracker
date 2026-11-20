@@ -195,8 +195,10 @@ describe('search', () => {
 
 		// The search sits first, over the owned cards.
 		const order = await page.evaluate(() => [...document.querySelector('.fb').children].map((element) => element.className));
+		const line = await page.evaluate(() => [...document.querySelector('.fb-top').children].map((element) => element.id));
 
-		assert.match(order[0], /fb-search/);
+		assert.match(order[0], /fb-top/);
+		assert.deepEqual(line, ['cards-search', 'cards-filters', 'cards-select'], 'the search first, with Filters and Select');
 
 		await context.setOffline(true);
 
@@ -401,18 +403,22 @@ describe('filters and sorts', () => {
 		await pick('language', 'ja');
 		assert.equal(await page.locator('.tile').count(), 1);
 		assert.match(await page.locator('#cards-filters').getAttribute('aria-label'), /2 active/);
-		await page.click('.fb-chips .fb-clear');
+		// Clear all is a text button at the end of the count's line, not a
+		// chip (design review 2, 2026-11-20).
+		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 0, 'no Clear all chip');
+		assert.equal(await page.locator('#cards-clear-all').evaluate((button) => button.parentElement.id), 'cards-summary-line');
+		await page.click('#cards-clear-all');
 		assert.equal(await page.locator('.tile').count(), 10);
-		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 0, 'nothing narrows the list, so no Clear all');
+		assert.ok(await page.locator('#cards-clear-all').isHidden(), 'nothing narrows the list, so no Clear all');
 
 		// Clear all shows for one filter, and for the search alone, and
 		// clears the search text too.
 		await pick('type', 'Fire');
-		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 1, 'one filter is enough');
-		await page.click('.fb-chips .fb-clear');
+		assert.ok(await page.locator('#cards-clear-all').isVisible(), 'one filter is enough');
+		await page.click('#cards-clear-all');
 		await search(page, 'charm');
-		assert.ok(await page.locator('.fb-chips .fb-clear').isVisible(), 'the search alone shows Clear all');
-		await page.click('.fb-chips .fb-clear');
+		assert.ok(await page.locator('#cards-clear-all').isVisible(), 'the search alone shows Clear all');
+		await page.click('#cards-clear-all');
 		assert.equal(await page.locator('#cards-search').inputValue(), '');
 		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 10);
 
@@ -733,49 +739,59 @@ describe('layout', () => {
 				await selectsFit(page, 'the bar');
 				await metaFits(page, 'My Cards');
 
-				// The bar as three lines at phone width (design review,
-				// 2026-11-19: the first card started 455 px down a 360 x 740
+				// The bar as three lines and a count at phone width (design
+				// review 2, 2026-11-20: the controls took 39% of a 360 x 740
 				// screen): the search with Filters and Select, then Sort and
-				// View, then Value with Stats and Add by hand; the count is in
-				// the heading beside Spares and Trades.
-				const row = await page.evaluate(() => Object.fromEntries([...document.querySelector('.fb-row').children].map((element) => [element.querySelector('select') ? element.querySelector('select').id : element.id, Math.round(element.getBoundingClientRect().top)])));
-				const pair = await page.evaluate(() => ['cards-value', 'cards-stats-link'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().top)));
-				const head = await page.evaluate(() => {
-					const top = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().top);
+				// View, then Value, Stats, Spares, Trades, and Add by hand on
+				// one line that scrolls sideways, with the count under it.
+				const layout = await page.evaluate(() => {
+					const box = (element) => element.getBoundingClientRect();
+					const top = (id) => Math.round(box(document.getElementById(id)).top);
 					const search = document.getElementById('cards-search');
 					const style = getComputedStyle(search);
 					const canvas = document.createElement('canvas').getContext('2d');
+					const tools = document.getElementById('cards-tools');
 
 					canvas.font = style.font;
 
 					return {
-						countIn: document.getElementById('cards-summary').parentElement.className,
-						countMiddle: Math.round(document.getElementById('cards-summary').getBoundingClientRect().top + document.getElementById('cards-summary').getBoundingClientRect().height / 2),
-						first: top('.card-grid > .tile'),
+						countIn: document.getElementById('cards-summary').parentElement.id,
+						filters: top('cards-filters'),
+						first: Math.round(box(document.querySelector('.card-grid > .tile')).top),
+						line: Math.round(box(document.getElementById('cards-summary')).height),
 						placeholderFits: canvas.measureText(search.placeholder).width <= search.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-						search: top('#cards-search'),
-						spares: top('#cards-trade'),
-						sparesMiddle: Math.round(document.getElementById('cards-trade').getBoundingClientRect().top + document.getElementById('cards-trade').getBoundingClientRect().height / 2),
-						title: document.querySelector('.view-head h2').getBoundingClientRect().width,
+						search: top('cards-search'),
+						select: top('cards-select'),
+						sort: top('cards-sort'),
+						sortTall: Math.round(box(document.getElementById('cards-sort')).height),
+						summary: top('cards-summary'),
+						title: box(document.querySelector('.view-head h2')).width,
+						tools: [...tools.children].map((element) => [element.id, Math.round(box(element).top), Math.round(box(element).height)]),
+						toolsBottom: Math.round(box(tools).bottom),
+						toolsScroll: tools.scrollWidth > tools.clientWidth ? getComputedStyle(tools).overflowX : 'fits',
+						view: top('cards-view'),
+						viewTall: Math.round(box(document.getElementById('cards-view')).height),
 					};
 				});
+				const toolsTop = layout.tools[0][1];
 
-				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-select', 'cards-view', 'cards-value-stats', 'cards-add-hand'], 'the row\'s controls, in order');
-				assert.equal(row['cards-filters'], head.search, `Filters beside the search (${JSON.stringify(row)})`);
-				assert.equal(row['cards-select'], head.search, `Select beside the search (${JSON.stringify(row)})`);
-				assert.ok(head.placeholderFits, 'the search\'s placeholder whole');
-				assert.equal(row['cards-sort'], row['cards-view'], `Sort and View share a line (${JSON.stringify(row)})`);
-				assert.ok(row['cards-sort'] > head.search, 'Sort and View under the search');
-				assert.equal(row['cards-value-stats'], row['cards-add-hand'], `Value, Stats, and Add by hand share a line (${JSON.stringify(row)})`);
-				assert.ok(row['cards-value-stats'] > row['cards-sort'], 'Value and Add by hand are the third line');
-				assert.equal(pair[0], pair[1], 'Value and Stats side by side');
-				assert.equal(head.countIn, 'view-head', 'the count is in the heading');
-				assert.ok(Math.abs(head.countMiddle - head.sparesMiddle) <= 2, `the count beside Spares (${JSON.stringify(head)})`);
-				assert.ok(head.title <= 1, 'the title is for a screen reader on a phone; the Cards tab names the screen');
-				assert.ok(head.search > head.spares, 'the bar under the heading');
-				// Well above the middle of the screen: two rows of tiles in
-				// sight at 360 x 740.
-				assert.ok(head.first <= viewport.height * 0.43, `the first card starts ${head.first} px down`);
+				assert.deepEqual(layout.tools.map(([id]) => id), ['cards-value', 'cards-stats-link', 'cards-trade', 'cards-moves', 'cards-add-hand'], 'the tools, in order');
+				assert.ok(layout.tools.every(([, top]) => top === toolsTop), `the tools on one line (${JSON.stringify(layout.tools)})`);
+				assert.ok(layout.tools.every(([, , tall]) => tall >= 40), 'each tool 40 px tall or more');
+				assert.ok(['auto', 'fits'].includes(layout.toolsScroll), `the tools scroll sideways rather than wrap (${layout.toolsScroll})`);
+				assert.equal(layout.filters, layout.search, 'Filters beside the search');
+				assert.equal(layout.select, layout.search, 'Select beside the search');
+				assert.ok(layout.placeholderFits, 'the search\'s placeholder whole');
+				assert.equal(layout.sort, layout.view, 'Sort and View share a line');
+				assert.ok(layout.sort > layout.search, 'Sort and View under the search');
+				assert.ok(layout.sortTall >= 40 && layout.sortTall < 48 && layout.viewTall === layout.sortTall, `Sort and View 40 px tall (${layout.sortTall}, ${layout.viewTall})`);
+				assert.ok(toolsTop > layout.sort, 'the tools are the third line');
+				assert.equal(layout.countIn, 'cards-summary-line', 'the count has a line of its own');
+				assert.ok(layout.summary >= layout.toolsBottom, 'the count under the tools');
+				assert.ok(layout.line <= 24, `the count is one line (${layout.line} px)`);
+				assert.ok(layout.title <= 1, 'the title is for a screen reader on a phone; the Cards tab names the screen');
+				// Was 300 px at 360 x 740 (design review 2).
+				assert.ok(layout.first <= viewport.height * 0.35, `the first card starts ${layout.first} px down`);
 
 				await openFilters(page);
 				await page.selectOption('#cards-f-set', 'ja|TSJ1');
@@ -809,6 +825,53 @@ describe('layout', () => {
 			});
 		}
 	}
+});
+
+describe('held sideways', () => {
+	test('the header scrolls away and the bar takes two lines', async () => {
+		const {context, errors, page} = await phone({viewport: {height: 360, width: 740}});
+
+		await seed(page, server.origin);
+		await page.locator('.tile').first().waitFor();
+		await noSideways(page, 'My Cards sideways');
+
+		const at = () => page.evaluate(() => {
+			const top = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().top);
+			const middle = (selector) => {
+				const box = document.querySelector(selector).getBoundingClientRect();
+
+				return Math.round(box.top + box.height / 2);
+			};
+
+			return {
+				count: middle('#cards-summary'),
+				first: top('.card-grid > .tile'),
+				header: getComputedStyle(document.querySelector('.shell-top')).position,
+				headerBottom: Math.round(document.querySelector('.shell-top').getBoundingClientRect().bottom),
+				search: middle('#cards-search'),
+				sort: middle('#cards-sort'),
+				tabs: top('nav.tabs'),
+				tools: middle('#cards-tools'),
+			};
+		});
+		const start = await at();
+
+		// The search line and Sort and View share a line, and so do the
+		// tools and the count; the header is not sticky, as on a binder.
+		assert.equal(start.header, 'static');
+		assert.ok(Math.abs(start.sort - start.search) <= 2, `Sort beside the search (${JSON.stringify(start)})`);
+		assert.ok(Math.abs(start.count - start.tools) <= 2, `the count beside the tools (${JSON.stringify(start)})`);
+		assert.ok(start.tabs - start.first >= 100, `cards in sight under the bar (${JSON.stringify(start)})`);
+
+		await page.evaluate(() => window.scrollTo(0, 400));
+		await page.waitForTimeout(200);
+
+		const scrolled = await at();
+
+		assert.ok(scrolled.headerBottom <= 0, `the header scrolls away with the page (${JSON.stringify(scrolled)})`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 
 describe('a family member\'s cards', () => {

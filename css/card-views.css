@@ -3,28 +3,28 @@
    is. Every minimum grows with the text size, as Grid's does, so large text
    gives fewer columns, never squeezed tiles or a sideways scroll. */
 
-/* My Cards' bar, with the View select (design review, 2026-11-19: at
-   360 x 740 the first card started 455 px down, under seven rows of
-   heading, buttons, and counts). The search, Filters, Select, Sort, View,
-   Value with Stats, and Add by hand flow as one wrapping row, in that order:
-   at 360 px the search with Filters and Select beside it, then Sort and View, then
-   Value, Stats, and Add by hand; on a wider screen more share a line. Each
-   keeps its text whole and wraps to the next line before it would be cut,
-   as at large text. */
-.fb:has(.fb-view-wrap) {
+/* My Cards' bar (design review 2, 2026-11-20: at 360 x 740 the controls
+   took 39% of the screen and the first card started 300 px down). Three
+   lines: the search with Filters and Select (js/filter-bar.js .fb-top);
+   Sort and View, 40 px tall; then Value, Stats, Spares, Trades, and Add by
+   hand on one line that scrolls sideways rather than wrap, with the count
+   as one muted line under it. Each control keeps its text whole: the first
+   two lines wrap before they would cut it, as at large text. */
+.fb-lines {
+	gap: 6px;
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.fb-top {
 	align-items: center;
 	display: flex;
 	flex-wrap: wrap;
+	gap: var(--space-2);
 }
 
-.fb:has(.fb-view-wrap) > .fb-row {
-	display: contents;
-}
-
-.fb:has(.fb-view-wrap) > .fb-search {
+.fb-top > .fb-search {
 	flex: 1 1 9rem;
 	min-width: 0;
-	order: 0;
 	/* "Search my cards" whole beside Filters and Select at 360 px, with
 	   the two buttons' padding trimmed below. */
 	padding-left: 10px;
@@ -32,46 +32,154 @@
 	width: auto;
 }
 
-.fb:has(.fb-view-wrap) .fb-open,
-.fb:has(.fb-view-wrap) .cards-select {
+.fb-top > button.small {
+	flex: none;
+	min-height: var(--target);
 	padding-left: 10px;
 	padding-right: 10px;
 }
 
-.fb:has(.fb-view-wrap) .fb-open {
-	order: 1;
-}
-
-.fb:has(.fb-view-wrap) .fb-sort-wrap {
-	order: 2;
-}
-
+/* Sort and View share the second line, never narrower than their longest
+   choice. */
+.fb-lines .fb-sort-wrap,
 .fb-view-wrap {
-	flex: 1 1 7rem;
-	min-width: 7rem;
-	order: 3;
-}
-
-/* Sort and View never narrower than their longest choice: with the count
-   on Filters the line wraps one more time rather than cut "View: Large". */
-.fb:has(.fb-view-wrap) .fb-sort-wrap,
-.fb:has(.fb-view-wrap) .fb-view-wrap {
 	flex: 1 0 auto;
 	min-width: 0;
 }
 
-.fb:has(.fb-view-wrap) .fb-value-pair {
-	order: 4;
+.fb-lines > .fb-row select {
+	min-height: 40px;
+	padding-bottom: 4px;
+	padding-top: 4px;
 }
 
-.fb:has(.fb-view-wrap) .fb-hand {
-	min-height: var(--target);
-	order: 5;
+/* The tools: one line, scrolling sideways to the screen's edges, so the
+   last button cut at the edge says there is more. The block padding keeps
+   a focus ring inside the scroller, which would clip it. */
+.cards-tools {
+	display: flex;
+	gap: var(--space-2);
+	margin: -4px calc(-1 * var(--space-4));
+	overflow-x: auto;
+	overscroll-behavior-x: contain;
+	padding: 4px var(--space-4);
+	scroll-padding: 0 var(--space-4);
+	scrollbar-width: none;
 }
 
-.fb:has(.fb-view-wrap) > .fb-chips {
-	flex: 1 0 100%;
-	order: 6;
+.cards-tools::-webkit-scrollbar {
+	display: none;
+}
+
+.cards-tools > * {
+	flex: none;
+	min-height: 40px;
+	padding: 6px 12px;
+	white-space: nowrap;
+	width: auto;
+}
+
+/* The count, and while a search or filter narrows the list, Clear all and
+   the storage button as text buttons at the end of the same line. */
+.cards-summary-line {
+	align-items: center;
+	column-gap: var(--space-3);
+	display: flex;
+	flex-wrap: wrap;
+	font-size: 0.875rem;
+	margin: 0;
+	min-height: 20px;
+}
+
+.cards-summary-line .cards-count {
+	margin-right: auto;
+}
+
+.fb-lines > .cards-summary-line .cards-count {
+	margin-right: 0;
+}
+
+.cards-summary-line button.link-button {
+	margin: 0;
+	min-height: 32px;
+	padding: 0 2px;
+	text-align: left;
+	width: auto;
+}
+
+.cards-summary-line button[hidden] {
+	display: none;
+}
+
+.fb-lines + .card-grid {
+	margin-top: var(--space-2);
+}
+
+/* My Cards' heading keeps only the title, and on a phone, upright or held
+   sideways, it is for a screen reader only: the Cards tab names the
+   screen. */
+@media (max-width: 599px), (max-height: 500px) {
+	.view-head.cards-head {
+		margin: 0;
+	}
+
+	.cards-head h2 {
+		clip-path: inset(50%);
+		height: 1px;
+		margin: -1px;
+		overflow: hidden;
+		position: absolute;
+		white-space: nowrap;
+		width: 1px;
+	}
+}
+
+/* From 600 px the search line and Sort and View share a line, and so do
+   the tools and the count. */
+@media (min-width: 600px) {
+	.fb-lines {
+		align-items: center;
+		display: flex;
+		flex-wrap: wrap;
+	}
+
+	.fb-lines > .fb-top {
+		flex: 1 1 18rem;
+	}
+
+	.fb-lines > .fb-row {
+		flex: 1 1 14rem;
+	}
+
+	.fb-lines > .cards-tools {
+		flex: 0 1 auto;
+		margin: -4px 0;
+		max-width: 100%;
+		padding: 4px 0;
+	}
+
+	.fb-lines > .cards-summary-line {
+		flex: 1 1 8rem;
+	}
+
+	/* Narrowed, with its text buttons, the count takes a line of its own
+	   rather than a column beside the tools. */
+	.fb-lines > .cards-summary-line:has(> button:not([hidden])) {
+		flex-basis: 100%;
+	}
+
+	.fb-lines > .fb-chips {
+		flex: 1 0 100%;
+	}
+}
+
+/* A phone held sideways: the header scrolls away with the page, as on a
+   binder (css/binder-spread.css), so the cards fill the height under the
+   tab bar's top once the bar is passed. */
+@media (orientation: landscape) and (max-height: 500px) {
+	body:has(.cards-head) .shell-top {
+		position: static;
+	}
 }
 
 /* ------------------------------------------------------------- Large */
@@ -286,13 +394,6 @@
 }
 
 /* -------------------------------------------------------- Bulk select */
-
-/* My Cards' bulk select (js/bulk-select.js): Select sits in the bar beside
-   Filters (the first card's top, design review 2026-11-19). */
-.fb:has(.fb-view-wrap) .cards-select {
-	min-height: var(--target);
-	order: 1;
-}
 
 /* A tile while selecting is a checkbox: a circle over the middle of its
    art, clear of the corner badges, empty or ticked, with a ring round the

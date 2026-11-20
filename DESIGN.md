@@ -319,19 +319,30 @@ Sort at 324 px. The views keep the low-resolution images, so Large adds no downl
 second copy of each image to the phone's cache.
 
 **My Cards' heading and bar** *(design review, 2026-11-19: at 360 x 740 the first card started
-455 px down, under seven lines of heading, buttons, and counts)*. Nothing was taken away; the
-same controls sit on four lines, and the first card starts at 300 px:
+455 px down, under seven lines of heading, buttons, and counts; design review 2, 2026-11-20: the
+controls still took 39% of the screen, the first card 300 px down, 420 px while searching, and
+held sideways 51 px of cards showed)*. Nothing was taken away; the same controls sit on three
+lines and a count, and the first card starts at 250 px (282 px while searching):
 
-- **The heading:** the count ("41 copies in 40 tiles.", or "3 copies in 3 tiles match, of 41
-  copies." while a search or filter narrows the list) beside Spares and Trades. Why copies and
-  tiles differ, one tile per card and language, is the count's tooltip rather than a second
-  sentence. On a phone the title "My Cards" is for a screen reader only: the Cards tab names the
-  screen. From 600 px it shows before the count. A family member's cards keep their title
-  ("Eric's cards") on its own, as before.
-- **The bar:** one wrapping row in this order, each control's text whole and wrapping to the next
-  line before it would be cut (as at large text): the search with **Filters** and **Select**
-  beside it; **Sort** and **View**; **Value** with **Stats**, and **Add by hand** (which was in
-  the heading).
+- **The heading** keeps only the title. On a phone "My Cards" is for a screen reader only: the
+  Cards tab names the screen, held sideways too. From 600 px wide and 500 px tall it shows. A family member's cards keep their title
+  ("Eric's cards") with Spares and Wishlist beside it, as before.
+- **The bar:** the search with **Filters** and **Select** beside it; **Sort** and **View**, 40 px
+  tall; then **Value**, **Stats**, **Spares**, **Trades**, and **Add by hand** on one line that
+  scrolls sideways rather than wrap, running to the screen's edges so the button cut at the edge
+  says there is more. The first two lines wrap before a control's text would be cut, as at large
+  text.
+- **The count** is one muted line under them ("41 copies in 40 tiles."; why copies and tiles
+  differ, one tile per card and language, is its tooltip). While a search or filter narrows the
+  list, **Clear all** and **Set storage for these N copies** are text buttons at the end of the
+  same line instead of a chip and a button on lines of their own; the filter chips stay under it.
+  The Trade view and a family member's cards have the same count line under their bar.
+- **From 600 px**, as a phone held sideways, the search line and Sort and View share a line, and
+  so do the tools and the count. Held sideways (no more than 500 px tall), the app's header
+  scrolls away with the page instead of staying at the top, as on a binder.
+- **Why not 200 px:** the review asked for the first card at 200 px or less; the three lines are
+  48, 40, and 40 px under the 72 px of header and margin, so the gaps and the count line put it
+  at 250 px. Getting to 200 would take a control under 40 px or dropping the count.
 
 **Bulk select on My Cards** *(Eric, 2026-11-18: change many cards at once instead of opening
 each one)*. A **Select** button sits beside Filters in the bar (it ended the summary line until
@@ -3301,7 +3312,7 @@ the binder card picker, the tray, and the wishlist can reuse it:
 **The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, route `trade` (a member's, read only:
 `family/<id>/trade`). It is My Cards over the spares only, so it has the same bar (search,
 set, language, rarity, price sort, Favorites), the same tiles, and the Value sheet with its coverage
-line. It is reached from the Spares button beside My Cards' heading and from Profile ("Spares to
+line. It is reached from the Spares button in My Cards' bar and from Profile ("Spares to
 trade"). Trade stays a query (section 3), never a stored list.
 
 - A spare is every copy beyond the first of the same card in the same language, whatever its
@@ -3738,12 +3749,10 @@ pass fills in prices, rarities, and types, and Stats says "Not known yet fills i
 download while My Cards is open" where some are missing. Counting about 2,500 copies is one pass
 over them, well under the 1 s the unit test allows.
 
-- **Where it opens.** A **Stats** link beside **Value** in My Cards' filter bar, the two kept
-  together on one line (with Add by hand after them since the design review of 2026-11-19). Both
-  are about the whole collection, so they sit together; the heading was the other candidate, but
-  Spares and Trades with the count already fill its row at 360 px. Profile
-  was ruled out because Stats is about the cards, and the Cards tab is where they are. "‹ My Cards"
-  goes back.
+- **Where it opens.** A **Stats** link beside **Value** in My Cards' bar, on the tools line with
+  Spares, Trades, and Add by hand (design review 2, 2026-11-20). Both are about the whole
+  collection, so they sit together. Profile was ruled out because Stats is about the cards, and
+  the Cards tab is where they are. "‹ My Cards" goes back.
 - **What it shows.** Totals (copies, cards, sets, languages); bars by language, by set (the top
   10, then "And N more sets, M copies"), by rarity, by type (a card of two types counts under
   both, and a Trainer or Energy under its category), by finish (Normal, Holo, Reverse holo, 1st

@@ -135,7 +135,7 @@ describe('Trade', () => {
 		await pickFilter(page, 'language', 'pt');
 		assert.deepEqual(await tileNames(page), ['Charmander'], 'only the Portuguese spare');
 		assert.match(await summary(page), /^1 copy in 1 tile match/);
-		await page.click('.fb-clear, .fb-chip');
+		await page.click('#cards-clear-all');
 
 		await pickFilter(page, 'set', 'international|tsb2');
 		assert.equal(await page.locator('.tile').count(), 1, 'the Test Beta spare');
