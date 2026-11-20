@@ -430,6 +430,9 @@ export function familyCardsView(root, {userId}) {
 		},
 		loadBinders: () => binders,
 		loadRecords: () => records,
+		// Their cards, as Spares says "Search their spares" (QA 2,
+		// 2026-11-20: it said "Search my cards").
+		placeholder: 'Search their cards',
 		readOnly: true,
 		statsRoute: `family/${encodeURIComponent(userId)}/stats`,
 		storageKey: `${CHOICE_KEY}.family`,

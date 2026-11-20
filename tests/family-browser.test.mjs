@@ -876,6 +876,10 @@ describe('a family member\'s Stats', () => {
 		await page.waitForSelector('.tile');
 		await page.waitForFunction(() => /copies/.test((document.querySelector('#cards-summary') || {}).textContent || ''));
 		assert.equal(await page.locator('#cards-summary').textContent(), '4 copies · 4 cards', 'My Cards: one card per language');
+		// Their cards, as their Spares says "Search their spares" (QA 2,
+		// 2026-11-20).
+		assert.equal(await page.locator('#cards-search').getAttribute('placeholder'), 'Search their cards');
+		assert.equal(await page.locator('#cards-search').getAttribute('aria-label'), 'Search their cards');
 		await page.click('#cards-stats-link');
 		await page.waitForSelector('#stats-totals');
 		assert.equal(path(page), `${BASE}family/${people.member.id}/stats`);

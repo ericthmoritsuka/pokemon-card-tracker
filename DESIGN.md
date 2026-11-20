@@ -353,7 +353,9 @@ line wraps to two with its text buttons):
 
 - **The heading** keeps only the title. On a phone "My Cards" is for a screen reader only: the
   Cards tab names the screen, held sideways too. From 600 px wide and 500 px tall it shows. A family member's cards keep their title
-  ("Eric's cards") with Spares and Wishlist beside it, as before.
+  ("Eric's cards") with Spares and Wishlist beside it, as before, and their search reads "Search
+  their cards", as their Spares' reads "Search their spares" (QA 2, 2026-11-20: it said "Search my
+  cards").
 - **The bar:** the search with **Filters** and **Select** beside it; **Sort** and **View**, 40 px
   tall; then **Value**, **Stats**, **Spares**, **Trades**, and **Add by hand**, 44 px tall (whole
   touch targets, as Stats was beside Value), on one line that
