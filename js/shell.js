@@ -497,7 +497,73 @@ export function shellRoute(route, params) {
 }
 
 // Once, from app.js.
+// ------------------------------------------- focus clear of the bars
+
+// The bars that can stick over the tab bar at the foot of a screen, and
+// the room kept between one and a focused control.
+const FOOT_BARS = '.actions, .bulk-bar, .bh, .bt';
+const FOCUS_ROOM = 8;
+
+// A focused control is never left under the header or the bars at the foot
+// (WCAG 2.4.11 Focus Not Obscured; accessibility audit, 2026-11-20). html's
+// scroll-padding (style.css) clears the header and the tab bar, with the
+// header's height, strips included, kept in --shell-top-height. A bar that
+// sticks over the tab bar (a form's actions, the bulk bar, the binder's
+// hand) comes and goes with the screen, so it is cleared here, once the
+// browser has scrolled the control into view.
+function trackShellTop() {
+	const top = document.getElementById('shell-top');
+
+	if (!top || typeof ResizeObserver !== 'function') {
+		return;
+	}
+
+	new ResizeObserver(() => {
+		document.documentElement.style.setProperty('--shell-top-height', `${top.offsetHeight}px`);
+	}).observe(top);
+}
+
+function keepFocusClear(event) {
+	const target = event.target;
+
+	if (!(target instanceof Element) || target.closest(`dialog, .shell-top, .tabs, ${FOOT_BARS}`)) {
+		return;
+	}
+
+	requestAnimationFrame(() => {
+		if (document.activeElement !== target) {
+			return;
+		}
+
+		const tabs = document.querySelector('.tabs');
+		let foot = tabs && tabs.offsetHeight ? tabs.getBoundingClientRect().top : window.innerHeight;
+		const tabsTop = foot;
+
+		for (const bar of document.querySelectorAll(FOOT_BARS)) {
+			const position = getComputedStyle(bar).position;
+			const box = bar.getBoundingClientRect();
+
+			if ((position === 'fixed' || position === 'sticky') && box.height && box.top < foot && box.bottom >= tabsTop - 2) {
+				foot = box.top;
+			}
+		}
+
+		const box = target.getBoundingClientRect();
+		const shellTop = document.getElementById('shell-top');
+		const top = shellTop ? shellTop.getBoundingClientRect().bottom : 0;
+		const under = box.bottom - (foot - FOCUS_ROOM);
+
+		if (foot < tabsTop && under > 0) {
+			// Never so far that its top goes under the header.
+			window.scrollBy({behavior: 'instant', top: Math.min(under, Math.max(0, box.top - top - FOCUS_ROOM))});
+		}
+	});
+}
+
 export function startShell() {
+	trackShellTop();
+	document.addEventListener('focusin', keepFocusClear, true);
+
 	const button = document.getElementById('owner-switch');
 
 	if (button) {

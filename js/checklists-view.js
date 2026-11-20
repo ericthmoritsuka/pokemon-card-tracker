@@ -9,7 +9,7 @@
 
 import {currentUser} from './auth.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
+import {BASE, backWords, errorText, go, h, listsSwitch, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
@@ -600,7 +600,7 @@ function checklistScreen(root, source, id) {
 	let drawn = null;
 	let show = readChoice(FILTER_KEY, FILTERS.map((option) => option.value), 'all');
 
-	const back = link(source.base, {class: 'back'}, '‹ All lists');
+	const back = link(source.base, {class: 'back'}, backWords('All lists'));
 	const title = h('h2', {id: 'checklist-title'}, 'List');
 	const meta = h('p', {class: 'muted', id: 'checklist-meta'});
 	const languages = languagesControl({listId: id, readOnly: source.readOnly});

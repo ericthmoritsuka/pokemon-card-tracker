@@ -285,10 +285,15 @@ export const AA = 4.5;
 export const AA_SHAPE = 3;
 
 // The fixed surfaces from style.css's :root, which themes leave alone.
+// field: a text field's or select's edge (style.css --field-border).
 export const BASE = {
-	dark: {bg: '#16181d', border: '#34343c', muted: '#a8a8b3', surface: '#1f2128', text: '#ececf1'},
-	light: {bg: '#f4f4f6', border: '#d9d9e0', muted: '#5b5b66', surface: '#ffffff', text: INK},
+	dark: {bg: '#16181d', border: '#34343c', field: '#7b7b88', muted: '#a8a8b3', surface: '#1f2128', text: '#ececf1'},
+	light: {bg: '#f4f4f6', border: '#d9d9e0', field: '#8a8a94', muted: '#5b5b66', surface: '#ffffff', text: INK},
 };
+
+// The navy edge round the default theme's yellow tab mark in light mode
+// (style.css, var(--navy)).
+export const TAB_MARK_EDGE = '#1d2e60';
 
 // The dark-mode header starts from this near-black, with the type mixed in.
 const NIGHT = '#121419';
@@ -724,8 +729,16 @@ export function textPairs(theme, scheme) {
 		['header title on the motif', headText, worst, AA],
 		['header sync line on the motif', over(headText, 0.85, worst), worst, AA],
 		['header alert', vars['--header-alert'], header, AA],
+		// The focus ring on the header's controls (style.css .top), a UI
+		// shape, in the header's text color.
+		['header focus ring', headText, header, AA_SHAPE],
+		['header focus ring on the motif', headText, worst, AA_SHAPE],
 		['avatar initial', vars['--avatar-text'], vars['--avatar-bg'], AA],
 		['destructive button', vars['--danger-text'], base.surface, AA],
+		// A field's edge, a UI shape, on whatever it sits on (WCAG 1.4.11).
+		['field border on panel', base.field, panel, AA_SHAPE],
+		['field border on page', base.field, base.bg, AA_SHAPE],
+		['field border on surface', base.field, base.surface, AA_SHAPE],
 		['scan ring on the disc', vars['--scan-ring'], vars['--scan'], AA_SHAPE],
 		['scan glyph on the disc', vars['--scan-glyph'], vars['--scan'], AA_SHAPE],
 		// A white disc (Premier Ball) cannot reach 3:1 on the white bar; its
@@ -735,12 +748,12 @@ export function textPairs(theme, scheme) {
 			: ['scan disc on the tab bar', vars['--scan'], base.surface, AA_SHAPE],
 	];
 
-	// The default's yellow tab mark is the pokedex's, on a tab that also
-	// turns its label from muted to full text, so it is not checked as a
-	// shape; every energy theme's mark is.
-	if (theme.id !== DEFAULT_THEME) {
-		pairs.push(['active tab mark', vars['--tab-mark'], base.surface, AA_SHAPE]);
-	}
+	// The active tab's mark, a UI shape. The default's pokedex yellow
+	// cannot reach 3:1 on the white bar, so in light mode its navy edge
+	// carries the shape (style.css, TAB_MARK_EDGE).
+	pairs.push(theme.id === DEFAULT_THEME && scheme === 'light'
+		? ['active tab mark\'s edge', TAB_MARK_EDGE, base.surface, AA_SHAPE]
+		: ['active tab mark', vars['--tab-mark'], base.surface, AA_SHAPE]);
 
 	return pairs;
 }

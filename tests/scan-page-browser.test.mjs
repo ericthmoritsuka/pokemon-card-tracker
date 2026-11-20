@@ -368,22 +368,27 @@ describe('a binder page from one photo', () => {
 			LAYOUT.map((key) => (key ? 'in its pocket' : 'empty:Empty')));
 		// Once the pockets' languages are read behind the read.
 		await until(async () => /Tap a card/.test(await text(page, '#scan-pagegrid-line')), 120000, 'the languages read');
-		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
+		assert.equal(await text(page, '#scan-pagegrid-line'), 'Tap a card to check or change it.');
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-page-grid.png`});
 
 		// The grid leads, and its actions stay at the sheet's foot (design
-		// review, 2026-11-19): at 360 x 740 the first row of pockets is in
-		// sight over the foot, which is on the screen whole.
+		// review, 2026-11-19): at 360 x 740 the page's three rows of pockets
+		// are in sight over the foot (design review, 2026-11-20: two were),
+		// under a line of one line, and the foot is on the screen whole.
 		const boxes = await page.evaluate(() => {
 			const box = (selector) => document.querySelector(selector).getBoundingClientRect();
-			const first = box('#scan-page-grid-1 > li');
+			const cells = [...document.querySelectorAll('#scan-page-grid-1 > li')].map((cell) => cell.getBoundingClientRect());
+			const art = document.querySelector('#scan-page-grid-1 .scan-tile-art').getBoundingClientRect();
 
-			return {firstBottom: first.bottom, firstTop: first.top, foot: box('#scan-pagegrid-foot').top, footBottom: box('#scan-pagegrid-foot').bottom, line: box('#scan-pagegrid-line').top, mode: box('#scan-page-mine').top};
+			return {artRatio: art.width / art.height, firstTop: cells[0].top, foot: box('#scan-pagegrid-foot').top, footBottom: box('#scan-pagegrid-foot').bottom, lastBottom: Math.max(...cells.map((cell) => cell.bottom)), line: box('#scan-pagegrid-line').top, lineTall: box('#scan-pagegrid-line').height, mode: box('#scan-page-mine').top, sheetScrolls: document.getElementById('scan-pagegrid').scrollTop};
 		});
 
 		assert.ok(boxes.line < boxes.firstTop, 'the line over the grid');
-		assert.ok(boxes.firstBottom <= boxes.foot, `the first row of pockets whole over the foot (${JSON.stringify(boxes)})`);
+		assert.ok(boxes.lineTall <= 24, `the line is one line (${boxes.lineTall} px)`);
+		assert.equal(boxes.sheetScrolls, 0, 'not scrolled');
+		assert.ok(boxes.lastBottom <= boxes.foot, `the three rows of pockets whole over the foot (${JSON.stringify(boxes)})`);
+		assert.ok(Math.abs(boxes.artRatio - (63 / 88)) < 0.02, `each pocket a card's shape, 63 by 88 (${boxes.artRatio})`);
 		assert.ok(boxes.footBottom <= VIEWPORT.height + 0.5, `the foot on the screen (${JSON.stringify(boxes)})`);
 		assert.ok(boxes.mode >= boxes.foot, 'New to my cards and Already mine at the foot');
 		assert.equal(await page.locator('#scan-pagegrid-foot #scan-pagegrid-lang-en').count(), 1, 'the language row at the foot');
@@ -551,11 +556,11 @@ describe('a binder page from one photo', () => {
 		}, null, {polling: 'raf', timeout: 300000})).jsonValue();
 
 		assert.equal(atEnd.disabled, true, `Already mine waits as the read ends (${JSON.stringify(atEnd)})`);
-		assert.match(atEnd.line, /^7 cards(, \d to check)?\. Still reading their languages, so Already mine waits\.$/);
+		assert.equal(atEnd.line, 'Reading languages. Already mine waits.');
 
 		// Then it is offered, and the line says what to do.
 		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
-		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
+		assert.equal(await text(page, '#scan-pagegrid-line'), 'Tap a card to check or change it.');
 
 		await page.click('#scan-page-mine');
 		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');

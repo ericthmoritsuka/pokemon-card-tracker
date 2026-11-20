@@ -329,7 +329,7 @@ describe('source names', () => {
 		assert.equal(await page.locator('.copies .copy-title').textContent(), 'Korean');
 		assert.equal(await page.locator('.copies .copy-text').textContent(), 'Set finish');
 		assert.equal(await page.locator('.copies .copy-text .copy-chip').count(), 1);
-		assert.equal(await page.getAttribute('.copies .copy-row', 'aria-label'), 'Korean, finish not set');
+		assert.equal(await page.getAttribute('.copies .copy-row', 'aria-label'), 'Korean, Set finish', 'the words the row shows, for voice control');
 		assert.equal(await page.locator('.copies .step-count').inputValue(), '1');
 		assert.equal(await page.locator('.card-detail .name-original').textContent(), '(Siheom Kadeu)');
 

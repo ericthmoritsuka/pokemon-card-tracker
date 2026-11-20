@@ -37,7 +37,7 @@ import {
 	toastAdded,
 } from './copy-sheet.js';
 import {CUSTOM, customCard, customEntries, customRoute, editPatches, findCatalogCard, findSet, linkLookups, linkPatches, NAME_MAX, newCustomCardId, NUMBER_MAX, SET_MAX} from './custom-card.js';
-import {BASE, errorText, go, h} from './dom.js';
+import {BASE, backWords, errorText, go, h} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {flagBadge} from './flags.js';
 import {finishLabel} from './monprice.js';
@@ -304,7 +304,7 @@ const back = () => h('a', {class: 'back', 'data-link': 'cards', href: `${BASE}ca
 		event.stopPropagation();
 		history.back();
 	}
-}, style: 'min-width: 48px'}, '‹ Back');
+}, style: 'min-width: 48px'}, backWords('Back'));
 
 const finishName = (entry) => (entry.finish_raw ? finishLabel(entry.finish_raw) : 'Finish not set');
 

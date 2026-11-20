@@ -839,6 +839,42 @@ describe('layout', () => {
 				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await selectsFit(page, 'the filters sheet');
 				await noSideways(page, 'the filters sheet');
+
+				// Every chip and small button is a 44 px target (accessibility
+				// audit, 2026-11-20: they were 40 px).
+				const small = await page.evaluate(() => [...document.querySelectorAll('#cards-sheet button.small, #cards-sheet .chip')]
+					.filter((element) => element.getClientRects().length)
+					.map((element) => [element.id || element.textContent.trim(), Math.round(element.getBoundingClientRect().width), Math.round(element.getBoundingClientRect().height)]));
+
+				assert.ok(small.length > 5, `the sheet's chips and buttons are measured (${small.length})`);
+				assert.deepEqual(small.filter(([, wide, tall]) => wide < 44 || tall < 44), [], 'each 44 px or more each way');
+
+				// Not in a binder: the whole row is its label, box included,
+				// so a tap at the row's far end ticks it.
+				const row = await page.evaluate(() => {
+					const box = document.getElementById('cards-f-unplaced');
+					const label = box.labels[0].getBoundingClientRect();
+					const field = box.closest('.fb-check').getBoundingClientRect();
+
+					return {holds: box.labels[0].contains(box), tall: Math.round(label.height), wide: Math.round(field.width - label.width)};
+				});
+
+				assert.deepEqual(row, {holds: true, tall: 48, wide: 0}, 'the label is the 48 px row');
+
+				const rowEnd = async () => {
+					const label = page.locator('#cards-sheet [data-filter="unplaced"] label');
+
+					await label.scrollIntoViewIfNeeded();
+
+					const end = await label.boundingBox();
+
+					await page.mouse.click(end.x + end.width - 4, end.y + (end.height / 2));
+				};
+
+				await rowEnd();
+				await page.waitForFunction(() => document.getElementById('cards-f-unplaced').checked, null, {timeout: 5000});
+				await rowEnd();
+				await page.waitForFunction(() => !document.getElementById('cards-f-unplaced').checked, null, {timeout: 5000});
 				await closeFilters(page);
 				await pricesIn(page, log).catch(() => {});
 				await page.screenshot({path: `${SHOTS}/my-cards-${viewport.width}-${colorScheme}.png`});

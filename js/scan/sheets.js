@@ -8,7 +8,7 @@ import {handBinders, sortBinders} from '../binders.js';
 import {cardImage, languageLabel} from '../catalog.js';
 import {cardArt} from '../catalog-views.js';
 import {openCustomCardSheet} from '../custom-card-view.js';
-import {h} from '../dom.js';
+import {backWords, h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {catalogFor} from '../languages.js';
 import {mainArt} from '../photos/index.js';
@@ -117,7 +117,7 @@ export function confirmSheet(ctx, itemId) {
 		sheetHeader('Check this card', () => ctx.closeSheet(), titleId),
 		// A card from the binder page just read goes back to the page
 		// (pageSheet), where it was opened from.
-		ctx.onPage && ctx.onPage(itemId) ? h('button', {class: 'scan-text-button scan-page-back', id: 'scan-page-back', onclick: () => ctx.openPage(), type: 'button'}, '‹ Back to the page') : null,
+		ctx.onPage && ctx.onPage(itemId) ? h('button', {class: 'scan-text-button scan-page-back', id: 'scan-page-back', onclick: () => ctx.openPage(), type: 'button'}, backWords('Back to the page')) : null,
 		body,
 		searchPanel
 	);
@@ -208,11 +208,17 @@ export function confirmSheet(ctx, itemId) {
 		}
 	}
 
+	const candidateNumber = (candidate) => `${candidate.localId}${candidate.official ? `/${candidate.official}` : ''}`;
+	const candidateSet = (candidate) => candidate.setCode || candidate.setName || candidate.setId;
+
 	function candidateButton(item, candidate) {
 		const chosen = item.card && item.card.id === candidate.id && item.card.lang === candidate.lang;
 
 		return h('button', {
-			'aria-label': `${candidate.name}, ${candidate.setName || candidate.setId}, ${candidate.localId}${candidate.official ? ` of ${candidate.official}` : ''}`,
+			// The name, then the number and set as the button shows them, then
+			// the set's full name (WCAG 2.5.3, label in name; accessibility
+			// audit, 2026-11-20).
+			'aria-label': [candidate.name, candidateNumber(candidate), candidateSet(candidate), candidate.setName && candidate.setName !== candidateSet(candidate) ? candidate.setName : null].filter(Boolean).join(', '),
 			'aria-pressed': String(Boolean(chosen)),
 			class: 'scan-candidate',
 			'data-card': candidate.id,
@@ -222,8 +228,11 @@ export function confirmSheet(ctx, itemId) {
 		candidateArt(candidate),
 		// The number and the set, one line each, so two printings of one
 		// card read apart (design review, 2026-11-19: each said "151").
-		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, `${candidate.localId}${candidate.official ? `/${candidate.official}` : ''}`),
-		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidate.setCode || candidate.setName || candidate.setId));
+		// Spaces between the lines, unseen, so they read as separate words.
+		' ',
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, candidateNumber(candidate)),
+		' ',
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidateSet(candidate)));
 	}
 
 	// The chosen card, or the top three when the match is not sure (or the
@@ -1290,7 +1299,6 @@ export function pageSheet(ctx) {
 
 		const items = ctx.session.items.filter((item) => item.pageRun === run.id);
 		const byPocket = new Map(items.map((item) => [item.page, item]));
-		const look = items.filter((item) => needsLook(item)).length;
 		const grids = sideGrids(run, (pocket) => {
 			const item = byPocket.get(pocket);
 
@@ -1306,11 +1314,14 @@ export function pageSheet(ctx) {
 		// (view.js pageSettling): Already mine waits for them, and says so.
 		const settling = !reading && items.length ? ctx.pageSettling || 0 : 0;
 
+		// One line over the grid, so its three rows fit at 360 x 740 (design
+		// review, 2026-11-20: two lines and the foot left room for two); the
+		// cards and those to check are counted at the top of the camera.
 		body.replaceChildren(...[
 			reading
 				? statusLine(reading)
 				: h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
-					? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. ${settling ? 'Still reading their languages, so Already mine waits.' : 'Tap a card to check it or change it.'}`
+					? settling ? 'Reading languages. Already mine waits.' : 'Tap a card to check or change it.'
 					: 'Every card of this page was taken out of the tray.'),
 			...grids,
 			scoped ? h('p', {class: 'scan-muted', id: 'scan-pagegrid-kept'}, scoped.kept

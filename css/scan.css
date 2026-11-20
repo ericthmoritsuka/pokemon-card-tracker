@@ -10,6 +10,9 @@
 	--scan-text: #f2f2f5;
 	--scan-muted: #b9bac4;
 	--scan-border: #4a4d58;
+	/* A field's or select's edge, 3:1 on both surfaces (accessibility
+	   audit, 2026-11-20: --scan-border is 1.7:1 on --scan-surface-2). */
+	--scan-field-border: #7b7b88;
 	--scan-primary: #ffcb05;
 	--scan-on-primary: #14213f;
 	--scan-danger: #ff8fa0;
@@ -515,7 +518,9 @@ html.scan-open body {
 
 .scan-tray {
 	display: flex;
-	gap: 8px;
+	/* Room for each tile's Remove, 44 px wide, to reach past the tile's
+	   edge rather than further over it (.scan-tile-remove). */
+	gap: 16px;
 	list-style: none;
 	margin: 0;
 	min-height: 128px;
@@ -538,8 +543,12 @@ html.scan-open body {
 	margin-top: 0;
 }
 
-/* Remove, on the art's right edge between the corner badges: a 32 px
-   target around a 22 px disc, so it never covers the quantity or status. */
+/* Remove, on the art's right edge between the corner badges: a 22 px disc
+   in a 44 px target, so it never covers the quantity or status. The target
+   reaches 16 px past the tile, over the gap to the next one, and covers
+   28 px of its own tile as before (accessibility audit, 2026-11-20: it was
+   32 px wide, and a near miss opened the card). The disc stays where it
+   was. */
 .scan-tile-remove {
 	align-items: center;
 	background: none;
@@ -547,13 +556,14 @@ html.scan-open body {
 	color: var(--scan-text);
 	cursor: pointer;
 	display: flex;
-	height: 32px;
-	justify-content: center;
-	padding: 0;
+	height: 44px;
+	justify-content: flex-start;
+	min-height: 44px;
+	padding: 0 0 0 5px;
 	position: absolute;
-	right: -4px;
-	top: 34px;
-	width: 32px;
+	right: -16px;
+	top: 36px;
+	width: 44px;
 	z-index: 1;
 }
 
@@ -593,7 +603,8 @@ html.scan-open body {
 	   sheet's sticky header when the grid scrolls (design review,
 	   2026-11-19: one sat on Close). */
 	isolation: isolate;
-	gap: 10px;
+	/* 16 px across, the tray's gap, for each pocket's Remove. */
+	gap: 10px 16px;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	list-style: none;
 	margin: 8px 0 16px;
@@ -610,6 +621,34 @@ html.scan-open body {
 .scan-page-grid .scan-tile,
 .scan-page-grid .scan-tile-art {
 	width: 100%;
+}
+
+/* On a phone up to 760 px tall the pockets are kept short enough that the
+   page's three rows fit between the line over the grid and the foot (design
+   review, 2026-11-20: at 360 x 740 only two showed). The sheet is 82 % of
+   the screen; its head, the line, the foot, the captions, and the gaps take
+   325 px of it. Each pocket stays a card's shape, narrower than its column
+   and centred in it. Under Already mine only the picture narrows, so where
+   each copy is keeps the column's width. */
+@media (max-height: 760px) {
+	.scan-page-grid {
+		--pocket-width: min(100%, calc((82dvh - 325px) / 3 * 63 / 88));
+	}
+
+	.scan-page-grid > li:not(:has(.scan-page-mine-cell)),
+	.scan-page-grid > .scan-tray-item:not(:has(.scan-page-mine-cell)) {
+		justify-self: center;
+		width: var(--pocket-width);
+	}
+
+	.scan-page-grid .scan-page-mine-cell {
+		text-align: center;
+	}
+
+	.scan-page-grid .scan-page-mine-cell .scan-tile-art {
+		align-self: center;
+		width: var(--pocket-width);
+	}
 }
 
 .scan-page-empty {
@@ -1160,6 +1199,14 @@ html.scan-open body {
 	margin-left: auto;
 }
 
+/* The tray's menu: 44 px square, like every control here (accessibility
+   audit, 2026-11-20: it was 32 px wide). */
+.scan .scan-icon-button.scan-tray-menu {
+	justify-content: center;
+	min-width: 44px;
+	padding: 0;
+}
+
 /* Under 400 px the For row's word gives the tray's menu its room on the
    row; the buttons, and the group's name to a screen reader, say what the
    row is. */
@@ -1516,7 +1563,7 @@ html.scan-open body {
 
 .scan-select {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	min-height: 48px;
@@ -1594,7 +1641,7 @@ html.scan-open body {
 
 .scan-search-input {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	flex: 1 1 auto;
@@ -1614,7 +1661,7 @@ html.scan-open body {
 
 .scan-hand-input {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	flex: 1 1 0;
@@ -1753,7 +1800,7 @@ html.scan-open body {
 
 .scan-report-text {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	box-sizing: border-box;
 	color: var(--scan-text);

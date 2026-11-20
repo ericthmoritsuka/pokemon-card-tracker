@@ -2363,6 +2363,35 @@ export function scanView(root) {
 		}, 50);
 	}
 
+	// What a read came to, said once the answer is in (accessibility audit,
+	// 2026-11-20: a read that found no card said nothing, so after the
+	// shutter a screen reader heard silence). A card found is Added, with
+	// Check it when it is only a guess; no card, or none until there is
+	// signal, says so once, on the last answer (final), never on the quick
+	// one the full records may still change. A binder page's pockets are
+	// summed up by the page's own line (pageSummary) instead.
+	function tellRead(id, {final = true} = {}) {
+		const item = S.findItem(session, id);
+
+		if (!item) {
+			return;
+		}
+
+		const reason = S.blocker(item);
+
+		if (item.card) {
+			announce(`Added ${item.card.name}${item.language ? `, ${flagLanguageName(item.language)}` : ''}.${reason === 'unsure' ? ' Check it in the tray.' : ''} ${plural(session.items.length, 'card')} in this session.${tellOwned(id)}`);
+
+			return;
+		}
+
+		if (!final || item.page) {
+			return;
+		}
+
+		announce(reason === 'waiting' ? 'Waiting for signal to look the card up.' : reason === 'unsure' ? 'Not sure which card. Check it in the tray.' : 'No card found. Check it in the tray.');
+	}
+
 	// ------------------------------------------------------------ capture and reading
 
 	// What the camera shows now (Eric, 2026-10-09): the card found anywhere
@@ -3082,6 +3111,8 @@ export function scanView(root) {
 		catch {
 			// What threw may throw again; the card is marked either way.
 		}
+
+		tellRead(id);
 	}
 
 	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, onPicture = null, page = false, photo = false, pocketCard = null, quads = [], seen = null, straight = false} = {}) {
@@ -3514,6 +3545,7 @@ export function scanView(root) {
 		catch (err) {
 			if (alive && S.findItem(session, id)) {
 				scannerChange(id, () => S.markWaiting(session, id, 'catalog'));
+				tellRead(id);
 			}
 
 			if (!(err instanceof WaitingForSignal)) {
@@ -3549,9 +3581,7 @@ export function scanView(root) {
 			last.match = current.timings.match;
 		}
 
-		if (current.card) {
-			announce(`Added ${current.card.name}${current.language ? `, ${flagLanguageName(current.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.${tellOwned(id)}`);
-		}
+		tellRead(id);
 
 		await loadVariants(id);
 		openIfPicked(id);
@@ -3605,7 +3635,7 @@ export function scanView(root) {
 		const bare = quick.unnamed || Boolean(quick.card && quick.card.named === false);
 
 		if (!bare) {
-			showPicture(id, quick, {indexMs, language, ms: quickMs});
+			showPicture(id, quick, {final: false, indexMs, language, ms: quickMs});
 			shown = snapshot(S.findItem(session, id));
 			openIfPicked(id);
 			// The finishes load beside the full records, not after them.
@@ -3623,6 +3653,7 @@ export function scanView(root) {
 
 		if (!shown && full.unnamed && !online()) {
 			scannerChange(id, () => S.markWaiting(session, id, 'catalog'));
+			tellRead(id);
 
 			return;
 		}
@@ -3731,7 +3762,7 @@ export function scanView(root) {
 		}, TEXT_WARM_MS);
 	}
 
-	function showPicture(id, found, {fullMs = null, indexMs = null, language, ms}) {
+	function showPicture(id, found, {final = true, fullMs = null, indexMs = null, language, ms}) {
 		const current = S.findItem(session, id);
 
 		warmTextSoon();
@@ -3754,12 +3785,7 @@ export function scanView(root) {
 			}
 		});
 
-		const after = S.findItem(session, id);
-
-		if (after.card) {
-			announce(`Added ${after.card.name}${after.language ? `, ${flagLanguageName(after.language)}` : ''}. ${plural(session.items.length, 'card')} in this session.${tellOwned(id)}`);
-		}
-
+		tellRead(id, {final});
 		localiseLater(id);
 		checkLabelLater(id);
 	}

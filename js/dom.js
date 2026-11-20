@@ -97,6 +97,12 @@ export function h(tag, attrs, ...children) {
 	return el;
 }
 
+// A back link's words after its ‹, which is drawn but not read: a screen
+// reader said "single left-pointing angle quotation mark" (accessibility
+// audit, 2026-11-20). The link's text is still "‹ All sets"; in a flex
+// link that space is dropped, so the mark keeps its own (style.css).
+export const backWords = (text) => [h('span', {'aria-hidden': 'true', class: 'back-mark'}, '‹'), ` ${text}`];
+
 // The All, Owned, and Missing segments with their counts ("All 207",
 // "Owned 9", "Missing 198"): each segment's text is its label, then its
 // number from counts ({all, owned, missing}). The label is kept in

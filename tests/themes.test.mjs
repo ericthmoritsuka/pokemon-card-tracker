@@ -11,7 +11,7 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 
 import {mergeDocuments, sameContent} from '../js/merge.js';
-import {AA_SHAPE, BALLS, BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, scanVars, suggestedTheme, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
+import {AA_SHAPE, BALLS, BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, scanVars, suggestedTheme, TAB_MARK_EDGE, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
 
 const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
 
@@ -39,6 +39,51 @@ test('every theme keeps every pair at AA in light and dark mode: 4.5:1 for text,
 
 	console.log(`lowest ratio: ${lowest.ratio.toFixed(2)} (${lowest.theme}, ${lowest.scheme}, ${lowest.label})`);
 	assert.deepEqual(failures, []);
+});
+
+test('the header\'s controls draw their focus ring in the header\'s text color, 3:1 on the header and its motif in every theme', () => {
+	const rule = /\.top a:focus-visible,\n\.top button:focus-visible \{\n\toutline-color: var\(--header-text\);\n\}/;
+
+	assert.match(css, rule, 'style.css gives .top controls the header text as their ring');
+
+	for (const theme of THEMES) {
+		for (const scheme of SCHEMES) {
+			const labels = textPairs(theme, scheme).map(([label]) => label);
+
+			assert.ok(labels.includes('header focus ring') && labels.includes('header focus ring on the motif'), `${theme.id} ${scheme} checks the ring`);
+		}
+	}
+});
+
+test('text fields and selects keep a 3:1 edge: the app\'s on every theme\'s backgrounds, and the scanner\'s on its two surfaces', async () => {
+	const fieldRules = /select,\n\.search \{[^}]*border: 1px solid var\(--field-border\);/;
+
+	assert.match(css, fieldRules, 'select and .search take --field-border');
+
+	for (const scheme of SCHEMES) {
+		assert.ok(textPairs(THEMES[0], scheme).some(([label]) => label === 'field border on panel'));
+	}
+
+	const scan = await readFile(new URL('../css/scan.css', import.meta.url), 'utf8');
+	const token = (name) => new RegExp(`${name}: (#[0-9a-f]{6});`).exec(scan)[1];
+
+	for (const surface of ['--scan-surface', '--scan-surface-2']) {
+		assert.ok(contrast(token('--scan-field-border'), token(surface)) >= AA_SHAPE, `the scanner's field edge on ${surface}`);
+	}
+
+	for (const selector of ['.scan-select', '.scan-search-input', '.scan-hand-input', '.scan-report-text']) {
+		assert.match(scan, new RegExp(`\\n${selector.replace('.', '\\.')} \\{[^}]*border: 1px solid var\\(--scan-field-border\\);`), selector);
+	}
+});
+
+test('the default theme\'s yellow tab mark has a navy edge on the white bar, 3:1 where the yellow is 1.5:1', () => {
+	assert.ok(contrast('#ffcb05', BASE.light.surface) < AA_SHAPE, 'the yellow alone would not do');
+	assert.ok(contrast(TAB_MARK_EDGE, BASE.light.surface) >= AA_SHAPE);
+	assert.match(css, /--navy: #1d2e60;/);
+	assert.equal(TAB_MARK_EDGE, '#1d2e60');
+	assert.match(css, /:root:not\(\[data-theme\]\) \.tabs a\[aria-current="page"\]:not\(\.tab-scan\)::before,\n\[data-theme="default"\] \.tabs a\[aria-current="page"\]:not\(\.tab-scan\)::before \{\n\tbox-shadow: 0 0 0 1px var\(--navy\);/);
+	assert.ok(textPairs(THEMES[0], 'light').some(([label]) => label === 'active tab mark\'s edge'));
+	assert.ok(textPairs(THEMES[0], 'dark').some(([label]) => label === 'active tab mark'));
 });
 
 test('the themes are the default and the 11 TCG energy types, by their card names', () => {
@@ -234,6 +279,8 @@ test(':root paints the default theme, so no attribute and data-theme="default" l
 
 	assert.equal(root['--bg'], BASE.light.bg);
 	assert.equal(dark['--surface'], BASE.dark.surface);
+	assert.equal(root['--field-border'], BASE.light.field, 'the field border textPairs checks is the one painted');
+	assert.equal(dark['--field-border'], BASE.dark.field);
 });
 
 test('settings survive the merge: the newer side wins, and the change counts as content', () => {

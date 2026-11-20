@@ -532,6 +532,72 @@ describe('family view-only mode', () => {
 });
 
 describe('swiping between cards', () => {
+	test('a control the keyboard focuses scrolls clear of the header, the tab bar, and a form\'s actions, and the header\'s own controls do not scroll the page', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+
+		await seedLocal(page, documentWith(syntheticEntries(30)));
+		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 30);
+
+		// How much of the focused control a bar covers: the header above
+		// (with its strips), the tab bar or a bar stuck on it below.
+		const covered = () => page.evaluate(() => {
+			const el = document.activeElement;
+
+			if (!el || el === document.body || el.closest('.shell-top, .tabs, .actions')) {
+				return null;
+			}
+
+			const box = el.getBoundingClientRect();
+			const top = document.getElementById('shell-top').getBoundingClientRect().bottom;
+			let foot = document.querySelector('.tabs').getBoundingClientRect().top;
+
+			for (const bar of document.querySelectorAll('.actions')) {
+				const rect = bar.getBoundingClientRect();
+
+				if (rect.height && rect.top < foot && rect.bottom >= foot - 2) {
+					foot = rect.top;
+				}
+			}
+
+			const hidden = Math.max(0, Math.min(box.bottom, top) - box.top) + Math.max(0, box.bottom - Math.max(box.top, foot));
+
+			return hidden > 0 ? `${el.id || el.className} ${Math.round(hidden)} px` : null;
+		});
+		const walk = async (stops) => {
+			const found = [];
+
+			for (let i = 0; i < stops; i++) {
+				await page.keyboard.press('Tab');
+				await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+				const hidden = await covered();
+
+				if (hidden) {
+					found.push(hidden);
+				}
+			}
+
+			return found;
+		};
+
+		// Down past the bottom row of tiles and round again to the top.
+		assert.deepEqual(await walk(45), [], 'no tile or button under the bars');
+
+		// Back up to the header's own controls: the page stays where it is.
+		await page.focus('.card-grid .tile >> nth=12');
+		await page.evaluate(() => window.scrollTo(0, 400));
+		await page.waitForFunction(() => Math.abs(window.scrollY - 400) < 2);
+		await page.focus('#account');
+		assert.ok(Math.abs(await page.evaluate(() => window.scrollY) - 400) < 2, 'focusing Sign in does not scroll');
+
+		// A form whose Save sticks over the tab bar.
+		await page.goto(url('trades/new'));
+		await page.waitForSelector('#move-note');
+		assert.deepEqual(await walk(30), [], 'no field under Save');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a card opened from My Cards keeps the list: position line, swipes, arrows, and Back to the same scroll position', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 
@@ -554,6 +620,9 @@ describe('swiping between cards', () => {
 		assert.equal(await page.locator('#card-position').textContent(), `${pick + 1} of 30`);
 		assert.equal(await page.locator('#card-position').getAttribute('aria-label'), `Card ${pick + 1} of 30 in My Cards`);
 		assert.equal(await page.locator('#view .back').textContent(), '‹ My Cards');
+		// The ‹ is drawn, not read (accessibility audit, 2026-11-20).
+		assert.equal(await page.locator('#view .back').evaluate((link) => link.querySelector('[aria-hidden="true"]').textContent), '‹');
+		assert.equal(await page.getByRole('link', {exact: true, name: 'My Cards'}).count(), 1, 'the link is named My Cards');
 		assert.equal(await page.locator('.card-detail').evaluate((el) => el.textContent.includes('null')), false, 'no stray null');
 		await page.waitForSelector('.card-detail h2');
 		await page.screenshot({path: '/tmp/shell-card-light.png'});

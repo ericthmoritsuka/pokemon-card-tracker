@@ -61,15 +61,20 @@ export function tradeColumns({languageName = langName, photoUrl, results, sessio
 
 		return h('li', {'aria-label': SIDE_NAMES[side], class: `scan-trade-col${on ? ' is-next' : ''}`, 'data-side': side, id: `scan-trade-${side}`},
 			h('button', {
-				'aria-label': `${SIDE_NAMES[side]}: ${plural(items.length, 'card')}.${on ? ' The next scans go here.' : ' Tap to send the next scans here.'}`,
+				// The words on it first, Going out 2 (WCAG 2.5.3, label in
+				// name; accessibility audit, 2026-11-20).
+				'aria-label': `${SIDE_NAMES[side]} ${items.length}, ${on ? 'the next scans go here' : 'tap to scan here'}`,
 				'aria-pressed': String(on),
 				class: 'scan-trade-head',
 				'data-side-to': side,
 				id: `scan-side-${side}`,
 				type: 'button',
 			},
+			// Spaces between the parts, unseen, so they read as separate words.
 			h('span', {class: 'scan-trade-name'}, SIDE_NAMES[side]),
+			' ',
 			h('span', {class: 'scan-trade-count'}, String(items.length)),
+			on ? null : ' ',
 			on ? null : h('span', {'aria-hidden': 'true', class: 'scan-trade-next'}, 'Tap to scan here')),
 			h('ul', {class: 'scan-trade-rows'}, ...(items.length
 				? items.map((item) => tradeRow(item, {languageName, photoUrl: photoUrl(item.id), result: side === 'out' ? results.get(item.id) : null, where}))

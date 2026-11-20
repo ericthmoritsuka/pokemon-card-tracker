@@ -7,6 +7,11 @@
 	--card-back: #1d2e60;
 	--error-bg: #fde8eb;
 	--error-text: #8a0018;
+	/* A text field's or select's edge: 3:1 on the page, the surface, and
+	   every theme's panel (WCAG 1.4.11; accessibility audit, 2026-11-20:
+	   --border is 1.3:1, fine for a divider, not for a field's only edge).
+	   js/themes.js BASE and textPairs hold it to that. */
+	--field-border: #8a8a94;
 	--link: #306cb3;
 	--muted: #5b5b66;
 	--navy: #1d2e60;
@@ -55,6 +60,7 @@
 		--card-back: #24376f;
 		--error-bg: #3b1219;
 		--error-text: #ffb3c0;
+		--field-border: #7b7b88;
 		--link: #8db4ec;
 		--muted: #a8a8b3;
 		--skeleton: #2a2c33;
@@ -848,9 +854,26 @@
 	box-sizing: border-box;
 }
 
+/* A control that takes the focus scrolls clear of the sticky header and the
+   fixed tab bar, with a little room (WCAG 2.4.11; accessibility audit,
+   2026-11-20: Tab left buttons and the last row of tiles under the bar).
+   --shell-top-height is the header with its strips (js/shell.js measures
+   it); a bar that sticks over the tab bar is cleared by js/shell.js
+   keepFocusClear. A control in the header or at the foot is in view
+   already: its edge's padding would scroll the page under it. */
 html {
 	-webkit-text-size-adjust: 100%;
+	scroll-padding-bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + var(--space-4));
+	scroll-padding-top: calc(var(--shell-top-height, calc(var(--header-height) + env(safe-area-inset-top))) + var(--space-2));
 	text-size-adjust: 100%;
+}
+
+html:has(.shell-top :focus) {
+	scroll-padding-top: 0;
+}
+
+html:has(:is(.tabs, .actions, .bulk-bar, .bh, .bt) :focus) {
+	scroll-padding-bottom: 0;
 }
 
 body {
@@ -973,6 +996,15 @@ input:focus-visible,
 select:focus-visible {
 	outline: 3px solid var(--accent-strong);
 	outline-offset: 2px;
+}
+
+/* On the header the ring takes the header's text color, at least 4.5:1 on
+   the header and its motif in every theme (js/themes.js textPairs). The
+   accent's ring all but vanished there: 1:1 on Water's header, under 3:1 in
+   ten themes (accessibility audit, 2026-11-20). */
+.top a:focus-visible,
+.top button:focus-visible {
+	outline-color: var(--header-text);
 }
 
 [hidden] {
@@ -1168,6 +1200,17 @@ select:focus-visible {
 	top: 0;
 }
 
+/* Read by a screen reader, never drawn. */
+.visually-hidden {
+	clip-path: inset(50%);
+	height: 1px;
+	margin: -1px;
+	overflow: hidden;
+	position: absolute;
+	white-space: nowrap;
+	width: 1px;
+}
+
 /* Catalog */
 
 a {
@@ -1206,7 +1249,7 @@ select,
 	-webkit-appearance: none;
 	appearance: none;
 	background: var(--surface);
-	border: 1px solid var(--border);
+	border: 1px solid var(--field-border);
 	border-radius: var(--radius-control);
 	color: var(--text);
 	font: inherit;
@@ -1300,6 +1343,12 @@ select {
 	font-weight: 600;
 	min-height: 48px;
 	text-decoration: none;
+}
+
+/* The ‹ of a back link (js/dom.js backWords), a space's width from its
+   words. */
+.back-mark {
+	margin-inline-end: 0.28em;
 }
 
 /* Card grids: art is the hero, 8 px gutters, no frames. */
@@ -1505,8 +1554,11 @@ button.danger {
 	color: var(--danger-text);
 }
 
+/* 44 px square at least, as every control a thumb uses (accessibility
+   audit, 2026-11-20: 40 px Add a copy, Close, order, and star buttons). */
 button.small {
-	min-height: 40px;
+	min-height: 44px;
+	min-width: 44px;
 	padding: 6px 12px;
 	width: auto;
 }
@@ -1901,7 +1953,8 @@ progress {
 .chip {
 	border-radius: var(--radius-pill);
 	font-size: 0.85rem;
-	min-height: 40px;
+	min-height: 44px;
+	min-width: 44px;
 	padding: var(--space-1) var(--space-3);
 	width: auto;
 }
@@ -2625,6 +2678,23 @@ progress {
 	position: absolute;
 	right: 25%;
 	top: 0;
+}
+
+/* The default theme's pokedex yellow is 1.5:1 on the white bar, so in
+   light mode the mark takes a navy edge, the Pokémon logo's, which carries
+   its shape at 13:1 (accessibility audit, 2026-11-20). On the dark bar the
+   yellow alone is 10:1. The energy themes' marks reach 3:1 by themselves
+   (js/themes.js palette). */
+:root:not([data-theme]) .tabs a[aria-current="page"]:not(.tab-scan)::before,
+[data-theme="default"] .tabs a[aria-current="page"]:not(.tab-scan)::before {
+	box-shadow: 0 0 0 1px var(--navy);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) .tabs a[aria-current="page"]:not(.tab-scan)::before,
+	[data-theme="default"] .tabs a[aria-current="page"]:not(.tab-scan)::before {
+		box-shadow: none;
+	}
 }
 
 /* Scan: a Poke Ball in the theme's colors (--scan, --scan-ring, and

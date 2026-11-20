@@ -618,6 +618,52 @@ footer, count dot included. The disc stays on every screen rather than hiding on
 into Scan and the unsaved tray's count never go. *(Design review, 2026-11-19: the disc covered the
 middle of Save on the purchase form.)*
 
+**Accessibility floors** (accessibility audit, 2026-11-20, against WCAG 2.2 AA at 360 x 740, light
+and dark, every theme):
+
+- *The focus is never under a bar.* `html`'s scroll-padding keeps a focused control 8 px clear of
+  the sticky header (its strips included, measured into `--shell-top-height`) and 16 px clear of
+  the fixed tab bar; a bar stuck over the tab bar (a form's actions, the bulk bar, the binder's
+  hand) is cleared by `js/shell.js` `keepFocusClear` once the browser has scrolled. A control in
+  the header or in a bar takes no padding on its edge, so focusing Sign in does not scroll the page
+  to the top. Tab used to leave buttons half under the tab bar and the last row of tiles 65 px
+  under it.
+- *The focus ring shows on every background.* It is 3 px of `--accent-strong`, except on the
+  header, where it is `--header-text`: the accent ring was 1:1 on Water's header and under 3:1 in
+  ten themes. `js/themes.js` `textPairs` holds the ring to 3:1 on the header and its motif.
+- *The scanner says every read's outcome* (`js/scan/view.js` `tellRead`, into `#scan-live`): a card
+  found is "Added Pikachu, English. 1 card in this session.", with "Check it in the tray." when it
+  is a guess; no card is "No card found. Check it in the tray.", candidates without a pick "Not
+  sure which card. Check it in the tray.", and a look-up waiting for signal "Waiting for signal to
+  look the card up." Said once per capture, on the last answer, never per camera frame; a binder
+  page's pockets are summed up by the page's line instead. Only a found card was said before.
+- *A field's edge is 3:1.* Text fields, selects, and notes draw their 1 px edge in
+  `--field-border` (#8a8a94 light, #7b7b88 dark: 3.1:1 or more on the page, the surface, and every
+  theme's panel), and the scanner's in `--scan-field-border` (#7b7b88, 3.5:1 on its sheets);
+  `--border` (1.3:1) stays for dividers, frames, and buttons, whose text marks them.
+- *The active tab's mark is 3:1.* Each energy theme's mark reaches it by itself; the default's
+  pokedex yellow is 1.5:1 on the white bar, so in light mode it keeps the yellow with a 1 px navy
+  edge, the Pokémon logo's (13:1). Dark mode's yellow is 10:1 alone.
+- *Every button a thumb uses is 44 px each way.* `button.small` and `.chip` (Add a copy, Close,
+  the order and star buttons, the filter and place chips, the pocket grid picks) were 40 px tall
+  and the star 40 px wide; they are 44 x 44 at least. The bar's Sort and View selects stay 40 px
+  (design review 2, 2026-11-20), as wide as their words.
+- *A checkbox row is one target.* In the filters sheet (Not in a binder, Favorites only) and the
+  collection pickers the label fills the 48 px row, and in the filters it holds the box, so a tap
+  anywhere on the row ticks it; the targets were the 22 px box and a 24 px line of text.
+- *The scan tray's Remove and menu are 44 px.* A tile's Remove (its 22 px disc where it was) is a
+  44 x 44 target that reaches 16 px past the tile, into a tray gap that grew from 8 to 16 px (and
+  the page grid's from 10 to 16 across), so it covers 28 px of its own tile as before and none of
+  the next; it was 32 px wide, and a near miss opened the card. The tray's menu is 44 px wide (it
+  was 32). The camera keeps its 476 px at 360 x 740.
+- *A control's name starts with the words on it* (WCAG 2.5.3), so voice control finds it by what
+  it shows: "Edit the list's languages", "Got it, dismiss the hint", a binder preset's "9-pocket
+  zip, 3 x 3, 360 cards, 20 double-sided pages", a candidate's "Pikachu, 025/165, 151", the
+  trade columns' "Going out 2, the next scans go here", and a copy row's "English · Binder 1 p1
+  #2, Set finish. Binder 1, page 1, pocket 2". The Scan tab's word comes before its disc and count
+  in the page, as its name says them. A scan tray tile's name starts with its caption; its corner
+  badges (Have, ×N, the finish) are said further on in words of their own.
+
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
 that list, in its current order and filters, as context. Swiping left or right anywhere on the
@@ -3350,8 +3396,13 @@ one line saying what the read is doing; the page's actions sit at the sheet's fo
 scroll (design review, 2026-11-19: it opened only after the whole read, about a minute behind a
 busy panel over the camera, and then under a mode row and a language row). Closing the sheet while
 the page is read brings the panel over the camera back, and the sheet opens again when the read
-ends; a photo with no page in it closes the sheet and the note says so. Two modes, chosen at the
-foot:
+ends; a photo with no page in it closes the sheet and the note says so. Once read, the line is one
+line, "Tap a card to check or change it." ("Reading languages. Already mine waits." while the
+pockets' languages are read), the count of cards and of those to check being at the top of the
+camera; and on a phone up to 760 px tall each pocket is kept short enough that the page's three
+rows fit between that line and the foot, a card's shape centred in its column (design review,
+2026-11-20: at 360 x 740 a two-line count and the foot left room for two rows). Two modes, chosen
+at the foot:
 
 - **New to my cards** (the default): the cards stay in the tray, to be added by Done as any scan.
   Each pocket is the tray's own tile and opens the card's sheet, which has **Back to the page**. A

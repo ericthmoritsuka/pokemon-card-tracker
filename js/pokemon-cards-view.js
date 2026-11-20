@@ -36,7 +36,7 @@ import {
 	spriteUrl,
 } from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h, segmentCounts} from './dom.js';
+import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge, flagSrc, flagText} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {ANY_POKEMON_LANGUAGE, createGoal, describeGoal, findGoal, listGoals, nameFromSpecies} from './goals.js';
@@ -187,7 +187,9 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		const languages = listLanguages(goal);
 		const names = all ? (pokemonGoal() ? ANY_POKEMON_LANGUAGE : 'Counts copies in any language') : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
-			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
+			// Its name starts with the word on it, for voice control (WCAG
+			// 2.5.3; accessibility audit, 2026-11-20).
+			'aria-label': `Edit the list's languages (${all ? 'any language' : names})`,
 			class: 'small',
 			id: 'list-languages-edit',
 			onclick: openEditor,
@@ -651,7 +653,7 @@ function screen(root, source, listId, dexParam, langParam = null) {
 	// Without a list, Back returns to the card page it was opened from, or
 	// opens Lists when the screen was the first one opened.
 	const listRoute = source.base ? `${source.base}/${encodeURIComponent(listId)}` : 'lists';
-	const back = link(listRoute, {class: 'back', id: 'pc-back'}, source.base ? '‹ List' : '‹ Back');
+	const back = link(listRoute, {class: 'back', id: 'pc-back'}, backWords(source.base ? 'List' : 'Back'));
 	const title = h('h2', {id: 'pc-title'});
 	const originals = h('div', {class: 'pc-originals', id: 'pc-originals'});
 	// A list's languages are saved to the list, whose change loads the
@@ -1258,7 +1260,7 @@ function screen(root, source, listId, dexParam, langParam = null) {
 		wished = new Set((data.wishlist || []).filter(isLive).map((item) => printKey(item.catalog || 'international', item.card_id)));
 
 		if (source.base) {
-			back.textContent = `‹ ${goal.name}`;
+			back.replaceChildren(...backWords(goal.name));
 		}
 
 		if (languages) {

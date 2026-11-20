@@ -40,7 +40,7 @@ import {
 import {isLive, loadDocument, onChange, sourceNames} from './collection.js';
 import {customRoute} from './custom-card.js';
 import {alikeKey, copyStepper} from './copy-sheet.js';
-import {BASE, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
+import {BASE, backWords, errorText, fromHistory, go, h, rememberInHistory, showError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {UNDO_MS, orderSection} from './reorder.js';
 import {toast} from './shell.js';
@@ -785,7 +785,7 @@ export function newFromListView(root, {id = null, kind = null} = {}) {
 	const holder = h('div', {id: 'binder-editor'});
 
 	root.append(
-		link('binders', {class: 'back'}, '‹ Binders'),
+		link('binders', {class: 'back'}, backWords('Binders')),
 		h('div', {class: 'view-head'}, h('h2', null, 'New binder')),
 		holder
 	);
@@ -1076,7 +1076,7 @@ function binderScreen(root, source, id, pageParam) {
 		h('div', {class: 'bh-actions'}, handNext, handTray, handCancel));
 
 	const viewing = viewingLanguage();
-	const back = link(source.base, {class: 'back'}, '‹ Binders');
+	const back = link(source.base, {class: 'back'}, backWords('Binders'));
 	const title = h('h2', {id: 'binder-title'}, 'Binder');
 	const meta = h('p', {class: 'muted', hidden: true, id: 'binder-meta'});
 	const notes = h('p', {class: 'binder-notes-text', id: 'binder-notes-text', hidden: true});
@@ -4824,7 +4824,7 @@ export function unplacedView(root) {
 	const stopImages = onImagesChange((changed) => alive && drawImages(changed), {frame: true, records: false});
 
 	root.append(
-		link('binders', {class: 'back'}, '‹ Binders'),
+		link('binders', {class: 'back'}, backWords('Binders')),
 		h('div', {class: 'view-head'}, h('h2', null, 'Not in a binder')),
 		body
 	);

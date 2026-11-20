@@ -178,7 +178,7 @@ describe('the controls, and For', () => {
 			const boxes = await page.$$eval('#scan-mode button, .scan-controls > button:not([hidden]), #scan-tray-menu', (buttons) => buttons.map((button) => {
 				const box = button.getBoundingClientRect();
 
-				return {height: box.height, id: button.id, middle: box.top + (box.height / 2), right: box.right};
+				return {height: box.height, id: button.id, middle: box.top + (box.height / 2), right: box.right, width: box.width};
 			}));
 
 			for (const box of boxes) {
@@ -193,6 +193,26 @@ describe('the controls, and For', () => {
 			};
 
 			assert.ok(oneLine(['scan-mode-add', 'scan-mode-buy', 'scan-mode-trade', 'scan-tray-menu']), 'For and the tray menu on one line');
+
+			// The tray's menu and each tile's Remove are 44 px each way. A
+			// Remove reaches past its tile into the gap, covering no more of
+			// its tile than the 28 px it did at 32 px wide, and none of the
+			// next one (accessibility audit, 2026-11-20).
+			assert.ok(boxes.find((box) => box.id === 'scan-tray-menu').width >= 44, 'the tray menu is 44 px wide');
+
+			const removes = await page.$$eval('#scan-tray .scan-tray-item', (items) => items.map((item) => {
+				const remove = item.querySelector('.scan-tile-remove').getBoundingClientRect();
+				const tile = item.querySelector('.scan-tile').getBoundingClientRect();
+				const next = item.nextElementSibling && item.nextElementSibling.querySelector('.scan-tile');
+
+				return {intoNext: next ? Math.max(0, remove.right - next.getBoundingClientRect().left) : 0, overTile: Math.round(Math.min(remove.right, tile.right) - Math.max(remove.left, tile.left)), tall: remove.height, wide: remove.width};
+			}));
+
+			assert.equal(removes.length, 2);
+
+			for (const remove of removes) {
+				assert.deepEqual(remove, {intoNext: 0, overTile: 28, tall: 44, wide: 44}, 'Remove is 44 px, over 28 px of its tile');
+			}
 			assert.ok(oneLine(['scan-close', 'scan-photo-open', 'scan-page-open', 'scan-shutter', 'scan-done-open']), 'the shutter\'s row on one line');
 			assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), viewport.width, 'no sideways scroll');
 			assert.equal(await page.$eval('#scan-mode-trade', (button) => button.scrollWidth <= button.clientWidth), true, 'Trade or sale whole');

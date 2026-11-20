@@ -21,7 +21,7 @@ import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
-import {BASE, errorText, go, h, segmentCounts} from './dom.js';
+import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogsOf, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
@@ -662,6 +662,10 @@ export function setsView(root) {
 	}
 
 	root.append(
+		// For a screen reader, so the series' h3s sit under a heading of
+		// their own (accessibility audit, 2026-11-20: h1 to h3); the Sets
+		// tab names the screen.
+		h('h2', {class: 'visually-hidden'}, 'Sets'),
 		h('div', {class: 'toolbar'},
 			h('div', {class: 'toolbar-row'},
 				h('label', {class: 'viewing', for: 'viewing'}, h('span', null, 'Viewing:'), h('span', {class: 'select-wrap'}, select)),
@@ -710,7 +714,7 @@ export function setView(root, {lang, setId}) {
 	// A family member's copies while their lens is on.
 	const member = lensMember();
 
-	const back = link('sets', {class: 'back'}, '‹ All sets');
+	const back = link('sets', {class: 'back'}, backWords('All sets'));
 	const title = h('h2', null, setId);
 	const meta = h('p', {class: 'muted'});
 	const note = h('div', {hidden: true});
@@ -1074,7 +1078,7 @@ export function cardView(root, {lang, cardId}) {
 	// Whose copies the section names.
 	const whose = () => (member ? `${memberLabel(member)}'s` : 'Your');
 	// At least 48 px wide, like its height, however short the label ("‹ 151").
-	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
+	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, backWords(position && position.label ? position.label : 'Back'));
 	const body = h('div', {class: 'card-detail'},
 		h('div', {class: 'card-hero'}, h('div', {class: 'art loading hero-art', 'aria-hidden': 'true'}))
 	);
@@ -1208,7 +1212,7 @@ export function cardView(root, {lang, cardId}) {
 			back.dataset.link = routeTo('sets', lang, set.id);
 
 			if (!position || !position.label) {
-				back.textContent = `‹ ${set.name || set.id}`;
+				back.replaceChildren(...backWords(set.name || set.id));
 			}
 		}
 
@@ -1500,7 +1504,9 @@ export function cardView(root, {lang, cardId}) {
 	function ligaControl() {
 		if (ligaHref) {
 			return h('a', {class: 'button primary liga-link', href: ligaHref, id: 'card-liga-link', rel: 'noopener noreferrer', target: '_blank'},
-				'Ver na Liga',
+				// Portuguese words on an English page, said in Portuguese (WCAG
+				// 3.1.2; accessibility audit, 2026-11-20).
+				h('span', {lang: 'pt-BR'}, 'Ver na Liga'),
 				h('span', {'aria-hidden': 'true', class: 'liga-out'}, ' ↗'),
 				h('span', {class: 'copies-sr'}, ' (opens Liga Pokémon)')
 			);
@@ -1878,6 +1884,9 @@ export function cardView(root, {lang, cardId}) {
 				...placesOf(group).flatMap((where) => [' · ', h('span', {class: 'copy-place'}, shortPlace(where))]),
 				readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : null
 			),
+			// The two lines are separate words when read as text, as on
+			// screen ("Portuguese Set finish", not "PortugueseSet").
+			' ',
 			h('span', {class: 'copy-text'},
 				...(unset(group)
 					? [readOnly ? null : h('span', {class: 'copy-chip'}, 'Set finish'), group.condition ? `${readOnly ? '' : ' · '}${group.condition}` : null]
@@ -1889,8 +1898,35 @@ export function cardView(root, {lang, cardId}) {
 		];
 
 		const rowLabel = (group) => [languageName(group.language), group.finish, group.condition].filter(Boolean).join(', ');
-		// The row's name in full words: "p1 #6" is for the eye.
-		const rowName = (group) => [languageName(group.language), ...group.localNames, ...placesOf(group).map(placeText), unset(group) ? 'finish not set' : group.finish, group.condition].filter(Boolean).join(', ');
+		// The row's name: the words it shows, in order, so voice control
+		// finds it by them (WCAG 2.5.3, label in name; accessibility audit,
+		// 2026-11-20), then where it is in full words, since "p1 #6" is for
+		// the eye.
+		const rowName = (group, content) => [
+			content.map((node) => (typeof node === 'string' ? node : (node && node.textContent) || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(', '),
+			...placesOf(group).map(placeText),
+		].join('. ');
+		const editableRow = (group) => {
+			const content = rowContent(group);
+
+			return h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0]), 'data-language': group.language || ''},
+				h('button', {
+					'aria-haspopup': 'dialog',
+					'aria-label': rowName(group, content),
+					class: 'copy-row',
+					onclick: () => openEditSheet({
+						card: sheetCard(card),
+						catalog: catalogFor(lang),
+						entries: group.entries,
+						finishes: finishChoices(variants),
+						offline: Boolean(unreachable),
+						places: placed,
+					}),
+					type: 'button',
+				}, content),
+				copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
+			);
+		};
 
 		// A redraw (after a step, a sync) keeps the focus on the same control
 		// of the same row, so a thumb or a screen reader stays where it was.
@@ -1908,23 +1944,7 @@ export function cardView(root, {lang, cardId}) {
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
 				readOnly
 					? h('li', {'data-language': group.language || ''}, rowContent(group))
-					: h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0]), 'data-language': group.language || ''},
-						h('button', {
-							'aria-haspopup': 'dialog',
-							'aria-label': rowName(group),
-							class: 'copy-row',
-							onclick: () => openEditSheet({
-								card: sheetCard(card),
-								catalog: catalogFor(lang),
-								entries: group.entries,
-								finishes: finishChoices(variants),
-								offline: Boolean(unreachable),
-								places: placed,
-							}),
-							type: 'button',
-						}, rowContent(group)),
-						copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
-					)
+					: editableRow(group)
 			)),
 		);
 

@@ -42,7 +42,7 @@ import {
 	updateCollection,
 } from './collections.js';
 import {isLive, onChange, sourceNames} from './collection.js';
-import {BASE, errorText, go, h, listsSwitch} from './dom.js';
+import {BASE, backWords, errorText, go, h, listsSwitch} from './dom.js';
 import {memberDocumentKept, whenMemberName} from './family.js';
 import {REGION_OPTIONS, filterOptions} from './filter-bar.js';
 import {formatCount, plural} from './format.js';
@@ -829,7 +829,7 @@ function collectionScreen(root, {id, userId = null}) {
 	// The standard head (design review 2, 2026-11-20): the back link as
 	// text, the title, the rule line, then one row of the collection's
 	// buttons, as a goal's or a binder's screen has it.
-	const back = h('a', {class: 'back', 'data-link': collectionsRoute(userId), href: BASE + collectionsRoute(userId), id: 'collection-back'}, '‹ Collections');
+	const back = h('a', {class: 'back', 'data-link': collectionsRoute(userId), href: BASE + collectionsRoute(userId), id: 'collection-back'}, backWords('Collections'));
 	// A rule collection's cards can be left out by hand, and put back.
 	const leave = readOnly ? null : h('button', {class: 'small', hidden: true, id: 'collection-leave-out', onclick: () => {
 		if (collection) {
