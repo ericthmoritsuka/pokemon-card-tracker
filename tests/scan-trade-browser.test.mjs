@@ -647,6 +647,55 @@ describe('Trade or sale', () => {
 		await context.close();
 	});
 
+	// QA, 2026-11-20: a reload on the form Log cards opened showed an empty
+	// Sold form, the cards handed over and what was typed lost.
+	test('a reload, and Back then Forward, keep the trade handed over and what was typed; Save takes out of the trade tray only the side saved', async () => {
+		const at = '2026-11-06T10:00:00.000Z';
+		const card = (id, name) => ({catalog: 'international', id, image: null, lang: 'en', localId: '1', name, official: '99', setId: id.split('-')[0], setName: 'Test'});
+		const item = (id, cardId, name, side) => ({candidates: [], captured_at: at, card: card(cardId, name), condition: null, confirmed: true, finishBy: 'plain', id, language: 'en', languageBy: 'hand', names: [], read: null, side, status: 'ready', sure: true, timings: {}, variantId: null, variants: [], why: null});
+		const tray = {created_at: at, id: 'trade-5', items: [item('t1', CARDS.a, 'Owned card', 'out'), item('t2', CARDS.c, 'Card in', 'in')], lastSave: null, mode: 'trade', sheetShown: false, side: 'out', updated_at: at};
+		const {context, errors, ids, page} = await open({drafts: [tray], owned: [CARDS.a]});
+		const formIs = async (where) => {
+			await page.waitForSelector(`#move-out-list [data-entry="${ids[0]}"]`);
+			assert.equal(new URL(page.url()).pathname, '/pokemon-card-tracker/trades/new', where);
+			assert.ok(await page.isChecked('#move-kind-sold'), `${where}: the kind picked`);
+			assert.equal(await page.inputValue('#move-who'), 'Ana', `${where}: who as typed`);
+			assert.equal(await page.inputValue('#move-price'), '30,50', `${where}: the price as typed`);
+			assert.equal(await page.textContent('#move-left-out'), 'The 1 card coming in is not part of a sale; it stays in the scanner\'s trade tray.', where);
+			assert.match(await page.textContent('#move-scanned'), /^Scanned 1 going out, 1 coming in\./, where);
+		};
+
+		await switchMode(page);
+		await page.waitForSelector('#scan-trade-out [data-row="t1"][data-status="chosen"]');
+		await page.click('#scan-done-open');
+		await page.waitForSelector(`#move-out-list [data-entry="${ids[0]}"]`);
+		assert.ok(await page.isChecked('#move-kind-traded'));
+		await page.locator('label:has(#move-kind-sold)').click();
+		await page.fill('#move-who', 'Ana');
+		await page.fill('#move-price', '30,50');
+
+		await page.reload();
+		await formIs('after a reload');
+		await page.goBack();
+		await page.waitForSelector('#scan-video');
+		await page.goForward();
+		await formIs('after Back then Forward');
+
+		await page.click('#move-save');
+		await page.waitForSelector('.moves-row');
+
+		const after = await collectionState(page);
+
+		assert.deepEqual(after.moves.map((move) => [move.kind, move.out.length, move.in.length]), [['sold', 1, 0]], 'logged once, as a sale');
+		await untilInPage(page, 'only the side saved left the trade tray', async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession('trade');
+
+			return Boolean(session && session.items.length === 1 && session.items[0].id === 't2');
+		});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	// Design polish, 2026-11-06: at 780 x 360 the controls fell below the
 	// screen and the trade tray cut Pick a copy. Held sideways the controls
 	// are a column beside the camera, all on screen, in both modes.

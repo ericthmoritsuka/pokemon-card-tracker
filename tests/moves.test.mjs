@@ -122,6 +122,17 @@ const sale = (doc = startDoc(), extra = {}) => planMove(doc, {currency: 'BRL', d
 const trade = (doc = startDoc()) => planMove(doc, {date: '2026-11-04', in: [IN_CARD], kind: 'traded', money: 'out', out: ['a1'], price: 5, who: 'Bruno'}, {fill: true, id: 'm2', now: NOW});
 
 describe('planMove', () => {
+	test('a move id already logged, live or undone, is refused, so a form kept for a reload never logs its move twice (QA, 2026-11-20)', () => {
+		const {doc} = sale();
+
+		assert.throws(() => planMove(doc, {kind: 'sold', out: ['a2'], price: '1'}, {id: 'm1', now: NOW}), (err) => err.logged === true && err.message === 'This trade or sale is saved already.');
+
+		const undone = planUndoMove(doc, 'm1', {now: LATER}).doc;
+
+		assert.throws(() => planMove(undone, {kind: 'sold', out: ['a1'], price: '1'}, {id: 'm1', now: LATER + 1000}), (err) => err.logged === true);
+		assert.equal(planMove(undone, {kind: 'sold', out: ['a1'], price: '1'}, {id: 'm9', now: LATER + 1000}).move.id, 'm9', 'another id saves');
+	});
+
 	test('a sale tombstones the copy with left_via, its pocket becomes the card\'s placeholder, and the move is logged', () => {
 		const before = startDoc();
 		const {counts, doc, move} = sale(before);

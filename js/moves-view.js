@@ -23,14 +23,15 @@
 import {cardImage, cardIndex, catalogFor, saveToCardIndex, viewingLanguage} from './catalog.js';
 import {artOf, entryInfo, fillRecords, recordFrom} from './binders-view.js';
 import {finishChoices} from './catalog-views.js';
-import {isLive, loadDocument, onChange} from './collection.js';
+import {isLive, loadDocument, newId, onChange} from './collection.js';
 import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
-import {BASE, backWords, errorText, go, h} from './dom.js';
+import {BASE, backWords, errorText, go, h, rememberInHistory} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
-import {CURRENCIES, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, undoMove} from './moves.js';
+import {CURRENCIES, LOGGED_TEXT, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, undoMove} from './moves.js';
 import {searchKey} from './names.js';
 import {afterText, keptStartOver} from './placeholder-fill.js';
+import {clearPurchase, clearTrade} from './scan/draft.js';
 import {plainVariantId} from './scan/finish.js';
 import {rememberMode} from './scan/trade.js';
 import {toast} from './shell.js';
@@ -596,19 +597,175 @@ export function leftOutText(kind, {in: inCount = 0, out: outCount = 0}) {
 	return null;
 }
 
+// ------------------------------------------------- the form kept for a reload
+
+// The log form as it stands, kept for its history entry (QA, 2026-11-20: a
+// reload, or Back then Forward, on the form the scanner opened showed an
+// empty Sold form, the handoff taken and what was typed lost). Each form
+// has a token in its history entry's state (moveForm), and under it in
+// sessionStorage: {at, handed, moveId, typed}, handed being what the form
+// was opened with (data only) and typed the form's fields and cards. Back
+// or Forward to the entry finds it by the token. A reload on GitHub Pages
+// goes through 404.html, which loses the entry's state (app.js
+// restoreRedirectedPath), so a page load on the form with no state of its
+// own takes the form this tab showed last (LAST_FORM_KEY); a screen opened
+// from a link always has state, so Log a move still opens a blank form.
+// sessionStorage lasts as long as the tab. A form goes when its move is
+// saved (the save also replaces the entry, so Back never returns to it),
+// when a newer form takes over the same scanner tray, and past the
+// FORMS_KEPT newest. moveId is the id the move saves under, so the same
+// form saved twice (a reload while it saved, a copied tab) logs it once
+// (js/moves.js planMove).
+const FORM_KEY = 'card-tracker-move-form:';
+const LAST_FORM_KEY = 'card-tracker-move-form-last';
+const FORMS_KEPT = 8;
+
+function readLastForm() {
+	try {
+		return sessionStorage.getItem(LAST_FORM_KEY);
+	}
+	catch {
+		return null;
+	}
+}
+
+function writeLastForm(token) {
+	try {
+		sessionStorage.setItem(LAST_FORM_KEY, token);
+	}
+	catch {
+		// A reload through 404.html opens a blank form, as before.
+	}
+}
+
+function keptForms() {
+	try {
+		return Object.keys(sessionStorage).filter((key) => key.startsWith(FORM_KEY)).map((key) => {
+			try {
+				return {key, value: JSON.parse(sessionStorage.getItem(key)) || {}};
+			}
+			catch {
+				return {key, value: {}};
+			}
+		});
+	}
+	catch {
+		return [];
+	}
+}
+
+function readForm(token) {
+	try {
+		const value = JSON.parse(sessionStorage.getItem(FORM_KEY + token) || 'null');
+
+		return value && typeof value === 'object' && value.handed && typeof value.moveId === 'string' ? value : null;
+	}
+	catch {
+		return null;
+	}
+}
+
+function writeForm(token, value) {
+	try {
+		sessionStorage.setItem(FORM_KEY + token, JSON.stringify(value));
+	}
+	catch {
+		// Kept until a reload only, as before.
+	}
+}
+
+function dropForms(drop) {
+	for (const {key, value} of keptForms()) {
+		const token = key.slice(FORM_KEY.length);
+
+		if (drop(token, value)) {
+			try {
+				sessionStorage.removeItem(key);
+
+				if (readLastForm() === token) {
+					sessionStorage.removeItem(LAST_FORM_KEY);
+				}
+			}
+			catch {
+				// Nothing kept to drop.
+			}
+		}
+	}
+}
+
+// A new form: an older one for the same scanner tray is left for good (its
+// cards are handed to this one, and two forms must never save them twice),
+// and only the newest FORMS_KEPT stay.
+function pruneForms(token, handed) {
+	const tray = handed.from === 'scan' && handed.session ? handed.session : null;
+
+	dropForms((other, value) => other !== token && Boolean(tray) && Boolean(value.handed) && value.handed.session === tray);
+
+	const old = keptForms().filter(({key}) => key !== FORM_KEY + token).sort((a, b) => (b.value.at || 0) - (a.value.at || 0)).slice(FORMS_KEPT - 1);
+
+	dropForms((other) => old.some(({key}) => key === FORM_KEY + other));
+}
+
+// The scanner's tray lets go of the cards of the sides a move saved, and
+// only those handed over (js/scan/draft.js); a side the kind left out stays
+// for another move. From the handoff's data, so a form kept for a reload
+// does it too.
+function letGoOfTray(handed, sides) {
+	if (handed.from !== 'scan' || !handed.session) {
+		return Promise.resolve();
+	}
+
+	if (handed.tray === 'trade') {
+		return clearTrade(handed.session, sides, handed.items || {in: [], out: []});
+	}
+
+	if (handed.tray === 'add' && sides.in) {
+		return clearPurchase(handed.session, (handed.items && handed.items.in) || []);
+	}
+
+	return Promise.resolve();
+}
+
 export function newMoveView(root) {
 	let alive = true;
 	// The form's title, which drawKind names for the kind picked.
 	const heading = h('h2', null, 'Log a trade or sale');
-	const handed = takePendingMove() || {};
-	const outIds = new Set(handed.out || []);
+	// A handoff just made opens a new form; otherwise the form this history
+	// entry kept, if any (a reload, Back or Forward).
+	const fresh = takePendingMove();
+	const state = history.state;
+	const pageLoad = !state || (!state.inApp && typeof state.moveForm !== 'string');
+	const entryToken = state && typeof state.moveForm === 'string' ? state.moveForm : pageLoad ? readLastForm() : null;
+	const restored = !fresh && entryToken ? readForm(entryToken) : null;
+	const formToken = (!fresh && entryToken) || `f-${newId()}`;
+	const handed = restored ? restored.handed : JSON.parse(JSON.stringify(fresh || {}));
+	const moveId = restored ? restored.moveId : newId();
+	const typed = (restored && restored.typed) || {};
+	const formAt = (restored && restored.at) || Date.now();
+
+	try {
+		rememberInHistory({moveForm: formToken});
+	}
+	catch {
+		// Kept until a reload only, as before.
+	}
+
+	writeLastForm(formToken);
+
+	if (!restored) {
+		pruneForms(formToken, handed);
+	}
+
+	const outIds = new Set(Array.isArray(typed.out) ? typed.out : handed.out || []);
 	// What the scanner handed over, so the left-out line counts only its cards.
 	const handedOut = new Set(handed.out || []);
-	const pastIds = new Set();
+	const pastIds = new Set(Array.isArray(typed.past) ? typed.past : []);
 	// The cards in: {fields, info, n}. The scanner's Trade or sale mode hands
 	// its cards coming in over in this shape (js/scan/trade.js tradeHandoff).
-	const ins = (handed.in || []).map((item) => ({fields: {...item.fields}, info: {...item.info}, n: item.n, scanned: true}));
-	let kind = KIND_LABELS.some(([value]) => value === handed.kind) ? handed.kind : 'sold';
+	// A kept form brings back its own, with the card prices typed (cardPrice).
+	const ins = (Array.isArray(typed.ins) ? typed.ins : (handed.in || []).map((item) => ({...item, scanned: true})))
+		.map((item) => ({cardPrice: item.cardPrice || '', fields: {...item.fields}, info: {...item.info}, n: item.n, scanned: Boolean(item.scanned)}));
+	let kind = [typed.kind, handed.kind].find((value) => KIND_LABELS.some(([one]) => one === value)) || 'sold';
 	let doc = null;
 	// The kept Start over undo, which tells Log a past sale what an older
 	// Start over removed (js/moves.js pastCandidates).
@@ -648,7 +805,7 @@ export function newMoveView(root) {
 	// a redraw of the list keeps what was typed and where the cursor is.
 	function priceFieldOf(item) {
 		if (!item.price) {
-			item.price = cardPriceField(`move-card-price-${priceSeq++}`, item.info.name, {currency: () => currency.value, n: item.n, onInput: readPrice});
+			item.price = cardPriceField(`move-card-price-${priceSeq++}`, item.info.name, {currency: () => currency.value, n: item.n, onInput: readPrice, value: item.cardPrice || ''});
 		}
 
 		return item.price;
@@ -753,7 +910,7 @@ export function newMoveView(root) {
 		inSection.hidden = !side.in;
 
 		// A kind that leaves out cards the scanner handed over says so: they
-		// are not saved, and stay in the scanner's trade tray (onSaved).
+		// are not saved, and stay in the scanner's trade tray (letGoOfTray).
 		const left = handed.from === 'scan' ? leftOutText(kind, {in: ins.filter((item) => item.scanned).reduce((sum, item) => sum + item.n, 0), out: [...outIds].filter((id) => handedOut.has(id)).length}) : null;
 
 		leftOut.hidden = !left;
@@ -793,6 +950,8 @@ export function newMoveView(root) {
 				h('div', {class: 'pick'}, ...copyTile(item, {extra: pastIds.has(item.entry.id) ? `Removed ${shortDate(item.entry.deleted_at) || ''}` : null})),
 				h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => dropOut(item.entry.id), type: 'button'}, 'Remove'))) : none()));
 		}
+
+		remember();
 
 		// Only the cards going out are read again: the cards coming in keep
 		// their price fields, and the cursor in one, while records arrive.
@@ -834,6 +993,8 @@ export function newMoveView(root) {
 				priced(item),
 				h('button', {'aria-label': `Take ${item.info.name} out of the list`, class: 'small move-unpick', onclick: () => dropIn(i), type: 'button'}, 'Remove'))) : none()));
 		}
+
+		remember();
 	}
 
 	// ---------------------------------------------------- the cards out
@@ -915,6 +1076,7 @@ export function newMoveView(root) {
 						set.add(item.entry.id);
 					}
 
+					remember();
 					draw();
 					results.querySelector(`[data-entry="${CSS.escape(item.entry.id)}"]`)?.focus();
 				}, type: 'button'}, ...copyTile(item, {extra, selected: on}));
@@ -1191,9 +1353,15 @@ export function newMoveView(root) {
 				// One price per copy, in the order of `in`: a card added with
 				// Copies 3 gives its price to each of its three copies.
 				...(eachOn() ? {in_prices: ins.flatMap((item) => Array(item.n).fill(priceFieldOf(item).input.value))} : {}),
-			});
+			}, {id: moveId});
 		}
 		catch (err) {
+			if (err.logged) {
+				loadDocument().then((now) => savedAlready(liveMoves(now).find((one) => one.id === moveId)), () => savedAlready(null));
+
+				return;
+			}
+
 			save.disabled = false;
 			error.textContent = `Not saved. ${errorText(err)}`;
 
@@ -1202,11 +1370,11 @@ export function newMoveView(root) {
 
 		const {counts, move} = result;
 
-		// The scanner's Trade or sale tray lets go of the sides this move
-		// saved; a side the kind left out stays there.
-		if (typeof handed.onSaved === 'function') {
-			Promise.resolve().then(() => handed.onSaved(move, side)).catch(() => {});
-		}
+		forget();
+
+		// The scanner's tray lets go of the sides this move saved; a side
+		// the kind left out stays there.
+		letGoOfTray(handed, side).catch(() => {});
 		const words = [counts.out + counts.past ? `${plural(counts.out + counts.past, 'card', 'cards')} out` : null, counts.in ? `${plural(counts.in, 'card', 'cards')} in` : null].filter(Boolean).join(', ');
 		const after = afterText({got: {length: counts.got}, placed: {length: counts.filled}});
 
@@ -1218,12 +1386,85 @@ export function newMoveView(root) {
 		});
 	});
 
+	// A kept form's fields as they were.
+	if (restored) {
+		for (const [field, value] of [[date, typed.date], [who, typed.who], [price, typed.price], [note, typed.note]]) {
+			if (typeof value === 'string') {
+				field.value = value;
+			}
+		}
+
+		if (CURRENCIES.includes(typed.currency)) {
+			currency.value = typed.currency;
+		}
+
+		if (typed.money === 'in' || typed.money === 'out') {
+			money.value = typed.money;
+		}
+
+		each.box.checked = Boolean(typed.each);
+	}
+
+	// Saved, or saved already: nothing is kept for this form from now on.
+	let settled = false;
+
+	// The form as it stands, kept for this history entry (FORM_KEY).
+	function remember() {
+		if (settled || !alive) {
+			return;
+		}
+
+		writeForm(formToken, {
+			at: formAt,
+			handed,
+			moveId,
+			typed: {
+				currency: currency.value,
+				date: date.value,
+				each: each.box.checked,
+				ins: ins.map((item) => ({cardPrice: item.price ? item.price.input.value : item.cardPrice, fields: item.fields, info: item.info, n: item.n, scanned: item.scanned})),
+				kind,
+				money: money.value,
+				note: note.value,
+				out: [...outIds],
+				past: [...pastIds],
+				price: price.value,
+				who: who.value,
+			},
+		});
+	}
+
+	// The move is saved: the form is not kept, and the form for the same
+	// scanner tray is not either.
+	function forget() {
+		settled = true;
+		dropForms((other, value) => other === formToken || (handed.from === 'scan' && Boolean(handed.session) && Boolean(value.handed) && value.handed.session === handed.session));
+	}
+
+	// This form's move is in the log already, saved before a reload or from
+	// a copied tab: nothing is saved again, the scanner's tray lets go of
+	// the cards the move took, as the save would have, and History opens.
+	function savedAlready(move) {
+		forget();
+
+		if (move) {
+			letGoOfTray(handed, {in: move.in.length > 0, out: move.out.length > 0}).catch(() => {});
+		}
+
+		go('trades', {replace: true});
+		toast(LOGGED_TEXT);
+	}
+
+	formElement.addEventListener('input', remember);
+	formElement.addEventListener('change', remember);
+
 	root.append(
 		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, backWords('Trades and sales')),
 		h('div', {class: 'view-head'}, heading),
 		formElement
 	);
 	drawKind();
+	remember();
 
 	Promise.all([loadDocument(), cardIndex().catch(() => new Map())]).then(async ([loaded, read]) => {
 		if (!alive) {
@@ -1232,6 +1473,14 @@ export function newMoveView(root) {
 
 		doc = loaded;
 		index = read;
+
+		// Kept from before a reload, and saved since.
+		if (restored && (doc.moves || []).some((move) => move && move.id === moveId)) {
+			savedAlready(liveMoves(doc).find((move) => move.id === moveId));
+
+			return;
+		}
+
 		kept = await keptStartOver(doc).catch(() => null);
 
 		if (!alive) {

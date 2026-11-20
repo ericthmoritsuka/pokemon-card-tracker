@@ -4094,6 +4094,23 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   sides it saved leave the trade tray. Switching to Add, or Close, with cards in the trade tray asks first ("Keep
   them" or discard). The system Back cannot be asked about, so the tray is kept for the next visit
   instead. A tray left by Log N cards without saving is there when Scan opens again.
+- **The form survives a reload and Back then Forward** (QA, 2026-11-20: a reload, or Back then
+  Forward, on the form Log N cards or Log purchase opened showed an empty Sold form, what was typed
+  lost, while the tray still held the cards). The handoff is data only (the scanner names its tray,
+  `session` and `tray: 'trade'` or `'add'`, instead of handing over a function), and the form keeps
+  it with everything typed (the kind, the cards out and in, each card's price, Price each card,
+  the date, who, price, currency, the cash's way, and the note) in sessionStorage under a token in
+  its history entry's state (js/moves-view.js `FORM_KEY`), written as it changes. Back or Forward
+  to the entry finds it by the token; a reload on GitHub Pages passes through 404.html, which loses
+  the entry's state, so a page load on the form with no state of its own takes the form this tab
+  showed last. A screen opened from a link always has state, so Log a move still opens blank. Every
+  form works this way, a copy sheet's and a card page's Trade or sale too. The form goes when it is
+  saved (the save replaces its entry, so Back skips it), when a newer form takes over the same
+  scanner tray, and past the newest eight. **Never twice:** each form carries the id its move saves
+  under, and `planMove` refuses an id already in the log, live or undone, so the same form saved
+  again (a reload while it saved, a copied tab) logs nothing, says "This trade or sale is saved
+  already.", lets the tray go of the cards that move took, and opens History. The tray lets go of
+  the saved sides from the kept handoff, so a save after a reload empties it as before.
 - **The form, from a scan** (design review, 2026-11-06): the scanned cards are compact rows of
   about 56 px (picture, name, "English · Near Mint", and an x), not full-size tiles, and Save sits in
   a sticky footer above the tab bar, so a long trade never pushes Save out of reach. Its line reads
