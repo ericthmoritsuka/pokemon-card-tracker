@@ -249,6 +249,15 @@ describe('search', () => {
 		await search(page, '4/160');
 		assert.deepEqual(await names(page), ['Charmander', 'Charmander'], 'the number as printed');
 
+		// A QA pass (v94): "/120" was dropped, so the Japanese #025 (of 100)
+		// came too.
+		await search(page, '025/120');
+		assert.deepEqual(await names(page), ['Pikachu'], 'the number over its set\'s total, as printed');
+		assert.equal(await page.locator('.tile').count(), 1);
+
+		await search(page, '025/100');
+		assert.equal(await page.locator('.tile').count(), 1, 'the Japanese #025 alone');
+
 		await search(page, 'tsa1-150');
 		assert.deepEqual(await names(page), ['Test Ball']);
 

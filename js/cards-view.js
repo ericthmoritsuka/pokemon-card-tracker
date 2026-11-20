@@ -785,6 +785,7 @@ export function cardsScreen(root, {
 			picture: pictureOf(record, preferred),
 			newest: times[times.length - 1],
 			number: (record && record.collector_number) || null,
+			official: (record && record.official) || null,
 			oldest: times[0],
 			plainNames: namesFor({
 				category: (record && record.category) || null,

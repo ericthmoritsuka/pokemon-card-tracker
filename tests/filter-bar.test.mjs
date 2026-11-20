@@ -31,7 +31,7 @@ const names = (list) => list.map((one) => one.name);
 
 describe('the query', () => {
 	test('splits Pokédex numbers and ranges from words', () => {
-		assert.deepEqual(fb.parseQuery('#25 pika #1-151 25/165 #TG10'), {dex: [{from: 25, to: 25}, {from: 1, to: 151}], words: ['pika', '25', 'tg10']});
+		assert.deepEqual(fb.parseQuery('#25 pika #1-151 25/165 #TG10 GG44/GG70'), {dex: [{from: 25, to: 25}, {from: 1, to: 151}], printed: [{number: '25', total: '165'}, {number: 'gg44', total: '70'}], words: ['pika', 'tg10']});
 		assert.deepEqual(fb.parseQuery('#151-1').dex, [{from: 1, to: 151}], 'a reversed range is turned round');
 		assert.deepEqual(fb.parseQuery('#0').dex, [{from: 0, to: -1}], 'no Pokémon matches #0');
 		assert.deepEqual(fb.parseQuery('  ').words, []);
@@ -48,6 +48,24 @@ describe('the query', () => {
 		assert.deepEqual(names(fb.applyFilters(list, {query: '#1-151'})), ['Pikachu', 'Charizard', 'Tag Team'], 'any of a TAG TEAM\'s numbers');
 		assert.deepEqual(names(fb.applyFilters(list, {query: '#1-1025'})).includes('Test Ball'), false, 'a Trainer never matches a Dex number');
 		assert.deepEqual(names(fb.applyFilters(list, {query: 'pika #6'})), [], 'every part must match');
+	});
+
+	// A QA pass (v94): "025/165" dropped "/165" and found #025 of six sets.
+	test('a number as printed, "025/165", is that number in a set of that total', () => {
+		const list = [
+			item({name: 'Pikachu 151', number: '025', official: 165, search: fb.searchTextOf(['Pikachu', '025'])}),
+			item({name: 'Pikachu Beta', number: '025', official: 120, search: fb.searchTextOf(['Pikachu', '025'])}),
+			item({name: 'Raichu 151', number: '125', official: 165, search: fb.searchTextOf(['Raichu', '125'])}),
+			item({name: 'Pikachu, total not known', number: '25', search: fb.searchTextOf(['Pikachu', '25'])}),
+			item({name: 'Mewtwo GG', number: 'GG44', official: 70, search: fb.searchTextOf(['Mewtwo', 'GG44'])}),
+		];
+
+		assert.deepEqual(names(fb.applyFilters(list, {query: '025/165'})), ['Pikachu 151', 'Pikachu, total not known'], 'not another set\'s #025, nor 125/165');
+		assert.deepEqual(names(fb.applyFilters(list, {query: '25/120'})), ['Pikachu Beta', 'Pikachu, total not known']);
+		assert.deepEqual(names(fb.applyFilters(list, {query: 'pika 025/165'})), ['Pikachu 151', 'Pikachu, total not known'], 'with a name');
+		assert.deepEqual(names(fb.applyFilters(list, {query: 'raichu 025/165'})), [], 'every part must match, typos forgiven or not');
+		assert.deepEqual(names(fb.applyFilters(list, {query: 'GG44/GG70'})), ['Mewtwo GG'], 'a lettered subset');
+		assert.deepEqual(names(fb.applyFilters(list, {query: '025/999'})), ['Pikachu, total not known']);
 	});
 });
 

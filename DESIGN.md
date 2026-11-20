@@ -3693,8 +3693,11 @@ and sort bar.
 the binder card picker, the tray, and the wishlist can reuse it:
 
 - **Search first,** over owned cards and offline: names in every language the phone has for a card
-  (shown or not, readings included), the set name, the collector number ("25", "025", or "25/165"),
-  and the card ID. A word starting with "#" is a National Dex number or range: "#25" or "#025"
+  (shown or not, readings included), the set name, the collector number ("25" or "025"), the
+  number as printed ("025/165": that number in a set whose printed total, the record's
+  `official`, is 165, and "GG44/GG70" for a lettered subset; a card whose total is not known is
+  found by its number; a QA pass, v94: "/165" was dropped, so it found #025 of six sets), and
+  the card ID. A word starting with "#" is a National Dex number or range: "#25" or "#025"
   finds every card whose `dex_ids` include 25, and "#1-151" a range. A search starts the "Show
   more" paging again at the matching tiles. No match offers the Sets catalog.
 - **Forgiving search** (competitor survey, 2026-11-19), in `js/search-match.js`, shared by My Cards
