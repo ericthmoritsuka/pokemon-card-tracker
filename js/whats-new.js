@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'The switch to a new version also waits while a form has a choice you made but did not save yet, such as a new colour or grid in Edit binder.',
+			'It waits while a message offers Undo, too, so you can still take an action back.',
+		],
+		version: 'v94',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Phone check can show one set as this phone holds it (copies, card records, the Sets count, and the saved set list) and copy it to send, so a set that counts wrong on one phone can be looked into.',
 			'A binder page you marked Already mine keeps a dot on the Scan tab until you place it, and clearing the tray can be undone to bring it back.',
 		],
