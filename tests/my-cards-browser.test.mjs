@@ -1493,5 +1493,25 @@ describe('while the saved records are still being read', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('Value says it is reading prices while it waits, and two taps open one sheet', async () => {
+		const {context, errors, page} = await heldPhone();
+
+		await seed(page, server.origin, {records: freshRecords()});
+		await page.locator('#cards-value').waitFor(TIMEOUT);
+		await page.click('#cards-value');
+		await page.click('#cards-value');
+		assert.equal(await page.locator('#cards-value').textContent(), 'Reading prices…');
+		assert.equal(await page.locator('#cards-value').getAttribute('aria-busy'), 'true');
+
+		await releaseRecords(page);
+		await page.locator('.value-sheet[open]').waitFor(TIMEOUT);
+		await page.waitForTimeout(1000);
+		assert.equal(await page.locator('.value-sheet').count(), 1, 'one sheet');
+		assert.equal(await page.locator('#cards-value').textContent(), 'Value');
+		assert.equal(await page.locator('#cards-value').getAttribute('aria-busy'), null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 

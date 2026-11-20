@@ -572,11 +572,28 @@ export function cardsScreen(root, {
 		return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
 	}
 
+	// A tap on Value waiting for the records (openValue): the button says so,
+	// and another tap meanwhile opens no second sheet.
+	let valueWaiting = false;
+
 	function openValue() {
 		// Every price counts, so every record must be in, read by this
 		// screen's load (whenAllSaved), however far it has got.
 		if (savedAll !== true) {
-			whenAllSaved().then((all) => all && openValue());
+			if (!valueWaiting) {
+				valueWaiting = true;
+				valueButton.setAttribute('aria-busy', 'true');
+				valueButton.textContent = 'Reading prices…';
+				whenAllSaved().then((all) => {
+					valueWaiting = false;
+					valueButton.removeAttribute('aria-busy');
+					valueButton.textContent = 'Value';
+
+					if (all) {
+						openValue();
+					}
+				});
+			}
 
 			return;
 		}
