@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'Sets: a set\'s ring and its page count only your cards in the language you are viewing, so your English and Portuguese sets fill up separately.',
+			'Switch Owned: to Any language to count a card whatever language your copy is in; each phone remembers the choice.',
+		],
+		version: 'v89',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'A set\'s ring counts every card you own from it on every phone, including cards another phone scanned that this one has not read yet (a new set could show 57 of 161 on one phone and 147 on another).',
 			'A card whose picture was saved missing in one language shows its picture from another, in binders and My Cards.',
 		],
