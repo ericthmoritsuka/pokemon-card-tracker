@@ -28,7 +28,7 @@ import {mainName, namesFor, tileNames} from './catalog-views.js';
 import {deleteChecklist, listLanguages, namesLanguages, renameChecklist, reorderGoals, restoreGoal, speciesNames} from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
 import {sheetDialog, showSheet} from './copy-sheet.js';
-import {BASE, errorText, go, h, segmentCounts, showError} from './dom.js';
+import {BASE, backWords, errorText, go, h, segmentCounts, showError} from './dom.js';
 import {whenMemberName} from './family.js';
 import {applyFilters, filterBar, sortItems} from './filter-bar.js';
 import {flagBadge} from './flags.js';
@@ -299,7 +299,7 @@ function goalScreen(root, source, id) {
 	let leaving = false;
 	const adding = new Set();
 
-	const back = link(source.listsBase, {class: 'back', id: 'goal-back'}, '‹ All lists');
+	const back = link(source.listsBase, {class: 'back', id: 'goal-back'}, backWords('All lists'));
 	const title = h('h2', {id: 'goal-title'}, 'Goal');
 	const meta = h('p', {class: 'muted goal-meta', id: 'goal-meta'});
 	const levelSlot = h('div', {class: 'goal-level-slot', id: 'goal-level-slot'});
@@ -860,12 +860,12 @@ function goalScreen(root, source, id) {
 	});
 
 	if (source.draft) {
-		back.textContent = '‹ Back';
+		back.replaceChildren(...backWords('Back'));
 	}
 
 	if (source.readOnly) {
 		whenMemberName(source.userId, (name) => {
-			back.textContent = `‹ ${name}'s lists`;
+			back.replaceChildren(...backWords(`${name}'s lists`));
 		});
 	}
 
@@ -927,7 +927,7 @@ export function newGoalView(root) {
 	let sets = [];
 	let setRun = 0;
 
-	const back = link('lists', {class: 'back', id: 'goal-back'}, '‹ All lists');
+	const back = link('lists', {class: 'back', id: 'goal-back'}, backWords('All lists'));
 	const kinds = h('div', {'aria-label': 'Goal kind', class: 'goal-kinds', id: 'goal-kinds', role: 'radiogroup'},
 		[['set', 'A set', 'Every card of one set, at the level you pick'], ['artist', 'An artist', 'Every card by one illustrator']].map(([value, label, hint]) => h('label', {class: 'goal-kind'},
 			h('input', {checked: value === kind, id: `goal-kind-${value}`, name: 'goal-kind', onchange: () => {

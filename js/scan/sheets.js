@@ -8,7 +8,7 @@ import {handBinders, sortBinders} from '../binders.js';
 import {cardImage, languageLabel} from '../catalog.js';
 import {cardArt} from '../catalog-views.js';
 import {openCustomCardSheet} from '../custom-card-view.js';
-import {h} from '../dom.js';
+import {backWords, h} from '../dom.js';
 import {flagBadge, flagLanguageName} from '../flags.js';
 import {catalogFor} from '../languages.js';
 import {mainArt} from '../photos/index.js';
@@ -117,7 +117,7 @@ export function confirmSheet(ctx, itemId) {
 		sheetHeader('Check this card', () => ctx.closeSheet(), titleId),
 		// A card from the binder page just read goes back to the page
 		// (pageSheet), where it was opened from.
-		ctx.onPage && ctx.onPage(itemId) ? h('button', {class: 'scan-text-button scan-page-back', id: 'scan-page-back', onclick: () => ctx.openPage(), type: 'button'}, '‹ Back to the page') : null,
+		ctx.onPage && ctx.onPage(itemId) ? h('button', {class: 'scan-text-button scan-page-back', id: 'scan-page-back', onclick: () => ctx.openPage(), type: 'button'}, backWords('Back to the page')) : null,
 		body,
 		searchPanel
 	);

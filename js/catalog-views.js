@@ -21,7 +21,7 @@ import {recordOf, recordsOfCard} from './card-info.js';
 import {cardInfoList, loadDocument, onChange, ownedBySet, ownedIn, sourceNames, updateCards} from './collection.js';
 import {alikeKey, closeCopySheet, copyPlaces, copyStepper, languageName, openAddSheet, openEditSheet, placeText, storedLine} from './copy-sheet.js';
 import {cardPosition, cardSwipe, offerCardList, restoreCardList} from './card-swipe.js';
-import {BASE, errorText, go, h, segmentCounts} from './dom.js';
+import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge} from './flags.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogsOf, hasLiga, htmlLang, languageChip, languageLabel} from './languages.js';
 import {ligaUrl} from './liga.js';
@@ -714,7 +714,7 @@ export function setView(root, {lang, setId}) {
 	// A family member's copies while their lens is on.
 	const member = lensMember();
 
-	const back = link('sets', {class: 'back'}, '‹ All sets');
+	const back = link('sets', {class: 'back'}, backWords('All sets'));
 	const title = h('h2', null, setId);
 	const meta = h('p', {class: 'muted'});
 	const note = h('div', {hidden: true});
@@ -1078,7 +1078,7 @@ export function cardView(root, {lang, cardId}) {
 	// Whose copies the section names.
 	const whose = () => (member ? `${memberLabel(member)}'s` : 'Your');
 	// At least 48 px wide, like its height, however short the label ("‹ 151").
-	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, position && position.label ? `‹ ${position.label}` : '‹ Back');
+	const back = link('sets', {class: 'back', style: 'min-width: 48px'}, backWords(position && position.label ? position.label : 'Back'));
 	const body = h('div', {class: 'card-detail'},
 		h('div', {class: 'card-hero'}, h('div', {class: 'art loading hero-art', 'aria-hidden': 'true'}))
 	);
@@ -1212,7 +1212,7 @@ export function cardView(root, {lang, cardId}) {
 			back.dataset.link = routeTo('sets', lang, set.id);
 
 			if (!position || !position.label) {
-				back.textContent = `‹ ${set.name || set.id}`;
+				back.replaceChildren(...backWords(set.name || set.id));
 			}
 		}
 

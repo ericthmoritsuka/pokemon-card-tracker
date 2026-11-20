@@ -36,7 +36,7 @@ import {
 	spriteUrl,
 } from './checklists.js';
 import {isLive, listCards, onChange} from './collection.js';
-import {BASE, errorText, go, h, segmentCounts} from './dom.js';
+import {BASE, backWords, errorText, go, h, segmentCounts} from './dom.js';
 import {flagBadge, flagSrc, flagText} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {ANY_POKEMON_LANGUAGE, createGoal, describeGoal, findGoal, listGoals, nameFromSpecies} from './goals.js';
@@ -653,7 +653,7 @@ function screen(root, source, listId, dexParam, langParam = null) {
 	// Without a list, Back returns to the card page it was opened from, or
 	// opens Lists when the screen was the first one opened.
 	const listRoute = source.base ? `${source.base}/${encodeURIComponent(listId)}` : 'lists';
-	const back = link(listRoute, {class: 'back', id: 'pc-back'}, source.base ? '‹ List' : '‹ Back');
+	const back = link(listRoute, {class: 'back', id: 'pc-back'}, backWords(source.base ? 'List' : 'Back'));
 	const title = h('h2', {id: 'pc-title'});
 	const originals = h('div', {class: 'pc-originals', id: 'pc-originals'});
 	// A list's languages are saved to the list, whose change loads the
@@ -1260,7 +1260,7 @@ function screen(root, source, listId, dexParam, langParam = null) {
 		wished = new Set((data.wishlist || []).filter(isLive).map((item) => printKey(item.catalog || 'international', item.card_id)));
 
 		if (source.base) {
-			back.textContent = `‹ ${goal.name}`;
+			back.replaceChildren(...backWords(goal.name));
 		}
 
 		if (languages) {

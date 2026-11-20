@@ -620,6 +620,9 @@ describe('swiping between cards', () => {
 		assert.equal(await page.locator('#card-position').textContent(), `${pick + 1} of 30`);
 		assert.equal(await page.locator('#card-position').getAttribute('aria-label'), `Card ${pick + 1} of 30 in My Cards`);
 		assert.equal(await page.locator('#view .back').textContent(), '‹ My Cards');
+		// The ‹ is drawn, not read (accessibility audit, 2026-11-20).
+		assert.equal(await page.locator('#view .back').evaluate((link) => link.querySelector('[aria-hidden="true"]').textContent), '‹');
+		assert.equal(await page.getByRole('link', {exact: true, name: 'My Cards'}).count(), 1, 'the link is named My Cards');
 		assert.equal(await page.locator('.card-detail').evaluate((el) => el.textContent.includes('null')), false, 'no stray null');
 		await page.waitForSelector('.card-detail h2');
 		await page.screenshot({path: '/tmp/shell-card-light.png'});

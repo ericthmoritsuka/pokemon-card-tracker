@@ -28,7 +28,7 @@ import {listChecklists} from './checklists.js';
 import {listCards} from './collection.js';
 import {offerCardList} from './card-swipe.js';
 import {customRecord} from './custom-card.js';
-import {BASE, errorText, h} from './dom.js';
+import {BASE, backWords, errorText, h} from './dom.js';
 import {whenMemberName} from './family.js';
 import {formatCount, plural} from './format.js';
 import {listGoals} from './goals.js';
@@ -248,7 +248,7 @@ function statsScreen(root, {back, backLabel, load, ownHistory = false, ownLists 
 	const body = h('div', {class: 'stats-body', id: 'stats-body'}, h('p', {class: 'muted'}, 'Counting…'));
 
 	root.append(
-		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'stats-back'}, `‹ ${backLabel}`),
+		h('a', {class: 'back', 'data-link': back, href: BASE + back, id: 'stats-back'}, backWords(backLabel)),
 		h('div', {class: 'view-head'}, h('h2', null, title)),
 		body
 	);
@@ -332,7 +332,7 @@ export function familyStatsView(root, {userId}) {
 		}
 
 		if (back) {
-			back.textContent = `‹ ${name}'s cards`;
+			back.replaceChildren(...backWords(`${name}'s cards`));
 		}
 	});
 

@@ -25,7 +25,7 @@ import {artOf, entryInfo, fillRecords, recordFrom} from './binders-view.js';
 import {finishChoices} from './catalog-views.js';
 import {isLive, loadDocument, onChange} from './collection.js';
 import {MAX_ADD, conditionOptions, copyLanguages, finishFields, finishOptions, languageName, sheetDialog, sheetField, sheetSelect, showSheet} from './copy-sheet.js';
-import {BASE, errorText, go, h} from './dom.js';
+import {BASE, backWords, errorText, go, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {formatMoney, shortDate} from './prices.js';
 import {CURRENCIES, applyMove, cleanInPrices, editMove, liveMoves, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, priceForInput, priceText, pricedCards, purchaseSources, sumPrices, takePendingMove, undoMove} from './moves.js';
@@ -1188,7 +1188,7 @@ export function newMoveView(root) {
 	});
 
 	root.append(
-		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, '‹ Trades and sales'),
+		h('a', {class: 'back', 'data-link': 'trades', href: `${BASE}trades`}, backWords('Trades and sales')),
 		h('div', {class: 'view-head'}, heading),
 		formElement
 	);
