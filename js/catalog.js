@@ -62,6 +62,8 @@ const {get: cacheGet, put: storePut} = timedCache(cacheDb, STORE);
 // tab (BroadcastChannel), so a read never returns what IndexedDB no longer
 // holds. A read that a write of the same key overtook is not kept.
 const SAVED_CHANNEL = 'card-tracker-catalog-records';
+// From this many keys, readSaved lists the stored keys before reading.
+const MANY_KEYS = 64;
 const memoKey = (key) => typeof key === 'string' && (key.startsWith('card:') || key.startsWith('missing:card:'));
 const savedMemo = new Map();
 // Each forgotten key's turn, so a read that began before it is not kept.
@@ -425,13 +427,45 @@ async function readSaved(keys) {
 		await new Promise((resolve, reject) => {
 			const tx = db.transaction(STORE, 'readonly');
 			const store = tx.objectStore(STORE);
+			const read = (list) => {
+				for (const key of list) {
+					const request = store.get(key);
 
-			for (const key of asked) {
-				const request = store.get(key);
+					request.onsuccess = () => {
+						out.set(key, request.result ?? null);
+					};
+				}
+			};
 
-				request.onsuccess = () => {
-					out.set(key, request.result ?? null);
-				};
+			// Many keys at once (a screen over every owned card): the keys
+			// stored under each prefix are listed first, in the same
+			// transaction, and only the ones there are read. Each read is a
+			// round trip of its own, about 0.8 ms on a slow phone, and most
+			// cards have no 404 mark and no record in a second language.
+			if (asked.length < MANY_KEYS) {
+				read(asked);
+			}
+			else {
+				const prefixes = ['card:', 'missing:card:'];
+				const other = asked.filter((key) => !prefixes.some((prefix) => key.startsWith(prefix)));
+
+				read(other);
+
+				for (const prefix of prefixes) {
+					const mine = asked.filter((key) => key.startsWith(prefix));
+
+					if (!mine.length) {
+						continue;
+					}
+
+					const listing = store.getAllKeys(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+
+					listing.onsuccess = () => {
+						const held = new Set(listing.result || []);
+
+						read(mine.filter((key) => held.has(key)));
+					};
+				}
 			}
 
 			tx.oncomplete = () => resolve();
