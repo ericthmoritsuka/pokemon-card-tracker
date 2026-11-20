@@ -179,9 +179,18 @@ function listenToTabs() {
 	};
 }
 
+// The first read of the stored document, shared by every caller that asks
+// before it is in: at a cold start My Cards, the sync, and the account
+// check each asked at once, and each read and unpacked all 1,600 copies.
+let firstRead = null;
+
 export async function loadDocument() {
 	if (!current) {
-		const {rev, stored} = await readStored();
+		firstRead = firstRead || readStored().finally(() => {
+			firstRead = null;
+		});
+
+		const {rev, stored} = await firstRead;
 
 		if (!current) {
 			current = normalize(stored || emptyDocument());

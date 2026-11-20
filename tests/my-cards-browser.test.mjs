@@ -16,6 +16,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
+import {holdRecords, releaseRecords} from './hold-records.mjs';
 import {BASE, CARDS, COPIES, documentWith, fakeServices, fullRecord, indexRecords, linkNewStyles, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
@@ -1433,3 +1434,240 @@ describe('card images', () => {
 		await context.close();
 	});
 });
+
+// My Cards draws its first screen from that screen's saved records, and
+// reads every other record after the paint (js/cards-view.js load,
+// readRest). tests/hold-records.mjs holds those reads, so the tests act in
+// the window before they are in.
+describe('while the saved records are still being read', () => {
+	const DAY = () => {
+		const date = new Date();
+		const pad = (n) => String(n).padStart(2, '0');
+
+		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+	};
+	// Every international card's full record, saved today, so the
+	// background pass reads nothing and keeps the day's value at its end.
+	const freshRecords = (cards = CARDS) => Object.fromEntries(cards
+		.filter((card) => card.catalog === 'international')
+		.map((card) => [`card:en:${card.id}`, {at: Date.now(), data: fullRecord(card)}]));
+	const today = (page) => page.evaluate(async (day) => {
+		const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+		return list.find((item) => item.date === day) || null;
+	}, DAY());
+	// Copies with a price: every international card with a US market price,
+	// and the Liga-priced Pikachu; not Test Ball or the Asian prints.
+	const PRICED = 7;
+
+	async function heldPhone(hold = true) {
+		const device = await phone();
+
+		await holdRecords(device.context, hold);
+
+		return device;
+	}
+
+	test('Value tapped before the records are in waits for them, and keeps no value from part of them', async () => {
+		const {context, errors, page} = await heldPhone();
+
+		await seed(page, server.origin, {records: freshRecords()});
+		await page.locator('#cards-value').waitFor(TIMEOUT);
+		assert.equal(await page.locator('.card-grid .tile').count(), 0, 'the first screen\'s records are still being read');
+
+		await page.click('#cards-value');
+		await page.waitForTimeout(1500);
+		assert.equal(await today(page), null, 'no value kept from part of the records');
+		assert.equal(await page.locator('.value-sheet[open]').count(), 0, 'the sheet waits for every price');
+
+		await releaseRecords(page);
+		await page.locator('.value-sheet[open]').waitFor(TIMEOUT);
+
+		const kept = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(kept.priced, PRICED, 'every priced copy counted');
+		assert.equal(kept.copies, COPIES.length);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a background pass that ends while My Cards reads its records again keeps no value from part of them', async () => {
+		const {context, errors, page} = await heldPhone(false);
+		const stale = {at: Date.now() - 8 * DAY_MS, data: fullRecord(CARDS.find((card) => card.id === 'tsa1-006'))};
+		let arrived;
+		let release;
+		const asked = new Promise((done) => {
+			arrived = done;
+		});
+		const answer = new Promise((done) => {
+			release = done;
+		});
+
+		// Charizard ex's price is a week old, so the pass reads it again, and
+		// its answer waits until My Cards has started reading again.
+		await context.route(/\/v2\/en\/cards\/tsa1-006$/, async (route) => {
+			arrived();
+			await answer;
+			await route.fallback();
+		});
+		await seed(page, server.origin, {records: {...freshRecords(), 'card:en:tsa1-006': stale}});
+		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
+		await asked;
+
+		// Every copy taken out and put back: My Cards loads again, and its
+		// reads of the saved records, past this visit's kept ones, are held.
+		await page.evaluate(async (keys) => {
+			new BroadcastChannel('card-tracker-catalog-records').postMessage({keys});
+			window.__holdRecords = true;
+
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const ids = (await collection.listCards()).map((entry) => entry.id);
+
+			await collection.deleteCards(ids);
+
+			for (const id of ids) {
+				await collection.restoreCard(id);
+			}
+		}, CARDS.map((card) => `card:en:${card.id}`));
+		release();
+		await page.waitForTimeout(2000);
+		assert.equal(await today(page), null, 'the pass keeps no value from part of the records');
+
+		await releaseRecords(page);
+
+		const kept = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day && item.priced === 7) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(kept.copies, COPIES.length);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a price sort chosen before the records are in sorts by every price once they are', async () => {
+		const {context, errors, page} = await heldPhone();
+		// The details already in the index and no Asian print, so nothing
+		// builds the tiles again after the records are in: the prices worked
+		// out while they were read are the ones the sort uses.
+		const index = Object.fromEntries(Object.entries(indexRecords()).map(([key, record]) => {
+			const card = CARDS.find((item) => `${item.catalog}|${item.id}` === key);
+
+			return [key, {...record, category: card.category, dex_ids: card.dexId || [], illustrator: card.illustrator || null, rarity: card.rarity, types: card.types || []}];
+		}));
+
+		await seed(page, server.origin, {copies: COPIES.filter((copy) => copy.catalog === 'international'), index, records: freshRecords()});
+		await page.locator('#cards-sort').waitFor(TIMEOUT);
+		assert.equal(await page.locator('.card-grid .tile').count(), 0, 'the first screen\'s records are still being read');
+		await page.selectOption('#cards-sort', 'price');
+		await releaseRecords(page);
+
+		const first = await untilInPage(page, 'the dearest cards first', () => {
+			const shown = [...document.querySelectorAll('.card-grid .tile .tile-name')].map((name) => name.textContent).slice(0, 3);
+
+			return shown.join(',') === 'Charizard ex,Pikachu,Sprigatito' ? shown : null;
+		}, {timeout: 8000}).catch((err) => err.message);
+
+		assert.deepEqual(first, ['Charizard ex', 'Pikachu', 'Sprigatito'], 'R$ 150, Liga R$ 80, R$ 10 first');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('Value says it is reading prices while it waits, and two taps open one sheet', async () => {
+		const {context, errors, page} = await heldPhone();
+
+		await seed(page, server.origin, {records: freshRecords()});
+		await page.locator('#cards-value').waitFor(TIMEOUT);
+		await page.click('#cards-value');
+		await page.click('#cards-value');
+		assert.equal(await page.locator('#cards-value').textContent(), 'Reading prices…');
+		assert.equal(await page.locator('#cards-value').getAttribute('aria-busy'), 'true');
+
+		await releaseRecords(page);
+		await page.locator('.value-sheet[open]').waitFor(TIMEOUT);
+		await page.waitForTimeout(1000);
+		assert.equal(await page.locator('.value-sheet').count(), 1, 'one sheet');
+		assert.equal(await page.locator('#cards-value').textContent(), 'Value');
+		assert.equal(await page.locator('#cards-value').getAttribute('aria-busy'), null);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a record another tab wrote without telling is read again when the page comes back into view', async () => {
+		const {context, errors, page} = await phone();
+
+		await page.goto(`${server.origin}${BASE}check`);
+
+		const names = await page.evaluate(async () => {
+			// As an older app's tab writes, with no BroadcastChannel message.
+			const write = (name) => new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-catalog', 1);
+
+				open.onupgradeneeded = () => open.result.createObjectStore('responses');
+				open.onsuccess = () => {
+					const tx = open.result.transaction('responses', 'readwrite');
+
+					tx.objectStore('responses').put({at: Date.now(), data: {id: 'tsa1-001', name}}, 'card:en:tsa1-001');
+					tx.oncomplete = () => {
+						open.result.close();
+						resolve();
+					};
+					tx.onerror = () => reject(tx.error);
+				};
+				open.onerror = () => reject(open.error);
+			});
+			const {savedCardRecords} = await import('/pokemon-card-tracker/js/catalog.js');
+			const read = async () => (await savedCardRecords([{card_id: 'tsa1-001', catalog: 'international', language: 'en'}])).get('international|tsa1-001').name;
+			const out = [];
+
+			await write('Before');
+			out.push(await read());
+			await write('After');
+			out.push(await read());
+			document.dispatchEvent(new Event('visibilitychange'));
+			out.push(await read());
+
+			return out;
+		});
+
+		assert.deepEqual(names, ['Before', 'Before', 'After'], 'kept for the visit, read again once back in view');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a collection that is not the signed-in person\'s keeps no value under their name', async () => {
+		const {context, errors, page} = await heldPhone(false);
+
+		await seed(page, server.origin, {records: freshRecords()});
+
+		const first = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(first.copies, COPIES.length);
+
+		// The phone's collection now belongs to an account, as when another
+		// tab switches accounts while this one is still signed out (or
+		// signed in as someone else): a copy added to it is not this
+		// person's value.
+		await page.evaluate(async () => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+
+			await collection.useAccount('another-account');
+			await collection.addCard({card_id: 'tsa1-001', catalog: 'international', language: 'en', language_source: 'manual'});
+		});
+		await page.waitForFunction((n) => (document.getElementById('cards-summary') || {}).textContent.startsWith(`${n} copies`), COPIES.length + 1, TIMEOUT);
+		await page.waitForTimeout(3000);
+		assert.equal((await today(page)).copies, COPIES.length, 'the value kept is still the signed-out collection\'s');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+

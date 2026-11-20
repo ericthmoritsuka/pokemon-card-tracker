@@ -29,14 +29,44 @@ export const LISTS = ['cards', 'collections', 'goals', 'binders', 'wishlist', 'o
 
 const time = (value) => stampMs(value);
 
-// JSON with the keys sorted, so equal content gives equal text.
+// JSON with the keys sorted, so equal content gives equal text. Built in
+// one pass with no array per level: a sync merges every copy, and this ran
+// about 600 ms of a 1,600-copy merge on a slow phone. The text is the same
+// as `[${value.map(stableJson).join(',')}]` and its object counterpart, a
+// hole in an array included (tests/merge.test.mjs).
 export function stableJson(value) {
 	if (Array.isArray(value)) {
-		return `[${value.map(stableJson).join(',')}]`;
+		let out = '[';
+
+		for (let i = 0; i < value.length; i++) {
+			if (i) {
+				out += ',';
+			}
+
+			// As join() writes a hole or an undefined part: nothing.
+			const part = i in value ? stableJson(value[i]) : undefined;
+
+			if (part !== undefined) {
+				out += part;
+			}
+		}
+
+		return `${out}]`;
 	}
 
 	if (value && typeof value === 'object') {
-		return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+		const keys = Object.keys(value).sort();
+		let out = '{';
+
+		for (let i = 0; i < keys.length; i++) {
+			if (i) {
+				out += ',';
+			}
+
+			out += `${JSON.stringify(keys[i])}:${stableJson(value[keys[i]])}`;
+		}
+
+		return `${out}}`;
 	}
 
 	return JSON.stringify(value === undefined ? null : value);

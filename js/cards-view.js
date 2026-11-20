@@ -29,7 +29,7 @@ import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
 import {bulkSelect} from './bulk-select.js';
 import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
-import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
+import {cardInfoList, isLive, listCards, listPlaces, loadDocument, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -462,6 +462,12 @@ export function cardsScreen(root, {
 	let index = new Map();
 	// Full TCGdex records saved on the phone, for the tiles' US estimates.
 	let saved = new Map();
+	// Whether saved holds every copy's record: null before the rest are
+	// asked for (load reads the first screen's first), their read while it
+	// runs, true once they are in.
+	let savedAll = null;
+	// A name arrived while load read the first screen's records.
+	let namesMoved = false;
 	// Copies placed in a binder, by entry ID.
 	let placed = new Map();
 	let rates = savedRates();
@@ -476,11 +482,7 @@ export function cardsScreen(root, {
 	const views = viewKey ? viewSwitch({id: 'cards', key: viewKey, onChange: () => ready && draw()}) : null;
 	const shownView = () => (views ? views.view : 'grid');
 	const grid = h('div', {class: 'card-grid', 'data-view': shownView()});
-	const more = h('button', {hidden: true, onclick: () => {
-		shown += PAGE;
-		rememberInHistory({shown});
-		draw();
-	}, type: 'button'}, 'Show more');
+	const more = h('button', {hidden: true, onclick: () => showMore(), type: 'button'}, 'Show more');
 	const body = h('div');
 	// The copies shown when a search or filter narrows the list, which the
 	// Stored in button sets a place for at once.
@@ -497,6 +499,7 @@ export function cardsScreen(root, {
 		? bulkSelect({
 			fullRecord: (group) => saved.get(group.recordKey) || null,
 			grid,
+			recordsReady: () => whenAllSaved(),
 			groups: () => groups,
 			tiles: () => tiles,
 			visible: () => lastVisible,
@@ -572,18 +575,55 @@ export function cardsScreen(root, {
 	// records and the dollar rate on the phone now. Called only with fresh
 	// prices: when the background pass has read every record due, or when
 	// the sheet opens with no pass running. Resolves to the snapshots kept,
-	// or null when nothing was.
+	// or null when nothing was. Never while load is still reading the saved
+	// records (savedAll): a value from part of them would replace today's,
+	// and offline nothing would put it right.
 	function noteValue() {
 		const now = savedRates();
 
-		if (!valueHistory || readOnly || !now || !entries.length) {
+		if (!valueHistory || readOnly || !now || !entries.length || savedAll !== true) {
 			return Promise.resolve(null);
 		}
 
-		return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
+		// Only for the person whose collection it is. Another tab's switch
+		// of account puts the other person's copies here while this tab's
+		// currentUser() stays as it was (js/auth.js does not follow it), and
+		// signed out, the copies of the account last signed in stay.
+		return loadDocument().then((doc) => {
+			if (!alive || savedAll !== true || !doc || (doc.user_id || 'local') !== person()) {
+				return null;
+			}
+
+			return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
+		});
 	}
 
+	// A tap on Value waiting for the records (openValue): the button says so,
+	// and another tap meanwhile opens no second sheet.
+	let valueWaiting = false;
+
 	function openValue() {
+		// Every price counts, so every record must be in, read by this
+		// screen's load (whenAllSaved), however far it has got.
+		if (savedAll !== true) {
+			if (!valueWaiting) {
+				valueWaiting = true;
+				valueButton.setAttribute('aria-busy', 'true');
+				valueButton.textContent = 'Reading prices…';
+				whenAllSaved().then((all) => {
+					valueWaiting = false;
+					valueButton.removeAttribute('aria-busy');
+					valueButton.textContent = 'Value';
+
+					if (all) {
+						openValue();
+					}
+				});
+			}
+
+			return;
+		}
+
 		ensurePrices(groups);
 
 		const noted = background ? Promise.resolve(null) : noteValue();
@@ -601,7 +641,10 @@ export function cardsScreen(root, {
 	}
 
 	function redrawNames() {
-		if (alive && groups.length) {
+		if (alive && groups.length && !ready) {
+			namesMoved = true;
+		}
+		else if (alive && groups.length) {
 			build();
 			draw();
 		}
@@ -1136,14 +1179,20 @@ export function cardsScreen(root, {
 
 	const needsPrices = () => bar.state.sort === 'price' || Boolean(bar.state.filters.price);
 
-	// The tiles in the grid, in order, by key: what draw() last put there.
-	let drawnKeys = [];
+	// The tiles in the grid, in order: the groups draw() last put there.
+	let drawnGroups = [];
 
 	// After a save: when the grid would show the same tiles in the same
 	// order, only the tiles of `keys` are drawn again, and the counts above;
 	// otherwise the whole grid (E-28).
 	function redraw(keys) {
 		const {filters, query, sort} = bar.state;
+
+		if (needsPrices() && savedAll !== true) {
+			draw();
+
+			return;
+		}
 
 		if (needsPrices()) {
 			ensurePrices(groups);
@@ -1152,7 +1201,7 @@ export function cardsScreen(root, {
 		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
 		const next = visible.slice(0, shown).map((group) => group.key);
 
-		if (!visible.length || next.length !== drawnKeys.length || next.some((key, i) => key !== drawnKeys[i])) {
+		if (!visible.length || next.length !== drawnGroups.length || next.some((key, i) => key !== drawnGroups[i].key)) {
 			draw(visible);
 
 			return;
@@ -1164,11 +1213,23 @@ export function cardsScreen(root, {
 			}
 		}
 
+		drawnGroups = visible.slice(0, shown);
 		drawCounts(visible);
 	}
 
 	function draw(sorted = null) {
 		const {filters, query, sort} = bar.state;
+
+		// Sorted or filtered by price before every record is read: drawn
+		// once they are, never in an order a missing price decided. While
+		// load reads the first screen's records, it draws when they are in.
+		if (needsPrices() && savedAll !== true) {
+			if (ready) {
+				savedReady().then(() => alive && savedAll === true && draw());
+			}
+
+			return;
+		}
 
 		if (!sorted && needsPrices()) {
 			ensurePrices(groups);
@@ -1183,7 +1244,7 @@ export function cardsScreen(root, {
 		grid.dataset.view = shownView();
 
 		if (!visible.length) {
-			drawnKeys = [];
+			drawnGroups = [];
 			grid.replaceChildren(h('div', {class: 'card empty-state cards-none', id: 'cards-none'},
 				h('p', {class: 'big'}, query.trim() ? `No cards match "${query.trim()}"` : 'No cards match these filters'),
 				activeFilters(filters).length ? h('button', {class: 'button', onclick: () => bar.clearFilters(), type: 'button'}, 'Clear filters') : null,
@@ -1191,7 +1252,7 @@ export function cardsScreen(root, {
 			));
 		}
 		else {
-			drawnKeys = visible.slice(0, shown).map((group) => group.key);
+			drawnGroups = visible.slice(0, shown);
 			grid.replaceChildren(...visible.slice(0, shown).map((group) => {
 				const element = shownTile(group);
 
@@ -1200,6 +1261,52 @@ export function cardsScreen(root, {
 				return element;
 			}));
 		}
+	}
+
+	// Show more: the next page of tiles. When the tiles already drawn are
+	// still the first of the list, drawn from the same groups, only the new
+	// page is drawn and added after them; anything else draws the grid
+	// again, as before. Drawing every shown tile again made each tap slower
+	// than the last (1,200 tiles: about 6,500 tiles drawn over nine taps).
+	function showMore() {
+		const {filters, query, sort} = bar.state;
+
+		shown += PAGE;
+		rememberInHistory({shown});
+
+		if (needsPrices() && savedAll !== true) {
+			draw();
+
+			return;
+		}
+
+		if (needsPrices()) {
+			ensurePrices(groups);
+		}
+
+		const visible = sortItems(applyFilters(groups, {filters, query}), sort);
+
+		const kept = drawnGroups.length > 0
+			&& visible.length >= drawnGroups.length
+			&& drawnGroups.every((group, i) => visible[i] === group && tiles.has(group.key) && tiles.get(group.key).isConnected);
+
+		if (!kept) {
+			draw(visible);
+
+			return;
+		}
+
+		const added = visible.slice(drawnGroups.length, shown);
+
+		grid.append(...added.map((group) => {
+			const element = shownTile(group);
+
+			tiles.set(group.key, element);
+
+			return element;
+		}));
+		drawnGroups = visible.slice(0, shown);
+		drawCounts(visible);
 	}
 
 	// The summary line, the storage button, Show more, and the swipe order.
@@ -1406,6 +1513,13 @@ export function cardsScreen(root, {
 	}
 
 	async function fillPrices() {
+		// Records saved before this pass are all in first.
+		await savedReady();
+
+		if (!alive) {
+			return;
+		}
+
 		// The cards on screen first, in their order, then the rest.
 		const {filters, query, sort} = bar.state;
 		const order = [...sortItems(applyFilters(groups, {filters, query}), sort).flatMap((group) => group.entries), ...entries];
@@ -1496,6 +1610,8 @@ export function cardsScreen(root, {
 	let loadRun = 0;
 	// True once a load has drawn, so a save can patch the screen instead.
 	let ready = false;
+	// Who waits for a load to draw (whenAllSaved).
+	const readyWaiters = [];
 	// Each drawn copy's updated_at and card, by entry ID, to tell what a
 	// save changed. Kept as text, because an edit changes the entry object
 	// the screen holds in place.
@@ -1522,13 +1638,14 @@ export function cardsScreen(root, {
 				cardIndex(),
 			]);
 
-			next = {binders, index: nextIndex, list, saved: await savedCardRecords(list)};
+			next = {binders, index: nextIndex, list};
 		}
 		catch (err) {
 			if (alive && run === loadRun) {
 				body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, readOnly
 					? err.message || errorText(err)
 					: `Your cards could not be read from this phone. ${errorText(err)}`)));
+				wakeWaiters(false);
 			}
 
 			return;
@@ -1540,12 +1657,18 @@ export function cardsScreen(root, {
 
 		entries = next.list;
 		index = next.index;
-		saved = next.saved;
+		saved = new Map();
+		savedAll = null;
 		placed = placements(liveBinders(next.binders || []));
 		remember();
 
 		if (!readOnly) {
 			listPlaces().then((places) => alive && setPlaces(places.map((place) => place.name))).catch(() => {});
+		}
+
+		// No cards to draw: nothing waits for their records.
+		if (!entries.length) {
+			wakeWaiters(false);
 		}
 
 		if (!entries.length && readOnly) {
@@ -1581,13 +1704,139 @@ export function cardsScreen(root, {
 			body.replaceChildren(...[bar.element, summaryRow, grid, more, bulk ? bulk.bar : null].filter(Boolean));
 		}
 
-		ready = true;
 		build();
+		namesMoved = false;
+
+		// The records of the tiles on the first screen only, so they draw
+		// with their prices and finishes, and every other one right after
+		// the paint (readRest): reading 1,500 records first held the first
+		// tile back by about 2.5 s on a slow phone. Sorted or filtered by
+		// price, every tile needs its record before the first draw.
+		const everyPrice = needsPrices();
+
+		await readSaved(everyPrice ? entries : firstShown(), run).catch(() => null);
+
+		if (!alive || run !== loadRun) {
+			return;
+		}
+
+		if (everyPrice) {
+			savedAll = true;
+		}
+
+		// A name that arrived while the records were read.
+		if (namesMoved) {
+			build();
+		}
+
+		ready = true;
 		draw();
+		wakeWaiters(true);
+		afterPaint(() => readRest(run));
 		fillViewingLanguage();
 		startTwins();
 		afterPaint(startBackground);
 		await fillMissing(entries, () => alive && run === loadRun);
+	}
+
+	// The copies of the tiles the first draw shows.
+	function firstShown() {
+		const {filters, query, sort} = bar.state;
+
+		return sortItems(applyFilters(groups, {filters, query}), sort).slice(0, shown).flatMap((group) => group.entries);
+	}
+
+	// Reads the saved full records of `list` into saved, for load `run`.
+	// A record already in saved stays as it is.
+	async function readSaved(list, run) {
+		const found = await savedCardRecords(list);
+
+		if (alive && run === loadRun) {
+			for (const [key, record] of found) {
+				if (!saved.has(key)) {
+					saved.set(key, record);
+				}
+			}
+		}
+	}
+
+	// Every other tile's record, after the first paint. A tile drawn
+	// without its record meanwhile (Show more, a redraw) is drawn again with
+	// it, and a price worked out without it is worked out again, so the
+	// screen ends as it would have had every record been read first.
+	function readRest(run) {
+		if (!alive || run !== loadRun || savedAll) {
+			return;
+		}
+
+		const before = new Set(saved.keys());
+		const reading = readSaved(entries, run)
+			.catch(() => {})
+			.then(() => {
+				if (!alive || run !== loadRun || savedAll !== reading) {
+					return;
+				}
+
+				savedAll = true;
+
+				const late = groups.filter((group) => saved.has(group.recordKey) && !before.has(group.recordKey));
+
+				// Every price worked out so far, as makeGroup leaves it, so
+				// priceOf works it out again from every record: one worked out
+				// before its record was in stays wrong otherwise.
+				for (const group of groups) {
+					if (group.priceDone) {
+						group.priceDone = false;
+						delete group.price;
+						delete group.priced;
+						delete group.noPrice;
+					}
+				}
+
+				if (needsPrices()) {
+					draw();
+				}
+				else {
+					for (const group of late) {
+						replaceTile(group);
+					}
+				}
+
+				bar.refresh();
+			});
+
+		savedAll = reading;
+	}
+
+	// Resolves true once a load has drawn the cards and every record is in
+	// saved, reading them if need be, through any load that starts again
+	// meanwhile; false when the screen closes, or a load ends with no cards
+	// to draw.
+	async function whenAllSaved() {
+		while (alive && savedAll !== true) {
+			if (ready) {
+				await savedReady();
+			}
+			else if (!await new Promise((done) => readyWaiters.push(done))) {
+				return false;
+			}
+		}
+
+		return alive;
+	}
+
+	// Called when a load draws the cards (true) or ends with none (false).
+	function wakeWaiters(drawn) {
+		for (const done of readyWaiters.splice(0)) {
+			done(drawn);
+		}
+	}
+
+	// Resolves once every record is in saved, reading them if need be.
+	function savedReady() {
+		readRest(loadRun);
+
+		return savedAll && savedAll !== true ? savedAll : Promise.resolve();
 	}
 
 	// Card records the index lacks for these copies, read and drawn.

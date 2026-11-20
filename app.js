@@ -405,6 +405,16 @@ startShell();
 exchangeRates().catch(() => {});
 euroRates().catch(() => {});
 
-render();
+// The account starts first: up to its first wait it puts back the person
+// saved on this phone, so the first screen is drawn once, for them. Drawn
+// before it, My Cards was drawn for no one and at once again for the person
+// (ACCOUNT_ROUTES), reading the collection twice at a cold start. A sign-in
+// link that failed has already opened Sign in by then.
+const account = startAccount(authReturn);
+
+if (!currentRoute) {
+	render();
+}
+
 registerServiceWorker();
-startAccount(authReturn).catch((err) => showError('Signing in did not work.', err));
+account.catch((err) => showError('Signing in did not work.', err));

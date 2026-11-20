@@ -70,9 +70,11 @@ const selectedCards = (n) => (n === 1 ? 'the selected card' : `the ${formatCount
 //   tiles()     Map key -> the tile element drawn for it
 //   fullRecord(group)  the card's full TCGdex record saved on the phone,
 //                      for its finishes, or null
+//   recordsReady()     resolves once fullRecord has every record My Cards
+//                      reads after its first screen
 // Returns {bar, button, destroy, mark, shown}: mark(element, key) dresses a
 // tile as it is drawn, and shown(visible) follows each draw.
-export function bulkSelect({fullRecord, grid, groups, tiles, visible}) {
+export function bulkSelect({fullRecord, grid, groups, recordsReady = () => Promise.resolve(), tiles, visible}) {
 	let selecting = false;
 	const selected = new Set();
 	// Keys a save is about to give a ticked tile (a new language): kept
@@ -514,6 +516,10 @@ export function bulkSelect({fullRecord, grid, groups, tiles, visible}) {
 	// record, or TCGdex (cache first) for a few without one. Null where they
 	// are not known. A hand-made card takes monprice's finish words.
 	async function finishesOf(tiles) {
+		// Read on its own past the first screen's records, a card My Cards
+		// was still reading would count as not known on this phone.
+		await recordsReady();
+
 		const found = new Map();
 		const read = (variants) => {
 			const choices = Array.isArray(variants) ? finishChoices(variants) : [];
