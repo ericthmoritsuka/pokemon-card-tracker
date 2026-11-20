@@ -4001,9 +4001,11 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   price sits under its card, above the total. A card's price field says Next on the keyboard, and
   Enter (Go) there moves to the next field, the next card's price or the Date, rather than saving
   the form with the details below it untouched (v86 review).
-- **Money in words** (design review 2, 2026-11-20): a month's line reads "Sold R$ 120,00 · Spent R$
-  57,50" (it read In and Out, the words the cards' own Out: and In: lines use), and a move's sheet
-  "Paid R$ 57,50" or "Received R$ 120,00" (it read "R$ 57,50 out").
+- **Money in words** (design review 2, 2026-11-20): a month's line reads "Received R$ 120,00 · Paid
+  R$ 57,50" (it read In and Out, the words the cards' own Out: and In: lines use), and a move's sheet
+  "Paid R$ 57,50" or "Received R$ 120,00" (it read "R$ 57,50 out"). The month's line first read
+  "Sold" and "Spent", but its money in counts cash received in a trade too, so it takes the
+  sheet's words (v86 review).
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
 - **Scan a trade or sale** (Eric, 2026-11-06): Trades and sales has a **Scan a trade or sale**

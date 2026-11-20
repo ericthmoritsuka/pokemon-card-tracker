@@ -124,7 +124,7 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	assert.equal(await page.locator('.moves-title').first().textContent(), 'Sold for R$ 30,50 to Ana');
 	assert.match(await page.locator('.moves-cards').first().textContent(), /^Out: Bulbasaur$/);
 	// Money in words, not In and Out (design review 2, 2026-11-20).
-	assert.match(await page.locator('.moves-money').first().textContent(), /^Sold R\$\s30,50$/);
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Received R\$\s30,50$/);
 	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-history.png`});
 
 	// Scan and Log side by side at equal width under the title.
@@ -247,6 +247,27 @@ test('a trade with one card out and one card in', async () => {
 	await page.goto(url('cards/en/tsb2-090'));
 	await page.waitForSelector('#card-moves .card-move-in');
 	assert.match(await page.locator('#card-moves .card-move-in').textContent(), /^Came in: traded with Bruno, /);
+	await done();
+});
+
+// A month's money in counts cash received in a trade as well as sales, so
+// its line says Received and Paid, as a move's sheet does (v86 review: it
+// read Sold for a trade's cash).
+test('a month\'s money line says Received for a trade\'s cash in, and Paid for money out', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {applyMove} = await import('/pokemon-card-tracker/js/moves.js');
+		const spare = {card_id: 'tsb2-090', catalog: 'international', language: 'en', language_source: 'manual', variant_id: null};
+		const date = new Date().toISOString().slice(0, 10);
+
+		await applyMove({date, in: [spare], kind: 'traded', money: 'in', out: [], price: '10', who: 'Bruno'});
+		await applyMove({date, in: [spare], kind: 'bought', out: [], price: '4', who: 'Liga'});
+	});
+	await page.goto(url('trades'));
+	await page.waitForSelector('.moves-row');
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Received R\$\s10,00 · Paid R\$\s4,00$/);
 	await done();
 });
 
@@ -393,7 +414,7 @@ test('Edit changes a logged sale\'s price and who: History and the card page fol
 
 	await page.waitForFunction(() => document.querySelector('.moves-title')?.textContent.includes('Ana Lima'));
 	assert.match(await page.locator('.moves-title').first().textContent(), /^Sold for R\$\s1\.500,00 to Ana Lima$/);
-	assert.match(await page.locator('.moves-money').first().textContent(), /^Sold R\$\s1\.500,00$/);
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Received R\$\s1\.500,00$/);
 	assert.equal(await page.locator('#move-sheet[open]').count(), 0, 'the sheet closed');
 
 	const saved = await untilInPage(page, 'the edited move', async () => {

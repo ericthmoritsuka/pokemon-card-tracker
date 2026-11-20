@@ -276,9 +276,12 @@ export function historyView(root) {
 				h('h3', null, monthName(month.month)),
 				// Money's way in words, not In and Out, which the cards'
 				// own Out: and In: lines use (design review 2, 2026-11-20).
+				// Received and Paid, as a move's sheet says: the money in
+				// counts cash received in a trade, not only sales (v86
+				// review: it read Sold).
 				h('p', {class: 'moves-money'}, [
-					Object.keys(month.in).length ? `Sold ${moneyLine(month.in)}` : null,
-					Object.keys(month.out).length ? `Spent ${moneyLine(month.out)}` : null,
+					Object.keys(month.in).length ? `Received ${moneyLine(month.in)}` : null,
+					Object.keys(month.out).length ? `Paid ${moneyLine(month.out)}` : null,
 				].filter(Boolean).join(' · ') || 'No money in or out')
 			),
 			h('ul', {class: 'moves-list'}, month.moves.map((move) => {
