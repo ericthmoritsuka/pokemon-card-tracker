@@ -488,6 +488,15 @@ deliberate list: a card, optionally a variant and language, a priority, and a no
 card can be added to the wishlist in one tap. Seeing a family member's wishlist next to your own
 spares is the start of trade matching, which is deferred (section 12).
 
+**The wishlist screen** (design review 2, 2026-11-20). Add a card opens the search in its place:
+the name field first at the whole width with a ✕ that closes the search, then the language and
+Search on one row. The language is the one last searched in, else the one most of his copies are
+in, else the viewing language (it was the viewing language, English, for a collection three
+quarters Portuguese). Each row shows what the card costs, "≈ R$ 10,38", under its number line: a
+copy in the wished language and finish valued as a copy is (prices.js copyValue, the market price at
+the saved dollar rate), and no line when the record has no price or no rate is saved yet. Edit
+sits at the end of the chips' row, so a row is about 150 px tall rather than 200.
+
 **A wish is marked got when a copy that fits it is added** (Eric, 2026-10-31; built 2026-10-31).
 When any path adds a copy (section 11, Binders, "Placeholders fill themselves"; the scanner too)
 of a card on the wishlist (the same card and catalog, and the wish's language and finish when it

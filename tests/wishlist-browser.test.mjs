@@ -43,9 +43,10 @@ const url = (path = '') => `${harness.origin}${BASE}${path}`;
 
 const AT = '2026-09-01T00:00:00.000Z';
 
+// Bulbasaur's reverse holo has a market price, for the rows' "≈ R$" line.
 const VARIANTS = (n) => [
 	{size: 'standard', type: 'normal', variantId: `v-normal-${n}`},
-	{size: 'standard', type: 'reverse', variantId: `v-reverse-${n}`},
+	{size: 'standard', type: 'reverse', variantId: `v-reverse-${n}`, ...(n === 1 ? {pricing: {tcgplayer: {'reverse-holofoil': {marketPrice: 2}, unit: 'USD', updated: '2026-11-18T00:00:00.000Z'}}} : {})},
 	{foil: 'pokeball', size: 'standard', type: 'reverse', variantId: `v-pokeball-${n}`},
 ];
 
@@ -332,6 +333,22 @@ describe('wishlist', () => {
 		// Search by name: three cards, the TCG Pocket card left out, set names
 		// from the set list.
 		await page.click('#wishlist-add');
+		// The name first at the whole width with ✕ beside it, then the
+		// language and Search; the language most copies are in, Portuguese,
+		// with none chosen yet (design review 2, 2026-11-20).
+		assert.ok(await page.locator('#wishlist-add').isHidden(), 'the search takes Add a card\'s place');
+		assert.equal(await page.inputValue('#wishlist-search-lang'), 'pt');
+
+		const boxes = await page.$$eval('#wishlist-search, #wishlist-search-close, #wishlist-search-lang, #wishlist-search-go', (nodes) => nodes.map((node) => {
+			const rect = node.getBoundingClientRect();
+
+			return {bottom: Math.round(rect.bottom), id: node.id, left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width)};
+		}));
+		const [input, close, lang, go] = boxes;
+
+		assert.ok(Math.abs(input.top - close.top) <= 4 && close.left > input.left && input.bottom <= lang.top && Math.abs(lang.top - go.top) <= 1, `input and ✕, then language and Search: ${JSON.stringify(boxes)}`);
+		assert.ok(input.width + close.width >= 300, `the input runs the width: ${JSON.stringify(boxes)}`);
+		assert.equal(await page.getAttribute('#wishlist-search-close', 'aria-label'), 'Close search');
 		await search(page, 'test');
 		assert.equal(await page.locator('.wl-result').count(), 3);
 		assert.equal(await page.locator('.wl-result[data-card="A1-001"]').count(), 0, 'no TCG Pocket cards');
@@ -367,13 +384,20 @@ describe('wishlist', () => {
 		// Already wanted cards are marked in the results.
 		await search(page, 'test');
 		assert.equal(await page.locator('.wl-result.wl-on').count(), 3);
-		await page.click('#wishlist-add');
+		await page.click('#wishlist-search-close');
+		assert.ok(await page.locator('#wishlist-add-panel').isHidden(), '✕ closes the search');
+		assert.ok(await page.locator('#wishlist-add').isVisible(), 'and gives Add a card back');
 
 		await waitForSummary(page, '3 cards wanted. You have 2 of them now.');
 		// An item with no language shows in the viewing language (English).
 		assert.deepEqual(await page.locator('.wl-name').allTextContents(), ['Test Bulbasaur', 'Venusaur Teste', 'Test Ivysaur'], 'high first, then newest');
 		assert.match(await item(page, 'Test Bulbasaur').textContent(), /High priority.*EN.*Reverse holo.*For the binder/);
 		assert.match(await item(page, 'Test Bulbasaur').locator('.wl-meta').textContent(), /#001 \/ 3 · Test set one/);
+		// What it costs under the number line, and Edit with the chips.
+		await page.waitForFunction(() => [...document.querySelectorAll('.wl-item')].some((row) => row.querySelector('.wl-value')));
+		assert.match(await item(page, 'Test Bulbasaur').locator('.wl-value').textContent(), /^≈ R\$\s10,38$/, 'US$ 2,00 at the test rate');
+		assert.equal(await item(page, 'Test Ivysaur').locator('.wl-value').count(), 0, 'no line for a card with no price');
+		assert.equal(await page.locator('.wl-chips .wl-edit').count(), 3, 'Edit sits with the chips');
 		await item(page, 'Test Bulbasaur').locator('img').waitFor();
 
 		let wishes = await liveWishes(page);
