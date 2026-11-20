@@ -228,7 +228,10 @@ export function confirmSheet(ctx, itemId) {
 		candidateArt(candidate),
 		// The number and the set, one line each, so two printings of one
 		// card read apart (design review, 2026-11-19: each said "151").
+		// Spaces between the lines, unseen, so they read as separate words.
+		' ',
 		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, candidateNumber(candidate)),
+		' ',
 		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidateSet(candidate)));
 	}
 

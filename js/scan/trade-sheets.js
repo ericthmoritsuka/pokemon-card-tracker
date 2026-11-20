@@ -70,8 +70,11 @@ export function tradeColumns({languageName = langName, photoUrl, results, sessio
 				id: `scan-side-${side}`,
 				type: 'button',
 			},
+			// Spaces between the parts, unseen, so they read as separate words.
 			h('span', {class: 'scan-trade-name'}, SIDE_NAMES[side]),
+			' ',
 			h('span', {class: 'scan-trade-count'}, String(items.length)),
+			on ? null : ' ',
 			on ? null : h('span', {'aria-hidden': 'true', class: 'scan-trade-next'}, 'Tap to scan here')),
 			h('ul', {class: 'scan-trade-rows'}, ...(items.length
 				? items.map((item) => tradeRow(item, {languageName, photoUrl: photoUrl(item.id), result: side === 'out' ? results.get(item.id) : null, where}))

@@ -67,7 +67,9 @@ export function presetPicker({onPick, value = null}) {
 
 			detail.className = 'binder-preset-detail';
 			detail.textContent = `${preset.rows} x ${preset.cols} · ${presetCards(preset)} cards`;
-			button.append(detail);
+			// A space between the lines, unseen, so they read as separate
+			// words ("zip 3 x 3", not "zip3 x 3").
+			button.append(' ', detail);
 			// The words on the button first, then the pages (WCAG 2.5.3,
 			// label in name; accessibility audit, 2026-11-20).
 			button.setAttribute('aria-label', `${preset.label}, ${preset.rows} x ${preset.cols}, ${presetCards(preset)} cards, ${preset.sheets} double-sided pages`);
