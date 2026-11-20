@@ -20,6 +20,16 @@ import {openDialogSheet} from './sheet.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-20',
+		items: [
+			'Binder page scan: the page opens as a grid while it is read, one tap sets the language for the whole page, and Already mine places a page of cards you own into a binder.',
+			'Scan has a Buy mode: the cards are logged as a purchase, with where they came from and a price for each. Close, Photo, and Page now sit beside the shutter.',
+			'A card to check names the guess ("Wartortle?"), and a card that shares its picture with a print the catalog has no image of asks for its number.',
+			'My Cards shows your cards higher up, a card page shows its price beside the picture, a binder on an upright phone opens on one page, and Stats shows your lists\' progress.',
+		],
+		version: 'v85',
+	},
+	{
 		date: '2026-11-19',
 		items: [
 			'Binder page scan: a Portuguese or English card no longer comes out as the Japanese print of the same picture. It still asks you to check it.',
