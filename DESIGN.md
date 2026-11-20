@@ -3289,11 +3289,15 @@ the binder card picker, the tray, and the wishlist can reuse it:
   server matches the name); its offline pass is. Cost: each distinct name is checked once per
   search, only within two letters of the diagonal; about 20 ms over 30,000 names on a laptop,
   and only when nothing matched as typed.
-- **Filters,** in a bottom sheet with the count of active ones on its button, each also shown as a
-  clearable chip: region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
-  "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone means
-  that one number), energy type (the eleven TCG types, with the themes' colors), category
-  (Pokémon, Trainer, Energy), set, language, rarity, priced or not, and not in a binder yet. A card
+- **Filters,** in a bottom sheet with the count of active ones on its button in words ("Filters ·
+  2"), each also shown as a clearable chip, in this order (design review 2, 2026-11-20: the sheet
+  opened on region and Pokédex number, while set and language are the ones reached for most): set,
+  language, rarity, energy type (the eleven TCG types, with the themes' colors), category (Pokémon,
+  Trainer, Energy), region or generation (the checklist presets' Dex ranges, "Kanto (Gen 1)" to
+  "Paldea (Gen 9)", Hisui counted as Gen 8), a Pokédex number range (from and to; either alone
+  means that one number), artist, priced or not, pictures, stored in, not in a binder yet, and
+  favorites. The binder pickers keep their own order (region first), as they fill binders by
+  region. A card
   with several Dex numbers (a TAG TEAM) fits a region or range when any of them does; a card with
   none (a Trainer, an Energy, or one whose details are not read yet) never fits a Dex filter.
 - **Sorts:** newest or oldest added, name, Pokédex number, set and number, price (unknown last).

@@ -39,18 +39,10 @@
 	min-height: var(--target);
 }
 
+/* The count of active filters as words on the button: "Filters · 2". */
 .fb-count {
-	align-items: center;
-	background: var(--accent);
-	border-radius: var(--radius-pill);
-	color: var(--on-accent);
-	display: inline-flex;
-	font: var(--type-label);
-	height: 22px;
-	justify-content: center;
-	margin-left: 6px;
-	min-width: 22px;
-	padding: 0 6px;
+	font-variant-numeric: tabular-nums;
+	white-space: pre;
 }
 
 .fb-count[hidden],

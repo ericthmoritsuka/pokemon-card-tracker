@@ -403,6 +403,14 @@ describe('filters and sorts', () => {
 		await pick('language', 'ja');
 		assert.equal(await page.locator('.tile').count(), 1);
 		assert.match(await page.locator('#cards-filters').getAttribute('aria-label'), /2 active/);
+		// The count in words on the button (design review 2, 2026-11-20).
+		assert.equal(plain(await page.locator('#cards-filters').textContent()), 'Filters · 2');
+
+		// The sheet opens on the filters reached for most: set, language,
+		// rarity, then type and category before region and Pokédex number.
+		await openFilters(page);
+		assert.deepEqual(await page.locator('#cards-sheet [data-filter]').evaluateAll((nodes) => nodes.map((node) => node.dataset.filter)), ['set', 'language', 'rarity', 'type', 'category', 'region', 'dex', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite']);
+		await closeFilters(page);
 		// Clear all is a text button at the end of the count's line, not a
 		// chip (design review 2, 2026-11-20).
 		assert.equal(await page.locator('.fb-chips .fb-clear').count(), 0, 'no Clear all chip');

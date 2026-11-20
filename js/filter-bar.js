@@ -87,9 +87,11 @@ export const SORTS = [
 // label My Cards' newest-first Set already uses.
 const DEFAULT_SORTS = SORTS.map((option) => option.value).filter((value) => value !== 'setOld');
 
-// Every filter the bar knows, in the order the sheet shows them. dex is a
-// Pokédex number range, kept as "<from>-<to>" ("25-25" for one number).
-export const FILTERS = ['region', 'dex', 'type', 'category', 'set', 'language', 'rarity', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite'];
+// Every filter the bar knows, in the order the sheet shows them: the ones
+// reached for most first, set and language (design review 2, 2026-11-20:
+// the sheet opened on region and Pokédex number). dex is a Pokédex number
+// range, kept as "<from>-<to>" ("25-25" for one number).
+export const FILTERS = ['set', 'language', 'rarity', 'type', 'category', 'region', 'dex', 'artist', 'price', 'picture', 'storage', 'unplaced', 'favorite'];
 
 // The filters that are a checkbox, not a choice.
 export const BOOLEAN_FILTERS = ['unplaced', 'favorite'];
@@ -604,6 +606,8 @@ export function filterBar({
 
 	sortSelect.value = state.sort;
 
+	// "Filters · 2" while two are on (design review 2, 2026-11-20): words on
+	// the button, not a colored disc; the button's name says "2 active".
 	const countBadge = h('span', {'aria-hidden': 'true', class: 'fb-count', hidden: true});
 	const filterButton = h('button', {'aria-haspopup': 'dialog', class: 'small fb-open', id: `${id}-filters`, onclick: () => openSheet(), type: 'button'}, 'Filters', countBadge);
 	const chips = h('div', {'aria-label': 'Active filters', class: 'fb-chips', hidden: true, role: 'group'});
@@ -675,7 +679,7 @@ export function filterBar({
 		const active = activeFilters(state.filters);
 
 		countBadge.hidden = !active.length;
-		countBadge.textContent = String(active.length);
+		countBadge.textContent = ` · ${active.length}`;
 		filterButton.setAttribute('aria-label', active.length ? `Filters, ${active.length} active` : 'Filters');
 		// Clear all shows whenever anything narrows the list, the search too.
 		const narrowed = active.length > 0 || state.query.trim() !== '' || Boolean(outsideNarrowed());
