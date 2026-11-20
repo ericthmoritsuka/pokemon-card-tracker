@@ -1345,6 +1345,12 @@ select {
 	text-decoration: none;
 }
 
+/* The ‹ of a back link (js/dom.js backWords), a space's width from its
+   words. */
+.back-mark {
+	margin-inline-end: 0.28em;
+}
+
 /* Card grids: art is the hero, 8 px gutters, no frames. */
 
 .card-grid {
