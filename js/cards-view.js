@@ -1534,9 +1534,10 @@ export function cardsScreen(root, {
 		}
 
 		// The summary is in the heading on your own My Cards: no count
-		// stays there over an empty state.
+		// stays there over an empty state, nor an empty line.
 		if (!entries.length) {
 			summary.textContent = '';
+			summary.remove();
 		}
 
 		if (!entries.length && emptyNode) {
@@ -1564,6 +1565,11 @@ export function cardsScreen(root, {
 
 		if (!body.contains(grid)) {
 			body.replaceChildren(...[bar.element, summaryRow, storeButton, grid, more, bulk ? bulk.bar : null].filter(Boolean));
+		}
+
+		// Your own My Cards: the count beside the title, once there are cards.
+		if (bulk && !summary.isConnected) {
+			heading.firstElementChild.after(summary);
 		}
 
 		ready = true;
@@ -1732,7 +1738,8 @@ export function cardsScreen(root, {
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
 	const headLinks = [tradeLink, movesLink, wishLink].filter(Boolean);
 	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title), bulk ? summary : null, links);
+	// The count joins it once the cards are read (load), after the title.
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title), links);
 
 	root.append(heading, body);
 	load();
