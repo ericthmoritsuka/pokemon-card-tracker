@@ -117,6 +117,9 @@ function listenForRecords() {
 	}
 
 	savedChannel = new BroadcastChannel(SAVED_CHANNEL);
+	// Node keeps a process alive while a channel is open; browsers have no
+	// unref, so this only lets a test run (node --test) end.
+	savedChannel.unref?.();
 	savedChannel.onmessage = (event) => {
 		for (const key of (event.data && event.data.keys) || []) {
 			forget(key);
