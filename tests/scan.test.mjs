@@ -111,6 +111,39 @@ describe('the tray state machine', () => {
 		assert.ok(S.isSavable(item));
 	});
 
+	// A review, 2026-11-20: a later picture answer (the full records after
+	// the quick answer, or a pocket's prints matched again in its read
+	// language) puts a new card on its plain finish with Place it there on
+	// again, so a finish or Place it there picked meanwhile must stop it.
+	test('a finish or Place it there picked by hand counts as touched; the finish the scanner loads does not', () => {
+		const session = S.newSession(AT, 's1');
+		const item = S.addCapture(session, {at: AT, id: 'a'});
+
+		S.applyPicture(session, 'a', {candidates: [candidate('sv08.5-003')], card: candidate('sv08.5-003'), sure: false}, AT);
+
+		const shown = S.answerSnapshot(item);
+
+		S.applyVariants(session, 'a', 'sv08.5-003', PINSIR, AT);
+		assert.ok(S.untouchedSince(shown, item), 'the scanner\'s own finish, loaded between the answers');
+
+		const loaded = S.answerSnapshot(item);
+		const other = PINSIR.find((variant) => variant.variantId !== item.variantId).variantId;
+
+		S.setFinish(session, 'a', other, 'hand', AT);
+		assert.equal(S.untouchedSince(shown, item), false, 'a finish picked by hand');
+		assert.equal(S.untouchedSince(loaded, item), false);
+
+		const picked = S.answerSnapshot(item);
+
+		S.setPlace(session, 'a', false, AT);
+		assert.equal(S.untouchedSince(picked, item), false, 'Place it there switched off');
+
+		const placed = S.answerSnapshot(item);
+
+		S.setLanguage(session, 'a', 'pt', 'hand', AT);
+		assert.equal(S.untouchedSince(placed, item), false, 'a language picked by hand, as before');
+	});
+
 	test('a language the read is not sure of is left unpicked, never borrowed from another card', () => {
 		const session = S.newSession(AT, 's1');
 

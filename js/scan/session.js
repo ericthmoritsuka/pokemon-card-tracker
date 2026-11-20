@@ -1225,6 +1225,32 @@ const spotKey = (spot) => `${spot.binder_id}|${spot.page}|${spot.position}`;
 // Place it there: on unless switched off on this card (item.place false).
 export const placeOn = (item) => item.place !== false;
 
+// What a scanner answer left on a card that a person can change before the
+// next answer comes (js/scan/view.js pictureItemNow's full answer,
+// narrowLater): the card, Confirm, the language and how it was set, and the
+// finish and Place it there picked by hand. The next answer replaces the
+// card's only when none of these changed, since applyPicture puts a new
+// card on its plain finish with Place it there on again (setCard), and a
+// pick made while the card was read would be reset with no word (a review,
+// 2026-11-20). A finish the scanner set itself (its default, the plain
+// print, or Ask) is not a pick: the finishes load between the two answers.
+const PICKED_FINISH = ['all', 'hand'];
+
+export const answerSnapshot = (item) => ({
+	card: item.card ? item.card.id : null,
+	confirmed: Boolean(item.confirmed),
+	finish: PICKED_FINISH.includes(item.finishBy) ? `${item.finishBy}:${item.variantId}` : null,
+	language: item.language || null,
+	languageBy: item.languageBy || null,
+	place: typeof item.place === 'boolean' ? item.place : null,
+});
+
+export function untouchedSince(before, item) {
+	const now = answerSnapshot(item);
+
+	return Object.keys(now).every((key) => now[key] === before[key]);
+}
+
 export function setPlace(session, id, on, now = nowIso()) {
 	const item = mustFind(session, id);
 

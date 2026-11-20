@@ -3646,13 +3646,9 @@ export function scanView(root) {
 	}
 
 	// What a picture answer left on the card, to tell whether anyone changed
-	// it before the next one.
-	const snapshot = (item) => ({card: item.card ? item.card.id : null, confirmed: item.confirmed, language: item.language, languageBy: item.languageBy});
-	const sameAs = (before, item) => {
-		const now = snapshot(item);
-
-		return now.card === before.card && now.confirmed === before.confirmed && now.language === before.language && now.languageBy === before.languageBy;
-	};
+	// it before the next one (session.js answerSnapshot).
+	const snapshot = (item) => S.answerSnapshot(item);
+	const sameAs = (before, item) => S.untouchedSince(before, item);
 
 	// A picture answer onto the card: the match, the language a settled card
 	// starts in, the scan report, and, behind it, the print in that language
