@@ -63,6 +63,28 @@ export function artFallback(src) {
 	return english ? {note: ENGLISH_NOTE, src: english} : null;
 }
 
+// Every stand-in to try in turn when src fails: the English image (as
+// artFallback), then the large image in the same language, then the large
+// English one. TCGdex sometimes has a card's large image only (sv10-028
+// Arcanine, 2026-11-20: low.webp 404, high.webp 200), so a tile or pocket,
+// which asks for the small one, stayed blank while the card page showed it.
+const LOW_IMAGE = /\/low\.webp$/;
+
+export function artFallbacks(src) {
+	const english = artFallback(src);
+	const list = english ? [english] : [];
+
+	if (LOW_IMAGE.test(String(src || ''))) {
+		list.push({note: null, src: String(src).replace(LOW_IMAGE, '/high.webp')});
+
+		if (english) {
+			list.push({note: ENGLISH_NOTE, src: english.src.replace(LOW_IMAGE, '/high.webp')});
+		}
+	}
+
+	return list;
+}
+
 // Says that the art is a stand-in: a line under a tile's meta line, like a
 // family member's "Photo by" line, or a caption on the art anywhere else
 // (the card detail, the scan sheets). Never on a tile that shows or waits
@@ -140,7 +162,7 @@ export function cardArt(info, src, {decorative = false, eager = false} = {}) {
 	});
 
 	let shown = src;
-	let fallback = artFallback(src);
+	const fallbacks = artFallbacks(src);
 	let note = null;
 
 	img.addEventListener('load', () => {
@@ -153,11 +175,19 @@ export function cardArt(info, src, {decorative = false, eager = false} = {}) {
 	img.addEventListener('error', function failed() {
 		forgetImage(shown);
 
-		if (fallback) {
-			shown = fallback.src;
-			note = fallback.note;
-			fallback = null;
-			frame.dataset.fallback = 'en';
+		const next = fallbacks.shift();
+
+		if (next) {
+			shown = next.src;
+			note = next.note;
+
+			if (next.note) {
+				frame.dataset.fallback = 'en';
+			}
+			else {
+				delete frame.dataset.fallback;
+			}
+
 			img.addEventListener('error', failed, {once: true});
 			img.src = shown;
 

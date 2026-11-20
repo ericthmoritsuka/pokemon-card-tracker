@@ -232,6 +232,15 @@ const PRINTED_CODES = {
 	sm1: 'SUM', sm2: 'GRI', sm3: 'BUS', 'sm3.5': 'SLG', sm4: 'CIN', sm5: 'UPR', sm6: 'FLI', sm7: 'CES', 'sm7.5': 'DRM', sm8: 'LOT', sm9: 'TEU', sm10: 'UNB', sm11: 'UNM', 'sm11.5': 'HIF', sm12: 'CEC',
 };
 
+// A Western set's English logo, for a language TCGdex has no logo for
+// (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
+// Retorno da Equipe Rocket have none in Portuguese). TCGdex's English logos
+// sit at en/<series>/<set>/logo; when that is missing too (the 30th
+// Celebration has none in either), the tile's image fails and shows the
+// set's name, as for any set with no logo. Japanese, Korean, and Chinese
+// sets have their own IDs, so they get none.
+export const englishLogo = (lang, serieId, setId) => (lang === 'en' || ASIAN_LANGUAGES.includes(lang) ? null : `https://assets.tcgdex.net/en/${serieId}/${setId}/logo`);
+
 async function loadSetList(lang) {
 	const [series, newestFirst] = await Promise.all([
 		getJson(`${lang}/series`),
@@ -249,7 +258,7 @@ async function loadSetList(lang) {
 			cardCount: set.cardCount || {},
 			code: (set.abbreviation && set.abbreviation.official) || PRINTED_CODES[set.id] || null,
 			id: set.id,
-			logo: set.logo || null,
+			logo: set.logo || englishLogo(lang, serie.id, set.id),
 			name: set.name,
 			releaseRank: rank.has(set.id) ? rank.get(set.id) : null,
 		})),
