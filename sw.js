@@ -138,7 +138,7 @@ const SHELL = [
 	'index.html',
 	'app.js',
 	'js/account-views.js',
-	// A waiting version takes over at a quiet moment (2026-11-20).
+	// A waiting version takes over after the app was away a while (2026-11-20).
 	'js/auto-update.js',
 	'js/binders-view.js',
 	'js/binder-convert.js',
@@ -368,8 +368,9 @@ self.addEventListener('install', (event) => {
 // A new version waits until the page asks for it, so an open page never
 // mixes its old modules with new ones (a tab that loads on first open, such
 // as Scan, would otherwise import files from the new version): when the
-// person taps Reload, or at a quiet moment the page picks itself
-// (js/auto-update.js), and the page reloads as the new version takes over.
+// person taps Reload, or when the app comes back after a while away and is
+// quiet (js/auto-update.js), and the page reloads once the new version is
+// activated.
 // The first install has nothing to wait for and takes over at once.
 self.addEventListener('message', (event) => {
 	if (event.data === 'skip-waiting') {
@@ -382,18 +383,33 @@ self.addEventListener('message', (event) => {
 	}
 });
 
+// The longest activation waits for the old shell caches to go.
+const CLEANUP_MS = 3000;
+
+// Activation must never hang: every request from a page this worker
+// controls, a reload's included, waits until it is activated, and the page
+// reloads into this version only then (js/whats-new.js applyUpdate). So it
+// awaits nothing that waits on a fetch. clients.claim() comes first, and the
+// old shell caches' deletion, which may queue behind the Cache Storage calls
+// the old worker may still have running (images being kept and trimmed, a
+// grid's worth at once), is given CLEANUP_MS and then left to finish on its
+// own. A cache left behind is deleted by the next version's activation.
 self.addEventListener('activate', (event) => {
 	event.waitUntil(
 		(async () => {
-			const keys = await caches.keys();
-
-			await Promise.all(
-				keys
-					.filter((key) => key.startsWith(PREFIX) && key !== CACHE)
-					.map((key) => caches.delete(key))
-			);
-
 			await self.clients.claim();
+
+			const cleanup = (async () => {
+				const keys = await caches.keys();
+
+				await Promise.all(
+					keys
+						.filter((key) => key.startsWith(PREFIX) && key !== CACHE)
+						.map((key) => caches.delete(key))
+				);
+			})().catch(() => {});
+
+			await Promise.race([cleanup, new Promise((resolve) => setTimeout(resolve, CLEANUP_MS))]);
 		})()
 	);
 });

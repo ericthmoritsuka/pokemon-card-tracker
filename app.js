@@ -224,7 +224,8 @@ function render() {
 		window.scrollTo(0, 0);
 	}
 
-	// A move between screens is a moment to take a waiting version.
+	// What was typed went with the old screen. Never a moment to switch to
+	// a waiting version (js/auto-update.js).
 	screenDrawn();
 }
 
@@ -282,17 +283,17 @@ async function registerServiceWorker() {
 	let offered = false;
 
 	navigator.serviceWorker.addEventListener('controllerchange', () => {
-		// After Reload, the waiting version took over: load its files.
+		// Reload is handing over to the new version: the page reloads once
+		// it is activated, not now, while it is still activating
+		// (js/whats-new.js applyUpdate).
 		if (updateApplying()) {
-			window.location.reload();
-
 			return;
 		}
 
 		// A toast floats over the page, so nothing shifts when it shows.
 		// Reload in another tab moved this one to the new version too: this
-		// page reloads at its next quiet moment (js/auto-update.js), or now
-		// with Reload.
+		// page reloads by itself when it next comes back after a while away
+		// (js/auto-update.js), or now with Reload.
 		if (hadController) {
 			markStale();
 			toast('A new version is installed.', {action: () => window.location.reload(), actionLabel: 'Reload', timeout: 0});
@@ -304,7 +305,8 @@ async function registerServiceWorker() {
 
 	// A new version installs in the background and waits, so this page keeps
 	// running on one version's files until the person taps Reload, or until
-	// a quiet moment switches it by itself (js/auto-update.js).
+	// it switches by itself when the app comes back after a while away
+	// (js/auto-update.js).
 	function offer(worker) {
 		if (offered || !worker || !navigator.serviceWorker.controller) {
 			return;

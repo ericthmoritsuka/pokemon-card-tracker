@@ -926,14 +926,21 @@ describe('a new version', () => {
 
 			assert.ok(before.every((key) => waiting.includes(key)), 'the old version\'s cache is kept');
 
-			// Reload hands over to the new version and loads its files.
+			// Reload hands over to the new version and loads its files: the
+			// page really reloads, under an activated worker, and works.
+			await page.evaluate(() => {
+				window.__sameLoad = true;
+			});
 			await page.getByRole('button', {name: 'Reload'}).click();
-			await untilInPage(page, 'the vnext cache and a controlling worker after Reload', async () => {
+			await untilInPage(page, 'a new load under the activated vnext worker after Reload', async () => {
 				const keys = await caches.keys();
+				const controller = navigator.serviceWorker.controller;
 
-				return keys.some((key) => key.endsWith('vnext')) && Boolean(navigator.serviceWorker.controller);
+				return window.__sameLoad !== true && keys.some((key) => key.endsWith('vnext')) && Boolean(controller) && controller.state === 'activated';
 			}, {timeout: 30000});
 			await page.waitForSelector('main h2');
+			await page.click('.tabs a[data-tab="sets"]');
+			await page.waitForFunction(() => location.pathname.endsWith('/sets') && document.title.startsWith('Sets'), null, {timeout: 15000});
 			assert.deepEqual(errors, []);
 		}
 		finally {
