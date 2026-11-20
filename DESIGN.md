@@ -540,6 +540,16 @@ sign-in. Family view-only mode is entered from a "Mine" switcher in the header a
 remembered between launches. The full spec is `plans/design-review.md`. *(Approved by Eric,
 2026-10-01.)*
 
+**Readable text is 14 px or more** (design review, 2026-11-19: about 36 rules set text under 14
+px). Names, sets, numbers, counts, notes, labels over facts, the tab labels, and the scanner's
+sheets are 14 px at least. Smaller text stays only where it is a badge or is drawn on a picture
+(the corner badges, the Scan disc's count, a card back's words, a sprite's letter), where 14 px
+would cut it in a column that cannot grow at 360 px (the trade tray's lines and copy chips, the
+tray tile's Have strip and value line), or where it sits over the camera and sets how tall the
+guide can be (the running count and the holder tip). The header's sync line, the owner switch, the
+offline strip, the filter chips, binders, prices, and the binder page grid were left to their own
+reworks.
+
 **Nothing a thumb needs sits under the raised Scan disc.** The disc stands 28 px over the tab bar,
 in the middle, where a form's sticky Save is. Every sticky row of buttons above the tab bar (a
 form's `.actions`: the trade, sale, and purchase form, Fill placeholders, import, and Phone check;

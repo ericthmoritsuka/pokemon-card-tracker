@@ -1534,8 +1534,8 @@ html.scan-open body {
 }
 
 .scan-result-text {
-	font-size: 12px;
-	line-height: 16px;
+	font-size: 14px;
+	line-height: 18px;
 }
 
 .scan-result-text small {
@@ -1641,7 +1641,7 @@ html.scan-open body {
 	box-sizing: border-box;
 	color: var(--scan-text);
 	font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-	font-size: 12px;
+	font-size: 14px;
 	line-height: 1.4;
 	padding: 8px;
 	resize: vertical;
@@ -1745,7 +1745,7 @@ html.scan-open body {
 
 .scan .scan-head-label {
 	color: var(--scan-muted);
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
 	min-width: 30px;
 }
@@ -2012,9 +2012,9 @@ html.scan-open body {
 }
 
 .scan-trade-title {
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
-	line-height: 17px;
+	line-height: 18px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

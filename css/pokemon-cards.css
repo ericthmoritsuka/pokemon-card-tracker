@@ -282,7 +282,7 @@
 }
 
 .pc-wish {
-	font-size: 0.8rem;
+	font-size: 0.875rem;
 	line-height: 1.2;
 	min-height: 48px;
 	padding-left: var(--space-1);
@@ -294,7 +294,7 @@
 	align-items: center;
 	color: var(--muted);
 	display: flex;
-	font-size: 0.85rem;
+	font-size: 0.875rem;
 	justify-content: center;
 	min-height: 48px;
 	text-align: center;
