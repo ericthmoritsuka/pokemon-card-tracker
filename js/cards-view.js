@@ -462,6 +462,12 @@ export function cardsScreen(root, {
 	let index = new Map();
 	// Full TCGdex records saved on the phone, for the tiles' US estimates.
 	let saved = new Map();
+	// Whether saved holds every copy's record: null before the rest are
+	// asked for (load reads the first screen's first), their read while it
+	// runs, true once they are in.
+	let savedAll = null;
+	// A name arrived while load read the first screen's records.
+	let namesMoved = false;
 	// Copies placed in a binder, by entry ID.
 	let placed = new Map();
 	let rates = savedRates();
@@ -565,6 +571,13 @@ export function cardsScreen(root, {
 	}
 
 	function openValue() {
+		// Every price counts, so every record must be in.
+		if (ready && savedAll !== true) {
+			savedReady().then(() => alive && savedAll === true && openValue());
+
+			return;
+		}
+
 		ensurePrices(groups);
 
 		const noted = background ? Promise.resolve(null) : noteValue();
@@ -582,7 +595,10 @@ export function cardsScreen(root, {
 	}
 
 	function redrawNames() {
-		if (alive && groups.length) {
+		if (alive && groups.length && !ready) {
+			namesMoved = true;
+		}
+		else if (alive && groups.length) {
 			build();
 			draw();
 		}
@@ -1126,6 +1142,12 @@ export function cardsScreen(root, {
 	function redraw(keys) {
 		const {filters, query, sort} = bar.state;
 
+		if (needsPrices() && savedAll !== true) {
+			draw();
+
+			return;
+		}
+
 		if (needsPrices()) {
 			ensurePrices(groups);
 		}
@@ -1151,6 +1173,14 @@ export function cardsScreen(root, {
 
 	function draw(sorted = null) {
 		const {filters, query, sort} = bar.state;
+
+		// Sorted or filtered by price before every record is read: drawn
+		// once they are, never in an order a missing price decided.
+		if (needsPrices() && ready && savedAll !== true) {
+			savedReady().then(() => alive && savedAll === true && draw());
+
+			return;
+		}
 
 		if (!sorted && needsPrices()) {
 			ensurePrices(groups);
@@ -1194,6 +1224,12 @@ export function cardsScreen(root, {
 
 		shown += PAGE;
 		rememberInHistory({shown});
+
+		if (needsPrices() && savedAll !== true) {
+			draw();
+
+			return;
+		}
 
 		if (needsPrices()) {
 			ensurePrices(groups);
@@ -1422,6 +1458,13 @@ export function cardsScreen(root, {
 	}
 
 	async function fillPrices() {
+		// Records saved before this pass are all in first.
+		await savedReady();
+
+		if (!alive) {
+			return;
+		}
+
 		// The cards on screen first, in their order, then the rest.
 		const {filters, query, sort} = bar.state;
 		const order = [...sortItems(applyFilters(groups, {filters, query}), sort).flatMap((group) => group.entries), ...entries];
@@ -1538,7 +1581,7 @@ export function cardsScreen(root, {
 				cardIndex(),
 			]);
 
-			next = {binders, index: nextIndex, list, saved: await savedCardRecords(list)};
+			next = {binders, index: nextIndex, list};
 		}
 		catch (err) {
 			if (alive && run === loadRun) {
@@ -1556,7 +1599,8 @@ export function cardsScreen(root, {
 
 		entries = next.list;
 		index = next.index;
-		saved = next.saved;
+		saved = new Map();
+		savedAll = null;
 		placed = placements(liveBinders(next.binders || []));
 		remember();
 
@@ -1609,13 +1653,110 @@ export function cardsScreen(root, {
 			heading.firstElementChild.after(summary);
 		}
 
-		ready = true;
 		build();
+		namesMoved = false;
+
+		// The records of the tiles on the first screen only, so they draw
+		// with their prices and finishes, and every other one right after
+		// the paint (readRest): reading 1,500 records first held the first
+		// tile back by about 2.5 s on a slow phone. Sorted or filtered by
+		// price, every tile needs its record before the first draw.
+		const everyPrice = needsPrices();
+
+		await readSaved(everyPrice ? entries : firstShown(), run).catch(() => null);
+
+		if (!alive || run !== loadRun) {
+			return;
+		}
+
+		if (everyPrice) {
+			savedAll = true;
+		}
+
+		// A name that arrived while the records were read.
+		if (namesMoved) {
+			build();
+		}
+
+		ready = true;
 		draw();
+		afterPaint(() => readRest(run));
 		fillViewingLanguage();
 		startTwins();
 		afterPaint(startBackground);
 		await fillMissing(entries, () => alive && run === loadRun);
+	}
+
+	// The copies of the tiles the first draw shows.
+	function firstShown() {
+		const {filters, query, sort} = bar.state;
+
+		return sortItems(applyFilters(groups, {filters, query}), sort).slice(0, shown).flatMap((group) => group.entries);
+	}
+
+	// Reads the saved full records of `list` into saved, for load `run`.
+	// A record already in saved stays as it is.
+	async function readSaved(list, run) {
+		const found = await savedCardRecords(list);
+
+		if (alive && run === loadRun) {
+			for (const [key, record] of found) {
+				if (!saved.has(key)) {
+					saved.set(key, record);
+				}
+			}
+		}
+	}
+
+	// Every other tile's record, after the first paint. A tile drawn
+	// without its record meanwhile (Show more, a redraw) is drawn again with
+	// it, and a price worked out without it is worked out again, so the
+	// screen ends as it would have had every record been read first.
+	function readRest(run) {
+		if (!alive || run !== loadRun || savedAll) {
+			return;
+		}
+
+		const before = new Set(saved.keys());
+		const reading = readSaved(entries, run)
+			.catch(() => {})
+			.then(() => {
+				if (!alive || run !== loadRun || savedAll !== reading) {
+					return;
+				}
+
+				savedAll = true;
+
+				const late = groups.filter((group) => saved.has(group.recordKey) && !before.has(group.recordKey));
+
+				// As makeGroup leaves them, so priceOf works them out again.
+				for (const group of late) {
+					group.priceDone = false;
+					delete group.price;
+					delete group.priced;
+					delete group.noPrice;
+				}
+
+				if (needsPrices()) {
+					draw();
+				}
+				else {
+					for (const group of late) {
+						replaceTile(group);
+					}
+				}
+
+				bar.refresh();
+			});
+
+		savedAll = reading;
+	}
+
+	// Resolves once every record is in saved, reading them if need be.
+	function savedReady() {
+		readRest(loadRun);
+
+		return savedAll && savedAll !== true ? savedAll : Promise.resolve();
 	}
 
 	// Card records the index lacks for these copies, read and drawn.
