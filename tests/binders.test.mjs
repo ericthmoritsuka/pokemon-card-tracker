@@ -1296,17 +1296,47 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// Owned cards in no binder: My Cards with its Not in a binder filter
 		// on, every other filter off and the sort kept, with the whole bar
 		// (design review 2, 2026-11-20: it opened a bare grid).
-		await page.evaluate(() => localStorage.setItem('cardTracker.cardsChoice', JSON.stringify({filters: {language: 'ja'}, sort: 'name'})));
+		// The filter is for that visit only, carried by the route: the saved
+		// choice stays the person's own, after the visit and after Clear all
+		// (v86 review: the link wrote it over Language and Set).
+		const savedChoice = () => page.evaluate(() => localStorage.getItem('cardTracker.cardsChoice'));
+		const ownChoice = JSON.stringify({filters: {language: 'ja'}, sort: 'name'});
+		const chipKinds = () => page.locator('.fb-chips .fb-chip').evaluateAll((chips) => chips.map((chip) => chip.dataset.filter));
+
+		await page.evaluate((choice) => localStorage.setItem('cardTracker.cardsChoice', choice), ownChoice);
+		assert.equal(new URL(await page.locator('#unplaced-link').evaluate((link) => link.href)).pathname, `${BASE}cards/unplaced`, 'the link itself carries the filter, for a long press or a new tab');
 		await page.click('#unplaced-link');
 		await page.waitForSelector('.card-grid .tile');
-		assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
-		assert.deepEqual(await page.locator('.fb-chips .fb-chip').evaluateAll((chips) => chips.map((chip) => chip.dataset.filter)), ['unplaced']);
+		assert.equal(await savedChoice(), ownChoice, 'the saved choice untouched by the visit');
+		assert.equal(new URL(page.url()).pathname, `${BASE}cards/unplaced`);
+		assert.deepEqual(await chipKinds(), ['unplaced']);
 		assert.equal(await page.inputValue('#cards-sort'), 'name', 'the sort kept');
 		assert.equal(await page.locator('.card-grid .tile').count(), 1);
 		assert.match(await page.locator('#cards-summary').textContent(), /^1 of [\d,]+ copies · 1 card$/, 'the count matches the link');
 		assert.match(await page.locator('.card-grid .tile').textContent(), /Test Squirtle/);
 		await page.screenshot({path: '/tmp/binders-unplaced.png'});
 		await page.click('#cards-clear-all');
+		await page.waitForFunction(() => !document.querySelector('.fb-chips .fb-chip'));
+		assert.equal(await savedChoice(), ownChoice, 'the saved choice untouched by Clear all on the visit');
+		await page.goto(url('cards'));
+		await page.waitForSelector('#cards-summary');
+		assert.deepEqual(await chipKinds(), ['language'], 'My Cards opens with the person\'s own filters again');
+		assert.equal(await page.inputValue('#cards-sort'), 'name');
+
+		// Nothing saved yet: the old sort key still seeds the choice after a
+		// visit opened in a new tab, and the visit writes nothing.
+		await page.evaluate(() => {
+			localStorage.removeItem('cardTracker.cardsChoice');
+			localStorage.setItem('cardTracker.cardsSort', 'name');
+		});
+		await page.goto(url('cards/unplaced'));
+		await page.waitForSelector('.card-grid .tile');
+		assert.deepEqual(await chipKinds(), ['unplaced']);
+		assert.equal(await savedChoice(), null, 'the visit saves no choice');
+		await page.goto(url('cards'));
+		await page.waitForSelector('#cards-summary');
+		assert.equal(await page.inputValue('#cards-sort'), 'name', 'the old sort key still seeds My Cards');
+		assert.deepEqual(await chipKinds(), []);
 
 		// Editing the size says what happens to the pockets; Cancel keeps it.
 		const reflowText = 'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.';

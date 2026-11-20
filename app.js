@@ -35,7 +35,7 @@ import {profileView, setSignInNotice, signInView} from './js/account-views.js';
 import {binderAccountViews, binderRoutes} from './js/binders-view.js';
 import {completeInvite, completeSignIn, currentUser, onUser, restoreSession, signInErrorText, takeAuthReturn} from './js/auth.js';
 import {followCardLink} from './js/card-swipe.js';
-import {familyCardsView, myCardsView} from './js/cards-view.js';
+import {familyCardsView, myCardsView, unplacedCardsView} from './js/cards-view.js';
 import {cardView, setView, setsView} from './js/catalog-views.js';
 import {isLanguage} from './js/catalog.js';
 import {checklistView, checklistsView, familyChecklistView, familyChecklistsView} from './js/checklists-view.js';
@@ -63,6 +63,7 @@ import {keepFamilyWishlistsCached} from './js/wishlist.js';
 
 const ROUTES = [
 	{pattern: /^cards$/, render: myCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
+	{pattern: /^cards\/unplaced$/, render: unplacedCardsView, tab: 'cards', title: 'My Cards | Card Tracker'},
 	{pattern: /^import$/, render: importView, tab: null, title: 'Import from monprice | Card Tracker'},
 	{pattern: /^sets$/, keepsLens: true, render: setsView, tab: 'sets', title: 'Sets | Card Tracker'},
 	{keys: ['lang', 'setId'], keepsLens: true, pattern: /^sets\/([^/]+)\/([^/]+)$/, render: setView, tab: 'sets', title: 'Set | Card Tracker'},
@@ -91,7 +92,7 @@ const ROUTES = [
 
 // Routes whose screen depends on who is signed in, redrawn on sign-in and
 // sign-out.
-const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews]);
+const ACCOUNT_ROUTES = new Set([signInView, profileView, familyCardsView, myCardsView, unplacedCardsView, checklistsView, checklistView, familyChecklistsView, familyChecklistView, ...binderAccountViews, ...WISHLIST_ACCOUNT_VIEWS, ...COLLECTIONS_ACCOUNT_VIEWS, ...pokemonCardsAccountViews, ...tradeAccountViews, ...movesAccountViews, ...goalAccountViews, ...scanReportAccountViews, ...statsAccountViews]);
 
 const DEFAULT_ROUTE = 'cards';
 

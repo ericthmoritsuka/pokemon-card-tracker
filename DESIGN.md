@@ -2996,7 +2996,11 @@ cards are not in any binder yet. The binders list's "N owned cards not in any bi
 Cards with its **Not in a binder** filter on, every other filter off and the sort kept, so the
 whole bar is there to narrow them further (design review 2, 2026-11-20: it opened a bare grid of
 its own). With that filter on, My Cards' count leaves out a tile's copies that are in a binder, so
-it matches the link's number. The `binders/unplaced` screen stays for an old link.
+it matches the link's number. The link goes to `cards/unplaced`, which sets the filter for that
+visit only: My Cards' saved filters are never written by it, by a filter changed on it, or by its
+Clear all, so the next visit to My Cards opens with the person's own again (v86 review: the link
+saved its filter over them, and a long press or a new tab skipped it). A sort picked there is
+saved beside the saved filters. The `binders/unplaced` screen stays for an old link.
 
 **Resizing a binder** (Eric, 2026-10-02). When a binder's grid changes:
 

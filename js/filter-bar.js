@@ -458,10 +458,17 @@ function readChoice(storageKey, legacy) {
 		saved = legacy ? legacy() : null;
 	}
 
+	const sort = saved && SORTS.some((option) => option.value === saved.sort) ? saved.sort : null;
+
+	return {filters: cleanFilters(saved && saved.filters), sort};
+}
+
+// Every filter, off unless raw turns it on with a value of the right kind.
+function cleanFilters(raw) {
 	const filters = emptyFilters();
 
 	for (const kind of FILTERS) {
-		const value = saved && saved.filters ? saved.filters[kind] : undefined;
+		const value = raw && typeof raw === 'object' ? raw[kind] : undefined;
 
 		if (BOOLEAN_FILTERS.includes(kind)) {
 			filters[kind] = value === true;
@@ -471,9 +478,7 @@ function readChoice(storageKey, legacy) {
 		}
 	}
 
-	const sort = saved && SORTS.some((option) => option.value === saved.sort) ? saved.sort : null;
-
-	return {filters, sort};
+	return filters;
 }
 
 function writeChoice(storageKey, state) {
@@ -489,19 +494,8 @@ function writeChoice(storageKey, state) {
 	}
 }
 
-// My Cards' saved choice (js/cards-view.js), here so another screen can
-// open My Cards already narrowed.
+// My Cards' saved choice (js/cards-view.js).
 export const MY_CARDS_CHOICE = 'cardTracker.cardsChoice';
-
-// Saves filters as a screen's choice, every other filter off and the sort
-// kept, for the screen to open with: the binders' "N owned cards not in any
-// binder" opens My Cards with Not in a binder on (design review 2,
-// 2026-11-20: it opened a bare grid with no bar).
-export function presetFilters(storageKey, filters) {
-	const saved = readChoice(storageKey, null);
-
-	writeChoice(storageKey, {filters: {...emptyFilters(), ...filters}, sort: saved.sort});
-}
 
 // ------------------------------------------------------------------ bar
 
@@ -528,6 +522,13 @@ let barCount = 0;
 //               could read as a filter
 //   legacy      () => {filters, sort} read when nothing is saved yet
 //   query       the search text to start with (Back from a card page)
+//   preset      filters for this visit only, every other filter off: the
+//               binders' "N owned cards not in any binder" opens
+//               cards/unplaced with Not in a binder on. The saved choice's
+//               filters are neither shown nor written, before or after a
+//               change, so the person's own come back on the next visit
+//               (v86 review: the link wrote over them); a sort picked here
+//               is saved, beside the saved filters
 //   extra       nodes placed after the Filters button (My Cards' Value)
 //   beside      nodes for the search's own line, after Filters, which then
 //               leaves the sort's line for the sort and extra (My Cards'
@@ -556,6 +557,7 @@ export function filterBar({
 	onChange = () => {},
 	onClearAll = () => {},
 	placeholder = 'Search my cards',
+	preset = null,
 	query = '',
 	search: ownSearch = true,
 	sort: defaultSort = 'newest',
@@ -565,7 +567,7 @@ export function filterBar({
 }) {
 	const saved = readChoice(storageKey, legacy);
 	const state = {
-		filters: saved.filters,
+		filters: preset ? cleanFilters(preset) : saved.filters,
 		query: String(query || ''),
 		sort: saved.sort && sortValues.includes(saved.sort) ? saved.sort : defaultSort,
 	};
@@ -581,7 +583,14 @@ export function filterBar({
 	}
 
 	const changed = (reason) => {
-		if (reason !== 'query') {
+		if (preset) {
+			// The saved filters as they are now (another tab may have
+			// changed them), with this visit's sort.
+			if (reason === 'sort') {
+				writeChoice(storageKey, {filters: readChoice(storageKey, legacy).filters, sort: state.sort});
+			}
+		}
+		else if (reason !== 'query') {
 			writeChoice(storageKey, state);
 		}
 
@@ -730,13 +739,18 @@ export function filterBar({
 	}
 
 	// The Clear all chip: every filter and the search text. Saved like a
-	// filter change, then told as a search change so the list forgets the query.
+	// filter change (not on a preset visit, whose filters are its own), then
+	// told as a search change so the list forgets the query.
 	function clearAll() {
 		clearTimeout(searchTimer);
 		search.value = '';
 		state.query = '';
 		state.filters = emptyFilters();
-		writeChoice(storageKey, state);
+
+		if (!preset) {
+			writeChoice(storageKey, state);
+		}
+
 		onClearAll();
 		changed('query');
 		drawSheet();

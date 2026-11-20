@@ -65,7 +65,7 @@ import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spr
 import {gapText} from './goals.js';
 import {wishLanguage} from './pokemon-cards.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
-import {activeFilters, applyFilters, filterBar, MY_CARDS_CHOICE, presetFilters, searchTextOf, sortItems} from './filter-bar.js';
+import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
 import {
@@ -130,8 +130,10 @@ const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route
 // "N owned cards not in any binder": My Cards with its Not in a binder
 // filter on and every other filter off, so the count matches, with the
 // whole bar to narrow it further (design review 2, 2026-11-20: it opened a
-// bare grid). The filter is saved before the router follows the link.
-const looseCardsLink = (text) => link('cards', {class: 'unplaced-link', id: 'unplaced-link', onclick: () => presetFilters(MY_CARDS_CHOICE, {unplaced: true})}, text);
+// bare grid). The route carries the filter, for that visit only
+// (js/cards-view.js unplacedCardsView), so the saved choice stays the
+// person's own and a long press or a new tab opens the same list.
+const looseCardsLink = (text) => link('cards/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, text);
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 

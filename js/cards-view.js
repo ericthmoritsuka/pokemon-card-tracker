@@ -353,10 +353,11 @@ async function fillMissingRecords(entries, index, isAlive) {
 	return records.length ? saveToCardIndex(records) : null;
 }
 
-export function myCardsView(root) {
+export function myCardsView(root, params, preset = null) {
 	return cardsScreen(root, {
 		load: listCards,
 		loadBinders: listBinders,
+		preset,
 		// Bulk select: your own cards only, never a family member's.
 		selectable: true,
 		statsRoute: 'stats',
@@ -365,6 +366,18 @@ export function myCardsView(root) {
 		viewKey: CARDS_VIEW_KEY,
 		watch: (reload) => onChange(reload),
 	});
+}
+
+// cards/unplaced: My Cards with Not in a binder on and every other filter
+// off, for this visit only, from the binders' "N owned cards not in any
+// binder". The route carries it, so a long press or a new tab opens it too,
+// and the saved choice is never written with it (v86 review: the link wrote
+// it over the person's own filters). A filter changed here stays with the
+// history entry, for Back from a card page.
+export function unplacedCardsView(root, params) {
+	const kept = history.state && history.state.visitFilters;
+
+	return myCardsView(root, params, kept && typeof kept === 'object' ? kept : {unplaced: true});
 }
 
 // A family member's My Cards, read only. Their document is read from the
@@ -438,6 +451,8 @@ export function cardsScreen(root, {
 	metaFor = null,
 	offered = undefined,
 	placeholder = undefined,
+	// Filters for this visit only (js/filter-bar.js), unplacedCardsView's.
+	preset = null,
 	readOnly = false,
 	selectable = false,
 	statsRoute = null,
@@ -556,9 +571,10 @@ export function cardsScreen(root, {
 		placeholder,
 		onChange: (state, reason) => {
 			shown = PAGE;
-			rememberInHistory(reason === 'query' ? {query: state.query, shown} : {shown});
+			rememberInHistory({...(reason === 'query' ? {query: state.query, shown} : {shown}), ...(preset ? {visitFilters: {...state.filters}} : {})});
 			draw();
 		},
+		preset,
 		query: queryFromHistory(),
 		storageKey,
 	});
