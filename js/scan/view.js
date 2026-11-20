@@ -4541,16 +4541,19 @@ export function scanView(root) {
 			// ...and whether all it shows sharp is the card before: a hand's
 			// card out of focus over it, not a card (flushRetry).
 			underPrev: Boolean(prev && prev.thumb && prev.quad) && revealedIn(thumbAt(fine, prev.quad), prev.thumb),
-			until: at + RETRY_MS,
+			// Set once the frame is in hand, below.
+			until: Infinity,
 		};
 
 		// The wait counts from the frame in hand: a slow grab (pixels read on
-		// the main thread) must not use it up before any look of the spot.
+		// the main thread) must not use it up before any look of the spot,
+		// nor run it out while the frame is still being read (a grab longer
+		// than RETRY_MS added the card at once, after a single look).
 		const waiting = retry;
 
 		waiting.grabbed.then(() => {
 			if (retry === waiting) {
-				waiting.until = Math.max(waiting.until, performance.now() + RETRY_MS);
+				waiting.until = performance.now() + RETRY_MS;
 			}
 		});
 	}

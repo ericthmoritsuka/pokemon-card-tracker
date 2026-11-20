@@ -180,6 +180,28 @@ function hover(page, pile, hand, ms, next = null) {
 	}, {cards: pile, held: hand, then: next, wait: ms});
 }
 
+// Holds the next card in the hand, out of focus, over `pile` for `ms`
+// (timed in the page) and, on a busy machine, on until the scanner has
+// done `stat` with it (view.js scanStats: 'retries', its blurred look taken
+// and waiting for a sharper one, or 'captures', a card added), for up to
+// `most` ms in all; then takes the hand away. A fixed hold ran out before a
+// slow scanner had seen the hand lie still at all.
+function holdHand(page, pile, hand, ms, {most, stat}) {
+	return page.evaluate(async ({cards, held, least, longest, what}) => {
+		const {scanStats} = await import('/pokemon-card-tracker/js/scan/view.js');
+		const from = scanStats[what];
+		const start = performance.now();
+
+		window.scene = {background: 'box', cards, held};
+
+		while (performance.now() - start < least || (scanStats[what] === from && performance.now() - start < longest)) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+
+		window.scene = {background: 'box', cards};
+	}, {cards: pile, held: hand, least: ms, longest: most, what: stat});
+}
+
 // Drops `card` onto the pile from above the frame, as
 // tests/scan-holder-browser.test.mjs does; `last` is drawn for its last step
 // (a card landing blurred), and `held` over everything throughout; steps:
@@ -333,20 +355,17 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await page.waitForTimeout(1000);
 
 		// The next card in the hand, out of focus near the lens, held still
-		// over most of the card on top for under a second, then taken away:
-		// version 63 took it, blurred, and then the card beneath again. Now
-		// and then the test camera's picture of the hand is judged the card
-		// beneath (its content check reads the same card, and nothing is
-		// taken, as before): the hand comes again, up to three times, until
-		// its look is taken blurred.
+		// over most of the card on top for under a second (on a busy machine,
+		// until the scanner has taken its blurred look, which then waits well
+		// under RETRY_MS), then taken away: version 63 took it, blurred, and
+		// then the card beneath again. Now and then the test camera's picture
+		// of the hand is judged the card beneath (its content check reads the
+		// same card, and nothing is taken, as before): the hand comes again,
+		// up to three times, until its look is taken blurred.
 		const retried = async () => (await skipped(page)).some((entry) => ['repeat', 'blurred, nothing left'].includes(entry.why) && entry.retry);
 
 		for (let attempt = 0; attempt < 3 && !await retried(); attempt++) {
-			await page.evaluate(async ({cards, hand}) => {
-				window.scene = {background: 'box', cards, held: hand};
-				await new Promise((resolve) => setTimeout(resolve, 900));
-				window.scene = {background: 'box', cards};
-			}, {cards: pile, hand: held});
+			await holdHand(page, pile, held, 900, {most: 3000, stat: 'retries'});
 			await page.waitForTimeout(3000);
 			assert.equal(await captures(page), 1, `not added again: ${JSON.stringify(await skipped(page))}`);
 		}
@@ -371,23 +390,24 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		await readAll(page, 1, errors);
 		await page.waitForTimeout(1000);
 
-		// Held still past RETRY_MS, then taken away; again, up to three
-		// times, while the camera's picture of the hand is judged the card
-		// beneath (see the test before). The card beneath is never added
-		// again (version 63 added it again, and the hand's look unmarked).
+		// Held still past RETRY_MS (on a busy machine, until its look has
+		// been added), then taken away; again, up to three times, while the
+		// camera's picture of the hand is judged the card beneath (see the
+		// test before). The card beneath is never added again (version 63
+		// added it again, and the hand's look unmarked).
 		let list = [];
 
 		for (let attempt = 0; attempt < 3 && !list.some((item) => item.blurred); attempt++) {
-			await page.evaluate(async ({cards, hand}) => {
-				window.scene = {background: 'box', cards, held: hand};
-				await new Promise((resolve) => setTimeout(resolve, 2600));
-				window.scene = {background: 'box', cards};
-			}, {cards: pile, hand: held});
+			await holdHand(page, pile, held, 2600, {most: 8000, stat: 'captures'});
 			await page.waitForTimeout(3000);
 			list = await items(page);
 			assert.equal(list.filter((item) => !item.blurred).length, 1, `the card beneath not added again: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.drop && item.drop.retry]))}`);
 		}
 
+		// A card's drop numbers are kept with it once it is read, which a
+		// busy machine can take longer than the wait above.
+		await settled(page);
+		list = await items(page);
 		assert.equal(list.length, 2, `the blurred look added once, the card beneath not again: ${JSON.stringify(list.map((item) => [item.card, item.blurred, item.drop && item.drop.retry]))}`);
 		assert.equal(list[0].blurred, false);
 		assert.equal(list[1].blurred, true, 'the blurred look is marked to check');
