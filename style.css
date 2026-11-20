@@ -2995,20 +2995,25 @@ progress {
 	position: relative;
 }
 
-/* Every card of the Pokémon: one line across the foot of the hero, under
-   the art and the facts, so Ver na Liga stays on the first screen at
-   360 x 740. Each link is its own 48 px band, and a TAG TEAM card's links
-   sit side by side, or one band under the other where they wrap, never
-   overlapping, so a tap low on Jigglypuff cannot open Lopunny. The top
-   margin takes back the hero's row gap, so the band starts where Add photo
-   ends and never covers it; the bottom one takes back the hero's own
-   margin, so it ends where Your copies begins. */
+/* Every card of the Pokémon: under the art, beside the foot of the facts,
+   which run down past the art since they end with the price (design
+   review, 2026-11-19), so the price and Ver na Liga both stay on the first
+   screen at 360 x 740. Each link is its own 48 px band, and a TAG TEAM
+   card's links sit side by side, or one band under the other where they
+   wrap, never overlapping, so a tap low on Jigglypuff cannot open Lopunny.
+   The top margin takes back the hero's row gap, so the band starts where
+   Add photo ends and never covers it; the bottom one takes back the hero's
+   own margin, so it ends where Your copies begins. */
+.card-hero .hero-facts {
+	grid-row: span 2;
+}
+
 .card-hero .hero-pokemon {
 	column-gap: var(--space-5);
 	display: flex;
 	flex-wrap: wrap;
 	font: var(--type-small);
-	grid-column: 1 / -1;
+	grid-column: 1;
 	margin: calc(-1 * var(--space-3)) 0 calc(-1 * var(--space-4));
 	min-width: 0;
 }
@@ -3016,7 +3021,13 @@ progress {
 .card-hero .hero-pokemon .fact-link {
 	margin: 0;
 	max-width: 100%;
-	overflow-wrap: anywhere;
+	/* One line, so the band never changes height under a finger when the
+	   species' name arrives ("Every Pokémon #004 card" took two lines of
+	   the art's column, "Every Charmander card" one): a name longer than
+	   the column ends in "…", whole in its title. */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .card-detail .copies,

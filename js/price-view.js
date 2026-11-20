@@ -156,7 +156,7 @@ function rateText({eur, eurShown, usd, usdShown}) {
 //                   Undo; defaults to js/shell.js toast
 //   withLiga        false leaves out the section's own Ver na Liga, for card
 //                   detail, where a button above the section stands for it
-export function priceSection({card, entries = [], eurRates = undefined, language = null, ligaHref, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, toast = null, variantId = null, withLiga = true} = {}) {
+export function priceSection({card, entries = [], eurRates = undefined, language = null, ligaHref, onDraw = null, onSaved = null, rates = undefined, recordLanguage = 'en', save = updateCards, toast = null, variantId = null, withLiga = true} = {}) {
 	const id = `price-${++sectionCount}`;
 	const finishes = extractPrices(card);
 	const section = h('section', {'aria-labelledby': `${id}-title`, class: 'price'});
@@ -283,8 +283,10 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 	// One market's row: its name and the reais, then the original amount,
 	// its kind, and its date, small.
-	function row({className, extra = [], name, note, original, value}) {
-		return h('li', {class: `price-row ${className}`},
+	// glance: {amount, date, source} for a summary of the row elsewhere
+	// (catalog-views.js drawGlance), kept on the row as data.
+	function row({className, extra = [], glance = null, name, note, original, value}) {
+		return h('li', {class: `price-row ${className}`, 'data-amount': glance ? glance.amount : null, 'data-date': glance ? glance.date || null : null, 'data-source': glance ? glance.source : null},
 			h('p', {class: 'price-line'},
 				h('span', {class: 'price-source'}, name),
 				h('span', {class: 'price-value'}, value)
@@ -317,6 +319,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				extra: tcg.shared && tcg.shared.length && !found.note ? [h('p', {class: 'price-meta price-shared'}, `TCGplayer prices this together with ${tcg.shared.join(' and ')}.`)] : [],
 				name: 'TCGplayer',
 				note: found.note,
+				glance: {amount: brl !== null ? usd : null, date, source: 'TCGplayer market'},
 				original: [brl !== null ? `${usd}, ` : '', 'TCGplayer market', date ? ', ' : null, date ? day(date) : null],
 				value: brl !== null ? h('span', {class: 'price-us-value'}, about(brl)) : h('span', {class: 'price-us-value-usd'}, usd),
 			}),
@@ -367,6 +370,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				].filter(Boolean),
 				name: 'Cardmarket',
 				note: found.note,
+				glance: {amount: brl !== null ? eur : null, date, source: 'Cardmarket trend'},
 				original: [brl !== null ? `${eur}, ` : '', 'Cardmarket trend', date ? ', ' : null, date ? day(date) : null],
 				value: [brl !== null ? h('span', {class: 'price-eu-value'}, about(brl)) : h('span', {class: 'price-eu-value-eur'}, eur), trendMark ? ' ' : null, trendMark].filter(Boolean),
 			}),
@@ -518,6 +522,12 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 		}
 		else {
 			requestAnimationFrame(revealChoice);
+		}
+
+		// After every drawing (a finish picked, a fresh rate), for a summary
+		// of the section elsewhere on the page (js/catalog-views.js).
+		if (onDraw) {
+			onDraw(section);
 		}
 	}
 

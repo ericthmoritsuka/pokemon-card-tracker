@@ -573,9 +573,31 @@ describe('card detail layout', () => {
 
 			assert.deepEqual(order.slice(0, 5), ['card-hero', 'copies', 'card-liga', 'copies-collect-row', 'card-price']);
 
-			for (const selector of ['.hero-art', '.hero-facts h2', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish']) {
+			for (const selector of ['.hero-art', '.hero-facts h2', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish', '#card-glance-open', '#card-glance-line']) {
 				assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);
 			}
+
+			// The price at a glance, last in the facts (design review,
+			// 2026-11-19: the Price section started below the first screen):
+			// the section's first market price, and the amount as listed with
+			// its date under it.
+			const glance = await page.evaluate(() => ({
+				line: document.getElementById('card-glance-line').textContent,
+				name: document.getElementById('card-glance-open').textContent,
+				section: document.querySelector('#card-price .price-markets .price-row:not(.price-row-none) .price-value > :first-child').textContent,
+			}));
+
+			assert.ok(glance.name.startsWith(glance.section), `the section's price (${JSON.stringify(glance)})`);
+			assert.match(glance.line, /^(US\$|€)\s?[\d.,]+( · \d{1,2} [A-Z][a-z]{2})?$/);
+			assert.match(glance.name, /(TCGplayer market|Cardmarket trend), see the prices$/, 'the market in its name');
+			await page.click('#card-glance-open');
+			await page.waitForFunction(() => document.activeElement && document.activeElement.closest('#card-price'));
+			await page.waitForFunction(() => {
+				const title = document.querySelector('#card-price .price h3').getBoundingClientRect();
+
+				return title.top >= 0 && title.bottom <= window.innerHeight;
+			});
+			await page.evaluate(() => window.scrollTo(0, 0));
 
 			// One visible Ver na Liga; the price panel's own is hidden.
 			assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 1);
@@ -591,8 +613,12 @@ describe('card detail layout', () => {
 
 	// A TAG TEAM card has a link to every card of each of its Pokémon, each
 	// its own 48 px band, and a name that takes four lines in the facts
-	// column: Ver na Liga still makes the first screen of a small phone.
-	test('a TAG TEAM card\'s Pokémon links keep Ver na Liga on the first screen at 360 x 740', async () => {
+	// column. Since the price joined the facts (design review, 2026-11-19)
+	// the links sit under the art, one band under the other, and Ver na
+	// Liga ends about 37 px under the tab bar's top at 360 x 740 (measured
+	// 2026-11-19): the price is on the first screen, and Liga's place is
+	// reported, not asserted, as at 324 px below.
+	test('a TAG TEAM card\'s Pokémon links are whole targets under the art, with the price on the first screen at 360 x 740', async (t) => {
 		const tagTeam = {...pt, dexId: [39, 428], name: 'Lopunny & Jigglypuff-GX'};
 		const {done, page} = await phone({records: {'pt/cards/sv08.5-001': tagTeam}});
 
@@ -603,9 +629,13 @@ describe('card detail layout', () => {
 		await page.waitForSelector('#card-price .price');
 		await page.waitForFunction(() => document.getElementById('card-pokemon-428')?.textContent === 'Every Lopunny card');
 
-		for (const selector of ['.hero-facts h2', '#card-pokemon-39', '#card-pokemon-428', '.copies-head h3', '#copy-add', '.copies li:last-child', '#card-liga-link', '#card-wish']) {
+		for (const selector of ['.hero-facts h2', '#card-glance-open', '#card-glance-line', '#card-pokemon-39', '#card-pokemon-428', '.copies-head h3', '#copy-add']) {
 			assert.ok(await onFirstScreen(page, selector), `${selector} on the first screen`);
 		}
+
+		const liga = await page.locator('#card-liga-link').evaluate((link) => ({bottom: Math.round(link.getBoundingClientRect().bottom), floor: Math.round(document.querySelector('.tabs').getBoundingClientRect().top)}));
+
+		t.diagnostic(`Ver na Liga ends at ${liga.bottom} px, the tab bar starts at ${liga.floor} px`);
 
 		for (const id of ['card-pokemon-39', 'card-pokemon-428', 'card-set-link']) {
 			assert.ok((await page.locator(`#${id}`).boundingBox()).height >= 48, `#${id} is a 48 px target`);

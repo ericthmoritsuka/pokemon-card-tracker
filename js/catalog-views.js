@@ -1121,6 +1121,9 @@ export function cardView(root, {lang, cardId}) {
 		if (alive) {
 			pokemonShown.forEach(({anchor, n}) => {
 				anchor.textContent = pokemonLabel(n);
+				// Kept to one line under the art (style.css): the whole name
+				// on a long press or hover.
+				anchor.title = anchor.textContent;
 			});
 		}
 	}
@@ -1224,7 +1227,8 @@ export function cardView(root, {lang, cardId}) {
 						row('Number', number, {pair: true}),
 						row('Rarity', card.rarity, {pair: true}),
 						row('Illustrator', card.illustrator && !member ? artistLink(card.illustrator) : card.illustrator),
-						row('Catalog', languageLabel(lang))
+						row('Catalog', languageLabel(lang)),
+						glance
 					)
 				),
 				pokemonLinks(card)
@@ -1360,6 +1364,49 @@ export function cardView(root, {lang, cardId}) {
 	// The section's own Ver na Liga is left out (withLiga), since the button
 	// above stands for it.
 	const priceSlot = h('div', {class: 'price-slot', id: 'card-price'});
+	// The price at a glance, last in the facts beside the art (design review,
+	// 2026-11-19: at 360 x 740 the Price section starts below the first
+	// screen, under Your copies and Ver na Liga, which stay where they are):
+	// the first market row the section shows, in reais, and a line under it,
+	// as a button down to the section. Drawn from the section itself after
+	// each drawing, so the finish and the rates are always the section's.
+	// Its room is kept from the first drawing ("…" until the section is
+	// drawn, "No price" when it has none), so nothing under the facts moves
+	// while a finger is on its way to it.
+	const glance = h('div', {class: 'fact card-glance', id: 'card-glance'},
+		h('dt', null, 'Price'),
+		h('dd', null, h('span', {'aria-label': 'Reading the price', class: 'price-glance-wait'}, '…')));
+
+	function drawGlance(section) {
+		const shown = section.querySelector('.price-markets .price-row:not(.price-row-none)');
+		const value = shown && shown.querySelector('.price-value > :first-child');
+
+		if (!value) {
+			glance.replaceChildren(h('dt', null, 'Price'), h('dd', null, h('span', {class: 'price-glance-none', id: 'card-glance-none'}, 'No price')));
+
+			return;
+		}
+
+		// One short line, so the facts end level with the art: the amount
+		// as listed and its date ("US$ 8,00 · 18 Nov"); the market is in the
+		// button's name, and its currency says which.
+		const {amount, date, source} = shown.dataset;
+		const line = [amount, date].filter(Boolean).join(' · ') || source || '';
+
+		glance.replaceChildren(
+			h('dt', null, 'Price'),
+			h('dd', null,
+				h('button', {class: 'link-button price-glance', id: 'card-glance-open', onclick: () => {
+					const title = priceSlot.querySelector('.price h3');
+
+					priceSlot.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start'});
+
+					if (title) {
+						title.focus({preventScroll: true});
+					}
+				}, type: 'button'}, value.cloneNode(true), h('span', {'aria-hidden': 'true', class: 'price-glance-more'}, ' ›'), h('span', {class: 'price-sr'}, `${source ? `, ${source}` : ''}, see the prices`)),
+				line ? h('span', {class: 'price-glance-line', id: 'card-glance-line'}, line) : null));
+	}
 	// The person's live copies of this card, and the Ver na Liga link once
 	// known (null for none).
 	let owned = [];
@@ -1416,6 +1463,7 @@ export function cardView(root, {lang, cardId}) {
 				owned = entries;
 				priceKey = [current, ligaHref, copiesKey(owned)];
 			},
+			onDraw: drawGlance,
 			recordLanguage: lang,
 			withLiga: false,
 			// Nothing of a family member's is ever saved from here.

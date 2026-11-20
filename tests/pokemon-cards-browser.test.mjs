@@ -1224,7 +1224,7 @@ describe('every card of a Pokémon from the card page, without a list', () => {
 		await page.goto(url('cards/en/sv03.5-196'));
 		await page.waitForSelector('.facts');
 		await page.waitForSelector('#card-set-link');
-		assert.deepEqual(await page.locator('.facts dt').allTextContents(), ['Set', 'Number', 'Rarity', 'Illustrator', 'Catalog']);
+		assert.deepEqual(await page.locator('.facts dt').allTextContents(), ['Set', 'Number', 'Rarity', 'Illustrator', 'Catalog', 'Price']);
 		assert.equal(await page.locator('.card-hero a[id^="card-pokemon-"]').count(), 0);
 		assert.deepEqual(await shownErrors(page), []);
 		assert.deepEqual(errors, []);

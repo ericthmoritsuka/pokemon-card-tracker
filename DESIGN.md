@@ -2046,6 +2046,17 @@ here and the same, and deleted on this phone.
 
 ## 10. Pricing
 
+**The price at a glance on the card page** (design review, 2026-11-19: at 360 x 740 the Price
+section started 775 px down, under Your copies and Ver na Liga). The facts beside the art end
+with **Price**: the reais the Price section's first market row shows ("≈ R$ 41,50", TCGplayer's,
+or Cardmarket's when TCGplayer has none) and one short line under them, the amount as listed and
+its date ("US$ 8,00 · 18 Nov"); the market is in the button's accessible name, and its currency
+says which. It is a button down to the Price section, which stays where it was, whole. It is drawn
+from the section after each drawing (`js/price-view.js` `onDraw`, `js/catalog-views.js`
+`drawGlance`), so the finish picked there and a fresh rate change it too, and it is absent when
+the section shows no market price. Why not move the section
+up: Your copies and Ver na Liga would leave the first screen, which Q-04 put there.
+
 **Source: TCGdex**, which embeds both markets per card. Checked on `en/cards/base1-58` on
 2026-10-01:
 
@@ -2322,11 +2333,17 @@ Portuguese copy shows Brazil, both show Brazil and the United States), and none 
 project so I can look at all the cards for that specific pokemon ... We should have a way to see
 the cards from that set and the cards from that specific pokemon too"). Rather than link the
 Pokédex app, which stays a separate app (section 1), card detail's **Set** value opens that set's
-page in the card's catalog and language, as Back does, and a line across the foot of the hero,
-under the art and the facts, links "Every Jigglypuff card" to the same screen a checklist row
-opens, without a list (`pokemon/<dex>`). A TAG TEAM card has one link per Pokédex number, side by
-side, each its own 48 px band; a Trainer or Energy card has no line. In the facts column the links
-pushed Ver na Liga below the first screen at 360 x 740 (Q-04), so they sit under it, and Number and
+page in the card's catalog and language, as Back does, and a line under the art links "Every
+Jigglypuff card" to the same screen a checklist row opens, without a list (`pokemon/<dex>`). A TAG
+TEAM card has one link per Pokédex number, side by side, or one under the other where the column
+is narrow, each its own 48 px band; a Trainer or Energy card has no line. In the facts column the
+links pushed Ver na Liga below the first screen at 360 x 740 (Q-04), so they sat across the foot of
+the hero, under the art and the facts; since the facts end with the price (design review,
+2026-11-19, section 10) and run past the art, the links sit under the art, beside the facts' foot,
+which keeps Ver na Liga on the first screen; a TAG TEAM card's links then stand one under the
+other, and with a name of four lines Ver na Liga ends about 37 px under the tab bar at 360 x 740.
+Each link keeps to one line, "…" ending a name longer than the column (whole in its title), so the
+band never changes height when the species' name replaces "Pokémon #039". Number and
 Rarity share a line where the column fits both (they stack again at large text). The name is
 the species' English name, as the screen's title says it, from the names the phone keeps. With no
 list there are no list languages. **A row of flags** (Eric, 2026-11-09: a top row of flags, one

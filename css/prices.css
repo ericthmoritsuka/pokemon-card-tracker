@@ -373,3 +373,47 @@
 	font: var(--type-heading);
 	margin: 0;
 }
+
+/* The price at a glance in the card page's facts (js/catalog-views.js
+   drawGlance; design review, 2026-11-19): the reais as the Price section
+   shows them, a button down to it, and the line under them small. The
+   padding reaches the 48 px target and the margin takes it back, as the
+   Set link beside it does. */
+.card-detail .card-glance dd {
+	align-content: start;
+	display: grid;
+	/* The price's line and the one under it, kept from the start. */
+	min-height: calc(1.5rem + 1.25rem);
+}
+
+.price-glance-wait,
+.price-glance-none {
+	color: var(--muted);
+}
+
+button.link-button.price-glance {
+	color: var(--text);
+	font: inherit;
+	font-size: 1.0625rem;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	justify-self: start;
+	margin: -14px 0;
+	min-height: 0;
+	padding: 14px 0;
+	position: relative;
+	text-align: left;
+	width: auto;
+}
+
+.price-glance-more {
+	color: var(--link);
+}
+
+.price-glance-line {
+	color: var(--muted);
+}
+
+.price-slot {
+	scroll-margin-top: calc(var(--header-height, 0px) + env(safe-area-inset-top, 0px) + 8px);
+}
