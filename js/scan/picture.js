@@ -62,9 +62,11 @@ export const TWINS_URL = new URL('../vision/index-twins.json', import.meta.url).
 
 let indexPromise = null;
 
-// The index cards whose name and illustrator an image-less card shares
-// (lab/fingerprints/build-twins.mjs, js/vision/index-twins.json, precached
-// with the index): a Set of their ids, empty when the list cannot be read.
+// The index cards whose artwork an image-less card shares (the same name
+// and illustrator, kept on a matching picture or on the image-less card's
+// set: lab/fingerprints/build-twins.mjs, js/vision/index-twins.json,
+// precached with the index): a Set of their ids, empty when the list cannot
+// be read.
 // The image-less card cannot be in the index, so its picture finds the twin
 // alone and clear (a scanner review, 2026-11-19: a Portuguese McDonald's
 // Collection 2021 Charmander came out sure as Burning Shadows' sm3-18,
