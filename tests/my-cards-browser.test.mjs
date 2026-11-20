@@ -838,6 +838,15 @@ describe('layout', () => {
 				await page.screenshot({path: `${SHOTS}/my-cards-filters-${viewport.width}-${colorScheme}.png`});
 				await selectsFit(page, 'the filters sheet');
 				await noSideways(page, 'the filters sheet');
+
+				// Every chip and small button is a 44 px target (accessibility
+				// audit, 2026-11-20: they were 40 px).
+				const small = await page.evaluate(() => [...document.querySelectorAll('#cards-sheet button.small, #cards-sheet .chip')]
+					.filter((element) => element.getClientRects().length)
+					.map((element) => [element.id || element.textContent.trim(), Math.round(element.getBoundingClientRect().width), Math.round(element.getBoundingClientRect().height)]));
+
+				assert.ok(small.length > 5, `the sheet's chips and buttons are measured (${small.length})`);
+				assert.deepEqual(small.filter(([, wide, tall]) => wide < 44 || tall < 44), [], 'each 44 px or more each way');
 				await closeFilters(page);
 				await pricesIn(page, log).catch(() => {});
 				await page.screenshot({path: `${SHOTS}/my-cards-${viewport.width}-${colorScheme}.png`});

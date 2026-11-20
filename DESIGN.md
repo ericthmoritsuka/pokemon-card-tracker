@@ -644,6 +644,10 @@ and dark, every theme):
 - *The active tab's mark is 3:1.* Each energy theme's mark reaches it by itself; the default's
   pokedex yellow is 1.5:1 on the white bar, so in light mode it keeps the yellow with a 1 px navy
   edge, the Pokémon logo's (13:1). Dark mode's yellow is 10:1 alone.
+- *Every button a thumb uses is 44 px each way.* `button.small` and `.chip` (Add a copy, Close,
+  the order and star buttons, the filter and place chips, the pocket grid picks) were 40 px tall
+  and the star 40 px wide; they are 44 x 44 at least. The bar's Sort and View selects stay 40 px
+  (design review 2, 2026-11-20), as wide as their words.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
