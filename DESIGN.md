@@ -2975,27 +2975,38 @@ page? and then tap them to select the language and other attributes ... we could
 for this binder/bulk scanning. One: I already have the cards, they are just organized in a binder
 now ... If I'm bulk scanning cards and want to add them... Then, I would need to be able to go
 through them and select information"; "instead of adding the cards to the tray, shouldn't the page
-be 'replicated' and the cards positioned in the right pockets?"). When Scan's Binder page has read a
-page, **The page** opens over the camera (`js/scan/sheets.js` `pageSheet`): the page's cards in
-their pockets, three across as the photo has them (a spread's left and right pages one under the
-other), an empty pocket marked Empty. Two modes, chosen at its top:
+be 'replicated' and the cards positioned in the right pockets?"). As soon as a photo is chosen in
+Scan's Binder page, **The page** opens over the camera (`js/scan/sheets.js` `pageSheet`): nine
+pockets waiting while the page is found, then the page's cards in their pockets, three across as
+the photo has them (a spread's left and right pages one under the other), each pocket's tile
+joining as it is cut and filling as it is read, an empty pocket marked Empty. The grid leads, under
+one line saying what the read is doing; the page's actions sit at the sheet's foot whatever the
+scroll (design review, 2026-11-19: it opened only after the whole read, about a minute behind a
+busy panel over the camera, and then under a mode row and a language row). Closing the sheet while
+the page is read brings the panel over the camera back, and the sheet opens again when the read
+ends; a photo with no page in it closes the sheet and the note says so. Two modes, chosen at the
+foot:
 
 - **New to my cards** (the default): the cards stay in the tray, to be added by Done as any scan.
   Each pocket is the tray's own tile and opens the card's sheet, which has **Back to the page**. A
-  row of languages (Portuguese, English, Japanese, Korean) above the grid sets in one tap the
-  language of the page's cards whose language was not read (a default, or set by that row), and
-  leaves the ones read off the card or picked by hand: a binder pocket rarely shows its language
-  (on Eric's three pages, English against Portuguese on none), and a page is mostly one language.
-  The row sits above the grid because three rows of cards fill a phone's sheet.
-- **Already mine**: the page's cards leave the tray, so Done can never add them as new copies, and
+  row of languages at the foot (a flag and PT, EN, JA, KO, the full name to a screen reader) sets
+  in one tap the language of the page's cards whose language was not read (a default, or set by
+  that row), and leaves the ones read off the card or picked by hand: a binder pocket rarely shows
+  its language (on Eric's three pages, English against Portuguese on none), and a page is mostly
+  one language. The row shows once every pocket is read, and what a tap did takes its label's
+  place.
+- **Already mine**: offered once every pocket is read, so no card is matched while it is still
+  being read. The page's cards leave the tray, so Done can never add them as new copies, and
   come back if he turns to New to my cards. Each pocket takes one of his live copies of its card
   (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
   language and finish the scan read (only when read, never a default), then the oldest; one copy
   is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".
   A card he has no copy left of gets its placeholder. Each pocket says where its copy is now
-  ("Loose", "Binder A, p. 3"). **Place this page in** lists his hand-made binders of 3 x 3 pockets,
-  the grid a page photo has, and **A new binder** with a name; a binder's page, or a new page at the
-  end (a spread takes that page and the next). **Place** writes the whole page in one save
+  ("Loose", "Binder A, p. 3"). **Place this page in**, under the grid, lists his hand-made binders
+  of 3 x 3 pockets, the grid a page photo has, and **A new binder** with a name; a binder's page, or
+  a new page at the end (a spread takes that page and the next). The foot says where the page goes
+  ("To Binder A, page 2", with **Change**, which goes to that choice), the warning below when the
+  page holds cards, and **Place**, which writes the whole page in one save
   (`js/binders.js` `placePage`, setPocket's rules: a copy filed elsewhere leaves its old pocket),
   and offers **Open the binder** and **Undo**. Placing never empties a page silently (design review,
   2026-11-19: it defaulted to a full page 1 and moved its nine cards out with no word): the page

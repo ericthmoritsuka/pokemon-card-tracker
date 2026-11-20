@@ -1103,24 +1103,37 @@ export function settingsSheet(ctx) {
 
 // ------------------------------------------------------------ the page read
 
-// The binder page just read (Eric, 2026-11-19: "maybe i could see the cards
-// in a binder page? and then tap them to select the language and other
-// attributes"): its cards in their pockets, as the photo has them, each the
-// tray's own tile, which opens its card (and the card goes back here) or is
-// removed with its x. An empty pocket says so; a card taken out of the tray
-// leaves its pocket blank. Under the grid, one tap sets the language of the
-// page's cards whose language could not be read: a binder page's pockets
-// rarely show it (on Eric's pages, English against Portuguese on none), and
-// a page is mostly one language. A language read off a card, or picked by
-// hand, stays. Opens by itself when a page has been read (view.js readPage).
+// The binder page being read, then read (Eric, 2026-11-19: "maybe i could
+// see the cards in a binder page? and then tap them to select the language
+// and other attributes"): its cards in their pockets, as the photo has them,
+// each the tray's own tile, which opens its card (and the card goes back
+// here) or is removed with its x. An empty pocket says so; a card taken out
+// of the tray leaves its pocket blank.
+//
+// The grid leads and the page's actions stay at the sheet's foot whatever
+// the scroll (design review, 2026-11-19: three rows of cards fill a phone's
+// sheet, so the grid sat under a mode row, a language row, and their notes).
+// It opens as soon as a photo is chosen (view.js readPage), not after the
+// whole read (it took about a minute on a busy panel over the camera): nine
+// waiting pockets while the page is found, then each pocket's tile as it
+// joins and is read. Already mine waits for the last pocket, so no card is
+// matched or placed while it is still being read.
+//
+// At the foot, while the page is new to his cards, one tap sets the
+// language of the page's cards whose language could not be read: a binder
+// page's pockets rarely show it (on Eric's pages, English against
+// Portuguese on none), and a page is mostly one language. A language read
+// off a card, or picked by hand, stays.
 const PAGE_LANGUAGES = ['pt', 'en', 'ja', 'ko'];
 
 export function pageSheet(ctx) {
 	const titleId = 'scan-pagegrid-title';
 	const body = h('div', {class: 'scan-sheet-body'});
+	const foot = h('div', {class: 'scan-sheet-foot', id: 'scan-pagegrid-foot'});
 	const el = h('div', {'aria-labelledby': titleId, 'aria-modal': 'true', class: 'scan-sheet scan-pagegrid', id: 'scan-pagegrid', role: 'dialog'},
 		sheetHeader('The page', () => ctx.closeSheet(), titleId),
-		body);
+		body,
+		foot);
 	let told = null;
 	let picked = null;
 	// "Already mine": the pocket whose copies are listed, the binder and
@@ -1132,6 +1145,7 @@ export function pageSheet(ctx) {
 	let placing = false;
 	let placed = null;
 	let placeError = null;
+	let askName = false;
 
 	body.addEventListener('click', (event) => {
 		const mineCell = event.target.closest('[data-mine-item]');
@@ -1167,14 +1181,48 @@ export function pageSheet(ctx) {
 		}
 	});
 
+	// New to my cards or Already mine. Already mine waits while the page is
+	// read: its pockets are matched to his copies once each card is known.
+	const modeRow = (mine, reading) => h('div', {'aria-label': 'These cards are', class: 'scan-chips scan-page-mode', role: 'group'},
+		chip({id: 'scan-page-new', label: 'New to my cards', onclick: () => ctx.setPageMine(false), pressed: !mine}),
+		h('button', {
+			'aria-pressed': String(Boolean(mine)),
+			class: 'scan-chip',
+			disabled: reading,
+			id: 'scan-page-mine',
+			onclick: () => ctx.setPageMine(true),
+			title: reading ? 'Once every pocket is read' : null,
+			type: 'button',
+		}, 'Already mine'));
+
+	// What the read is doing, over the grid: the step, and a bar that runs
+	// while the page is found and fills as its pockets are read. #scan-note
+	// says the same words to a screen reader.
+	const statusLine = (reading) => h('div', {class: 'scan-page-status', id: 'scan-pagegrid-status'},
+		h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, reading.step),
+		h('span', {'aria-hidden': 'true', class: `scan-page-bar${reading.of === null ? ' is-finding' : ''}`},
+			h('span', {class: 'scan-page-bar-fill', style: reading.of === null ? null : `width: ${Math.round((Math.min(reading.done, reading.of) / Math.max(1, reading.of)) * 100)}%`})));
+
+	const sideGrids = (run, cell) => {
+		const pages = Math.max(1, Math.ceil(run.pockets / 9));
+
+		return Array.from({length: pages}, (_, p) => h('section', {class: 'scan-page-side'},
+			pages > 1 ? h('h3', {class: 'scan-label'}, p ? 'Right page' : 'Left page') : null,
+			h('ul', {'aria-label': pages > 1 ? (p ? 'Right page' : 'Left page') : 'The page\'s pockets', class: 'scan-page-grid', id: `scan-page-grid-${p + 1}`},
+				...Array.from({length: 9}, (__, k) => cell((p * 9) + k + 1)))));
+	};
+
 	function refresh() {
-		const run = ctx.pageRun;
+		const reading = ctx.pageReading || null;
+		const finding = Boolean(reading && reading.of === null);
+		// While a page is found, the run is still the one before it, if any.
+		const run = finding ? null : ctx.pageRun;
 
 		// Placed: the page has left the scan, so this comes before the read.
-		if (placed) {
-			body.replaceChildren(
-				h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-place-done'}, placed.text),
-				h('button', {class: 'scan-button scan-wide', id: 'scan-place-open', onclick: () => ctx.openBinder(placed.binderId), type: 'button'}, 'Open the binder'),
+		if (placed && !reading) {
+			body.replaceChildren(h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-place-done'}, placed.text));
+			foot.replaceChildren(
+				h('button', {class: 'scan-button scan-primary scan-wide', id: 'scan-place-open', onclick: () => ctx.openBinder(placed.binderId), type: 'button'}, 'Open the binder'),
 				h('button', {class: 'scan-button scan-wide', id: 'scan-place-undo', onclick: async () => {
 					const undo = placed.undo;
 
@@ -1189,59 +1237,88 @@ export function pageSheet(ctx) {
 			return;
 		}
 
-		if (!run) {
-			body.replaceChildren(h('p', {class: 'scan-muted'}, 'No binder page has been read in this session.'));
+		// The page is being found: nine pockets waiting, in a page's shape.
+		if (finding) {
+			body.replaceChildren(
+				statusLine(reading),
+				h('ul', {'aria-hidden': 'true', class: 'scan-page-grid is-waiting'},
+					...Array.from({length: 9}, () => h('li', {class: 'scan-page-empty scan-page-waiting'}))));
+			foot.replaceChildren(modeRow(false, true));
 
 			return;
 		}
 
-		const mode = h('div', {'aria-label': 'These cards are', class: 'scan-chips scan-page-mode', role: 'group'},
-			chip({id: 'scan-page-new', label: 'New to my cards', onclick: () => ctx.setPageMine(false), pressed: !run.mine}),
-			chip({id: 'scan-page-mine', label: 'Already mine', onclick: () => ctx.setPageMine(true), pressed: Boolean(run.mine)}));
+		if (!run) {
+			body.replaceChildren(h('p', {class: 'scan-muted'}, 'No binder page has been read in this session.'));
+			foot.replaceChildren();
 
-		if (run.mine) {
-			body.replaceChildren(mode, ...mineParts(run));
+			return;
+		}
+
+		if (run.mine && !reading) {
+			const parts = mineParts(run);
+
+			body.replaceChildren(...parts.body);
+			foot.replaceChildren(modeRow(true, false), ...parts.foot);
+
+			if (askName) {
+				askName = false;
+
+				const name = body.querySelector('#scan-place-name');
+
+				if (name) {
+					name.scrollIntoView({block: 'center'});
+					name.focus({preventScroll: true});
+				}
+			}
 
 			return;
 		}
 
 		const items = ctx.session.items.filter((item) => item.pageRun === run.id);
 		const byPocket = new Map(items.map((item) => [item.page, item]));
-		const pages = Math.max(1, Math.ceil(run.pockets / 9));
 		const look = items.filter((item) => needsLook(item)).length;
-		const grids = Array.from({length: pages}, (_, p) => h('section', {class: 'scan-page-side'},
-			pages > 1 ? h('h3', {class: 'scan-label'}, p ? 'Right page' : 'Left page') : null,
-			h('ul', {'aria-label': pages > 1 ? (p ? 'Right page' : 'Left page') : 'The page\'s pockets', class: 'scan-page-grid', id: `scan-page-grid-${p + 1}`},
-				...Array.from({length: 9}, (__, k) => {
-					const pocket = (p * 9) + k + 1;
-					const item = byPocket.get(pocket);
+		const grids = sideGrids(run, (pocket) => {
+			const item = byPocket.get(pocket);
 
-					if (item) {
-						return ctx.tile(item);
-					}
+			if (item) {
+				return ctx.tile(item);
+			}
 
-					return h('li', {'aria-label': `Pocket ${pocket}: ${run.empty.includes(pocket) ? 'empty' : 'taken out of the tray'}`, class: 'scan-page-empty', 'data-pocket': pocket},
-						run.empty.includes(pocket) ? 'Empty' : '');
-				}))));
-		const scoped = ctx.pagePreview ? ctx.pagePreview(picked || 'pt') : null;
+			return h('li', {'aria-label': `Pocket ${pocket}: ${run.empty.includes(pocket) ? 'empty' : 'taken out of the tray'}`, class: 'scan-page-empty', 'data-pocket': pocket},
+				run.empty.includes(pocket) ? 'Empty' : '');
+		});
+		const scoped = !reading && items.length && ctx.pagePreview ? ctx.pagePreview(picked || 'pt') : null;
 
-		body.replaceChildren(
-			mode,
-			h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
-				? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. Tap a card to check it or change it.`
-				: 'Every card of this page was taken out of the tray.'),
-			// The language row first, in sight without scrolling: the grid of
-			// three rows fills a phone's sheet.
-			items.length ? h('div', {class: 'scan-field', id: 'scan-pagegrid-language'},
-				h('p', {class: 'scan-label', id: 'scan-pagegrid-language-label'}, 'Language of the cards it could not read'),
-				h('p', {class: 'scan-muted'}, scoped && scoped.kept
-					? `${plural(scoped.kept, 'card')} whose language was read off the card or picked by you ${scoped.kept === 1 ? 'stays' : 'stay'} as ${scoped.kept === 1 ? 'it is' : 'they are'}.`
-					: 'A language read off a card, or picked by you, stays.'),
-				h('div', {'aria-labelledby': 'scan-pagegrid-language-label', class: 'scan-chips', role: 'group'},
-					...PAGE_LANGUAGES.map((code) => chip({
-						extra: flagBadge([code], {prefix: ''}),
+		body.replaceChildren(...[
+			reading
+				? statusLine(reading)
+				: h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
+					? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. Tap a card to check it or change it.`
+					: 'Every card of this page was taken out of the tray.'),
+			...grids,
+			scoped ? h('p', {class: 'scan-muted', id: 'scan-pagegrid-kept'}, scoped.kept
+				? `The language row sets only the cards whose language was not read: ${plural(scoped.kept, 'card')} read off the card or picked by you ${scoped.kept === 1 ? 'stays' : 'stay'} as ${scoped.kept === 1 ? 'it is' : 'they are'}.`
+				: 'The language row sets only the cards whose language was not read: one read off a card, or picked by you, stays.') : null,
+			h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'),
+		].filter(Boolean));
+
+		// The language row at the foot, once every pocket is read: a card
+		// still being read has no language to keep or set yet.
+		foot.replaceChildren(...[
+			modeRow(false, Boolean(reading)),
+			!reading && items.length ? h('div', {class: 'scan-field scan-page-language', id: 'scan-pagegrid-language'},
+				// What a tap did takes the label's place, so the foot keeps its
+				// height and the grid its room.
+				told
+					? h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-pagegrid-told'}, told)
+					: h('p', {class: 'scan-label', id: 'scan-pagegrid-language-label'}, 'Language of the cards it could not read'),
+				h('div', {'aria-label': 'Language of the cards it could not read', class: 'scan-chips scan-page-langs', role: 'group'},
+					...PAGE_LANGUAGES.map((code) => h('button', {
+						'aria-label': langName(code),
+						'aria-pressed': String(picked === code),
+						class: 'scan-chip',
 						id: `scan-pagegrid-lang-${code}`,
-						label: langName(code),
 						onclick: () => {
 							const done = ctx.applyPageLanguage(code);
 
@@ -1251,24 +1328,24 @@ export function pageSheet(ctx) {
 								: `No card changed: every one ${done.kept ? 'whose language was not read ' : ''}is ${langName(code)} already.`;
 							refresh();
 						},
-						pressed: picked === code,
-					}))),
-				told ? h('p', {'aria-live': 'polite', class: 'scan-preview', id: 'scan-pagegrid-told'}, told) : null) : null,
-			...grids,
-			h('button', {class: 'scan-button scan-wide', id: 'scan-pagegrid-done', onclick: () => ctx.closeSheet(), type: 'button'}, 'Back to the camera'));
+						type: 'button',
+					}, flagBadge([code], {prefix: ''}), h('span', {'aria-hidden': 'true'}, code.toUpperCase()))))) : null,
+		].filter(Boolean));
 	}
 
 	// "Already mine" (js/scan/page-place.js): each pocket as the copy of his
 	// it will be, where that copy is now, and the binder page it goes to.
+	// Returns {body, foot}: the grid and the choices, and at the foot where
+	// the page goes, what it replaces there, and Place.
 	function mineParts(run) {
 		const owned = ctx.pageOwned;
 
 		if (!owned || owned === 'loading') {
-			return [h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-place-line'}, 'Finding your copies…')];
+			return {body: [h('p', {'aria-live': 'polite', class: 'scan-muted', id: 'scan-place-line'}, 'Finding your copies…')], foot: []};
 		}
 
 		if (owned === 'failed') {
-			return [h('p', {class: 'scan-muted', id: 'scan-place-line', role: 'alert'}, 'Your cards could not be read. Turn to New to my cards and back to try again.')];
+			return {body: [h('p', {class: 'scan-muted', id: 'scan-place-line', role: 'alert'}, 'Your cards could not be read. Turn to New to my cards and back to try again.')], foot: []};
 		}
 
 		const items = ctx.pageItems();
@@ -1297,7 +1374,9 @@ export function pageSheet(ctx) {
 		const used = binder ? pagesInUse(binder) : new Map();
 		const plan = binder ? placePlan(owned.binders, {binderId: binder.id, pockets: pagePockets(items, matches, targetPage)}) : {loose: 0, replaced: 0};
 
-		const cell = (item, pocket) => {
+		const cell = (pocket) => {
+			const item = byPocket.get(pocket);
+
 			if (!item) {
 				return h('li', {'aria-label': `Pocket ${pocket}: ${run.empty.includes(pocket) ? 'empty' : 'taken out'}`, class: 'scan-page-empty'}, run.empty.includes(pocket) ? 'Empty' : '');
 			}
@@ -1324,10 +1403,7 @@ export function pageSheet(ctx) {
 
 		const parts = [
 			h('p', {class: 'scan-muted', id: 'scan-place-line'}, `${plural(summary.copies, 'card')} from your cards${summary.moved ? `, ${summary.moved} of them taken from the pocket ${summary.moved === 1 ? 'it is' : 'they are'} in now` : ''}${summary.placeholders ? `; ${plural(summary.placeholders, 'placeholder')} for cards you have none left of` : ''}. Tap a card to pick another copy.`),
-			...Array.from({length: pages}, (_, p) => h('section', {class: 'scan-page-side'},
-				pages > 1 ? h('h3', {class: 'scan-label'}, p ? 'Right page' : 'Left page') : null,
-				h('ul', {'aria-label': pages > 1 ? (p ? 'Right page' : 'Left page') : 'The page\'s pockets', class: 'scan-page-grid', id: `scan-page-grid-${p + 1}`},
-					...Array.from({length: 9}, (__, k) => cell(byPocket.get((p * 9) + k + 1), (p * 9) + k + 1))))),
+			...sideGrids(run, cell),
 		];
 
 		const chosen = selected && items.find((item) => item.id === selected);
@@ -1369,6 +1445,12 @@ export function pageSheet(ctx) {
 			h('option', {selected: targetPage === binder.page_count + 1, value: binder.page_count + 1}, `A new page at the end (page ${binder.page_count + 1})`))
 			: h('input', {autocomplete: 'off', class: 'scan-select', id: 'scan-place-name', maxlength: 60, oninput: (event) => {
 				newName = event.target.value;
+				// The foot names the new binder as it is typed.
+				const to = foot.querySelector('#scan-place-to-text');
+
+				if (to) {
+					to.textContent = toText();
+				}
 			}, placeholder: 'Name of the new binder', type: 'text', value: newName});
 
 		parts.push(h('div', {class: 'scan-field', id: 'scan-place'},
@@ -1376,16 +1458,43 @@ export function pageSheet(ctx) {
 			binderSelect,
 			binder ? h('label', {class: 'scan-label', for: 'scan-place-page'}, pages > 1 ? 'Left page goes on' : 'On') : h('label', {class: 'scan-label', for: 'scan-place-name'}, 'Name'),
 			where,
+			binder && binders.length < sortBinders(handBinders(owned.binders)).length ? h('p', {class: 'scan-muted'}, 'Only binders of 3 by 3 pockets are listed, as a page photo has.') : null));
+
+		// Where the page goes, in a line at the foot, so Place never writes
+		// to a page out of sight; Change goes to the choice under the grid.
+		function toText() {
+			if (!binder) {
+				return `To a new binder${newName.trim() ? `, ${newName.trim()}` : ''}`;
+			}
+
+			const spread = pages > 1 ? ` and ${targetPage + 1}` : '';
+
+			return targetPage > binder.page_count
+				? `To ${binder.name}, a new page at the end (page ${targetPage}${spread})`
+				: `To ${binder.name}, page ${targetPage}${spread}`;
+		}
+
+		const footParts = [
+			h('p', {class: 'scan-muted scan-place-to', id: 'scan-place-to'},
+				h('span', {id: 'scan-place-to-text'}, toText()),
+				h('button', {class: 'scan-text-button', id: 'scan-place-change', onclick: () => {
+					const field = body.querySelector(binder ? '#scan-place-page' : '#scan-place-name') || body.querySelector('#scan-place-binder');
+
+					if (field) {
+						field.scrollIntoView({block: 'center'});
+						field.focus({preventScroll: true});
+					}
+				}, type: 'button'}, 'Change')),
 			plan.loose || plan.replaced ? h('p', {class: 'scan-preview', id: 'scan-place-warning', role: 'note'}, [
 				plan.loose ? `${plural(plan.loose, 'card')} on that page will come out of ${plan.loose === 1 ? 'its pocket' : 'their pockets'} and be loose.` : null,
 				plan.replaced ? `${plural(plan.replaced, 'placeholder or mark', 'placeholders or marks')} there will be replaced.` : null,
 				'Undo puts it back.',
 			].filter(Boolean).join(' ')) : null,
-			binder && binders.length < sortBinders(handBinders(owned.binders)).length ? h('p', {class: 'scan-muted'}, 'Only binders of 3 by 3 pockets are listed, as a page photo has.') : null,
 			placeError ? h('p', {class: 'scan-muted form-error', role: 'alert'}, placeError) : null,
 			h('button', {class: 'scan-button scan-primary scan-wide', disabled: placing || !items.length, id: 'scan-place-go', onclick: async () => {
 				if (!binder && !newName.trim()) {
 					placeError = 'Give the new binder a name.';
+					askName = true;
 					refresh();
 
 					return;
@@ -1409,9 +1518,10 @@ export function pageSheet(ctx) {
 				? 'Placing…'
 				: plan.loose
 					? `Replace ${plural(plan.loose, 'card')} on page ${targetPage}`
-					: `Place ${[summary.copies ? plural(summary.copies, 'card') : null, summary.placeholders ? plural(summary.placeholders, 'placeholder') : null].filter(Boolean).join(' and ') || 'the page'}`)));
+					: `Place ${[summary.copies ? plural(summary.copies, 'card') : null, summary.placeholders ? plural(summary.placeholders, 'placeholder') : null].filter(Boolean).join(' and ') || 'the page'}`),
+		].filter(Boolean);
 
-		return parts;
+		return {body: parts, foot: footParts};
 	}
 
 	refresh();

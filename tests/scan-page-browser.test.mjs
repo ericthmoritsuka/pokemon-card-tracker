@@ -370,6 +370,22 @@ describe('a binder page from one photo', () => {
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-page-grid.png`});
 
+		// The grid leads, and its actions stay at the sheet's foot (design
+		// review, 2026-11-19): at 360 x 740 the first row of pockets is in
+		// sight over the foot, which is on the screen whole.
+		const boxes = await page.evaluate(() => {
+			const box = (selector) => document.querySelector(selector).getBoundingClientRect();
+			const first = box('#scan-page-grid-1 > li');
+
+			return {firstBottom: first.bottom, firstTop: first.top, foot: box('#scan-pagegrid-foot').top, footBottom: box('#scan-pagegrid-foot').bottom, line: box('#scan-pagegrid-line').top, mode: box('#scan-page-mine').top};
+		});
+
+		assert.ok(boxes.line < boxes.firstTop, 'the line over the grid');
+		assert.ok(boxes.firstBottom <= boxes.foot, `the first row of pockets whole over the foot (${JSON.stringify(boxes)})`);
+		assert.ok(boxes.footBottom <= VIEWPORT.height + 0.5, `the foot on the screen (${JSON.stringify(boxes)})`);
+		assert.ok(boxes.mode >= boxes.foot, 'New to my cards and Already mine at the foot');
+		assert.equal(await page.locator('#scan-pagegrid-foot #scan-pagegrid-lang-en').count(), 1, 'the language row at the foot');
+
 		// Label checks still running in the background may settle a card's
 		// language meanwhile, so the end state is what is checked: the cards
 		// the row set are English and as many as it says, and none whose
@@ -509,31 +525,62 @@ describe('a binder page from one photo', () => {
 		const app = await open();
 		const {page} = app;
 		const notes = new Set();
-		// The panel over the camera while the page is read (Eric,
-		// 2026-11-19: no sign of anything working): what it said, and
-		// whether its bar ran (finding) or filled (pockets).
+		// The page sheet while the page is read (design review, 2026-11-19:
+		// it opens at once and its pockets fill as they are read), and the
+		// panel over the camera (Eric, 2026-11-19: no sign of anything
+		// working), which shows when the sheet is closed meanwhile.
+		const sheets = new Set();
 		const panels = new Set();
+		let closed = false;
 
 		await page.goto(url('scan'));
 		await page.waitForSelector('#scan-camera-off:not([hidden])');
 		assert.ok(await page.$eval('#scan-page-busy', (panel) => panel.hidden), 'no panel before a page');
 		await choose(page, pagePhoto);
-		await page.waitForSelector('#scan-page-busy:not([hidden])', {timeout: 10000});
-		await page.screenshot({path: `${SHOTS}/scan-page-busy.png`});
+		await page.waitForSelector('#scan-pagegrid', {timeout: 10000});
+		await page.screenshot({path: `${SHOTS}/scan-page-finding.png`});
 
 		await until(async () => {
 			const note = await text(page, '#scan-note');
+			const sheet = await page.evaluate(() => {
+				const grid = document.getElementById('scan-pagegrid');
+
+				if (!grid) {
+					return 'closed';
+				}
+
+				const line = grid.querySelector('#scan-pagegrid-line');
+				const pockets = grid.querySelectorAll('.scan-page-grid > li').length;
+				const tiles = grid.querySelectorAll('#scan-page-grid-1 [data-item]').length;
+				const mine = grid.querySelector('#scan-page-mine');
+
+				return `${line ? line.textContent : ''} | ${pockets} pockets, ${tiles ? 'tiles' : 'no tiles'}, mine ${mine && mine.disabled ? 'waits' : 'open'}`;
+			});
 			const panel = await page.$eval('#scan-page-busy', (node) => (node.hidden ? 'hidden' : `${node.classList.contains('is-finding') ? 'finding' : 'pockets'}: ${node.querySelector('#scan-page-step').textContent}`));
 
 			notes.add(note);
-			panels.add(panel);
+			sheets.add(sheet);
+			panels.add(`${sheet === 'closed' ? 'closed' : 'open'} ${panel}`);
+
+			// Once the grid has its first tiles, the sheet is closed: the
+			// panel over the camera takes over, and the sheet comes back at
+			// the end.
+			if (!closed && /tiles/.test(sheet) && !/no tiles/.test(sheet) && /^Reading pocket [2-8] of 9\.$/.test(note)) {
+				closed = true;
+				await page.screenshot({path: `${SHOTS}/scan-page-reading.png`});
+				await page.click('#scan-sheet-close');
+			}
 
 			return /^Page read/.test(note);
 		}, 300000, 'the page read');
 
 		assert.ok([...notes].some((note) => /^Reading pocket [1-9] of 9\.$/.test(note)), `progress shown (${[...notes].join(' | ')})`);
-		assert.ok(panels.has('finding: Finding the page and its pockets. A large photo can take about a minute.'), `the panel while the page is found (${[...panels].join(' | ')})`);
-		assert.ok([...panels].some((panel) => /^pockets: Reading pocket [1-9] of 9\.$/.test(panel)), `the panel counts pockets (${[...panels].join(' | ')})`);
+		assert.ok(sheets.has('Finding the page and its pockets. A large photo can take about a minute. | 9 pockets, no tiles, mine waits'), `the sheet while the page is found: nine pockets waiting (${[...sheets].join(' || ')})`);
+		assert.ok([...sheets].some((sheet) => /^Reading pocket [1-9] of 9\. \| 9 pockets, tiles, mine waits$/.test(sheet)), `the grid fills while the pockets are read, and Already mine waits (${[...sheets].join(' || ')})`);
+		assert.ok(![...panels].some((panel) => panel.startsWith('open') && !panel.endsWith('hidden')), `no panel over the camera while the sheet shows the read (${[...panels].join(' | ')})`);
+		assert.ok(closed, 'the sheet was closed while the page was read');
+		assert.ok([...panels].some((panel) => /^closed pockets: Reading pocket [1-9] of 9\.$/.test(panel)), `the panel counts pockets once the sheet is closed (${[...panels].join(' | ')})`);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 10000});
 		assert.ok(await page.$eval('#scan-page-busy', (panel) => panel.hidden), 'the panel goes once the page is read');
 		assert.equal(await page.$eval('#scan-page-busy', (panel) => panel.getAttribute('aria-hidden')), 'true', '#scan-note speaks for it');
 		assert.match(await text(page, '#scan-note'), /^Page read: 7 cards added(, \d to check)?\. 2 empty pockets skipped\.$/);

@@ -392,6 +392,10 @@ export function scanView(root) {
 	// frame loop rests meanwhile, so the page in front of it is not taken
 	// as a card as well.
 	let pageBusy = false;
+	// What the read is doing, for the page sheet (sheets.js pageSheet):
+	// {step, done, of}, of null while the page is found; null when no page
+	// is being read.
+	let pageReading = null;
 	let where = new Map();
 	let spareIds = new Set();
 	let outResults = new Map();
@@ -660,6 +664,9 @@ export function scanView(root) {
 		// language row for its cards whose language was not read.
 		get pageRun() {
 			return session && session.pageRun ? session.pageRun : null;
+		},
+		get pageReading() {
+			return pageReading;
 		},
 		applyPageLanguage,
 		onPage: (id) => {
@@ -1420,11 +1427,15 @@ export function scanView(root) {
 
 	// The binder page panel: `step` in words, and `done` pockets of `of`
 	// read, or no count while the page is still being found. null hides it.
+	// The page sheet shows the read itself, so the panel waits behind it,
+	// and shows again when the sheet is closed while the page is read.
 	function showPageBusy(step, {done = null, of = null} = {}) {
-		pagePanel.hidden = step === null;
-		// The camera-off panel would show round its edges (no camera, a
-		// photo picked from the gallery): the read is all that matters then.
-		stage.classList.toggle('is-reading-page', step !== null);
+		pageReading = step === null ? null : {done, of, step};
+		drawPageBusy();
+
+		if (pageSheetOpen()) {
+			sheet.refresh();
+		}
 
 		if (step === null) {
 			return;
@@ -1435,6 +1446,21 @@ export function scanView(root) {
 		pageStep.textContent = step;
 		pagePanel.classList.toggle('is-finding', finding);
 		pageBarFill.style.width = finding ? '' : `${Math.round((Math.min(done, of) / Math.max(1, of)) * 100)}%`;
+	}
+
+	const pageSheetOpen = () => Boolean(sheet && sheet.el && sheet.el.id === 'scan-pagegrid');
+
+	function drawPageBusy() {
+		pagePanel.hidden = pageReading === null || pageSheetOpen();
+		// The camera-off panel would show round its edges (no camera, a
+		// photo picked from the gallery): the read is all that matters then.
+		stage.classList.toggle('is-reading-page', pageReading !== null);
+	}
+
+	// A read that ends with no page to show (not found, nothing in it, an
+	// error) closes the sheet it opened, so the note over the camera says why.
+	function closeReadingSheet() {
+		return pageSheetOpen() ? closeSheet() : Promise.resolve();
 	}
 
 	function drawNote() {
@@ -1499,6 +1525,8 @@ export function scanView(root) {
 			});
 		}
 
+		drawPageBusy();
+
 		const focus = next.el.querySelector('.scan-sheet-title');
 
 		if (focus) {
@@ -1524,6 +1552,7 @@ export function scanView(root) {
 		screen.classList.remove('has-sheet');
 		detector.resume();
 		holderDetector.resume();
+		drawPageBusy();
 	}
 
 	function openItem(id) {
@@ -2574,6 +2603,13 @@ export function scanView(root) {
 		setNote('Finding the page.');
 		showPageBusy('Finding the page and its pockets. A large photo can take about a minute.');
 
+		// The page opens now, its pockets filling as they are read (design
+		// review, 2026-11-19), unless another sheet is open.
+		if (!sheet) {
+			endReview();
+			showSheet(pageSheet(ctx));
+		}
+
 		try {
 			const found = await readPagePhoto(file);
 
@@ -2582,6 +2618,7 @@ export function scanView(root) {
 			}
 
 			if (found.status !== 'page') {
+				await closeReadingSheet();
 				setNote(pageTrouble(found.status));
 				announce(pageTrouble(found.status));
 
@@ -2593,6 +2630,7 @@ export function scanView(root) {
 			// adding and a trade, or a trade's side, drops the page (review,
 			// 2026-11-19).
 			if (T.isTrade(session) !== T.isTrade(target) || (T.isTrade(target) && session.side !== target.side)) {
+				await closeReadingSheet();
 				setNote('The mode changed while the page was read, so it was not added. Take it again.');
 
 				return;
@@ -2607,6 +2645,7 @@ export function scanView(root) {
 			const empty = found.pockets.length - pockets.length;
 
 			if (!pockets.length) {
+				await closeReadingSheet();
 				setNote(pageSummary({added: 0, empty, look: 0, pages: found.pages}));
 
 				return;
@@ -2692,6 +2731,7 @@ export function scanView(root) {
 		}
 		catch (err) {
 			if (alive) {
+				await closeReadingSheet();
 				setNote(`The page could not be read. ${err && err.message ? err.message : ''}`.trim());
 			}
 		}

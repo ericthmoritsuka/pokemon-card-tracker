@@ -593,6 +593,12 @@ html.scan-open body {
 	padding: 0;
 }
 
+.scan-page-grid > li {
+	/* Not the app's list spacing (style.css li + li): every pocket of a
+	   row on one line, the first one too. */
+	margin: 0;
+}
+
 .scan-page-grid .scan-tray-item,
 .scan-page-grid .scan-tile,
 .scan-page-grid .scan-tile-art {
@@ -614,11 +620,117 @@ html.scan-open body {
 	margin: 8px 0 0;
 }
 
+/* The page's actions at the sheet's foot (sheets.js pageSheet), whatever
+   the scroll, so the grid leads (design review, 2026-11-19): New to my
+   cards or Already mine as two halves of one row, then the language row or
+   where the page goes and Place. Full width of the sheet, over its
+   padding, with the sheet's own surface behind. */
+.scan-sheet-foot {
+	background: var(--scan-surface);
+	border-top: 1px solid var(--scan-border);
+	bottom: 0;
+	display: grid;
+	gap: 8px;
+	margin: 8px -16px 0;
+	padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+	position: sticky;
+	z-index: 1;
+}
+
+/* The foot reaches the sheet's bottom edge: the sheet's own padding would
+   show the grid scrolling under it. */
+.scan-sheet.scan-pagegrid {
+	padding-bottom: 0;
+}
+
+.scan-sheet-foot:empty {
+	display: none;
+}
+
+.scan-sheet-foot > p {
+	margin: 0;
+}
+
+.scan-chips.scan-page-mode {
+	display: grid;
+	gap: 8px;
+	/* "New to my cards" is the longer: at 360 px each label keeps one line. */
+	grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.scan-page-mode > .scan-chip {
+	gap: 4px;
+	justify-content: center;
+	min-height: 44px;
+	padding: 0 6px;
+}
+
+.scan-page-mode > .scan-chip:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+/* Four languages in one row: a flag and its code each, the full name for a
+   screen reader. */
+.scan-page-language .scan-label,
+.scan-page-language .scan-preview {
+	margin: 0 0 4px;
+}
+
+.scan-chips.scan-page-langs {
+	display: grid;
+	gap: 8px;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.scan-page-langs > .scan-chip {
+	justify-content: center;
+	min-height: 44px;
+	padding: 0 4px;
+}
+
+/* The read over the grid: its step, and the bar the panel over the camera
+   has (view.js showPageBusy). */
+.scan-page-status {
+	display: grid;
+	gap: 6px;
+}
+
+.scan-page-status p {
+	margin: 0;
+}
+
+.scan-page-bar.is-finding .scan-page-bar-fill {
+	animation: scan-bar-run 1.4s ease-in-out infinite;
+	width: 30%;
+}
+
+/* While the page is found: nine pockets waiting, breathing. */
+.scan-page-waiting {
+	animation: scan-pocket-wait 1.6s ease-in-out infinite;
+}
+
+@keyframes scan-pocket-wait {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+/* Where the page goes, at the foot beside Change. */
+.scan-place-to {
+	align-items: center;
+	display: flex;
+	gap: 4px;
+	justify-content: space-between;
+}
+
+.scan-place-to .scan-text-button {
+	flex: none;
+	min-height: 44px;
+}
+
 /* "Already mine" (sheets.js pageSheet): where each copy is now, the
    pocket whose copies are listed, and the pockets that get a placeholder. */
-.scan-page-mode {
-	margin: 4px 0 8px;
-}
 
 .scan-page-where {
 	color: var(--scan-muted);
@@ -1577,10 +1689,15 @@ html.scan-open body {
 		animation: none;
 	}
 
-	.scan-page-busy.is-finding .scan-page-bar-fill {
+	.scan-page-busy.is-finding .scan-page-bar-fill,
+	.scan-page-bar.is-finding .scan-page-bar-fill {
 		animation: none;
 		opacity: 0.5;
 		width: 100%;
+	}
+
+	.scan-page-waiting {
+		animation: none;
 	}
 
 	.scan-guide.is-flash {
