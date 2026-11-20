@@ -1209,16 +1209,55 @@ eye) through Page > Choose a photo in headless Chromium, the language reads let 
   from what it has; a set never asked keeps its print, and a group none of whose prints exist in
   the language is kept whole (a print TCGdex lacks in it). A default language narrows nothing.
 - **A print with an image-less twin is sure only by its number** (`picture.js` `loadTwins`,
-  `pictureVerdict`; `js/vision/index-twins.json`, built by `lab/fingerprints/build-twins.mjs`). A
-  card TCGdex has no picture of cannot be in the index, so its picture finds the print it shares an
-  artwork with, alone and clear: Eric's Portuguese McDonald's Collection 2021 Charmander came out
-  sure as Burning Shadows' sm3-18 (Kagemaru Himeno drew both). The list names the 819 index cards
-  that share their name and illustrator with a card that has no picture in English or Portuguese
-  (TCG Pocket left out); such a card needs its number read, and without it shows "Another print
-  shares this picture and the number did not read. Check the print." The same illustrator does not
-  always mean the same artwork, so this costs a number read on some cards that did not need one
-  (his Mega Venusaur ex, whose MEP promo `mep-013` has no picture, among them), and never a wrong
-  card.
+  `pictureVerdict`, `stackPick`; `js/vision/index-twins.json`, built by
+  `lab/fingerprints/build-twins.mjs`). A card TCGdex has no picture of cannot be in the index, so
+  its picture finds the print it shares an artwork with, alone and clear: Eric's Portuguese
+  McDonald's Collection 2021 Charmander came out sure as Burning Shadows' sm3-18 (Kagemaru Himeno
+  drew both). Such a print needs its number read, and without it shows "Another print shares this
+  picture and the number did not read. Check the print." The stack does not pick it either: the
+  twin is not in the picture's group, so the set of the cards before it cannot rule the twin out
+  (a release review, 2026-11-20: the Charmander scanned after Burning Shadows cards came out sure
+  by the stack).
+
+  **Which prints are listed (narrowed 2026-11-20).** A shared name and illustrator is where the
+  list starts: 1,051 pairs over 819 index cards, many of them a different drawing (Mitsuhiro
+  Arita drew many Charmanders), and each made a card read its number for 4 to 7.5 s on Eric's
+  phone instead of about 1 s. A pair is now kept only on evidence that it is one artwork, in this
+  order:
+
+  1. The twin is a holo H card of the index card's own set (Aquapolis, Skyridge): kept.
+  2. A picture of the twin exists elsewhere: TCGdex's other Western languages (French, Italian, and
+     Spanish have 151 pictures of 105 of the 590 twins, mostly trainer kits and Aquapolis) or
+     pokemontcg.io (326 more, for McDonald's Collections, Classic Collections, promos, galleries,
+     Shiny Vault, and the EX trainer kits); 410 twins have at least one. It is fingerprinted as the
+     scanner fingerprints a photo, every query shift, and its art box compared with the index card's
+     (128 bits): within 24 bits it is kept; when the picture's nearest index card is within 24 bits
+     and is another artwork, it is dropped (a photo of the twin would lead with that card); within
+     40 bits and closest of the twin's candidates, kept (mostly recolours: Shiny Vault, gold Trainer
+     Gallery, rainbow and promo full arts of one drawing).
+  3. No picture settles it: the twin's set. Classic Collections and Best of Game reprint old
+     artwork: kept. McDonald's Collections, trainer kits, and My First Battle reprint cards of
+     their time: kept when released within -3 to +4 years of the index card (of 297 such pairs a
+     picture settled, 209 of the 234 inside that window were one artwork and 53 of the 63 outside
+     were not). Black Star promos, galleries, Shiny Vault, POP, and expansions: dropped (about 1 in
+     10 of the promos the index holds shares the artwork of a card with its name and
+     illustrator).
+  4. A candidate whose own index picture is within 24 bits of a kept one's (a holo and a plain
+     print) is kept with it.
+
+  The list now names 495 index cards (621 pairs). In the sets Eric scans most it went from 124 to
+  44: Base Set 12 to 6, Team Rocket 6 to 4, Legendary Collection 8 to 2, 151 3 to 3, the Mega
+  Evolution sets 34 to 3, the other Scarlet & Violet sets 61 to 26 (Jungle and Fossil had none).
+  Mega Venusaur ex (its MEP promo `mep-013`) is no longer listed; Base Set Charizard (Classic
+  Collection reprints) and Burning Shadows' Charmander still are. Checked by eye on 2026-11-20, on
+  pairs drawn at random from those with a picture: of 20 kept, 20 were one artwork; of 20 dropped,
+  10 were different artworks, 1 could not be told, and 9 were one drawing: 6 recolours (one since
+  kept by the 40-bit step), the BW04 Reshiram and SM147 Glaceon GX promos, and a Classic Collection
+  Arceus VSTAR, whose pictures are foil scans that matched nothing or another print. So a dropped
+  promo or recolour can still come out sure as its set print. What no picture settles stays a guess
+  by set: 151's Pikachu is still listed for McDonald's 2024's (`2024sv-2`, 12 cards in all for
+  that set) and 17 Scarlet & Violet cards for McDonald's 2023's, because TCGdex and pokemontcg.io
+  have no picture of either set.
 - **A pocket's own cut is read only when it found the picture** (`pocket.js` `withPocketCard`,
   `identify.js` `firstQuad`). The cut to the card's own edges is the one its number and its
   language are read from, but its edges can be taken at the wrong lines: the Metapod on 1000182577
@@ -1259,8 +1298,9 @@ The Charmander stays wrong: the index cannot hold it, and it now asks for a look
 the page's copy is drawn from the larger copy rather than from the file, and the Dark Wartortle,
 whose Team Rocket and Legendary Collection prints share the artwork and are both English, shows
 the Legendary Collection one first, unsure as before (twice of two runs). Of the 5 not sure, the
-Squirtle and the Dark Wartortle are such English pairs, the Mega Venusaur ex has its image-less
-promo, the Charmander is the McDonald's one, and the Caterpie's text read no language.
+Squirtle and the Dark Wartortle are such English pairs, the Mega Venusaur ex had its image-less
+promo (no longer listed since the list was narrowed, so its picture alone can make it sure again;
+not measured again), the Charmander is the McDonald's one, and the Caterpie's text read no language.
 
 Tesseract now loads only when a card needs text, so Scan opens without its 7 MB. The straightened
 crop is snapped to a card's 63 by 88 shape (crops that came out 0.733 to 0.740 wide for their
