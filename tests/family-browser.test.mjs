@@ -437,8 +437,8 @@ describe('a family member\'s Sets and cards', () => {
 		await page.waitForSelector('#copies-title');
 		await page.waitForFunction(() => document.getElementById('copies-title').textContent === 'Member A\'s copies (1)');
 		await page.waitForSelector('#card-price .price-liga');
-		assert.match(await page.locator('.copy-rows').textContent(), / · LP/, 'Member A\'s copy');
-		assert.doesNotMatch(await page.locator('.copy-rows').textContent(), / · NM/, 'not your copy');
+		// The condition is on the line under the title (language and place).
+		assert.deepEqual(await page.locator('.copy-rows .copy-text').allTextContents(), ['LP'], 'Member A\'s copy, not your NM one');
 		assert.equal(await page.locator('#copy-add').count(), 0, 'no Add a copy');
 		assert.equal(await page.locator('#copies-binder').count(), 0, 'no Add to binder');
 		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
