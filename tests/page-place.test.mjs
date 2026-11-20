@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {placePage, placements} from '../js/binders.js';
-import {copyChoices, freePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from '../js/scan/page-place.js';
+import {copyChoices, freePage, homePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from '../js/scan/page-place.js';
 
 const AT = '2026-11-19T12:00:00.000Z';
 const card = (id, name) => ({catalog: 'international', id, image: `https://assets.tcgdex.net/en/x/${id}`, name});
@@ -54,7 +54,7 @@ describe('a page matched to the copies (matchPage, pagePockets, placeSummary)', 
 		assert.equal(matches.get('a').entry.id, 'p1');
 		assert.equal(matches.get('b').entry.id, 'p2');
 		assert.equal(matches.get('c').entry, null);
-		assert.deepEqual(placeSummary(items, matches), {copies: 2, moved: 0, placeholders: 1});
+		assert.deepEqual(placeSummary(items, matches), {copies: 2, kept: 0, moved: 0, placeholders: 1});
 
 		const pockets = pagePockets(items, matches, 4);
 
@@ -140,5 +140,75 @@ describe('the page it goes to (pagesInUse, freePage, placePlan)', () => {
 
 		assert.equal(over.loose, 1, 'x1 leaves its pocket and is placed nowhere');
 		assert.deepEqual(placePlan(binders, {binderId: null, pockets}).undo.target.map((one) => one.content), [null, null], 'a new binder has nothing to take out');
+	});
+});
+
+// A QA pass (v94): all nine cards of Kanto page 3 read again, and the page
+// was offered empty page 18; placing there took eight of them out of page 3.
+describe('a page whose cards already sit in a binder page (homePage)', () => {
+	const cards = Array.from({length: 9}, (_, i) => card(`sv03.5-${String(i + 19).padStart(3, '0')}`, `Card ${i + 1}`));
+	const items = cards.map((one, i) => item(`i${i + 1}`, i + 1, one));
+	// Each card's copy in its pocket on Kanto page 3, and a loose second
+	// copy of the first, which a page elsewhere would take first.
+	const entries = [...cards.map((one, i) => entry(`k${i + 1}`, one.id)), entry('loose', cards[0].id, {day: 2})];
+	const kanto = binder('kanto', 'Kanto 151', cards.map((one, i) => ({entry_id: `k${i + 1}`, page: 3, position: i + 1})), {page_count: 18});
+	const binders = [binder('other', 'Binder A'), kanto];
+
+	test('is the binder page they are on, each in the pocket it would go in', () => {
+		assert.deepEqual(homePage(items, entries, placements(binders)), {binderId: 'kanto', page: 3});
+	});
+
+	test('placing there takes the copies in their pockets, so nothing moves and nothing comes out', () => {
+		const target = {binderId: 'kanto', page: 3};
+		const matches = matchPage(items, entries, placements(binders), new Map(), target);
+
+		assert.deepEqual(items.map((one) => matches.get(one.id).entry.id), cards.map((_, i) => `k${i + 1}`), 'the copy in pocket 1, not the loose one');
+		assert.deepEqual(placeSummary(items, matches, target), {copies: 9, kept: 9, moved: 0, placeholders: 0});
+
+		const plan = placePlan(binders, {binderId: 'kanto', pockets: pagePockets(items, matches, 3)});
+
+		assert.deepEqual([plan.loose, plan.replaced, plan.undo.moved], [0, 0, []]);
+
+		const changed = placePage(binders, {at: AT, binderId: 'kanto', pockets: pagePockets(items, matches, 3)});
+		const after = changed.find((one) => one.id === 'kanto') || kanto;
+
+		assert.deepEqual(after.slots.filter((slot) => !slot.cleared).map((slot) => [slot.page, slot.position, slot.entry_id]), cards.map((_, i) => [3, i + 1, `k${i + 1}`]), 'page 3 is as it was');
+	});
+
+	test('a card read that is not there leaves it the page, and that pocket is placed as on any page', () => {
+		const misread = [...items.slice(0, 8), item('i9', 9, card('base1-58', 'Pikachu'))];
+		const target = homePage(misread, entries, placements(binders));
+
+		assert.deepEqual(target, {binderId: 'kanto', page: 3});
+
+		const matches = matchPage(misread, entries, placements(binders), new Map(), target);
+
+		assert.deepEqual(placeSummary(misread, matches, target), {copies: 8, kept: 8, moved: 0, placeholders: 1});
+		assert.equal(placePlan(binders, {binderId: 'kanto', pockets: pagePockets(misread, matches, 3)}).loose, 1, 'the copy in pocket 9 comes out, and the sheet says so');
+	});
+
+	test('elsewhere, the copies are counted as taken from their pockets', () => {
+		const target = {binderId: 'kanto', page: 18};
+		const matches = matchPage(items, entries, placements(binders), new Map(), target);
+
+		assert.equal(matches.get('i1').entry.id, 'loose', 'a loose copy first, as before');
+		assert.deepEqual(placeSummary(items, matches, target), {copies: 9, kept: 0, moved: 8, placeholders: 0});
+	});
+
+	test('none when the cards are scattered, or under half of them share a page', () => {
+		const scattered = binder('kanto', 'Kanto 151', cards.map((one, i) => ({entry_id: `k${i + 1}`, page: 3, position: ((i + 1) % 9) + 1})), {page_count: 18});
+
+		assert.equal(homePage(items, entries, placements([scattered])), null, 'every copy one pocket off');
+
+		const few = binder('kanto', 'Kanto 151', cards.slice(0, 4).map((one, i) => ({entry_id: `k${i + 1}`, page: 3, position: i + 1})), {page_count: 18});
+
+		assert.equal(homePage(items, entries, placements([few])), null, '4 of 9');
+	});
+
+	test('a spread is at home on two pages in a row', () => {
+		const spread = [item('l', 9, cards[0]), item('r', 10, cards[1])];
+		const two = binder('kanto', 'Kanto 151', [{entry_id: 'k1', page: 5, position: 9}, {entry_id: 'k2', page: 6, position: 1}], {page_count: 18});
+
+		assert.deepEqual(homePage(spread, entries, placements([two])), {binderId: 'kanto', page: 5});
 	});
 });

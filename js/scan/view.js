@@ -1971,7 +1971,7 @@ export function scanView(root) {
 		}
 
 		const items = run.held || [];
-		const matches = matchPage(items, pageOwned.entries, pageOwned.placed, new Map(Object.entries(run.picks || {})));
+		const copies = pageOwned;
 		const pages = Math.max(1, Math.ceil(run.pockets / PER_PAGE));
 		let binder;
 		let first = page;
@@ -1994,6 +1994,8 @@ export function scanView(root) {
 			first = 1;
 		}
 
+		// As the sheet matched them: a copy already in its pocket there stays.
+		const matches = matchPage(items, copies.entries, copies.placed, new Map(Object.entries(run.picks || {})), binderId ? {binderId: binder.id, page: first} : null);
 		const pockets = pagePockets(items, matches, first);
 		// From the binders as they are now, not as they were when the page
 		// turned to Already mine: what comes out, and how to put it back.

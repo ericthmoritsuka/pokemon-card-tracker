@@ -3608,7 +3608,8 @@ at the foot:
   waits, the Scan tab's dot stays: the tray's count, or no number when the tray is empty, and the
   tab's name to a screen reader adds "a binder page to place" (`js/scan/draft.js` `draftWaiting`;
   the same review: the dot counted the tray alone, so Scan looked empty). Each pocket takes one of his live copies of its card
-  (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
+  (`js/scan/page-place.js` `matchPage`): a copy already in the pocket it goes in, which stays
+  there; loose copies before ones already in another pocket, then the
   language and finish the scan read (only when read, never a default), then the oldest; one copy
   is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".
   A card he has no copy left of gets its placeholder. Each pocket says where its copy is now
@@ -3620,7 +3621,13 @@ at the foot:
   (`js/binders.js` `placePage`, setPocket's rules: a copy filed elsewhere leaves its old pocket),
   and offers **Open the binder** and **Undo**. Placing never empties a page silently (design review,
   2026-11-19: it defaulted to a full page 1 and moved its nine cards out with no word): the page
-  offered first is the first free one (both free, for a spread), else a new page at the end; each
+  offered first is the one the cards already sit on, when more than half the read cards are each
+  in the pocket they would go in on one page of a listed binder (`homePage`; a QA pass, v94: a
+  Kanto 151 page read again was offered empty page 18, and placing there took its cards out of
+  page 3). The line then says so ("9 cards from your cards, all 9 already in their pockets on that
+  page"), and placing there moves none of them; a pocket read as another card is placed as on any
+  page, with the warning. Otherwise the page offered first is the first free one (both free, for a
+  spread), else a new page at the end; each
   page says what it holds ("Page 1, 2 in use"); a page with cards says how many come out of their
   pockets and become loose, and the button reads "Replace 1 card on page 1"; the result says how many
   became loose. Undo puts every pocket it wrote back as it was (deleting a binder it made), returns
