@@ -13,6 +13,19 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v95:** a quieter version switch, and fixes from two QA passes. `47df826`
+  - A waiting version takes over only when the app comes back after at least 5 minutes away and is not touched first,
+    never on a screen change, and reloads only once the new worker is activated (10 s, else the Reload toast). A family
+    member's view and a card in hand carry over. (QA found the v92 to v94 switch losing a card in hand, Edit binder's
+    Grid and Size, Select ticks, and a family view.)
+  - Two phones shifting the same binder: a copy the seam leaves in no pocket goes to the nearest free pocket, not the
+    tray.
+  - Trades and sales marks a copy logged out on two phones on both entries and the month; Undo of one keeps the copy out.
+  - A purchase or sale with one total reads "1 of 3 cards bought for"; This copy on a row naming a pocket is that pocket's
+    copy, with Which copy to say so; the log form keeps its cards and typing through a reload and never logs twice.
+  - Already mine offers the page the read cards already sit on; My Cards search "025/165" matches number and set total;
+    Stats counts a card once per language as My Cards does; a family member's rows and search read right.
+
 - **v94:** the version switch waits for unsaved choices and for Undo. `cc0b210`
   - A QA pass found v92's switch throwing away an open Edit binder form with a new colour and grid, as nothing was typed
     and it is an inline form, not a sheet. Any change to any form control now holds the switch until the screen changes,
