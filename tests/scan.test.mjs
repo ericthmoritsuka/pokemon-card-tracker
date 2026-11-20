@@ -1683,7 +1683,11 @@ describe('picture first (Eric, 2026-10-03)', () => {
 	// A scanner review, 2026-11-19: a Portuguese Spearow on Eric's page photo
 	// shares its artwork with Base Set 2 and Legendary Collection, which
 	// TCGdex does not list in Portuguese.
-	describe('a language read off the card keeps only the prints that exist in it', () => {
+	// A review, 2026-11-20: TCGdex's Portuguese leaves many old sets out
+	// (Base Set 2, Team Rocket, Gym, Neo, ...), so a set missing there is no
+	// proof the print does not exist: the read language orders the prints
+	// and never makes a pocket sure by itself.
+	describe('a language read off the card puts the prints listed in it first', () => {
 		const spearow = {gap: 30, groups: [{cards: [card('lc-94', 'en', 'lc', 20), card('base4-92', 'en', 'base4', 21), card('base2-62', 'en', 'base2', 22)], score: 20}, {cards: [card('sv01-089', 'en', 'sv01', 50)], score: 50}]};
 		const named = {
 			'en|base2': {cardCount: {official: 64}, cards: [{id: 'base2-62', localId: '62', name: 'Spearow'}], name: 'Jungle'},
@@ -1694,12 +1698,25 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		const listed = (held) => ({setDetail: async (lang, set) => named[`${lang}|${set}`] || null, setHeld: async (lang, set) => held[`${lang}|${set}`] ?? null});
 		const portuguese = listed({'pt|base2': true, 'pt|base4': false, 'pt|lc': false});
 
-		test('a Portuguese read leaves the one print Portuguese has, sure', async () => {
+		test('a Portuguese read puts the one print Portuguese lists first, not sure', async () => {
 			const found = await pictureMatch(spearow, null, 'pt', {api: portuguese, heldIn: 'pt'});
 
 			assert.equal(found.card.id, 'base2-62');
-			assert.equal(found.sure, true);
+			assert.equal(found.sure, false, 'Base Set 2 or Legendary Collection may be Portuguese all the same');
+			assert.match(found.why, /3 cards share this picture/);
 			assert.equal(found.candidates[0].id, 'base2-62', 'and it leads the candidates');
+		});
+
+		test('with the number read, the print it names is sure, as without the language', async () => {
+			const found = await pictureMatch(spearow, number('62', '64'), 'pt', {api: portuguese, heldIn: 'pt'});
+
+			assert.equal(found.card.id, 'base2-62');
+			assert.equal(found.sure, true);
+
+			const listedNowhere = await pictureMatch(spearow, number('92', '130'), 'pt', {api: portuguese, heldIn: 'pt'});
+
+			assert.equal(listedNowhere.card.id, 'base4-92', 'a print TCGdex lacks in Portuguese, named by its number');
+			assert.equal(listedNowhere.sure, true);
 		});
 
 		test('a default language narrows nothing', async () => {

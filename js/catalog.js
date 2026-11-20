@@ -271,8 +271,10 @@ export const importApi = {
 // what it has), or null when that is not known (never asked, and no
 // signal). Portuguese, for one, has Base Set to Fossil but not Base Set 2,
 // Team Rocket, or Legendary Collection (2026-11-19), so a Portuguese copy
-// of a Spearow whose artwork those share is the Jungle print
-// (js/scan/picture.js pictureMatch heldIn).
+// of a Spearow whose artwork those share is offered as the Jungle print
+// first (js/scan/picture.js pictureMatch heldIn). A 404 is not proof the
+// print does not exist in that language, as TCGdex leaves many old sets
+// out of its Portuguese, so it only orders.
 export async function setHeldIn(lang, setId) {
 	try {
 		return Boolean(await importApi.setDetail(lang, setId));

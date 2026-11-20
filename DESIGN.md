@@ -1255,17 +1255,22 @@ rebuild it whenever the index is rebuilt.
 photos (1000182576 to 1000182578, 12000 x 5400, 27 pockets, the prints and languages checked by
 eye) through Page > Choose a photo in headless Chromium, the language reads let finish:
 
-- **A language read off the card keeps only the prints that exist in it** (`picture.js`
+- **A language read off the card puts the prints listed in it first** (`picture.js`
   `pictureMatch` `heldIn`, `catalog.js` `setHeldIn`). When a pocket's attack text or stage label
-  settles its language, `view.js` `narrowLater` matches its picture again with that language: a
-  Western print in Portuguese (French, German, Italian, Spanish) only from a set TCGdex lists in it,
-  and an Asian twin left out by any Western language. TCGdex has Portuguese Base Set, Jungle, and
-  Fossil (HTTP 200) but not Base Set 2, Team Rocket, or Legendary Collection (404), so a Portuguese
-  Spearow, Butterfree, or Bulbasaur is the Jungle or Base Set print, sure; and a 151 Pidgey whose
-  number 16/165 its Japanese twin shares is the Western one. Whether a set exists in a language is
-  its set record, asked once and kept on the phone (a 404 too), so a phone with no signal knows
-  from what it has; a set never asked keeps its print, and a group none of whose prints exist in
-  the language is kept whole (a print TCGdex lacks in it). A default language narrows nothing.
+  settles its language, `view.js` `narrowLater` matches its picture again in that language: an
+  Asian twin is left out by any Western language, so a 151 Pidgey whose number 16/165 its Japanese
+  twin shares is the Western one; and a Western print in Portuguese (French, German, Italian,
+  Spanish) from a set TCGdex lists in it comes before one from a set it does not. That only orders
+  (a review, 2026-11-20: it first left the unlisted prints out, and so made a pocket sure with no
+  number read). TCGdex's Portuguese leaves out many old sets that were printed in Portuguese: Base
+  Set, Jungle, Fossil, EX Ruby & Sapphire, Diamond & Pearl, and HeartGold SoulSilver answer HTTP
+  200, but Base Set 2, Team Rocket, Gym, Neo, Legendary Collection, e-Card, Platinum, POP, the
+  Wizards promos, and most EX and Diamond & Pearl sets answer 404 (checked 2026-11-20), so a set
+  missing there is no proof the print does not exist. A Portuguese Spearow, Butterfree, or
+  Bulbasaur is offered as its Jungle or Base Set print first, still to check; sure takes what it
+  took before, the picture alone or a number read. Whether a set is listed in a language is its
+  set record, asked once and kept on the phone (a 404 too), so a phone with no signal knows from
+  what it has; a set never asked is ordered as listed. A default language orders nothing.
 - **A print with an image-less twin is sure only by its number** (`picture.js` `loadTwins`,
   `pictureVerdict`; `js/vision/index-twins.json`, built by `lab/fingerprints/build-twins.mjs`). A
   card TCGdex has no picture of cannot be in the index, so its picture finds the print it shares an
@@ -1310,6 +1315,12 @@ eye) through Page > Choose a photo in headless Chromium, the language reads let 
 | Language keeps its prints | 26 (9, 9, 8) | 23 (9, 7, 7) | 1 |
 | Image-less twins | 26 (9, 9, 8) | 21 (9, 7, 5) | 0 |
 | Own cut only when it found the picture | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
+| The same, measured again (`76c90ff`, 2026-11-20) | 25 (9, 9, 7) | 22 (9, 8, 5) | 0 |
+| Language orders the prints, never settles them | 25 (9, 9, 7) | 19 (8, 7, 4) | 0 |
+
+The language row's three fewer sure pockets are the three it settled on TCGdex's absence alone
+(the Spearow on 1000182576, the Butterfree on 1000182577, the Bulbasaur on 1000182578): each is
+still the right print, put first, and now asks for a look.
 | Decoded by pixels, 3:4 tip | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
 | Decoded once | 25 (9, 9, 7) | 22 (9, 8, 5) | 0 |
 

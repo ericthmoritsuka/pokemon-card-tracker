@@ -3531,7 +3531,7 @@ export function scanView(root) {
 		// The set the cards before this one are from (session.js stackSet).
 		const stack = stackOf.has(id) ? stackOf.get(id) : item.page ? null : S.stackSet(session, id);
 		// A language read off the card or picked by hand, never a default,
-		// keeps only the prints that exist in it (picture.js heldIn).
+		// puts first the prints TCGdex lists in it (picture.js heldIn).
 		const heldIn = heldLanguage(item);
 		const quick = await pictureMatch(item.picture, item.read, language, {asian, heldIn, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
@@ -3591,19 +3591,19 @@ export function scanView(root) {
 		}
 	}
 
-	// The language a card's prints are narrowed to (picture.js heldIn): one
+	// The language a card's prints are ordered by (picture.js heldIn): one
 	// read off it or picked by hand, never a default.
 	const heldLanguage = (item) => (item.language && ['hand', 'read', 'stage', 'text'].includes(item.languageBy) ? item.language : null);
 
 	// A binder pocket whose own text has just told its language (checkLabelLater)
-	// while its picture's group held several prints: the group narrowed to the
-	// prints that exist in that language (picture.js pictureMatch heldIn), so a
-	// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
-	// Collection share is the Jungle print, the only one of the three TCGdex
-	// lists in Portuguese, and a 151 Pidgey whose number 16/165 the Japanese
-	// twin shares is the Western one. The answer replaces the card's only when
-	// it is sure or puts another print first, and nobody touched the card
-	// meanwhile.
+	// while its picture's group held several prints: the group matched again in
+	// that language (picture.js pictureMatch heldIn), so a Western language
+	// leaves out a Japanese twin (a 151 Pidgey whose number 16/165 the Japanese
+	// twin shares is the Western one), and a print TCGdex lists in it comes
+	// first (a Portuguese Spearow whose artwork Jungle, Base Set 2, and
+	// Legendary Collection share is offered as the Jungle print, still to
+	// check). The answer replaces the card's only when it is sure or puts
+	// another print first, and nobody touched the card meanwhile.
 	async function narrowLater(id) {
 		const item = S.findItem(session, id);
 		const heldIn = item && heldLanguage(item);
