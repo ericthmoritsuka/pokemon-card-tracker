@@ -400,7 +400,7 @@ describe('checklists', () => {
 		assert.equal(await page.locator('#list-languages-all').textContent(), 'All');
 		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Counts copies in any language');
 		assert.equal(await page.locator('#list-languages img.flag').count(), 0);
-		assert.equal(await page.locator('#list-languages-edit').getAttribute('aria-label'), 'Change the list\'s languages (any language)');
+		assert.equal(await page.locator('#list-languages-edit').getAttribute('aria-label'), 'Edit the list\'s languages (any language)');
 		await row(1).locator('a.dex-link').click();
 		await page.waitForURL(`**${listPath}/pokemon/1`);
 		// Both copies count, the Portuguese and the English one, and every

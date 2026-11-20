@@ -442,7 +442,7 @@ export function binderSpread({
 	const hint = el('div', {class: 'bs-hint', hidden: true, id: 'bs-hint', role: 'note'},
 		el('span', {'aria-hidden': 'true', class: 'bs-hint-icon'}),
 		el('span', {class: 'bs-hint-text'}, 'Turn your phone sideways to see both pages'),
-		el('button', {'aria-label': 'Dismiss the hint', class: 'small bs-hint-close', id: 'bs-hint-close', type: 'button'}, 'Got it'));
+		el('button', {'aria-label': 'Got it, dismiss the hint', class: 'small bs-hint-close', id: 'bs-hint-close', type: 'button'}, 'Got it'));
 
 	const spreadView = el('div', {class: 'bs-spread', id: 'bs-spread'}, spreadCaption, stage, spreadBar);
 	const element = el('section', {

@@ -656,6 +656,13 @@ and dark, every theme):
   the page grid's from 10 to 16 across), so it covers 28 px of its own tile as before and none of
   the next; it was 32 px wide, and a near miss opened the card. The tray's menu is 44 px wide (it
   was 32). The camera keeps its 476 px at 360 x 740.
+- *A control's name starts with the words on it* (WCAG 2.5.3), so voice control finds it by what
+  it shows: "Edit the list's languages", "Got it, dismiss the hint", a binder preset's "9-pocket
+  zip, 3 x 3, 360 cards, 20 double-sided pages", a candidate's "Pikachu, 025/165, MEW, 151", the
+  trade columns' "Going out 2, the next scans go here", and a copy row's "English · Binder 1 p1
+  #2, Set finish. Binder 1, page 1, pocket 2". The Scan tab's word comes before its disc and count
+  in the page, as its name says them. A scan tray tile's name starts with its caption; its corner
+  badges (Have, ×N, the finish) are said further on in words of their own.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps

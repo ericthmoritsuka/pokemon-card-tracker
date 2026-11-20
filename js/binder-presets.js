@@ -68,7 +68,9 @@ export function presetPicker({onPick, value = null}) {
 			detail.className = 'binder-preset-detail';
 			detail.textContent = `${preset.rows} x ${preset.cols} · ${presetCards(preset)} cards`;
 			button.append(detail);
-			button.setAttribute('aria-label', `${preset.label}: ${presetSummary(preset)}`);
+			// The words on the button first, then the pages (WCAG 2.5.3,
+			// label in name; accessibility audit, 2026-11-20).
+			button.setAttribute('aria-label', `${preset.label}, ${preset.rows} x ${preset.cols}, ${presetCards(preset)} cards, ${preset.sheets} double-sided pages`);
 		}
 		else {
 			button.setAttribute('aria-label', 'Custom: set the grid and pages yourself');

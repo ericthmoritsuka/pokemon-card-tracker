@@ -187,7 +187,9 @@ export function languagesControl({listId, readOnly = false, onSaved = null}) {
 		const languages = listLanguages(goal);
 		const names = all ? (pokemonGoal() ? ANY_POKEMON_LANGUAGE : 'Counts copies in any language') : languages.map(languageLabel).join(', ');
 		const edit = readOnly ? null : h('button', {
-			'aria-label': `Change the list's languages (${all ? 'any language' : names})`,
+			// Its name starts with the word on it, for voice control (WCAG
+			// 2.5.3; accessibility audit, 2026-11-20).
+			'aria-label': `Edit the list's languages (${all ? 'any language' : names})`,
 			class: 'small',
 			id: 'list-languages-edit',
 			onclick: openEditor,

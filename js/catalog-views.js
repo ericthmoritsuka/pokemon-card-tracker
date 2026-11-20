@@ -1882,6 +1882,9 @@ export function cardView(root, {lang, cardId}) {
 				...placesOf(group).flatMap((where) => [' · ', h('span', {class: 'copy-place'}, shortPlace(where))]),
 				readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : null
 			),
+			// The two lines are separate words when read as text, as on
+			// screen ("Portuguese Set finish", not "PortugueseSet").
+			' ',
 			h('span', {class: 'copy-text'},
 				...(unset(group)
 					? [readOnly ? null : h('span', {class: 'copy-chip'}, 'Set finish'), group.condition ? `${readOnly ? '' : ' · '}${group.condition}` : null]
@@ -1893,8 +1896,35 @@ export function cardView(root, {lang, cardId}) {
 		];
 
 		const rowLabel = (group) => [languageName(group.language), group.finish, group.condition].filter(Boolean).join(', ');
-		// The row's name in full words: "p1 #6" is for the eye.
-		const rowName = (group) => [languageName(group.language), ...group.localNames, ...placesOf(group).map(placeText), unset(group) ? 'finish not set' : group.finish, group.condition].filter(Boolean).join(', ');
+		// The row's name: the words it shows, in order, so voice control
+		// finds it by them (WCAG 2.5.3, label in name; accessibility audit,
+		// 2026-11-20), then where it is in full words, since "p1 #6" is for
+		// the eye.
+		const rowName = (group, content) => [
+			content.map((node) => (typeof node === 'string' ? node : (node && node.textContent) || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(', '),
+			...placesOf(group).map(placeText),
+		].join('. ');
+		const editableRow = (group) => {
+			const content = rowContent(group);
+
+			return h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0]), 'data-language': group.language || ''},
+				h('button', {
+					'aria-haspopup': 'dialog',
+					'aria-label': rowName(group, content),
+					class: 'copy-row',
+					onclick: () => openEditSheet({
+						card: sheetCard(card),
+						catalog: catalogFor(lang),
+						entries: group.entries,
+						finishes: finishChoices(variants),
+						offline: Boolean(unreachable),
+						places: placed,
+					}),
+					type: 'button',
+				}, content),
+				copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
+			);
+		};
 
 		// A redraw (after a step, a sync) keeps the focus on the same control
 		// of the same row, so a thumb or a screen reader stays where it was.
@@ -1912,23 +1942,7 @@ export function cardView(root, {lang, cardId}) {
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
 				readOnly
 					? h('li', {'data-language': group.language || ''}, rowContent(group))
-					: h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0]), 'data-language': group.language || ''},
-						h('button', {
-							'aria-haspopup': 'dialog',
-							'aria-label': rowName(group),
-							class: 'copy-row',
-							onclick: () => openEditSheet({
-								card: sheetCard(card),
-								catalog: catalogFor(lang),
-								entries: group.entries,
-								finishes: finishChoices(variants),
-								offline: Boolean(unreachable),
-								places: placed,
-							}),
-							type: 'button',
-						}, rowContent(group)),
-						copyStepper({entries: group.entries, label: rowLabel(group), places: placed}).element
-					)
+					: editableRow(group)
 			)),
 		);
 

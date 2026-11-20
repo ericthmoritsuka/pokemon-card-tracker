@@ -61,7 +61,9 @@ export function tradeColumns({languageName = langName, photoUrl, results, sessio
 
 		return h('li', {'aria-label': SIDE_NAMES[side], class: `scan-trade-col${on ? ' is-next' : ''}`, 'data-side': side, id: `scan-trade-${side}`},
 			h('button', {
-				'aria-label': `${SIDE_NAMES[side]}: ${plural(items.length, 'card')}.${on ? ' The next scans go here.' : ' Tap to send the next scans here.'}`,
+				// The words on it first, Going out 2 (WCAG 2.5.3, label in
+				// name; accessibility audit, 2026-11-20).
+				'aria-label': `${SIDE_NAMES[side]} ${items.length}, ${on ? 'the next scans go here' : 'tap to scan here'}`,
 				'aria-pressed': String(on),
 				class: 'scan-trade-head',
 				'data-side-to': side,

@@ -415,10 +415,11 @@ describe('copies on card detail', () => {
 		}, gone.id);
 		await page.goto(url(`cards/pt/${pt.id}`));
 		await page.waitForSelector('.copies .copy-place');
-		// Short in the row's title, in words for a screen reader.
+		// Short in the row's title, in words for a screen reader after the
+		// words it shows.
 		assert.equal(await page.locator('.copies .copy-place').textContent(), 'Vitrine p3 #5');
 		assert.match(await page.locator('.copies li:has(.copy-place) .copy-title').textContent(), /^Portuguese · Vitrine p3 #5$/);
-		assert.match(await page.getAttribute('.copies li:has(.copy-place) .copy-row', 'aria-label'), /^Portuguese, Vitrine, page 3, pocket 5, /);
+		assert.match(await page.getAttribute('.copies li:has(.copy-place) .copy-row', 'aria-label'), /^Portuguese · Vitrine p3 #5, .*\bVitrine, page 3, pocket 5$/);
 
 		await page.click('.copies li:has(.copy-place) .copy-row');
 		await page.waitForSelector('#copy-sheet[open]');

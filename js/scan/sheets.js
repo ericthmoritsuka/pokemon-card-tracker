@@ -208,11 +208,17 @@ export function confirmSheet(ctx, itemId) {
 		}
 	}
 
+	const candidateNumber = (candidate) => `${candidate.localId}${candidate.official ? `/${candidate.official}` : ''}`;
+	const candidateSet = (candidate) => candidate.setCode || candidate.setName || candidate.setId;
+
 	function candidateButton(item, candidate) {
 		const chosen = item.card && item.card.id === candidate.id && item.card.lang === candidate.lang;
 
 		return h('button', {
-			'aria-label': `${candidate.name}, ${candidate.setName || candidate.setId}, ${candidate.localId}${candidate.official ? ` of ${candidate.official}` : ''}`,
+			// The name, then the number and set as the button shows them, then
+			// the set's full name (WCAG 2.5.3, label in name; accessibility
+			// audit, 2026-11-20).
+			'aria-label': [candidate.name, candidateNumber(candidate), candidateSet(candidate), candidate.setName && candidate.setName !== candidateSet(candidate) ? candidate.setName : null].filter(Boolean).join(', '),
 			'aria-pressed': String(Boolean(chosen)),
 			class: 'scan-candidate',
 			'data-card': candidate.id,
@@ -222,8 +228,8 @@ export function confirmSheet(ctx, itemId) {
 		candidateArt(candidate),
 		// The number and the set, one line each, so two printings of one
 		// card read apart (design review, 2026-11-19: each said "151").
-		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, `${candidate.localId}${candidate.official ? `/${candidate.official}` : ''}`),
-		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidate.setCode || candidate.setName || candidate.setId));
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, candidateNumber(candidate)),
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidateSet(candidate)));
 	}
 
 	// The chosen card, or the top three when the match is not sure (or the
