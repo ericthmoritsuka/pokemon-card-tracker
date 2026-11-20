@@ -266,6 +266,25 @@ describe('price section', () => {
 		await finish(device, 'jumbo');
 	});
 
+	// A review, 2026-11-20: with no finish asked for, owned, or standing in
+	// for the others, the card opened on finishes[0], a jumbo when TCGdex
+	// lists it first; the jumbo is another product.
+	test('no copy and an unpriced holo listed after its jumbo: the holo shows first', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'jumbo-unpriced');
+
+		const section = page.locator('section.price');
+		const chips = section.locator('.price-finish');
+
+		assert.deepEqual((await chips.allTextContents()).map(plain), ['Holo, Jumbo', 'Holo']);
+		assert.equal(await chips.nth(1).getAttribute('aria-pressed'), 'true', 'the card\'s own holo');
+		assert.equal(await chips.nth(0).getAttribute('aria-pressed'), 'false', 'not the jumbo');
+
+		await finish(device, 'jumbo-unpriced');
+	});
+
 	test('a Liga price kept from before: one read-only line, Remove, and Undo', async () => {
 		const device = await phone();
 		const {page} = device;

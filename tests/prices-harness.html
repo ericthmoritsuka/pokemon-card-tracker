@@ -11,8 +11,8 @@
 	rate requests (US dollar and euro) go to api.frankfurter.dev, which the
 	test answers itself.
 
-	Scenes: english, portuguese, finishes, liga, legacy, korean, offline,
-	norate, stats, markets, mismatch.
+	Scenes: english, portuguese, finishes, liga, legacy, jumbo,
+	jumbo-unpriced, korean, offline, norate, stats, markets, mismatch.
 -->
 <html lang="en">
 <head>
@@ -177,6 +177,19 @@
 			await copy(dragapultPt, {language: 'pt', variant_id: 'jr7oetx1mqug9'});
 			await copy(dragapultPt, {language: 'pt', variant_id: 'slwlv6rn87'});
 			app.append(priceSection({card: dragapultPt, entries: await listCards(), language: 'pt', ligaHref: null, recordLanguage: 'pt', variantId: 'slwlv6rn87'}));
+		}
+		else if (scene === 'jumbo-unpriced') {
+			// The same record with no copy, its standard holo unpriced (no
+			// price of its own and none on the card) and listed after its jumbo,
+			// as TCGdex is free to list them: the card's own print shows first.
+			const dragapultPt = await fixture('pt-sv06-130');
+			const jumbo = dragapultPt.variants_detailed.find((one) => one.variantId === 'slwlv6rn87');
+			const holo = dragapultPt.variants_detailed.find((one) => one.variantId === 'jr7oetx1mqug9');
+
+			delete holo.pricing;
+			delete dragapultPt.pricing;
+			dragapultPt.variants_detailed = [jumbo, holo];
+			app.append(priceSection({card: dragapultPt, entries: [], language: 'pt', ligaHref: null, recordLanguage: 'pt'}));
 		}
 		else if (scene === 'korean') {
 			// A Korean copy on a Japanese record, as the scanner saves it, with

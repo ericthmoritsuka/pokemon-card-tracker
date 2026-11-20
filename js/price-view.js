@@ -31,6 +31,7 @@ import {
 	formatBrl,
 	formatBrlCompact,
 	formatMoney,
+	isStandardSize,
 	listStats,
 	manualPrice,
 	risingBy,
@@ -182,6 +183,8 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	let selected = finishes.find((finish) => variantId && finish.variantId === variantId)
 		|| finishes.find((finish) => ownedOf(finish).length)
 		|| preferred()
+		// A jumbo is another product: the card's own print shows first.
+		|| finishes.find((finish) => isStandardSize(finish.variant))
 		|| finishes[0]
 		|| null;
 
