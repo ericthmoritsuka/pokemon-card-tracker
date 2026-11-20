@@ -29,7 +29,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists, spareEntries} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
+import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, retryUntil, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
@@ -4569,8 +4569,9 @@ export function scanView(root) {
 			// ...and whether all it shows sharp is the card before: a hand's
 			// card out of focus over it, not a card (flushRetry).
 			underPrev: Boolean(prev && prev.thumb && prev.quad) && revealedIn(thumbAt(fine, prev.quad), prev.thumb),
-			// Set once the frame is in hand, below.
-			until: Infinity,
+			// At most RETRY_CAP_MS while the frame is taken; set again once
+			// it is in hand, below.
+			until: retryUntil(at),
 		};
 
 		// The wait counts from the frame in hand: a slow grab (pixels read on
@@ -4581,7 +4582,7 @@ export function scanView(root) {
 
 		waiting.grabbed.then(() => {
 			if (retry === waiting) {
-				waiting.until = performance.now() + RETRY_MS;
+				waiting.until = retryUntil(at, performance.now());
 			}
 		});
 	}

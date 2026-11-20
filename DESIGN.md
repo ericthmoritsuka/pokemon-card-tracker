@@ -1849,7 +1849,9 @@ judged as a drop.
   spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing left",
   since its cells barely change. When unsure whether the sharp look is the card before (print 17 to
   23 bits off), it is added. The wait counts from the frame in hand, so a slow grab does not use it
-  up.
+  up, and lasts at most three times `RETRY_MS` while the frame is still being taken
+  (`drop.js` `retryUntil`), so a grab that never settles cannot hold it open (a review,
+  2026-11-20).
 - **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
   Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s, and is
   marked only when its match is not sure. Never losing a card can add one too many, always marked:
