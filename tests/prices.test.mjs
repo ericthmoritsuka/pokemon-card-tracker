@@ -394,6 +394,18 @@ describe('sizes', () => {
 			assert.deepEqual([fallbackPrice(card, 'tcgplayer').label, fallbackPrice(card, 'tcgplayer').prices.marketPrice], ['Holo', 1.32]);
 		}
 
+		// A review, 2026-11-20: ranked last, the jumbo still stood in when
+		// the standard print had no price of its own.
+		for (const [standard, jumbo] of [['standard', 'jumbo'], ['Padrão', 'Jumbo']]) {
+			const card = dragapult(standard, jumbo);
+
+			card.variants_detailed[0].pricing.cardmarket = {avg: 4, 'avg-holo': 4, idProduct: 77, trend: 4, 'trend-holo': 4, unit: 'EUR', updated: '2026-11-19T00:00:00Z'};
+			delete card.variants_detailed[1].pricing;
+
+			assert.equal(fallbackPrice(card, 'tcgplayer'), null, `${standard}: no TCGplayer price but the jumbo's`);
+			assert.equal(fallbackPrice(card, 'cardmarket'), null, `${standard}: no Cardmarket price but the jumbo's`);
+		}
+
 		const normals = dragapult('standard', 'jumbo', 'normal');
 		const value = copyValue(entry({card_id: 'sv06-130', finish_raw: 'REVERSE_HOLOFOIL'}), normals, {rates: RATES});
 

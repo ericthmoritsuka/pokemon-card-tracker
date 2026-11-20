@@ -521,7 +521,9 @@ list of its own. A jumbo's finish reads "Holo, Jumbo" everywhere a finish is nam
 panel's chips, the Finish select, and the scanner's picker never show two "Holo"s for one card. A
 jumbo is another product: it never counts toward a goal or a Pokémon's finishes, a monprice word
 never matches it, the plain print is never a jumbo, and its price never stands in for a finish
-that has none.
+that has none (`fallbackPrice` leaves jumbo prints and their price blocks out of what it borrows
+from; a review, 2026-11-20: ranked last, a jumbo's price still stood in when no standard print
+had one).
 
 **The finish is picked by hand from the card's real finishes, with no paid AI.**
 After a card is identified, a finish picker lists only that card's own printings from
@@ -2167,7 +2169,9 @@ its date ("US$ 8,00 · 18 Nov"); the market is in the button's accessible name, 
 says which. It is a button down to the Price section, which stays where it was, whole. It is drawn
 from the section after each drawing (`js/price-view.js` `onDraw`, `js/catalog-views.js`
 `drawGlance`), so the finish picked there and a fresh rate change it too, and it is absent when
-the section shows no market price. Why not move the section
+the section shows no market price. A price of another finish says whose, as its row does ("US$
+2,50 · 18 Nov · for Normal", and "the price for Normal" in the button's name; a review,
+2026-11-20: it showed as the copies' own). Why not move the section
 up: Your copies and Ver na Liga would leave the first screen, which Q-04 put there.
 
 **Source: TCGdex**, which embeds both markets per card. Checked on `en/cards/base1-58` on

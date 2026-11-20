@@ -611,6 +611,40 @@ describe('card detail layout', () => {
 		});
 	}
 
+	// A review, 2026-11-20: the glance showed another finish's price, borrowed
+	// for a finish with none, as the copies' own, with no "for".
+	test('a price borrowed from another finish says whose at a glance, as its row does', async () => {
+		const priced = {
+			...en,
+			id: 'tst1-008',
+			localId: '008',
+			name: 'Test borrowed',
+			pricing: {},
+			set: SET,
+			variants_detailed: [
+				{pricing: {tcgplayer: {normal: {marketPrice: 2.5, productId: 1}, unit: 'USD', updated: '2026-11-18T00:00:00Z'}}, type: 'normal', variantId: 'v-normal'},
+				{type: 'holo', variantId: 'v-holo'},
+			],
+		};
+		const {done, page} = await phone({records: {'en/cards/tst1-008': priced}});
+
+		await addCard(page, {card_id: priced.id, catalog: 'international', language: 'en', language_source: 'scan', variant_id: 'v-holo'});
+		await page.goto(url(`cards/en/${priced.id}`));
+		await page.waitForSelector('#card-price .price');
+		await page.waitForSelector('#card-glance-line');
+
+		const glance = await page.evaluate(() => ({
+			line: document.getElementById('card-glance-line').textContent,
+			name: document.getElementById('card-glance-open').textContent,
+			row: document.querySelector('#card-price .price-us .price-for').textContent,
+		}));
+
+		assert.match(glance.row, /^for Normal; /, JSON.stringify(glance));
+		assert.match(glance.line, /^US\$\s?2[.,]50( · \d{1,2} [A-Z][a-z]{2})? · for Normal$/, JSON.stringify(glance));
+		assert.match(glance.name, /TCGplayer market, the price for Normal, see the prices$/);
+		await done();
+	});
+
 	// A TAG TEAM card has a link to every card of each of its Pokémon, each
 	// its own 48 px band, and a name that takes four lines in the facts
 	// column. Since the price joined the facts (design review, 2026-11-19)

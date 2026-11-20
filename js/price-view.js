@@ -283,10 +283,12 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 
 	// One market's row: its name and the reais, then the original amount,
 	// its kind, and its date, small.
-	// glance: {amount, date, source} for a summary of the row elsewhere
-	// (catalog-views.js drawGlance), kept on the row as data.
+	// glance: {amount, date, source, borrowed} for a summary of the row
+	// elsewhere (catalog-views.js drawGlance), kept on the row as data;
+	// borrowed names the finish whose price it is when that is not the
+	// copies' own (the row's note).
 	function row({className, extra = [], glance = null, name, note, original, value}) {
-		return h('li', {class: `price-row ${className}`, 'data-amount': glance ? glance.amount : null, 'data-date': glance ? glance.date || null : null, 'data-source': glance ? glance.source : null},
+		return h('li', {class: `price-row ${className}`, 'data-amount': glance ? glance.amount : null, 'data-date': glance ? glance.date || null : null, 'data-for': glance ? glance.borrowed || null : null, 'data-source': glance ? glance.source : null},
 			h('p', {class: 'price-line'},
 				h('span', {class: 'price-source'}, name),
 				h('span', {class: 'price-value'}, value)
@@ -319,7 +321,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				extra: tcg.shared && tcg.shared.length && !found.note ? [h('p', {class: 'price-meta price-shared'}, `TCGplayer prices this together with ${tcg.shared.join(' and ')}.`)] : [],
 				name: 'TCGplayer',
 				note: found.note,
-				glance: {amount: brl !== null ? usd : null, date, source: 'TCGplayer market'},
+				glance: {amount: brl !== null ? usd : null, borrowed: found.note ? found.label : null, date, source: 'TCGplayer market'},
 				original: [brl !== null ? `${usd}, ` : '', 'TCGplayer market', date ? ', ' : null, date ? day(date) : null],
 				value: brl !== null ? h('span', {class: 'price-us-value'}, about(brl)) : h('span', {class: 'price-us-value-usd'}, usd),
 			}),
@@ -370,7 +372,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 				].filter(Boolean),
 				name: 'Cardmarket',
 				note: found.note,
-				glance: {amount: brl !== null ? eur : null, date, source: 'Cardmarket trend'},
+				glance: {amount: brl !== null ? eur : null, borrowed: found.note ? found.label : null, date, source: 'Cardmarket trend'},
 				original: [brl !== null ? `${eur}, ` : '', 'Cardmarket trend', date ? ', ' : null, date ? day(date) : null],
 				value: [brl !== null ? h('span', {class: 'price-eu-value'}, about(brl)) : h('span', {class: 'price-eu-value-eur'}, eur), trendMark ? ' ' : null, trendMark].filter(Boolean),
 			}),
