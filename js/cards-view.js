@@ -1178,9 +1178,12 @@ export function cardsScreen(root, {
 		const {filters, query, sort} = bar.state;
 
 		// Sorted or filtered by price before every record is read: drawn
-		// once they are, never in an order a missing price decided.
-		if (needsPrices() && ready && savedAll !== true) {
-			savedReady().then(() => alive && savedAll === true && draw());
+		// once they are, never in an order a missing price decided. While
+		// load reads the first screen's records, it draws when they are in.
+		if (needsPrices() && savedAll !== true) {
+			if (ready) {
+				savedReady().then(() => alive && savedAll === true && draw());
+			}
 
 			return;
 		}
@@ -1741,12 +1744,16 @@ export function cardsScreen(root, {
 
 				const late = groups.filter((group) => saved.has(group.recordKey) && !before.has(group.recordKey));
 
-				// As makeGroup leaves them, so priceOf works them out again.
-				for (const group of late) {
-					group.priceDone = false;
-					delete group.price;
-					delete group.priced;
-					delete group.noPrice;
+				// Every price worked out so far, as makeGroup leaves it, so
+				// priceOf works it out again from every record: one worked out
+				// before its record was in stays wrong otherwise.
+				for (const group of groups) {
+					if (group.priceDone) {
+						group.priceDone = false;
+						delete group.price;
+						delete group.priced;
+						delete group.noPrice;
+					}
 				}
 
 				if (needsPrices()) {

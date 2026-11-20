@@ -1465,5 +1465,33 @@ describe('while the saved records are still being read', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('a price sort chosen before the records are in sorts by every price once they are', async () => {
+		const {context, errors, page} = await heldPhone();
+		// The details already in the index and no Asian print, so nothing
+		// builds the tiles again after the records are in: the prices worked
+		// out while they were read are the ones the sort uses.
+		const index = Object.fromEntries(Object.entries(indexRecords()).map(([key, record]) => {
+			const card = CARDS.find((item) => `${item.catalog}|${item.id}` === key);
+
+			return [key, {...record, category: card.category, dex_ids: card.dexId || [], illustrator: card.illustrator || null, rarity: card.rarity, types: card.types || []}];
+		}));
+
+		await seed(page, server.origin, {copies: COPIES.filter((copy) => copy.catalog === 'international'), index, records: freshRecords()});
+		await page.locator('#cards-sort').waitFor(TIMEOUT);
+		assert.equal(await page.locator('.card-grid .tile').count(), 0, 'the first screen\'s records are still being read');
+		await page.selectOption('#cards-sort', 'price');
+		await releaseRecords(page);
+
+		const first = await untilInPage(page, 'the dearest cards first', () => {
+			const shown = [...document.querySelectorAll('.card-grid .tile .tile-name')].map((name) => name.textContent).slice(0, 3);
+
+			return shown.join(',') === 'Charizard ex,Pikachu,Sprigatito' ? shown : null;
+		}, {timeout: 8000}).catch((err) => err.message);
+
+		assert.deepEqual(first, ['Charizard ex', 'Pikachu', 'Sprigatito'], 'R$ 150, Liga R$ 80, R$ 10 first');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 
