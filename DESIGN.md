@@ -618,6 +618,17 @@ footer, count dot included. The disc stays on every screen rather than hiding on
 into Scan and the unsaved tray's count never go. *(Design review, 2026-11-19: the disc covered the
 middle of Save on the purchase form.)*
 
+**Accessibility floors** (accessibility audit, 2026-11-20, against WCAG 2.2 AA at 360 x 740, light
+and dark, every theme):
+
+- *The focus is never under a bar.* `html`'s scroll-padding keeps a focused control 8 px clear of
+  the sticky header (its strips included, measured into `--shell-top-height`) and 16 px clear of
+  the fixed tab bar; a bar stuck over the tab bar (a form's actions, the bulk bar, the binder's
+  hand) is cleared by `js/shell.js` `keepFocusClear` once the browser has scrolled. A control in
+  the header or in a bar takes no padding on its edge, so focusing Sign in does not scroll the page
+  to the top. Tab used to leave buttons half under the tab bar and the last row of tiles 65 px
+  under it.
+
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
 that list, in its current order and filters, as context. Swiping left or right anywhere on the

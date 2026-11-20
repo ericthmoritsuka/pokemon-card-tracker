@@ -848,9 +848,26 @@
 	box-sizing: border-box;
 }
 
+/* A control that takes the focus scrolls clear of the sticky header and the
+   fixed tab bar, with a little room (WCAG 2.4.11; accessibility audit,
+   2026-11-20: Tab left buttons and the last row of tiles under the bar).
+   --shell-top-height is the header with its strips (js/shell.js measures
+   it); a bar that sticks over the tab bar is cleared by js/shell.js
+   keepFocusClear. A control in the header or at the foot is in view
+   already: its edge's padding would scroll the page under it. */
 html {
 	-webkit-text-size-adjust: 100%;
+	scroll-padding-bottom: calc(var(--tab-height) + env(safe-area-inset-bottom) + var(--space-4));
+	scroll-padding-top: calc(var(--shell-top-height, calc(var(--header-height) + env(safe-area-inset-top))) + var(--space-2));
 	text-size-adjust: 100%;
+}
+
+html:has(.shell-top :focus) {
+	scroll-padding-top: 0;
+}
+
+html:has(:is(.tabs, .actions, .bulk-bar, .bh, .bt) :focus) {
+	scroll-padding-bottom: 0;
 }
 
 body {
