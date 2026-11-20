@@ -1227,11 +1227,13 @@ export function cardsScreen(root, {
 
 		clearButton.hidden = !narrowed;
 
-		// One short line; why tiles and copies differ is its tooltip.
+		// One short line, in the reader's words: a tile is a card (design
+		// review 2, 2026-11-20: "782 copies in 729 tiles"). Why copies and
+		// cards differ is its tooltip.
 		summary.textContent = narrowed
-			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
-			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}.`;
-		summary.title = 'One tile per card and language.';
+			? `${formatCount(copies)} of ${plural(entries.length, 'copy', 'copies')} · ${plural(visible.length, 'card', 'cards')}`
+			: `${plural(copies, 'copy', 'copies')} · ${plural(visible.length, 'card', 'cards')}`;
+		summary.title = 'A card counts once per language; its copies are every one you have.';
 
 		// Swiping on a card page follows this order, filters included.
 		offerCardList(visible.map(routeOf), heading.querySelector('h2').textContent);

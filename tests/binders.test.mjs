@@ -1286,7 +1286,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.deepEqual(await page.locator('.fb-chips .fb-chip').evaluateAll((chips) => chips.map((chip) => chip.dataset.filter)), ['unplaced']);
 		assert.equal(await page.inputValue('#cards-sort'), 'name', 'the sort kept');
 		assert.equal(await page.locator('.card-grid .tile').count(), 1);
-		assert.match(await page.locator('#cards-summary').textContent(), /^1 copy in 1 tile match/, 'the count matches the link');
+		assert.match(await page.locator('#cards-summary').textContent(), /^1 of [\d,]+ copies · 1 card$/, 'the count matches the link');
 		assert.match(await page.locator('.card-grid .tile').textContent(), /Test Squirtle/);
 		await page.screenshot({path: '/tmp/binders-unplaced.png'});
 		await page.click('#cards-clear-all');

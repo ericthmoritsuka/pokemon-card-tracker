@@ -190,7 +190,7 @@ describe('search', () => {
 
 		await seed(page, server.origin);
 		await page.locator('.tile').first().waitFor();
-		assert.match(await summary(page), /^10 copies in 10 tiles/);
+		assert.match(await summary(page), /^10 copies · 10 cards$/);
 		await detailsIn(page);
 
 		// The search sits first, over the owned cards.
@@ -204,7 +204,7 @@ describe('search', () => {
 
 		await search(page, 'pikachu');
 		assert.deepEqual((await names(page)).sort(), ['Pikachu', 'Pikachu'], 'the English name of a Japanese print too');
-		assert.match(await summary(page), /^2 copies in 2 tiles match/);
+		assert.match(await summary(page), /^2 of [\d,]+ copies · 2 cards$/);
 
 		await search(page, 'ピカチュウ');
 		assert.deepEqual(await page.locator('.tile .tile-original').allTextContents(), ['ピカチュウ (Pikachu)']);
@@ -299,7 +299,7 @@ describe('search', () => {
 			const start = performance.now();
 
 			new MutationObserver((list, observer) => {
-				if (/match/.test(document.getElementById('cards-summary').textContent)) {
+				if (/^[\d,]+ of /.test(document.getElementById('cards-summary').textContent)) {
 					observer.disconnect();
 					resolve(performance.now() - start);
 				}
@@ -311,7 +311,7 @@ describe('search', () => {
 		console.log(`    search over 1,600 copies: ${Math.round(took)} ms, the 120 ms typing pause included`);
 		assert.ok(took < 1500, `the search answers at once (${Math.round(took)} ms)`);
 		// The 160 cards of the third set, the first 120 of them drawn.
-		assert.match(await summary(page), /^160 copies in 160 tiles match/);
+		assert.match(await summary(page), /^160 of [\d,]+ copies · 160 cards$/);
 		assert.equal(await page.locator('.tile').count(), 120, 'back to the first page of the matches');
 		assert.equal(await page.locator('.card-grid + button').textContent(), 'Show more (40 left)');
 
@@ -734,7 +734,7 @@ describe('the Value sheet', () => {
 		await page.locator('.value-sheet').waitFor({state: 'detached'});
 		assert.equal(plain(await page.locator('.fb-chip').textContent()), 'No price×');
 		assert.deepEqual((await names(page)).sort(), ['Bulbasaur', 'Pikachu', 'Test Ball']);
-		assert.match(await summary(page), /^3 copies in 3 tiles match/);
+		assert.match(await summary(page), /^3 of [\d,]+ copies · 3 cards$/);
 		assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'cards-value', 'focus goes back to the button');
 		assert.deepEqual(errors, []);
 		await context.close();
@@ -927,7 +927,7 @@ describe('saves patch the screen', () => {
 
 		const before = summary(page);
 
-		assert.match(await before, /^10 copies in 10 tiles/);
+		assert.match(await before, /^10 copies · 10 cards$/);
 
 		// Counts the grid's redraws from here on.
 		await page.evaluate(() => {
@@ -961,7 +961,7 @@ describe('saves patch the screen', () => {
 
 			await addCard({card_id: 'tsa1-006', catalog: 'international', language: 'en', language_source: 'manual'});
 		});
-		await page.waitForFunction(() => /^11 copies in 10 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await page.waitForFunction(() => /^11 copies · 10 cards$/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
 		await quiet(1, 'an added copy redraws once');
 		assert.equal(await page.locator('.tile:has-text("Charizard ex") .badge-qty').textContent(), '×2');
 
@@ -982,7 +982,7 @@ describe('saves patch the screen', () => {
 
 			await deleteCard('c-10');
 		});
-		await page.waitForFunction(() => /^10 copies in 9 tiles/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
+		await page.waitForFunction(() => /^10 copies · 9 cards$/.test(document.getElementById('cards-summary').textContent), null, TIMEOUT);
 		await quiet(2, 'a removed copy redraws once');
 		assert.equal(await page.locator('.tile:has-text("이상해씨")').count(), 0);
 		assert.deepEqual(errors, []);

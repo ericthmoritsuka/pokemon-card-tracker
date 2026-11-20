@@ -55,7 +55,7 @@ export function tradeView(root) {
 		offered: OFFERED,
 		placeholder: 'Search my spares',
 		storageKey: CHOICE_KEY,
-		title: 'Trade',
+		title: 'Spares',
 		watch: (reload) => onChange((doc, info) => reload(doc && Array.isArray(doc.cards) ? {...doc, cards: spareEntries(doc.cards)} : doc, info)),
 	});
 }
@@ -108,7 +108,7 @@ export function familyTradeView(root, {userId}) {
 }
 
 export const tradeRoutes = [
-	{pattern: /^trade$/, render: tradeView, tab: 'cards', title: 'Trade | Card Tracker'},
+	{pattern: /^trade$/, render: tradeView, tab: 'cards', title: 'Spares | Card Tracker'},
 	{keys: ['userId'], pattern: /^family\/([^/]+)\/trade$/, render: familyTradeView, tab: 'cards', title: 'Family spares | Card Tracker'},
 ];
 

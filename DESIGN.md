@@ -339,8 +339,10 @@ lines and a count, and the first card starts at 250 px (282 px while searching):
   scrolls sideways rather than wrap, running to the screen's edges so the button cut at the edge
   says there is more. The first two lines wrap before a control's text would be cut, as at large
   text.
-- **The count** is one muted line under them ("41 copies in 40 tiles."; why copies and tiles
-  differ, one tile per card and language, is its tooltip). While a search or filter narrows the
+- **The count** is one muted line under them, in the reader's words: "41 copies · 40 cards", or
+  "3 of 41 copies · 3 cards" while a search or filter narrows the list (design review 2,
+  2026-11-20: it read "41 copies in 40 tiles."; a card counts once per language, which is its
+  tooltip). While a search or filter narrows the
   list, **Clear all** and **Set storage for these N copies** are text buttons at the end of the
   same line instead of a chip and a button on lines of their own; the filter chips stay under it.
   The Trade view and a family member's cards have the same count line under their bar.
@@ -3330,7 +3332,9 @@ the binder card picker, the tray, and the wishlist can reuse it:
 
 ### Trade and Favorites
 
-**The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, route `trade` (a member's, read only:
+**The Trade view** (Eric, 2026-10-03), `js/trade-view.js`, titled **Spares** like the button
+that opens it (design review 2, 2026-11-20: it was titled "Trade", beside a Trades button for
+the trades log), route `trade` (a member's, read only:
 `family/<id>/trade`). It is My Cards over the spares only, so it has the same bar (search,
 set, language, rarity, price sort, Favorites), the same tiles, and the Value sheet with its coverage
 line. It is reached from the Spares button in My Cards' bar and from Profile ("Spares to

@@ -57,7 +57,7 @@ async function phone(copies = SPARE_COPIES) {
 async function openTrade(page) {
 	await page.click('#cards-trade');
 	await page.locator('#cards-summary').waitFor(TIMEOUT);
-	await page.waitForFunction(() => document.querySelector('.view-head h2').textContent === 'Trade');
+	await page.waitForFunction(() => document.querySelector('.view-head h2').textContent === 'Spares');
 }
 
 const summary = (page) => page.locator('#cards-summary').textContent();
@@ -86,7 +86,7 @@ describe('Trade', () => {
 		await page.locator('.tile').first().waitFor(TIMEOUT);
 		await openTrade(page);
 		assert.equal(new URL(page.url()).pathname, `${BASE}trade`);
-		assert.match(await summary(page), /^6 copies in 5 tiles\./);
+		assert.match(await summary(page), /^6 copies · 5 cards$/);
 
 		// Sorted by name: Charizard ex keeps its favorite, so the other copy is
 		// the spare; Charmander EN has three copies (two spares, Near Mint and
@@ -134,7 +134,7 @@ describe('Trade', () => {
 
 		await pickFilter(page, 'language', 'pt');
 		assert.deepEqual(await tileNames(page), ['Charmander'], 'only the Portuguese spare');
-		assert.match(await summary(page), /^1 copy in 1 tile match/);
+		assert.match(await summary(page), /^1 of [\d,]+ copies · 1 card$/);
 		await page.click('#cards-clear-all');
 
 		await pickFilter(page, 'set', 'international|tsb2');
@@ -201,7 +201,7 @@ describe('Trade', () => {
 
 			await deleteCard('c-04');
 		});
-		await page.waitForFunction(() => /^5 copies in 5 tiles/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
+		await page.waitForFunction(() => /^5 copies · 5 cards$/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
 
 		// Mark the second Charizard copy a favorite: it is kept now and the
 		// first one is the spare; the count stays the same.
@@ -210,7 +210,7 @@ describe('Trade', () => {
 
 			await updateCards([{id: 'c-07', patch: {is_favorite: false}}, {id: 'c-08', patch: {is_favorite: true}}]);
 		});
-		await page.waitForFunction(() => /^5 copies in 5 tiles/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
+		await page.waitForFunction(() => /^5 copies · 5 cards$/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -255,7 +255,7 @@ describe('Trade', () => {
 		await page.locator('#family-strip').waitFor(TIMEOUT);
 		await page.locator('.tile').first().waitFor(TIMEOUT);
 		await page.click('#cards-trade');
-		await page.waitForFunction(() => /^6 copies in 5 tiles/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
+		await page.waitForFunction(() => /^6 copies · 5 cards$/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
 		assert.equal(new URL(page.url()).pathname, `${BASE}family/${member.id}/trade`);
 		assert.match(await page.locator('#family-strip').textContent(), /view only/);
 		await page.waitForFunction(() => document.querySelector('.view-head h2').textContent === "Member A's spares");
