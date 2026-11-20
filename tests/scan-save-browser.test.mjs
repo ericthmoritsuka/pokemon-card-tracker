@@ -206,6 +206,18 @@ describe('a read that throws part way', () => {
 			};
 		});
 
+		// What the scanner says to a screen reader (#scan-live), in order.
+		await context.addInitScript(() => {
+			window.said = [];
+			document.addEventListener('DOMContentLoaded', () => new MutationObserver(() => {
+				const text = (document.getElementById('scan-live') || {}).textContent;
+
+				if (text && text !== window.said[window.said.length - 1]) {
+					window.said.push(text);
+				}
+			}).observe(document.body, {characterData: true, childList: true, subtree: true}));
+		});
+
 		const page = await context.newPage();
 
 		await page.goto(`${harness.origin}${BASE}scan`);
@@ -239,6 +251,9 @@ describe('a read that throws part way', () => {
 		assert.equal(state.errors, 1, 'only the read that threw is marked');
 		assert.match(state.entry.error, /the read stopped here/);
 		assert.equal(state.entry.status, 'unmatched');
+		// Said, not only shown on the tile (accessibility audit, 2026-11-20).
+		await page.waitForFunction(() => window.said.includes('No card found. Check it in the tray.'), null, {timeout: 5000}).catch(() => {});
+		assert.ok((await page.evaluate(() => window.said)).includes('No card found. Check it in the tray.'), `a screen reader hears no card was found: ${JSON.stringify(await page.evaluate(() => window.said))}`);
 
 		// Save opens the card for a look rather than waiting on it.
 		await page.click('#scan-done-open');
