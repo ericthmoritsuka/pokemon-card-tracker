@@ -23,6 +23,7 @@ export const RELEASES = [
 		date: '2026-11-20',
 		items: [
 			'A new set\'s Pokémon count in your Pokédex lists once TCGdex gives their numbers: a 30th Celebration Mew saved before then was missing from Kanto.',
+			'Their numbers also reach My Cards\' Pokédex filter and sort and the binder layouts that go by Pokédex order.',
 		],
 		version: 'v90',
 	},
