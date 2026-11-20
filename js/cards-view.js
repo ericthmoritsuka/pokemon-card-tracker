@@ -1045,7 +1045,7 @@ export function cardsScreen(root, {
 
 		const text = formatBrlCompact(value.brl);
 
-		return value.kind === 'liga' ? text : `about ${text}, US market estimate`;
+		return value.kind === 'liga' ? `${text}, Liga Pokémon` : `about ${text}, US market estimate`;
 	}
 
 	// The accessible name of a Mini tile, whose caption is gone, and of a

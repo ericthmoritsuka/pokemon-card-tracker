@@ -179,10 +179,44 @@ describe('prices in the app', () => {
 		await page.goto(url('cards'));
 		await page.waitForSelector('.tile:has-text("Exeggcute") .tile-price');
 		await page.waitForSelector('.tile:has-text("Charizard") .tile-price');
-		assert.equal(plain(await page.locator('.tile:has-text("Exeggcute") .tile-price').textContent()), 'R$ 52,30');
-		assert.equal(plain(await page.locator('.tile:has-text("Charizard") .tile-price').textContent()), '~R$ 4.900US');
+		// The Liga price typed by hand is the exception and says so with a
+		// small "Liga" tag; the US estimate carries only its "~", with no
+		// "US" chip (Eric, 2026-11-20).
+		assert.equal(plain(await page.locator('.tile:has-text("Exeggcute") .tile-price').textContent()), 'R$ 52,30Liga');
+		assert.equal(plain(await page.locator('.tile:has-text("Exeggcute") .price-tile-liga').textContent()), 'Liga');
+		assert.equal(plain(await page.locator('.tile:has-text("Exeggcute") .price-tile').getAttribute('aria-label')), 'R$ 52,30, Liga Pokémon');
+		assert.equal(plain(await page.locator('.tile:has-text("Charizard") .tile-price').textContent()), '~R$ 4.900');
+		assert.equal(await page.locator('.tile:has-text("Charizard") .price-tile-liga, .tile .price-tile-us').count(), 0, 'no tag on an estimate, and no "US" chip anywhere');
 		assert.ok(await page.locator('.tile:has-text("Charizard")').evaluate((tile) => tile.lastElementChild.classList.contains('tile-price')), 'the price is the last line');
 		await page.screenshot({fullPage: false, path: '/tmp/prices-app-tiles.png'});
+
+		// Each view that shows a price keeps it to one line inside its tile
+		// at 360 px, the Liga tag included.
+		for (const view of ['grid', 'large', 'list']) {
+			await page.selectOption('#cards-view', view);
+			await page.waitForSelector(`.card-grid[data-view="${view}"] .tile:has-text("Exeggcute") .price-tile-liga`);
+
+			const lines = await page.locator('.card-grid .tile-price').evaluateAll((nodes) => nodes.map((node) => {
+				const tile = node.closest('.tile');
+				const box = node.getBoundingClientRect();
+				const room = tile.getBoundingClientRect();
+
+				return {
+					inside: box.left >= room.left - 0.5 && box.right <= room.right + 0.5,
+					lines: Math.round(box.height / parseFloat(getComputedStyle(node).lineHeight)),
+					text: node.textContent,
+				};
+			}));
+
+			assert.equal(lines.length, 2, `${view}: both prices drawn`);
+
+			for (const line of lines) {
+				assert.equal(line.lines, 1, `${view}: ${line.text} on one line`);
+				assert.ok(line.inside, `${view}: ${line.text} inside its tile`);
+			}
+		}
+
+		await page.selectOption('#cards-view', 'grid');
 
 		// The whole collection's value is on demand: a small Value button
 		// opens a sheet led by how many copies are priced.

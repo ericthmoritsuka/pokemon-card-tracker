@@ -47,8 +47,7 @@ const PIKACHU = COPIES.find((copy) => copy.id === 'c-07');
 const COPIES_TWO = [...COPIES, {...PIKACHU, created_at: '2026-09-11T12:00:00.000Z', id: 'c-11', price_manual: undefined, updated_at: '2026-09-11T12:00:00.000Z'}];
 
 // Every card has an image but the Korean one, which keeps its card back.
-function indexWithImages() {
-	const index = indexRecords();
+function indexWithImages(index = indexRecords()) {
 
 	for (const record of Object.values(index)) {
 		if (record.catalog === 'ko') {
@@ -73,10 +72,10 @@ function cardSvg(path) {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="245" height="342" viewBox="0 0 245 342"><rect width="245" height="342" rx="12" fill="hsl(${hue} 60% 45%)"/><rect x="14" y="40" width="217" height="150" rx="6" fill="hsl(${hue} 70% 80%)"/><text x="122" y="290" font-size="40" font-family="sans-serif" text-anchor="middle" fill="#fff">${number}</text></svg>`;
 }
 
-async function phone(viewport = PHONE) {
+async function phone(viewport = PHONE, {cards = CARDS} = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport});
 
-	await fakeServices(context);
+	await fakeServices(context, {cards});
 	await fakePokeApi(context);
 	// After fakeServices, so it answers before that route's 404.
 	await context.route('https://assets.tcgdex.net/**', (route) => route.fulfill({body: cardSvg(new URL(route.request().url()).pathname), contentType: 'image/svg+xml'}));
@@ -199,7 +198,7 @@ describe('the View switch', () => {
 
 			assert.equal(plain(await pikachu.locator('.tile-name').textContent()), 'Pikachu');
 			assert.equal(plain(await pikachu.locator('.tile-meta').textContent()), '025 / 120', 'the number as printed');
-			assert.equal(plain(await pikachu.locator('.tile-price').textContent()), 'R$ 80,00');
+			assert.equal(plain(await pikachu.locator('.tile-price').textContent()), 'R$ 80,00Liga');
 			assert.equal(await pikachu.locator('.badge-qty').textContent(), '×2');
 
 			await choose(page, 'mini');
@@ -274,11 +273,11 @@ describe('the View switch', () => {
 
 			await row.waitFor(TIMEOUT);
 			assert.equal(plain(await row.locator('.tile-name').textContent()), 'Pikachu');
-			assert.equal(plain(await row.locator('.tile-price').textContent()), 'R$ 80,00');
+			assert.equal(plain(await row.locator('.tile-price').textContent()), 'R$ 80,00Liga');
 			assert.equal(plain(await row.locator('.tile-meta').textContent()), 'Test Beta · 025 / 120');
 			assert.deepEqual((await row.locator('.row-fact').allTextContents()).map(plain), ['EN', 'Normal', '×2']);
 			assert.ok(await row.locator('.art-wrap img').count(), 'a thumbnail');
-			assert.equal(plain(await row.getAttribute('aria-label')), 'Pikachu, 025 of 120, Test Beta, English, Normal, 2 copies, R$ 80,00');
+			assert.equal(plain(await row.getAttribute('aria-label')), 'Pikachu, 025 of 120, Test Beta, English, Normal, 2 copies, R$ 80,00, Liga Pokémon');
 
 			// A card with no price at all says so, and a single copy shows no ×1.
 			const korean = page.locator('.card-grid > .card-row[href$="cards/ko/TSK1-001"]');
@@ -477,3 +476,4 @@ describe('every view fits a narrow phone', () => {
 		}
 	});
 });
+

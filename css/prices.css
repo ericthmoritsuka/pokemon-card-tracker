@@ -1,8 +1,9 @@
 /* Prices (js/price-view.js). Uses the palette tokens from style.css, so it
    follows the light and dark schemes and every theme. Nothing is told by
-   color alone: estimates carry "≈" or "~" and the original amount or "US",
-   the chosen finish is filled and marked with a bar as well as colored, and
-   a trend is an arrow and a word. */
+   color alone: estimates carry "≈" or "~" and the original amount, a tile's
+   price kept from Liga Pokémon carries "Liga", the chosen finish is filled
+   and marked with a bar as well as colored, and a trend is an arrow and a
+   word. */
 
 .price-sr {
 	clip: rect(0 0 0 0);
@@ -195,7 +196,8 @@
 	white-space: nowrap;
 }
 
-.price-tile-us {
+/* The exception on a tile: a Liga price typed by hand, not an estimate. */
+.price-tile-liga {
 	border: 1px solid currentColor;
 	border-radius: var(--radius-badge);
 	font-size: 0.6875rem;

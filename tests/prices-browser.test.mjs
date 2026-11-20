@@ -301,7 +301,11 @@ describe('price section', () => {
 		assert.ok(await page.evaluate(() => document.querySelector('.price-markets').compareDocumentPosition(document.querySelector('.price-liga')) & Node.DOCUMENT_POSITION_FOLLOWING));
 
 		// Value totals and tiles keep taking it.
-		assert.equal(await text(page.locator('#harness-tile')), 'Tile: R$ 15,00');
+		// The tile tags the price typed from Liga, the exception, and reads
+		// it out; an estimate carries only its "~" (Eric, 2026-11-20).
+		assert.equal(await text(page.locator('#harness-tile')), 'Tile: R$ 15,00Liga');
+		assert.equal(await text(page.locator('#harness-tile .price-tile-liga')), 'Liga');
+		assert.equal(plain(await page.locator('#harness-tile .price-tile').getAttribute('aria-label')), 'R$ 15,00, Liga Pokémon, Reverse holo');
 		assert.equal(await text(page.locator('.price-count-liga')), '2 copies by Liga');
 
 		const remove = section.locator('button.price-remove');
@@ -313,6 +317,8 @@ describe('price section', () => {
 		assert.equal(await text(page.locator('#toasts .toast')), 'Liga price removed from 2 copies.Undo');
 		assert.equal(await page.evaluate(() => document.activeElement.id), 'price-1-title', 'the focus stays in the panel');
 		await page.waitForFunction(() => /~/.test(document.querySelector('#harness-tile').textContent));
+		assert.equal(await page.locator('#harness-tile .price-tile-liga').count(), 0, 'no Liga tag on an estimate');
+		assert.equal(await page.locator('#harness-tile .price-tile-us').count(), 0, 'and no "US" chip');
 		assert.equal(await page.locator('.price-count-liga').count(), 0, 'no Liga count with no Liga price');
 		assert.equal(await page.locator('.price-basis').count(), 0, 'no Liga basis switch either');
 
@@ -379,7 +385,7 @@ describe('price section', () => {
 		assert.equal(await nothing.locator('.price-rate').count(), 0);
 
 		// Tiles and the statistics take the same prices, and say so.
-		assert.equal(await text(page.locator('#harness-tile')), 'Tiles: ~R$ 0,26US | ~R$ 21,37US | no price');
+		assert.equal(await text(page.locator('#harness-tile')), 'Tiles: ~R$ 0,26 | ~R$ 21,37 | no price');
 		assert.equal(plain(await page.locator('#harness-tile .price-tile').first().getAttribute('aria-label')), 'About R$ 0,26, US market estimate, price for Normal');
 		assert.match(await text(page.locator('.price-stats-notes')), /2 copies take the price of another finish of the card, as TCGplayer lists none for theirs\./);
 		assert.equal(await text(page.locator('.price-count-estimate')), '2 copies by US estimate (~)');
@@ -418,7 +424,7 @@ describe('price section', () => {
 		assert.equal(await text(section.locator('.price-eu .price-value')), '≈ About R$ 1,65 →Trend steady, 30-day average about R$ 2,07');
 		assert.equal(await text(section.locator('.price-us .price-value')), '≈ About R$ 1,56');
 		assert.equal(await text(section.locator('.price-rate')), 'US$ 1 = R$ 5,21 (28 Sep) · € 1 = R$ 5,90 (27 Sep), last saved on this phone.');
-		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,56US');
+		assert.equal(await text(page.locator('#harness-tile')), 'Tile: ~R$ 1,56');
 		assert.equal(await text(page.locator('.price-count-estimate')), '1 copy by US estimate (~)');
 		assert.ok(device.seen.frankfurter.length >= 1, 'it tried for a fresh rate');
 

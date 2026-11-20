@@ -603,7 +603,7 @@ describe('background details and prices', () => {
 		assert.deepEqual([...asked].sort(), CARDS.filter((card) => card.catalog === 'international').map((card) => `en/${card.id}`).sort(), 'each international card once, in English; no Asian print');
 
 		// Saved the way card detail saves them, so its US price shows.
-		assert.equal(plain(await page.locator('.tile:has-text("Charizard ex") .tile-price').textContent()), '~R$ 150US');
+		assert.equal(plain(await page.locator('.tile:has-text("Charizard ex") .tile-price').textContent()), '~R$ 150');
 		assert.equal(plain(await page.locator('.tile:has-text("Test Ball") .tile-price').textContent()), 'No price', 'no market price on TCGdex');
 
 		const saved = await page.evaluate(async () => {
@@ -675,7 +675,7 @@ describe('background details and prices', () => {
 		assert.equal(plain(await ja.locator('.tile-price').textContent()), 'No price');
 		assert.equal(plain(await ko.locator('.tile-price').textContent()), 'No price');
 		assert.equal(await page.locator('.tile:has-text("Charizard ex") .tile-price').count(), 0, 'waiting: nothing yet');
-		assert.equal(plain(await page.locator('.tile:has-text("Pikachu"):not(:has(.tile-original)) .tile-price').textContent()), 'R$ 80,00', 'a Liga price at once');
+		assert.equal(plain(await page.locator('.tile:has-text("Pikachu"):not(:has(.tile-original)) .tile-price').textContent()), 'R$ 80,00Liga', 'a Liga price at once, tagged');
 
 		// The Value sheet counts what still waits.
 		await page.click('#cards-value');

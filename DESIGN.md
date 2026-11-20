@@ -2599,6 +2599,14 @@ in which a Liga lowest NM and average typed in by hand led card detail.
   with a small Remove that a toast's Undo reverses. Tiles and totals still take a kept Liga price
   before the US estimate, as they did; the statistics bar shows its Liga count and the
   average or lowest NM switch only when some copy holds one.
+- **A tile marks the exception, not the rule** (Eric, 2026-11-20, from design review 2: a "US"
+  chip sat on nearly every price in My Cards and said nothing the "~" did not). A tile's US
+  estimate reads "~R$ 12,04" with no chip; a kept Liga price reads "R$ 18,50" with a small
+  bordered "Liga" tag after it (`js/price-view.js` `tilePrice`), read as "R$ 18,50, Liga
+  Pokémon". This covers every grid My Cards draws: your cards, the Trade spares, a collection,
+  and a family member's cards. Binder pockets show no price. Card detail's own price lines keep
+  naming their sources, TCGplayer, Cardmarket, and Liga, as before. At 360 px each price, tag
+  included, stays on one line inside its tile in Grid, Large, and List (`tests/prices-app.test.mjs`).
 - **A finish TCGdex does not list** (a monprice "Holo" on a card listed only as Normal) shows the
   price of a finish that exists, the plain Normal or the first listed, and a reverse holo only
   when that is all there is, and says so: "for Normal; your copy is Holo". A listed finish chosen

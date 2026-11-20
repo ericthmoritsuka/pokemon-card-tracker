@@ -602,8 +602,10 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 }
 
 // A tile's price for its copies (one card), for the caller to place: a Liga
-// price kept on a copy first, else the US estimate marked "~" and "US". Null
-// when neither is known. card is the TCGdex record, which carries the US
+// price kept on a copy first, tagged "Liga", else the US estimate marked "~".
+// Most tiles show an estimate, so the tag marks the exception, the price
+// typed from Liga Pokémon (Eric, 2026-11-20: a "US" chip on nearly every
+// tile said nothing the "~" did not). Null when neither is known. card is the TCGdex record, which carries the US
 // price; a card index record has none, so only Liga prices show with one.
 // An estimate borrowed from another finish (js/prices.js fallbackPrice) says
 // whose in its label; the tile has no room for more.
@@ -621,12 +623,14 @@ export function tilePrice(entries, card, {basis = 'avg', rates = savedRates()} =
 	const note = value.fallback ? `, price for ${value.fallback}` : finish ? `, ${finish}` : '';
 
 	if (value.kind === 'liga') {
-		return h('span', {'aria-label': finish ? `${text}, Liga Pokémon${note}` : null, class: 'price-tile', title: `Liga Pokémon${note}, ${value.date || 'no date'}`}, text);
+		return h('span', {'aria-label': `${text}, Liga Pokémon${note}`, class: 'price-tile price-tile-kept', title: `Liga Pokémon${note}, ${value.date || 'no date'}`},
+			h('span', {'aria-hidden': 'true'}, text),
+			h('span', {'aria-hidden': 'true', class: 'price-tile-liga'}, 'Liga')
+		);
 	}
 
 	return h('span', {'aria-label': `About ${text}, US market estimate${note}`, class: 'price-tile price-tile-estimate', title: `Estimated from the US market (TCGplayer)${note}`},
-		h('span', {'aria-hidden': 'true'}, `~${text}`),
-		h('span', {'aria-hidden': 'true', class: 'price-tile-us'}, 'US')
+		h('span', {'aria-hidden': 'true'}, `~${text}`)
 	);
 }
 
