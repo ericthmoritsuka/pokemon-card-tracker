@@ -18,6 +18,7 @@ import {fakeRates} from './fake-rates.mjs';
 import {FakeSupabase} from './fake-supabase.mjs';
 import {FakeStorageSupabase} from './photos-fake-storage.mjs';
 import {startPagesServer} from './pages-server.mjs';
+import {untilInPage} from './poll.mjs';
 
 const require = createRequire(import.meta.url);
 const {chromium} = require(process.env.PLAYWRIGHT || 'playwright');
@@ -664,7 +665,7 @@ describe('your own Sets rings and a set listed in part', () => {
 		await seedLocal(page, mine);
 		await page.goto(url('cards'));
 		await page.waitForSelector('.tile');
-		await page.waitForFunction(async () => (await (await import('/pokemon-card-tracker/js/catalog.js')).cardIndex()).has('international|tst1-002'), null, {polling: 250, timeout: 20000});
+		await untilInPage(page, 'tst1-002 in the card index', async () => (await (await import('/pokemon-card-tracker/js/catalog.js')).cardIndex()).has('international|tst1-002'), {interval: 250, timeout: 20000});
 		assert.ok(reads() >= 2, `the set list was read again (${reads()} reads)`);
 		assert.deepEqual(errors, []);
 		await context.close();
