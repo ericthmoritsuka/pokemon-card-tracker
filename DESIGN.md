@@ -651,6 +651,11 @@ and dark, every theme):
 - *A checkbox row is one target.* In the filters sheet (Not in a binder, Favorites only) and the
   collection pickers the label fills the 48 px row, and in the filters it holds the box, so a tap
   anywhere on the row ticks it; the targets were the 22 px box and a 24 px line of text.
+- *The scan tray's Remove and menu are 44 px.* A tile's Remove (its 22 px disc where it was) is a
+  44 x 44 target that reaches 16 px past the tile, into a tray gap that grew from 8 to 16 px (and
+  the page grid's from 10 to 16 across), so it covers 28 px of its own tile as before and none of
+  the next; it was 32 px wide, and a near miss opened the card. The tray's menu is 44 px wide (it
+  was 32). The camera keeps its 476 px at 360 x 740.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
