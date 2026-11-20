@@ -193,6 +193,11 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
 
+	// Each crop's distance as it lay, before any turn or wide search, in
+	// the crops' order (identify.js tells by it how a binder pocket's own
+	// cut fared).
+	const scores = tried.map((one) => one.score);
+
 	tried.sort((a, b) => a.score - b.score || a.crop - b.crop);
 
 	const sureOf = (one) => pictureVerdict({gap: gapOf(one.result.groups), groups: one.result.groups}).sure;
@@ -296,7 +301,7 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	const sameLead = unwidenedLead && groups[0] && [...leadIds(groups[0])].some((id) => leadIds(unwidenedLead).has(id));
 	const crop = widened && sameLead && (best.turn || 0) === (unwidened.turn || 0) ? unwidened.crop : best.crop;
 
-	return {crop, gap: gapOf(groups), groups: markTwins(groups, index.twins), plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+	return {crop, gap: gapOf(groups), groups: markTwins(groups, index.twins), plain, scores, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
 }
 
 // The groups with each international card that has an image-less twin

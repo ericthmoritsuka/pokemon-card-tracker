@@ -1653,6 +1653,9 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 		ocrMs: result.timings ? result.timings.ocr : null,
 		// How sharp the likelier number strip was (read.js stripSharpness).
 		...(read.sharpness && read.sharpness.value !== null ? {sharpness: read.sharpness} : {}),
+		// A binder pocket's own cut that lost the picture, so the crop that
+		// won was read instead (js/scan/pocket.js withPocketCard).
+		...(result.ownCut === 'lost' ? {ownCut: 'lost'} : {}),
 		// The picture match: the five best artwork groups with their
 		// distances, the lead of the first over the second, the crop the
 		// fingerprint chose, and how long it took.
