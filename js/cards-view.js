@@ -29,7 +29,7 @@ import {mainName, namesFor, tileNames, withTwinName} from './catalog-views.js';
 import {recordOf} from './card-info.js';
 import {bulkSelect} from './bulk-select.js';
 import {CARDS_VIEW_KEY, cardRow, cardRowFacts, viewSwitch} from './card-view-mode.js';
-import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, storedPlaces} from './collection.js';
+import {cardInfoList, isLive, listCards, listPlaces, loadDocument, onChange, sourceNames, storedPlaces} from './collection.js';
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
@@ -570,7 +570,17 @@ export function cardsScreen(root, {
 			return Promise.resolve(null);
 		}
 
-		return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
+		// Only for the person whose collection it is. Another tab's switch
+		// of account puts the other person's copies here while this tab's
+		// currentUser() stays as it was (js/auth.js does not follow it), and
+		// signed out, the copies of the account last signed in stay.
+		return loadDocument().then((doc) => {
+			if (!alive || savedAll !== true || !doc || (doc.user_id || 'local') !== person()) {
+				return null;
+			}
+
+			return recordValue(person(), snapshotOf(listStats(entries, new Map([...index, ...saved]), {rates: now})));
+		});
 	}
 
 	// A tap on Value waiting for the records (openValue): the button says so,

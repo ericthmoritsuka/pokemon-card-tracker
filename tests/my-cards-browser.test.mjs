@@ -1555,5 +1555,35 @@ describe('while the saved records are still being read', () => {
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
+
+	test('a collection that is not the signed-in person\'s keeps no value under their name', async () => {
+		const {context, errors, page} = await heldPhone(false);
+
+		await seed(page, server.origin, {records: freshRecords()});
+
+		const first = await untilInPage(page, 'today\'s value', async (day) => {
+			const list = await (await import('/pokemon-card-tracker/js/value-history.js')).readValueHistory('local');
+
+			return list.find((item) => item.date === day) || null;
+		}, {...TIMEOUT, arg: DAY()});
+
+		assert.equal(first.copies, COPIES.length);
+
+		// The phone's collection now belongs to an account, as when another
+		// tab switches accounts while this one is still signed out (or
+		// signed in as someone else): a copy added to it is not this
+		// person's value.
+		await page.evaluate(async () => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+
+			await collection.useAccount('another-account');
+			await collection.addCard({card_id: 'tsa1-001', catalog: 'international', language: 'en', language_source: 'manual'});
+		});
+		await page.waitForFunction((n) => (document.getElementById('cards-summary') || {}).textContent.startsWith(`${n} copies`), COPIES.length + 1, TIMEOUT);
+		await page.waitForTimeout(3000);
+		assert.equal((await today(page)).copies, COPIES.length, 'the value kept is still the signed-out collection\'s');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
 });
 
