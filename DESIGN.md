@@ -131,7 +131,8 @@ covers fixing a batch.
 The screen says `Viewing:` for the display language and `Printed in:` for a card's own language,
 so the two never read as the same setting. Each card stores its localized name, set name, and image per language when the catalog has them,
 falling back to English. Ownership is computed from copies regardless of language, so a PT copy
-shows as owned in the EN view, labeled "owned in PT".
+shows as owned in the EN view, labeled "owned in PT". The Sets rings and a set's page are the
+exception: they count the viewing language's copies unless Any language is on (below).
 
 **Owning is the base set; collections are tags on top.**
 Every saved copy is in the collection automatically. Collections like Star are optional tags. No
@@ -383,9 +384,20 @@ the screen ends it. Only your own My Cards offers it: never a family member's ca
 read only, the Trade view, a collection, or the binder pickers. `js/bulk-select.js` draws it and
 `js/bulk-edit.js` works out each change without the page.
 
-**Set tiles show owned progress across every language.**
-Keep monprice's `2 / 122` ring on each set tile, but count a card as owned whatever language the
-copy is in, so the ring matches what the collection really holds.
+**Set tiles and a set's page count the copies in the viewing language, or in any language.**
+*(Eric, 2026-11-20, which reverses the first rule: a set tile counted a card as owned whatever
+language the copy was in.)* Keep monprice's `2 / 122` ring on each set tile. With a viewing
+language picked, the ring, a set page's `N / M owned` line, its owned marks, and its All, Owned,
+and Missing counts count only the copies in that language (a set page's own language, which is
+the viewing language when it is opened from Sets), so completing the English set is not mixed
+with the Portuguese one. Every card's picture still shows, dimmed when it does not count. A row
+under Viewing, **Owned: In English | Any language** (the first choice names the viewing language),
+switches back to counting a card whatever language its copy is in; the set page then says
+`owned in any language`. The choice stays on the phone (`cardTracker.setsOwnedIn`, `language` by
+default) and applies to a family member's Sets as to yours. A Korean copy on a Japanese record
+counts under a Japanese set only with Any language. A copy the index has no record of still
+counts under the set its ID begins with. The card page's copies, the Sets card search, My Cards,
+goals, checklists, and binders count every language as before.
 
 **Catalog source is TCGdex.**
 It covers the languages needed, back to Base Set, and embeds prices. The pokedex project already

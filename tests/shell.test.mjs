@@ -768,9 +768,14 @@ describe('the card tile', () => {
 		await page.evaluate(() => localStorage.setItem('cardTracker.viewingLanguage', 'en'));
 
 		// A set: owned is a check in a yellow disc at bottom-right, never the
-		// danger red, and every other card is dimmed and says Missing.
+		// danger red, and every other card is dimmed and says Missing. With
+		// Owned: Any language, so the Portuguese-only card counts in English
+		// and says where it is owned (DESIGN.md section 3).
 		await page.goto(url('sets/en/tst1'));
-		await page.evaluate(() => localStorage.setItem('cardTracker.setFilter', 'all'));
+		await page.evaluate(() => {
+			localStorage.setItem('cardTracker.setFilter', 'all');
+			localStorage.setItem('cardTracker.setsOwnedIn', 'any');
+		});
 		await page.reload();
 
 		const owned = page.locator('.card-grid .tile.owned', {hasText: 'tst1-002'});
