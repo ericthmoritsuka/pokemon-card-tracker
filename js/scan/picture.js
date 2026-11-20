@@ -58,13 +58,39 @@ export const FIRM_GAP = 15;
 export const CLEAR_DISTANCE = 60;
 
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
+export const TWINS_URL = new URL('../vision/index-twins.json', import.meta.url).href;
 
 let indexPromise = null;
 
-// The fingerprint index, loaded once. A failed load is tried again next time.
-export function loadFingerprints({url = INDEX_URL, fetchImpl = (...args) => fetch(...args)} = {}) {
+// The index cards whose name and illustrator an image-less card shares
+// (lab/fingerprints/build-twins.mjs, js/vision/index-twins.json, precached
+// with the index): a Set of their ids, empty when the list cannot be read.
+// The image-less card cannot be in the index, so its picture finds the twin
+// alone and clear (a scanner review, 2026-11-19: a Portuguese McDonald's
+// Collection 2021 Charmander came out sure as Burning Shadows' sm3-18,
+// which shares Kagemaru Himeno's artwork). Such a card is sure only by its
+// number (pictureVerdict, pictureMatch).
+async function loadTwins(url, fetchImpl) {
+	try {
+		const response = await fetchImpl(url);
+		const table = response.ok ? await response.json() : null;
+
+		return new Set(table && table.twins ? Object.keys(table.twins) : []);
+	}
+	catch {
+		return new Set();
+	}
+}
+
+// The fingerprint index, loaded once, with its twins (loadTwins) as
+// `twins`. A failed load is tried again next time.
+export function loadFingerprints({url = INDEX_URL, fetchImpl = (...args) => fetch(...args), twinsUrl = TWINS_URL} = {}) {
 	if (!indexPromise) {
-		indexPromise = loadIndex(url, {fetchImpl}).catch((err) => {
+		indexPromise = Promise.all([loadIndex(url, {fetchImpl}), loadTwins(twinsUrl, fetchImpl)]).then(([index, twins]) => {
+			index.twins = twins;
+
+			return index;
+		}).catch((err) => {
 			indexPromise = null;
 
 			throw err;
@@ -270,7 +296,17 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	const sameLead = unwidenedLead && groups[0] && [...leadIds(groups[0])].some((id) => leadIds(unwidenedLead).has(id));
 	const crop = widened && sameLead && (best.turn || 0) === (unwidened.turn || 0) ? unwidened.crop : best.crop;
 
-	return {crop, gap: gapOf(groups), groups, plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+	return {crop, gap: gapOf(groups), groups: markTwins(groups, index.twins), plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+}
+
+// The groups with each international card that has an image-less twin
+// (loadTwins) marked `twin`.
+function markTwins(groups, twins) {
+	if (!twins || !twins.size) {
+		return groups;
+	}
+
+	return groups.map((group) => (group.cards.some((card) => twins.has(card.id) && card.catalog !== 'ja') ? {...group, cards: group.cards.map((card) => (twins.has(card.id) && card.catalog !== 'ja' ? {...card, twin: true} : card))} : group));
 }
 
 // How many cards of a group are kept on the tray card.
@@ -288,7 +324,7 @@ export function compactPicture(matched, {before = null, how = null, turn = 0, va
 		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
-			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, full, id, image, score, set}) => ({catalog, ...(full ? {full: true} : {}), id, image, score, set})),
+			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, full, id, image, score, set, twin}) => ({catalog, ...(full ? {full: true} : {}), id, image, score, set, ...(twin ? {twin: true} : {})})),
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
@@ -316,7 +352,11 @@ export function pictureVerdict(picture) {
 	const clear = score <= CLEAR_DISTANCE && gap >= AUTO_GAP;
 	const close = clear && (score <= SURE_DISTANCE || (score <= FIRM_DISTANCE && gap >= FIRM_GAP));
 
-	return {clear, close, several: clear && lead.cards.length > 1, sure: close && lead.cards.length === 1};
+	// A card with an image-less twin (loadTwins) is one of two prints the
+	// picture cannot tell apart, the other not in the index.
+	const twinned = lead.cards.some((card) => card.twin);
+
+	return {clear, close, several: clear && lead.cards.length > 1, sure: close && lead.cards.length === 1 && !twinned};
 }
 
 // Whether text has to be read for this picture: anything short of one card
@@ -665,6 +705,9 @@ function numberNear(candidate, number) {
 	return Boolean(digits) && totalFits(candidate, number) && confusedVariants(String(Number(digits))).some((value) => sameNumber(candidate.localId, value));
 }
 
+// Why a card whose artwork an image-less print shares is not sure.
+export const TWIN_WHY = 'Another print shares this picture and the number did not read. Check the print.';
+
 // A name read with no number puts a card of the picture's five first when it
 // names that card this closely (evidence.js matchNames scores, 0 to 1).
 export const NAME_PROMOTE = 0.8;
@@ -845,8 +888,13 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said) && held(c)) : fitting;
 
 		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language) && held(c)))) {
-			// Past SURE_DISTANCE only the number read makes it sure.
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(said && said !== 'non-latin'))});
+			// Past SURE_DISTANCE only the number read makes it sure, and for a
+			// print with an image-less twin (pictureVerdict) only the number
+			// ever does.
+			const twinned = leadCards.some((c) => c.twin);
+			const sure = matches.length > 0 || (verdict.close && !twinned && Boolean(said && said !== 'non-latin'));
+
+			return done({candidates, card: narrowed[0], sure, why: sure || !twinned ? null : TWIN_WHY});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

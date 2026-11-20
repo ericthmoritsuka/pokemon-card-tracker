@@ -11,7 +11,7 @@ import test, {describe} from 'node:test';
 import * as E from '../js/scan/evidence.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, defaultVariantId, finishChip, finishOptions, plainVariantId} from '../js/scan/finish.js';
 import {findCandidates, WaitingForSignal} from '../js/scan/match.js';
-import {compactPicture, knownFrom, localPrint, matchCrops, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious} from '../js/scan/picture.js';
+import {compactPicture, knownFrom, localPrint, matchCrops, needsText, noCard, NOT_CARD_DISTANCE, pictureKey, pictureMatch, pictureVerdict, REPEAT_MS, repeatOfLast, repeatOfPrevious, TWIN_WHY} from '../js/scan/picture.js';
 import {layoutGuide} from '../js/scan/camera.js';
 import {captureCaption, captureStamp} from '../js/scan/image.js';
 import {LANGUAGE_CODES} from '../js/languages.js';
@@ -1719,6 +1719,41 @@ describe('picture first (Eric, 2026-10-03)', () => {
 
 			assert.equal(found.card.id, 'me04-001');
 			assert.equal(found.sure, true);
+		});
+	});
+
+	// A scanner review, 2026-11-19: a Portuguese McDonald's Collection 2021
+	// Charmander, which TCGdex has no picture of, came out sure as Burning
+	// Shadows' sm3-18, whose artwork Kagemaru Himeno drew for both.
+	describe('a print whose artwork an image-less card shares is sure only by its number', () => {
+		const charmander = {gap: 40, groups: [{cards: [{...card('sm3-18', 'en', 'sm3', 9), twin: true}], score: 9}, {cards: [card('sv01-089', 'en', 'sv01', 49)], score: 49}]};
+		const shadows = {...sets, 'en|sm3': {cardCount: {official: 147}, cards: [{id: 'sm3-18', localId: '18', name: 'Charmander'}], name: 'Burning Shadows'}};
+		const named = {setDetail: async (lang, set) => shadows[`${lang}|${set}`] || null};
+
+		test('the picture alone is not sure, so the number is read', () => {
+			assert.deepEqual(pictureVerdict(charmander), {clear: true, close: true, several: false, sure: false});
+			assert.equal(needsText(charmander), true);
+		});
+
+		test('with no number read it is the card shown, not sure, whatever the language', async () => {
+			for (const said of [null, 'pt', 'en']) {
+				const found = await pictureMatch(charmander, null, said, {api: named});
+
+				assert.equal(found.card.id, 'sm3-18');
+				assert.equal(found.sure, false, `said ${said}`);
+				assert.equal(found.why, TWIN_WHY);
+			}
+		});
+
+		test('its own number makes it sure; another number says to check it', async () => {
+			const own = await pictureMatch(charmander, number('18', '147'), 'pt', {api: named});
+
+			assert.equal(own.sure, true);
+
+			const other = await pictureMatch(charmander, number('9', '25'), 'pt', {api: named});
+
+			assert.equal(other.sure, false);
+			assert.equal(other.disagree, true);
 		});
 	});
 
