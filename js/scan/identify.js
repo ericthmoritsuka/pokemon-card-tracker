@@ -596,9 +596,13 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 	const started = performance.now();
 	let rectified = straight ? {card: image, found: true, others: []} : rectify(image);
 	const found = straight ? [] : quadCrops(quads);
+	// Whether the first outline given (quads[0]) stands in as the main crop.
+	let firstIsMain = false;
 
 	if (!straight && !rectified.found && found.length) {
 		const [first] = found;
+
+		firstIsMain = true;
 
 		rectified = {
 			angle: 0,
@@ -625,6 +629,11 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 	}
 
 	const rectifyMs = Math.round(performance.now() - started);
+	// Which crop is the first outline given (quads[0], a binder pocket's
+	// card cut to its own edges): the first crop when it stood in for edges
+	// rectify did not find, else the first after rectify's own crops.
+	const firstAt = straight || !quads || !quads.length ? null : firstIsMain ? 0 : 1 + (rectified.others || []).length;
+	let firstQuad = null;
 	let card = rectified.card;
 	let picture = null;
 	let fingerprintMs = null;
@@ -659,6 +668,13 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 
 			fingerprintMs = matched.timings.fingerprint;
 			matchMs = matched.timings.match;
+
+			// How the first outline given fared against the closest crop, as
+			// each lay: js/scan/pocket.js withPocketCard reads the number
+			// from that outline only when it found the picture as well.
+			if (firstAt !== null && Number.isFinite(matched.scores[firstAt])) {
+				firstQuad = {best: Math.min(...matched.scores), score: matched.scores[firstAt]};
+			}
 
 			if (how) {
 				const other = others[matched.crop - 1];
@@ -765,6 +781,7 @@ async function seePicture(image, {guide = null, photo = false, quads = [], strai
 		placedEdges: rectified.placedEdges || [],
 		needsText: !picture || needsText(picture),
 		note: rectified.note || null,
+		firstQuad,
 		ocr: false,
 		picture,
 		ratio: rectified.ratio ?? null,

@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
-import {cutCard, pocketOutline, POCKET_CARD_MAX_HEIGHT} from '../js/scan/pocket.js';
+import {cutCard, OWN_CUT_SLACK, pocketOutline, POCKET_CARD_MAX_HEIGHT, withPocketCard} from '../js/scan/pocket.js';
 
 const CARD = 63 / 88;
 
@@ -97,5 +97,28 @@ describe('a pocket card\'s own outline', () => {
 		assert.equal(small.height, 880);
 		assert.equal(small.width, Math.round(880 * CARD));
 		assert.equal(big.height, POCKET_CARD_MAX_HEIGHT);
+	});
+});
+
+// A scanner review, 2026-11-19: Eric's Metapod (1000182577) was cut 9.5 %
+// low by its own outline, which lost the picture to a looser crop, and its
+// number and text were read off the cut all the same.
+describe('a pocket\'s own cut for its number', () => {
+	const own = {data: new Uint8ClampedArray(63 * 88 * 4), height: 88, width: 63};
+	const crop = {data: new Uint8ClampedArray(40 * 56 * 4), height: 56, width: 40};
+	const seen = (firstQuad, turn = 0) => ({card: crop, firstQuad, picture: {groups: [], turn}});
+
+	test('replaces the crop that won when it found the picture as well', () => {
+		assert.equal(withPocketCard(seen({best: 20, score: 20}), own).card, own);
+		assert.equal(withPocketCard(seen({best: 20, score: 20 + OWN_CUT_SLACK}), own).card, own, 'a few points off is the same card');
+		assert.equal(withPocketCard(seen(null), own).card, own, 'with no score for it, as before');
+		assert.equal(withPocketCard(seen({best: 20, score: 20}, 2), own).card.height, 88, 'turned as the card lay');
+	});
+
+	test('is set aside when it lost the picture, so the crop that won is read', () => {
+		const lost = withPocketCard(seen({best: 20, score: 41}), own);
+
+		assert.equal(lost.card, crop);
+		assert.equal(lost.ownCut, 'lost');
 	});
 });

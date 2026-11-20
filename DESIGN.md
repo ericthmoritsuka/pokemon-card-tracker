@@ -1218,6 +1218,75 @@ index only leaves a card out, and a card it lacks is named from its set record a
 `tests/index-names.test.mjs` fails when the shipped table misses a card of the shipped index, so
 rebuild it whenever the index is rebuilt.
 
+**Binder page accuracy (a scanner review, 2026-11-19).** Measured on Eric's three upright page
+photos (1000182576 to 1000182578, 12000 x 5400, 27 pockets, the prints and languages checked by
+eye) through Page > Choose a photo in headless Chromium, the language reads let finish:
+
+- **A language read off the card keeps only the prints that exist in it** (`picture.js`
+  `pictureMatch` `heldIn`, `catalog.js` `setHeldIn`). When a pocket's attack text or stage label
+  settles its language, `view.js` `narrowLater` matches its picture again with that language: a
+  Western print in Portuguese (French, German, Italian, Spanish) only from a set TCGdex lists in it,
+  and an Asian twin left out by any Western language. TCGdex has Portuguese Base Set, Jungle, and
+  Fossil (HTTP 200) but not Base Set 2, Team Rocket, or Legendary Collection (404), so a Portuguese
+  Spearow, Butterfree, or Bulbasaur is the Jungle or Base Set print, sure; and a 151 Pidgey whose
+  number 16/165 its Japanese twin shares is the Western one. Whether a set exists in a language is
+  its set record, asked once and kept on the phone (a 404 too), so a phone with no signal knows
+  from what it has; a set never asked keeps its print, and a group none of whose prints exist in
+  the language is kept whole (a print TCGdex lacks in it). A default language narrows nothing.
+- **A print with an image-less twin is sure only by its number** (`picture.js` `loadTwins`,
+  `pictureVerdict`; `js/vision/index-twins.json`, built by `lab/fingerprints/build-twins.mjs`). A
+  card TCGdex has no picture of cannot be in the index, so its picture finds the print it shares an
+  artwork with, alone and clear: Eric's Portuguese McDonald's Collection 2021 Charmander came out
+  sure as Burning Shadows' sm3-18 (Kagemaru Himeno drew both). The list names the 819 index cards
+  that share their name and illustrator with a card that has no picture in English or Portuguese
+  (TCG Pocket left out); such a card needs its number read, and without it shows "Another print
+  shares this picture and the number did not read. Check the print." The same illustrator does not
+  always mean the same artwork, so this costs a number read on some cards that did not need one
+  (his Mega Venusaur ex, whose MEP promo `mep-013` has no picture, among them), and never a wrong
+  card.
+- **A pocket's own cut is read only when it found the picture** (`pocket.js` `withPocketCard`,
+  `identify.js` `firstQuad`). The cut to the card's own edges is the one its number and its
+  language are read from, but its edges can be taken at the wrong lines: the Metapod on 1000182577
+  was cut 9.5 % low, lost the picture to a looser crop, and was read off the cut all the same, so
+  its text named no language. When the own cut matches more than `OWN_CUT_SLACK` (3) farther than
+  the closest crop, the crop that won is read instead, and the scan log says `ownCut: lost` (1 to
+  3 of 27 pockets a run).
+- **The photo is decoded by its pixels** (`page.js` `decodeSize`, `PAGE_MAX_PIXELS`,
+  `POCKET_MAX_PIXELS`), not its longer side: the page's copy at 6.6 MP and the pockets' larger copy
+  at 26.5 MP, what Eric's 20:9 photos get, whatever the photo's shape. Before, a 50 MP 3:4 photo
+  would have had a larger copy of 44 MP (177 MB). The reading expects a page filling a 3:4 photo;
+  in his 20:9 ones the page fills about 60 % of it, so the Binder page sheet says to set the camera
+  to 3:4, and a photo longer than 1.5 times its width ends the page's summary with "Next time, set
+  the camera to 3:4 so the page fills the photo." Read at 11 MP instead, the three photos came out
+  worse (23 right and 17 sure, against 26 and 22, and about 100 MB more at the height): the rest of
+  the reading is tuned to cards of the size the 6.6 MP copy gives.
+- **The photo is decoded once** (`page.js` `photoBitmaps`). Measured by sampling the renderers'
+  resident memory every 100 ms in headless Chromium, the read's highest point was decoding the
+  file: a 65 MP JPEG is held whole for a moment, whatever size it is decoded at, and the page's
+  copy and the larger one were each decoded from the file, the second while the first was held (on
+  1000182577 the renderers went from 470 MB to 820 for the first and 910 for the second). The file
+  is now decoded once, at the larger size, and the page's copy drawn from that: the three photos'
+  bare reads peaked 375 to 390 MB above where they started instead of 410 to 425, and took 12.6 to
+  16.6 s instead of 15.4 to 19.3. What is left at the height is that one decode, which a page
+  cannot avoid. With the pockets read too (the OCR workers loaded) the whole read peaked at 650 to
+  790 MB of renderer memory either way, within the runs' spread.
+
+| Step | Right (card and language) | Sure | Sure but wrong card |
+| --- | --- | --- | --- |
+| Before (v85, `50f275a`) | 23 of 27 (8, 8, 7) | 18 (7, 5, 6) | 1 (the Charmander) |
+| Language keeps its prints | 26 (9, 9, 8) | 23 (9, 7, 7) | 1 |
+| Image-less twins | 26 (9, 9, 8) | 21 (9, 7, 5) | 0 |
+| Own cut only when it found the picture | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
+| Decoded by pixels, 3:4 tip | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
+| Decoded once | 25 (9, 9, 7) | 22 (9, 8, 5) | 0 |
+
+The Charmander stays wrong: the index cannot hold it, and it now asks for a look. Decoded once,
+the page's copy is drawn from the larger copy rather than from the file, and the Dark Wartortle,
+whose Team Rocket and Legendary Collection prints share the artwork and are both English, shows
+the Legendary Collection one first, unsure as before (twice of two runs). Of the 5 not sure, the
+Squirtle and the Dark Wartortle are such English pairs, the Mega Venusaur ex has its image-less
+promo, the Charmander is the McDonald's one, and the Caterpie's text read no language.
+
 Tesseract now loads only when a card needs text, so Scan opens without its 7 MB. The straightened
 crop is snapped to a card's 63 by 88 shape (crops that came out 0.733 to 0.740 wide for their
 height missed the read boxes), and when the box was too wide the fingerprint also tries it with

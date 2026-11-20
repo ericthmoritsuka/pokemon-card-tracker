@@ -293,14 +293,31 @@ export function cutCard(image, corners) {
 	return warpQuad(image, corners, Math.round(tall * CARD), tall);
 }
 
+// How much farther than the closest crop the pocket's own cut may match
+// and still be the card its number is read from: a few points is the same
+// card a pixel or two off (identify.js keeps a refined outline within 3).
+export const OWN_CUT_SLACK = 3;
+
 // A pocket's picture answer (js/scan/identify.js identifyPicture) with its
 // card swapped for the pocket's own cut (cutCard), turned as the picture
 // found the card lying, so the number is read from it and the tile's photo
 // shows it. The crop that won the picture is kept for what it was matched
 // by; the answer is unchanged when there is no own cut.
+//
+// Nor when the own cut lost the picture (seen.firstQuad: its distance
+// against the closest crop's, as each lay, OWN_CUT_SLACK or more farther):
+// its edges were taken at the wrong lines (a scanner review, 2026-11-19:
+// Eric's Metapod, on 1000182577, cut 9.5 % low), so its number strips and
+// its text lie off the card's, and the crop that won is read instead.
 export function withPocketCard(seen, card) {
 	if (!seen || !card || !card.width || !card.height) {
 		return seen;
+	}
+
+	const first = seen.firstQuad;
+
+	if (first && Number.isFinite(first.score) && Number.isFinite(first.best) && first.score > first.best + OWN_CUT_SLACK) {
+		return {...seen, ownCut: 'lost'};
 	}
 
 	const turn = (seen.picture && seen.picture.turn) || 0;

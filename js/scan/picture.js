@@ -18,7 +18,7 @@
 // The index is loaded once, on first use, and kept in memory (about 1.4
 // MB; the service worker keeps the file).
 
-import {importApi} from '../catalog.js';
+import {importApi, setHeldIn} from '../catalog.js';
 import {ASIAN_LANGUAGES} from '../languages.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {cjkSimilarity, hasCjk} from './cjk.js';
@@ -58,13 +58,39 @@ export const FIRM_GAP = 15;
 export const CLEAR_DISTANCE = 60;
 
 export const INDEX_URL = new URL('../vision/index.bin', import.meta.url).href;
+export const TWINS_URL = new URL('../vision/index-twins.json', import.meta.url).href;
 
 let indexPromise = null;
 
-// The fingerprint index, loaded once. A failed load is tried again next time.
-export function loadFingerprints({url = INDEX_URL, fetchImpl = (...args) => fetch(...args)} = {}) {
+// The index cards whose name and illustrator an image-less card shares
+// (lab/fingerprints/build-twins.mjs, js/vision/index-twins.json, precached
+// with the index): a Set of their ids, empty when the list cannot be read.
+// The image-less card cannot be in the index, so its picture finds the twin
+// alone and clear (a scanner review, 2026-11-19: a Portuguese McDonald's
+// Collection 2021 Charmander came out sure as Burning Shadows' sm3-18,
+// which shares Kagemaru Himeno's artwork). Such a card is sure only by its
+// number (pictureVerdict, pictureMatch).
+async function loadTwins(url, fetchImpl) {
+	try {
+		const response = await fetchImpl(url);
+		const table = response.ok ? await response.json() : null;
+
+		return new Set(table && table.twins ? Object.keys(table.twins) : []);
+	}
+	catch {
+		return new Set();
+	}
+}
+
+// The fingerprint index, loaded once, with its twins (loadTwins) as
+// `twins`. A failed load is tried again next time.
+export function loadFingerprints({url = INDEX_URL, fetchImpl = (...args) => fetch(...args), twinsUrl = TWINS_URL} = {}) {
 	if (!indexPromise) {
-		indexPromise = loadIndex(url, {fetchImpl}).catch((err) => {
+		indexPromise = Promise.all([loadIndex(url, {fetchImpl}), loadTwins(twinsUrl, fetchImpl)]).then(([index, twins]) => {
+			index.twins = twins;
+
+			return index;
+		}).catch((err) => {
 			indexPromise = null;
 
 			throw err;
@@ -166,6 +192,11 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 
 		tried.push({crop: i, queries, result, score: scoreOf(result), thumb});
 	});
+
+	// Each crop's distance as it lay, before any turn or wide search, in
+	// the crops' order (identify.js tells by it how a binder pocket's own
+	// cut fared).
+	const scores = tried.map((one) => one.score);
 
 	tried.sort((a, b) => a.score - b.score || a.crop - b.crop);
 
@@ -270,7 +301,17 @@ export function matchCrops(index, crops, {screen = SCREEN, turns = true, wide = 
 	const sameLead = unwidenedLead && groups[0] && [...leadIds(groups[0])].some((id) => leadIds(unwidenedLead).has(id));
 	const crop = widened && sameLead && (best.turn || 0) === (unwidened.turn || 0) ? unwidened.crop : best.crop;
 
-	return {crop, gap: gapOf(groups), groups, plain, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+	return {crop, gap: gapOf(groups), groups: markTwins(groups, index.twins), plain, scores, timings: {fingerprint: Math.round(fingerprintMs), match: Math.round(performance.now() - t0 - fingerprintMs)}, turn: best.turn || 0, turned: turnedTried, wide: widened};
+}
+
+// The groups with each international card that has an image-less twin
+// (loadTwins) marked `twin`.
+function markTwins(groups, twins) {
+	if (!twins || !twins.size) {
+		return groups;
+	}
+
+	return groups.map((group) => (group.cards.some((card) => twins.has(card.id) && card.catalog !== 'ja') ? {...group, cards: group.cards.map((card) => (twins.has(card.id) && card.catalog !== 'ja' ? {...card, twin: true} : card))} : group));
 }
 
 // How many cards of a group are kept on the tray card.
@@ -288,7 +329,7 @@ export function compactPicture(matched, {before = null, how = null, turn = 0, va
 		plain: typeof matched.plain === 'number' && Number.isFinite(matched.plain) ? Math.round(matched.plain * 10) / 10 : undefined,
 		gap: Number.isFinite(matched.gap) ? Math.round(matched.gap * 10) / 10 : null,
 		groups: matched.groups.map((group) => ({
-			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, full, id, image, score, set}) => ({catalog, ...(full ? {full: true} : {}), id, image, score, set})),
+			cards: group.cards.slice(0, GROUP_CARDS).map(({catalog, full, id, image, score, set, twin}) => ({catalog, ...(full ? {full: true} : {}), id, image, score, set, ...(twin ? {twin: true} : {})})),
 			score: Math.round(group.score * 10) / 10,
 		})),
 		how,
@@ -316,7 +357,11 @@ export function pictureVerdict(picture) {
 	const clear = score <= CLEAR_DISTANCE && gap >= AUTO_GAP;
 	const close = clear && (score <= SURE_DISTANCE || (score <= FIRM_DISTANCE && gap >= FIRM_GAP));
 
-	return {clear, close, several: clear && lead.cards.length > 1, sure: close && lead.cards.length === 1};
+	// A card with an image-less twin (loadTwins) is one of two prints the
+	// picture cannot tell apart, the other not in the index.
+	const twinned = lead.cards.some((card) => card.twin);
+
+	return {clear, close, several: clear && lead.cards.length > 1, sure: close && lead.cards.length === 1 && !twinned};
 }
 
 // Whether text has to be read for this picture: anything short of one card
@@ -609,6 +654,27 @@ export async function localPrint(card, language, {api = {setDetail: importApi.se
 	return record && record.name ? {image: record.image || null, lang: language, name: record.name, setName: data.name || null} : null;
 }
 
+// Which of the first group's prints exist in `language` (pictureMatch
+// heldIn): a predicate over its candidates. Asian prints are told apart by
+// languageFits; here a Western record's set is looked up in a Western
+// language TCGdex lists under its own names (api.setHeld: true, false, or
+// null when not known). Only a print whose set is known to be missing is
+// left out, and only when another print of the group is not.
+async function heldPrints(lead, language, api, wait = describeMs()) {
+	const everyone = () => true;
+
+	if (!LOCAL_PRINTS.includes(language) || lead.length < 2 || !api.setHeld) {
+		return everyone;
+	}
+
+	const sets = [...new Set(lead.filter((c) => c.lang === 'en').map((c) => c.setId))];
+	const answers = await Promise.all(sets.map((setId) => within(Promise.resolve().then(() => api.setHeld(language, setId)).catch(() => null), wait, null)));
+	const missing = new Set(sets.filter((_, i) => answers[i] === false));
+	const kept = (c) => !(c.lang === 'en' && missing.has(c.setId));
+
+	return lead.some((c) => kept(c) && languageFits(c, language)) ? kept : everyone;
+}
+
 // Whether a candidate is what the number read says: the number, and the
 // total when both are known (one confused digit allowed in the total, as
 // 195 for 198).
@@ -643,6 +709,9 @@ function numberNear(candidate, number) {
 
 	return Boolean(digits) && totalFits(candidate, number) && confusedVariants(String(Number(digits))).some((value) => sameNumber(candidate.localId, value));
 }
+
+// Why a card whose artwork an image-less print shares is not sure.
+export const TWIN_WHY = 'Another print shares this picture and the number did not read. Check the print.';
 
 // A name read with no number puts a card of the picture's five first when it
 // names that card this closely (evidence.js matchNames scores, 0 to 1).
@@ -743,7 +812,19 @@ function misreadSettled(read, described, lead, verdict) {
 // stack: the set the cards before this one are from (session.js stackSet),
 // or null. When exactly one card of the first group is from it, that card is
 // the answer, sure, unless a number read names another (stackPick).
-export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
+//
+// heldIn: the language read off the card itself (its label, its attack
+// text, its stage label) or picked by hand, never a default. The first
+// group keeps only the prints that exist in it: a Western print in
+// Portuguese, French, German, Italian, or Spanish only from a set TCGdex
+// lists in that language (api.setHeld, catalog.js setHeldIn), so a
+// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
+// Collection share is the Jungle print (a scanner review, 2026-11-19: on
+// Eric's three page photos the sure pockets went from 18 to 23). A set
+// whose listing is not known (no signal, never asked) keeps its print, and
+// a group none of whose prints exist in the language is kept whole (a
+// print TCGdex lacks in it).
+export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail, setHeld: setHeldIn}, asian = null, heldIn = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	// The language read or picked (`said`), or for a card with no Latin label
 	// the last Asian pick, to order by.
@@ -756,7 +837,8 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	const lead = described.slice(0, leadCards.length);
 	const others = described.slice(leadCards.length);
 	const number = misreadSettled(read, described, lead, verdict);
-	const fitting = lead.filter((c) => languageFits(c, language));
+	const held = await heldPrints(lead, heldIn, api, wait);
+	const fitting = lead.filter((c) => languageFits(c, language) && held(c));
 	const byNumber = (list) => list.filter((c) => numberFits(c, number));
 	const printed = number ? `${number.numberPrinted || number.number}${number.total ? `/${number.totalPrinted || number.total}` : ''}` : null;
 	// No set record reached for the first group's cards (no signal, and their
@@ -776,7 +858,7 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	// 24 right cards of 240.
 	const asianKnown = ASIAN.includes(language);
 	const western = (c) => (asianKnown || ASIAN.includes(c.lang) ? 0 : 1);
-	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (western(b) - western(a)) || a.score - b.score);
+	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (held(b) - held(a)) || (western(b) - western(a)) || a.score - b.score);
 
 	// The stack's print of this artwork: the card, with no number needed
 	// (stackPick: the same test view.js skips the number read on).
@@ -808,11 +890,16 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 
 		// A number read outranks the last Asian pick (an ordering only): it filters
 		// by the language read or picked.
-		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said)) : fitting;
+		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said) && held(c)) : fitting;
 
-		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
-			// Past SURE_DISTANCE only the number read makes it sure.
-			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(said && said !== 'non-latin'))});
+		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language) && held(c)))) {
+			// Past SURE_DISTANCE only the number read makes it sure, and for a
+			// print with an image-less twin (pictureVerdict) only the number
+			// ever does.
+			const twinned = leadCards.some((c) => c.twin);
+			const sure = matches.length > 0 || (verdict.close && !twinned && Boolean(said && said !== 'non-latin'));
+
+			return done({candidates, card: narrowed[0], sure, why: sure || !twinned ? null : TWIN_WHY});
 		}
 
 		return done({candidates, card: ordered[0], why: `${lead.length} cards share this picture${number ? '' : ' and the number did not read'}. Tap the right one.`});

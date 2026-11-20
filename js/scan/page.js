@@ -34,21 +34,34 @@ export const PAGE_PAD = 0.1;
 // The longer side of the grey copy the outlines are found on (the
 // scanner's FIND_SIDE_CAPTURE, as lab/multi ran).
 export const PAGE_SIDE = FIND_SIDE_CAPTURE;
-// The longer side the photo is read at. A 12 MP still of a page filling it
-// gives cards about 900 pixels wide; at 3840 they are about 550, enough for
-// the picture and the number strip, and a phone has the memory for it
-// (about 27 MB of pixels).
-export const PAGE_MAX_SIDE = 3840;
-// The longer side the photo is decoded at a second time, for each
-// pocket's own card (ownCard), which its number is read from (2026-11-19).
-// At PAGE_MAX_SIDE a card is about 560 pixels tall and its number about 7:
-// on Eric's three upright page photos (12000 x 5400) no number read even
-// from a card cut to its edges, against 9 of 27 when cut from this copy,
-// the same as from the whole photo (cards about 1400 tall) and 6 at 5760.
-// The copy is held as a bitmap (about 106 MB for his photos), only each
-// card's box drawn out of it; a phone that cannot decode it that large
-// cuts the cards from the page's own copy.
-export const POCKET_MAX_SIDE = 7680;
+// The photo is decoded by how many pixels it holds, not by its longer side
+// (a scanner review, 2026-11-19). Eric's phone takes 12000 x 5400 (65 MP,
+// 20:9) and a 50 MP sensor 8160 x 6120 at 3:4; a fixed longer side gave the
+// first a page copy of 6.6 MP and the second 11, and the second's larger
+// copy 44 MP (177 MB) against 26.5. Sized by pixels, both cost what Eric's
+// photos cost, which they were measured on.
+//
+// The page's copy, which the page, its pockets, and their pictures are
+// found on: 3840 x 1728 for his photos, as before (6.6 MP, 27 MB), where a
+// card is about 500 pixels wide, enough for the picture. A page filling a
+// 3:4 photo of as many pixels has cards about 620 wide; in his taller
+// photos the page fills less of it (pageSummary's tip). Read at 11 MP, his
+// three page photos came out worse (2026-11-19: 23 of 27 pockets right
+// and 17 sure, against 26 and 22, and about 100 MB more at the height),
+// the rest of the reading being tuned to cards of this size.
+export const PAGE_MAX_PIXELS = 3840 * 1728;
+// The copy the photo is decoded at a second time, for each pocket's own card
+// (ownCard), which its number and its text are read from (2026-11-19). On
+// Eric's three upright page photos (12000 x 5400) the page's copy, at 3840 x
+// 1728, read no number even from a card cut to its edges, against 9 of 27
+// when cut from 7680 x 3456 (this many pixels), the same as from the whole
+// photo (cards about 1400 tall) and 6 at 5760 x 2592. The copy is held as a
+// bitmap (about 106 MB), only each card's box drawn out of it; a phone that
+// cannot decode it that large cuts the cards from the page's own copy.
+export const POCKET_MAX_PIXELS = 7680 * 3456;
+// A photo this much longer than it is wide (or wider than long) holds a
+// 3:4 page with room to spare: the tip says to set the camera to 3:4.
+export const TALL_PHOTO = 1.5;
 // The tallest a pocket is cut, in pixels (lab/multi).
 const POCKET_MAX_HEIGHT = 1400;
 const CARD = 63 / 88;
@@ -261,8 +274,9 @@ const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // of those need a look, and how many pockets were empty. rough: the page's
 // outline was not set right by its cards, so the pockets may be off.
 // pages: how many pages were read (2 for a spread), and missed how many of
-// a spread's could not be found.
-export function pageSummary({added, empty, look, missed = 0, pages = 1, rough = false}) {
+// a spread's could not be found. tall: the photo was taken taller than 3:4
+// (tallPhoto), so the page filled less of it.
+export function pageSummary({added, empty, look, missed = 0, pages = 1, rough = false, tall = false}) {
 	const which = pages > 1 ? 'Both pages' : missed ? 'One page' : 'Page';
 
 	if (!added) {
@@ -289,8 +303,20 @@ export function pageSummary({added, empty, look, missed = 0, pages = 1, rough = 
 		text += ' The page edges were unclear, so check each card.';
 	}
 
+	if (tall) {
+		text += ` ${TALL_TIP}`;
+	}
+
 	return text;
 }
+
+// The tip for a photo taller than 3:4 (TALL_PHOTO): the page fills less of
+// it, so its cards come out smaller than the reading expects.
+export const TALL_TIP = 'Next time, set the camera to 3:4 so the page fills the photo.';
+
+// Whether a photo width x height (either way round) is longer than
+// TALL_PHOTO times its width.
+export const tallPhoto = (size) => Boolean(size && size.width && size.height) && Math.max(size.width, size.height) / Math.min(size.width, size.height) > TALL_PHOTO;
 
 // Why a page was not read, as plain advice to take it again.
 export function pageTrouble(status) {
@@ -399,12 +425,19 @@ function ownCard(source, corners, scale) {
 	return new ImageData(cut.data, cut.width, cut.height);
 }
 
-// A photo's pixels at most `maxSide` on its longer side, from a bitmap (or
-// anything a canvas draws), as ImageData.
-export function photoPixels(bitmap, maxSide = PAGE_MAX_SIDE) {
-	const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-	const width = Math.max(1, Math.round(bitmap.width * scale));
-	const height = Math.max(1, Math.round(bitmap.height * scale));
+// The size a photo width x height is decoded at: at most `maxPixels`
+// pixels and `maxSide` on its longer side, never larger than it is.
+// Returns {width, height, scale}.
+export function decodeSize(width, height, {maxPixels = Infinity, maxSide = Infinity} = {}) {
+	const scale = Math.min(1, Math.sqrt(maxPixels / Math.max(1, width * height)), maxSide / Math.max(1, width, height));
+
+	return {height: Math.max(1, Math.round(height * scale)), scale, width: Math.max(1, Math.round(width * scale))};
+}
+
+// A photo's pixels within `limits` (decodeSize), from a bitmap (or anything
+// a canvas draws), as ImageData.
+export function photoPixels(bitmap, limits = {maxPixels: PAGE_MAX_PIXELS}) {
+	const {height, width} = decodeSize(bitmap.width, bitmap.height, limits);
 
 	return shrink(bitmap, width, height, 'high');
 }
@@ -689,11 +722,11 @@ export async function readPagePixels(image, {cols = PAGE_COLS, fine = null, rows
 
 // ------------------------------------------------------------ off the main thread
 
-// The photo file decoded at most `maxSide` on its longer side, as a bitmap
-// turned as the camera held it (its EXIF orientation). The size is read
-// first, so a large still (Eric's phone takes 12000 x 5400) is decoded
-// small rather than whole.
-async function photoBitmap(file, maxSide) {
+// The photo file decoded within `limits` (decodeSize), as a bitmap turned
+// as the camera held it (its EXIF orientation). The size is read first, so
+// a large still (Eric's phone takes 12000 x 5400) is decoded small rather
+// than whole.
+async function photoBitmap(file, limits) {
 	const size = typeof Image === 'undefined' ? null : await new Promise((resolve) => {
 		const url = URL.createObjectURL(file);
 		const img = new Image();
@@ -708,11 +741,11 @@ async function photoBitmap(file, maxSide) {
 		};
 		img.src = url;
 	});
-	const scale = size ? Math.min(1, maxSide / Math.max(size.width, size.height)) : 1;
+	const fit = size ? decodeSize(size.width, size.height, limits) : null;
 
-	if (scale < 1) {
+	if (fit && fit.scale < 1) {
 		try {
-			return await createImageBitmap(file, {resizeHeight: Math.round(size.height * scale), resizeQuality: 'high', resizeWidth: Math.round(size.width * scale)});
+			return await createImageBitmap(file, {resizeHeight: fit.height, resizeQuality: 'high', resizeWidth: fit.width});
 		}
 		catch {
 			// Decoded whole below.
@@ -722,69 +755,85 @@ async function photoBitmap(file, maxSide) {
 	return createImageBitmap(file);
 }
 
-// The photo decoded at `side` for its pockets' own cards (ownCard), or
-// null when that is no larger than `than` (the page's own copy, whose
-// pixels stay as they were decoded before, so the page and its pictures
-// are found as they were) or a phone cannot hold it that large.
-async function fineBitmap(file, side, than) {
-	try {
-		const fine = await photoBitmap(file, side);
+// The photo decoded once (a scanner review, 2026-11-19): within
+// `fineLimits` for its pockets' own cards (ownCard), and the page's copy,
+// within `limits`, drawn from that. Each decode of a 65 MP photo holds the
+// whole photo's pixels for a moment, whatever size it is decoded at: in
+// headless Chromium on Eric's 1000182577 the renderers went from 470 MB to
+// 820 decoding the page's copy and to 910 decoding the larger one while the
+// first was held, the read's highest. Decoded once, his three photos' reads
+// peaked 375 to 390 MB above where they started instead of 410 to 425, and
+// took 12.6 to 16.6 s instead of 15.4 to 19.3. What is left at the height
+// is that one decode. Returns {bitmap, fine}: fine null when it is no
+// larger than the page's copy, or a phone cannot decode it that large (the
+// page's copy is then decoded on its own, and the pockets' cards cut from
+// it). Throws when the photo cannot be opened at all.
+async function photoBitmaps(file, limits, fineLimits) {
+	const fine = await photoBitmap(file, fineLimits).catch(() => null);
 
-		if (fine.width > than.width) {
-			return fine;
+	if (fine) {
+		const size = decodeSize(fine.width, fine.height, limits);
+
+		if (size.scale >= 1) {
+			return {bitmap: fine, fine: null};
 		}
 
-		fine.close();
-	}
-	catch {
-		// The pockets' cards are cut from the page's copy.
+		try {
+			return {bitmap: await createImageBitmap(fine, {resizeHeight: size.height, resizeQuality: 'high', resizeWidth: size.width}), fine};
+		}
+		catch {
+			fine.close();
+		}
 	}
 
-	return null;
+	return {bitmap: await photoBitmap(file, limits), fine: null};
 }
 
 // How long the page worker may take before the page is read here instead.
 export const PAGE_WORKER_MS = 60000;
 
 // The page in a photo file (readPagePixels' answer, plus `where`, 'worker'
-// or 'main'), read in js/scan/page-worker.js where a worker can start, else
-// here, pausing between pockets. status 'unreadable' when the photo could
-// not be opened. fineSide: the longer side each pocket's own card is cut
-// at (POCKET_MAX_SIDE).
-export async function readPagePhoto(file, {fineSide = POCKET_MAX_SIDE, maxSide = PAGE_MAX_SIDE, worker = true} = {}) {
+// or 'main', and `tall`, tallPhoto), read in js/scan/page-worker.js where a
+// worker can start, else here, pausing between pockets. status
+// 'unreadable' when the photo could not be opened. The page is read at
+// most maxPixels (PAGE_MAX_PIXELS) and each pocket's own card cut at most
+// finePixels (POCKET_MAX_PIXELS); maxSide and fineSide cap the longer side
+// too.
+export async function readPagePhoto(file, {finePixels = POCKET_MAX_PIXELS, fineSide = Infinity, maxPixels = PAGE_MAX_PIXELS, maxSide = Infinity, worker = true} = {}) {
+	const limits = {maxPixels, maxSide};
+	const fineLimits = {maxPixels: finePixels, maxSide: fineSide};
 	let bitmap;
 	let fine;
 
 	try {
-		bitmap = await photoBitmap(file, maxSide);
+		({bitmap, fine} = await photoBitmaps(file, limits, fineLimits));
 	}
 	catch {
-		return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', where: 'main'};
+		return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', tall: false, where: 'main'};
 	}
 
-	fine = await fineBitmap(file, fineSide, bitmap);
+	const tall = tallPhoto(bitmap);
 
 	if (worker && typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined') {
-		const away = await readAway(bitmap, fine, maxSide);
+		const away = await readAway(bitmap, fine, limits);
 
 		if (away) {
-			return {...away, where: 'worker'};
+			return {...away, tall, where: 'worker'};
 		}
 
 		// The bitmaps went to the worker: decoded again for this thread.
-		bitmap = await photoBitmap(file, maxSide).catch(() => null);
-
-		if (!bitmap) {
-			return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', where: 'main'};
+		try {
+			({bitmap, fine} = await photoBitmaps(file, limits, fineLimits));
 		}
-
-		fine = await fineBitmap(file, fineSide, bitmap);
+		catch {
+			return {cards: 0, findMs: 0, fitted: 0, ms: 0, pockets: [], size: null, status: 'unreadable', tall, where: 'main'};
+		}
 	}
 
 	let pixels;
 
 	try {
-		pixels = photoPixels(bitmap, maxSide);
+		pixels = photoPixels(bitmap, limits);
 	}
 	catch (err) {
 		if (fine) {
@@ -801,7 +850,7 @@ export async function readPagePhoto(file, {fineSide = POCKET_MAX_SIDE, maxSide =
 	await pause();
 
 	try {
-		return {...(await readPagePixels(pixels, {fine})), where: 'main'};
+		return {...(await readPagePixels(pixels, {fine})), tall, where: 'main'};
 	}
 	finally {
 		if (fine) {
@@ -812,7 +861,7 @@ export async function readPagePhoto(file, {fineSide = POCKET_MAX_SIDE, maxSide =
 
 // The page read in its own worker, which is let go after: the answer, or
 // null when the worker failed or took longer than PAGE_WORKER_MS.
-function readAway(bitmap, fine, maxSide) {
+function readAway(bitmap, fine, limits) {
 	return new Promise((resolve) => {
 		let away;
 
@@ -837,7 +886,7 @@ function readAway(bitmap, fine, maxSide) {
 		away.addEventListener('error', () => finish(null));
 
 		try {
-			away.postMessage({bitmap, fine, maxSide}, fine ? [bitmap, fine] : [bitmap]);
+			away.postMessage({bitmap, fine, limits}, fine ? [bitmap, fine] : [bitmap]);
 		}
 		catch {
 			finish(null);

@@ -1549,7 +1549,7 @@ export function pageChoiceSheet(ctx) {
 		const busy = ctx.pageBusy;
 
 		body.replaceChildren(
-			h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.'),
+			h('p', {class: 'scan-muted', id: 'scan-page-help'}, busy ? 'A page is being read. Its cards join the tray as each pocket is read.' : 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Set the camera to 3:4, hold the phone flat over it, no zoom, a lamp to the side.'),
 			h('div', {'aria-labelledby': titleId, class: 'scan-row', role: 'group'},
 				h('button', {class: 'scan-button', disabled: busy, id: 'scan-page-take', onclick: () => ctx.pagePhoto('camera'), type: 'button'}, 'Take a photo'),
 				h('button', {class: 'scan-button scan-primary', disabled: busy, id: 'scan-page-pick', onclick: () => ctx.pagePhoto('gallery'), type: 'button'}, 'Choose a photo')));

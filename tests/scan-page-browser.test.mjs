@@ -335,7 +335,7 @@ describe('a binder page from one photo', () => {
 		await page.waitForSelector('#scan-page');
 		assert.equal(await page.getAttribute('#scan-page', 'role'), 'dialog');
 		assert.equal(await text(page, '#scan-page-label'), 'Binder page');
-		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Hold the phone flat over it, no zoom, a lamp to the side.');
+		assert.equal(await text(page, '#scan-page-help'), 'Add a whole page of cards from one photo, or two pages side by side, filling the photo. Set the camera to 3:4, hold the phone flat over it, no zoom, a lamp to the side.');
 		assert.equal(await text(page, '#scan-page-take'), 'Take a photo');
 		assert.equal(await text(page, '#scan-page-pick'), 'Choose a photo');
 		assert.equal(await page.getAttribute('#scan-page-camera', 'capture'), 'environment', 'Take a photo opens the camera');
@@ -692,6 +692,74 @@ describe('a binder page from one photo', () => {
 			assert.ok(Math.abs(pocket.card.width / pocket.card.height - 63 / 88) < 0.01, 'card-shaped');
 			assert.ok(pocket.quads >= 2, 'its own outline offered to the picture before the others');
 		}
+
+		await close(app);
+	});
+
+	// A scanner review, 2026-11-19: decoding a 65 MP photo holds all its
+	// pixels for a moment, and the page's copy and the larger one were each
+	// decoded from the file. Now the file is decoded once, and the page's
+	// copy drawn from the larger one (js/scan/page.js photoBitmaps).
+	test('the photo file is decoded once, and the page\'s copy drawn from its larger copy', async () => {
+		const app = await open();
+		const {page} = app;
+		const photo = (await readFile(pagePhoto)).toString('base64');
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+
+		const decoded = await page.evaluate(async (data) => {
+			const {readPagePhoto} = await import('/pokemon-card-tracker/js/scan/page.js');
+			const blob = await (await fetch(`data:image/jpeg;base64,${data}`)).blob();
+			const made = [];
+			const make = window.createImageBitmap;
+
+			window.createImageBitmap = (source, ...rest) => {
+				made.push(source instanceof Blob ? 'file' : 'bitmap');
+
+				return make(source, ...rest);
+			};
+
+			try {
+				const found = await readPagePhoto(blob, {fineSide: 4000, maxSide: 1200, worker: false});
+
+				return {made, pockets: found.pockets.filter((pocket) => !pocket.empty).length, size: found.size};
+			}
+			finally {
+				window.createImageBitmap = make;
+			}
+		}, photo);
+
+		assert.deepEqual(decoded.made, ['file', 'bitmap'], 'the file once, then the page\'s copy from that');
+		assert.equal(decoded.pockets, 7, 'and the page read as before');
+		assert.match(decoded.size, /^\d+ x 1200$|^1200 x \d+$/, `the page's copy within its limits (${decoded.size})`);
+
+		await close(app);
+	});
+
+	// A pocket's language read off its text keeps only the prints that exist
+	// in it (js/scan/picture.js pictureMatch heldIn): whether TCGdex lists a
+	// set in Portuguese is asked once and known from then on, with no signal
+	// too (js/catalog.js setHeldIn).
+	test('whether a set exists in Portuguese is asked once and known with no signal', async () => {
+		const app = await open();
+		const {context, page} = app;
+		const held = (sets) => page.evaluate(async (ids) => {
+			const {setHeldIn} = await import('/pokemon-card-tracker/js/catalog.js');
+
+			return Promise.all(ids.map((id) => setHeldIn('pt', id)));
+		}, sets);
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		assert.deepEqual(await held(['base2', 'base4', 'lc']), [true, false, false], 'Jungle is listed in Portuguese; Base Set 2 and Legendary Collection are not');
+
+		// No signal: a request that goes out fails (the replayed TCGdex
+		// answers would still be served).
+		await context.setOffline(true);
+		await context.route(/api\.tcgdex\.net/, (route) => route.abort('internetdisconnected'));
+		assert.deepEqual(await held(['base2', 'base4', 'neo1']), [true, false, null], 'offline: what was asked is known, a set never asked is not');
+		await context.setOffline(false);
 
 		await close(app);
 	});

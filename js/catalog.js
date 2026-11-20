@@ -266,6 +266,24 @@ export const importApi = {
 	setDetail: (lang, setId) => fetchOnce(`set:${lang}:${setId}`, `${lang}/sets/${encodeURIComponent(setId)}`),
 };
 
+// Whether TCGdex lists the set `setId` in `lang`: true, false (it answered
+// 404, now or when last asked, so a phone with no signal still knows from
+// what it has), or null when that is not known (never asked, and no
+// signal). Portuguese, for one, has Base Set to Fossil but not Base Set 2,
+// Team Rocket, or Legendary Collection (2026-11-19), so a Portuguese copy
+// of a Spearow whose artwork those share is the Jungle print
+// (js/scan/picture.js pictureMatch heldIn).
+export async function setHeldIn(lang, setId) {
+	try {
+		return Boolean(await importApi.setDetail(lang, setId));
+	}
+	catch {
+		const missing = await cacheGet(`missing:set:${lang}:${setId}`).catch(() => null);
+
+		return missing ? false : null;
+	}
+}
+
 // Cache-first set detail for the views that only need names and images,
 // such as My Cards filling in names in the viewing language.
 export const setDetailOnce = (lang, setId) => importApi.setDetail(lang, setId);
