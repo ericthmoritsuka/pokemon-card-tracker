@@ -238,9 +238,9 @@
 	display: none;
 }
 
-/* Smaller corners, so the language chip and the count both fit the top of
-   a 52 px card. The language chip shows here although the tile is under
-   88 px: Mini keeps the chips a Grid tile shows (Eric, 2026-11-09). */
+/* Smaller corners on a 52 px card. The language chip shows here although
+   the tile is under 88 px: Mini keeps the chips a Grid tile shows (Eric,
+   2026-11-09), in the bottom-left corner at 18 x 13 px (style.css). */
 .card-grid[data-view="mini"] .badge {
 	font-size: 0.625rem;
 	height: 16px;
@@ -248,12 +248,6 @@
 	padding: 0 2px;
 }
 
-.card-grid[data-view="mini"] .badge-lang,
-.card-grid[data-view="mini"] .badge-finish {
-	left: 2px;
-}
-
-.card-grid[data-view="mini"] .badge-lang,
 .card-grid[data-view="mini"] .badge-qty {
 	top: 2px;
 }
@@ -265,8 +259,7 @@
 }
 
 .card-grid[data-view="mini"] .badge-status,
-.card-grid[data-view="mini"] .badge-fav,
-.card-grid[data-view="mini"] .badge-finish {
+.card-grid[data-view="mini"] .badge-fav {
 	bottom: 2px;
 }
 
@@ -274,12 +267,11 @@
 	width: 16px;
 }
 
-.card-grid[data-view="mini"] .badge-lang .flag {
-	height: 10px;
-	width: 14px;
-}
-
 @container (max-width: 87px) {
+	.card-grid[data-view="mini"] .badge-corner {
+		display: flex;
+	}
+
 	.card-grid[data-view="mini"] .badge-lang {
 		display: inline-flex;
 	}

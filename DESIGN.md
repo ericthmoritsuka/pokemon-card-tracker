@@ -299,8 +299,12 @@ colour, never colour alone.
 **Quantity is a corner badge, not a trailing counter.**
 monprice's `xN` beside the card is easy to miss. Any card image standing for a card owned more
 than once (in that language) carries a badge in its top-right corner (`×3`), in grids, collections, the Trade view, and
-the scan tray. When the viewing language differs from the copy's language, a language chip
-(`PT`) sits in the opposite corner.
+the scan tray. When the viewing language differs from the copy's language, a language flag
+sits in the bottom-left corner, with the finish (`REV`, a ball, `1st`) beside it, over the card's
+illustrator and copyright strip (design review 2, 2026-11-20: in the top-left corner the flag
+covered the card's printed name, on tiles and binder pockets alike). In a binder pocket and the
+Mini view the flag is 18 x 13 px and the finish as tall. A checklist's or goal's "Owned in" flags
+sit in the same corner. The scan tray keeps its own corners (`css/scan.css`).
 
 **Card views: Large, Grid, Mini, and List** *(Eric, 2026-11-09: ways to see his cards in different
 sizes and layouts)*. My Cards has a View select beside Sort and Filters ("View: Grid"), kept on the

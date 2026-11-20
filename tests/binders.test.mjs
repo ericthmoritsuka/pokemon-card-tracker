@@ -1145,6 +1145,17 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.match(await pocket(page, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Bulbasaur, Portuguese/);
 		assert.equal(await pocket(page, 1).locator('.badge-lang').getAttribute('aria-label'), 'Printed in Portuguese');
 
+		// The flag is small and bottom-left in a pocket, over the card's
+		// illustrator strip rather than its name (design review 2, 2026-11-20).
+		const flag = await pocket(page, 1).evaluate((node) => {
+			const art = node.querySelector('.art-wrap').getBoundingClientRect();
+			const box = node.querySelector('.badge-lang').getBoundingClientRect();
+
+			return {bottom: Math.round(art.bottom - box.bottom), height: Math.round(box.height), left: Math.round(box.left - art.left), width: Math.round(box.width)};
+		});
+
+		assert.deepEqual(flag, {bottom: 2, height: 13, left: 2, width: 18});
+
 		// Try to place it twice: it is not offered as unplaced, and picking it
 		// from all cards asks to move it.
 		await pocket(page, 2).click();

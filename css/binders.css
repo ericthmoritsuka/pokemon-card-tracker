@@ -317,11 +317,10 @@
 	padding: 2px 6px;
 }
 
+/* The flag and finish sit small in the bottom-left corner (style.css),
+   clear of the card's printed name (design review 2, 2026-11-20). */
 .pocket .badge {
 	font-size: 0.65rem;
-	left: var(--space-1);
-	padding: 3px 5px;
-	top: var(--space-1);
 }
 
 .pocket .card-back {
