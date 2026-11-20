@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'Prices on your cards drop the "US" mark, as "~" already says it is an estimate; a price you typed from Liga Pokémon carries a small "Liga" tag.',
+			'Lists: Checklists is now Progress, with your checklists and goals under their own headings, and a new list waits behind "+ New list".',
+		],
+		version: 'v87',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Card Tracker opens about twice as fast on a slow phone, and Show more no longer slows down with each tap.',
 			'My Cards: the buttons take less room, the flag sits in the card\'s bottom corner instead of over its name, and Filters starts with set and language.',
 			'Binders fit all nine pockets above the tab bar, Log a trade or sale starts with the cards, and the wishlist shows roughly what each card costs.',
