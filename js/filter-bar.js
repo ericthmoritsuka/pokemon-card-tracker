@@ -900,20 +900,20 @@ export function filterBar({
 			return select('storage', 'Stored in (copies)', 'Anywhere', options.storage);
 		}
 
+		// The label holds the box, so the whole 48 px row is the target, not
+		// a 22 px box and a line of text (accessibility audit, 2026-11-20).
 		if (kind === 'favorite') {
 			const star = h('input', {checked: state.filters.favorite, id: `${id}-f-favorite`, onchange: () => setFilter('favorite', star.checked), type: 'checkbox'});
 
 			return h('div', {class: 'fb-field fb-check', 'data-filter': 'favorite'},
-				star,
-				h('label', {for: star.id}, `Favorites only (${options.favorite.toLocaleString('en-US')})`)
+				h('label', null, star, h('span', null, `Favorites only (${options.favorite.toLocaleString('en-US')})`))
 			);
 		}
 
 		const box = h('input', {checked: state.filters.unplaced, id: `${id}-f-unplaced`, onchange: () => setFilter('unplaced', box.checked), type: 'checkbox'});
 
 		return h('div', {class: 'fb-field fb-check', 'data-filter': 'unplaced'},
-			box,
-			h('label', {for: box.id}, `Not in a binder (${options.unplaced.toLocaleString('en-US')})`)
+			h('label', null, box, h('span', null, `Not in a binder (${options.unplaced.toLocaleString('en-US')})`))
 		);
 	}
 

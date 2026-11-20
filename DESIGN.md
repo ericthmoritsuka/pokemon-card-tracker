@@ -648,6 +648,9 @@ and dark, every theme):
   the order and star buttons, the filter and place chips, the pocket grid picks) were 40 px tall
   and the star 40 px wide; they are 44 x 44 at least. The bar's Sort and View selects stay 40 px
   (design review 2, 2026-11-20), as wide as their words.
+- *A checkbox row is one target.* In the filters sheet (Not in a binder, Favorites only) and the
+  collection pickers the label fills the 48 px row, and in the filters it holds the box, so a tap
+  anywhere on the row ticks it; the targets were the 22 px box and a 24 px line of text.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
