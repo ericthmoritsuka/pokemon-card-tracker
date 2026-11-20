@@ -7,6 +7,11 @@
 	--card-back: #1d2e60;
 	--error-bg: #fde8eb;
 	--error-text: #8a0018;
+	/* A text field's or select's edge: 3:1 on the page, the surface, and
+	   every theme's panel (WCAG 1.4.11; accessibility audit, 2026-11-20:
+	   --border is 1.3:1, fine for a divider, not for a field's only edge).
+	   js/themes.js BASE and textPairs hold it to that. */
+	--field-border: #8a8a94;
 	--link: #306cb3;
 	--muted: #5b5b66;
 	--navy: #1d2e60;
@@ -55,6 +60,7 @@
 		--card-back: #24376f;
 		--error-bg: #3b1219;
 		--error-text: #ffb3c0;
+		--field-border: #7b7b88;
 		--link: #8db4ec;
 		--muted: #a8a8b3;
 		--skeleton: #2a2c33;
@@ -1232,7 +1238,7 @@ select,
 	-webkit-appearance: none;
 	appearance: none;
 	background: var(--surface);
-	border: 1px solid var(--border);
+	border: 1px solid var(--field-border);
 	border-radius: var(--radius-control);
 	color: var(--text);
 	font: inherit;

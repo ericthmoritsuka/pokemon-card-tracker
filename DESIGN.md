@@ -637,6 +637,10 @@ and dark, every theme):
   sure which card. Check it in the tray.", and a look-up waiting for signal "Waiting for signal to
   look the card up." Said once per capture, on the last answer, never per camera frame; a binder
   page's pockets are summed up by the page's line instead. Only a found card was said before.
+- *A field's edge is 3:1.* Text fields, selects, and notes draw their 1 px edge in
+  `--field-border` (#8a8a94 light, #7b7b88 dark: 3.1:1 or more on the page, the surface, and every
+  theme's panel), and the scanner's in `--scan-field-border` (#7b7b88, 3.5:1 on its sheets);
+  `--border` (1.3:1) stays for dividers, frames, and buttons, whose text marks them.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps

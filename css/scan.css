@@ -10,6 +10,9 @@
 	--scan-text: #f2f2f5;
 	--scan-muted: #b9bac4;
 	--scan-border: #4a4d58;
+	/* A field's or select's edge, 3:1 on both surfaces (accessibility
+	   audit, 2026-11-20: --scan-border is 1.7:1 on --scan-surface-2). */
+	--scan-field-border: #7b7b88;
 	--scan-primary: #ffcb05;
 	--scan-on-primary: #14213f;
 	--scan-danger: #ff8fa0;
@@ -1516,7 +1519,7 @@ html.scan-open body {
 
 .scan-select {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	min-height: 48px;
@@ -1594,7 +1597,7 @@ html.scan-open body {
 
 .scan-search-input {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	flex: 1 1 auto;
@@ -1614,7 +1617,7 @@ html.scan-open body {
 
 .scan-hand-input {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	color: var(--scan-text);
 	flex: 1 1 0;
@@ -1753,7 +1756,7 @@ html.scan-open body {
 
 .scan-report-text {
 	background: var(--scan-surface-2);
-	border: 1px solid var(--scan-border);
+	border: 1px solid var(--scan-field-border);
 	border-radius: 12px;
 	box-sizing: border-box;
 	color: var(--scan-text);

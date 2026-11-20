@@ -285,9 +285,10 @@ export const AA = 4.5;
 export const AA_SHAPE = 3;
 
 // The fixed surfaces from style.css's :root, which themes leave alone.
+// field: a text field's or select's edge (style.css --field-border).
 export const BASE = {
-	dark: {bg: '#16181d', border: '#34343c', muted: '#a8a8b3', surface: '#1f2128', text: '#ececf1'},
-	light: {bg: '#f4f4f6', border: '#d9d9e0', muted: '#5b5b66', surface: '#ffffff', text: INK},
+	dark: {bg: '#16181d', border: '#34343c', field: '#7b7b88', muted: '#a8a8b3', surface: '#1f2128', text: '#ececf1'},
+	light: {bg: '#f4f4f6', border: '#d9d9e0', field: '#8a8a94', muted: '#5b5b66', surface: '#ffffff', text: INK},
 };
 
 // The dark-mode header starts from this near-black, with the type mixed in.
@@ -730,6 +731,10 @@ export function textPairs(theme, scheme) {
 		['header focus ring on the motif', headText, worst, AA_SHAPE],
 		['avatar initial', vars['--avatar-text'], vars['--avatar-bg'], AA],
 		['destructive button', vars['--danger-text'], base.surface, AA],
+		// A field's edge, a UI shape, on whatever it sits on (WCAG 1.4.11).
+		['field border on panel', base.field, panel, AA_SHAPE],
+		['field border on page', base.field, base.bg, AA_SHAPE],
+		['field border on surface', base.field, base.surface, AA_SHAPE],
 		['scan ring on the disc', vars['--scan-ring'], vars['--scan'], AA_SHAPE],
 		['scan glyph on the disc', vars['--scan-glyph'], vars['--scan'], AA_SHAPE],
 		// A white disc (Premier Ball) cannot reach 3:1 on the white bar; its

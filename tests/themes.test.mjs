@@ -55,6 +55,27 @@ test('the header\'s controls draw their focus ring in the header\'s text color, 
 	}
 });
 
+test('text fields and selects keep a 3:1 edge: the app\'s on every theme\'s backgrounds, and the scanner\'s on its two surfaces', async () => {
+	const fieldRules = /select,\n\.search \{[^}]*border: 1px solid var\(--field-border\);/;
+
+	assert.match(css, fieldRules, 'select and .search take --field-border');
+
+	for (const scheme of SCHEMES) {
+		assert.ok(textPairs(THEMES[0], scheme).some(([label]) => label === 'field border on panel'));
+	}
+
+	const scan = await readFile(new URL('../css/scan.css', import.meta.url), 'utf8');
+	const token = (name) => new RegExp(`${name}: (#[0-9a-f]{6});`).exec(scan)[1];
+
+	for (const surface of ['--scan-surface', '--scan-surface-2']) {
+		assert.ok(contrast(token('--scan-field-border'), token(surface)) >= AA_SHAPE, `the scanner's field edge on ${surface}`);
+	}
+
+	for (const selector of ['.scan-select', '.scan-search-input', '.scan-hand-input', '.scan-report-text']) {
+		assert.match(scan, new RegExp(`\\n${selector.replace('.', '\\.')} \\{[^}]*border: 1px solid var\\(--scan-field-border\\);`), selector);
+	}
+});
+
 test('the themes are the default and the 11 TCG energy types, by their card names', () => {
 	assert.equal(THEMES[0].id, 'default');
 	assert.deepEqual(ENERGIES.map((theme) => theme.name), ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Dragon', 'Colorless', 'Fairy']);
@@ -248,6 +269,8 @@ test(':root paints the default theme, so no attribute and data-theme="default" l
 
 	assert.equal(root['--bg'], BASE.light.bg);
 	assert.equal(dark['--surface'], BASE.dark.surface);
+	assert.equal(root['--field-border'], BASE.light.field, 'the field border textPairs checks is the one painted');
+	assert.equal(dark['--field-border'], BASE.dark.field);
 });
 
 test('settings survive the merge: the newer side wins, and the change counts as content', () => {
