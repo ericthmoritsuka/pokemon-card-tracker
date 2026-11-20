@@ -2117,6 +2117,78 @@ Verdict for Android: the PWA does everything weekend zero set out to test. Brows
 installed app share one storage on Android. The scanner should ask for more than
 the default resolution when reading collector numbers.
 
+**Speed on a slow phone** *(2026-11-20; `lab/perf/startup-bench.mjs`)*. Eric's phone is slow to open
+the app and to scroll My Cards. The lab script measures what a slow phone feels: headless Chromium
+at 360 × 740 with the CPU slowed six times (CDP `Emulation.setCPUThrottlingRate`), signed in to an
+account of 1,600 copies on 1,200 tiles, three binders (one of 10 pages), four lists, 20 moves, and
+the service worker installed, every outside service faked as in the browser tests. Each run is a
+new browser opening the installed app: the first tile painted, the tabs Cards, Sets, Binders,
+Lists, and Cards again, a card page from My Cards, scrolling My Cards to the bottom (tapping Show
+more), the 10-page binder, and merging another phone's save while My Cards is open. Runs take the
+versions in turn, as the machine was loaded by other work. Medians of five runs each, at a load
+average of 4 to 18 on 16 cores (`lab/perf/startup-bench.mjs --tree base=... --tree final=...`):
+
+| Measure | Before (v84) | After |
+| --- | ---: | ---: |
+| Cold start to the first tile painted | 6.6 s | 3.5 s |
+| Cold start: main thread in long tasks | 4.6 s | 3.2 s |
+| Back to the Cards tab | 1.6 s | 0.8 s |
+| The Lists tab | 1.0 s | 0.4 s |
+| Scrolling My Cards to the bottom (nine Show more taps) | 31.0 s | 13.5 s |
+| Scrolling: main thread in long tasks | 28.5 s | 10.9 s |
+| Another phone's save, read and merged with My Cards open | 3.6 s | 3.0 s |
+| The Sets and Binders tabs, a card page, a 10-page binder | 0.2 to 0.9 s | the same, within noise |
+
+What changed, in the order of what it saved (each step's medians from runs that took it and the
+step before in turn, on a busier machine, so slower than the table):
+
+- **Show more adds the next page** (`js/cards-view.js` `showMore`). Each tap drew every shown tile
+  again, so reaching the bottom of 1,200 tiles drew about 6,500. The tiles drawn stay when they
+  still lead the list, drawn from the same groups; anything else draws the grid as before.
+  Scrolling to the bottom: 72.8 s to 27.5 s.
+- **Saved card records are read once per visit** (`js/catalog.js` `readSaved`). My Cards, Lists,
+  Stats, the Value sheet, and the background price pass each read up to two full TCGdex records per
+  owned card (about 3.7 KB each) every time they opened. The records and their 404 marks are kept
+  for the visit; a write here forgets its key, and a write in another tab does too, through a
+  BroadcastChannel, so a read never returns what IndexedDB no longer holds. A read of many keys
+  lists the keys stored under `card:` and `missing:card:` first and reads only those: each read is
+  a round trip of its own, and most cards have no 404 mark and no record in a second language.
+  Back to the Cards tab: 4.1 s to 2.8 s, and the Lists tab 1.1 s to 0.8 s; listing the keys took
+  the cold start's long tasks from 3.7 s to 3.2 s on a quiet machine.
+- **My Cards reads the first screen's records first** (`load`, `readRest`). The tiles shown first
+  are drawn with their prices and finishes, and every other record is read right after the paint.
+  A tile drawn without its record meanwhile is drawn again with it, and the price sort, the price
+  filter, and the Value sheet wait for every record, so the screen ends as before. First tile:
+  11.2 s to 8.9 s.
+- **Tiles work out each record's printings once, fold each finish word once, and copy flag
+  groups** (`js/prices.js` `extractPrices`, `fold`, `sentence`; `js/flags.js` `flagBadge`). A tile
+  asked for its record's printings three to five times, and nothing changes a saved record in
+  place, so the list is kept per record object. First tile 12.4 s to 11.2 s for the words and
+  flags, and 12.3 s to 11.2 s for the printings.
+- **The merge parses each stamp once and writes sorted JSON in one pass** (`js/stamp.js`
+  `stampMs`, `js/merge.js` `stableJson`), with the same results, checked against the old versions
+  in `tests/merge.test.mjs`. The merge's long tasks: 6.3 s to 5.6 s.
+- **The first screen is drawn once** (`app.js`). The account starts before the first render, so the
+  person saved on the phone is known when My Cards is drawn; it was drawn for no one and at once
+  again for the person, and the stored collection was read and unpacked once for each caller
+  that asked before the first read was in (My Cards twice and the sync among them), now once
+  (`js/collection.js` `loadDocument`). Within the noise of the busy machine (first tile 11.2 s to
+  11.0 s).
+
+Not done, and why:
+
+- **Loading each tab's code only when it opens.** `app.js` imports every view at start (115
+  modules, 2.5 MB before compression), but a trace of the cold start shows compiling them took
+  about 60 ms of the main thread (the service worker's copies are code-cached), and My Cards alone
+  reaches 91 of them and 1.9 MB, through the copy sheet, binders, photos, prices, and the
+  scanner's shared parts.
+- **Laying out only the tiles on screen.** The largest single cost left before the first tile is the
+  layout of the first 120 tiles, about 1.3 s in one slowed trace (each tile's art is a size
+  container, so its badges scale with it). `content-visibility: auto` on the tiles would lay out
+  only those near the screen, but tiles not yet drawn would take a guessed height, so Back from a
+  card page could land on another row; it needs Eric's call.
+- **Drawing the first page of tiles in parts.** The browser tests count the tiles at once.
+
 ## 9. Export
 
 **CSV**, one row per card entry, flat.
