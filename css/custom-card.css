@@ -25,7 +25,7 @@
 }
 
 .custom-note {
-	font-size: 0.85rem;
+	font-size: 0.875rem;
 	margin: var(--space-2) 0;
 }
 
@@ -52,6 +52,6 @@
 .report-hand-done {
 	color: var(--muted);
 	display: block;
-	font-size: 0.8rem;
+	font-size: 0.875rem;
 	font-weight: 600;
 }

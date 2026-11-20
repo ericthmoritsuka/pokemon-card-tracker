@@ -272,7 +272,7 @@ button.step-more {
 
 .card-unreachable .card-unreachable-why {
 	color: var(--muted);
-	font-size: 0.75rem;
+	font-size: 0.875rem;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;

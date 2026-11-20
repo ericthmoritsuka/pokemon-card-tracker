@@ -306,7 +306,7 @@ describe('holder mode retries a blurred capture, and never adds a repeat (versio
 		assert.ok(item.drop.retry.ms >= 1400, `it waited RETRY_MS: ${item.drop.retry.ms} ms`);
 
 		// The tray says to check it, and its sheet says why.
-		await page.waitForSelector(`[data-item="${item.id}"] .scan-status-look, #scan-look-count`);
+		await page.waitForSelector(`.scan-tile.is-look[data-item="${item.id}"], #scan-look-count`);
 		await page.click('#scan-look-count');
 		await page.waitForSelector('#scan-why');
 		assert.match(await page.textContent('#scan-why'), /Blurred picture, and the number did not read\. Tap the right card\./);

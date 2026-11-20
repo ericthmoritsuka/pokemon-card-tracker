@@ -228,7 +228,7 @@ const tiles = (page) => page.$$eval('#scan-tray .scan-tile', (list) => list.map(
 	qty: (tile.querySelector('.scan-qty') || {}).textContent || null,
 	status: tile.dataset.status,
 	have: (tile.querySelector('.scan-tile-have') || {}).textContent || null,
-	wish: (tile.querySelector('.scan-tile-wish') || {}).textContent || null,
+	wanted: Boolean(tile.querySelector('.scan-status-wanted')),
 })));
 
 const SETTLED = new Set(['ready', 'unsure', 'unmatched', 'language', 'waiting']);
@@ -340,7 +340,11 @@ describe('scanner', () => {
 
 		assert.equal(await page.locator('#scan-confirm').count(), 0);
 
-		assert.equal(list[0].qty, '×2', 'owned once plus this one');
+		// Owned once: the Have strip says so, with no ×2 corner beside it
+		// (design review, 2026-11-19: too many marks on one tile).
+		assert.equal(list[0].have, '✓ Have 1');
+		assert.equal(list[0].qty, null, 'the Have strip, not a second count');
+		assert.match(list[0].label, /2 copies in all/);
 		assert.equal(list[0].flag, 'English');
 		await page.screenshot({path: `${SHOTS}/scan-tray-one.png`});
 		await closeApp(app);
@@ -356,7 +360,8 @@ describe('scanner', () => {
 		const bulbasaur = list[0];
 
 		assert.match(bulbasaur.label, /^Bulbasaur, /);
-		await until(async () => (await tiles(page))[0].wish === 'Member A wants this', 20000, 'Member A\'s wishlist mark');
+		// A heart on the tile, and who wants it in its label and sheet.
+		await until(async () => (await tiles(page))[0].wanted && /Member A wants this/.test((await tiles(page))[0].label), 20000, 'Member A\'s wishlist mark');
 
 		await openTile(page, 0);
 		assert.match(await text(page, '#scan-wish-line'), /Member A wants this card\./);

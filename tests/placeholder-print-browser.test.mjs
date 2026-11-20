@@ -242,6 +242,66 @@ describe('Print placeholders', () => {
 		await done();
 	});
 
+	// Design review, 2026-11-19: a binder opened on a full page opened Print
+	// placeholders on that page, with nothing to print and Print off. It
+	// opens on All pages instead when the pages shown have nothing to fill
+	// and another page has, and stays on the page shown when no page has.
+	test('opens on All pages when the page shown has nothing to fill', async () => {
+		const {done, page} = await open();
+		const {full, none} = await page.evaluate(async () => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const owned = (await collection.addCard({card_id: 'tst9-003', catalog: 'international', language: 'en', language_source: 'manual'})).id;
+			// Page 1: the copy owned and a pocket left empty on purpose.
+			// Page 2: two Pokémon placeholders.
+			const fullBinder = await binders.createBinder({cols: 3, name: 'Full first page', page_count: 2, rows: 3});
+
+			await binders.placeCard(fullBinder.id, 1, 1, owned);
+			await binders.leaveEmpty(fullBinder.id, 1, 2);
+			await binders.changeBinders((doc) => binders.layOutWants(doc.binders, {binderId: fullBinder.id, pockets: [
+				{page: 2, position: 1, want: {card_id: null, catalog: null, dex: 25, image: null, name: 'Pikachu', variant_id: null}},
+				{page: 2, position: 2, want: {card_id: null, catalog: null, dex: 6, image: null, name: 'Charizard', variant_id: null}},
+			]}));
+
+			// No placeholder anywhere.
+			const noneBinder = await binders.createBinder({cols: 3, name: 'Nothing to fill', page_count: 2, rows: 3});
+
+			return {full: fullBinder.id, none: noneBinder.id};
+		});
+		const choice = () => page.locator('#pp-view input[name="pp-pages"]:checked').getAttribute('value');
+
+		await page.goto(url(`binders/${full}`));
+		await page.waitForSelector('#binder-spread button.pocket[data-page="1"][data-position="1"]');
+		await page.click('#binder-print');
+		await page.waitForSelector('#pp-view');
+		await waitCards(page, 2);
+		assert.equal(await page.locator('#pp-view .pp-choice label').first().textContent(), 'Page 1', 'the page shown is still offered first');
+		assert.equal(await choice(), 'all', 'All pages is chosen');
+		assert.deepEqual(await counts(page), {cards: 2, sheets: 1, summary: '2 cards on 1 sheet.'});
+		assert.deepEqual(await page.locator('#pp-sheets .pp-card .pp-where').allTextContents(), ['Page 2, pocket 1', 'Page 2, pocket 2']);
+		assert.equal(await page.locator('#pp-print').isEnabled(), true, 'Print is on');
+
+		// The page shown can still be picked, and has nothing to print.
+		await page.check('#pp-view input[name="pp-pages"][value="shown"]');
+		await waitCards(page, 0);
+		assert.equal((await counts(page)).summary, 'No pockets to fill here.');
+		assert.equal(await page.locator('#pp-print').isEnabled(), false);
+		await page.click('#pp-close');
+		await page.waitForSelector('#pp-view', {state: 'detached'});
+
+		// Nothing to fill on any page: it stays on the page shown.
+		await page.goto(url(`binders/${none}`));
+		await page.waitForSelector('#binder-print');
+		await page.click('#binder-print');
+		await page.waitForSelector('#pp-view');
+		assert.equal(await choice(), 'shown');
+		assert.deepEqual(await counts(page), {cards: 0, sheets: 0, summary: 'No pockets to fill here.'});
+		assert.equal(await page.locator('#pp-print').isEnabled(), false);
+		await page.click('#pp-close');
+		await page.waitForSelector('#pp-view', {state: 'detached'});
+		await done();
+	});
+
 	test('on a 360 px phone the preview fits the width, and Close closes it', async () => {
 		const {done, page} = await open(PHONE);
 		const id = await seed(page);

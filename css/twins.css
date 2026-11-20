@@ -66,12 +66,12 @@
 	align-items: center;
 	color: var(--muted);
 	display: flex;
-	font-size: 0.75rem;
+	font-size: 0.875rem;
 	justify-content: center;
 }
 
 .tw-name {
-	font-size: 0.8125rem;
+	font-size: 0.875rem;
 	font-weight: 600;
 	line-height: 1.25;
 	overflow-wrap: anywhere;
@@ -79,7 +79,7 @@
 
 .tw-set {
 	color: var(--muted);
-	font-size: 0.75rem;
+	font-size: 0.875rem;
 	line-height: 1.25;
 	overflow-wrap: anywhere;
 }

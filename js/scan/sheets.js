@@ -220,7 +220,10 @@ export function confirmSheet(ctx, itemId) {
 			type: 'button',
 		},
 		candidateArt(candidate),
-		h('span', {class: 'scan-candidate-set'}, candidate.setCode || candidate.setName || candidate.setId));
+		// The number and the set, one line each, so two printings of one
+		// card read apart (design review, 2026-11-19: each said "151").
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-number'}, `${candidate.localId}${candidate.official ? `/${candidate.official}` : ''}`),
+		h('span', {'aria-hidden': 'true', class: 'scan-candidate-set'}, candidate.setCode || candidate.setName || candidate.setId));
 	}
 
 	// The chosen card, or the top three when the match is not sure (or the

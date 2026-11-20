@@ -90,7 +90,7 @@ button.wl-result {
 
 .wl-meta {
 	color: var(--muted);
-	font-size: 0.8rem;
+	font-size: 0.875rem;
 	overflow-wrap: anywhere;
 }
 
@@ -105,7 +105,7 @@ button.wl-result {
 .wl-priority {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-pill);
-	font-size: 0.75rem;
+	font-size: 0.875rem;
 	font-weight: 600;
 	line-height: 1.2;
 	padding: 3px 8px;
@@ -129,7 +129,7 @@ button.wl-result {
 }
 
 .wl-note {
-	font-size: 0.85rem;
+	font-size: 0.875rem;
 	margin: 2px 0 0;
 	overflow-wrap: anywhere;
 	white-space: pre-wrap;
