@@ -22,6 +22,13 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'A new set\'s Pokémon count in your Pokédex lists once TCGdex gives their numbers: a 30th Celebration Mew saved before then was missing from Kanto.',
+		],
+		version: 'v90',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Sets: a set\'s ring and its page count only your cards in the language you are viewing, so your English and Portuguese sets fill up separately.',
 			'Switch Owned: to Any language to count a card whatever language your copy is in; each phone remembers the choice.',
 		],
