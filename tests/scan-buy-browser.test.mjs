@@ -319,7 +319,9 @@ describe('Buy', () => {
 		await page.fill('#move-who', 'Shop');
 		await page.click('#move-save');
 		await page.waitForSelector('.moves-row');
-		assert.match(await page.locator('.toast-text').first().textContent(), /^Saved: 3 cards in\./);
+		// The purchase's own toast: the first install's "opens offline" note
+		// can be on screen beside it.
+		await page.locator('.toast-text', {hasText: /^Saved: 3 cards in\./}).first().waitFor({timeout: 10000});
 
 		const saved = await liveCards(page);
 
