@@ -16,6 +16,7 @@
 
 import {h} from './dom.js';
 import {openDialogSheet} from './sheet.js';
+import {toast} from './shell.js';
 
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
@@ -713,27 +714,107 @@ export async function appVersions() {
 
 // ------------------------------------------------------------- Reload
 
+// How long Reload waits for the new version to finish taking over before it
+// gives up and leaves the page as it is.
+export const ACTIVATE_MS = 10 * 1000;
+
 let applying = false;
 
-// True once Reload was tapped: the controller change that follows is this
-// page moving to the new version, so it reloads rather than offering Reload
-// again (app.js registerServiceWorker).
+// True while Reload hands over to the new version: the controller change on
+// the way is this page's own, so app.js neither offers Reload again nor
+// marks the page stale (app.js registerServiceWorker).
 export const updateApplying = () => applying;
 
-// Reload: the waiting worker takes over, and the page loads its files. The
-// same as the update toast's Reload in app.js, and what the switch at a
-// quiet moment runs (js/auto-update.js), so What's new shows after either.
-export function applyUpdate(worker) {
-	if (!worker) {
+// Resolves true once `worker` is activated, false when it is redundant or
+// still not activated after `ms`.
+export function untilActivated(worker, ms = ACTIVATE_MS) {
+	return new Promise((resolve) => {
+		if (worker.state === 'activated' || worker.state === 'redundant') {
+			resolve(worker.state === 'activated');
+
+			return;
+		}
+
+		let timer = 0;
+
+		const changed = () => {
+			if (worker.state === 'activated' || worker.state === 'redundant') {
+				done(worker.state === 'activated');
+			}
+		};
+
+		function done(activated) {
+			clearTimeout(timer);
+			worker.removeEventListener('statechange', changed);
+			resolve(activated);
+		}
+
+		timer = setTimeout(() => done(false), ms);
+		worker.addEventListener('statechange', changed);
+	});
+}
+
+// The update toast again, unless one is showing.
+function offerReloadAgain(worker) {
+	if ([...document.querySelectorAll('.toast button.small')].some((button) => button.textContent.trim() === 'Reload')) {
 		return;
 	}
 
-	if (!applying) {
-		applying = true;
-		navigator.serviceWorker.addEventListener('controllerchange', () => window.location.reload(), {once: true});
+	toast('A new version is installed.', {
+		action: () => (worker.state === 'redundant' ? window.location.reload() : applyUpdate(worker)),
+		actionLabel: 'Reload',
+		timeout: 0,
+	});
+}
+
+// Reload: the waiting worker takes over, and the page loads its files. The
+// same as the update toast's Reload in app.js, and what the switch by itself
+// runs (js/auto-update.js), so What's new shows after either.
+//
+// The page reloads only once the new worker is activated, never on the
+// controller change, which comes when it starts activating: the reload's
+// request would wait on a worker still activating, where QA suspects a page
+// can freeze (2026-11-20, unproven). When the worker is not activated within ACTIVATE_MS
+// (the old worker still busy, or an activate step that hangs), nothing
+// reloads, Reload is offered again, and the page carries on as it was.
+// stillWanted is asked once the worker is activated, and false stops the
+// reload the same way (js/auto-update.js: the person started using the page
+// during the wait). beforeReload runs just before the reload
+// (js/auto-update.js keeps a few things for the next load). Resolves true
+// when the page is reloading.
+export async function applyUpdate(worker, {beforeReload = null, stillWanted = () => true} = {}) {
+	if (!worker || applying) {
+		return false;
 	}
 
-	worker.postMessage('skip-waiting');
+	applying = true;
+
+	try {
+		worker.postMessage('skip-waiting');
+	}
+	catch {
+		// A redundant worker: untilActivated says so.
+	}
+
+	if (!(await untilActivated(worker)) || !stillWanted()) {
+		applying = false;
+		offerReloadAgain(worker);
+
+		return false;
+	}
+
+	if (beforeReload) {
+		try {
+			beforeReload();
+		}
+		catch {
+			// Nothing kept; the reload still runs.
+		}
+	}
+
+	window.location.reload();
+
+	return true;
 }
 
 // -------------------------------------------------------------- sheet

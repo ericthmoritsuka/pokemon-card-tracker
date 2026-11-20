@@ -7,8 +7,12 @@
 // family route (family/<id>, family/<id>/binders, family/<id>/lists,
 // wishlist/<id>), stays on while the person browses Sets or opens a card, and
 // ends with Done, the "Mine" switcher, the avatar (Profile), or Scan, which
-// always saves to you. It lives in memory only, never in storage, so a cold
-// start always opens your own cards.
+// always saves to you. It lives in memory, so a cold start always opens your
+// own cards. The one exception is the reload that switches to a new version
+// (js/auto-update.js), which must not drop the lens and show your own cards
+// as if they were the member's: keepLensForSwitch puts it in sessionStorage
+// just before that reload, and the next load takes it back once, within
+// KEPT_MS.
 //
 // The switcher and its "Whose cards" sheet show each person's favorite
 // Pokémon (DESIGN.md section 11, "Favorite Pokémon"): yours from your
@@ -42,7 +46,30 @@ const LENS_TABS = {binders: 'binders', cards: 'cards', lists: 'lists'};
 // Screens that show the "Mine" switcher.
 const SWITCHER_TABS = new Set(['binders', 'cards', 'lists']);
 
-let lens = null;
+// The lens kept for the reload that switches versions, and how long the
+// next load may take it back.
+export const LENS_KEPT_KEY = 'cardTracker.switchLens';
+const KEPT_MS = 60 * 1000;
+
+// The lens the switch kept, once, or null.
+function keptLens() {
+	try {
+		const kept = JSON.parse(sessionStorage.getItem(LENS_KEPT_KEY));
+
+		sessionStorage.removeItem(LENS_KEPT_KEY);
+
+		if (kept && typeof kept.userId === 'string' && kept.userId && Math.abs(Date.now() - kept.at) < KEPT_MS) {
+			return {name: typeof kept.name === 'string' ? kept.name : null, userId: kept.userId};
+		}
+	}
+	catch {
+		// No sessionStorage, or nothing readable kept.
+	}
+
+	return null;
+}
+
+let lens = keptLens();
 let members = [];
 let current = {kind: null, params: {}, route: null};
 // Favorite Pokémon: yours, and the members' by user_id.
@@ -84,6 +111,20 @@ export function toast(message, {action = null, actionLabel = null, timeout = 500
 // ------------------------------------------------------------ the lens
 
 export const lensMember = () => lens;
+
+// Just before the reload that switches versions (js/auto-update.js).
+export function keepLensForSwitch() {
+	if (!lens) {
+		return;
+	}
+
+	try {
+		sessionStorage.setItem(LENS_KEPT_KEY, JSON.stringify({at: Date.now(), name: lens.name, userId: lens.userId}));
+	}
+	catch {
+		// Without sessionStorage there is no automatic switch either.
+	}
+}
 
 const kindOf = (kind) => (KINDS[kind] ? kind : null);
 

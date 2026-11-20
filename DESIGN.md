@@ -2357,32 +2357,62 @@ Facts this rests on, checked 2026-10-01 against published sources:
 - Anything holding a secret (a vision-model API key) cannot live on GitHub Pages. It goes in a
   Supabase Edge Function.
 
-**Updates: a waiting version takes over by itself at a quiet moment** *(Eric, 2026-11-20)*. A new
-`sw.js` installs in the background and waits, so an open page never runs one version's modules
-next to another's. Until v91 only Reload (the update toast, or Profile's "vN ready") or closing
-every tab moved a page on, and Eric's computer ran v87 for hours while v90 waited, so his devices
-showed different data. Now the page switches itself (`js/auto-update.js`: the same skip-waiting
-and reload as Reload, so What's new still shows once), and Reload stays as the fallback. The rule:
+**Updates: a waiting version takes over by itself when the app comes back after a while away**
+*(Eric, 2026-11-20)*. A new `sw.js` installs in the background and waits, so an open page never
+runs one version's modules next to another's. Until v91 only Reload (the update toast, or
+Profile's "vN ready") or closing every tab moved a page on, and Eric's computer ran v87 for hours
+while v90 waited, so his devices showed different data. Now the page switches itself
+(`js/auto-update.js`: the same skip-waiting and reload as Reload, so What's new still shows once),
+and Reload stays as the fallback. The rule:
 
-- **When:** the page coming back into view (`visibilitychange` to visible, a `pageshow` from the
-  back-forward cache), a move to another screen, or the app opening with a version already
-  waiting. Never while the person keeps looking at the same screen: after the moment, a 600 ms
-  settle, abandoned on any tap or key.
-- **Only when nothing can be lost:** online; no import or Start over save running (they hold it,
-  as they hold the page closing); the account started, so never during sign-in or a `?code=`
+- **When:** only when the app comes back into view (`visibilitychange` to visible, a `pageshow`
+  from the back-forward cache) after being hidden at least 5 minutes (`AWAY_MS`), or opens cold
+  at least that long after a page of the app was last hidden or closed (`cardTracker.hiddenAt` in
+  `localStorage`; no record counts as long enough). The switch then waits for nothing to be
+  touched: a tap, key, or wheel scroll since the return cancels it until the next return. A
+  version that finishes installing after such a return, before anything is touched, takes over
+  then. **Never on a screen change**, and never while the person keeps using the page.
+- **Why away, and why 5 minutes:** v91 to v94 also switched on a screen change and kept a list of
+  what to wait for, and two QA passes (2026-11-20) kept finding work held only in memory that the
+  list missed: a card in hand for Add to binder (dropped by the switch the move to the binder set
+  off), Edit binder's Grid and Size set by buttons, My Cards' Select ticks, a family member's
+  view-only lens. A blocker list cannot keep up with the app. Coming back after minutes away is
+  when nothing in memory is being relied on: the person has put the task down, and on a phone the
+  system may already have closed the page. Five minutes is longer than a glance at a message, a
+  call answered, or a look through a box for a card, and short enough that a device used every
+  day takes a new version within the day.
+- **What survives the reload:** everything saved (every edit is in IndexedDB first, and so is the
+  scanner's tray, whose last save the switch waits for), the screen (the address), and two things
+  kept in `sessionStorage` for the next load only, within a minute: a family member's view-only
+  lens (`js/shell.js`) and a card in hand on a binder (`js/binder-hand.js`, with its history
+  entry). A reload by hand still ends both, as before. **Accepted as lost** after 5 minutes away:
+  My Cards' Select ticks, and a choice made by a button in a form but not saved.
+- **Only when quiet, as well:** online; no import or Start over save running (they hold it, as
+  they hold the page closing); the account started, so never during sign-in or a `?code=`
   return; not on Scan (camera, captures, reads), the camera and storage tests, Phone check,
   Import, Sign in, Log a trade or sale, New binder, or New goal; no sheet open (copy sheet, binder
-  and list edits, trade and purchase forms, What's new); no text typed on the screen since it was
-  drawn and no text field in focus; no push to Supabase under way. The scanner's tray and every
-  edit are already in IndexedDB, so they survive the reload: leaving Scan with cards in the tray
-  is safe once the tray's last save lands, which the switch waits for.
+  and list edits, trade and purchase forms, What's new); nothing typed or chosen in a form on the
+  screen since it was drawn and no text field in focus; no toast offering Undo; no push to
+  Supabase under way. After the moment, a 600 ms settle, abandoned on any tap or key.
 - **Fully cached first:** a worker is only waiting once its install cached every shell file
   (`cache.addAll` fails the whole install on one missing file).
+- **Reload once activated:** the page reloads only when the new worker reaches `activated`, not on
+  the controller change, which comes as it starts activating: every request from the page,
+  the reload's included, waits for activation, and QA suspects a page can freeze there with many
+  images in flight (unproven). The wait lasts at most 10 seconds (`ACTIVATE_MS`, `js/whats-new.js`); without
+  activation nothing reloads, the update toast's Reload stays offered, and the page carries on as
+  it was; a tap or a sheet opened during the wait stops the reload the same way. The wait and its
+  limit hold for Reload tapped by hand too. `sw.js`'s activate step awaits nothing that
+  waits on a fetch: `clients.claim()` first, and the old shell caches' deletion gets 3 seconds,
+  then finishes on its own (the next version deletes any it left).
 - **Never in a loop:** each automatic switch is stamped in `sessionStorage`, and none follows
   within 10 minutes; without `sessionStorage` there is no automatic switch.
-- **Other tabs:** a tab whose worker another tab replaced reloads at its own next quiet moment.
+- **Other tabs:** a tab whose worker another tab replaced, or whose switch gave up after the new
+  worker began activating, reloads at its own next return after 5 minutes away, once that worker
+  is activated.
 - **Noticing:** the page asks for an update (`registration.update()`) when it comes back into view
-  or changes screen, at most once a minute, so a tab open for hours finds a new version.
+  or changes screen, at most once a minute, so a tab open for hours finds a new version and offers
+  Reload.
 
 **Phone test results** (the weekend-zero spike, live at
 `https://ericthmoritsuka.github.io/pokemon-card-tracker/`):

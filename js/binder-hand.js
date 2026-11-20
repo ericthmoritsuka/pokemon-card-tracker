@@ -11,7 +11,11 @@
 // The hand travels with the binder's history entry (history.state
 // handToken), so a page zoomed and closed again keeps it, and Back off the
 // binder leaves it behind. It lives for the page load only: a reload opens
-// the binder without it.
+// the binder without it. The one exception is the reload that switches to a
+// new version (js/auto-update.js): keepHandsForSwitch puts the hands in
+// sessionStorage just before it, and the next load takes them back once,
+// within KEPT_MS, so the binder opens with the card still in hand (the
+// history entry, and its handToken, survive a reload).
 
 import {isLive, loadDocument} from './collection.js';
 import {binderStats, handBinders, placements, sortBinders, stagedOf} from './binders.js';
@@ -20,10 +24,49 @@ import {BASE, errorText, go, h, rememberInHistory} from './dom.js';
 import {formatCount} from './format.js';
 import {openDialogSheet} from './sheet.js';
 
+// The hands kept for the reload that switches versions, and how long the
+// next load may take them back.
+export const HANDS_KEPT_KEY = 'cardTracker.switchHands';
+const KEPT_MS = 60 * 1000;
+
+// The hands the switch kept, once: {hands: [[token, hand]], seq}.
+function keptHands() {
+	try {
+		const kept = JSON.parse(sessionStorage.getItem(HANDS_KEPT_KEY));
+
+		sessionStorage.removeItem(HANDS_KEPT_KEY);
+
+		if (kept && Array.isArray(kept.hands) && Number.isInteger(kept.seq) && Math.abs(Date.now() - kept.at) < KEPT_MS) {
+			return kept;
+		}
+	}
+	catch {
+		// No sessionStorage, or nothing readable kept.
+	}
+
+	return {hands: [], seq: 0};
+}
+
+const kept = keptHands();
+
 // token -> {binderId, cardId, catalog}
-const hands = new Map();
+const hands = new Map(kept.hands);
 let pending = null;
-let seq = 0;
+let seq = kept.seq;
+
+// Just before the reload that switches versions (js/auto-update.js).
+export function keepHandsForSwitch() {
+	if (!hands.size) {
+		return;
+	}
+
+	try {
+		sessionStorage.setItem(HANDS_KEPT_KEY, JSON.stringify({at: Date.now(), hands: [...hands], seq}));
+	}
+	catch {
+		// Without sessionStorage there is no automatic switch either.
+	}
+}
 
 const catalogOf = (entry) => entry.catalog || 'international';
 

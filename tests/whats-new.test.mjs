@@ -1,8 +1,9 @@
 // Browser tests for What's new (js/whats-new.js): the version line that ends
 // Profile, the sheet of releases, "vN ready" with Reload while a newer
 // worker waits, and the sheet shown once after Reload brings a new version.
-// Also the switch to a waiting version by itself at a quiet moment
-// (js/auto-update.js), and the moments it waits out.
+// Also the switch to a waiting version by itself when the app comes back
+// after a while away (js/auto-update.js), the moments it waits out, what it
+// keeps across the reload, and the wait for the new worker to be activated.
 // Headless Chromium at 360 x 740 against tests/pages-server.mjs. Supabase is
 // faked (tests/fake-supabase.mjs); TCGdex answers empty.
 //
@@ -87,12 +88,23 @@ async function integrate(version) {
 	return {app, sw};
 }
 
+// The start of sw.js's activate step, where activateMs puts its wait.
+const ACTIVATE_STEP = 'self.addEventListener(\'activate\', (event) => {\n\tevent.waitUntil(\n\t\t(async () => {\n';
+
 // Serves app.js and sw.js as the integrator ships them, for `version`.
-async function serve(version, {answers = true} = {}) {
+// activateMs: the worker's activate step takes that long, as one held up
+// would.
+async function serve(version, {activateMs = 0, answers = true} = {}) {
 	const {app, sw} = await integrate(version);
-	const worker = answers ? sw : sw.replace(/\n\t\/\/ The version, for Profile's line[^\n]*\n[^\n]*\n[^\n]*\n\t}\n/, '\n');
+	let worker = answers ? sw : sw.replace(/\n\t\/\/ The version, for Profile's line[^\n]*\n[^\n]*\n[^\n]*\n\t}\n/, '\n');
 
 	assert.ok(answers || !worker.includes('type === \'version\''), 'the old worker does not answer');
+
+	if (activateMs) {
+		assert.ok(worker.includes(ACTIVATE_STEP), 'sw.js has its activate step');
+		worker = worker.replace(ACTIVATE_STEP, `${ACTIVATE_STEP}\t\t\tawait new Promise((resolve) => setTimeout(resolve, ${activateMs}));\n`);
+	}
+
 	server.setOverride((pathname) => (pathname === `${BASE}app.js` ? app : pathname === `${BASE}sw.js` ? worker : null));
 }
 
@@ -121,10 +133,37 @@ const updateUntilWaiting = (page, version) => untilInPage(page, `the ${version} 
 // Headless Chromium is always visible, so the switch tests stand in for
 // document.visibilityState: window.__visibility holds it, and setVisible()
 // changes it and fires visibilitychange, as switching tabs or apps does.
-function standInVisibility() {
+// They stand in for time passing too: Date.now runs ahead by what
+// sessionStorage holds, so a reload keeps the clock where it was. And each
+// reload records, as it starts, the state of the worker controlling the
+// page.
+function standIns() {
 	window.__visibility = 'visible';
 	Object.defineProperty(Document.prototype, 'visibilityState', {configurable: true, get: () => window.__visibility});
 	Object.defineProperty(Document.prototype, 'hidden', {configurable: true, get: () => window.__visibility === 'hidden'});
+
+	const now = Date.now;
+	let ahead = 0;
+
+	try {
+		ahead = Number(sessionStorage.getItem('__clockAhead')) || 0;
+	}
+	catch {
+		// about:blank
+	}
+
+	Date.now = () => now.call(Date) + ahead;
+	window.__clockAhead = () => ahead;
+	window.__setClockAhead = (ms) => {
+		ahead = ms;
+		sessionStorage.setItem('__clockAhead', String(ms));
+	};
+	window.addEventListener('beforeunload', () => {
+		const controller = navigator.serviceWorker && navigator.serviceWorker.controller;
+
+		window.__leaving = true;
+		sessionStorage.setItem('__unloadState', controller ? controller.state : 'none');
+	});
 }
 
 const setVisible = (page, visible) => page.evaluate((state) => {
@@ -132,12 +171,25 @@ const setVisible = (page, visible) => page.evaluate((state) => {
 	document.dispatchEvent(new Event('visibilitychange'));
 }, visible ? 'visible' : 'hidden');
 
-// Away and back, as reopening the app or the browser tab does.
-async function awayAndBack(page) {
+// js/auto-update.js AWAY_MS is five minutes: a minute under it, a minute
+// over it.
+const SHORT_AWAY = 4 * 60 * 1000;
+const LONG_AWAY = 6 * 60 * 1000;
+
+// Away for `ms` and back, as reopening the app or the browser tab does.
+async function awayAndBack(page, ms) {
 	await setVisible(page, false);
+	await page.evaluate((add) => window.__setClockAhead(window.__clockAhead() + add), ms);
 	await page.waitForTimeout(200);
 	await setVisible(page, true);
 }
+
+// A tap as the person makes it, pointerdown first, on an element the update
+// toast may cover at this size.
+const tap = (page, selector) => page.locator(selector).first().evaluate((node) => {
+	node.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));
+	node.click();
+});
 
 // Marks this load, so a test can tell whether the page reloaded since.
 const markLoad = (page) => page.evaluate(() => {
@@ -145,6 +197,9 @@ const markLoad = (page) => page.evaluate(() => {
 });
 
 const sameLoad = (page) => page.evaluate(() => window.__sameLoad === true);
+
+// The state of the worker in control as the last reload started.
+const unloadState = (page) => page.evaluate(() => sessionStorage.getItem('__unloadState'));
 
 // v30 installed and in control of the page, its version recorded, so a
 // later version shows its What's new.
@@ -341,30 +396,62 @@ describe('with the service worker', () => {
 });
 
 describe('switching to a waiting version by itself', () => {
-	test('a version that waits while the app is open takes over when the page comes back into view', async () => {
+	// Each test: v30 in control, v31 waiting, the stand-ins above, and the
+	// page marked so a reload shows.
+	async function waiting(path = 'cards', {activateMs = 0, context, page} = {}) {
+		await onV30(page, path);
+
+		if (path !== 'cards') {
+			await page.goto(url(path));
+			await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+		}
+
+		await serve('v31', {activateMs});
+		await updateUntilWaiting(page, 'v31');
+		await page.getByRole('button', {name: 'Reload'}).first().waitFor({timeout: 15000});
+		await markLoad(page);
+
+		return {context, page};
+	}
+
+	async function switched(page) {
+		await page.waitForFunction(() => document.getElementById('whats-new-sheet-title')?.textContent === 'What\'s new in v31', null, {timeout: 30000});
+		assert.equal(await sameLoad(page), false, 'the page reloaded');
+		assert.equal(await runningVersion(page), 'v31');
+		assert.equal(await unloadState(page), 'activated', 'the reload waited for the new worker to be activated');
+	}
+
+	async function noSwitch(page, why) {
+		await page.waitForTimeout(2500);
+		assert.ok(await sameLoad(page), why);
+	}
+
+	test('nothing moves in view or after a short time away; a long time away switches, and the page works after', async () => {
 		const {context, errors, page} = await device({serviceWorkers: 'allow'});
 
-		await context.addInitScript(standInVisibility);
+		await context.addInitScript(standIns);
 
 		try {
-			await onV30(page);
-			await serve('v31');
-			await updateUntilWaiting(page, 'v31');
-
-			// The toast's Reload is still offered, and nothing moves while the
-			// person is looking at the page.
-			await page.getByRole('button', {name: 'Reload'}).first().waitFor({timeout: 15000});
-			await markLoad(page);
+			await waiting('cards', {context, page});
 			await page.waitForTimeout(1500);
 			assert.ok(await sameLoad(page), 'no switch while the page stays in view');
 
-			await awayAndBack(page);
-			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
-			assert.equal(await sameLoad(page), false, 'the page reloaded');
-			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
-			assert.equal(await runningVersion(page), 'v31');
+			await awayAndBack(page, SHORT_AWAY);
+			await noSwitch(page, 'no switch after a short time away');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
 			assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
 			assert.ok(await page.evaluate(() => Number(sessionStorage.getItem('cardTracker.autoUpdateAt')) > 0), 'the switch is stamped against a loop');
+
+			// The page works: What's new closes, and the tabs and Profile
+			// open, on v31.
+			await page.click('#whats-new-sheet-close');
+			await sheetEntryGone(page);
+			await page.click('.tabs a[data-tab="sets"]');
+			await page.waitForFunction(() => location.pathname.endsWith('/sets') && document.title.startsWith('Sets'), null, {timeout: 15000});
+			await page.click('#account');
+			await page.waitForFunction(() => /Card Tracker v31/.test(document.getElementById('profile-version')?.textContent || ''), null, {timeout: 15000});
 			assert.deepEqual(errors, []);
 		}
 		finally {
@@ -373,10 +460,71 @@ describe('switching to a waiting version by itself', () => {
 		}
 	});
 
-	test('Scan with a card in the tray waits; leaving Scan switches, and the tray is kept', async () => {
+	test('a version found on coming back after a long time away takes over once installed, before anything is touched', async () => {
 		const {context, errors, page} = await device({serviceWorkers: 'allow'});
 
-		await context.addInitScript(standInVisibility);
+		await context.addInitScript(standIns);
+
+		try {
+			await onV30(page);
+			await markLoad(page);
+			await serve('v31');
+
+			// Back after a long time: the page asks for the update itself.
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('a screen change never switches: not with a sheet just closed, not after a short time away', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
+
+		try {
+			await waiting('profile', {context, page});
+
+			// Every release's What's new, open as a sheet over Profile: a long
+			// time away waits it out.
+			await tap(page, '#profile-whats-new');
+			await page.waitForSelector('#whats-new-sheet[open]');
+			await awayAndBack(page, LONG_AWAY);
+			await noSwitch(page, 'no switch while a sheet is open');
+			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new');
+
+			// Closed, then from screen to screen: never.
+			await tap(page, '#whats-new-sheet-close');
+			await sheetEntryGone(page);
+
+			for (const tab of ['cards', 'sets', 'lists', 'cards']) {
+				await tap(page, `.tabs a[data-tab="${tab}"]`);
+				await page.waitForFunction((name) => location.pathname.endsWith(`/${name}`), tab, {timeout: 15000});
+				await page.waitForTimeout(1000);
+				assert.ok(await sameLoad(page), `no switch on moving to ${tab}`);
+			}
+
+			await awayAndBack(page, SHORT_AWAY);
+			await noSwitch(page, 'no switch after a short time away');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('Scan with a card in the tray waits, leaving Scan does not switch, and the tray is kept', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
 
 		try {
 			await onV30(page);
@@ -399,7 +547,7 @@ describe('switching to a waiting version by itself', () => {
 				});
 				await draft.saveSession(session);
 			});
-			await page.click('.tabs a[data-tab="scan"]');
+			await tap(page, '.tabs a[data-tab="scan"]');
 			await page.waitForFunction(() => document.getElementById('scan-dot')?.textContent === '1', null, {timeout: 15000});
 			assert.equal(new URL(page.url()).pathname, `${BASE}scan`);
 
@@ -407,18 +555,19 @@ describe('switching to a waiting version by itself', () => {
 			await updateUntilWaiting(page, 'v31');
 			await markLoad(page);
 
-			// Away and back on Scan: no switch.
-			await awayAndBack(page);
-			await page.waitForTimeout(2500);
-			assert.ok(await sameLoad(page), 'no switch while Scan is open');
+			// A long time away, back on Scan: no switch.
+			await awayAndBack(page, LONG_AWAY);
+			await noSwitch(page, 'no switch while Scan is open');
 			assert.equal(await page.locator('#whats-new-sheet').count(), 0);
 
-			// Leaving Scan (its Close goes back to My Cards) is the moment.
-			await page.click('#scan-close');
-			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
-			assert.equal(await sameLoad(page), false, 'the page reloaded');
-			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new in v31');
-			assert.equal(await runningVersion(page), 'v31');
+			// Leaving Scan (its Close goes back to My Cards) is no moment
+			// either.
+			await tap(page, '#scan-close');
+			await page.waitForFunction(() => location.pathname.endsWith('/cards'), null, {timeout: 15000});
+			await noSwitch(page, 'no switch on leaving Scan');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
 			assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
 
 			const tray = await page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession()).items.map((item) => item.id));
@@ -432,71 +581,26 @@ describe('switching to a waiting version by itself', () => {
 		}
 	});
 
-	test('an open sheet waits; once it closes, coming back into view switches', async () => {
-		const {context, errors, page} = await device({serviceWorkers: 'allow'});
-
-		await context.addInitScript(standInVisibility);
-
-		try {
-			await onV30(page, 'profile');
-			await page.goto(url('profile'));
-			await page.waitForFunction(() => /Card Tracker v30/.test(document.getElementById('profile-version')?.textContent || ''), null, {timeout: 15000});
-			await serve('v31');
-			await updateUntilWaiting(page, 'v31');
-			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
-
-			// Every release's What's new, open as a sheet over Profile. The
-			// update toast covers the link at this size.
-			await page.locator('#profile-whats-new').evaluate((button) => button.click());
-			await page.waitForSelector('#whats-new-sheet[open]');
-			await markLoad(page);
-			await awayAndBack(page);
-			await page.waitForTimeout(2500);
-			assert.ok(await sameLoad(page), 'no switch while a sheet is open');
-			assert.equal(await page.locator('#whats-new-sheet-title').textContent(), 'What\'s new');
-
-			await page.click('#whats-new-sheet-close');
-			await sheetEntryGone(page);
-			await awayAndBack(page);
-			await page.waitForFunction(() => document.getElementById('whats-new-sheet-title')?.textContent === 'What\'s new in v31', null, {timeout: 30000});
-			assert.equal(await sameLoad(page), false, 'the page reloaded');
-			assert.equal(await runningVersion(page), 'v31');
-			assert.deepEqual(errors, []);
-		}
-		finally {
-			server.setOverride(null);
-			await context.close();
-		}
-	});
-
-	test('a choice made in a form, and a toast offering Undo, each wait', async () => {
+	test('a choice made in a form, and a toast offering Undo, each wait, and leaving the screen does not switch', async () => {
 		// 2026-11-20: an Edit binder form with a new colour and grid, nothing
 		// typed, was thrown away by the switch (an inline form, not a sheet).
 		const {context, errors, page} = await device({serviceWorkers: 'allow'});
 
-		await context.addInitScript(standInVisibility);
+		await context.addInitScript(standIns);
 
 		try {
-			await onV30(page, 'profile');
-			await page.goto(url('profile'));
-			await page.waitForFunction(() => /Card Tracker v30/.test(document.getElementById('profile-version')?.textContent || ''), null, {timeout: 15000});
-			await serve('v31');
-			await updateUntilWaiting(page, 'v31');
-			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
+			await waiting('profile', {context, page});
 
 			// A toast offering Undo waits.
-			await markLoad(page);
 			await page.evaluate(async () => {
 				(await import('/pokemon-card-tracker/js/shell.js')).toast('Removed a copy.', {action: () => {}, actionLabel: 'Undo', timeout: 60000});
 			});
 			await page.waitForFunction(() => [...document.querySelectorAll('.toast button.small')].some((button) => button.textContent === 'Undo'), null, {timeout: 15000});
-			assert.ok(await sameLoad(page), 'still the same page when the toast shows');
-			await awayAndBack(page);
-			await page.waitForTimeout(2500);
-			assert.ok(await sameLoad(page), 'no switch while Undo is offered');
+			await awayAndBack(page, LONG_AWAY);
+			await noSwitch(page, 'no switch while Undo is offered');
 			await page.evaluate(() => document.querySelectorAll('.toast').forEach((item) => item.remove()));
 
-			// A select changed by a tap, as Edit binder's grid is, waits too.
+			// A select changed by a tap, as Edit binder's colour is, waits too.
 			await page.evaluate(() => {
 				const select = document.createElement('select');
 
@@ -506,14 +610,216 @@ describe('switching to a waiting version by itself', () => {
 				select.value = '4';
 				select.dispatchEvent(new Event('change', {bubbles: true}));
 			});
-			await awayAndBack(page);
-			await page.waitForTimeout(2500);
-			assert.ok(await sameLoad(page), 'no switch after a choice in a form');
+			await awayAndBack(page, LONG_AWAY);
+			await noSwitch(page, 'no switch after a choice in a form');
 
-			// Leaving the screen is a quiet moment again: it switches.
-			await page.locator('.tabs a[data-tab="cards"]').evaluate((link) => link.click());
-			await page.waitForFunction(() => document.getElementById('whats-new-sheet-title')?.textContent === 'What\'s new in v31', null, {timeout: 30000});
+			// Leaving the screen is no moment.
+			await tap(page, '.tabs a[data-tab="cards"]');
+			await page.waitForFunction(() => location.pathname.endsWith('/cards'), null, {timeout: 15000});
+			await noSwitch(page, 'no switch on leaving the screen');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('a card in hand on a binder comes through the switch', async () => {
+		// 2026-11-20: Add to binder's card in hand was dropped by the switch
+		// the move to the binder itself set off.
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+		const record = JSON.parse(await readFile(new URL('./prices-fixtures/en-sv08.5-001.json', import.meta.url), 'utf8'));
+
+		await context.route('https://api.tcgdex.net/**', (route) => (new URL(route.request().url()).pathname === `/v2/en/cards/${record.id}`
+			? route.fulfill({body: JSON.stringify(record), contentType: 'application/json', status: 200})
+			: route.fulfill({body: '{}', contentType: 'application/json', status: 404})));
+		await context.addInitScript(standIns);
+
+		try {
+			await onV30(page);
+
+			const binderId = await page.evaluate(async (cardId) => {
+				const collection = await import('/pokemon-card-tracker/js/collection.js');
+				const binders = await import('/pokemon-card-tracker/js/binders.js');
+
+				await collection.addCard({card_id: cardId, catalog: 'international', language: 'en', language_source: 'manual'});
+
+				return (await binders.createBinder({cols: 3, cover_color: '#1d2e60', name: 'Vitrine', page_count: 2, rows: 3})).id;
+			}, record.id);
+
+			await waiting(`cards/en/${record.id}`, {context, page});
+			await page.waitForSelector('#copies-binder');
+
+			// Add to binder, Vitrine: the card is in hand on the binder.
+			await tap(page, '#copies-binder');
+			await page.waitForSelector('#add-binder-sheet[open]');
+			await tap(page, '#add-binder-list .atb-binder');
+			await page.waitForSelector('#binder-hand:not([hidden])');
+			await page.waitForFunction(() => document.getElementById('bh-name')?.textContent === 'Exeggcute', null, {timeout: 15000});
+			await page.waitForTimeout(1000);
+			assert.ok(await sameLoad(page), 'no switch on moving to the binder');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
+			assert.equal(new URL(page.url()).pathname, `${BASE}binders/${binderId}`);
+			await page.click('#whats-new-sheet-close');
+			await sheetEntryGone(page);
+			await page.waitForSelector('#binder-hand:not([hidden])', {timeout: 15000});
+			await page.waitForFunction(() => document.getElementById('bh-name')?.textContent === 'Exeggcute', null, {timeout: 15000});
+			assert.equal(await page.locator('#bh-status').textContent(), 'Tap an empty pocket');
+
+			// Kept for that one load: a reload by hand opens the binder
+			// without it, as before.
+			await page.reload();
+			await page.waitForSelector('#binder-spread');
+			await page.waitForTimeout(1000);
+			assert.ok(await page.locator('#binder-hand').isHidden(), 'a later reload opens the binder without it');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('a family member\'s view-only lens comes through the switch', async () => {
+		// 2026-11-20: a member's lens on Sets fell back to the person's own
+		// cards after the switch.
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
+
+		try {
+			await waiting('cards', {context, page});
+			await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('family/member-1'));
+			await page.waitForSelector('#family-strip');
+			await tap(page, '.tabs a[data-tab="sets"]');
+			await page.waitForFunction(() => location.pathname.endsWith('/sets') && /collection, view only/.test(document.getElementById('family-strip')?.textContent || ''), null, {timeout: 15000});
+			await page.waitForTimeout(1000);
+			assert.ok(await sameLoad(page), 'no switch on moving to Sets');
+
+			await awayAndBack(page, LONG_AWAY);
+			await switched(page);
+			assert.equal(new URL(page.url()).pathname, `${BASE}sets`);
+			assert.match(await page.locator('#family-strip').textContent(), /collection, view only/);
+			assert.equal(await page.evaluate(async () => (await import('/pokemon-card-tracker/js/shell.js')).lensMember()?.userId), 'member-1');
+
+			// Kept for that one load: a reload by hand shows your own, as
+			// before.
+			await page.reload();
+			await page.waitForFunction(() => document.title.startsWith('Sets'), null, {timeout: 15000});
+			await page.waitForTimeout(1000);
+			assert.equal(await page.locator('#family-strip').count(), 0, 'a later reload ends the lens');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+});
+
+describe('the wait for the new version to be activated', () => {
+	// Until the v31 worker is activating, or the page has asked for a reload
+	// (which the test then reports).
+	const untilActivatingOrLeaving = (page) => untilInPage(page, 'the v31 worker to be activating', async () => window.__leaving === true || (await navigator.serviceWorker.getRegistration()).active?.state === 'activating', {interval: 100, timeout: 15000});
+
+	test('the reload waits until the new worker is activated', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
+
+		try {
+			await onV30(page);
+			await serve('v31', {activateMs: 3000});
+			await updateUntilWaiting(page, 'v31');
+			await markLoad(page);
+			await awayAndBack(page, LONG_AWAY);
+
+			// Activating: the page is still the same load.
+			await untilActivatingOrLeaving(page);
+			assert.ok(await sameLoad(page), 'no reload while the worker activates');
+			assert.equal(await page.evaluate(() => window.__leaving === true), false, 'no reload asked for while the worker activates');
+
+			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
 			assert.equal(await sameLoad(page), false, 'the page reloaded');
+			assert.equal(await unloadState(page), 'activated');
+			assert.equal(await runningVersion(page), 'v31');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('a tap while the new worker activates stops the reload, and Reload stays offered', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
+
+		try {
+			await onV30(page);
+			await serve('v31', {activateMs: 3000});
+			await updateUntilWaiting(page, 'v31');
+			await markLoad(page);
+			await awayAndBack(page, LONG_AWAY);
+			await untilActivatingOrLeaving(page);
+			assert.equal(await page.evaluate(() => window.__leaving === true), false, 'no reload asked for while the worker activates');
+
+			// The person starts using the page before activation ends.
+			await tap(page, '.tabs a[data-tab="lists"]');
+			await untilInPage(page, 'the v31 worker to be activated', async () => (await navigator.serviceWorker.getRegistration()).active?.state === 'activated', {interval: 250, timeout: 30000});
+			await page.waitForTimeout(1500);
+			assert.ok(await sameLoad(page), 'no reload once the person used the page');
+			assert.equal(await page.evaluate(() => window.__leaving === true), false);
+			assert.equal(new URL(page.url()).pathname, `${BASE}lists`);
+			await page.getByRole('button', {name: 'Reload'}).first().waitFor({timeout: 5000});
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
+
+	test('a worker not activated in time leaves the page as it is, working, with Reload offered', async () => {
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standIns);
+
+		try {
+			await onV30(page);
+			// Longer than js/whats-new.js ACTIVATE_MS, ten seconds.
+			await serve('v31', {activateMs: 20000});
+			await updateUntilWaiting(page, 'v31');
+			await markLoad(page);
+			await awayAndBack(page, LONG_AWAY);
+			await untilActivatingOrLeaving(page);
+
+			// Past the ten seconds: no reload asked for, and Reload offered.
+			await page.waitForTimeout(12000);
+			assert.ok(await sameLoad(page), 'the same page');
+			assert.equal(await page.evaluate(() => window.__leaving === true), false, 'no reload asked for');
+			await page.getByRole('button', {name: 'Reload'}).first().waitFor({timeout: 5000});
+
+			// Still in use: a tab opens.
+			await tap(page, '.tabs a[data-tab="lists"]');
+			await page.waitForFunction(() => location.pathname.endsWith('/lists') && document.title.startsWith('Lists'), null, {timeout: 15000});
+
+			// Activated later: nothing reloads by itself.
+			await untilInPage(page, 'the v31 worker to be activated', async () => (await navigator.serviceWorker.getRegistration()).active?.state === 'activated', {interval: 250, timeout: 30000});
+			await page.waitForTimeout(1500);
+			assert.ok(await sameLoad(page), 'no reload when the worker activates late');
+			assert.equal(await page.evaluate(() => window.__leaving === true), false);
+
+			// Reload, tapped, loads v31.
+			await page.getByRole('button', {name: 'Reload'}).first().click();
+			await page.waitForSelector('#whats-new-sheet[open]', {timeout: 30000});
 			assert.equal(await runningVersion(page), 'v31');
 			assert.deepEqual(errors, []);
 		}

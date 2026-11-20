@@ -1,19 +1,33 @@
-// A new version takes over by itself at a quiet moment (Eric, 2026-11-20).
-// A computer ran v87 for hours while v90 sat installed and waiting, because
-// only the update toast's Reload, Profile's Reload, or closing every tab
-// moved it, and his devices showed different data meanwhile. Now the page
-// moves itself to a waiting version (skipWaiting, then a reload, exactly as
-// Reload does: js/whats-new.js applyUpdate), and Reload stays as it was for
-// the moments this declines.
+// A new version takes over by itself (Eric, 2026-11-20). A computer ran v87
+// for hours while v90 sat installed and waiting, because only the update
+// toast's Reload, Profile's Reload, or closing every tab moved it, and his
+// devices showed different data meanwhile. Now the page moves itself to a
+// waiting version (skipWaiting, then a reload once the new worker is
+// activated, exactly as Reload does: js/whats-new.js applyUpdate), and
+// Reload stays as it was for the moments this declines.
 //
-// When: the page coming back into view (visibilitychange to visible, or a
-// pageshow from the back-forward cache), a move to another screen (app.js
-// render calls screenDrawn), and the app opening with a version already
-// waiting. Never while the person is looking at the same screen: the switch
-// waits for one of those moments, then a short settle, and gives up if the
-// person taps or types during it.
+// When: only when the app comes back after being away at least AWAY_MS
+// (hidden: another app, another tab, the screen off), or opens cold after
+// that long, and nothing has been touched since. Never on a screen change,
+// and never while the person is using the page. v91 to v94 also switched on
+// a screen change and kept a list of what to wait for, and two QA passes
+// (2026-11-20) kept finding work held only in memory that the list missed:
+// a card in hand for Add to binder, Edit binder's Grid and Size set by
+// buttons, My Cards' Select ticks, a family member's view-only lens. Coming
+// back after minutes away is when nothing in memory is being relied on: the
+// person has put the task down, and on a phone the system may already have
+// closed the page. Five minutes is longer than a glance at a message, a
+// call answered, or a look through a box of cards, and short enough that a
+// device used every day takes a new version within the day.
 //
-// Quiet means a reload cannot lose anything (quietBlocker below):
+// What survives the reload: everything saved (every edit is in IndexedDB
+// first, js/collection.js; the scanner's tray too, js/scan/draft.js), the
+// screen (the address), a family member's lens (js/shell.js) and a card in
+// hand on a binder (js/binder-hand.js), which are kept in sessionStorage for
+// the next load. Accepted as lost after AWAY_MS away: My Cards' Select
+// ticks, and a choice made by a button in a form but not saved.
+//
+// And quiet, as before (quietBlocker below):
 //   - online, since the reload reads every module again;
 //   - no long save running (holdUpdate: an import or Start over, which also
 //     ask the browser before the page closes, js/import-view.js);
@@ -22,36 +36,42 @@
 //     no ?code= is on the address;
 //   - not on a screen whose work lives in the page (BUSY_SCREENS): Scan, with
 //     its camera, captures and reads; the camera and storage tests and Phone
-//     check; Import; Sign in; Log a trade or sale; New binder; New goal. The
-//     scanner's tray is saved to IndexedDB as it changes (js/scan/draft.js),
-//     so leaving Scan is safe once that save lands (draftSaved);
+//     check; Import; Sign in; Log a trade or sale; New binder; New goal;
 //   - no sheet open: the copy sheet, binder and list edits, trade and
 //     purchase forms, Start over's confirmation, What's new itself;
-//   - no text typed on this screen since it was drawn, and no text field in
-//     focus;
-//   - no push to the server under way (sync phase "saving"). The changes it
-//     carries are already in IndexedDB (js/collection.js saves every edit
-//     there first), so they would survive, but the page is not idle.
+//   - nothing typed or chosen in a form on this screen since it was drawn,
+//     and no text field in focus;
+//   - no toast offering Undo;
+//   - no push to the server under way (sync phase "saving").
+// After the moment, a short settle, abandoned on any tap or key.
 //
 // The new shell is fully cached before any of this: a worker only reaches
 // "installed" (waiting) when its install step's cache.addAll of every shell
-// file succeeded (sw.js), and one failed file fails the whole install.
+// file succeeded (sw.js), and one failed file fails the whole install. The
+// reload waits for the new worker to be activated, at most ACTIVATE_MS, and
+// without it nothing reloads and Reload stays offered (js/whats-new.js); a
+// tap, or anything quietBlocker names, during that wait stops it too.
 //
 // Never in a loop: each automatic switch is stamped in sessionStorage, and
 // none follows within GUARD_MS of the last. Without sessionStorage there is
 // no guard, so there is no automatic switch either.
 //
 // Another tab that takes the new version moves this page's controller too
-// (app.js controllerchange): the page then runs old modules under the new
-// worker, so it reloads at its next quiet moment as well (markStale).
+// (app.js controllerchange), as does a switch that gave up waiting after
+// the worker had started activating: the page then runs old modules under
+// the new worker, so it reloads at its next moment as well (stale), once
+// that worker is activated.
 //
 // The page also asks for an update when it comes back into view or changes
 // screen, at most once a minute, so a tab left open for hours notices a new
-// version without a full navigation.
+// version without a full navigation. A version that finishes installing
+// while nothing has been touched since a long time away takes over then.
 
+import {keepHandsForSwitch} from './binder-hand.js';
 import {BASE} from './dom.js';
 import {draftSaved} from './scan/draft.js';
 import {openSheetCount} from './sheet.js';
+import {keepLensForSwitch} from './shell.js';
 import {syncStatus} from './sync.js';
 import {applyUpdate} from './whats-new.js';
 
@@ -61,14 +81,24 @@ export const BUSY_SCREENS = /^(scan|camera|storage|check|import|signin|trades\/n
 export const GUARD_KEY = 'cardTracker.autoUpdateAt';
 const GUARD_MS = 10 * 60 * 1000;
 
-// The wait after a quiet moment starts, so a save the screen change began
-// (the Scan tray's last save) lands, and a tap that follows stops it.
+// How long the app must have been out of view before a switch.
+export const AWAY_MS = 5 * 60 * 1000;
+
+// When a page of the app was last hidden or closed, for telling how long a
+// cold start was away. Any tab's: a cold start has nothing in memory to lose.
+export const HIDDEN_KEY = 'cardTracker.hiddenAt';
+
+// The wait after the moment starts, so a save under way (the Scan tray's
+// last save) lands, and a tap that follows stops it.
 const SETTLE_MS = 600;
 
 // The least time between two update checks.
 const CHECK_GAP_MS = 60 * 1000;
 
 const TEXT_INPUT = /^(date|datetime-local|email|month|number|password|search|tel|text|time|url|week)$/;
+
+// The worker that controlled this page when it loaded.
+const loadController = typeof navigator !== 'undefined' && navigator.serviceWorker ? navigator.serviceWorker.controller : null;
 
 let registration = null;
 let accountReady = false;
@@ -79,6 +109,10 @@ let typed = false;
 let lastInput = 0;
 let lastCheck = 0;
 let switching = false;
+// When the page was hidden (0 while in view), and when it last came back,
+// or opened, after AWAY_MS away (0: not since it loaded).
+let hiddenAt = 0;
+let returnedAt = 0;
 
 // Holds the automatic switch while a long save runs; call what it returns
 // when the save ends.
@@ -180,10 +214,34 @@ const waitingWorker = () => {
 	return worker && worker.state === 'installed' ? worker : null;
 };
 
-// Switches to the waiting version, or reloads a stale page, when the page is
-// quiet; otherwise does nothing, and the next moment tries again.
+// A clock set back reads as not away.
+const awayLongEnough = (since) => since > 0 && Date.now() - since >= AWAY_MS;
+
+// Nothing tapped or typed since the page came back, or opened, after
+// AWAY_MS away.
+const untouchedSinceAway = () => returnedAt > 0 && lastInput < returnedAt;
+
+// The page runs old modules under a newer worker than the one it loaded
+// with: another tab's Reload, or a switch that gave up while the new worker
+// was activating.
+const isStale = () => {
+	const controller = navigator.serviceWorker.controller;
+
+	return stale || Boolean(loadController && controller && controller !== loadController);
+};
+
+// Just before the reload: what the next load takes back.
+function keepForNextLoad() {
+	keepLensForSwitch();
+	keepHandsForSwitch();
+}
+
+// Switches to the waiting version, or reloads a stale page, when the page
+// came back after AWAY_MS away, nothing was touched since, and it is quiet;
+// otherwise does nothing, and the next moment tries again. Resolves true when
+// the page is reloading.
 export async function switchWhenQuiet() {
-	if (switching || !registration || !navigator.serviceWorker.controller || (!stale && !waitingWorker())) {
+	if (switching || !registration || !navigator.serviceWorker.controller || !untouchedSinceAway() || (!isStale() && !waitingWorker())) {
 		return false;
 	}
 
@@ -194,33 +252,33 @@ export async function switchWhenQuiet() {
 	switching = true;
 
 	try {
-		const since = Date.now();
-
 		await Promise.all([
 			draftSaved().catch(() => {}),
 			new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
 		]);
 
-		if (lastInput > since || quietBlocker() || !guardFree()) {
+		if (!untouchedSinceAway() || quietBlocker() || !guardFree()) {
 			return false;
 		}
 
 		const worker = waitingWorker();
 
-		if (!worker && !stale) {
-			return false;
-		}
-
-		if (!stampGuard()) {
-			return false;
-		}
-
 		if (worker) {
-			applyUpdate(worker);
+			// The wait for activation can take seconds: a tap or a sheet
+			// opened meanwhile stops the reload.
+			return stampGuard() && await applyUpdate(worker, {beforeReload: keepForNextLoad, stillWanted: () => untouchedSinceAway() && !quietBlocker()});
 		}
-		else {
-			window.location.reload();
+
+		// Stale: the newer worker already controls the page. A reload while
+		// it is still activating would wait on it, so only once activated.
+		const controller = navigator.serviceWorker.controller;
+
+		if (!isStale() || !controller || controller.state !== 'activated' || !stampGuard()) {
+			return false;
 		}
+
+		keepForNextLoad();
+		window.location.reload();
 
 		return true;
 	}
@@ -240,19 +298,66 @@ function checkForUpdate() {
 }
 
 // A screen was drawn (app.js render): whatever was typed went with the old
-// one, and moving between screens is a moment to switch.
+// one. Never a moment to switch: a screen change is the person at work.
 export function screenDrawn() {
 	typed = false;
 
 	if (started) {
 		checkForUpdate();
-		switchWhenQuiet();
 	}
 }
 
 // Another tab moved this page's controller to a new version.
 export function markStale() {
 	stale = true;
+}
+
+function wentAway() {
+	if (!hiddenAt) {
+		hiddenAt = Date.now();
+	}
+
+	try {
+		localStorage.setItem(HIDDEN_KEY, String(hiddenAt));
+	}
+	catch {
+		// A cold start then counts as away long enough, as with no record.
+	}
+}
+
+function cameBack() {
+	if (awayLongEnough(hiddenAt)) {
+		returnedAt = Date.now();
+	}
+
+	hiddenAt = 0;
+	checkForUpdate();
+	switchWhenQuiet();
+}
+
+// Taps, keys, and wheel scrolls, from the first moment, so a cold start
+// counts what the person did before the worker was registered.
+if (typeof document !== 'undefined') {
+	const touched = () => {
+		lastInput = Date.now();
+	};
+
+	document.addEventListener('pointerdown', touched, {capture: true, passive: true});
+	document.addEventListener('keydown', touched, {capture: true});
+	document.addEventListener('wheel', touched, {capture: true, passive: true});
+
+	// A cold start after AWAY_MS away, or with no record of the last time
+	// the app was hidden, is a return.
+	try {
+		const at = Number(localStorage.getItem(HIDDEN_KEY));
+
+		if (!at || awayLongEnough(at)) {
+			returnedAt = Date.now();
+		}
+	}
+	catch {
+		returnedAt = Date.now();
+	}
 }
 
 // Starts watching, once the worker is registered. `account` settles when the
@@ -266,12 +371,6 @@ export function startAutoUpdate(found, account) {
 	registration = found;
 	lastCheck = Date.now();
 
-	document.addEventListener('pointerdown', () => {
-		lastInput = Date.now();
-	}, {capture: true, passive: true});
-	document.addEventListener('keydown', () => {
-		lastInput = Date.now();
-	}, {capture: true});
 	const changed = (event) => {
 		if (isFormControl(event.target)) {
 			typed = true;
@@ -283,15 +382,29 @@ export function startAutoUpdate(found, account) {
 
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState === 'visible') {
-			checkForUpdate();
-			switchWhenQuiet();
+			cameBack();
+		}
+		else {
+			wentAway();
 		}
 	});
+	window.addEventListener('pagehide', wentAway);
 	window.addEventListener('pageshow', (event) => {
 		if (event.persisted) {
-			checkForUpdate();
-			switchWhenQuiet();
+			cameBack();
 		}
+	});
+
+	// A version that finishes installing after the return, before anything
+	// was touched.
+	registration.addEventListener('updatefound', () => {
+		const worker = registration.installing;
+
+		worker?.addEventListener('statechange', () => {
+			if (worker.state === 'installed') {
+				switchWhenQuiet();
+			}
+		});
 	});
 
 	Promise.resolve(account).catch(() => {}).finally(() => {
