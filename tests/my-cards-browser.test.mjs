@@ -798,7 +798,7 @@ describe('layout', () => {
 
 				assert.deepEqual(layout.tools.map(([id]) => id), ['cards-value', 'cards-stats-link', 'cards-trade', 'cards-moves', 'cards-add-hand'], 'the tools, in order');
 				assert.ok(layout.tools.every(([, top]) => top === toolsTop), `the tools on one line (${JSON.stringify(layout.tools)})`);
-				assert.ok(layout.tools.every(([, , tall]) => tall >= 40), 'each tool 40 px tall or more');
+				assert.ok(layout.tools.every(([, , tall]) => tall >= 44), 'each tool a whole touch target, 44 px tall or more');
 				assert.ok(['auto', 'fits'].includes(layout.toolsScroll), `the tools scroll sideways rather than wrap (${layout.toolsScroll})`);
 				assert.equal(layout.filters, layout.search, 'Filters beside the search');
 				assert.equal(layout.select, layout.search, 'Select beside the search');

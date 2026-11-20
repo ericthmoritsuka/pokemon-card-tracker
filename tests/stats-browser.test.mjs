@@ -132,7 +132,18 @@ async function noSideways(page, where) {
 
 // Every element of the screen inside the 360 px viewport.
 async function fitsWidth(page, where) {
+	// A line that scrolls sideways on purpose (My Cards' tools) is checked
+	// as a whole: what it holds may run past the edge.
 	const over = await page.evaluate((width) => [...document.querySelectorAll('#view *')]
+		.filter((el) => {
+			for (let up = el.parentElement; up; up = up.parentElement) {
+				if (['auto', 'scroll'].includes(getComputedStyle(up).overflowX)) {
+					return false;
+				}
+			}
+
+			return true;
+		})
 		.filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > width + 0.5)
 		.map((el) => `${el.tagName.toLowerCase()}.${el.className}`), VIEWPORT.width);
 

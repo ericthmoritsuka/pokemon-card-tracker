@@ -329,13 +329,15 @@ second copy of each image to the phone's cache.
 455 px down, under seven lines of heading, buttons, and counts; design review 2, 2026-11-20: the
 controls still took 39% of the screen, the first card 300 px down, 420 px while searching, and
 held sideways 51 px of cards showed)*. Nothing was taken away; the same controls sit on three
-lines and a count, and the first card starts at 250 px (282 px while searching):
+lines and a count, and the first card starts at 254 px (294 px while searching, where the count
+line wraps to two with its text buttons):
 
 - **The heading** keeps only the title. On a phone "My Cards" is for a screen reader only: the
   Cards tab names the screen, held sideways too. From 600 px wide and 500 px tall it shows. A family member's cards keep their title
   ("Eric's cards") with Spares and Wishlist beside it, as before.
 - **The bar:** the search with **Filters** and **Select** beside it; **Sort** and **View**, 40 px
-  tall; then **Value**, **Stats**, **Spares**, **Trades**, and **Add by hand** on one line that
+  tall; then **Value**, **Stats**, **Spares**, **Trades**, and **Add by hand**, 44 px tall (whole
+  touch targets, as Stats was beside Value), on one line that
   scrolls sideways rather than wrap, running to the screen's edges so the button cut at the edge
   says there is more. The first two lines wrap before a control's text would be cut, as at large
   text.
@@ -349,9 +351,11 @@ lines and a count, and the first card starts at 250 px (282 px while searching):
 - **From 600 px**, as a phone held sideways, the search line and Sort and View share a line, and
   so do the tools and the count. Held sideways (no more than 500 px tall), the app's header
   scrolls away with the page instead of staying at the top, as on a binder.
-- **Why not 200 px:** the review asked for the first card at 200 px or less; the three lines are
-  48, 40, and 40 px under the 72 px of header and margin, so the gaps and the count line put it
-  at 250 px. Getting to 200 would take a control under 40 px or dropping the count.
+- **Why not 200 px:** the review asked for the first card at 200 px or less (260 px while
+  searching); the three lines are 48, 40, and 44 px under the 72 px of header and margin, so the
+  gaps and the count line put it at 254 px. Getting to 200 would take controls under the touch
+  target or dropping the count line. Held sideways the first card is at 178 px (244 before), and
+  once the header scrolls away the whole height under the bar is cards.
 
 **Bulk select on My Cards** *(Eric, 2026-11-18: change many cards at once instead of opening
 each one)*. A **Select** button sits beside Filters in the bar (it ended the summary line until

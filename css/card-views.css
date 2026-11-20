@@ -7,7 +7,7 @@
    took 39% of the screen and the first card started 300 px down). Three
    lines: the search with Filters and Select (js/filter-bar.js .fb-top);
    Sort and View, 40 px tall; then Value, Stats, Spares, Trades, and Add by
-   hand on one line that scrolls sideways rather than wrap, with the count
+   hand, 44 px tall, on one line that scrolls sideways rather than wrap, with the count
    as one muted line under it. Each control keeps its text whole: the first
    two lines wrap before they would cut it, as at large text. */
 .fb-lines {
@@ -73,7 +73,8 @@
 
 .cards-tools > * {
 	flex: none;
-	min-height: 40px;
+	/* A whole touch target: 44 px, as Stats was beside Value. */
+	min-height: 44px;
 	padding: 6px 12px;
 	white-space: nowrap;
 	width: auto;
@@ -153,9 +154,20 @@
 
 	.fb-lines > .cards-tools {
 		flex: 0 1 auto;
+		gap: 6px;
 		margin: -4px 0;
 		max-width: 100%;
 		padding: 4px 0;
+	}
+
+	.fb-lines > .cards-tools > * {
+		padding-left: 10px;
+		padding-right: 10px;
+	}
+
+	/* The count whole on one line beside the tools, or under them. */
+	.fb-lines .cards-count {
+		white-space: nowrap;
 	}
 
 	.fb-lines > .cards-summary-line {
