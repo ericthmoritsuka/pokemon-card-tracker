@@ -3167,7 +3167,12 @@ foot:
   one language. The row shows once every pocket is read, and what a tap did takes its label's
   place.
 - **Already mine**: offered once every pocket is read, so no card is matched while it is still
-  being read. The page's cards leave the tray, so Done can never add them as new copies, and
+  being read: its picture and number, and then its language off its attack text and stage label
+  and its print matched again in that language, which run behind the read (`view.js`
+  `pageSettling`; a review, 2026-11-20: offered before those, it took the pockets out of the tray
+  and they found nothing to act on). Until then the line over the grid says "Still reading their
+  languages, so Already mine waits." Each pocket's language step counts for at most a minute
+  (`LABEL_SETTLE_MS`), so a reader that never answers cannot hold Already mine back. The page's cards leave the tray, so Done can never add them as new copies, and
   come back if he turns to New to my cards. Neither mode can be picked while a page is found or
   read: the page read last is still the one before it then (a review, 2026-11-20: New to my cards,
   tapped while a second page was found, put the first page's cards, Already mine, back in the tray

@@ -396,6 +396,14 @@ export function scanView(root) {
 	// {step, done, of}, of null while the page is found; null when no page
 	// is being read.
 	let pageReading = null;
+	// The language steps still to run on a binder page's pockets, which run
+	// behind its read (checkLabelLater: the attack text and stage label, then
+	// narrowLater): pocket id -> {run, timer}. Already mine waits for them,
+	// since it takes the pockets out of the tray, where those steps would
+	// find nothing to act on (a review, 2026-11-20). Each counts for at most
+	// LABEL_SETTLE_MS, so a reader that never answers cannot hold it back.
+	const settling = new Map();
+	const LABEL_SETTLE_MS = 60000;
 	let where = new Map();
 	let spareIds = new Set();
 	let outResults = new Map();
@@ -667,6 +675,10 @@ export function scanView(root) {
 		},
 		get pageReading() {
 			return pageReading;
+		},
+		// Pockets of the page whose language is still being read (pageSettling).
+		get pageSettling() {
+			return pageSettling();
 		},
 		applyPageLanguage,
 		onPage: (id) => {
@@ -1893,8 +1905,9 @@ export function scanView(root) {
 		const run = session && session.pageRun;
 
 		// While a page is found or read, the run may still be the page before
-		// it, and the one being read is not known yet.
-		if (!run || Boolean(run.mine) === mine || pageBusy) {
+		// it, and the one being read is not known yet; and its pockets'
+		// languages are read before they leave the tray (pageSettling).
+		if (!run || Boolean(run.mine) === mine || pageBusy || (mine && pageSettling())) {
 			return;
 		}
 
@@ -2007,6 +2020,39 @@ export function scanView(root) {
 
 		setNote(text);
 		announce(text);
+	}
+
+	function startSettling(id, run) {
+		endSettling(id, {quiet: true});
+		settling.set(id, {run, timer: setTimeout(() => endSettling(id), LABEL_SETTLE_MS)});
+
+		// A step that starts once the page is read: Already mine waits again.
+		if (alive && pageReading === null && pageSheetOpen()) {
+			sheet.refresh();
+		}
+	}
+
+	function endSettling(id, {quiet = false} = {}) {
+		const one = settling.get(id);
+
+		if (!one) {
+			return;
+		}
+
+		clearTimeout(one.timer);
+		settling.delete(id);
+
+		// The last of the page's steps: Already mine is offered now.
+		if (!quiet && alive && !pageSettling() && pageSheetOpen()) {
+			sheet.refresh();
+		}
+	}
+
+	// How many of the page's pockets still have a language step to run.
+	function pageSettling() {
+		const run = session && session.pageRun;
+
+		return run ? [...settling.values()].filter((one) => one.run === run.id).length : 0;
 	}
 
 	// A page "Already mine" not placed yet: its cards are held on the page
@@ -3748,7 +3794,12 @@ export function scanView(root) {
 
 		const pageCardId = item.page && item.card ? item.card.id : null;
 
-		setTimeout(async () => {
+		// A binder page's pocket: Already mine waits for this (pageSettling).
+		if (item.pageRun) {
+			startSettling(id, item.pageRun);
+		}
+
+		const steps = async () => {
 			// A binder pocket's stage label first (read.js readStage): the only
 			// thing on a pocket that tells English from Portuguese.
 			// A binder pocket's language from its own text (a review of the
@@ -3829,6 +3880,10 @@ export function scanView(root) {
 					localiseLater(id);
 				}
 			}
+		};
+
+		setTimeout(() => {
+			steps().finally(() => endSettling(id));
 		}, 300);
 	}
 

@@ -366,6 +366,8 @@ describe('a binder page from one photo', () => {
 		assert.equal(cells.length, 9, 'nine pockets');
 		assert.deepEqual(cells.map((cell, i) => (cell.startsWith('empty:') ? cell : pageOf.get(cell) === i + 1 ? 'in its pocket' : `pocket ${pageOf.get(cell)} in cell ${i + 1}`)),
 			LAYOUT.map((key) => (key ? 'in its pocket' : 'empty:Empty')));
+		// Once the pockets' languages are read behind the read.
+		await until(async () => /Tap a card/.test(await text(page, '#scan-pagegrid-line')), 120000, 'the languages read');
 		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-page-grid.png`});
@@ -441,6 +443,7 @@ describe('a binder page from one photo', () => {
 		await choose(page, pagePhoto);
 		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
 		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
 		await page.click('#scan-page-mine');
 		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
 
@@ -518,6 +521,44 @@ describe('a binder page from one photo', () => {
 		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
 		assert.deepEqual((await pocketsOf(seeded)).old, [[1, 1, 'other'], [1, 5, 'b1']], 'Undo put Binder A back');
 		assert.deepEqual(app.errors, []);
+		await close(app);
+	});
+
+	// A review, 2026-11-20: Already mine was offered as soon as the pockets'
+	// pictures were read, while their attack text and stage labels were still
+	// read behind them; tapped then, it took the pockets out of the tray and
+	// those reads (their language, and the print matched again in it) found
+	// nothing to act on. DESIGN.md promises no card is matched while it is
+	// still being read.
+	test('Already mine waits until the pockets\' languages are read, and the line says so', async () => {
+		const app = await open();
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+
+		// The moment the read ends, looked at in the very frame.
+		const atEnd = await (await page.waitForFunction(() => {
+			if (!/^Page read/.test(document.getElementById('scan-note')?.textContent || '')) {
+				return false;
+			}
+
+			const mine = document.querySelector('#scan-page-mine');
+			const line = document.querySelector('#scan-pagegrid-line');
+
+			return {disabled: mine ? mine.disabled : null, line: line ? line.textContent : null};
+		}, null, {polling: 'raf', timeout: 300000})).jsonValue();
+
+		assert.equal(atEnd.disabled, true, `Already mine waits as the read ends (${JSON.stringify(atEnd)})`);
+		assert.match(atEnd.line, /^7 cards(, \d to check)?\. Still reading their languages, so Already mine waits\.$/);
+
+		// Then it is offered, and the line says what to do.
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
+
+		await page.click('#scan-page-mine');
+		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
 		await close(app);
 	});
 

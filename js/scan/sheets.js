@@ -1204,7 +1204,7 @@ export function pageSheet(ctx) {
 			disabled: reading,
 			id: 'scan-page-mine',
 			onclick: () => ctx.setPageMine(true),
-			title: reading ? 'Once every pocket is read' : null,
+			title: reading ? 'Once every pocket and its language is read' : null,
 			type: 'button',
 		}, 'Already mine'));
 
@@ -1302,12 +1302,15 @@ export function pageSheet(ctx) {
 				run.empty.includes(pocket) ? 'Empty' : '');
 		});
 		const scoped = !reading && items.length && ctx.pagePreview ? ctx.pagePreview(picked || 'pt') : null;
+		// Pockets whose language is still read off the card, behind the read
+		// (view.js pageSettling): Already mine waits for them, and says so.
+		const settling = !reading && items.length ? ctx.pageSettling || 0 : 0;
 
 		body.replaceChildren(...[
 			reading
 				? statusLine(reading)
 				: h('p', {class: 'scan-muted', id: 'scan-pagegrid-line'}, items.length
-					? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. Tap a card to check it or change it.`
+					? `${plural(items.length, 'card')}${look ? `, ${look} to check` : ''}. ${settling ? 'Still reading their languages, so Already mine waits.' : 'Tap a card to check it or change it.'}`
 					: 'Every card of this page was taken out of the tray.'),
 			...grids,
 			scoped ? h('p', {class: 'scan-muted', id: 'scan-pagegrid-kept'}, scoped.kept
@@ -1319,7 +1322,7 @@ export function pageSheet(ctx) {
 		// The language row at the foot, once every pocket is read: a card
 		// still being read has no language to keep or set yet.
 		foot.replaceChildren(...[
-			modeRow(false, Boolean(reading)),
+			modeRow(false, Boolean(reading) || settling > 0),
 			!reading && items.length ? h('div', {class: 'scan-field scan-page-language', id: 'scan-pagegrid-language'},
 				// What a tap did takes the label's place, so the foot keeps its
 				// height and the grid its room.
