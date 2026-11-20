@@ -992,6 +992,15 @@ select:focus-visible {
 	outline-offset: 2px;
 }
 
+/* On the header the ring takes the header's text color, at least 4.5:1 on
+   the header and its motif in every theme (js/themes.js textPairs). The
+   accent's ring all but vanished there: 1:1 on Water's header, under 3:1 in
+   ten themes (accessibility audit, 2026-11-20). */
+.top a:focus-visible,
+.top button:focus-visible {
+	outline-color: var(--header-text);
+}
+
 [hidden] {
 	display: none !important;
 }

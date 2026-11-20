@@ -41,6 +41,20 @@ test('every theme keeps every pair at AA in light and dark mode: 4.5:1 for text,
 	assert.deepEqual(failures, []);
 });
 
+test('the header\'s controls draw their focus ring in the header\'s text color, 3:1 on the header and its motif in every theme', () => {
+	const rule = /\.top a:focus-visible,\n\.top button:focus-visible \{\n\toutline-color: var\(--header-text\);\n\}/;
+
+	assert.match(css, rule, 'style.css gives .top controls the header text as their ring');
+
+	for (const theme of THEMES) {
+		for (const scheme of SCHEMES) {
+			const labels = textPairs(theme, scheme).map(([label]) => label);
+
+			assert.ok(labels.includes('header focus ring') && labels.includes('header focus ring on the motif'), `${theme.id} ${scheme} checks the ring`);
+		}
+	}
+});
+
 test('the themes are the default and the 11 TCG energy types, by their card names', () => {
 	assert.equal(THEMES[0].id, 'default');
 	assert.deepEqual(ENERGIES.map((theme) => theme.name), ['Grass', 'Fire', 'Water', 'Lightning', 'Psychic', 'Fighting', 'Darkness', 'Metal', 'Dragon', 'Colorless', 'Fairy']);

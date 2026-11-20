@@ -628,6 +628,9 @@ and dark, every theme):
   the header or in a bar takes no padding on its edge, so focusing Sign in does not scroll the page
   to the top. Tab used to leave buttons half under the tab bar and the last row of tiles 65 px
   under it.
+- *The focus ring shows on every background.* It is 3 px of `--accent-strong`, except on the
+  header, where it is `--header-text`: the accent ring was 1:1 on Water's header and under 3:1 in
+  ten themes. `js/themes.js` `textPairs` holds the ring to 3:1 on the header and its motif.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps

@@ -724,6 +724,10 @@ export function textPairs(theme, scheme) {
 		['header title on the motif', headText, worst, AA],
 		['header sync line on the motif', over(headText, 0.85, worst), worst, AA],
 		['header alert', vars['--header-alert'], header, AA],
+		// The focus ring on the header's controls (style.css .top), a UI
+		// shape, in the header's text color.
+		['header focus ring', headText, header, AA_SHAPE],
+		['header focus ring on the motif', headText, worst, AA_SHAPE],
 		['avatar initial', vars['--avatar-text'], vars['--avatar-bg'], AA],
 		['destructive button', vars['--danger-text'], base.surface, AA],
 		['scan ring on the disc', vars['--scan-ring'], vars['--scan'], AA_SHAPE],
