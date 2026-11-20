@@ -3644,6 +3644,10 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   and any copy dropped since. The form calls its sides **Going out** and **Coming in**, with **Add a
   card going out** and **Add a card coming in**, for every kind and whether or not it came from a
   scan, so each side has one name, the scanner's.
+- **The form's order** (design review 2, 2026-11-20): what happened, then Going out and Coming
+  in, then Date, who, the price, the cash, and the note, with Save last. The cards had come last,
+  under a sticky Save, so a form with no card picked looked complete. With Price each card on, each
+  price sits under its card, above the total.
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
 - **Scan a trade or sale** (Eric, 2026-11-06): Trades and sales has a **Scan a trade or sale**

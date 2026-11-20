@@ -178,6 +178,15 @@ test('a trade with one card out and one card in', async () => {
 	await page.waitForSelector('#move-form');
 	await pickKind(page, 'traded');
 	assert.ok(await page.locator('#move-money').isVisible(), 'a trade says which way the cash went');
+	// The cards come first, then the details, then Save (design review 2,
+	// 2026-11-20): an empty form does not look complete.
+	const order = ['.move-kinds', '#move-out-section', '#move-in-section', '#move-date', '#move-who', '#move-price', '#move-money', '#move-note', '#move-error', '#move-save'];
+
+	assert.deepEqual(await page.evaluate((selectors) => {
+		const nodes = selectors.map((selector) => document.querySelector(`#move-form ${selector}`));
+
+		return nodes.slice(1).map((node, i) => Boolean(nodes[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+	}, order), order.slice(1).map(() => true), 'kinds, out, in, date, who, price, cash, note, error, Save');
 	await page.fill('#move-who', 'Bruno');
 
 	await page.click('#move-add-out');

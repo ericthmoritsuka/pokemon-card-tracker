@@ -619,7 +619,7 @@ export function newMoveView(root) {
 
 			priceRead.classList.remove('form-error');
 			total.textContent = priceForInput(sum) || '0,00';
-			priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'Type each card\'s price under Coming in. A card left blank has no price.';
+			priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'Type each card\'s price under Coming in, above. A card left blank has no price.';
 
 			return;
 		}
@@ -1071,16 +1071,19 @@ export function newMoveView(root) {
 
 	// ----------------------------------------------------------- saving
 
+	// The cards first, then the details (design review 2, 2026-11-20): with
+	// the cards last under a sticky Save, the form looked complete with no
+	// card picked. With Price each card on, each price sits with its card.
 	const formElement = h('form', {class: 'copy-form move-form', id: 'move-form', novalidate: true},
 		kinds,
 		...(scanned ? [scanned, leftOut] : []),
+		outSection,
+		inSection,
 		sheetField('Date', 'move-date', date),
 		h('div', {class: 'copy-field'}, whoLabel, who, whoHint, sources),
 		priceRow,
 		moneyRow,
 		sheetField('Note', 'move-note', note),
-		outSection,
-		inSection,
 		error,
 		// Save stays in reach, above the tab bar, however long the form.
 		h('div', {class: 'actions'}, save)
