@@ -211,9 +211,9 @@ const SHELL = [
 	// Names for the index's cards (lab/fingerprints/build-names.mjs; 644 KB,
 	// 180 KB gzipped), so a picture match is named offline and at once.
 	'js/vision/index-names.json',
-	// The index cards an image-less card shares its name and illustrator
-	// with (lab/fingerprints/build-twins.mjs; 24 KB, 5 KB gzipped), each sure
-	// only by its number.
+	// The index cards whose artwork an image-less card shares
+	// (lab/fingerprints/build-twins.mjs; 14 KB, 3 KB gzipped), each sure only
+	// by its number.
 	'js/vision/index-twins.json',
 	'js/scan/camera.js',
 	'js/scan/chime.js',

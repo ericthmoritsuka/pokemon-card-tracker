@@ -78,6 +78,34 @@ describe('the stack a card is scanned from', () => {
 		assert.equal(found.sure, false);
 	});
 
+	// A release review, 2026-11-20: a McDonald's Collection 2021 Charmander,
+	// which the index cannot hold, scanned after Burning Shadows cards came
+	// out sure as sm3-18, whose artwork it shares (index-twins.json).
+	describe('a print with an image-less twin is not taken from the stack', () => {
+		const twinned = {gap: 40, groups: [{cards: [{...card('sm3-18', 'sm3', 9), twin: true}], score: 9}, {cards: [card('sv01-089', 'sv01', 49)], score: 49}]};
+		const shadows = {
+			cards: {...table.cards, 'en|sm3': {'sm3-18': 'Charmander'}},
+			sets: {...table.sets, 'en|sm3': ['Burning Shadows', 147, '2017-08-05']},
+		};
+		const named = {indexNames: async () => shadows, setDetail: async () => null};
+
+		test('stackPick leaves it, so the number is read', () => {
+			assert.equal(stackPick(twinned, 'sm3'), null);
+		});
+
+		test('pictureMatch with the stack is not sure without the number, and sure with it', async () => {
+			const found = await pictureMatch(twinned, null, 'pt', {api: named, stack: 'sm3'});
+
+			assert.equal(found.card.id, 'sm3-18');
+			assert.equal(found.sure, false);
+			assert.equal(found.stack, undefined);
+
+			const own = await pictureMatch(twinned, number('18', '147'), 'pt', {api: named, stack: 'sm3'});
+
+			assert.equal(own.sure, true);
+		});
+	});
+
 	test('without a stack the shared artwork is not settled by the picture', async () => {
 		const found = await pictureMatch(shared, null, 'pt', {api});
 

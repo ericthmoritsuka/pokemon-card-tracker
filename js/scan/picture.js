@@ -62,9 +62,11 @@ export const TWINS_URL = new URL('../vision/index-twins.json', import.meta.url).
 
 let indexPromise = null;
 
-// The index cards whose name and illustrator an image-less card shares
-// (lab/fingerprints/build-twins.mjs, js/vision/index-twins.json, precached
-// with the index): a Set of their ids, empty when the list cannot be read.
+// The index cards whose artwork an image-less card shares (the same name
+// and illustrator, kept on a matching picture or on the image-less card's
+// set: lab/fingerprints/build-twins.mjs, js/vision/index-twins.json,
+// precached with the index): a Set of their ids, empty when the list cannot
+// be read.
 // The image-less card cannot be in the index, so its picture finds the twin
 // alone and clear (a scanner review, 2026-11-19: a Portuguese McDonald's
 // Collection 2021 Charmander came out sure as Burning Shadows' sm3-18,
@@ -378,11 +380,15 @@ export const needsText = (picture) => !pictureVerdict(picture).sure;
 // lacks (an MEP promo among 30th Celebration cards) has some unrelated
 // nearest group, often one card of the stack's set, which must not come out
 // sure (v79; found in review). In Eric's 2026-11-18 report this kept 25 of
-// the rule's 33 picks, all right.
+// the rule's 33 picks, all right. Never when the group holds a print with
+// an image-less twin (loadTwins, pictureVerdict): the twin is not in the
+// group, so the stack's set cannot rule it out, and only the number can
+// (a release review, 2026-11-20: a McDonald's Collection 2021 Charmander
+// scanned after Burning Shadows cards came out sure as sm3-18).
 export function stackPick(picture, set) {
 	const lead = set && picture && picture.groups && picture.groups[0];
 
-	if (!lead || !pictureVerdict(picture).clear) {
+	if (!lead || !pictureVerdict(picture).clear || lead.cards.some((card) => card.twin)) {
 		return null;
 	}
 
