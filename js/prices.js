@@ -184,12 +184,13 @@ const sentence = (text) => {
 };
 
 // A printing's size. TCGdex writes the standard size "standard" on an
-// English record and "Padrão" on a Portuguese one, and a jumbo "jumbo" or
-// "Jumbo" (sv06-130 Dragapult ex, checked 2026-11-19); a printing with no
-// size is the standard size. Every module asks these two, never a list of
-// its own: a jumbo is another product, and the standard size is never
-// named.
-const STANDARD_SIZES = new Set(['standard', 'padrao']);
+// English record, "Standard" on a French, German, or Italian one, "Padrão"
+// on a Portuguese one, and "estándar" on a Spanish one, and a jumbo "jumbo"
+// or "Jumbo" (sv06-130 Dragapult ex, checked 2026-11-19 and 2026-11-20); a
+// printing with no size is the standard size. Every module asks these two,
+// never a list of its own: a jumbo is another product, and the standard
+// size is never named.
+const STANDARD_SIZES = new Set(['estandar', 'padrao', 'standard']);
 
 export const isStandardSize = (variant) => {
 	const size = fold(variant && variant.size);

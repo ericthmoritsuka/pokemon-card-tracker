@@ -514,8 +514,8 @@ products and prices. A free-text variant field could not drive the master-set go
 per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's variant words.)*
 
 **A jumbo print is named, and the standard size never is** (2026-11-19). `size` is `standard` or
-`jumbo` on an English record and `Padrão` or `Jumbo` on a Portuguese one (Dragapult ex,
-`sv06-130`); a variant with no size is the standard size. One pair of helpers in `js/prices.js`,
+`jumbo` on an English record, `Padrão` or `Jumbo` on a Portuguese one, and `estándar` or `jumbo`
+on a Spanish one (Dragapult ex, `sv06-130`); a variant with no size is the standard size. One pair of helpers in `js/prices.js`,
 `isStandardSize` and `sizeName`, reads every spelling, and every module asks them rather than a
 list of its own. A jumbo's finish reads "Holo, Jumbo" everywhere a finish is named, so the Price
 panel's chips, the Finish select, and the scanner's picker never show two "Holo"s for one card. A

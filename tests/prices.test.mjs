@@ -356,7 +356,8 @@ const dragapult = (standard, jumbo, type = 'holo') => ({
 
 describe('sizes', () => {
 	test('the standard size, in English, in Portuguese, or not given, is never named', () => {
-		for (const size of ['standard', 'Standard', ' standard ', 'Padrão', 'padrão', 'Padrao', undefined, null, '']) {
+		// Spanish writes it "estándar" (es/cards/sv06-130, checked 2026-11-20).
+		for (const size of ['standard', 'Standard', ' standard ', 'Padrão', 'padrão', 'Padrao', 'estándar', 'Estándar', 'estandar', undefined, null, '']) {
 			assert.equal(isStandardSize({size, type: 'holo'}), true, String(size));
 			assert.equal(sizeName({size, type: 'holo'}), null, String(size));
 			assert.equal(finishName({size, type: 'holo'}), 'Holo', String(size));
