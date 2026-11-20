@@ -440,6 +440,17 @@ describe('a family member\'s Sets and cards', () => {
 		await page.waitForSelector('#card-price .price-liga');
 		// The condition is on the line under the title (language and place).
 		assert.deepEqual(await page.locator('.copy-rows .copy-text').allTextContents(), ['LP'], 'Member A\'s copy, not your NM one');
+		// The title and the condition are two words on screen, with the gap
+		// an editable row has (QA 2, 2026-11-20: "EnglishLP").
+		const words = await page.locator('.copy-rows li').first().evaluate((row) => {
+			const title = row.querySelector('.copy-title').getBoundingClientRect();
+			const text = row.querySelector('.copy-text').getBoundingClientRect();
+
+			return {gap: text.left - title.right, sameLine: Math.abs(text.top - title.top) < title.height};
+		});
+
+		assert.ok(words.sameLine, 'the condition fits beside the language');
+		assert.ok(words.gap >= 4, `a gap between the language and the condition (${words.gap} px)`);
 		assert.equal(await page.locator('#copy-add').count(), 0, 'no Add a copy');
 		assert.equal(await page.locator('#copies-binder').count(), 0, 'no Add to binder');
 		assert.equal(await page.locator('button.copy-row').count(), 0, 'no copy edit sheets');
