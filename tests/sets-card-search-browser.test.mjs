@@ -163,6 +163,15 @@ describe('card search in the Sets tab', () => {
 		// Test Ball, found in English and in Portuguese ("Bola de Teste"), is one tile.
 		assert.deepEqual(await cardTiles(page), ['Test Ball']);
 		assert.equal(await page.locator('#sets-card-results h4').textContent(), 'Test Alpha');
+
+		// The headings step down one level at a time: the app's h1, Sets
+		// (for a screen reader), a series or Cards, a group (accessibility
+		// audit, 2026-11-20: h1 went straight to h3).
+		const levels = await page.evaluate(() => [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((heading) => Number(heading.tagName[1])));
+
+		assert.deepEqual(levels.slice(0, 2), [1, 2]);
+		assert.ok(levels.every((level, i) => !i || level <= levels[i - 1] + 1), `no level skipped: ${levels.join(' ')}`);
+		assert.equal(await page.locator('h2').first().textContent(), 'Sets');
 		assert.match(await page.locator('#sets-card-results .tile.owned .tile-meta').textContent(), /^#150 · Owned in PT$/);
 		assert.equal(await page.locator('#sets-card-results .tile .badge-lang').count(), 1, 'the Portuguese copy shows its flag');
 		// English and Portuguese only: no species is named "test". The search

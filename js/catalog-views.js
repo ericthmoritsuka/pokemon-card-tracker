@@ -662,6 +662,10 @@ export function setsView(root) {
 	}
 
 	root.append(
+		// For a screen reader, so the series' h3s sit under a heading of
+		// their own (accessibility audit, 2026-11-20: h1 to h3); the Sets
+		// tab names the screen.
+		h('h2', {class: 'visually-hidden'}, 'Sets'),
 		h('div', {class: 'toolbar'},
 			h('div', {class: 'toolbar-row'},
 				h('label', {class: 'viewing', for: 'viewing'}, h('span', null, 'Viewing:'), h('span', {class: 'select-wrap'}, select)),
