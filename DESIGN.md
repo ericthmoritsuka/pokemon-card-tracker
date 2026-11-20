@@ -3926,8 +3926,14 @@ share one step for it (js/start-over.js `planSwap`).
   Liga for R$ 12,00, 12 Nov", "for R$ 5,50 each" when the line stands for several copies at that
   price, one line per price, and no price for a copy that has none (the total is the other cards').
   History's sheet lists the cards with their prices ("Charmander (2 copies), R$ 5,50 each",
-  "Charizard ex, no price"). Copies of a purchase with one total read as before ("bought for R$
-  20,00 from Liga").
+  "Charizard ex, no price"). A copy of a purchase with one total reads as before ("bought for R$
+  20,00 from Liga") when the purchase brought that one card; with more cards, the line names the
+  total as theirs, not the copy's own price: "1 of 3 cards bought for R$ 100,00 from Liga", "2 of 3
+  cards" for a line of two copies, and "all 3 bought for R$ 30,00" when every card in it is this
+  one. A sale of several cards for one price reads the same way ("Left: 1 of 2 cards sold for R$
+  120,00 to Ana"); a trade's cash keeps its words, since it is never a card's price. *(QA,
+  2026-11-20: a purchase of 3 cards edited to a total of R$ 100,00 read "bought for R$ 100,00" on
+  each of the three cards' pages.)*
 - **From the scanner.** The scanner's Trade or sale hands a purchase over as any other (kind
   `bought`, its cards in Coming in, `tradeHandoff`), so the form it opens has From with its
   suggestions and Price each card, with every scanned card as a row and its price under its
