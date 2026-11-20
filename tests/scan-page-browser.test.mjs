@@ -641,6 +641,62 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// A review of v85, 2026-11-20: the scanner is made again on every visit
+	// to Scan, and his copies are read per scanner, so a page Already mine
+	// and not placed, opened after the scanner reopened, said Finding your
+	// copies with no way to place it; and its cards, out of the tray, lost
+	// their photos to the startup's clean-up.
+	test('a page Already mine and not placed can be placed after the scanner reopens, its photos kept', async () => {
+		const app = await open();
+		const {page} = app;
+		const heldIds = () => page.evaluate(async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+
+			return (session.pageRun && session.pageRun.held ? session.pageRun.held : []).map((item) => item.id);
+		});
+		const photos = () => page.$$eval('#scan-page-grid-1 [data-mine-item] img', (imgs) => imgs.map((img) => (img.src.startsWith('blob:') ? 'photo' : img.src)));
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		await page.click('#scan-page-mine');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
+
+		const held = await heldIds();
+
+		assert.equal(held.length, 7, 'the page\'s cards held');
+		assert.deepEqual(await photos(), Array(7).fill('photo'), 'each pocket shows its own photo');
+
+		// Away from Scan and back: a new scanner.
+		await page.click('#scan-sheet-close');
+		await page.waitForSelector('#scan-pagegrid', {state: 'detached'});
+		await page.click('#scan-close');
+		await page.waitForSelector('#scan', {state: 'detached'});
+		await page.click('a[data-tab="scan"]');
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await page.click('#scan-page-open');
+		await page.waitForSelector('#scan-page-unplaced');
+		await page.click('#scan-page-unplaced-open');
+		await page.waitForSelector('#scan-pagegrid #scan-page-mine[aria-pressed="true"]');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 20000, 'his copies read in the new scanner');
+		assert.match(await text(page, '#scan-place-line'), /^\d cards? from your cards.*Tap a card to pick another copy\.$/);
+		assert.equal(await page.locator('#scan-place-go').count(), 1, 'the page can be placed');
+		assert.deepEqual(await heldIds(), held, 'the same cards held');
+		assert.deepEqual(await photos(), Array(7).fill('photo'), 'each pocket still shows its own photo');
+
+		const kept = await page.evaluate(async (ids) => {
+			const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+
+			return Promise.all(ids.map(async (id) => (await draft.loadPhoto(id)) instanceof Blob));
+		}, held);
+
+		assert.deepEqual(kept, Array(7).fill(true), 'the draft kept the held cards\' photos');
+		await close(app);
+	});
+
 	test('each pocket with a card joins the tray, sure or asking for a look, and empty pockets are skipped', async () => {
 		const app = await open();
 		const {page} = app;

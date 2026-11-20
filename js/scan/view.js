@@ -1881,6 +1881,10 @@ export function scanView(root) {
 	// null, 'loading', 'failed', or {binders, entries, placed}.
 	let pageOwned = null;
 
+	// The cards whose photos the draft keeps: the tray's, and those of a page
+	// held as Already mine and not placed yet, so its grid keeps their photos.
+	const keptPhotoIds = () => [...session.items, ...((session.pageRun && session.pageRun.held) || [])].map((item) => item.id);
+
 	async function loadPageOwned() {
 		pageOwned = 'loading';
 
@@ -2077,6 +2081,12 @@ export function scanView(root) {
 
 	function openPage() {
 		if (session && session.pageRun) {
+			// A page restored as Already mine (the tab left, or the app
+			// reloaded) has no copies read in this view yet.
+			if (session.pageRun.mine && pageOwned === null) {
+				loadPageOwned();
+			}
+
 			endReview();
 			showSheet(pageSheet(ctx));
 		}
@@ -2266,7 +2276,7 @@ export function scanView(root) {
 		}
 
 		persist();
-		draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		draft.prunePhotos(keptPhotoIds()).catch(() => {});
 		closeSheet();
 		announce(`Saved ${plural(saved.length, 'card')}.${placed.length ? ` ${plural(placed.length, 'card')} placed in a binder.` : ''}`);
 		await refreshOwned();
@@ -2570,7 +2580,7 @@ export function scanView(root) {
 		// A new scan ends the chance to bring a discarded session back.
 		if (discarded) {
 			discarded = null;
-			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+			draft.prunePhotos(keptPhotoIds()).catch(() => {});
 		}
 
 		if (T.isTrade(session) !== T.isTrade(target)) {
@@ -2635,7 +2645,7 @@ export function scanView(root) {
 
 		if (discarded) {
 			discarded = null;
-			draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+			draft.prunePhotos(keptPhotoIds()).catch(() => {});
 		}
 
 		const item = S.addCapture(session);
@@ -2712,7 +2722,7 @@ export function scanView(root) {
 
 			if (discarded) {
 				discarded = null;
-				draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+				draft.prunePhotos(keptPhotoIds()).catch(() => {});
 			}
 
 			const pockets = found.pockets.filter((pocket) => !pocket.empty);
@@ -5046,7 +5056,7 @@ export function scanView(root) {
 
 		if (discarded) {
 			discarded = null;
-			draft.prunePhotos(session.items.map((one) => one.id)).catch(() => {});
+			draft.prunePhotos(keptPhotoIds()).catch(() => {});
 		}
 
 		const item = S.addCapture(session);
@@ -5446,8 +5456,8 @@ export function scanView(root) {
 			return;
 		}
 
-		await Promise.all(session.items.map((item) => loadPhotoUrl(item.id)));
-		draft.prunePhotos(session.items.map((item) => item.id)).catch(() => {});
+		await Promise.all(keptPhotoIds().map((id) => loadPhotoUrl(id)));
+		draft.prunePhotos(keptPhotoIds()).catch(() => {});
 		draw();
 		drawStatus();
 		refreshOwned();
