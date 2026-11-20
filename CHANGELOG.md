@@ -13,6 +13,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v89:** Sets count your cards in the language you view. `7b50ece`
+  - A set's ring, its "N / M owned" line, the owned marks, and All / Owned / Missing count only your copies in the
+    viewing language (Eric's call, 2026-11-20, reversing the any-language rule in DESIGN.md section 3), for your cards
+    and a family member's alike. Every card's picture still shows; a card not owned in that language is dimmed.
+  - **Owned: In <language> | Any language** under the Viewing picker brings back the count in any language; each phone
+    remembers it. The card page, search, My Cards, goals, checklists, and binders still count every language.
+
 - **v88:** a set's ring is the same on every phone, and a card's picture falls back to another language. `b598881`
   - A copy that came by sync, which this phone's card index has not read yet, now counts in its set's ring by its card
     ID's set (as a family member's cards already did). On Eric's Realme the 30th Celebration ring read 57 of 161 while
