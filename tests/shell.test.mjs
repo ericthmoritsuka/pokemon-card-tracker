@@ -323,6 +323,50 @@ describe('the tabs', () => {
 		await context.close();
 	});
 
+	// A review, 2026-11-20: a binder page marked Already mine and not placed
+	// holds its cards out of the tray, so the dot, counting the tray alone,
+	// went while the page waited to be placed. The dot stays, with the
+	// tray's number or none, and the tab's name says a page waits.
+	test('a binder page Already mine and not placed keeps a dot on the Scan tab', async () => {
+		const {context, errors, page} = await device(null, 'phone');
+		const scanTab = page.locator('.tabs a[data-tab="scan"]');
+		const saveDraft = (count, held) => page.evaluate(async ({count, held}) => {
+			const {saveSession} = await import('/pokemon-card-tracker/js/scan/draft.js');
+			const items = (n, from) => Array.from({length: n}, (_, i) => ({id: `item-${from + i}`}));
+
+			await saveSession({items: items(count, 1), pageRun: held ? {held: items(held, 100), id: 'page-1', mine: true, pockets: 9} : undefined});
+		}, {count, held});
+
+		await page.goto(url('cards'));
+		await page.waitForSelector('main h2');
+		await saveDraft(0, 7);
+		await page.waitForSelector('.tab-scan .scan-disc #scan-dot');
+		assert.equal(await page.locator('#scan-dot').textContent(), '', 'no number: the tray is empty');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, a binder page to place');
+
+		const box = await page.locator('#scan-dot').boundingBox();
+
+		assert.ok(box.width >= 16 && box.height >= 16, `the dot is a dot, not a line (${JSON.stringify(box)})`);
+
+		await saveDraft(2, 7);
+		await page.waitForFunction(() => document.getElementById('scan-dot')?.textContent === '2');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, 2 unsaved cards in the tray and a binder page to place');
+
+		// A cold start reads the page from the draft too.
+		await saveDraft(0, 3);
+		await page.reload();
+		await page.waitForSelector('#scan-dot');
+		assert.equal(await scanTab.getAttribute('aria-label'), 'Scan, a binder page to place');
+
+		// Placed, the page leaves the draft, and the dot goes.
+		await saveDraft(0, 0);
+		await page.waitForFunction(() => !document.getElementById('scan-dot'));
+		assert.equal(await scanTab.getAttribute('aria-label'), null);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('an empty My Cards and an empty binder offer Scan', async () => {
 		const {context, errors, page} = await device(null, 'phone');
 

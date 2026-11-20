@@ -154,9 +154,10 @@ function drawTabs() {
 
 // Unsaved tray cards (plans/design-review.md, "A draft resumes"): a count
 // dot on the Scan disc, and the count in the tab's name, so a draft left on
-// the phone is not forgotten. js/scan/draft.js says the count on every save;
-// at start it is read once from the draft itself.
-function drawScanDot(count) {
+// the phone is not forgotten; and a binder page Already mine waiting to be
+// placed. js/scan/draft.js says both on every save (draftWaiting); at start
+// they are read once from the draft itself.
+function drawScanDot({count = 0, page = 0} = {}) {
 	const tab = document.querySelector('.tabs a[data-tab="scan"]');
 	const disc = tab && tab.querySelector('.scan-disc');
 
@@ -166,7 +167,7 @@ function drawScanDot(count) {
 
 	let dot = document.getElementById('scan-dot');
 
-	if (!count) {
+	if (!count && !page) {
 		if (dot) {
 			dot.remove();
 		}
@@ -181,8 +182,15 @@ function drawScanDot(count) {
 		disc.append(dot);
 	}
 
-	dot.textContent = count > 99 ? '99+' : formatCount(count);
-	tab.setAttribute('aria-label', `Scan, ${formatCount(count)} unsaved ${count === 1 ? 'card' : 'cards'} in the tray`);
+	// The tray's cards, as the tray counts them; a binder page Already mine
+	// and not placed is not in the tray, so it is not in the number: with
+	// the tray empty the dot is there with no number, and says so to a
+	// screen reader (a review, 2026-11-20).
+	dot.textContent = !count ? '' : count > 99 ? '99+' : formatCount(count);
+
+	const said = [count ? `${formatCount(count)} unsaved ${count === 1 ? 'card' : 'cards'} in the tray` : null, page ? 'a binder page to place' : null].filter(Boolean).join(' and ');
+
+	tab.setAttribute('aria-label', `Scan, ${said}`);
 }
 
 // --------------------------------------------------- the "Mine" switcher
@@ -604,15 +612,15 @@ export function startShell() {
 
 	window.addEventListener(DRAFT_EVENT, (event) => {
 		draftSaved = true;
-		drawScanDot((event.detail && event.detail.count) || 0);
+		drawScanDot(event.detail || {});
 	});
 
 	drawAccount();
 	drawOffline();
 	// A save that lands first knows better than this read.
-	draftCount().then((count) => {
+	draftCount().then((waiting) => {
 		if (!draftSaved) {
-			drawScanDot(count);
+			drawScanDot(waiting);
 		}
 	});
 }
