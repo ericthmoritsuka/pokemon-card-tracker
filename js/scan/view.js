@@ -31,7 +31,7 @@ import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startC
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, retryUntil, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, recentStack, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
@@ -3189,8 +3189,12 @@ export function scanView(root) {
 				// reuses it, so skipping the number read and picking the print
 				// always agree.
 				// A binder page's pockets take no stack: a page is not a pile from
-				// one set.
-				stackOf.set(id, page ? null : S.stackSet(session, id));
+				// one set. A picture whose one card is a little short of sure is
+				// taken when its set is one of the last few cards' (identify.js
+				// recentStack, v86).
+				const stack = page ? null : S.stackSet(session, id);
+
+				stackOf.set(id, page || stackPick(seen.picture, stack) ? stack : recentStack(seen.picture, S.recentSets(session, id)) || stack);
 				result = seen.needsText && !stackPick(seen.picture, stackOf.get(id)) ? await identifyText(seen, {readOptions}) : seen;
 
 				// Only a card that went to the text reader waited for it (a stack

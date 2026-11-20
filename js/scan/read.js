@@ -1425,6 +1425,12 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 
 // ------------------------------------------------------------ the number alone, quickly
 
+// The fewest number strip lines readNumber hands the reader at once (v86).
+// One at a time on a one-worker reader left the worker idle while the page
+// cut and sent the next line: on the benchmark's blurred captures, with the
+// page slowed four times, that cost more than the third line it saved.
+export const LINES_AT_ONCE = 2;
+
 // Reading only what chooses between the pictures' top cards (Eric,
 // 2026-10-09): a card the picture could not settle took 7 to 14 s on his
 // phone, nearly all of it OCR (numberOnly still read both number strips,
@@ -1453,18 +1459,31 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 // cjk, scoreLatin, scoreName, modelState, prepareModel: as readCard, for a
 // name in Japanese or Korean (readName), with the label row, when it is
 // read, as latinLabel.
-export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, numberPx = NUMBER_PX, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, textPx = TEXT_PX} = {}) {
+//
+// settled(number): whether the number read names one card, so the set code
+// box, which only chooses between prints the number cannot tell apart, is
+// not read (js/scan/identify.js numberSettles, v86); returns `settled` true
+// when it did. The label row, when asked for, is read either way, its lines
+// handed to the reader just after the number strip's first lines rather
+// than ahead of them. workers: the reader's workers, so a strip's lines are
+// read that many at a time (readLines). timings.reads: the OCR calls per
+// region.
+export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, numberPx = NUMBER_PX, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, settled = null, textPx = TEXT_PX, workers = 0} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
 	const timings = {};
 	const started = now();
 	let calls = 0;
 
+	// The OCR calls each region took (timings.reads), for the scan report.
+	const reads = {};
+
 	const recognise = async (key, crop, settings) => {
 		const at = now();
 		const result = await ocr(crop, settings);
 
 		timings[key] = (timings[key] || 0) + Math.round(now() - at);
+		reads[key] = (reads[key] || 0) + 1;
 		calls++;
 
 		if (onProgress) {
@@ -1482,21 +1501,34 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 
 	const sideOf = (key) => (key === 'numberLeft' ? 'left' : 'right');
 
-	// The `count` most text-like lines of a strip, read side by side.
+	// The `count` most text-like lines of a strip, the likeliest first,
+	// `workers` at a time side by side but never fewer than LINES_AT_ONCE
+	// (all at once when workers is 0), and no more once a number reads
+	// (v86). The number is the one a read of every line gives: findNumber
+	// takes the first line, in this order, that holds one.
 	const readLines = async (key, count) => {
 		const strip = crops[key] || prepare(key);
 		const found = findTextLines(strip, numberPx, count);
-		const results = await Promise.all(found.map((line, index) => {
-			crops[`${key}Line${index + 1}`] = cropRows(strip, line);
+		const step = workers > 0 ? Math.max(LINES_AT_ONCE, workers) : Math.max(1, found.length);
+		const lines = [];
+		let number = null;
 
-			return recognise(key, crops[`${key}Line${index + 1}`], OCR_SETTINGS.numberLine).then((result) => shiftLines(result, line.y0));
-		}));
-		const lines = results.flat();
-		const read = {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')};
+		for (let from = 0; from < found.length && !number; from += step) {
+			const results = await Promise.all(found.slice(from, from + step).map((line, i) => {
+				const name = `${key}Line${from + i + 1}`;
 
-		raw[key] = {confidence: 0, lines: [...raw[key].lines, ...lines], text: [raw[key].text, read.text].filter(Boolean).join('\n')};
+				crops[name] = cropRows(strip, line);
 
-		return findNumber(sideOf(key), read);
+				return recognise(key, crops[name], OCR_SETTINGS.numberLine).then((result) => shiftLines(result, line.y0));
+			}));
+
+			lines.push(...results.flat());
+			number = findNumber(sideOf(key), {confidence: 0, lines, text: lines.map((line) => line.text).join('\n')});
+		}
+
+		raw[key] = {confidence: 0, lines: [...raw[key].lines, ...lines], text: [raw[key].text, lines.map((line) => line.text).join('\n')].filter(Boolean).join('\n')};
+
+		return number;
 	};
 
 	// A full-art strip's ringed digits (ringedNumbers), each run read as one
@@ -1535,10 +1567,18 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		return findNumber(sideOf(key), raw[key]);
 	};
 
-	// The label row, beside the number strip, when asked for.
-	const labelRead = !withLabel ? Promise.resolve(null) : (async () => {
-		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN});
-		const found = findTextLines(band, numberPx, 2);
+	// The label row, when asked for, beside the number strip, its lines
+	// handed to the reader just after the number strip's first lines
+	// (startLabel), so they no longer take the workers ahead of the number's.
+	// It is read even when the number settles the card: it tells the
+	// language, and left to the read behind the tray (js/scan/view.js
+	// checkLabelLater) it ran while the next cards were dropped, and holder
+	// mode then took cards twice (tests/scan-newcard-browser.test.mjs and
+	// scan-log-browser.test.mjs, v86).
+	const band = withLabel ? prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN}) : null;
+	const bandLines = band ? findTextLines(band, numberPx, 2) : [];
+	const readLabelRow = async () => {
+		const found = bandLines;
 		const results = await Promise.all(found.map((line) => recognise('label', cropRows(band, line), OCR_SETTINGS.label)));
 
 		crops.label = band;
@@ -1551,7 +1591,13 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		}
 
 		return parseLabel(raw.label.text);
-	})();
+	};
+	let labelRead = null;
+	const startLabel = () => {
+		labelRead = labelRead || (withLabel ? readLabelRow() : Promise.resolve(null));
+
+		return labelRead;
+	};
 
 	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
 	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
@@ -1560,10 +1606,20 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
 	// A full-art card: its ringed digits first, and the strip's lines only
 	// when they give no sure number.
-	let number = fullArt ? await ringedRead(first) : null;
+	const ringed = fullArt ? ringedRead(first) : null;
+
+	if (ringed) {
+		startLabel();
+	}
+
+	let number = ringed ? await ringed : null;
 
 	if (!(number && number.confidence >= FULL_ART_SURE)) {
-		const plain = await readLines(first, lineCount(first));
+		const lines = readLines(first, lineCount(first));
+
+		startLabel();
+
+		const plain = await lines;
 
 		if (plain && (!number || plain.confidence > number.confidence)) {
 			number = plain;
@@ -1601,9 +1657,13 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		}
 	}
 
+	// A number that names one card (settled, v86) needs no set code box,
+	// which chooses only between prints the number cannot tell apart.
+	const done = Boolean(settled && number && !number.misread && await settled(number));
+
 	let setCodeBox = {langCode: null, run: '', setCode: null, text: ''};
 
-	if (setCode && number && number.side === 'left' && number.box) {
+	if (setCode && !done && number && number.side === 'left' && number.box) {
 		const rect = setCodeRect(card, regionRect(card, REGIONS.numberLeft), number.box, scaleFor(card, REGIONS.numberLeft, numberPx));
 
 		crops.setCode = prepareCrop(card, rect, 72 / rect.h, SET_CODE_PREP);
@@ -1612,7 +1672,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		number = {...number, langCode: setCodeBox.langCode, setCode: setCodeBox.setCode, setCodeRun: setCodeBox.run};
 	}
 
-	const label = await labelRead;
+	const label = labelRead ? await labelRead : null;
 
 	// No number (or only one whose slash was misread): the name, for the name
 	// route, when asked for.
@@ -1620,6 +1680,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 
 	timings.ocr = Math.round(now() - started);
 	timings.calls = calls;
+	timings.reads = reads;
 
 	const partial = number ? {number: null, total: null} : parsePartialNumber(`${raw.numberLeft.text}\n${raw.numberRight.text}`);
 
@@ -1636,6 +1697,7 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		partial,
 		raw,
 		setCodeBox,
+		settled: done,
 		sharpness,
 		timings,
 		wizards: mentionsWizards(raw.numberLeft.text, raw.numberRight.text),

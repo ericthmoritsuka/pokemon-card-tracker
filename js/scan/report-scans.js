@@ -112,8 +112,12 @@ function textRouteLines(report) {
 			const field = report.fields && report.fields[key];
 
 			if (field) {
-				lines.push(`${title}: "${oneLine(field.text) || '(nothing)'}" (confidence ${field.confidence ?? '?'}, ${ms(field.ms)})`);
+				lines.push(`${title}: "${oneLine(field.text) || '(nothing)'}" (confidence ${field.confidence ?? '?'}, ${ms(field.ms)}${field.calls ? `, ${field.calls} ${field.calls === 1 ? 'read' : 'reads'}` : ''})`);
 			}
+		}
+
+		if (report.settled) {
+			lines.push('The number named one card, so the set code box was not read.');
 		}
 	}
 

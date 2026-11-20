@@ -25,10 +25,11 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {blobImage, imageBlob} from './image.js';
-import {CLEAR_DISTANCE, compactPicture, loadFingerprints, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
+import {AUTO_GAP, CLEAR_DISTANCE, compactPicture, FIRM_DISTANCE, FIRM_GAP, loadFingerprints, loadIndexNames, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
+import {confusedVariants, sameNumber} from '../vision/match.js';
 
 // The height the other crops of a card (rectify.js `others`) are cut at for
 // fingerprinting: three times the fingerprint's thumbnail.
@@ -805,6 +806,9 @@ async function readText(seen, {readOptions = {}} = {}) {
 	let ocrMs = null;
 	let artwork = null;
 	let artworkMs = null;
+	// The names table, for whether a number read names one card
+	// (numberSettles): asked for beside the reader's start.
+	const names = picture ? loadIndexNames() : null;
 
 	let engine = null;
 
@@ -837,8 +841,13 @@ async function readText(seen, {readOptions = {}} = {}) {
 		// loaded (modelState) and prepares the other for the next card.
 		const options = {...readOptions, modelState: engine.asianState || null, prepareModel: engine.prepare || null};
 
+		// A number that names one card of the picture's settles it, so the
+		// set code box is left unread (numberSettles); with no names table at
+		// hand it is read as before.
+		const table = several ? await within(names, NAMES_WAIT_MS, null) : null;
+
 		read = picture
-			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear && asianSession(options.cjk), otherStrip: otherStripFor(picture), prefer: numberSide(picture), setCode: several})
+			? await readNumberOnly(card, engine.ocr, {...options, fullArt: fullArtPicture(picture), label: several, name: !pictureVerdict(picture).clear && asianSession(options.cjk), otherStrip: otherStripFor(picture), prefer: numberSide(picture), setCode: several, settled: table ? numberSettles(picture, table) : null, workers: engine.size})
 			: await readCard(card, engine.ocr, options);
 		read.script = null;
 		workers = engine.size;
@@ -1019,6 +1028,74 @@ export const otherStripFor = (picture) => {
 
 	return !lead || lead.score > CLEAR_DISTANCE || numberSides(picture)[numberSide(picture) === 'right' ? 'left' : 'right'];
 };
+
+// How long a read waits for the names table (picture.js loadIndexNames)
+// before reading the set code box as before: it comes from
+// the service worker's cache, or is already in memory from the last card.
+const NAMES_WAIT_MS = 300;
+
+const within = (promise, ms, fallback) => Promise.race([Promise.resolve(promise).catch(() => fallback), new Promise((resolve) => setTimeout(() => resolve(fallback), ms))]);
+
+// The localId of an index card: what follows its set id (picture.js).
+const localIdOf = (card) => (card.id.startsWith(`${card.set}-`) ? card.id.slice(card.set.length + 1) : card.id.split('-').pop());
+
+// Whether a number read names exactly one card of those js/scan/picture.js
+// pictureMatch weighs (the first group's cards and each other group's
+// first), by its number and its set's official total from the names table
+// (v86). Then the set code box is not read (read.js readNumber settled): it
+// chooses only between prints the number cannot tell apart (a reprint's
+// number and total, a Japanese twin's). A card the table lacks, a number
+// with no total, or one a confused digit away from another card leaves it
+// unsettled, so the box is read as before. Returns (number) => boolean.
+export function numberSettles(picture, table) {
+	const groups = (picture && picture.groups) || [];
+	const cards = [...(groups[0] ? groups[0].cards : []), ...groups.slice(1).map((group) => group.cards[0]).filter(Boolean)];
+	const official = (card) => {
+		const set = table && table.sets && table.sets[`${card.catalog}|${card.set}`];
+
+		return set && set[1] ? String(set[1]) : null;
+	};
+
+	return (number) => {
+		const total = number && number.total ? String(Number(String(number.total).replace(/\D/g, ''))) : '';
+
+		if (!total || !cards.length || cards.some((card) => !official(card))) {
+			return false;
+		}
+
+		const near = cards.filter((card) => sameNumber(localIdOf(card), number.number) && (official(card) === total || confusedVariants(total).includes(official(card))));
+
+		return near.length === 1 && official(near[0]) === total;
+	};
+}
+
+// A picture match from the sets of the last few cards (v86): the stack to
+// give js/scan/picture.js (stackPick, pictureMatch stack) so its one card
+// is taken with no number read, or null. Only a first group of one card
+// that is not an image-less twin's (pictureVerdict twinned: only the number
+// tells those apart), with a clear lead (pictureVerdict clear) one notch
+// short of what makes it sure alone: within FIRM_DISTANCE with a lead of
+// AUTO_GAP (SURE_DISTANCE alone), or within CLEAR_DISTANCE with a lead of
+// FIRM_GAP (FIRM_DISTANCE alone). A wrong first place has never led by more
+// than 6, and was past 60 (picture.js), and a card the index lacks finds
+// its nearest group in the stack's set often enough that a lead under
+// AUTO_GAP never counts. sets: session.js recentSets, the sets of the last
+// cards settled without the stack. A reprint group is left to stackSet,
+// which asks three of five, because there the set is the only clue.
+export function recentStack(picture, sets) {
+	const lead = picture && picture.groups && picture.groups[0];
+
+	if (!lead || !sets || !sets.size || lead.cards.length !== 1) {
+		return null;
+	}
+
+	const [card] = lead.cards;
+	const verdict = pictureVerdict(picture);
+	const gap = picture.gap === null || picture.gap === undefined ? Infinity : picture.gap;
+	const near = (lead.score <= FIRM_DISTANCE && gap >= AUTO_GAP) || (lead.score <= CLEAR_DISTANCE && gap >= FIRM_GAP);
+
+	return verdict.clear && !verdict.sure && near && !card.twin && sets.has(card.set) ? card.set : null;
+}
 
 async function readNumberOnly(card, ocr, options) {
 	const {readNumber} = await import('./read.js');

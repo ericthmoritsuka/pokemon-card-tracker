@@ -141,13 +141,19 @@ export const findItem = (session, id) => session.items.find((item) => item.id ==
 export const STACK_LOOK = 5;
 export const STACK_LEAST = 3;
 
-export function stackSet(session, id) {
+// The last STACK_LOOK cards before this one that were settled without the
+// stack: sure by themselves, or confirmed by the person; never an unsure
+// guess, and never a card the stack picked, so one wrong pick cannot keep
+// the stack going (v79).
+function settledBefore(session, id) {
 	const at = session.items.findIndex((item) => item.id === id);
-	// Only cards settled without the stack count: sure by themselves, or
-	// confirmed by the person; never an unsure guess, and never a card the
-	// stack picked, so one wrong pick cannot keep the stack going (v79).
 	const settled = (item) => item.card && item.card.setId && ((item.sure && !item.stacked) || item.confirmed);
-	const before = (at < 0 ? session.items : session.items.slice(0, at)).filter(settled).slice(-STACK_LOOK);
+
+	return (at < 0 ? session.items : session.items.slice(0, at)).filter(settled).slice(-STACK_LOOK);
+}
+
+export function stackSet(session, id) {
+	const before = settledBefore(session, id);
 	const counts = new Map();
 
 	for (const item of before) {
@@ -157,6 +163,13 @@ export function stackSet(session, id) {
 	const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1]);
 
 	return best && best[1] >= STACK_LEAST ? best[0] : null;
+}
+
+// The sets of the last STACK_LOOK cards settled before this one (the cards
+// stackSet counts), as a Set: the sets the next card is likeliest from
+// (js/scan/identify.js recentStack, v86).
+export function recentSets(session, id) {
+	return new Set(settledBefore(session, id).map((item) => item.card.setId));
 }
 
 function mustFind(session, id) {
@@ -1646,7 +1659,9 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 
 	for (const [key] of REPORT_FIELDS) {
 		if (raw[key]) {
-			fields[key] = {confidence: wordConfidence(raw[key]), ms: timings[key] ?? null, text: String(raw[key].text || '').trim().slice(0, 300)};
+			// The OCR calls the region took, where the read counts them (read.js
+			// readNumber timings.reads, v86).
+			fields[key] = {...(timings.reads && timings.reads[key] ? {calls: timings.reads[key]} : {}), confidence: wordConfidence(raw[key]), ms: timings[key] ?? null, text: String(raw[key].text || '').trim().slice(0, 300)};
 		}
 	}
 
@@ -1679,6 +1694,9 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 		ocrMs: result.timings ? result.timings.ocr : null,
 		// How sharp the likelier number strip was (read.js stripSharpness).
 		...(read.sharpness && read.sharpness.value !== null ? {sharpness: read.sharpness} : {}),
+		// The number named one card, so the set code box was left unread
+		// (read.js readNumber settled, v86).
+		...(read.settled ? {settled: true} : {}),
 		// A binder pocket's own cut that lost the picture, so the crop that
 		// won was read instead (js/scan/pocket.js withPocketCard).
 		...(result.ownCut === 'lost' ? {ownCut: 'lost'} : {}),
