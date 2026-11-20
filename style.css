@@ -2980,7 +2980,7 @@ progress {
 }
 
 .card-detail .facts dt {
-	font: 600 0.875rem/1.25rem var(--font);
+	font: 600 0.875rem/1rem var(--font);
 }
 
 .card-detail .facts dd {
