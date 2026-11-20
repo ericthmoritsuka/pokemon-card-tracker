@@ -33,6 +33,7 @@ import {
 	indexKey,
 	isLanguage,
 	languageLabel,
+	pictureOf,
 	saveToCardIndex,
 	setIdOfCard,
 	viewingLanguage,
@@ -227,14 +228,16 @@ function cardRoute(local, catalog, cardId) {
 // What a tile needs for one copy. Also the trades log's (js/moves-view.js).
 export function entryInfo(entry, index, viewing) {
 	const record = index.get(indexKey(entry.catalog, entry.card_id)) || null;
-	const local = display(record, [catalogFor(viewing) === entry.catalog ? viewing : null, entry.language, catalogLanguage(entry.catalog)]);
+	const preferred = [catalogFor(viewing) === entry.catalog ? viewing : null, entry.language, catalogLanguage(entry.catalog)];
+	const local = display(record, preferred);
+	const picture = pictureOf(record, preferred);
 	const source = sourceNames(entry, record);
 
 	const info = {
 		// The large image, for the card held up out of its pocket
 		// (js/pocket-viewer.js).
-		full: local ? cardImage(local.image, 'high') : null,
-		image: local ? cardImage(local.image, 'low') : null,
+		full: cardImage(picture, 'high'),
+		image: cardImage(picture, 'low'),
 		name: (source && source.name) || (local && local.name) || entry.name_local || entry.card_id,
 		// A hand-made card's number is on the copy (js/custom-card.js).
 		number: (record && record.collector_number) || entry.number_local || null,

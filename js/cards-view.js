@@ -15,6 +15,7 @@ import {
 	pricesDue,
 	readPriceRecord,
 	savedCardRecords,
+	pictureOf,
 	saveToCardIndex,
 	setDetailOnce,
 	setDetails,
@@ -316,9 +317,7 @@ async function fillMissingRecords(entries, index, isAlive) {
 			return;
 		}
 
-		try {
-			const set = await importApi.setDetail(lang, setId);
-
+		const take = (set) => {
 			for (const card of (set && set.cards) || []) {
 				const key = indexKey(catalog, card.id);
 
@@ -326,6 +325,17 @@ async function fillMissingRecords(entries, index, isAlive) {
 					records.push(recordFrom(catalog, lang, set, card));
 					missing.delete(key);
 				}
+			}
+		};
+		const stillMissing = () => [...missing.values()].some((item) => item.catalog === catalog && item.cardId.slice(0, item.cardId.lastIndexOf('-')) === setId);
+
+		try {
+			take(await importApi.setDetail(lang, setId));
+
+			// The saved list lacks some of the cards owned from it (a new
+			// set saved before TCGdex listed them all): read it again.
+			if (stillMissing() && isAlive()) {
+				take(await importApi.setDetailAgain(lang, setId));
 			}
 		}
 		catch {
@@ -752,7 +762,8 @@ export function cardsScreen(root, {
 
 		const base = catalogLanguage(first.catalog);
 		const viewingFits = catalogFor(viewing) === first.catalog;
-		const local = display(record, [viewingFits ? viewing : null, first.language, base]);
+		const preferred = [viewingFits ? viewing : null, first.language, base];
+		const local = display(record, preferred);
 		// A copy the catalog has no names for in its language shows the
 		// names the source gave it (DESIGN.md section 5).
 		const source = group.entries.map((entry) => sourceNames(entry, record)).find(Boolean) || null;
@@ -771,6 +782,7 @@ export function cardsScreen(root, {
 			language: first.language,
 			local,
 			nameLang,
+			picture: pictureOf(record, preferred),
 			newest: times[times.length - 1],
 			number: (record && record.collector_number) || null,
 			oldest: times[0],
@@ -1116,7 +1128,7 @@ export function cardsScreen(root, {
 			number: record && record.collector_number,
 			setName: group.setName,
 		};
-		const catalogSrc = local ? cardImage(local.image, 'low') : null;
+		const catalogSrc = cardImage(group.picture, 'low');
 
 		if (view === 'list') {
 			const src = tileSrc(group.entries, catalogSrc, {family: !readOnly, records: loadRecords(), twins: group.twins});

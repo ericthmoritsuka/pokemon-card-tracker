@@ -297,6 +297,25 @@ export const cardImage = (base, size) => (base ? `${base}/${size}.webp` : null);
 
 export const logoImage = (base) => (base ? `${base}.webp` : null);
 
+// A card's picture from its index record (cardIndex): the first language in
+// `preferred` that has one, then any language that has one. A localization
+// saved with no picture (TCGdex had none yet, or the print has none in that
+// language) never leaves a tile blank while another language has one, as
+// the card page, which reads the card fresh, already shows.
+export function pictureOf(record, preferred) {
+	const localizations = (record && record.localizations) || {};
+
+	for (const lang of preferred) {
+		if (lang && localizations[lang] && localizations[lang].image) {
+			return localizations[lang].image;
+		}
+	}
+
+	const any = Object.values(localizations).find((local) => local && local.image);
+
+	return any ? any.image : null;
+}
+
 // ------------------------------------------------------- import lookups
 
 // Cache first with no background refresh, so a rerun of the import sends no
@@ -309,6 +328,7 @@ const MISSING_FOR_MS = 24 * 60 * 60 * 1000;
 // background while a checklist opens) share one request instead of each
 // sending it; each still gets its own copy, so none can change another's.
 const inFlight = new Map();
+const readAgain = new Set();
 
 function fetchOnce(key, path) {
 	if (!inFlight.has(key)) {
@@ -357,6 +377,26 @@ export const importApi = {
 	findSets: async (lang, field, value) =>
 		(await fetchOnce(`find:${lang}:${field}:${value}`, `${lang}/sets?${field}=eq:${encodeURIComponent(value)}`)) || [],
 	setDetail: (lang, setId) => fetchOnce(`set:${lang}:${setId}`, `${lang}/sets/${encodeURIComponent(setId)}`),
+	// A set's list read again from TCGdex and saved over the old one, for a
+	// saved list that lacks cards someone owns: a new set saved before
+	// TCGdex listed all its cards is otherwise never read again here (the
+	// Sets views refresh only the language they browse in). At most once
+	// per set per visit, and never offline; null when not read.
+	setDetailAgain: async (lang, setId) => {
+		const key = `set:${lang}:${setId}`;
+
+		if (readAgain.has(key) || !navigator.onLine) {
+			return null;
+		}
+
+		readAgain.add(key);
+
+		const data = await getJson(`${lang}/sets/${encodeURIComponent(setId)}`, 4);
+
+		await putFetched(key, data);
+
+		return data;
+	},
 };
 
 // Whether TCGdex lists the set `setId` in `lang`: true, false (it answered

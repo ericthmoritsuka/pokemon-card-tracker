@@ -1463,12 +1463,18 @@ export async function ownedBySet() {
 
 	for (const entry of entries) {
 		const record = index.get(`${entry.catalog}|${entry.card_id}`);
+		// A copy this phone's index has no record of yet (it came by sync,
+		// and My Cards has not read its card) still counts, under the set
+		// its ID begins with (TCGdex IDs are <set id>-<number>), as a family
+		// member's cards do (js/catalog-views.js ownedBySetFrom).
+		const cut = String(entry.card_id || '').lastIndexOf('-');
+		const setId = record ? record.set_id : cut > 0 ? entry.card_id.slice(0, cut) : null;
 
-		if (!record) {
+		if (!setId) {
 			continue;
 		}
 
-		const key = `${entry.catalog}|${record.set_id}`;
+		const key = `${entry.catalog}|${setId}`;
 
 		if (!sets.has(key)) {
 			sets.set(key, new Set());

@@ -601,6 +601,76 @@ describe('a family member\'s Sets and cards', () => {
 	});
 });
 
+describe('your own Sets rings and a set listed in part', () => {
+	// A set's list saved before TCGdex listed all its cards (2026-11-20: a
+	// phone showed 57 of 161 for the 30th set where another showed 147, with
+	// the same 2,208 copies): tst1 is listed with only tst1-001, and
+	// tst1-002's own record cannot be read, so the index lacks tst1-002.
+	const partial = async (context, {fullAfterFirst}) => {
+		let reads = 0;
+
+		await context.route(/\/v2\/en\/sets\/tst1$/, (route) => {
+			reads += 1;
+
+			const listed = fullAfterFirst && reads > 1 ? 60 : 1;
+
+			return route.fulfill({
+				body: JSON.stringify({
+					cardCount: {official: 60, total: 60},
+					cards: Array.from({length: listed}, (_, i) => {
+						const localId = String(i + 1).padStart(3, '0');
+
+						return {id: `tst1-${localId}`, image: null, localId, name: cardName(`tst1-${localId}`)};
+					}),
+					id: 'tst1',
+					name: 'Test set tst1',
+					releaseDate: '2026-01-01',
+					serie: {id: 'tst', name: 'Test series'},
+				}),
+				contentType: 'application/json',
+				status: 200,
+			});
+		});
+		await context.route(/\/v2\/en\/cards\/tst1-002$/, (route) => route.fulfill({status: 500}));
+
+		return () => reads;
+	};
+
+	const mine = documentWith([
+		entry('o-1', {card_id: 'tst1-001'}),
+		entry('o-2', {card_id: 'tst1-002'}),
+	]);
+
+	test('a copy the index has no record of still counts in its set\'s ring', async () => {
+		const fake = new FakeSupabase();
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await partial(context, {fullAfterFirst: false});
+		await seedLocal(page, mine);
+		await page.goto(url('cards'));
+		await page.waitForSelector('.tile');
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForSelector('.set-tile[href$="/sets/en/tst1"]');
+		await page.waitForFunction(() => /^2 \/ 60$/.test((document.querySelector('.set-tile[href$="/sets/en/tst1"] .owned-count') || {}).textContent || ''));
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('My Cards reads a saved set list again when it lacks a card owned from it, and the index gets the card', async () => {
+		const fake = new FakeSupabase();
+		const {context, errors, page} = await device(fake, 'owner');
+		const reads = await partial(context, {fullAfterFirst: true});
+
+		await seedLocal(page, mine);
+		await page.goto(url('cards'));
+		await page.waitForSelector('.tile');
+		await page.waitForFunction(async () => (await (await import('/pokemon-card-tracker/js/catalog.js')).cardIndex()).has('international|tst1-002'), null, {polling: 250, timeout: 20000});
+		assert.ok(reads() >= 2, `the set list was read again (${reads()} reads)`);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
+
 describe('a session the server stops accepting', () => {
 	const localIds = (page) => page.evaluate(async () => (await (await import('/pokemon-card-tracker/js/collection.js')).listCards()).map((item) => item.card_id).sort());
 
