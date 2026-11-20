@@ -18,6 +18,7 @@
 //   setName      for the set filter's options
 //   releaseDate  the set's, "YYYY-MM-DD"
 //   number       the collector number
+//   official     the set's printed total ("165" in "025/165"), when known
 //   language     the copies' language code
 //   rarity       TCGdex's English rarity
 //   artist       the card's illustrator, as TCGdex writes it
@@ -202,13 +203,18 @@ export const regionsOf = (dexIds) => [...new Set((dexIds || []).map((n) => regio
 // text, so exact matches are the same as before.
 export const searchTextOf = (texts) => [...new Set(texts.filter(Boolean).flatMap((text) => [text, ...String(text).split(/\s+/)]).map(searchKey))].filter(Boolean).join('\n');
 
-// A query in parts: {words, dex}. "#25", "#025", and "#1-151" are Pokédex
-// numbers and ranges (dex, as {from, to}); every other word is folded the
-// same way as the terms, and "25", "025", and "25/165" look for the
-// collector number. "#TG10" is a number too, with the "#" dropped.
+// A query in parts: {words, dex, printed}. "#25", "#025", and "#1-151" are
+// Pokédex numbers and ranges (dex, as {from, to}); "025/165" is a number as
+// the card prints it, over its set's total (printed, as {number, total}),
+// so it finds the 151 card and not #025 of every set (a QA pass, v94:
+// "025/165" ignored "/165" and found six sets' #025); "GG44/GG70" carries a
+// subset's letters on both sides. Every other word is folded the same way
+// as the terms, and "25" and "025" look for the collector number. "#TG10"
+// is a number too, with the "#" dropped.
 export function parseQuery(text) {
 	const words = [];
 	const dex = [];
+	const printed = [];
 
 	for (const raw of String(text || '').split(/\s+/)) {
 		const range = /^#(\d{1,4})(?:-#?(\d{1,4}))?$/.exec(raw);
@@ -221,6 +227,13 @@ export function parseQuery(text) {
 			continue;
 		}
 
+		const over = /^([a-z]*\d+)\/[a-z]*(\d+)$/.exec(searchKey(raw.replace(/^#/, '')));
+
+		if (over) {
+			printed.push({number: over[1], total: over[2]});
+			continue;
+		}
+
 		const word = searchKey(raw.replace(/^#/, '').replace(/\/.*$/, ''));
 
 		if (word) {
@@ -228,8 +241,22 @@ export function parseQuery(text) {
 		}
 	}
 
-	return {dex, words};
+	return {dex, printed, words};
 }
+
+// A collector number to compare: "025" is "25", and "TG05" is "tg5".
+const numberKey = (value) => {
+	const match = /^(\D*)0*(\d+)$/.exec(String(value ?? '').trim().toLowerCase());
+
+	return match ? `${match[1]}${match[2]}` : String(value ?? '').trim().toLowerCase();
+};
+
+// Whether an item is the number as printed: its collector number, and its
+// set's total when the record knows it (a card whose total is not known is
+// found by its number alone, as the Sets tab's card search does). An item
+// with no number field is found by the number in its search text, as before.
+export const matchesPrinted = (item, {number, total}) => (item.number ? numberKey(item.number) === numberKey(number) : (item.search || '').includes(number))
+	&& (!Number(item.official) || Number(item.official) === Number(total));
 
 export const queryWords = (text) => parseQuery(text).words;
 
@@ -253,10 +280,12 @@ function tokensOfItem(item) {
 	return tokens;
 }
 
-export const matchesQuery = (item, {dex, words}) => matchesWords(item, words) && dex.every((range) => inDexRange(item, range));
+export const matchesQuery = (item, {dex, printed = [], words}) => matchesWords(item, words)
+	&& dex.every((range) => inDexRange(item, range))
+	&& printed.every((one) => matchesPrinted(item, one));
 
 // The edits that make an item match with typos forgiven (js/search-match.js).
-const queryEdits = (item, {dex}, matcher) => (dex.every((range) => inDexRange(item, range))
+const queryEdits = (item, {dex, printed = []}, matcher) => (dex.every((range) => inDexRange(item, range)) && printed.every((one) => matchesPrinted(item, one))
 	? matcher.edits(item.search || '', tokensOfItem(item))
 	: Infinity);
 
@@ -294,7 +323,7 @@ const matchers = {
 
 export function applyFilters(items, {filters = emptyFilters(), query = ''} = {}) {
 	const parsed = parseQuery(query);
-	const searching = parsed.words.length || parsed.dex.length;
+	const searching = parsed.words.length || parsed.dex.length || parsed.printed.length;
 	const active = FILTERS.filter((kind) => filters[kind]);
 
 	const filtered = items.filter((item) => active.every((kind) => matchers[kind](item, filters[kind])));

@@ -42,7 +42,7 @@ import {
 	wishLine,
 	wishMarks,
 } from './session.js';
-import {freePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from './page-place.js';
+import {freePage, homePage, matchPage, pagePockets, pagesInUse, placePlan, placeSummary, whereText} from './page-place.js';
 import {cleanThreshold, risePercent} from './worth.js';
 
 const ordinal = (n) => {
@@ -1360,6 +1360,17 @@ export function pageSheet(ctx) {
 		].filter(Boolean));
 	}
 
+	// The line over the grid: the copies, those already in their pockets on
+	// the page chosen, those taken from another pocket, and placeholders.
+	function placeLine({copies, kept, moved, placeholders}) {
+		const there = kept && kept === copies
+			? `, ${copies === 1 ? 'already in its pocket' : `all ${copies} already in their pockets`} on that page`
+			: kept ? `, ${kept} of them already in ${kept === 1 ? 'its pocket' : 'their pockets'} on that page` : '';
+		const taken = moved ? `, ${moved}${kept ? '' : ' of them'} taken from the pocket ${moved === 1 ? 'it is' : 'they are'} in now` : '';
+
+		return `${plural(copies, 'card')} from your cards${there}${taken}${placeholders ? `; ${plural(placeholders, 'placeholder')} for cards you have none left of` : ''}. Tap a card to pick another copy.`;
+	}
+
 	// "Already mine" (js/scan/page-place.js): each pocket as the copy of his
 	// it will be, where that copy is now, and the binder page it goes to.
 	// Returns {body, foot}: the grid and the choices, and at the foot where
@@ -1376,14 +1387,16 @@ export function pageSheet(ctx) {
 		}
 
 		const items = ctx.pageItems();
-		const matches = matchPage(items, owned.entries, owned.placed, new Map(Object.entries(run.picks || {})));
 		const byPocket = new Map(items.map((item) => [item.page, item]));
 		const pages = Math.max(1, Math.ceil(run.pockets / 9));
 		const binders = sortBinders(handBinders(owned.binders)).filter((binder) => binder.rows === 3 && binder.cols === 3);
-		const summary = placeSummary(items, matches);
+		// The page these cards already sit on, in these pockets, is offered
+		// first (a QA pass, v94), so placing it changes nothing there.
+		const found = homePage(items, owned.entries, owned.placed);
+		const home = found && binders.some((one) => one.id === found.binderId) ? found : null;
 
 		if (target === null) {
-			target = binders.length ? binders[0].id : 'new';
+			target = home ? home.binderId : binders.length ? binders[0].id : 'new';
 		}
 
 		const binder = binders.find((one) => one.id === target) || null;
@@ -1392,12 +1405,16 @@ export function pageSheet(ctx) {
 			target = 'new';
 		}
 
-		// A free page first (design review, 2026-11-19), never one with
-		// cards on it unless he picks it.
+		// The page the cards are on already; else a free page first (design
+		// review, 2026-11-19), never one with other cards on it unless he
+		// picks it.
 		if (binder && (targetPage === null || targetPage > binder.page_count + 1)) {
-			targetPage = freePage(binder, pages);
+			targetPage = home && home.binderId === binder.id && home.page + pages - 1 <= binder.page_count ? home.page : freePage(binder, pages);
 		}
 
+		const goesTo = binder ? {binderId: binder.id, page: targetPage} : null;
+		const matches = matchPage(items, owned.entries, owned.placed, new Map(Object.entries(run.picks || {})), goesTo);
+		const summary = placeSummary(items, matches, goesTo);
 		const used = binder ? pagesInUse(binder) : new Map();
 		const plan = binder ? placePlan(owned.binders, {binderId: binder.id, pockets: pagePockets(items, matches, targetPage)}) : {loose: 0, replaced: 0};
 
@@ -1429,7 +1446,7 @@ export function pageSheet(ctx) {
 		};
 
 		const parts = [
-			h('p', {class: 'scan-muted', id: 'scan-place-line'}, `${plural(summary.copies, 'card')} from your cards${summary.moved ? `, ${summary.moved} of them taken from the pocket ${summary.moved === 1 ? 'it is' : 'they are'} in now` : ''}${summary.placeholders ? `; ${plural(summary.placeholders, 'placeholder')} for cards you have none left of` : ''}. Tap a card to pick another copy.`),
+			h('p', {class: 'scan-muted', id: 'scan-place-line'}, placeLine(summary)),
 			...sideGrids(run, cell),
 		];
 

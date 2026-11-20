@@ -529,6 +529,81 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// A QA pass (v94): a page of Kanto 151 read again, its nine cards all on
+	// page 3, was offered empty page 18, and placing there took them out of
+	// page 3 ("taken from the pocket they are in now"). The page they sit on
+	// is offered first, and placing it there changes nothing.
+	test('Already mine offers the binder page the cards already sit on, in their pockets, and placing there moves none', async () => {
+		const app = await open();
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+
+		const seeded = await page.evaluate(async ({cards, layout}) => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const keys = layout.filter(Boolean);
+			const copies = await collection.addCards(keys.map((key) => ({card_id: cards[key], catalog: 'international', language: 'en', language_source: 'manual'})));
+			// A loose copy too, which a page elsewhere would take first.
+			const [loose] = await collection.addCards([{card_id: cards.a, catalog: 'international', language: 'en', language_source: 'manual'}]);
+
+			await binders.createBinder({cols: 3, name: 'Binder A', page_count: 2, rows: 3});
+
+			const kanto = await binders.createBinder({cols: 3, name: 'Kanto 151', page_count: 5, rows: 3});
+			let at = 0;
+
+			for (let pocket = 1; pocket <= layout.length; pocket++) {
+				if (layout[pocket - 1]) {
+					await binders.placeCard(kanto.id, 3, pocket, copies[at++].id);
+				}
+			}
+
+			return {kanto: kanto.id, loose: loose.id};
+		}, {cards: CARDS, layout: LAYOUT});
+		const kantoPage3 = () => page.evaluate(async (id) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+
+			return (await binders.listBinders()).find((one) => one.id === id).slots.filter((slot) => !slot.cleared).map((slot) => [slot.page, slot.position, slot.entry_id]);
+		}, seeded.kanto);
+		const before = await kantoPage3();
+
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		await page.click('#scan-page-mine');
+		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
+
+		assert.equal(await page.$eval('#scan-place-binder', (select) => select.value), seeded.kanto, 'the binder they are in');
+		assert.equal(await page.$eval('#scan-place-page', (select) => select.value), '3', 'the page they are on');
+		assert.equal(await text(page, '#scan-place-to-text'), 'To Kanto 151, page 3');
+		assert.equal(await text(page, '#scan-place-line'), '7 cards from your cards, all 7 already in their pockets on that page. Tap a card to pick another copy.');
+		assert.equal(await page.locator('#scan-place-warning').count(), 0, 'nothing comes out');
+		assert.equal(await text(page, '#scan-place-go'), 'Place 7 cards');
+
+		const wheres = await page.$$eval('#scan-page-grid-1 .scan-page-where', (nodes) => nodes.map((node) => node.textContent));
+
+		assert.deepEqual(wheres, Array(7).fill('Kanto 151, p. 3'), 'the copies in the pockets, not the loose one');
+		await page.screenshot({path: `${SHOTS}/scan-page-mine-home.png`});
+
+		// Another page of the binder: they are taken from page 3, as before.
+		await page.selectOption('#scan-place-page', '4');
+		assert.match(await text(page, '#scan-place-line'), /^7 cards from your cards, 6 of them taken from the pocket they are in now\./);
+
+		await page.selectOption('#scan-place-page', '3');
+		await page.click('#scan-place-go');
+		await page.waitForSelector('#scan-place-done');
+		assert.equal(await text(page, '#scan-place-done'), 'Placed on page 3 of Kanto 151: 7 cards.');
+		assert.deepEqual(await kantoPage3(), before, 'page 3 is as it was');
+
+		const looseNow = await page.evaluate(async (id) => (await (await import('/pokemon-card-tracker/js/binders.js')).listBinders()).some((one) => one.slots.some((slot) => slot.entry_id === id && !slot.cleared)), seeded.loose);
+
+		assert.equal(looseNow, false, 'the loose copy stayed loose');
+		assert.deepEqual(app.errors, []);
+		await close(app);
+	});
+
 	// A review, 2026-11-20: Already mine was offered as soon as the pockets'
 	// pictures were read, while their attack text and stage labels were still
 	// read behind them; tapped then, it took the pockets out of the tray and

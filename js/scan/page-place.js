@@ -18,19 +18,28 @@ export const PER_PAGE = 9;
 
 const keyOf = (catalog, cardId) => `${catalog || 'international'}|${cardId}`;
 
+// The binder pocket a read pocket goes in when the page is placed from
+// binder page `page`: {page, position}.
+export const pocketOf = (item, page) => ({page: page + Math.floor((item.page - 1) / PER_PAGE), position: ((item.page - 1) % PER_PAGE) + 1});
+
+// Whether a copy's place is that pocket of that binder.
+const isAt = (where, binderId, pocket) => Boolean(where && binderId && pocket)
+	&& where.binderId === binderId && where.page === pocket.page && where.position === pocket.position;
+
 // Where a placed copy is now, in words: "Loose", or "Binder A, p. 3".
 export function whereText(where) {
 	return where ? `${where.binderName || 'A binder'}, p. ${where.page}` : 'Loose';
 }
 
-// The owner's live copies of a pocket's card, best first: loose copies
-// (in no binder pocket) before placed ones, since a copy already filed
-// would be taken from its pocket; then the language and finish the scan
-// read, when it read them; then the oldest. entries: his live copies;
-// placed: js/binders.js placements (Map entry_id -> {binder, slot}).
-// Returns [{entry, where}], where null for a loose copy, else {binderId,
-// binderName, page, position}.
-export function copyChoices(item, entries, placed) {
+// The owner's live copies of a pocket's card, best first: a copy already
+// in the pocket it goes in (at: {binderId, page, position}), which then
+// stays where it is; loose copies (in no binder pocket) before placed ones,
+// since a copy already filed would be taken from its pocket; then the
+// language and finish the scan read, when it read them; then the oldest.
+// entries: his live copies; placed: js/binders.js placements (Map entry_id
+// -> {binder, slot}). Returns [{entry, where}], where null for a loose
+// copy, else {binderId, binderName, page, position}.
+export function copyChoices(item, entries, placed, at = null) {
 	if (!item || !item.card) {
 		return [];
 	}
@@ -45,6 +54,7 @@ export function copyChoices(item, entries, placed) {
 			return {entry, where: at ? {binderId: at.binder.id, binderName: at.binder.name, page: at.slot.page, position: at.slot.position} : null};
 		});
 	const score = ({entry, where}) => [
+		at && isAt(where, at.binderId, at) ? 0 : 1,
 		where ? 1 : 0,
 		language && entry.language !== language ? 1 : 0,
 		item.variantId && entry.variant_id && entry.variant_id !== item.variantId ? 1 : 0,
@@ -53,7 +63,7 @@ export function copyChoices(item, entries, placed) {
 	return choices.sort((a, b) => {
 		const [x, y] = [score(a), score(b)];
 
-		return (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]) || String(a.entry.created_at || '').localeCompare(String(b.entry.created_at || ''));
+		return (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]) || (x[3] - y[3]) || String(a.entry.created_at || '').localeCompare(String(b.entry.created_at || ''));
 	});
 }
 
@@ -61,7 +71,9 @@ export function copyChoices(item, entries, placed) {
 // Map item id -> {choices, entry, where}, entry null when he owns none left.
 // picks: Map item id -> entry id he chose (or null for "not this one: a
 // placeholder"), kept over the automatic choice while that copy is free.
-export function matchPage(items, entries, placed, picks = new Map()) {
+// target: {binderId, page}, where the page goes, so a copy already in its
+// pocket there is the one it takes (no copy leaves it for another).
+export function matchPage(items, entries, placed, picks = new Map(), target = null) {
 	const taken = new Set();
 	const out = new Map();
 	const ordered = [...items].sort((a, b) => a.page - b.page);
@@ -76,7 +88,7 @@ export function matchPage(items, entries, placed, picks = new Map()) {
 	}
 
 	for (const item of ordered) {
-		const choices = copyChoices(item, entries, placed);
+		const choices = copyChoices(item, entries, placed, target && target.binderId ? {binderId: target.binderId, ...pocketOf(item, target.page)} : null);
 		const picked = picks.has(item.id) ? picks.get(item.id) : undefined;
 		let chosen = null;
 
@@ -111,15 +123,16 @@ export function pagePockets(items, matches, page) {
 				? {entry_id: match.entry.id}
 				: {want: {card_id: item.card.id, catalog: item.card.catalog || 'international', image: item.card.image || null, name: item.card.name || null, variant_id: item.variantId || null}};
 
-			return {content, page: page + Math.floor((item.page - 1) / PER_PAGE), position: ((item.page - 1) % PER_PAGE) + 1};
+			return {content, ...pocketOf(item, page)};
 		});
 }
 
-// What placing will do, in numbers, for the sheet's line: {copies, moved,
-// placeholders}: copies placed, how many of them leave another pocket, and
+// What placing will do, in numbers, for the sheet's line: {copies, kept,
+// moved, placeholders}: copies placed, how many of them are in their pocket
+// on target ({binderId, page}) already, how many leave another pocket, and
 // placeholders for cards he does not own.
-export function placeSummary(items, matches) {
-	const out = {copies: 0, moved: 0, placeholders: 0};
+export function placeSummary(items, matches, target = null) {
+	const out = {copies: 0, kept: 0, moved: 0, placeholders: 0};
 
 	for (const item of items) {
 		if (!item.card) {
@@ -131,7 +144,10 @@ export function placeSummary(items, matches) {
 		if (match && match.entry) {
 			out.copies++;
 
-			if (match.where) {
+			if (target && isAt(match.where, target.binderId, pocketOf(item, target.page))) {
+				out.kept++;
+			}
+			else if (match.where) {
 				out.moved++;
 			}
 		}
@@ -182,6 +198,50 @@ export function pagesInUse(binder) {
 	}
 
 	return out;
+}
+
+// The binder page the read cards already sit on, each in the pocket it
+// would go in (a QA pass, v94: a page of Kanto 151 read again was offered
+// empty page 18, and placing it there took its cards out of page 3):
+// {binderId, page}, or null. It must hold more than half the read cards in
+// their pockets, so a page that only shares a card or two is never offered
+// as theirs; a card read that is not there (a misread, or a copy filed
+// elsewhere) is placed as on any page, and the sheet says what comes out.
+export function homePage(items, entries, placed) {
+	const counts = new Map();
+	let read = 0;
+
+	for (const item of items) {
+		if (!item.card) {
+			continue;
+		}
+
+		read++;
+
+		const homes = new Set();
+
+		for (const {where} of copyChoices(item, entries, placed)) {
+			const first = where ? where.page - Math.floor((item.page - 1) / PER_PAGE) : 0;
+
+			if (first >= 1 && isAt(where, where.binderId, pocketOf(item, first))) {
+				homes.add(`${where.binderId}\n${first}`);
+			}
+		}
+
+		for (const home of homes) {
+			counts.set(home, (counts.get(home) || 0) + 1);
+		}
+	}
+
+	const [best] = [...counts.entries()].filter(([, count]) => count * 2 > read).sort((a, b) => b[1] - a[1]);
+
+	if (!best) {
+		return null;
+	}
+
+	const [binderId, page] = best[0].split('\n');
+
+	return {binderId, page: Number(page)};
 }
 
 // The first page where `pages` pages in a row are free, else the new page
