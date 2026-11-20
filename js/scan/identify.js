@@ -842,8 +842,8 @@ async function readText(seen, {readOptions = {}} = {}) {
 		const options = {...readOptions, modelState: engine.asianState || null, prepareModel: engine.prepare || null};
 
 		// A number that names one card of the picture's settles it, so the
-		// set code box and the label row are left unread (numberSettles); with
-		// no names table at hand they are read beside the number, as before.
+		// set code box is left unread (numberSettles); with no names table at
+		// hand it is read as before.
 		const table = several ? await within(names, NAMES_WAIT_MS, null) : null;
 
 		read = picture
@@ -1030,7 +1030,7 @@ export const otherStripFor = (picture) => {
 };
 
 // How long a read waits for the names table (picture.js loadIndexNames)
-// before reading the label row and set code box as before: it comes from
+// before reading the set code box as before: it comes from
 // the service worker's cache, or is already in memory from the last card.
 const NAMES_WAIT_MS = 300;
 
@@ -1042,14 +1042,11 @@ const localIdOf = (card) => (card.id.startsWith(`${card.set}-`) ? card.id.slice(
 // Whether a number read names exactly one card of those js/scan/picture.js
 // pictureMatch weighs (the first group's cards and each other group's
 // first), by its number and its set's official total from the names table
-// (v86). Then the set code box and the label row are not read (read.js
-// readNumber settled): they choose only between prints the number cannot
-// tell apart (a reprint's number and total, a Japanese twin's), and the
-// label's language is read behind the tray, as for a card the picture
-// settles (js/scan/view.js checkLabelLater). A card the table lacks, a
-// number with no total, or one a confused digit away from another card
-// leaves it unsettled, so they are read as before. Returns (number) =>
-// boolean.
+// (v86). Then the set code box is not read (read.js readNumber settled): it
+// chooses only between prints the number cannot tell apart (a reprint's
+// number and total, a Japanese twin's). A card the table lacks, a number
+// with no total, or one a confused digit away from another card leaves it
+// unsettled, so the box is read as before. Returns (number) => boolean.
 export function numberSettles(picture, table) {
 	const groups = (picture && picture.groups) || [];
 	const cards = [...(groups[0] ? groups[0].cards : []), ...groups.slice(1).map((group) => group.cards[0]).filter(Boolean)];

@@ -1,8 +1,9 @@
 // Reading less for a card the picture could not settle (v86; Eric,
 // 2026-11-18: scanning "still a bit slow"): a number strip's lines are read
 // as many at a time as the reader has workers (two at least), and no more
-// once a number reads (js/scan/read.js readNumber workers); a number that names one card
-// of the picture's leaves the label row and the set code box unread
+// once a number reads (js/scan/read.js readNumber workers); the label row's
+// lines follow the number's rather than go ahead of them; a number that
+// names one card of the picture's leaves the set code box unread
 // (js/scan/identify.js numberSettles, readNumber settled); and a picture a
 // notch short of sure is taken when its one card is from the set of one of
 // the last cards (js/scan/identify.js recentStack, js/scan/session.js
@@ -15,7 +16,7 @@ import {describe, test} from 'node:test';
 
 import {numberSettles, recentStack} from '../js/scan/identify.js';
 import {LINES_AT_ONCE, OCR_SETTINGS, readNumber} from '../js/scan/read.js';
-import {asianEvidence, recentSets, stackSet} from '../js/scan/session.js';
+import {recentSets, stackSet} from '../js/scan/session.js';
 
 // ------------------------------------------------------------ the reads
 
@@ -84,19 +85,18 @@ describe('reading the number strip a few lines at a time', () => {
 });
 
 describe('a number that settles the card', () => {
-	test('leaves the label row and the set code box unread', async () => {
+	test('leaves the set code box unread, and the label row is read all the same, after the number\'s first lines', async () => {
 		const calls = [];
 		const read = await readNumber(stripCard(), fakeOcr(calls), {label: true, setCode: true, settled: () => true, workers: 1});
 
 		assert.equal(read.number.number, '53');
 		assert.equal(read.settled, true);
-		assert.equal(read.label, null);
-		assert.equal(read.timings.label, undefined);
 		assert.equal(read.timings.setCode, undefined);
-		assert.equal(calls.length, 2);
+		assert.ok('label' in read.timings, 'the label row tells the language');
+		assert.deepEqual(calls.slice(0, 2), [OCR_SETTINGS.numberLine, OCR_SETTINGS.numberLine], 'the number\'s lines go to the reader first');
 	});
 
-	test('a number that does not settle it has both read after it', async () => {
+	test('a number that does not settle it has the set code box read too', async () => {
 		const read = await readNumber(stripCard(), fakeOcr([]), {label: true, setCode: true, settled: async () => false, workers: 1});
 
 		assert.equal(read.settled, false);
@@ -104,19 +104,12 @@ describe('a number that settles the card', () => {
 		assert.ok('setCode' in read.timings);
 	});
 
-	test('with no number read, the label row is read all the same', async () => {
-		const read = await readNumber(stripCard(), fakeOcr([], {number: false}), {label: true, otherStrip: false, settled: () => true, workers: 1});
-
-		assert.equal(read.number, null);
-		assert.equal(read.settled, false);
-		assert.ok('label' in read.timings);
-	});
-
-	test('with no settled test, the label row is read beside the number, as before', async () => {
-		const read = await readNumber(stripCard(), fakeOcr([]), {label: true});
+	test('with no settled test, both are read, as before', async () => {
+		const read = await readNumber(stripCard(), fakeOcr([]), {label: true, setCode: true});
 
 		assert.equal(read.settled, false);
 		assert.ok('label' in read.timings);
+		assert.ok('setCode' in read.timings);
 	});
 });
 
@@ -135,7 +128,7 @@ describe('numberSettles', () => {
 		assert.equal(settles({number: '4', total: '198'}), true, 'another group\'s card: pictureMatch weighs it too');
 	});
 
-	test('anything less leaves the label row and set code box to be read', () => {
+	test('anything less leaves the set code box to be read', () => {
 		const settles = numberSettles(shared, table);
 
 		assert.equal(settles({number: '4', total: null}), false, 'no total: both prints are 4');
@@ -187,26 +180,5 @@ describe('recentSets', () => {
 		assert.deepEqual([...recentSets(session, 'f')].sort(), ['base1', 'sv01', 'sv03']);
 		assert.deepEqual([...recentSets(session, 'b')], ['base1'], 'cards after this one do not count');
 		assert.equal(stackSet(session, 'f'), null, 'stackSet still asks three of five');
-	});
-});
-
-describe('a faint label row behind the tray', () => {
-	// Spinarak 102/189, whose picture a Japanese print shares, numbered in a
-	// set of its own.
-	const western = {catalog: 'international', id: 'swsh3-102', lang: 'en', localId: '102', official: 189, setId: 'swsh3'};
-	const japanese = {catalog: 'ja', id: 'S3-012', lang: 'ja', localId: '012', official: 100, setId: 'S3'};
-	const item = (number, extra = {}) => ({card: western, candidates: [western, japanese], groupLangs: ['en', 'ja'], read: {number}, ...extra});
-	const behind = (it) => asianEvidence(it, {number: true}).level;
-
-	test('is no sign of an Asian print when the number read is the Western print\'s alone', () => {
-		assert.equal(behind(item({number: '102', total: '189'})), null);
-		assert.equal(asianEvidence(item({number: '102', total: '189'})).level, 'strong', 'the label read with the number is weighed as before');
-	});
-
-	test('still is when no number read, when it is misread, or when an Asian print shares it', () => {
-		assert.equal(behind(item(null)), 'strong');
-		assert.equal(behind(item({misread: true, number: '102', total: '189'})), 'strong');
-		assert.equal(behind(item({number: '102', total: '189'}, {candidates: [western, {...japanese, localId: '102', official: 189}]})), 'strong', 'one number for both prints (151 and its Japanese twin)');
-		assert.equal(behind(item({number: '12', total: '100'}, {card: japanese})), 'strong', 'the Japanese print itself');
 	});
 });

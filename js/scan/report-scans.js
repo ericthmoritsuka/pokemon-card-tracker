@@ -117,7 +117,7 @@ function textRouteLines(report) {
 		}
 
 		if (report.settled) {
-			lines.push('The number named one card, so the label row and set code box were not read.');
+			lines.push('The number named one card, so the set code box was not read.');
 		}
 	}
 

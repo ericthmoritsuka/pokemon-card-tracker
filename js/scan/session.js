@@ -759,20 +759,6 @@ const NO_LABEL_ROW = /^(trainer|energy|dresseur|entrenador|allenatore|treinador|
 // the match came from the picture, otherwise the card and its candidates.
 const groupLangs = (item) => (item.groupLangs && item.groupLangs.length ? item.groupLangs : [item.card && item.card.lang, ...(item.candidates || []).map((c) => c && c.lang)].filter(Boolean));
 
-// Whether the collector number read is this Western card's and no Asian
-// print's among its candidates: Japanese and Korean prints are numbered in
-// sets of their own (a Korean copy is kept on the Japanese record), so such
-// a number says the card is the Western print (v86).
-const numberKey = (value) => String(value ?? '').toUpperCase().replace(/^0+(?=\d)/, '');
-
-function westernByNumber(item) {
-	const number = item.read && item.read.number;
-	const fits = (card) => Boolean(card) && numberKey(card.localId) === numberKey(number.number) && Boolean(card.official) && String(card.official) === numberKey(number.total);
-
-	return Boolean(number && number.number && number.total && !number.misread && item.card && !ASIAN_LANGUAGES.includes(item.card.lang) && fits(item.card))
-		&& !(item.candidates || []).some((c) => c && ASIAN_LANGUAGES.includes(c.lang) && fits(c));
-}
-
 // Whether a label row that read no Latin text says the card is a Japanese,
 // Korean, or Chinese print: {level, why}. level 'strong' for a Pokémon
 // whose picture group holds an Asian print; 'weak' when that Pokémon is
@@ -781,13 +767,7 @@ function westernByNumber(item) {
 // an Energy (no weakness row to read; Misty's Vitality on Eric's phone,
 // version 26, went Korean), or a group with no Asian print at all. A
 // category not known yet counts as a Pokémon.
-//
-// number: for the label row read behind the tray (applyLabel), a collector
-// number read that is the Western print's alone is no sign either
-// (westernByNumber): since v86 a number that names the card leaves the
-// label row to that read (view.js checkLabelLater), and a faint row there
-// must not undo what the number said.
-export function asianEvidence(item, {number = false} = {}) {
+export function asianEvidence(item) {
 	const category = item.card && item.card.category;
 
 	if (category && NO_LABEL_ROW.test(category)) {
@@ -796,10 +776,6 @@ export function asianEvidence(item, {number = false} = {}) {
 
 	if (!groupLangs(item).some((lang) => ASIAN_LANGUAGES.includes(lang))) {
 		return {level: null, why: 'no Japanese, Korean, or Chinese print shares this picture'};
-	}
-
-	if (number && westernByNumber(item)) {
-		return {level: null, why: 'the collector number read is the Western print\'s'};
 	}
 
 	return item.card && item.card.full ? {level: 'weak', why: 'a full-art card, whose row is printed over the art'} : {level: 'strong', why: null};
@@ -830,7 +806,7 @@ export function applyLabel(session, id, label, now = nowIso(), {asian = null, ca
 		// A pocket's label row reads no Latin text whatever the card (applyRead):
 		// no evidence, so the Western pick stands (Eric's Portuguese Charizard ex
 		// on his page photo, 2026-11-19, was left with no language at all).
-		const evidence = item.page ? {level: null, why: 'a binder pocket\'s label row, cut from a page photo, often reads no Latin text'} : asianEvidence(item, {number: true});
+		const evidence = item.page ? {level: null, why: 'a binder pocket\'s label row, cut from a page photo, often reads no Latin text'} : asianEvidence(item);
 
 		if (!evidence.level) {
 			// A missing label alone is no evidence: the Western pick stands, or
@@ -1692,8 +1668,8 @@ export function reportOfRead(result, {captureMs = null, frame = null, geometry =
 		ocrMs: result.timings ? result.timings.ocr : null,
 		// How sharp the likelier number strip was (read.js stripSharpness).
 		...(read.sharpness && read.sharpness.value !== null ? {sharpness: read.sharpness} : {}),
-		// The number named one card, so the label row and set code box were
-		// left unread (read.js readNumber settled, v86).
+		// The number named one card, so the set code box was left unread
+		// (read.js readNumber settled, v86).
 		...(read.settled ? {settled: true} : {}),
 		// A binder pocket's own cut that lost the picture, so the crop that
 		// won was read instead (js/scan/pocket.js withPocketCard).

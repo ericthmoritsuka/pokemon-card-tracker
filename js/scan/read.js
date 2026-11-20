@@ -1461,14 +1461,13 @@ export const LINES_AT_ONCE = 2;
 // read, as latinLabel.
 //
 // settled(number): whether the number read names one card, so the set code
-// box and the label row, which only choose between prints the number cannot
-// tell apart, are not read (js/scan/identify.js numberSettles, v86). With
-// it the label row waits for the likelier strip: it starts when that strip
-// gives no number, or when the number does not settle the card, rather than
-// beside it, where its lines took the pool ahead of the number's. Returns
-// `settled` true when the number settled the card. workers: the reader's
-// workers, so a strip's lines are read that many at a time (readLines).
-// timings.reads: the OCR calls per region.
+// box, which only chooses between prints the number cannot tell apart, is
+// not read (js/scan/identify.js numberSettles, v86); returns `settled` true
+// when it did. The label row, when asked for, is read either way, its lines
+// handed to the reader just after the number strip's first lines rather
+// than ahead of them. workers: the reader's workers, so a strip's lines are
+// read that many at a time (readLines). timings.reads: the OCR calls per
+// region.
 export async function readNumber(card, ocr, {cjk = null, fullArt = false, label: withLabel = false, modelState = null, name: withName = false, now = () => performance.now(), onProgress = null, numberPx = NUMBER_PX, otherStrip = true, prefer = 'left', prepareModel = null, scoreLatin = null, scoreName = null, setCode = false, settled = null, textPx = TEXT_PX, workers = 0} = {}) {
 	const crops = {};
 	const raw = {numberLeft: {confidence: 0, lines: [], text: ''}, numberRight: {confidence: 0, lines: [], text: ''}};
@@ -1568,9 +1567,14 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		return findNumber(sideOf(key), raw[key]);
 	};
 
-	// The label row, when asked for: beside the number strip, or with
-	// `settled` only once the number has not settled the card (startLabel).
-	// Its crops are cut now, so a read started later has only OCR left.
+	// The label row, when asked for, beside the number strip, its lines
+	// handed to the reader just after the number strip's first lines
+	// (startLabel), so they no longer take the workers ahead of the number's.
+	// It is read even when the number settles the card: it tells the
+	// language, and left to the read behind the tray (js/scan/view.js
+	// checkLabelLater) it ran while the next cards were dropped, and holder
+	// mode then took cards twice (tests/scan-newcard-browser.test.mjs and
+	// scan-log-browser.test.mjs, v86).
 	const band = withLabel ? prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN}) : null;
 	const bandLines = band ? findTextLines(band, numberPx, 2) : [];
 	const readLabelRow = async () => {
@@ -1595,10 +1599,6 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		return labelRead;
 	};
 
-	if (!settled) {
-		startLabel();
-	}
-
 	const first = prefer === 'right' ? 'numberRight' : 'numberLeft';
 	const second = first === 'numberLeft' ? 'numberRight' : 'numberLeft';
 	// The likelier strip's sharpness, for the scan report (stripSharpness).
@@ -1606,24 +1606,29 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	const lineCount = (key) => (key === 'numberLeft' ? 3 : 2);
 	// A full-art card: its ringed digits first, and the strip's lines only
 	// when they give no sure number.
-	let number = fullArt ? await ringedRead(first) : null;
+	const ringed = fullArt ? ringedRead(first) : null;
+
+	if (ringed) {
+		startLabel();
+	}
+
+	let number = ringed ? await ringed : null;
 
 	if (!(number && number.confidence >= FULL_ART_SURE)) {
-		const plain = await readLines(first, lineCount(first));
+		const lines = readLines(first, lineCount(first));
+
+		startLabel();
+
+		const plain = await lines;
 
 		if (plain && (!number || plain.confidence > number.confidence)) {
 			number = plain;
 		}
 	}
 
-	// No number on the likelier strip: the label row, which may choose
-	// without one, starts now (settled), and its sparse pass and the other
-	// strip's lines side by side, then the other strip's sparse pass; only
-	// the sparse pass when no candidate prints its number on the other strip.
-	if (!number) {
-		startLabel();
-	}
-
+	// No number on the likelier strip: its sparse pass and the other strip's
+	// lines side by side, then the other strip's sparse pass; only the
+	// sparse pass when no candidate prints its number on the other strip.
 	if (!number && !otherStrip) {
 		number = await sparse(first);
 	}
@@ -1652,15 +1657,9 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 		}
 	}
 
-	// A number that names one card (settled, v86) needs neither the set code
-	// box nor the label row: they choose only between prints the number
-	// cannot tell apart, or tell the language, which a card the picture
-	// settled has read behind the tray (js/scan/view.js checkLabelLater).
+	// A number that names one card (settled, v86) needs no set code box,
+	// which chooses only between prints the number cannot tell apart.
 	const done = Boolean(settled && number && !number.misread && await settled(number));
-
-	if (!done) {
-		startLabel();
-	}
 
 	let setCodeBox = {langCode: null, run: '', setCode: null, text: ''};
 
