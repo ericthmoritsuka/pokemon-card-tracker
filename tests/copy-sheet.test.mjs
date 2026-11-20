@@ -25,7 +25,7 @@ catch {
 	// Node 21 and later have a navigator of their own.
 }
 
-const {alikeKey, changes, finishFields, finishOptions, finishValue, photoCount, plainKind, rawFinishes, removalPlan} = await import('../js/copy-sheet.js');
+const {LOOSE, alikeKey, changes, finishFields, finishOptions, finishValue, photoCount, plainKind, rawFinishes, removalPlan, thisCopyChoices} = await import('../js/copy-sheet.js');
 const {entryFinish} = await import('../js/tile.js');
 
 const AT = '2026-10-01T00:00:00.000Z';
@@ -65,6 +65,39 @@ describe('removalPlan', () => {
 
 	test('the copy kept for the pocket a sheet is for never goes', () => {
 		assert.deepEqual(ids(removalPlan(copies, 1, {keep: 'en-new'})), {ask: null, chosen: ['fr']});
+	});
+});
+
+describe('thisCopyChoices', () => {
+	const kanto = {binder_id: 'b', binder_name: 'Kanto 151', page: 9, position: 3};
+	const vitrine = {binder_id: 'v', binder_name: 'Vitrine', page: 1, position: 2};
+	const loose = copy('loose', 'en', '2026-03-01');
+	const pocket = copy('pocket', 'en', '2026-01-01');
+
+	test('a row naming a pocket means the copy in it first, and the copy in none can still be picked (QA, 2026-11-20)', () => {
+		const choices = thisCopyChoices([loose, pocket], new Map([['pocket', kanto]]));
+
+		assert.deepEqual(choices.map((choice) => [choice.value, choice.label, choice.entries.map((entry) => entry.id)]), [
+			['pocket', 'Kanto 151, page 9, pocket 3', ['pocket']],
+			[LOOSE, 'Not in a binder', ['loose']],
+		]);
+
+		// The minus still takes the copy in no pocket: only the sheet means
+		// the pocket the row names.
+		assert.deepEqual(ids(removalPlan([loose, pocket], 1, {places: new Map([['pocket', kanto]])})), {ask: null, chosen: ['loose']});
+	});
+
+	test('two pockets in the row\'s order, the copies in none as one choice; none in a pocket, nothing to choose', () => {
+		const other = copy('other', 'en', '2026-02-01');
+		const places = new Map([['other', vitrine], ['pocket', kanto]]);
+
+		assert.deepEqual(thisCopyChoices([other, loose, pocket, copy('loose2', 'en', '2026-04-01')], places).map((choice) => [choice.value, choice.label, choice.entries.length]), [
+			['other', 'Vitrine, page 1, pocket 2', 1],
+			['pocket', 'Kanto 151, page 9, pocket 3', 1],
+			[LOOSE, 'One of 2 not in a binder', 2],
+		]);
+		assert.deepEqual(thisCopyChoices([other, pocket], places).map((choice) => choice.value), ['other', 'pocket']);
+		assert.equal(thisCopyChoices([loose, copy('loose2', 'en', '2026-04-01')], new Map()), null);
 	});
 });
 

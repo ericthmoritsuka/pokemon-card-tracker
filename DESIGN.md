@@ -895,7 +895,16 @@ a word still as the import gave it, and the copy's own word now decides its tile
 word its import key keeps, so a 1st Edition import set to Holo loses its "1st". In a row of alike
 copies the This copy / All N choice comes first, labeled Change, with the line "Change one copy
 to give it its own finish. It then shows as its own row." The changed copy moves to a row of its
-own, since a row holds copies alike in finish.
+own, since a row holds copies alike in finish. **This copy is the one the row names** (QA,
+2026-11-20: on a row reading "English · Kanto 151 p9 #3" for a copy in that pocket and one in
+none, This copy changed the one in none, the copy a minus takes). When a copy of the row is in a
+binder pocket, the choice is followed by **Which copy**, a select of each copy in a pocket by its
+pocket ("Kanto 151, page 9, pocket 3"), in the order the row's title names them, and "Not in a
+binder" ("One of 2 not in a binder") for the copies in none, which nothing tells apart. It opens
+on the first pocket the row names, shows only on This copy, and every action of the sheet means
+the copy it names: the fields, Trade or sale, and Remove copy, whose line then says the pocket it
+leaves. A row with no copy in a pocket has no Which copy and keeps the copy a minus would take
+(`removalPlan`). The stepper's minus is unchanged: it still takes a copy in no pocket first.
 
 **While the catalog cannot be reached**, the card page draws what the phone saved and says so, and
 a copy's printing it cannot name reads "Finish (catalog offline)". The sheets now say the same

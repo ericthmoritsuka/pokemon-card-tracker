@@ -495,6 +495,76 @@ describe('copies on card detail', () => {
 		await done();
 	});
 
+	test('This copy in a row naming a pocket is the copy in that pocket, and Which copy says so (QA, 2026-11-20)', async () => {
+		const {done, page} = await phone();
+		const fields = {card_id: pt.id, catalog: 'international', language: 'pt', language_source: 'scan', variant_id: variantOf(pt, 'Normal')};
+		const placed = await addCard(page, fields);
+		// Added last, so the newest: the copy a minus takes, and the one
+		// This copy changed before.
+		const loose = await addCard(page, fields);
+
+		await page.evaluate(async (entryId) => {
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const binder = await binders.createBinder({cols: 3, name: 'Kanto 151', page_count: 10, rows: 3});
+
+			await binders.placeCard(binder.id, 9, 3, entryId);
+		}, placed.id);
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('.copies .copy-place');
+		assert.match(await page.locator('.copies .copy-title').textContent(), /^Portuguese · Kanto 151 p9 #3$/);
+		assert.deepEqual(await rowCounts(page), ['2'], 'one row for both');
+
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.equal(await page.locator('#copy-sheet-title').textContent(), 'Edit copies (2 alike)');
+		assert.equal(await page.locator('input[name="copy-scope"]:checked').getAttribute('value'), 'one');
+		assert.ok(await page.locator('#copy-which').isVisible(), 'the sheet says which copy');
+		assert.equal(await page.textContent('label[for="copy-which"]'), 'Which copy');
+		assert.equal(await page.locator('#copy-which').inputValue(), placed.id, 'the copy in the pocket the row names');
+		assert.deepEqual(await page.locator('#copy-which option').allTextContents(), ['Kanto 151, page 9, pocket 3', 'Not in a binder']);
+		assert.equal(await page.locator('#copy-leaves').textContent(), 'It leaves Kanto 151, page 9 when removed.', 'Remove means the same copy');
+		assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'fits at 360 px');
+		await page.screenshot({path: '/tmp/copies-which-copy.png'});
+
+		// All 2 needs no choice.
+		await page.click('#copy-sheet .copy-scope label:has-text("All 2")');
+		assert.ok(await page.locator('#copy-which').isHidden());
+		await page.click('#copy-sheet .copy-scope label:has-text("This copy")');
+		assert.ok(await page.locator('#copy-which').isVisible());
+
+		await page.selectOption('#copy-finish', variantOf(pt, 'Reverse'));
+		await page.click('#copy-save');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await page.waitForFunction(() => document.querySelectorAll('.copies .copy-row').length === 2);
+
+		let after = await entries(page);
+
+		assert.equal(after.find((entry) => entry.id === placed.id).variant_id, variantOf(pt, 'Reverse'), 'the copy in the pocket took the finish');
+		assert.equal(after.find((entry) => entry.id === loose.id).variant_id, variantOf(pt, 'Normal'), 'the copy in no pocket is unchanged');
+
+		// A row of one copy has nothing to choose. A Reverse copy in no
+		// pocket joins the pocket's row, and Which copy picks it instead.
+		await page.click('.copies li:not(:has(.copy-place)) .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.equal(await page.locator('#copy-which').count(), 0, 'one copy: nothing to choose');
+		await page.keyboard.press('Escape');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await addCard(page, {...fields, variant_id: variantOf(pt, 'Reverse')});
+		await page.goto(url(`cards/pt/${pt.id}`));
+		await page.waitForSelector('.copies li:has(.copy-place) .copy-row');
+		await page.click('.copies li:has(.copy-place) .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		await page.selectOption('#copy-which', 'loose');
+		assert.equal(await page.locator('#copy-leaves').isHidden(), true, 'a copy in no pocket leaves none');
+		await page.selectOption('#copy-condition', 'Near Mint');
+		await page.click('#copy-save');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		after = await entries(page);
+		assert.equal(after.find((entry) => entry.id === placed.id).condition || null, null, 'the copy in the pocket is unchanged');
+		assert.equal(after.filter((entry) => entry.condition === 'Near Mint').length, 1, 'one copy in no pocket changed');
+		await done();
+	});
+
 	test('Add a copy on an unowned card: language, finish, condition, and how many', async () => {
 		const {done, page} = await phone();
 
