@@ -700,9 +700,22 @@ describe('the Value sheet', () => {
 		assert.equal(plain(await page.locator('.vs-asian').textContent()), '2 copies are Japanese, Korean, or Chinese prints with no market price.');
 		assert.equal(plain(await page.locator('.vs-none').textContent()), '1 copy has no market price on TCGdex.');
 		assert.equal(await page.locator('.vs-waiting').count(), 0);
-		// The first of the sheet's headings; Over time follows it
-		// (js/value-history-view.js).
-		assert.equal(await page.locator('.vs-of').first().textContent(), 'Of the priced copies');
+		// The total first, the coverage under it, and how it is worked out
+		// behind "How this is estimated", closed (design review 2,
+		// 2026-11-20: the sheet opened on its coverage, the total under the
+		// fold).
+		const order = await page.evaluate(() => {
+			const top = (selector) => document.querySelector(`.value-sheet ${selector}`).getBoundingClientRect().top;
+
+			return {coverage: top('.vs-coverage'), explain: top('.price-explain'), total: top('.price-stats-total')};
+		});
+
+		assert.ok(order.total < order.coverage && order.coverage < order.explain, `the total, then the coverage, then the explanation (${JSON.stringify(order)})`);
+		assert.equal(plain(await page.locator('.value-sheet .price-explain > summary').textContent()), 'How this is estimated');
+		assert.equal(await page.locator('.value-sheet .price-explain').evaluate((details) => details.open), false);
+		assert.ok(await page.locator('.value-sheet .price-stats-notes').isHidden(), 'the notes wait behind it');
+		await page.click('.value-sheet .price-explain > summary');
+		assert.ok(await page.locator('.value-sheet .price-stats-notes').isVisible(), 'and open on a tap');
 		assert.equal(await page.locator('.value-sheet .price-stats').getAttribute('aria-label'), 'Value of your collection');
 		// 0.5 + 1.2 + 1.2 + 30 + 0.1 + 2 at R$ 5, and Pikachu's R$ 80 Liga.
 		assert.equal(plain(await page.locator('.value-sheet .price-stats-total').textContent()), '~R$ 255,00');

@@ -636,7 +636,12 @@ export function tilePrice(entries, card, {basis = 'avg', rates = savedRates()} =
 //   basis      'avg' (default) or 'low_nm'
 //   rates      an exchange rate to use instead of the saved one
 //   label      what the cards are, for the bar's accessible name
-export function statsBar({basis = 'avg', cardsById, entries, label = 'these cards', rates = savedRates()} = {}) {
+//
+// between: nodes drawn after the total, the range, and the Liga choice, and
+// before the counts and notes, which go behind "How this is estimated"
+// (the Value sheet's coverage line, design review 2, 2026-11-20: the sheet
+// opened on its coverage with the total under the fold).
+export function statsBar({basis = 'avg', between = [], cardsById, entries, label = 'these cards', rates = savedRates()} = {}) {
 	const id = `price-${++sectionCount}`;
 	const bar = h('section', {'aria-label': `Value of ${label}`, class: 'price-stats'});
 	let chosen = basis === 'low_nm' ? 'low_nm' : 'avg';
@@ -665,11 +670,11 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 			parts.push(h('p', {class: 'price-stats-none'}, `No prices known for ${label} yet.`));
 		}
 
-		parts.push(h('p', {class: 'price-stats-counts'},
+		const explained = [h('p', {class: 'price-stats-counts'},
 			stats.liga.count ? h('span', {class: 'price-count-liga'}, `${plural(stats.liga.count, 'copy', 'copies')} by Liga`) : null,
 			h('span', {class: 'price-count-estimate'}, `${plural(stats.estimate.count, 'copy', 'copies')} by US estimate (~)`),
 			h('span', {class: 'price-count-unknown'}, `${plural(stats.unknown.count, 'copy', 'copies')} unknown`)
-		));
+		)];
 
 		const notes = [];
 
@@ -690,7 +695,7 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 		}
 
 		if (notes.length) {
-			parts.push(h('p', {class: 'muted price-stats-notes'}, notes));
+			explained.push(h('p', {class: 'muted price-stats-notes'}, notes));
 		}
 
 		const option = (value, text) => h('label', null,
@@ -710,6 +715,12 @@ export function statsBar({basis = 'avg', cardsById, entries, label = 'these card
 			));
 		}
 
+		// Kept open across a redraw (the Liga choice), as the reader left it.
+		const wasOpen = Boolean(bar.querySelector('.price-explain[open]'));
+
+		parts.push(...between, h('details', {class: 'price-explain', open: wasOpen || null},
+			h('summary', null, 'How this is estimated'),
+			...explained));
 		bar.replaceChildren(...parts);
 	}
 

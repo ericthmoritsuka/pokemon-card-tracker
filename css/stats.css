@@ -203,3 +203,11 @@ a.stats-valuable-row:hover .stats-valuable-name {
 .stats-section .vh-collection > h3 {
 	margin-top: 0;
 }
+
+/* The value in the summary (design review 2, 2026-11-20) is set smaller
+   than the counts, so "~R$ 22.724" fits its cell at 360 px; a longer one
+   wraps after "R$" rather than run past it. */
+#stats-value dd {
+	font-size: 1.375rem;
+	line-height: 1.3;
+}

@@ -181,7 +181,7 @@ describe('Trade', () => {
 
 		assert.match(coverage, /^Priced: \d of 6 copies$/, 'six spares, not the fifteen copies');
 		assert.match(plain(await page.locator('.vs-asian').textContent()), /^1 copy is a Japanese, Korean, or Chinese print with no market price\./);
-		assert.match(plain(await page.locator('.vs-body').textContent()), /Of the priced copies|All copies are priced/);
+		assert.match(plain(await page.locator('.vs-body .price-stats').textContent()), /^Total/, 'the total first');
 		await page.screenshot({path: `${SHOTS}/trade-value.png`});
 		await page.click('dialog.value-sheet .sheet-head button');
 		assert.deepEqual(errors, []);

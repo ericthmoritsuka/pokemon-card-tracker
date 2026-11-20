@@ -2343,10 +2343,16 @@ TCGdex's GraphQL carries no pricing (checked 2026-10-02), so this is the REST ca
 request per card. Japanese, Korean, and Chinese prints have no market price and are never asked
 for; their tiles, and cards TCGdex has no price for, show a quiet "No price", while a card whose
 price is still downloading shows nothing. The Stats toggle and panel on My Cards gave way to a
-small **Value** button that opens a bottom sheet led by coverage: "Priced: N of M copies", how many
+small **Value** button that opens a bottom sheet. It leads with the total and the average (and
+the highest and lowest), with the coverage right under them: "Priced: N of M copies", how many
 are Asian prints with no market price, how many still wait for a price, how many TCGdex has no
-price for, then the statistics bar under "Of the priced copies", and a link that filters My Cards
-to the copies without a price. The sheet takes any list of copies, so the Trade view can open it.
+price for, and a link that filters My Cards to the copies without a price. How the total is worked
+out (the copies by Liga, by US estimate, and unknown, the rate and its day, the copies taking
+another finish's price) is behind **How this is estimated**, closed until tapped *(design review 2,
+2026-11-20: the sheet opened on its coverage, with the total under the fold; it was led by
+coverage so that a total over half the cards does not read as the whole collection's, which the
+line right under the total still does)*. The sheet takes any list of copies, so the Trade view can
+open it.
 
 **A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
 is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
@@ -3760,21 +3766,26 @@ over them, well under the 1 s the unit test allows.
   Spares, Trades, and Add by hand (design review 2, 2026-11-20). Both are about the whole
   collection, so they sit together. Profile was ruled out because Stats is about the cards, and
   the Cards tab is where they are. "‹ My Cards" goes back.
-- **What it shows.** Totals (copies, cards, sets, languages); bars by language, by set (the top
-  10, then "And N more sets, M copies"), by rarity, by type (a card of two types counts under
+- **What it shows,** in this order *(design review 2, 2026-11-20: what is reached for most
+  first)*: totals (copies, cards, sets, and the value); on your own Stats, your lists' progress
+  (below); the 10 most valuable copies; bars by language, by set (the top 10, then "And N more
+  sets, M copies"), by rarity, by type (a card of two types counts under
   both, and a Trainer or Energy under its category), by finish (Normal, Holo, Reverse holo, 1st
   Edition, Poké Ball pattern, Master Ball pattern, read from the printing the copy's full record
   lists for it, else the word it was saved or imported with), and by condition (the copy sheet's
-  five, then Not set); the 10 most valuable copies; the copies with no price and why; the copies
+  five, then Not set); the copies with no price and why; the copies
   added in each of the last 12 months, oldest first, with "N added before then"; and, on your own
   Stats, the Value sheet's **Over time** part.
 - **Most valuable** takes each copy's value exactly as the Value sheet sums it (`js/prices.js`
   `copyValue`: the kept Liga price, else the US estimate at the saved rate, written "~"), so the
   rows add up to the sheet's total. Copies of one card in one language with the same value are one
   row with "×N". Each row links to the card's page, and the ten are offered as the swipe order.
-- **No headline total.** The collection's total stays in the Value sheet (section 10): Stats has
-  no total of its own; Over time is the sheet's part, as far down the screen as it is in the
-  sheet.
+- **The value in the totals** *(design review 2, 2026-11-20, replacing the Languages total, which
+  By language says in full)*: the Value sheet's own sum over the same copies (`listStats`), in
+  whole reais from R$ 100 and with "~" when part of it is a US estimate, or "Not known yet". It is
+  on the Stats screen, which is opened on purpose, never on the home screen, so the "no headline
+  total" rule of section 10 still holds there. Over time is the sheet's part, last on the
+  screen.
 - **Bars are text first.** Each row is its label, then its count and share ("412 · 16%", "less
   than 1%" for a sliver, so a row never reads 0% beside a count); the bar under it is
   `aria-hidden`, as long as its share of the largest row, in the theme's link color (the color of
@@ -3789,7 +3800,7 @@ over them, well under the 1 s the unit test allows.
   itself, since that needs the Pokédex map and each goal's card list (network or a large cache
   read). The Lists tab counts them anyway, so it now leaves each count on the phone
   (`js/list-progress.js`, per account, in this browser's storage and, like the value history,
-  never synced), and your own Stats shows a **Lists** part after the months: each checklist,
+  never synced), and your own Stats shows a **Lists** part right after the totals: each checklist,
   then each goal, in the Lists tab's order and under its current name, linked to its screen, with
   "N of M" (a master set goal's in finishes), its share, and a bar as long as that share. Under
   it, "As counted on Lists on <day>" (the oldest count), how many cards a checklist could not

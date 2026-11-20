@@ -78,9 +78,56 @@ button.value-line::after {
 	width: auto;
 }
 
-.vs-of {
-	font: var(--type-heading);
-	margin: var(--space-4) 0 0;
+/* The coverage under the total, inside the statistics box. */
+.price-stats .vs-coverage {
+	font-size: 1rem;
+	margin: var(--space-3) 0 0;
+}
+
+.price-stats .vs-reasons {
+	font-size: 0.875rem;
+	margin-top: var(--space-1);
+}
+
+/* How the total is worked out, closed until asked for. */
+.price-explain {
+	margin-top: var(--space-2);
+}
+
+.price-explain > summary {
+	align-items: center;
+	color: var(--link);
+	cursor: pointer;
+	display: flex;
+	font-weight: 600;
+	gap: var(--space-2);
+	list-style: none;
+	min-height: var(--target);
+}
+
+.price-explain > summary::-webkit-details-marker {
+	display: none;
+}
+
+.price-explain > summary::after {
+	border-right: 2px solid currentcolor;
+	border-top: 2px solid currentcolor;
+	content: "";
+	flex: none;
+	height: 0.45em;
+	transform: rotate(45deg);
+	transition: transform 0.15s;
+	width: 0.45em;
+}
+
+.price-explain[open] > summary::after {
+	transform: rotate(135deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.price-explain > summary::after {
+		transition: none;
+	}
 }
 
 .value-sheet .price-stats {
