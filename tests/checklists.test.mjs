@@ -663,6 +663,82 @@ describe('checklists', () => {
 		await context.close();
 	});
 
+	test('a Pokémon the saved dex map gives no number is read again after 12 hours, so it counts in its region', {timeout: TEST_TIMEOUT}, async () => {
+		// 2026-11-20: the 30th Celebration's cards were saved before TCGdex
+		// filled in their dexId, so a 30th Mew (dex 151) was missing from
+		// Kanto, and the map was not read again for 30 days.
+		const {context, errors, page} = await device(null, 'phone');
+		let maps = 0;
+
+		await context.route('https://api.tcgdex.net/v2/graphql', (route) => {
+			const {query} = JSON.parse(route.request().postData() || '{}');
+
+			if (!/^\{ cards \{ id dexId \} \}$/.test(query)) {
+				return route.fallback();
+			}
+
+			maps++;
+
+			return route.fulfill({body: JSON.stringify({data: {cards: [{dexId: [151], id: '30th-065'}, {dexId: [], id: '30th-100'}]}}), contentType: 'application/json', status: 200});
+		});
+		await page.goto(url('lists'));
+
+		const at = '2026-11-01T00:00:00.000Z';
+		const entries = [
+			{card_id: '30th-065', catalog: 'international', created_at: at, deleted_at: null, id: 'mew', language: 'pt', updated_at: at},
+			{card_id: '30th-100', catalog: 'international', created_at: at, deleted_at: null, id: 'trainer', language: 'pt', updated_at: at},
+		];
+		const visit = () => page.evaluate(async (list) => {
+			const {resolveOwned} = await import('/pokemon-card-tracker/js/checklists.js');
+			const result = await resolveOwned(list);
+
+			return {dex151: (result.byDex.get(151) || []).map((entry) => entry.id), unresolved: result.unresolved};
+		}, entries);
+
+		// The first visit downloads the map and makes the cache.
+		await visit();
+		assert.equal(maps, 1);
+
+		// The map as saved 13 hours ago, before TCGdex had the Mew's number,
+		// and the card index knowing the Mew is a Pokémon and the other a
+		// Trainer (the background details pass).
+		await page.evaluate(async () => {
+			await new Promise((resolve, reject) => {
+				const open = indexedDB.open('card-tracker-checklists');
+
+				open.onsuccess = () => {
+					const tx = open.result.transaction('cache', 'readwrite');
+
+					tx.objectStore('cache').put({at: Date.now() - (13 * 60 * 60 * 1000), data: {'30th-065': [], '30th-100': []}}, 'dexmap:international');
+					tx.oncomplete = () => {
+						open.result.close();
+						resolve();
+					};
+					tx.onerror = () => reject(tx.error);
+				};
+				open.onerror = () => reject(open.error);
+			});
+
+			const {saveToCardIndex} = await import('/pokemon-card-tracker/js/catalog.js');
+
+			await saveToCardIndex([
+				{catalog: 'international', category: 'Pokemon', dex_ids: [], id: '30th-065', illustrator: null, localizations: {}, set_id: '30th'},
+				{catalog: 'international', category: 'Trainer', dex_ids: [], id: '30th-100', illustrator: null, localizations: {}, set_id: '30th'},
+			]);
+		});
+		await page.reload();
+
+		assert.deepEqual(await visit(), {dex151: ['mew'], unresolved: 0}, 'the Mew counts under 151');
+		assert.equal(maps, 2, 'the map was read again');
+
+		// A Trainer with no number never brings the map forward.
+		await page.reload();
+		await visit();
+		assert.equal(maps, 2);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a list made signed in syncs, and a family member sees it read only', {timeout: TEST_TIMEOUT}, async () => {
 		const fake = new FakeSupabase();
 		const owner = fake.addUser('owner@example.test');

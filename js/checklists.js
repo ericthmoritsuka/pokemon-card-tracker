@@ -18,7 +18,7 @@
 //
 // No DOM here, so Node can load the pure parts (regions, tallying).
 
-import {cardIndex, importApi, indexKey, savedCardRecords} from './catalog.js';
+import {cardIndex, dexPending, importApi, indexKey, savedCardRecords} from './catalog.js';
 import {isLive, loadDocument, mergeIntoLocal, newId, nowIso} from './collection.js';
 import {database, timedCache} from './idb.js';
 import {
@@ -508,13 +508,16 @@ let download = null;
 
 const RETRY_LIST_AFTER_MS = 5 * 60 * 1000;
 
-async function internationalMap(ids, onProgress, force) {
+async function internationalMap(ids, onProgress, force, pending = new Set()) {
 	const hit = mapMemo || await cacheGet(INTERNATIONAL_KEY);
 
 	mapMemo = hit || null;
 
 	const age = hit ? Date.now() - hit.at : Infinity;
-	const unknown = hit ? ids.filter((id) => !(id in hit.data)).length : ids.length;
+	// A Pokémon the map gives no number while the phone knows it is a
+	// Pokémon (dexPending) counts as one the map lacks: TCGdex filled it in
+	// after the map was saved.
+	const unknown = hit ? ids.filter((id) => !(id in hit.data) || (pending.has(id) && !(hit.data[id] || []).length)).length : ids.length;
 	const due = !hit || age > REFETCH_AFTER_MS || (unknown > 0 && age > REFETCH_FOR_NEW_AFTER_MS);
 
 	// After a failed download, wait a few minutes before the next try, so
@@ -622,11 +625,15 @@ export async function resolveOwned(entries, {force = false, isAlive = () => true
 
 	const known = new Map();
 	const international = [...cards.values()].filter((card) => card.catalog === 'international').map((card) => card.cardId);
-	const {error, map} = await internationalMap(international, onProgress, force);
+	const index = await cardIndex().catch(() => new Map());
+	const pending = new Set(international.filter((id) => dexPending(index.get(indexKey('international', id)))));
+	const {error, map} = await internationalMap(international, onProgress, force, pending);
 
 	if (map) {
 		for (const id of international) {
-			if (id in map) {
+			// A pending Pokémon the map still gives no number is read on its
+			// own below.
+			if (id in map && !(pending.has(id) && !(map[id] || []).length)) {
 				known.set(indexKey('international', id), map[id]);
 			}
 		}

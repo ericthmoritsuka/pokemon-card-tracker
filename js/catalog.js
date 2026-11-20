@@ -688,6 +688,16 @@ const DETAIL_FIELDS = 'id dexId types category rarity illustrator';
 // A record read before the artist was asked for (v46) is read once more.
 export const hasDetails = (record) => Boolean(record) && typeof record.category === 'string' && Object.hasOwn(record, 'illustrator');
 
+// A Pokémon read with no Pokédex number: TCGdex lists a new set's cards
+// before it fills in their dexId (30th Celebration, 2026-11-20: 147 owned
+// Pokémon saved with none, so a 30th Mew was missing from the Kanto list).
+// Its details, and the checklists' dex map, are read again after
+// DEX_PENDING_RECHECK_MS rather than a week or a month. A Trainer or Energy
+// has no number by nature and is never pending.
+export const dexPending = (record) => Boolean(record) && record.category === 'Pokemon' && !(Array.isArray(record.dex_ids) && record.dex_ids.length);
+
+export const DEX_PENDING_RECHECK_MS = 12 * 60 * 60 * 1000;
+
 export const setIdOfCard = (cardId) => {
 	const cut = String(cardId).lastIndexOf('-');
 
@@ -731,7 +741,7 @@ export function setsNeedingDetails(entries, index) {
 		const catalog = entry.catalog || 'international';
 		const record = index.get(indexKey(catalog, entry.card_id));
 
-		if (!entry.card_id || hasDetails(record)) {
+		if (!entry.card_id || (hasDetails(record) && !dexPending(record))) {
 			continue;
 		}
 
@@ -761,8 +771,11 @@ export async function setDetails({catalog, ids = new Set(), setId}, {now = Date.
 	const key = `details2:${catalog}:${setId}`;
 	const hit = await cacheGet(key);
 	const lacks = hit && [...ids].some((id) => !Object.hasOwn(hit.data || {}, id));
+	// An owned Pokémon the saved answer gave no Pokédex number (dexPending).
+	const pending = hit && [...ids].some((id) => dexPending((hit.data || {})[id]));
+	const stale = hit && ((lacks && now - hit.at >= DETAILS_RECHECK_MS) || (pending && now - hit.at >= DEX_PENDING_RECHECK_MS));
 
-	if (hit && (!lacks || now - hit.at < DETAILS_RECHECK_MS || !navigator.onLine)) {
+	if (hit && (!stale || !navigator.onLine)) {
 		return hit.data;
 	}
 
