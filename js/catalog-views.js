@@ -1504,7 +1504,9 @@ export function cardView(root, {lang, cardId}) {
 	function ligaControl() {
 		if (ligaHref) {
 			return h('a', {class: 'button primary liga-link', href: ligaHref, id: 'card-liga-link', rel: 'noopener noreferrer', target: '_blank'},
-				'Ver na Liga',
+				// Portuguese words on an English page, said in Portuguese (WCAG
+				// 3.1.2; accessibility audit, 2026-11-20).
+				h('span', {lang: 'pt-BR'}, 'Ver na Liga'),
 				h('span', {'aria-hidden': 'true', class: 'liga-out'}, ' ↗'),
 				h('span', {class: 'copies-sr'}, ' (opens Liga Pokémon)')
 			);

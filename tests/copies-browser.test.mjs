@@ -628,6 +628,8 @@ describe('card detail layout', () => {
 			// One visible Ver na Liga; the price panel's own is hidden.
 			assert.equal(await page.locator('.card-detail a:visible:has-text("Ver na Liga")').count(), 1);
 			assert.equal(await page.locator('#card-liga-link').getAttribute('href'), 'https://www.ligapokemon.com.br/?view=cards/search&card=Exeggcute%20(001%2F131)');
+			// Said in Portuguese on an English page (WCAG 3.1.2).
+			assert.equal(await page.locator('#card-liga-link [lang="pt-BR"]').textContent(), 'Ver na Liga');
 			assert.ok(await page.locator('#card-price .price-liga-link').isHidden());
 			// The market prices come after.
 			assert.ok(!(await onFirstScreen(page, '#card-price .price-markets')), 'the US and EU markets are further down');

@@ -226,7 +226,7 @@ export function priceSection({card, entries = [], eurRates = undefined, language
 	function ligaLink() {
 		if (href) {
 			return h('a', {class: 'button primary price-liga-link', href, rel: 'noopener noreferrer', target: '_blank'},
-				'Ver na Liga',
+				h('span', {lang: 'pt-BR'}, 'Ver na Liga'),
 				h('span', {'aria-hidden': 'true', class: 'price-out'}, ' ↗'),
 				h('span', {class: 'price-sr'}, ' (opens Liga Pokémon)')
 			);
