@@ -494,6 +494,7 @@ export function cardsScreen(root, {
 		? bulkSelect({
 			fullRecord: (group) => saved.get(group.recordKey) || null,
 			grid,
+			recordsReady: () => whenAllSaved(),
 			groups: () => groups,
 			tiles: () => tiles,
 			visible: () => lastVisible,

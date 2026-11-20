@@ -23,7 +23,8 @@ import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
 import {fakeRates} from './fake-rates.mjs';
-import {BASE, BINDERS, CARDS, COPIES, fakeServices, fullRecord, linkNewStyles, seed} from './my-cards-fixtures.mjs';
+import {holdRecords, releaseRecords} from './hold-records.mjs';
+import {BASE, BINDERS, CARDS, COPIES, fakeServices, fullRecord, indexRecords, linkNewStyles, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {untilInPage} from './poll.mjs';
 
@@ -54,13 +55,16 @@ after(async () => {
 	await server.close();
 });
 
-async function phone() {
+// hold: the saved card records whose reads wait (tests/hold-records.mjs).
+async function phone({cards = CARDS, hold = false} = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: VIEWPORT});
 
 	// First, so the fixtures' own rate route answers instead.
 	await fakeRates(context);
 
-	const log = await fakeServices(context);
+	const log = await fakeServices(context, {cards});
+
+	await holdRecords(context, hold);
 
 	await fakePokeApi(context);
 	await linkNewStyles(context);
@@ -519,4 +523,28 @@ describe('bulk select on My Cards', () => {
 		assert.equal(await page.locator('#cards-select').count(), 0, 'a family member\'s cards have no Select');
 		await done();
 	});
+
+	test('Finish on every tile waits for the records My Cards reads after the first screen', async () => {
+		// 181 cards, one copy each, newest last: the first screen shows 120,
+		// and the oldest 61, past what Finish reads on its own (60), come
+		// in after the paint. Their reads wait until the test lets them.
+		const base = CARDS.find((card) => card.id === 'tsa1-001');
+		const cards = Array.from({length: 181}, (_, i) => ({...base, id: `tsa1-${String(i + 1).padStart(3, '0')}`, names: {en: `Card ${i + 1}`}}));
+		const now = Date.now();
+		const records = Object.fromEntries(cards.map((card, i) => [`card:en:${card.id}`, {at: now, data: {...fullRecord(card), variants_detailed: [{type: 'normal', variantId: `v${i}-normal`}, {type: 'holo', variantId: `v${i}-holo`}]}}]));
+		const copies = cards.map((card, i) => ({card_id: card.id, catalog: 'international', created_at: new Date(Date.UTC(2026, 8, 1) + i * 60000).toISOString(), deleted_at: null, id: `m-${i}`, language: 'en', language_source: 'manual', updated_at: new Date(Date.UTC(2026, 8, 1) + i * 60000).toISOString()}));
+		const {done, page} = await phone({cards, hold: cards.slice(0, 61).map((card) => `card:en:${card.id}`)});
+
+		await open(page, {binders: [], copies, index: indexRecords(cards), records});
+		await selecting(page);
+		await page.click('#bulk-all');
+		assert.equal(await count(page), '181 selected');
+		await action(page, 'bulk-finish');
+		await page.waitForTimeout(1000);
+		await releaseRecords(page);
+		await page.locator('#bulk-finish-select').waitFor(TIMEOUT);
+		assert.deepEqual((await page.locator('#bulk-finish-select option').allTextContents()).sort(), ['Holo', 'Normal'], 'every card\'s finishes known');
+		await done();
+	});
 });
+
