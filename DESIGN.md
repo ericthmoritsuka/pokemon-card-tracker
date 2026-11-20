@@ -222,6 +222,24 @@ day, counted from the later of the two times ("Kept until Dec 6", or "Deleting s
 is past; design review, 2026-11-06: "Deleted Dec 6" read as already gone). *(Eric,
 2026-11-06; built 2026-11-06; counted from arrival too after review, 2026-11-06.)*
 
+**Phone check reads one set as this phone holds it.** On 2026-11-20 a Realme showed 57 of 161 owned
+for the 30th Celebration while an M53 and a computer showed 147 from the same 2,208 copies, and a
+site-data reset fixed it before anyone could see what the Realme held, so the cause was never
+found. Phone check's **A set on this phone** (`js/set-check.js`) is for reading it first next time.
+Its select lists the sets the phone has copies of, by name and ID, each under the set its card ID
+begins with and the set its card index record names, so a record naming the wrong set shows as a
+set of its own. For the set picked it shows, read only and with no request: the copies whose card
+ID begins with the set's or whose record names it, the distinct cards, and both by language; how
+many of those cards have a card index record and which have none; the sets the records name, and
+each record naming another set (it moves the card out of this set's ring); the Pokémon with no
+Pokédex number (`dexPending`); the cards and copies the Sets tab counts in the set and its ring in
+the viewing language and with Any language, from the Sets tab's own `ownedBySet`,
+`setsOwnedCount`, and `setsOwnedIn`, with the total from the saved set list; the Owned switch's
+setting; and for the viewing language and each language of the copies, the saved set record
+(`set:<lang>:<set id>`): when it was saved and how long ago, how many cards it lists, and the
+owned cards it does not. **Copy** puts the same rows on the clipboard as plain text to paste into
+a chat. *(Eric, 2026-11-20.)*
+
 **Holder mode is a remembered switch, not a second scanner.** For a phone held still in a stand over
 cards dropped into a box, auto capture waits for each drop to settle and takes it once; everything
 else (the tray, the repeat bar, Review) is the same flow. Details in section 6. *(Decided by Eric,

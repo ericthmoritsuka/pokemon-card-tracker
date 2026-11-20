@@ -275,6 +275,25 @@ export const setDetail = (lang, setId, onUpdate) =>
 export const cardDetail = (lang, cardId, onUpdate) =>
 	cached(`card:${lang}:${cardId}`, () => getJson(`${lang}/cards/${encodeURIComponent(cardId)}`), onUpdate);
 
+// What this phone holds, with no request, for Phone check's set check
+// (js/set-check.js): the saved set list in `lang` ({at, data}), and the
+// saved set record under the key setDetail and importApi.setDetail share
+// ({at, data}, or {at, missing: true} when TCGdex last answered 404). Null
+// when nothing is saved.
+export const savedSetList = async (lang) => (await cacheGet(`setlist4:${lang}`)) || null;
+
+export async function savedSetRecord(lang, setId) {
+	const hit = await cacheGet(`set:${lang}:${setId}`);
+
+	if (hit) {
+		return hit;
+	}
+
+	const missing = await cacheGet(`missing:set:${lang}:${setId}`);
+
+	return missing ? {at: missing.at, missing: true} : null;
+}
+
 // The set records and full card records saved on this phone, as {sets:
 // [{lang, set}], cards: [{lang, card}]}, read with no request: what the Sets
 // tab's card search looks through offline (js/card-search.js). Empty when

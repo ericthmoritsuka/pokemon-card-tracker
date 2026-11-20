@@ -391,6 +391,7 @@ Plain HTML, CSS, and ES modules. No framework and no npm.
 | `js/import-view.js` | The import screen and its match report. |
 | `js/cards-view.js` | My Cards, the CSV export, and a family member's cards, read only. |
 | `js/phone-check.js` | Phone check: device report, Camera test, and Storage test. |
+| `js/set-check.js` | Phone check's A set on this phone: one set's copies, card records, Sets ring, and saved set lists as the phone holds them, with Copy. |
 | `js/dom.js` | Shared DOM, navigation, and error helpers. |
 | `vendor/supabase-js.js` | The Supabase client, 2.117.2, bundled into one file. |
 | `supabase/setup.sql` | Tables, row-level security, and functions; run once in the SQL Editor. |

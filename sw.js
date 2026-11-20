@@ -179,6 +179,7 @@ const SHELL = [
 	'js/names.js',
 	'js/phone-check.js',
 	'js/scan-reports-view.js',
+	'js/set-check.js',
 	'js/pokemon-cards-view.js',
 	'js/pokemon-cards.js',
 	'js/price-view.js',

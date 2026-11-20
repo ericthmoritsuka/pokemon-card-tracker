@@ -1,5 +1,6 @@
 // Phone check: the weekend zero tests (device report, Camera test, Storage
-// test), kept so each family phone can still be checked.
+// test), kept so each family phone can still be checked, and one set as
+// this phone holds it (js/set-check.js).
 
 import {BASE, errorText, h, namedError, showError} from './dom.js';
 import {formatCount} from './format.js';
@@ -7,6 +8,7 @@ import {openDatabase} from './idb.js';
 import {downloadBlob} from './scan/image.js';
 import {clearLog, logFile, logSize, picturesOn, recording, setPictures, setRecording} from './scan/log.js';
 import {reportSendPanel} from './scan-reports-view.js';
+import {setCheckCard} from './set-check.js';
 import {clockGap, clockIsOff, clockOffset, onClockOffset} from './sync.js';
 
 const RESULTS_KEY = 'cardTracker.spike.v1';
@@ -305,6 +307,7 @@ export function phoneCheckView(root) {
 			h('a', {class: 'button', href: BASE + 'storage', 'data-link': 'storage'}, 'Storage test')
 		),
 		scanLog.element,
+		setCheckCard({copyText}),
 		h('section', {class: 'card'},
 			h('h2', null, 'Device report'),
 			h('p', {class: 'muted'}, 'Results are kept on this phone. The installed app and the browser may keep them separately, so copy the report from each.'),

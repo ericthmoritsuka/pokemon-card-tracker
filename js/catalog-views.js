@@ -212,10 +212,12 @@ const SET_FILTER_KEY = 'cardTracker.setFilter';
 const SETS_OWNED_KEY = 'cardTracker.setsOwnedIn';
 const SETS_OWNED = ['language', 'any'];
 
-const setsOwnedIn = () => readChoice(SETS_OWNED_KEY, SETS_OWNED, 'language');
+// Exported, with setsOwnedCount, for Phone check's set check
+// (js/set-check.js), which shows the ring this phone draws.
+export const setsOwnedIn = () => readChoice(SETS_OWNED_KEY, SETS_OWNED, 'language');
 
 // A set tile's owned count from ownedBySet's cards (card_id -> languages).
-function setsOwnedCount(cards, lang, mode) {
+export function setsOwnedCount(cards, lang, mode) {
 	if (!cards) {
 		return 0;
 	}
