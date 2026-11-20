@@ -291,6 +291,54 @@ describe('a copy is never lost', () => {
 		assert.deepEqual(mergeDocuments({binders: once}, {binders: shift}).binders[0].staged, ['c3']);
 		assert.deepEqual(mergeDocuments({binders: once}, {binders: other}).binders[0].staged, ['c3']);
 	});
+
+	// QA, 2026-11-20 (Kanto 151, 3 x 3): the laptop removes pocket 3 with
+	// Shift the rest back while the phone, offline, moves pocket 1 to pocket
+	// 5. Where the phone's shifted pockets meet the laptop's, each pocket
+	// goes to the later stamp, and the copy both shifts moved past the seam
+	// held no pocket (it went to the tray). It takes the free pocket nearest
+	// the one it was placed in last: pocket 2, which the removed card's
+	// pocket left empty.
+	test('two shifts meeting at a seam: the copy both still hold stays in a pocket, the same either way and merged again', () => {
+		const kanto = () => [hand('k', Array.from({length: 15}, (_, i) => holding(Math.floor(i / 9) + 1, (i % 9) + 1, `c${i + 1}`)), {cols: 3, rows: 3})];
+		const shown = (list) => Object.fromEntries([...binders.placements(list)].map(([id, found]) => [id, ((found.slot.page - 1) * 9) + found.slot.position]));
+		const later = (from, to) => Object.fromEntries(Array.from({length: to - from + 1}, (_, i) => [`c${from + i}`, from + i - 1]));
+		const cases = [
+			{laptop: 10, phone: 11, want: {c1: 5, c2: 1, c4: 3, c5: 4, c6: 2, ...later(7, 15)}},
+			{laptop: 11, phone: 10, want: {c1: 2, c2: 1, c4: 3, c5: 4, ...later(6, 15)}},
+		];
+
+		for (const {laptop: laptopAt, phone: phoneAt, want} of cases) {
+			const before = kanto();
+			const laptop = binders.removePocket(before, {at: at(laptopAt), binderId: 'k', page: 1, position: 3, shift: true}).changed;
+			const phone = binders.shiftMove(before, {at: at(phoneAt), binderId: 'k', from: {page: 1, position: 1}, to: {page: 1, position: 5}}).changed;
+			const ab = merged(merged(before, laptop), phone);
+			const ba = merged(merged(before, phone), laptop);
+
+			assert.deepEqual(shown(ab), want, `laptop at ${laptopAt}: every copy but the removed one in a pocket`);
+			assert.deepEqual(ab[0].staged, undefined, 'nothing goes to the tray');
+			assert.deepEqual(ab, ba, 'the same binder in either merge order');
+			assert.deepEqual(merged(laptop, phone), merged(phone, laptop), 'symmetric on the two versions alone');
+			assert.deepEqual(merged(laptop, phone), ab);
+
+			for (const again of [before, laptop, phone]) {
+				assert.deepEqual(merged(ab, again), ab, 'merging again with either side changes nothing');
+				assert.deepEqual(merged(again, ab), ab);
+			}
+		}
+	});
+
+	// The same seam, but the phone placed the copy in pocket 5 by hand: the
+	// rule for a pocket both wrote stands, so it waits in the tray.
+	test('a copy that lost a pocket to a copy placed by hand still goes to the tray', () => {
+		const before = [hand('k', Array.from({length: 9}, (_, i) => holding(1, i + 1, `c${i + 1}`)), {cols: 3, page_count: 2, rows: 3, staged: ['c20']})];
+		const laptop = binders.removePocket(before, {at: at(10), binderId: 'k', page: 1, position: 3, shift: true}).changed;
+		const phone = binders.setPocket(before, {at: at(11), binderId: 'k', content: {entry_id: 'c20'}, page: 1, position: 5});
+
+		for (const [left, right] of [[laptop, phone], [phone, laptop]]) {
+			assert.deepEqual(merged(merged(before, left), right)[0].staged, ['c6']);
+		}
+	});
 });
 
 // ------------------------------------------------------ a binder from a list

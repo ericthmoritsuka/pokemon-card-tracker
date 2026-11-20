@@ -722,7 +722,9 @@ function mergeValid(a, b) {
 // pocket at once do that: one shifts the pockets (Remove from this binder,
 // Move to...) while the other puts a card where a shifted card lands, and
 // the later pocket wins. A copy one version took out of the binder is not
-// in that version, so it stays out. True when the tray changed.
+// in that version, so it stays out. Two shifts meeting at a seam do it too,
+// and that copy stays in a pocket instead (seamPockets). True when the tray
+// changed.
 function rescueCopies(out, a, b) {
 	const held = (entry) => {
 		const ids = new Set(Array.isArray(entry.staged) ? entry.staged : []);
@@ -743,9 +745,124 @@ function rescueCopies(out, a, b) {
 		return false;
 	}
 
-	out.staged = [...(Array.isArray(out.staged) ? out.staged : []), ...lost];
+	const pocketed = seamPockets(out, a, b, lost);
+	const tray = lost.filter((id) => !pocketed.has(id));
+
+	if (!tray.length) {
+		return false;
+	}
+
+	out.staged = [...(Array.isArray(out.staged) ? out.staged : []), ...tray];
 
 	return true;
+}
+
+// The pocket a version last placed a copy in (its slot), or null.
+function lastPocketOf(entry, id) {
+	let best = null;
+
+	for (const slot of pocketMap(entry.slots).values()) {
+		if (slot.entry_id === id && !slot.cleared && (!best || slotWins(slot, best))) {
+			best = slot;
+		}
+	}
+
+	return best;
+}
+
+// Two phones shifting the same binder before they sync (Remove from this
+// binder with the shift, Move to...) can each move a copy one pocket, and
+// where one phone's shifted pockets meet the other's, the later stamp wins
+// each pocket and a copy both still hold can fall out of both: the laptop
+// shifts c6 back into pocket 5 while the phone shifts c1 forward into
+// pocket 5 and keeps c6 in pocket 6, which the laptop's shift gave c7. Such
+// a copy stays in the binder, in a pocket: the free pocket nearest the one
+// it was placed in last (the pocket a copy in two pockets is read in, js/
+// binders.js placements), the later one on a tie, stamped just after both
+// versions so merging again changes nothing. Free is nothing there or a
+// cleared marker, inside the grid; never art, a placeholder, a Gone card,
+// or a pocket left empty on purpose. It applies only when both versions
+// hold the copy in a pocket, and a shift put it in that pocket and another
+// shift put another copy there (moved_from on both): a copy a phone placed
+// by hand, or that lost its pocket to a card placed by hand, goes to the
+// tray as before, and so does one with no free pocket. Copies go nearest
+// first, then by id. Returns the ids placed; out.slots is updated.
+function seamPockets(out, a, b, lost) {
+	const per = Number(out.rows) * Number(out.cols);
+	const pages = Number(out.page_count);
+	const placed = new Set();
+
+	if (!Number.isInteger(per) || !Number.isInteger(pages) || per < 1 || pages < 1) {
+		return placed;
+	}
+
+	const merged = pocketMap(out.slots);
+	const indexOf = (slot) => ((slot.page - 1) * per) + slot.position - 1;
+	const moved = (slot) => Boolean(slot) && Boolean(slot.entry_id) && !slot.cleared && isObject(slot.moved_from);
+	const anchors = [];
+
+	for (const id of lost) {
+		const mine = lastPocketOf(a, id);
+		const theirs = lastPocketOf(b, id);
+
+		if (!mine || !theirs) {
+			continue;
+		}
+
+		const anchor = slotWins(mine, theirs) ? mine : theirs;
+
+		if (moved(anchor) && moved(merged.get(pocketKey(anchor))) && inBinderGrid(out, anchor)) {
+			anchors.push({anchor, id, index: indexOf(anchor)});
+		}
+	}
+
+	if (!anchors.length) {
+		return placed;
+	}
+
+	const taken = new Set();
+
+	for (const slot of out.slots) {
+		if (isPocket(slot) && (isArt(slot) || !slot.cleared)) {
+			taken.add(indexOf(slot));
+		}
+	}
+
+	const total = per * pages;
+	const at = stampAfter(a, b);
+	const freeNear = (index) => {
+		for (let d = 1; d < total; d++) {
+			for (const i of [index + d, index - d]) {
+				if (i >= 0 && i < total && !taken.has(i)) {
+					return i;
+				}
+			}
+		}
+
+		return -1;
+	};
+	let slots = out.slots;
+
+	anchors.sort((x, y) => (x.index - y.index) || (x.id < y.id ? -1 : 1));
+
+	for (const {anchor, id, index} of anchors) {
+		const free = freeNear(index);
+
+		if (free < 0) {
+			continue;
+		}
+
+		const {moved_from: _from, ...copy} = anchor;
+		const slot = {...copy, page: Math.floor(free / per) + 1, placed_at: at, position: (free % per) + 1};
+
+		slots = [...slots.filter((item) => isArt(item) || !isPocket(item) || pocketKey(item) !== pocketKey(slot)), slot];
+		taken.add(free);
+		placed.add(id);
+	}
+
+	out.slots = sortSlots(slots);
+
+	return placed;
 }
 
 // At least one version written by an older app: the newer version whole, as

@@ -3208,7 +3208,7 @@ card meant for this binder, so the remove sheet does not ask. A shift is one sav
 stamped pocket by pocket (`stampEntry`), so another phone's edit to other pockets survives the merge.
 It only ever moves pockets between the two it runs between, so nothing passes the last pocket in use
 and no page is ever needed; a move whose result would leave the binder is refused before saving.
-Three merge rules keep a shift from undoing another phone's work (`js/merge.js`; review fixes,
+Four merge rules keep a shift from undoing another phone's work (`js/merge.js`; review fixes,
 2026-11-06):
 
 - **The pocket a copy left.** Each copy a shift moves records where it came from (`moved_from`: page,
@@ -3227,6 +3227,20 @@ Three merge rules keep a shift from undoing another phone's work (`js/merge.js`;
   that lost it in the binder's tray (`rescueCopies`): a copy both versions hold in this binder, in a
   pocket or the tray, that the merged binder holds nowhere. A copy one version took out on purpose is
   not in that version, so it stays out.
+- **Where two shifts meet** (QA, 2026-11-20; `seamPockets`). Two phones shifting the same binder can
+  each move a copy, and where one phone's shifted pockets meet the other's, each pocket going to the
+  later stamp can drop a copy both still hold: the laptop removes pocket 3 with the shift (c6 to
+  pocket 5) while the phone, offline, moves pocket 1 to pocket 5 (c6 stays in pocket 6, which the
+  laptop gave c7). That copy stays in a pocket, never the tray: the free pocket nearest the one it was
+  placed in last (the pocket a copy in two pockets is read in), the later one on a tie, stamped just
+  after both versions so merging again changes nothing. Free is a pocket with nothing in it or a
+  cleared marker; never art, a placeholder, a Gone card, or a pocket left empty on purpose. Nearest,
+  not the end of the binder, because the gap the seam leaves is close by (here pocket 2, where the
+  laptop's removed card was), while the end can be pages later. It applies only when both versions
+  hold the copy in a pocket and both that copy and the one that took its pocket were put there by a
+  shift (`moved_from`); a pocket a phone wrote by hand keeps the tray rule above, and so does a binder
+  with no free pocket. In the example the result is c2, c6, c4, c5, c1, c7..., the removed card's
+  pocket filled; with the phone's move older it is c2, c1, c4, c5, c6, c7....
 - **Art.** Art tiles have no stamps of their own and came whole from the version whose grid stands, so
   a concurrent edit elsewhere put shifted art back. A shift that moves art writes `art_moved_at`, and
   the art comes from the version that moved it last (`artSide`).
