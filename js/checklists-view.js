@@ -16,6 +16,7 @@ import {formatCount, plural} from './format.js';
 import {goalsSection} from './goals-view.js';
 import {isGoal, listGoals} from './goals.js';
 import {languageLabel} from './languages.js';
+import {cardStamp, recordListProgress} from './list-progress.js';
 import {searchKey, speciesSearchTerms} from './names.js';
 import {languagesControl, pokemonRoute} from './pokemon-cards-view.js';
 import {UNDO_MS, orderSection} from './reorder.js';
@@ -64,9 +65,11 @@ const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route
 const MINE = {
 	base: 'lists',
 	load: async () => {
-		const [goals, entries, targets] = await Promise.all([listChecklists(), listCards(), listGoals()]);
+		// stamp: the newest change to a copy as the count begins, so Stats
+		// can tell when the cards changed after it (js/list-progress.js).
+		const [goals, entries, targets, stamp] = await Promise.all([listChecklists(), listCards(), listGoals(), cardStamp()]);
 
-		return {entries, goals, targets};
+		return {entries, goals, stamp, targets};
 	},
 	readOnly: false,
 	watch: (reload) => onChange(reload),
@@ -410,7 +413,7 @@ function listsScreen(root, source) {
 				return;
 			}
 
-			goals.update(data.targets, data.entries);
+			goals.update(data.targets, data.entries, {stamp: data.stamp});
 
 			// Draw at once without progress, then again once owned cards
 			// are resolved.
@@ -438,6 +441,11 @@ function listsScreen(root, source) {
 
 			draw(data.goals, result.byDex);
 			status.replaceChildren();
+
+			// Your own counts are kept for Stats, which counts none itself.
+			if (!source.readOnly) {
+				recordListProgress(data.goals.map((goal) => ({id: goal.id, ...progress(goal, listByDex(goal, result.byDex)), unresolved: result.unresolved})), {stamp: data.stamp});
+			}
 
 			const gap = gapText(result);
 

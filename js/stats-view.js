@@ -2,13 +2,16 @@
 // opened from Stats in the My Cards heading, beside Spares and Trades.
 // Totals, then simple bars by language, set, rarity, type, finish, and
 // condition, the most valuable cards, the copies with no price, and the
-// copies added each month. A family member's cards have their own Stats,
-// view only. The numbers are js/stats.js; styles are css/stats.css.
+// copies added each month, and, on your own Stats, your lists' progress as
+// the Lists tab last counted it. A family member's cards have their own
+// Stats, view only. The numbers are js/stats.js; styles are css/stats.css.
 //
 // Worked out once per visit from what the phone already has: the copies,
 // the card index, and the full records saved on the phone (the prices).
 // Nothing is downloaded here; My Cards' background pass fills in prices,
 // rarities, and types, and this screen says when some are still missing.
+// The lists' progress is the count the Lists tab left (js/list-progress.js),
+// shown with its day; the part is left out when Lists has counted none.
 //
 // Every bar is text first: each row reads its label, count, and share, and
 // the bar beside them is drawn for the eye only (aria-hidden), so nothing
@@ -21,15 +24,18 @@
 import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
 import {cardIndex, savedCardRecords, setIdOfCard, viewingLanguage} from './catalog.js';
+import {listChecklists} from './checklists.js';
 import {listCards} from './collection.js';
 import {offerCardList} from './card-swipe.js';
 import {customRecord} from './custom-card.js';
 import {BASE, errorText, h} from './dom.js';
 import {whenMemberName} from './family.js';
 import {formatCount, plural} from './format.js';
+import {listGoals} from './goals.js';
 import {languageLabel} from './languages.js';
+import {cardStamp, readListProgress} from './list-progress.js';
 import {formatBrl, savedRates} from './prices.js';
-import {NOT_KNOWN, collectionStats, sharePercent} from './stats.js';
+import {NOT_KNOWN, collectionStats, listsProgress, sharePercent} from './stats.js';
 import {memberDocument} from './sync.js';
 import {readValueHistory} from './value-history.js';
 import {collectionHistory} from './value-history-view.js';
@@ -153,7 +159,48 @@ function unpricedPart(unpriced, total) {
 	);
 }
 
-function draw(stats, {history}) {
+const countDay = (at) => new Date(at).toLocaleDateString('en-US', {day: 'numeric', month: 'short'});
+
+// Your lists' progress as the Lists tab last counted it: each list's name,
+// linked to its screen, its "N of M" and share, and a bar as long as its
+// share of the list (for the eye only). Says when it was counted, and when
+// the cards have changed since.
+function listsPart(lists) {
+	const route = (row) => (row.kind === 'goal' ? 'goals/' : 'lists/') + encodeURIComponent(row.id);
+	const notes = [
+		lists.at ? `As counted on Lists on ${countDay(lists.at)}.` : 'As last counted on Lists.',
+		lists.unresolved ? ` ${plural(lists.unresolved, 'card', 'cards')} could not be checked then.` : '',
+	].join('');
+
+	return section('Lists',
+		h('ul', {class: 'stats-bars', id: 'stats-lists'}, lists.rows.map((row) => h('li', {class: 'stats-bar-row', 'data-label': row.name},
+			h('a', {class: 'stats-bar-label', 'data-link': route(row), href: BASE + route(row)}, row.name),
+			h('span', {class: 'stats-bar-value'}, `${formatCount(row.owned)} of ${formatCount(row.total)}${row.unit ? ` ${row.unit}` : ''} · ${sharePercent(row.owned, row.total)}`),
+			h('span', {'aria-hidden': 'true', class: 'stats-bar-track'},
+				h('span', {class: 'stats-bar-fill', style: `width: ${row.owned ? Math.max(2, (row.owned / row.total) * 100) : 0}%`}))
+		))),
+		h('p', {class: 'muted stats-note', id: 'stats-lists-when'}, notes),
+		lists.changed
+			? h('p', {class: 'muted stats-note', id: 'stats-lists-changed'}, 'Your cards have changed since. ',
+				h('a', {'data-link': 'lists', href: `${BASE}lists`, id: 'stats-lists-open'}, 'Open Lists'), ' to count again.')
+			: null
+	);
+}
+
+// Your lists' saved progress, read from this phone only: null when Lists
+// has counted none, or when they cannot be read.
+async function savedLists() {
+	try {
+		const [checklists, goals, stamp] = await Promise.all([listChecklists(), listGoals(), cardStamp()]);
+
+		return listsProgress({checklists, goals, saved: readListProgress(), stamp});
+	}
+	catch {
+		return null;
+	}
+}
+
+function draw(stats, {history, lists}) {
 	const total = stats.totals.copies;
 	const top = stats.sets.top;
 	const waiting = (rows) => rows.some((row) => row.label === NOT_KNOWN);
@@ -180,14 +227,16 @@ function draw(stats, {history}) {
 				stats.before ? `${copies(stats.before)} added before then. ` : '',
 				'Imported cards count in the month they were imported.',
 			].join(''))),
+		lists ? listsPart(lists) : null,
 		history ? h('div', {class: 'card stats-section'}, collectionHistory(history)) : null,
 	].filter(Boolean);
 }
 
 // The screen for some copies. load() gives the live copies; back is where
 // "‹" goes; ownHistory adds the value over time kept on this phone (your
-// own cards only, as the Value sheet has it).
-function statsScreen(root, {back, backLabel, load, ownHistory = false, title}) {
+// own cards only, as the Value sheet has it); ownLists adds your lists'
+// progress as Lists last counted it.
+function statsScreen(root, {back, backLabel, load, ownHistory = false, ownLists = false, title}) {
 	let alive = true;
 	const body = h('div', {class: 'stats-body', id: 'stats-body'}, h('p', {class: 'muted'}, 'Counting…'));
 
@@ -198,7 +247,7 @@ function statsScreen(root, {back, backLabel, load, ownHistory = false, title}) {
 	);
 
 	(async () => {
-		const [entries, index] = await Promise.all([load(), cardIndex().catch(() => new Map())]);
+		const [entries, index, lists] = await Promise.all([load(), cardIndex().catch(() => new Map()), ownLists ? savedLists() : null]);
 		const saved = await savedCardRecords(entries).catch(() => new Map());
 
 		// A hand-made card's own fields stand in for its record, and it has
@@ -229,7 +278,7 @@ function statsScreen(root, {back, backLabel, load, ownHistory = false, title}) {
 		});
 		const user = currentUser();
 
-		body.replaceChildren(...draw(stats, {history: ownHistory ? readValueHistory((user && user.id) || 'local') : null}));
+		body.replaceChildren(...draw(stats, {history: ownHistory ? readValueHistory((user && user.id) || 'local') : null, lists}));
 	})().catch((err) => {
 		if (alive) {
 			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, err && err.statsText ? err.message : `Stats could not be worked out. ${errorText(err)}`)));
@@ -247,6 +296,7 @@ export function statsView(root) {
 		backLabel: 'My Cards',
 		load: async () => (await listCards()).filter((entry) => entry && !entry.deleted_at),
 		ownHistory: true,
+		ownLists: true,
 		title: 'Stats',
 	});
 }

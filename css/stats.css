@@ -80,6 +80,20 @@ a.fb-stats {
 	overflow-wrap: anywhere;
 }
 
+/* A list's name in the Lists part opens the list. The padding makes it a
+   whole touch target, and the negative margin keeps the rows as close as
+   the other parts' rows. */
+a.stats-bar-label {
+	color: var(--link);
+	margin-block: -12px;
+	padding-block: 12px;
+	text-decoration: none;
+}
+
+a.stats-bar-label:hover {
+	text-decoration: underline;
+}
+
 .stats-bar-value {
 	color: var(--muted);
 	font-variant-numeric: tabular-nums;

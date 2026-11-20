@@ -33,6 +33,7 @@ import {applyFilters, filterBar, sortItems} from './filter-bar.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, catalogLanguage, languageLabel} from './languages.js';
+import {recordListProgress} from './list-progress.js';
 import {searchKey} from './names.js';
 import {languagesControl, ownedBadge} from './pokemon-cards-view.js';
 import {imageCardKey, mainArt, onImagesChange} from './photos/index.js';
@@ -141,7 +142,9 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 		return {node, ring};
 	}
 
-	async function update(goals, entries) {
+	// stamp: the newest change to a copy as the count began
+	// (js/list-progress.js); your own goals' counts are kept for Stats.
+	async function update(goals, entries, {stamp = null} = {}) {
 		const mine = ++run;
 		const sorted = sortGoals((goals || []).filter(isGoal));
 		const tiles = sorted.map((goal) => ({goal, ...tile(goal)}));
@@ -161,6 +164,10 @@ export function goalsSection({base = 'goals', readOnly = false} = {}) {
 				// the prints of the catalog not read. Its screen says which.
 				if (mine === run && !result.missingList && !result.incomplete) {
 					item.ring.replaceChildren(progressRing(item.goal, result.tally));
+
+					if (!readOnly) {
+						recordListProgress([{id: item.goal.id, owned: result.tally.owned, total: result.tally.total, unit: unitOf(item.goal)[1] === 'finishes' ? 'finishes' : null}], {stamp});
+					}
 				}
 			}).catch(() => {
 				// No ring this time; the goal's own screen says why.

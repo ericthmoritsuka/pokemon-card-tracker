@@ -1,7 +1,8 @@
 // Browser tests for the Stats screen (js/stats-view.js, Eric, 2026-11-19):
 // opened from Stats in the My Cards heading, its totals, bars, most valuable
-// cards, copies with no price, and copies added per month, at 360 px wide in
-// light and dark. Headless Chromium against tests/pages-server.mjs, signed
+// cards, copies with no price, copies added per month, and your lists'
+// progress as the Lists tab last counted it, at 360 px wide in light and
+// dark. Headless Chromium against tests/pages-server.mjs, signed
 // out.
 //
 // Every outside service is faked: TCGdex answers with the records saved in
@@ -67,7 +68,12 @@ function monthAgo(n) {
 	return {iso: date.toISOString(), name: `${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`};
 }
 
-async function phone({colorScheme = 'light'} = {}) {
+// TCGdex's bulk card list, id and dexId (js/checklists.js
+// fetchInternationalDexMap), answered only on a phone that asks for it: the
+// other GraphQL queries keep failing, as in the tests above.
+const DEX_QUERY = '{ cards { id dexId } }';
+
+async function phone({colorScheme = 'light', dexMap = null} = {}) {
 	const context = await browser.newContext({colorScheme, serviceWorkers: 'block', viewport: VIEWPORT});
 	const seen = {liga: [], supabase: [], tcgdex: []};
 	const answers = {[`en/cards/${charizard.id}`]: charizard, [`en/cards/${exeggcute.id}`]: exeggcute};
@@ -89,6 +95,10 @@ async function phone({colorScheme = 'light'} = {}) {
 		const record = answers[key];
 
 		seen.tcgdex.push(key);
+
+		if (dexMap && key === 'graphql' && JSON.parse(route.request().postData() || '{}').query === DEX_QUERY) {
+			return route.fulfill({body: JSON.stringify({data: {cards: dexMap}}), contentType: 'application/json', status: 200});
+		}
 
 		return route.fulfill(record
 			? {body: JSON.stringify(record), contentType: 'application/json', status: 200}
@@ -191,6 +201,7 @@ describe('Stats', () => {
 			assert.deepEqual(await barRows(page, 'stats-finish'), [['Normal', '1 · 25%'], ['Holo', '3 · 75%']]);
 			assert.deepEqual(await barRows(page, 'stats-condition'), [['Near Mint', '1 · 25%'], ['Lightly Played', '1 · 25%'], ['Not set', '2 · 50%']]);
 			assert.equal(await page.locator('#stats-set-more').count(), 0, 'three sets need no "and more"');
+			assert.equal(await page.locator('#stats-lists').count(), 0, 'no Lists part before Lists has counted any');
 
 			// The bars are for the eye; the numbers are text.
 			assert.equal(await page.locator('.stats-bar-track[aria-hidden="true"]').count(), await page.locator('.stats-bar-track').count());
@@ -246,6 +257,83 @@ describe('Stats', () => {
 			await page.waitForURL(`**${BASE}cards/en/${charizard.id}`);
 			await done(device);
 		}
+	});
+
+	test('your lists show as Lists last counted them, and say when the cards changed since', async () => {
+		const device = await phone({dexMap: [{dexId: [6], id: charizard.id}, {dexId: [102], id: exeggcute.id}]});
+		const {page} = device;
+		const evaluate = (fn, arg) => page.evaluate(fn, arg);
+
+		await page.goto(url('cards'));
+		await page.waitForSelector('#cards-empty');
+		await addCard(page, {card_id: charizard.id, catalog: 'international', language: 'pt', language_source: 'manual', variant_id: variant(charizard, 'Holo, Unlimited')});
+		await addCard(page, {card_id: exeggcute.id, catalog: 'international', language: 'en', language_source: 'manual', variant_id: variant(exeggcute, 'Normal')});
+
+		const kanto = await evaluate(async () => (await import('/pokemon-card-tracker/js/checklists.js')).createChecklist({kind: 'region', name: 'Kanto', target: 'kanto'}));
+		const johto = await evaluate(async () => (await import('/pokemon-card-tracker/js/checklists.js')).createChecklist({kind: 'region', name: 'Johto', target: 'johto'}));
+		const goal = await evaluate(async () => (await import('/pokemon-card-tracker/js/goals.js')).createGoal({kind: 'set', level: 'master', name: 'Base Set', target: 'base1'}));
+
+		// A master set goal's count, as its ring on Lists would leave it.
+		await evaluate(async (id) => (await import('/pokemon-card-tracker/js/list-progress.js')).recordListProgress([{id, owned: 3, total: 10, unit: 'finishes'}], {stamp: '2000-01-01T00:00:00.000Z'}), goal.id);
+		// The goal alone was counted, before the copies were added.
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-lists');
+		assert.deepEqual(await barRows(page, 'stats-lists'), [['Base Set', '3 of 10 finishes · 30%']]);
+		assert.equal(await page.locator('#stats-lists-changed').count(), 1, 'the copies were added after that count');
+
+		// Lists counts the checklists from your Portuguese copies (a new
+		// list's languages): Charizard, #6. Stats then shows them, first.
+		await page.click('#stats-lists-open');
+		await page.waitForSelector(`.list-tile[href$="${kanto.id}"] .owned-count`);
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-lists');
+
+		const requests = device.seen.tcgdex.length;
+
+		await page.waitForSelector('#stats-totals');
+		assert.deepEqual(await barRows(page, 'stats-lists'), [['Kanto', '1 of 151 · less than 1%'], ['Johto', '0 of 100 · 0%'], ['Base Set', '3 of 10 finishes · 30%']]);
+
+		const links = await page.locator('#stats-lists a.stats-bar-label').evaluateAll((items) => items.map((item) => item.getAttribute('data-link')));
+
+		assert.deepEqual(links, [`lists/${kanto.id}`, `lists/${johto.id}`, `goals/${goal.id}`]);
+
+		const day = await evaluate(() => new Date().toLocaleDateString('en-US', {day: 'numeric', month: 'short'}));
+
+		assert.equal(await page.locator('#stats-lists-when').textContent(), `As counted on Lists on ${day}.`);
+		assert.equal(await page.locator('#stats-lists-changed').count(), 1, 'the goal\'s count is still older than the copies');
+
+		const heights = await page.locator('#stats-lists a.stats-bar-label').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().height));
+
+		assert.ok(heights.every((height) => height >= 44), `list names are touch targets (${heights})`);
+		await noSideways(page, 'Stats with lists');
+		await fitsWidth(page, 'Stats with lists');
+		await page.locator('#stats-lists').scrollIntoViewIfNeeded();
+		await page.screenshot({path: `${SHOTS}/stats-lists.png`});
+
+		// A Portuguese Exeggcute (#102) after the count: Stats says the cards
+		// changed and keeps the old count, and counts nothing itself.
+		await addCard(page, {card_id: exeggcute.id, catalog: 'international', language: 'pt', language_source: 'manual', variant_id: variant(exeggcute, 'Normal')});
+		await evaluate(async (id) => (await import('/pokemon-card-tracker/js/list-progress.js')).recordListProgress([{id, owned: 3, total: 10, unit: 'finishes'}], {stamp: '2100-01-01T00:00:00.000Z'}), goal.id);
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-lists');
+		assert.deepEqual((await barRows(page, 'stats-lists'))[0], ['Kanto', '1 of 151 · less than 1%']);
+		assert.equal(await page.locator('#stats-lists-changed').textContent(), 'Your cards have changed since. Open Lists to count again.');
+		assert.equal(device.seen.tcgdex.length, requests, 'Stats sends no request');
+
+		// Counted again on Lists: up to date, with no note.
+		await page.click('#stats-lists-open');
+		await page.waitForSelector(`.list-tile[href$="${kanto.id}"] .owned-count:has-text("2 / 151")`);
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-lists');
+		assert.deepEqual((await barRows(page, 'stats-lists'))[0], ['Kanto', '2 of 151 · 1%']);
+		assert.equal(await page.locator('#stats-lists-changed').count(), 0);
+
+		// A deleted list leaves Stats.
+		await evaluate(async (id) => (await import('/pokemon-card-tracker/js/checklists.js')).deleteChecklist(id), johto.id);
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-lists');
+		assert.deepEqual((await barRows(page, 'stats-lists')).map(([label]) => label), ['Kanto', 'Base Set']);
+		await done(device);
 	});
 
 	test('with no cards, Stats says so', async () => {

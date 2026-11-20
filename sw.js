@@ -267,6 +267,7 @@ const SHELL = [
 	'js/start-over.js',
 	'js/stats.js',
 	'js/stats-view.js',
+	'js/list-progress.js',
 	'js/moves.js',
 	'js/moves-view.js',
 	'js/placeholder-fill.js',

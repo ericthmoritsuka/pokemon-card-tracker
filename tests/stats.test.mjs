@@ -10,7 +10,7 @@ import {readFileSync} from 'node:fs';
 import {describe, test} from 'node:test';
 
 import {extractPrices, listStats, roundCents} from '../js/prices.js';
-import {CONDITIONS, NOT_KNOWN, NOT_SET, collectionStats, copyFinish, finishFamily, lastMonths, monthKey, sharePercent} from '../js/stats.js';
+import {CONDITIONS, NOT_KNOWN, NOT_SET, collectionStats, copyFinish, finishFamily, lastMonths, listsProgress, monthKey, newestCardStamp, sharePercent} from '../js/stats.js';
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`./prices-fixtures/${name}.json`, import.meta.url), 'utf8'));
 
@@ -219,6 +219,50 @@ describe('finishes', () => {
 		assert.equal(copyFinish({finish_raw: 'UNLIMITED_HOLOFOIL'}, []), 'Holo');
 		assert.equal(copyFinish({finish: 'first'}, []), '1st Edition');
 		assert.equal(copyFinish({}, []), NOT_KNOWN);
+	});
+});
+
+describe('listsProgress', () => {
+	const KANTO = {id: 'c1', kind: 'region', name: 'Kanto', target: 'kanto'};
+	const JOHTO = {id: 'c2', kind: 'region', name: 'Johto', target: 'johto'};
+	const BASE_SET = {id: 'g1', kind: 'set', level: 'master', name: 'Base Set', target: 'base1'};
+	const SAVED = {
+		c1: {at: '2026-11-18T10:00:00.000Z', owned: 120, stamp: '2026-11-18T09:00:00.000Z', total: 151, unit: null, unresolved: 2},
+		g1: {at: '2026-11-17T10:00:00.000Z', owned: 12, stamp: '2026-11-17T09:00:00.000Z', total: 40, unit: 'finishes'},
+		gone: {at: '2026-11-01T10:00:00.000Z', owned: 1, stamp: null, total: 2},
+	};
+
+	test('only lists with a count, checklists then goals, under their names now', () => {
+		const lists = listsProgress({checklists: [{...KANTO, name: 'Kanto first'}, JOHTO], goals: [BASE_SET], saved: SAVED, stamp: '2026-11-17T09:00:00.000Z'});
+
+		assert.deepEqual(lists.rows, [
+			{id: 'c1', kind: 'checklist', name: 'Kanto first', owned: 120, total: 151, unit: null},
+			{id: 'g1', kind: 'goal', name: 'Base Set', owned: 12, total: 40, unit: 'finishes'},
+		]);
+		assert.equal(lists.at, '2026-11-17T10:00:00.000Z', 'the oldest count');
+		assert.equal(lists.unresolved, 2);
+		assert.equal(lists.changed, false, 'no copy changed after either count began');
+	});
+
+	test('a copy changed after a count began says so', () => {
+		assert.equal(listsProgress({checklists: [KANTO], saved: SAVED, stamp: '2026-11-18T09:30:00.000Z'}).changed, true);
+		assert.equal(listsProgress({checklists: [KANTO], saved: SAVED, stamp: '2026-11-18T09:00:00.000Z'}).changed, false);
+		assert.equal(listsProgress({checklists: [KANTO], saved: {c1: {...SAVED.c1, stamp: null}}, stamp: '2026-11-01T00:00:00.000Z'}).changed, true, 'counted with no copies, and there are some now');
+	});
+
+	test('nothing counted, or only deleted lists, leaves the part out', () => {
+		assert.equal(listsProgress({checklists: [JOHTO], goals: [], saved: SAVED}), null);
+		assert.equal(listsProgress({checklists: [], goals: [], saved: SAVED}), null);
+		assert.equal(listsProgress({checklists: [KANTO], saved: {c1: {owned: 'x', total: 151}}}), null, 'an unreadable count');
+		assert.equal(listsProgress(), null);
+	});
+
+	test('the newest change to a copy counts removals', () => {
+		assert.equal(newestCardStamp([
+			{created_at: '2026-11-01T00:00:00.000Z', updated_at: '2026-11-02T00:00:00.000Z'},
+			{created_at: '2026-11-01T00:00:00.000Z', deleted_at: '2026-11-05T00:00:00.000Z', updated_at: '2026-11-03T00:00:00.000Z'},
+		]), '2026-11-05T00:00:00.000Z');
+		assert.equal(newestCardStamp([]), null);
 	});
 });
 

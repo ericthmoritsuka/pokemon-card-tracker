@@ -303,3 +303,62 @@ export function sharePercent(count, total) {
 
 	return percent < 1 ? 'less than 1%' : `${Math.round(percent)}%`;
 }
+
+// The newest change to any copy, removals included: ISO stamps compare as
+// text. null with no copies.
+export function newestCardStamp(cards) {
+	let newest = null;
+
+	for (const card of cards || []) {
+		for (const value of [card && card.created_at, card && card.updated_at, card && card.deleted_at]) {
+			if (typeof value === 'string' && (!newest || value > newest)) {
+				newest = value;
+			}
+		}
+	}
+
+	return newest;
+}
+
+// The Lists part: the progress the Lists tab last counted for each list
+// (js/list-progress.js), never counted here, since a checklist needs the
+// Pokédex map and a goal its whole card list.
+//
+//   checklists  the live checklists, in the Lists tab's order
+//   goals       the live set, artist, and Pokémon goals, in their order
+//   saved       the counts kept on this phone (readListProgress)
+//   stamp       the newest change to any copy now (newestCardStamp)
+//
+// Returns null when no live list has a count, so Stats leaves the part
+// out; else {rows: [{id, kind, name, owned, total, unit}], at, changed,
+// unresolved}: checklists first, then goals, each under its name now. at
+// is the oldest count's time, changed whether any copy changed after a
+// count began, and unresolved the most cards a checklist count could not
+// check.
+export function listsProgress({checklists = [], goals = [], saved = {}, stamp = null} = {}) {
+	const rows = [];
+	let at = null;
+	let changed = false;
+	let unresolved = 0;
+
+	for (const [kind, lists] of [['checklist', checklists], ['goal', goals]]) {
+		for (const list of lists || []) {
+			const count = list && saved && saved[list.id];
+
+			if (!count || !Number.isInteger(count.owned) || !Number.isInteger(count.total) || count.total < 1) {
+				continue;
+			}
+
+			rows.push({id: list.id, kind, name: list.name || 'Untitled list', owned: Math.min(count.owned, count.total), total: count.total, unit: count.unit || null});
+
+			if (typeof count.at === 'string' && (!at || count.at < at)) {
+				at = count.at;
+			}
+
+			changed = changed || Boolean(stamp && (!count.stamp || stamp > count.stamp));
+			unresolved = Math.max(unresolved, kind === 'checklist' && Number.isInteger(count.unresolved) ? count.unresolved : 0);
+		}
+	}
+
+	return rows.length ? {at, changed, rows, unresolved} : null;
+}

@@ -3769,8 +3769,18 @@ over them, well under the 1 s the unit test allows.
 - **Family.** A member's My Cards has its own Stats link, to `family/<id>/stats`, view only: their
   document read from the server as their cards are, priced with the records and rate on this
   phone, and without Over time, which is kept for your own collection only.
-- **Left out:** checklist and goal progress, which need the Pokédex map and each goal's card list
-  (network or a large cache read); they stay on Lists.
+- **Lists, as Lists last counted them** (2026-11-20). Stats still counts no checklist or goal
+  itself, since that needs the Pokédex map and each goal's card list (network or a large cache
+  read). The Lists tab counts them anyway, so it now leaves each count on the phone
+  (`js/list-progress.js`, per account, in this browser's storage and, like the value history,
+  never synced), and your own Stats shows a **Lists** part after the months: each checklist,
+  then each goal, in the Lists tab's order and under its current name, linked to its screen, with
+  "N of M" (a master set goal's in finishes), its share, and a bar as long as that share. Under
+  it, "As counted on Lists on <day>" (the oldest count), how many cards a checklist could not
+  check then, and, when any copy was added, changed, or removed after a count began, "Your cards
+  have changed since. Open Lists to count again." A goal counts only when its ring shows (a goal
+  read in part has none), and a deleted list drops out. With no count kept, the part is left out;
+  a family member's Stats has none, as it has no Over time.
 
 ## 12. Open Questions
 
