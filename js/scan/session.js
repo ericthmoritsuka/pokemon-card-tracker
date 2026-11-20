@@ -566,6 +566,98 @@ export function applyPicture(session, id, found, now = nowIso()) {
 	return item;
 }
 
+// A recent-set pick (js/scan/identify.js readPlan verify) is shown at once,
+// sure, while its number is read behind it: item.verify is 'pending' until
+// that read is in (v86 review: with no number read, a print the index lacks
+// came out sure as another print of a recent set).
+export const VERIFY_WHY = 'Its number was not read yet. Check the print.';
+
+// The number read behind a recent-set pick, in: kept on the card, so a
+// later look-up of it (a language changed) weighs the number, and the card
+// no longer waits for it. read: the read (js/scan/read.js), or null when
+// none came.
+export function applyVerifyRead(session, id, read, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	if (read) {
+		item.read = summariseRead(read);
+	}
+
+	item.verify = null;
+	touch(session, now);
+
+	return item;
+}
+
+// A recent-set pick whose number names another print, changed by hand
+// meanwhile so its match is not replaced: it stays as it is, to check.
+export function doubtPick(session, id, why, now = nowIso()) {
+	const item = mustFind(session, id);
+
+	item.sure = false;
+	item.disagree = true;
+	item.why = why || null;
+	touch(session, now);
+
+	return item;
+}
+
+// The recent-set picks still waiting for their number read when Save, Log
+// it, or Log purchase went ahead (js/scan/view.js settleVerifies waits a few
+// seconds for them first), or when Scan opened again with the read lost:
+// each is made unsure, so it is saved only after a look, never sure without
+// its number. A pick already confirmed by hand stays as it is. Returns the
+// ids made unsure.
+export function doubtUnverified(session, now = nowIso()) {
+	const doubted = [];
+	let changed = false;
+
+	for (const item of session.items) {
+		if (item.verify !== 'pending') {
+			continue;
+		}
+
+		item.verify = null;
+		changed = true;
+
+		if (item.card && item.sure && !item.confirmed) {
+			item.sure = false;
+			item.why = VERIFY_WHY;
+			doubted.push(item.id);
+		}
+	}
+
+	if (changed) {
+		touch(session, now);
+	}
+
+	return doubted;
+}
+
+// Before Save, Log it, or Log purchase: waits for the number reads behind
+// the tray's recent-set picks still waiting (runs: card id -> {done}, a
+// promise settled once its read is in and weighed), at most ms, then makes
+// any pick still waiting unsure (doubtUnverified), whose ids it resolves
+// to. A pick with no read running (lost when Scan closed) does not wait.
+export async function settleVerifies(session, runs, ms) {
+	const pending = session.items.filter((item) => item.verify === 'pending');
+	const running = pending.map((item) => runs.get(item.id)).filter(Boolean);
+
+	if (running.length) {
+		let timer = 0;
+
+		await Promise.race([
+			Promise.all(running.map((run) => Promise.resolve(run.done).catch(() => {}))),
+			new Promise((resolve) => {
+				timer = setTimeout(resolve, ms);
+			}),
+		]);
+		clearTimeout(timer);
+	}
+
+	return doubtUnverified(session);
+}
+
 // A binder page's pocket (item.page, js/scan/page.js) taken for sure on a
 // Japanese or Chinese record when no Japanese, Korean, or Chinese text was
 // read off it: it is made unsure, so it asks for a look. A pocket is cut

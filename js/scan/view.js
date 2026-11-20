@@ -31,14 +31,14 @@ import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startC
 import * as draft from './draft.js';
 import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, retryUntil, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
-import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, recentStack, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
+import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readPlan, readStageLabel, readTextLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
 import {blobImage, imageBlob, saveCaptureImages} from './image.js';
 import * as scanLog from './log.js';
 import {asianNameScore, latinNameScore} from './local-names.js';
 import {cardCategory, cardRecord, cardVariants, DEFAULT_API, findCandidates, WaitingForSignal, warmNameRoute} from './match.js';
 import {pageSummary, pageTrouble, pocketProgress, readPagePhoto} from './page.js';
-import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious, stackPick} from './picture.js';
+import {knownFrom, localPrint, noCard, pictureKey, pictureMatch, pictureVerdict, repeatOfLast, repeatOfPrevious} from './picture.js';
 import {matchPage, pagePockets, PER_PAGE, placePlan, placeSummary} from './page-place.js';
 import {withPocketCard} from './pocket.js';
 import * as S from './session.js';
@@ -441,6 +441,11 @@ export function scanView(root) {
 	let textWarmTimer = 0;
 	// The stack each card was read with (session.js stackSet), decided once.
 	const stackOf = new Map();
+	// The number reads behind recent-set picks (identify.js readPlan verify),
+	// by card: {done}, a promise settled once the read is in and weighed
+	// (verifyAfter). Save, Log it, and Log purchase wait for them, at most
+	// VERIFY_WAIT_MS (settleVerifies).
+	const verifying = new Map();
 	let wakeLock = null;
 	let engineState = 'idle';
 	const photoUrls = new Map();
@@ -1343,6 +1348,13 @@ export function scanView(root) {
 			return;
 		}
 
+		// As Save does (settleVerifies), then again.
+		if (verifyPending()) {
+			settleVerifies().then(() => alive && logIt());
+
+			return;
+		}
+
 		const sum = T.tradeSummary(session, outResults);
 
 		if (sum.look) {
@@ -1402,6 +1414,13 @@ export function scanView(root) {
 		}
 
 		if (stillTaking()) {
+			return;
+		}
+
+		// As Save does (settleVerifies), then again.
+		if (verifyPending()) {
+			settleVerifies().then(() => alive && logPurchase());
+
 			return;
 		}
 
@@ -2164,6 +2183,14 @@ export function scanView(root) {
 	}
 
 	async function saveNow({skipOwned = false} = {}) {
+		// A recent-set pick still waiting for its number read: a few seconds
+		// for it, then to check (settleVerifies).
+		await settleVerifies();
+
+		if (!alive) {
+			return;
+		}
+
 		// The trade tray never adds cards by itself: they go through Log it.
 		if (T.isTrade(session)) {
 			logIt();
@@ -3118,6 +3145,10 @@ export function scanView(root) {
 	async function readItemNow(id, frame, {askIfSame = false, auto = false, captureMs = null, dropped = false, fullSaved = null, geometry: area = null, guide: guideIn = null, onPicture = null, page = false, photo = false, pocketCard = null, quads = [], seen = null, straight = false} = {}) {
 		let result;
 		let readDone = () => {};
+		// A recent-set pick, shown at once: the picture answer whose number
+		// is read behind it (verifyAfter), and the read's options.
+		let verifySeen = null;
+		let verifyOptions = null;
 
 		readings.set(id, new Promise((resolve) => {
 			readDone = resolve;
@@ -3189,13 +3220,20 @@ export function scanView(root) {
 				// reuses it, so skipping the number read and picking the print
 				// always agree.
 				// A binder page's pockets take no stack: a page is not a pile from
-				// one set. A picture whose one card is a little short of sure is
-				// taken when its set is one of the last few cards' (identify.js
-				// recentStack, v86).
-				const stack = page ? null : S.stackSet(session, id);
+				// one set. A picture whose one card is a little short of sure,
+				// from one of the last few cards' sets, is shown at once as that
+				// card and its number is read behind it (identify.js readPlan,
+				// recentStack; verifyAfter).
+				const plan = readPlan(seen.picture, {needsText: seen.needsText, page, recent: page ? null : S.recentSets(session, id), stack: page ? null : S.stackSet(session, id)});
 
-				stackOf.set(id, page || stackPick(seen.picture, stack) ? stack : recentStack(seen.picture, S.recentSets(session, id)) || stack);
-				result = seen.needsText && !stackPick(seen.picture, stackOf.get(id)) ? await identifyText(seen, {readOptions}) : seen;
+				stackOf.set(id, plan.stack);
+
+				if (plan.verify) {
+					verifySeen = seen;
+					verifyOptions = readOptions;
+				}
+
+				result = plan.text ? await identifyText(seen, {readOptions}) : seen;
 
 				// Only a card that went to the text reader waited for it (a stack
 				// pick skips it).
@@ -3354,6 +3392,31 @@ export function scanView(root) {
 		item.timings = {...result.timings};
 		item.report = report();
 		item.picture = result.picture || null;
+
+		// A recent-set pick: its number read joins the text queue now, and
+		// Save waits for it (settleVerifies).
+		const verify = verifySeen ? {done: null} : null;
+		const numberRead = verify ? identifyText(verifySeen, {readOptions: verifyOptions}) : null;
+		let verified = () => {};
+
+		// Weighed by verifyAfter, after the photo is kept: a read that fails
+		// before then is not an unhandled rejection.
+		if (numberRead) {
+			numberRead.catch(() => {});
+		}
+
+		if (verify) {
+			verify.done = new Promise((resolve) => {
+				verified = resolve;
+			});
+			verifying.set(id, verify);
+		}
+		else if (verifying.has(id)) {
+			// Read again: a read behind the last answer no longer counts.
+			verifying.delete(id);
+		}
+
+		item.verify = verify ? 'pending' : null;
 		scannerChange(id, () => (result.read ? S.applyRead(session, id, result.read) : S.markMatching(session, id)));
 
 		if (fullSaved) {
@@ -3362,8 +3425,125 @@ export function scanView(root) {
 
 		draft.deletePhoto(`${id}:full`).catch(() => {});
 
-		await matchItemNow(id);
+		const matched = matchItemNow(id);
+
+		if (verify) {
+			verifyAfter(id, verify, numberRead, matched).catch(() => {}).finally(() => {
+				if (verifying.get(id) === verify) {
+					verifying.delete(id);
+				}
+
+				verified();
+			});
+		}
+
+		await matched;
 	}
+
+	// How long Save, Log it, and Log purchase wait for the number reads
+	// behind recent-set picks before they make the unread ones to check
+	// (settleVerifies). A number read took about 2.5 s on Eric's phone
+	// (picture.js numberSides).
+	const VERIFY_WAIT_MS = 4000;
+
+	// The number read behind a recent-set pick (identify.js readPlan verify),
+	// weighed once the pick is shown (matched: its matchItemNow, both of its
+	// answers). A number that fits the pick leaves it as it is; one that
+	// names another print matches the card again with it (picture.js
+	// pictureMatch: the picture and the number disagree), so the tile turns
+	// to check, and it is never saved sure as the wrong print (v86 review: a
+	// stamped reprint the index lacks came out sure as a recent set's
+	// print). No number read leaves the pick as it is. A pick confirmed by
+	// hand, or read again, meanwhile, is left alone.
+	async function verifyAfter(id, run, numberRead, matched) {
+		let answer = null;
+
+		try {
+			answer = await numberRead;
+		}
+		catch {
+			answer = null;
+		}
+
+		await matched.catch(() => {});
+
+		const item = alive && S.findItem(session, id);
+
+		if (!item || verifying.get(id) !== run || item.verify !== 'pending') {
+			return;
+		}
+
+		change(() => S.applyVerifyRead(session, id, answer && answer.read));
+
+		if (!item.read || !item.read.number || !item.card || !item.picture || item.confirmed) {
+			return;
+		}
+
+		const before = snapshot(item);
+		const language = item.language || item.languageHint;
+		let found = null;
+
+		try {
+			const index = knownIndex || await within(cardIndex().catch(() => null), QUICK_MS, null);
+
+			found = await pictureMatch(item.picture, item.read, language, {asian: lastAsianLanguage(), heldIn: heldLanguage(item), known: knownFrom(index), stack: stackOf.get(id) || null, textRoute: (read, lang) => findCandidates(read, lang, {artwork: artworks.get(id) || null})});
+		}
+		catch {
+			found = null;
+		}
+
+		const current = alive && S.findItem(session, id);
+
+		if (!current || !current.card || current.confirmed) {
+			return;
+		}
+
+		if (found && found.sure && found.card && found.card.id === current.card.id) {
+			return;
+		}
+
+		const cardBefore = current.card.id;
+
+		if (found && found.card && sameAs(before, current)) {
+			scannerChange(id, () => S.applyPicture(session, id, found));
+		}
+		else {
+			scannerChange(id, () => S.doubtPick(session, id, (found && found.why) || `The number reads ${item.read.number.numberPrinted || item.read.number.number}, which this print does not have. Check it.`));
+		}
+
+		tellRead(id);
+
+		const after = S.findItem(session, id);
+
+		if (after && after.card && after.card.id !== cardBefore) {
+			localiseLater(id);
+			await loadVariants(id);
+		}
+	}
+
+	// Save, Log it, and Log purchase on a tray with recent-set picks still
+	// waiting for their number read (verifyAfter): they wait for those reads,
+	// at most VERIFY_WAIT_MS, and any still not in is made to check
+	// (session.js doubtUnverified), so a pick is never saved sure without its
+	// number. Returns whether any pick was waiting.
+	async function settleVerifies() {
+		if (!verifyPending()) {
+			return false;
+		}
+
+		const tray = session;
+
+		await S.settleVerifies(tray, verifying, VERIFY_WAIT_MS);
+
+		if (alive && tray === session) {
+			persist();
+			draw();
+		}
+
+		return true;
+	}
+
+	const verifyPending = () => Boolean(session && session.items.some((item) => item.verify === 'pending'));
 
 	// How long a capture waits for the read of the capture before it, to
 	// tell whether it repeats it.
@@ -5478,6 +5658,14 @@ export function scanView(root) {
 
 			session = mode === 'trade' ? both.trade : both.add;
 			parked = mode === 'trade' ? both.add : both.trade;
+
+			// A recent-set pick whose number read was lost when Scan closed
+			// is to check (session.js doubtUnverified).
+			for (const tray of [session, parked]) {
+				if (S.doubtUnverified(tray).length) {
+					draft.saveSession(tray).catch(() => {});
+				}
+			}
 		}
 		catch {
 			session = mode === 'trade' ? T.newTradeSession() : S.newSession();

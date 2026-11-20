@@ -263,3 +263,56 @@ describe('a read that throws part way', () => {
 		await context.close();
 	});
 });
+
+// A recent-set pick (js/scan/identify.js readPlan) is shown at once, sure,
+// while its number is read behind it, and the number read can turn it to
+// check (v86 review: as first built it was never read, so a print the index
+// lacks came out sure as the wrong card). Its read lost (the app closed
+// before it came in), the pick is saved only after a look.
+describe('a recent-set pick whose number read is not in', () => {
+	test('is to check when Scan opens again, so Save does not take it sure', async () => {
+		const context = await browser.newContext({deviceScaleFactor: 2.8125, viewport: {height: 780, width: 384}});
+		await fakeRates(context);
+
+		await context.grantPermissions(['camera'], {origin: harness.origin});
+		await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.abort());
+		await routeTcgdex(context);
+		await context.addInitScript(sceneCamera, {height: 3840, width: 2160});
+		await context.addInitScript(() => localStorage.setItem('card-tracker:scan-holder', 'off'));
+
+		const page = await context.newPage();
+		const errors = [];
+
+		page.on('pageerror', (err) => errors.push(String(err)));
+		await page.goto(`${harness.origin}${BASE}cards`);
+		await page.evaluate(async () => {
+			const draft = await import('/pokemon-card-tracker/js/scan/draft.js');
+			const S = await import('/pokemon-card-tracker/js/scan/session.js');
+			const session = S.newSession();
+			const card = (n) => ({catalog: 'international', id: `me01-00${n}`, lang: 'en', localId: String(n), name: `Card ${n}`, official: '132', setId: 'me01', setName: 'Mega Evolution'});
+
+			Object.assign(S.addCapture(session, {id: 'settled'}), {card: card(1), confirmed: true, language: 'pt', languageBy: 'hand', status: 'ready', sure: true, variantId: null, variants: []});
+			// Picked from a recent set, its number read still to come.
+			Object.assign(S.addCapture(session, {id: 'recent'}), {card: card(2), language: 'pt', languageBy: 'hand', stacked: true, status: 'ready', sure: true, variantId: null, variants: [], verify: 'pending'});
+			await draft.saveSession(session);
+		});
+		await page.goto(`${harness.origin}${BASE}scan`);
+		await page.waitForSelector('#scan-shutter:not([disabled])', {timeout: 30000});
+		await page.waitForFunction(() => document.getElementById('scan-done-open').textContent === 'Done 2');
+		await page.click('#scan-done-open');
+		await page.waitForSelector('#scan-save-session');
+		assert.equal(await page.locator('#scan-save-session').textContent(), 'Save 1, 1 to check');
+		assert.equal(await page.locator('#scan-tray [data-item="recent"]').getAttribute('data-status'), 'unsure');
+
+		const kept = await page.evaluate(async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+			const item = session.items.find((one) => one.id === 'recent');
+
+			return {sure: item.sure, verify: item.verify, why: item.why};
+		});
+
+		assert.deepEqual(kept, {sure: false, verify: null, why: 'Its number was not read yet. Check the print.'});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});

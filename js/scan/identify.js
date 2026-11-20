@@ -25,7 +25,7 @@
 import {artVector} from './artwork.js';
 import {defaultCapture} from './camera.js';
 import {blobImage, imageBlob} from './image.js';
-import {AUTO_GAP, CLEAR_DISTANCE, compactPicture, FIRM_DISTANCE, FIRM_GAP, loadFingerprints, loadIndexNames, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, SURE_DISTANCE} from './picture.js';
+import {AUTO_GAP, CLEAR_DISTANCE, compactPicture, FIRM_DISTANCE, FIRM_GAP, loadFingerprints, loadIndexNames, matchCrops, needsText, pictureVerdict, setPhotoPrints as setPicturePrints, stackPick, SURE_DISTANCE} from './picture.js';
 import {CARD_MAX_HEIGHT, cropImage, rectify, rectQuad, warpCrop, warpQuad} from './rectify.js';
 import {ART, FACE, phash, thumbnail, turnImage} from '../vision/fingerprint.js';
 import {CARD_RATIO} from '../vision/pipeline.js';
@@ -1071,9 +1071,9 @@ export function numberSettles(picture, table) {
 
 // A picture match from the sets of the last few cards (v86): the stack to
 // give js/scan/picture.js (stackPick, pictureMatch stack) so its one card
-// is taken with no number read, or null. Only a first group of one card
-// that is not an image-less twin's (pictureVerdict twinned: only the number
-// tells those apart), with a clear lead (pictureVerdict clear) one notch
+// is shown at once, its number read behind it (readPlan), or null. Only a
+// first group of one card that is not an image-less twin's (pictureVerdict
+// twinned: only the number tells those apart), with a clear lead (pictureVerdict clear) one notch
 // short of what makes it sure alone: within FIRM_DISTANCE with a lead of
 // AUTO_GAP (SURE_DISTANCE alone), or within CLEAR_DISTANCE with a lead of
 // FIRM_GAP (FIRM_DISTANCE alone). A wrong first place has never led by more
@@ -1095,6 +1095,43 @@ export function recentStack(picture, sets) {
 	const near = (lead.score <= FIRM_DISTANCE && gap >= AUTO_GAP) || (lead.score <= CLEAR_DISTANCE && gap >= FIRM_GAP);
 
 	return verdict.clear && !verdict.sure && near && !card.twin && sets.has(card.set) ? card.set : null;
+}
+
+// How js/scan/view.js reads a card once its picture is matched, as
+// {stack, text, verify}: the stack to match it with (pictureMatch stack),
+// whether its text is read before it is shown (text), and whether it is
+// shown at once and its number read behind it (verify).
+//
+// - A binder page's pocket takes no stack: a page is not a pile from one set.
+// - A shared artwork with one print from the stack's set (stackSet, three of
+//   the last five cards; stackPick) is that print, with no number read: a
+//   reprint and its original share artwork and only the set tells them
+//   apart.
+// - A one-card group a little short of sure, from one of the last few
+//   cards' sets (recentStack), is shown at once as that card, and its
+//   number is still read (v86 review): a print the index lacks (a stamped
+//   or promo reprint, a Japanese print not flagged as a twin) finds its
+//   nearest one-card group in a recent set often enough, and only the number
+//   tells it is another print. When the number names another print the card
+//   turns to check; Save waits a few seconds for the read, and a card whose
+//   read is still not in is saved only after a look (session.js
+//   doubtUnverified).
+export function readPlan(picture, {needsText: wanted = true, page = false, recent = null, stack = null} = {}) {
+	if (page) {
+		return {stack: null, text: wanted, verify: false};
+	}
+
+	if (stackPick(picture, stack)) {
+		return {stack, text: false, verify: false};
+	}
+
+	const near = recentStack(picture, recent);
+
+	if (near) {
+		return {stack: near, text: false, verify: true};
+	}
+
+	return {stack, text: wanted, verify: false};
 }
 
 async function readNumberOnly(card, ocr, options) {

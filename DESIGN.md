@@ -1376,13 +1376,25 @@ scanner's answer; with no number, 13 of 22 were picked by hand. Three changes:
   than the base; two at a time came out level with it, within the machine's load swings.
 - **The sets of the last cards** (`identify.js` `recentStack`, `session.js` `recentSets`): a
   first group of one card whose lead is clear but a notch short of sure (within 55 with a lead of
-  10, or within 60 with a lead of 15, where alone it needs 45 and 10, or 55 and 15) is taken, with
-  no number read, when its set is one of the last five cards' settled without the stack. It goes
-  through the stack's own path (`picture.js` `stackPick`), so the card is marked as stacked, never
-  counts toward the next card's stack, and a number read that names another print still wins. Not
-  for a card with an image-less twin (only the number tells those apart), and not for a group of
-  several prints, which stays with `stackSet`'s three of five, because there the set is the only
-  clue: a pile mixing Base Set and Base Set 2 would be picked wrong.
+  10, or within 60 with a lead of 15, where alone it needs 45 and 10, or 55 and 15) is shown at
+  once as that card, sure, when its set is one of the last five cards' settled without the stack
+  (`identify.js` `readPlan`). It goes through the stack's own path (`picture.js` `stackPick`), so
+  the card is marked as stacked and never counts toward the next card's stack. Its number is still
+  read, behind it in the text queue (`view.js` `verifyAfter`; the card carries `verify: 'pending'`
+  until the read is in), because a print the index lacks (a stamped or promo reprint, a Japanese
+  print not flagged as a twin) can find its nearest one-card group in a recent set: as first built
+  the rule skipped that read, so such a print came out sure as the wrong card with nothing to check
+  it (v86 review). When the read is in: a number that fits the pick leaves it as it is; a number
+  that names another print matches the card again with it, the picture and the number disagree,
+  and the tile turns to check (a card changed by hand meanwhile keeps its match and turns to check
+  all the same; one confirmed by hand is left alone); no number read leaves the pick as it is.
+  Save, Log it, and Log purchase wait for reads still running, at most 4 s (`settleVerifies`), and
+  a pick whose read is still not in, or was lost when Scan closed (checked again when Scan opens),
+  is made unsure with "Its number was not read yet. Check the print." (`session.js`
+  `doubtUnverified`), so it is saved only after a look. Not for a card with an image-less twin
+  (only the number tells those apart), and not for a group of several prints, which stays with
+  `stackSet`'s three of five, where the number is still never read, because there the set is the
+  only clue: a pile mixing Base Set and Base Set 2 would be picked wrong.
 - **Measured on the lab benchmark** (`lab/bench`, `--picture`). The machine was busy with other
   work, so the counts, which do not depend on it, are the measure: 40 cards in six captures, 665 OCR
   calls before and 598 after (2.77 and 2.49 a scan; 5.50 and 4.94 a scan that read text). Per
