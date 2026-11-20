@@ -163,18 +163,22 @@ async function noRings(page) {
 	assert.deepEqual(found, [], `ring-like elements: ${found.join(', ')}`);
 }
 
+// Upright, a binder opens on one page at full width (design review,
+// 2026-11-19; the next describe). Both pages shows the spread as an
+// overview, and a URL naming a spread (?spread=, as Both pages leaves it)
+// opens on it: these tests start there.
 describe('spreads on a phone held upright', () => {
 	const fake = new FakeStorageSupabase();
 	let phone;
 
 	before(async () => {
 		phone = await device(fake);
-		await open(phone.page);
+		await open(phone.page, '?spread=1');
 	});
 
 	after(() => phone.context.close());
 
-	test('opens on the inside cover and page 1, as an overview', async () => {
+	test('Both pages shows the inside cover and page 1, as an overview', async () => {
 		const {page} = phone;
 		const s = await state(page);
 
@@ -259,7 +263,8 @@ describe('spreads on a phone held upright', () => {
 		await swipe(page, 160);
 		await settle(page);
 		s = await state(page);
-		assert.deepEqual([s.spread, s.urlSpread], ['1', null]);
+		// Upright, the first spread names itself: the bare route opens page 1.
+		assert.deepEqual([s.spread, s.urlSpread], ['1', '1']);
 		assert.equal(await page.locator('#bs-prev').isDisabled(), true);
 
 		// A vertical drag is a scroll, not a turn.
@@ -501,18 +506,18 @@ describe('spreads on a phone held upright', () => {
 		const seen = [];
 
 		for (let i = 0; i < 4; i++) {
-			await open(page);
+			await open(page, '?spread=1');
 			seen.push(await page.locator('#bs-hint').isVisible());
 		}
 
 		assert.deepEqual(seen, [true, true, true, false]);
 
 		await page.evaluate(() => localStorage.removeItem('card-tracker-sideways-hint'));
-		await open(page);
+		await open(page, '?spread=1');
 		await shot(page, 'hint');
 		await page.click('#bs-hint-close');
 		assert.equal(await page.locator('#bs-hint').isVisible(), false);
-		await open(page);
+		await open(page, '?spread=1');
 		assert.equal(await page.locator('#bs-hint').isVisible(), false, 'gone after Got it');
 		assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('card-tracker-sideways-hint'))), {done: true, shown: 1});
 
@@ -522,7 +527,7 @@ describe('spreads on a phone held upright', () => {
 				throw new Error('blocked');
 			}});
 		});
-		await open(page);
+		await open(page, '?spread=1');
 		assert.equal(await page.locator('#bs-hint').isVisible(), true);
 		await context.close();
 	});
@@ -531,7 +536,7 @@ describe('spreads on a phone held upright', () => {
 		const quiet = await device(fake, {reducedMotion: 'reduce'});
 		const {page} = quiet;
 
-		await open(page);
+		await open(page, '?spread=1');
 		await page.evaluate(() => {
 			window.leafSeen = false;
 			new MutationObserver(() => {
@@ -556,6 +561,106 @@ describe('spreads on a phone held upright', () => {
 	});
 
 	test('no page errors', () => {
+		assert.deepEqual(phone.errors, []);
+	});
+});
+
+// Design review, 2026-11-19: upright, the spread was squeezed to half the
+// screen's width each page; one page at full width shows its cards at
+// twice the size, and its pockets take taps at once.
+describe('one page at full width on a phone held upright', () => {
+	const fake = new FakeStorageSupabase();
+	let phone;
+
+	before(async () => {
+		phone = await device(fake);
+		await open(phone.page);
+	});
+
+	after(() => phone.context.close());
+
+	async function swipePage(page, dx) {
+		const box = await page.locator('#bs-zoom-sheet').boundingBox();
+		const startX = dx < 0 ? box.x + box.width * 0.8 : box.x + box.width * 0.2;
+		const startY = box.y + box.height * 0.5;
+		const cdp = await page.context().newCDPSession(page);
+
+		await cdp.send('Input.dispatchTouchEvent', {touchPoints: [{x: startX, y: startY}], type: 'touchStart'});
+
+		for (let i = 1; i <= 8; i++) {
+			await cdp.send('Input.dispatchTouchEvent', {touchPoints: [{x: startX + (dx * i) / 8, y: startY + i}], type: 'touchMove'});
+		}
+
+		await cdp.send('Input.dispatchTouchEvent', {touchPoints: [], type: 'touchEnd'});
+		await cdp.detach();
+	}
+
+	test('opens on page 1 alone at the column\'s width, its pockets live', async () => {
+		const {page} = phone;
+		const s = await state(page);
+
+		assert.deepEqual([s.mode, s.view, s.zoom, s.page, s.label], ['overview', 'page', '1', '1', 'Page 1 of 40']);
+		assert.equal(await page.locator('#bs-spread').isVisible(), false, 'no squeezed spread');
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-grid[inert]').count(), 0, 'its pockets take taps');
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket').count(), 9);
+
+		const sizes = await page.evaluate(() => ({
+			column: document.getElementById('binder-spread').getBoundingClientRect().width,
+			pocket: document.querySelector('#bs-zoom-sheet .bs-pocket').getBoundingClientRect().width,
+			sheet: document.getElementById('bs-zoom-sheet').getBoundingClientRect().width,
+		}));
+
+		assert.ok(sizes.sheet >= sizes.column - 40, `the page takes the column's width (${JSON.stringify(sizes)})`);
+		assert.ok(sizes.pocket >= 80, `a pocket is ${sizes.pocket} px wide, twice the spread's`);
+		assert.equal(await page.locator('#bs-hint').isVisible(), false, 'no sideways hint over the page');
+		await shot(page, 'portrait-page');
+	});
+
+	test('swipes, the arrows, and the keys turn one page at a time, with no history entry', async () => {
+		const {page} = phone;
+
+		await swipePage(page, -160);
+		await settle(page);
+
+		let s = await state(page);
+
+		assert.deepEqual([s.zoom, s.page, s.urlSpread, s.label], ['2', '2', '2', 'Page 2 of 40']);
+		// A swipe's lift keeps taps off for 400 ms, so it is not a tap.
+		await page.waitForTimeout(450);
+		await page.click('#bs-zoom-next');
+		await settle(page);
+		assert.equal((await state(page)).zoom, '3');
+		await page.keyboard.press('ArrowLeft');
+		await settle(page);
+		assert.equal((await state(page)).zoom, '2');
+		await swipePage(page, 160);
+		await settle(page);
+		assert.equal((await state(page)).zoom, '1');
+		assert.ok(await page.locator('#bs-zoom-prev').isDisabled(), 'no page before page 1');
+		assert.equal(await page.evaluate(() => Boolean(history.state && history.state.bsZoom)), false, 'turning adds no history entry');
+	});
+
+	test('Both pages shows the spread; a reload keeps it; the bare route opens one page again', async () => {
+		const {page} = phone;
+
+		// Past the last swipe's 400 ms without taps.
+		await page.waitForTimeout(450);
+
+		await page.click('#bs-zoom-next');
+		await settle(page);
+		await page.click('#bs-zoom-back');
+		await settle(page);
+
+		let s = await state(page);
+
+		assert.deepEqual([s.view, s.spread, s.urlSpread, s.left, s.right], ['spread', '2', '2', '2', '3']);
+		await page.reload();
+		await page.waitForFunction(() => document.body.dataset.ready);
+		await settle(page);
+		assert.equal((await state(page)).view, 'spread', 'the spread named in the URL');
+		await open(page);
+		s = await state(page);
+		assert.deepEqual([s.view, s.zoom], ['page', '1']);
 		assert.deepEqual(phone.errors, []);
 	});
 });
@@ -617,17 +722,27 @@ describe('spreads on a phone held sideways', () => {
 		await shot(page, 'landscape-cover');
 	});
 
-	test('turning upright switches to the overview at once', async () => {
+	test('turning upright switches to one page at once, and sideways back to the spread', async () => {
 		const {page} = phone;
 
+		await page.click('#bs-next');
+		await settle(page);
 		await page.setViewportSize(PORTRAIT);
 		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.mode === 'overview');
-		assert.equal(await page.locator('.bs-open').count(), 1);
-		await page.click('.bs-open');
+
+		let s = await state(page);
+
+		assert.deepEqual([s.view, s.zoom, s.page, s.label], ['page', '2', '2', 'Page 2 of 40'], 'the spread\'s left page');
+		await page.click('#bs-zoom-back');
+		await settle(page);
+		assert.equal((await state(page)).view, 'spread', 'Both pages shows the overview');
+		assert.equal(await page.locator('.bs-open').count(), 2);
+		await page.click('.bs-open[data-open="3"]');
 		assert.equal((await state(page)).view, 'page');
 		await page.setViewportSize(LANDSCAPE);
 		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.mode === 'direct');
-		assert.equal((await state(page)).view, 'spread', 'sideways shows the spread again');
+		s = await state(page);
+		assert.deepEqual([s.view, s.left, s.right], ['spread', '2', '3'], 'sideways shows the spread again');
 		assert.deepEqual(phone.errors, []);
 	});
 });
@@ -911,7 +1026,7 @@ describe('long notes on the inside cover', () => {
 			const fake = new FakeStorageSupabase();
 			const {context, errors, page} = await device(fake, {viewport});
 
-			await open(page);
+			await open(page, '?spread=1');
 
 			const sizes = () => page.evaluate(() => {
 				const box = (selector) => {

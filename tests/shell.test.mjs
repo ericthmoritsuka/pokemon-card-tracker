@@ -340,12 +340,15 @@ describe('the tabs', () => {
 		await page.waitForSelector('#binder-empty:not([hidden])');
 		assert.equal(await page.locator('#binder-empty-scan').getAttribute('href'), `${BASE}scan`);
 
-		// Held upright a page opens before its pockets take a tap, and the
-		// hint says so; sideways the pockets take one at once.
-		assert.equal(await page.locator('#binder-empty-text').textContent(), 'Nothing in this binder yet. Tap a page, then a pocket, to place a card you own, or scan new ones.');
+		// Held upright the binder opens on one page, whose pockets take a
+		// tap (design review, 2026-11-19), as sideways; on Both pages a page
+		// opens before its pockets take one, and the hint says so.
+		assert.equal(await page.locator('#binder-empty-text').textContent(), 'Nothing in this binder yet. Tap a pocket to place a card you own, or scan new ones.');
 		await page.setViewportSize({height: 360, width: 740});
 		await page.waitForFunction(() => /^Nothing in this binder yet\. Tap a pocket to place/.test(document.getElementById('binder-empty-text').textContent));
 		await page.setViewportSize(VIEWPORT);
+		await page.waitForFunction(() => document.getElementById('binder-spread').dataset.view === 'page');
+		await page.click('#bs-zoom-back');
 		await page.waitForFunction(() => /Tap a page, then a pocket/.test(document.getElementById('binder-empty-text').textContent));
 
 		// A pocket left empty on purpose, or art, is a binder in use: no hint.

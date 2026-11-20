@@ -215,7 +215,7 @@ describe('a Pokémon goal on a phone still running v70', {skip: hasV70 ? false :
 		// another list, and nothing is saved.
 		await v70.page.goto(url(`binders/${made.binder}`));
 		await v70.page.waitForFunction(() => /was deleted\. Its pages stay as they were/.test(document.getElementById('binder-list-note')?.textContent || ''), null, {timeout: 20000});
-		assert.equal(await v70.page.locator('#bs-spread .pocket').count() > 0, true, 'its pocket shows');
+		assert.equal(await v70.page.locator('#binder-spread .pocket').count() > 0, true, 'its pocket shows');
 
 		// The binder form lists only the goals v70 knows.
 		await v70.page.goto(url('binders'));

@@ -1148,7 +1148,9 @@ const binders = (page, call, ...args) => page.evaluate(async ({name, list}) => {
 	return module[name](...list);
 }, {list: args, name: call});
 
-const binderPocket = (n) => `#bs-spread .bs-page[data-page="1"] .pocket[data-position="${n}"]`;
+// Page 1's pocket as shown: upright, the binder opens on page 1 alone
+// (design review, 2026-11-19).
+const binderPocket = (n) => `#binder-spread .bs-page[data-page="1"] .pocket[data-position="${n}"]`;
 
 async function waitForCardIn(page, n) {
 	await page.waitForFunction((selector) => {

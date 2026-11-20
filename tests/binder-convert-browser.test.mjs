@@ -217,7 +217,21 @@ async function waitForPocket(page, selector, check) {
 }
 
 async function openPage(page, pg) {
-	await page.click(`.bs-open[data-open="${pg}"]`);
+	// Upright, a binder opens on one page (design review, 2026-11-19): a
+	// tap on the page in the spread, else the page slider steps to it.
+	const open = page.locator(`.bs-open[data-open="${pg}"]`);
+
+	if (await open.isVisible()) {
+		await open.click();
+	}
+	else {
+		await page.waitForSelector('#binder-spread[data-view="page"]');
+		await page.locator('#bs-zoom #bs-slider').evaluate((node, to) => {
+			node.value = String(to);
+			node.dispatchEvent(new Event('change', {bubbles: true}));
+		}, pg);
+	}
+
 	await page.waitForFunction((wanted) => {
 		const root = document.getElementById('binder-spread');
 

@@ -965,8 +965,9 @@ describe('the count stepper', () => {
 		await page.goto(url(`binders/${binder.id}`));
 		await page.waitForSelector('#binder-spread');
 
-		// Held upright, a page opens first; then its pocket takes a tap.
-		await page.click('.bs-open[data-open="1"]');
+		// Held upright, the binder opens on page 1 alone (design review,
+		// 2026-11-19); its pocket takes a tap.
+		await page.waitForFunction(() => document.getElementById('binder-spread')?.dataset.zoom === '1');
 
 		const pocket = page.locator('#bs-zoom-sheet .pocket[data-position="1"]');
 

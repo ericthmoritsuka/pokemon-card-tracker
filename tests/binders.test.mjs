@@ -971,9 +971,10 @@ const localDoc = (page) => page.evaluate(async () => (await import('/pokemon-car
 const shownErrors = (page) => page.locator('#errors .error').allTextContents();
 
 // A pocket: on the page zoomed open (a phone held upright places cards
-// there), or with pg, on that page of the spread.
+// there), or with pg, on that page as shown, in the spread or open alone
+// (upright, a binder opens on one page; design review, 2026-11-19).
 const pocketAt = (n, pg = null) => (pg
-	? `#bs-spread .bs-page[data-page="${pg}"] .pocket[data-position="${n}"]`
+	? `#bs-spread:not([hidden]) .bs-page[data-page="${pg}"] .pocket[data-position="${n}"], #bs-zoom:not([hidden]) .bs-page[data-page="${pg}"] .pocket[data-position="${n}"]`
 	: `#bs-zoom-sheet .pocket[data-position="${n}"]`);
 
 const pocket = (page, n, pg = null) => page.locator(pocketAt(n, pg));
@@ -1007,9 +1008,22 @@ async function waitForZoom(page, pg) {
 	}, String(pg), {timeout: 10000});
 }
 
-// Opens page pg of the spread at full size, as a tap on it does.
+// Opens page pg at full size: a tap on it in the spread, or upright, where
+// the binder opens on one page, the page slider stepping to it.
 async function openPage(page, pg) {
-	await page.click(`.bs-open[data-open="${pg}"]`);
+	const open = page.locator(`.bs-open[data-open="${pg}"]`);
+
+	if (await open.isVisible()) {
+		await open.click();
+	}
+	else {
+		await page.waitForSelector('#binder-spread[data-view="page"]');
+		await page.locator('#bs-zoom #bs-slider').evaluate((node, to) => {
+			node.value = String(to);
+			node.dispatchEvent(new Event('change', {bubbles: true}));
+		}, pg);
+	}
+
 	await waitForZoom(page, pg);
 }
 
@@ -1089,19 +1103,19 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.fill('#binder-pages', '3');
 		await page.screenshot({path: '/tmp/binders-form.png', fullPage: true});
 		await page.click('#binder-save');
-		await page.waitForURL(/\/binders\/[0-9a-f-]+$/);
+		await page.waitForURL(/\/binders\/[0-9a-f-]+(\?|$)/);
 		await page.waitForSelector('#binder-spread .bs-page');
 
 		const binderId = new URL(page.url()).pathname.split('/').pop();
 
-		// It opens like a real binder: page 1 alone on the right, the inside
-		// cover on the left.
+		// Upright it opens on page 1 alone, at the column's width (design
+		// review, 2026-11-19); sideways it opens like a real binder, page 1
+		// on the right and the inside cover on the left (below).
 		assert.equal(await page.locator('#binder-title').textContent(), 'Generations 1 and 2');
 		assert.equal(await page.locator('#binder-meta').textContent(), '3 × 3 · 3 pages');
-		assert.equal(await page.locator('#bs-spread .bs-side-right .bs-page[data-page="1"] .pocket').count(), 9);
-		assert.equal(await page.locator('#bs-spread .bs-side-left .bs-inside').count(), 1);
-		assert.equal(await page.locator('#bs-jump').inputValue(), '1');
-		assert.ok(await page.locator('#bs-prev').isDisabled());
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-page[data-page="1"] .pocket').count(), 9);
+		assert.equal(await page.locator('#bs-zoom-label').textContent(), 'Page 1 of 3');
+		assert.ok(await page.locator('#bs-zoom-prev').isDisabled());
 
 		let doc = await localDoc(page);
 		let binder = doc.binders[0];
@@ -1111,8 +1125,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 			{cols: 3, cover: '#1b1b1f', name: 'Generations 1 and 2', notes: 'Kanto and Johto in Dex order', pages: 3, rows: 3});
 		assert.ok(binder.id && binder.updated_at && binder.deleted_at === null);
 
-		// A phone held upright shows the spread as an overview: tap page 1 to
-		// open it, then place an owned card. The picker opens on "Not in a
+		// Page 1 is open: place an owned card. The picker opens on "Not in a
 		// binder yet".
 		await openPage(page, 1);
 		await pocket(page, 1).click();
@@ -1228,7 +1241,8 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await kindOf(page, 3, 1), 'want');
 		assert.equal(await kindOf(page, 4, 1), 'empty');
 		assert.equal(new URL(page.url()).pathname, `${BASE}binders/${binderId}`);
-		assert.equal(new URL(page.url()).search, '');
+		// Upright, the first spread names itself: the bare route opens page 1.
+		assert.equal(new URL(page.url()).search, '?spread=1');
 
 		// Where is this card?
 		const location = await page.evaluate(async () => (await import('/pokemon-card-tracker/js/binders.js')).binderLocation('c1'));
@@ -1800,10 +1814,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.ok(fit.fillClear, 'Fill the rest in order is beside the Scan disc');
 		assert.equal(fit.width, 360, 'nothing scrolls sideways');
 
-		// Pick c2; in the overview a page opens first.
+		// Pick c2; upright, page 1 is open alone, so a pocket takes it at once
+		// (design review, 2026-11-19; on Both pages a page opens first).
 		await page.click('#bt-strip .bt-card[data-entry="c2"]');
 		assert.deepEqual(await tray(), ['c2*', 'c3']);
-		assert.equal(await page.locator('#bt-status').textContent(), 'Open a page, then tap a pocket');
 		await openPage(page, 1);
 		assert.equal(await page.locator('#bt-status').textContent(), 'Tap a pocket for Test Charmander');
 		await page.screenshot({path: '/tmp/binders-tray-picked.png'});
@@ -2409,9 +2423,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await waitForKind(page, 1, 'card', 1);
 		assert.equal(await page.locator('#binder-body').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
 		assert.equal(await page.locator('#binder-spread').evaluate((el) => el.style.getPropertyValue('--cover').trim()), '#1d2e60');
-		// Only the owned card takes a tap, to come out of its pocket.
-		assert.equal(await page.locator('#bs-spread .bs-pocket button.pocket').count(), 1, 'no other pocket can be tapped');
-		assert.equal(await page.locator('#bs-spread .bs-pocket button.pocket[data-kind="card"]').count(), 1);
+		// Only the owned card takes a tap, to come out of its pocket (upright,
+		// on page 1 open alone).
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket button.pocket').count(), 1, 'no other pocket can be tapped');
+		assert.equal(await page.locator('#bs-zoom-sheet .bs-pocket button.pocket[data-kind="card"]').count(), 1);
 		assert.equal(await page.locator('#edit-binder, #binder-cover-image, #delete-binder, #pocket-sheet').count(), 0);
 		assert.match(await pocket(page, 1, 1).getAttribute('aria-label'), /^Page 1, pocket 1: Test Charmander/);
 

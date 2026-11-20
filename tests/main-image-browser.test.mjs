@@ -356,7 +356,7 @@ describe('the main image on every screen', () => {
 
 		// A new session, so no photo is in memory yet: the preview of pages 4
 		// and 5 draws the pocket while its photo is still being read.
-		await page.goto(url(`binders/${binder}`));
+		await page.goto(url(`binders/${binder}?spread=1`));
 		await page.waitForSelector('#bs-spread #bs-slider');
 		await page.locator('#bs-spread #bs-slider').evaluate((node) => {
 			node.value = '3';

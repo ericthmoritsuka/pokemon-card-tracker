@@ -164,14 +164,16 @@ export function readSpreadState(search, pageCount, routePage = null) {
 }
 
 // The search string for a state, keeping any other parameters. Spread 1
-// with no zoomed page is the bare route.
-export function writeSpreadState(search, {spread, zoom = null}) {
+// with no zoomed page is the bare route, unless keep asks for ?spread=1:
+// on a phone held upright the bare route opens page 1 alone, so the spread
+// chosen there (Both pages) names itself.
+export function writeSpreadState(search, {spread, zoom = null}, {keep = false} = {}) {
 	const params = new URLSearchParams(search || '');
 
 	params.delete(SPREAD_PARAM);
 	params.delete(ZOOM_PARAM);
 
-	if (spread > 1 || zoom) {
+	if (spread > 1 || zoom || keep) {
 		params.set(SPREAD_PARAM, String(spread));
 	}
 
@@ -826,8 +828,16 @@ export function binderSpread({
 	function urlFor(next) {
 		const pathname = path === null ? window.location.pathname : `${base}${path}`;
 
-		return `${pathname}${writeSpreadState(window.location.search, next)}${window.location.hash}`;
+		return `${pathname}${writeSpreadState(window.location.search, next, {keep: overview()})}${window.location.hash}`;
 	}
+
+	// The page a phone held upright shows of a spread: its left page, or
+	// page 1 on the first spread (the inside cover is its left).
+	const pageOfSpread = (spread) => {
+		const {left, right} = spreadPages(binder.page_count, spread);
+
+		return left || right || 1;
+	};
 
 	const replaceUrl = (at = state) => history.replaceState(history.state, '', urlFor(at));
 
@@ -1223,6 +1233,11 @@ export function binderSpread({
 				replaceUrl();
 			}
 		}
+		else if (!state.zoom) {
+			// Upright again: one page at full width, the spread's left one.
+			state = {spread: state.spread, zoom: pageOfSpread(state.spread)};
+			replaceUrl();
+		}
 
 		draw();
 		changed();
@@ -1266,6 +1281,18 @@ export function binderSpread({
 
 	if (state.zoom && !overview()) {
 		state = {spread: state.spread, zoom: null};
+	}
+
+	// A phone held upright opens on one page at full width rather than the
+	// spread squeezed to half of it (design review, 2026-11-19): the route's
+	// page, or the spread's left page (page 1 on the first). Both pages
+	// shows the spread, and a URL that names a spread (?spread=, as Both
+	// pages and Back from a page leave it) opens on it.
+	if (!state.zoom && overview() && !new URLSearchParams(window.location.search).has(SPREAD_PARAM)) {
+		const page = whole(routePage, NaN);
+
+		state = {spread: state.spread, zoom: Number.isInteger(page) ? Math.min(Math.max(1, page), binder.page_count) : pageOfSpread(state.spread)};
+		state.spread = spreadOfPage(state.zoom);
 	}
 
 	replaceUrl();

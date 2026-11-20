@@ -2516,11 +2516,19 @@ offers quick picks for the common sizes, which fill in the grid and page count: 
 
 **Cover image.** A binder's cover is its cover color or an image: a photo of the real binder or any
 picture, cropped to the cover's shape and stored like card photos. On
-a phone in portrait the spread is an overview and tapping a page zooms into it for placing cards;
-in landscape, on tablets, and on laptops the spread is large enough to edit directly. In portrait
-the binder shows a gentle, dismissible hint, "Turn your phone sideways to see both pages", a few
-times and then never again; rotating switches to the full spread at once, and the app never forces
-landscape, so a phone with rotation locked keeps the overview. *(Eric, 2026-10-01.)* Spreads are
+a phone in portrait the binder opens on **one page at the column's width**, its pockets taking
+taps at once, rather than the spread squeezed to half the width each page (design review,
+2026-11-19: it opened on an overview whose pages had to be tapped open first). Swiping, the arrows
+beside "‹ Both pages", the arrow keys, and the page slider step one page at a time, with no history
+entry, so Back leaves the binder. The route's page opens (a link to `binders/<id>/<page>`), else
+the spread's left page, page 1 on the first. **‹ Both pages** shows the spread as an overview, where
+tapping a page opens it as before, and a URL that names a spread (`?spread=`, which the overview
+keeps even for the first spread) opens on it, so a reload or Back from an opened page stays there.
+In landscape, on tablets, and on laptops the spread is large enough to edit directly. On the
+overview the binder shows a gentle, dismissible hint, "Turn your phone sideways to see both pages",
+a few times and then never again; rotating sideways switches to the full spread at once, and
+turning upright again opens the spread's left page alone. The app never forces landscape, so a
+phone with rotation locked keeps the single page. *(Eric, 2026-10-01.)* Spreads are
 also where Michi art can cross facing pages, which settles that open question. *(Planned
 2026-10-01, a block after the shell.)*
 
@@ -2605,7 +2613,8 @@ With reduced motion it appears and goes without moving. It is a sheet (`js/sheet
 it without leaving the binder, Tab stays inside, focus goes to its first action and back to the
 pocket after. Taps that place a card are unchanged: with a tray card picked or a card in hand, a
 tap on a filled pocket still places or swaps, and never opens it; empty pockets, placeholders, Gone
-pockets, and art keep their sheet. In portrait the overview still opens the page first.
+pockets, and art keep their sheet. In portrait the overview (Both pages) still opens the page
+first.
 
 **Remove and move, with the choice to shift** (Eric, 2026-11-06: "I should be able to remove cards in
 binders (even automatic ones) and the app should give me the choice to keep it as it is or shift the

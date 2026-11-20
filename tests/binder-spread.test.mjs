@@ -133,6 +133,10 @@ describe('the URL', () => {
 
 		assert.equal(writeSpreadState('', {spread: 1}), '');
 		assert.equal(writeSpreadState('', {spread: 3}), '?spread=3');
+		// Upright, the bare route opens page 1 alone, so the first spread
+		// chosen there (Both pages) names itself.
+		assert.equal(writeSpreadState('', {spread: 1}, {keep: true}), '?spread=1');
+		assert.deepEqual(readSpreadState('?spread=1', 40), {spread: 1, zoom: null});
 	});
 
 	test('a zoomed page round-trips and decides the spread', () => {

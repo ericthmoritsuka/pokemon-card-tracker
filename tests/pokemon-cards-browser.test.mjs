@@ -1353,7 +1353,21 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 
 	// Opens a binder page in the zoom sheet (tests/binder-rules.test.mjs).
 	async function openBinderPage(page, pg) {
-		await page.click(`.bs-open[data-open="${pg}"]`);
+		// Upright, a binder opens on one page (design review, 2026-11-19): a
+		// tap on the page in the spread, else the page slider steps to it.
+		const open = page.locator(`.bs-open[data-open="${pg}"]`);
+
+		if (await open.isVisible()) {
+			await open.click();
+		}
+		else {
+			await page.waitForSelector('#binder-spread[data-view="page"]');
+			await page.locator('#bs-zoom #bs-slider').evaluate((node, to) => {
+				node.value = String(to);
+				node.dispatchEvent(new Event('change', {bubbles: true}));
+			}, pg);
+		}
+
 		await page.waitForFunction((wanted) => document.getElementById('binder-spread')?.dataset.zoom === wanted, String(pg), {timeout: 10000});
 	}
 
@@ -1486,12 +1500,13 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		assert.equal(binder.snapshot.keys[0], 'ja|PMCG2-035', 'the oldest print first');
 		assert.deepEqual(Object.keys(binder.snapshot.shown).sort(), ['international|base2-54', 'international|sm12-165', 'international|sv03.5-039', 'international|xy1-87', 'ja|SV2a-039']);
 
-		const pocket = (key) => `#bs-spread .pocket[data-position="${(binder.snapshot.keys.indexOf(key) % 9) + 1}"]`;
+		// Upright, page 1 opens alone (design review, 2026-11-19).
+		const pocket = (key) => `#bs-zoom-sheet .pocket[data-position="${(binder.snapshot.keys.indexOf(key) % 9) + 1}"]`;
 
 		// Page 1: Jungle's Jigglypuff (owned) and a placeholder beside it.
 		assert.ok(binder.snapshot.keys.indexOf('international|base2-54') < 9, 'Jungle on page 1');
 		await page.waitForFunction((sel) => document.querySelector(sel)?.dataset.kind === 'card', pocket('international|base2-54'), {timeout: 15000});
-		await page.waitForFunction(() => document.querySelector('#bs-spread .bs-page[data-page="1"] .pocket[data-position="1"]')?.dataset.kind === 'want', null, {timeout: 15000});
+		await page.waitForFunction(() => document.querySelector('#bs-zoom-sheet .bs-page[data-page="1"] .pocket[data-position="1"]')?.dataset.kind === 'want', null, {timeout: 15000});
 
 		// A placeholder's Add to wishlist wishes in the goal's language for
 		// the card's catalog, as the goal's screen does: Japanese for the
@@ -1666,7 +1681,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		});
 		await page.waitForTimeout(500);
 		assert.deepEqual(await binderOf(page, made), stored, 'nothing saved on opening');
-		await page.waitForFunction(() => document.querySelectorAll('#bs-spread .pocket').length > 0);
+		await page.waitForFunction(() => document.querySelectorAll('#binder-spread .pocket').length > 0);
 		await page.click('#binder-refresh');
 		await page.waitForTimeout(800);
 		assert.match(await noteText(page), /^The Japanese prints are not on this phone yet\./);
@@ -1678,7 +1693,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		const sv2aPage = Math.floor(sv2a / 9) + 1;
 
 		await goInApp(page, `binders/${made}/${sv2aPage}`);
-		await page.waitForSelector(`.bs-open[data-open="${sv2aPage}"]`, {timeout: 20000});
+		await page.waitForSelector(`#bs-zoom-sheet .bs-page[data-page="${sv2aPage}"]`, {timeout: 20000});
 		await openBinderPage(page, sv2aPage);
 		await page.waitForFunction((position) => document.querySelector(`#bs-zoom-sheet .pocket[data-position="${position}"]`)?.dataset.kind === 'card', (sv2a % 9) + 1, {timeout: 10000});
 		assert.deepEqual(await binderOf(page, made), stored, 'nor on opening a page');

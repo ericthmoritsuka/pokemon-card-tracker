@@ -667,7 +667,9 @@ async function seedLocal(page, doc, records = RECORDS) {
 const localDoc = (page) => page.evaluate(async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument());
 
 const zoomPocket = (n) => `#bs-zoom-sheet .pocket[data-position="${n}"]`;
-const spreadPocket = (pg, n) => `#bs-spread .bs-page[data-page="${pg}"] .pocket[data-position="${n}"]`;
+// A pocket of page pg as shown: in the spread, or upright, on the page
+// open alone (design review, 2026-11-19).
+const spreadPocket = (pg, n) => `#bs-spread:not([hidden]) .bs-page[data-page="${pg}"] .pocket[data-position="${n}"], #bs-zoom:not([hidden]) .bs-page[data-page="${pg}"] .pocket[data-position="${n}"]`;
 
 async function waitForPocket(page, selector, check) {
 	await page.waitForFunction(({selector: sel, check: wanted}) => {
@@ -686,7 +688,21 @@ async function closeSheet(page) {
 }
 
 async function openPage(page, pg) {
-	await page.click(`.bs-open[data-open="${pg}"]`);
+	// Upright, a binder opens on one page (design review, 2026-11-19): a
+	// tap on the page in the spread, else the page slider steps to it.
+	const open = page.locator(`.bs-open[data-open="${pg}"]`);
+
+	if (await open.isVisible()) {
+		await open.click();
+	}
+	else {
+		await page.waitForSelector('#binder-spread[data-view="page"]');
+		await page.locator('#bs-zoom #bs-slider').evaluate((node, to) => {
+			node.value = String(to);
+			node.dispatchEvent(new Event('change', {bubbles: true}));
+		}, pg);
+	}
+
 	await page.waitForFunction((wanted) => {
 		const root = document.getElementById('binder-spread');
 
@@ -833,9 +849,9 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		assert.equal(doc.binders[0].page_count, 2);
 		await page.screenshot({path: `${SHOTS}/refreshed-360.png`});
 		await waitForPocket(page, spreadPocket(1, 4), {kind: 'card', label: 'Squirtle: Test Splash'});
-		await page.click('#bs-next');
+		await page.click('#bs-zoom-next');
 		await waitForPocket(page, spreadPocket(2, 1), {kind: 'card', label: 'Pikachu: Test Spark'});
-		await page.click('#bs-prev');
+		await page.click('#bs-zoom-prev');
 
 		// Refresh with nothing new says so.
 		await page.click('#binder-refresh');
@@ -1037,8 +1053,8 @@ describe('binders from a list in the browser', {skip: chromium ? false : 'Playwr
 		await page.waitForSelector('#binder-spread .bs-page');
 		await waitForPocket(page, spreadPocket(1, 1), {kind: 'card', label: 'Bulbasaur: Test Sprout, English'});
 		await waitForPocket(page, spreadPocket(1, 4), {kind: 'want', label: 'Pikachu, not owned yet'});
-		assert.equal(await page.locator('#bs-spread button.pocket').count(), 3, 'owned pockets take their card out, with its card page');
-		assert.equal(await page.locator('#bs-spread button.pocket[data-kind="card"]').count(), 3);
+		assert.equal(await page.locator('#bs-zoom-sheet button.pocket').count(), 3, 'owned pockets take their card out, with its card page');
+		assert.equal(await page.locator('#bs-zoom-sheet button.pocket[data-kind="card"]').count(), 3);
 		assert.equal(await page.locator('#binder-refresh, #edit-binder, #delete-binder, #pocket-sheet').count(), 0);
 		await page.screenshot({path: `${SHOTS}/family-360.png`});
 		assert.equal((await localDoc(page)).binders.length, 0, 'viewing changes nothing on this phone');

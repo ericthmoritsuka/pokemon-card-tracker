@@ -1388,7 +1388,9 @@ function binderScreen(root, source, id, pageParam) {
 		// Any pocket in use (a card, a Gone card, a placeholder, art, or one
 		// left empty on purpose) means the binder is not new.
 		if (emptyHint) {
-			const upright = Boolean(window.matchMedia && window.matchMedia(OVERVIEW_QUERY).matches);
+			// Upright the binder opens on one page, whose pockets take a tap;
+			// Both pages shows the spread, where a page opens first.
+			const upright = Boolean(window.matchMedia && window.matchMedia(OVERVIEW_QUERY).matches) && !spread.state().zoom;
 
 			emptyHint.hidden = slotsOf(binder, placed).length > 0;
 			emptyText.textContent = upright
