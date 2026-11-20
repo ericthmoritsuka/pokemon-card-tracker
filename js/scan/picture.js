@@ -18,7 +18,7 @@
 // The index is loaded once, on first use, and kept in memory (about 1.4
 // MB; the service worker keeps the file).
 
-import {importApi} from '../catalog.js';
+import {importApi, setHeldIn} from '../catalog.js';
 import {ASIAN_LANGUAGES} from '../languages.js';
 import {confusedVariants, sameNumber} from '../vision/match.js';
 import {cjkSimilarity, hasCjk} from './cjk.js';
@@ -609,6 +609,27 @@ export async function localPrint(card, language, {api = {setDetail: importApi.se
 	return record && record.name ? {image: record.image || null, lang: language, name: record.name, setName: data.name || null} : null;
 }
 
+// Which of the first group's prints exist in `language` (pictureMatch
+// heldIn): a predicate over its candidates. Asian prints are told apart by
+// languageFits; here a Western record's set is looked up in a Western
+// language TCGdex lists under its own names (api.setHeld: true, false, or
+// null when not known). Only a print whose set is known to be missing is
+// left out, and only when another print of the group is not.
+async function heldPrints(lead, language, api, wait = describeMs()) {
+	const everyone = () => true;
+
+	if (!LOCAL_PRINTS.includes(language) || lead.length < 2 || !api.setHeld) {
+		return everyone;
+	}
+
+	const sets = [...new Set(lead.filter((c) => c.lang === 'en').map((c) => c.setId))];
+	const answers = await Promise.all(sets.map((setId) => within(Promise.resolve().then(() => api.setHeld(language, setId)).catch(() => null), wait, null)));
+	const missing = new Set(sets.filter((_, i) => answers[i] === false));
+	const kept = (c) => !(c.lang === 'en' && missing.has(c.setId));
+
+	return lead.some((c) => kept(c) && languageFits(c, language)) ? kept : everyone;
+}
+
 // Whether a candidate is what the number read says: the number, and the
 // total when both are known (one confused digit allowed in the total, as
 // 195 for 198).
@@ -743,7 +764,19 @@ function misreadSettled(read, described, lead, verdict) {
 // stack: the set the cards before this one are from (session.js stackSet),
 // or null. When exactly one card of the first group is from it, that card is
 // the answer, sure, unless a number read names another (stackPick).
-export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail}, asian = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
+//
+// heldIn: the language read off the card itself (its label, its attack
+// text, its stage label) or picked by hand, never a default. The first
+// group keeps only the prints that exist in it: a Western print in
+// Portuguese, French, German, Italian, or Spanish only from a set TCGdex
+// lists in that language (api.setHeld, catalog.js setHeldIn), so a
+// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
+// Collection share is the Jungle print (a scanner review, 2026-11-19: on
+// Eric's three page photos the sure pockets went from 18 to 23). A set
+// whose listing is not known (no signal, never asked) keeps its print, and
+// a group none of whose prints exist in the language is kept whole (a
+// print TCGdex lacks in it).
+export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail, setHeld: setHeldIn}, asian = null, heldIn = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	// The language read or picked (`said`), or for a card with no Latin label
 	// the last Asian pick, to order by.
@@ -756,7 +789,8 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	const lead = described.slice(0, leadCards.length);
 	const others = described.slice(leadCards.length);
 	const number = misreadSettled(read, described, lead, verdict);
-	const fitting = lead.filter((c) => languageFits(c, language));
+	const held = await heldPrints(lead, heldIn, api, wait);
+	const fitting = lead.filter((c) => languageFits(c, language) && held(c));
 	const byNumber = (list) => list.filter((c) => numberFits(c, number));
 	const printed = number ? `${number.numberPrinted || number.number}${number.total ? `/${number.totalPrinted || number.total}` : ''}` : null;
 	// No set record reached for the first group's cards (no signal, and their
@@ -776,7 +810,7 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	// 24 right cards of 240.
 	const asianKnown = ASIAN.includes(language);
 	const western = (c) => (asianKnown || ASIAN.includes(c.lang) ? 0 : 1);
-	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (western(b) - western(a)) || a.score - b.score);
+	const order = (list) => [...list].sort((a, b) => (numberFits(b, number) - numberFits(a, number)) || (languageFits(b, language) - languageFits(a, language)) || (held(b) - held(a)) || (western(b) - western(a)) || a.score - b.score);
 
 	// The stack's print of this artwork: the card, with no number needed
 	// (stackPick: the same test view.js skips the number read on).
@@ -808,9 +842,9 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 
 		// A number read outranks the last Asian pick (an ordering only): it filters
 		// by the language read or picked.
-		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said)) : fitting;
+		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said) && held(c)) : fitting;
 
-		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
+		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language) && held(c)))) {
 			// Past SURE_DISTANCE only the number read makes it sure.
 			return done({candidates, card: narrowed[0], sure: matches.length > 0 || (verdict.close && Boolean(said && said !== 'non-latin'))});
 		}

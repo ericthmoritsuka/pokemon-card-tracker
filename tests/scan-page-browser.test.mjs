@@ -649,6 +649,33 @@ describe('a binder page from one photo', () => {
 		await close(app);
 	});
 
+	// A pocket's language read off its text keeps only the prints that exist
+	// in it (js/scan/picture.js pictureMatch heldIn): whether TCGdex lists a
+	// set in Portuguese is asked once and known from then on, with no signal
+	// too (js/catalog.js setHeldIn).
+	test('whether a set exists in Portuguese is asked once and known with no signal', async () => {
+		const app = await open();
+		const {context, page} = app;
+		const held = (sets) => page.evaluate(async (ids) => {
+			const {setHeldIn} = await import('/pokemon-card-tracker/js/catalog.js');
+
+			return Promise.all(ids.map((id) => setHeldIn('pt', id)));
+		}, sets);
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		assert.deepEqual(await held(['base2', 'base4', 'lc']), [true, false, false], 'Jungle is listed in Portuguese; Base Set 2 and Legendary Collection are not');
+
+		// No signal: a request that goes out fails (the replayed TCGdex
+		// answers would still be served).
+		await context.setOffline(true);
+		await context.route(/api\.tcgdex\.net/, (route) => route.abort('internetdisconnected'));
+		assert.deepEqual(await held(['base2', 'base4', 'neo1']), [true, false, null], 'offline: what was asked is known, a set never asked is not');
+		await context.setOffline(false);
+
+		await close(app);
+	});
+
 	test('a photo with no page in it says so, asks for another, and adds nothing', async () => {
 		const app = await open();
 		const {page} = app;

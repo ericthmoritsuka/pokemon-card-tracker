@@ -3462,7 +3462,10 @@ export function scanView(root) {
 		// to 2 s to show, 1.8 to 6.9 s for the full records).
 		// The set the cards before this one are from (session.js stackSet).
 		const stack = stackOf.has(id) ? stackOf.get(id) : item.page ? null : S.stackSet(session, id);
-		const quick = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
+		// A language read off the card or picked by hand, never a default,
+		// keeps only the prints that exist in it (picture.js heldIn).
+		const heldIn = heldLanguage(item);
+		const quick = await pictureMatch(item.picture, item.read, language, {asian, heldIn, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -3485,7 +3488,7 @@ export function scanView(root) {
 			loadVariants(id);
 		}
 
-		const full = await pictureMatch(item.picture, item.read, language, {asian, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
+		const full = await pictureMatch(item.picture, item.read, language, {asian, heldIn, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {artwork})});
 
 		if (!alive || !S.findItem(session, id)) {
 			return;
@@ -3517,6 +3520,60 @@ export function scanView(root) {
 
 		if (!shown) {
 			openIfPicked(id);
+		}
+	}
+
+	// The language a card's prints are narrowed to (picture.js heldIn): one
+	// read off it or picked by hand, never a default.
+	const heldLanguage = (item) => (item.language && ['hand', 'read', 'stage', 'text'].includes(item.languageBy) ? item.language : null);
+
+	// A binder pocket whose own text has just told its language (checkLabelLater)
+	// while its picture's group held several prints: the group narrowed to the
+	// prints that exist in that language (picture.js pictureMatch heldIn), so a
+	// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
+	// Collection share is the Jungle print, the only one of the three TCGdex
+	// lists in Portuguese, and a 151 Pidgey whose number 16/165 the Japanese
+	// twin shares is the Western one. The answer replaces the card's only when
+	// it is sure or puts another print first, and nobody touched the card
+	// meanwhile.
+	async function narrowLater(id) {
+		const item = S.findItem(session, id);
+		const heldIn = item && heldLanguage(item);
+
+		if (!heldIn || !item.picture || !item.card || item.sure || item.confirmed || !pictureVerdict(item.picture).several) {
+			return;
+		}
+
+		const before = snapshot(item);
+		let found;
+
+		try {
+			const index = knownIndex || await within(cardIndex().catch(() => null), QUICK_MS, null);
+
+			found = await pictureMatch(item.picture, item.read, heldIn, {asian: lastAsianLanguage(), heldIn, known: knownFrom(index), stack: null});
+		}
+		catch {
+			return;
+		}
+
+		const current = alive && S.findItem(session, id);
+
+		if (!current || !sameAs(before, current) || !found.card || (!found.sure && found.card.id === current.card.id)) {
+			return;
+		}
+
+		const cardBefore = current.card.id;
+
+		scannerChange(id, () => {
+			S.applyPicture(session, id, found);
+			S.doubtPocket(session, id);
+		});
+
+		const after = S.findItem(session, id);
+
+		if (after && after.card && after.card.id !== cardBefore) {
+			localiseLater(id);
+			await loadVariants(id);
 		}
 	}
 
@@ -3651,6 +3708,8 @@ export function scanView(root) {
 					}
 
 					if (S.findItem(session, id).languageBy === by) {
+						await narrowLater(id);
+
 						return;
 					}
 				}

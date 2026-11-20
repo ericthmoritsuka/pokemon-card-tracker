@@ -1665,6 +1665,63 @@ describe('picture first (Eric, 2026-10-03)', () => {
 		assert.match(unknown.why, /2 cards share this picture/);
 	});
 
+	// A scanner review, 2026-11-19: a Portuguese Spearow on Eric's page photo
+	// shares its artwork with Base Set 2 and Legendary Collection, which
+	// TCGdex does not list in Portuguese.
+	describe('a language read off the card keeps only the prints that exist in it', () => {
+		const spearow = {gap: 30, groups: [{cards: [card('lc-94', 'en', 'lc', 20), card('base4-92', 'en', 'base4', 21), card('base2-62', 'en', 'base2', 22)], score: 20}, {cards: [card('sv01-089', 'en', 'sv01', 50)], score: 50}]};
+		const named = {
+			'en|base2': {cardCount: {official: 64}, cards: [{id: 'base2-62', localId: '62', name: 'Spearow'}], name: 'Jungle'},
+			'en|base4': {cardCount: {official: 130}, cards: [{id: 'base4-92', localId: '92', name: 'Spearow'}], name: 'Base Set 2'},
+			'en|lc': {cardCount: {official: 110}, cards: [{id: 'lc-94', localId: '94', name: 'Spearow'}], name: 'Legendary Collection'},
+			...sets,
+		};
+		const listed = (held) => ({setDetail: async (lang, set) => named[`${lang}|${set}`] || null, setHeld: async (lang, set) => held[`${lang}|${set}`] ?? null});
+		const portuguese = listed({'pt|base2': true, 'pt|base4': false, 'pt|lc': false});
+
+		test('a Portuguese read leaves the one print Portuguese has, sure', async () => {
+			const found = await pictureMatch(spearow, null, 'pt', {api: portuguese, heldIn: 'pt'});
+
+			assert.equal(found.card.id, 'base2-62');
+			assert.equal(found.sure, true);
+			assert.equal(found.candidates[0].id, 'base2-62', 'and it leads the candidates');
+		});
+
+		test('a default language narrows nothing', async () => {
+			const found = await pictureMatch(spearow, null, 'pt', {api: portuguese});
+
+			assert.equal(found.sure, false);
+			assert.match(found.why, /3 cards share this picture/);
+		});
+
+		test('a set whose listing is not known keeps its print', async () => {
+			const found = await pictureMatch(spearow, null, 'pt', {api: listed({'pt|base2': true, 'pt|lc': false}), heldIn: 'pt'});
+
+			assert.equal(found.sure, false, 'Base Set 2 may still be Portuguese');
+			assert.match(found.why, /3 cards share this picture/);
+			assert.deepEqual(found.candidates.slice(0, 2).map((c) => c.id).sort(), ['base2-62', 'base4-92']);
+		});
+
+		test('a group none of whose prints is listed in the language is kept whole', async () => {
+			const found = await pictureMatch(spearow, null, 'pt', {api: listed({'pt|base2': false, 'pt|base4': false, 'pt|lc': false}), heldIn: 'pt'});
+
+			assert.equal(found.sure, false);
+			assert.equal(found.card.id, 'lc-94');
+		});
+
+		test('English keeps every Western print, and a Western language leaves the Japanese twin', async () => {
+			const english = await pictureMatch(spearow, null, 'en', {api: portuguese, heldIn: 'en'});
+
+			assert.equal(english.sure, false);
+
+			const weedle = {gap: 30, groups: [{cards: [card('me04-001', 'en', 'me04', 8), card('M4-001', 'ja', 'M4', 9)], score: 8}, {cards: [card('sv01-089', 'en', 'sv01', 38)], score: 38}]};
+			const found = await pictureMatch(weedle, null, 'pt', {api: listed({'pt|me04': true}), heldIn: 'pt'});
+
+			assert.equal(found.card.id, 'me04-001');
+			assert.equal(found.sure, true);
+		});
+	});
+
 	test('a picture and a number that disagree need a look, never a save', async () => {
 		const picture = {gap: 40, groups: [{cards: [card('me04-001', 'en', 'me04', 9)], score: 9}, {cards: [card('sv02-010', 'en', 'sv02', 49)], score: 49}]};
 		const found = await pictureMatch(picture, number('057', '086'), 'pt', {api});
