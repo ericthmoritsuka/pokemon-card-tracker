@@ -22,6 +22,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'A card whose small picture is missing at the catalog shows its large one, in binders and My Cards, so a pocket is no longer blank while the card page shows the picture.',
+			'A set with no logo in Portuguese (Fagulhas Impetuosas, Fogo Branco, Raio Preto) shows its English logo; a set with no logo at all still shows its name.',
+		],
+		version: 'v91',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'A new set\'s Pokémon count in your Pokédex lists once TCGdex gives their numbers: a 30th Celebration Mew saved before then was missing from Kanto.',
 			'Their numbers also reach My Cards\' Pokédex filter and sort and the binder layouts that go by Pokédex order.',
 		],
