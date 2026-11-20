@@ -1244,6 +1244,8 @@ export function cardsScreen(root, {
 				savedReady().then(() => alive && savedAll === true && draw());
 			}
 
+			waitForPrices();
+
 			return;
 		}
 
@@ -1325,6 +1327,29 @@ export function cardsScreen(root, {
 		drawCounts(visible);
 	}
 
+	// A price sort or filter waiting for the records (draw): the grid still
+	// shows the list before it, so nothing may act on that list as though it
+	// were the new one (v86 review: Select all shown ticked the old list).
+	// Select is off, a selection under way has nothing shown to tick, the
+	// count says why, and Set storage and Show more wait too, until the draw.
+	function waitForPrices() {
+		lastVisible = [];
+
+		if (bulk) {
+			bulk.button.disabled = true;
+			bulk.shown([]);
+		}
+
+		if (storeButton) {
+			narrowedCopies = [];
+			storeButton.hidden = true;
+		}
+
+		summary.textContent = 'Reading prices…';
+		summary.title = '';
+		more.hidden = true;
+	}
+
 	// The summary line, the storage button, Show more, and the swipe order.
 	function drawCounts(visible) {
 		const {filters, query} = bar.state;
@@ -1339,6 +1364,7 @@ export function cardsScreen(root, {
 		lastVisible = visible;
 
 		if (bulk) {
+			bulk.button.disabled = false;
 			bulk.shown(visible);
 		}
 

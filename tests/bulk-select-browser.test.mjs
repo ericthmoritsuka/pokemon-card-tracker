@@ -546,5 +546,44 @@ describe('bulk select on My Cards', () => {
 		assert.deepEqual((await page.locator('#bulk-finish-select option').allTextContents()).sort(), ['Holo', 'Normal'], 'every card\'s finishes known');
 		await done();
 	});
+
+	// The price sort picked before the records after the first screen are
+	// in: the grid waits for them (js/cards-view.js draw), and a search
+	// typed meanwhile waits with it, so nothing acts on the list the grid
+	// still shows (v86 review: Select all shown ticked all 181 tiles of the
+	// list before the search).
+	test('a search under a price sort picked while the records are read leaves Select nothing to tick until the grid follows it', async () => {
+		const base = CARDS.find((card) => card.id === 'tsa1-001');
+		const cards = Array.from({length: 181}, (_, i) => ({...base, id: `tsa1-${String(i + 1).padStart(3, '0')}`, names: {en: `Card ${i + 1}`}}));
+		const now = Date.now();
+		const records = Object.fromEntries(cards.map((card) => [`card:en:${card.id}`, {at: now, data: fullRecord(card)}]));
+		const copies = cards.map((card, i) => ({card_id: card.id, catalog: 'international', created_at: new Date(Date.UTC(2026, 8, 1) + i * 60000).toISOString(), deleted_at: null, id: `m-${i}`, language: 'en', language_source: 'manual', updated_at: new Date(Date.UTC(2026, 8, 1) + i * 60000).toISOString()}));
+		const {done, page} = await phone({cards, hold: cards.slice(0, 61).map((card) => `card:en:${card.id}`)});
+
+		await open(page, {binders: [], copies, index: indexRecords(cards), records});
+		await selecting(page);
+		assert.equal(await page.locator('#bulk-all').textContent(), 'Select all shown (181)');
+		await page.selectOption('#cards-sort', 'price');
+		// Card 5, Card 50 to 59, and the cards whose number has a 5.
+		await page.fill('#cards-search', 'Card 5');
+		// Past the search's delay: the grid would have been drawn by now.
+		await page.waitForTimeout(800);
+		assert.equal(await page.locator('#bulk-all').textContent(), 'Select all shown (0)', 'the tiles shown are the list before the search');
+		assert.equal(await page.locator('#bulk-all').isDisabled(), true);
+		assert.equal(await page.locator('#cards-summary').textContent(), 'Reading prices…');
+		await page.click('#bulk-done');
+		assert.equal(await page.locator('#cards-select').isDisabled(), true);
+
+		await releaseRecords(page);
+		await page.waitForFunction(() => !document.getElementById('cards-select').disabled, null, TIMEOUT);
+		const [, n] = (await page.locator('#cards-summary').textContent()).match(/· (\d+) cards?$/) || [];
+
+		assert.ok(Number(n) > 0 && Number(n) < 181, `the search's own cards: ${n}`);
+		await selecting(page);
+		assert.equal(await page.locator('#bulk-all').textContent(), `Select all shown (${n})`);
+		await page.click('#bulk-all');
+		assert.equal(await count(page), `${n} selected`);
+		await done();
+	});
 });
 

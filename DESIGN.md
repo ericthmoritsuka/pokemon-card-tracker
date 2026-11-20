@@ -2384,7 +2384,10 @@ step before in turn, on a busier machine, so slower than the table):
   are drawn with their prices and finishes, and every other record is read right after the paint.
   A tile drawn without its record meanwhile is drawn again with it, and the price sort, the price
   filter, and the Value sheet wait for every record, so the screen ends as before. First tile:
-  11.2 s to 8.9 s.
+  11.2 s to 8.9 s. While a price sort or filter waits, the grid still shows the list before it, so
+  nothing acts on that list: the count reads "Reading prices…", **Select** is off and a selection
+  under way offers no tile to Select all shown, and Set storage and Show more wait, until the grid
+  is drawn (v86 review: Select all shown ticked the list before the filter).
 - **Tiles work out each record's printings once, fold each finish word once, and copy flag
   groups** (`js/prices.js` `extractPrices`, `fold`, `sentence`; `js/flags.js` `flagBadge`). A tile
   asked for its record's printings three to five times, and nothing changes a saved record in
