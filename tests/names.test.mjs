@@ -102,11 +102,28 @@ describe('romanizeKorean', () => {
 		assert.equal(romanizeKorean('VSTAR'), null, 'no Hangul, nothing to read');
 	});
 
-	// Sound changes the official examples show that need a dictionary of
-	// compounds or of verb endings, which this does not have.
-	test.todo('신문로 is Sinmunno (written Sinmullo: the compound ㄴ before ㄹ)');
-	test.todo('학여울 is Hangnyeoul and 알약 allyak (the added ㄴ and ㄹ)');
-	test.todo('굳히다 is guchida and 잡혀 japyeo (verb endings; nouns keep the h)');
+	// ㄷ before the suffix 히 is read ㅊ: the official example (chapter 3,
+	// article 1.3) and the standard pronunciation's own (표준 발음법 제17항
+	// 붙임: 닫히다 [다치다], 묻히다 [무치다]), romanized by the tables.
+	test('굳히다 is Guchida, and ㄷ before 히 is ch', () => {
+		assert.equal(romanizeKorean('굳히다'), 'Guchida');
+		assert.equal(romanizeKorean('닫히다'), 'Dachida');
+		assert.equal(romanizeKorean('묻히다'), 'Muchida');
+	});
+
+	// Sound changes the official examples show that hang on the word, not
+	// the letters, so they need a dictionary this does not have
+	// (js/names.js, the notes above romanizeWord).
+	// 표준 발음법 제20항 다만 lists the words where ㄹ after ㄴ is read ㄴ:
+	// 동원령 is [동원녕] but 대관령 is [대괄령], so no rule on the letters
+	// gives both. Written Sinmullo for now, as 신라 Silla.
+	test.todo('신문로 is Sinmunno (a listed word: ㄹ after ㄴ read as ㄴ)');
+	// 제29항 adds ㄴ only where a compound or derived word joins two parts
+	// (솜이불 [솜니불], but 송별연 [송벼련]); the letters do not show where.
+	test.todo('학여울 is Hangnyeoul and 알약 allyak (the added ㄴ, read ㄹ after ㄹ)');
+	// The h is kept in nouns (묵호 Mukho) and joined in verbs: needs the
+	// word's class. Card names are nouns, so Japhyeo is the right default.
+	test.todo('잡혀 is japyeo (a verb ending; nouns keep the h)');
 });
 
 // ------------------------------------------------------------ Hepburn

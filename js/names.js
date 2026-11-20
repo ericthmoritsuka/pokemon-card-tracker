@@ -286,9 +286,19 @@ export function resolvePokemon({category = null, dexId = null, lang, name}, tabl
 // the standard tables, and the sound changes between syllables of one word
 // that the system writes are applied: a final carried over to a following
 // vowel, nasalization before ㄴ and ㅁ, ㄹ after ㄴ or ㄹ written ll, ㄹ
-// read as ㄴ after other finals, ㅎ joining a following ㄱ, ㄷ, or ㅈ, and
-// ㄷ or ㅌ before 이 read as ㅈ or ㅊ. Not applied: tensing (never written)
-// and the added ㄴ of compounds (학여울), which needs a dictionary.
+// read as ㄴ after other finals, ㅎ joining a following ㄱ, ㄷ, or ㅈ, ㄷ or
+// ㅌ before 이 read as ㅈ or ㅊ, and ㄷ before 히 read as ㅊ. Not applied:
+// tensing (never written), and three changes that hang on the word rather
+// than on the letters, so they need a dictionary this does not have:
+//   - ㄹ read as ㄴ after ㄴ (신문로 Sinmunno). The standard pronunciation
+//     (표준 발음법 제20항 다만) lists the words one by one: 동원령 is
+//     [동원녕] while 대관령, written the same way, is [대괄령] (Daegwallyeong).
+//   - the added ㄴ, ㄹ after ㄹ (학여울 Hangnyeoul, 알약 allyak). It comes
+//     only where a compound or derived word joins two parts (제29항),
+//     with exceptions (송별연 [송벼련]), and the letters do not show where.
+//   - ㅎ joining a ㄱ, ㄷ, or ㅂ before it (잡혀 japyeo). The system keeps
+//     the h in nouns (묵호 Mukho) and joins it in verbs (notice 2000-8,
+//     chapter 3, article 1.4); card names are nouns, so the h stays.
 
 const SYLLABLE_FIRST = 0xac00;
 const SYLLABLE_LAST = 0xd7a3;
@@ -355,6 +365,18 @@ function romanizeWord(syllables) {
 					b.initial = I.ch;
 				}
 			}
+
+			continue;
+		}
+
+		// 굳히다 guchida: ㄷ before the suffix 히 is read ㅊ (notice 2000-8,
+		// chapter 3, article 1.3, palatalization; 표준 발음법 제17항 붙임:
+		// 굳히다 [구치다], 닫히다 [다치다], 묻히다 [무치다]). Taken from the
+		// letters alone, as 같이 above is, so a 히 that is not the suffix
+		// would be read the same.
+		if (a.final === F.d && b.initial === I.h && b.medial === MEDIAL_I) {
+			a.final = F.none;
+			b.initial = I.ch;
 
 			continue;
 		}
