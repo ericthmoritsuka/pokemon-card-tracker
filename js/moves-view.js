@@ -136,6 +136,17 @@ function eachSwitch(id) {
 	return {box, row};
 }
 
+// The move's currency, beside the price. The price's label names the text
+// field only, so the select carries a name of its own (accessibility audit,
+// 2026-11-20: a combobox with no name).
+function currencySelect(id, value) {
+	const control = sheetSelect(id, CURRENCIES.map((code) => ({label: code, value: code})), value);
+
+	control.setAttribute('aria-label', 'Currency');
+
+	return control;
+}
+
 // One card's own price: typed and read back as Paid is (js/moves.js
 // parsePrice, "Saved as R$ 12,00"), in the move's one currency. n copies
 // each cost it (a card added with Copies 3 is three copies at one price),
@@ -321,7 +332,7 @@ export function historyView(root) {
 		const date = h('input', {class: 'search', id: 'move-edit-date', name: 'move-edit-date', type: 'date', value: move.date || today()});
 		const who = h('input', {'aria-describedby': bought ? 'move-edit-who-hint' : null, autocomplete: 'off', class: 'search', id: 'move-edit-who', list: bought ? 'move-edit-who-sources' : null, maxlength: 80, name: 'move-edit-who', type: 'text', value: move.who || ''});
 		const price = h('input', {class: 'search', id: 'move-edit-price', inputmode: 'decimal', name: 'move-edit-price', placeholder: '0,00', type: 'text', value: priceForInput(move.price)});
-		const currency = sheetSelect('move-edit-currency', CURRENCIES.map((code) => ({label: code, value: code})), CURRENCIES.includes(move.currency) ? move.currency : 'BRL');
+		const currency = currencySelect('move-edit-currency', CURRENCIES.includes(move.currency) ? move.currency : 'BRL');
 		const money = sheetSelect('move-edit-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], move.money === 'in' ? 'in' : 'out');
 		const priceRead = h('p', {'aria-live': 'polite', class: 'muted move-price-read', id: 'move-edit-price-read'});
 		const note = h('textarea', {class: 'copy-notes', id: 'move-edit-note', maxlength: 500, name: 'move-edit-note', rows: 2});
@@ -587,7 +598,7 @@ export function newMoveView(root) {
 	let sources = h('datalist', {id: 'move-who-sources'});
 	const price = h('input', {class: 'search', id: 'move-price', inputmode: 'decimal', name: 'move-price', placeholder: '0,00', type: 'text'});
 	const priceLabel = h('label', {for: 'move-price'}, 'Sold for (optional)');
-	const currency = sheetSelect('move-currency', CURRENCIES.map((code) => ({label: code, value: code})), 'BRL');
+	const currency = currencySelect('move-currency', 'BRL');
 	const money = sheetSelect('move-money', [{label: 'I paid it', value: 'out'}, {label: 'I got it', value: 'in'}], 'out');
 	const moneyRow = h('div', {class: 'copy-field', hidden: true}, h('label', {for: 'move-money'}, 'The cash'), h('span', {class: 'select-wrap'}, money));
 	// The price as it will be saved, under the field as he types, so "1.500"

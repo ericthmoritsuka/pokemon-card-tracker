@@ -294,6 +294,9 @@ test('the price reads back as it will be saved, "1.500" as R$ 1.500,00, and a fo
 	await page.click('#card-move');
 	await page.waitForSelector('#move-out-list [data-entry="c-01"]');
 
+	// The currency beside the price has a name of its own.
+	assert.equal(await page.getByRole('combobox', {exact: true, name: 'Currency'}).getAttribute('id'), 'move-currency');
+
 	await page.fill('#move-price', '1,2,3');
 	assert.equal(await read(), 'Type the price as 30,50 or 1.500,00, or leave it empty.');
 	await page.click('#move-save');
@@ -374,6 +377,7 @@ test('Edit changes a logged sale\'s price and who: History and the card page fol
 	await page.click('#move-edit');
 	await page.waitForSelector('#move-edit-form');
 	assert.equal(await page.inputValue('#move-edit-price'), '30,50', 'the saved price, the Brazilian way');
+	assert.equal(await page.getByRole('combobox', {exact: true, name: 'Currency'}).getAttribute('id'), 'move-edit-currency');
 	assert.equal(await page.inputValue('#move-edit-who'), 'Ana');
 	assert.equal(await page.locator('#move-edit-money').count(), 0, 'a sale\'s money always comes in');
 
