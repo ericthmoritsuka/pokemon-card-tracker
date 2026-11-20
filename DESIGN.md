@@ -780,6 +780,15 @@ copies the This copy / All N choice comes first, labeled Change, with the line "
 to give it its own finish. It then shows as its own row." The changed copy moves to a row of its
 own, since a row holds copies alike in finish.
 
+**While the catalog cannot be reached**, the card page draws what the phone saved and says so, and
+a copy's printing it cannot name reads "Finish (catalog offline)". The sheets now say the same
+(v82 review, finding 6): with no saved list of printings, Normal, Holo, and Reverse holo are marked
+"(catalog offline)" rather than "(not listed)", and a copy's printing reads "Current finish
+(catalog offline)". The sheets say offline only when the card page drew its unreachable notice,
+never from an empty list alone, because a Japanese card with no variants looks the same when
+TCGdex answers; and a saved list of printings still marks the words "(not listed)", since it
+still says what TCGdex lists.
+
 ## 5. Catalog: TCGdex Coverage
 
 Checked against `https://api.tcgdex.net/v2/<language>/sets` on 2026-10-01.

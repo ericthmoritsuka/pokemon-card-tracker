@@ -387,8 +387,12 @@ export function plainKind(variant) {
 }
 
 // What a monprice word is called where it is not one of the catalog's
-// printings: short, so the select stays one line at 360 px.
-const notListed = (word) => `${finishLabel(word)} (not listed)`;
+// printings: short, so the select stays one line at 360 px. While the
+// catalog is not answering and the phone has no list of printings, the
+// sheet cannot tell whether TCGdex lists the word, so it says why there is
+// no list instead, as the copy's row does ("Finish (catalog offline)",
+// js/catalog-views.js finishName).
+const notListed = (word, offline) => `${finishLabel(word)} (${offline ? 'catalog offline' : 'not listed'})`;
 
 // The finish select's options.
 //   finishes  [{value: variantId, label, variant}] from the card's
@@ -399,21 +403,29 @@ const notListed = (word) => `${finishLabel(word)} (not listed)`;
 //             TCGdex renamed it) or a word not offered is kept as it is
 //   catalog   'custom' for a hand-made card, whose list already holds
 //             every word
-export function finishOptions(finishes, current = null, catalog = null) {
+//   offline   true when the card page drew what the phone saved because
+//             TCGdex failed (its unreachable notice). It counts only when
+//             the list is empty: a saved list of printings still says what
+//             TCGdex lists, and an empty list is not proof of a failure,
+//             since a Japanese card with no variants online looks the same.
+//             A current variant ID the list lacks says offline whenever
+//             the card page does, as its row does (finishName)
+export function finishOptions(finishes, current = null, catalog = null, offline = false) {
 	const options = [{label: 'Not set', value: NOT_SET}, ...finishes.map(({label, value}) => ({label, value}))];
+	const unknown = Boolean(offline) && !finishes.length;
 
 	if (catalog !== 'custom') {
 		const plain = new Set(finishes.map((option) => plainKind(option.variant)).filter(Boolean));
 
 		for (const [word, kind] of GENERIC) {
 			if (!plain.has(kind)) {
-				options.push({label: notListed(word), value: RAW + word});
+				options.push({label: notListed(word, unknown), value: RAW + word});
 			}
 		}
 	}
 
 	if (current && !options.some((option) => option.value === current)) {
-		options.push({label: current.startsWith(RAW) ? notListed(current.slice(RAW.length)) : 'Current finish (not in the catalog list)', value: current});
+		options.push({label: current.startsWith(RAW) ? notListed(current.slice(RAW.length), unknown) : offline ? 'Current finish (catalog offline)' : 'Current finish (not in the catalog list)', value: current});
 	}
 
 	return options;
@@ -464,7 +476,9 @@ function head(title, close) {
 //   catalog     the record's catalog
 //   finishes    [{value, label}] for the finish select
 //   places      Map entry id -> binder place, for the placed copies
-export function openEditSheet({card, catalog, entries, finishes, places = new Map()}) {
+//   offline     the card page is showing what the phone saved because
+//               TCGdex failed (finishOptions)
+export function openEditSheet({card, catalog, entries, finishes, offline = false, places = new Map()}) {
 	const sheet = sheetElement();
 	const first = entries[0];
 	const many = entries.length > 1;
@@ -475,7 +489,7 @@ export function openEditSheet({card, catalog, entries, finishes, places = new Ma
 	// The finish the copies have now, so a sheet only opened and closed
 	// never rewrites it (a copy may carry a stale word beside its variant).
 	const startFinish = finishValue(first, catalog);
-	const finish = select('copy-finish', finishOptions(finishes, startFinish, catalog), startFinish);
+	const finish = select('copy-finish', finishOptions(finishes, startFinish, catalog, offline), startFinish);
 	const condition = select('copy-condition', conditionOptions(), CONDITIONS.includes(first.condition) ? first.condition : NOT_SET);
 	// Notes belong to the card in the copy's language, shared by every copy
 	// of it (js/card-info.js). Notes joined from several copies may run
@@ -791,14 +805,15 @@ export function changes(entry, catalog, next) {
 //               rule: never the last finish chosen)
 //   extra       fields every new copy carries: a hand-made card's own
 //               facts (js/custom-card.js)
-export function openAddSheet({card, catalog, extra = null, finishes, lang, plain = null}) {
+//   offline     as openEditSheet's
+export function openAddSheet({card, catalog, extra = null, finishes, lang, offline = false, plain = null}) {
 	const sheet = sheetElement();
 	const close = () => sheet.close();
 	const languages = copyLanguages(catalog);
 	const error = h('p', {'aria-live': 'polite', class: 'form-error', id: 'copy-error'});
 
 	const language = select('copy-language', languages.map(({code, label}) => ({label, value: code})), languages.some((item) => item.code === lang) ? lang : languages[0].code);
-	const finish = select('copy-finish', finishOptions(finishes, null, catalog), plain && finishes.some((option) => option.value === plain) ? plain : NOT_SET);
+	const finish = select('copy-finish', finishOptions(finishes, null, catalog, offline), plain && finishes.some((option) => option.value === plain) ? plain : NOT_SET);
 	const condition = select('copy-condition', conditionOptions(), NOT_SET);
 	const storage = placePicker({id: 'copy-storage'});
 	const count = h('input', {class: 'search copy-count', id: 'copy-count', inputmode: 'numeric', max: MAX_ADD, min: 1, name: 'copy-count', step: 1, type: 'number', value: 1});

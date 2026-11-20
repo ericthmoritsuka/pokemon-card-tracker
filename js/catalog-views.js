@@ -1711,6 +1711,7 @@ export function cardView(root, {lang, cardId}) {
 			catalog: catalogFor(lang),
 			finishes: finishChoices(variants),
 			lang,
+			offline: Boolean(unreachable),
 			plain: plainVariantId(variants),
 		}), type: 'button'}, 'Add a copy');
 	}
@@ -1895,6 +1896,7 @@ export function cardView(root, {lang, cardId}) {
 								catalog: catalogFor(lang),
 								entries: group.entries,
 								finishes: finishChoices(variants),
+								offline: Boolean(unreachable),
 								places: placed,
 							}),
 							type: 'button',

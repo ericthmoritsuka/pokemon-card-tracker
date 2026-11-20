@@ -127,6 +127,24 @@ describe('the finish select', () => {
 		assert.equal(finishOptions(list, 'raw:NORMAL').filter((option) => option.value === 'raw:NORMAL').length, 1);
 	});
 
+	test('with the catalog offline and no saved printings, the words say the catalog is offline', () => {
+		const options = finishOptions([], 'v-normal', 'international', true);
+
+		assert.deepEqual(labels(options), ['Not set', 'Normal (catalog offline)', 'Holo (catalog offline)', 'Reverse holo (catalog offline)', 'Current finish (catalog offline)']);
+		assert.deepEqual(values(options), ['', 'raw:NORMAL', 'raw:HOLOFOIL', 'raw:REVERSE_HOLOFOIL', 'v-normal']);
+		assert.deepEqual(finishOptions([], 'raw:FIRST_EDITION', 'international', true).at(-1), {label: '1st Edition (catalog offline)', value: 'raw:FIRST_EDITION'});
+	});
+
+	test('an empty list alone is not offline: a Japanese card with no variants still says not listed', () => {
+		assert.deepEqual(labels(finishOptions([], null, 'japanese')), ['Not set', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)']);
+	});
+
+	test('offline with the printings the phone saved, not listed still holds', () => {
+		const options = finishOptions([choice(FIRST, 'Holo, 1st Edition stamp')], 'gone', 'international', true);
+
+		assert.deepEqual(labels(options), ['Not set', 'Holo, 1st Edition stamp', 'Normal (not listed)', 'Holo (not listed)', 'Reverse holo (not listed)', 'Current finish (catalog offline)'], 'the copy\'s printing, as its row says');
+	});
+
 	test('a hand-made card offers monprice\'s words alone, as before', () => {
 		assert.deepEqual(labels(finishOptions(rawFinishes(), 'HOLOFOIL', 'custom')), ['Not set', '1st Edition', 'Holo', 'Normal', 'Reverse holo', 'Unlimited', 'Unlimited holo']);
 	});

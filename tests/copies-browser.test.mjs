@@ -810,6 +810,23 @@ describe('when TCGdex fails, and in family view', () => {
 		await page.screenshot({path: '/tmp/copies-tcgdex-500.png'});
 		assert.ok(await onFirstScreen(page, '.copies .copy-row'), 'the copies on the first screen');
 
+		// The sheets say why the finishes are not checked rather than call
+		// them not listed (v82 review, finding 6).
+		const offline = ['Normal (catalog offline)', 'Holo (catalog offline)', 'Reverse holo (catalog offline)'];
+
+		await page.click('.copies .copy-row');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', ...offline, 'Current finish (catalog offline)']);
+		assert.equal(await page.locator('#copy-finish').inputValue(), variantOf(pt, 'Normal'), 'the copy keeps its printing');
+		await page.click('#copy-sheet-close');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		await page.click('#copy-add');
+		await page.waitForSelector('#copy-sheet[open]');
+		assert.deepEqual(await page.locator('#copy-finish option').allTextContents(), ['Not set', ...offline]);
+		await page.click('#copy-sheet-close');
+		await page.waitForSelector('#copy-sheet', {state: 'hidden'});
+		assert.equal((await entries(page))[0].variant_id, variantOf(pt, 'Normal'), 'closing the sheet changed nothing');
+
 		// Try again, with TCGdex back: the full record, and the note goes.
 		tcgdex.status = null;
 		await page.click('#card-retry');
