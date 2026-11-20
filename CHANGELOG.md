@@ -13,6 +13,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v90:** a new set's Pokémon join the Pokédex lists once TCGdex numbers them. `5927a1a`
+  - TCGdex listed the 30th Celebration's cards before it gave them Pokédex numbers; the checklists' card map and the
+    card details saved then held 147 of Eric's Pokémon with no number, so his 30th Mew was missing from Kanto, and the
+    map was not read again for 30 days. A Pokémon saved with no number (a Trainer or Energy never has one) now brings the
+    map and its set's details back after 12 hours.
+
 - **v89:** Sets count your cards in the language you view. `7b50ece`
   - A set's ring, its "N / M owned" line, the owned marks, and All / Owned / Missing count only your copies in the
     viewing language (Eric's call, 2026-11-20, reversing the any-language rule in DESIGN.md section 3), for your cards
