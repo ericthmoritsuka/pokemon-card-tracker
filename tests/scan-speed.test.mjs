@@ -1,7 +1,7 @@
 // Reading less for a card the picture could not settle (v86; Eric,
 // 2026-11-18: scanning "still a bit slow"): a number strip's lines are read
-// as many at a time as the reader has workers, and no more once a number
-// reads (js/scan/read.js readNumber workers); a number that names one card
+// as many at a time as the reader has workers (two at least), and no more
+// once a number reads (js/scan/read.js readNumber workers); a number that names one card
 // of the picture's leaves the label row and the set code box unread
 // (js/scan/identify.js numberSettles, readNumber settled); and a picture a
 // notch short of sure is taken when its one card is from the set of one of
@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {numberSettles, recentStack} from '../js/scan/identify.js';
-import {OCR_SETTINGS, readNumber} from '../js/scan/read.js';
+import {LINES_AT_ONCE, OCR_SETTINGS, readNumber} from '../js/scan/read.js';
 import {recentSets, stackSet} from '../js/scan/session.js';
 
 // ------------------------------------------------------------ the reads
@@ -53,13 +53,14 @@ function fakeOcr(calls, {number = true} = {}) {
 }
 
 describe('reading the number strip a few lines at a time', () => {
-	test('with one worker, the likeliest line gives the number and the other two are never read', async () => {
+	test('with one worker, the likeliest two lines at once (LINES_AT_ONCE), and the third never once they give the number', async () => {
 		const calls = [];
 		const read = await readNumber(stripCard(), fakeOcr(calls), {workers: 1});
 
+		assert.equal(LINES_AT_ONCE, 2);
 		assert.equal(read.number.number, '53');
-		assert.equal(read.timings.reads.numberLeft, 1);
-		assert.equal(read.timings.calls, 1);
+		assert.equal(read.timings.reads.numberLeft, 2);
+		assert.equal(read.timings.calls, 2);
 	});
 
 	test('with no worker count, the lines are read side by side as before, and the number is the same', async () => {
@@ -92,7 +93,7 @@ describe('a number that settles the card', () => {
 		assert.equal(read.label, null);
 		assert.equal(read.timings.label, undefined);
 		assert.equal(read.timings.setCode, undefined);
-		assert.equal(calls.length, 1);
+		assert.equal(calls.length, 2);
 	});
 
 	test('a number that does not settle it has both read after it', async () => {

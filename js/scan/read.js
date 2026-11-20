@@ -1425,6 +1425,12 @@ export async function readCard(card, ocr, {attacks = true, blurName = true, cjk 
 
 // ------------------------------------------------------------ the number alone, quickly
 
+// The fewest number strip lines readNumber hands the reader at once (v86).
+// One at a time on a one-worker reader left the worker idle while the page
+// cut and sent the next line: on the benchmark's blurred captures, with the
+// page slowed four times, that cost more than the third line it saved.
+export const LINES_AT_ONCE = 2;
+
 // Reading only what chooses between the pictures' top cards (Eric,
 // 2026-10-09): a card the picture could not settle took 7 to 14 s on his
 // phone, nearly all of it OCR (numberOnly still read both number strips,
@@ -1497,15 +1503,14 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 	const sideOf = (key) => (key === 'numberLeft' ? 'left' : 'right');
 
 	// The `count` most text-like lines of a strip, the likeliest first,
-	// `workers` at a time side by side (all at once when workers is 0), and
-	// no more once a number reads (v86). The number is the one a read of
-	// every line gives: findNumber takes the first line, in this order, that
-	// holds one. With one worker the left strip's three lines took three
-	// calls one after another however early the number was.
+	// `workers` at a time side by side but never fewer than LINES_AT_ONCE
+	// (all at once when workers is 0), and no more once a number reads
+	// (v86). The number is the one a read of every line gives: findNumber
+	// takes the first line, in this order, that holds one.
 	const readLines = async (key, count) => {
 		const strip = crops[key] || prepare(key);
 		const found = findTextLines(strip, numberPx, count);
-		const step = workers > 0 ? workers : Math.max(1, found.length);
+		const step = workers > 0 ? Math.max(LINES_AT_ONCE, workers) : Math.max(1, found.length);
 		const lines = [];
 		let number = null;
 
@@ -1565,9 +1570,11 @@ export async function readNumber(card, ocr, {cjk = null, fullArt = false, label:
 
 	// The label row, when asked for: beside the number strip, or with
 	// `settled` only once the number has not settled the card (startLabel).
+	// Its crops are cut now, so a read started later has only OCR left.
+	const band = withLabel ? prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN}) : null;
+	const bandLines = band ? findTextLines(band, numberPx, 2) : [];
 	const readLabelRow = async () => {
-		const band = prepareRegion(card, regionRect(card, REGIONS.label), scaleFor(card, REGIONS.label, numberPx), {sharpen: SHARPEN});
-		const found = findTextLines(band, numberPx, 2);
+		const found = bandLines;
 		const results = await Promise.all(found.map((line) => recognise('label', cropRows(band, line), OCR_SETTINGS.label)));
 
 		crops.label = band;

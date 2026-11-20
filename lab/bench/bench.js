@@ -438,7 +438,12 @@ async function measurePicture(image, {crops = false, history = []} = {}) {
 	const seen = await identifying.identifyPicture(image, {quads: image.quads || []});
 	const recent = !stackPick(seen.picture, stackSet) && identifying.recentStack && sessions.recentSets ? identifying.recentStack(seen.picture, sessions.recentSets(session, 'now')) : null;
 	const stack = recent || stackSet;
+	// The reader's own trace (ocr.js createPool trace): how long its workers
+	// were busy on this card's calls, against the read's wall time.
+	const engine = seen.needsText ? await identifying.warmEngine().catch(() => null) : null;
+	const traced = new Set(engine && engine.trace ? engine.trace : []);
 	const result = seen.needsText && !stackPick(seen.picture, stack) ? await identifying.identifyText(seen, {}) : seen;
+	const traceCalls = engine && engine.trace ? engine.trace.filter((call) => !traced.has(call) && call.ended) : [];
 	const read = result.read ? sessions.summariseRead(result.read) : null;
 	const lang = read && read.language.code ? read.language.code : null;
 	const t1 = performance.now();
@@ -464,6 +469,9 @@ async function measurePicture(image, {crops = false, history = []} = {}) {
 		number: read && read.number ? `${read.number.number}/${read.number.total}` : null,
 		numberOnly: candidates,
 		ocr: result.ocr,
+		// The workers' busy time on this card's OCR calls, and the calls' own
+		// times (the trace keeps the last 200 calls).
+		ocrBusy: traceCalls.length ? Math.round(traceCalls.reduce((sum, call) => sum + call.ended - call.started, 0)) : null,
 		picture: result.picture ? {gap: result.picture.gap, how: result.picture.how, top: result.picture.groups.map((g) => `${g.cards.map((c) => c.id).join('+')} ${g.score}`)} : null,
 		ratio: result.ratio,
 		// The regions read and the OCR time in each (read.js readNumber
