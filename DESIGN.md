@@ -2656,8 +2656,10 @@ asks for no prices or rates itself. Sets and checklists keep their small Value b
 **The binder's head is one row** (design review 2, 2026-11-20: at 360 × 740 the page started at
 337 px and its third row of pockets sat 62 px under the tab bar and the Scan disc). The name and
 the value share a row, the value short at its end, "≈ R$ 342 ›" (prices.js shortValueLabel, "≈"
-for every total, since a market price is an estimate either way), with the long words above as
-the button's name for a screen reader; it stays 48 px tall, reaching into the space around the
+for every total, since a market price is an estimate either way), "≈ R$ 342 · partly priced ›"
+when some copies have no price, as the long words say (v86 review: the total showed with no
+hint; it still fits on the row at 360 px), with the long words above as the button's name for a
+screen reader; it stays 48 px tall, reaching into the space around the
 row. The grid and page count are no longer a line under the name: they are in the caption over
 the pages, "Page 1 of 20 · 3×3" and "Pages 2 and 3 of 20 · 3×3", which has ‹ and › at its ends
 on one page. A list binder keeps the line under its name for what it is made from and in what
@@ -4131,7 +4133,9 @@ over them, well under the 1 s the unit test allows.
   row with "×N". Each row links to the card's page, and the ten are offered as the swipe order.
 - **The value in the totals** *(design review 2, 2026-11-20, replacing the Languages total, which
   By language says in full)*: the Value sheet's own sum over the same copies (`listStats`), in
-  whole reais from R$ 100 and with "~" when part of it is a US estimate, or "Not known yet". It is
+  whole reais from R$ 100 and with "~" when part of it is a US estimate, or "Not known yet". When
+  some copies have no price, the tile's label reads "Value · partly priced", as the sheet's
+  coverage and a binder's line say (v86 review: the total showed with no hint). It is
   on the Stats screen, which is opened on purpose, never on the home screen, so the "no headline
   total" rule of section 10 still holds there. Over time is the sheet's part, last on the
   screen.

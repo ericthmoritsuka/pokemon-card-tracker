@@ -101,12 +101,16 @@ function totalsPart(totals, value) {
 		h('dt', null, label),
 		h('dd', null, shown));
 	const worth = value && value.priced ? `${value.estimate.count ? '~' : ''}${formatBrlCompact(value.total)}` : 'Not known yet';
+	// A total that leaves out copies with no price says so, as the Value
+	// sheet's coverage and a binder's line do (prices.js valueLabel; v86
+	// review: it showed a total with no hint).
+	const partly = Boolean(value && value.priced && value.unknown.count);
 
 	return h('dl', {class: 'card stats-totals', id: 'stats-totals'},
 		item(formatCount(totals.copies), totals.copies === 1 ? 'Copy' : 'Copies', 'stats-copies'),
 		item(formatCount(totals.cards), totals.cards === 1 ? 'Card' : 'Cards', 'stats-cards'),
 		item(formatCount(totals.sets), totals.sets === 1 ? 'Set' : 'Sets', 'stats-sets'),
-		item(worth, 'Value', 'stats-value')
+		item(worth, partly ? 'Value · partly priced' : 'Value', 'stats-value')
 	);
 }
 

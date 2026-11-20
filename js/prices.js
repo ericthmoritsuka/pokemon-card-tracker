@@ -1065,9 +1065,17 @@ export function valueLabel(stats) {
 
 // valueLabel() as a short line, "≈ R$ 342", for a binder's head, where it
 // shares a row with the binder's name; the button keeps the long words as
-// its name (js/value-sheet.js showTotal).
+// its name (js/value-sheet.js showTotal). "partly priced" when some copies
+// have no price, as valueLabel says (v86 review: the total showed with no
+// hint); it still fits on the row at 360 px.
 export function shortValueLabel(stats) {
-	return stats && stats.priced ? `≈ ${formatBrlCompact(stats.total)}` : 'Value';
+	if (!stats || !stats.priced) {
+		return 'Value';
+	}
+
+	const total = `≈ ${formatBrlCompact(stats.total)}`;
+
+	return stats.unknown.count ? `${total} · partly priced` : total;
 }
 
 // The total and how much of it is Liga, estimated, or unknown, for an

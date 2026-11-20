@@ -761,13 +761,14 @@ describe('listStats', () => {
 		assert.equal(valueLabel(null), 'Value');
 	});
 
-	// Short, on the binder name's row (design review 2, 2026-11-20).
-	test('a binder\'s short value line: "≈" and the total, or plain Value', () => {
+	// Short, on the binder name's row (design review 2, 2026-11-20), and
+	// partly priced as the long line says (v86 review: no hint).
+	test('a binder\'s short value line: "≈" and the total, partly priced, or plain Value', () => {
 		const label = (list) => plain(shortValueLabel(listStats(list, cards, {rates: RATES})));
 
 		assert.equal(label([liga('a', 1234.5, 1200), liga('b', 10, 8)]), '≈ R$ 1.245');
 		assert.equal(label([liga('a', 50, 40), liga('b', 10, 8)]), '≈ R$ 60,00');
-		assert.equal(label([liga('a', 50, 40), entry({card_id: 'missing-1', id: 'f'})]), '≈ R$ 50,00');
+		assert.equal(label([liga('a', 50, 40), entry({card_id: 'missing-1', id: 'f'})]), '≈ R$ 50,00 · partly priced');
 		assert.equal(label([entry({card_id: 'missing-1', id: 'f'})]), 'Value', 'nothing priced');
 		assert.equal(shortValueLabel(null), 'Value');
 	});

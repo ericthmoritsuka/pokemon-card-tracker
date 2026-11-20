@@ -387,6 +387,20 @@ describe('Stats', () => {
 		assert.match(await page.locator('.stats-reasons').textContent(), /^1 copy still waits for a price; prices download while My Cards is open\.$/);
 		assert.match(await page.locator('#stats-valuable-none').textContent(), /^No copy has a price yet/);
 		assert.deepEqual(await barRows(page, 'stats-rarity'), [['Not known yet', '1 · 100%']]);
+		assert.deepEqual(await page.locator('#stats-value').evaluate((item) => [item.querySelector('dt').textContent, item.querySelector('dd').textContent]), ['Value', 'Not known yet']);
+
+		// A copy priced by hand beside it: the Value tile's total leaves the
+		// waiting copy out, and says so, as the Value sheet does (v86 review:
+		// it showed the total with no hint).
+		await addCard(page, {card_id: HAND_ID, catalog: 'custom', finish_raw: 'HOLOFOIL', language: 'pt', language_source: 'manual', name_local: 'Pikachu da feira', number_local: '7', price_manual: {avg: 80, currency: 'BRL', date: '2026-11-01', source: 'Liga Pokémon'}, set_code: 'FEIRA', set_name_local: 'Feira'});
+		await page.goto(url('stats'));
+		await page.waitForSelector('#stats-totals');
+
+		const [label, worth] = await page.locator('#stats-value').evaluate((item) => [item.querySelector('dt').textContent, item.querySelector('dd').textContent]);
+
+		assert.equal(label, 'Value · partly priced');
+		assert.equal(plain(worth), plain(formatBrlCompact(80)));
+		await noSideways(page, 'Stats, partly priced');
 		await done(device);
 	});
 });

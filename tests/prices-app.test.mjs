@@ -297,6 +297,31 @@ describe('prices in the app', () => {
 		assert.match(plain(await page.locator('#binder-value').getAttribute('aria-label')), /^(R\$ 52,30|About R\$ 4\.900) in value$/);
 		assert.match(plain(await page.locator('#binder-value').textContent()), /^≈ R\$ (52,30|4\.900)$/);
 
+		// A copy with no price in the binder: the line says the total leaves
+		// it out, as its name does, still on one line at 360 px (v86 review:
+		// the total showed with no hint).
+		await page.evaluate(async (id) => {
+			const collection = await import('/pokemon-card-tracker/js/collection.js');
+			const binders = await import('/pokemon-card-tracker/js/binders.js');
+			const entry = await collection.addCard({card_id: `hand_${'b2'.repeat(16)}`, catalog: 'custom', language: 'pt', language_source: 'manual', name_local: 'Sem preço', number_local: '9', set_code: 'FEIRA', set_name_local: 'Feira'});
+
+			await binders.placeCard(id, 1, 3, entry.id);
+		}, binderId);
+		await page.waitForFunction(() => / partly priced$/.test(document.getElementById('binder-value').textContent));
+		assert.match(plain(await page.locator('#binder-value').textContent()), /^≈ R\$ (52,30|4\.900) · partly priced$/);
+		assert.match(plain(await page.locator('#binder-value').getAttribute('aria-label')), /, partly priced$/);
+
+		const partly = await line.evaluate((button) => {
+			const text = document.createRange();
+
+			text.selectNodeContents(button);
+
+			return {lines: text.getClientRects().length, right: button.getBoundingClientRect().right};
+		});
+
+		assert.ok(partly.right <= 360 && partly.lines === 1, `partly priced still fits on one line at 360 px: ${JSON.stringify(partly)}`);
+		await noSideways(page, 'the binder, partly priced');
+
 		assert.deepEqual(device.errors.map(String), []);
 		assert.deepEqual(device.seen.liga, [], 'Liga Pokémon is never requested');
 		assert.deepEqual(device.seen.supabase, [], 'Supabase is never contacted');
