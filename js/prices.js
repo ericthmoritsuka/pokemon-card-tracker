@@ -184,12 +184,13 @@ const sentence = (text) => {
 };
 
 // A printing's size. TCGdex writes the standard size "standard" on an
-// English record and "Padrão" on a Portuguese one, and a jumbo "jumbo" or
-// "Jumbo" (sv06-130 Dragapult ex, checked 2026-11-19); a printing with no
-// size is the standard size. Every module asks these two, never a list of
-// its own: a jumbo is another product, and the standard size is never
-// named.
-const STANDARD_SIZES = new Set(['standard', 'padrao']);
+// English record, "Standard" on a French, German, or Italian one, "Padrão"
+// on a Portuguese one, and "estándar" on a Spanish one, and a jumbo "jumbo"
+// or "Jumbo" (sv06-130 Dragapult ex, checked 2026-11-19 and 2026-11-20); a
+// printing with no size is the standard size. Every module asks these two,
+// never a list of its own: a jumbo is another product, and the standard
+// size is never named.
+const STANDARD_SIZES = new Set(['estandar', 'padrao', 'standard']);
 
 export const isStandardSize = (variant) => {
 	const size = fold(variant && variant.size);
@@ -577,14 +578,10 @@ export {ASIAN_LANGUAGES};
 export const isAsianPrint = (entry) => Boolean(entry) && (isAsian(entry.catalog) || isAsian(entry.language));
 
 // The order to borrow a price in: a plain normal first, then the other
-// finishes as listed, a reverse holo only when nothing else has one, and a
-// jumbo print, another product, last.
+// finishes as listed, and a reverse holo only when nothing else has one. A
+// jumbo print, another product, is never borrowed from (fallbackPrice).
 function finishRank(variant) {
 	const type = finishType(variant);
-
-	if (!isStandardSize(variant)) {
-		return 3;
-	}
 
 	if (type === 'reverse') {
 		return 2;
@@ -603,11 +600,12 @@ const keyLabel = (key) => (KEY_FINISHES[key] ? finishName(KEY_FINISHES[key]) : s
 // or Cardmarket's trend.
 const hasMarket = (market, prices) => Boolean(prices) && (market === 'tcgplayer' ? prices.marketPrice !== null : prices.trend !== null);
 
-// Every pricing block the record carries: each variant's, then the card's.
+// Every pricing block the record carries, a jumbo print's left out: each
+// standard-size variant's, then the card's.
 function pricingBlocks(card) {
-	const variants = Array.isArray(card.variants_detailed) ? card.variants_detailed : [];
+	const variants = (Array.isArray(card.variants_detailed) ? card.variants_detailed : []).filter((variant) => variant && isStandardSize(variant));
 
-	return [...variants.map((variant) => variant && variant.pricing), card.pricing].filter((pricing) => pricing && typeof pricing === 'object');
+	return [...variants.map((variant) => variant.pricing), card.pricing].filter((pricing) => pricing && typeof pricing === 'object');
 }
 
 // The price of another finish, for a finish with none of its own or a copy
@@ -616,13 +614,16 @@ function pricingBlocks(card) {
 // market's, or null when the card has no such price for any finish. The
 // listed finishes come first, in finishRank order; then any price block no
 // listed finish took (a card listed only as Normal whose TCGplayer block is
-// "holofoil").
+// "holofoil"). A jumbo print's price never stands in: it is another
+// product (a review, 2026-11-20: ranked last, it still stood in for a card
+// whose standard finishes had no price).
 export function fallbackPrice(card, market, finishes = extractPrices(card)) {
 	if (!card || typeof card !== 'object') {
 		return null;
 	}
 
-	const listed = finishes
+	const standard = finishes.filter((finish) => isStandardSize(finish.variant));
+	const listed = standard
 		.map((finish, index) => ({finish, index, rank: finishRank(finish.variant || {})}))
 		.sort((a, b) => a.rank - b.rank || a.index - b.index)
 		.find(({finish}) => hasMarket(market, finish[market]));
@@ -652,7 +653,7 @@ export function fallbackPrice(card, market, finishes = extractPrices(card)) {
 		else {
 			const plain = pickCardmarket(block, {type: 'normal'});
 			const reverse = pickCardmarket(block, {type: 'reverse'});
-			const first = finishes.find((finish) => finishRank(finish.variant || {}) < 2);
+			const first = standard.find((finish) => finishRank(finish.variant || {}) < 2);
 
 			if (hasMarket(market, plain)) {
 				found.push({label: first ? first.label : 'Normal', prices: plain, rank: 0});

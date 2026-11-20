@@ -660,12 +660,14 @@ export async function localPrint(card, language, {api = {setDetail: importApi.se
 	return record && record.name ? {image: record.image || null, lang: language, name: record.name, setName: data.name || null} : null;
 }
 
-// Which of the first group's prints exist in `language` (pictureMatch
-// heldIn): a predicate over its candidates. Asian prints are told apart by
-// languageFits; here a Western record's set is looked up in a Western
-// language TCGdex lists under its own names (api.setHeld: true, false, or
-// null when not known). Only a print whose set is known to be missing is
-// left out, and only when another print of the group is not.
+// Which of the first group's prints TCGdex lists in `language`
+// (pictureMatch heldIn), to put first: a predicate over its candidates.
+// Asian prints are told apart by languageFits; here a Western record's set
+// is looked up in a Western language TCGdex lists under its own names
+// (api.setHeld: true, false, or null when not known). Only a print whose
+// set is known to be missing there goes after the rest, and only when
+// another print of the group is not. It orders and never leaves a print
+// out: TCGdex's lists are incomplete for old sets.
 async function heldPrints(lead, language, api, wait = describeMs()) {
 	const everyone = () => true;
 
@@ -820,16 +822,17 @@ function misreadSettled(read, described, lead, verdict) {
 // the answer, sure, unless a number read names another (stackPick).
 //
 // heldIn: the language read off the card itself (its label, its attack
-// text, its stage label) or picked by hand, never a default. The first
-// group keeps only the prints that exist in it: a Western print in
-// Portuguese, French, German, Italian, or Spanish only from a set TCGdex
-// lists in that language (api.setHeld, catalog.js setHeldIn), so a
-// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
-// Collection share is the Jungle print (a scanner review, 2026-11-19: on
-// Eric's three page photos the sure pockets went from 18 to 23). A set
-// whose listing is not known (no signal, never asked) keeps its print, and
-// a group none of whose prints exist in the language is kept whole (a
-// print TCGdex lacks in it).
+// text, its stage label) or picked by hand, never a default. It orders the
+// first group: a Western print TCGdex lists in Portuguese, French, German,
+// Italian, or Spanish (api.setHeld, catalog.js setHeldIn) comes before one
+// it does not, so a Portuguese Spearow whose artwork Jungle, Base Set 2, and
+// Legendary Collection share is offered as the Jungle print first. It
+// never makes a card sure by itself (a review, 2026-11-20): TCGdex's
+// Portuguese leaves out many old sets (Base Set 2, Team Rocket, Gym, Neo,
+// Legendary Collection, e-Card, Platinum, POP, the Wizards promos, and most
+// EX and Diamond & Pearl sets answer 404, checked 2026-11-20), so a set
+// missing there is no proof the print does not exist. Sure still takes what it
+// took before: a picture alone, or a number read.
 export async function pictureMatch(picture, read, said, {api = {indexNames: loadIndexNames, setDetail: importApi.setDetail, setHeld: setHeldIn}, asian = null, heldIn = null, known = null, now = () => performance.now(), stack = null, textRoute = null, wait = undefined} = {}) {
 	const started = now();
 	// The language read or picked (`said`), or for a card with no Latin label
@@ -844,7 +847,7 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 	const others = described.slice(leadCards.length);
 	const number = misreadSettled(read, described, lead, verdict);
 	const held = await heldPrints(lead, heldIn, api, wait);
-	const fitting = lead.filter((c) => languageFits(c, language) && held(c));
+	const fitting = lead.filter((c) => languageFits(c, language));
 	const byNumber = (list) => list.filter((c) => numberFits(c, number));
 	const printed = number ? `${number.numberPrinted || number.number}${number.total ? `/${number.totalPrinted || number.total}` : ''}` : null;
 	// No set record reached for the first group's cards (no signal, and their
@@ -896,9 +899,9 @@ export async function pictureMatch(picture, read, said, {api = {indexNames: load
 
 		// A number read outranks the last Asian pick (an ordering only): it filters
 		// by the language read or picked.
-		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said) && held(c)) : fitting;
+		const narrowed = matches.length ? matches.filter((c) => languageFits(c, said)) : fitting;
 
-		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language) && held(c)))) {
+		if (narrowed.length === 1 && (matches.length || !lead.some((c) => c !== narrowed[0] && languageFits(c, language)))) {
 			// Past SURE_DISTANCE only the number read makes it sure, and for a
 			// print with an image-less twin (pictureVerdict) only the number
 			// ever does.

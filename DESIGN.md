@@ -514,14 +514,16 @@ products and prices. A free-text variant field could not drive the master-set go
 per-variant price. *(Revised 2026-10-01. The first version used TCGplayer's variant words.)*
 
 **A jumbo print is named, and the standard size never is** (2026-11-19). `size` is `standard` or
-`jumbo` on an English record and `Padrão` or `Jumbo` on a Portuguese one (Dragapult ex,
-`sv06-130`); a variant with no size is the standard size. One pair of helpers in `js/prices.js`,
+`jumbo` on an English record, `Padrão` or `Jumbo` on a Portuguese one, and `estándar` or `jumbo`
+on a Spanish one (Dragapult ex, `sv06-130`); a variant with no size is the standard size. One pair of helpers in `js/prices.js`,
 `isStandardSize` and `sizeName`, reads every spelling, and every module asks them rather than a
 list of its own. A jumbo's finish reads "Holo, Jumbo" everywhere a finish is named, so the Price
 panel's chips, the Finish select, and the scanner's picker never show two "Holo"s for one card. A
 jumbo is another product: it never counts toward a goal or a Pokémon's finishes, a monprice word
 never matches it, the plain print is never a jumbo, and its price never stands in for a finish
-that has none.
+that has none (`fallbackPrice` leaves jumbo prints and their price blocks out of what it borrows
+from; a review, 2026-11-20: ranked last, a jumbo's price still stood in when no standard print
+had one).
 
 **The finish is picked by hand from the card's real finishes, with no paid AI.**
 After a card is identified, a finish picker lists only that card's own printings from
@@ -1262,17 +1264,22 @@ rebuild it whenever the index is rebuilt.
 photos (1000182576 to 1000182578, 12000 x 5400, 27 pockets, the prints and languages checked by
 eye) through Page > Choose a photo in headless Chromium, the language reads let finish:
 
-- **A language read off the card keeps only the prints that exist in it** (`picture.js`
+- **A language read off the card puts the prints listed in it first** (`picture.js`
   `pictureMatch` `heldIn`, `catalog.js` `setHeldIn`). When a pocket's attack text or stage label
-  settles its language, `view.js` `narrowLater` matches its picture again with that language: a
-  Western print in Portuguese (French, German, Italian, Spanish) only from a set TCGdex lists in it,
-  and an Asian twin left out by any Western language. TCGdex has Portuguese Base Set, Jungle, and
-  Fossil (HTTP 200) but not Base Set 2, Team Rocket, or Legendary Collection (404), so a Portuguese
-  Spearow, Butterfree, or Bulbasaur is the Jungle or Base Set print, sure; and a 151 Pidgey whose
-  number 16/165 its Japanese twin shares is the Western one. Whether a set exists in a language is
-  its set record, asked once and kept on the phone (a 404 too), so a phone with no signal knows
-  from what it has; a set never asked keeps its print, and a group none of whose prints exist in
-  the language is kept whole (a print TCGdex lacks in it). A default language narrows nothing.
+  settles its language, `view.js` `narrowLater` matches its picture again in that language: an
+  Asian twin is left out by any Western language, so a 151 Pidgey whose number 16/165 its Japanese
+  twin shares is the Western one; and a Western print in Portuguese (French, German, Italian,
+  Spanish) from a set TCGdex lists in it comes before one from a set it does not. That only orders
+  (a review, 2026-11-20: it first left the unlisted prints out, and so made a pocket sure with no
+  number read). TCGdex's Portuguese leaves out many old sets that were printed in Portuguese: Base
+  Set, Jungle, Fossil, EX Ruby & Sapphire, Diamond & Pearl, and HeartGold SoulSilver answer HTTP
+  200, but Base Set 2, Team Rocket, Gym, Neo, Legendary Collection, e-Card, Platinum, POP, the
+  Wizards promos, and most EX and Diamond & Pearl sets answer 404 (checked 2026-11-20), so a set
+  missing there is no proof the print does not exist. A Portuguese Spearow, Butterfree, or
+  Bulbasaur is offered as its Jungle or Base Set print first, still to check; sure takes what it
+  took before, the picture alone or a number read. Whether a set is listed in a language is its
+  set record, asked once and kept on the phone (a 404 too), so a phone with no signal knows from
+  what it has; a set never asked is ordered as listed. A default language orders nothing.
 - **A print with an image-less twin is sure only by its number** (`picture.js` `loadTwins`,
   `pictureVerdict`, `stackPick`; `js/vision/index-twins.json`, built by
   `lab/fingerprints/build-twins.mjs`). A card TCGdex has no picture of cannot be in the index, so
@@ -1356,6 +1363,12 @@ eye) through Page > Choose a photo in headless Chromium, the language reads let 
 | Language keeps its prints | 26 (9, 9, 8) | 23 (9, 7, 7) | 1 |
 | Image-less twins | 26 (9, 9, 8) | 21 (9, 7, 5) | 0 |
 | Own cut only when it found the picture | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
+| The same, measured again (`76c90ff`, 2026-11-20) | 25 (9, 9, 7) | 22 (9, 8, 5) | 0 |
+| Language orders the prints, never settles them | 25 (9, 9, 7) | 19 (8, 7, 4) | 0 |
+
+The language row's three fewer sure pockets are the three it settled on TCGdex's absence alone
+(the Spearow on 1000182576, the Butterfree on 1000182577, the Bulbasaur on 1000182578): each is
+still the right print, put first, and now asks for a look.
 | Decoded by pixels, 3:4 tip | 26 (9, 9, 8) | 22 (9, 8, 5) | 0 |
 | Decoded once | 25 (9, 9, 7) | 22 (9, 8, 5) | 0 |
 
@@ -1885,7 +1898,9 @@ judged as a drop.
   spot of the last, told by its picture alone (`contentAt`), is never taken for "nothing left",
   since its cells barely change. When unsure whether the sharp look is the card before (print 17 to
   23 bits off), it is added. The wait counts from the frame in hand, so a slow grab does not use it
-  up.
+  up, and lasts at most three times `RETRY_MS` while the frame is still being taken
+  (`drop.js` `retryUntil`), so a grab that never settles cannot hold it open (a review,
+  2026-11-20).
 - **What it costs.** A clean card is added as before. A card whose own print reads soft (a basic
   Energy's smooth gradient reads 0.2 to 0.6, a card held out of focus about 1) waits 1.5 s, and is
   marked only when its match is not sure. Never losing a card can add one too many, always marked:
@@ -2216,7 +2231,9 @@ its date ("US$ 8,00 · 18 Nov"); the market is in the button's accessible name, 
 says which. It is a button down to the Price section, which stays where it was, whole. It is drawn
 from the section after each drawing (`js/price-view.js` `onDraw`, `js/catalog-views.js`
 `drawGlance`), so the finish picked there and a fresh rate change it too, and it is absent when
-the section shows no market price. Why not move the section
+the section shows no market price. A price of another finish says whose, as its row does ("US$
+2,50 · 18 Nov · for Normal", and "the price for Normal" in the button's name; a review,
+2026-11-20: it showed as the copies' own). Why not move the section
 up: Your copies and Ver na Liga would leave the first screen, which Q-04 put there.
 
 **Source: TCGdex**, which embeds both markets per card. Checked on `en/cards/base1-58` on
@@ -3199,8 +3216,18 @@ foot:
   one language. The row shows once every pocket is read, and what a tap did takes its label's
   place.
 - **Already mine**: offered once every pocket is read, so no card is matched while it is still
-  being read. The page's cards leave the tray, so Done can never add them as new copies, and
-  come back if he turns to New to my cards. Each pocket takes one of his live copies of its card
+  being read: its picture and number, and then its language off its attack text and stage label
+  and its print matched again in that language, which run behind the read (`view.js`
+  `pageSettling`; a review, 2026-11-20: offered before those, it took the pockets out of the tray
+  and they found nothing to act on). Until then the line over the grid says "Still reading their
+  languages, so Already mine waits." Each pocket's language step counts for at most a minute
+  (`LABEL_SETTLE_MS`), so a reader that never answers cannot hold Already mine back. The page's cards leave the tray, so Done can never add them as new copies, and
+  come back if he turns to New to my cards. Neither mode can be picked while a page is found or
+  read: the page read last is still the one before it then (a review, 2026-11-20: New to my cards,
+  tapped while a second page was found, put the first page's cards, Already mine, back in the tray
+  for Done to add again). A page Already mine and not placed holds its cards out of the tray, so a
+  new page, which takes its place, would drop them from the scan: Page reads no other page until
+  it is placed or turned back to New to my cards, says so, and offers **Open that page**. Each pocket takes one of his live copies of its card
   (`js/scan/page-place.js` `matchPage`): loose copies before ones already in a pocket, then the
   language and finish the scan read (only when read, never a default), then the oldest; one copy
   is never used twice; tapping a pocket lists its other copies and "None of these: a placeholder".

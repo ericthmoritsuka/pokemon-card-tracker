@@ -366,6 +366,8 @@ describe('a binder page from one photo', () => {
 		assert.equal(cells.length, 9, 'nine pockets');
 		assert.deepEqual(cells.map((cell, i) => (cell.startsWith('empty:') ? cell : pageOf.get(cell) === i + 1 ? 'in its pocket' : `pocket ${pageOf.get(cell)} in cell ${i + 1}`)),
 			LAYOUT.map((key) => (key ? 'in its pocket' : 'empty:Empty')));
+		// Once the pockets' languages are read behind the read.
+		await until(async () => /Tap a card/.test(await text(page, '#scan-pagegrid-line')), 120000, 'the languages read');
 		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
 		await page.waitForTimeout(400);
 		await page.screenshot({path: `${SHOTS}/scan-page-grid.png`});
@@ -441,6 +443,7 @@ describe('a binder page from one photo', () => {
 		await choose(page, pagePhoto);
 		await page.waitForSelector('#scan-pagegrid', {timeout: 300000});
 		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the page read');
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
 		await page.click('#scan-page-mine');
 		await until(async () => !/Finding/.test(await text(page, '#scan-place-line')), 30000, 'his copies read');
 
@@ -518,6 +521,123 @@ describe('a binder page from one photo', () => {
 		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
 		assert.deepEqual((await pocketsOf(seeded)).old, [[1, 1, 'other'], [1, 5, 'b1']], 'Undo put Binder A back');
 		assert.deepEqual(app.errors, []);
+		await close(app);
+	});
+
+	// A review, 2026-11-20: Already mine was offered as soon as the pockets'
+	// pictures were read, while their attack text and stage labels were still
+	// read behind them; tapped then, it took the pockets out of the tray and
+	// those reads (their language, and the print matched again in it) found
+	// nothing to act on. DESIGN.md promises no card is matched while it is
+	// still being read.
+	test('Already mine waits until the pockets\' languages are read, and the line says so', async () => {
+		const app = await open();
+		const {page} = app;
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+
+		// The moment the read ends, looked at in the very frame.
+		const atEnd = await (await page.waitForFunction(() => {
+			if (!/^Page read/.test(document.getElementById('scan-note')?.textContent || '')) {
+				return false;
+			}
+
+			const mine = document.querySelector('#scan-page-mine');
+			const line = document.querySelector('#scan-pagegrid-line');
+
+			return {disabled: mine ? mine.disabled : null, line: line ? line.textContent : null};
+		}, null, {polling: 'raf', timeout: 300000})).jsonValue();
+
+		assert.equal(atEnd.disabled, true, `Already mine waits as the read ends (${JSON.stringify(atEnd)})`);
+		assert.match(atEnd.line, /^7 cards(, \d to check)?\. Still reading their languages, so Already mine waits\.$/);
+
+		// Then it is offered, and the line says what to do.
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		assert.match(await text(page, '#scan-pagegrid-line'), /^7 cards(, \d to check)?\. Tap a card to check it or change it\.$/);
+
+		await page.click('#scan-page-mine');
+		await page.waitForSelector('#scan-page-mine[aria-pressed="true"]');
+		await close(app);
+	});
+
+	// A review, 2026-11-20: while a second page was found, the sheet's New to
+	// my cards acted on the page before, putting its cards, Already mine,
+	// back in the tray, for Done to add again; and a page read over a page
+	// Already mine and not placed dropped that page's cards from the scan.
+	test('while a page is found its mode chips wait, and a page Already mine is placed before another is read', async () => {
+		const app = await open();
+		const {page} = app;
+		const runOf = () => page.evaluate(async () => {
+			const session = await (await import('/pokemon-card-tracker/js/scan/draft.js')).loadSession();
+			const run = session && session.pageRun;
+
+			return {held: run && run.held ? run.held.length : 0, id: run ? run.id : null, mine: Boolean(run && run.mine), tray: session ? session.items.map((item) => item.pageRun || null) : []};
+		});
+
+		await page.goto(url('scan'));
+		await page.waitForSelector('#scan-camera-off:not([hidden])');
+		await choose(page, pagePhoto);
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the first page read');
+		await page.waitForSelector('#scan-pagegrid');
+
+		const first = await runOf();
+
+		assert.equal(first.tray.filter((run) => run === first.id).length, 7);
+		await page.click('#scan-pagegrid-done');
+		await page.waitForSelector('#scan-pagegrid', {state: 'detached'});
+
+		// The second page, while it is found: neither chip can be used, and
+		// a tap that gets through changes nothing.
+		await choose(page, pagePhoto);
+		await page.waitForSelector('#scan-pagegrid .scan-page-grid.is-waiting', {timeout: 30000});
+
+		const chips = await page.evaluate(() => {
+			const states = ['#scan-page-new', '#scan-page-mine'].map((selector) => document.querySelector(selector).disabled);
+
+			// Already mine, had it been offered, would have taken the page
+			// before's cards out of the tray just before the new page took
+			// its place.
+			const mine = document.querySelector('#scan-page-mine');
+
+			mine.disabled = false;
+			mine.click();
+
+			return states;
+		});
+
+		assert.deepEqual(chips, [true, true], 'New to my cards and Already mine both wait while the page is found');
+
+		const during = await runOf();
+
+		assert.equal(during.mine, false, 'the page before did not turn to Already mine');
+		assert.equal(during.tray.filter((run) => run === first.id).length, 7, 'the page before\'s cards stayed in the tray');
+		await until(async () => /^Page read/.test(await text(page, '#scan-note')), 300000, 'the second page read');
+		await page.waitForSelector('#scan-pagegrid');
+
+		const second = await runOf();
+
+		assert.notEqual(second.id, first.id);
+		assert.equal(second.tray.length, 14, 'both pages\' cards in the tray, once each');
+
+		// The second page is his already, and not placed: Page says so, and
+		// reads no other page until it is placed or turned back.
+		await page.waitForSelector('#scan-page-mine:not([disabled])', {timeout: 120000});
+		await page.click('#scan-page-mine');
+		await until(async () => (await runOf()).held === 7, 10000, 'the page held');
+		await page.click('#scan-sheet-close');
+		await page.waitForSelector('#scan-pagegrid', {state: 'detached'});
+		await page.click('#scan-page-open');
+		await page.waitForSelector('#scan-page-unplaced');
+		assert.equal(await text(page, '#scan-page-unplaced'), 'The page before is Already mine and not placed yet: its 7 cards are not in the tray. Place it, or turn it to New to my cards, then read the next page.');
+		assert.equal(await page.locator('#scan-page-pick, #scan-page-take').count(), 0, 'no photo can be taken or chosen meanwhile');
+		await page.click('#scan-page-unplaced-open');
+		await page.waitForSelector('#scan-pagegrid #scan-page-mine[aria-pressed="true"]');
+
+		const after = await runOf();
+
+		assert.deepEqual([after.id, after.mine, after.held, after.tray.length], [second.id, true, 7, 7], 'the page Already mine kept its cards, and the page before\'s stayed in the tray');
 		await close(app);
 	});
 

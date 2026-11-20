@@ -29,7 +29,7 @@ import {openSheet} from '../sheet.js';
 import {familyWishlists, refreshFamilyWishlists, spareEntries} from '../wishlist.js';
 import {boxAround, CameraUnavailable, grabBitmap, grabFrame, layoutGuide, startCamera, thumbnailFrame, viewFrame} from './camera.js';
 import * as draft from './draft.js';
-import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, RETRY_MS, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
+import {asksRepeat, boxOf, captureFocus, contentAt, contentCheck, createDropDetector, disturbedBy, dropCapture, fromView, HAND_BLUR, landedOn, NEW_PRINT, planCapture, planQuads, printDistance, printOf, regionStir, retryUntil, retryVerdict, revealedIn, SAME_PRINT, sameCardThere, sameSpot, SHARP_WAIT_MS, sharpEnough, spotVerdict, takenCard, thumbAt, toView} from './drop.js';
 import {DEFAULT_FINISH, DEFAULT_FINISHES, isDefaultFinish} from './finish.js';
 import {canReadAway, EngineUnavailable, engineStarted, identify, identifyPictureAway, identifyText, readLanguageLabel, readStageLabel, readTextLabel, releaseEngineSoon, warmEngine, warmPicture} from './identify.js';
 import {refreshPhotoPrints} from './photo-prints-app.js';
@@ -396,6 +396,14 @@ export function scanView(root) {
 	// {step, done, of}, of null while the page is found; null when no page
 	// is being read.
 	let pageReading = null;
+	// The language steps still to run on a binder page's pockets, which run
+	// behind its read (checkLabelLater: the attack text and stage label, then
+	// narrowLater): pocket id -> {run, timer}. Already mine waits for them,
+	// since it takes the pockets out of the tray, where those steps would
+	// find nothing to act on (a review, 2026-11-20). Each counts for at most
+	// LABEL_SETTLE_MS, so a reader that never answers cannot hold it back.
+	const settling = new Map();
+	const LABEL_SETTLE_MS = 60000;
 	let where = new Map();
 	let spareIds = new Set();
 	let outResults = new Map();
@@ -668,6 +676,10 @@ export function scanView(root) {
 		get pageReading() {
 			return pageReading;
 		},
+		// Pockets of the page whose language is still being read (pageSettling).
+		get pageSettling() {
+			return pageSettling();
+		},
 		applyPageLanguage,
 		onPage: (id) => {
 			const item = S.findItem(session, id);
@@ -793,6 +805,11 @@ export function scanView(root) {
 		// must be. pageBusy: a page is being read.
 		get pageBusy() {
 			return pageBusy;
+		},
+		// Cards of a page "Already mine" not placed yet (unplacedPage), which
+		// a new page read would drop: Page waits until it is placed.
+		get pageUnplaced() {
+			return unplacedPage();
 		},
 		pagePhoto: (how) => {
 			(how === 'camera' ? pageCamera : pageGallery).click();
@@ -1887,7 +1904,10 @@ export function scanView(root) {
 	function setPageMine(mine) {
 		const run = session && session.pageRun;
 
-		if (!run || Boolean(run.mine) === mine) {
+		// While a page is found or read, the run may still be the page before
+		// it, and the one being read is not known yet; and its pockets'
+		// languages are read before they leave the tray (pageSettling).
+		if (!run || Boolean(run.mine) === mine || pageBusy || (mine && pageSettling())) {
 			return;
 		}
 
@@ -2001,6 +2021,52 @@ export function scanView(root) {
 		setNote(text);
 		announce(text);
 	}
+
+	function startSettling(id, run) {
+		endSettling(id, {quiet: true});
+		settling.set(id, {run, timer: setTimeout(() => endSettling(id), LABEL_SETTLE_MS)});
+
+		// A step that starts once the page is read: Already mine waits again.
+		if (alive && pageReading === null && pageSheetOpen()) {
+			sheet.refresh();
+		}
+	}
+
+	function endSettling(id, {quiet = false} = {}) {
+		const one = settling.get(id);
+
+		if (!one) {
+			return;
+		}
+
+		clearTimeout(one.timer);
+		settling.delete(id);
+
+		// The last of the page's steps: Already mine is offered now.
+		if (!quiet && alive && !pageSettling() && pageSheetOpen()) {
+			sheet.refresh();
+		}
+	}
+
+	// How many of the page's pockets still have a language step to run.
+	function pageSettling() {
+		const run = session && session.pageRun;
+
+		return run ? [...settling.values()].filter((one) => one.run === run.id).length : 0;
+	}
+
+	// A page "Already mine" not placed yet: its cards are held on the page
+	// read, out of the tray, so another page read, which takes its place,
+	// would drop them from the scan. A new page waits until it is placed or
+	// turned back to New to my cards (a review, 2026-11-20). Returns how
+	// many cards it holds, or 0.
+	function unplacedPage() {
+		const run = session && session.pageRun;
+
+		return run && run.mine ? (run.held || []).length : 0;
+	}
+
+	const UNPLACED_PAGE = 'The page before is Already mine and not placed yet. Place it, or turn it to New to my cards, then read the next page.';
 
 	// The cards of the binder page just read, still in the tray.
 	function pageIds() {
@@ -2594,6 +2660,14 @@ export function scanView(root) {
 	// side are read as one page of 18 pockets, the left page's first.
 	async function readPage(file) {
 		if (pageBusy) {
+			return;
+		}
+
+		if (unplacedPage()) {
+			setNote(UNPLACED_PAGE);
+			announce(UNPLACED_PAGE);
+			openPage();
+
 			return;
 		}
 
@@ -3503,7 +3577,7 @@ export function scanView(root) {
 		// The set the cards before this one are from (session.js stackSet).
 		const stack = stackOf.has(id) ? stackOf.get(id) : item.page ? null : S.stackSet(session, id);
 		// A language read off the card or picked by hand, never a default,
-		// keeps only the prints that exist in it (picture.js heldIn).
+		// puts first the prints TCGdex lists in it (picture.js heldIn).
 		const heldIn = heldLanguage(item);
 		const quick = await pictureMatch(item.picture, item.read, language, {asian, heldIn, known, stack, textRoute: (read, lang) => findCandidates(read, lang, {api: quickApi}), wait: QUICK_MS});
 
@@ -3563,19 +3637,19 @@ export function scanView(root) {
 		}
 	}
 
-	// The language a card's prints are narrowed to (picture.js heldIn): one
+	// The language a card's prints are ordered by (picture.js heldIn): one
 	// read off it or picked by hand, never a default.
 	const heldLanguage = (item) => (item.language && ['hand', 'read', 'stage', 'text'].includes(item.languageBy) ? item.language : null);
 
 	// A binder pocket whose own text has just told its language (checkLabelLater)
-	// while its picture's group held several prints: the group narrowed to the
-	// prints that exist in that language (picture.js pictureMatch heldIn), so a
-	// Portuguese Spearow whose artwork Jungle, Base Set 2, and Legendary
-	// Collection share is the Jungle print, the only one of the three TCGdex
-	// lists in Portuguese, and a 151 Pidgey whose number 16/165 the Japanese
-	// twin shares is the Western one. The answer replaces the card's only when
-	// it is sure or puts another print first, and nobody touched the card
-	// meanwhile.
+	// while its picture's group held several prints: the group matched again in
+	// that language (picture.js pictureMatch heldIn), so a Western language
+	// leaves out a Japanese twin (a 151 Pidgey whose number 16/165 the Japanese
+	// twin shares is the Western one), and a print TCGdex lists in it comes
+	// first (a Portuguese Spearow whose artwork Jungle, Base Set 2, and
+	// Legendary Collection share is offered as the Jungle print, still to
+	// check). The answer replaces the card's only when it is sure or puts
+	// another print first, and nobody touched the card meanwhile.
 	async function narrowLater(id) {
 		const item = S.findItem(session, id);
 		const heldIn = item && heldLanguage(item);
@@ -3618,13 +3692,9 @@ export function scanView(root) {
 	}
 
 	// What a picture answer left on the card, to tell whether anyone changed
-	// it before the next one.
-	const snapshot = (item) => ({card: item.card ? item.card.id : null, confirmed: item.confirmed, language: item.language, languageBy: item.languageBy});
-	const sameAs = (before, item) => {
-		const now = snapshot(item);
-
-		return now.card === before.card && now.confirmed === before.confirmed && now.language === before.language && now.languageBy === before.languageBy;
-	};
+	// it before the next one (session.js answerSnapshot).
+	const snapshot = (item) => S.answerSnapshot(item);
+	const sameAs = (before, item) => S.untouchedSince(before, item);
 
 	// A picture answer onto the card: the match, the language a settled card
 	// starts in, the scan report, and, behind it, the print in that language
@@ -3724,7 +3794,12 @@ export function scanView(root) {
 
 		const pageCardId = item.page && item.card ? item.card.id : null;
 
-		setTimeout(async () => {
+		// A binder page's pocket: Already mine waits for this (pageSettling).
+		if (item.pageRun) {
+			startSettling(id, item.pageRun);
+		}
+
+		const steps = async () => {
 			// A binder pocket's stage label first (read.js readStage): the only
 			// thing on a pocket that tells English from Portuguese.
 			// A binder pocket's language from its own text (a review of the
@@ -3805,6 +3880,10 @@ export function scanView(root) {
 					localiseLater(id);
 				}
 			}
+		};
+
+		setTimeout(() => {
+			steps().finally(() => endSettling(id));
 		}, 300);
 	}
 
@@ -4541,8 +4620,9 @@ export function scanView(root) {
 			// ...and whether all it shows sharp is the card before: a hand's
 			// card out of focus over it, not a card (flushRetry).
 			underPrev: Boolean(prev && prev.thumb && prev.quad) && revealedIn(thumbAt(fine, prev.quad), prev.thumb),
-			// Set once the frame is in hand, below.
-			until: Infinity,
+			// At most RETRY_CAP_MS while the frame is taken; set again once
+			// it is in hand, below.
+			until: retryUntil(at),
 		};
 
 		// The wait counts from the frame in hand: a slow grab (pixels read on
@@ -4553,7 +4633,7 @@ export function scanView(root) {
 
 		waiting.grabbed.then(() => {
 			if (retry === waiting) {
-				waiting.until = performance.now() + RETRY_MS;
+				waiting.until = retryUntil(at, performance.now());
 			}
 		});
 	}

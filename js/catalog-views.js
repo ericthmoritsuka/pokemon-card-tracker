@@ -1389,9 +1389,11 @@ export function cardView(root, {lang, cardId}) {
 
 		// One short line, so the facts end level with the art: the amount
 		// as listed and its date ("US$ 8,00 · 18 Nov"); the market is in the
-		// button's name, and its currency says which.
-		const {amount, date, source} = shown.dataset;
-		const line = [amount, date].filter(Boolean).join(' · ') || source || '';
+		// button's name, and its currency says which. A price of another
+		// finish says whose, as its row does ("· for Normal"; a review,
+		// 2026-11-20: the glance showed it as the copies' own).
+		const {amount, date, for: borrowed, source} = shown.dataset;
+		const line = [[amount, date].filter(Boolean).join(' · ') || source, borrowed ? `for ${borrowed}` : null].filter(Boolean).join(' · ');
 
 		glance.replaceChildren(
 			h('dt', null, 'Price'),
@@ -1404,7 +1406,7 @@ export function cardView(root, {lang, cardId}) {
 					if (title) {
 						title.focus({preventScroll: true});
 					}
-				}, type: 'button'}, value.cloneNode(true), h('span', {'aria-hidden': 'true', class: 'price-glance-more'}, ' ›'), h('span', {class: 'price-sr'}, `${source ? `, ${source}` : ''}, see the prices`)),
+				}, type: 'button'}, value.cloneNode(true), h('span', {'aria-hidden': 'true', class: 'price-glance-more'}, ' ›'), h('span', {class: 'price-sr'}, `${source ? `, ${source}` : ''}${borrowed ? `, the price for ${borrowed}` : ''}, see the prices`)),
 				line ? h('span', {class: 'price-glance-line', id: 'card-glance-line'}, line) : null));
 	}
 	// The person's live copies of this card, and the Ver na Liga link once

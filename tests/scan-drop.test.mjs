@@ -698,4 +698,13 @@ describe('a blurred capture is retried, never lost (Eric, 2026-11-06, version 64
 		assert.ok(!D.sameSpot(spot, null));
 		assert.equal(D.RETRY_MS, 1500);
 	});
+
+	// A review, 2026-11-20: the wait was Infinity until the frame was in
+	// hand, so a grab that never settled held it open for ever.
+	test('retryUntil: at most RETRY_CAP_MS while the frame is taken, then RETRY_MS from the frame in hand', () => {
+		assert.equal(D.RETRY_CAP_MS, 3 * D.RETRY_MS);
+		assert.equal(D.retryUntil(1000), 1000 + D.RETRY_CAP_MS, 'finite before the frame is in hand');
+		assert.equal(D.retryUntil(1000, 1400), 1400 + D.RETRY_MS, 'from the frame in hand');
+		assert.equal(D.retryUntil(1000, 9000), 9000 + D.RETRY_MS, 'a slow grab still gets a whole wait');
+	});
 });

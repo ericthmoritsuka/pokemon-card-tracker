@@ -1310,6 +1310,16 @@ export const HAND_BLUR = 0.7;
 // every 1.5 s.
 export const RETRY_MS = 1500;
 
+// When that wait ends (view.js captureDrop, retryTick): RETRY_MS from the
+// frame in hand (`inHand`, performance.now() then), so a slow grab neither
+// uses it up nor runs it out before any look of the spot; and while the
+// frame is still being taken, RETRY_CAP_MS from the capture (`at`), so a
+// grab that never settles cannot hold the wait open for ever (a review,
+// 2026-11-20).
+export const RETRY_CAP_MS = 3 * RETRY_MS;
+
+export const retryUntil = (at, inHand = null) => (inHand === null ? at + RETRY_CAP_MS : inHand + RETRY_MS);
+
 // A spot whose cells are this close to the picture before the drop
 // (regionStir at most GONE_STIR) shows nothing new: what was taken blurred
 // there was a hand, or the card in it, that left. The cards lying still on
