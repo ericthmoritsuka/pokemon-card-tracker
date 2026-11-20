@@ -414,6 +414,8 @@ button.link-button.price-glance {
 	color: var(--muted);
 }
 
+/* Scrolled to below the sticky header by html's scroll-padding
+   (style.css); a margin of its own here would count the header twice. */
 .price-slot {
-	scroll-margin-top: calc(var(--header-height, 0px) + env(safe-area-inset-top, 0px) + 8px);
+	scroll-margin-top: 0;
 }

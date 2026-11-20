@@ -17,7 +17,8 @@
 	--bs-paper-edge: color-mix(in srgb, var(--surface, #ffffff) 72%, var(--text, #1b1b1f));
 	--bs-stitch: color-mix(in srgb, var(--cover-text, #ffffff) 70%, transparent);
 	margin: 4px 0 12px;
-	scroll-margin-top: calc(var(--header-height, 0px) + env(safe-area-inset-top, 0px) + 8px);
+	/* Upright, html's scroll-padding (style.css) keeps it 8 px below the
+	   sticky header. */
 }
 
 .bs-label {
@@ -973,6 +974,12 @@ button.bc-handle:focus-visible::after {
 @media (orientation: landscape) and (max-height: 500px) {
 	body:has(#binder-spread) .shell-top {
 		position: static;
+	}
+
+	/* The header scrolls away here, so nothing is kept clear of it: the
+	   spread opens 4 px from the top (style.css, html's scroll-padding). */
+	html:has(#binder-spread) {
+		scroll-padding-top: 0;
 	}
 
 	.bs {
