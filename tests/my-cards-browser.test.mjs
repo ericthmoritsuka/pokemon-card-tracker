@@ -733,17 +733,49 @@ describe('layout', () => {
 				await selectsFit(page, 'the bar');
 				await metaFits(page, 'My Cards');
 
-				// Two even lines since the View select joined the row
-				// (css/card-views.css): Sort and Filters, then View, and Value
-				// with Stats beside it (js/stats-view.js, 2026-11-19).
+				// The bar as three lines at phone width (design review,
+				// 2026-11-19: the first card started 455 px down a 360 x 740
+				// screen): the search with Filters and Select, then Sort and
+				// View, then Value with Stats and Add by hand; the count is in
+				// the heading beside Spares and Trades.
 				const row = await page.evaluate(() => Object.fromEntries([...document.querySelector('.fb-row').children].map((element) => [element.querySelector('select') ? element.querySelector('select').id : element.id, Math.round(element.getBoundingClientRect().top)])));
 				const pair = await page.evaluate(() => ['cards-value', 'cards-stats-link'].map((id) => Math.round(document.getElementById(id).getBoundingClientRect().top)));
+				const head = await page.evaluate(() => {
+					const top = (selector) => Math.round(document.querySelector(selector).getBoundingClientRect().top);
+					const search = document.getElementById('cards-search');
+					const style = getComputedStyle(search);
+					const canvas = document.createElement('canvas').getContext('2d');
 
-				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-view', 'cards-value-stats'], 'the row\'s controls, in order');
-				assert.equal(row['cards-sort'], row['cards-filters'], `Sort and Filters share a line (${JSON.stringify(row)})`);
-				assert.equal(row['cards-view'], row['cards-value-stats'], `View, Value, and Stats share a line (${JSON.stringify(row)})`);
+					canvas.font = style.font;
+
+					return {
+						countIn: document.getElementById('cards-summary').parentElement.className,
+						countMiddle: Math.round(document.getElementById('cards-summary').getBoundingClientRect().top + document.getElementById('cards-summary').getBoundingClientRect().height / 2),
+						first: top('.card-grid > .tile'),
+						placeholderFits: canvas.measureText(search.placeholder).width <= search.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+						search: top('#cards-search'),
+						spares: top('#cards-trade'),
+						sparesMiddle: Math.round(document.getElementById('cards-trade').getBoundingClientRect().top + document.getElementById('cards-trade').getBoundingClientRect().height / 2),
+						title: document.querySelector('.view-head h2').getBoundingClientRect().width,
+					};
+				});
+
+				assert.deepEqual(Object.keys(row), ['cards-sort', 'cards-filters', 'cards-select', 'cards-view', 'cards-value-stats', 'cards-add-hand'], 'the row\'s controls, in order');
+				assert.equal(row['cards-filters'], head.search, `Filters beside the search (${JSON.stringify(row)})`);
+				assert.equal(row['cards-select'], head.search, `Select beside the search (${JSON.stringify(row)})`);
+				assert.ok(head.placeholderFits, 'the search\'s placeholder whole');
+				assert.equal(row['cards-sort'], row['cards-view'], `Sort and View share a line (${JSON.stringify(row)})`);
+				assert.ok(row['cards-sort'] > head.search, 'Sort and View under the search');
+				assert.equal(row['cards-value-stats'], row['cards-add-hand'], `Value, Stats, and Add by hand share a line (${JSON.stringify(row)})`);
+				assert.ok(row['cards-value-stats'] > row['cards-sort'], 'Value and Add by hand are the third line');
 				assert.equal(pair[0], pair[1], 'Value and Stats side by side');
-				assert.ok(row['cards-view'] > row['cards-sort'], 'View and Value are the second line');
+				assert.equal(head.countIn, 'view-head', 'the count is in the heading');
+				assert.ok(Math.abs(head.countMiddle - head.sparesMiddle) <= 2, `the count beside Spares (${JSON.stringify(head)})`);
+				assert.ok(head.title <= 1, 'the title is for a screen reader on a phone; the Cards tab names the screen');
+				assert.ok(head.search > head.spares, 'the bar under the heading');
+				// Well above the middle of the screen: two rows of tiles in
+				// sight at 360 x 740.
+				assert.ok(head.first <= viewport.height * 0.43, `the first card starts ${head.first} px down`);
 
 				await openFilters(page);
 				await page.selectOption('#cards-f-set', 'ja|TSJ1');

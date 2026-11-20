@@ -3,35 +3,75 @@
    is. Every minimum grows with the text size, as Grid's does, so large text
    gives fewer columns, never squeezed tiles or a sideways scroll. */
 
-/* The View select joins Sort, Filters, and Value in the bar's row. Where
-   the bar is wide enough for its text, the row is two even rows, the
-   selects left and the buttons right (Sort | Filters, View | Value), and
-   one row on a wide screen; narrower, as at large text on a small phone,
-   the row wraps as it always has, before any text is cut. */
+/* My Cards' bar, with the View select (design review, 2026-11-19: at
+   360 x 740 the first card started 455 px down, under seven rows of
+   heading, buttons, and counts). The search, Filters, Select, Sort, View,
+   Value with Stats, and Add by hand flow as one wrapping row, in that order:
+   at 360 px the search with Filters and Select beside it, then Sort and View, then
+   Value, Stats, and Add by hand; on a wider screen more share a line. Each
+   keeps its text whole and wraps to the next line before it would be cut,
+   as at large text. */
+.fb:has(.fb-view-wrap) {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+}
+
+.fb:has(.fb-view-wrap) > .fb-row {
+	display: contents;
+}
+
+.fb:has(.fb-view-wrap) > .fb-search {
+	flex: 1 1 9rem;
+	min-width: 0;
+	order: 0;
+	/* "Search my cards" whole beside Filters and Select at 360 px, with
+	   the two buttons' padding trimmed below. */
+	padding-left: 10px;
+	padding-right: 10px;
+	width: auto;
+}
+
+.fb:has(.fb-view-wrap) .fb-open,
+.fb:has(.fb-view-wrap) .cards-select {
+	padding-left: 10px;
+	padding-right: 10px;
+}
+
+.fb:has(.fb-view-wrap) .fb-open {
+	order: 1;
+}
+
+.fb:has(.fb-view-wrap) .fb-sort-wrap {
+	order: 2;
+}
+
 .fb-view-wrap {
 	flex: 1 1 7rem;
 	min-width: 7rem;
+	order: 3;
 }
 
-.fb:has(.fb-view-wrap) {
-	container-type: inline-size;
+/* Sort and View never narrower than their longest choice: with the count
+   on Filters the line wraps one more time rather than cut "View: Large". */
+.fb:has(.fb-view-wrap) .fb-sort-wrap,
+.fb:has(.fb-view-wrap) .fb-view-wrap {
+	flex: 1 0 auto;
+	min-width: 0;
 }
 
-@container (min-width: 18rem) {
-	.fb-row:has(> .fb-view-wrap) {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
-	}
-
-	.fb-row:has(> .fb-view-wrap) > * {
-		min-width: 0;
-	}
+.fb:has(.fb-view-wrap) .fb-value-pair {
+	order: 4;
 }
 
-@container (min-width: 36rem) {
-	.fb-row:has(> .fb-view-wrap) {
-		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-	}
+.fb:has(.fb-view-wrap) .fb-hand {
+	min-height: var(--target);
+	order: 5;
+}
+
+.fb:has(.fb-view-wrap) > .fb-chips {
+	flex: 1 0 100%;
+	order: 6;
 }
 
 /* ------------------------------------------------------------- Large */
@@ -247,24 +287,11 @@
 
 /* -------------------------------------------------------- Bulk select */
 
-/* My Cards' bulk select (js/bulk-select.js). Select ends the summary line
-   and wraps under it before the summary's words would be squeezed. */
-.cards-summary-row {
-	align-items: center;
-	display: flex;
-	flex-wrap: wrap;
-	gap: 0 var(--space-2);
-	justify-content: space-between;
-}
-
-.cards-summary-row > #cards-summary {
-	flex: 1 1 12rem;
-	min-width: 0;
-}
-
-.cards-summary-row > .cards-select {
-	flex: none;
+/* My Cards' bulk select (js/bulk-select.js): Select sits in the bar beside
+   Filters (the first card's top, design review 2026-11-19). */
+.fb:has(.fb-view-wrap) .cards-select {
 	min-height: var(--target);
+	order: 1;
 }
 
 /* A tile while selecting is a checkbox: a circle over the middle of its

@@ -497,9 +497,11 @@ export function cardsScreen(root, {
 			visible: () => lastVisible,
 		})
 		: null;
-	// Select sits at the end of the summary line: the bar's row above is
-	// already two even rows at phone width, its selects sized to fit.
-	const summaryRow = bulk ? h('div', {class: 'cards-summary-row'}, summary, bulk.button) : summary;
+	// Your own My Cards (design review, 2026-11-19: the first card started
+	// 455 px down a 360 x 740 screen): the summary moves up into the
+	// heading, beside Spares and Trades, and Select joins the bar beside
+	// Filters, so neither takes a line of its own.
+	const summaryRow = bulk ? null : summary;
 	// A tile as drawn, dressed as a checkbox while bulk select is on.
 	const shownTile = (group) => (bulk ? bulk.mark(tile(group), group.key) : tile(group));
 
@@ -520,9 +522,14 @@ export function cardsScreen(root, {
 	// onto a line of its own.
 	const statsLink = statsRoute ? h('a', {class: 'button small fb-stats', 'data-link': statsRoute, href: BASE + statsRoute, id: 'cards-stats-link'}, 'Stats') : null;
 	const valueTools = statsLink ? h('span', {class: 'fb-value-pair', id: 'cards-value-stats'}, valueButton, statsLink) : valueButton;
+	// A card the catalog does not have is added by hand (js/custom-card-view.js),
+	// at the end of the bar rather than in the heading, which keeps Spares
+	// and Trades beside the title on a phone (design review, 2026-11-19:
+	// the first card started 455 px down a 740 px screen).
+	const handButton = readOnly ? null : h('button', {class: 'small fb-hand', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
 
 	const bar = filterBar({
-		extra: [views ? views.element : null, valueTools, ...toolbar].filter(Boolean),
+		extra: [bulk ? bulk.button : null, views ? views.element : null, valueTools, ...toolbar, handButton].filter(Boolean),
 		// Every filter, Pictures included: these items carry photo and
 		// catalogPicture (makeGroup).
 		filters: offered || FILTERS,
@@ -1200,9 +1207,12 @@ export function cardsScreen(root, {
 			storeButton.textContent = copies === 1 ? 'Set storage for this copy' : `Set storage for these ${plural(copies, 'copy', 'copies')}`;
 		}
 
+		// Short enough to sit beside Spares and Trades in a phone's heading;
+		// why tiles and copies differ is its tooltip.
 		summary.textContent = narrowed
 			? `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')} match, of ${plural(entries.length, 'copy', 'copies')}.`
-			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}. One tile per card and language.`;
+			: `${plural(copies, 'copy', 'copies')} in ${plural(visible.length, 'tile', 'tiles')}.`;
+		summary.title = 'One tile per card and language.';
 
 		// Swiping on a card page follows this order, filters included.
 		offerCardList(visible.map(routeOf), heading.querySelector('h2').textContent);
@@ -1523,6 +1533,12 @@ export function cardsScreen(root, {
 			return;
 		}
 
+		// The summary is in the heading on your own My Cards: no count
+		// stays there over an empty state.
+		if (!entries.length) {
+			summary.textContent = '';
+		}
+
 		if (!entries.length && emptyNode) {
 			body.replaceChildren(emptyNode());
 
@@ -1709,8 +1725,6 @@ export function cardsScreen(root, {
 			redraw(keys);
 		}
 	}, {twins: false});
-	// A card the catalog does not have is added by hand (js/custom-card-view.js).
-	const handButton = readOnly ? null : h('button', {class: 'small', id: 'cards-add-hand', onclick: () => openCustomCardSheet(), type: 'button'}, 'Add by hand');
 	const tradeLink = tradeRoute ? h('a', {class: 'button small view-head-link', 'data-link': tradeRoute, href: BASE + tradeRoute, id: 'cards-trade'}, 'Spares') : null;
 	// The trades and sales log (js/moves-view.js), beside Spares on your own
 	// My Cards.
@@ -1718,7 +1732,7 @@ export function cardsScreen(root, {
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
 	const headLinks = [tradeLink, movesLink, wishLink].filter(Boolean);
 	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
-	const heading = h('div', {class: 'view-head'}, h('h2', null, title), links, handButton);
+	const heading = h('div', {class: 'view-head'}, h('h2', null, title), bulk ? summary : null, links);
 
 	root.append(heading, body);
 	load();

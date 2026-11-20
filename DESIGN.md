@@ -306,9 +306,24 @@ buttons, because the bar already uses selects for such choices and four segments
 Sort at 324 px. The views keep the low-resolution images, so Large adds no downloads and no
 second copy of each image to the phone's cache.
 
+**My Cards' heading and bar** *(design review, 2026-11-19: at 360 x 740 the first card started
+455 px down, under seven lines of heading, buttons, and counts)*. Nothing was taken away; the
+same controls sit on four lines, and the first card starts at 300 px:
+
+- **The heading:** the count ("41 copies in 40 tiles.", or "3 copies in 3 tiles match, of 41
+  copies." while a search or filter narrows the list) beside Spares and Trades. Why copies and
+  tiles differ, one tile per card and language, is the count's tooltip rather than a second
+  sentence. On a phone the title "My Cards" is for a screen reader only: the Cards tab names the
+  screen. From 600 px it shows before the count. A family member's cards keep their title
+  ("Eric's cards") on its own, as before.
+- **The bar:** one wrapping row in this order, each control's text whole and wrapping to the next
+  line before it would be cut (as at large text): the search with **Filters** and **Select**
+  beside it; **Sort** and **View**; **Value** with **Stats**, and **Add by hand** (which was in
+  the heading).
+
 **Bulk select on My Cards** *(Eric, 2026-11-18: change many cards at once instead of opening
-each one)*. A **Select** button ends the summary line ("10 copies in 10 tiles"), not the bar's
-row, which is already two even rows at phone width with its selects sized to fit. In selection
+each one)*. A **Select** button sits beside Filters in the bar (it ended the summary line until
+the design review of 2026-11-19, above). In selection
 mode a tap, Enter, or Space on a tile ticks it instead of opening the card: the tile is a
 checkbox to a screen reader, and a circle over the middle of its art (clear of the corner badges)
 shows a tick, with a ring round the tile, so the state never rests on colour. A bar docked above
@@ -3575,10 +3590,10 @@ pass fills in prices, rarities, and types, and Stats says "Not known yet fills i
 download while My Cards is open" where some are missing. Counting about 2,500 copies is one pass
 over them, well under the 1 s the unit test allows.
 
-- **Where it opens.** A **Stats** link beside **Value** in My Cards' filter bar, the two sharing
-  one cell of the bar's grid beside the View switch. Both are about the whole collection, so they
-  sit together; the heading was the other candidate, but Spares, Trades, and Add by hand already
-  fill its row at 360 px, and a fourth button wrapped Add by hand onto a line of its own. Profile
+- **Where it opens.** A **Stats** link beside **Value** in My Cards' filter bar, the two kept
+  together on one line (with Add by hand after them since the design review of 2026-11-19). Both
+  are about the whole collection, so they sit together; the heading was the other candidate, but
+  Spares and Trades with the count already fill its row at 360 px. Profile
   was ruled out because Stats is about the cards, and the Cards tab is where they are. "‹ My Cards"
   goes back.
 - **What it shows.** Totals (copies, cards, sets, languages); bars by language, by set (the top
