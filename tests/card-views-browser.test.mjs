@@ -203,8 +203,33 @@ describe('the View switch', () => {
 
 			await choose(page, 'list');
 			assert.equal(await columns(page), 1, 'List: one a row');
+
+			// The Japanese Pikachu's own name shows in List and Large, not
+			// in Grid, whose meta line is one line with an ellipsis (design
+			// review 2, 2026-11-20: tiles grew to three to five lines).
+			const original = page.locator('.card-grid .tile-original', {hasText: 'ピカチュウ'});
+
+			assert.ok(await original.isVisible(), 'List shows the card\'s own name');
+			await choose(page, 'large');
+			assert.ok(await original.isVisible(), 'Large shows the card\'s own name');
 			await choose(page, 'grid');
 			assert.equal(await columns(page), 3);
+			assert.equal(await original.count(), 1, 'the name stays in the page');
+			assert.ok(await original.isHidden(), 'Grid leaves it out');
+
+			const metas = await page.locator('.card-grid > .tile > .tile-meta').evaluateAll((lines) => lines.map((line) => {
+				const style = getComputedStyle(line);
+
+				return {
+					cut: line.scrollWidth > line.clientWidth ? style.textOverflow : 'fits',
+					lines: Math.round(line.getBoundingClientRect().height / parseFloat(style.lineHeight || style.fontSize)),
+					titled: line.title === line.textContent,
+				};
+			}));
+
+			assert.ok(metas.length > 0);
+			assert.ok(metas.every((meta) => meta.lines <= 1), `every Grid meta line is one line (${JSON.stringify(metas)})`);
+			assert.ok(metas.every((meta) => ['ellipsis', 'fits'].includes(meta.cut) && meta.titled), 'a long one ends in an ellipsis, its whole text in the title');
 			assert.deepEqual(errors, []);
 		}
 		finally {

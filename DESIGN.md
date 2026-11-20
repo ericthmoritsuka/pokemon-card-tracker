@@ -306,7 +306,10 @@ the scan tray. When the viewing language differs from the copy's language, a lan
 sizes and layouts)*. My Cards has a View select beside Sort and Filters ("View: Grid"), kept on the
 phone (`cardTracker.cardsView`), Grid by default. **Large** is two a row on a phone, the art big
 with the name, the number as printed (`025 / 120`), and the value under it, for looking at the
-cards themselves. **Grid** is the tile as everywhere else. **Mini** is five or six a row at 384 px,
+cards themselves. **Grid** is the tile as everywhere else, kept to the name, one meta line, and
+the price: the meta line ends in an ellipsis (its whole text in its title and for a screen reader),
+and the name in the card's own language ("リザードンex (Lizardon ex)") shows only in Large and
+List (design review 2, 2026-11-20: tiles grew to three to five lines where a set name wrapped). **Mini** is five or six a row at 384 px,
 the art alone with its `×N` and language corners and no caption, a binder page's overview; each
 tile is named for a screen reader instead. **List** is a row per card (a thumbnail, the name and
 value, set and number, language, finish, and `×N`), for reading facts down a column; the row is
