@@ -169,6 +169,15 @@
 				stats
 			);
 		}
+		else if (scene === 'jumbo') {
+			// Dragapult ex's Portuguese record: a holo ("Padrão") and a jumbo
+			// holo ("Jumbo"), with a Portuguese copy of each.
+			const dragapultPt = await fixture('pt-sv06-130');
+
+			await copy(dragapultPt, {language: 'pt', variant_id: 'jr7oetx1mqug9'});
+			await copy(dragapultPt, {language: 'pt', variant_id: 'slwlv6rn87'});
+			app.append(priceSection({card: dragapultPt, entries: await listCards(), language: 'pt', ligaHref: null, recordLanguage: 'pt', variantId: 'slwlv6rn87'}));
+		}
 		else if (scene === 'korean') {
 			// A Korean copy on a Japanese record, as the scanner saves it, with
 			// the Japanese print's link handed in: Korean prints get none (Q-30).

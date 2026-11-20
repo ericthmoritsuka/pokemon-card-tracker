@@ -244,6 +244,28 @@ describe('price section', () => {
 		await finish(device, 'finishes');
 	});
 
+	test('a holo and its jumbo: two chips with their own names, each with its own price', async () => {
+		const device = await phone();
+		const {page} = device;
+
+		await open(device, 'jumbo');
+
+		const section = page.locator('section.price');
+		const chips = section.locator('.price-finish');
+
+		await page.waitForFunction(() => document.querySelector('.price-eu-value'));
+		assert.deepEqual((await chips.allTextContents()).map(plain), ['Holo (1 owned)', 'Holo, Jumbo (1 owned)']);
+		assert.equal(await chips.nth(1).getAttribute('aria-pressed'), 'true', 'the jumbo, as asked');
+		assert.match(await text(section.locator('.price-eu .price-original')), /^€ 0,03, Cardmarket trend/, 'the jumbo\'s own Cardmarket product');
+
+		await chips.nth(0).click();
+		assert.equal(await chips.nth(0).getAttribute('aria-pressed'), 'true');
+		assert.match(await text(section.locator('.price-eu .price-original')), /^€ 1,16, Cardmarket trend/);
+		assert.match(await text(section.locator('.price-us .price-original')), /^US\$ 1,32, TCGplayer market/);
+
+		await finish(device, 'jumbo');
+	});
+
 	test('a Liga price kept from before: one read-only line, Remove, and Undo', async () => {
 		const device = await phone();
 		const {page} = device;
