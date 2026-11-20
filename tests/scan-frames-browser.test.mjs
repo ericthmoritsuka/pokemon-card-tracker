@@ -50,6 +50,15 @@ after(async () => {
 // canvas stream showing window.scene ({kind: 'table' | 'paper' | 'card',
 // size, card: 'a' | 'b'}), the card or paper placed where the guide
 // outline is. navigator.vibrate records each buzz in window.buzzes.
+//
+// The guide is measured once, the first time there is something to draw,
+// and the picture then stays put in the frame however the screen is laid
+// out after, as a real camera's picture does (tests/scan-scene.mjs). It
+// followed the guide until 2026-11-20: a note under the camera (That card
+// was just added.) or a tray tile makes the camera shorter and the guide
+// smaller, so the card held still shrank and moved in the picture, and back
+// again when the note went, which no card in a hand does. Auto capture took
+// it again, and Q-20 found a second card in the tray after reopening Scan.
 function portraitCamera({height, width}) {
 	const canvas = document.createElement('canvas');
 	const ctx = canvas.getContext('2d');
@@ -68,6 +77,8 @@ function portraitCamera({height, width}) {
 	// Kept across a reload, as a card on the table would be.
 	window.scene = JSON.parse(sessionStorage.getItem('test-scene') || 'null') || {kind: 'table'};
 
+	let anchor = null;
+
 	const draw = () => {
 		ctx.fillStyle = '#7a6250';
 		ctx.fillRect(0, 0, width, height);
@@ -83,15 +94,22 @@ function portraitCamera({height, width}) {
 		// The guide's layout box, not its drawn one: the capture flash
 		// scales the guide for a moment, and a real camera's picture does
 		// not follow it.
-		const stage = guide.offsetParent.getBoundingClientRect();
-		const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
-		const v = video.getBoundingClientRect();
-		const scale = Math.max(v.width / width, v.height / height);
-		const offsetX = v.left + (v.width - width * scale) / 2;
-		const offsetY = v.top + (v.height - height * scale) / 2;
-		const cx = (g.left + g.width / 2 - offsetX) / scale;
-		const cy = (g.top + g.height / 2 - offsetY) / scale;
-		const gh = g.height / scale;
+		if (!anchor) {
+			const stage = guide.offsetParent.getBoundingClientRect();
+			const g = {height: guide.offsetHeight, left: stage.left + guide.offsetLeft, top: stage.top + guide.offsetTop, width: guide.offsetWidth};
+			const v = video.getBoundingClientRect();
+			const scale = Math.max(v.width / width, v.height / height);
+			const offsetX = v.left + (v.width - width * scale) / 2;
+			const offsetY = v.top + (v.height - height * scale) / 2;
+
+			if (!g.height || !v.height) {
+				return;
+			}
+
+			anchor = {cx: (g.left + g.width / 2 - offsetX) / scale, cy: (g.top + g.height / 2 - offsetY) / scale, gh: g.height / scale};
+		}
+
+		const {cx, cy, gh} = anchor;
 
 		if (scene.kind === 'paper') {
 			const ph = gh * 1.1;
