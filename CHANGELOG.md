@@ -13,6 +13,14 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-20 (morning)
 
+- **v93:** one set in Phone check, and a binder page waiting to be placed stays in view. `44193e0`
+  - Phone check, **A set on this phone**: copies and cards by language, the card records and the set IDs they name,
+    Pokémon with no Pokédex number, the Sets ring in the viewing language and in any language, and whether the saved set
+    list lists every owned card, with Copy to send it. Nothing is asked of TCGdex. (The Realme's 57 of 161 could not be
+    read before its reset; this is for next time.)
+  - A page marked Already mine and not placed keeps a dot on the Scan tab, and Clear, which drops it, can be undone.
+  - Fixed (tests): the scan frames test's fake camera keeps the card still when a note moves the guide (10 of 10 runs).
+
 - **v92:** every device moves to a new version by itself. `d15de4d`
   - Eric's computer ran v87 for hours while v90 sat installed and waiting, so it showed different data from his phones.
     A waiting version now takes over when the app comes back into view or changes screen, once nothing could be lost:
