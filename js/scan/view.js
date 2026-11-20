@@ -3883,8 +3883,10 @@ export function scanView(root) {
 					retellOwned(id, {lookAgain});
 				}
 
+				// Awaited, so Already mine waits for the card it looks up
+				// again (endSettling runs after; LABEL_SETTLE_MS still caps it).
 				if (lookAgain) {
-					rematchItem(id);
+					await rematchItem(id).catch(() => {});
 				}
 				else {
 					localiseLater(id);
