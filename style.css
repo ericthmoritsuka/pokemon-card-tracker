@@ -2659,6 +2659,23 @@ progress {
 	top: 0;
 }
 
+/* The default theme's pokedex yellow is 1.5:1 on the white bar, so in
+   light mode the mark takes a navy edge, the Pokémon logo's, which carries
+   its shape at 13:1 (accessibility audit, 2026-11-20). On the dark bar the
+   yellow alone is 10:1. The energy themes' marks reach 3:1 by themselves
+   (js/themes.js palette). */
+:root:not([data-theme]) .tabs a[aria-current="page"]:not(.tab-scan)::before,
+[data-theme="default"] .tabs a[aria-current="page"]:not(.tab-scan)::before {
+	box-shadow: 0 0 0 1px var(--navy);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme]) .tabs a[aria-current="page"]:not(.tab-scan)::before,
+	[data-theme="default"] .tabs a[aria-current="page"]:not(.tab-scan)::before {
+		box-shadow: none;
+	}
+}
+
 /* Scan: a Poke Ball in the theme's colors (--scan, --scan-ring, and
    --scan-glyph, from js/themes.js), the largest target, raised over the
    bar. */

@@ -291,6 +291,10 @@ export const BASE = {
 	light: {bg: '#f4f4f6', border: '#d9d9e0', field: '#8a8a94', muted: '#5b5b66', surface: '#ffffff', text: INK},
 };
 
+// The navy edge round the default theme's yellow tab mark in light mode
+// (style.css, var(--navy)).
+export const TAB_MARK_EDGE = '#1d2e60';
+
 // The dark-mode header starts from this near-black, with the type mixed in.
 const NIGHT = '#121419';
 
@@ -744,12 +748,12 @@ export function textPairs(theme, scheme) {
 			: ['scan disc on the tab bar', vars['--scan'], base.surface, AA_SHAPE],
 	];
 
-	// The default's yellow tab mark is the pokedex's, on a tab that also
-	// turns its label from muted to full text, so it is not checked as a
-	// shape; every energy theme's mark is.
-	if (theme.id !== DEFAULT_THEME) {
-		pairs.push(['active tab mark', vars['--tab-mark'], base.surface, AA_SHAPE]);
-	}
+	// The active tab's mark, a UI shape. The default's pokedex yellow
+	// cannot reach 3:1 on the white bar, so in light mode its navy edge
+	// carries the shape (style.css, TAB_MARK_EDGE).
+	pairs.push(theme.id === DEFAULT_THEME && scheme === 'light'
+		? ['active tab mark\'s edge', TAB_MARK_EDGE, base.surface, AA_SHAPE]
+		: ['active tab mark', vars['--tab-mark'], base.surface, AA_SHAPE]);
 
 	return pairs;
 }

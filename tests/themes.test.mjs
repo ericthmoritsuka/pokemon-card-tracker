@@ -11,7 +11,7 @@ import {readFile} from 'node:fs/promises';
 import {test} from 'node:test';
 
 import {mergeDocuments, sameContent} from '../js/merge.js';
-import {AA_SHAPE, BALLS, BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, scanVars, suggestedTheme, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
+import {AA_SHAPE, BALLS, BASE, canonicalTheme, contrast, luminance, CSS_END, CSS_START, dangerText, ENERGIES, isTheme, motifVars, palette, scanVars, suggestedTheme, TAB_MARK_EDGE, textPairs, themeById, themeCss, THEMES, TYPES} from '../js/themes.js';
 
 const css = await readFile(new URL('../style.css', import.meta.url), 'utf8');
 
@@ -74,6 +74,16 @@ test('text fields and selects keep a 3:1 edge: the app\'s on every theme\'s back
 	for (const selector of ['.scan-select', '.scan-search-input', '.scan-hand-input', '.scan-report-text']) {
 		assert.match(scan, new RegExp(`\\n${selector.replace('.', '\\.')} \\{[^}]*border: 1px solid var\\(--scan-field-border\\);`), selector);
 	}
+});
+
+test('the default theme\'s yellow tab mark has a navy edge on the white bar, 3:1 where the yellow is 1.5:1', () => {
+	assert.ok(contrast('#ffcb05', BASE.light.surface) < AA_SHAPE, 'the yellow alone would not do');
+	assert.ok(contrast(TAB_MARK_EDGE, BASE.light.surface) >= AA_SHAPE);
+	assert.match(css, /--navy: #1d2e60;/);
+	assert.equal(TAB_MARK_EDGE, '#1d2e60');
+	assert.match(css, /:root:not\(\[data-theme\]\) \.tabs a\[aria-current="page"\]:not\(\.tab-scan\)::before,\n\[data-theme="default"\] \.tabs a\[aria-current="page"\]:not\(\.tab-scan\)::before \{\n\tbox-shadow: 0 0 0 1px var\(--navy\);/);
+	assert.ok(textPairs(THEMES[0], 'light').some(([label]) => label === 'active tab mark\'s edge'));
+	assert.ok(textPairs(THEMES[0], 'dark').some(([label]) => label === 'active tab mark'));
 });
 
 test('the themes are the default and the 11 TCG energy types, by their card names', () => {

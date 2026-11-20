@@ -641,6 +641,9 @@ and dark, every theme):
   `--field-border` (#8a8a94 light, #7b7b88 dark: 3.1:1 or more on the page, the surface, and every
   theme's panel), and the scanner's in `--scan-field-border` (#7b7b88, 3.5:1 on its sheets);
   `--border` (1.3:1) stays for dividers, frames, and buttons, whose text marks them.
+- *The active tab's mark is 3:1.* Each energy theme's mark reaches it by itself; the default's
+  pokedex yellow is 1.5:1 on the white bar, so in light mode it keeps the yellow with a 1 px navy
+  edge, the Pokémon logo's (13:1). Dark mode's yellow is 10:1 alone.
 
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
