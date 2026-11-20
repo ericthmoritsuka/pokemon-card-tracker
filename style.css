@@ -1765,6 +1765,26 @@ select {
 	outline-offset: -3px;
 }
 
+/* Sets: Owned: In English | Any language, its own row under Viewing and
+   the order (DESIGN.md section 3). A long language name wraps inside its
+   half rather than widening the row at 360 px. */
+.owned-row .owned-label {
+	font-weight: 600;
+}
+
+.segmented.owned-in {
+	flex: 1;
+	grid-template-columns: repeat(2, 1fr);
+	margin: 0;
+	min-width: 0;
+}
+
+.segmented.owned-in span {
+	line-height: 1.15;
+	padding: 0 var(--space-1);
+	text-align: center;
+}
+
 .tile.unowned .art {
 	filter: grayscale(0.7);
 	opacity: 0.5;

@@ -50,7 +50,8 @@ Simplified Chinese, Traditional Chinese, and French.
 - The search box finds sets, and also cards: by name, number, or set code and number, such as
   `MEW 025`.
 - Each set tile shows `owned / total` with a ring. A set's page dims the cards you do not own, has All, Owned, and Missing
-  views, and has a **Make this a goal** button. A set or card opened once opens again with no signal.
+  views, and has a **Make this a goal** button. Both count only your copies in the viewing language,
+  or, with **Owned: Any language**, a copy in any language. A set or card opened once opens again with no signal.
 
 ### Scan
 

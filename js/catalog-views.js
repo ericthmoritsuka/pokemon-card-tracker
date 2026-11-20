@@ -206,6 +206,35 @@ const SET_FILTERS = [
 
 const SET_FILTER_KEY = 'cardTracker.setFilter';
 
+// What the Sets rings and a set's page count as owned: a card with a copy
+// in the language being viewed, or with a copy in any language (Eric,
+// 2026-11-20; DESIGN.md section 3). Remembered on this phone.
+const SETS_OWNED_KEY = 'cardTracker.setsOwnedIn';
+const SETS_OWNED = ['language', 'any'];
+
+const setsOwnedIn = () => readChoice(SETS_OWNED_KEY, SETS_OWNED, 'language');
+
+// A set tile's owned count from ownedBySet's cards (card_id -> languages).
+function setsOwnedCount(cards, lang, mode) {
+	if (!cards) {
+		return 0;
+	}
+
+	if (mode === 'any') {
+		return cards.size;
+	}
+
+	let count = 0;
+
+	for (const languages of cards.values()) {
+		if (languages.has(lang)) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
 // Newest first: series by their TCGdex releaseDate, and sets within a series
 // by their place in the API's release-date order (releaseRank, 0 newest).
 // A set list saved before ranks were added has neither, so its API order,
@@ -269,9 +298,10 @@ function ownedFrom(entries, catalog) {
 	return owned;
 }
 
-// Distinct cards owned by "<catalog>|<set id>", as js/collection.js
-// ownedBySet gives yours. A card this phone's index has no record of counts
-// under the set its ID begins with (TCGdex IDs are <set id>-<number>).
+// Distinct cards owned by "<catalog>|<set id>", each with the languages its
+// copies are in, as js/collection.js ownedBySet gives yours. A card this
+// phone's index has no record of counts under the set its ID begins with
+// (TCGdex IDs are <set id>-<number>).
 async function ownedBySetFrom(entries) {
 	const index = await cardIndex().catch(() => new Map());
 	const sets = new Map();
@@ -288,10 +318,16 @@ async function ownedBySetFrom(entries) {
 		const key = `${entry.catalog}|${setId}`;
 
 		if (!sets.has(key)) {
-			sets.set(key, new Set());
+			sets.set(key, new Map());
 		}
 
-		sets.get(key).add(entry.card_id);
+		const cards = sets.get(key);
+
+		if (!cards.has(entry.card_id)) {
+			cards.set(entry.card_id, new Set());
+		}
+
+		cards.get(entry.card_id).add(entry.language);
 	}
 
 	return sets;
@@ -392,10 +428,31 @@ export function setsView(root) {
 	let cardTimer = null;
 	let cardRun = 0;
 
+	// Owned: In <language> | Any language. A radio group, so the mode on
+	// is checked, filled, and underlined; its first label follows the
+	// viewing language.
+	let ownedMode = setsOwnedIn();
+	const inLanguage = () => `In ${languageLabel(lang)}`;
+	const ownedSwitch = h('div', {'aria-labelledby': 'sets-owned-label', class: 'segmented owned-in', id: 'sets-owned-in', role: 'radiogroup'},
+		[{label: inLanguage(), value: 'language'}, {label: 'Any language', value: 'any'}].map(({label, value}) => h('label', null,
+			h('input', {checked: value === ownedMode, name: 'sets-owned-in', onchange: () => {
+				ownedMode = value;
+				saveChoice(SETS_OWNED_KEY, value);
+				draw();
+			}, type: 'radio', value}),
+			h('span', null, label)
+		))
+	);
+	const ownedRow = h('div', {class: 'toolbar-row owned-row'},
+		h('span', {class: 'owned-label', id: 'sets-owned-label'}, 'Owned:'),
+		ownedSwitch
+	);
+
 	function changeLanguage(code) {
 		lang = code;
 		select.value = code;
 		setViewingLanguage(code);
+		ownedSwitch.querySelector('input[value="language"] + span').textContent = inLanguage();
 		load();
 		findCards();
 	}
@@ -426,10 +483,11 @@ export function setsView(root) {
 			noLogo();
 		}
 
-		const have = (owned.get(`${catalogFor(lang)}|${set.id}`) || new Set()).size;
+		const have = setsOwnedCount(owned.get(`${catalogFor(lang)}|${set.id}`), lang, ownedMode);
+		const where = ownedMode === 'any' ? 'in any language' : `in ${languageLabel(lang)}`;
 		// The ring always comes with its "12 / 102" text, never alone.
 		const progress = typeof total === 'number'
-			? h('span', {'aria-label': `${have} of ${total} cards owned`, class: have ? 'owned-count owned' : 'owned-count'},
+			? h('span', {'aria-label': `${have} of ${total} cards owned ${where}`, class: have ? 'owned-count owned' : 'owned-count'},
 				h('span', {
 					'aria-hidden': 'true',
 					class: 'ring',
@@ -482,7 +540,7 @@ export function setsView(root) {
 		if (lang === 'ko') {
 			children.unshift(
 				h('div', {class: 'notice'},
-					h('p', null, 'Korean sets in this catalog end at the SV5 era. Your Korean copies of newer cards, from Scarlet & Violet on (such as M4 and M6), live under the Japanese sets, which have the same set codes, and show there as "Owned in KO".'),
+					h('p', null, 'Korean sets in this catalog end at the SV5 era. Your Korean copies of newer cards, from Scarlet & Violet on (such as M4 and M6), live under the Japanese sets, which have the same set codes. They count as owned there with Owned: Any language.'),
 					h('button', {type: 'button', onclick: () => changeLanguage('ja')}, 'Show Japanese sets')
 				)
 			);
@@ -671,6 +729,7 @@ export function setsView(root) {
 				h('label', {class: 'viewing', for: 'viewing'}, h('span', null, 'Viewing:'), h('span', {class: 'select-wrap'}, select)),
 				h('span', {class: 'select-wrap sort-wrap'}, sort)
 			),
+			ownedRow,
 			search
 		),
 		memberNote,
@@ -727,6 +786,15 @@ export function setView(root, {lang, setId}) {
 	let owned = new Map();
 	let shown = null;
 	let show = readChoice(SET_FILTER_KEY, SET_FILTERS.map((option) => option.value), 'all');
+	// A card counts as owned when a copy is in the set's language, or with
+	// Owned: Any language on the Sets tab, in any (DESIGN.md section 3).
+	// The Value sheet and the tiles' pictures still take every copy.
+	const anyLanguage = setsOwnedIn() === 'any';
+	const counted = (cardId) => {
+		const item = owned.get(cardId);
+
+		return item && (anyLanguage || item.byLanguage.has(lang)) ? item : null;
+	};
 	// A family member's card records while their lens is on, whose photos
 	// and pin their tiles show; null for the person's own.
 	let records = null;
@@ -827,16 +895,17 @@ export function setView(root, {lang, setId}) {
 
 		const sorted = [...cards].sort((a, b) => compareNumbers(a.localId, b.localId));
 
-		const have = sorted.filter((card) => owned.has(card.id)).length;
+		const have = sorted.filter((card) => counted(card.id)).length;
 
-		meta.textContent += ` · ${have} / ${sorted.length} owned`;
+		meta.textContent += ` · ${have} / ${sorted.length} owned${anyLanguage ? ' in any language' : ''}`;
 		segmentCounts(filter, {all: sorted.length, missing: sorted.length - have, owned: have});
 		drawStats(set, sorted);
 
-		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === owned.has(card.id));
+		const visible = sorted.filter((card) => show === 'all' || (show === 'owned') === Boolean(counted(card.id)));
 
 		if (!visible.length) {
-			const none = member ? `${memberLabel(member)} has no cards from this set.` : 'No cards from this set are saved yet.';
+			const where = anyLanguage ? '' : ` in ${languageLabel(lang)}`;
+			const none = member ? `${memberLabel(member)} has no cards from this set${where}.` : `No cards from this set${where} are saved yet.`;
 
 			grid.replaceChildren(h('p', {class: 'muted grid-wide'}, show === 'owned' ? none : 'Every card in this set is owned.'));
 			offerCardList([], set.name);
@@ -849,12 +918,13 @@ export function setView(root, {lang, setId}) {
 			const plain = namesFor({lang: cardLang, name: card.name}, redraw);
 			const names = plain.english || !twin.name ? plain : {...plain, english: twin.name};
 			const info = {name: mainName(names), number: card.localId, setName: set.name};
-			const mine = owned.get(card.id);
+			const mine = counted(card.id);
+			const copies = owned.get(card.id);
 			const route = routeTo('cards', cardLang, card.id);
 			// The card's main image, as My Cards picks it: the official image,
-			// the twin, or the photos and pin of the owned copies, or of the
-			// card's record at zero copies.
-			const target = mine ? mine.entries : {catalog: catalogFor(cardLang), card_id: card.id, language: cardLang};
+			// the twin, or the photos and pin of the copies, in any language,
+			// or of the card's record at zero copies.
+			const target = copies ? copies.entries : {catalog: catalogFor(cardLang), card_id: card.id, language: cardLang};
 			const official = cardImage(card.image, 'low');
 			let art = {info, src: tileSrc(target, official, imageOptions())};
 			let status = null;

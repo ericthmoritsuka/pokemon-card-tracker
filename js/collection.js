@@ -1454,9 +1454,10 @@ export async function ownedIn(catalog) {
 	return owned;
 }
 
-// Distinct cards owned in any language, by "<catalog>|<set id>". Set tiles
-// count a card as owned whatever language the copy is in (DESIGN.md
-// section 3).
+// Distinct cards owned, by "<catalog>|<set id>": Map card_id -> Set of the
+// languages its copies are in. A set tile counts a card when a copy is in
+// the language being viewed, or in any language when Any language is on
+// (DESIGN.md section 3; js/catalog-views.js setsOwnedCount).
 export async function ownedBySet() {
 	const [entries, index] = await Promise.all([listCards(), cardIndex()]);
 	const sets = new Map();
@@ -1477,10 +1478,16 @@ export async function ownedBySet() {
 		const key = `${entry.catalog}|${setId}`;
 
 		if (!sets.has(key)) {
-			sets.set(key, new Set());
+			sets.set(key, new Map());
 		}
 
-		sets.get(key).add(entry.card_id);
+		const cards = sets.get(key);
+
+		if (!cards.has(entry.card_id)) {
+			cards.set(entry.card_id, new Set());
+		}
+
+		cards.get(entry.card_id).add(entry.language);
 	}
 
 	return sets;

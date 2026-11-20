@@ -880,3 +880,143 @@ describe('a family member\'s Stats', () => {
 		await context.close();
 	});
 });
+
+// The Sets rings and a set's page count only the copies in the viewing
+// language, unless Owned: Any language is on (Eric, 2026-11-20; DESIGN.md
+// section 3), for your own cards and a family member's alike.
+describe('Sets count owned cards in the viewing language', () => {
+	const tile = (lang, setId) => `.set-tile[href$="/sets/${lang}/${setId}"] .owned-count`;
+
+	// Waits until a set tile's ring reads `text`, and says what it read when
+	// it never does.
+	const ringReads = (page, lang, setId, text) => page.waitForFunction(([selector, want]) => ((document.querySelector(selector) || {}).textContent || '') === want, [tile(lang, setId), text], {timeout: 15000})
+		.catch(async () => assert.fail(`${lang}/${setId} ring: expected ${text}, saw ${await page.locator(tile(lang, setId)).textContent().catch(() => 'no tile')}`));
+
+	// The set page's "N / M owned" line, once it has its count.
+	const ownedLine = async (page) => {
+		await page.waitForFunction(() => / owned( in any language)?$/.test((document.querySelector('#view .muted') || {}).textContent || ''), null, {timeout: 15000});
+
+		return /· (\d+ \/ \d+ owned(?: in any language)?)$/.exec(await page.locator('#view .muted').first().textContent())[1];
+	};
+
+	const segments = (page) => page.locator('.segmented span').allTextContents();
+	const pick = (page, label) => page.locator('#sets-owned-in label', {hasText: label}).click();
+	const picked = (page) => page.locator('#sets-owned-in input:checked').getAttribute('value');
+
+	test('your rings and set pages count English or Portuguese copies apart, Any language counts both, and the choice survives a reload', async () => {
+		const fake = new FakeSupabase();
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await seedLocal(page, documentWith([
+			entry('e-1', {card_id: 'tst1-001'}),
+			entry('e-2', {card_id: 'tst1-002'}),
+			entry('e-3', {card_id: 'tst1-003'}),
+			entry('p-1', {card_id: 'tst1-003', language: 'pt'}),
+			entry('p-2', {card_id: 'tst1-004', language: 'pt'}),
+			// A Japanese copy, and a Korean copy on a Japanese record.
+			entry('j-1', {card_id: 'tst2-007', catalog: 'ja', language: 'ja'}),
+			entry('k-1', {card_id: 'tst2-008', catalog: 'ja', fallback: true, language: 'ko'}),
+		]));
+		await page.goto(url('sets'));
+		await page.waitForSelector(tile('en', 'tst1'));
+
+		// English: the three English copies, not the Portuguese-only card.
+		await ringReads(page, 'en', 'tst1', '3 / 60');
+		assert.equal(await picked(page), 'language', 'the viewing language by default');
+		assert.deepEqual(await page.locator('#sets-owned-in span').allTextContents(), ['In English', 'Any language']);
+		assert.equal(await page.getByRole('radiogroup', {name: 'Owned:'}).count(), 1, 'the choice has a name');
+		assert.equal(await page.locator(tile('en', 'tst1')).getAttribute('aria-label'), '3 of 60 cards owned in English');
+
+		for (const box of await page.locator('#sets-owned-in span').evaluateAll((spans) => spans.map((span) => span.getBoundingClientRect().toJSON()))) {
+			assert.ok(box.height >= 44 && box.width >= 44, `a 44 px target (${box.width} x ${box.height})`);
+		}
+
+		await page.click(tile('en', 'tst1'));
+		assert.equal(await ownedLine(page), '3 / 60 owned');
+		assert.equal(await page.locator('.card-grid .tile').count(), 60, 'every card still shows');
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 3);
+		assert.match(await page.locator('.card-grid a[href$="/cards/en/tst1-004"]').evaluate((link) => link.closest('.tile').className), /unowned/, 'the Portuguese-only card is missing in English');
+		assert.deepEqual(await segments(page), ['All 60', 'Owned 3', 'Missing 57']);
+
+		// Portuguese: only the two Portuguese copies.
+		await page.goto(url('sets'));
+		await page.selectOption('#viewing', 'pt');
+		await ringReads(page, 'pt', 'tst1', '2 / 60');
+		assert.deepEqual(await page.locator('#sets-owned-in span').allTextContents(), ['In Portuguese', 'Any language']);
+		await page.click(tile('pt', 'tst1'));
+		assert.equal(await ownedLine(page), '2 / 60 owned');
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 2);
+		assert.deepEqual(await segments(page), ['All 60', 'Owned 2', 'Missing 58']);
+
+		// Japanese: the Korean copy on a Japanese record does not count.
+		await page.goto(url('sets'));
+		await page.selectOption('#viewing', 'ja');
+		await ringReads(page, 'ja', 'tst2', '1 / 60');
+
+		// Any language: the Korean copy counts, and so do both Western ones.
+		await pick(page, 'Any language');
+		await ringReads(page, 'ja', 'tst2', '2 / 60');
+		assert.equal(await page.locator(tile('ja', 'tst2')).getAttribute('aria-label'), '2 of 60 cards owned in any language');
+		await page.selectOption('#viewing', 'en');
+		await ringReads(page, 'en', 'tst1', '4 / 60');
+		await page.screenshot({path: '/tmp/family-sets-any-language.png'});
+
+		// The choice stays on the phone.
+		await page.reload();
+		await ringReads(page, 'en', 'tst1', '4 / 60');
+		assert.equal(await picked(page), 'any');
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.setsOwnedIn')), 'any');
+		await page.click(tile('en', 'tst1'));
+		assert.equal(await ownedLine(page), '4 / 60 owned in any language');
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 4);
+		assert.deepEqual(await segments(page), ['All 60', 'Owned 4', 'Missing 56']);
+
+		// And back to the viewing language.
+		await page.goto(url('sets'));
+		await pick(page, 'In English');
+		await ringReads(page, 'en', 'tst1', '3 / 60');
+		assert.equal(await page.evaluate(() => localStorage.getItem('cardTracker.setsOwnedIn')), 'language');
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a family member\'s Sets follow the same rule', async () => {
+		const fake = new FakeSupabase();
+		const people = family(fake, {memberCards: [
+			entry('m-1', {card_id: 'tst2-001'}),
+			entry('m-2', {card_id: 'tst2-002'}),
+			entry('m-3', {card_id: 'tst2-002', language: 'pt'}),
+			entry('m-4', {card_id: 'tst2-003', language: 'pt'}),
+			entry('m-5', {card_id: 'tst2-004', language: 'pt'}),
+		]});
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#family-strip');
+		await page.click('.tabs a[data-tab="sets"]');
+		await page.waitForSelector(tile('en', 'tst2'));
+		await ringReads(page, 'en', 'tst2', '2 / 60');
+		await page.click(tile('en', 'tst2'));
+		assert.equal(await ownedLine(page), '2 / 60 owned');
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 2);
+
+		// Portuguese, then Any language, still in Member A's view.
+		await page.click('.back');
+		await page.waitForSelector(tile('en', 'tst2'));
+		await page.selectOption('#viewing', 'pt');
+		await ringReads(page, 'pt', 'tst2', '3 / 60');
+		await pick(page, 'Any language');
+		await ringReads(page, 'pt', 'tst2', '4 / 60');
+		assert.ok(await page.locator('#family-strip').count(), 'still Member A\'s cards');
+		await page.click(tile('pt', 'tst2'));
+		assert.equal(await ownedLine(page), '4 / 60 owned in any language');
+		assert.equal(await page.locator('.card-grid .tile.owned').count(), 4);
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+});
