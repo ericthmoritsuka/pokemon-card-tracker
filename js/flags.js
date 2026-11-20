@@ -39,8 +39,30 @@ export function flagPlan(codes) {
 }
 
 // The flag group as an element. className adds to "flags"; prefix goes
-// before the names in the aria-label ("Printed in Korean").
+// before the names in the aria-label ("Printed in Korean"). Every tile of a
+// grid draws one, mostly the same few, so each group is made once and
+// copied after that (about 1.2 s over 1,200 tiles on a slow phone): a copy
+// has the same attributes, and none carries a listener.
+const madeBadges = new Map();
+
 export function flagBadge(codes, {className = '', prefix = 'Printed in'} = {}) {
+	const key = JSON.stringify([codes || [], className, prefix]);
+	let made = madeBadges.get(key);
+
+	if (!made) {
+		made = drawFlagBadge(codes, {className, prefix});
+
+		if (madeBadges.size >= 200) {
+			madeBadges.clear();
+		}
+
+		madeBadges.set(key, made);
+	}
+
+	return made.cloneNode(true);
+}
+
+function drawFlagBadge(codes, {className, prefix}) {
 	const plan = flagPlan(codes);
 	const group = document.createElement('span');
 

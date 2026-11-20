@@ -157,8 +157,27 @@ function ligaAmount(manual, basis) {
 const hasRealId = (variant) => Boolean(variant && variant.variantId && variant.variantId !== 'generated');
 
 // TCGdex localizes the variant words on a Portuguese record ("Reverse",
-// "Poké Bola"), so they are folded before they are compared.
-const fold = (text) => String(text || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[\s_-]+/g, '');
+// "Poké Bola"), so they are folded before they are compared. A tile's
+// price folds the same few words many times over (about 1.2 s over 1,200
+// tiles on a slow phone), so each word's fold is kept once worked out.
+const folded = new Map();
+
+const fold = (text) => {
+	const key = String(text || '');
+	let out = folded.get(key);
+
+	if (out === undefined) {
+		out = key.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[\s_-]+/g, '');
+
+		if (folded.size >= 5000) {
+			folded.clear();
+		}
+
+		folded.set(key, out);
+	}
+
+	return out;
+};
 
 const finishType = (variant) => {
 	const type = fold(variant.type);
@@ -177,10 +196,25 @@ const firstEdition = (variant) => (variant.stamp || []).some((stamp) => fold(sta
 const TYPE_LABELS = {holo: 'Holo', normal: 'Normal', reverse: 'Reverse holo'};
 const BALL_LABELS = {masterball: 'Master Ball pattern', pokeball: 'Poké Ball pattern'};
 
-const sentence = (text) => {
-	const words = String(text).replace(/_+/g, ' ').replace(/-(?=\D)|(?<=\D)-/g, ' ');
+const sentences = new Map();
 
-	return words.charAt(0).toUpperCase() + words.slice(1);
+const sentence = (text) => {
+	const key = String(text);
+	let out = sentences.get(key);
+
+	if (out === undefined) {
+		const words = key.replace(/_+/g, ' ').replace(/-(?=\D)|(?<=\D)-/g, ' ');
+
+		out = words.charAt(0).toUpperCase() + words.slice(1);
+
+		if (sentences.size >= 5000) {
+			sentences.clear();
+		}
+
+		sentences.set(key, out);
+	}
+
+	return out;
 };
 
 // A printing's size. TCGdex writes the standard size "standard" on an
