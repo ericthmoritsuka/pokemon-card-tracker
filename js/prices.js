@@ -183,8 +183,26 @@ const sentence = (text) => {
 	return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
+// A printing's size. TCGdex writes the standard size "standard" on an
+// English record and "Padrão" on a Portuguese one, and a jumbo "jumbo" or
+// "Jumbo" (sv06-130 Dragapult ex, checked 2026-11-19); a printing with no
+// size is the standard size. Every module asks these two, never a list of
+// its own: a jumbo is another product, and the standard size is never
+// named.
+const STANDARD_SIZES = new Set(['standard', 'padrao']);
+
+export const isStandardSize = (variant) => {
+	const size = fold(variant && variant.size);
+
+	return !size || STANDARD_SIZES.has(size);
+};
+
+// The size's name in English ("Jumbo"), or null for the standard size.
+export const sizeName = (variant) => (isStandardSize(variant) ? null : sentence(String(variant.size).trim().toLowerCase()));
+
 // A finish's name in English, read the same way on an English or a
-// Portuguese record: "Reverse holo, Poké Ball pattern".
+// Portuguese record: "Reverse holo, Poké Ball pattern", or "Holo, Jumbo"
+// for a jumbo print, so it never reads the same as the card's own holo.
 export function finishName(variant) {
 	if (!variant) {
 		return 'Unknown finish';
@@ -208,6 +226,12 @@ export function finishName(variant) {
 
 	for (const stamp of variant.stamp || []) {
 		parts.push(fold(stamp) === '1stedition' ? '1st Edition stamp' : `${sentence(stamp)} stamp`);
+	}
+
+	const size = sizeName(variant);
+
+	if (size) {
+		parts.push(size);
 	}
 
 	return parts.join(', ');
@@ -483,8 +507,9 @@ export function extractPrices(card) {
 }
 
 // monprice's finish words, for a copy whose finish was never matched to a
-// variant (finish_raw), to the finish types above.
-const RAW_FINISHES = {
+// variant (finish_raw), to the finish types above. A word is never a jumbo
+// print, as js/monprice.js resolveFinish never picks one.
+const RAW_FITS = {
 	FIRST_EDITION: (finish) => firstEdition(finish.variant),
 	HOLOFOIL: (finish) => finishType(finish.variant) === 'holo' && !firstEdition(finish.variant) && !ballOf(finish.variant),
 	NORMAL: (finish) => finishType(finish.variant) === 'normal' && !firstEdition(finish.variant),
@@ -492,6 +517,7 @@ const RAW_FINISHES = {
 	UNLIMITED: (finish) => finishType(finish.variant) === 'normal' && !firstEdition(finish.variant),
 	UNLIMITED_HOLOFOIL: (finish) => finishType(finish.variant) === 'holo' && !firstEdition(finish.variant) && !ballOf(finish.variant),
 };
+const RAW_FINISHES = Object.fromEntries(Object.entries(RAW_FITS).map(([word, fits]) => [word, (finish) => isStandardSize(finish.variant) && fits(finish)]));
 
 // Whether a copy is truly of a finish: matched by its variant ID, or its
 // monprice word fits it, or it has no word to say otherwise. finishOf takes a
@@ -551,9 +577,14 @@ export {ASIAN_LANGUAGES};
 export const isAsianPrint = (entry) => Boolean(entry) && (isAsian(entry.catalog) || isAsian(entry.language));
 
 // The order to borrow a price in: a plain normal first, then the other
-// finishes as listed, and a reverse holo only when nothing else has one.
+// finishes as listed, a reverse holo only when nothing else has one, and a
+// jumbo print, another product, last.
 function finishRank(variant) {
 	const type = finishType(variant);
+
+	if (!isStandardSize(variant)) {
+		return 3;
+	}
 
 	if (type === 'reverse') {
 		return 2;
