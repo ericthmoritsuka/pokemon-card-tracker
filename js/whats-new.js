@@ -22,6 +22,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-20',
 		items: [
+			'Card Tracker opens about twice as fast on a slow phone, and Show more no longer slows down with each tap.',
+			'My Cards: the buttons take less room, the flag sits in the card\'s bottom corner instead of over its name, and Filters starts with set and language.',
+			'Binders fit all nine pockets above the tab bar, Log a trade or sale starts with the cards, and the wishlist shows roughly what each card costs.',
+			'Scanning reads the number first and takes cards from the sets you just scanned sooner, and buttons, fields, and focus are easier to see and tap.',
+		],
+		version: 'v86',
+	},
+	{
+		date: '2026-11-20',
+		items: [
 			'Binder page scan: the page opens as a grid while it is read, one tap sets the language for the whole page, and Already mine places a page of cards you own into a binder.',
 			'Scan has a Buy mode: the cards are logged as a purchase, with where they came from and a price for each. Close, Photo, and Page now sit beside the shutter.',
 			'A card to check names the guess ("Wartortle?"), and a card that shares its picture with a print the catalog has no image of asks for its number.',
