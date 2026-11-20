@@ -2414,7 +2414,16 @@ Not done, and why:
   layout of the first 120 tiles, about 1.3 s in one slowed trace (each tile's art is a size
   container, so its badges scale with it). `content-visibility: auto` on the tiles would lay out
   only those near the screen, but tiles not yet drawn would take a guessed height, so Back from a
-  card page could land on another row; it needs Eric's call.
+  card page could land on another row. Eric approved it (2026-11-20) on two conditions: Back
+  returns to the exact tile, and the start gains at least half a second. It was built and
+  measured, and taken out: Back was exact (the tile tapped, its key and its distance from the top
+  kept in the history entry, scrolled back each frame until it held still: within 3 px in Grid
+  and List after Show more, where the saved scroll position alone missed by 5 px in Grid and
+  438 px in List), but the gain was not there. `lab/perf/startup-bench.mjs`, v86 against it,
+  medians of five runs at a load average of 1.3 to 2.1 on 16 cores: first tile 1.44 s to 1.28 s,
+  the cold start's long tasks 0.92 s to 0.83 s, and scrolling to the bottom slower, 5.8 s to
+  7.3 s, with six frames over 50 ms instead of one, as each tile is laid out when it comes near.
+  On a quiet machine the layout costs far less than the busy trace above showed.
 - **Drawing the first page of tiles in parts.** The browser tests count the tiles at once.
 
 ## 9. Export
