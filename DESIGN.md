@@ -528,6 +528,14 @@ sign-in. Family view-only mode is entered from a "Mine" switcher in the header a
 remembered between launches. The full spec is `plans/design-review.md`. *(Approved by Eric,
 2026-10-01.)*
 
+**Nothing a thumb needs sits under the raised Scan disc.** The disc stands 28 px over the tab bar,
+in the middle, where a form's sticky Save is. Every sticky row of buttons above the tab bar (a
+form's `.actions`: the trade, sale, and purchase form, Fill placeholders, import, and Phone check;
+the binder's card in hand; the bulk bar) keeps 28 px under its buttons, so the disc sits on blank
+footer, count dot included. The disc stays on every screen rather than hiding on forms, so the way
+into Scan and the unsaved tray's count never go. *(Design review, 2026-11-19: the disc covered the
+middle of Save on the purchase form.)*
+
 **Swipe between cards in the list you came from** (Eric, 2026-10-01; monprice cannot). A card page
 opened from a list (My Cards, a set, a checklist, a binder, a wishlist, or search results) keeps
 that list, in its current order and filters, as context. Swiping left or right anywhere on the
