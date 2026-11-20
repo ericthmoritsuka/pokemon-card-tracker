@@ -468,4 +468,58 @@ describe('switching to a waiting version by itself', () => {
 			await context.close();
 		}
 	});
+
+	test('a choice made in a form, and a toast offering Undo, each wait', async () => {
+		// 2026-11-20: an Edit binder form with a new colour and grid, nothing
+		// typed, was thrown away by the switch (an inline form, not a sheet).
+		const {context, errors, page} = await device({serviceWorkers: 'allow'});
+
+		await context.addInitScript(standInVisibility);
+
+		try {
+			await onV30(page, 'profile');
+			await page.goto(url('profile'));
+			await page.waitForFunction(() => /Card Tracker v30/.test(document.getElementById('profile-version')?.textContent || ''), null, {timeout: 15000});
+			await serve('v31');
+			await updateUntilWaiting(page, 'v31');
+			await page.waitForSelector('#profile-version-reload', {timeout: 15000});
+
+			// A toast offering Undo waits.
+			await markLoad(page);
+			await page.evaluate(async () => {
+				(await import('/pokemon-card-tracker/js/shell.js')).toast('Removed a copy.', {action: () => {}, actionLabel: 'Undo', timeout: 60000});
+			});
+			await page.waitForFunction(() => [...document.querySelectorAll('.toast button.small')].some((button) => button.textContent === 'Undo'), null, {timeout: 15000});
+			assert.ok(await sameLoad(page), 'still the same page when the toast shows');
+			await awayAndBack(page);
+			await page.waitForTimeout(2500);
+			assert.ok(await sameLoad(page), 'no switch while Undo is offered');
+			await page.evaluate(() => document.querySelectorAll('.toast').forEach((item) => item.remove()));
+
+			// A select changed by a tap, as Edit binder's grid is, waits too.
+			await page.evaluate(() => {
+				const select = document.createElement('select');
+
+				select.id = 'qa-grid';
+				select.append(new Option('3 x 3', '3'), new Option('4 x 4', '4'));
+				document.getElementById('view').append(select);
+				select.value = '4';
+				select.dispatchEvent(new Event('change', {bubbles: true}));
+			});
+			await awayAndBack(page);
+			await page.waitForTimeout(2500);
+			assert.ok(await sameLoad(page), 'no switch after a choice in a form');
+
+			// Leaving the screen is a quiet moment again: it switches.
+			await page.locator('.tabs a[data-tab="cards"]').evaluate((link) => link.click());
+			await page.waitForFunction(() => document.getElementById('whats-new-sheet-title')?.textContent === 'What\'s new in v31', null, {timeout: 30000});
+			assert.equal(await sameLoad(page), false, 'the page reloaded');
+			assert.equal(await runningVersion(page), 'v31');
+			assert.deepEqual(errors, []);
+		}
+		finally {
+			server.setOverride(null);
+			await context.close();
+		}
+	});
 });

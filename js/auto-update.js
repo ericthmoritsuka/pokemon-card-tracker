@@ -97,6 +97,12 @@ export function holdUpdate() {
 
 const isTextField = (el) => Boolean(el) && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && TEXT_INPUT.test(el.type)));
 
+// Any form control a person can change: a choice made by a tap (a select, a
+// colour, a checkbox) is as much unsaved work as typed text. 2026-11-20: an
+// Edit binder form with a new colour and grid, nothing typed, was thrown
+// away by the switch (it is an inline form, not a sheet).
+const isFormControl = (el) => Boolean(el) && (el.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName));
+
 function screenPath() {
 	const path = window.location.pathname;
 
@@ -127,6 +133,12 @@ export function quietBlocker() {
 
 	if (typed || isTextField(document.activeElement)) {
 		return 'typing';
+	}
+
+	// A toast offering a way back (Undo, Undo edit, Put back): a reload
+	// would take it away. The update toast's own Reload does not count.
+	if ([...document.querySelectorAll('.toast button.small')].some((button) => /^(Undo|Put back)\b/.test(button.textContent.trim()))) {
+		return 'undo offered';
 	}
 
 	if (syncStatus().phase === 'saving') {
@@ -260,11 +272,14 @@ export function startAutoUpdate(found, account) {
 	document.addEventListener('keydown', () => {
 		lastInput = Date.now();
 	}, {capture: true});
-	document.addEventListener('input', (event) => {
-		if (isTextField(event.target)) {
+	const changed = (event) => {
+		if (isFormControl(event.target)) {
 			typed = true;
 		}
-	}, {capture: true});
+	};
+
+	document.addEventListener('input', changed, {capture: true});
+	document.addEventListener('change', changed, {capture: true});
 
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState === 'visible') {
