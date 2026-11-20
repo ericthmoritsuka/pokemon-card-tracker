@@ -1,25 +1,122 @@
 # Card Tracker
 
-An installable web app (PWA) for the family's Pokémon cards. So far it has these parts:
+An installable web app (PWA) for a family's Pokémon cards. It keeps the cards on the phone, works
+offline, and, once someone signs in, keeps them in Supabase too so a person's devices and family
+stay in step. The catalog comes from [TCGdex](https://tcgdex.dev). Prices are the TCGplayer (US) and
+Cardmarket (EU) figures that TCGdex carries, converted to reais with a daily exchange rate. Signing
+in is optional: signed out, everything stays on the phone.
 
-- **My Cards** (the home tab): the cards saved on this phone, one tile per card and language, with
-  a `×N` badge for more than one copy and a language chip when the copy's language differs from
-  the viewing language. Sort by date added, name, or set, filter by language, and export a CSV.
-- **Import from monprice** (from My Cards or the Menu): pick a monprice CSV or JSON export. Rows
-  are matched to TCGdex card records and listed in a match report before anything is saved.
-- **Sets:** a catalog browser over the [TCGdex](https://tcgdex.dev) API. Pick a viewing language
-  (`Viewing:` English) and an order (newest first, oldest first, or name A to Z), browse sets by
-  series or search by name or code, open a set's cards, and open one card for its image, rarity,
-  illustrator, variants, and your copies. Each set tile shows `owned / total` with a ring, and a
-  set's grid dims the cards not owned. A set or card opened once opens again with no signal.
-- **Phone check:** the weekend zero tests below, kept so a new phone can still be checked.
-- **Sign in and sync** (from the header): an invited family member signs in with an email link
-  (or Google, once it is turned on), or, without an email, with an account name and a password
-  (Setup, step 5), and their cards are kept in Supabase as well as on the phone.
-  **Profile** (the round avatar) shows the account, the display name, and the family group. A
-  family member's cards open read only from the switcher on My Cards.
+The bottom bar has five tabs: Cards, Sets, Scan, Binders, and Lists. The round avatar in the header
+opens Profile.
 
-Signing in is optional. Signed out, the app works as before and keeps everything on the phone.
+## What It Does
+
+### Cards
+
+My Cards is the home tab: the cards on this phone, one tile per card and language.
+
+- A `×N` badge shows more than one copy. A language chip shows when a copy's language differs from
+  the viewing language.
+- **Search** finds cards by name in any language, set, collector number, or Pokédex number, and
+  forgives a typo when nothing matches as typed.
+- **Sort and Filters** cover region or generation, Pokédex range, type, category, set, language,
+  rarity, artist, price, pictures, where a copy is stored, favorites, and cards not yet in a binder.
+- **View** switches between Large, Grid, Mini, and List. The choice stays on the phone.
+- **Select** ticks many tiles at once to set Stored in, Language, Finish, or Condition, add them to a
+  binder, mark favorites, or remove copies, each with Undo.
+- **Value** opens the collection's worth, with its change over time. **Stats** counts copies by
+  language, set, rarity, type, finish, and condition. **Spares** lists the copies beyond the first of
+  each card and language.
+- **Trades** logs sales, purchases, trades, and gifts with the cards that left and came, who with,
+  and a price. Each can be edited or undone.
+- **Add by hand** records a card the catalog does not have.
+
+A card's page shows its picture, rarity, illustrator, variants, region and generation, and prices.
+From it you can:
+
+- add, edit, or remove copies, with Undo, and set each copy's language, finish, and condition, and keep a note on the card;
+- mark it a favorite, add it to the wishlist, or add it to a binder;
+- take your own photos, cropped and straightened, adjust a dark one, and pick the main image;
+- open its set, or every card of the same Pokémon, one language at a time;
+- open the card on Liga Pokémon (**Ver na Liga**), save the picture, or share it as a picture.
+
+### Sets
+
+A catalog browser over the TCGdex API, in seven languages: Portuguese, English, Japanese, Korean,
+Simplified Chinese, Traditional Chinese, and French.
+
+- Pick a viewing language and an order (newest first, oldest first, or name A to Z), and browse sets
+  by series.
+- The search box finds sets, and also cards: by name, number, or set code and number, such as
+  `MEW 025`.
+- Each set tile shows `owned / total` with a ring. A set's page dims the cards you do not own, has All, Owned, and Missing
+  views, and has a **Make this a goal** button. A set or card opened once opens again with no signal.
+
+### Scan
+
+The camera reads cards and puts them in a tray, card after card, with no tap between them.
+
+- It finds the card in the camera view, matches the picture against the cards it knows, and reads
+  the collector number and name only when the picture cannot settle it. A card it is not sure of is
+  marked for a look. Review walks through those cards.
+- **For** chooses what the cards are for: Add, Buy, or Trade or sale. Buy and Trade or sale end in
+  the trades form, with nothing saved until you save it.
+- A phone in a stand takes each card as it is dropped (Holder mode). Automatic mode switches between
+  Holder and Hand-held.
+- **Photo** reads one card from a picture, and **Page** reads a whole binder page, or two pages side
+  by side, from one photo.
+- A note says when you already own a card, or when a family member wants it. A binder pocket waiting
+  for the card can take it. Scanner settings cover a default finish, a shutter sound, and a gold rim
+  for cards worth more than an amount you choose.
+- Save writes the whole session at once, with Undo session. A draft left in the tray stays on the
+  phone.
+
+### Binders
+
+Binders open as a two-page spread with a page slider.
+
+- Make a binder by hand, with a preset size (4-pocket, 9-pocket zip, 12-pocket) or your own grid,
+  notes, a cover color, and a cover picture. Cards go in from a tray, by dragging, or from the card's
+  page, and tapping a filled pocket lifts the card out.
+- A pocket can hold a placeholder for a card you do not own yet. **Fill placeholders** puts your
+  cards into them, and cards you add fill them by themselves unless you turn that off in Profile.
+- **From a list** makes a binder from a checklist, a collection, or a goal, one pocket per card or
+  Pokémon, and **Refresh** brings it up to date. **Lay out from a list** fills the empty pockets of
+  a hand-made binder.
+- A binder shows its worth. **Print placeholders** makes paper cards for the empty pockets, and
+  **Share page** makes a picture of the open page.
+- **Not in a binder** lists the cards that have no pocket.
+
+### Lists
+
+Three parts, switched at the top: Checklists, Wishlist, and Collections.
+
+- **Checklists** are Pokémon lists by region, Kanto to Paldea, or your own. They tick themselves
+  from your cards in the languages you choose. **Goals** sit beside them: every card of one set
+  (numbered, with secrets, or master set), every card by one artist, or every card of one Pokémon.
+- **Wishlist** holds the cards you want, each with an optional language and finish, a priority, and a
+  note. A card moves to Got it when you add it.
+- **Collections** group your cards, picked by hand or filled by a rule on rarity, set, language, type,
+  region, or favorites.
+
+### Profile and Family
+
+- Sign in with an email link, with Google when the project has it turned on, or with an account name
+  and a password (Setup, step 5). Profile shows the account, the display name, and the family group,
+  and the owner adds members there.
+- A **Mine** switcher in the header opens a family member's cards, binders, lists, and wishlist read
+  only, and you can add one of their cards to your own wishlist.
+- Profile also holds the theme (twelve, one for each energy type and a default), a favorite Pokémon,
+  **Import from monprice** (CSV or JSON, with a match report before anything is saved), **Export
+  CSV**, Trades and sales, Phone check, and a list of what changed in each version.
+
+### Offline and Sync
+
+- Every edit is saved on the phone first. A strip reads `Offline` with the number of changes
+  waiting, and they go up when the connection returns.
+- A service worker keeps the app and the card pictures it has seen, so the app opens with no signal.
+- Two devices that edit at once are merged entry by entry, so neither loses its changes.
+- A new version waits for **Reload**, so a screen never mixes old and new code.
 
 ## Setup
 
@@ -265,8 +362,8 @@ None of the tests reach the real Supabase project, make an account, or send an e
   `tests/fake-supabase.mjs`, which applies the same row rules as `supabase/setup.sql`. It covers
   signed-out use, Sign in, the `?code=` return, an invitation link, Google, the first upload of
   1,600 cards, two devices saving at once, offline changes, Profile as owner and as member, the
-  read-only family view, the existing views, and the service worker. The existing-views test reads
-  the real TCGdex API.
+  read-only family view, the existing views, and the service worker. The catalog views replay
+  recorded TCGdex answers from `tests/tcgdex-fixtures.json` (`tests/tcgdex-replay.mjs`).
 - `PLAYWRIGHT=<path to node_modules/playwright> node --test tests/account-password.test.mjs`: the
   same setup, for the name-and-password sign-in, one message for a wrong name or password, the
   account name shown instead of its placeholder address, and Change password in Profile.
