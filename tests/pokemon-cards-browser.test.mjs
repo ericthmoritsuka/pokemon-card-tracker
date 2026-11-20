@@ -1439,7 +1439,11 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 			throw new Error(`${await page.locator('#goal-summary').textContent()} / ${await page.locator('#goal-status').textContent()} ${err.message}`);
 		});
 		assert.equal(await page.locator('#goal-title').textContent(), 'Jigglypuff');
-		assert.match(await page.locator('#goal-meta').textContent(), /^Every card in PT, JA/);
+		// The languages are said once, on the settings line with Edit
+		// (design review 2, 2026-11-20).
+		assert.equal(await page.locator('#goal-settings-text').textContent(), 'Every card in PT, JA');
+		assert.doesNotMatch(await page.locator('#goal-meta').textContent(), /Every card/);
+		assert.equal(await page.locator('#goal-settings-edit').getAttribute('aria-label'), 'Edit the goal\'s languages');
 		assert.equal(counts.asian.ja, 1, 'the Japanese catalog, once');
 		assert.deepEqual(Object.keys(counts.asian), ['ja'], 'no other Asian catalog');
 		assert.deepEqual(await page.locator('#goal-filter label span').evaluateAll((spans) => spans.map((span) => span.textContent)), ['All 54', 'Owned 5', 'Missing 49']);
@@ -1611,8 +1615,9 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		assert.deepEqual(Object.keys(counts.asian).sort(), ['ja', 'ko', 'zh-cn', 'zh-tw']);
 		assert.equal(await page.locator('.pc-cell[data-catalog="ja"]').count(), 17);
 
-		// Its languages editor names Any language for what it holds too, and
-		// keeps all seven when they are saved again.
+		// Its languages editor, in the settings sheet, names Any language for
+		// what it holds too, and keeps all seven when they are saved again.
+		await page.click('#goal-settings-edit');
 		await page.click('#list-languages-edit');
 		assert.equal(await page.locator('label:has(#list-languages-any)').textContent(), 'Western prints, any language');
 		assert.equal(await page.getByRole('checkbox', {exact: true, name: 'Portuguese'}).count(), 1);
@@ -1622,7 +1627,7 @@ describe('a Pokémon goal from the Pokémon screen', () => {
 		await page.click('#list-languages-edit');
 		await page.check('#list-languages-any');
 		await page.click('#list-languages-save');
-		await page.waitForFunction(() => /^Western prints, any language/.test(document.getElementById('goal-meta')?.textContent || ''));
+		await page.waitForFunction(() => document.getElementById('goal-settings-text')?.textContent === 'Western prints, any language');
 		assert.equal(await page.locator('#list-languages .pc-languages-names').textContent(), 'Western prints, any language');
 		assert.equal(Object.hasOwn((await localDoc(page)).goals[0], 'languages'), false);
 		assert.deepEqual(await shownErrors(page), []);

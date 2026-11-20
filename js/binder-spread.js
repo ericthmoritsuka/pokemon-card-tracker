@@ -259,6 +259,18 @@ function writeHint(value) {
 
 // ---------------------------------------------------------- the DOM
 
+// An open binder, two pages side by side, for the Both pages button.
+function bothPagesIcon() {
+	const box = svg('svg', {'aria-hidden': 'true', class: 'bs-zoom-back-icon', fill: 'none', focusable: 'false', stroke: 'currentColor', 'stroke-linejoin': 'round', 'stroke-width': 2, viewBox: '0 0 24 24'});
+
+	box.append(
+		svg('rect', {height: 14, rx: 1.5, width: 8.5, x: 2.5, y: 5}),
+		svg('rect', {height: 14, rx: 1.5, width: 8.5, x: 13, y: 5})
+	);
+
+	return box;
+}
+
 function el(tag, attrs, ...children) {
 	const node = document.createElement(tag);
 
@@ -379,7 +391,13 @@ export function binderSpread({
 
 	// ------------------------------------------------------- the parts
 
-	const label = el('span', {'aria-live': 'polite', class: 'bs-label', id: 'bs-label'});
+	// The caption over the pages: which pages, live for a screen reader, and
+	// the grid, which the binder's head used to carry on a line of its own
+	// (design review 2, 2026-11-20: the head pushed the third row of pockets
+	// under the tab bar).
+	const label = el('span', {'aria-live': 'polite', id: 'bs-label'});
+	const spreadShape = el('span', {class: 'bs-shape'});
+	const spreadCaption = el('p', {class: 'bs-label bs-caption'}, label, spreadShape);
 	const jump = el('select', {'aria-label': 'Go to pages', class: 'bs-jump', id: 'bs-jump'});
 	const prevEdge = el('button', {'aria-label': 'Turn back a page', class: 'bs-edge bs-edge-prev', id: 'bs-prev', type: 'button'}, el('span', {'aria-hidden': 'true'}, '‹'));
 	const nextEdge = el('button', {'aria-label': 'Turn the page', class: 'bs-edge bs-edge-next', id: 'bs-next', type: 'button'}, el('span', {'aria-hidden': 'true'}, '›'));
@@ -403,15 +421,22 @@ export function binderSpread({
 	const wideQuery = window.matchMedia ? window.matchMedia(WIDE_QUERY) : null;
 	let size = readSize();
 
-	const zoomBack = el('button', {class: 'bs-zoom-back', id: 'bs-zoom-back', type: 'button'}, '‹ Both pages');
-	const zoomLabel = el('span', {'aria-live': 'polite', class: 'bs-label', id: 'bs-zoom-label'});
+	// Both pages: words where they fit, a two-page icon on a narrow phone
+	// held upright, named either way.
+	const zoomBack = el('button', {'aria-label': 'Both pages', class: 'bs-zoom-back', id: 'bs-zoom-back', type: 'button'},
+		bothPagesIcon(),
+		el('span', {'aria-hidden': 'true', class: 'bs-zoom-back-text'}, '‹ Both pages'));
+	const zoomLabel = el('span', {'aria-live': 'polite', id: 'bs-zoom-label'});
+	const zoomShape = el('span', {class: 'bs-shape'});
 	const zoomPrev = el('button', {'aria-label': 'Previous page', class: 'small bs-zoom-step', id: 'bs-zoom-prev', type: 'button'}, '‹');
 	const zoomNext = el('button', {'aria-label': 'Next page', class: 'small bs-zoom-step', id: 'bs-zoom-next', type: 'button'}, '›');
 	const zoomSheet = el('div', {class: 'bs-zoom-sheet', id: 'bs-zoom-sheet'});
 	const zoomFrame = el('div', {class: 'bs-zoom-frame'}, zoomSheet);
 	const zoomView = el('div', {class: 'bs-zoom', hidden: true, id: 'bs-zoom'},
-		el('div', {class: 'bs-zoom-bar'}, zoomBack, el('span', {class: 'bs-zoom-steps'}, zoomPrev, zoomNext)),
-		zoomLabel,
+		// One row: Both pages, then ‹ Page 1 of 20 · 3×3 › with the steps at
+		// its ends.
+		el('div', {class: 'bs-zoom-bar'}, zoomBack,
+			el('div', {class: 'bs-zoom-steps'}, zoomPrev, el('p', {class: 'bs-label bs-caption'}, zoomLabel, zoomShape), zoomNext)),
 		zoomFrame);
 
 	const hint = el('div', {class: 'bs-hint', hidden: true, id: 'bs-hint', role: 'note'},
@@ -419,7 +444,7 @@ export function binderSpread({
 		el('span', {class: 'bs-hint-text'}, 'Turn your phone sideways to see both pages'),
 		el('button', {'aria-label': 'Dismiss the hint', class: 'small bs-hint-close', id: 'bs-hint-close', type: 'button'}, 'Got it'));
 
-	const spreadView = el('div', {class: 'bs-spread', id: 'bs-spread'}, label, stage, spreadBar);
+	const spreadView = el('div', {class: 'bs-spread', id: 'bs-spread'}, spreadCaption, stage, spreadBar);
 	const element = el('section', {
 		'aria-label': 'Binder',
 		class: 'bs',
@@ -537,6 +562,8 @@ export function binderSpread({
 		jump.value = String(state.spread);
 		drawSlider();
 		zoomLabel.textContent = state.zoom ? `Page ${state.zoom} of ${binder.page_count}` : '';
+		spreadShape.textContent = ` · ${binder.rows}×${binder.cols}`;
+		zoomShape.textContent = spreadShape.textContent;
 		zoomPrev.disabled = !state.zoom || state.zoom <= 1;
 		zoomNext.disabled = !state.zoom || state.zoom >= binder.page_count;
 		element.dataset.spread = String(state.spread);

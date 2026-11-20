@@ -1112,9 +1112,26 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// review, 2026-11-19); sideways it opens like a real binder, page 1
 		// on the right and the inside cover on the left (below).
 		assert.equal(await page.locator('#binder-title').textContent(), 'Generations 1 and 2');
-		assert.equal(await page.locator('#binder-meta').textContent(), '3 × 3 · 3 pages');
+		// The grid is in the caption over the page, beside the page count
+		// (design review 2, 2026-11-20), not on a line under the name.
+		assert.ok(await page.locator('#binder-meta').isHidden(), 'no grid line under the name');
 		assert.equal(await page.locator('#bs-zoom-sheet .bs-page[data-page="1"] .pocket').count(), 9);
 		assert.equal(await page.locator('#bs-zoom-label').textContent(), 'Page 1 of 3');
+		assert.equal(await page.locator('#bs-zoom .bs-caption').textContent(), 'Page 1 of 3 · 3×3');
+		// One row over the page at 360 px: Both pages as a named icon, then
+		// ‹ caption ›, so the page's last row of pockets clears the tab bar.
+		assert.equal(await page.getAttribute('#bs-zoom-back', 'aria-label'), 'Both pages');
+		assert.ok(await page.locator('#bs-zoom-back .bs-zoom-back-icon').isVisible(), 'an icon on a narrow phone');
+		assert.ok(await page.locator('#bs-zoom-back .bs-zoom-back-text').isHidden(), 'no words beside it');
+
+		const bar = await page.$$eval('#bs-zoom-back, #bs-zoom-prev, #bs-zoom .bs-caption, #bs-zoom-next', (nodes) => nodes.map((node) => {
+			const rect = node.getBoundingClientRect();
+
+			return [Math.round(rect.left), Math.round(rect.top + rect.height / 2), Math.round(rect.width)];
+		}));
+
+		assert.ok(bar.every(([, middle]) => Math.abs(middle - bar[0][1]) <= 1) && bar.every(([left], i) => !i || left > bar[i - 1][0]), `one row, in order: ${JSON.stringify(bar)}`);
+		assert.ok(bar[0][2] >= 44, `Both pages stays a 44 px target: ${JSON.stringify(bar)}`);
 		assert.ok(await page.locator('#bs-zoom-prev').isDisabled());
 
 		let doc = await localDoc(page);
@@ -1498,7 +1515,7 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		// Back to the rule, and save.
 		await page.click('label:has(#resize-auto)');
 		await page.click('#resize-save');
-		await page.waitForFunction(() => document.getElementById('binder-meta').textContent === '2 × 2 · 2 pages');
+		await page.waitForFunction(() => document.querySelector('#bs-spread .bs-shape').textContent === ' · 2×2' && / of 2$/.test(document.getElementById(document.getElementById('binder-spread').dataset.zoom ? 'bs-zoom-label' : 'bs-label').textContent));
 
 		const saved = (await localDoc(page)).binders[0];
 		const shape = (slots) => slots.map((slot) => [slot.page, slot.position, slot.entry_id || (slot.want ? slot.want.card_id : 'empty')]);

@@ -1011,6 +1011,13 @@ export function valueLabel(stats) {
 	return stats.unknown.count ? `${total}, partly priced` : total;
 }
 
+// valueLabel() as a short line, "≈ R$ 342", for a binder's head, where it
+// shares a row with the binder's name; the button keeps the long words as
+// its name (js/value-sheet.js showTotal).
+export function shortValueLabel(stats) {
+	return stats && stats.priced ? `≈ ${formatBrlCompact(stats.total)}` : 'Value';
+}
+
 // The total and how much of it is Liga, estimated, or unknown, for an
 // opening's summary or a card's detail:
 //   {total, liga: {count, total}, estimated: {count, total}, unknown: {count}}

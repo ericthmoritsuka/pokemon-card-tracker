@@ -235,9 +235,11 @@ export function historyView(root) {
 		body.replaceChildren(...months.map((month) => h('section', {'aria-label': monthName(month.month), class: 'moves-month', 'data-month': month.month},
 			h('div', {class: 'moves-month-head'},
 				h('h3', null, monthName(month.month)),
+				// Money's way in words, not In and Out, which the cards'
+				// own Out: and In: lines use (design review 2, 2026-11-20).
 				h('p', {class: 'moves-money'}, [
-					Object.keys(month.in).length ? `In ${moneyLine(month.in)}` : null,
-					Object.keys(month.out).length ? `Out ${moneyLine(month.out)}` : null,
+					Object.keys(month.in).length ? `Sold ${moneyLine(month.in)}` : null,
+					Object.keys(month.out).length ? `Spent ${moneyLine(month.out)}` : null,
 				].filter(Boolean).join(' · ') || 'No money in or out')
 			),
 			h('ul', {class: 'moves-list'}, month.moves.map((move) => {
@@ -292,7 +294,7 @@ export function historyView(root) {
 			),
 			h('dl', {class: 'facts move-facts'},
 				h('dt', null, 'Date'), h('dd', null, shortDate(move.date, {year: true}) || move.date),
-				...(priceText(move) ? [h('dt', null, 'Money'), h('dd', null, `${priceText(move)} ${move.money === 'in' ? 'in' : 'out'}`)] : []),
+				...(priceText(move) ? [h('dt', null, 'Money'), h('dd', {id: 'move-sheet-money'}, `${move.money === 'in' ? 'Received' : 'Paid'} ${priceText(move)}`)] : []),
 				...(out.length ? [h('dt', null, 'Going out'), h('dd', {id: 'move-sheet-out'}, out.join(', '))] : []),
 				...(came.length ? [h('dt', null, 'Coming in'), cameIn] : []),
 				...(move.note ? [h('dt', null, 'Note'), h('dd', null, move.note)] : [])
@@ -619,7 +621,7 @@ export function newMoveView(root) {
 
 			priceRead.classList.remove('form-error');
 			total.textContent = priceForInput(sum) || '0,00';
-			priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'Type each card\'s price under Coming in. A card left blank has no price.';
+			priceRead.textContent = sum ? `Saved as ${formatMoney(sum, currency.value)}, the sum of the card prices` : 'Type each card\'s price under Coming in, above. A card left blank has no price.';
 
 			return;
 		}
@@ -1071,16 +1073,19 @@ export function newMoveView(root) {
 
 	// ----------------------------------------------------------- saving
 
+	// The cards first, then the details (design review 2, 2026-11-20): with
+	// the cards last under a sticky Save, the form looked complete with no
+	// card picked. With Price each card on, each price sits with its card.
 	const formElement = h('form', {class: 'copy-form move-form', id: 'move-form', novalidate: true},
 		kinds,
 		...(scanned ? [scanned, leftOut] : []),
+		outSection,
+		inSection,
 		sheetField('Date', 'move-date', date),
 		h('div', {class: 'copy-field'}, whoLabel, who, whoHint, sources),
 		priceRow,
 		moneyRow,
 		sheetField('Note', 'move-note', note),
-		outSection,
-		inSection,
 		error,
 		// Save stays in reach, above the tab bar, however long the form.
 		h('div', {class: 'actions'}, save)

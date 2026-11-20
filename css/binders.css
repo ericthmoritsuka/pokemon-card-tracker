@@ -191,13 +191,37 @@
 
 .binder-head {
 	border-left: 8px solid var(--cover);
-	margin: var(--space-1) 0 var(--space-3);
+	margin: 0 0 6px;
 	padding-left: var(--space-3);
 }
 
+/* The name and "≈ R$ 342 ›" on one row (design review 2, 2026-11-20); the
+   grid and page count are in the caption over the pages. A long name
+   wraps, and the value keeps its place at the row's end. The value stays
+   a whole tap target tall, reaching 8 px into the space above and below
+   the row, so the row is no taller than the name and the page's last row
+   of pockets clears the tab bar on a 360 x 740 phone. */
+.binder-title-row {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2) var(--space-3);
+	justify-content: space-between;
+	min-height: calc(var(--target) - 16px);
+}
+
+.binder-title-row button.value-line {
+	margin: -8px 0;
+}
+
 .binder-head h2 {
+	flex: 1 1 auto;
 	margin: 0;
+	min-width: 0;
 	overflow-wrap: anywhere;
+}
+
+.binder-title-row .binder-stats {
+	flex: 0 0 auto;
 }
 
 .binder-head .muted {
@@ -1239,14 +1263,23 @@ button.atb-binder {
 	margin: 0;
 }
 
+/* Two equal columns: Edit pocket and To the tray, Move to… and Card page,
+   then Remove from this binder on a row of its own in the danger style
+   (design review 2, 2026-11-20). A button left alone on its row, such as
+   Card page when there is nowhere to move, or on a family member's binder,
+   takes the row. */
 .pv-actions {
 	display: grid;
 	gap: var(--space-2);
-	grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+	grid-template-columns: 1fr 1fr;
 }
 
-/* Remove from this binder: a row of its own, so its long label fits. */
-.pv-actions #pv-remove {
+.pv-actions #pv-remove,
+.pv-actions #pv-pick,
+.pv-actions > :only-child,
+.pv-actions:not(:has(#pv-pick)) > :nth-last-child(2):nth-child(odd):has(~ #pv-remove),
+.pv-actions:has(#pv-pick) > :nth-last-child(2):nth-child(even):has(~ #pv-remove),
+.pv-actions:not(:has(#pv-remove, #pv-pick)) > :last-child:nth-child(odd) {
 	grid-column: 1 / -1;
 }
 

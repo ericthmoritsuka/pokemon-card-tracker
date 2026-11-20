@@ -946,7 +946,10 @@ export function setView(root, {lang, setId}) {
 	// "Make this a goal" (js/goals-view.js), for your own cards only.
 	const goal = member ? null : setGoalControl({lang, nameOf: () => (shown ? shown[0].name : null), setId});
 
-	root.append(...[back, title, meta, goal, stats, filter, note, problem, grid].filter(Boolean));
+	// The goal link and Value side by side (design review 2, 2026-11-20).
+	const tools = goal ? h('div', {class: 'set-tools', id: 'set-tools'}, goal, stats) : stats;
+
+	root.append(...[back, title, meta, tools, filter, note, problem, grid].filter(Boolean));
 	load();
 
 	// The twins saved on this phone load once a session; tiles drawn before
@@ -970,6 +973,10 @@ export function setView(root, {lang, setId}) {
 }
 
 // ----------------------------------------------------- card detail view
+
+// A copy's place on its row, short: "Kanto 151 p1 #6" (js/copy-sheet.js
+// placeText says it in words).
+const shortPlace = (where) => `${where.binder_name} p${where.page} #${where.position}`;
 
 const VARIANT_TYPES = {holo: 'Holo', normal: 'Normal', reverse: 'Reverse holo'};
 
@@ -1826,7 +1833,6 @@ export function cardView(root, {lang, cardId}) {
 		}
 
 		const shownName = (source && source.name) || card.name;
-		const flagged = (language) => flagBadge([language], {className: 'flags-inline'});
 		const groups = new Map();
 
 		// One row per set of alike copies (same language, finish, and
@@ -1856,22 +1862,35 @@ export function cardView(root, {lang, cardId}) {
 			groups.set(key, group);
 		}
 
-		// The words of a row. Read only, the language and the count are in
-		// them. With a stepper, the stepper shows the count, and the flag
-		// alone names the language (its label and tooltip say it in words),
-		// so the row stays two lines at most at 360 px.
+		// The words of a row (design review 2, 2026-11-20: "Finish not set"
+		// led on three copies in four). The title is the copy's language and
+		// where it is, "Portuguese · Kanto 151 p1 #6"; under it, the finish
+		// and condition, or a quiet "Set finish" when no finish is set. Read
+		// only, the count is in the title; with a stepper, the stepper
+		// shows it. The words name the language, so the row has no flag:
+		// the room it took keeps a plain copy's row to one line at 360 px,
+		// and Ver na Liga on the first screen.
+		const unset = (group) => group.finish === 'Finish not set';
+		const placesOf = (group) => group.entries.filter((entry) => placed.has(entry.id)).map((entry) => placed.get(entry.id));
 		const rowContent = (group) => [
-			flagged(group.language),
+			h('span', {class: 'copy-title'},
+				[languageName(group.language), ...group.localNames].join(' · '),
+				...placesOf(group).flatMap((where) => [' · ', h('span', {class: 'copy-place'}, shortPlace(where))]),
+				readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : null
+			),
 			h('span', {class: 'copy-text'},
-				[readOnly ? languageName(group.language) : null, ...group.localNames, group.finish, group.condition].filter(Boolean).join(' · ') + (readOnly && group.entries.length > 1 ? ` ×${group.entries.length}` : '')
+				...(unset(group)
+					? [readOnly ? null : h('span', {class: 'copy-chip'}, 'Set finish'), group.condition ? `${readOnly ? '' : ' · '}${group.condition}` : null]
+					: [[group.finish, group.condition].filter(Boolean).join(' · ')])
 			),
 			...[...group.prices].map((price) => h('span', {class: 'copy-price'}, price)),
-			...group.entries.filter((entry) => placed.has(entry.id)).map((entry) => h('span', {class: 'copy-place'}, placeText(placed.get(entry.id)))),
 			storedLine(group.entries),
 			...[...group.notes].map((note) => h('span', {class: 'copy-note'}, note)),
 		];
 
 		const rowLabel = (group) => [languageName(group.language), group.finish, group.condition].filter(Boolean).join(', ');
+		// The row's name in full words: "p1 #6" is for the eye.
+		const rowName = (group) => [languageName(group.language), ...group.localNames, ...placesOf(group).map(placeText), unset(group) ? 'finish not set' : group.finish, group.condition].filter(Boolean).join(', ');
 
 		// A redraw (after a step, a sync) keeps the focus on the same control
 		// of the same row, so a thumb or a screen reader stays where it was.
@@ -1888,10 +1907,11 @@ export function cardView(root, {lang, cardId}) {
 			),
 			h('ul', {class: readOnly ? 'variants copy-rows' : 'variants copy-rows editable'}, [...groups.values()].map((group) =>
 				readOnly
-					? h('li', null, rowContent(group))
-					: h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0])},
+					? h('li', {'data-language': group.language || ''}, rowContent(group))
+					: h('li', {class: 'copy-line', 'data-alike': alikeKey(group.entries[0]), 'data-language': group.language || ''},
 						h('button', {
 							'aria-haspopup': 'dialog',
+							'aria-label': rowName(group),
 							class: 'copy-row',
 							onclick: () => openEditSheet({
 								card: sheetCard(card),

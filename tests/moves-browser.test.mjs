@@ -123,8 +123,19 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	assert.match(await page.locator('.toast-text').first().textContent(), /^Saved: 1 card out\./);
 	assert.equal(await page.locator('.moves-title').first().textContent(), 'Sold for R$ 30,50 to Ana');
 	assert.match(await page.locator('.moves-cards').first().textContent(), /^Out: Bulbasaur$/);
-	assert.match(await page.locator('.moves-money').first().textContent(), /^In R\$ 30,50$/);
+	// Money in words, not In and Out (design review 2, 2026-11-20).
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Sold R\$\s30,50$/);
 	await page.screenshot({fullPage: true, path: `${SHOTS}/moves-history.png`});
+
+	// Scan and Log side by side at equal width under the title.
+	const heads = await page.$$eval('#moves-scan, #moves-new', (links) => links.map((link) => {
+		const rect = link.getBoundingClientRect();
+
+		return {top: Math.round(rect.top), width: Math.round(rect.width)};
+	}));
+
+	assert.equal(heads[0].top, heads[1].top, 'on one row');
+	assert.ok(Math.abs(heads[0].width - heads[1].width) <= 1, `at equal width: ${JSON.stringify(heads)}`);
 
 	let now = await state(page);
 	const [move] = now.moves;
@@ -144,6 +155,7 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	await page.waitForSelector('.moves-row');
 	await page.click('.moves-row');
 	await page.waitForSelector('#move-undo');
+	assert.match(await page.locator('#move-sheet-money').textContent(), /^Received R\$\s30,50$/, 'the sheet says which way the money went');
 	await page.click('#move-undo');
 	await page.click('#move-undo-go');
 	await page.waitForSelector('#moves-empty');
@@ -178,6 +190,15 @@ test('a trade with one card out and one card in', async () => {
 	await page.waitForSelector('#move-form');
 	await pickKind(page, 'traded');
 	assert.ok(await page.locator('#move-money').isVisible(), 'a trade says which way the cash went');
+	// The cards come first, then the details, then Save (design review 2,
+	// 2026-11-20): an empty form does not look complete.
+	const order = ['.move-kinds', '#move-out-section', '#move-in-section', '#move-date', '#move-who', '#move-price', '#move-money', '#move-note', '#move-error', '#move-save'];
+
+	assert.deepEqual(await page.evaluate((selectors) => {
+		const nodes = selectors.map((selector) => document.querySelector(`#move-form ${selector}`));
+
+		return nodes.slice(1).map((node, i) => Boolean(nodes[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+	}, order), order.slice(1).map(() => true), 'kinds, out, in, date, who, price, cash, note, error, Save');
 	await page.fill('#move-who', 'Bruno');
 
 	await page.click('#move-add-out');
@@ -368,7 +389,7 @@ test('Edit changes a logged sale\'s price and who: History and the card page fol
 
 	await page.waitForFunction(() => document.querySelector('.moves-title')?.textContent.includes('Ana Lima'));
 	assert.match(await page.locator('.moves-title').first().textContent(), /^Sold for R\$\s1\.500,00 to Ana Lima$/);
-	assert.match(await page.locator('.moves-money').first().textContent(), /^In R\$\s1\.500,00$/);
+	assert.match(await page.locator('.moves-money').first().textContent(), /^Sold R\$\s1\.500,00$/);
 	assert.equal(await page.locator('#move-sheet[open]').count(), 0, 'the sheet closed');
 
 	const saved = await untilInPage(page, 'the edited move', async () => {
@@ -549,6 +570,7 @@ test('a purchase from the scanner: From offers earlier places, Price each card p
 	await page.waitForSelector('#move-sheet-in li');
 	assert.deepEqual((await page.locator('#move-sheet-in li').allTextContents()).map((line) => line.replace(/\s/g, ' ')), ['Bulbasaur, R$ 12,00', 'Charmander (2 copies), R$ 5,50 each', 'Charizard ex, no price']);
 	assert.equal(await page.textContent('#move-undo'), 'Undo this purchase');
+	assert.match(await page.textContent('#move-sheet-money'), /^Paid R\$\s/, 'money out reads as paid');
 	await page.screenshot({path: `${SHOTS}/moves-purchase-sheet-360.png`});
 
 	// Edit: Price each card is on with the saved prices; a new price for

@@ -488,6 +488,15 @@ deliberate list: a card, optionally a variant and language, a priority, and a no
 card can be added to the wishlist in one tap. Seeing a family member's wishlist next to your own
 spares is the start of trade matching, which is deferred (section 12).
 
+**The wishlist screen** (design review 2, 2026-11-20). Add a card opens the search in its place:
+the name field first at the whole width with a ✕ that closes the search, then the language and
+Search on one row. The language is the one last searched in, else the one most of his copies are
+in, else the viewing language (it was the viewing language, English, for a collection three
+quarters Portuguese). Each row shows what the card costs, "≈ R$ 10,38", under its number line: a
+copy in the wished language and finish valued as a copy is (prices.js copyValue, the market price at
+the saved dollar rate), and no line when the record has no price or no rate is saved yet. Edit
+sits at the end of the chips' row, so a row is about 150 px tall rather than 200.
+
 **A wish is marked got when a copy that fits it is added** (Eric, 2026-10-31; built 2026-10-31).
 When any path adds a copy (section 11, Binders, "Placeholders fill themselves"; the scanner too)
 of a card on the wishlist (the same card and catalog, and the wish's language and finish when it
@@ -741,7 +750,13 @@ for a new place; "box a" is the saved "Box A". Manage places renames a place (ev
 there follows) or removes one (its copies show Not set; asked first when copies are stored
 there), both with Undo. Copies stored in two places are two rows of Your copies, each with its
 own stepper, and + adds a copy in the row's place. A copy in a binder pocket shows its pocket and,
-when set, its place; neither is made up from the other. My Cards and Trade filter by place (copies
+when set, its place; neither is made up from the other. **A row's title is the copy's language and
+pocket**, "Portuguese · Kanto 151 p1 #6", followed by the finish and condition, smaller and muted,
+or a quiet **Set finish** chip when none is set, on the title's line where they fit (design review
+2, 2026-11-20: "Finish not set" led the rows of three copies in four); the row's name says the
+pocket in words for a screen reader. The words name the language, so the row has no flag: the room
+keeps a plain copy's row to one line at 360 px, and Ver na Liga on the first screen. The buttons
+under the copies (Add to collection, Add to binder, Trade or sale, Share) are two equal columns. My Cards and Trade filter by place (copies
 counted) or Not set, and a narrowed My Cards stores all its copies at once ("Set storage for these
 N copies", with Undo). The CSV carries a `storage` column, which the own-CSV restore reads back.
 Family view shows a member's places, read only. Sync needs no change to `js/merge.js`: `storage` is
@@ -2389,8 +2404,8 @@ to the copies without a price. The sheet takes any list of copies, so the Trade 
 
 **A binder shows what it is worth** (Eric, 2026-11-06: "you should also show how much the binder
 is worth based on the cards in it"; the boxed Value button "does not look pretty"). The total is a
-line under the binder's name and size, in the theme's link color with a chevron, that opens the
-Value sheet: "R$ 1.245 in value", "About R$ 4.952 in value" when part of it is a US estimate (it
+line in the theme's link color with a chevron, on the binder name's row since design review 2
+(below), that opens the Value sheet; its words, which the button keeps as its name: "R$ 1.245 in value", "About R$ 4.952 in value" when part of it is a US estimate (it
 read "~R$ 4.952"; "About" says it in words for a reader in a second language, design polish,
 2026-11-06; the Value sheet keeps its "~"), or
 "R$ 50,00 in value, partly priced" when some copies have no price, the Collections list's words;
@@ -2401,6 +2416,20 @@ sum over the same copies (prices.js listStats and valueLabel), in whole reais fr
 read after the pages draw, again when a pocket or a copy's Liga price changes, when the sheet closes
 (it may have read a new rate), and on coming back to the app; a later read wins. The binder screen
 asks for no prices or rates itself. Sets and checklists keep their small Value button.
+
+**The binder's head is one row** (design review 2, 2026-11-20: at 360 × 740 the page started at
+337 px and its third row of pockets sat 62 px under the tab bar and the Scan disc). The name and
+the value share a row, the value short at its end, "≈ R$ 342 ›" (prices.js shortValueLabel, "≈"
+for every total, since a market price is an estimate either way), with the long words above as
+the button's name for a screen reader; it stays 48 px tall, reaching into the space around the
+row. The grid and page count are no longer a line under the name: they are in the caption over
+the pages, "Page 1 of 20 · 3×3" and "Pages 2 and 3 of 20 · 3×3", which has ‹ and › at its ends
+on one page. A list binder keeps the line under its name for what it is made from and in what
+order. On a phone held upright at 380 px or narrower, "‹ Both pages" is a two-page icon named
+Both pages, 44 px square like every control on the binder (the review asked for 40 px), beside the
+caption on the same row; wider, the words stay and the caption joins
+them where it fits. The page now starts at 227 px at 360 × 740 and all nine pockets end above the
+Scan disc.
 
 **Value over time** (Eric, 2026-11-18: "value over time"). Two histories, both kept on the phone
 (IndexedDB, `card-tracker-history`, js/value-history.js), never in the synced document:
@@ -2641,7 +2670,12 @@ Save changes there widens it to any language. A copy counts in one of its langua
 no language recorded, as on the screen's flags. Everything else is a goal's: Lists with its ring,
 All, Owned, and Missing, the search and sort bar with set and rarity, one tap to the wishlist (in the
 goal's language for that catalog when it names one, from a binder's placeholder too), its languages
-edited on its screen, and **Make a binder**. The Japanese, Korean, and Chinese card lists carry no
+edited on its screen, and **Make a binder**. *(Design review 2, 2026-11-20: a goal's screen puts its
+settings as one line under its name, "Numbered · any language · Edit ›", or a Pokémon goal's own
+"Every card in PT, JA · Edit ›", and Edit opens a sheet with Level and Languages; the Level picker,
+its hint, and the languages had taken about 600 px above the cards. A goal with every card owned
+shows a **Complete** chip beside its ring, on its screen and its Lists tile. The set page's goal
+link and Value sit side by side, as a checklist's count and Value do.)* The Japanese, Korean, and Chinese card lists carry no
 rarity, so their prints are offered under **Rarity not listed** in the rarity choice rather than
 hidden by every rarity picked. When a catalog the goal needs is not on the phone, or some of its
 sets or the set index cannot be read, the goal's status names the part missing ("The Japanese prints
@@ -2715,7 +2749,7 @@ picture, cropped to the cover's shape and stored like card photos. On
 a phone in portrait the binder opens on **one page at the column's width**, its pockets taking
 taps at once, rather than the spread squeezed to half the width each page (design review,
 2026-11-19: it opened on an overview whose pages had to be tapped open first). Swiping, the arrows
-beside "‹ Both pages", the arrow keys, and the page slider step one page at a time, with no history
+at the ends of the page's caption, the arrow keys, and the page slider step one page at a time, with no history
 entry, so Back leaves the binder. The route's page opens (a link to `binders/<id>/<page>`), else
 the spread's left page, page 1 on the first. **‹ Both pages** shows the spread as an overview, where
 tapping a page opens it as before, and a URL that names a spread (`?spread=`, which the overview
@@ -2799,6 +2833,10 @@ it held sideways) are its name, its language and pocket, and what the pocket's s
   (the sheet opened on Move to pocket; not on a one-pocket binder), and **Card page**;
 - a binder from a list: Edit pocket (its copies sheet, which picks the copy shown) and Card page;
 - a family member's binder, read only: Card page alone (the pocket was a link to it before).
+
+They are two equal columns, Edit pocket and To the tray, then Move to… and Card page, and Remove
+from this binder last on a row of its own in the danger style Delete binder has (design review 2,
+2026-11-20); a button alone on its row takes the row.
 
 The binder behind is dimmed to 94 percent, so its text and rings do not read through beside a card
 held sideways (it was 88; design polish, 2026-11-06).
@@ -3425,6 +3463,9 @@ and value sum over its own copies, once each (section 3: never over memberships)
   the card. The scanner's Done sheet has "Add all to a collection" beside Set for all: choose or
   make a hand-picked collection, and the copies the save writes join it. My Cards has no
   selection mode yet, so adding several different cards at once from there waits for one.
+- **The collection's screen** (design review 2, 2026-11-20) has the standard head: "‹ Collections"
+  as a text link, the name, the rule line, then one row of Edit, Leave cards out, and Make a
+  binder; it had led with a Collections button.
 - **Family.** A member's collections open read only. A self-filling one of theirs is worked out
   with the card details this phone has, so it can be short until their cards are in the index.
 - **Leaving cards out of a rule** (Eric, 2026-10-06; built 2026-10-09). A self-filling
@@ -3697,10 +3738,18 @@ adjustments itself and log the transaction."; `js/scan/trade.js`, `js/scan/trade
   and any copy dropped since. The form calls its sides **Going out** and **Coming in**, with **Add a
   card going out** and **Add a card coming in**, for every kind and whether or not it came from a
   scan, so each side has one name, the scanner's.
+- **The form's order** (design review 2, 2026-11-20): what happened, then Going out and Coming
+  in, then Date, who, the price, the cash, and the note, with Save last. The cards had come last,
+  under a sticky Save, so a form with no card picked looked complete. With Price each card on, each
+  price sits under its card, above the total.
+- **Money in words** (design review 2, 2026-11-20): a month's line reads "Sold R$ 120,00 · Spent R$
+  57,50" (it read In and Out, the words the cards' own Out: and In: lines use), and a move's sheet
+  "Paid R$ 57,50" or "Received R$ 120,00" (it read "R$ 57,50 out").
 - **Older phones** never see the trade tray (it is a draft on the phone, never synced); the move it
   logs is an ordinary move.
 - **Scan a trade or sale** (Eric, 2026-11-06): Trades and sales has a **Scan a trade or sale**
-  button, with the Scan tab's icon, beside **Log a trade or sale**, which opens Scan already in
+  button, with the Scan tab's icon, beside **Log a trade or sale** at equal width (design review 2,
+  2026-11-20), which opens Scan already in
   Trade or sale; with no moves yet, the empty state says "Scan the cards going out and coming in, or
   log a trade or sale by hand." over **Log a trade or sale** and a full-width **Scan a trade or
   sale** (design review, 2026-11-06; the head's "Scan a trade" and "Log a move" took the one name

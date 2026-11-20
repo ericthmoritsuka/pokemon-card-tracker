@@ -334,10 +334,25 @@
 	padding-left: var(--space-4);
 }
 
-/* History's heading at 360 px: Scan a trade or sale and Log a trade or sale
-   do not fit on one line beside each other, so they wrap rather than run
-   off the screen. */
-.view-head-links:has(#moves-new) {
-	flex: 0 1 auto;
+/* History's heading: Scan a trade or sale and Log a trade or sale side by
+   side at equal width under the title (design review 2, 2026-11-20), each
+   on two lines at 360 px rather than one above the other. */
+.view-head:has(#moves-new) {
 	flex-wrap: wrap;
+}
+
+.view-head-links:has(#moves-new) {
+	display: grid;
+	flex: 1 1 100%;
+	grid-template-columns: 1fr 1fr;
+}
+
+.view-head-links:has(#moves-new) .view-head-link {
+	min-height: var(--target);
+	padding-left: var(--space-2);
+	padding-right: var(--space-2);
+	text-align: center;
+	text-wrap: balance;
+	white-space: normal;
+	width: 100%;
 }

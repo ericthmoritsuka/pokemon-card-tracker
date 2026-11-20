@@ -64,6 +64,41 @@
 	gap: var(--space-1) var(--space-2);
 }
 
+/* "Complete" beside a finished goal's ring, here and on its Lists tile. */
+.goal-complete {
+	background: var(--accent-strong);
+	border-radius: var(--radius-pill);
+	color: var(--on-accent);
+	font-size: 0.8rem;
+	font-weight: 700;
+	line-height: 1.4;
+	padding: 1px var(--space-2);
+	white-space: nowrap;
+}
+
+.goal-tile-ring:has(.goal-complete) {
+	align-items: center;
+	display: inline-flex;
+	gap: var(--space-2);
+}
+
+/* The settings line: "Numbered · any language · Edit ›" (design review 2,
+   2026-11-20), Edit a whole tap target tall that reaches into the space
+   around the line, and the sheet it opens. */
+.goal-settings {
+	margin: var(--space-1) 0 var(--space-2);
+}
+
+.goal-settings button.value-line {
+	display: inline-flex;
+	margin: -8px 0;
+	vertical-align: middle;
+}
+
+.goal-settings-body .goal-level-slot:not(:empty) {
+	margin-top: 0;
+}
+
 .goal-level-slot:not(:empty) {
 	display: grid;
 	gap: var(--space-1);
@@ -216,4 +251,29 @@
 .illustrator-goal {
 	display: inline-block;
 	padding: var(--space-1) 0;
+}
+
+/* A set's goal link and Value, and a checklist's count and Value, on one
+   row (design review 2, 2026-11-20); the goal's level picker, once opened,
+   takes the row's whole width. */
+.set-tools {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2);
+	margin: var(--space-2) 0;
+}
+
+.set-tools > *,
+.set-tools .set-stats:not(:empty),
+.set-tools .checklist-stats:not(:empty) {
+	margin: 0;
+}
+
+.set-tools .set-goal:has(.goal-panel:not([hidden])) {
+	flex-basis: 100%;
+}
+
+.checklist-tools .checklist-summary {
+	flex: 1 1 auto;
 }

@@ -969,7 +969,9 @@ function checklistScreen(root, source, id) {
 	// the stored list back halfway would flicker.
 	const stop = source.watch ? source.watch(() => alive && !saving && load()) : () => {};
 
-	content.append(...[title, meta, languages.element, summary, statsSlot, status, filter, empty, list, editor, actions].filter(Boolean));
+	// The count and Value side by side (design review 2, 2026-11-20), as the
+	// set page's goal link and Value are.
+	content.append(...[title, meta, languages.element, h('div', {class: 'set-tools checklist-tools'}, summary, statsSlot), status, filter, empty, list, editor, actions].filter(Boolean));
 	root.append(back, notice, content);
 	load();
 

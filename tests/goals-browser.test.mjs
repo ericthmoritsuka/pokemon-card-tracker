@@ -262,13 +262,22 @@ describe('set goals', () => {
 
 		assert.equal(await page.locator('#goal-title').textContent(), 'Test Evolutions');
 		assert.equal(await ringText(page), '3 of 6');
-		assert.match(await page.locator('#goal-meta').textContent(), /^With secrets/);
+		// The level and languages are one line with Edit, not a block of
+		// controls above the cards (design review 2, 2026-11-20).
+		assert.equal(await page.locator('#goal-settings-text').textContent(), 'With secrets · any language');
+		assert.doesNotMatch(await page.locator('#goal-meta').textContent(), /With secrets/, 'said once, on the settings line');
+		assert.equal(await page.locator('#goal-level').count(), 0, 'no level picker on the screen itself');
+		assert.equal(await page.locator('#goal-settings-edit').getAttribute('aria-label'), 'Edit the goal\'s level and languages');
+		assert.equal(await page.locator('#goal-meta .goal-complete').count(), 0, 'not complete');
 		assert.deepEqual(await filterTexts(page), ['All 6', 'Owned 3', 'Missing 3']);
 		assert.equal(await page.locator('#goal-grid .goal-cell').count(), 6);
 		assert.equal(await page.locator('#goal-grid .pc-missing').count(), 3);
 		assert.equal(await page.locator('#goal-grid .pc-missing .tile.unowned').count(), 3, 'missing cards are dimmed');
 
-		// Numbered: cards 1 to 4.
+		// Numbered: cards 1 to 4, from the settings sheet.
+		await page.click('#goal-settings-edit');
+		await page.waitForSelector('#goal-settings-sheet[open] #goal-level');
+		assert.ok(await page.locator('#goal-settings-sheet #list-languages').isVisible(), 'the languages in the same sheet');
 		await page.selectOption('#goal-level', 'numbered');
 		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '2 of 4');
 		assert.equal(await page.locator('#goal-grid .goal-cell').count(), 4);
@@ -280,6 +289,10 @@ describe('set goals', () => {
 		assert.match(await page.locator('#goal-tile-international-tev-001 .tile-meta').textContent(), /2 of 4 finishes/);
 		assert.equal(await page.locator('#goal-tile-international-tev-001').getAttribute('title'), 'Normal (owned), Reverse holo, Poké Ball pattern (owned), Master Ball pattern');
 		assert.deepEqual(await filterTexts(page), ['All 6', 'Owned 3', 'Missing 5']);
+		assert.equal(await page.locator('#goal-settings-text').textContent(), 'Master set · any language');
+		await page.click('#goal-settings-close');
+		await page.waitForSelector('#goal-settings-sheet[open]', {state: 'detached'}).catch(() => {});
+		assert.equal(await page.locator('#goal-settings-sheet[open]').count(), 0, 'the sheet closed');
 		await noSideScroll(page, 'goal screen');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/goals-master.png`});
 
@@ -319,6 +332,40 @@ describe('set goals', () => {
 		await go(page, 'sets/en/tev');
 		await page.waitForSelector('#set-goal-link');
 		assert.equal(await page.locator('#set-goal-link').textContent(), 'Your goal: Master set');
+		// The goal link and Value on one row (design review 2, 2026-11-20).
+		await page.waitForSelector('#set-value');
+		const middles = await page.$$eval('#set-goal-link, #set-value', (nodes) => nodes.map((node) => {
+			const rect = node.getBoundingClientRect();
+
+			return {left: Math.round(rect.left), middle: Math.round(rect.top + rect.height / 2)};
+		}));
+
+		assert.ok(Math.abs(middles[0].middle - middles[1].middle) <= 1 && middles[1].left > middles[0].left, `side by side: ${JSON.stringify(middles)}`);
+
+		// Every numbered card owned: the goal says Complete, on its screen
+		// and on its Lists tile.
+		await page.click('#set-goal-link');
+		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '4 of 15');
+		await page.click('#goal-settings-edit');
+		await page.waitForSelector('#goal-settings-sheet[open] #goal-level');
+		await page.selectOption('#goal-level', 'numbered');
+		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '2 of 4');
+		await page.click('#goal-settings-close');
+		await page.click('#goal-filter label:has-text("Missing")');
+		await page.waitForFunction(() => document.querySelectorAll('#goal-grid .goal-cell').length === 2);
+
+		const missing = await page.locator('#goal-grid .goal-cell').evaluateAll((cells) => cells.map((cell) => cell.dataset.card));
+
+		await page.evaluate(async (ids) => {
+			const {addCards} = await import('/pokemon-card-tracker/js/collection.js');
+
+			await addCards(ids.map((card_id) => ({card_id, catalog: 'international', language: 'en', language_source: 'manual'})));
+		}, missing);
+		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '4 of 4');
+		assert.equal(await page.locator('#goal-meta .goal-complete').textContent(), 'Complete');
+		await go(page, 'lists');
+		await page.waitForSelector('#goals-list .goal-tile .goal-ring');
+		assert.equal(await page.locator('#goals-list .goal-tile .goal-complete').textContent(), 'Complete');
 
 		await done();
 	});
@@ -341,10 +388,14 @@ describe('set goals', () => {
 		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '2 of 4');
 
 		// Languages: Portuguese only counts the Portuguese 001.
+		assert.equal(await page.locator('#goal-settings-text').textContent(), 'Numbered · any language');
+		await page.click('#goal-settings-edit');
 		await page.click('#list-languages-edit');
 		await page.click('#list-languages-editor input[value="pt"]');
 		await page.click('#list-languages-save');
 		await page.waitForFunction(() => document.querySelector('#goal-meta .goal-ring')?.textContent === '1 of 4');
+		await page.waitForFunction(() => document.getElementById('goal-settings-text').textContent === 'Numbered · Portuguese');
+		await page.click('#goal-settings-close');
 
 		// Rename, then delete.
 		await page.evaluate(() => {

@@ -15,6 +15,28 @@
 	margin-top: 0;
 }
 
+/* Add a card's search (design review 2, 2026-11-20): the name the whole
+   width with ✕ closing the search, then the language and Search. */
+.wl-search-input {
+	align-items: center;
+	display: flex;
+	gap: var(--space-2);
+	margin-bottom: var(--space-2);
+}
+
+.wl-search-input .search {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+button.wl-search-close {
+	flex: 0 0 auto;
+	font-size: 1.1rem;
+	min-height: var(--target);
+	padding: 0;
+	width: var(--target);
+}
+
 .wl-search-row {
 	margin-bottom: var(--space-2);
 }
@@ -92,6 +114,12 @@ button.wl-result {
 	color: var(--muted);
 	font-size: 0.875rem;
 	overflow-wrap: anywhere;
+}
+
+/* "≈ R$ 12,40" under the number line. */
+.wl-value {
+	font-size: 0.875rem;
+	font-weight: 600;
 }
 
 .wl-chips {
@@ -174,12 +202,24 @@ button.wl-result {
 	padding-left: var(--space-2);
 }
 
-.wl-edit {
-	align-self: flex-start;
-	margin-top: var(--space-1);
-	min-height: 44px;
-	padding: var(--space-2) var(--space-4);
+/* Edit at the end of the chips' row, pushed right where the row has room:
+   drawn 30 px tall to sit with the chips, its tap area 44 px all the same. */
+.wl-chips .wl-edit {
+	margin-left: auto;
+	min-height: 30px;
+	padding: 0 var(--space-3);
+	position: relative;
 	width: auto;
+}
+
+.wl-chips .wl-edit::before {
+	content: "";
+	inset: -7px 0;
+	position: absolute;
+}
+
+.wl-chips:has(.wl-edit) {
+	align-items: center;
 }
 
 .wl-flash:empty {

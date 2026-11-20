@@ -23,7 +23,7 @@
 .bs-label {
 	display: block;
 	font-weight: 600;
-	margin-bottom: 6px;
+	margin: 0 0 6px;
 	text-align: center;
 }
 
@@ -745,31 +745,81 @@ button.bs-hint-close {
 
 /* ------------------------------------------------------------ one page */
 
+/* One row (design review 2, 2026-11-20): Both pages, then the caption with
+   ‹ and › at its ends, so the page starts high enough for its last row of
+   pockets to clear the tab bar and the Scan disc. Where the words and the
+   caption do not fit side by side the caption takes a row of its own. */
 .bs-zoom-bar {
 	align-items: center;
 	display: flex;
-	gap: 8px;
-	justify-content: space-between;
-	margin-bottom: 8px;
+	flex-wrap: wrap;
+	gap: 6px 8px;
+	margin-bottom: 6px;
 }
 
 button.bs-zoom-back {
 	flex: 0 0 auto;
+	gap: 0;
 	min-height: 44px;
 	width: auto;
 	padding: 4px 12px;
 }
 
+.bs-zoom-back-icon {
+	display: none;
+	height: 22px;
+	width: 22px;
+}
+
 .bs-zoom-steps {
+	align-items: center;
 	display: flex;
+	flex: 1 1 240px;
 	gap: 6px;
+	min-width: 0;
+}
+
+.bs-zoom-steps .bs-caption {
+	flex: 1 1 auto;
+	margin: 0;
+	min-width: 0;
+	white-space: nowrap;
 }
 
 button.bs-zoom-step {
+	flex: 0 0 auto;
 	font-size: 1.3rem;
 	min-height: 44px;
 	padding: 0;
 	width: 44px;
+}
+
+/* A narrow phone held upright: Both pages is a two-page icon beside the
+   caption, which leaves the caption its row. 44 px square, as every
+   control on the binder is, rather than the review's 40 px: the row is as
+   tall as the arrows either way. */
+@media (orientation: portrait) and (max-width: 380px) {
+	.bs-zoom-bar {
+		flex-wrap: nowrap;
+	}
+
+	button.bs-zoom-back {
+		min-height: 44px;
+		padding: 0;
+		width: 44px;
+	}
+
+	.bs-zoom-back-icon {
+		display: block;
+	}
+
+	.bs-zoom-back-text {
+		display: none;
+	}
+
+	.bs-zoom-steps {
+		flex-basis: auto;
+	}
 }
 
 /* The page on its piece of cover, the spine on its inner side. */

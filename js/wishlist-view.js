@@ -16,6 +16,7 @@ import {BASE, errorText, h, listsSwitch} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
 import {imageCardKey, mainArt, onFamilyPhotosChange, onImagesChange, sharedRecordsFor} from './photos/index.js';
+import {copyValue, formatBrlCompact, savedRates} from './prices.js';
 import {readChoice, saveChoice} from './settings.js';
 import {cardArt, cardTile, tileArt, variantFinish} from './tile.js';
 import {
@@ -85,6 +86,22 @@ function cardInfo(item, found) {
 
 const numberText = (info) => (info.number ? `#${info.number}${info.official ? ` / ${info.official}` : ''}` : null);
 
+// What a wished card costs, "≈ R$ 12,40", as a copy of it in the wished
+// language and finish would be valued (prices.js copyValue, the market
+// price at the saved dollar rate); null when the record has no price or
+// there is no rate yet (design review 2, 2026-11-20).
+function wishValue(item, found, viewing) {
+	const card = found && found.card;
+
+	if (!card) {
+		return null;
+	}
+
+	const value = copyValue({card_id: item.card_id, catalog: item.catalog || 'international', language: item.language || displayLanguage(item, viewing), variant_id: item.variant_id || null}, card, {rates: savedRates()});
+
+	return value && typeof value.brl === 'number' && value.brl > 0 ? `≈ ${formatBrlCompact(value.brl)}` : null;
+}
+
 function finishText(item, info) {
 	if (!item.variant_id) {
 		return null;
@@ -132,9 +149,11 @@ function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove
 			: h('span', {class: 'wl-chip wl-chip-any'}, 'Any language'),
 		h('span', {class: finish ? 'wl-chip' : 'wl-chip wl-chip-any'}, finish || 'Any finish')
 	);
+	const value = wishValue(item, found, viewing);
 	const body = h('div', {class: 'wl-body'},
 		h('span', {class: 'wl-name'}, info.name),
 		h('span', {class: 'wl-meta'}, [numberText(info), info.setName].filter(Boolean).join(' · ') || item.card_id),
+		value ? h('span', {class: 'wl-value'}, value) : null,
 		chips,
 		item.note ? h('p', {class: 'wl-note'}, item.note) : null
 	);
@@ -158,7 +177,9 @@ function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove
 		));
 	}
 	else if (mine) {
-		body.append(h('button', {'aria-label': `Edit ${info.name}`, class: 'wl-edit', onclick: onEdit, type: 'button'}, 'Edit'));
+		// Inline with the chips, so a row is about 150 px tall rather than
+		// 200 (design review 2, 2026-11-20).
+		chips.append(h('button', {'aria-label': `Edit ${info.name}`, class: 'wl-edit', onclick: onEdit, type: 'button'}, 'Edit'));
 	}
 
 	// The art is the shared tile (js/tile.js), and opens the card page, which
@@ -284,8 +305,12 @@ function editor({card, catalog, item = null, onCancel, onRemove = null, onSave, 
 
 // --------------------------------------------------------- the search
 
-function searchPanel({onPick, wished}) {
-	const lang = readChoice(SEARCH_LANG_KEY, CATALOG_LANGUAGES.map((item) => item.code), viewingLanguage());
+function searchPanel({onClose, onPick, wished}) {
+	const codes = CATALOG_LANGUAGES.map((item) => item.code);
+	const lang = readChoice(SEARCH_LANG_KEY, codes, viewingLanguage());
+	// The language last searched in; with none kept, the one most of his
+	// copies are in once they are read (suggest), else the viewing language.
+	let chosen = readChoice(SEARCH_LANG_KEY, codes, null) !== null;
 	const language = h('select', {'aria-label': 'Search in', id: 'wishlist-search-lang'},
 		CATALOG_LANGUAGES.map((item) => h('option', {value: item.code}, item.label))
 	);
@@ -303,7 +328,10 @@ function searchPanel({onPick, wished}) {
 	let run = 0;
 
 	language.value = lang;
-	language.addEventListener('change', () => saveChoice(SEARCH_LANG_KEY, language.value));
+	language.addEventListener('change', () => {
+		chosen = true;
+		saveChoice(SEARCH_LANG_KEY, language.value);
+	});
 
 	function tile(card) {
 		const info = {name: card.name, number: card.localId, setName: card.setName};
@@ -355,17 +383,22 @@ function searchPanel({onPick, wished}) {
 		}
 	}
 
+	// The name first, the whole width, with ✕ closing the search; then the
+	// language and Search (design review 2, 2026-11-20).
+	const close = h('button', {'aria-label': 'Close search', class: 'wl-search-close', id: 'wishlist-search-close', onclick: () => onClose(), type: 'button'}, h('span', {'aria-hidden': 'true'}, '✕'));
 	const form = h('form', {class: 'wl-search', id: 'wishlist-search-form', role: 'search'},
+		h('div', {class: 'wl-search-input'}, input, close),
 		h('div', {class: 'toolbar two wl-search-row'},
 			h('span', {class: 'select-wrap'}, language),
 			h('button', {class: 'primary', id: 'wishlist-search-go', type: 'submit'}, 'Search')
-		),
-		input
+		)
 	);
 
 	form.addEventListener('submit', (event) => {
 		event.preventDefault();
 		input.blur();
+		chosen = true;
+		saveChoice(SEARCH_LANG_KEY, language.value);
 		search();
 	});
 
@@ -373,10 +406,31 @@ function searchPanel({onPick, wished}) {
 		element: h('section', {class: 'wl-add', id: 'wishlist-add-panel'}, form, status, results),
 		focus: () => input.focus(),
 		redraw: () => results.replaceChildren(...last.map(tile)),
+		// The language most of his copies are in, while he has kept none.
+		suggest(code) {
+			if (!chosen && codes.includes(code)) {
+				language.value = code;
+			}
+		},
 	};
 }
 
 // --------------------------------------------------------- my wishlist
+
+// The language most of the live copies are in, or null.
+function mostLanguage(cards) {
+	const counts = new Map();
+
+	for (const entry of cards || []) {
+		if (entry && !entry.deleted_at && entry.language) {
+			counts.set(entry.language, (counts.get(entry.language) || 0) + 1);
+		}
+	}
+
+	const [top] = [...counts].sort((a, b) => b[1] - a[1]);
+
+	return top ? top[0] : null;
+}
 
 export function wishlistView(root) {
 	let alive = true;
@@ -409,7 +463,17 @@ export function wishlistView(root) {
 	const wishedKey = (cardId, catalog) => `${catalog}|${cardId}`;
 	let wishedSet = new Set();
 
+	const addRow = h('div', {class: 'wl-add-row'}, addButton);
+	// Open, the search takes Add a card's place, and its ✕ gives it back.
+	const showSearch = (open) => {
+		panel.element.hidden = !open;
+		addRow.hidden = open;
+	};
 	const panel = searchPanel({
+		onClose: () => {
+			showSearch(false);
+			addButton.focus();
+		},
 		onPick: (card) => openNew(card),
 		wished: (card) => wishedSet.has(wishedKey(card.id, card.catalog)),
 	});
@@ -417,15 +481,9 @@ export function wishlistView(root) {
 	panel.element.hidden = true;
 
 	addButton.addEventListener('click', () => {
-		const opening = panel.element.hidden;
-
-		panel.element.hidden = !opening;
-		addButton.textContent = opening ? 'Close search' : 'Add a card';
+		showSearch(true);
 		closeEditor();
-
-		if (opening) {
-			panel.focus();
-		}
+		panel.focus();
 	});
 
 	function say(text) {
@@ -469,8 +527,7 @@ export function wishlistView(root) {
 
 		const info = cardInfo(item, found);
 
-		panel.element.hidden = true;
-		addButton.textContent = 'Add a card';
+		showSearch(false);
 		editing = {id: item.id};
 		editorSlot.replaceChildren(editor({
 			card: found && found.card,
@@ -585,6 +642,8 @@ export function wishlistView(root) {
 			return;
 		}
 
+		panel.suggest(mostLanguage(cards));
+
 		if (editing && editing.id && !items.some((item) => item.id === editing.id)) {
 			closeEditor();
 		}
@@ -603,7 +662,7 @@ export function wishlistView(root) {
 	root.append(
 		heading('Wishlist', null),
 		summary,
-		h('div', {class: 'wl-add-row'}, addButton),
+		addRow,
 		panel.element,
 		editorSlot,
 		flash,

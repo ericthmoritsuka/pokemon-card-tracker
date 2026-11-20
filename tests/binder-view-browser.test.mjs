@@ -238,9 +238,21 @@ describe('a card out of its pocket', () => {
 			['pv-details', 'Edit pocket'],
 			['pv-to-tray', 'To the tray'],
 			['pv-move', 'Move to…'],
-			['pv-remove', 'Remove from this binder'],
 			['pv-card-page', 'Card page'],
+			['pv-remove', 'Remove from this binder'],
 		]);
+		// Two equal columns, then Remove on a row of its own in the danger
+		// style (design review 2, 2026-11-20).
+		const cells = await page.locator('#pv-actions > *').evaluateAll((nodes) => nodes.map((node) => {
+			const rect = node.getBoundingClientRect();
+
+			return {left: Math.round(rect.left), top: Math.round(rect.top), width: Math.round(rect.width)};
+		}));
+
+		assert.deepEqual([cells[0].top === cells[1].top, cells[2].top === cells[3].top, cells[4].top > cells[3].top], [true, true, true], `rows: ${JSON.stringify(cells)}`);
+		assert.ok(Math.abs(cells[0].width - cells[1].width) <= 1 && Math.abs(cells[2].width - cells[3].width) <= 1, `equal columns: ${JSON.stringify(cells)}`);
+		assert.ok(cells[4].width > cells[0].width * 1.8, `Remove takes the row: ${JSON.stringify(cells)}`);
+		assert.ok(await page.locator('#pv-remove').evaluate((node) => node.classList.contains('danger')), 'Remove in the danger style');
 		assert.equal(await page.getAttribute('#pv-card-page', 'href'), `${BASE}cards/en/tst1-001`);
 		assert.equal(await page.getAttribute('#pocket-viewer', 'role'), 'dialog');
 		assert.equal(await page.getAttribute('#pocket-viewer', 'aria-modal'), 'true');
