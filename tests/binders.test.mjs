@@ -1276,13 +1276,20 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(await page.locator('#unplaced-link').textContent(), '1 owned card not in any binder');
 		await page.screenshot({path: '/tmp/binders-list.png'});
 
-		// Owned cards in no binder.
+		// Owned cards in no binder: My Cards with its Not in a binder filter
+		// on, every other filter off and the sort kept, with the whole bar
+		// (design review 2, 2026-11-20: it opened a bare grid).
+		await page.evaluate(() => localStorage.setItem('cardTracker.cardsChoice', JSON.stringify({filters: {language: 'ja'}, sort: 'name'})));
 		await page.click('#unplaced-link');
-		await page.waitForSelector('#unplaced-grid .tile');
-		assert.equal(new URL(page.url()).pathname, `${BASE}binders/unplaced`);
-		assert.equal(await page.locator('#unplaced-summary').textContent(), '1 copy not in any binder, in 1 tile.');
-		assert.match(await page.locator('#unplaced-grid .tile').textContent(), /Test Squirtle/);
+		await page.waitForSelector('.card-grid .tile');
+		assert.equal(new URL(page.url()).pathname, `${BASE}cards`);
+		assert.deepEqual(await page.locator('.fb-chips .fb-chip').evaluateAll((chips) => chips.map((chip) => chip.dataset.filter)), ['unplaced']);
+		assert.equal(await page.inputValue('#cards-sort'), 'name', 'the sort kept');
+		assert.equal(await page.locator('.card-grid .tile').count(), 1);
+		assert.match(await page.locator('#cards-summary').textContent(), /^1 copy in 1 tile match/, 'the count matches the link');
+		assert.match(await page.locator('.card-grid .tile').textContent(), /Test Squirtle/);
 		await page.screenshot({path: '/tmp/binders-unplaced.png'});
+		await page.click('#cards-clear-all');
 
 		// Editing the size says what happens to the pockets; Cancel keeps it.
 		const reflowText = 'Some cards would not fit where they are, so the binder is laid out again in reading order: empty pockets close up, and placeholders and pockets left empty on purpose move with the cards.';

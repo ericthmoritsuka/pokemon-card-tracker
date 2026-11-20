@@ -489,6 +489,20 @@ function writeChoice(storageKey, state) {
 	}
 }
 
+// My Cards' saved choice (js/cards-view.js), here so another screen can
+// open My Cards already narrowed.
+export const MY_CARDS_CHOICE = 'cardTracker.cardsChoice';
+
+// Saves filters as a screen's choice, every other filter off and the sort
+// kept, for the screen to open with: the binders' "N owned cards not in any
+// binder" opens My Cards with Not in a binder on (design review 2,
+// 2026-11-20: it opened a bare grid with no bar).
+export function presetFilters(storageKey, filters) {
+	const saved = readChoice(storageKey, null);
+
+	writeChoice(storageKey, {filters: {...emptyFilters(), ...filters}, sort: saved.sort});
+}
+
 // ------------------------------------------------------------------ bar
 
 const SEARCH_DELAY_MS = 120;

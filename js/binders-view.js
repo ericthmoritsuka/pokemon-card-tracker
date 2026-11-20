@@ -65,7 +65,7 @@ import {checklistDex, dexLabel, listLanguages, namesLanguages, pokemonNames, spr
 import {gapText} from './goals.js';
 import {wishLanguage} from './pokemon-cards.js';
 import {loadedSpeciesNames, namesFor} from './catalog-views.js';
-import {activeFilters, applyFilters, filterBar, searchTextOf, sortItems} from './filter-bar.js';
+import {activeFilters, applyFilters, filterBar, MY_CARDS_CHOICE, presetFilters, searchTextOf, sortItems} from './filter-bar.js';
 import {searchKey} from './names.js';
 import {nowIso} from './collection.js';
 import {
@@ -126,6 +126,12 @@ const PICK_PAGE = 60;
 const LIST_PAGE = 120;
 
 const link = (route, attrs, ...children) => h('a', {...attrs, 'data-link': route, href: BASE + route}, ...children);
+
+// "N owned cards not in any binder": My Cards with its Not in a binder
+// filter on and every other filter off, so the count matches, with the
+// whole bar to narrow it further (design review 2, 2026-11-20: it opened a
+// bare grid). The filter is saved before the router follows the link.
+const looseCardsLink = (text) => link('cards', {class: 'unplaced-link', id: 'unplaced-link', onclick: () => presetFilters(MY_CARDS_CHOICE, {unplaced: true})}, text);
 
 const routeTo = (...parts) => parts.map((part) => encodeURIComponent(part)).join('/');
 
@@ -948,7 +954,7 @@ function bindersScreen(root, source) {
 		const loose = unplaced(live, data.binders).length;
 		const unplacedLink = source.readOnly || !live.length
 			? null
-			: link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, `${plural(loose, 'owned card', 'owned cards')} not in any binder`);
+			: looseCardsLink(`${plural(loose, 'owned card', 'owned cards')} not in any binder`);
 
 		if (!binders.length) {
 			body.replaceChildren(h('div', {class: 'card empty-state'},
@@ -1094,7 +1100,7 @@ function binderScreen(root, source, id, pageParam) {
 
 	valueOpen.className = 'value-open value-line';
 	const onVisible = () => document.visibilityState === 'visible' && drawValue();
-	const unplacedLink = source.readOnly ? null : link('binders/unplaced', {class: 'unplaced-link', id: 'unplaced-link'}, 'Owned cards not in any binder');
+	const unplacedLink = source.readOnly ? null : looseCardsLink('Owned cards not in any binder');
 	// Many cards into the tray at once; a binder made from a list has none.
 	const addTrayButton = source.readOnly ? null : h('button', {id: 'binder-add-tray', onclick: () => openTrayPicker(), type: 'button'}, 'Add cards to the tray');
 	// Fill this binder's placeholders with cards you own (js/fill-view.js).

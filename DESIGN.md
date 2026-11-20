@@ -2704,7 +2704,11 @@ stands clear of it. The 4 px came from the "Page N of M" line and the gap above 
 the book, whose pockets stay 44 px wide at 740 x 360. *(Design polish, 2026-11-06.)*
 
 A binder view answers both questions a collector asks: which pages a card is in, and which owned
-cards are not in any binder yet.
+cards are not in any binder yet. The binders list's "N owned cards not in any binder" opens My
+Cards with its **Not in a binder** filter on, every other filter off and the sort kept, so the
+whole bar is there to narrow them further (design review 2, 2026-11-20: it opened a bare grid of
+its own). With that filter on, My Cards' count leaves out a tile's copies that are in a binder, so
+it matches the link's number. The `binders/unplaced` screen stays for an old link.
 
 **Resizing a binder** (Eric, 2026-10-02). When a binder's grid changes:
 

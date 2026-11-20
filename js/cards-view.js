@@ -33,7 +33,7 @@ import {cardInfoList, isLive, listCards, listPlaces, onChange, sourceNames, stor
 import {openStoreSheet} from './copy-sheet.js';
 import {BASE, errorText, fromHistory, h, rememberInHistory} from './dom.js';
 import {whenMemberName} from './family.js';
-import {activeFilters, applyFilters, FILTERS, filterBar, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
+import {activeFilters, applyFilters, FILTERS, filterBar, MY_CARDS_CHOICE, searchTextOf, sortItems, storageOf, storedEntries} from './filter-bar.js';
 import {flagBadge} from './flags.js';
 import {formatCount, plural} from './format.js';
 import {languageChip, languageLabel} from './languages.js';
@@ -223,7 +223,7 @@ export {canShareFiles};
 
 // The choice of sort and filters, per screen (js/filter-bar.js). The old
 // sort and language keys seed it once, so nobody loses their sort.
-const CHOICE_KEY = 'cardTracker.cardsChoice';
+const CHOICE_KEY = MY_CARDS_CHOICE;
 const SORT_KEY = 'cardTracker.cardsSort';
 const FILTER_KEY = 'cardTracker.cardsLanguage';
 const OLD_SORTS = ['newest', 'oldest', 'name', 'set'];
@@ -1205,8 +1205,11 @@ export function cardsScreen(root, {
 	// The summary line, the storage button, Show more, and the swipe order.
 	function drawCounts(visible) {
 		const {filters, query} = bar.state;
-		// Filtered by place, a tile's copies elsewhere are not counted.
-		const shownCopies = visible.flatMap((group) => storedEntries(group.entries, filters.storage));
+		// Filtered by place, a tile's copies elsewhere are not counted; with
+		// Not in a binder, nor its copies in a binder, so the count matches
+		// the binders' "N owned cards not in any binder".
+		const shownCopies = visible.flatMap((group) => storedEntries(group.entries, filters.storage))
+			.filter((entry) => !filters.unplaced || !placed.has(entry.id));
 		const copies = shownCopies.length;
 		const narrowed = Boolean(query.trim()) || activeFilters(filters).length > 0;
 
