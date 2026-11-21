@@ -24,7 +24,7 @@ export const RELEASES = [
 		date: '2026-11-21',
 		items: [
 			'Undo after Start over now says when a copy you changed was merged into the copy it restored, so its numbers add up to your cards.',
-			'The guide\'s pictures show the app as it is now.',
+			'A copy you changed that matched none of the restored copies is still said to be kept, as before.',
 		],
 		version: 'v96',
 	},
