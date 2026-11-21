@@ -11,6 +11,11 @@ are Recife time. Each line ends with its commit.
 
 ## Live
 
+### 2026-11-21
+
+- **v96:** Start over's Undo counts a changed copy merged into its restored twin as merged, not kept, so its numbers add
+  up to the collection (QA saw "1 added copy was kept" with 894 copies, not 895). `b31d27a`
+
 ### 2026-11-20 (morning)
 
 - **v95:** a quieter version switch, and fixes from two QA passes. `47df826`
