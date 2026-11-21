@@ -1205,6 +1205,15 @@ const order = (diff) => (Number.isNaN(diff) ? 0 : diff);
 
 const newestFirst = (a, b) => order(time(b.updated_at) - time(a.updated_at)) || byId(a, b);
 
+// When a copy's `keys` last changed. A version a new app wrote carries a
+// stamp per field; one an older app wrote has only updated_at. Undo stamps
+// the copies it restores with the time of the Undo, so updated_at alone
+// would rank an old restored copy above an edit made since.
+const editedAt = (entry, keys) => time(validVersion(entry) ? keys.reduce((at, key) => later(at, fieldStamp(entry, key)), null) : entry.updated_at);
+
+// The copy whose `keys` changed last first, then by updated_at, then by id.
+const newestEditFirst = (keys) => (a, b) => order(editedAt(b, keys) - editedAt(a, keys)) || newestFirst(a, b);
+
 const oldestFirst = (a, b) => order(time(a.created_at) - time(b.created_at)) || byId(a, b);
 
 function stampAfterAll(entries) {
@@ -1239,23 +1248,25 @@ const livePhotoIds = (photos) => new Set((Array.isArray(photos) ? photos : []).f
 // photo of the group, its own pin while that still shows a live image (else
 // the newest other pin), the newest Liga price, the newest non-empty value of
 // each field a person sets, and the import fields of the most recently
-// edited copy.
+// edited copy. "Newest" is by the field's own stamp, not the copy's
+// updated_at, which Undo resets on a copy it restores.
 function survivorOf(members) {
 	const [survivor] = [...members].sort(oldestFirst);
 	const newest = [...members].sort(newestFirst);
 	const kept = {...survivor};
+	const importer = [...members].sort(newestEditFirst(IMPORT_FIELDS))[0];
 
 	for (const key of IMPORT_FIELDS) {
-		if (newest[0][key] === undefined) {
+		if (importer[key] === undefined) {
 			delete kept[key];
 		}
 		else {
-			kept[key] = newest[0][key];
+			kept[key] = importer[key];
 		}
 	}
 
 	for (const key of USER_FIELDS) {
-		const from = newest.find((member) => filled(member[key]));
+		const from = [...members].sort(newestEditFirst([key])).find((member) => filled(member[key]));
 
 		if (from) {
 			kept[key] = from[key];

@@ -74,7 +74,7 @@ const collection = await import('../js/collection.js');
 const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
 const {moveToCardInfo} = await import('../js/card-info.js');
-const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
+const {collapseImportDuplicates, mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoLines, undoStartOver} = await import('../js/start-over.js');
 const {fillPlan, planAfterAdding} = await import('../js/placeholder-fill.js');
 const {fillPlaceholders, placements} = await import('../js/binders.js');
@@ -359,6 +359,49 @@ describe('planUndo', () => {
 		assert.ok(byId.get(placed).deleted_at, 'a copy only placed in a pocket is not changed, so it goes');
 		assert.equal(pocket(2).want.card_id, byId.get(placed).card_id, 'and its pocket keeps the card\'s placeholder');
 		assert.deepEqual(counts, {added: plan.undo.added.length - 1, folded: 1, kept: 0, restored: 3});
+	});
+
+	// The restored copy is stamped by Undo itself, so it is the newest of the
+	// pair; the fold must still keep what a person set on the added copy.
+	describe('what the person set on an added copy survives the fold into its restored twin', () => {
+		const later = '2026-10-31T12:00:00.000Z';
+		const set = [
+			['is_favorite', {is_favorite: true}, undefined],
+			['condition (restored copy had its own)', {condition: 'Played'}, {condition: 'Near Mint'}],
+			['storage (restored copy had its own)', {storage: 'Box B'}, {storage: 'Box A'}],
+			['purchase price (restored copy had its own)', {purchase_currency: 'EUR', purchase_price: 12}, {purchase_currency: 'USD', purchase_price: 3}],
+			['notes (restored copy had its own)', {notes: 'Signed'}, {notes: 'Old'}],
+			['grade (restored copy had its own)', {grade: '10', grader: 'PSA'}, {grade: '7', grader: 'BGS'}],
+			['a photo and the picture pinned to it', {main_image: 'ph1', photos: [{id: 'ph1', path: 'u/ph1/ph1.webp'}]}, undefined],
+			['a hand-set Liga price', {price_manual: {currency: 'EUR', value: 9}}, undefined],
+			['language set by hand', {language: 'en', language_source: 'manual'}, {language: 'pt', language_source: 'import'}],
+			['finish chosen by hand', {variant_id: 'holo'}, {variant_id: 'normal'}],
+		];
+
+		for (const [label, changes, restoredHad] of set) {
+			test(label, async () => {
+				const base = await startDoc();
+
+				Object.assign(base.cards.find((entry) => entry.id === 'a001'), restoredHad || {});
+
+				const {plan} = await started(base);
+				const doc = structuredClone(plan.doc);
+				const [graded] = plan.undo.added;
+				const i = doc.cards.findIndex((entry) => entry.id === graded);
+
+				doc.cards[i] = stampEntry(doc.cards[i], {...doc.cards[i], ...changes, updated_at: later});
+
+				const {counts, doc: undone} = planUndo(doc, plan.undo, {now: Date.parse(later) + 1000});
+				const kept = collapseImportDuplicates(undone.cards).find((entry) => entry.id === 'a001');
+
+				assert.equal(counts.folded, 1, 'the changed copy was folded');
+				assert.equal(kept.deleted_at, null);
+
+				for (const [key, value] of Object.entries(changes)) {
+					assert.deepEqual(kept[key], value, key);
+				}
+			});
+		}
 	});
 
 	test('an added copy changed since with no restored copy from its row is counted as kept, not folded', async () => {
