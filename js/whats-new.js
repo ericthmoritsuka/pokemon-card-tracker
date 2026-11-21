@@ -21,6 +21,14 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-21',
+		items: [
+			'Undo after Start over now says when a copy you changed was merged into the copy it restored, so its numbers add up to your cards.',
+			'The guide\'s pictures show the app as it is now.',
+		],
+		version: 'v96',
+	},
+	{
 		date: '2026-11-20',
 		items: [
 			'A new version now takes over only when you come back after at least 5 minutes away, never while you move between screens, and a card in hand or a family member\'s view carries over.',
