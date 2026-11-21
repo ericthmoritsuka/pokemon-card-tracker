@@ -13,6 +13,12 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-21
 
+- **v97:** Undo after Start over keeps your newer edits. `52da1dd`
+  - Undo stamps the copy it restores at the Undo's time, and the fold that merges it with an added copy you changed took
+    the newest copy whole, so the restored copy's older condition, storage, price, notes, grade, language set by hand,
+    or finish chosen by hand beat your later edit. The fold now ranks each field by its own edit time, as sync does; a
+    favorite, photos, and a Liga price were already kept.
+
 - **v96:** Start over's Undo counts a changed copy merged into its restored twin as merged, not kept, so its numbers add
   up to the collection (QA saw "1 added copy was kept" with 894 copies, not 895). `b31d27a`
 
