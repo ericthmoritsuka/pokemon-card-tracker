@@ -75,7 +75,7 @@ const {importEntries} = await import('../js/monprice.js');
 const {isMember} = await import('../js/collections.js');
 const {moveToCardInfo} = await import('../js/card-info.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
-const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoStartOver} = await import('../js/start-over.js');
+const {UNDO_DAYS, applyStartOver, planStartOver, planUndo, previewStartOver, savedUndo, startOverIds, undoLines, undoStartOver} = await import('../js/start-over.js');
 const {fillPlan, planAfterAdding} = await import('../js/placeholder-fill.js');
 const {fillPlaceholders, placements} = await import('../js/binders.js');
 
@@ -339,7 +339,7 @@ describe('planUndo', () => {
 		assert.ok(byId.get('a002').deleted_at, 'a copy deleted again since is not brought back');
 	});
 
-	test('an added copy changed since stays, with its pocket, and is counted as kept', async () => {
+	test('an added copy changed since stays, with its pocket, and is counted as folded when a restored copy shares its import row, since the save folds the two', async () => {
 		const {plan} = await started();
 		const doc = structuredClone(plan.doc);
 		const [graded, placed] = plan.undo.added;
@@ -358,7 +358,22 @@ describe('planUndo', () => {
 		assert.equal(pocket(1).entry_id, graded, 'and so does its pocket');
 		assert.ok(byId.get(placed).deleted_at, 'a copy only placed in a pocket is not changed, so it goes');
 		assert.equal(pocket(2).want.card_id, byId.get(placed).card_id, 'and its pocket keeps the card\'s placeholder');
-		assert.deepEqual(counts, {added: plan.undo.added.length - 1, kept: 1, restored: 3});
+		assert.deepEqual(counts, {added: plan.undo.added.length - 1, folded: 1, kept: 0, restored: 3});
+	});
+
+	test('an added copy changed since with no restored copy from its row is counted as kept, not folded', async () => {
+		const {plan} = await started();
+		const doc = structuredClone(plan.doc);
+		const lone = doc.cards.find((entry) => entry.import_key === KEY('003', 0) && !entry.deleted_at);
+		const i = doc.cards.indexOf(lone);
+		const later = '2026-10-31T12:00:00.000Z';
+
+		doc.cards[i] = stampEntry(lone, {...lone, grade: '10', grader: 'PSA', updated_at: later});
+
+		const {counts, doc: undone} = planUndo(doc, plan.undo, {now: Date.parse(later) + 1000});
+
+		assert.deepEqual(counts, {added: plan.undo.added.length - 1, folded: 0, kept: 1, restored: 3});
+		assert.equal(live(undone).filter((entry) => entry.import_key === KEY('003', 0)).length, 1);
 	});
 
 	test('an added copy that only went through a sync round trip is not counted as changed', async () => {
@@ -366,7 +381,7 @@ describe('planUndo', () => {
 		const synced = mergeDocuments(JSON.parse(JSON.stringify(plan.doc)), JSON.parse(JSON.stringify(plan.doc)));
 		const {counts} = planUndo(synced, plan.undo, {now: NOW + 1000});
 
-		assert.deepEqual(counts, {added: plan.undo.added.length, kept: 0, restored: 3});
+		assert.deepEqual(counts, {added: plan.undo.added.length, folded: 0, kept: 0, restored: 3});
 	});
 });
 
@@ -448,7 +463,7 @@ describe('filling placeholders', () => {
 
 		const {counts, doc: undone} = planUndo(doc, plan.undo, {now: NOW + 1000});
 
-		assert.equal(counts.kept, 1);
+		assert.equal(counts.folded, 1, 'the graded copy and the restored copy of its row become one in the save');
 		assert.equal(slotAt(undone, 1).entry_id, kept, 'the graded copy keeps its pocket');
 		assert.equal(slotAt(undone, 5), null, 'pocket 5 holds something else since, so it is not touched');
 		assert.equal(slotAt(undone, 7).want.card_id, 'tst1-003', 'the moved copy goes, and its pocket keeps the card\'s placeholder');
@@ -603,7 +618,7 @@ describe('the latest run', () => {
 		const result = planUndo(mergeDocuments(a.doc, other), a.undo, {now: NOW + 1000});
 
 		assert.ok(!result.stale);
-		assert.deepEqual(result.counts, {added: 3, kept: 0, restored: 3});
+		assert.deepEqual(result.counts, {added: 3, folded: 0, kept: 0, restored: 3});
 	});
 });
 
@@ -697,9 +712,30 @@ describe('saving', () => {
 
 		const back = await undoStartOver(undo);
 
-		assert.deepEqual(back, {added: 3, kept: 0, restored: 3});
+		assert.deepEqual(back, {added: 3, folded: 0, kept: 0, restored: 3});
 		assert.equal(await savedUndo(), null, 'used once');
 		assert.deepEqual(live(doc).map((entry) => entry.id).sort(), ['a001', 'a002', 'a003', HAND].sort());
+	});
+
+	test('Undo says what became of an added copy changed since that the save folds into its restored twin, and the numbers add up to the copies held', async () => {
+		const doc = await collection.loadDocument();
+		const wasLive = live(doc).length;
+		const {undo} = await applyStartOver(ENTRIES);
+		const twin = doc.cards.find((entry) => entry.import_key === KEY('001') && !entry.deleted_at);
+		const i = doc.cards.indexOf(twin);
+
+		doc.cards[i] = stampEntry(twin, {...twin, grade: '10', grader: 'PSA', updated_at: new Date(NOW + 5000).toISOString()});
+
+		const back = await undoStartOver(undo);
+
+		assert.deepEqual(back, {added: 2, folded: 1, kept: 0, restored: 3});
+		assert.equal(live(doc).length, wasLive, 'the changed added copy is folded into the restored copy of its row, so the copies are what they were');
+		assert.equal(live(doc).length, back.restored + live(doc).filter((entry) => !undo.removed.some((item) => item.id === entry.id)).length, 'the restored copies and the others held add up');
+		assert.equal(live(doc).find((entry) => entry.id === 'a001').grade, '10', 'the edit stays on the restored copy');
+
+		const text = undoLines(back).map((line) => line.text);
+
+		assert.deepEqual(text, ['Undone. 3 copies are back, and 2 added copies were removed.', '1 added copy you changed matched a restored copy and was merged into it.']);
 	});
 
 	test('a kept undo is offered only to the account that started over, and a second Start over replaces it', async () => {
@@ -751,7 +787,7 @@ describe('saving', () => {
 
 		const back = await undoStartOver(undo);
 
-		assert.deepEqual(back, {added: 3, kept: 0, restored: 3});
+		assert.deepEqual(back, {added: 3, folded: 0, kept: 0, restored: 3});
 		assert.equal(doc.start_over.undoes, undo.run);
 		await assert.rejects(undoStartOver(undo), /already undone/);
 	});

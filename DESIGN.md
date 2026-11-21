@@ -2237,7 +2237,9 @@ Undo, one step, brings the removed copies back and removes the added ones, and p
 trays, picks, and collection members back, each only while it still holds what Start over wrote,
 so an edit another phone synced since stays. An added copy that changed since (graded, priced,
 favorited; Undo compares a hash of the copy kept with the undo, leaving out its stamps) stays, with
-its pockets, and Undo says how many it kept. A pocket Start over turned into a placeholder gets
+its pockets, and Undo says how many it kept. One that shares its import row with a copy Undo brings
+back is folded into that copy by the save, so Undo says it was merged into it, not kept (QA,
+2026-11-20): the copies back, kept, and already there add up to the copies held. A pocket Start over turned into a placeholder gets
 its old copy back while it still holds the placeholder, or holds an added copy that Undo removes:
 filled since by Fill placeholders, the automatic fill, or by hand. Any other pocket holding an
 added copy that goes keeps that card's placeholder, and a tray drops it. A pocket filled since with

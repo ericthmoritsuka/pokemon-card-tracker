@@ -26,7 +26,8 @@ import {START_OVER_META, autoFillOn, planAfterAdding} from './placeholder-fill.j
 import {copyFits, planUngot} from './wishlist.js';
 import {isMember, memberIds, withMembers, withoutMembers} from './collections.js';
 import {infoKey} from './card-info.js';
-import {nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
+import {collapseImportDuplicates, nextStamp, restoreEntry, stableJson, stampEntry} from './merge.js';
+import {plural} from './format.js';
 
 // The document's latest Start over mark, {at, id}, or null: Start over's
 // Undo writes one too, {at, id, undoes: <the run's id>}. Start over, its
@@ -468,7 +469,7 @@ export function movesAfterRun(doc, undo) {
 // elsewhere is refused, and a move logged before the Undo cannot be undone
 // (js/moves.js planUndoMove).
 export function planUndo(doc, undo, {id = newId(), now = Date.now()} = {}) {
-	const counts = {added: 0, kept: 0, restored: 0};
+	const counts = {added: 0, folded: 0, kept: 0, restored: 0};
 
 	if (staleUndo(doc, undo)) {
 		return {counts, doc: structuredClone(doc), stale: true};
@@ -480,11 +481,58 @@ export function planUndo(doc, undo, {id = newId(), now = Date.now()} = {}) {
 		return {blocked, counts, doc: structuredClone(doc), stale: false};
 	}
 
-	const done = undoSwap(doc, undo, {drop: ['removed_by'], mark: id, now});
+	const {keptIds, ...done} = undoSwap(doc, undo, {drop: ['removed_by'], mark: id, now});
+
+	done.counts = {...done.counts, folded: 0};
+
+	foldKept(done, keptIds);
 
 	done.doc.start_over = {at: nextStamp(latestRun(doc) && latestRun(doc).at, now), id, undoes: (undo && undo.run) || null};
 
 	return {...done, stale: false};
+}
+
+// An added copy kept because it changed since, and a copy Undo brings back
+// from the same import row, share an import_key, so the save folds them into
+// one copy (js/merge.js collapseImportDuplicates). counts.folded counts the
+// kept copies that fold away, taken out of counts.kept, so restored, kept,
+// and the copies already there add up to the live copies after the save.
+// `doc` itself is not changed.
+function foldKept(done, keptIds) {
+	const keys = new Set(keptIds.map((id) => (done.doc.cards.find((entry) => entry && entry.id === id) || {}).import_key).filter(Boolean));
+
+	if (!keys.size) {
+		return;
+	}
+
+	const wasLive = new Map(done.doc.cards.filter((entry) => entry && isLive(entry) && keys.has(entry.import_key)).map((entry) => [entry.id, entry.import_key]));
+	const folds = new Map();
+
+	for (const entry of collapseImportDuplicates(done.doc.cards)) {
+		if (entry && wasLive.has(entry.id) && entry.deleted_at) {
+			folds.set(wasLive.get(entry.id), (folds.get(wasLive.get(entry.id)) || 0) + 1);
+		}
+	}
+
+	for (const [key, folded] of folds) {
+		const here = keptIds.filter((id) => wasLive.get(id) === key).length;
+		const count = Math.min(folded, here);
+
+		done.counts.folded += count;
+		done.counts.kept -= count;
+	}
+}
+
+// What the import screen says once Undo is done, as {id, text} lines, from planUndo's
+// counts: the copies back and the added copies removed, then the added
+// copies kept because they changed since, then the changed ones folded into
+// the restored copy they match, which the first line already counts.
+export function undoLines(counts) {
+	return [
+		{id: 'start-over-undone', text: `Undone. ${plural(counts.restored, 'copy is', 'copies are')} back, and ${plural(counts.added, 'added copy was', 'added copies were')} removed.`},
+		counts.kept ? {id: 'start-over-undo-kept', text: `${plural(counts.kept, 'added copy was', 'added copies were')} kept because you changed ${counts.kept === 1 ? 'it' : 'them'} since.`} : null,
+		counts.folded ? {id: 'start-over-undo-folded', text: `${plural(counts.folded, 'added copy', 'added copies')} you changed matched ${counts.folded === 1 ? 'a restored copy' : 'restored copies'} and ${counts.folded === 1 ? 'was' : 'were'} merged into ${counts.folded === 1 ? 'it' : 'them'}.`} : null,
+	].filter(Boolean);
 }
 
 // planUndo's work, for any change planSwap made (Start over, a move in the
@@ -502,6 +550,7 @@ export function undoSwap(doc, undo, {drop = [], mark = null, now = Date.now()} =
 	const hashes = undo.hashes || null;
 	const folded = new Set((doc.cards || []).filter((entry) => entry && entry.deleted_at && entry.merged_into && !added.has(entry.id)).map((entry) => entry.merged_into));
 	const counts = {added: 0, kept: 0, restored: 0};
+	const keptIds = new Set();
 	const gone = new Set();
 	const goneEntries = new Map();
 
@@ -531,6 +580,7 @@ export function undoSwap(doc, undo, {drop = [], mark = null, now = Date.now()} =
 		if (added.has(entry.id) && isLive(entry) && !folded.has(entry.id)) {
 			if (hashes && hashes[entry.id] !== copyHash(entry)) {
 				counts.kept++;
+				keptIds.add(entry.id);
 
 				return entry;
 			}
@@ -654,7 +704,7 @@ export function undoSwap(doc, undo, {drop = [], mark = null, now = Date.now()} =
 		next.wishlist = next.wishlist.map((item) => (item && byWish.get(item.id)) || item);
 	}
 
-	return {counts, doc: next};
+	return {counts, doc: next, keptIds: [...keptIds]};
 }
 
 // Saved: the preview, as Start over would do it now.

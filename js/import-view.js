@@ -13,7 +13,7 @@ import {BASE, errorText, h, namedError} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {catalogLanguage, languageChip, languageLabel} from './languages.js';
 import {LARGE_COUNT, finishLabel, importEntries, isImportableFile, localPart, matchRows, parseExport} from './monprice.js';
-import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoStartOver} from './start-over.js';
+import {UNDO_DAYS, applyStartOver, previewStartOver, savedUndo, undoLines, undoStartOver} from './start-over.js';
 import {startOverBlockedText} from './moves.js';
 import {afterAdding, afterText, undoAdding} from './placeholder-fill.js';
 import {UNDO_MS} from './reorder.js';
@@ -170,12 +170,7 @@ function undoStartOverButton(box, undo, label, id) {
 		try {
 			const back = await undoStartOver(undo);
 
-			box.replaceChildren(...[
-				h('p', {class: 'big', id: 'start-over-undone'}, `Undone. ${plural(back.restored, 'copy is', 'copies are')} back, and ${plural(back.added, 'added copy was', 'added copies were')} removed.`),
-				back.kept
-					? h('p', {id: 'start-over-undo-kept'}, `${plural(back.kept, 'added copy was', 'added copies were')} kept because you changed ${back.kept === 1 ? 'it' : 'them'} since.`)
-					: null,
-			].filter(Boolean));
+			box.replaceChildren(...undoLines(back).map(({id, text}) => h('p', {class: id === 'start-over-undone' ? 'big' : null, id}, text)));
 		}
 		catch (err) {
 			if (err && err.stale) {
