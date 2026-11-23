@@ -808,12 +808,15 @@ export function familyWishlistView(root, {userId}) {
 
 // ------------------------------------------------------ trade ideas
 
-// "You have 1 spare · Near Mint": how many spares fit, and their conditions.
-function sparesLine(who, copies) {
+// "You have 1 spare · English · Excellent": how many spares fit, their
+// languages when the wish takes any (its chip names the one it takes), and
+// their conditions.
+function sparesLine(who, item, copies) {
+	const languages = item.language ? [] : [...new Set(copies.map((entry) => entry.language).filter(Boolean))].map(languageLabel);
 	const conditions = [...new Set(copies.map((entry) => entry.condition).filter(Boolean))];
 	const n = copies.length;
 
-	return [`${who} ${formatCount(n)} ${n === 1 ? 'spare' : 'spares'}`, ...conditions].join(' · ');
+	return [`${who} ${formatCount(n)} ${n === 1 ? 'spare' : 'spares'}`, ...languages, ...conditions].join(' · ');
 }
 
 // Trade ideas with a family member (Eric, 2026-11-23; DESIGN.md section 6,
@@ -843,13 +846,13 @@ export function tradeIdeasView(root, {userId}) {
 	const head = h('div', {class: 'view-head'}, title);
 	let handoff = null;
 
-	function rows(list, ideas, line, records) {
+	function rows(list, ideas, who, records) {
 		list.replaceChildren(...ideas.map(({copies, item}) => {
 			const row = h('li', {class: 'wl-item wl-loading', 'data-id': item.id});
 
 			load(item, viewing).then((found) => {
 				if (alive) {
-					row.replaceWith(itemRow(item, found, {line: line(copies), records, viewing}));
+					row.replaceWith(itemRow(item, found, {line: sparesLine(who, item, copies), records, viewing}));
 				}
 			});
 
@@ -960,8 +963,8 @@ export function tradeIdeasView(root, {userId}) {
 			? 'Each row is a card on a wishlist, with the spares that fit it. A spare is a copy beyond the first of the same card in the same language.'
 			: `Nothing to trade with ${name} yet: none of your spares are on their wishlist${theirs ? ', and none of theirs are on yours' : ''}.`;
 
-		rows(give, giving, (copies) => sparesLine('You have', copies), theirRecords);
-		rows(get, getting, (copies) => sparesLine(`${name} has`, copies), null);
+		rows(give, giving, 'You have', theirRecords);
+		rows(get, getting, `${name} has`, null);
 
 		if (!giving.length) {
 			give.replaceChildren(h('li', {class: 'muted ideas-none'}, `None of your spares are on ${name}'s wishlist.`));

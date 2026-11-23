@@ -611,7 +611,7 @@ describe('a family member\'s Sets and cards', () => {
 		assert.ok(await page.locator('#family-strip').count(), 'in Member A\'s view');
 		assert.equal(await page.locator('#ideas-give-title').textContent(), 'Your spares Member A wants (1)');
 		assert.deepEqual(await page.locator('#ideas-give .wl-item').evaluateAll((rows) => rows.map((row) => row.dataset.id)), ['their-1'], 'tst1-004 has no spare');
-		assert.equal(await page.locator('#ideas-give .wl-spare').textContent(), 'You have 1 spare · Excellent');
+		assert.equal(await page.locator('#ideas-give .wl-spare').textContent(), 'You have 1 spare · English · Excellent', 'their wish takes any language, so the line names the spare\'s');
 		assert.equal(await page.locator('#ideas-get-title').textContent(), 'Member A\'s spares you want (1)');
 		assert.equal(await page.locator('#ideas-get .wl-spare').textContent(), 'Member A has 1 spare · Played', 'tst2-007 has no spare; the Near Mint copy is kept');
 		await page.screenshot({fullPage: true, path: '/tmp/family-trade-ideas.png'});
