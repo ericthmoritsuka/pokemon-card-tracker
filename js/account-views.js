@@ -481,7 +481,7 @@ export function profileView(root) {
 				'data-link': `family/${encodeURIComponent(member.user_id)}/ideas`,
 				href: `${BASE}family/${encodeURIComponent(member.user_id)}/ideas`,
 			}, 'Trade ideas'));
-			row.querySelector('.member-text').append(h('span', {class: 'muted member-ideas-count', hidden: true}));
+			row.querySelector('.member-text').append(h('span', {class: 'member-ideas-count', hidden: true}));
 		}
 
 		if (isOwner && member.role !== 'owner') {

@@ -3338,6 +3338,13 @@ progress {
 	width: auto;
 }
 
+/* Its own class, not .muted, so a member's role line stays the one muted
+   line in the row. */
+.member-ideas-count {
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+
 /* The sign-in form sits inside Profile's Sign in panel without a second
    frame. */
 #profile-signin .card {
