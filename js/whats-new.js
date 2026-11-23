@@ -23,6 +23,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-23',
 		items: [
+			'A binder\'s cover can be any color: the last circle under Cover color, a rainbow marked Any color, opens your phone\'s color picker, so the binder matches the one on your shelf.',
+			'Once you pick a color there, the circle shows it inside a rainbow ring.',
+		],
+		version: 'v99',
+	},
+	{
+		date: '2026-11-23',
+		items: [
 			'On a card page, the full-screen card closes with a tap anywhere outside the card, so you no longer have to reach for the X.',
 			'A copy two phones each logged out in a trade or sale while offline, with both of them undone later, comes back to your collection, its pocket, and its tray. Before, it stayed out.',
 		],
