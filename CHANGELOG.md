@@ -5,11 +5,20 @@ https://ericthmoritsuka.github.io/pokemon-card-tracker/ (tap Reload when the app
 version is installed). **Planned** means it is designed in `DESIGN.md` but not built yet. Times
 are Recife time. Each line ends with its commit.
 
-## In Progress (2026-11-20)
+## In Progress (2026-11-23)
 
 - Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
 
 ## Live
+
+### 2026-11-23
+
+- **v98:** a tap off the card closes the full-screen card, and a copy two Undos left out comes back. `09139d6`
+  - On a card page, a tap anywhere outside the card (or on the empty part of the bars) closes the full-screen viewer, as
+    the binder's pocket viewer already did; the X, Escape, and Back still work. (Eric, 2026-11-23.)
+  - A copy two phones each logged out while offline, with each phone then undoing its own entry while the other was
+    still live there, stayed removed after the sync with both entries undone. Every sync now brings such a copy back,
+    into its pocket, tray, and collections where they still wait for it (`js/moves.js` `planStrandedOuts`).
 
 ### 2026-11-21
 
