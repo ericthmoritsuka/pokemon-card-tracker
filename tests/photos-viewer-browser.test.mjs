@@ -503,6 +503,34 @@ for (const [name, viewport] of [['portrait', {height: 740, width: 360}], ['lands
 			assert.equal(await page.locator('.ph-full-hint').isVisible(), false);
 		});
 
+		test('a tap on the card keeps it open; a tap off the card, or on the dark of the bar, closes it (Eric, 2026-11-23)', async () => {
+			const {cdp, page} = phone;
+			const rest = await paneState(page, 0);
+
+			await touch(cdp, 'touchStart', [{id: 0, ...center(rest)}]);
+			await touch(cdp, 'touchEnd');
+			await new Promise((resolve) => setTimeout(resolve, 500));
+			assert.equal(await page.locator('.ph-full').count(), 1, 'a tap on the card leaves it open');
+
+			// Portrait leaves dark above and below the card, landscape beside it.
+			assert.ok(rest.ty > 8 || rest.tx > 8, 'there is dark around the card');
+
+			const off = rest.ty > 8 ? {x: center(rest).x, y: rest.box.y + rest.ty / 2} : {x: rest.box.x + rest.tx / 2, y: center(rest).y};
+
+			await touch(cdp, 'touchStart', [{id: 0, ...off}]);
+			await touch(cdp, 'touchEnd');
+			await page.waitForSelector('.ph-full', {state: 'detached', timeout: 3000});
+
+			await page.locator('.ph-viewport').click();
+			await page.waitForSelector('.ph-full .ph-pane[data-ready="true"]');
+			await page.locator('.ph-full-bar').evaluate((el) => el.click());
+			await page.waitForSelector('.ph-full', {state: 'detached', timeout: 3000});
+
+			// Open again for the tests after this one.
+			await page.locator('.ph-viewport').click();
+			await page.waitForSelector('.ph-full .ph-pane[data-ready="true"]');
+		});
+
 		test('Compare puts the official image and the photo side by side, with zoom linked in card coordinates', async () => {
 			const {page} = phone;
 

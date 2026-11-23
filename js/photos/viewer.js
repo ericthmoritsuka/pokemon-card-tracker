@@ -40,6 +40,7 @@ import {
 	maxZoom,
 	momentumAt,
 	needsDetail,
+	onCard,
 	pinchView,
 	restView,
 	rubberView,
@@ -107,7 +108,7 @@ const zoomText = (s) => `${s < 9.95 ? s.toFixed(1) : Math.round(s)}×`;
 //   pull             the same for a downward drag at zoom 1, {allowed(),
 //                    drag(dy), end(dy, velocity)}: the pocket viewer closes
 //                    on it
-export function zoomPane({art = plainArt, onActive = null, onReady = null, onView = null, pull = null, resolveDetail = () => Promise.resolve(null), resolveSrc = () => Promise.resolve(null), swipe = null}) {
+export function zoomPane({art = plainArt, onActive = null, onReady = null, onView = null, outside = null, pull = null, resolveDetail = () => Promise.resolve(null), resolveSrc = () => Promise.resolve(null), swipe = null}) {
 	const inner = h('div', {class: 'ph-pane-art'});
 	const element = h('div', {class: 'ph-pane', role: 'img'}, inner);
 
@@ -568,6 +569,15 @@ export function zoomPane({art = plainArt, onActive = null, onReady = null, onVie
 		else if (kind === 'pending' && tapped) {
 			const tap = {t: event.timeStamp, x: point.x, y: point.y};
 
+			// A tap off the card, on the dark around it, closes (Eric,
+			// 2026-11-23), at once rather than after the double tap's wait.
+			if (outside && !onCard(view, base, point.x - offset, point.y)) {
+				lastTap = null;
+				outside();
+
+				return;
+			}
+
 			if (isDoubleTap(lastTap, tap)) {
 				lastTap = null;
 				animateTo(doubleTapView(view, tap, stage, base, limit()));
@@ -758,6 +768,7 @@ export function openViewer({
 		},
 		onReady,
 		onView,
+		outside: () => done(),
 		resolveDetail,
 		resolveSrc,
 		swipe,
@@ -970,6 +981,16 @@ export function openViewer({
 	}
 
 	close.addEventListener('click', done);
+
+	// A tap on the dark around the images, above or below them, closes as a
+	// tap off the card does; a button, a picker, or the label does not.
+	const empty = new Set([dialog, dialog.querySelector('.ph-full-top'), dialog.querySelector('.ph-full-bar'), area, ...sides]);
+
+	dialog.addEventListener('click', (event) => {
+		if (empty.has(event.target)) {
+			done();
+		}
+	});
 	remove.addEventListener('click', async () => {
 		const slide = slides[at];
 
@@ -1004,8 +1025,8 @@ export function openViewer({
 	}
 	else {
 		showHint(HINT_KEY, slides.length > 1
-			? 'Pinch or double-tap to zoom, then drag to look around. Swipe for the next image.'
-			: 'Pinch or double-tap to zoom, then drag to look around.');
+			? 'Pinch or double-tap to zoom, then drag to look around. Swipe for the next image. Tap outside the card to close.'
+			: 'Pinch or double-tap to zoom, then drag to look around. Tap outside the card to close.');
 	}
 
 	return {close: done, compare: enterCompare, element: dialog};

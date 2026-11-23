@@ -34,6 +34,7 @@ import {
 	maxZoom,
 	momentumAt,
 	needsDetail,
+	onCard,
 	pinchView,
 	restView,
 	rubber,
@@ -60,6 +61,24 @@ const inside = (view, stage, base) => {
 
 	return view.tx >= b.minX - 1e-9 && view.tx <= b.maxX + 1e-9 && view.ty >= b.minY - 1e-9 && view.ty <= b.maxY + 1e-9;
 };
+
+describe('a tap off the card (Eric, 2026-11-23)', () => {
+	test('onCard is true on the card as drawn, at rest and zoomed, and false on the dark around it', () => {
+		const rest = restView(STAGE, BASE);
+
+		assert.equal(onCard(rest, BASE, STAGE.width / 2, STAGE.height / 2), true, 'the middle');
+		assert.equal(onCard(rest, BASE, 1, rest.ty + 1), true, 'just inside the top left corner');
+		assert.equal(onCard(rest, BASE, STAGE.width / 2, rest.ty - 1), false, 'just above the card');
+		assert.equal(onCard(rest, BASE, STAGE.width / 2, rest.ty + BASE.height + 1), false, 'just below it');
+
+		// Zoomed 2x on the top left corner: the card covers the stage there.
+		const zoomed = clampView({s: 2, tx: 0, ty: 0}, STAGE, BASE, 4);
+
+		assert.equal(onCard(zoomed, BASE, 5, 5), true);
+		assert.equal(onCard(zoomed, BASE, STAGE.width - 5, STAGE.height - 5), true);
+		assert.equal(onCard({s: 2, tx: -10, ty: 0}, BASE, BASE.width * 2 - 9, 5), false, 'past its right edge');
+	});
+});
 
 describe('fitting and bounds', () => {
 	test('the image fits the stage at zoom 1, centered', () => {

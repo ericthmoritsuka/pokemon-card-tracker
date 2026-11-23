@@ -53,6 +53,13 @@ export function fitSize(stage, aspect) {
 }
 
 // The view at zoom 1: the image centered in the stage.
+// True when the stage point (x, y) lies on the card as drawn at this view:
+// the image is base sized, scaled by s from its top left corner, and moved
+// by (tx, ty). A tap off it closes the viewer (Eric, 2026-11-23).
+export function onCard(view, base, x, y) {
+	return x >= view.tx && x <= view.tx + base.width * view.s && y >= view.ty && y <= view.ty + base.height * view.s;
+}
+
 export function restView(stage, base) {
 	return {s: 1, tx: (stage.width - base.width) / 2, ty: (stage.height - base.height) / 2};
 }

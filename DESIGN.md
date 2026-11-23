@@ -1265,6 +1265,15 @@ about 1440 x 2016 px (capped at 500 KB each, about 1,800 within the free 1 GB be
 copies),
 downloaded only when zooming in.
 
+A tap off the card, on the dark around it or on the empty part of the bars above and below,
+closes the viewer, as Close, Escape, and Back do (Eric, 2026-11-23: having to reach for the X was
+the wrong behavior for a view like this; the binder's pocket viewer already closed this way). It
+closes at once, without waiting to see whether a double tap follows, since a double tap zooms only
+on the card. A tap on the card, a button, a picker, or the label does not close it, and in Compare a
+tap off either image closes the whole viewer. The first-time hint ends "Tap outside the card to
+close." (`js/photos/zoom.js` `onCard`, the `outside` option of `zoomPane` in `js/photos/viewer.js`;
+the pocket viewer passes none and keeps its own shade.)
+
 The fallback rule in general: when the copy's language has no catalog record, match the card in
 the catalog it was printed from (English for international prints, Japanese for Korean), keep the
 copy's real language, and show the fallback's name and image.
@@ -3987,11 +3996,20 @@ the one that happened. Instead the log says so wherever it shows them:
   undone move's removal, its `deleted_at` becomes the removal the keeping move recorded, so Undo of
   that move later brings the copy back as any Undo does. Which phone's removal the merge kept does
   not matter. *(Before, Undo of the move whose removal the merge kept brought the copy back while
-  the other move still said it left.)* One case is left: both moves undone on two phones offline,
-  each while the other was still live there, leaves the copy removed with both moves undone, since
-  neither phone knew the other move was gone. The copy's entry is kept (a removal is never a
-  deletion), but nothing in the app brings it back yet; Removed lately in Log a trade or sale
-  offers it for 30 days.
+  the other move still said it left.)* Both moves undone on two phones offline, each while the
+  other was still live there, leaves the copy removed with both moves undone once the two Undos
+  merge, since each phone kept it out for the other. *(Before v98 nothing brought it back.)* Every
+  sync now repairs that after its merge (`js/moves.js` `planStrandedOuts`, called in `js/sync.js`):
+  a removed copy whose `left_via` names an undone move comes back as that move's Undo would bring
+  it, into its pocket while the pocket still holds the placeholder a move left, else into its tray,
+  and into its hand-picked collections and a list binder's hand pick wherever they still hold what
+  a move wrote. It comes back only when no live move takes it out, no move names it in `past` (a
+  past sale links a removal by hand, which no Undo reverses), its `deleted_at` is a removal an
+  undone move recorded (so a removal by hand that the merge kept stays), and no Start over or its
+  Undo came after a move that names it. The repaired document is pushed, and phones from before
+  v98 take the copy back at their next merge, since it carries `restored_at` after the removal.
+  Nothing says so on screen: both Undos asked for it, and each said the copy stayed out only
+  because the other move still took it.
 
 **A purchase: where from, and what each card cost** (Eric, 2026-11-19; `js/moves.js`
 `purchaseSources`, `ownPrices`, `pricedCards`; `js/moves-view.js`).
