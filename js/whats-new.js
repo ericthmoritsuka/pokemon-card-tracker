@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-23',
 		items: [
+			'Trade ideas with each family member: your spares on their wishlist, and their spares on yours, on one screen.',
+			'Open it from Trade ideas on their cards or their wishlist, or from Profile > Family, which also counts your spares on each wishlist.',
+			'Log a trade with them opens the trade form with both sides and their name filled in, ready to trim and save.',
+		],
+		version: 'v100',
+	},
+	{
+		date: '2026-11-23',
+		items: [
 			'A binder\'s cover can be any color: the last circle under Cover color, a rainbow marked Any color, opens your phone\'s color picker, so the binder matches the one on your shelf.',
 			'Once you pick a color there, the circle shows it inside a rainbow ring.',
 			'A binder you edit shows its new cover color at once. Before, it kept the old color until you opened the binder again.',
