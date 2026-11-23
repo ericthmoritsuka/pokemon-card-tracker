@@ -521,10 +521,27 @@ for (const [name, viewport] of [['portrait', {height: 740, width: 360}], ['lands
 			await touch(cdp, 'touchEnd');
 			await page.waitForSelector('.ph-full', {state: 'detached', timeout: 3000});
 
+			// The click a touch leaves behind does not reach the card page under
+			// it and open the viewer again.
+			await new Promise((resolve) => setTimeout(resolve, 600));
+			assert.equal(await page.locator('.ph-full').count(), 0, 'it stays closed');
+
 			await page.locator('.ph-viewport').click();
 			await page.waitForSelector('.ph-full .ph-pane[data-ready="true"]');
 			await page.locator('.ph-full-bar').evaluate((el) => el.click());
 			await page.waitForSelector('.ph-full', {state: 'detached', timeout: 3000});
+
+			// A mouse click off the card, as on a computer, closes it too.
+			await page.locator('.ph-viewport').click();
+			await page.waitForSelector('.ph-full .ph-pane[data-ready="true"]');
+
+			const again = await paneState(page, 0);
+			const spot = again.ty > 8 ? {x: center(again).x, y: again.box.y + again.ty / 2} : {x: again.box.x + again.tx / 2, y: center(again).y};
+
+			await page.mouse.click(spot.x, spot.y);
+			await page.waitForSelector('.ph-full', {state: 'detached', timeout: 3000});
+			await new Promise((resolve) => setTimeout(resolve, 600));
+			assert.equal(await page.locator('.ph-full').count(), 0, 'and stays closed');
 
 			// Open again for the tests after this one.
 			await page.locator('.ph-viewport').click();
