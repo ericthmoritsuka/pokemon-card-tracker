@@ -21,6 +21,14 @@ import {toast} from './shell.js';
 // Newest first. items are short sentences, three or four per release.
 export const RELEASES = [
 	{
+		date: '2026-11-23',
+		items: [
+			'On a card page, the full-screen card closes with a tap anywhere outside the card, so you no longer have to reach for the X.',
+			'A copy two phones each logged out in a trade or sale while offline, with both of them undone later, comes back to your collection, its pocket, and its tray. Before, it stayed out.',
+		],
+		version: 'v98',
+	},
+	{
 		date: '2026-11-21',
 		items: [
 			'Undo after Start over keeps the changes you made to a copy since, such as its condition, storage, price, notes, grade, language, or finish, when it merges that copy into the one it restored.',
