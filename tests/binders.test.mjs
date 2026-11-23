@@ -1387,6 +1387,10 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		await page.screenshot({path: '/tmp/binders-any-color.png', fullPage: true});
 		await page.click('#binder-save');
 		await untilInPage(page, 'the cover color to save', async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument().then((doc) => doc.binders[0].cover_color === '#7a4b2c'));
+
+		// The open binder takes the new color at once, without leaving it
+		// (Eric, 2026-11-23: it kept the old color until he opened it again).
+		await untilInPage(page, 'the open spread to take the new color', () => getComputedStyle(document.getElementById('binder-spread')).getPropertyValue('--cover').trim() === '#7a4b2c', {timeout: 3000});
 		await page.click('#edit-binder');
 		await page.waitForSelector('#binder-cover-custom');
 		assert.equal(await page.locator('#binder-cover-custom').getAttribute('data-picked'), 'true');

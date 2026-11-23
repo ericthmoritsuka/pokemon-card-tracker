@@ -571,11 +571,18 @@ export function binderSpread({
 		stackDepth();
 	}
 
-	function drawShape() {
+	// The cover color, on every redraw: a save that changes only the color
+	// shows at once (Eric, 2026-11-23: it waited until the binder was opened
+	// again, because only a change of shape repainted it).
+	function drawColor() {
 		const color = isHex(binder.cover_color) ? binder.cover_color : DEFAULT_COVER;
 
 		element.style.setProperty('--cover', color);
 		element.style.setProperty('--cover-text', coverTextColor(color));
+	}
+
+	function drawShape() {
+		drawColor();
 		element.style.setProperty('--bs-cols', binder.cols);
 		element.style.setProperty('--bs-rows', binder.rows);
 		element.style.setProperty('--bs-page-aspect', pageAspect(binder.rows, binder.cols).toFixed(4));
@@ -1393,6 +1400,9 @@ export function binderSpread({
 
 			if (reshaped) {
 				drawShape();
+			}
+			else {
+				drawColor();
 			}
 
 			drawCover();
