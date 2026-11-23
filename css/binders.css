@@ -140,6 +140,43 @@
 	border-radius: 50%;
 }
 
+.cover-swatch input[type="color"]::-moz-color-swatch {
+	border: 0;
+	border-radius: 50%;
+}
+
+/* Any color: a rainbow until a color of one's own is chosen, then that color
+   inside a rainbow ring, so it never reads as a copy of a swatch. */
+.cover-swatch.custom {
+	align-items: center;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.cover-swatch input[type="color"] {
+	background: conic-gradient(#e53935, #fdd835, #43a047, #00acc1, #1e88e5, #8e24aa, #e53935);
+}
+
+.cover-swatch input[type="color"][data-picked="false"]::-webkit-color-swatch {
+	opacity: 0;
+}
+
+.cover-swatch input[type="color"][data-picked="false"]::-moz-color-swatch {
+	opacity: 0;
+}
+
+.cover-swatch input[type="color"][data-picked="true"] {
+	padding: 5px;
+}
+
+.swatch-caption {
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.2;
+	white-space: nowrap;
+}
+
 /* The chosen swatch gets a ring and a tick, not color alone. The gap in the
    ring is the form panel's own tint. */
 .cover-swatch input[type="radio"]:checked + .swatch-dot,

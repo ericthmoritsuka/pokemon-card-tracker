@@ -1372,6 +1372,34 @@ describe('binders in the browser', {skip: chromium ? false : 'Playwright is not 
 		assert.equal(binder.name, 'Gens 1 and 2');
 		assert.equal(binder.slots.filter((slot) => !slot.cleared).length, 4, 'the pockets are untouched');
 
+		// Any color (Eric, 2026-11-23): with a swatch picked, the last circle
+		// is a rainbow captioned "Any color", not a second Navy; a color of
+		// one's own saves, and the form shows it inside the ring next time.
+		await page.click('#edit-binder');
+		await page.waitForSelector('#binder-cover-custom');
+		assert.equal(await page.locator('#binder-cover-custom').getAttribute('data-picked'), 'false');
+		assert.equal(await page.locator('.cover-swatch.custom .swatch-caption').textContent(), 'Any color');
+		assert.match(await page.locator('#binder-cover-custom').evaluate((el) => getComputedStyle(el).backgroundImage), /conic-gradient/);
+		assert.equal(await page.locator('.cover-swatch.custom input[type="radio"]').isChecked(), false);
+		await page.locator('#binder-cover-custom').fill('#7a4b2c');
+		assert.equal(await page.locator('#binder-cover-custom').getAttribute('data-picked'), 'true');
+		assert.equal(await page.locator('.cover-swatch.custom input[type="radio"]').isChecked(), true);
+		await page.screenshot({path: '/tmp/binders-any-color.png', fullPage: true});
+		await page.click('#binder-save');
+		await untilInPage(page, 'the cover color to save', async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument().then((doc) => doc.binders[0].cover_color === '#7a4b2c'));
+		await page.click('#edit-binder');
+		await page.waitForSelector('#binder-cover-custom');
+		assert.equal(await page.locator('#binder-cover-custom').getAttribute('data-picked'), 'true');
+		assert.equal(await page.locator('#binder-cover-custom').inputValue(), '#7a4b2c');
+		assert.equal(await page.locator('.cover-swatch.custom input[type="radio"]').isChecked(), true);
+
+		// Back to Black for the offline checks below; the circle keeps the
+		// color picked, inside its ring, while Black is the one chosen.
+		await page.click('.cover-swatch[title="Black"]');
+		assert.equal(await page.locator('#binder-cover-custom').getAttribute('data-picked'), 'true');
+		await page.click('#binder-save');
+		await untilInPage(page, 'the cover to be Black again', async () => (await import('/pokemon-card-tracker/js/collection.js')).loadDocument().then((doc) => doc.binders[0].cover_color === '#1b1b1f'));
+
 		// Offline: the shell and the binder open from the phone.
 		await page.evaluate(() => navigator.serviceWorker.ready);
 		await untilInPage(page, 'the shell cache to hold the binder files', async () => {

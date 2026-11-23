@@ -529,8 +529,13 @@ function binderForm({below = null, binder = null, initial = {}, onCancel, onSubm
 	const swatchColors = COVER_SWATCHES.map((swatch) => swatch.color);
 	const name = h('input', {autocomplete: 'off', class: 'search', id: 'binder-name', maxlength: 80, type: 'text', value: start.name});
 	const notes = h('textarea', {class: 'search binder-notes-input', id: 'binder-notes', maxlength: 500, rows: 2});
-	const custom = h('input', {'aria-label': 'Custom cover color', id: 'binder-cover-custom', type: 'color', value: start.cover_color});
-	const customRadio = h('input', {'aria-label': 'Custom color', name: 'binder-cover', type: 'radio', value: 'custom'});
+	// Any color (Eric, 2026-11-23: his new binder's color was not a swatch,
+	// and he did not find the picker): until a color of his own is chosen,
+	// the last circle is a rainbow captioned "Any color", not a copy of the
+	// default Navy; after, it shows his color inside a rainbow ring.
+	const ownColor = !swatchColors.includes(start.cover_color);
+	const custom = h('input', {'aria-label': 'Any color', 'data-picked': String(ownColor), id: 'binder-cover-custom', type: 'color', value: start.cover_color});
+	const customRadio = h('input', {'aria-label': 'Any color', name: 'binder-cover', type: 'radio', value: 'custom'});
 	const rowsSelect = h('select', {'aria-label': 'Rows', id: 'binder-rows'}, [1, 2, 3, 4, 5].map((n) => h('option', {value: n}, `${n} ${n === 1 ? 'row' : 'rows'}`)));
 	const colsSelect = h('select', {'aria-label': 'Columns', id: 'binder-cols'}, [1, 2, 3, 4, 5].map((n) => h('option', {value: n}, `${n} ${n === 1 ? 'column' : 'columns'}`)));
 	const pages = h('input', {class: 'search', id: 'binder-pages', inputmode: 'numeric', max: MAX_PAGES, min: 1, type: 'number', value: start.page_count});
@@ -548,15 +553,16 @@ function binderForm({below = null, binder = null, initial = {}, onCancel, onSubm
 			h('input', {'aria-label': label, checked: color === start.cover_color, name: 'binder-cover', type: 'radio', value: color}),
 			h('span', {'aria-hidden': 'true', class: 'swatch-dot', style: `background: ${color}`})
 		)),
-		h('label', {class: 'cover-swatch custom', title: 'Custom color'}, customRadio, custom)
+		h('label', {class: 'cover-swatch custom', title: 'Any color'}, customRadio, custom, h('span', {'aria-hidden': 'true', class: 'swatch-caption'}, 'Any color'))
 	);
 
-	if (!swatchColors.includes(start.cover_color)) {
+	if (ownColor) {
 		customRadio.checked = true;
 	}
 
 	custom.addEventListener('input', () => {
 		customRadio.checked = true;
+		custom.dataset.picked = 'true';
 	});
 
 	// A size fills in the grid and pages. Custom keeps what the form has and

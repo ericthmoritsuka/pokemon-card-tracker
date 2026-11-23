@@ -3103,6 +3103,12 @@ Each binder also carries **notes** (free text, for example "Generations 1 and 2"
 color**, and the binder list draws each one in its cover color so it is easy to match to the real
 binder. *(Requested by Eric, 2026-10-01.)*
 
+The form offers ten swatches and **Any color**, the phone's own color picker, for a binder whose
+color is not among them. Any color is the last circle, a rainbow captioned "Any color" until a
+color of one's own is chosen, then that color inside a rainbow ring, whether or not it is the one
+chosen. *(Eric, 2026-11-23: his new binder's color was not a swatch and he did not find the
+picker, which until v99 started as the default Navy and so read as a second Navy swatch.)*
+
 **Spreads with a page turn** (Eric, 2026-10-01). A binder opens like a real one: page 1 alone on the
 right (the inside cover on the left), then two-page spreads (2 and 3, 4 and 5, ...), and a last
 page alone when the count is even (a 40-page binder ends with page 40 alone). Swiping or the edge arrows turn the page with a CSS 3D flip
