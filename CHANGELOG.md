@@ -8,10 +8,20 @@ are Recife time. Each line ends with its commit.
 ## In Progress (2026-11-23)
 
 - Nothing being built. Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
+- Still designed, not built: pack openings, graded cards, Michi art editing, and the tombstone purge (DESIGN.md).
 
 ## Live
 
 ### 2026-11-23
+
+- **v100:** trade ideas with each family member. `e8b248b`, `6c70a27`, `117b67a`
+  - Trade ideas with <name> (route `family/<id>/ideas`): your spares on their wishlist and their spares on yours, each
+    row a wish with the spares that fit it (count, language when the wish takes any, conditions). Built from trade
+    matching, deferred on 2026-10-01; Eric picked it on 2026-11-23.
+  - Log a trade with <name> opens the trade form as a trade with their name, one of your spares for each of their
+    wishes, and one of theirs for each of yours.
+  - Reached from Trade ideas on a member's cards (Spares, Wishlist, and Trade ideas on a row of their own) and wishlist,
+    and from Profile > Family, which counts your spares on each member's wishlist from the wishlists saved on the phone.
 
 - **v99:** a binder cover can be any color, and a new cover color shows at once. `30b065f`, `5f77311`
   - The last circle under Cover color, the phone's own color picker, is a rainbow captioned Any color until a color of
