@@ -47,6 +47,7 @@ import {currentUser, getClient, onSession, onUser, sessionExpired} from './auth.
 import {loadDocument, mergeIntoLocal, onChange, readMeta, useAccount, writeMeta} from './collection.js';
 import {cardInfoView} from './card-info.js';
 import {applyDeltaStamps, countChanged, deltaDocument, MERGE_VERSION, mergeDocuments, stamps, syncDelta, usableDelta} from './merge.js';
+import {planStrandedOuts} from './moves.js';
 import {memberIndex} from './photos/model.js';
 
 const PUSH_DELAY_MS = 3000;
@@ -435,10 +436,11 @@ async function syncOnce() {
 		checkRules(local);
 
 		// Always a merge, even with nothing new from the server: the merge
-		// also repairs the document (js/merge.js folds duplicate copies), and
-		// a repaired document differs from what the server holds, so it is
-		// pushed.
-		const merged = withoutDelta(mergeDocuments(local, remote || {}));
+		// also repairs the document (js/merge.js folds duplicate copies, and
+		// js/moves.js planStrandedOuts brings back a copy two phones each
+		// undid a move of), and a repaired document differs from what the
+		// server holds, so it is pushed.
+		const merged = planStrandedOuts(withoutDelta(mergeDocuments(local, remote || {}))).doc;
 		const changed = countChanged(merged, server) > 0;
 
 		if (!stamp) {

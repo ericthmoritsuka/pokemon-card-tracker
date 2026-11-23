@@ -73,7 +73,8 @@ const collection = await import('../js/collection.js');
 const {mergeDocuments, stableJson, stampEntry} = await import('../js/merge.js');
 const v47 = await import('./v47/merge.js');
 const v21 = await import('./merge-v21.mjs');
-const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, planEditMove, planMove, planUndoMove, priceForInput, pricedCards, purchaseSources, startOverBlockedText, sumPrices, twiceOut, twiceOutText, undoMove} = await import('../js/moves.js');
+const {applyMove, cardHistory, cleanPrice, editMove, historyLine, moneyOf, monthTotals, moveTitle, ownPrices, parsePrice, pastCandidates, planEditMove, planMove, planStrandedOuts, planUndoMove, priceForInput, pricedCards, purchaseSources, startOverBlockedText, sumPrices, twiceOut, twiceOutText, undoMove} = await import('../js/moves.js');
+const {isMember} = await import('../js/collections.js');
 const {importEntries} = await import('../js/monprice.js');
 const {planStartOver, planUndo, startOverIds} = await import('../js/start-over.js');
 
@@ -442,6 +443,121 @@ describe('two phones and older versions', () => {
 		const undoneB = planUndoMove(merged[1], 'm1', {now: LATER}).doc;
 
 		assert.equal(stableJson(byId(mergeDocuments(undoneA, undoneB), 'a1')), stableJson(byId(mergeDocuments(undoneB, undoneA), 'a1')));
+	});
+
+	// QA, 2026-11-20, the case planUndoMove left: the same copy logged out
+	// on two phones offline, both synced, then each phone, offline again,
+	// undoes its own move while the other is still live there. Each Undo
+	// keeps the copy out for the other move, so once the two Undos merge no
+	// move says the copy left, yet it is removed. The sync's repair
+	// (planStrandedOuts) brings it back as an Undo would: pocket, collection.
+	const bothUndone = (out = ['a1']) => {
+		const phone = planMove(startDoc(), {currency: 'BRL', date: '2026-11-03', kind: 'sold', out, price: '10', who: 'Ana'}, {fill: true, id: 'm1', now: NOW}).doc;
+		const laptop = planMove(startDoc(), {date: '2026-11-04', in: [IN_CARD], kind: 'traded', out, who: 'Lucas'}, {fill: true, id: 'm2', now: NOW + 5000}).doc;
+		const onPhone = planUndoMove(mergeDocuments(phone, laptop), 'm1', {now: LATER});
+		const onLaptop = planUndoMove(mergeDocuments(laptop, phone), 'm2', {now: LATER + 1000});
+
+		assert.equal(onPhone.counts.held, out.length);
+		assert.equal(onLaptop.counts.held, out.length);
+
+		return [mergeDocuments(onPhone.doc, onLaptop.doc), mergeDocuments(onLaptop.doc, onPhone.doc)];
+	};
+
+	test('both moves of a copy logged out twice undone on two phones offline: the sync brings the copy back, in its pocket and collection', () => {
+		const synced = bothUndone();
+		const results = [];
+
+		for (const doc of synced) {
+			assert.deepEqual(doc.moves.map((move) => Boolean(move.deleted_at)), [true, true], 'both moves are undone');
+			assert.ok(byId(doc, 'a1').deleted_at, 'and, before the repair, the copy is still out');
+
+			const {count, doc: back} = planStrandedOuts(doc, {now: LATER + 60000});
+			const a1 = byId(back, 'a1');
+
+			assert.equal(count, 1);
+			assert.ok(!a1.deleted_at, 'the copy is back');
+			assert.equal(a1.left_via, undefined, 'and no longer names a move');
+			assert.equal(slotAt(back, 1).entry_id, 'a1', 'back in its pocket');
+			assert.ok(!isMember(doc.collections[0], 'a1'), 'the collection had dropped it');
+			assert.ok(isMember(back.collections[0], 'a1'), 'and has it again');
+			assert.deepEqual(back.cards.filter((entry) => entry && entry.came_via && !entry.deleted_at), [], 'the trade\'s incoming copy stays undone');
+			assert.equal(cardHistory(back, {card_id: 'tst1-001'}).length, 0);
+
+			// A second run finds nothing: the same document, untouched.
+			const again = planStrandedOuts(back, {now: LATER + 120000});
+
+			assert.equal(again.count, 0);
+			assert.equal(again.doc, back);
+
+			// A phone that has not repaired (an older app) takes the copy back
+			// at its next merge, either way round.
+			for (const merged of [mergeDocuments(back, doc), mergeDocuments(doc, back)]) {
+				assert.ok(!byId(merged, 'a1').deleted_at, 'the copy brought back wins over the stale removal');
+				assert.equal(slotAt(merged, 1).entry_id, 'a1');
+			}
+
+			results.push(back);
+		}
+
+		// Both phones repair: their results merge into the same copy.
+		assert.ok(!byId(mergeDocuments(results[0], results[1]), 'a1').deleted_at);
+		assert.equal(stableJson(byId(mergeDocuments(results[0], results[1]), 'a1')), stableJson(byId(mergeDocuments(results[1], results[0]), 'a1')));
+	});
+
+	test('both moves undone: a copy that was in the tray goes back to the tray', () => {
+		for (const doc of bothUndone(['a3'])) {
+			assert.deepEqual(doc.binders[0].staged, [], 'the tray lost it to the moves');
+
+			const {count, doc: back} = planStrandedOuts(doc, {now: LATER + 60000});
+
+			assert.equal(count, 1);
+			assert.ok(!byId(back, 'a3').deleted_at);
+			assert.deepEqual(back.binders[0].staged, ['a3']);
+		}
+	});
+
+	test('the repair leaves a copy out while a move still says it left, after a removal by hand, after a later Start over, and for a past sale', () => {
+		// One move undone, the other live: the copy is that move's.
+		const phone = planMove(startDoc(), {currency: 'BRL', date: '2026-11-03', kind: 'sold', out: ['a1'], price: '10', who: 'Ana'}, {fill: true, id: 'm1', now: NOW}).doc;
+		const laptop = planMove(startDoc(), {date: '2026-11-04', in: [IN_CARD], kind: 'traded', out: ['a1'], who: 'Lucas'}, {fill: true, id: 'm2', now: NOW + 5000}).doc;
+		const one = planUndoMove(mergeDocuments(phone, laptop), 'm1', {now: LATER}).doc;
+
+		assert.equal(planStrandedOuts(one, {now: LATER + 60000}).count, 0);
+		assert.equal(planStrandedOuts(one, {now: LATER + 60000}).doc, one);
+
+		// A move undone the plain way: the copy is already back, nothing to do.
+		const plain = planUndoMove(sale().doc, 'm1', {now: LATER}).doc;
+
+		assert.equal(planStrandedOuts(plain, {now: LATER + 60000}).count, 0);
+
+		const [synced] = bothUndone();
+
+		// The removal the merge kept is not one a move recorded (removed by
+		// hand on a third phone): it stays removed.
+		const byHand = structuredClone(synced);
+		const index = byHand.cards.findIndex((entry) => entry && entry.id === 'a1');
+		const handAt = '2026-11-05T13:00:00.000Z';
+
+		byHand.cards[index] = stampEntry(byHand.cards[index], {...byHand.cards[index], deleted_at: handAt, updated_at: handAt});
+		assert.equal(planStrandedOuts(byHand, {now: LATER + 60000}).count, 0);
+
+		// A Start over came after the moves: Undo of either would be refused,
+		// so the repair does nothing either.
+		const ranSince = {...structuredClone(synced), start_over: {at: '2026-11-05T14:00:00.000Z', id: 'run9'}};
+
+		assert.equal(planStrandedOuts(ranSince, {now: LATER + 60000}).count, 0);
+
+		// Two past sales of r1, removed by hand two days ago, both undone:
+		// the hand removal stands.
+		const pastPhone = planMove(startDoc(), {kind: 'sold', past: ['r1'], price: '10'}, {id: 'm1', now: NOW}).doc;
+		const pastLaptop = planMove(startDoc(), {kind: 'sold', past: ['r1'], price: '12'}, {id: 'm2', now: NOW + 5000}).doc;
+		const pastA = planUndoMove(mergeDocuments(pastPhone, pastLaptop), 'm1', {now: LATER}).doc;
+		const pastB = planUndoMove(mergeDocuments(pastLaptop, pastPhone), 'm2', {now: LATER + 1000}).doc;
+		const pastSynced = mergeDocuments(pastA, pastB);
+
+		assert.ok(byId(pastSynced, 'r1').deleted_at);
+		assert.equal(planStrandedOuts(pastSynced, {now: LATER + 60000}).count, 0);
+		assert.ok(byId(planStrandedOuts(pastSynced, {now: LATER + 60000}).doc, 'r1').deleted_at, 'r1 stays removed');
 	});
 
 	test('an Undo on one phone and an edit to the move\'s note on another: the delete sticks', () => {

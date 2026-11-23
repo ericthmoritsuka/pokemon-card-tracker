@@ -69,6 +69,7 @@
 //
 // The plans are pure, so Node tests them (tests/moves.test.mjs).
 
+import {stagedOf} from './binders.js';
 import {isLive, loadDocument, newCopies, newId, saveCopy} from './collection.js';
 import {nextStamp, stableJson, stampEntry} from './merge.js';
 import {autoFillOn, keptStartOver} from './placeholder-fill.js';
@@ -688,6 +689,152 @@ export function planUndoMove(doc, moveId, {now = Date.now()} = {}) {
 	});
 
 	return {counts: {...counts, ...done.counts}, doc: next, later: null, reason: null, stale: false};
+}
+
+// Both moves undone on two phones offline (QA, 2026-11-20): two phones each
+// log the same copy out, the merge keeps both moves (twiceOut), and then
+// each phone undoes one of them while the other is still live there, so
+// each Undo keeps the copy out for the other (planUndoMove). Once the merge
+// brings the two Undos together, no move says the copy left, yet it is still
+// removed. After every sync merge (js/sync.js) such a copy comes back the way
+// Undo of its move brings a copy back: into its pocket while the pocket still
+// holds the placeholder a move left there, else into its tray, and back in its
+// hand-picked collections and a list binder's hand pick, wherever they
+// still hold what a move wrote (js/start-over.js undoSwap). It comes back
+// only when all of these hold:
+//   - it is removed, not folded into another copy (merged_into), and its
+//     left_via names a move that is undone;
+//   - no live move takes it out;
+//   - no move, live or undone, names it in past: a past sale links a removal
+//     made by hand, which no Undo reverses;
+//   - its deleted_at is a removal an undone move recorded (undo.removed), so
+//     a removal by hand that the merge kept instead keeps it removed;
+//   - no Start over, or its Undo, came after any undone move that names it,
+//     since Undo of that move would be refused too (runSince).
+// Returns {count, doc}: count is the copies brought back, and doc is the
+// document passed in, unchanged, when there are none.
+export function planStrandedOuts(doc, {now = Date.now()} = {}) {
+	const moves = list(doc).filter((move) => move && move.id);
+	const undone = moves.filter((move) => !isLive(move) && Array.isArray(move.out));
+
+	if (!undone.length) {
+		return {count: 0, doc};
+	}
+
+	const byId = new Map(moves.map((move) => [move.id, move]));
+	const stillOut = new Set(liveMoves(doc).flatMap((move) => (Array.isArray(move.out) ? move.out : [])));
+	const byHand = new Set(moves.flatMap((move) => (Array.isArray(move.past) ? move.past : [])));
+	const stranded = new Map();
+
+	for (const entry of (doc && doc.cards) || []) {
+		if (!entry || !entry.id || !entry.deleted_at || entry.merged_into || !entry.left_via) {
+			continue;
+		}
+
+		const via = byId.get(entry.left_via);
+
+		if (!via || isLive(via) || stillOut.has(entry.id) || byHand.has(entry.id)) {
+			continue;
+		}
+
+		const naming = undone.filter((move) => move.out.includes(entry.id));
+		const recorded = naming.some((move) => ((move.undo && move.undo.removed) || []).some((item) => item && item.id === entry.id && item.deleted_at === entry.deleted_at));
+
+		if (recorded && !naming.some((move) => runSince(doc, move))) {
+			stranded.set(entry.id, {deleted_at: entry.deleted_at, naming});
+		}
+	}
+
+	if (!stranded.size) {
+		return {count: 0, doc};
+	}
+
+	// The undo record for these copies alone, gathered from every undone
+	// move that names them. Where two moves recorded the same collection or
+	// pick, the one that matches what the document holds now is used, as
+	// undoSwap puts back only what still holds what was written.
+	const binders = new Map();
+	const collections = new Map();
+	const picks = new Map();
+	const binderOf = (id) => binders.get(id) || binders.set(id, {id, pockets: [], staged: null}).get(id);
+	const liveBinder = new Map(((doc && doc.binders) || []).filter((binder) => binder && binder.id && isLive(binder)).map((binder) => [binder.id, binder]));
+	const trays = new Map();
+
+	for (const [entryId, {naming}] of stranded) {
+		let pocketed = false;
+		let tray = null;
+
+		for (const move of naming) {
+			const kept = move.undo || {};
+
+			for (const item of kept.binders || []) {
+				const pockets = (item.pockets || []).filter((pocket) => pocket && pocket.entry_id === entryId);
+
+				if (pockets.length) {
+					pocketed = true;
+					binderOf(item.id).pockets.push(...pockets);
+				}
+
+				const before = item.staged && Array.isArray(item.staged.before) ? item.staged.before : [];
+
+				if (!tray && before.includes(entryId)) {
+					tray = {binderId: item.id, index: before.indexOf(entryId)};
+				}
+			}
+
+			for (const item of kept.collections || []) {
+				const current = ((doc.collections || []).find((collection) => collection && collection.id === item.id) || {}).removed_ids || {};
+
+				(item.ids || []).forEach((id, i) => {
+					if (id === entryId && current[id] === (item.written || [])[i]) {
+						const into = collections.get(item.id) || collections.set(item.id, {id: item.id, ids: [], written: []}).get(item.id);
+
+						if (!into.ids.includes(id)) {
+							into.ids.push(id);
+							into.written.push(item.written[i]);
+						}
+					}
+				});
+			}
+
+			for (const pick of kept.picks || []) {
+				const current = (Array.isArray(doc.binder_picks) ? doc.binder_picks : []).find((item) => item && item.id === pick.id);
+
+				if (pick && pick.entry_id === entryId && current && current.updated_at === pick.written) {
+					picks.set(pick.id, pick);
+				}
+			}
+		}
+
+		// A copy that was in a pocket goes back there or nowhere; one that was
+		// in a tray goes back to it, at its old place, while the binder is
+		// still there and holds it nowhere else.
+		if (!pocketed && tray && liveBinder.has(tray.binderId)) {
+			const order = trays.get(tray.binderId) || [...stagedOf(liveBinder.get(tray.binderId))];
+
+			if (!order.includes(entryId)) {
+				order.splice(Math.min(tray.index, order.length), 0, entryId);
+				trays.set(tray.binderId, order);
+			}
+		}
+	}
+
+	for (const [binderId, before] of trays) {
+		binderOf(binderId).staged = {after: stagedOf(liveBinder.get(binderId)), before};
+	}
+
+	const done = undoSwap(doc, {
+		added: [],
+		binders: [...binders.values()],
+		collections: [...collections.values()],
+		fills: [],
+		hashes: {},
+		picks: [...picks.values()],
+		removed: [...stranded].map(([id, {deleted_at: deletedAt}]) => ({deleted_at: deletedAt, id})),
+		wishes: [],
+	}, {drop: ['left_via'], now});
+
+	return {count: done.counts.restored, doc: done.doc};
 }
 
 // Edit a logged move (Eric, 2026-11-05): the fields a move can change after
