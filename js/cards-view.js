@@ -438,6 +438,7 @@ export function familyCardsView(root, {userId}) {
 		storageKey: `${CHOICE_KEY}.family`,
 		title: `Family member's cards`,
 		tradeRoute: `family/${encodeURIComponent(userId)}/trade`,
+		ideasRoute: `family/${encodeURIComponent(userId)}/ideas`,
 		wishlistRoute: `wishlist/${encodeURIComponent(userId)}`,
 	});
 }
@@ -456,6 +457,9 @@ export function familyCardsView(root, {userId}) {
 export function cardsScreen(root, {
 	emptyNode = null,
 	emptyText = null,
+	// Trade ideas with a member (js/wishlist-view.js tradeIdeasView), beside
+	// their Wishlist.
+	ideasRoute = null,
 	label = 'your collection',
 	load: loadEntries,
 	loadBinders = () => [],
@@ -2050,7 +2054,8 @@ export function cardsScreen(root, {
 	}, {twins: false});
 	const wishLink = wishlistRoute ? h('a', {class: 'button small view-head-link', 'data-link': wishlistRoute, href: BASE + wishlistRoute, id: 'cards-wishlist'}, 'Wishlist') : null;
 	// Spares and Trades are in the bar's tools on your own My Cards.
-	const headLinks = (tools ? [wishLink] : [tradeLink, movesLink, wishLink]).filter(Boolean);
+	const ideasLink = ideasRoute ? h('a', {class: 'button small view-head-link', 'data-link': ideasRoute, href: BASE + ideasRoute, id: 'cards-ideas'}, 'Trade ideas') : null;
+	const headLinks = (tools ? [wishLink] : [tradeLink, movesLink, wishLink, ideasLink]).filter(Boolean);
 	const links = headLinks.length > 1 ? h('div', {class: 'view-head-links'}, ...headLinks) : headLinks[0] || null;
 	const heading = h('div', {class: tools ? 'view-head cards-head' : 'view-head'}, h('h2', null, title), links);
 

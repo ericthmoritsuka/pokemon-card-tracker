@@ -12,7 +12,9 @@ import {currentUser} from './auth.js';
 import {offerCardList} from './card-swipe.js';
 import {cardImage, viewingLanguage} from './catalog.js';
 import {listCards, onChange} from './collection.js';
-import {BASE, errorText, h, listsSwitch} from './dom.js';
+import {BASE, errorText, go, h, listsSwitch} from './dom.js';
+import {memberCards} from './family.js';
+import {setPendingMove} from './moves.js';
 import {formatCount, plural} from './format.js';
 import {CATALOG_LANGUAGES, catalogFor, languageChip, languageLabel} from './languages.js';
 import {imageCardKey, mainArt, onFamilyPhotosChange, onImagesChange, sharedRecordsFor} from './photos/index.js';
@@ -36,6 +38,7 @@ import {
 	removeWish,
 	searchCards,
 	sparesFor,
+	tradeIdeas,
 	updateWish,
 	variantLabel,
 	wantAgain,
@@ -138,7 +141,9 @@ function redrawArt(lists, cards) {
 // got: {onClear, onBack} for a row of Got it, which shows when it was got
 // in place of Edit. records(target): a family member's card records on
 // their wishlist, whose photos the art shows; null for the person's own.
-function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove = null, owned = 0, records = null, spares = 0, viewing = null} = {}) {
+// line: a sentence under the chips in place of the spares line (Trade
+// ideas: "Leo has 1 spare · Near Mint").
+function itemRow(item, found, {got = null, line = null, mine = false, onEdit = null, onRemove = null, owned = 0, records = null, spares = 0, viewing = null} = {}) {
 	const info = cardInfo(item, found);
 	const variant = item.variant_id ? (info.variants || []).find((entry) => entry.variantId === item.variant_id) : null;
 	const finish = finishText(item, info);
@@ -165,7 +170,10 @@ function itemRow(item, found, {got = null, mine = false, onEdit = null, onRemove
 		));
 	}
 
-	if (!mine && spares) {
+	if (line) {
+		body.append(h('p', {class: 'wl-spare'}, line));
+	}
+	else if (!mine && spares) {
 		body.append(h('p', {class: 'wl-spare'}, `You have ${formatCount(spares)} spare`));
 	}
 
@@ -701,7 +709,8 @@ export function familyWishlistView(root, {userId}) {
 	const note = h('p', {class: 'muted', hidden: true, id: 'wishlist-saved-note'});
 	const summary = h('p', {class: 'muted', id: 'wishlist-summary'});
 	const list = h('ul', {class: 'wl-list', id: 'wishlist-items'});
-	const body = h('div', null, note, summary, list);
+	const ideas = link(`family/${encodeURIComponent(userId)}/ideas`, {class: 'button small', id: 'wishlist-ideas'}, 'Trade ideas');
+	const body = h('div', null, note, summary, ideas, list);
 	const head = heading('Wishlist', userId);
 
 	function name(text) {
@@ -797,11 +806,199 @@ export function familyWishlistView(root, {userId}) {
 	};
 }
 
+// ------------------------------------------------------ trade ideas
+
+// "You have 1 spare · Near Mint": how many spares fit, and their conditions.
+function sparesLine(who, copies) {
+	const conditions = [...new Set(copies.map((entry) => entry.condition).filter(Boolean))];
+	const n = copies.length;
+
+	return [`${who} ${formatCount(n)} ${n === 1 ? 'spare' : 'spares'}`, ...conditions].join(' · ');
+}
+
+// Trade ideas with a family member (Eric, 2026-11-23; DESIGN.md section 6,
+// "Trade Ideas"): your spares their wishlist wants, and their spares your
+// wishlist wants (js/wishlist.js tradeIdeas), each row a wish with the
+// spares that fit it. Their wishlist comes from the phone when offline, as
+// their wishlist screen does; their spares need their cards, read only
+// online. Log a trade opens the trades form with both sides filled: one
+// spare of yours for each of their wishes, one of theirs for each of yours,
+// and their name, to trim and save there.
+export function tradeIdeasView(root, {userId}) {
+	let alive = true;
+
+	const viewing = viewingLanguage();
+	const load = cardLoader();
+	const theirRecords = (target) => sharedRecordsFor(userId, target);
+	const title = h('h2', {id: 'ideas-title'}, 'Trade ideas');
+	const note = h('p', {class: 'muted', hidden: true, id: 'ideas-saved-note'});
+	const summary = h('p', {class: 'muted', id: 'ideas-summary'});
+	const giveTitle = h('h3', {class: 'ideas-section', id: 'ideas-give-title'});
+	const give = h('ul', {class: 'wl-list', id: 'ideas-give'});
+	const getTitle = h('h3', {class: 'ideas-section', id: 'ideas-get-title'});
+	const getNote = h('p', {class: 'muted', hidden: true, id: 'ideas-get-note'});
+	const get = h('ul', {class: 'wl-list', id: 'ideas-get'});
+	const logButton = h('button', {class: 'primary', hidden: true, id: 'ideas-log', type: 'button'}, 'Log a trade');
+	const body = h('div', {id: 'trade-ideas'}, note, summary, giveTitle, give, getTitle, getNote, get, logButton);
+	const head = h('div', {class: 'view-head'}, title);
+	let handoff = null;
+
+	function rows(list, ideas, line, records) {
+		list.replaceChildren(...ideas.map(({copies, item}) => {
+			const row = h('li', {class: 'wl-item wl-loading', 'data-id': item.id});
+
+			load(item, viewing).then((found) => {
+				if (alive) {
+					row.replaceWith(itemRow(item, found, {line: line(copies), records, viewing}));
+				}
+			});
+
+			return row;
+		}));
+	}
+
+	// What the trades form opens with: their name, a spare of yours for each
+	// of their wishes (never one copy twice), and one of theirs for each of
+	// yours, as the copies you would add.
+	async function handoffFor(name, giving, getting) {
+		const out = [...new Set(giving.map(({copies}) => copies[0].id))];
+		const ins = await Promise.all(getting.map(async ({copies}) => {
+			const copy = copies[0];
+			const found = await load(copy, viewing);
+			const info = cardInfo(copy, found);
+
+			return {
+				fields: {
+					card_id: copy.card_id,
+					catalog: copy.catalog || 'international',
+					condition: copy.condition || null,
+					language: copy.language || null,
+					language_source: 'manual',
+					variant_id: copy.variant_id || null,
+				},
+				info: {image: info.image, name: info.name, number: info.number, setName: info.setName},
+				n: 1,
+			};
+		}));
+
+		return {in: ins, kind: 'traded', out, who: name};
+	}
+
+	logButton.addEventListener('click', () => {
+		if (handoff) {
+			setPendingMove(handoff);
+			go('trades/new');
+		}
+	});
+
+	async function show() {
+		if (!currentUser()) {
+			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, 'Sign in to see trade ideas with your family.')));
+
+			return;
+		}
+
+		let result;
+		let mine;
+		let wishes;
+
+		try {
+			[result, mine, wishes] = await Promise.all([memberWishlist(userId), listCards(), listWishlist()]);
+		}
+		catch (err) {
+			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, `The trade ideas could not be worked out. ${errorText(err)}`)));
+
+			return;
+		}
+
+		if (!alive) {
+			return;
+		}
+
+		const {at, fromCache, member} = result;
+
+		if (!member) {
+			body.replaceChildren(h('div', {class: 'notice', role: 'alert'}, h('p', null, navigator.onLine
+				? 'This person is not in your family group.'
+				: 'Their wishlist is not on this phone yet. Open it once with a connection, and it opens offline after that.')));
+
+			return;
+		}
+
+		const name = member.name;
+
+		title.textContent = `Trade ideas with ${name}`;
+		document.title = `Trade ideas with ${name} | Card Tracker`;
+		note.hidden = !(fromCache && at);
+		note.textContent = fromCache && at ? `${name}'s wishlist as saved on this phone ${savedAt(at)}. Connect to see changes since.` : '';
+
+		const giving = tradeIdeas(member.wishlist, mine);
+		let getting = [];
+		let theirs = null;
+
+		try {
+			theirs = await memberCards(userId);
+			getting = tradeIdeas(wishes, theirs);
+		}
+		catch (err) {
+			getNote.hidden = false;
+			getNote.textContent = (err && err.message) || `${name}'s spares show when you are online.`;
+		}
+
+		if (!alive) {
+			return;
+		}
+
+		if (theirs) {
+			getNote.hidden = getting.length > 0;
+			getNote.textContent = getting.length ? '' : `None of ${name}'s spares are on your wishlist.`;
+		}
+
+		giveTitle.textContent = `Your spares ${name} wants (${formatCount(giving.length)})`;
+		getTitle.textContent = `${name}'s spares you want${theirs ? ` (${formatCount(getting.length)})` : ''}`;
+		summary.textContent = giving.length || getting.length
+			? 'Each row is a card on a wishlist, with the spares that fit it. A spare is a copy beyond the first of the same card in the same language.'
+			: `Nothing to trade with ${name} yet: none of your spares are on their wishlist${theirs ? ', and none of theirs are on yours' : ''}.`;
+
+		rows(give, giving, (copies) => sparesLine('You have', copies), theirRecords);
+		rows(get, getting, (copies) => sparesLine(`${name} has`, copies), null);
+
+		if (!giving.length) {
+			give.replaceChildren(h('li', {class: 'muted ideas-none'}, `None of your spares are on ${name}'s wishlist.`));
+		}
+
+		handoff = giving.length || getting.length ? await handoffFor(name, giving, getting) : null;
+
+		if (alive) {
+			logButton.hidden = !handoff;
+			logButton.textContent = `Log a trade with ${name}`;
+		}
+	}
+
+	// Your own cards and wishlist can change while it is open (a trade logged,
+	// a wish added); theirs are read again on the next visit.
+	const stop = onChange(() => alive && show());
+	const redraw = (changed) => alive && redrawArt([give, get], changed);
+	const stopImages = onImagesChange(redraw, {frame: true, records: false});
+	const stopShared = onFamilyPhotosChange(() => redraw(null));
+
+	root.append(head, body);
+	show();
+
+	return () => {
+		alive = false;
+		stop();
+		stopImages();
+		stopShared();
+	};
+}
+
 // ----------------------------------------------------------- routes
 
 export const WISHLIST_ROUTES = [
 	{kind: 'wishlist', pattern: /^wishlist$/, render: wishlistView, tab: 'lists', title: 'Wishlist | Card Tracker'},
 	{keys: ['userId'], kind: 'wishlist', pattern: /^wishlist\/([^/]+)$/, render: familyWishlistView, tab: 'lists', title: 'Family wishlist | Card Tracker'},
+	{keys: ['userId'], pattern: /^family\/([^/]+)\/ideas$/, render: tradeIdeasView, tab: 'cards', title: 'Trade ideas | Card Tracker'},
 ];
 
-export const WISHLIST_ACCOUNT_VIEWS = [wishlistView, familyWishlistView];
+export const WISHLIST_ACCOUNT_VIEWS = [wishlistView, familyWishlistView, tradeIdeasView];

@@ -355,6 +355,51 @@ export function spareEntries(cards) {
 	return spares;
 }
 
+// The spare copies that fit an item: as many as sparesFor counts, and the
+// ones a trade would give. In each language the item accepts, one copy is
+// kept, a copy the item does not take where there is one (a normal kept, a
+// wished reverse holo offered), else the keeper My Cards keeps (a favorite,
+// then the one added first); the copies offered are the rest that fit,
+// best kept last, so the first offered is the one to give.
+export function spareCopiesFor(item, cards) {
+	const byLanguage = new Map();
+
+	for (const entry of cards || []) {
+		if (!isLive(entry) || entry.card_id !== item.card_id || entryCatalog(entry) !== entryCatalog(item)) {
+			continue;
+		}
+
+		if (item.language && entry.language !== item.language) {
+			continue;
+		}
+
+		byLanguage.set(entry.language, [...(byLanguage.get(entry.language) || []), entry]);
+	}
+
+	const offered = [];
+
+	for (const group of byLanguage.values()) {
+		const sorted = [...group].sort(keeperOrder);
+		const fits = (entry) => !item.variant_id || entry.variant_id === item.variant_id;
+		const keeper = sorted.find((entry) => !fits(entry)) || sorted[0];
+
+		offered.push(...sorted.filter((entry) => entry !== keeper && fits(entry)).reverse());
+	}
+
+	return offered;
+}
+
+// Trade ideas with a family member (Eric, 2026-11-23; deferred since
+// 2026-10-01, DESIGN.md section 12): the items a wishlist still wants that
+// the cards' spares fit, wanted first by priority, each with the spare
+// copies that fit it: [{item, copies}]. Called both ways round: your spares
+// against their wishlist, and their spares against yours.
+export function tradeIdeas(wishlist, cards) {
+	return sortWishes((wishlist || []).filter(isWanted))
+		.map((item) => ({copies: spareCopiesFor(item, cards), item}))
+		.filter((idea) => idea.copies.length);
+}
+
 // Which family members want a card: the scanner's "<member> wants this card"
 // (DESIGN.md section 6).
 //

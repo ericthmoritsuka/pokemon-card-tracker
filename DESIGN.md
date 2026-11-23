@@ -3849,6 +3849,30 @@ trade"). Trade stays a query (section 3), never a stored list.
 - Empty state: says what a spare is (the Portuguese and English example) and links back to My
   Cards. There is no filter bar over nothing.
 
+**Trade Ideas** (Eric, 2026-11-23; trade matching, deferred on 2026-10-01, section 12), in
+`js/wishlist-view.js` `tradeIdeasView`, route `family/<id>/ideas`, titled "Trade ideas with
+<name>", inside that member's view-only lens like their Spares. Two lists of wishlist rows, each a
+wish with the spares that fit it, high priority first (`js/wishlist.js` `tradeIdeas`):
+
+- **Your spares <name> wants (N):** their wishlist against your spares, each row saying "You have
+  1 spare · Excellent" (the count and the spares' conditions). Their wishlist is the one their
+  wishlist screen reads, from the server when online and from the phone otherwise, with the
+  saved time said.
+- **<name>'s spares you want (N):** your wishlist against their spares. Their spares need their
+  cards, read only online (as their Spares screen), so offline this half says so.
+- The spares that fit a wish are `spareCopiesFor`: as many as `sparesFor` counts, so these rows,
+  their wishlist screen's "You have 1 spare", and the Spares screen always agree. In each language
+  the copy kept is one the wish does not take where there is one (a wished reverse holo is offered,
+  the normal kept), else the usual keeper (a favorite, then the one added first).
+- **Log a trade with <name>** opens the trades form (section Trades and Sales) as a trade, with
+  their name, one spare of yours going out for each of their wishes (never one copy twice), and
+  one of theirs coming in for each of yours, as copies to add with its card, language, finish, and
+  condition. Everything is trimmed or added there; nothing is saved before Save.
+- **Where it opens:** Trade ideas beside Spares and Wishlist on a member's cards (the three on a
+  row of their own under the title), above their wishlist, and on Profile > Family, where each
+  member also says "3 of your spares on their wishlist", worked out from the wishlists saved on
+  the phone, so it shows offline.
+
 **Favorites** (Eric, 2026-10-03). A star button on the card page marks the card: it sets
 `is_favorite` on every one of your live copies of that card, in every language, and clears it from
 all of them on the next tap. The flag stays per copy in the data (section 4), so a merge keeps
@@ -4404,9 +4428,8 @@ over them, well under the 1 s the unit test allows.
 
 ## 12. Open Questions
 
-- **Deferred by Eric, 2026-10-01: trade matching.** Show "you have spares of 12 cards on your
-  family member's wishlist" and the reverse. Wishlists and the group model are designed so this needs no
-  schema change later.
+- **Trade matching: built as Trade Ideas in v100** (Eric, 2026-11-23; deferred on 2026-10-01),
+  section 6, Trade and Favorites. It needed no schema change, as planned.
 - The rest of the proposals in `plans/ux-plan.md` section 9 and `plans/product-plan.md` section 8
   that are not decided above (undo duration, removing or trading away a card, condition at scan).
 - Phone only, or a real desktop view for bulk editing and binder layout? CSV round-trip partly

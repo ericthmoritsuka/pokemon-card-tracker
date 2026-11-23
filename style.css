@@ -3333,7 +3333,8 @@ progress {
 	display: none;
 }
 
-.member-view {
+.member-view,
+.member-ideas {
 	width: auto;
 }
 

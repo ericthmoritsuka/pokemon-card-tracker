@@ -28,6 +28,7 @@ import {
 import {canShareFiles, exportCollection} from './cards-view.js';
 import {dexLabel, MAX_DEX, nameOf, pokemonNames, spriteUrl, validDex} from './checklists.js';
 import {BASE, errorText, go, h} from './dom.js';
+import {formatCount} from './format.js';
 import {memberName} from './family.js';
 import {chooseTheme, currentTheme, favoritePokemon, fillPlaceholdersOn, onSettings, setFavoritePokemon, setFillPlaceholders, suggestedThemeFor} from './settings.js';
 import {THEMES, themeById} from './themes.js';
@@ -45,7 +46,8 @@ import {
 import {photoSettingsCard} from './photos/index.js';
 import {failedUploads, onPhotosChange, removePhotoFromEntry, retryUpload, startPhotoSync} from './photos/store.js';
 import {cardIndex, isLanguage} from './catalog.js';
-import {loadDocument, resolveEntry} from './collection.js';
+import {isLive, loadDocument, resolveEntry} from './collection.js';
+import {cachedFamilyWishlists, tradeIdeas} from './wishlist.js';
 import {versionLine} from './whats-new.js';
 
 const RESEND_AFTER_MS = 60 * 1000;
@@ -461,7 +463,7 @@ export function profileView(root) {
 
 	function memberRow(member, overview, me) {
 		const isOwner = overview.role === 'owner';
-		const row = h('li', {class: 'member'},
+		const row = h('li', {class: 'member', 'data-user-id': member.user_id},
 			h('span', {class: 'member-text'},
 				h('span', {class: 'member-name'}, memberName(member), member.user_id === me ? ' (you)' : ''),
 				h('span', {class: 'muted'}, [member.role === 'owner' ? 'Owner' : 'Member', accountLabel(member.email)].filter(Boolean).join(' · '))
@@ -474,7 +476,12 @@ export function profileView(root) {
 				class: 'button small member-view',
 				'data-link': `family/${encodeURIComponent(member.user_id)}`,
 				href: `${BASE}family/${encodeURIComponent(member.user_id)}`,
-			}, 'View cards'));
+			}, 'View cards'), h('a', {
+				class: 'button small member-ideas',
+				'data-link': `family/${encodeURIComponent(member.user_id)}/ideas`,
+				href: `${BASE}family/${encodeURIComponent(member.user_id)}/ideas`,
+			}, 'Trade ideas'));
+			row.querySelector('.member-text').append(h('span', {class: 'muted member-ideas-count', hidden: true}));
 		}
 
 		if (isOwner && member.role !== 'owner') {
@@ -543,6 +550,24 @@ export function profileView(root) {
 		);
 	}
 
+	// Under each member, how many of your spares their wishlist wants (Trade
+	// ideas, js/wishlist-view.js), from the wishlists saved on this phone, so
+	// it shows offline too. Their spares need their cards, read on the screen.
+	async function countIdeas(list) {
+		const [{members}, doc] = await Promise.all([cachedFamilyWishlists(), loadDocument()]);
+		const cards = (doc.cards || []).filter(isLive);
+
+		for (const member of members) {
+			const line = list.querySelector(`li[data-user-id="${CSS.escape(member.user_id)}"] .member-ideas-count`);
+			const n = tradeIdeas(member.wishlist, cards).length;
+
+			if (line && alive) {
+				line.hidden = !n;
+				line.textContent = n ? `${formatCount(n)} of your spares on their wishlist` : '';
+			}
+		}
+	}
+
 	async function loadFamily(fresh = false, keepMessage = null) {
 		let overview;
 
@@ -576,6 +601,8 @@ export function profileView(root) {
 		}
 
 		const list = h('ul', {class: 'members'}, overview.members.map((member) => memberRow(member, overview, user.id)));
+
+		countIdeas(list).catch(() => {});
 
 		// replaceChildren would print a null as text, so a member gets no slot.
 		family.replaceChildren(...[

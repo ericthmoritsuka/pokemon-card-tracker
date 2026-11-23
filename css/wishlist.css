@@ -313,3 +313,46 @@ button.wl-result {
 	padding: var(--space-2) var(--space-3);
 	width: auto;
 }
+
+/* Trade ideas with a family member (js/wishlist-view.js tradeIdeasView):
+   two lists of wishlist rows under their headings, then Log a trade. */
+.ideas-section {
+	font-size: 1.05rem;
+	margin: var(--space-4) 0 var(--space-2);
+}
+
+.ideas-none {
+	padding: var(--space-2) 0;
+}
+
+#ideas-log {
+	margin-top: var(--space-4);
+	width: 100%;
+}
+
+#wishlist-ideas {
+	margin: 0 0 var(--space-3);
+	width: auto;
+}
+
+/* A family member's cards head: Spares, Wishlist, and Trade ideas on a row
+   of their own under the title, three equal columns, as the trades log's
+   head does, so none runs off a 360 px screen. */
+.view-head:has(#cards-ideas) {
+	flex-wrap: wrap;
+}
+
+.view-head-links:has(#cards-ideas) {
+	display: grid;
+	flex: 1 1 100%;
+	grid-template-columns: repeat(3, 1fr);
+}
+
+.view-head-links:has(#cards-ideas) .view-head-link {
+	min-height: var(--target);
+	padding-left: var(--space-2);
+	padding-right: var(--space-2);
+	text-align: center;
+	white-space: normal;
+	width: 100%;
+}

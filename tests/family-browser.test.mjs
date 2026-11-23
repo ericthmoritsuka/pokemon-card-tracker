@@ -562,6 +562,88 @@ describe('a family member\'s Sets and cards', () => {
 		await context.close();
 	});
 
+	// Trade ideas (Eric, 2026-11-23): your spare Member A wants, Member A's
+	// spare you want, both on one screen, Log a trade with both sides and
+	// their name, and the count under Member A on Profile > Family.
+	test('Trade ideas lists your spares Member A wants and theirs you want, Log a trade fills the form, and Profile counts them', async () => {
+		const fake = new FakeSupabase();
+		const wishOf = (id, cardId, fields = {}) => ({card_id: cardId, catalog: 'international', created_at: AT, deleted_at: null, id, language: null, note: '', priority: 'normal', updated_at: AT, variant_id: null, ...fields});
+		const people = family(fake, {memberCards: [
+			entry('m-1', {card_id: 'tst2-005', condition: 'Near Mint', language: 'pt'}),
+			entry('m-2', {card_id: 'tst2-005', condition: 'Played', language: 'pt'}),
+			entry('m-3', {card_id: 'tst2-007', language: 'en'}),
+		]});
+
+		fake.documents.get(people.member.id).doc.wishlist = [
+			wishOf('their-1', 'tst1-003', {priority: 'high'}),
+			wishOf('their-2', 'tst1-004'),
+		];
+
+		const {context, errors, page} = await device(fake, 'owner');
+
+		await signIn(page, fake, people.owner.email);
+		await waitForSynced(page);
+		people.join();
+
+		// Two copies of tst1-003 (one spare) and one of tst1-004 (no spare);
+		// your wishlist wants tst2-005 in Portuguese and tst2-007.
+		await page.evaluate(async () => {
+			const {addCards} = await import('/pokemon-card-tracker/js/collection.js');
+			const {addToWishlist} = await import('/pokemon-card-tracker/js/wishlist.js');
+
+			await addCards([
+				{card_id: 'tst1-003', catalog: 'international', condition: 'Near Mint', language: 'en', language_source: 'manual'},
+				{card_id: 'tst1-003', catalog: 'international', condition: 'Excellent', language: 'en', language_source: 'manual'},
+				{card_id: 'tst1-004', catalog: 'international', language: 'en', language_source: 'manual'},
+			]);
+			await addToWishlist('tst2-005', {language: 'pt'});
+			await addToWishlist('tst2-007');
+		});
+
+		// Their Cards page links Trade ideas beside their Wishlist.
+		await page.goto(url(`family/${people.member.id}`));
+		await page.waitForSelector('#cards-ideas');
+		assert.equal(await page.locator('#cards-ideas').getAttribute('href'), `${BASE}family/${people.member.id}/ideas`);
+		await page.screenshot({clip: {height: 220, width: VIEWPORT.width, x: 0, y: 0}, path: '/tmp/family-cards-head-ideas.png'});
+		await page.click('#cards-ideas');
+		await page.waitForFunction(() => (document.getElementById('ideas-title') || {}).textContent === 'Trade ideas with Member A');
+		await page.waitForFunction(() => document.querySelectorAll('#ideas-give .wl-item:not(.wl-loading), #ideas-get .wl-item:not(.wl-loading)').length === 2);
+		assert.ok(await page.locator('#family-strip').count(), 'in Member A\'s view');
+		assert.equal(await page.locator('#ideas-give-title').textContent(), 'Your spares Member A wants (1)');
+		assert.deepEqual(await page.locator('#ideas-give .wl-item').evaluateAll((rows) => rows.map((row) => row.dataset.id)), ['their-1'], 'tst1-004 has no spare');
+		assert.equal(await page.locator('#ideas-give .wl-spare').textContent(), 'You have 1 spare · Excellent');
+		assert.equal(await page.locator('#ideas-get-title').textContent(), 'Member A\'s spares you want (1)');
+		assert.equal(await page.locator('#ideas-get .wl-spare').textContent(), 'Member A has 1 spare · Played', 'tst2-007 has no spare; the Near Mint copy is kept');
+		await page.screenshot({fullPage: true, path: '/tmp/family-trade-ideas.png'});
+
+		// Log a trade: a trade with Member A, your spare going out, their
+		// spare coming in.
+		assert.equal(await page.locator('#ideas-log').textContent(), 'Log a trade with Member A');
+		await page.click('#ideas-log');
+		await page.waitForSelector('#move-form');
+		assert.equal(path(page), `${BASE}trades/new`);
+		assert.equal(await page.locator('#move-who').inputValue(), 'Member A');
+		assert.equal(await page.locator('#move-kind-traded').isChecked(), true);
+		await page.waitForSelector('#move-out-list [data-entry]');
+		assert.equal(await page.locator('#move-out-list [data-entry]').count(), 1);
+		assert.deepEqual(await page.locator('#move-in-list [data-card]').evaluateAll((rows) => rows.map((row) => row.dataset.card)), ['tst2-005']);
+		await page.screenshot({fullPage: true, path: '/tmp/family-trade-ideas-form.png'});
+
+		// Profile > Family counts your spares on Member A's wishlist, from the
+		// wishlist saved on this phone.
+		await page.evaluate(async () => (await import('/pokemon-card-tracker/js/dom.js')).go('profile'));
+		await page.waitForFunction(() => {
+			const line = document.querySelector('.member-ideas-count');
+
+			return line && !line.hidden && line.textContent === '1 of your spares on their wishlist';
+		}, null, {timeout: 10000});
+		assert.equal(await page.locator('.member-ideas').getAttribute('href'), `${BASE}family/${people.member.id}/ideas`);
+
+		assert.deepEqual(await shownErrors(page), []);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Member A\'s Korean copies on a Japanese record make Add to wishlist ask for Korean', async () => {
 		const fake = new FakeSupabase();
 		const korean = {catalog: 'ja', card_id: 'tst2-007', fallback: true, language: 'ko'};

@@ -1398,6 +1398,12 @@ export function newMoveView(root) {
 		});
 	});
 
+	// Who it is with, when the handoff names them (Trade ideas, js/wishlist-view.js:
+	// "Log a trade with Leo"); a kept form's own typing wins below.
+	if (typeof handed.who === 'string') {
+		who.value = handed.who;
+	}
+
 	// A kept form's fields as they were.
 	if (restored) {
 		for (const [field, value] of [[date, typed.date], [who, typed.who], [price, typed.price], [note, typed.note]]) {

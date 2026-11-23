@@ -17,7 +17,9 @@ import {
 	parseQuery,
 	sameNumber,
 	sortWishes,
+	spareCopiesFor,
 	sparesFor,
+	tradeIdeas,
 	variantLabel,
 	wishedBy,
 } from '../js/wishlist.js';
@@ -145,6 +147,53 @@ describe('spares', () => {
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: NORMAL}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: NORMAL})]), 0);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE}), copy('b', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 1);
 		assert.equal(sparesFor(item, [copy('a', 'sv08.5-003', {language: 'pt', variant_id: REVERSE})]), 0, 'the only copy is a keeper');
+	});
+});
+
+describe('trade ideas (Eric, 2026-11-23)', () => {
+	test('spareCopiesFor offers exactly as many copies as sparesFor counts, and the ones a trade would give', () => {
+		const pinsir = (id, variant, fields = {}) => copy(id, 'sv08.5-003', {language: 'pt', variant_id: variant, ...fields});
+		const cases = [
+			[wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL)]],
+			[wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL), pinsir('b', NORMAL), pinsir('c', REVERSE)]],
+			[wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', REVERSE)]],
+			[wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', REVERSE), pinsir('b', REVERSE)]],
+			[wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', NORMAL)]],
+			[wish('w', 'sv08.5-003'), [pinsir('a', NORMAL), pinsir('b', NORMAL), copy('c', 'sv08.5-003', {language: 'en'}), copy('d', 'sv08.5-003', {language: 'en'}), copy('e', 'sv08.5-003', {deleted_at: at(2), language: 'en'})]],
+		];
+
+		for (const [item, cards] of cases) {
+			assert.equal(spareCopiesFor(item, cards).length, sparesFor(item, cards), JSON.stringify(cards.map((entry) => [entry.id, entry.language, entry.variant_id])));
+		}
+
+		// A wished reverse holo with a normal beside it: the reverse holo is
+		// offered and the normal kept, as sparesFor counts it.
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', REVERSE)]).map((entry) => entry.id), ['b']);
+
+		// The favorite is kept, so the other copy is the one offered.
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL), pinsir('b', NORMAL, {is_favorite: true})]).map((entry) => entry.id), ['a']);
+	});
+
+	test('tradeIdeas lists the wishes still wanted that spares fit, high priority first, each with its copies', () => {
+		const wishlist = [
+			wish('w-low', 'me01-001', {priority: 'low'}),
+			wish('w-high', 'me01-002', {language: 'pt', priority: 'high'}),
+			{...wish('w-got', 'me01-003'), got_at: at(5)},
+			{...wish('w-gone', 'me01-004'), deleted_at: at(5)},
+			wish('w-none', 'me01-005'),
+		];
+		const cards = [
+			copy('a', 'me01-001'), copy('b', 'me01-001', {condition: 'Near Mint'}),
+			copy('c', 'me01-002', {language: 'pt'}), copy('d', 'me01-002', {language: 'pt'}), copy('e', 'me01-002', {language: 'en'}), copy('f', 'me01-002', {language: 'en'}),
+			copy('g', 'me01-003'), copy('h', 'me01-003'),
+			copy('i', 'me01-004'), copy('j', 'me01-004'),
+			copy('k', 'me01-005'),
+		];
+		const ideas = tradeIdeas(wishlist, cards);
+
+		assert.deepEqual(ideas.map(({copies, item}) => [item.id, copies.map((entry) => entry.id)]), [['w-high', ['d']], ['w-low', ['b']]]);
+		assert.deepEqual(tradeIdeas([], cards), []);
+		assert.deepEqual(tradeIdeas(wishlist, []), []);
 	});
 });
 
