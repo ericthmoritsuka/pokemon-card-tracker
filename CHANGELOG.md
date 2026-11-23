@@ -13,6 +13,13 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-23
 
+- **v99:** a binder cover can be any color, and a new cover color shows at once. `30b065f`, `5f77311`
+  - The last circle under Cover color, the phone's own color picker, is a rainbow captioned Any color until a color of
+    one's own is chosen, then that color inside a rainbow ring. It started as the default Navy, so it read as a second
+    Navy swatch and Eric did not find it. (Eric, 2026-11-23.)
+  - Saving a binder with only a new cover color repaints the open binder at once; before, the pages kept the old color
+    until the binder was opened again (only a change of grid or pages repainted it). (Eric, 2026-11-23.)
+
 - **v98:** a tap off the card closes the full-screen card, and a copy two Undos left out comes back. `09139d6`
   - On a card page, a tap anywhere outside the card (or on the empty part of the bars) closes the full-screen viewer, as
     the binder's pocket viewer already did; the X, Escape, and Back still work. (Eric, 2026-11-23.)
