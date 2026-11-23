@@ -25,6 +25,7 @@ export const RELEASES = [
 		items: [
 			'A binder\'s cover can be any color: the last circle under Cover color, a rainbow marked Any color, opens your phone\'s color picker, so the binder matches the one on your shelf.',
 			'Once you pick a color there, the circle shows it inside a rainbow ring.',
+			'A binder you edit shows its new cover color at once. Before, it kept the old color until you opened the binder again.',
 		],
 		version: 'v99',
 	},
