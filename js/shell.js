@@ -30,6 +30,7 @@ import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
 import {openDialogSheet} from './sheet.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
+import {ORDERS_EVENT, openOrders} from './store-orders.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
 // What each kind of screen is called on the view-only strip, and where it
@@ -545,6 +546,68 @@ function drawShopLink(owner = shopOwnerKnown()) {
 	}
 }
 
+// HOTARU's open orders, waiting for payment or for delivery (Eric,
+// 2026-11-24, from the design review: an order has 48 hours to be paid, and
+// nothing outside the Shop said one had come). Read at start, when the app
+// comes back to the front, every few minutes while it is in front, and said
+// by the Shop screen whenever it has them (js/store-orders.js ORDERS_EVENT).
+const ORDERS_EVERY_MS = 5 * 60 * 1000;
+let orderCount = 0;
+let ordersTimer = null;
+
+function drawShopBadge(count = orderCount) {
+	const link = document.getElementById('shop-link');
+	const badge = document.getElementById('shop-badge');
+
+	orderCount = count;
+
+	if (!link || !badge) {
+		return;
+	}
+
+	badge.hidden = !count;
+	badge.textContent = !count ? '' : count > 99 ? '99+' : formatCount(count);
+
+	if (count) {
+		link.setAttribute('aria-label', `Shop, ${formatCount(count)} open ${count === 1 ? 'order' : 'orders'}`);
+	}
+	else {
+		link.removeAttribute('aria-label');
+	}
+}
+
+async function loadOrderCount() {
+	const user = currentUser();
+
+	if (!user || shopOwnerKnown() !== true || !navigator.onLine || document.visibilityState === 'hidden') {
+		return;
+	}
+
+	try {
+		const found = await openOrders();
+
+		if (currentUser() === user) {
+			drawShopBadge(found.length);
+		}
+	}
+	catch {
+		// Not set up, not the owner after all, or no answer: the count
+		// stays as it was until the next read.
+	}
+}
+
+function watchOrders() {
+	window.addEventListener(ORDERS_EVENT, (event) => drawShopBadge((event.detail && event.detail.count) || 0));
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') {
+			loadOrderCount();
+		}
+	});
+	window.addEventListener('online', () => loadOrderCount());
+	clearInterval(ordersTimer);
+	ordersTimer = setInterval(loadOrderCount, ORDERS_EVERY_MS);
+}
+
 // The overview is read once a visit (js/sync.js), and read again after the
 // first sign-in makes the family group, so asking on each synced status
 // costs nothing until then.
@@ -554,6 +617,7 @@ async function loadShopOwner() {
 
 	if (currentUser() === user) {
 		drawShopLink(owner);
+		loadOrderCount();
 	}
 }
 
@@ -694,6 +758,7 @@ export function startShell() {
 		closeOwnerSheet();
 		drawAccount();
 		drawShopLink();
+		drawShopBadge(0);
 		loadMembers();
 		loadShopOwner();
 	});
@@ -723,6 +788,7 @@ export function startShell() {
 	drawAccount();
 	drawShopLink();
 	loadShopOwner();
+	watchOrders();
 	drawOffline();
 	// A save that lands first knows better than this read.
 	draftCount().then((waiting) => {

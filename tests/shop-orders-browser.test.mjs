@@ -3,8 +3,9 @@
 // with their time left and receipts; Payment received, which marks the
 // order paid and logs the sale, so the copies leave the spares; Delivered;
 // Cancel; Log the sale for a paid order whose sale is missing, never twice;
-// an order whose copy is gone from the collection; the receipt link; and
-// the screen before supabase/store-orders.sql has been run. Headless
+// an order whose copy is gone from the collection; the receipt link; the
+// count of open orders on the header's Shop bag; and the screen before
+// supabase/store-orders.sql has been run. Headless
 // Chromium against tests/pages-server.mjs, signed in as the family's owner.
 //
 // Supabase is tests/fake-supabase.mjs; the order functions, store_sync, and
@@ -288,6 +289,48 @@ describe('Shop orders', () => {
 		});
 
 		assert.equal(logged, 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('the header bag counts the open orders, follows a cancel at once, and reads them again when the app comes back', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+		const badge = page.locator('#shop-link #shop-badge');
+
+		await page.goto(`${server.origin}${BASE}cards`);
+		await page.locator('#shop-badge:not([hidden])').waitFor(TIMEOUT);
+		assert.equal(await text(badge), '3');
+		assert.equal(await page.getAttribute('#shop-link', 'aria-label'), 'Shop, 3 open orders');
+		await page.screenshot({clip: {height: 72, width: 390, x: 0, y: 0}, path: `${SHOTS}/shop-orders-badge.png`});
+
+		// Cancelling in the Shop takes the count down without another read.
+		await openShop(page);
+		await order(page, 'HTR-0008').locator('button:has-text("Cancel order")').click();
+		await order(page, 'HTR-0008').locator('.shop-order-actions button:has-text("Cancel order")').click();
+		await order(page, 'HTR-0008').waitFor({state: 'detached', ...TIMEOUT});
+		await page.waitForFunction(() => document.getElementById('shop-badge').textContent === '2', null, TIMEOUT);
+
+		// A new order while the app was in the background shows when it is
+		// back in front.
+		store.orders.push({...store.orders[0], code: 'HTR-0011', id: '00000000-0000-4000-8000-000000000011', status: 'pending'});
+		await page.evaluate(() => {
+			Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'visible'});
+			document.dispatchEvent(new Event('visibilitychange'));
+		});
+		await page.waitForFunction(() => document.getElementById('shop-badge').textContent === '3', null, TIMEOUT);
+		assert.equal(await page.getAttribute('#shop-link', 'aria-label'), 'Shop, 3 open orders');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('no count on the bag when orders are not set up yet', async () => {
+		const {context, errors, page} = await ownerPhone({setUp: false});
+
+		await page.goto(`${server.origin}${BASE}cards`);
+		await page.locator('#shop-link:not([hidden])').waitFor(TIMEOUT);
+		await page.waitForTimeout(1500);
+		assert.ok(await page.locator('#shop-badge').isHidden());
+		assert.equal(await page.getAttribute('#shop-link', 'aria-label'), null);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});

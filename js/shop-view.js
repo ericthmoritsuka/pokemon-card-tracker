@@ -35,7 +35,7 @@ import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js'
 import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
 import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
-import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
+import {announceOrders, cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
@@ -860,6 +860,7 @@ export function shopView(root) {
 
 	function drawOrders() {
 		ordersBox.hidden = false;
+		announceOrders(orders.length);
 
 		const waiting = orders.filter((order) => order.status === 'pending').length;
 

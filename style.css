@@ -2510,6 +2510,7 @@ progress {
    readers. Filled while the Shop is open. */
 .shop-link {
 	align-items: center;
+	position: relative;
 	border: 1px solid var(--header-line);
 	border-radius: 50%;
 	color: var(--header-text);
@@ -2526,6 +2527,25 @@ progress {
 	background: var(--header-text);
 	border-color: var(--header-text);
 	color: var(--header-bg);
+}
+
+/* HOTARU orders waiting for payment or for delivery: a count on the bag,
+   red like the Scan disc's, outlined in the header's color. */
+.shop-badge {
+	background: var(--danger);
+	border: 2px solid var(--header-bg);
+	border-radius: 999px;
+	color: #ffffff;
+	font-size: 0.6875rem;
+	font-variant-numeric: tabular-nums;
+	font-weight: 700;
+	line-height: 16px;
+	min-width: 20px;
+	padding: 0 4px;
+	position: absolute;
+	right: -6px;
+	text-align: center;
+	top: -6px;
 }
 
 .shop-link-icon {
