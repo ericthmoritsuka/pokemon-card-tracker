@@ -292,49 +292,178 @@ describe('Shop', () => {
 		await context.close();
 	});
 
+	// The set filter is a listbox (js/set-picker.js), so its options can
+	// show a symbol. Its options' text, and picking one by a tap.
+	const setOptions = async (page) => {
+		await page.click('#shop-set');
+		await page.locator('.set-picker-list:not([hidden])').waitFor(TIMEOUT);
+
+		const texts = (await page.locator('.set-picker-list [role="option"]').allTextContents()).map(plain);
+
+		await page.keyboard.press('Escape');
+
+		return texts;
+	};
+
+	const pickSet = async (page, value) => {
+		await page.click('#shop-set');
+		await page.click(`.set-picker-list [role="option"][data-value="${value}"]`);
+	};
+
+	// Spares of cards from real set IDs, with index records naming the set.
+	function realSets(cards) {
+		const index = indexRecords();
+		const copies = [...SPARE_COPIES];
+		let n = 90;
+
+		for (const {cardId, setId, setName} of cards) {
+			index[`international|${cardId}`] = {
+				catalog: 'international',
+				collector_number: '001',
+				id: cardId,
+				localizations: {en: {image: null, lang: 'en', name: `Card of ${setName}`, set_name: setName}, pt: {image: null, lang: 'pt', name: `Card of ${setName}`, set_name: setName}},
+				release_date: '2016-11-02',
+				set_id: setId,
+			};
+
+			for (let i = 0; i < 2; i++) {
+				copies.push({card_id: cardId, catalog: 'international', created_at: '2026-11-24T10:00:00.000Z', deleted_at: null, id: `c-${n++}`, language: 'pt', language_source: 'manual', updated_at: '2026-11-24T10:00:00.000Z', variant_id: null});
+			}
+		}
+
+		return {copies, index};
+	}
+
 	// Eric, 2026-11-24: he keeps his cards apart by set, so the set filter
 	// leads with the printed code, "(CRI) Caos Ascendente", an older Western
-	// set's too ("(EVO) Evolutions"). The invented sets and the Japanese one
-	// have no known code and show the name alone.
+	// set's too ("(EVO) Evolutions") when no symbol is known (here no set
+	// list can be read). The invented sets and the Japanese one have no known
+	// code and show the name alone.
 	test('the set filter shows each set\'s printed code before its name', async () => {
-		const copyOf = (cardId) => (id) => ({card_id: cardId, catalog: 'international', created_at: '2026-11-24T10:00:00.000Z', deleted_at: null, id, language: 'pt', language_source: 'manual', updated_at: '2026-11-24T10:00:00.000Z', variant_id: null});
-		const chaos = copyOf('me04-001');
-		const evolutions = copyOf('xy12-001');
-		const index = indexRecords();
-
-		index['international|me04-001'] = {
-			catalog: 'international',
-			collector_number: '001',
-			id: 'me04-001',
-			localizations: {en: {image: null, lang: 'en', name: 'Test Card', set_name: 'Caos Ascendente'}, pt: {image: null, lang: 'pt', name: 'Test Card', set_name: 'Caos Ascendente'}},
-			release_date: '2026-11-01',
-			set_id: 'me04',
-		};
-		// An older Western set takes its code from the Shop's own table.
-		index['international|xy12-001'] = {
-			catalog: 'international',
-			collector_number: '001',
-			id: 'xy12-001',
-			localizations: {en: {image: null, lang: 'en', name: 'Old Card', set_name: 'Evolutions'}, pt: {image: null, lang: 'pt', name: 'Old Card', set_name: 'Evolutions'}},
-			release_date: '2016-11-02',
-			set_id: 'xy12',
-		};
-
-		const {context, errors, page} = await phone({copies: [...SPARE_COPIES, chaos('c-90'), chaos('c-91'), evolutions('c-92'), evolutions('c-93')], index});
+		const {context, errors, page} = await phone(realSets([
+			{cardId: 'me04-001', setId: 'me04', setName: 'Caos Ascendente'},
+			{cardId: 'xy12-001', setId: 'xy12', setName: 'Evolutions'},
+		]));
 
 		await openShop(page);
 		await pickShow(page, 'all');
 
-		const options = (await page.locator('#shop-set option').allTextContents()).map(plain);
+		const options = await setOptions(page);
 
 		assert.ok(options.includes('(CRI) Caos Ascendente'), options.join(' | '));
 		assert.equal(options[0], 'Every set');
 		assert.ok(options.includes('(EVO) Evolutions'), options.join(' | '));
 		assert.deepEqual(options.filter((text) => text.startsWith('(')), ['(CRI) Caos Ascendente', '(EVO) Evolutions'], 'only the sets with a known code, sorted by name');
-		await page.selectOption('#shop-set', 'me04');
+		await pickSet(page, 'me04');
 		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 1);
 		assert.match(plain(await page.locator('.shop-row .shop-meta').textContent()), /Caos Ascendente/);
+		assert.equal(plain(await page.locator('#shop-set').textContent()), 'Set: (CRI) Caos Ascendente');
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-set-codes.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Eric, 2026-11-24: an older set shows the symbol its cards print, from
+	// the saved English set list; a Scarlet & Violet or Mega Evolution set
+	// keeps its code; a gallery subset shows its main set's symbol; a symbol
+	// whose image fails shows the code instead.
+	test('the set filter shows an older set\'s symbol, and the code when the image fails', async () => {
+		const symbol = (path) => `https://assets.tcgdex.net/univ/${path}/symbol`;
+		const setList = [
+			{id: 'me', name: 'Mega Evolution', releaseDate: '2025-09-26', sets: [{cardCount: {}, code: 'CRI', id: 'me04', logo: null, name: 'Chaos Rising', releaseRank: 0, symbol: symbol('me/me04')}]},
+			{id: 'swsh', name: 'Sword & Shield', releaseDate: '2020-02-07', sets: [
+				{cardCount: {}, code: 'BRS', id: 'swsh9', logo: null, name: 'Brilliant Stars', releaseRank: 1, symbol: symbol('swsh/swsh9')},
+				{cardCount: {}, code: null, id: 'swsh9tg', logo: null, name: 'Brilliant Stars Trainer Gallery', releaseRank: 2, symbol: null},
+			]},
+			{id: 'xy', name: 'XY', releaseDate: '2014-02-05', sets: [
+				{cardCount: {}, code: null, id: 'xy12', logo: null, name: 'Evolutions', releaseRank: 3, symbol: symbol('xy/xy12')},
+				{cardCount: {}, code: null, id: 'xy1', logo: null, name: 'XY', releaseRank: 4, symbol: symbol('xy/xy1')},
+			]},
+		];
+		const seeded = realSets([
+			{cardId: 'me04-001', setId: 'me04', setName: 'Caos Ascendente'},
+			{cardId: 'xy12-001', setId: 'xy12', setName: 'Evolutions'},
+			{cardId: 'xy1-001', setId: 'xy1', setName: 'XY'},
+			{cardId: 'swsh9tg-TG01', setId: 'swsh9tg', setName: 'Brilliant Stars Trainer Gallery'},
+		]);
+		const {context, errors, page} = await phone({...seeded, records: {'setlist4:en': {at: Date.now(), data: setList}}});
+		// A 1x1 PNG for the symbols that load; xy1's stays a 404 (fakeServices).
+		const dot = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+		const served = [];
+
+		await page.route(/assets\.tcgdex\.net\/univ\/(xy\/xy12|swsh\/swsh9)\/symbol\.webp$/, (route) => {
+			served.push(new URL(route.request().url()).pathname);
+
+			return route.fulfill({body: dot, contentType: 'image/webp', status: 200});
+		});
+		await openShop(page);
+		await pickShow(page, 'all');
+		await page.click('#shop-set');
+
+		const option = (value) => page.locator(`.set-picker-list [role="option"][data-value="${value}"]`);
+		const loaded = (value) => option(value).locator('img.set-picker-symbol').evaluate((img) => img.complete && img.naturalWidth > 0);
+
+		await page.waitForFunction(() => document.querySelector('.set-picker-list [data-value="xy12"] img.set-picker-symbol')?.naturalWidth > 0);
+		assert.ok(await loaded('xy12'), 'Evolutions shows its symbol');
+		assert.equal(plain(await option('xy12').textContent()), 'Evolutions', 'the symbol, not the code');
+		await page.waitForFunction(() => document.querySelector('.set-picker-list [data-value="swsh9tg"] img.set-picker-symbol')?.naturalWidth > 0);
+		assert.equal(await option('swsh9tg').locator('img').getAttribute('src'), 'https://assets.tcgdex.net/univ/swsh/swsh9/symbol.webp', 'the gallery shows Brilliant Stars\' symbol');
+		assert.equal(plain(await option('me04').textContent()), '(CRI) Caos Ascendente', 'Mega Evolution keeps its code');
+		assert.equal(await option('me04').locator('img').count(), 0);
+		await page.waitForFunction(() => document.querySelector('.set-picker-list [data-value="xy1"] .set-picker-code'));
+		assert.equal(plain(await option('xy1').textContent()), '(XY) XY', 'a symbol that fails shows the code');
+		assert.equal(await option('xy1').locator('img').count(), 0);
+		assert.deepEqual(new Set(served), new Set(['/univ/xy/xy12/symbol.webp', '/univ/swsh/swsh9/symbol.webp']));
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-set-symbols.png`});
+		await option('xy12').click();
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 1);
+		assert.match(plain(await page.locator('.shop-row .shop-meta').textContent()), /Evolutions/);
+		assert.ok(await page.locator('#shop-set img.set-picker-symbol').count(), 'the button shows the chosen set\'s symbol');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// The listbox pattern: arrows, Home and End, a typed letter, Enter, and
+	// Escape, with focus back on the button; Every set clears the filter.
+	test('the set filter works from the keyboard', async () => {
+		const {context, errors, page} = await phone(realSets([{cardId: 'me04-001', setId: 'me04', setName: 'Caos Ascendente'}]));
+
+		await openShop(page);
+		await pickShow(page, 'all');
+
+		const rows = () => page.locator('.shop-row').count();
+		const all = await rows();
+		const list = page.locator('.set-picker-list');
+		const activeText = async () => plain(await page.locator('.set-picker-option.active').textContent());
+
+		await page.focus('#shop-set');
+		await page.keyboard.press('ArrowDown');
+		await list.waitFor({state: 'visible', ...TIMEOUT});
+		assert.equal(await page.locator('#shop-set').getAttribute('aria-expanded'), 'true');
+		assert.ok(await list.evaluate((node) => document.activeElement === node), 'the list takes focus');
+		assert.equal(await activeText(), 'Every set');
+		await page.keyboard.press('End');
+		assert.equal(await list.getAttribute('aria-activedescendant'), await page.locator('.set-picker-option.active').getAttribute('id'));
+		await page.keyboard.press('Home');
+		assert.equal(await activeText(), 'Every set');
+		await page.keyboard.press('c');
+		assert.equal(await activeText(), '(CRI) Caos Ascendente', 'a typed letter jumps to the name');
+		await page.keyboard.press('Enter');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 1);
+		assert.ok(await list.isHidden());
+		assert.ok(await page.locator('#shop-set').evaluate((node) => document.activeElement === node), 'focus back on the button');
+		assert.equal(await page.locator('.set-picker-option[aria-selected="true"]').getAttribute('data-value'), 'me04');
+		await page.keyboard.press('ArrowUp');
+		await list.waitFor({state: 'visible', ...TIMEOUT});
+		await page.keyboard.press('Escape');
+		assert.ok(await list.isHidden(), 'Escape closes without a change');
+		assert.equal(await rows(), 1);
+		await page.keyboard.press('Enter');
+		await list.waitFor({state: 'visible', ...TIMEOUT});
+		await page.keyboard.press('Home');
+		await page.keyboard.press(' ');
+		await page.waitForFunction((count) => document.querySelectorAll('.shop-row').length === count, all);
+		assert.equal(plain(await page.locator('#shop-set').textContent()), 'Set: Every set');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
