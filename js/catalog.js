@@ -240,6 +240,43 @@ const PRINTED_CODES = {
 // Chinese catalogs have none here.
 export const printedSetCode = (catalog, setId) => (catalog === 'international' && Object.hasOwn(PRINTED_CODES, setId) && PRINTED_CODES[setId]) || null;
 
+// The codes the Shop's set filter shows before a set's name as well (Eric,
+// 2026-11-24: he keeps his cards apart by set), for the older Western sets,
+// their promos, and the trainer kits. Only the Shop reads this table: several
+// codes are short words ("EX" for Expedition, "SV" for Supreme Victors,
+// "DP"), and card search, whose set list takes PRINTED_CODES alone, would
+// read such a word typed beside a number as the set. Every value is TCGdex's
+// abbreviation.official for that set ID, checked 2026-11-24 against
+// https://api.tcgdex.net/v2/en/sets/<id>. A set TCGdex has none for, and
+// every Japanese, Korean, or Chinese set, shows its name alone.
+const OLDER_CODES = {
+	'2011bw': 'MCD11', '2012bw': 'MCD12', '2014xy': 'MCD14', '2015xy': 'MCD15', '2016xy': 'MCD16',
+	'2017sm': 'MCD17', '2018sm': 'MCD18', '2019sm': 'MCD19', '2021swsh': 'MCD21', '2022swsh': 'MCD22',
+	'2023sv': 'MCD23', '2024sv': 'MCD24', '30th': '30C', '30th-c': '30C', base1: 'BS', base2: 'JU',
+	base3: 'FO', base4: 'B2', base5: 'RO', bw1: 'BLW', bw10: 'PLB', bw11: 'LTR', bw2: 'EP', bw3: 'NVI',
+	bw4: 'NXD', bw5: 'DEX', bw6: 'DRX', bw7: 'BCR', bw8: 'PLS', bw9: 'PLF', bwp: 'BWP', cel25: 'CEL',
+	cel25cc: 'CEL:CC', col1: 'COL', dc1: 'DCR', det1: 'DET', dp1: 'DP', dp2: 'MT', dp3: 'SW', dp4: 'GE',
+	dp5: 'MD', dp6: 'LA', dp7: 'SF', dv1: 'DRV', ecard1: 'EX', ecard2: 'AQ', ecard3: 'SK', ex1: 'RS',
+	ex10: 'UF', ex11: 'DS', ex12: 'LM', ex13: 'HP', ex14: 'CG', ex15: 'DF', ex16: 'PK', ex2: 'SS',
+	ex3: 'DR', ex4: 'MA', ex5: 'HL', ex6: 'RG', ex7: 'TR', ex8: 'DX', ex9: 'EM', fut2020: 'FUT20',
+	g1: 'GEN', gym1: 'G1', gym2: 'G2', hgss1: 'HS', hgss2: 'UL', hgss3: 'UND', hgss4: 'TRI', lc: 'LC',
+	mee: 'MEE', mep: 'MEP', mfb: 'MFB', neo1: 'N1', neo2: 'N2', neo3: 'N3', neo4: 'N4', pl1: 'PL',
+	pl2: 'RR', pl3: 'SV', pl4: 'AR', pop1: 'P1', pop2: 'P2', pop3: 'P3', pop4: 'P4', pop5: 'P5',
+	pop6: 'P6', pop7: 'P7', pop8: 'P8', pop9: 'P9', ru1: 'RM', si1: 'SI', smp: 'SMP', sve: 'SVE',
+	svp: 'SVP', swsh10tg: 'ASR:TG', swsh11tg: 'LOR:TG', 'swsh12.5gg': 'CRZ:GG', swsh12tg: 'SIT:TG',
+	'swsh4.5sv': 'SHF:SV', swsh9tg: 'BRS:TG', 'tk-bw-e': 'TK5E', 'tk-bw-z': 'TK5Z', 'tk-dp-l': 'TK3L',
+	'tk-dp-m': 'TK3M', 'tk-ex-latia': 'TK1A', 'tk-ex-latio': 'TK1O', 'tk-ex-m': 'TK2M',
+	'tk-ex-p': 'TK2P', 'tk-hs-g': 'TK4G', 'tk-hs-r': 'TK4R', 'tk-sm-l': 'TK10L', 'tk-sm-r': 'TK10A',
+	'tk-xy-b': 'TK7A', 'tk-xy-latia': 'TK8A', 'tk-xy-latio': 'TK8O', 'tk-xy-n': 'TK6N',
+	'tk-xy-p': 'TK9P', 'tk-xy-su': 'TK9S', 'tk-xy-sy': 'TK6S', 'tk-xy-w': 'TK7B', xy0: 'KSS', xy1: 'XY',
+	xy10: 'FCO', xy11: 'STS', xy12: 'EVO', xy2: 'FLF', xy3: 'FFI', xy4: 'PHF', xy5: 'PRC', xy6: 'ROS',
+	xy7: 'AOR', xy8: 'BKT', xy9: 'BKP', xyp: 'XYP',
+};
+
+export const shopSetCode = (catalog, setId) => printedSetCode(catalog, setId)
+	|| (catalog === 'international' && Object.hasOwn(OLDER_CODES, setId) && OLDER_CODES[setId])
+	|| null;
+
 // A Western set's English logo, for a language TCGdex has no logo for
 // (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
 // Retorno da Equipe Rocket have none in Portuguese). TCGdex's English logos

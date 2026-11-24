@@ -26,7 +26,7 @@
 import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
 import {loadedSpeciesNames} from './catalog-views.js';
-import {cardIndex, compareNumbers, indexKey, pricesDue, printedSetCode, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
+import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, shopSetCode, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
 import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
@@ -263,7 +263,7 @@ export function shopView(root) {
 		for (const group of groups) {
 			if (group.set_id && !sets.has(group.set_id)) {
 				const name = group.info.setName || group.set_id;
-				const code = printedSetCode(group.catalog, group.set_id);
+				const code = shopSetCode(group.catalog, group.set_id);
 
 				sets.set(group.set_id, {label: code ? `(${code}) ${name}` : name, name});
 			}
