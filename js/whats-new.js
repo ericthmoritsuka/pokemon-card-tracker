@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'Shop has moved to the top of the screen: the bag beside your picture opens it from anywhere.',
+			'Only the family\'s owner sees it. The rest of the family no longer gets a Shop button in Spares.',
+			'Searching the Shop by a Pokémon\'s English name finds its Japanese and Korean prints, even right after opening the app on it.',
+		],
+		version: 'v105',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'HOTARU sells sealed products too: their orders show in the Shop beside the cards, marked Sealed.',
 			'Payment received works the same for them. Only the cards of an order go to your Trades; the sealed products are named in its note.',
 			'Shop: tick the cards you want and Fill selected gives them one price. Ticks stay through a search, so you can gather cards from several.',
