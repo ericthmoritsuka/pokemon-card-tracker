@@ -296,6 +296,31 @@ describe('Shop publishing', () => {
 		await context.close();
 	});
 
+	test('an own photo that cannot be read, or reads empty, is not sent to the bucket', async () => {
+		const {context, errors, page, store} = await ownerPhone();
+
+		await page.route('**/own-photo-missing.webp', (route) => route.fulfill({body: 'Not found', contentType: 'text/plain', status: 404}));
+		await page.route('**/own-photo-empty.webp', (route) => route.fulfill({body: '', contentType: 'image/webp', status: 200}));
+		await page.route('**/own-photo-good.webp', (route) => route.fulfill({body: Buffer.from('RIFF0000WEBPVP8 '), contentType: 'image/webp', status: 200}));
+
+		const sent = await page.evaluate(async (origin) => {
+			const {uploadOwnPicture} = await import('/pokemon-card-tracker/js/store-publish.js');
+			const at = (name) => ({url: async () => `${origin}/${name}`});
+			const photo = {id: 'p1', path: 'p1.webp'};
+
+			return {
+				empty: await uploadOwnPicture(photo, 'own/p1.webp', at('own-photo-empty.webp')),
+				good: await uploadOwnPicture(photo, 'own/p1.webp', at('own-photo-good.webp')),
+				missing: await uploadOwnPicture(photo, 'own/p1.webp', at('own-photo-missing.webp')),
+			};
+		}, server.origin);
+
+		assert.deepEqual(sent, {empty: false, good: true, missing: false});
+		assert.deepEqual(store.uploads, ['own/p1.webp'], 'only the photo that was read is sent');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('a signed-in member who is not the shop owner is told so', async () => {
 		const {context, errors, page, store} = await ownerPhone({owner: false});
 
