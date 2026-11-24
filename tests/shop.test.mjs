@@ -10,6 +10,7 @@ import {describe, test} from 'node:test';
 import {
 	groupMark,
 	groupPrice,
+	hasCards,
 	listingRows,
 	orderCheck,
 	priceFilter,
@@ -201,5 +202,34 @@ describe('orders', () => {
 		assert.deepEqual(saleFields(order, {now: new Date(2026, 10, 24, 15)}), {
 			currency: 'BRL', date: '2026-11-24', kind: 'sold', note: 'HOTARU HTR-0007', out: ['a', 'bb'], price: 5, who: 'Ana',
 		});
+	});
+});
+
+describe('orders with sealed products', () => {
+	const mixed = {code: 'HTR-0009', id: 'o9', items: [
+		{kind: 'single', listing_id: 'a', price_brl: 2},
+		{card_id: 'p1', kind: 'sealed', listing_id: 'sealed-1', name: 'Booster Box', price_brl: 900},
+		{card_id: 'p1', kind: 'sealed', listing_id: 'sealed-2', name: 'Booster Box', price_brl: 900},
+		{card_id: 'p2', kind: 'sealed', listing_id: 'sealed-3', name: 'ETB', price_brl: 300},
+	], name: 'Gil', total: 2102};
+	const sealedOnly = {code: 'HTR-0010', id: 'o10', items: [{card_id: 'p2', kind: 'sealed', listing_id: 'sealed-4', name: 'ETB', price_brl: 300}], name: 'Rui', total: 300};
+
+	test('a sealed product is never missing from the collection, and an order of them alone counts as logged', () => {
+		const doc = {cards: [copy('a')], moves: []};
+
+		assert.deepEqual(orderCheck(mixed, doc), {logged: false, missing: []});
+		assert.deepEqual(orderCheck(sealedOnly, doc), {logged: true, missing: []});
+		assert.equal(hasCards(mixed), true);
+		assert.equal(hasCards(sealedOnly), false);
+	});
+
+	test('the sale of a mixed order takes the cards only, at their price, and names the sealed products', () => {
+		const fields = saleFields(mixed, {now: new Date(2026, 10, 24)});
+
+		assert.deepEqual([fields.out, fields.price, fields.note], [['a'], 2, 'HOTARU HTR-0009, with 2× Booster Box, ETB']);
+	});
+
+	test('an item with no kind, from an older order call, is a card', () => {
+		assert.deepEqual(orderCheck({id: 'x', items: [{listing_id: 'gone'}]}, {cards: [], moves: []}).missing, ['gone']);
 	});
 });

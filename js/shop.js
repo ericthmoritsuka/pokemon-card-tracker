@@ -301,27 +301,46 @@ export function timeLeft(reservedUntil, now = Date.now()) {
 // copies that are no longer live here (traded or removed meanwhile), and
 // logged, whether its sale is in the moves already. A sale is logged under
 // the order's own ID, so it is never logged twice (js/moves.js planMove).
+//
+// Only cards are copies in the collection: a sealed product (step 4) is sold
+// from HOTARU's own stock, so it is never missing here and is not part of
+// the sale logged in Trades. An order of sealed products alone has nothing
+// to log, and counts as logged.
+const isCard = (item) => (item.kind || 'single') === 'single';
+
 export function orderCheck(order, doc) {
 	const live = new Set(((doc && doc.cards) || []).filter((entry) => entry && isLive(entry)).map((entry) => entry.id));
 	const moves = (doc && Array.isArray(doc.moves) ? doc.moves : []);
+	const cards = (order.items || []).filter(isCard);
 
 	return {
-		logged: moves.some((move) => move && move.id === order.id && !move.deleted_at),
-		missing: (order.items || []).map((item) => item.listing_id).filter((id) => !live.has(id)),
+		logged: !cards.length || moves.some((move) => move && move.id === order.id && !move.deleted_at),
+		missing: cards.map((item) => item.listing_id).filter((id) => !live.has(id)),
 	};
 }
+
+// Whether an order holds a card, so paying it logs a sale in Trades.
+export const hasCards = (order) => (order.items || []).some(isCard);
 
 // The sale a paid order logs (js/moves.js applyMove, with the order's ID).
 export function saleFields(order, {now = new Date()} = {}) {
 	const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
 
+	const cards = (order.items || []).filter(isCard);
+	const sealed = (order.items || []).filter((item) => !isCard(item));
+	// The sealed products of a mixed order are named in the note, and their
+	// price is left out of the cards' sale.
+	const others = [...sealed.reduce((counts, item) => counts.set(item.name, (counts.get(item.name) || 0) + 1), new Map())]
+		.map(([name, n]) => (n > 1 ? `${n}× ${name}` : name));
+	const price = Math.round(cards.reduce((sum, item) => sum + Number(item.price_brl || 0), 0) * 100) / 100;
+
 	return {
 		currency: 'BRL',
 		date,
 		kind: 'sold',
-		note: `HOTARU ${order.code}`,
-		out: (order.items || []).map((item) => item.listing_id),
-		price: Number(order.total),
+		note: others.length ? `HOTARU ${order.code}, with ${others.join(', ')}` : `HOTARU ${order.code}`,
+		out: cards.map((item) => item.listing_id),
+		price: sealed.length ? price : Number(order.total),
 		who: order.name,
 	};
 }

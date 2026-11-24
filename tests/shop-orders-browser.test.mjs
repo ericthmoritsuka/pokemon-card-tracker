@@ -267,6 +267,31 @@ describe('Shop orders', () => {
 		await context.close();
 	});
 
+	test('an order of sealed products alone can be paid, and logs no sale in Trades', async () => {
+		const orders = [{code: 'HTR-0010', created_at: hours(-1), id: '00000000-0000-4000-8000-000000000010', items: [{card_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', condition: null, finish: null, kind: 'sealed', language: 'pt', listing_id: 'sealed-1', name: 'Booster Box Destinos de Paldea', number: null, price_brl: 900, set_name: 'Booster box'}], name: 'Rui', note: null, paid_at: null, phone: '1', receipt_at: null, receipt_path: null, reserved_until: hours(40), status: 'pending', total: 900}];
+		const {context, errors, page, store} = await ownerPhone({orders});
+
+		await openShop(page);
+		await order(page, 'HTR-0010').waitFor(TIMEOUT);
+		assert.equal(await page.locator('#order-HTR-0010 .shop-order-missing').count(), 0, 'a sealed product is never missing');
+		assert.match(await text(order(page, 'HTR-0010').locator('.shop-order-items li')), /^Booster Box Destinos de Paldea · Booster box · Portuguese · Sealed · R\$ 900,00$/);
+		await order(page, 'HTR-0010').locator('button:has-text("Payment received")').click();
+		await order(page, 'HTR-0010').locator('button:has-text("Yes, received")').click();
+		await page.waitForFunction(() => document.querySelector('#order-HTR-0010 .shop-order-state') && document.querySelector('#order-HTR-0010 .shop-order-state').textContent === 'Paid · to hand over', null, TIMEOUT);
+		assert.deepEqual(store.calls.filter(([name]) => name === 'mark_paid'), [['mark_paid', 'HTR-0010']]);
+		assert.equal(await order(page, 'HTR-0010').locator('button:has-text("Log the sale")').count(), 0);
+
+		const logged = await page.evaluate(async () => {
+			const {loadDocument} = await import('/pokemon-card-tracker/js/collection.js');
+
+			return ((await loadDocument()).moves || []).filter((move) => move.id === '00000000-0000-4000-8000-000000000010').length;
+		});
+
+		assert.equal(logged, 0);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('before store-orders.sql is run the Shop says so, and a member who is not the owner sees no orders', async () => {
 		let {context, errors, page} = await ownerPhone({setUp: false});
 

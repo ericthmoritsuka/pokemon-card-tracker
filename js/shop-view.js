@@ -32,7 +32,7 @@ import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
-import {PRICE_FILTERS, groupMark, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {PRICE_FILTERS, groupMark, hasCards, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
 import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
@@ -738,7 +738,10 @@ export function shopView(root) {
 		}
 	}
 
-	const itemLine = (item) => [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition].filter(Boolean).join(' · ');
+	// A card names its number and condition; a sealed product (step 4) its kind.
+	const itemLine = (item) => (item.kind === 'sealed'
+		? [item.name, item.set_name, item.language ? languageLabel(item.language) : null, 'Sealed'].filter(Boolean).join(' · ')
+		: [item.name, item.number ? `#${item.number}` : null, item.set_name, item.language ? languageLabel(item.language) : null, item.condition].filter(Boolean).join(' · '));
 
 	function orderCard(order) {
 		const {logged, missing} = orderCheck(order, orderDoc);
@@ -840,8 +843,15 @@ export function shopView(root) {
 	async function logSale(order) {
 		await run(order, async () => {
 			try {
-				await applyMove(saleFields(order), {id: order.id});
-				toast(`${order.code}: sale logged in your Trades.`);
+				// Sealed products alone are sold from HOTARU's stock: no card
+				// leaves the collection, so there is no sale to log.
+				if (hasCards(order)) {
+					await applyMove(saleFields(order), {id: order.id});
+					toast(`${order.code}: sale logged in your Trades.`);
+				}
+				else {
+					toast(`${order.code} is paid.`);
+				}
 			}
 			catch (err) {
 				if (!(err && err.logged)) {
