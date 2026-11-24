@@ -6,6 +6,15 @@ import {getClient} from './auth.js';
 
 export const RECEIPT_BUCKET = 'store-receipts';
 
+// Said on window with {count} whenever the Shop screen has the open orders,
+// so the header's count (js/shell.js) follows a payment, a delivery, or a
+// cancel at once.
+export const ORDERS_EVENT = 'card-tracker-shop-orders';
+
+export function announceOrders(count) {
+	window.dispatchEvent(new CustomEvent(ORDERS_EVENT, {detail: {count}}));
+}
+
 async function call(name, args = {}) {
 	const client = await getClient();
 	const {data, error} = await client.rpc(name, args);
