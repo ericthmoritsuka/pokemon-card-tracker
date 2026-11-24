@@ -229,6 +229,13 @@ Only the owner of the family group publishes; no email address is written into t
 check it, open **Shop** while signed in and give a card a price: the line under the totals reads
 `On HOTARU: 1 card, …`, and **Table Editor**, `store_listings`, holds one row per spare.
 
+Orders need `supabase/store-orders.sql` too, run the same way after `store.sql`. It adds the
+orders, the reservation that goes to whoever closes first, the 48 hours to pay, the buyers'
+payment receipts in the private `store-receipts` bucket, and the owner's calls the Shop's Orders
+section makes (**Payment received**, **Delivered**, **Cancel order**). Until it is run, the Shop
+says so in place of its orders. To check it, Database, Functions lists `place_order` and
+`store_orders_open`, and Storage lists `store-receipts`, marked Private.
+
 ## Accounts and Sync
 
 - **One document per person.** The phone keeps the person's document in IndexedDB as before, and
