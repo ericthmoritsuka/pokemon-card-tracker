@@ -7,15 +7,27 @@ are Recife time. Each line ends with its commit.
 
 ## In Progress (2026-11-24)
 
-- Selling spares on HOTARU (`plans/hotaru-catalog-plan.md`, branch `hotaru-catalog-plan`): steps 1 and 2 are live in
-  v101. Step 3, the catalog pages, is HOTARU pull request #2, waiting on Eric. Next: step 4, sealed products on a
-  HOTARU admin page, then step 5, orders and Pix.
+- Selling spares on HOTARU (`plans/hotaru-catalog-plan.md`): steps 1, 2, 3, and 5 are live on the tracker's side
+  (v101 to v103). HOTARU pull request #5 (cart, Pix, receipts, My orders) waits on Eric rerunning store-orders.sql.
+  Next: step 4, sealed products on a HOTARU admin page.
 - Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
 - Still designed, not built: pack openings, graded cards, Michi art editing, and the tombstone purge (DESIGN.md).
 
 ## Live
 
 ### 2026-11-24
+
+- **v103:** HOTARU orders in the Shop. `2e77bbb`, `6cf7ed1`, `1d4ec3b`
+  - The Shop's Orders section lists every order waiting for payment and every paid one still to hand over: buyer,
+    phone, note, cards, total, time left, and the buyer's Pix receipt when sent. Payment received marks the order paid
+    on HOTARU, then logs the sale under the order's ID (never twice), so the copies leave the collection and the
+    spares; Log the sale retries a sale that did not log. Delivered and Cancel order close the rest; Payment received
+    waits when a copy of the order is gone from the collection.
+  - `supabase/store-orders.sql` (run in the live project on 2026-11-24): orders, first to close reserves, 48 hours to
+    pay with lazy expiry, receipts in the private `store-receipts` bucket under a secret token, the owner's calls,
+    and `order_status` for HOTARU's My orders. Verified in a Postgres 16 container with Supabase stand-ins, including a
+    real two-connection race.
+  - Suite before release: 156 files, 2,253 pass, 0 fail.
 
 - **v102:** save every Shop price at once. `25c700e`, `4a625ea`, `2383479`
   - Typing a price saves nothing by itself: changed cards are marked, and the bar above the tabs saves them all at
