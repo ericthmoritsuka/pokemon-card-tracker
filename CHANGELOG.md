@@ -17,6 +17,21 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v108:** a favorite card is never a spare. `dc05fa1`, `f68670a`, `0148c04`, `5b46628`, `36c3b4b`
+  - Changed (Eric): a favorite is a card he does not trade or sell for anything. One star on any copy keeps every
+    copy of the card, in every language and finish, however many and wherever they sit, out of Spares, Trade
+    ideas, a family member's spares, and the Shop (`favoriteCards`, `js/wishlist.js`).
+  - Added: starring a card the shop owner has priced takes its listings off HOTARU at once, leaving reserved and
+    sold copies alone (`store_withdraw`, new `supabase/store-withdraw.sql`, run by Eric before the release).
+  - Added: a starred card offers "Also star the Japanese print" (or the international print) when this phone
+    knows its confident or confirmed twin, since an Asian print is a card record of its own.
+  - Changed: the scanner's Trade or sale never chooses a copy of a favorite by itself, and Save in the trades log
+    names each favorite going out and logs it only after "Sell it anyway" (or Trade, Give). Spares no longer
+    offers the Favorites filter.
+  - Ready for v110: the spare rule takes a `forSale` predicate, since a copy marked For sale will beat the star.
+  - Suite before release: 158 files, 2,282 pass, 2 fail: the twins import check (fixed in `36c3b4b`, 24/0) and
+    the known moves-browser "a purchase from the scanner" flake, which fails alone on v107 master too.
+
 - **v107:** copies in use in a binder are never spares. `4f3cf0c`, `8da3c26`, `4d0f256`
   - Changed (Eric): a copy in a hand-made binder's pocket, or on top of a pocket in a binder made from a list, is
     in use, so it is never a spare and counts as the copy kept. Three Salamences, one in the 30 anos binder, one
