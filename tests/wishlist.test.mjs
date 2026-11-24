@@ -225,6 +225,18 @@ describe('a favorite card is never a spare (Eric, 2026-11-24)', () => {
 		assert.deepEqual(spareEntries([mew('m1', {is_favorite: false}), mew('m2')]).map((entry) => entry.id), ['m2']);
 	});
 
+	test('a copy marked For sale is the one way past the star (Eric, 2026-11-24; the mark is not built yet)', () => {
+		const cards = [mew('m1', {is_favorite: true}), mew('m2'), mew('m3', {language: 'pt'})];
+		const forSale = (entry) => entry.id === 'm3';
+
+		assert.deepEqual(spareEntries(cards), [], 'no copy carries the mark today');
+		assert.deepEqual(spareEntries(cards, {forSale}).map((entry) => entry.id), ['m3']);
+		assert.deepEqual(spareEntries(cards, {forSale, held: new Set(['m3'])}).map((entry) => entry.id), ['m3'], 'the mark beats the binder too');
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv03.5-151', {language: 'pt'}), cards, {forSale}).map((entry) => entry.id), ['m3']);
+		assert.equal(sparesFor(wish('w', 'sv03.5-151', {language: 'en'}), cards, {forSale}), 0, 'the mark is on the Portuguese copy only');
+		assert.equal(tradeIdeas([wish('w', 'sv03.5-151')], cards, {forSale}).length, 1);
+	});
+
 	test('the same card number in another catalog is another card', () => {
 		const cards = [copy('j1', 'sv03.5-151', {catalog: 'ja', is_favorite: true, language: 'ja'}), mew('m1'), mew('m2')];
 

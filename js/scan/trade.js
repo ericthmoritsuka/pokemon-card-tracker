@@ -557,7 +557,7 @@ export function outLine(result, {where = new Map(), languageName = (code) => cod
 				: 'Every copy you own of it is already going out. Not logged.';
 		case 'ask':
 			if (result.favorite) {
-				return `A favorite, so no copy goes unless you pick it${result.need > 1 ? `; pick ${result.need}` : ''}.`;
+				return `A favorite: pick ${result.need > 1 ? `${result.need} copies` : 'a copy'} only if it really goes, and Save asks before it is logged.`;
 			}
 
 			return `${result.candidates.length} ${result.candidates.length === 1 ? 'copy matches' : 'copies match'}${result.need > 1 ? `; pick ${result.need}` : ''}.`;

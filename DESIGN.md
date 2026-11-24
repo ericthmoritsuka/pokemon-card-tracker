@@ -153,6 +153,12 @@ one in the 30 anos binder, one in Hoenn, and one loose, are one spare, and the S
 loose one to HOTARU. *(Eric, 2026-11-24.)* In a binder made from a list, a pocket shows every copy
 of its Pokémon, but only the copy on top (the hand pick, else the stored default) is in use there; the
 copies under it stay spares as usual. A binder's tray holds none (`heldCopies`, `js/binders.js`).
+A favorite card is never a spare: Eric's favorites are cards he does not trade or sell for anything,
+so when any live copy carries the star, every copy of the card, in every language, is kept, however
+many there are and wherever they sit, and a copy added later is kept too. It leaves Spares, Trade
+ideas, and the Shop (so the next Publish withdraws it from HOTARU), and the scanner's Trade or sale
+mode never sends one out by itself: it asks, suggesting no copy. *(Eric, 2026-11-24;
+`favoriteCards`, `js/wishlist.js`.)*
 
 **Every scan is a session; there is no single or batch mode.**
 One scan opens the confirm sheet with the duplicate prompt. "Scan next" drops that card into the
@@ -3840,14 +3846,14 @@ the binder card picker, the tray, and the wishlist can reuse it:
 that opens it (design review 2, 2026-11-20: it was titled "Trade", beside a Trades button for
 the trades log), route `trade` (a member's, read only:
 `family/<id>/trade`). It is My Cards over the spares only, so it has the same bar (search,
-set, language, rarity, price sort, Favorites), the same tiles, and the Value sheet with its coverage
+set, language, rarity, price sort; no Favorites, since a favorite is never a spare), the same tiles, and the Value sheet with its coverage
 line. It is reached from the Spares button in My Cards' bar and from Profile ("Spares to
 trade"). Trade stays a query (section 3), never a stored list.
 
 - A spare is every copy beyond the first of the same card in the same language, whatever its
   finish, counted with the same function a family wishlist uses (`sparesFor`, `js/wishlist.js`).
-  The copy kept is a favorite if one is marked, otherwise the one added first; the rest are the
-  spares. A copy in a hand-made binder's pocket is never a spare and is kept in place of that one
+  The copy kept is the one added first; the rest are the spares. A favorite card has none
+  (section 3). A copy in a hand-made binder's pocket is never a spare and is kept in place of that one
   (section 3), so a loose copy beside it is a spare. The default of one kept copy per card and
   language is not a setting.
 - One tile per card and language. The `×N` badge counts spares; the line under the name reads

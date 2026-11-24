@@ -169,6 +169,58 @@ test('a sale of one copy from its card page shows in History and on the card pag
 	await done();
 });
 
+test('a favorite going out is logged only after an explicit yes (Eric, 2026-11-24)', async () => {
+	const {done, page} = await phone();
+
+	await page.waitForSelector('#cards-moves');
+	await page.evaluate(async () => {
+		const {updateCards} = await import('/pokemon-card-tracker/js/collection.js');
+
+		await updateCards([{id: 'c-01', patch: {is_favorite: true}}]);
+	});
+	await page.goto(url('cards/en/tsa1-001'));
+	await page.waitForSelector('#card-move');
+	await page.click('#card-move');
+	await page.waitForSelector('#move-out-list [data-entry="c-01"]');
+	await page.fill('#move-who', 'Ana');
+	await page.fill('#move-price', '30,50');
+
+	// Picking the copy is not the yes: Save asks, naming the card.
+	await page.click('#move-save');
+	await page.waitForSelector('#move-favorite-sheet[open]');
+	assert.equal(await page.textContent('#move-favorite-sheet-title'), '★ Bulbasaur is a favorite');
+	assert.equal(await page.textContent('#move-favorite-go'), 'Sell it anyway');
+	await page.screenshot({path: `${SHOTS}/moves-favorite-ask.png`});
+
+	// Keep it logs nothing, and the form stays as typed.
+	await page.click('#move-favorite-keep');
+	await page.waitForSelector('#move-favorite-sheet', {state: 'hidden'});
+	assert.equal(await page.textContent('#move-error'), 'Not saved: the favorites stay in your cards.');
+	assert.equal(await page.inputValue('#move-who'), 'Ana');
+
+	let now = await state(page);
+
+	assert.deepEqual(now.moves, []);
+	assert.equal(now.cards['c-01'].deleted_at, null);
+
+	// Escape is no yes either.
+	await page.click('#move-save');
+	await page.waitForSelector('#move-favorite-sheet[open]');
+	await page.keyboard.press('Escape');
+	await page.waitForSelector('#move-favorite-sheet', {state: 'hidden'});
+	assert.deepEqual((await state(page)).moves, []);
+
+	// The yes logs it.
+	await page.click('#move-save');
+	await page.waitForSelector('#move-favorite-sheet[open]');
+	await page.click('#move-favorite-go');
+	await page.waitForSelector('.moves-row');
+	now = await state(page);
+	assert.deepEqual(now.moves.map((move) => move.out), [['c-01']]);
+	assert.ok(now.cards['c-01'].deleted_at, 'the copy left the collection');
+	await done();
+});
+
 test('a trade with one card out and one card in', async () => {
 	const {done, page} = await phone();
 

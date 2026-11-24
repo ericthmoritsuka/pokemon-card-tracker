@@ -38,7 +38,7 @@ import {rememberMode} from './scan/trade.js';
 import {toast} from './shell.js';
 import {cardArt, entryFinish, tileArt} from './tile.js';
 import {spareEntries} from './trade-view.js';
-import {SearchHint, cardRecord, searchCards} from './wishlist.js';
+import {SearchHint, cardRecord, favoriteCards, favoriteKey, searchCards} from './wishlist.js';
 
 const UNDO_MS = 8000;
 const PAGE = 60;
@@ -580,6 +580,43 @@ const KIND_LABELS = [['sold', 'Sold'], ['bought', 'Bought'], ['traded', 'Traded'
 
 const kindLabel = (value) => (KIND_LABELS.find(([one]) => one === value) || [null, value])[1];
 
+// A favorite card goes out only with Eric's explicit yes (Eric, 2026-11-24:
+// "a card I don't trade or sell for anything"; js/wishlist.js
+// favoriteCards). Picking its copy is not that yes: Save asks first, naming
+// each favorite, and Keep it, Escape, Back, or a tap outside logs nothing.
+// Resolves true only for the button that says to go ahead.
+const ANYWAY = {gift: 'Give', sold: 'Sell', traded: 'Trade'};
+
+function askFavoritesOut(names, kind) {
+	const sheet = sheetDialog('move-favorite-sheet', 'A favorite is going out');
+	let yes = false;
+
+	return new Promise((resolve) => {
+		const close = () => sheet.close();
+		const one = names.length === 1;
+		const go = h('button', {class: 'danger', id: 'move-favorite-go', type: 'button'}, `${ANYWAY[kind] || 'Log'} ${one ? 'it' : 'them'} anyway`);
+
+		go.addEventListener('click', () => {
+			yes = true;
+			close();
+		});
+		sheet.replaceChildren(
+			h('div', {class: 'sheet-head'},
+				h('h2', {id: 'move-favorite-sheet-title'}, one ? `★ ${names[0]} is a favorite` : `★ ${names.length} favorites are going out`),
+				h('button', {class: 'small', id: 'move-favorite-close', onclick: close, type: 'button'}, 'Cancel')
+			),
+			h('p', {class: 'muted copy-sub', id: 'move-favorite-text'}, one
+				? 'You marked it as a card you keep. Nothing is logged unless you confirm.'
+				: 'You marked them as cards you keep. Nothing is logged unless you confirm.'),
+			one ? null : h('ul', {class: 'move-favorite-list', id: 'move-favorite-list'}, names.map((name) => h('li', null, name))),
+			h('div', {class: 'actions'},
+				h('button', {class: 'primary', id: 'move-favorite-keep', onclick: close, type: 'button'}, one ? 'Keep it' : 'Keep them'),
+				go)
+		);
+		showSheet(sheet, () => resolve(yes));
+	});
+}
+
 // "Scanned 2 going out, 1 coming in. Add who and the price, then Save."
 // (design review, 2026-11-06), with the alternative the sides allow; the
 // kind picked shows in the kinds above it. out counts the copies still in
@@ -787,6 +824,22 @@ export function newMoveView(root) {
 	const viewing = viewingLanguage();
 	const outSheet = sheetDialog('move-out-sheet', 'Going out');
 	const inSheet = sheetDialog('move-in-sheet', 'A card coming in');
+
+	// The names of the favorite cards among the copies going out, one per
+	// card (js/wishlist.js favoriteCards), from the document as it is now.
+	async function favoritesGoing(ids) {
+		if (!ids.length) {
+			return [];
+		}
+
+		const now = await loadDocument();
+		const favorites = favoriteCards(now.cards);
+		const byId = new Map((now.cards || []).filter((entry) => entry && entry.id).map((entry) => [entry.id, entry]));
+		const going = ids.map((id) => byId.get(id)).filter((entry) => entry && isLive(entry) && favorites.has(favoriteKey(entry)));
+		const seen = new Set();
+
+		return described(going, index, viewing).filter(({entry}) => !seen.has(favoriteKey(entry)) && seen.add(favoriteKey(entry))).map(({info}) => info.name);
+	}
 	// The scanner's cards as compact rows, so the form stays short.
 	const compact = handed.from === 'scan';
 
@@ -1348,6 +1401,17 @@ export function newMoveView(root) {
 		}
 
 		save.disabled = true;
+
+		// Favorites going out wait for a yes, read from the document as it
+		// is now, so a star set on another phone counts too.
+		const starred = await favoritesGoing(out).catch(() => []);
+
+		if (starred.length && !await askFavoritesOut(starred, kind)) {
+			save.disabled = false;
+			error.textContent = 'Not saved: the favorites stay in your cards.';
+
+			return;
+		}
 
 		let result;
 
