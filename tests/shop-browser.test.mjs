@@ -1,5 +1,5 @@
 // Browser tests for the Shop screen (js/shop-view.js, Eric, 2026-11-24):
-// opened from Shop on the Spares screen, one row per card and language with
+// opened by its address (the header's Shop is the family owner's), one row per card and language with
 // spares, prices typed as drafts and saved together from the bar above the
 // tabs (Eric: "enter the prices and press save at the end"), drafts that
 // survive a search and a trip away, Enter to the next field, Discard, a
@@ -60,10 +60,10 @@ async function phone() {
 	return {context, errors, page};
 }
 
+// Signed out, as here, the header shows no Shop (it is the family owner's,
+// tests/shop-owner-browser.test.mjs), so the address opens it.
 async function openShop(page) {
-	await page.goto(`${server.origin}${BASE}trade`);
-	await page.locator('#trade-shop').waitFor(TIMEOUT);
-	await page.click('#trade-shop');
+	await page.goto(`${server.origin}${BASE}shop`);
 	await page.waitForFunction(() => document.querySelector('.view-head h2').textContent === 'Shop');
 	await page.locator('.shop-row').first().waitFor(TIMEOUT);
 }
@@ -164,9 +164,9 @@ describe('Shop', () => {
 		await openShop(page);
 		await pickShow(page, 'all');
 		await type(page, CHARMANDER_EN, '3');
-		await page.click('#shop-back');
-		await page.locator('#trade-shop').waitFor(TIMEOUT);
-		await page.click('#trade-shop');
+		await page.click('.tabs a[data-tab="cards"]');
+		await page.locator('#view .view-head h2').filter({hasText: 'My Cards'}).waitFor(TIMEOUT);
+		await page.goBack();
 		await page.locator('.shop-row').first().waitFor(TIMEOUT);
 		assert.equal(await page.locator(`${CHARMANDER_EN} .shop-price-input`).inputValue(), '3');
 		assert.equal(plain(await page.locator('#shop-save-all').textContent()), 'Save 1 price');

@@ -56,8 +56,6 @@ export function tradeView(root) {
 		placeholder: 'Search my spares',
 		storageKey: CHOICE_KEY,
 		title: 'Spares',
-		// The Shop prices these spares for HOTARU (js/shop-view.js).
-		toolbar: [h('a', {class: 'button small view-head-link', 'data-link': 'shop', href: `${BASE}shop`, id: 'trade-shop'}, 'Shop')],
 		watch: (reload) => onChange((doc, info) => reload(doc && Array.isArray(doc.cards) ? {...doc, cards: spareEntries(doc.cards)} : doc, info)),
 	});
 }

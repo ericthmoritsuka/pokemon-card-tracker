@@ -56,6 +56,11 @@
 				<button class="sync-status" id="sync-status" type="button" aria-live="polite" hidden></button>
 			</div>
 			<button class="owner-switch" id="owner-switch" type="button" aria-haspopup="dialog" hidden>Mine</button>
+			<!-- The family owner's only (js/shop-owner.js). -->
+			<a class="shop-link" id="shop-link" href="/pokemon-card-tracker/shop" data-link="shop" hidden>
+				<svg class="shop-link-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 8h14l-1.2 11.1a1 1 0 0 1-1 .9H7.2a1 1 0 0 1-1-.9z"/><path d="M9 10V7a3 3 0 0 1 6 0v3"/></svg>
+				<span class="shop-link-text">Shop</span>
+			</a>
 			<a class="account" id="account" href="/pokemon-card-tracker/profile" data-link="profile">Sign in</a>
 		</header>
 		<div class="offline-strip" id="offline-strip" role="status" hidden></div>

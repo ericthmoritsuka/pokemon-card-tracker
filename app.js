@@ -25,7 +25,8 @@
 //   stats, family/<userId>/stats  Stats for the collection, from My Cards
 //                             (js/stats-view.js)
 //   shop                      The Shop: spares priced for HOTARU, from
-//                             Spares (js/shop-view.js)
+//                             Shop in the header, the family owner's
+//                             only (js/shop-view.js, js/shop-owner.js)
 //   family/<userId>[/lists[/<id>]]  A family member's cards or checklists,
 //                             view only (js/shell.js holds the lens)
 //
