@@ -23,6 +23,15 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'HOTARU orders on the Shop screen: who ordered, their phone, the cards, the total, and how long they have left to pay.',
+			'Payment received logs the sale in your Trades and takes the cards out of your spares. Delivered and Cancel order close the rest.',
+			'When a buyer sends their Pix receipt, open it from their order to check it against your account.',
+		],
+		version: 'v103',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'Shop: type the prices of as many cards as you like, then Save them all at once from the bar above the tabs.',
 			'Enter moves on to the next card\'s price, and Discard drops what you typed. Prices you typed wait for you if you leave the Shop and come back.',
 			'Fill all shown types one price into every card shown, for you to save with the rest.',
