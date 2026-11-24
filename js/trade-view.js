@@ -24,7 +24,8 @@ import {spareEntries} from './wishlist.js';
 
 const CHOICE_KEY = 'cardTracker.tradeChoice';
 // The filters that mean something over spares.
-const OFFERED = ['set', 'language', 'rarity', 'price', 'storage', 'favorite'];
+// No Favorite: a favorite card is never a spare (js/wishlist.js).
+const OFFERED = ['set', 'language', 'rarity', 'price', 'storage'];
 
 // The spares rule lives in js/wishlist.js beside sparesFor, so the scanner's
 // Trade or sale mode can reach it from Node tests too.
@@ -41,7 +42,7 @@ function metaFor(group) {
 const emptyNode = (mine) => () => h('div', {class: 'card empty-state', id: 'trade-empty'},
 	h('div', {'aria-hidden': 'true', class: 'empty-art'}),
 	h('p', {class: 'big'}, mine ? 'No spares yet' : 'No spares'),
-	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language. A Portuguese and an English copy of a card are both kept; a second Portuguese copy is a spare, whatever its finish. A copy in a binder is never a spare.'),
+	h('p', {class: 'muted'}, 'A spare is a copy beyond the first of the same card in the same language. A Portuguese and an English copy of a card are both kept; a second Portuguese copy is a spare, whatever its finish. A copy in a binder is never a spare, and no copy of a favorite card is.'),
 	h('p', {class: 'muted'}, mine ? 'Cards you own twice show up here, ready to trade.' : 'Cards they own twice show up here.'),
 	h('a', {class: 'button', 'data-link': 'cards', href: `${BASE}cards`}, 'Back to My Cards')
 );

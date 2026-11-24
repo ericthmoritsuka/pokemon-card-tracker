@@ -79,7 +79,7 @@ const copy = (id, cardId, fields = {}) => ({
 });
 
 // Spares: Charmander EN 2 (three copies) and PT 1 (two copies), Charizard
-// ex EN 1 (two copies, the favorite is the one kept), Pikachu EN 1 (two
+// ex EN 1 (two copies, the first added kept), Pikachu EN 1 (two
 // copies), Pikachu JA 1 (two copies). Nothing from Bulbasaur (one copy),
 // Test Ball (one PT copy), or Sprigatito (two copies, one deleted).
 // 15 copies, 6 spares in 5 tiles.
@@ -90,7 +90,7 @@ export const SPARE_COPIES = [
 	copy('c-04', 'tsa1-004', {condition: 'Near Mint'}),
 	copy('c-05', 'tsa1-004', {language: 'pt'}),
 	copy('c-06', 'tsa1-004', {language: 'pt', finish_raw: 'Holofoil'}),
-	copy('c-07', 'tsa1-006', {is_favorite: true}),
+	copy('c-07', 'tsa1-006'),
 	copy('c-08', 'tsa1-006'),
 	copy('c-09', 'tsb2-025', {price_manual: {avg: 80, currency: 'BRL', date: '2026-09-20', low_nm: 70, source: 'Liga Pokémon'}}),
 	copy('c-10', 'tsb2-025', {price_manual: {avg: 90, currency: 'BRL', date: '2026-09-20', low_nm: 70, source: 'Liga Pokémon'}}),

@@ -79,6 +79,26 @@ describe('the side a capture joins', () => {
 });
 
 describe('which copy goes out', () => {
+	test('a favorite card never goes by itself: every copy is offered, none suggested (Eric, 2026-11-24)', () => {
+		// One star, on the copy kept; the other copy would be a spare otherwise.
+		const cards = [copy('k1', {is_favorite: true}), copy('k2', {created_at: at(2)})];
+		const result = T.outCopies(tray([{}]), cards).get('t1');
+
+		assert.equal(result.status, 'ask');
+		assert.equal(result.favorite, true);
+		assert.deepEqual(result.copies, []);
+		assert.deepEqual(result.suggested, []);
+		assert.deepEqual(ids(result.candidates).sort(), ['k1', 'k2']);
+		assert.equal(T.outLine(result), 'A favorite, so no copy goes unless you pick it.');
+
+		// A hand pick settles it.
+		const session = tray([{}]);
+
+		T.pickCopies(session, 't1', ['k2'], AT);
+		assert.equal(T.outCopies(session, cards).get('t1').status, 'chosen');
+		assert.deepEqual(ids(T.outCopies(session, cards).get('t1').copies), ['k2']);
+	});
+
 	test('the one spare goes by itself; the copy kept is never taken first', () => {
 		// k1 is the keeper (added first), k2 the spare.
 		const cards = [copy('k1'), copy('k2', {created_at: at(2)})];

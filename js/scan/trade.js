@@ -196,6 +196,10 @@ const byAge = (a, b) => String(b.created_at || '').localeCompare(String(a.create
 //               copy without a word
 //   why         for 'busy' while his cards are not read yet: 'loading', or
 //               'failed' when they could not be read
+//   favorite    true when the card is a favorite (js/wishlist.js
+//               favoriteCards): never a spare, so the scanner chooses no
+//               copy of it and asks, and Eric picks one only if it really
+//               goes
 //
 // cards: the person's copies (live ones are used); where: copyWhere. Cards
 // are settled in the tray's order (the first scanned first), after every
@@ -299,6 +303,14 @@ export function outCopies(session, cards, {held = null, known = 'loaded', where 
 
 		if (!fits.length) {
 			Object.assign(result, {by: hand.length ? 'hand' : null, candidates: [...hand, ...free.sort(rank(item))], copies: hand, status: hand.length ? 'short' : 'other'});
+			continue;
+		}
+
+		// A favorite card never goes by itself (Eric, 2026-11-24: a card he
+		// does not trade or sell for anything): its copies are offered, none
+		// suggested, and the card is not logged until he picks.
+		if (all.some((entry) => entry.is_favorite === true)) {
+			Object.assign(result, {candidates: [...hand, ...fits], copies: hand, favorite: true, status: 'ask'});
 			continue;
 		}
 
@@ -544,6 +556,10 @@ export function outLine(result, {where = new Map(), languageName = (code) => cod
 				? 'None of your copies is in this language and finish. Not logged unless you pick one.'
 				: 'Every copy you own of it is already going out. Not logged.';
 		case 'ask':
+			if (result.favorite) {
+				return `A favorite, so no copy goes unless you pick it${result.need > 1 ? `; pick ${result.need}` : ''}.`;
+			}
+
 			return `${result.candidates.length} ${result.candidates.length === 1 ? 'copy matches' : 'copies match'}${result.need > 1 ? `; pick ${result.need}` : ''}.`;
 		case 'short':
 			return `You own only ${result.copies.length} that ${result.copies.length === 1 ? 'fits' : 'fit'}; ${result.copies.length === 1 ? 'it goes' : 'they go'}.`;

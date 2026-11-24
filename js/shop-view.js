@@ -421,7 +421,7 @@ export function shopView(root) {
 		list.replaceChildren(...visible.map(row));
 		empty.hidden = visible.length > 0;
 		empty.textContent = !groups.length
-			? 'No spares yet. A spare is a copy beyond the first of the same card in the same language.'
+			? 'No spares yet. A spare is a copy beyond the first of the same card in the same language, never a favorite.'
 			: show === 'unpriced' && !query && !setFilter && !rarityFilter
 				? 'Every spare is priced.'
 				: 'No spares match.';

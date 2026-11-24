@@ -78,6 +78,9 @@ describe('favorites', () => {
 		// All five Charmander copies, English and Portuguese; nothing else.
 		assert.deepEqual(Object.keys(marked).filter((id) => marked[id]).sort(), ['c-02', 'c-03', 'c-04', 'c-05', 'c-06']);
 		assert.equal(await page.locator('#favorite-toggle').textContent(), '★');
+		// What the star means, under the copies (Eric, 2026-11-24).
+		await page.locator('#copies-favorite').waitFor(TIMEOUT);
+		assert.match(await page.locator('#copies-favorite').textContent(), /^A favorite: none of your \d+ copies is a spare, so none shows in Spares, Trade ideas, or the Shop\.$/);
 		await page.screenshot({path: `${SHOTS}/favorites-card-on.png`});
 
 		// My Cards: the two Charmander tiles carry the star, no other tile.
@@ -124,20 +127,19 @@ describe('favorites', () => {
 		await context.close();
 	});
 
-	test('the Trade view takes the Favorites filter and keeps a favorite copy', async () => {
-		const copies = COPIES.map((copy) => (['c-07', 'c-08'].includes(copy.id) ? {...copy, is_favorite: true} : copy));
+	test('a favorite card is never a spare: every copy stays out of Trade (Eric, 2026-11-24)', async () => {
+		// One star on one of the two Charizard copies keeps both.
+		const copies = COPIES.map((copy) => (copy.id === 'c-07' ? {...copy, is_favorite: true} : copy));
 		const {context, errors, page} = await phone(copies);
 
 		await page.locator('.card-grid .tile').first().waitFor(TIMEOUT);
 		await page.click('#cards-trade');
-		await page.waitForFunction(() => /^6 copies · 5 cards$/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
+		await page.waitForFunction(() => /^5 copies · 4 cards$/.test((document.querySelector('#cards-summary') || {}).textContent || ''), null, TIMEOUT);
+		assert.equal(await page.locator('.tile:has-text("Charizard")').count(), 0);
+		assert.deepEqual(await starred(page), [], 'no spare carries a star');
 		await page.click('#cards-filters');
 		await page.locator('#cards-sheet[open]').waitFor();
-		await page.check('#cards-f-favorite');
-		await page.click('#cards-sheet .fb-show');
-		await page.waitForFunction(() => document.querySelectorAll('.card-grid .tile').length === 1, null, TIMEOUT);
-		assert.deepEqual(await page.locator('.card-grid .tile .tile-name').allTextContents(), ['Charizard ex']);
-		assert.deepEqual(await starred(page), ['Charizard ex'], 'the spare of a favorite card is starred too');
+		assert.equal(await page.locator('#cards-sheet [data-filter="favorite"]').count(), 0, 'no Favorites filter over spares');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
