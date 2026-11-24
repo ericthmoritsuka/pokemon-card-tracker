@@ -88,8 +88,8 @@ describe('Trade', () => {
 		assert.equal(new URL(page.url()).pathname, `${BASE}trade`);
 		assert.match(await summary(page), /^6 copies · 5 cards$/);
 
-		// Sorted by name: Charizard ex keeps its favorite, so the other copy is
-		// the spare; Charmander EN has three copies (two spares, Near Mint and
+		// Sorted by name: Charizard ex keeps the copy added first, so the other
+		// copy is the spare; Charmander EN has three copies (two spares, Near Mint and
 		// Played, the kept copy being the first added), PT has two (one).
 		await page.selectOption('#cards-sort', 'name');
 
@@ -107,10 +107,8 @@ describe('Trade', () => {
 
 		assert.deepEqual(badges, ['', '×2', '', '', '']);
 
-		// The spare of the favorite card is not the favorite copy.
-		const favoriteTiles = await page.locator('.card-grid .tile .badge-fav').count();
-
-		assert.equal(favoriteTiles, 0, 'the kept copy carries the star, the spare does not');
+		// No spare carries a star: a favorite card has no spares.
+		assert.equal(await page.locator('.card-grid .tile .badge-fav').count(), 0);
 		assert.equal(await page.locator('.tile:has-text("Bulbasaur")').count(), 0, 'one copy is no spare');
 		assert.equal(await page.locator('.tile:has-text("Test Ball")').count(), 0);
 		assert.equal(await page.locator('.tile:has-text("Sprigatito")').count(), 0, 'a deleted copy is no spare');
@@ -151,7 +149,7 @@ describe('Trade', () => {
 
 		const offered = await page.locator('#cards-sheet [data-filter]').evaluateAll((nodes) => nodes.map((node) => node.dataset.filter));
 
-		assert.deepEqual(offered, ['set', 'language', 'rarity', 'price', 'storage', 'favorite']);
+		assert.deepEqual(offered, ['set', 'language', 'rarity', 'price', 'storage'], 'no Favorites: a favorite is never a spare');
 		await page.click('#cards-sheet .fb-show');
 
 		// Price sort, dearest first: the Liga-priced Pikachu (90 reais) is on
@@ -188,7 +186,7 @@ describe('Trade', () => {
 		await context.close();
 	});
 
-	test('a card traded away leaves the list at once, and a favorite is the copy that is kept', async () => {
+	test('a card traded away leaves the list at once, and so does a card marked a favorite', async () => {
 		const {context, errors, page} = await phone();
 
 		await page.locator('.tile').first().waitFor(TIMEOUT);
@@ -203,14 +201,15 @@ describe('Trade', () => {
 		});
 		await page.waitForFunction(() => /^5 copies · 5 cards$/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
 
-		// Mark the second Charizard copy a favorite: it is kept now and the
-		// first one is the spare; the count stays the same.
+		// Star one Charizard copy (Eric, 2026-11-24: a favorite is never traded
+		// or sold): every copy of the card is kept, so its spare leaves too.
 		await page.evaluate(async () => {
 			const {updateCards} = await import('/pokemon-card-tracker/js/collection.js');
 
-			await updateCards([{id: 'c-07', patch: {is_favorite: false}}, {id: 'c-08', patch: {is_favorite: true}}]);
+			await updateCards([{id: 'c-08', patch: {is_favorite: true}}]);
 		});
-		await page.waitForFunction(() => /^5 copies · 5 cards$/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
+		await page.waitForFunction(() => /^4 copies · 4 cards$/.test(document.querySelector('#cards-summary').textContent), null, TIMEOUT);
+		assert.equal(await page.locator('.tile:has-text("Charizard")').count(), 0);
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
@@ -226,6 +225,7 @@ describe('Trade', () => {
 
 		assert.match(text, /^No spares yet ?A spare is a copy beyond the first of the same card in the same language\./);
 		assert.match(text, /a second Portuguese copy is a spare, whatever its finish/);
+		assert.match(text, /no copy of a favorite card is\./);
 		assert.equal(await page.locator('#cards-search').count(), 0, 'no filter bar over nothing');
 		await page.screenshot({path: `${SHOTS}/trade-empty.png`});
 		await page.click('#trade-empty a');

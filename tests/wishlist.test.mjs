@@ -168,7 +168,7 @@ describe('copies in a binder are never spares (Eric, 2026-11-24)', () => {
 		const held = new Set(['s1']);
 
 		assert.deepEqual(spareEntries(three, {held}).map((entry) => entry.id), ['s2', 's3'], 'not the keeper s1 alone: s1 is in the binder');
-		assert.deepEqual(spareEntries([salamence('s1'), salamence('s2', {is_favorite: true})], {held}).map((entry) => entry.id), ['s2'], 'even a favorite loose copy, since the binder copy is kept');
+		assert.deepEqual(spareEntries([salamence('s1'), salamence('s2', {is_favorite: true})], {held}), [], 'a favorite loose copy is kept too: a favorite card has no spares');
 	});
 
 	test('every copy in binders leaves no spare, and no binder keeps today\'s rule', () => {
@@ -193,6 +193,45 @@ describe('copies in a binder are never spares (Eric, 2026-11-24)', () => {
 	});
 });
 
+describe('a favorite card is never a spare (Eric, 2026-11-24)', () => {
+	// "A card I don't trade or sell for anything": one star keeps every copy.
+	const mew = (id, fields = {}) => copy(id, 'sv03.5-151', {created_at: at(Number(id.slice(1))), ...fields});
+
+	test('one starred copy keeps all of them, in every language, however many', () => {
+		const cards = [mew('m1'), mew('m2', {is_favorite: true}), mew('m3'), mew('m4', {language: 'pt'}), mew('m5', {language: 'pt'})];
+
+		assert.deepEqual(spareEntries(cards), []);
+		assert.equal(sparesFor(wish('w', 'sv03.5-151'), cards), 0);
+		assert.equal(sparesFor(wish('w', 'sv03.5-151', {language: 'pt'}), cards), 0, 'the star is on an English copy');
+		assert.deepEqual(tradeIdeas([wish('w', 'sv03.5-151')], cards), []);
+	});
+
+	test('other cards keep their spares, and a copy added later is kept too', () => {
+		const cards = [mew('m1', {is_favorite: true}), mew('m2'), copy('p1', 'sv08-117'), copy('p2', 'sv08-117')];
+
+		assert.deepEqual(spareEntries(cards).map((entry) => entry.id), ['p2']);
+		assert.deepEqual(spareEntries([...cards, mew('m9')]).map((entry) => entry.id), ['p2'], 'a new copy carries no star but its card does');
+	});
+
+	test('a favorite in a binder and a loose duplicate leave no spare', () => {
+		assert.deepEqual(spareEntries([mew('m1', {is_favorite: true}), mew('m2')], {held: new Set(['m1'])}), []);
+		assert.deepEqual(spareEntries([mew('m1'), mew('m2', {is_favorite: true})], {held: new Set(['m1'])}), []);
+	});
+
+	test('only a live copy\'s star counts, and a false star is no star', () => {
+		const removed = [mew('m1', {deleted_at: at(5), is_favorite: true}), mew('m2'), mew('m3')];
+
+		assert.deepEqual(spareEntries(removed).map((entry) => entry.id), ['m3']);
+		assert.deepEqual(spareEntries([mew('m1', {is_favorite: false}), mew('m2')]).map((entry) => entry.id), ['m2']);
+	});
+
+	test('the same card number in another catalog is another card', () => {
+		const cards = [copy('j1', 'sv03.5-151', {catalog: 'ja', is_favorite: true, language: 'ja'}), mew('m1'), mew('m2')];
+
+		assert.deepEqual(spareEntries(cards).map((entry) => entry.id), ['m2']);
+	});
+});
+
 describe('trade ideas (Eric, 2026-11-23)', () => {
 	test('spareCopiesFor offers exactly as many copies as sparesFor counts, and the ones a trade would give', () => {
 		const pinsir = (id, variant, fields = {}) => copy(id, 'sv08.5-003', {language: 'pt', variant_id: variant, ...fields});
@@ -213,8 +252,8 @@ describe('trade ideas (Eric, 2026-11-23)', () => {
 		// offered and the normal kept, as sparesFor counts it.
 		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt', variantId: REVERSE}), [pinsir('a', NORMAL), pinsir('b', REVERSE)]).map((entry) => entry.id), ['b']);
 
-		// The favorite is kept, so the other copy is the one offered.
-		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL), pinsir('b', NORMAL, {is_favorite: true})]).map((entry) => entry.id), ['a']);
+		// A favorite card offers nothing, not even the copy without the star.
+		assert.deepEqual(spareCopiesFor(wish('w', 'sv08.5-003', {language: 'pt'}), [pinsir('a', NORMAL), pinsir('b', NORMAL, {is_favorite: true})]), []);
 	});
 
 	test('tradeIdeas lists the wishes still wanted that spares fit, high priority first, each with its copies', () => {

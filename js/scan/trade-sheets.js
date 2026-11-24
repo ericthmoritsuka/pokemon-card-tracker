@@ -178,7 +178,7 @@ function copyTiles(ctx, item, result, {on, tap}) {
 		const [art] = copyTile(shown, {selected: pressed});
 
 		return h('button', {
-			'aria-label': [entry.condition || 'Condition not set', finish, whereText(ctx.where.get(entry.id), entry), spare ? 'spare' : null, best ? 'suggested' : null].filter(Boolean).join(', '),
+			'aria-label': [entry.condition || 'Condition not set', finish, whereText(ctx.where.get(entry.id), entry), spare ? 'spare' : null, best ? 'suggested' : null, result.favorite ? 'favorite' : null].filter(Boolean).join(', '),
 			'aria-pressed': String(pressed),
 			class: `pick scan-copy${best ? ' is-suggested' : ''}`,
 			'data-entry': entry.id,
@@ -188,9 +188,10 @@ function copyTiles(ctx, item, result, {on, tap}) {
 		art,
 		h('span', {class: 'scan-copy-line'}, h('strong', null, entry.condition || 'Condition not set'), finish ? ` · ${finish}` : ''),
 		h('span', {class: 'scan-copy-where'}, place),
-		spare || best ? h('span', {class: 'scan-copy-chips'},
+		spare || best || result.favorite ? h('span', {class: 'scan-copy-chips'},
 			best ? h('span', {class: 'scan-copy-chip is-suggested'}, 'Suggested') : null,
-			spare ? h('span', {class: 'scan-copy-chip'}, 'Spare') : null) : null);
+			spare ? h('span', {class: 'scan-copy-chip'}, 'Spare') : null,
+			result.favorite ? h('span', {class: 'scan-copy-chip'}, '★ Favorite') : null) : null);
 	});
 }
 

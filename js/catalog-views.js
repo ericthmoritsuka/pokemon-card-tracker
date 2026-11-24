@@ -2030,6 +2030,14 @@ export function cardView(root, {lang, cardId}) {
 			copies.append(spare);
 		}
 
+		// Under your own favorite, what the star means (js/wishlist.js
+		// favoriteCards): no copy is a spare.
+		if (!readOnly && live.some((entry) => entry.is_favorite === true)) {
+			copies.append(h('p', {class: 'muted copies-favorite', id: 'copies-favorite'}, live.length > 1
+				? `A favorite: none of your ${live.length} copies is a spare, so none shows in Spares, Trade ideas, or the Shop.`
+				: 'A favorite: never a spare, so it never shows in Spares, Trade ideas, or the Shop.'));
+		}
+
 		// Under Ver na Liga, so the copies and the Liga button stay on the
 		// first screen.
 		// Add to binder beside it: a binder to pick, then a pocket there
@@ -2078,7 +2086,7 @@ export function cardView(root, {lang, cardId}) {
 			class: 'small favorite-toggle',
 			id: 'favorite-toggle',
 			onclick: () => updateCards(live.map((entry) => ({id: entry.id, patch: {is_favorite: !on}}))).catch(() => {}),
-			title: on ? 'Remove from favorites' : 'Mark as a favorite',
+			title: on ? 'Remove from favorites' : 'Mark as a favorite (never a spare)',
 			type: 'button',
 		}, on ? '★' : '☆');
 	}

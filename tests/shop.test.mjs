@@ -65,6 +65,7 @@ describe('shopGroups', () => {
 		assert.deepEqual(group.spares.map((entry) => entry.id), ['bb'], 'three copies, two in binders: one for sale');
 		assert.deepEqual(group.copies.map((entry) => entry.id).sort(), ['a', 'bb', 'ccc'], 'the price still goes on every copy');
 		assert.deepEqual(shopGroups(cards, {held: new Set(['a', 'bb', 'ccc'])}), [], 'all in binders: nothing for sale');
+		assert.deepEqual(shopGroups([copy('a'), copy('bb', {is_favorite: true}), copy('ccc')]), [], 'a favorite card: nothing for sale (Eric, 2026-11-24)');
 	});
 
 	test('the price is the spares\' first, else any copy\'s', () => {
