@@ -23,6 +23,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'A collection that fills itself lists your sets by name when you choose them, not by a code such as international|xy3.',
+			'Its description on the collection page names the sets the same way.',
+		],
+		version: 'v106',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'Shop has moved to the top of the screen: the bag beside your picture opens it from anywhere.',
 			'Only the family\'s owner sees it. The rest of the family no longer gets a Shop button in Spares.',
 			'Searching the Shop by a Pokémon\'s English name finds its Japanese and Korean prints, even right after opening the app on it.',
