@@ -43,7 +43,7 @@ export const INTEGRATION = {
 		'\t\tstopTwins();',
 	],
 	'js/catalog-views.js': [
-		'import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides} from \'./twins.js\';',
+		'import {loadTwins, onTwinsChange, twinKey, twinName, twinSlides, twinState} from \'./twins.js\';',
 		'import {twinConfirm} from \'./twins-view.js\';',
 		// cardView, after the photos setup.
 		'\tconst twin = twinConfirm({cardId, catalog: catalogFor(lang)});',
