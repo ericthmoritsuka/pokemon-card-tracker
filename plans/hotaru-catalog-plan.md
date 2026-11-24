@@ -28,6 +28,8 @@ The cart is a **promise to buy**, not a checkout. Nothing confirms a payment aut
 | A confirmed sale (money received, cards handed over) removes the cards from Eric's spares | Eric, 2026-11-24 |
 | A cart reserves nothing; the first person to close an order gets the cards reserved, and reserved cards disappear from the catalog until the deal completes or falls through | Eric, 2026-11-24 |
 | An open cart warns about cards that are no longer available or temporarily unavailable | Eric, 2026-11-24 |
+| A reservation holds until Eric confirms or refuses the order. A payment is a successful sale, so confirming it takes the cards out of the inventory at once. An order not paid within 48 hours is cancelled with its reservation, and the buyer can order again | Eric, 2026-11-24 |
+| The tracker's labels are English like the rest of the app; HOTARU's pages are Portuguese | Matches the app, 2026-11-24 |
 | Card images are cached, never hot-linked, because `assets.tcgdex.net` went down for hours on 2026-10-01 | DESIGN.md line 427 |
 
 ## 3. What Already Exists
@@ -41,18 +43,18 @@ The tracker does most of the work already. The catalog reuses it rather than com
 
 ## 4. How It Flows
 
-1. **Publish.** In the tracker, a new **Loja** screen has a **Publicar na HOTARU** button. It takes `spareEntries`, prices each copy (section 5), uploads each card picture once to a public storage bucket, and writes the result to a public table. The prices are frozen at that moment, so the catalog never needs TCGdex, exchange rates, or Eric's private document.
+1. **Publish.** In the tracker, a new **Shop** screen has a **Publish to HOTARU** button. It takes `spareEntries`, prices each copy (section 5), uploads each card picture once to a public storage bucket, and writes the result to a public table. The prices are frozen at that moment, so the catalog never needs TCGdex, exchange rates, or Eric's private document.
 2. **Browse.** HOTARU's new `avulsas.html` reads the public table in the browser and lists the cards. `carta.html?id=<listing>` shows one card: picture, name, set, number, language, condition, finish, price, and how many are available.
 3. **Order.** The cart lives in the visitor's `localStorage`, and putting a card in it reserves nothing: any number of people can hold the same card in their carts. At checkout the visitor types a name, a phone number or extension, and an optional note, and closes the order. Closing calls one database function, which reserves the copies for that order and returns an order code and the total computed on the server. **Whoever closes first gets the cards** (section 7).
 4. **Pay.** The confirmation page shows the total, the order code, a Pix copy-and-paste code, and its QR code, with the order code as the Pix transaction ID so Eric can match the payment in his bank statement.
-5. **Settle.** Once Eric has the money and has handed the cards over, he taps **Venda concluída** on the order in the tracker's Loja screen. That one step marks the listings sold, so they leave the catalog at once, and logs a `sold` move with the buyer's name and the price, so the copies leave Eric's collection and therefore his spares. Only the sold copies leave: the keeper of each card stays.
-6. **Or release.** When the deal falls through, Eric taps **Cancelar**, or the reservation runs out (section 7). Either way the cards go back to the catalog.
+5. **Settle.** Nothing tells the tracker that a Pix arrived, so Eric checks his bank statement. When the money is there he taps **Payment received** on the order in the Shop screen. A payment is the sale: that one step marks the listings sold, so they leave the catalog for good, and logs a `sold` move with the buyer's name and the price, so the copies leave Eric's collection and therefore his spares. Only the sold copies leave: the keeper of each card stays. The order then waits under **To hand over** until Eric taps **Delivered**, which is a reminder only and changes no card.
+6. **Or release.** Eric taps **Cancel** to refuse an order at any time before the payment. An order with no payment 48 hours after it was closed is cancelled by itself. Either way the cards go back to the catalog, and the buyer may order again.
 
 ## 5. Prices
 
 The sale price of a copy is the first of these that exists:
 
-1. **A manual sale price** on that copy, typed in the Loja screen or on the card page.
+1. **A manual sale price** on that copy, typed in the Shop screen or on the card page.
 2. **A fixed-price rule**, the first in Eric's ordered list that matches. A rule matches on any of set, rarity, name contains, and language. Examples: set `30th` and rarity Common costs R$ 1,00; set `30th` and name contains `Pikachu` costs R$ 5,00. Put the Pikachu rule first.
 3. **The Liga price Eric typed** on the copy (`price_manual`): the NM average of recent sales, else the average, else the lowest NM.
 4. **The TCGplayer estimate** in reais.
@@ -64,10 +66,10 @@ Where the data lives in Eric's document:
 - **Liga NM average of recent sales:** a third value in `price_manual`, `sold_avg_nm`, beside `low_nm` and `avg` (`js/prices.js:108`), typed in the same Liga form. `price_manual` is written as one object (`js/price-view.js:459`), so the new value travels with it. The CSV is the exception: `priceText` (`js/collection.js:912`) compares only the two prices and the day, and the export has a column per price, so both gain the new value or a round trip would drop it. It counts only toward sale prices: the collection's value keeps using the average, as today.
 
 - **Manual sale price:** a new copy field, `sale_price` (reais, number). It must be added to `ENTRY_FIELDS` (`js/collection.js:388`), the fields a copy may carry, and to `USER_FIELDS` (`js/merge.js:1189`) so two phones merge it by field like `condition`. An old client keeps unknown fields, as `plans/sync-merge-plan.md` section 0 notes, so this is safe.
-- **Não vender:** a new copy field, `not_for_sale` (boolean), added to the same two lists. A copy with it set is never published, and the Loja screen still shows it, marked, so Eric can switch it back.
+- **Not for sale:** a new copy field, `not_for_sale` (boolean), added to the same two lists. A copy with it set is never published, and the Shop screen still shows it, marked, so Eric can switch it back.
 - **Rules:** a new list, `price_rules`, added to `LISTS` (`js/merge.js:28`) so rules merge entry by entry. Each rule is `{id, order, set_id, rarity, name_contains, language, price, updated_at}`.
 
-The Loja screen shows each listed copy with its price and where it came from (`manual`, `regra`, `Liga`, `estimativa`), so Eric can spot an estimate that looks wrong before publishing.
+The Shop screen shows each listed copy with its price and where it came from (manual, rule, Liga, or estimate), so Eric can spot an estimate that looks wrong before publishing.
 
 ## 6. Supabase
 
@@ -88,7 +90,7 @@ All new objects go in one script, `supabase/store.sql`, which can be run again s
 
 Only Eric (the owner) may write. A publish inserts new spares, updates prices on `available` rows, and sets `withdrawn` on rows that are no longer spares. It never touches a `reserved` or `sold` row.
 
-**`store_orders`** and **`store_order_items`**: the order code (`HTR-0001`, and so on), name, phone, note, total, status (`pending`, `paid`, `completed`, `cancelled`, `expired`), `created_at`, `reserved_until`, and the listings with the price each was sold at. Only Eric reads them.
+**`store_orders`** and **`store_order_items`**: the order code (`HTR-0001`, and so on), name, phone, note, total, status (`pending`, `paid`, `cancelled`, `expired`), `delivered_at`, `created_at`, `reserved_until`, and the listings with the price each was sold at. Only Eric reads them.
 
 **`anon` touches no table directly.** It may execute three `security definer` functions, and nothing else:
 
@@ -100,7 +102,7 @@ Only Eric (the owner) may write. A publish inserts new spares, updates prices on
 
 Each of the three first releases expired reservations (section 7), so expiry needs no scheduled job and everything stays on the free tier.
 
-Eric's own functions, for the signed-in owner only: `complete_order(code)` sets the order `completed` and its listings `sold`; `cancel_order(code)` sets it `cancelled` and its listings back to `available`; `mark_paid(code)` sets it `paid`, which stops its reservation from expiring.
+Eric's own functions, for the signed-in owner only: `mark_paid(code)` sets the order `paid` and its listings `sold`; `cancel_order(code)` sets a `pending` order `cancelled` and its listings back to `available`; `mark_delivered(code)` stamps `delivered_at` on a `paid` order.
 
 **Picture bucket:** `store`, public read, owner write. Spares are a few hundred pictures of about 80 KB each, well inside the 1 GB free storage.
 
@@ -114,12 +116,11 @@ Eric's rules (2026-11-24): many people may put the same card in their carts, onl
 
 | Event | Order | Listings | Catalog |
 | --- | --- | --- | --- |
-| Eric taps **Venda concluída** | `completed` | `sold` | Gone for good; the next publish no longer sees the copies, because the `sold` move removed them from the collection |
-| Eric taps **Cancelar** | `cancelled` | `available` | Back at once |
+| Eric taps **Payment received** | `paid` | `sold` | Gone for good; the next publish no longer sees the copies, because the `sold` move removed them from the collection |
+| Eric taps **Cancel** | `cancelled` | `available` | Back at once |
 | `reserved_until` passes while the order is still `pending` | `expired` | `available` | Back on the next call to any public function |
-| Eric taps **Pago** | `paid` | stay `reserved` | Still hidden; a paid order never expires, so a payment that arrives late cannot lose its cards to someone else |
 
-A reservation lasts 48 hours (section 12, answer 7).
+A reservation lasts 48 hours (section 12, answer 7). The Shop screen shows how long each pending order has left, so a payment that arrives near the end is not missed, and the HOTARU confirmation page tells the buyer to pay within 48 hours or the order is cancelled. A Pix that arrives after an order expired is settled between Eric and the buyer: the static code cannot expire.
 
 **Warnings in an open cart.** The cart page, and the cart counter on every catalog page, call `listing_status` for the cart's IDs when the page opens, when the tab comes back into view, every 60 seconds while it is open, and right before closing. Each card that is not `available` gets a notice in place:
 
@@ -132,8 +133,9 @@ The close button names what will be ordered, such as **Fechar pedido com 3 carta
 
 **Edge cases Eric's screen handles.**
 
-- A reserved copy that Eric traded or removed in the tracker meanwhile: the order shows a warning, and **Venda concluída** is disabled for it until he cancels the order or swaps the copy.
-- **Venda concluída** needs a connection, because it writes both the order and the `sold` move. It logs the move first and marks the order second, so a failure in between leaves an order Eric can complete again without logging the move twice.
+- A reserved copy that Eric traded or removed in the tracker meanwhile: the order shows a warning, and **Payment received** is disabled for it until he cancels the order or swaps the copy.
+- **Payment received** needs a connection, because it writes both the order and the `sold` move. It logs the move first and marks the order second, so a failure in between leaves an order Eric can mark again without logging the move twice.
+- An order that expires while Eric is marking it paid: `mark_paid` refuses an order that is no longer `pending`, and the screen says so before logging anything.
 
 ## 8. HOTARU Pages
 
@@ -155,7 +157,7 @@ Before step 4 ships, the generated code is checked against two bank apps by scan
 
 ## 10. Abuse and Privacy
 
-- **Anyone with the link can place an order**, and an order hides its cards from everyone else. The 20-card limit, the reservation that expires by itself, and Eric's **Cancelar** button are enough for an audience of colleagues. A captcha is not planned.
+- **Anyone with the link can place an order**, and an order hides its cards from everyone else. The 20-card limit, the reservation that expires by itself, and Eric's **Cancel** button are enough for an audience of colleagues. A captcha is not planned.
 - **Orders hold colleagues' names and phone numbers.** Only Eric can read them. The confirmation page says the data is used only to deliver the order.
 - **The site is public**, so anyone can see the catalog and its prices.
 
@@ -163,12 +165,12 @@ Before step 4 ships, the generated code is checked against two bank apps by scan
 
 Each step is usable on its own.
 
-1. **Prices in the tracker:** `sale_price`, `sold_avg_nm` in the Liga form and the CSV, `price_rules`, the **Não vender** switch, the precedence and rounding in section 5, and the Loja screen listing spares with prices and their sources. No Supabase change yet.
-2. **Publish:** `supabase/store.sql` (listings and the bucket), and the **Publicar na HOTARU** button.
+1. **Prices in the tracker:** `sale_price`, `sold_avg_nm` in the Liga form and the CSV, `price_rules`, the **Not for sale** switch, the precedence and rounding in section 5, and the Shop screen listing spares with prices and their sources. No Supabase change yet.
+2. **Publish:** `supabase/store.sql` (listings and the bucket), and the **Publish to HOTARU** button.
 3. **Catalog:** `avulsas.html` and `carta.html` on HOTARU, read only. Eric can already share the link and sell by message.
-4. **Orders and Pix:** the orders tables, `place_order`, `listing_status`, expiry, `pedido.html` with the cart notices, the Pix code and QR code, and the Orders part of the Loja screen with **Pago**, **Venda concluída** (the `sold` move), and **Cancelar**.
+4. **Orders and Pix:** the orders tables, `place_order`, `listing_status`, expiry, `pedido.html` with the cart notices, the Pix code and QR code, and the Orders part of the Shop screen with **Payment received** (the `sold` move), **Delivered**, **Cancel**, and the time each pending order has left.
 
-Tests follow the tracker's habits: unit tests for the price precedence, the rule matching, and the BR Code checksum against a known code, and a browser test per new screen using `tests/fake-rates.mjs`. The reservation rules get SQL tests against a local Supabase: two `place_order` calls racing for the same card (one wins, the other gets the card back as unavailable and reserves nothing), expiry returning cards to `store_catalog()`, a `paid` order never expiring, and `complete_order` and `cancel_order` moving the listings.
+Tests follow the tracker's habits: unit tests for the price precedence, the rule matching, and the BR Code checksum against a known code, and a browser test per new screen using `tests/fake-rates.mjs`. The reservation rules get SQL tests against a local Supabase: two `place_order` calls racing for the same card (one wins, the other gets the card back as unavailable and reserves nothing), expiry returning cards to `store_catalog()`, a `paid` order never expiring, `mark_paid` refusing an expired order, and `mark_paid` and `cancel_order` moving the listings.
 
 ## 12. Questions and Answers
 
@@ -181,9 +183,9 @@ Answered by Eric, 2026-11-24:
 Taken as recommended, because Eric answered the others and not these. Any of them is easy to change:
 
 4. **Rounding:** automatic prices round up to the next R$ 0,50.
-5. **Every spare, or only chosen ones:** every spare, with a **Não vender** switch per copy.
-6. **How Eric hears about an order:** the Loja screen shows a count of pending orders.
-7. **How long a closed order holds the cards:** 48 hours; **Pago** holds them with no limit.
+5. **Every spare, or only chosen ones:** every spare, with a **Not for sale** switch per copy.
+6. **How Eric hears about an order:** the Shop screen shows a count of pending orders.
+7. **How long a closed order holds the cards:** until Eric marks the payment or cancels, and at most 48 hours without a payment. Eric confirmed this on 2026-11-24, replacing the earlier idea of a **Paid** mark that held cards with no limit.
 
 Still open. Both block step 4 only:
 
