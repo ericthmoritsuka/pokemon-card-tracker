@@ -23,6 +23,17 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'The Shop bag at the top shows how many HOTARU orders are open, so a new one is seen at once.',
+			'Shop: Add sealed products on HOTARU opens its page for sealed products, already signed in.',
+			'The Shop\'s set filter shows each set\'s code before its name, like (CRI) Caos Ascendente, and the older sets\' symbols.',
+			'Each finish of a card has its own price in the Shop, tagged on its row, and the counts of priced cards and of cards on HOTARU count finishes.',
+			'A Reverse holo copy is no longer offered on HOTARU as Normal.',
+		],
+		version: 'v109',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'A favorite is never a spare: one star keeps every copy of the card, in every language and finish, out of Spares, Trade ideas, and the Shop.',
 			'Starring a card you sell takes it off HOTARU at once, and a starred card offers to star its Japanese print too.',
 			'A favorite going out in a trade or sale is logged only after you confirm it.',
