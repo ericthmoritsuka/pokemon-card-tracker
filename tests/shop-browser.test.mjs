@@ -293,10 +293,13 @@ describe('Shop', () => {
 	});
 
 	// Eric, 2026-11-24: he keeps his cards apart by set, so the set filter
-	// leads with the printed code, "(CRI) Caos Ascendente". The invented
-	// sets and the Japanese one have no known code and show the name alone.
+	// leads with the printed code, "(CRI) Caos Ascendente", an older Western
+	// set's too ("(EVO) Evolutions"). The invented sets and the Japanese one
+	// have no known code and show the name alone.
 	test('the set filter shows each set\'s printed code before its name', async () => {
-		const chaos = (id) => ({card_id: 'me04-001', catalog: 'international', created_at: '2026-11-24T10:00:00.000Z', deleted_at: null, id, language: 'pt', language_source: 'manual', updated_at: '2026-11-24T10:00:00.000Z', variant_id: null});
+		const copyOf = (cardId) => (id) => ({card_id: cardId, catalog: 'international', created_at: '2026-11-24T10:00:00.000Z', deleted_at: null, id, language: 'pt', language_source: 'manual', updated_at: '2026-11-24T10:00:00.000Z', variant_id: null});
+		const chaos = copyOf('me04-001');
+		const evolutions = copyOf('xy12-001');
 		const index = indexRecords();
 
 		index['international|me04-001'] = {
@@ -307,8 +310,17 @@ describe('Shop', () => {
 			release_date: '2026-11-01',
 			set_id: 'me04',
 		};
+		// An older Western set takes its code from the Shop's own table.
+		index['international|xy12-001'] = {
+			catalog: 'international',
+			collector_number: '001',
+			id: 'xy12-001',
+			localizations: {en: {image: null, lang: 'en', name: 'Old Card', set_name: 'Evolutions'}, pt: {image: null, lang: 'pt', name: 'Old Card', set_name: 'Evolutions'}},
+			release_date: '2016-11-02',
+			set_id: 'xy12',
+		};
 
-		const {context, errors, page} = await phone({copies: [...SPARE_COPIES, chaos('c-90'), chaos('c-91')], index});
+		const {context, errors, page} = await phone({copies: [...SPARE_COPIES, chaos('c-90'), chaos('c-91'), evolutions('c-92'), evolutions('c-93')], index});
 
 		await openShop(page);
 		await pickShow(page, 'all');
@@ -317,7 +329,8 @@ describe('Shop', () => {
 
 		assert.ok(options.includes('(CRI) Caos Ascendente'), options.join(' | '));
 		assert.equal(options[0], 'Every set');
-		assert.deepEqual(options.filter((text) => text.startsWith('(')), ['(CRI) Caos Ascendente'], 'only the set with a known code');
+		assert.ok(options.includes('(EVO) Evolutions'), options.join(' | '));
+		assert.deepEqual(options.filter((text) => text.startsWith('(')), ['(CRI) Caos Ascendente', '(EVO) Evolutions'], 'only the sets with a known code, sorted by name');
 		await page.selectOption('#shop-set', 'me04');
 		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 1);
 		assert.match(plain(await page.locator('.shop-row .shop-meta').textContent()), /Caos Ascendente/);
