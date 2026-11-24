@@ -18,7 +18,7 @@ import {createRequire} from 'node:module';
 import {after, before, describe, test} from 'node:test';
 
 import {fakePokeApi} from './fake-pokeapi.mjs';
-import {BASE, fakeServices, seed} from './my-cards-fixtures.mjs';
+import {BASE, fakeServices, indexRecords, seed} from './my-cards-fixtures.mjs';
 import {startPagesServer} from './pages-server.mjs';
 import {SPARE_COPIES} from './trade-harness.mjs';
 
@@ -45,7 +45,7 @@ after(async () => {
 
 const plain = (text) => String(text).replace(/ /g, ' ').replace(/\s+/g, ' ').trim();
 
-async function phone() {
+async function phone(seeded = {}) {
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
 	await fakeServices(context);
@@ -55,7 +55,7 @@ async function phone() {
 	const errors = [];
 
 	page.on('pageerror', (err) => errors.push(err.message));
-	await seed(page, server.origin, {binders: [], copies: SPARE_COPIES});
+	await seed(page, server.origin, {binders: [], copies: SPARE_COPIES, ...seeded});
 
 	return {context, errors, page};
 }
@@ -288,6 +288,40 @@ describe('Shop', () => {
 		await pickShow(page, 'unpriced');
 		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 3);
 		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-bulk.png`});
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	// Eric, 2026-11-24: he keeps his cards apart by set, so the set filter
+	// leads with the printed code, "(CRI) Caos Ascendente". The invented
+	// sets and the Japanese one have no known code and show the name alone.
+	test('the set filter shows each set\'s printed code before its name', async () => {
+		const chaos = (id) => ({card_id: 'me04-001', catalog: 'international', created_at: '2026-11-24T10:00:00.000Z', deleted_at: null, id, language: 'pt', language_source: 'manual', updated_at: '2026-11-24T10:00:00.000Z', variant_id: null});
+		const index = indexRecords();
+
+		index['international|me04-001'] = {
+			catalog: 'international',
+			collector_number: '001',
+			id: 'me04-001',
+			localizations: {en: {image: null, lang: 'en', name: 'Test Card', set_name: 'Caos Ascendente'}, pt: {image: null, lang: 'pt', name: 'Test Card', set_name: 'Caos Ascendente'}},
+			release_date: '2026-11-01',
+			set_id: 'me04',
+		};
+
+		const {context, errors, page} = await phone({copies: [...SPARE_COPIES, chaos('c-90'), chaos('c-91')], index});
+
+		await openShop(page);
+		await pickShow(page, 'all');
+
+		const options = (await page.locator('#shop-set option').allTextContents()).map(plain);
+
+		assert.ok(options.includes('(CRI) Caos Ascendente'), options.join(' | '));
+		assert.equal(options[0], 'Every set');
+		assert.deepEqual(options.filter((text) => text.startsWith('(')), ['(CRI) Caos Ascendente'], 'only the set with a known code');
+		await page.selectOption('#shop-set', 'me04');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 1);
+		assert.match(plain(await page.locator('.shop-row .shop-meta').textContent()), /Caos Ascendente/);
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-set-codes.png`});
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
