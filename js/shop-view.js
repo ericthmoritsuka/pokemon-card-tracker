@@ -41,6 +41,8 @@ import {publishErrorText, syncListings, uploadPicture} from './store-publish.js'
 import {onSyncStatus, syncStatus} from './sync.js';
 
 const SHOW_KEY = 'cardTracker.shopShow';
+// HOTARU's admin page for sealed products (ericthmoritsuka/hotaru).
+const HOTARU_ADMIN = 'https://ericthmoritsuka.github.io/hotaru/admin.html';
 // The prices typed and not saved yet, {<group key>: <text as typed>}.
 const DRAFTS_KEY = 'cardTracker.shopDrafts';
 const SHOW_LABELS = {all: 'All', priced: 'Priced', unpriced: 'Not priced'};
@@ -136,6 +138,16 @@ export function shopView(root) {
 	const working = new Set();
 	const ordersBox = h('section', {'aria-labelledby': 'shop-orders-title', class: 'shop-orders', hidden: true, id: 'shop-orders'});
 
+	// HOTARU's sealed products are added on its own admin page, which signs
+	// in with this app's session (Eric, 2026-11-24). Shown once the server
+	// says this is the family's owner, the only one it lets save them.
+	const sealedAdmin = h('p', {class: 'shop-sealed-admin', hidden: true, id: 'shop-sealed-admin'},
+		h('a', {class: 'button small', href: HOTARU_ADMIN, id: 'shop-sealed-admin-link'}, 'Add sealed products on HOTARU'));
+
+	checkShopOwner().then((owner) => {
+		sealedAdmin.hidden = owner !== true;
+	});
+
 	const summary = h('p', {class: 'muted shop-summary', id: 'shop-summary'}, 'Reading your spares…');
 	const search = h('input', {'aria-label': 'Search your spares', class: 'search shop-search', id: 'shop-search', placeholder: 'Search your spares', type: 'search'});
 	const setSelect = h('select', {'aria-label': 'Set', class: 'shop-select', id: 'shop-set'});
@@ -202,6 +214,7 @@ export function shopView(root) {
 	root.append(
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
+		sealedAdmin,
 		summary,
 		publishLine,
 		ordersBox,
