@@ -98,3 +98,17 @@
 	font-size: 0.9em;
 	opacity: 0.85;
 }
+
+.shop-publish {
+	margin: 0 0 var(--space-2);
+}
+
+.shop-mark {
+	font-size: 0.9em;
+	font-weight: 600;
+}
+
+.shop-mark-pending {
+	font-weight: 400;
+	opacity: 0.8;
+}

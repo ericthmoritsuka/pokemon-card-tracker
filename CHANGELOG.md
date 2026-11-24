@@ -10,7 +10,10 @@ are Recife time. Each line ends with its commit.
 - Selling spares on HOTARU (`plans/hotaru-catalog-plan.md`, branch `hotaru-catalog-plan`). Step 1 built on branch
   `store-prices`, not released: the Shop screen (route `shop`, from Spares) where each card's sale price is typed by
   hand, with private TCGplayer and Cardmarket suggestions in reais, Priced and Not priced filters, and Price all shown.
-  Next: step 2, publishing priced spares to Supabase.
+  Step 2 built on the same branch: `supabase/store.sql` (run it once in the SQL Editor) and publishing from the Shop,
+  which sends every priced spare to the catalog after each price and on opening, once the phone has synced, copies
+  each card's picture once into the public `store` bucket, and marks cards On HOTARU or Reserved. Next: step 3, the
+  catalog pages on HOTARU.
 - Waiting on Eric: new binder page photos to recheck the page scan on a real phone.
 - Still designed, not built: pack openings, graded cards, Michi art editing, and the tombstone purge (DESIGN.md).
 

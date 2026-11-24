@@ -8,13 +8,16 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {
+	groupMark,
 	groupPrice,
+	listingRows,
 	priceFilter,
 	pricePatches,
 	roundUpToStep,
 	salePrice,
 	shopGroups,
 	shopTotals,
+	storePicturePath,
 	suggestion,
 	undoPricePatches,
 } from '../js/shop.js';
@@ -128,5 +131,43 @@ describe('priceFilter and shopTotals', () => {
 
 	test('counts cards, spares, and what the priced spares bring', () => {
 		assert.deepEqual(shopTotals(groups), {groups: 3, priced: 2, spares: 4, value: 5.5});
+	});
+});
+
+describe('publishing', () => {
+	test('a picture path is the TCGdex path under tcgdex/, and nothing else is one', () => {
+		assert.equal(storePicturePath('https://assets.tcgdex.net/pt/sv/sv10/001'), 'tcgdex/pt/sv/sv10/001.webp');
+		assert.equal(storePicturePath('https://assets.tcgdex.net/zh-tw/sv/sv10/001/'), 'tcgdex/zh-tw/sv/sv10/001.webp');
+		assert.equal(storePicturePath('https://example.test/pt/sv/sv10/001'), null);
+		assert.equal(storePicturePath('https://assets.tcgdex.net/pt/sv10/001'), null);
+		assert.equal(storePicturePath('https://assets.tcgdex.net/pt/sv/../001/x'), null);
+		assert.equal(storePicturePath(null), null);
+	});
+
+	test('rows are the spares of priced cards only, never the keeper', () => {
+		const [group] = shopGroups([copy('a', {condition: 'Near Mint'}), copy('bb', {condition: 'Played'}), copy('ccc')]);
+		const priced = {...group, info: {name: 'Bulbasaur', number: '001', setName: 'Rivais'}, picturePath: 'tcgdex/pt/sv/sv10/001.webp', price: 2.5, rarity: 'Common'};
+
+		assert.deepEqual(listingRows([{...group, price: null}]), []);
+
+		const rows = listingRows([priced], {finishOf: (entry) => (entry.id === 'bb' ? 'Reverse Holo' : null)});
+
+		assert.deepEqual(rows.map((row) => row.id).sort(), ['bb', 'ccc']);
+		assert.deepEqual(rows.find((row) => row.id === 'bb'), {
+			card_id: 'sv10-001', catalog: 'international', condition: 'Played', finish: 'Reverse Holo', id: 'bb', image_path: 'tcgdex/pt/sv/sv10/001.webp',
+			language: 'pt', name: 'Bulbasaur', number: '001', price_brl: 2.5, rarity: 'Common', set_name: 'Rivais',
+		});
+		assert.equal('image_path' in listingRows([{...priced, picturePath: null}])[0], false, 'left out, so the stored picture is kept');
+		assert.equal(listingRows([{...priced, info: {}}])[0].name, 'sv10-001', 'a name is never empty');
+	});
+
+	test('a card is published, reserved, or pending by its spares', () => {
+		const group = {price: 2, spares: [{id: 'x'}, {id: 'y'}]};
+
+		assert.equal(groupMark({...group, price: null}, {}), null);
+		assert.equal(groupMark(group, {}), 'pending');
+		assert.equal(groupMark(group, {x: {status: 'available'}, y: {status: 'available'}}), 'published');
+		assert.equal(groupMark(group, {x: {status: 'available'}}), 'pending');
+		assert.equal(groupMark(group, {x: {status: 'reserved'}, y: {status: 'available'}}), 'reserved');
 	});
 });

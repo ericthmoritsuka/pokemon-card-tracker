@@ -212,6 +212,23 @@ pictures, and only for a signed-in person, and fits the free plan.
 To check it, open a card in the live app while signed in and tap **Save image**: the PNG
 downloads with no new tab. Changing the function later means pasting the file again and deploying.
 
+### Optional: Selling Spares on HOTARU
+
+The **Shop** screen (from **Spares**) is where the family's owner prices spares for the HOTARU
+catalog (`plans/hotaru-catalog-plan.md`). Pricing works without any setup; publishing needs the
+catalog's table, functions, and picture bucket, which `supabase/store.sql` creates.
+
+1. In the Supabase dashboard, open **SQL Editor**, **New query**, paste all of
+   `supabase/store.sql`, and click **Run**. It needs `setup.sql` first, and running it again is
+   safe.
+
+1. The picture copy uses the **Save Image Relay** above, so deploy `tcgdex-image` too. Without it,
+   cards are published with no picture.
+
+Only the owner of the family group publishes; no email address is written into the script. To
+check it, open **Shop** while signed in and give a card a price: the line under the totals reads
+`On HOTARU: 1 card, …`, and **Table Editor**, `store_listings`, holds one row per spare.
+
 ## Accounts and Sync
 
 - **One document per person.** The phone keeps the person's document in IndexedDB as before, and

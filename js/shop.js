@@ -189,3 +189,93 @@ export function shopTotals(groups) {
 
 	return {groups: groups.length, priced, spares, value: Math.round(value * 100) / 100};
 }
+
+// ------------------------------------------------------------- publishing
+
+// Where a card's picture is kept in the shop's public bucket
+// (supabase/store.sql, private.is_store_path): the TCGdex picture's own
+// path, tcgdex/<language>/<series>/<set>/<number>.webp. base is the picture
+// address js/catalog.js pictureOf gives, without a size. Null for anything
+// else, a hand-made card's say.
+export function storePicturePath(base) {
+	let url;
+
+	try {
+		url = new URL(base);
+	}
+	catch {
+		return null;
+	}
+
+	const path = url.pathname.replace(/^\/+|\/+$/g, '');
+
+	return url.origin === 'https://assets.tcgdex.net' && /^[a-z]{2}(-[a-z]{2})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(path)
+		? `tcgdex/${path}.webp`
+		: null;
+}
+
+const text = (value, max) => {
+	const clean = value === null || value === undefined ? '' : String(value).trim();
+
+	return clean ? clean.slice(0, max) : null;
+};
+
+// The rows store_sync takes: one per spare copy of every priced card, and
+// nothing for a card without a price, so publishing them withdraws the rest.
+// Each group carries what js/shop-view.js worked out for it: info ({name,
+// number, setName}), rarity, and picturePath, the bucket path once the
+// picture is there (omitted until then, so the stored one is kept).
+// finishOf(entry, group) names a copy's finish, or null.
+export function listingRows(groups, {finishOf = () => null} = {}) {
+	const rows = [];
+
+	for (const group of groups) {
+		if (group.price === null) {
+			continue;
+		}
+
+		const info = group.info || {};
+
+		for (const entry of group.spares) {
+			const row = {
+				card_id: group.card_id,
+				catalog: group.catalog,
+				condition: text(entry.condition, 40),
+				finish: text(finishOf(entry, group), 80),
+				id: entry.id,
+				language: group.language || null,
+				name: text(info.name, 160) || group.card_id,
+				number: text(info.number, 32),
+				price_brl: group.price,
+				rarity: text(group.rarity, 80),
+				set_name: text(info.setName, 160),
+			};
+
+			if (group.picturePath) {
+				row.image_path = group.picturePath;
+			}
+
+			rows.push(row);
+		}
+	}
+
+	return rows;
+}
+
+// What a priced card shows about its listings, from store_sync's answer
+// ({<id>: {status}}): 'reserved' when any spare is held by an order,
+// 'published' when every spare is for sale, 'pending' when some are not
+// published yet, and null for a card without a price.
+export function groupMark(group, states) {
+	if (group.price === null) {
+		return null;
+	}
+
+	const statuses = group.spares.map((entry) => (states && states[entry.id] ? states[entry.id].status : null));
+
+	if (statuses.includes('reserved')) {
+		return 'reserved';
+	}
+
+	return statuses.every((status) => status === 'available') ? 'published' : 'pending';
+}
