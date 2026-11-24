@@ -385,9 +385,11 @@ begin
 		'delivered_at', o.delivered_at,
 		'items', (
 			select coalesce(jsonb_agg(jsonb_build_object(
+				'card_id', l.card_id,
 				'condition', l.condition,
 				'finish', l.finish,
 				'image_path', l.image_path,
+				'kind', l.kind,
 				'language', l.language,
 				'name', l.name,
 				'number', l.number,
@@ -461,8 +463,10 @@ begin
 		'id', o.id,
 		'items', (
 			select coalesce(jsonb_agg(jsonb_build_object(
+				'card_id', l.card_id,
 				'condition', l.condition,
 				'finish', l.finish,
+				'kind', l.kind,
 				'language', l.language,
 				'listing_id', i.listing_id,
 				'name', l.name,
