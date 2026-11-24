@@ -1,5 +1,9 @@
 /* The Shop screen (js/shop-view.js): Eric's spares priced for HOTARU. */
 
+.shop-sealed-admin {
+	margin: 0 0 var(--space-3);
+}
+
 .shop-intro,
 .shop-summary {
 	margin: 0 0 var(--space-2);

@@ -4,7 +4,8 @@
 // family). The family's owner sees Shop in the header on every screen,
 // marked while the Shop is open, and still sees it on the next visit when
 // the server cannot say; a member sees no Shop and gets a short notice at the shop
-// address; Spares no longer carries a Shop button. Headless Chromium at
+// address; Spares no longer carries a Shop button; and only the owner gets
+// the Shop's link to HOTARU's sealed products admin. Headless Chromium at
 // 390 x 844 against tests/pages-server.mjs, Supabase faked by
 // tests/fake-supabase.mjs, the copies tests/trade-harness.mjs's.
 //
@@ -120,6 +121,12 @@ describe('who sees the Shop', () => {
 		assert.equal(await page.getAttribute('#shop-link', 'aria-current'), 'page');
 		assert.equal(await page.locator('.tabs a[aria-current="page"]').count(), 0, 'no tab is marked on the Shop');
 		assert.equal(await page.locator('#shop-back').count(), 0);
+
+		// The owner's way to HOTARU's sealed products, in the same tab.
+		await page.locator('#shop-sealed-admin:not([hidden])').waitFor(TIMEOUT);
+		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'href'), 'https://ericthmoritsuka.github.io/hotaru/admin.html');
+		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'target'), null);
+		assert.equal(await page.getAttribute('#shop-sealed-admin-link', 'data-link'), null);
 		await page.screenshot({path: `${SHOTS}/shop-owner-open.png`});
 
 		// The next visit, with the server not answering who owns the family,
@@ -155,6 +162,7 @@ describe('who sees the Shop', () => {
 		await page.goto(url('shop'));
 		await page.locator('#shop-not-owner').waitFor(TIMEOUT);
 		assert.equal(await page.locator('.shop-row').count(), 0);
+		assert.equal(await page.locator('#shop-sealed-admin').count(), 0);
 		assert.match(await page.locator('#shop-not-owner').textContent(), /The Shop is for the family's owner/);
 		await page.screenshot({path: `${SHOTS}/shop-owner-member.png`});
 
@@ -177,6 +185,12 @@ describe('who sees the Shop', () => {
 		await page.goto(url('cards'));
 		await page.locator('#account').filter({hasText: 'Sign in'}).waitFor(TIMEOUT);
 		assert.ok(await page.locator('#shop-link').isHidden());
+
+		// The Shop still opens by its address, without the sealed products link.
+		await page.goto(url('shop'));
+		await page.locator('.shop-row').first().waitFor(TIMEOUT);
+		await page.waitForTimeout(500);
+		assert.ok(await page.locator('#shop-sealed-admin').isHidden());
 		await context.close();
 	});
 });
