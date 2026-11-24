@@ -147,13 +147,26 @@ export function shopView(root) {
 			h('span', {'data-label': SHOW_LABELS[value]}, SHOW_LABELS[value])
 		))
 	);
-	const bulkInput = h('input', {'aria-label': 'Price for every card shown', autocomplete: 'off', class: 'search shop-price-input', id: 'shop-bulk-price', inputmode: 'decimal', placeholder: '1,00', type: 'text'});
+	// Cards ticked for one price (Eric, 2026-11-24: "select several and set
+	// one price"), by group key. A tick stays through a search or a filter,
+	// so cards from several searches can share one price.
+	const selected = new Set();
+	const selectShown = h('button', {class: 'link-button', id: 'shop-select-shown', onclick: () => {
+		shown().forEach((group) => selected.add(group.key));
+		drawList();
+	}, type: 'button'}, 'Select all shown');
+	const clearSelection = h('button', {class: 'link-button', id: 'shop-clear-selection', onclick: () => {
+		selected.clear();
+		drawList();
+	}, type: 'button'}, 'Clear selection');
+	const bulkInput = h('input', {'aria-label': 'One price for the cards chosen', autocomplete: 'off', class: 'search shop-price-input', id: 'shop-bulk-price', inputmode: 'decimal', placeholder: '1,00', type: 'text'});
 	const bulkButton = h('button', {class: 'small', id: 'shop-bulk-set', type: 'submit'}, 'Fill all shown');
 	const bulkError = h('p', {class: 'form-error', hidden: true, id: 'shop-bulk-error', role: 'alert'});
 	const bulk = h('form', {class: 'shop-bulk', id: 'shop-bulk', onsubmit: (event) => {
 		event.preventDefault();
 		fillShown();
-	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton);
+	}}, h('label', {class: 'shop-bulk-label', for: 'shop-bulk-price'}, 'R$'), bulkInput, bulkButton,
+	h('div', {class: 'shop-select-tools'}, selectShown, clearSelection));
 	const list = h('ul', {'aria-label': 'Your spares', class: 'shop-list', id: 'shop-list'});
 	const empty = h('p', {class: 'muted', hidden: true, id: 'shop-empty'});
 	const saveStatus = h('p', {'aria-live': 'polite', class: 'status shop-save-status', id: 'shop-save-status'});
@@ -359,7 +372,19 @@ export function shopView(root) {
 			clear);
 
 		const meta = [info.number ? `#${info.number}` : null, info.setName, languageLabel(group.language), group.rarity, plural(group.spares.length, 'spare', 'spares')].filter(Boolean).join(' · ');
-		const element = h('li', {class: `card shop-row${group.price === null ? ' shop-unpriced' : ''}${dirty ? ' shop-dirty' : ''}`, 'data-key': group.key, id},
+		const pick = h('input', {'aria-label': `Select ${info.name}`, checked: selected.has(group.key), class: 'shop-pick', id: `${id}-pick`, onchange: (event) => {
+			if (event.target.checked) {
+				selected.add(group.key);
+			}
+			else {
+				selected.delete(group.key);
+			}
+
+			element.classList.toggle('shop-picked', event.target.checked);
+			drawBulk(shown());
+		}, type: 'checkbox'});
+		const element = h('li', {class: `card shop-row${group.price === null ? ' shop-unpriced' : ''}${dirty ? ' shop-dirty' : ''}${selected.has(group.key) ? ' shop-picked' : ''}`, 'data-key': group.key, id},
+			pick,
 			info.image
 				? h('img', {alt: '', class: 'shop-art', decoding: 'async', loading: 'lazy', onerror: (event) => event.target.replaceWith(h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'})), src: info.image})
 				: h('div', {'aria-hidden': 'true', class: 'shop-art shop-art-none'}),
@@ -391,8 +416,25 @@ export function shopView(root) {
 			: show === 'unpriced' && !query && !setFilter && !rarityFilter
 				? 'Every spare is priced.'
 				: 'No spares match.';
-		bulkButton.textContent = visible.length ? `Fill all ${formatCount(visible.length)} shown` : 'Fill all shown';
-		bulkButton.disabled = !visible.length;
+		drawBulk(visible);
+	}
+
+	// The fill button names what it fills: the ticked cards when there are
+	// any, else every card shown.
+	function drawBulk(visible) {
+		// A tick on a card that is no longer a spare is dropped.
+		for (const key of selected) {
+			if (!groups.some((group) => group.key === key)) {
+				selected.delete(key);
+			}
+		}
+
+		bulkButton.textContent = selected.size
+			? `Fill ${formatCount(selected.size)} selected`
+			: (visible.length ? `Fill all ${formatCount(visible.length)} shown` : 'Fill all shown');
+		bulkButton.disabled = !selected.size && !visible.length;
+		clearSelection.hidden = !selected.size;
+		selectShown.hidden = !visible.length || visible.every((group) => selected.has(group.key));
 	}
 
 	// A suggestion arrived for some groups: their rows' suggestion lines and
@@ -524,10 +566,11 @@ export function shopView(root) {
 		drawSaveBar();
 	}
 
-	// Types one price into every card shown, as drafts.
+	// Types one price into the ticked cards, or every card shown when none
+	// is ticked, as drafts; the ticks are then cleared.
 	function fillShown() {
 		const typed = parsePrice(bulkInput.value);
-		const visible = shown();
+		const visible = selected.size ? groups.filter((group) => selected.has(group.key)) : shown();
 
 		if (typed.error || typed.value === null) {
 			bulkError.textContent = typed.error || PRICE_FORM_TEXT;
@@ -549,6 +592,7 @@ export function shopView(root) {
 		}
 
 		keepDrafts(drafts);
+		selected.clear();
 		drawList();
 		drawSaveBar();
 	}

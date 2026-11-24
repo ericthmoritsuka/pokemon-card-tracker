@@ -234,6 +234,38 @@ describe('Shop', () => {
 		await context.close();
 	});
 
+	test('ticked cards share one price, ticks survive a search, and the other cards stay as they were', async () => {
+		const {context, errors, page} = await phone();
+		const PIKACHU = '#shop-international-tsb2-025-en';
+
+		await openShop(page);
+		await pickShow(page, 'all');
+		await page.check(`${CHARMANDER_EN} .shop-pick`);
+		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill 1 selected');
+		await page.fill('#shop-search', 'Pikachu');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 2);
+		await page.check(`${PIKACHU} .shop-pick`);
+		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill 2 selected', 'the hidden Charmander stays ticked');
+		await page.fill('#shop-search', '');
+		await page.waitForFunction(() => document.querySelectorAll('.shop-row').length === 5);
+		assert.ok(await page.locator(`${CHARMANDER_EN} .shop-pick`).isChecked());
+		await page.screenshot({fullPage: true, path: `${SHOTS}/shop-selected.png`});
+		await page.fill('#shop-bulk-price', '3');
+		await page.click('#shop-bulk-set');
+
+		const fields = await page.locator('.shop-row').evaluateAll((rows) => Object.fromEntries(rows.map((row) => [row.id, row.querySelector('.shop-price-input').value])));
+
+		assert.equal(fields['shop-international-tsa1-004-en'], '3,00');
+		assert.equal(fields['shop-international-tsb2-025-en'], '3,00');
+		assert.equal(Object.values(fields).filter((value) => value).length, 2, 'only the ticked cards');
+		assert.equal(await page.locator('.shop-pick:checked').count(), 0, 'the ticks are cleared after filling');
+		assert.equal(plain(await page.locator('#shop-bulk-set').textContent()), 'Fill all 5 shown');
+		await saveAll(page);
+		assert.match(await summary(page), /^2 of 5 cards priced/);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('Fill all shown types one price into every card the search shows, saved with the bar', async () => {
 		const {context, errors, page} = await phone();
 
