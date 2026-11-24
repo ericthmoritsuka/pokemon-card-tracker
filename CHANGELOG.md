@@ -17,6 +17,16 @@ are Recife time. Each line ends with its commit.
 
 ### 2026-11-24
 
+- **v107:** copies in use in a binder are never spares. `4f3cf0c`, `8da3c26`, `4d0f256`
+  - Changed (Eric): a copy in a hand-made binder's pocket, or on top of a pocket in a binder made from a list, is
+    in use, so it is never a spare and counts as the copy kept. Three Salamences, one in the 30 anos binder, one
+    in Hoenn, one loose, are one spare, the loose one. The copies under a list pocket's top and the copies in a
+    binder's tray stay spares (`heldCopies`, `js/binders.js`).
+  - Applies everywhere spares are counted: the Shop, so HOTARU no longer lists a card in a binder (opening the
+    Shop online republishes); Spares; Trade ideas; a family member's spares; and spares first in the trades log
+    and the scanner's Trade or sale.
+  - Suite before release: 157 files, 2,270 pass, 0 fail.
+
 - **v106:** set names in a collection that fills itself. `fd9153b`, `4d623a6`
   - Fixed: choosing sets for a rule collection listed codes such as `international|xy3` in place of set names, and
     the collection page described the rule the same way. Both now read the set names, as My Cards and binders do.
