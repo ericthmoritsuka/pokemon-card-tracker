@@ -245,6 +245,13 @@ describe('Collections', () => {
 		assert.match(await page.locator('#col-preview').textContent(), /Rarity: Illustration rare, Special illustration rare/);
 		await page.screenshot({path: `${SHOTS}/collections-editor-rule.png`});
 
+		// The Set choices read as set names, never as the stored "<catalog>|<set id>".
+		const setLabels = await page.locator('#col-group-set .fb-check label').allTextContents();
+
+		assert.ok(setLabels.length, 'the Set group lists your sets');
+		assert.ok(setLabels.every((label) => !label.includes('|')), setLabels.join(', '));
+		assert.ok(setLabels.some((label) => label.startsWith(CARDS[0].set.name)), setLabels.join(', '));
+
 		// Favorites only narrows it to the favorite Charizard.
 		await page.check('#col-favorite');
 		await page.waitForFunction(() => /1 card matches now/.test(document.getElementById('col-preview').textContent), null, TIMEOUT);

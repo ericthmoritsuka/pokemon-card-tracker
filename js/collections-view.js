@@ -14,6 +14,7 @@
 // sheet card detail opens.
 
 import {currentUser} from './auth.js';
+import {filterItems} from './binder-sources.js';
 import {cardImage, cardIndex, indexKey, savedCardRecords} from './catalog.js';
 import {cardsScreen} from './cards-view.js';
 import {
@@ -80,7 +81,9 @@ function ruleLabels(options) {
 	return labels;
 }
 
-const itemsOf = (cards, index) => (cards || []).filter(isLive).map((entry) => itemFor(entry, index.get(`${entry.catalog || 'international'}|${entry.card_id}`)));
+// What the filter bar reads of each live copy, set name and release date
+// included, so the rule's Set choices read as names and not as "<catalog>|<set id>".
+const itemsOf = (cards, index) => filterItems(cards, index);
 
 // ----------------------------------------------------------------- value
 
