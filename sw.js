@@ -283,6 +283,7 @@ const SHELL = [
 	'js/trade-view.js',
 	'js/shop.js',
 	'js/shop-view.js',
+	'js/shop-owner.js',
 	'js/store-publish.js',
 	'js/store-orders.js',
 	'js/custom-card.js',

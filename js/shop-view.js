@@ -25,14 +25,16 @@
 
 import {currentUser} from './auth.js';
 import {entryInfo} from './binders-view.js';
+import {loadedSpeciesNames} from './catalog-views.js';
 import {cardIndex, compareNumbers, indexKey, pricesDue, readPriceRecord, savedCardRecords, viewingLanguage} from './catalog.js';
 import {listCards, loadDocument, updateCards} from './collection.js';
-import {BASE, backWords, errorText, h} from './dom.js';
+import {BASE, errorText, h} from './dom.js';
 import {formatCount, plural} from './format.js';
 import {languageLabel} from './languages.js';
 import {applyMove, parsePrice, priceForInput, PRICE_FORM_TEXT} from './moves.js';
 import {euroRates, exchangeRates, extractPrices, finishOf, formatBrl, savedEuroRates, savedRates} from './prices.js';
 import {PRICE_FILTERS, groupMark, listingRows, orderCheck, priceFilter, pricePatches, saleFields, shopGroups, shopTotals, storePicturePath, suggestion, timeLeft, undoPricePatches} from './shop.js';
+import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {cancelOrder, markDelivered, markPaid, openOrders, orderErrorText, receiptLink} from './store-orders.js';
 import {publishErrorText, syncListings, uploadPicture} from './store-publish.js';
 import {onSyncStatus, syncStatus} from './sync.js';
@@ -184,7 +186,6 @@ export function shopView(root) {
 	});
 
 	root.append(
-		h('a', {class: 'back', 'data-link': 'trade', href: `${BASE}trade`, id: 'shop-back'}, backWords('Spares')),
 		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
 		h('p', {class: 'muted shop-intro'}, 'Price your spares for HOTARU. Only cards with a price will be offered, and the suggestions stay on this screen.'),
 		summary,
@@ -211,9 +212,16 @@ export function shopView(root) {
 		group.publishInfo = sold;
 		group.pictureBase = sold.image ? sold.image.replace(/\/low\.webp$/, '') : null;
 		group.rarity = (record && record.rarity) || null;
-		// info.search holds the English names too, as My Cards' search does,
-		// so "Pikachu" finds a Japanese print.
-		group.search = fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language)].join(' '));
+		group.search = searchText(group);
+	}
+
+	// info.search holds the English names too, as My Cards' search does,
+	// so "Pikachu" finds a Japanese print, once the species names are in
+	// (js/catalog-views.js loadedSpeciesNames).
+	function searchText(group) {
+		const {info} = group;
+
+		return fold([info.search, info.name, info.setName, info.number, group.card_id, languageLabel(group.language)].join(' '));
 	}
 
 	const recordOf = (group) => saved.get(`${group.catalog}|${group.card_id}`) || null;
@@ -947,6 +955,21 @@ export function shopView(root) {
 
 		groups = shopGroups(cards);
 		groups.forEach(describe);
+		// Opened from its address, the Shop can draw before the species
+		// names are read; the searches take the English names when they are.
+		loadedSpeciesNames(() => {
+			if (!alive) {
+				return;
+			}
+
+			for (const group of groups) {
+				group.search = searchText(group);
+			}
+
+			if (query) {
+				drawList();
+			}
+		});
 		groups.sort((a, b) => (a.info.setName || '').localeCompare(b.info.setName || '')
 			|| compareNumbers(a.info.number || '', b.info.number || '')
 			|| a.language.localeCompare(b.language));
@@ -1046,8 +1069,50 @@ export function shopView(root) {
 	};
 }
 
+// What anyone but the family's owner sees at the shop address: the Shop
+// prices the owner's spares and takes HOTARU's orders, and the server lets
+// nobody else do either (js/shop-owner.js). Signed out, and while the
+// answer is not known, the Shop draws as before; an answer of "not the
+// owner" that arrives later takes its place.
+function notOwnerNotice(root) {
+	root.replaceChildren(
+		h('div', {class: 'view-head'}, h('h2', null, 'Shop')),
+		h('div', {class: 'card empty-state', id: 'shop-not-owner'},
+			h('p', {class: 'big'}, 'The Shop is for the family\'s owner'),
+			h('p', {class: 'muted'}, 'It prices the owner\'s spares for their HOTARU shop. Your spares stay in Spares, ready to trade.'),
+			h('a', {class: 'button', 'data-link': 'trade', href: `${BASE}trade`}, 'Open Spares')
+		)
+	);
+}
+
+export function shopScreen(root) {
+	if (shopOwnerKnown() === false) {
+		notOwnerNotice(root);
+
+		return () => {};
+	}
+
+	let alive = true;
+	let stop = shopView(root);
+
+	if (currentUser()) {
+		checkShopOwner().then((owner) => {
+			if (alive && owner === false) {
+				stop();
+				stop = () => {};
+				notOwnerNotice(root);
+			}
+		});
+	}
+
+	return () => {
+		alive = false;
+		stop();
+	};
+}
+
 export const shopRoutes = [
-	{pattern: /^shop$/, render: shopView, tab: 'cards', title: 'Shop | Card Tracker'},
+	{kind: 'shop', pattern: /^shop$/, render: shopScreen, tab: null, title: 'Shop | Card Tracker'},
 ];
 
-export const shopAccountViews = [shopView];
+export const shopAccountViews = [shopScreen];

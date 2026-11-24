@@ -1,7 +1,8 @@
 // The app shell around every screen (plans/design-review.md sections 2 and
 // 3, "Shared Header"): the avatar that opens Profile, the "Mine" switcher and
-// family view-only mode, the offline strip, toasts, and the five tabs, with
-// a count dot on Scan while the scanner's draft tray holds unsaved cards.
+// family view-only mode, Shop for the family's owner (js/shop-owner.js), the
+// offline strip, toasts, and the five tabs, with a count dot on Scan while
+// the scanner's draft tray holds unsaved cards.
 //
 // Family view-only mode is a lens on a family member's data. It starts on a
 // family route (family/<id>, family/<id>/binders, family/<id>/lists,
@@ -28,6 +29,7 @@ import {formatCount} from './format.js';
 import {DRAFT_EVENT, draftCount} from './scan/draft.js';
 import {favoritePokemon, onSettings} from './settings.js';
 import {openDialogSheet} from './sheet.js';
+import {checkShopOwner, shopOwnerKnown} from './shop-owner.js';
 import {onSyncStatus, syncStatus} from './sync.js';
 
 // What each kind of screen is called on the view-only strip, and where it
@@ -522,6 +524,39 @@ async function drawAccount() {
 	}
 }
 
+// ------------------------------------------------------------- Shop
+
+// Shown to the family's owner only, at once from the answer kept on the
+// phone, then as the server says.
+function drawShopLink(owner = shopOwnerKnown()) {
+	const link = document.getElementById('shop-link');
+
+	if (!link) {
+		return;
+	}
+
+	link.hidden = !(currentUser() && owner === true);
+
+	if (current.route && current.route.kind === 'shop') {
+		link.setAttribute('aria-current', 'page');
+	}
+	else {
+		link.removeAttribute('aria-current');
+	}
+}
+
+// The overview is read once a visit (js/sync.js), and read again after the
+// first sign-in makes the family group, so asking on each synced status
+// costs nothing until then.
+async function loadShopOwner() {
+	const user = currentUser();
+	const owner = await checkShopOwner();
+
+	if (currentUser() === user) {
+		drawShopLink(owner);
+	}
+}
+
 // ---------------------------------------------------- the offline strip
 
 function drawOffline(status = syncStatus()) {
@@ -560,6 +595,7 @@ export function shellRoute(route, params) {
 	drawLens();
 	drawTabs();
 	drawSwitcher();
+	drawShopLink();
 
 	if (lens && !lens.name) {
 		loadMembers();
@@ -657,7 +693,9 @@ export function startShell() {
 		myFavorite = null;
 		closeOwnerSheet();
 		drawAccount();
+		drawShopLink();
 		loadMembers();
+		loadShopOwner();
 	});
 	onSettings(() => {
 		drawAccount();
@@ -667,6 +705,11 @@ export function startShell() {
 		}
 	});
 	onSyncStatus(drawOffline);
+	onSyncStatus((status) => {
+		if (status.phase === 'synced' && shopOwnerKnown() !== true) {
+			loadShopOwner();
+		}
+	});
 	window.addEventListener('online', () => drawOffline());
 	window.addEventListener('offline', () => drawOffline());
 
@@ -678,6 +721,8 @@ export function startShell() {
 	});
 
 	drawAccount();
+	drawShopLink();
+	loadShopOwner();
 	drawOffline();
 	// A save that lands first knows better than this read.
 	draftCount().then((waiting) => {
