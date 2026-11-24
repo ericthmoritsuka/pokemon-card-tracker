@@ -1,6 +1,6 @@
 # Plan: HOTARU Spares Catalog
 
-Draft 2026-11-24, written against `e6b0104` (v100). It is a design only: nothing is built yet, and Eric chooses whether and when.
+Draft 2026-11-24, written against `e6b0104` (v100). Eric approved building it on 2026-11-24, one step at a time (section 11).
 
 ## 1. Goal
 
@@ -12,12 +12,17 @@ The cart is a **promise to buy**, not a checkout. Nothing confirms a payment aut
 
 **Out of scope:** payment gateways, shipping, stock other than Eric's spares, accounts for buyers, and any automatic collection of Liga Pokémon prices.
 
+**Later, not now:** HOTARU's home page showing the products Eric has at home (Eric, 2026-11-24). The catalog's public table is the natural source, so the home page can read it once the catalog works.
+
 ## 2. Decisions Already Made
 
 | Decision | Source |
 | --- | --- |
 | Plan before building | Eric, 2026-11-24 |
 | A spare with no manual price and no rule shows the Liga price Eric typed, else the TCGplayer estimate in reais | Eric, 2026-11-24 |
+| The Liga price used for sales is the NM average of recent sales, a value Liga shows that the tracker does not store yet | Eric, 2026-11-24 |
+| The catalog lives on pages of its own, apart from the fictional mockup | Eric, 2026-11-24 |
+| The Pix code uses Eric's random Pix key, kept in HOTARU's configuration rather than in this plan | Eric, 2026-11-24 |
 | Liga prices are never collected automatically: its `robots.txt` asks for 360 seconds between requests and the site sits behind Cloudflare | DESIGN.md section 10, 2026-10-01 |
 | No paid services, ever. A gateway that confirms Pix payments charges per transaction, so payment confirmation stays manual | DESIGN.md line 8 |
 | A confirmed sale (money received, cards handed over) removes the cards from Eric's spares | Eric, 2026-11-24 |
@@ -49,14 +54,17 @@ The sale price of a copy is the first of these that exists:
 
 1. **A manual sale price** on that copy, typed in the Loja screen or on the card page.
 2. **A fixed-price rule**, the first in Eric's ordered list that matches. A rule matches on any of set, rarity, name contains, and language. Examples: set `30th` and rarity Common costs R$ 1,00; set `30th` and name contains `Pikachu` costs R$ 5,00. Put the Pikachu rule first.
-3. **The Liga price Eric typed** on the copy (`price_manual`).
+3. **The Liga price Eric typed** on the copy (`price_manual`): the NM average of recent sales, else the average, else the lowest NM.
 4. **The TCGplayer estimate** in reais.
 
-A copy that none of these prices is listed as **Sob consulta** and cannot go in the cart.
+Automatic prices (steps 3 and 4) are rounded up to the next R$ 0,50. Manual prices and rules stay as typed. A copy that none of these prices is listed as **Sob consulta** and cannot go in the cart.
 
 Where the data lives in Eric's document:
 
-- **Manual sale price:** a new copy field, `sale_price` (reais, number). It must be added to `USER_FIELDS` (`js/merge.js:1189`) so two phones merge it by field like `condition`. An old client keeps unknown fields, as `plans/sync-merge-plan.md` section 0 notes, so this is safe.
+- **Liga NM average of recent sales:** a third value in `price_manual`, `sold_avg_nm`, beside `low_nm` and `avg` (`js/prices.js:108`), typed in the same Liga form. `price_manual` is written as one object (`js/price-view.js:459`), so the new value travels with it. The CSV is the exception: `priceText` (`js/collection.js:912`) compares only the two prices and the day, and the export has a column per price, so both gain the new value or a round trip would drop it. It counts only toward sale prices: the collection's value keeps using the average, as today.
+
+- **Manual sale price:** a new copy field, `sale_price` (reais, number). It must be added to `ENTRY_FIELDS` (`js/collection.js:388`), the fields a copy may carry, and to `USER_FIELDS` (`js/merge.js:1189`) so two phones merge it by field like `condition`. An old client keeps unknown fields, as `plans/sync-merge-plan.md` section 0 notes, so this is safe.
+- **Não vender:** a new copy field, `not_for_sale` (boolean), added to the same two lists. A copy with it set is never published, and the Loja screen still shows it, marked, so Eric can switch it back.
 - **Rules:** a new list, `price_rules`, added to `LISTS` (`js/merge.js:28`) so rules merge entry by entry. Each rule is `{id, order, set_id, rarity, name_contains, language, price, updated_at}`.
 
 The Loja screen shows each listed copy with its price and where it came from (`manual`, `regra`, `Liga`, `estimativa`), so Eric can spot an estimate that looks wrong before publishing.
@@ -111,7 +119,7 @@ Eric's rules (2026-11-24): many people may put the same card in their carts, onl
 | `reserved_until` passes while the order is still `pending` | `expired` | `available` | Back on the next call to any public function |
 | Eric taps **Pago** | `paid` | stay `reserved` | Still hidden; a paid order never expires, so a payment that arrives late cannot lose its cards to someone else |
 
-A reservation lasts 48 hours (open question 8).
+A reservation lasts 48 hours (section 12, answer 7).
 
 **Warnings in an open cart.** The cart page, and the cart counter on every catalog page, call `listing_status` for the cart's IDs when the page opens, when the tab comes back into view, every 60 seconds while it is open, and right before closing. Each card that is not `available` gets a notice in place:
 
@@ -135,7 +143,7 @@ HOTARU is static HTML generated by `build.py`, so the new pages are generated sh
 - `carta.html?id=<listing>`: one card, with **Adicionar ao carrinho**. A card that is no longer available shows the same notice as the cart instead of the button.
 - `pedido.html`: the cart with its notices, the form, and, after `place_order` returns, the Pix code and QR code.
 
-The rest of HOTARU is a mockup with invented products, prices, and an invented address (README). A colleague who lands on the real catalog must not wander into fake products, so the new pages carry a plain header of their own and do not link to the mockup (open question 1).
+The rest of HOTARU is a mockup with invented products, prices, and an invented address (README). A colleague who lands on the real catalog must not wander into fake products, so the new pages carry a plain header of their own and do not link to the mockup (section 12, answer 1).
 
 ## 9. Pix
 
@@ -143,7 +151,7 @@ A static Pix code (BR Code) is a short text in the EMV format with Eric's Pix ke
 
 The amount and the transaction ID go in the code, so the buyer's bank app fills them in. Eric still confirms the payment by looking at his statement.
 
-Before building, the generated code is checked against two bank apps by scanning it and stopping before paying.
+Before step 4 ships, the generated code is checked against two bank apps by scanning it and stopping before paying.
 
 ## 10. Abuse and Privacy
 
@@ -155,20 +163,29 @@ Before building, the generated code is checked against two bank apps by scanning
 
 Each step is usable on its own.
 
-1. **Prices in the tracker:** `sale_price`, `price_rules`, the precedence in section 5, and the Loja screen listing spares with prices and their sources. No Supabase change yet.
+1. **Prices in the tracker:** `sale_price`, `sold_avg_nm` in the Liga form and the CSV, `price_rules`, the **Não vender** switch, the precedence and rounding in section 5, and the Loja screen listing spares with prices and their sources. No Supabase change yet.
 2. **Publish:** `supabase/store.sql` (listings and the bucket), and the **Publicar na HOTARU** button.
 3. **Catalog:** `avulsas.html` and `carta.html` on HOTARU, read only. Eric can already share the link and sell by message.
 4. **Orders and Pix:** the orders tables, `place_order`, `listing_status`, expiry, `pedido.html` with the cart notices, the Pix code and QR code, and the Orders part of the Loja screen with **Pago**, **Venda concluída** (the `sold` move), and **Cancelar**.
 
 Tests follow the tracker's habits: unit tests for the price precedence, the rule matching, and the BR Code checksum against a known code, and a browser test per new screen using `tests/fake-rates.mjs`. The reservation rules get SQL tests against a local Supabase: two `place_order` calls racing for the same card (one wins, the other gets the card back as unavailable and reserves nothing), expiry returning cards to `store_catalog()`, a `paid` order never expiring, and `complete_order` and `cancel_order` moving the listings.
 
-## 12. Open Questions for Eric
+## 12. Questions and Answers
 
-1. **Where the catalog lives.** Recommended: its own pages on HOTARU with a plain header and no links to the fictional mockup. The alternative is to turn the whole HOTARU site real, which is a bigger job.
-2. **Which Liga field.** The tracker values copies by the Liga average by default. For colleagues the lowest NM price may be fairer. Recommended: lowest NM.
-3. **Rounding.** Recommended: round automatic prices (Liga and estimate) up to the next R$ 0,50. Manual prices and rules stay as typed.
-4. **Every spare, or only chosen ones.** Recommended: every spare by default, with a **Não vender** switch per copy so Eric can keep one back.
-5. **Pix key.** Which key goes in the code (a random key keeps the phone number and CPF out of a public page), and the name and city exactly as the bank shows them.
-6. **How Eric hears about an order.** Recommended for now: the Loja screen shows a count of pending orders. A push notification or an email is possible later.
-7. **Old orders.** Keep them forever, or clear name and phone after delivery.
-8. **How long a closed order holds the cards before they return to the catalog.** Recommended: 48 hours, since buyer and seller share an office. Marking the order **Pago** holds the cards with no limit.
+Answered by Eric, 2026-11-24:
+
+1. **Where the catalog lives:** its own pages, apart from the mockup. Showing the products at home on HOTARU's home page may come later.
+2. **Which Liga field:** the NM average of recent sales (section 5).
+3. **Pix key:** Eric's random key, kept in HOTARU's configuration.
+
+Taken as recommended, because Eric answered the others and not these. Any of them is easy to change:
+
+4. **Rounding:** automatic prices round up to the next R$ 0,50.
+5. **Every spare, or only chosen ones:** every spare, with a **Não vender** switch per copy.
+6. **How Eric hears about an order:** the Loja screen shows a count of pending orders.
+7. **How long a closed order holds the cards:** 48 hours; **Pago** holds them with no limit.
+
+Still open. Both block step 4 only:
+
+8. **Name and city on the Pix code,** exactly as Eric's bank shows them for the key. A BR Code carries a name of up to 25 characters and a city of up to 15.
+9. **Old orders:** keep them forever, or clear name and phone some time after the sale.
