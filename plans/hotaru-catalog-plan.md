@@ -53,17 +53,17 @@ The tracker does most of the work already. The catalog reuses it rather than com
 
 **One price per card, typed by Eric.** A card's sale price is the only price the catalog knows. A spare without one is not published. There is no automatic price, no fixed-price rule that changes by itself, and no **Not for sale** switch, because leaving a card unpriced keeps it out.
 
-**The Shop screen is the staging page.** It is the Spares screen (`js/trade-view.js`) in a pricing mode, so it shows only Eric's spares, needs his sign-in like the rest of the app, and keeps the shared filter bar (set, language, rarity, and the rest). Each card tile shows:
+**The Shop screen is the staging page** (`js/shop-view.js`, route `shop`, opened from Shop on the Spares screen). It lists only Eric's spares, one row per card and language, with a search, a set and a rarity filter, and **All**, **Not priced**, and **Priced**. It is a list of its own rather than the Spares grid, because the grid's tiles are links too small to hold a price field. Each row shows:
 
 - **Its sale price,** or **Not priced**, with a field to type or clear it.
 - **Suggested prices,** private to this screen: TCGplayer's market price and Cardmarket's trend, each converted to reais with the app's saved daily rates, as the card page already shows them. A **Use** button copies the higher of the two, rounded up to the next R$ 0,50, into the field, and Eric adjusts it before saving. A card with neither shows **No suggestion**. Liga is not read, by the 2026-10-01 decision, and the screen has no Ver na Liga link, by Eric's choice.
 - **Published,** **Reserved,** or nothing, from the public table, so Eric sees what buyers see.
 
-A filter for **Not priced** and **Priced** sits beside the others, so Eric can work through what is left.
+The screen opens on **Not priced**, so Eric can work through what is left.
 
-**Pricing many cards at once.** My Cards' Select (`js/bulk-select.js`, `js/bulk-edit.js`) gains a **Sale price** action on this screen. Filtering to set `30th` and rarity Common, selecting all, and setting R$ 1,00 prices them in one step. It writes the same field a single price does, so a later change to one card is just a new price on that card.
+**Pricing many cards at once.** **Price all shown** sets one price on every row the search and filters show. Filtering to set `30th` and rarity Common and setting R$ 1,00 prices them in one step. It writes the same field a single price does, so a later change to one card is just a new price on that card, and a toast's Undo takes either back.
 
-**Where it lives in Eric's document:** a new copy field, `sale_price` (reais, number). It must be added to `ENTRY_FIELDS` (`js/collection.js:388`), the fields a copy may carry, and to `USER_FIELDS` (`js/merge.js:1189`), so two phones merge it by field like `condition`. An old client keeps unknown fields, as `plans/sync-merge-plan.md` section 0 notes, so this is safe. The price belongs to the card in that language, so it is saved on every copy of the tile, the keeper included, and only the copies `spareEntries` returns are published. A change of keeper, such as a new favorite, then never leaves a spare unpriced, and a card with no spares left publishes nothing.
+**Where it lives in Eric's document:** a new copy field, `sale_price` (reais, number). It is in `ENTRY_FIELDS` (`js/collection.js:388`), the fields a copy may carry. Two phones merge it by field with no change, since `field_stamps` (`js/merge.js:161`) stamps every field. It is also in `USER_FIELDS` (`js/merge.js:1189`), so it survives when two copies of a card fold into one, and in Start over's `DETAIL_FIELDS` (`js/start-over.js:115`), so a priced copy counts in its warning. An old client keeps unknown fields, as `plans/sync-merge-plan.md` section 0 notes. The price belongs to the card in that language, so it is saved on every copy of the tile, the keeper included, and only the copies `spareEntries` returns are published. A change of keeper, such as a new favorite, then never leaves a spare unpriced, and a card with no spares left publishes nothing.
 
 **Publishing follows the price.** Saving or clearing a price writes the public table at once, which needs a connection; offline, the screen says the change is saved and will publish when back online. Opening the Shop screen also withdraws every published copy that is no longer a spare, such as one traded away in the tracker, and never touches a reserved or sold one.
 
@@ -161,12 +161,12 @@ Before step 4 ships, the generated code is checked against two bank apps by scan
 
 Each step is usable on its own.
 
-1. **Staging in the tracker:** `sale_price`, the Shop screen with suggestions, **Use**, the priced filter, and the bulk **Sale price** action. No Supabase change yet.
+1. **Staging in the tracker:** `sale_price`, the Shop screen with suggestions, **Use**, the filters, and **Price all shown**. No Supabase change yet. *Built 2026-11-24 on branch `store-prices`, not released.*
 2. **Publish:** `supabase/store.sql` (listings and the bucket), publishing on save and on clear, withdrawing copies that stopped being spares, and the Published and Reserved marks.
 3. **Catalog:** `avulsas.html` and `carta.html` on HOTARU, read only. Eric can already share the link and sell by message.
 4. **Orders and Pix:** the orders tables, `place_order`, `listing_status`, expiry, `pedido.html` with the cart notices, the Pix code and QR code, and the Orders part of the Shop screen with **Payment received** (the `sold` move), **Delivered**, **Cancel**, and the time each pending order has left.
 
-Tests follow the tracker's habits: unit tests for the suggestion and its rounding, the bulk price patches, and the BR Code checksum against a known code, and a browser test per new screen using `tests/fake-rates.mjs`. The reservation rules get SQL tests against a local Supabase: two `place_order` calls racing for the same card (one wins, the other gets the card back as unavailable and reserves nothing), expiry returning cards to `store_catalog()`, a `paid` order never expiring, `mark_paid` refusing an expired order, and `mark_paid` and `cancel_order` moving the listings.
+Tests follow the tracker's habits: unit tests for the suggestion and its rounding, the price patches and their Undo, and the BR Code checksum against a known code, and a browser test per new screen using `tests/fake-rates.mjs`. The reservation rules get SQL tests against a local Supabase: two `place_order` calls racing for the same card (one wins, the other gets the card back as unavailable and reserves nothing), expiry returning cards to `store_catalog()`, a `paid` order never expiring, `mark_paid` refusing an expired order, and `mark_paid` and `cancel_order` moving the listings.
 
 ## 12. Questions and Answers
 
