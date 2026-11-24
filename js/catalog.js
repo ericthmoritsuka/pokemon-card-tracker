@@ -308,6 +308,10 @@ export function shopSetMark(catalog, setId, facts = new Map()) {
 	return {code: shopSetCode(catalog, setId), symbol};
 }
 
+// A set's printed code (printedSetCode), or null: js/shop.js matches a
+// hand-made copy's set code with it.
+export const printedCode = (setId) => printedSetCode('international', setId);
+
 // A Western set's English logo, for a language TCGdex has no logo for
 // (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
 // Retorno da Equipe Rocket have none in Portuguese). TCGdex's English logos

@@ -31,6 +31,7 @@ const SHOTS = process.env.SHOTS || '/tmp';
 const TIMEOUT = {timeout: 20000};
 const CHARMANDER_EN = '#shop-international-tsa1-004-en';
 const CHARMANDER_EN_REVERSE = '#shop-international-tsa1-004-en-raw-Reverse-Holofoil';
+const CHARIZARD = '#shop-international-tsa1-006-en';
 const PICTURE = 'https://assets.tcgdex.net/en/tsa/tsa1/004';
 
 let server;
@@ -120,7 +121,7 @@ function indexWithPicture() {
 }
 
 // A phone signed in as the family's owner, whose copies are on the server.
-async function ownerPhone({owner = true} = {}) {
+async function ownerPhone({index = indexWithPicture(), owner = true} = {}) {
 	const fake = new FakeSupabase();
 	const user = fake.addUser('owner@example.test');
 	const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
@@ -140,7 +141,7 @@ async function ownerPhone({owner = true} = {}) {
 
 	page.on('pageerror', (err) => errors.push(err.message));
 	await attachStore(page, store, {owner});
-	await seed(page, server.origin, {binders: [], copies: [], index: indexWithPicture()});
+	await seed(page, server.origin, {binders: [], copies: [], index});
 	await page.goto(`${server.origin}${BASE}signin`);
 	await page.fill('#signin-email', user.email);
 	await page.click('button:has-text("Send link")');
@@ -167,6 +168,25 @@ const publishLine = async (page) => plain(await page.locator('#shop-publish').te
 const waitLine = (page, pattern) => page.waitForFunction((source) => new RegExp(source).test(document.querySelector('#shop-publish').textContent.replace(/\s+/g, ' ')), pattern.source, TIMEOUT);
 
 describe('Shop publishing', () => {
+	test('a card saved before TCGdex had its picture gets it on the next visit, and the listing with it', async () => {
+		// The index holds Charmander with no picture, as a record saved while
+		// a new set had none; TCGdex's set list has it now.
+		const {context, errors, page, store} = await ownerPhone({index: indexRecords()});
+
+		await page.route('**/v2/en/sets/tsa1', (route) => route.fulfill({
+			body: JSON.stringify({cards: [{id: 'tsa1-004', image: PICTURE, localId: '004', name: 'Charmander'}], id: 'tsa1', name: 'Test Set A'}),
+			contentType: 'application/json',
+			status: 200,
+		}));
+		await openShop(page);
+		await page.fill(`${CHARMANDER_EN} .shop-price-input`, '2,30');
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-04', 'tcgdex/en/tsa/tsa1/004.webp']]);
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
 	test('signed out, nothing is sent and the screen says why', async () => {
 		const context = await browser.newContext({serviceWorkers: 'block', viewport: {height: 844, width: 390}});
 
@@ -288,6 +308,44 @@ describe('Shop publishing', () => {
 		await page.waitForFunction(() => [...document.querySelectorAll('.toast-text')].some((node) => /next time you open the Shop/.test(node.textContent)), null, TIMEOUT);
 		assert.equal(plain(await page.locator('.toast-text', {hasText: 'next time'}).last().textContent()), 'Starred. It leaves HOTARU the next time you open the Shop online.');
 		assert.equal(asked.length, 2, 'taking the star off asks nothing');
+		assert.deepEqual(errors, []);
+		await context.close();
+	});
+
+	test('a card the catalog has no picture for is listed with the owner\'s own photo', async () => {
+		// No picture in the index, and TCGdex's set list has none either.
+		const {context, errors, page, store} = await ownerPhone({index: indexRecords()});
+
+		await page.route('**/v2/en/sets/tsa1', (route) => route.fulfill({
+			body: JSON.stringify({cards: [{id: 'tsa1-006', localId: '006', name: 'Charizard ex'}], id: 'tsa1', name: 'Test Set A'}),
+			contentType: 'application/json',
+			status: 200,
+		}));
+
+		// Eric's photo of Charizard EN, saved as Add photo saves it.
+		const photoId = await page.evaluate(async () => {
+			const {savePhoto} = await import('/pokemon-card-tracker/js/photos/index.js');
+			const canvas = new OffscreenCanvas(63, 88);
+			const draw = canvas.getContext('2d');
+
+			draw.fillStyle = '#c33';
+			draw.fillRect(0, 0, 63, 88);
+
+			const photo = await savePhoto({blob: await canvas.convertToBlob({type: 'image/webp'}), entry: {card_id: 'tsa1-006', catalog: 'international', language: 'en'}, type: 'image/webp'});
+
+			return photo.id;
+		});
+
+		await openShop(page);
+		await page.fill(`${CHARIZARD} .shop-price-input`, '150');
+		await page.click('#shop-save-all');
+		await waitLine(page, /^On HOTARU: 1 card, 1 spare\.$/);
+
+		const path = `own/${photoId}.webp`;
+
+		assert.deepEqual(store.uploads, [path], 'the photo is copied once, under its own id');
+		assert.deepEqual([...store.listings.values()].map((row) => [row.id, row.image_path]), [['c-08', path]]);
+		assert.equal(store.relayed.length, 0, 'no catalog picture is asked for');
 		assert.deepEqual(errors, []);
 		await context.close();
 	});
