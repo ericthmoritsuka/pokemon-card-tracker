@@ -12,6 +12,7 @@ import {
 	groupPrice,
 	hasCards,
 	listingRows,
+	ownPicturePath,
 	orderCheck,
 	priceFilter,
 	pricePatches,
@@ -39,6 +40,60 @@ const priced = (usd, eur) => ({
 		type: 'normal',
 		variantId: 'n1',
 	}],
+});
+
+describe('shopGroups with hand-made copies', () => {
+	const hand = (id, fields = {}) => copy(id, {card_id: 'hand_0123456789abcdef0123456789abcdef', catalog: 'custom', name_local: 'Emolga', number_local: '030', set_code: 'CRI', set_name_local: 'Chaos Rising', ...fields});
+	const codeOf = (setId) => ({me04: 'CRI'})[setId] || null;
+
+	test('a hand-made copy and a scanned copy of the same CRI card are one card with a spare', () => {
+		const cards = [hand('a'), copy('bb', {card_id: 'me04-030'})];
+		const groups = shopGroups(cards, {codeOf});
+
+		assert.equal(groups.length, 1);
+		assert.equal(groups[0].card_id, 'me04-030');
+		assert.equal(groups[0].catalog, 'international');
+		assert.equal(groups[0].spares.length, 1);
+		assert.deepEqual(groups[0].copies.map((entry) => entry.id).sort(), ['a', 'bb']);
+		// The spare is the copy itself, not a renamed clone, so its price patch
+		// lands on the real copy.
+		assert.ok(cards.includes(groups[0].spares[0]));
+	});
+
+	test('the set code may be the TCGdex set id, and a promo number may carry its code', () => {
+		assert.equal(shopGroups([hand('a', {set_code: 'me04', number_local: '30'}), copy('bb', {card_id: 'me04-030'})]).length, 1);
+		assert.equal(shopGroups([hand('a', {set_code: 'MEP', number_local: 'MEP 012'}), copy('bb', {card_id: 'mep-012'})]).length, 1);
+	});
+
+	test('another number, set, or language stays apart', () => {
+		assert.equal(shopGroups([hand('a', {number_local: '031'}), copy('bb', {card_id: 'me04-030'})], {codeOf}).length, 0);
+		assert.equal(shopGroups([hand('a', {set_code: 'POR'}), copy('bb', {card_id: 'me04-030'})], {codeOf}).length, 0);
+		assert.equal(shopGroups([hand('a', {language: 'en'}), copy('bb', {card_id: 'me04-030'})], {codeOf}).length, 0);
+	});
+});
+
+describe('shopGroups: what is not a spare', () => {
+	test('one copy in English and one in Portuguese are two keepers and no spare (DESIGN.md section 3, Eric 2026-10-01)', () => {
+		assert.deepEqual(shopGroups([copy('a', {card_id: 'me04-030', language: 'en'}), copy('bb', {card_id: 'me04-030', language: 'pt'})]), []);
+	});
+
+	test('a copy saved with no catalog counts with the international ones, in one row', () => {
+		const groups = shopGroups([copy('a', {catalog: undefined}), copy('bb'), copy('ccc', {catalog: null})]);
+
+		assert.equal(groups.length, 1);
+		assert.equal(groups[0].key, 'international|sv10-001|pt');
+		assert.equal(groups[0].copies.length, 3);
+		assert.equal(groups[0].spares.length, 2);
+	});
+});
+
+describe('ownPicturePath', () => {
+	test('names a photo by its id in the own folder, keeping its type', () => {
+		assert.equal(ownPicturePath({id: '3f2a-77', path: 'u/e/3f2a-77.webp'}), 'own/3f2a-77.webp');
+		assert.equal(ownPicturePath({id: 'p1', path: 'u/e/p1.jpg'}), 'own/p1.jpg');
+		assert.equal(ownPicturePath({id: '../x'}), null);
+		assert.equal(ownPicturePath(null), null);
+	});
 });
 
 describe('shopGroups', () => {

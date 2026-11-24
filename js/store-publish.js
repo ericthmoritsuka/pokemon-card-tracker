@@ -9,6 +9,7 @@
 import {getClient} from './auth.js';
 import {cardImage} from './catalog.js';
 import {relayRead} from './photos/save.js';
+import {photoUrl} from './photos/store.js';
 
 export const STORE_BUCKET = 'store';
 
@@ -57,6 +58,30 @@ export async function uploadPicture(base, path, {read = relayRead} = {}) {
 	const {error} = await client.storage.from(STORE_BUCKET).upload(path, blob, {
 		cacheControl: '31536000',
 		contentType: blob.type || 'image/webp',
+		upsert: true,
+	});
+
+	return !error;
+}
+
+// Copies one of the owner's own card photos into the bucket at path
+// (js/shop.js ownPicturePath), for a card the catalog has no picture for.
+// The photo is read as card tiles read it: from this phone, else from the
+// card-photos bucket (js/photos/store.js photoUrl). Resolves true once it is
+// there, false when the photo could not be read or the bucket refused it
+// (supabase/store-own-pictures.sql not run yet).
+export async function uploadOwnPicture(photo, path, {url = photoUrl} = {}) {
+	const objectUrl = await url(photo);
+
+	if (!objectUrl) {
+		return false;
+	}
+
+	const blob = await (await fetch(objectUrl)).blob();
+	const client = await getClient();
+	const {error} = await client.storage.from(STORE_BUCKET).upload(path, blob, {
+		cacheControl: '31536000',
+		contentType: blob.type || (path.endsWith('.jpg') ? 'image/jpeg' : 'image/webp'),
 		upsert: true,
 	});
 

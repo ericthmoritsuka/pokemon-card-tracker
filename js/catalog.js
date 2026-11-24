@@ -232,6 +232,10 @@ const PRINTED_CODES = {
 	sm1: 'SUM', sm2: 'GRI', sm3: 'BUS', 'sm3.5': 'SLG', sm4: 'CIN', sm5: 'UPR', sm6: 'FLI', sm7: 'CES', 'sm7.5': 'DRM', sm8: 'LOT', sm9: 'TEU', sm10: 'UNB', sm11: 'UNM', 'sm11.5': 'HIF', sm12: 'CEC',
 };
 
+// A set's printed code from the table above, or null (js/shop.js matches a
+// hand-made copy's set code with it).
+export const printedCode = (setId) => PRINTED_CODES[setId] || null;
+
 // A Western set's English logo, for a language TCGdex has no logo for
 // (2026-11-20: Fagulhas Impetuosas, Fogo Branco, Raio Preto, and EX O
 // Retorno da Equipe Rocket have none in Portuguese). TCGdex's English logos
