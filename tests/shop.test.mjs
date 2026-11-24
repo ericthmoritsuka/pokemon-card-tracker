@@ -1,5 +1,5 @@
-// The Shop's numbers (js/shop.js): which cards it lists, the sale price kept
-// on every copy of a card, the suggestion and its rounding, the price
+// The Shop's numbers (js/shop.js): which cards it lists, one group and one
+// sale price per finish, the sale price kept on every copy of that finish, the suggestion and its rounding, the price
 // filters, and the totals. No browser.
 //
 // Run: node --test tests/shop.test.mjs
@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {describe, test} from 'node:test';
 
 import {
+	finishKey,
 	groupMark,
 	groupPrice,
 	hasCards,
@@ -19,6 +20,7 @@ import {
 	saleFields,
 	salePrice,
 	shopGroups,
+	shopKey,
 	shopTotals,
 	storePicturePath,
 	suggestion,
@@ -52,7 +54,7 @@ describe('shopGroups', () => {
 		const groups = shopGroups(cards);
 
 		assert.equal(groups.length, 1, 'one EN copy and one sv10-002 copy are keepers only');
-		assert.equal(groups[0].key, 'international|sv10-001|pt');
+		assert.equal(groups[0].key, 'international|sv10-001|pt|', 'no finish set on any copy');
 		assert.equal(groups[0].spares.length, 2);
 		assert.deepEqual(groups[0].copies.map((entry) => entry.id).sort(), ['a', 'bb', 'ccc'], 'a removed copy is left out');
 		assert.equal(groups[0].set_id, 'sv10');
@@ -73,6 +75,100 @@ describe('shopGroups', () => {
 
 		assert.equal(group.price, 3, 'the keeper holds it while the spares do not yet');
 		assert.equal(groupPrice({copies: [], spares: [copy('x', {sale_price: 0})]}), null, 'zero is no price');
+	});
+});
+
+describe('one price per finish (Eric, 2026-11-24)', () => {
+	const normal = (id, fields = {}) => copy(id, {variant_id: 'n1', ...fields});
+	const reverse = (id, fields = {}) => copy(id, {variant_id: 'r1', ...fields});
+	const byFinish = (groups) => new Map(groups.map((group) => [group.finish_key, group]));
+
+	test('a finish is the variant ID, else the monprice word, else unset', () => {
+		assert.equal(finishKey({variant_id: 'r1', finish_raw: 'Reverse'}), 'v:r1');
+		assert.equal(finishKey({finish_raw: 'Reverse Holo'}), 'raw:Reverse Holo');
+		assert.equal(finishKey({}), '');
+		assert.equal(shopKey(reverse('a')), 'international|sv10-001|pt|v:r1');
+	});
+
+	test('the spares of one card and language are split by finish, each finish with its own copies', () => {
+		const cards = [normal('a'), normal('bb'), reverse('ccc'), reverse('dddd'), reverse('eeeee')];
+		const groups = byFinish(shopGroups(cards));
+
+		assert.deepEqual([...groups.keys()].sort(), ['v:n1', 'v:r1']);
+		assert.deepEqual(groups.get('v:n1').copies.map((entry) => entry.id).sort(), ['a', 'bb'], 'the keeper is among its finish\'s copies');
+		assert.equal(groups.get('v:n1').spares.length, 1, 'five copies, one kept: four spares, one of them normal');
+		assert.deepEqual(groups.get('v:r1').spares.map((entry) => entry.id).sort(), ['ccc', 'dddd', 'eeeee']);
+		assert.deepEqual(groups.get('v:r1').copies.map((entry) => entry.id).sort(), ['ccc', 'dddd', 'eeeee']);
+	});
+
+	test('a finish whose only copy is the one kept has no row', () => {
+		const groups = shopGroups([normal('a'), reverse('bb'), reverse('ccc')]);
+
+		assert.deepEqual(groups.map((group) => group.finish_key), ['v:r1'], 'the oldest copy, the normal, is kept');
+	});
+
+	test('a price typed on one finish goes on that finish\'s copies only', () => {
+		const cards = [normal('a'), normal('bb'), reverse('ccc'), reverse('dddd')];
+		const groups = byFinish(shopGroups(cards));
+		const patches = pricePatches([groups.get('v:r1')], 4.5);
+
+		assert.deepEqual(patches.map(({id}) => id).sort(), ['ccc', 'dddd']);
+		assert.ok(patches.every(({patch}) => patch.sale_price === 4.5));
+
+		const after = cards.map((entry) => (['ccc', 'dddd'].includes(entry.id) ? {...entry, sale_price: 4.5} : entry));
+		const regrouped = byFinish(shopGroups(after));
+
+		assert.equal(regrouped.get('v:r1').price, 4.5);
+		assert.equal(regrouped.get('v:n1').price, null, 'the normal stays unpriced');
+	});
+
+	test('a price saved before finishes were split stays on every finish, and nothing is withdrawn', () => {
+		// Before: one price for the card, saved on every copy of every finish.
+		const cards = [normal('a', {sale_price: 3}), normal('bb', {sale_price: 3}), reverse('ccc', {sale_price: 3}), reverse('dddd', {sale_price: 3}), copy('eeeee', {sale_price: 3})];
+		const groups = shopGroups(cards);
+
+		assert.equal(groups.length, 3, 'normal, reverse, and a copy with no finish set');
+		assert.ok(groups.every((group) => group.price === 3), 'every finish keeps the saved price');
+		assert.deepEqual(groups.flatMap((group) => pricePatches([group], 3)), [], 'nothing to write');
+
+		const rows = listingRows(groups);
+		const spares = groups.flatMap((group) => group.spares.map((entry) => entry.id));
+
+		assert.deepEqual(rows.map((row) => row.id).sort(), spares.sort(), 'every spare is still published');
+		assert.equal(rows.length, 4, 'five copies, one kept');
+		assert.ok(rows.every((row) => row.price_brl === 3));
+	});
+
+	test('a copy with no finish set is a row of its own', () => {
+		const groups = byFinish(shopGroups([normal('a'), copy('bb'), copy('ccc')]));
+
+		assert.deepEqual(groups.get('').spares.map((entry) => entry.id).sort(), ['bb', 'ccc']);
+	});
+
+	test('each finish is published at its own price, with its finish', () => {
+		const cards = [normal('a', {sale_price: 1}), normal('bb', {sale_price: 1}), reverse('ccc', {sale_price: 5}), reverse('dddd', {sale_price: 5})];
+		const names = {n1: 'Normal', r1: 'Reverse Holo'};
+		const rows = listingRows(shopGroups(cards), {finishOf: (entry) => names[entry.variant_id]});
+
+		assert.deepEqual(rows.map((row) => [row.id, row.finish, row.price_brl]).sort(), [
+			['bb', 'Normal', 1],
+			['ccc', 'Reverse Holo', 5],
+			['dddd', 'Reverse Holo', 5],
+		]);
+	});
+
+	test('the suggestion is the finish\'s own market price', () => {
+		const record = {
+			id: 'sv10-001',
+			variants_detailed: [
+				{pricing: {tcgplayer: {normal: {marketPrice: 0.2, productId: 1}, unit: 'USD', updated: '2026-11-20T00:00:00Z'}}, type: 'normal', variantId: 'n1'},
+				{pricing: {tcgplayer: {'reverse-holofoil': {marketPrice: 2, productId: 1}, unit: 'USD', updated: '2026-11-20T00:00:00Z'}}, subtype: 'reverse', type: 'reverse', variantId: 'r1'},
+			],
+		};
+		const groups = byFinish(shopGroups([normal('a'), normal('bb'), reverse('ccc'), reverse('dddd')]));
+
+		assert.equal(suggestion(groups.get('v:n1'), record, {rates: RATES}).tcgplayer, 1);
+		assert.equal(suggestion(groups.get('v:r1'), record, {rates: RATES}).tcgplayer, 10);
 	});
 });
 

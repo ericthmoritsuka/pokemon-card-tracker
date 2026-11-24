@@ -195,6 +195,24 @@
 	overflow-wrap: anywhere;
 }
 
+/* Each finish of a card is its own row and price, so every row names its
+   finish in a small tag under the name. */
+.shop-finish {
+	border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+	border-radius: 999px;
+	display: inline-block;
+	font-size: 0.8em;
+	font-weight: 600;
+	line-height: 1.4;
+	padding: 0 0.6em;
+}
+
+.shop-finish-unset {
+	border-style: dashed;
+	font-weight: 400;
+	opacity: 0.8;
+}
+
 .shop-state {
 	font-weight: 600;
 }
