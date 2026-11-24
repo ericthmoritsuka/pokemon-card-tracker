@@ -25,6 +25,7 @@ export const RELEASES = [
 		items: [
 			'HOTARU sells sealed products too: their orders show in the Shop beside the cards, marked Sealed.',
 			'Payment received works the same for them. Only the cards of an order go to your Trades; the sealed products are named in its note.',
+			'Shop: tick the cards you want and Fill selected gives them one price. Ticks stay through a search, so you can gather cards from several.',
 		],
 		version: 'v104',
 	},
