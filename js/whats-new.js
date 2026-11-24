@@ -23,6 +23,14 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'HOTARU sells sealed products too: their orders show in the Shop beside the cards, marked Sealed.',
+			'Payment received works the same for them. Only the cards of an order go to your Trades; the sealed products are named in its note.',
+		],
+		version: 'v104',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'HOTARU orders on the Shop screen: who ordered, their phone, the cards, the total, and how long they have left to pay.',
 			'Payment received logs the sale in your Trades and takes the cards out of your spares. Delivered and Cancel order close the rest.',
 			'When a buyer sends their Pix receipt, open it from their order to check it against your account.',
