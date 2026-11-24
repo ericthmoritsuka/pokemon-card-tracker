@@ -23,6 +23,16 @@ export const RELEASES = [
 	{
 		date: '2026-11-24',
 		items: [
+			'Shop: type the prices of as many cards as you like, then Save them all at once from the bar above the tabs.',
+			'Enter moves on to the next card\'s price, and Discard drops what you typed. Prices you typed wait for you if you leave the Shop and come back.',
+			'Fill all shown types one price into every card shown, for you to save with the rest.',
+			'Toasts no longer pile up: a new save replaces the last one, and at most three show anywhere.',
+		],
+		version: 'v102',
+	},
+	{
+		date: '2026-11-24',
+		items: [
 			'Shop, from Spares: give each spare card the price you sell it for on HOTARU. The TCGplayer and Cardmarket suggestions beside it are for you only.',
 			'Price all shown gives one price to every card your search and filters show, such as every common in a set, with Undo.',
 			'A priced card goes on the HOTARU catalog with its picture, and clearing the price takes it off. Each card says when it is on HOTARU or reserved.',
