@@ -12,8 +12,9 @@
 -- query. Paste this whole file and click Run. Running it again is safe.
 --
 -- To check it worked: Table Editor lists store_orders and store_order_items;
--- Database, Functions lists place_order, listing_status, mark_paid,
--- mark_delivered, and cancel_order.
+-- Database, Functions lists place_order, listing_status, attach_receipt,
+-- mark_paid, mark_delivered, and cancel_order; Storage lists store-receipts,
+-- marked Private.
 --
 -- The rules (Eric, 2026-11-24):
 --   - A cart reserves nothing. Whoever closes an order first gets its cards:
@@ -27,6 +28,12 @@
 --     There is no scheduled job: every public call lets expired orders go
 --     first, so the catalog is right whenever someone looks.
 --   - Only the shop's owner reads orders, which hold buyers' names and phones.
+--   - After ordering, the buyer may attach the payment receipt (Eric,
+--     2026-11-24, as Liga Pokémon does), so Eric can check it against the
+--     money that arrived. place_order returns a secret receipt token; the
+--     private store-receipts bucket takes a file only under the token of an
+--     order still waiting for payment, so nobody attaches a file to someone
+--     else's order by guessing its code. Only the owner reads receipts.
 
 -- ----------------------------------------------------------- prerequisite
 
@@ -56,8 +63,18 @@ create table if not exists public.store_orders (
 	reserved_until timestamptz not null,
 	paid_at timestamptz,
 	delivered_at timestamptz,
-	ended_at timestamptz
+	ended_at timestamptz,
+	-- The buyer's secret for attaching the receipt; never shown to anyone
+	-- else, and useless once the order is no longer pending.
+	receipt_token uuid not null default gen_random_uuid() unique,
+	receipt_path text check (receipt_path is null or char_length(receipt_path) <= 200),
+	receipt_at timestamptz
 );
+
+-- A table made by an earlier run of this script gains the receipt columns.
+alter table public.store_orders add column if not exists receipt_token uuid not null default gen_random_uuid();
+alter table public.store_orders add column if not exists receipt_path text;
+alter table public.store_orders add column if not exists receipt_at timestamptz;
 
 create index if not exists store_orders_pending on public.store_orders (reserved_until) where status = 'pending';
 
@@ -271,9 +288,94 @@ begin
 			raise;
 	end;
 
-	return jsonb_build_object('code', order_row.code, 'reserved_until', order_row.reserved_until, 'total', sum_brl);
+	return jsonb_build_object('code', order_row.code, 'receipt_token', order_row.receipt_token, 'reserved_until', order_row.reserved_until, 'total', sum_brl);
 end;
 $$;
+
+-- ---------------------------------------------------------------- receipts
+
+-- Private, at most 5 MB per file: a photo, a screenshot, or a PDF.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('store-receipts', 'store-receipts', false, 5242880, array['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
+on conflict (id) do update
+set
+	name = excluded.name,
+	public = false,
+	file_size_limit = excluded.file_size_limit,
+	allowed_mime_types = excluded.allowed_mime_types;
+
+-- True when object_name is <receipt token>/<name>.<jpg|png|webp|heic|pdf>
+-- and that token belongs to an order still waiting for payment. Public, so
+-- the bucket's rule can call it for a visitor; it says nothing but yes or
+-- no about an unguessable token.
+create or replace function public.receipt_upload_open(object_name text)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+	token text := split_part(object_name, '/', 1);
+begin
+	if object_name !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[A-Za-z0-9_-]{1,64}\.(jpg|png|webp|heic|pdf)$' then
+		return false;
+	end if;
+
+	return exists (
+		select 1
+		from public.store_orders o
+		where o.receipt_token = token::uuid and o.status = 'pending' and o.reserved_until > now()
+	);
+end;
+$$;
+
+-- Records an uploaded receipt on its order. path is the file's name in the
+-- bucket, under the token. Returns {code, receipt_at}.
+create or replace function public.attach_receipt(token uuid, path text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+	o public.store_orders%rowtype;
+begin
+	if path is null or split_part(path, '/', 1) <> token::text or not public.receipt_upload_open(path) then
+		raise exception 'This receipt cannot be attached.' using errcode = '22023';
+	end if;
+
+	if not exists (select 1 from storage.objects where bucket_id = 'store-receipts' and name = path) then
+		raise exception 'The file has not arrived.' using errcode = 'P0002';
+	end if;
+
+	update public.store_orders
+	set receipt_path = path, receipt_at = now()
+	where receipt_token = token
+	returning * into o;
+
+	return jsonb_build_object('code', o.code, 'receipt_at', o.receipt_at);
+end;
+$$;
+
+-- Storage keeps its files as rows of storage.objects. A visitor may add a
+-- file under an open order's token, and never read, replace, or delete one;
+-- the owner reads them all, and deletes them when cleaning up.
+drop policy if exists "store-receipts: buyer adds" on storage.objects;
+drop policy if exists "store-receipts: owner reads" on storage.objects;
+drop policy if exists "store-receipts: owner deletes" on storage.objects;
+
+create policy "store-receipts: buyer adds" on storage.objects
+	for insert to anon, authenticated
+	with check (bucket_id = 'store-receipts' and public.receipt_upload_open(name));
+
+create policy "store-receipts: owner reads" on storage.objects
+	for select to authenticated
+	using (bucket_id = 'store-receipts' and private.is_store_owner());
+
+create policy "store-receipts: owner deletes" on storage.objects
+	for delete to authenticated
+	using (bucket_id = 'store-receipts' and private.is_store_owner());
 
 -- ------------------------------------------------------- the owner's calls
 
@@ -369,6 +471,8 @@ $$;
 revoke all on function public.store_catalog() from public;
 revoke all on function public.listing_status(text[]) from public;
 revoke all on function public.place_order(text[], text, text, text) from public;
+revoke all on function public.receipt_upload_open(text) from public;
+revoke all on function public.attach_receipt(uuid, text) from public;
 revoke all on function public.mark_paid(text) from public, anon;
 revoke all on function public.mark_delivered(text) from public, anon;
 revoke all on function public.cancel_order(text) from public, anon;
@@ -376,6 +480,8 @@ revoke all on function public.cancel_order(text) from public, anon;
 grant execute on function public.store_catalog() to anon, authenticated;
 grant execute on function public.listing_status(text[]) to anon, authenticated;
 grant execute on function public.place_order(text[], text, text, text) to anon, authenticated;
+grant execute on function public.receipt_upload_open(text) to anon, authenticated;
+grant execute on function public.attach_receipt(uuid, text) to anon, authenticated;
 grant execute on function public.mark_paid(text) to authenticated;
 grant execute on function public.mark_delivered(text) to authenticated;
 grant execute on function public.cancel_order(text) to authenticated;
